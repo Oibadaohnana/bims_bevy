@@ -19,9 +19,11 @@
 //! bims room          the behaviour test room — Bims on a deck
 //! bims test          the simulation somewhere else each time — docked at a
 //!                    random station somebody lives on, in a random galaxy
-//! bims combat        the simulation docked at a hostile station: the people
-//!                    living there are enemies, and a recruited crew member
-//!                    shoots at any it can see
+//! bims combat        the fight: the combat ship — five crew, a different
+//!                    gun in each hand — docked at the spawn rebuilt as the
+//!                    arena and made hostile, its people enemies and more
+//!                    of them than a station puts up; a recruited crew
+//!                    member shoots at any it can see
 //! bims --self-check  the pinned constants, checked, and the verdict printed
 //! ```
 
@@ -29,6 +31,8 @@ mod canvas;
 mod crew;
 mod dev;
 mod format;
+mod grid;
+mod icons;
 mod names;
 mod screens;
 mod shapes;

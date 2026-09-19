@@ -32,10 +32,12 @@
 
 use bims::bim::Bim;
 use bims::character::Uniform;
-use bims::game::Game as Room;
+use bims::combat::Gear;
+use bims::game::{Container, Game as Room};
 use bims::manager::Stock;
 use bims::math::vec2;
 use bims::sight::Fog;
+use economy::Money;
 use shipdesign::parts::{Layer, TILE};
 use shipdesign::{ShipDesign, dock};
 use worldgen::math::{DVec2, dvec2};
@@ -200,7 +202,11 @@ impl Aboard {
     /// this deck as bodies for the doors to open for. They are not in the
     /// room — they walk in their own — but the room draws the doors, and a
     /// resident walking through a shut-looking door would be a door lying.
-    pub fn visit(&mut self, residents: &[DVec2]) {
+    /// And which of them are `down` — dead or out cold in their own room,
+    /// index for index — since one that is is a body under a right-click
+    /// on this deck (`HIT_VISITOR`), for looting. Told *after* the
+    /// positions every time: `set_visitors` clears the flags.
+    pub fn visit(&mut self, residents: &[DVec2], down: &[bool]) {
         let Some((origin, ex, ey)) = self.station_frame else {
             return;
         };
@@ -212,6 +218,15 @@ impl Aboard {
             })
             .collect();
         self.room.set_visitors(visitors);
+        self.room.set_visitors_down(down);
+    }
+
+    /// A point of the station's own design as a point of the joined deck,
+    /// in the room's units: `station_frame` applied, the inverse of
+    /// [`Aboard::to_station`]. `None` for a ship on its own.
+    pub fn from_station(&self, p: DVec2) -> Option<DVec2> {
+        let (origin, ex, ey) = self.station_frame?;
+        Some(origin.add(ex.scale(p.x)).add(ey.scale(p.y)))
     }
 
     /// The station's people as targets, at those same positions, in the
@@ -234,6 +249,57 @@ impl Aboard {
             .collect()
     }
 
+    /// A point of the joined deck, in the room's units, as a point of the
+    /// station's own design — the inverse of `station_frame`, which is
+    /// two unit axes about an origin, so the answer is two projections.
+    /// `None` for a ship on its own, which has no station frame to be in.
+    pub fn to_station(&self, p: DVec2) -> Option<DVec2> {
+        let (origin, ex, ey) = self.station_frame?;
+        let d = p.sub(origin);
+        Some(dvec2(d.x * ex.x + d.y * ex.y, d.x * ey.x + d.y * ey.y))
+    }
+
+    /// Where the crew stand, as the station's people would find them: in
+    /// the station's own units, one an index, `None` for one that is dead
+    /// or outside in a suit — out cold is still a body on the deck — or
+    /// **still on the ship's own deck**, since the station's grid stops at
+    /// its hull and its people can neither see nor stand to shoot at a
+    /// body off it: a target they cannot act on would only put them at
+    /// war with nobody, every errand dropped for as long as the ship is
+    /// docked. What a hostile station's room is handed as its targets, so
+    /// its people shoot at where the crew actually are — which, for one
+    /// peeking round a corner, is the peek it leans out to
+    /// (`Game::exposed_at`), not the wall it stands behind; `crew_peeking`
+    /// says which, index for index. Empty for a ship on its own.
+    pub fn crew_ashore(&self) -> Vec<Option<DVec2>> {
+        let (Some(_), Some((lo, hi))) = (self.station_frame, self.station_box) else {
+            return Vec::new();
+        };
+        (0..self.crew as usize)
+            .map(|who| {
+                if !self.room.is_alive(who) || self.room.is_outside(who) {
+                    return None;
+                }
+                let p = self.room.exposed_at(who);
+                let p = dvec2(p.x as f64, p.y as f64);
+                if p.x < lo.x || p.x > hi.x || p.y < lo.y || p.y > hi.y {
+                    return None;
+                }
+                self.to_station(p)
+            })
+            .collect()
+    }
+
+    /// Which of the crew are peeking from cover, index for index with
+    /// `crew_ashore`: a bolt reaching one is dodged half the time
+    /// (`bims::combat::DODGE_IN_COVER`), and the other room is told so
+    /// after its targets (`Game::set_hostiles_peeking`).
+    pub fn crew_peeking(&self) -> Vec<bool> {
+        (0..self.crew as usize)
+            .map(|who| self.room.peek(who).is_some())
+            .collect()
+    }
+
     /// Which of the station's people, at those same positions, the crew can
     /// see from where they stand on the joined deck: one flag each, for
     /// the station's own room to draw them by.
@@ -253,10 +319,19 @@ impl Aboard {
     /// Take the room apart again: the ship's crew back into a room of the
     /// ship alone. Anybody still on the station's deck is stood at their
     /// bunk — `adopt` does that for a position the new room has no floor
-    /// under — which is the ship leaving without waiting.
-    pub fn unjoined(self, ship: &ShipDesign, seed: u64, minutes: f64) -> Aboard {
+    /// under — which is the ship leaving without waiting. The crew are
+    /// `everybody`, already out of the joined room through
+    /// `Game::take_crew`: the world takes them itself, so that it can read
+    /// what the leaving banked in the old room — a sheaf still in hand —
+    /// off it before the room goes.
+    pub fn unjoined(
+        self,
+        everybody: Vec<Bim>,
+        ship: &ShipDesign,
+        seed: u64,
+        minutes: f64,
+    ) -> Aboard {
         let offset = self.offset;
-        let everybody = self.room.take_crew();
         let layout = bims::aboard::layout_of(ship);
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
         let mut room = Room::with_layout(layout, seed, &[], w, h);
@@ -409,6 +484,19 @@ impl Aboard {
         dvec2(p.x as f64, p.y as f64).sub(self.offset)
     }
 
+    /// Where a shot at one of them is aimed, in the same units: the peek
+    /// it leans out to while it aims from cover, else where it stands
+    /// (`Game::exposed_at`). What the other room is handed as the
+    /// target's position, so a Bim looking down a corridor is shot at
+    /// where it looks from rather than at the wall it stands behind.
+    pub fn exposed(&self, who: u32) -> DVec2 {
+        if who >= self.count() {
+            return DVec2::ZERO;
+        }
+        let p = self.room.exposed_at(who as usize);
+        dvec2(p.x as f64, p.y as f64).sub(self.offset)
+    }
+
     /// Whether one of them is standing on a deck tile of the room's design.
     pub fn on_deck(&self, who: u32) -> bool {
         let p = self.room.bim_pos(who as usize);
@@ -422,6 +510,26 @@ impl Aboard {
     /// `the_crew_keep_the_world_s_clock` holds.
     pub fn minutes(&self) -> f64 {
         self.room.clock_minutes() as f64
+    }
+
+    /// Every container the crew can reach into, by the room's own
+    /// indices: each bench (the armoury among them, told by its part
+    /// code), each shelf, each cold store. What a stow or a fetch is
+    /// checked for reach against — see `World::container_takes`. The room
+    /// keeps the lists private and answers by index, so this counts up
+    /// until it stops answering.
+    pub fn containers(&self) -> Vec<Container> {
+        let mut out: Vec<Container> = (0..self.room.benches().len())
+            .map(Container::Bench)
+            .collect();
+        for make in [Container::Shelf, Container::Fridge] {
+            let mut i = 0;
+            while self.room.container_frame(make(i)).is_some() {
+                out.push(make(i));
+                i += 1;
+            }
+        }
+        out
     }
 }
 
@@ -452,27 +560,63 @@ impl core::fmt::Debug for Aboard {
 pub struct Residents {
     pub station: u32,
     pub aboard: Aboard,
+    /// Which of them the world has already said are down, by index, so
+    /// `WorldEvent::EnemyDown` is said once. A shot to the head kills at
+    /// the top of the body's next tick with the health total still well
+    /// above nought, so "down" is asked of the room each step rather
+    /// than read off the hit — see `World::visit`.
+    pub down: Vec<bool>,
+    /// Which of them are mercenaries for hire, by index, and what a month
+    /// of each costs (`crate::mercenary::priced`); `None` for one of the
+    /// station's own. Derived from the seed and the crew's worth when the
+    /// room opens, like the gear, so nothing new is hashed.
+    pub fee: Vec<Option<Money>>,
 }
 
 impl Residents {
     /// The station's room, with its people at their bunks and its clock
     /// wound on to the world's, so a station reached at noon is not at
     /// breakfast.
+    /// `count` is the station's own people and `mercenaries` how many
+    /// hired hands live among them (`crate::mercenary::how_many`): the
+    /// last that many bodies, in the mercenary's coverall and kit and
+    /// priced, as many as the bunks will take after the residents.
     pub fn open(
         station: u32,
         design: &ShipDesign,
         count: u32,
+        mercenaries: u32,
         seed: u64,
         minutes: f64,
     ) -> Residents {
-        let mut aboard = Aboard::new(design, count, seed);
+        let mut aboard = Aboard::new(design, count + mercenaries, seed);
         aboard.room.wind_clock(minutes as f32);
         // Looked at from outside: the crew see none of it, and nobody in
         // it is drawn, until the ship docks and the rooms are joined.
         aboard.room.set_fog(Fog::All);
-        // The station's coverall, so they can be told from the crew.
+        // The station's coverall, so they can be told from the crew, and
+        // a weapon each — rolled off the station's own seed and the seat,
+        // so the same station arms the same people the same way every
+        // time it is reached, and `world_checksum` has nothing new to
+        // hash: the kind is a function of what it already holds.
+        let mut fee = vec![None; aboard.count() as usize];
         for who in 0..aboard.count() {
-            aboard.room.set_uniform(who as usize, Uniform::Station);
+            if who < count {
+                aboard.room.set_uniform(who as usize, Uniform::Station);
+                aboard
+                    .room
+                    .issue(who as usize, Gear::issued_for(seed ^ who as u64));
+            } else {
+                // A mercenary: the olive coverall, its own kit off its own
+                // seed — the pieces numbered from a thousand a head so no
+                // two bodies' collide in this room — and its price.
+                let n = who - count;
+                let merc_seed = crate::mercenary::seed_for(seed, n);
+                let gear = Gear::hired_for(merc_seed, 1_000 * (who + 1));
+                aboard.room.set_uniform(who as usize, Uniform::Mercenary);
+                aboard.room.issue(who as usize, gear);
+                fee[who as usize] = Some(crate::mercenary::priced(merc_seed, &gear));
+            }
         }
         // Their own manager's goals, a head each — the crew's Management tab
         // is the crew's, and reaches nobody ashore — and a larder already
@@ -486,9 +630,29 @@ impl Residents {
         aboard.room.set_target(Stock::Veg, veg);
         aboard.room.set_target(Stock::Tofu, tofu);
         aboard.room.set_target(Stock::Stew, stew);
-        aboard.room.set_stock(veg, tofu, stew);
+        // No fibre: the residents grow none unasked, and nobody asks.
+        aboard.room.set_stock(veg, tofu, stew, 0);
+        // A couple of bandages in the station's locker, so its people can
+        // dress a wound of their own. The world keeps no hold for a
+        // station, so this is the count for as long as the room is open.
+        aboard.room.set_bandages(data::RESIDENT_BANDAGES);
         aboard.room.render();
-        Residents { station, aboard }
+        let down = vec![false; aboard.count() as usize];
+        Residents {
+            station,
+            aboard,
+            down,
+            fee,
+        }
+    }
+
+    /// Which of them may be spoken to — a mercenary for hire, alive and on
+    /// its feet — index for index, for the joined deck's
+    /// `Game::set_visitors_hailable`.
+    pub fn hailable(&self) -> Vec<bool> {
+        (0..self.aboard.count() as usize)
+            .map(|who| self.fee[who].is_some() && !self.aboard.room.is_down(who))
+            .collect()
     }
 }
 

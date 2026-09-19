@@ -1,7 +1,8 @@
 //! The Bim: a top-down character that decides where to go on its own, unless
 //! a task is telling it what to do.
 
-use crate::draw::{Color, DrawList};
+use crate::combat::{ArmourKind, WeaponKind};
+use crate::draw::{Brush, Color, DrawList};
 use crate::math::{PI, Rect, TAU, Vec2, angle_lerp, approach, clamp, lerp, vec2, wrap_angle};
 use crate::rng::Rng;
 use crate::room::{
@@ -36,7 +37,7 @@ pub const BODY_SCALE: f32 = 1.45;
 /// How far the body centre is kept clear of walls and furniture.
 pub const BODY_MARGIN: f32 = 23.0;
 /// How close a click or marquee has to come to count as touching the Bim.
-const PICK_RADIUS: f32 = 26.0;
+pub const PICK_RADIUS: f32 = 26.0;
 /// How fast the walls talk the Bim out of a plan that points at them.
 const INTENT_RATE: f32 = 3.0;
 /// How far from a wall the Bim starts turning back, as a fraction of the
@@ -63,6 +64,11 @@ const SLEEVE: Color = Color::rgb(0.27, 0.49, 0.74);
 /// they happen to be standing — see [`Uniform`].
 const SHIRT_STATION: Color = Color::rgb(0.84, 0.52, 0.24);
 const SLEEVE_STATION: Color = Color::rgb(0.70, 0.41, 0.18);
+/// A mercenary's: dark olive, so one living on a station is told from the
+/// people who live there at a glance, and keeps its colours once hired —
+/// hired hands are not crew.
+const SHIRT_MERCENARY: Color = Color::rgb(0.40, 0.47, 0.30);
+const SLEEVE_MERCENARY: Color = Color::rgb(0.31, 0.37, 0.23);
 /// The pressure suit, and the visor over the head while it is worn.
 const SHIRT_SUIT: Color = Color::rgb(0.86, 0.88, 0.92);
 const SLEEVE_SUIT: Color = Color::rgb(0.70, 0.73, 0.79);
@@ -107,11 +113,44 @@ const ENEMY: Color = crate::combat::HOSTILE_BOLT;
 /// Blood: the blotch on a part with an open wound, and the drops on the
 /// deck. Dark, so it reads as blood and not as the enemy's red.
 pub const BLOOD: Color = Color::rgb(0.55, 0.05, 0.05);
-/// The hand laser, drawn: the body of it, and the emitter at the muzzle in
-/// the colour a friendly bolt is.
+/// A bandage: off-white gauze, and the shadowed edge of a turn of it.
+const BANDAGE: Color = Color::rgb(0.93, 0.91, 0.84);
+const BANDAGE_EDGE: Color = Color::rgb(0.72, 0.70, 0.62);
+/// The guns, drawn: the dark body of each, its lighter edge, and the
+/// emitter at the muzzle in the colour a friendly bolt is; the shotgun's
+/// wooden fore-end, and the sniper's scope block.
 const GUN: Color = Color::rgb(0.15, 0.17, 0.20);
 const GUN_EDGE: Color = Color::rgb(0.42, 0.47, 0.53);
 const GUN_LIT: Color = crate::combat::FRIENDLY_BOLT;
+const STOCK: Color = Color::rgb(0.45, 0.30, 0.16);
+const SCOPE: Color = Color::rgb(0.30, 0.34, 0.40);
+/// The schword: a hilt, and a blade with a white core and a cyan laser
+/// edge — two strokes, one wide and faint, one thin and bright, which is
+/// as near as a flat colour gets to a glow. The swing is the same blade
+/// swept through an arc in front of the body.
+const HILT: Color = Color::rgb(0.22, 0.22, 0.26);
+const BLADE_CORE: Color = Color::rgb(0.98, 1.0, 1.0);
+pub const BLADE_EDGE: Color = Color::rgb(0.45, 0.95, 1.0);
+/// How long a swing or a punch takes, in seconds — a number of the
+/// fight, kept in `crate::balance` since the blow lands when the animation
+/// ends (`crate::combat::Blow`) — and how wide a swing sweeps: a hundred
+/// degrees in front of the body.
+pub use crate::balance::SWING_TIME;
+const SWING_ARC: f32 = 100.0 * (PI / 180.0);
+/// How far a peeking body leans out towards the eye it aims from, as a
+/// share of the way there.
+const LEAN: f32 = 0.55;
+/// The armour, worn: a steel-blue cap over the hair, a dark plate over the
+/// torso with the yoke still showing at the collar, and darker boots with
+/// a shin band. A broken piece is drawn cracked — a lighter diagonal
+/// stroke across it — in `CRACK`.
+const HELM: Color = Color::rgb(0.55, 0.62, 0.72);
+const HELM_RIM: Color = Color::rgb(0.42, 0.48, 0.57);
+const KEVLAR: Color = Color::rgb(0.22, 0.24, 0.28);
+const KEVLAR_STRAP: Color = Color::rgb(0.32, 0.34, 0.38);
+const GUARD: Color = Color::rgb(0.16, 0.12, 0.09);
+const GUARD_BAND: Color = Color::rgb(0.40, 0.42, 0.46);
+const CRACK: Color = Color::rgba(0.85, 0.88, 0.92, 0.75);
 
 /// Whose coverall a Bim is wearing: the ship's or the station's.
 ///
@@ -124,6 +163,9 @@ const GUN_LIT: Color = crate::combat::FRIENDLY_BOLT;
 pub enum Uniform {
     Crew,
     Station,
+    /// A mercenary's, at a station or hired aboard: the world says who
+    /// is one (`world::mercenary`), the room only draws it.
+    Mercenary,
     /// A pressure suit, worn for a walk outside and drawn with a visor over
     /// the head. Put on by [`Character::go_outside`] over whichever of the
     /// other two the body wears, and taken off again by
@@ -136,6 +178,7 @@ impl Uniform {
         match self {
             Uniform::Crew => SHIRT,
             Uniform::Station => SHIRT_STATION,
+            Uniform::Mercenary => SHIRT_MERCENARY,
             Uniform::Suit => SHIRT_SUIT,
         }
     }
@@ -144,6 +187,7 @@ impl Uniform {
         match self {
             Uniform::Crew => SLEEVE,
             Uniform::Station => SLEEVE_STATION,
+            Uniform::Mercenary => SLEEVE_MERCENARY,
             Uniform::Suit => SLEEVE_SUIT,
         }
     }
@@ -241,7 +285,7 @@ pub enum Held {
 }
 
 /// What the hands are busy doing. Each one drives its own arm animation.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Action {
     None,
     /// Arms out in front: opening a door, setting something down, reaching in.
@@ -267,6 +311,14 @@ pub enum Action {
     /// does. The *words* are the host's — no strings cross this boundary — so
     /// all the simulation ever draws is the gesture.
     Talk,
+    /// A swing of the schword: the blade sweeps an arc in front of the
+    /// body over [`SWING_TIME`].
+    Swing,
+    /// A jab of the right fist, forward and back, in a melee with no blade.
+    Punch,
+    /// Winding a bandage: both hands close together in front, going round
+    /// one another, the roll in the right and the strip paying out of it.
+    Bandage,
 }
 
 /// One turn of the hands under the tap.
@@ -279,6 +331,8 @@ const HOP_PERIOD: f32 = 0.42;
 const HEAVE_PERIOD: f32 = 0.75;
 /// One rise and fall of the hand while talking.
 const TALK_PERIOD: f32 = 1.1;
+/// One turn of the hands round each other while a bandage is wound.
+const WRAP_PERIOD: f32 = 0.7;
 
 /// How long one breath takes while asleep, in seconds.
 const BREATH_PERIOD: f32 = 5.4;
@@ -354,9 +408,14 @@ pub struct Character {
     /// Seconds left of a hop or a heave. Both are short and both end by
     /// themselves, so nothing else has to remember to stop them.
     antic: f32,
-    /// Weapon drawn: in combat mode, with something to draw. Drawing only —
-    /// `Game::tick_combat` sets it every step from the gear and the orders.
-    armed: bool,
+    /// Weapon drawn: in combat mode, and which, for the picture in the
+    /// hands. Drawing only — `Game::tick_combat` sets it every step from
+    /// the gear and the orders.
+    armed: Option<WeaponKind>,
+    /// Where it leans out to, aiming from a peek beside a wall: the eye,
+    /// and the body is drawn part of the way there ([`LEAN`]) and turned
+    /// to look from it. Drawing only; `Game::tick_combat` sets it.
+    lean: Option<Vec2>,
     /// An enemy, to whoever is looking: ringed in red under the body.
     /// Drawing only; the world says who is.
     hostile: bool,
@@ -368,6 +427,19 @@ pub struct Character {
     /// Which parts have an open wound — head, body, legs — for the blotch
     /// drawn on each. Drawing only; `Game::wound` and the bandage set it.
     wounds: [bool; 3],
+    /// What is worn on each part — head, body, legs — and whether it is
+    /// broken, for the picture of it. Drawing only; the gear itself is the
+    /// Bim's (`crate::combat::Gear`) and `Game` refreshes this whenever it
+    /// changes.
+    armour: [Option<Worn>; 3],
+}
+
+/// A piece of armour as the picture needs it: what it is, and whether it
+/// is drawn cracked.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Worn {
+    pub kind: ArmourKind,
+    pub broken: bool,
 }
 
 impl Character {
@@ -404,10 +476,12 @@ impl Character {
             worn: Uniform::Crew,
             filth: 0.0,
             antic: 0.0,
-            armed: false,
+            armed: None,
+            lean: None,
             hostile: false,
             unconscious: false,
             wounds: [false; 3],
+            armour: [None; 3],
         };
         c.begin_walk(rng);
         c
@@ -639,12 +713,28 @@ impl Character {
         self.uniform
     }
 
-    pub fn set_armed(&mut self, armed: bool) {
+    /// Weapon drawn, and which — `None` holstered.
+    pub fn set_armed(&mut self, armed: Option<WeaponKind>) {
         self.armed = armed;
     }
 
     pub fn is_armed(&self) -> bool {
-        self.armed
+        self.armed.is_some()
+    }
+
+    /// Leaning out to a peek eye to aim from it, or standing square.
+    pub fn set_lean(&mut self, eye: Option<Vec2>) {
+        self.lean = eye;
+    }
+
+    /// Where the body is drawn: leant out towards the peek while it aims
+    /// from one, else where it stands. What a shot at it is aimed at is
+    /// the game's business (`Game::exposed_at`); this is the picture.
+    pub fn drawn_at(&self) -> Vec2 {
+        match self.lean {
+            Some(eye) => self.pos + (eye - self.pos) * LEAN,
+            None => self.pos,
+        }
     }
 
     pub fn set_hostile(&mut self, hostile: bool) {
@@ -675,6 +765,13 @@ impl Character {
     /// Which parts bleed — head, body, legs — for the blotch drawn on each.
     pub fn set_wounds(&mut self, wounds: [bool; 3]) {
         self.wounds = wounds;
+    }
+
+    /// What is worn on each part — head, body, legs — for the picture of
+    /// it. Drawing only: the gear is the Bim's, and `Game` calls this
+    /// whenever it changes.
+    pub fn set_worn(&mut self, worn: [Option<Worn>; 3]) {
+        self.armour = worn;
     }
 
     /// It stops where it stands, and stays there.
@@ -740,6 +837,12 @@ impl Character {
     /// Whether one is running, so the game does not start another over it.
     pub fn in_antic(&self) -> bool {
         self.antic > 0.0
+    }
+
+    /// What the hands are doing this instant, for the probes.
+    #[allow(dead_code)]
+    pub fn action(&self) -> Action {
+        self.action
     }
 
     // --- behaviour ------------------------------------------------------
@@ -942,7 +1045,10 @@ impl Character {
             self.antic -= dt;
             if self.antic <= 0.0 {
                 self.antic = 0.0;
-                if matches!(self.action, Action::Fidget | Action::Retch) {
+                if matches!(
+                    self.action,
+                    Action::Fidget | Action::Retch | Action::Swing | Action::Punch
+                ) {
                     self.set_action(Action::None);
                 }
             }
@@ -956,6 +1062,15 @@ impl Character {
     fn pose(&self, swing: f32, moving: f32) -> Pose {
         let p = self.action_phase;
         match self.action {
+            // With a weapon drawn and nothing else to do, both arms are
+            // out in front of it, on the gun.
+            Action::None if self.armed.is_some() => Pose {
+                left: 9.0 - swing * 2.0 * moving,
+                right: 9.0 + swing * 2.0 * moving,
+                tool: vec2(15.0, 12.0),
+                tool_rot: 0.0,
+                reach: 0.6,
+            },
             Action::None => Pose {
                 left: -swing * 5.0 * moving,
                 right: swing * 5.0 * moving,
@@ -1083,6 +1198,45 @@ impl Character {
                     reach: 0.25 + 0.15 * wave.max(0.0),
                 }
             }
+            Action::Swing => {
+                // The blade hand comes across the body and sweeps out in
+                // front: the right arm follows the blade, the left braces.
+                let t = clamp(p / SWING_TIME, 0.0, 1.0);
+                let sweep = (t * PI).sin();
+                Pose {
+                    left: 4.0,
+                    right: 8.0 + sweep * 6.0,
+                    tool: vec2(15.0, 12.0),
+                    tool_rot: 0.0,
+                    reach: 0.5 + 0.5 * sweep,
+                }
+            }
+            Action::Punch => {
+                // Out and back with the right, the left up as a guard.
+                let t = clamp(p / SWING_TIME, 0.0, 1.0);
+                let jab = (t * PI).sin();
+                Pose {
+                    left: 6.0,
+                    right: 4.0 + jab * 14.0,
+                    tool: vec2(15.0, 12.0),
+                    tool_rot: 0.0,
+                    reach: 0.4,
+                }
+            }
+            Action::Bandage => {
+                // The hands go round one another in front of the body, one
+                // forward as the other comes back — a wash's circle, held
+                // a little further out so the wrap has room to show between
+                // them. `tool_rot` carries the turn for the roll to follow.
+                let turn = p * TAU / WRAP_PERIOD;
+                Pose {
+                    left: 11.0 + turn.cos() * 4.0,
+                    right: 11.0 - turn.cos() * 4.0,
+                    tool: vec2(22.0, 0.0),
+                    tool_rot: turn,
+                    reach: 1.0,
+                }
+            }
         }
     }
 
@@ -1125,27 +1279,39 @@ impl Character {
         };
         let lift = 1.0 + 0.16 * hop - 0.10 * heave;
         let scale = BODY_SCALE * lift;
+        // Leant out to the peek while aiming from one; the body itself
+        // has not moved, and nothing but the picture knows.
+        let pos = self.drawn_at();
 
         // Cast under the body and turned with it, so the halo always fits.
         // It pulls in and darkens as the Bim leaves the deck.
         list.ellipse(
-            self.pos + vec2(0.0, (4.5 + 7.0 * hop) * BODY_SCALE),
+            pos + vec2(0.0, (4.5 + 7.0 * hop) * BODY_SCALE),
             vec2(28.0, 36.0) * BODY_SCALE * (1.0 - 0.22 * hop),
             self.heading,
             SHADOW,
         );
 
-        let mut b = list.brush(self.pos, self.heading, scale);
+        let mut b = list.brush(pos, self.heading, scale);
 
         // Boots, under the body: one strides forward as the other trails. A
         // seated Bim tucks them in.
         if !self.seated {
             for side in [-1.0f32, 1.0] {
                 let step = swing * 8.0 * side * moving;
-                b.ellipse(vec2(step, 7.0 * side), vec2(13.5, 9.0), 0.0, BOOT);
+                let at = vec2(step, 7.0 * side);
+                b.ellipse(at, vec2(13.5, 9.0), 0.0, BOOT);
+                // Leg guards: the boot darker, with a band across the shin.
+                if let Some(guard) = self.armour[2] {
+                    b.ellipse(at, vec2(13.5, 9.0), 0.0, GUARD);
+                    b.rect(at - vec2(2.5, 0.0), vec2(3.0, 9.0), 0.0, 0.0, GUARD_BAND);
+                    if guard.broken {
+                        b.rect(at, vec2(10.0, 1.3), 0.7, 0.0, CRACK);
+                    }
+                }
                 // A wounded leg bleeds onto the boot.
                 if self.wounds[2] {
-                    b.ellipse(vec2(step - 2.0, 7.0 * side), vec2(8.0, 6.0), 0.0, BLOOD);
+                    b.ellipse(at - vec2(2.0, 0.0), vec2(8.0, 6.0), 0.0, BLOOD);
                 }
             }
         }
@@ -1174,6 +1340,23 @@ impl Character {
             0.0,
             self.look.trim(),
         );
+        // The vest: a dark plate over the torso, set forward so the yoke
+        // still shows at the collar behind it, strapped on at the sides.
+        if let Some(vest) = self.armour[1] {
+            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0) * breath, 0.0, KEVLAR);
+            for side in [-1.0f32, 1.0] {
+                b.rect(
+                    vec2(-3.0, 8.5 * side),
+                    vec2(5.0, 2.5),
+                    0.0,
+                    0.0,
+                    KEVLAR_STRAP,
+                );
+            }
+            if vest.broken {
+                b.rect(vec2(3.0, 0.0), vec2(20.0, 1.4), 0.9, 0.0, CRACK);
+            }
+        }
 
         // A wound on the body: a blotch in the middle of the coverall.
         if self.wounds[1] {
@@ -1241,7 +1424,16 @@ impl Character {
             self.look.hair(),
         );
         b.ellipse(at(vec2(5.6, 0.0)), vec2(4.0, 3.2), look, NOSE);
-        // A wound on the head: a blotch over the crown.
+        // The helm: a cap over the hair, rimmed, leaving the face clear.
+        if let Some(helm) = self.armour[0] {
+            b.ellipse(at(vec2(-2.5, 0.0)), vec2(12.5, 14.5), look, HELM_RIM);
+            b.ellipse(at(vec2(-2.5, 0.0)), vec2(10.5, 12.5), look, HELM);
+            if helm.broken {
+                b.rect(at(vec2(-2.5, 0.0)), vec2(11.0, 1.2), look + 0.8, 0.0, CRACK);
+            }
+        }
+        // A wound on the head: a blotch over the crown — on the helm, if
+        // one is worn, since the shot went through it.
         if self.wounds[0] {
             b.ellipse(at(vec2(-1.0, 2.0)), vec2(7.0, 6.0), look, BLOOD);
         }
@@ -1277,18 +1469,19 @@ impl Character {
     /// The rings on the deck under a living Bim: selected, an enemy, under
     /// orders. Drawn before the body, standing or lying.
     fn draw_rings(&self, list: &mut DrawList) {
+        let pos = self.drawn_at();
         if self.selected {
             // A ring on the ground under the Bim, breathing gently so it stays
             // legible against the floor.
             let pulse = (1.0 + self.select_pulse.sin() * 0.04) * BODY_SCALE;
-            list.circle(self.pos, 40.0 * pulse, ACCENT.alpha(0.10));
-            list.ring(self.pos, 40.0 * pulse, 2.5, ACCENT.alpha(0.85));
+            list.circle(pos, 40.0 * pulse, ACCENT.alpha(0.10));
+            list.ring(pos, 40.0 * pulse, 2.5, ACCENT.alpha(0.85));
         }
 
         if self.hostile {
             // An enemy is ringed in the colour its shots are, thin and
             // steady: a warning, not a selection.
-            list.ring(self.pos, 46.0 * BODY_SCALE, 2.0, ENEMY.alpha(0.75));
+            list.ring(pos, 46.0 * BODY_SCALE, 2.0, ENEMY.alpha(0.75));
         }
 
         if self.recruited {
@@ -1297,10 +1490,10 @@ impl Character {
             // Bim is selected: being under orders outlasts a click elsewhere.
             let pulse = (1.0 + self.select_pulse.sin() * 0.05) * BODY_SCALE;
             let span = 52.0 * pulse;
-            list.ring(self.pos, span, 1.5, COMMAND.alpha(0.35));
+            list.ring(pos, span, 1.5, COMMAND.alpha(0.35));
             for i in 0..4 {
                 let a = i as f32 * (TAU / 4.0) + self.select_pulse * 0.25;
-                let at = self.pos + Vec2::from_angle(a) * (span * 0.5);
+                let at = pos + Vec2::from_angle(a) * (span * 0.5);
                 list.rect(at, vec2(9.0, 3.0), a + PI * 0.5, 1.5, COMMAND.alpha(0.9));
             }
         }
@@ -1348,6 +1541,14 @@ impl Character {
         let mut b = list.brush(self.pos, self.heading, scale);
         b.ellipse(Vec2::ZERO, vec2(26.0, 34.0), 0.0, OUTLINE);
         b.ellipse(Vec2::ZERO, vec2(22.0, 30.0), 0.0, shirt);
+        // The armour stays on a body that is down, the vest over the
+        // torso and the guards where the boots trail.
+        if let Some(vest) = self.armour[1] {
+            b.ellipse(vec2(1.0, 0.0), vec2(16.0, 24.0), 0.0, KEVLAR);
+            if vest.broken {
+                b.rect(vec2(1.0, 0.0), vec2(20.0, 1.4), 0.9, 0.0, CRACK);
+            }
+        }
         if self.wounds[1] {
             b.ellipse(vec2(-1.0, -2.0), vec2(11.0, 9.0), 0.3, BLOOD);
         }
@@ -1355,6 +1556,19 @@ impl Character {
             b.ellipse(vec2(-4.0, 14.0 * side), vec2(10.0, 10.0), 0.0, sleeve);
             // The boots trail behind the body, and a wounded leg bleeds
             // onto them.
+            if let Some(guard) = self.armour[2] {
+                b.ellipse(vec2(-13.0, 7.0 * side), vec2(11.0, 7.5), 0.0, GUARD);
+                b.rect(
+                    vec2(-15.0, 7.0 * side),
+                    vec2(2.5, 7.5),
+                    0.0,
+                    0.0,
+                    GUARD_BAND,
+                );
+                if guard.broken {
+                    b.rect(vec2(-13.0, 7.0 * side), vec2(8.0, 1.2), 0.7, 0.0, CRACK);
+                }
+            }
             if self.wounds[2] {
                 b.ellipse(vec2(-13.0, 7.0 * side), vec2(8.0, 6.0), 0.0, BLOOD);
             }
@@ -1363,6 +1577,13 @@ impl Character {
         b.ellipse(vec2(3.0, 4.0), vec2(15.5, 15.5), 0.0, OUTLINE);
         b.ellipse(vec2(3.0, 4.0), vec2(13.0, 13.0), 0.0, skin);
         b.ellipse(vec2(1.0, 4.0), vec2(11.0, 12.5), 0.4, hair);
+        if let Some(helm) = self.armour[0] {
+            b.ellipse(vec2(0.5, 4.0), vec2(12.0, 14.0), 0.4, HELM_RIM);
+            b.ellipse(vec2(0.5, 4.0), vec2(10.0, 12.0), 0.4, HELM);
+            if helm.broken {
+                b.rect(vec2(0.5, 4.0), vec2(10.0, 1.2), 1.2, 0.0, CRACK);
+            }
+        }
         if self.wounds[0] {
             b.ellipse(vec2(2.0, 5.0), vec2(7.0, 6.0), 0.4, BLOOD);
         }
@@ -1370,23 +1591,48 @@ impl Character {
 
     /// Whatever is in the hands, placed in front of the body.
     fn draw_held(&self, list: &mut DrawList, pose: Pose) {
-        let to_world = |local: Vec2| self.pos + (local * BODY_SCALE).rotate(self.heading);
+        let pos = self.drawn_at();
+        let to_world = |local: Vec2| pos + (local * BODY_SCALE).rotate(self.heading);
 
-        // The weapon, drawn: held out in the right hand, the barrel along
-        // the way the body faces and the emitter lit at the end of it.
-        if self.armed && !self.dead {
-            let hand = vec2(pose.right + 8.0, 12.5);
-            let barrel = to_world(hand + vec2(9.0, 0.0));
-            list.rect(barrel, vec2(22.0, 6.0), self.heading, 1.5, GUN_EDGE);
-            list.rect(barrel, vec2(20.0, 4.0), self.heading, 1.0, GUN);
+        if let Some(weapon) = self.armed.filter(|_| !self.dead) {
+            self.draw_weapon(list, pose, weapon);
+        }
+
+        // The bandage being wound: the roll in the right hand, the strip
+        // paying out of it across to the left, and the turns already laid
+        // as a ring between the hands that fills as the roll goes round —
+        // so the dressing reads as progress and not as the wash's circle.
+        if self.action == Action::Bandage {
+            let turn = pose.tool_rot;
+            let roll = to_world(vec2(pose.right + 9.0, 11.0));
+            let hand = to_world(vec2(pose.left + 9.0, -11.0));
+            let wrap = to_world(pose.tool);
             list.rect(
-                to_world(hand + vec2(1.0, 2.5)),
-                vec2(6.0, 9.0),
-                self.heading,
-                1.0,
-                GUN,
+                roll,
+                vec2(8.0, 11.0),
+                self.heading + turn * 0.5,
+                2.0,
+                BANDAGE,
             );
-            list.circle(to_world(hand + vec2(19.5, 0.0)), 4.0, GUN_LIT.alpha(0.9));
+            list.stroke_rect(
+                roll,
+                vec2(8.0, 11.0),
+                self.heading + turn * 0.5,
+                2.0,
+                1.0,
+                BANDAGE_EDGE,
+            );
+            list.line(roll, wrap, 3.0, BANDAGE);
+            list.line(wrap, hand, 3.0, BANDAGE.alpha(0.85));
+            // The turns laid so far: a ring of short strokes round the wrap
+            // point, one more every full turn of the hands, wrapping back
+            // round to the first after a few so the ring never fills solid.
+            let laid = ((turn / TAU) as i32 % 6 + 1).max(1);
+            for i in 0..laid {
+                let a = self.heading + i as f32 * (TAU / 6.0) + turn * 0.15;
+                let at = wrap + Vec2::from_angle(a) * (6.0 * BODY_SCALE);
+                list.rect(at, vec2(7.0, 2.5), a + PI * 0.5, 1.0, BANDAGE_EDGE);
+            }
         }
 
         match self.main {
@@ -1505,6 +1751,122 @@ impl Character {
             _ => {}
         }
     }
+
+    /// The weapon, drawn: every gun in **both hands in front** of the
+    /// body — the left forward on the barrel or the fore-end, the right
+    /// on the grip, the weapon along the facing ahead of the body, its
+    /// emitter lit — and the schword a hilt in the right hand with the
+    /// blade forward and a little raised. Mid-swing the blade is swept
+    /// through its arc instead. Broken armour and the wound blotches are
+    /// drawn before this and show over nothing here, since the weapon is
+    /// out in front of the body and not on it.
+    fn draw_weapon(&self, list: &mut DrawList, pose: Pose, weapon: WeaponKind) {
+        let pos = self.drawn_at();
+        let rot = self.heading;
+        let sleeve = self.uniform.sleeve();
+        // Everything in the body's own frame and scale, like the body.
+        let mut b = list.brush(pos, rot, BODY_SCALE);
+        // The grip: ahead of the head, a little to the right, the way a
+        // gun is shouldered. The left hand is out along the barrel from
+        // there, further the longer the gun.
+        let grip = vec2(pose.right + 8.0, 5.0);
+        let hand = |b: &mut Brush, at: Vec2| {
+            b.ellipse(at, vec2(9.0, 9.0), 0.0, OUTLINE);
+            b.ellipse(at, vec2(7.5, 7.5), 0.0, sleeve);
+        };
+        // A barrel of `length` from the grip forward, `width` across, lit
+        // at the muzzle.
+        let barrel = |b: &mut Brush, length: f32, width: f32| {
+            let mid = grip + vec2(length * 0.5, 0.0);
+            b.rect(mid, vec2(length + 2.0, width + 2.0), 0.0, 1.5, GUN_EDGE);
+            b.rect(mid, vec2(length, width), 0.0, 1.0, GUN);
+            b.ellipse(
+                grip + vec2(length, 0.0),
+                vec2(4.5, 4.5),
+                0.0,
+                GUN_LIT.alpha(0.9),
+            );
+        };
+        match weapon {
+            WeaponKind::LaserPistol => {
+                // Short and dark, held out at arm's length.
+                barrel(&mut b, 16.0, 5.0);
+                b.rect(grip + vec2(1.0, 3.0), vec2(5.0, 8.0), 0.0, 1.0, GUN);
+                hand(&mut b, grip + vec2(0.0, 2.5));
+                hand(&mut b, grip + vec2(7.0, -2.5));
+            }
+            WeaponKind::Shotgun => {
+                // Long, a wide barrel, and a wooden fore-end under the
+                // left hand, a stock behind the right.
+                barrel(&mut b, 28.0, 6.5);
+                b.rect(grip + vec2(-3.0, 1.5), vec2(8.0, 6.0), 0.0, 1.5, STOCK);
+                b.rect(grip + vec2(14.0, 1.0), vec2(9.0, 5.5), 0.0, 1.5, STOCK);
+                hand(&mut b, grip + vec2(1.0, 2.5));
+                hand(&mut b, grip + vec2(14.0, -2.5));
+            }
+            WeaponKind::AutoRifle => {
+                // A short barrel, a magazine hanging under it, the left
+                // hand on the foregrip.
+                barrel(&mut b, 22.0, 5.0);
+                b.rect(grip + vec2(-2.0, 1.5), vec2(6.0, 6.0), 0.0, 1.0, GUN);
+                b.rect(grip + vec2(7.0, 4.0), vec2(4.5, 7.0), 0.0, 1.0, GUN_EDGE);
+                hand(&mut b, grip + vec2(1.0, 2.5));
+                hand(&mut b, grip + vec2(13.0, -2.5));
+            }
+            WeaponKind::SniperRifle => {
+                // The longest of them, with the scope block on top.
+                barrel(&mut b, 36.0, 4.5);
+                b.rect(grip + vec2(-4.0, 1.5), vec2(9.0, 6.0), 0.0, 1.5, STOCK);
+                b.rect(grip + vec2(8.0, -1.0), vec2(10.0, 3.5), 0.0, 1.5, SCOPE);
+                b.ellipse(grip + vec2(3.0, -1.0), vec2(4.5, 4.5), 0.0, SCOPE);
+                hand(&mut b, grip + vec2(1.0, 2.5));
+                hand(&mut b, grip + vec2(19.0, -2.5));
+            }
+            WeaponKind::Schword => {
+                let hilt = vec2(pose.right + 4.0, 12.0);
+                if self.action == Action::Swing {
+                    // Swept across in front of the body, from the left to
+                    // the right, the blade along the arc's radius.
+                    let t = clamp(self.action_phase / SWING_TIME, 0.0, 1.0);
+                    let angle = SWING_ARC * (t - 0.5);
+                    let base = b.to_world(vec2(6.0, 0.0));
+                    let dir = Vec2::from_angle(rot + angle);
+                    draw_blade(list, base + dir * 4.0, dir, 36.0 * BODY_SCALE);
+                    // The arc behind it, fading: where the blade has been.
+                    let steps = 6;
+                    for i in 0..steps {
+                        let back = (i + 1) as f32 / steps as f32;
+                        let a = angle - SWING_ARC * 0.35 * back;
+                        if a < -SWING_ARC * 0.5 {
+                            break;
+                        }
+                        let d = Vec2::from_angle(rot + a);
+                        let fade = 1.0 - back;
+                        list.line(
+                            base + d * (14.0 * BODY_SCALE),
+                            base + d * (40.0 * BODY_SCALE),
+                            5.0,
+                            BLADE_EDGE.alpha(0.25 * fade),
+                        );
+                    }
+                    let mut b = list.brush(pos, rot, BODY_SCALE);
+                    hand(&mut b, vec2(8.0, 2.0));
+                } else {
+                    // At rest: the hilt in the right hand, the blade forward
+                    // and a little raised — angled in across the front.
+                    let dir = Vec2::from_angle(rot - 0.35);
+                    draw_blade(
+                        list,
+                        pos + (hilt * BODY_SCALE).rotate(rot),
+                        dir,
+                        32.0 * BODY_SCALE,
+                    );
+                    let mut b = list.brush(pos, rot, BODY_SCALE);
+                    hand(&mut b, hilt);
+                }
+            }
+        }
+    }
 }
 
 /// A pick: a handle along `rot` with the head across its end, the point
@@ -1514,6 +1876,27 @@ fn draw_pick(list: &mut DrawList, at: Vec2, rot: f32) {
     list.rect(at - dir * 4.0, vec2(30.0, 4.0), rot, 2.0, BROOM_POLE);
     list.rect(at + dir * 12.0, vec2(6.0, 22.0), rot, 2.0, STEEL);
     list.rect(at + dir * 16.0, vec2(6.0, 8.0), rot, 1.5, STEEL);
+}
+
+/// The schword: a hilt at `hilt`, the blade `length` along `dir` — a
+/// white core between two cyan strokes, one wide and faint and one thin
+/// and bright, so the edge reads as light rather than paint.
+fn draw_blade(list: &mut DrawList, hilt: Vec2, dir: Vec2, length: f32) {
+    let rot = dir.angle();
+    let s = BODY_SCALE;
+    let tip = hilt + dir * length;
+    let start = hilt + dir * (7.0 * s);
+    list.line(start, tip, 10.0 * s, BLADE_EDGE.alpha(0.22));
+    list.line(start, tip, 4.5 * s, BLADE_EDGE.alpha(0.85));
+    list.line(start, tip, 2.0 * s, BLADE_CORE);
+    list.rect(hilt + dir * (2.0 * s), vec2(9.0, 4.0) * s, rot, 1.0, HILT);
+    list.rect(
+        hilt + dir * (7.0 * s),
+        vec2(2.0, 9.0) * s,
+        rot,
+        0.5,
+        GUN_EDGE,
+    );
 }
 
 /// A letter Z, drawn from the three strokes you would write it with.

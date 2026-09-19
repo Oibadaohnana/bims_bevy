@@ -87,8 +87,8 @@ fn main() {
     );
     check!(
         "and the pot is empty afterwards, not left for leftovers",
-        game.pot_servings() == 0,
-        game.pot_servings()
+        game.pot_servings(0) == 0,
+        game.pot_servings(0)
     );
 
     // --- and stops at the target -----------------------------------------------

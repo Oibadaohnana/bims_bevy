@@ -33,8 +33,8 @@ a name rather than a flag:
 | `nix run .#simulation` | `cargo run -- simulation` | straight into the world on a prebuilt playtest ship, docked at a station |
 | `nix run .#design` | `cargo run -- design` | straight into the ship design, the playtest ship given, docked where the simulation docks |
 | `nix run .#room` | `cargo run -- room` | the behaviour test room — the Bims on a deck |
-| `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy |
-| `nix run .#combat` | `cargo run -- combat` | the simulation docked at a hostile station: the people living there are enemies, and a recruited crew member shoots at any it can see |
+| `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock and bunks to spare for one |
+| `nix run .#combat` | `cargo run -- combat` | the fight: the combat ship — five crew, a different gun in each hand — docked at the spawn rebuilt as the arena and made hostile, its people enemies and more of them than a station puts up; a recruited crew member shoots at any it can see |
 
 The `cargo run` forms build from the working tree, which is what you want
 while editing — `cargo run --release -- test` is the same thing on the
@@ -87,11 +87,15 @@ tabbed tool the setup screen uses:
   pan, scroll to zoom, hover to read a star's name and class, click one to
   open its system on the right — the star at the middle, its planets and
   belts on their orbits, its stations as squares, each named with its kind
-  and the body it hangs off. Stars with no station are dimmed, since the game
-  cannot start there; they can still be looked at. **Start here** on a
-  station makes it the pending start, marked on the map and named in the
-  tab's header; **Random start** picks one anywhere. A new seed or a new
-  type is a new galaxy and forgets the start.
+  and the body it hangs off. A system with a station usually has more —
+  up to six, two of a kind allowed — and about three in ten of the ones
+  somebody lives on are **hostile**: the people there are enemies, the
+  diagram rings their square in red, the station list says so, and a
+  crew cannot start at one. Stars with no station are dimmed, since the
+  game cannot start there; they can still be looked at. **Start here** on
+  a station makes it the pending start, marked on the map and named in
+  the tab's header; **Random start** picks one anywhere that is not an
+  enemy's. A new seed or a new type is a new galaxy and forgets the start.
 
   No distances, no travel times, nothing about what a station is like: the
   lobby is where a start is chosen, not where a system is explored.
@@ -510,14 +514,20 @@ things to stop, and they arrive next.
 
 ### Making things
 
-The crew make six things, at three benches, and one mechanism does all of
+The crew make ten things, at four benches, and one mechanism does all of
 it. A **recipe** is a bench, what goes in, what comes out and how long it
 takes; the **smelter** turns two ore into one metal in half an hour, and the
 **workbench** turns one metal into four components in twenty minutes, or
 one metal, two components and one **galvum** into an **emitter** in an
-hour. Galvum is the rare one — only a mining outpost sells it, and only one
+hour — and, out of metal alone or metal and a galvum, the three pieces of
+**armour** (see *Armour* under *What the ship will make*). Galvum is the rare one — only a mining outpost sells it, and only one
 asteroid in ten has it in its core — and the emitter is what the interesting parts will be made of: a turret, a shield,
-a mining laser. Nobody sells an emitter.
+a mining laser. Nobody sells an emitter. The **armoury** makes the handgun,
+the three other guns and the schword (below), the vest and the medkit, and
+the **drug lab** turns two **fibre**
+into one **bandage** in a quarter of an hour — fibre being the one crop
+the bay grows that nobody eats, and a bandage the one thing made aboard
+that the crew already use, on each other.
 
 What turns a recipe into an errand is a **target**: on the items panel,
 every row for something the benches can make carries a *keep so many*
@@ -532,8 +542,9 @@ is making the same thing.
 
 The smelter loses mass — two ore at ten is twenty, one metal is eight, and
 the slag is vented — and it is the only recipe that may. Everything the
-workbench makes weighs exactly what went into it. Both benches draw power,
-and both stop in a brownout.
+other three benches make weighs exactly what went into it — a bandage is
+two fibre's worth. Every bench draws power, and every one stops in a
+brownout.
 
 ### Mining, on foot
 
@@ -664,18 +675,21 @@ Confirm sends the ship. A planet you are alongside is drawn under the hull
 in the ship view, as the ground.
 
 A **station is a place**, not an icon: every one in the system is a hull on
-a grid of its own — twenty-six to forty tiles across by kind, laid out from
-the blueprint's seed with the same parts and the same rules as a ship. It
-is a square hull with its corners chamfered in diagonal plating, the
-airlock in its west skin and the array on its north, and **rooms** inside:
-two corridors three tiles wide cross in the middle, the west one running
-in from the port, and the four quarters between them are the galley and
-mess, the crew's quarters with the heads along their north wall and the
-bunks down the east skin, hydroponics, and engineering — reactor, life
-support, a tank, batteries and shelves — each behind bulkheads with a
-two-tile doorway onto each corridor. The seed decides how many bays,
-shelves, tables and batteries; a bigger station gets more of each, and a
-second reactor. Bulkheads and doors, the helm, the shelves and the shower
+a grid of its own — forty-eight to sixty-four tiles across by kind, laid
+out from the blueprint's seed with the same parts and the same rules as a
+ship. It is a **hub and four arms**: a square hub of open deck in the
+middle, a corridor five tiles wide running out of each side of it to a
+docking lobby with an airlock in its far wall — the west one is the port
+you dock at, and its lobby is the reactor room too, with the trading desk
+by the door — and the rooms hung off the north and south arms two deep a
+side: the mess and the crew's quarters, the heads and the laboratory
+with its bays, the rec room and the research room, the storage and the
+cargo shelves, each behind a bulkhead with a two-tile doorway, the outer
+rooms opening through the inner. A barricade of **sandbags** stands
+across three of each corridor's five tiles a few tiles out from the hub —
+cover to fight from, the gap past it on alternate sides. The seed decides
+how many bays, shelves, tables and batteries; a bigger station gets more
+of each. Bulkheads and doors, the helm, the shelves and the shower
 are drawn as themselves rather than as coloured blocks, in the room's
 palette, so a station reads as a building and a ship as a ship — and so
 are the reactor, the fuel tank, the battery and life support.
@@ -763,12 +777,53 @@ derelict — there is nobody aboard to sell it. Under that each station keeps
 a shelf of its own, rolled off its seed: ore, metal, fuel and both foods
 are on every one, because a station where the crew can buy no fuel and
 nothing to eat is a trap, and each of the rest — components, suits,
-medkits, an outpost's galvum — is there or not, so two refineries stock
+medkits, an outpost's galvum, an orbital's fibre, a bandage at an orbital
+or a refinery — is there or not, so two refineries stock
 different things and there is a reason to fly to the other one. A row the
 station does not sell is greyed with its buy buttons off, and stays,
 because what is aboard can still be sold there. Every station buys
 anything. A station is not yet *for* anything — a theme would replace the
 roll, not the ceiling.
+
+### Mercenaries
+
+At a station whose people are not your enemies there may be a **mercenary**
+living among them: a body in an olive coverall rather than the station's
+orange, with a **?** floating over its name, which is how you know it can
+be spoken to. How many depends on what your ship and its hold are worth
+against what you set out with — at the start it is one at some stations
+and none at the rest, and a crew that has got richer finds more, up to
+four. Right-click one and the row is **Hire — see the terms**: it walks
+your Bim over and opens the **Hire** window, which says what they carry
+— the gun, and every piece of armour worn — and **what a month of them
+costs**. The fee is the kit: a pistol and nothing else is about two
+thousand a month, a sniper rifle in full armour about twenty thousand,
+and every mercenary asks a little more or a little less than the kit is
+worth, up to fifteen percent either way. **Hire** wants your Bim within
+two tiles, the first month's fee in hand, and a free bunk aboard — the
+window greys the button and says which is missing. Hired, they walk out
+of the station's room and onto your deck, a crew member from then on:
+they eat, sleep and work like the rest, and take orders like a crewmate
+(only the Bim you steer takes yours). **They are paid by the month**,
+every thirty days out of the crew's money, and the log says so. A month
+the money will not cover is a month owed: the log says they are unpaid,
+and at the next berth they walk off — back into the station's room, for
+hire again when you can afford them. The `test` command always has one
+for hire at its dock, and its ship has bunks to spare.
+
+### The trading desk
+
+Every station keeps a **trading desk** just inside its port — a wooden
+counter with a ledger and a terminal on it, against the corridor's north
+wall. The station is traded with across it: **Station** on the tray still
+opens the shelf, but the rows are live only while the Bim you steer
+stands within two tiles of the desk, and until then the window says so
+and offers **Walk over**. Right-clicking the desk itself gives the same
+in one row — **Trade** walks your Bim over and opens the window. What you
+buy still goes straight into the hold, wherever aboard it is kept; the
+desk is where the deal is struck, not where the goods land. A buy or a
+sell sent from across the room is refused with *nobody of yours is at
+the trading desk*.
 
 ### What the crew can see
 
@@ -856,7 +911,8 @@ written down first so that each of them is measured against something, and
 each heading below is replaced by a description of the real thing as it
 lands. The order is the order of the headings: power, the resources, the
 workstations, the walk outside and the armoury — all built, and described
-under the designer and the game — then the fight, which is not.
+under the designer and the game — then the fight, of which the boarding
+half is built and the rest is not.
 
 ### One mechanism, the tree, and the mass
 
@@ -879,13 +935,58 @@ Built, and the outside is a place now: *Mining, on foot* under the game.
 Built, as far as the making goes. The **armoury** is a bench and a locker in
 one: two components and an emitter make a **laser handgun** in three
 quarters of an hour, four metal and two components a **vest**, two
-vegetables and a component a **medkit**, and it holds four of them beside
-the suits. Set a target for a handgun with galvum aboard and the benches
+vegetables and a component a **medkit** — and, since the fight grew four
+more weapons, metal and components with or without an emitter make the
+**shotgun**, the **auto rifle**, the **sniper rifle** and the **schword**
+(*Combat mode* under the game says what each does) — and it holds eight
+of them beside the suits. Set a target for a handgun with galvum aboard and the benches
 run the whole chain in order without anybody sequencing them — a handgun
 is not on offer until there is an emitter, and an emitter is not until
 there are components. Nobody sells a handgun or a vest; a medkit is on
-every lived-in station's shelf. What a Bim *does* with any of them is the
-fight, below, which is not built.
+every lived-in station's shelf. Beside it stands the **drug lab**, the
+fourth bench: two **fibre** — a crop, grown in the bay — make a
+**bandage** in a quarter of an hour, and a bandage is the one thing made
+aboard that a Bim already *does* something with: it closes the wounds on
+one part of a body (see *Getting hurt* under the game). What a Bim does
+with a handgun is the fight, below — the boarding half of it; what it
+does with a vest or a medkit is still nothing.
+
+### Armour
+
+Built. Three pieces, all made at the **workbench**: a **helm** out of two
+metal (half an hour; +15 health, 2 protection), **kevlar** out of three
+metal and a galvum (three quarters; +20, 2), and **leg guards** out of one
+metal (twenty minutes; +10, 1). The playtest ship carries one of each. A
+piece is two things at once, on purpose. **In a container it is a
+resource** — `Helm`, `Kevlar`, `LegGuard`, locker class beside the medkits
+— so buying, selling, crafting, mass and the shelves work on it with no
+new mechanism; **anywhere else it is an instance**, with an id that only
+climbs and a health it keeps wherever it goes. The world keeps every piece
+there is (`World::pieces`: id, kind, health left, and where — the hold, a
+pack cell, or worn by somebody) and holds one invariant against the hold:
+the count of each armour resource is always the number of pieces in the
+hold of that kind. A bench or a purchase pushes a whole piece; a sale takes
+the most damaged one first. What is worn and what is in the pack are the
+room's (`bims::combat::Gear`), since the room's health reads them, and the
+world reads them back every step for the checksum.
+
+Five commands move a piece about, the way a craft target is a command —
+the hold is the world's, and every player's ship has to agree what is in
+it: **Fetch** takes a piece (or a unit of anything) out of a container into
+the crew member's 3×3 pack, **Stow** puts one back, **Equip** puts on what
+is in a pack cell and swaps what was worn into it, **Unequip** takes a
+piece off into the pack, and **Discard** throws one away — and a sixth,
+**Loot**, takes one thing off a body that is down (see [Combat
+mode](#combat-mode-and-the-inventory)). A fetch or a
+stow wants the crew member within two tiles (`REACH`) of a container that
+takes the thing — the armoury or the drug lab for locker goods, a shelf
+for shelf goods *and* for armour and weapons, the cold store for food —
+and is refused *out of reach* otherwise; a full pack refuses a fetch, a
+full class refuses a stow, and a **broken** piece — at nought — cannot be
+stowed or sold at all, only discarded. Equipping wants no container. What
+a worn piece does to a hit is [Getting hurt](#getting-hurt): the
+protection comes off the damage first, what is left drains the piece, and
+only what the piece could not take reaches the body.
 
 ### The fight
 
@@ -900,13 +1001,17 @@ fight, below, which is not built.
   waiting for. What a derelict has left in it is generated already.
 - **Boarding** is docking to somebody hostile. The rooms join into one, one
   nav grid, and the fight is Bims with handguns in corridors the station
-  layout already promises are walkable. The first half of that is in:
+  layout already promises are walkable. That is in now, both ways:
   `combat` docks at a hostile station, a recruited Bim shoots what it can
-  see, and the station's people take the hits — see
-  [Combat mode](#combat-mode-and-the-inventory). What is not: them
-  shooting back, armour, and a wound as a condition. A wound is a condition in the health
-  crate, arriving the way hunger and sleep are meant to; the medkit is a
-  held thing and treating is a job.
+  see, the station's people take the hits — and they shoot back, from
+  cover, knowing where the crew are, with whatever each was issued — a
+  pistol for most, a shotgun, a rifle, a sniper rifle, or a schword, whose
+  bearer charges and locks a gunner in a melee — and a hit is a wound on
+  a part of the body that bleeds until somebody dresses it with a bandage
+  — see [Combat mode](#combat-mode-and-the-inventory). Stations are hostile
+  from the generator (about three in ten of the lived-on ones; the lobby
+  rings them red and never starts a crew at one), and `combat` makes the
+  dock hostile whatever it rolled. Armour is in too — the section above.
 
 ## The simulation
 
@@ -1090,12 +1195,15 @@ foot of a bed should cost nothing.
 | Click the broom locker | Menu: **Sweep up** — and they get round to it themselves |
 | Click the toilet | Menu: **Use** — and a wash at the basin after |
 | Click the bathroom door | Menu: open/close, lock/unlock |
+| Click the armoury, a shelf, or **Open** on the cold store (ship only) | Its grid — the lockers, the shelves, the food — and the inventory of the Bim shown beside it; the Bim walks over |
+| Right-click a cell | **Take** · **Store** · **Equip** · **Discard**, or **Unequip** on a worn slot — greyed with the reason when it cannot go |
+| Ctrl-click a cell | The quick move: container to pack, pack to the open container |
 | Right-click a fixture | The same menu, on the other button |
 | `1` | Select James (control group 1) — the one you steer |
 | `r` | Recruit James, or let him go — see below |
 | Drag a box over one | Select it — either of them. Selecting shows its crew sheet |
 | Click one | Select it — a click is just a box of no size. Only James takes orders |
-| Click empty floor / `Esc` | Deselect — the right-hand panels go with it |
+| Click empty floor / `Esc` | Deselect — the right-hand panels go with it. `Esc` first shuts whatever is up, innermost first: a cell's rows, a fixture's menu, a grid window |
 | Right-click the floor | Send the selection there — opens a door on the way if it must |
 | Tray, bottom left | **Schedule** — paint the day and set the thresholds; **Management** — autonomy, food to keep, what is aboard; on the ship, **Build** — lay parts out for the crew to build |
 | Action thresholds, under the strip | Rest and Food: how low each may get before the Bim acts, and a tick box to stop it acting at all |
@@ -1435,10 +1543,20 @@ is planted, nothing is lifted, and the trays hold exactly what they hold. The
 lights over them go out, which is how it reads across the room. Drop below the
 mark again and it picks up where it stopped, part-grown plants and all.
 
-**Plant greens / soy in every tray** is the override: a standing order that
-ignores both the target and hibernation, for when you want a bay full of soy
-whatever the store says. Click it again to lift the order and go back to the
-target.
+**Plant greens / soy / fibre in every tray** is the override: a standing
+order that ignores both the target and hibernation, for when you want a bay
+full of soy whatever the store says. Click it again to lift the order and go
+back to the target.
+
+**Fibre** is the third crop, and the one nobody eats: a paler, taller
+stalk, a day in the tray, carried to the cold store like the greens, and
+what the drug lab makes bandages out of, two to one. It has a target of
+its own on the Management tab — a fourth row under the food — and it
+starts at **nought**, which means never: the share arithmetic that
+decides what to plant reads a target of nought as nothing wanted, so a
+bay nobody has asked for fibre goes on growing food exactly as it did.
+Set the target and the bay grows fibre beside the greens and the soy,
+furthest-behind first, like everything else.
 
 Both controls are *settings* rather than errands — the same kind of thing as
 the timetable or letting the Bim decide. The deciding is the player's; every
@@ -1474,19 +1592,20 @@ until the tray is already worked.
 
 ## The manager
 
-**Management** in the tray holds one number so far: **how much food to keep**.
-It is in *food units*, and a unit divides two to one — two thirds vegetables,
-one third tofu — so asking for **99** sets the target to **66 vegetables and 33
-blocks of tofu**. The field shows the split as you type it, read back out of
-the room rather than worked out twice.
+**Management** in the tray is a table of **targets**: one row per thing the
+place is told to keep up, with what there is and a *keep at least this
+many* beside it. Four rows — **vegetables**, **tofu**, **stew** and
+**fibre**, all in the cold store — and each is a standing order: below the
+mark the work goes on the crew's list by itself (a tray planted and the
+harvest carried for the first two and the last, a pot cooked for the
+shelf for the third), and at the mark it comes off. **0 means never**, and
+stew and fibre start there on purpose. The food-units dial with its
+two-to-one split, which this used to be, is gone: a target is a count of
+the thing itself.
 
-That target is what the bay plants to, and it is the only demand there is for
-now. The manager is where the rest will go as they arrive: one row per thing
-the place is told to keep up.
-
-Under it is **what is aboard**: a table of one row per thing, with what it is,
-how many there are, and where they are — vegetables and tofu in the cold store,
-and whatever is left in the pot on the hob. It is built from a list rather than
+The same rows are **what is aboard**: what it is, how many there are, and
+where they are — the four in the cold store, and under them, aboard the
+ship, whatever the benches have made. It is built from a list rather than
 written into the markup, so a new thing to keep track of is a new line rather
 than a new table.
 
@@ -1508,12 +1627,6 @@ that mean trouble.
 The speed slider used to sit here too. It is in the header now, beside the
 clock it is speeding up.
 
-A note on the arithmetic, since the two readings of "food unit" differ. A unit
-here is one *item* split two to one, so 99 units is 99 things — 33 days of
-greens at two a stew, or about seven weeks for one Bim. Read instead as "99
-meals' worth", at two vegetables and a block of tofu each, it would be 198 and
-99. The first is what the field does, because that is what was asked for.
-
 ## Work priorities
 
 The **Work** tab is the third in the tray, and it is the answer to "what should
@@ -1530,7 +1643,12 @@ you have to undo before you can use anything.
 | **Planting** | sowing an empty tray in the bay |
 | **Plant cutting** | lifting a ripe one out of it |
 | **Hauling** | carrying what was lifted to the cold store |
-| **Cook** | making a meal |
+| **Cooking** | making a meal, and stew for the shelf |
+| **Controlling the ship** | standing at the helm while the ship is under way |
+| **Making things** | working a bench the manager has an order for |
+| **Mining outside** | a walk out to the belt in a suit |
+| **Building** | putting a laid-out part together once its materials are there |
+| **Medical** | dressing a wound — its own, or a crewmate's — with a bandage |
 
 The colour of the box says what the number means without anybody having to
 remember which end is which: warm at the top of the list, cold at the bottom,
@@ -1546,8 +1664,22 @@ list may no longer be in it.
 
 Resting on a row rings the place the job happens, the same as a management row:
 the locker for cleaning, the bay for both bay jobs, the cold store for hauling,
-the hob for cooking. Nothing pops up and nothing is said — see
-[A highlight is not a tooltip](#what-the-pointer-is-over).
+the hob for cooking — **every one of that kind**, so a ship with two galleys
+sees both hobs rung. Building and medical ring nothing: a site is wherever it
+was laid out and a patient wherever it fell. Nothing pops up and nothing is
+said — see [A highlight is not a tooltip](#what-the-pointer-is-over).
+
+**Medical is the one row that can interrupt.** It is on offer while somebody
+aboard is bleeding and there is a bandage to hand — the Bim's own wounds
+first, else the crewmate with the most open, and that one's worst part — and at
+any number from 2 to 5 it waits its turn like the rest, though among equals a
+wound is dressed before the blood under it is swept up. Set it to **1** and it
+is urgent: a Bim drops whatever it is on the moment there is a wound to dress,
+the errand going onto the queue the way a meal would push it, and picks it back
+up when the hands come off. Set it to **never** and nobody doctors of their own
+accord; your own bandage orders from the inventory or the menu on a body still
+work. A patient nobody can walk to, or one somebody is already walking over to
+dress, is not offered.
 
 ### What it actually changes
 
@@ -1568,13 +1700,15 @@ Two things the list deliberately does **not** touch:
   the meal jumps the queue whatever the cook row says. The list is a statement
   about what to do next, not about whether to eat at all.
 
-**Hauling has no errand of its own yet**, because nothing aboard is fetched or
-moved except a harvest, and that is carried in the same chain that lifted it.
-So it is the back half of a cutting, and a cutting waits on whichever of
-**Plant cutting** and **Hauling** is set later. Put hauling at the bottom and
-the bay stops being emptied, which is the truthful answer: there is nobody to
-carry it. When something else worth hauling arrives, that is the row it goes
-under.
+**Hauling is two things under one row.** A harvest is carried in the same
+chain that lifted it, so that half of hauling is the back half of a cutting,
+and a cutting waits on whichever of **Plant cutting** and **Hauling** is set
+later; put hauling at the bottom and the bay stops being emptied, which is
+the truthful answer: there is nobody to carry it. The other half is an errand
+in its own right — a load off a shelf, walked to a construction site and put
+down there, one trip at a time, while a site still wants something (see
+*Building, aboard* under the game) — and that one is offered and taken at
+hauling's own number.
 
 ## The timetable
 
@@ -1707,8 +1841,8 @@ Where there is something worth saying about the state of it, it says that too:
 the hob **lit**, the cold store **open**, the door **locked** or **shut**, the
 dishwasher **running**, the bay with **two ready to lift**.
 
-And on deck, a second line says what is lying there: **Wet**, **Soiled** or
-**Vomit**, with how far down that tile has been taken. The simulation itself has
+And on deck, a second line says what is lying there: **Grime**, **Wet**,
+**Soiled**, **Vomit** or **Blood**, with how far down that tile has been taken. The simulation itself has
 never distinguished one stain from another — a tile is one number, and the
 average around the Bim is all anything reads — so the kind is remembered
 alongside the score purely for this readout. It keeps the worst of what has
@@ -1744,32 +1878,257 @@ nothing else and drawn whether or not the Bim happens to be selected.
 
 ### Combat mode, and the inventory
 
-A recruited Bim is in **combat mode**: it draws its weapon and, whenever an
-enemy is in range and in its own line of sight — the peek round a wall
-included — it fires. Everybody carries a **hand laser pistol** from the
-start. It does nothing else about the enemy: it stands where it was put,
-as a recruited Bim does, and shoots from there; walking it somewhere is
-still yours to order, and it holds its fire while it walks. Let it go and
-the weapon is holstered.
+**The rest of the crew take arms on their own.** Whenever an enemy is
+within a hundred tiles of anybody — any enemy on the station you are
+docked at — or a crew member has been hit in the last half minute, the
+header says **To arms — an enemy is near** and every crew member but the
+one you steer is in combat mode of their own accord: they take a weapon
+out of their pack if their hand is empty, draw it, and **gather round
+you** — a slot each beside and behind the Bim you steer, which they
+keep to as you move, shooting whatever they can see from there. Only
+when one of them **sees an enemy for itself** does it go and fight the
+way an enemy's people do — walking to cover within range, peeking round
+it — so a squad does not charge in headfirst after something only the
+log knows about. **And while the alarm is up you can order them**: click
+a crewmate to select it and right-click the deck, the way you send your
+own; it goes and holds that spot, shooting from it, until the alarm is
+over. In peace a crewmate takes no orders, as before. The alarm lasts
+until nobody is near and nobody has been hit for a while, when they go
+back to their errands. A hired mercenary does the same. The Bim you
+steer is yours alone: recruit it yourself or leave it to its work; the
+alarm never touches it.
+
+A recruited Bim is in **combat mode**: it draws its weapon — held in both
+hands, out in front — and, whenever an enemy is in range and in its own
+line of sight — the peek round a wall included — it fires. Everybody
+carries a **hand laser pistol** from the start; the armoury makes four
+more, and a Bim swaps to one out of its pack. It does nothing else about
+the enemy: it stands where it was put, as a recruited Bim does, and shoots
+from there; walking it somewhere is still yours to order, and it holds its
+fire while it walks. Let it go and the weapon is holstered.
 
 Every shot is a **bolt** that flies — at the weapon's speed, until it
 reaches a body, a wall or the end of its range — and is always drawn,
-whatever it flies through. Friendly fire is **blue**, an enemy's **red**.
-A shot's odds of landing are the weapon's **accuracy at ten tiles**,
-falling off with distance from there; a hit takes the weapon's damage off
-the body it lands on, and a miss flies visibly wide. Who is an enemy is the
-station's business: at a hostile station the people living there are
-enemies, ringed in red, and `nix run .#combat` opens the game docked at
-one. They do not shoot back yet.
+whatever it flies through, each weapon's own: the pistol's dash, the
+shotgun's fan of orange pellets, the rifle's short yellow tracer, the
+sniper's long white-blue streak. Friendly fire is **blue**, an enemy's
+**red**. A weapon's numbers are two points on a line: an **accuracy** and
+a **damage** that hold out to its sweet distance and fall off in a
+straight line to what they are at its range. A shot's odds of landing are
+the accuracy at the distance to the target, rolled when it is fired; the
+damage is read where the bolt *lands*, at the distance it flew, and comes
+off the body it lands on; a miss flies visibly wide. The **pistol**
+reaches twelve tiles, 95% falling to 65%, six a hit, one and a half a
+second. The **shotgun** reaches ten: 90% and fifty a hit out to four
+tiles, 60% and thirty at ten, one shot every four seconds. The **auto
+rifle** reaches sixteen, 85% to eight tiles and half that at the end, five
+a hit — but a pull of the trigger is a **burst** of eight in two seconds,
+then two seconds to recharge, and every shot of the burst is rolled and
+aimed afresh. The **sniper rifle** reaches thirty-five: a certain hit and
+forty-five out to twenty tiles, 70% and twenty-five at the end, a shot every four
+seconds, and its bolt is the fastest thing in the game. The **schword** is
+no gun: a blade with a laser edge, thirty-five a swing every two seconds —
+the swing takes half a second and the blow lands as it ends, so a body
+that steps back in time is missed — on whoever is within arm's reach —
+a tile and a bit — and a cut is a
+**three-unit wound** that bleeds three times what a shot does and throws
+blood over the tiles round the body. Who is an enemy is the station's
+business: at a hostile station the people living there are enemies,
+ringed in red, and `nix run .#combat` opens the game docked at one.
+**They shoot back**, each with what it was issued off the station's own
+seed — half of them the pistol, a fifth a shotgun, a few a rifle, fewer a
+sniper rifle, one in ten a schword. The moment the crew are aboard a
+hostile station its people are at war: they know where the crew are
+without seeing them, and each picks where to shoot from — against a wall
+with a peek round it for choice, otherwise as far off as its weapon
+reaches — walks there, and fires at whoever it can see from the spot; one
+with a schword charges instead, to the free tile nearest its target. Their
+shots fly in the crew's room, red, and land on the crew's own bodies: a
+hit is on the head, the body or the legs, and every hit opens a wound
+that bleeds.
+
+Two things a corridor fight turns on. **Peeking exposes the peek.** A Bim
+that aims from the peek beside a wall leans out to it, and that is where
+the enemy shoots at — but it is in cover, and a bolt reaching a body that
+is peeking is **dodged half the time** and flies on. The same for the
+enemy peeking at the crew. A line of **sandbags** is a wall a tile
+wide for this: stand beside one and you peek round its end with the same
+half of the shots missing, and every station's corridors have a
+barricade of them; a ship can build them too, under Structure. **A blade at your throat is a melee.** A Bim
+with a gun that has an enemy with a schword within arm's reach is
+**locked**: it cannot fire, and brawls with its fists instead — twenty
+every two seconds — while the blade lands its thirty-five; a Bim with a
+schword of its own is locked with anything in reach and swings. Walking
+out of reach ends it. The log says *locked in melee* the step it happens.
+A station's people are hostile or not as the galaxy was generated (the
+system map rings a hostile station red, and a crew is never started at
+one); `combat` makes the dock hostile regardless. **How many of them
+there are is up to you**: an enemy station arms two people plus one for
+every crew member, and doubles that every time the worth of your ship
+and everything in its hold has grown by another half of what you set out
+with — so a crew that has been trading and building well finds every
+enemy's dock a bigger fight than a poor one does, up to sixteen. The
+money in hand is not counted, only the ship and its cargo, and a station
+keeps the crowd you reached it with until you have left and come back.
+A crew member down is
+said in the log, and so is every hit. What a hit does to a body, and how
+it is dressed, is [Getting hurt](#getting-hurt); the enemy's people bleed
+the same way, and nobody dresses theirs.
 
 The moment a Bim is recruited its **inventory** pops up, and the tray's
 **Inventory** tab shows the same for whoever is selected, recruited or not:
-three armour slots down the left — head, body, legs — and the weapon slot
-on the right with its numbers beside it: range, accuracy at ten tiles, shot
-speed, damage a shot, fire rate, and DPS, which is the fire rate times the
-damage — what it could do a second with every shot landing. They are slots
-because changing equipment will want them to be; for now nothing can be
-moved between them, and there is no armour to put in the three.
+three armour slots down the left — head, body, legs — each with the icon
+of the piece worn there, a bar of the health it has left and its numbers
+(`+15 hp · 2 prot`); the weapon slot on the right with its icon and its
+numbers beside it, read off the two-point curve: **Range**, **Accuracy**
+("90% to 4 tiles, 60% at 10"; the pistol, with no sweet distance, reads
+"95% up close, 65% at 12 tiles"), **Damage** ("100 to 4 tiles, 60 at
+10", or "6 a shot"), **Shot speed**, **Fire rate** ("1.5 a second") or
+**Burst** ("8 in 2 s, then 2 s") and **DPS**, which is the burst times
+the fire rate times the damage — what it could do a second with every
+shot landing; a schword reads "Melee — 70 a swing every 2 s", its
+**Reach** and its DPS instead. While the Bim is locked in a melee the
+header says so — *combat mode — locked in melee*, with a `?` that
+explains the fists — and *locked in melee* sits over its name on the
+deck; and under the weapon the **pack** on the
+Bim's back, a three-by-three grid of cells that each hold one thing — a
+piece of armour, a weapon, or one unit of anything else. Beside each
+armour slot is the count of open wounds on that part of the body and a
+**Bandage** button — see the next section — and under the lot, how many
+bandages there are to hand.
+
+**Inventories are grids**, and every container aboard is looked at the
+same way. Click the **armoury** (or the drug lab — either opens the
+lockers), a **shelf** or, from its menu, **Open** on the cold store, and a
+window opens showing what the hold keeps in that class: the lockers
+fifteen by fifteen, with each piece of armour in a cell of its own and a
+sliver of its health under it and everything else the lockers keep — the
+suit, the bandages, the handguns, vests and medkits the armoury makes,
+and the shotguns, auto rifles, sniper rifles and schwords it makes now —
+as a stack with its count; the shelves twenty by
+twenty, with the ore, the metal and the components stacked; the cold
+store ten by ten, the food. The window is the class, not the cupboard: a
+second shelf is the same twenty by twenty, and a helm put away across a
+shelf turns up in the lockers' window, because the lockers are where the
+hold counts it. Clicking a container also opens the inventory of the Bim
+shown beside it and walks that Bim over, since nothing can be moved until
+it stands within **two tiles**. **Right-click** a cell for the rows —
+**Take** from a container into the pack, **Store** from the pack into a
+container, **Equip** what is in a pack cell (whatever was worn comes off
+into that cell; a weapon swaps with the one in hand), **Discard** — and
+right-click a worn slot to **Unequip** it into the pack. **Ctrl-click** is
+the quick move: a cell in a container goes straight into the pack, a cell
+in the pack straight into the open container. A row that cannot go says
+why in grey — *walk over first*, *the pack is full*, *no room left in the
+lockers* — and a ctrl-click that cannot go opens the rows instead of
+doing nothing. Every move is a command, so on every player's ship the
+hold agrees. Hover a cell and it names the thing and its numbers; what a
+worn piece does for the body wearing it is the next section.
+
+**A body that is down can be looted** — a crewmate dead or out cold, or
+one of a hostile station's people lying where the fight left them; nobody
+on their feet can be. Right-click the body and the row is **Loot** (beside
+the bandage rows for a crewmate who is only out cold). It walks your Bim
+over and opens the **Loot** window: the body's pack, three by three, and
+under it a row of four — head, body, legs, and the weapon in its hand —
+drawn like any container's grid, a worn piece with the sliver of health it
+has left. **Take** on a right-click, or ctrl-click, moves one thing into
+your Bim's pack, once it stands within two tiles and has a free cell; a
+piece comes off the body as it is, broken or not, a weapon goes into the
+pack to be equipped from there, and the stripped body draws bare. Nothing
+can be put onto a body. Down and reach are checked when the command lands,
+not when the window opened: a crewmate who comes round meanwhile is no
+longer a body — the window shuts on them — and the command is refused
+*not down*. Undock, and a station's body goes with its room.
+
+## Getting hurt
+
+A Bim's health is one bar of a hundred, and it always was; what is new is
+that the bar is **three parts added up** — the **head** (5), the **body**
+(75) and the **legs** (20) — and the panel shows the three under it, a thin
+bar each, with a fourth for **blood**. Hunger still drains and mending
+still regrows the bar as a whole, over all three in proportion, so nothing
+about going hungry has changed. A shot is what tells them apart.
+
+A shot lands on one part — one in twenty the head, three in four the body,
+one in five the legs — and takes the weapon's damage *at the distance it
+flew* off that part alone; a blow in a melee, a fist's twenty or a
+schword's thirty-five, lands the same way, on a part rolled where it lands.
+The head or the body at nothing is **death**: a laser pistol's shot is
+more than a head has, so a head shot kills. The legs at nothing is a **leg
+lost**: the Bim goes on, at half its pace, its leg health starts again
+from twenty, and the second time the legs reach nothing there are none
+left and it crawls. The panel says "One leg lost" and "No legs".
+
+Every hit, wherever it lands, opens a **wound**, and a wound bleeds until
+somebody dresses it: **ten points of blood an hour each**, out of a
+hundred, so ten open wounds bleed a Bim out in an hour and one takes ten.
+A schword's cut counts as **three** — it bleeds three times what a shot
+does, and throws blood over the tiles round the body besides — and a
+bandage still closes the lot on a part at once.
+Under half its blood the Bim walks at half pace; under three tenths it is
+**out cold** — lying where it fell, breathing, doing nothing, its errand
+put back on the queue for when it comes round — until the blood comes back;
+at nothing it is dead. Blood comes back on its own, over two days, once
+nothing is open. It shows: a dark blotch on the head, the middle of the
+coverall or the boots while that part has a wound open, **blood on the deck**
+under a Bim that is bleeding — a drop every second or so a wound, and a drop is
+a stain like any other: the tile reads **Blood** under the pointer, the broom
+takes it up, and it counts against the deck the way a mess does (see
+[Mess](#mess)) — "Bleeding · n open wounds" under the bars,
+the blood bar in red once it is low enough to slow it, and every hit and
+every crew member down written in the log.
+
+**Armour is worn over all of that**, one piece a part — a helm, kevlar,
+leg guards (*Armour* under *What the ship will make* says what each is
+made of) — and it is drawn on the Bim: a steel-blue cap over the hair, a
+dark plate over the coverall with the yoke still showing, darker boots
+with a band across the shin. A piece has a **health** of its own that is
+added to the part's — the body at 75 in a 20-health kevlar reads 95, and
+the Bim's bar 100 → 120 — and it is drawn as a **blue bar on the end of
+the green one**, the number reading `100 hp + 20 hp`, on the crew sheet's
+big bar and on each part's thin one alike. A hit on that part goes to
+the piece **first**: its **protection** comes off the damage before
+anything else, so a shot that does no more than the protection does
+nothing at all — no wound — and what is left drains the piece; only what
+the piece cannot take reaches the body, and only that opens a wound. A
+15-damage shot into a 20-health kevlar leaves the Bim untouched and the
+kevlar at 5. At nothing the piece is **broken**: still worn, drawn with a
+crack across it, doing nothing — its protection is lifted with its
+health — and worth nothing put away, so it cannot be stored or sold, only
+discarded and another made. The log says when a piece breaks. What is
+worn and what is in the pack go with the Bim and keep their damage
+wherever they go: take a dented helm off and put it away, and it is a
+dented helm in the lockers, with its health under it in the grid. Taking
+"a helm" out of the lockers takes the least damaged one there; selling
+one sells the most damaged.
+
+A **bandage** closes every wound on one part. There are two ways to order
+one, and both go through the crew member you steer:
+
+- **From the inventory** — the tab, or the pop-up that opens on
+  recruiting — for whoever is shown: each armour slot's row says how many
+  wounds are open on that part, and its **Bandage** button lights when
+  there is one and a bandage to hand.
+- **Right-click a Bim** on the deck, yourself or a crewmate, and the menu
+  is the three parts — *Bandage the head · 2 wounds* — each greyed with a
+  reason when there is nothing open there, no bandage aboard, or your Bim
+  is in no state to walk over. A crewmate out cold gets a **Loot** row
+  under them as well; a dead one, or a station's person down in the
+  corridor, has only that — see [Combat mode](#combat-mode-and-the-inventory).
+
+Either way your Bim walks to the patient (a tile off, or nowhere if it is
+dressing itself) and spends **ten minutes** with its hands on the part;
+*Dressing a wound* is on its agenda, and the bandage comes off the count
+when the ten minutes are up — provided the patient is still alive and
+within reach, since a patient that walked off is ten minutes lost. A
+bandage on a part with nothing open is refused outright as a waste. The
+bandages are the hold's: the playtest ship carries five, an orbital or a
+refinery sells them, and the **drug lab** makes one out of two fibre. The
+test room starts with three of its own so `bims room` can try it. The crew
+dress each other **on their own** as well — the **Medical** row on the Work tab
+is that, and at priority 1 it interrupts whatever they are doing; see [Work
+priorities](#work-priorities).
 
 ## Needs, and the day they make
 
@@ -1954,6 +2313,16 @@ somebody was sick on leaves a fainter patch of the same thing, not a new kind of
 mess. Only what a dirty job leaves has its own name — **grime** — and it is the
 least bad of them, so grime tracked across a ruined tile never talks the readout
 back down.
+
+**Blood is the fifth kind**, and the one that is not an accident or a job: a
+Bim with a wound open drips it where it stands, sixty off the tile a drop —
+between a wetting and a ruined tile, so a Bim standing still bleeding fouls the
+tile under it in a few drops and leaves a trail as it walks. It is drawn in its
+own dark red where the rest are brown, and it stays blood wherever a boot
+carries it, whatever else is on the tile it lands on: a pool of it is what you
+are looking for after a fight. Otherwise it is filth like the rest — the broom
+takes it up, the cleaning row comes round for it, and the crew's cleanliness
+follows it.
 
 ### Cleanliness
 
@@ -2273,9 +2642,11 @@ Relative to `crates/game/src/`:
 | `bath.rs` | The heads: its bulkheads, its door, and its fittings |
 | `dish.rs` | The dishwasher: what is in it, and the cycle it runs |
 | `needs.rs` | What the Bim wants, and the rates that shape its day |
-| `health.rs` | Going hungry, the three stages of it, and health |
+| `health.rs` | Going hungry and going without sleep, the three stages of each; the body's three parts, the blood, wounds and bandages |
 | `filth.rs` | The state of the deck, and what a mess does to the Bim |
-| `hydro.rs` | The hydroponic bay: five trays, and what goes in them |
+| `hydro.rs` | The hydroponic bay: six trays, and the three crops that go in them |
+| `sight.rs` | What each Bim can see, traced on the tile grid, and the peek round a wall |
+| `combat.rs` | Weapons, bolts, hits and shots; the enemy's choice of where to stand |
 | `manager.rs` | What the place is told to keep in stock |
 | `schedule.rs` | The day's timetable, and when it is worth obeying |
 | `task.rs` | The scripted chains — a meal, a sleep, a trip to the heads |

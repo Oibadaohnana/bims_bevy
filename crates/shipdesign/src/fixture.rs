@@ -38,7 +38,7 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// hashing differently, and a test that compares two computed values would
 /// pass happily while both were wrong. Update them only when the reference
 /// design itself is meant to change.
-pub const REFERENCE_HASH: [u64; 2] = [0x04d0_3b42_677e_0042, 0xa74c_3d81_34dd_5789];
+pub const REFERENCE_HASH: [u64; 2] = [0x59c3_4e51_1c81_3622, 0xf50f_a61f_7cc3_43f9];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -312,12 +312,12 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// target that hashed the simulation's ship differently would start a
 /// different simulation. Update it only when the ship below is meant to
 /// change.
-pub const PLAYTEST_HASH: u64 = 0x64f2_2b5f_6b72_08cb;
+pub const PLAYTEST_HASH: u64 = 0x876e_1406_4029_c48e;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
 /// reason [`REFERENCE_PARTS`] gives.
-pub const PLAYTEST_PARTS: u32 = 641;
+pub const PLAYTEST_PARTS: u32 = 647;
 
 /// The playtest hull, as columns of the grid: the west skin and the east,
 /// the bow row and the stern row. Sixteen tiles across and eighteen long,
@@ -357,7 +357,7 @@ const PLAYTEST_ENGINE_TILES: [(u32, u32); 2] = [(9, 18), (10, 18)];
 
 /// Where the playtest ship's conduit leaves its spine, column 8. See
 /// [`playtest_ship`].
-const PLAYTEST_BRANCHES: [(u32, u32); 38] = [
+const PLAYTEST_BRANCHES: [(u32, u32); 42] = [
     // the reactor, along row 16 to the spine
     (4, 16),
     (5, 16),
@@ -403,15 +403,26 @@ const PLAYTEST_BRANCHES: [(u32, u32); 38] = [
     (13, 13),
     (14, 13),
     (15, 13),
+    // the armoury, down from life support's run through the bulkhead,
+    // and the second reactor, one tile up from the aft door's run
+    (14, 5),
+    (14, 6),
+    (14, 7),
+    (13, 12),
 ];
 
 /// What the playtest ship carries besides a full tank: enough metal and
 /// components to build with, some ore for the smelter, a few days of food,
-/// one suit in the locker, and a few bandages with the fibre for a few
-/// more, so a wound can be dressed from the first minute and the lab
-/// tried. Bought through [`apply`], so the shelf, the cold store and the
-/// locker are what bound it.
-pub const PLAYTEST_CARGO: [(ResourceId, u32); 9] = [
+/// one suit in the locker, a few bandages with the fibre for a few more,
+/// so a wound can be dressed from the first minute and the lab tried,
+/// one piece of armour for each part of the body, so the armoury's grid
+/// has something in it to equip, and one of each weapon after the
+/// handgun, so every gun and the schword can be put in a hand without
+/// first being made. Bought through [`apply`], so the shelf, the cold
+/// store and the locker are what bound it — and the locker class is the
+/// suit locker, the drug lab's cabinet and the armoury's between them,
+/// which is what makes room for the armour and the weapons.
+pub const PLAYTEST_CARGO: [(ResourceId, u32); 16] = [
     (ResourceId::Fuel, 200),
     (ResourceId::Metal, 60),
     (ResourceId::Components, 40),
@@ -421,6 +432,13 @@ pub const PLAYTEST_CARGO: [(ResourceId, u32); 9] = [
     (ResourceId::Suit, 1),
     (ResourceId::Bandage, 5),
     (ResourceId::Fibre, 6),
+    (ResourceId::Helm, 1),
+    (ResourceId::Kevlar, 1),
+    (ResourceId::LegGuard, 1),
+    (ResourceId::Shotgun, 1),
+    (ResourceId::AutoRifle, 1),
+    (ResourceId::SniperRifle, 1),
+    (ResourceId::Schword, 1),
 ];
 
 /// Whether a tile of the playtest grid is inside the hull's outline —
@@ -463,10 +481,10 @@ fn playtest_skin(x: u32, y: u32) -> bool {
 ///
 /// It is laid out the way a small ship would be: a pointed bow with the
 /// bridge in it, the main deck amidships with the galley to port and the
-/// bunk and the airlock to starboard, and engineering aft — the tank and
-/// the reactor, the heads, a shelf of stores, and the main engine set into
-/// the stern so its bell is the stern. Three compartments, and every
-/// doorway and every gangway two tiles wide, because the room's
+/// armoury, the bunk and the airlock to starboard, and engineering aft —
+/// the tank and the reactor, the heads, a shelf of stores, and the main
+/// engine set into the stern so its bell is the stern. Three compartments,
+/// and every doorway and every gangway two tiles wide, because the room's
 /// navigation cannot walk a one-tile gap (see the crate's module note);
 /// a fixture whose use spot can only be reached down a one-tile channel is
 /// a Bim frozen in front of it.
@@ -479,9 +497,10 @@ fn playtest_skin(x: u32, y: u32) -> bool {
 /// bulkheads `=`, doors `+`, deck `.`, and the first letter of everything
 /// else (`T` thruster, `S` sensor array, `A` airlock, `E` engine, `H` helm,
 /// `L` life support, `B` battery, then `C` cold store, `W` worktop, `H` hob,
-/// `D` dishwasher, `B` locker, `T` table, `C` chair, `H` bay, `B` bunk,
-/// `F` tank, `S` shelf, `T` toilet, `B` basin, `S` shower, `R` reactor,
-/// `D` drug lab, `W` workbench, `S` smelter):
+/// `D` dishwasher, `B` locker, `S` suit locker, `A` armoury, `T` table,
+/// `C` chair, `H` bay, `R` its reactor, `B` bunk, `F` tank, `S` shelf,
+/// `T` toilet, `B` basin, `S` shower, `R` reactor, `D` drug lab, `W`
+/// workbench, `S` smelter):
 ///
 /// ```text
 ///  1       \##S###/
@@ -490,12 +509,12 @@ fn playtest_skin(x: u32, y: u32) -> bool {
 ///  4    \B.........LL/
 ///  5   \...........LL./
 ///  6   #======++======#
-///  7   TCWWHD...B.....T
+///  7   TCWWHD...BS.AA.T
 ///  8   #.............B#
 ///  9   #.............B#
 /// 10   #.TT...HHHHHH..#
-/// 11   #.C............A
-/// 12   #..............A
+/// 11   #.C........RR..A
+/// 12   #..........RR..A
 /// 13   #============++#
 /// 14   #FF.SS...TBS...#
 /// 15   #FF............#
@@ -614,6 +633,14 @@ pub fn playtest_ship() -> ShipDesign {
     put(&mut design, PartKind::Chair, (4, 11), Rotation::R0);
     put(&mut design, PartKind::HydroBay, (9, 10), Rotation::R0);
     put(&mut design, PartKind::Bunk, (16, 8), Rotation::R0);
+    // The armoury along the bridge bulkhead to starboard, forward of the
+    // bunk and worked from the row below it like the galley; and the
+    // second reactor that pays for it, under the bay by the airlock. The
+    // first reactor had three units to spare and the armoury draws ten
+    // (see "Power is a column" in the crate's notes), so a fourth bench
+    // was always going to be a second reactor.
+    put(&mut design, PartKind::Armoury, (14, 7), Rotation::R0);
+    put(&mut design, PartKind::Reactor, (13, 11), Rotation::R0);
 
     // Engineering: the tank and the reactor down the port side, the tank
     // turned so it is filled from the gangway rather than from the reactor;
@@ -656,6 +683,62 @@ pub fn playtest_ship() -> ShipDesign {
         }
     }
 
+    design
+}
+
+/// How many crew the combat ship sleeps: one for each kind of weapon, so
+/// every gun is in a hand at once.
+pub const COMBAT_CREW: u32 = 5;
+
+/// Where [`combat_ship`] puts its four extra bunks: on the bridge, the one
+/// compartment with room for them — the main deck's aft rows are two deep
+/// above the bulkhead, and a bunk there seals a pocket of deck. One lies
+/// along the bow to port, got into from the row below; two stand against
+/// the life support to starboard, got into from the west; one stands
+/// beside the battery to port, got into from the east — each with a
+/// two-tile gangway to it, since the room's navigation cannot walk a
+/// one-tile gap. The pilot's spot and the doorway stay clear.
+pub const COMBAT_BUNKS: [((u32, u32), Rotation); 4] = [
+    ((6, 2), Rotation::R270),
+    ((13, 2), Rotation::R0),
+    ((13, 4), Rotation::R0),
+    ((5, 4), Rotation::R180),
+];
+
+/// Where [`combat_ship`] puts its four extra chairs: the table's other
+/// seat, and three along the aft bulkhead of the main deck. A chair is a
+/// seat and blocks nothing, so the mess is where the seats are.
+pub const COMBAT_CHAIRS: [(u32, u32); 4] = [(5, 11), (6, 12), (7, 12), (8, 12)];
+
+/// [`playtest_ship`] with a bunk and a chair for each of a crew of
+/// [`COMBAT_CREW`]: the same ship, the same cargo, four more bunks at
+/// [`COMBAT_BUNKS`] and four more chairs at [`COMBAT_CHAIRS`]. It is what
+/// the `combat` command opens on — five crew, a different gun in each
+/// hand — and nothing else, so its hash is not pinned: it is the
+/// playtest ship with eight parts added, and
+/// `the_combat_ship_sleeps_a_crew_of_five` in the tests counts them.
+pub fn combat_ship() -> ShipDesign {
+    let budget = Budget::new(REFERENCE_POOL);
+    let mut design = playtest_ship();
+    let bunks = COMBAT_BUNKS
+        .iter()
+        .map(|&(origin, rotation)| (PartKind::Bunk, origin, rotation));
+    let chairs = COMBAT_CHAIRS
+        .iter()
+        .map(|&origin| (PartKind::Chair, origin, Rotation::R0));
+    for (kind, origin, rotation) in bunks.chain(chairs) {
+        if let Ok(next) = apply(
+            &design,
+            &budget,
+            Edit::Place {
+                kind,
+                origin,
+                rotation,
+            },
+        ) {
+            design = next;
+        }
+    }
     design
 }
 

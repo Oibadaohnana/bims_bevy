@@ -44,6 +44,16 @@ pub const FOULED: f32 = -100.0;
 /// wetting one is bad without being the worst there is.
 const WET_COST: f32 = 35.0;
 const RUINED: f32 = BASELINE - FOULED;
+/// What one drop of blood takes off the tile it lands on: between a
+/// wetting and a ruined tile. A single drop already spoils the food made
+/// beside it — see [`SPOILS_FOOD`] — and a Bim standing still with a wound
+/// open fouls the tile under it in a few drops, which is what a pool of
+/// blood on the deck is. It is filth like the rest: the broom takes it up,
+/// `dirty_tiles` counts it and the cleanliness need follows it.
+pub const BLOOD_COST: f32 = 60.0;
+/// How many tiles a cut splashes blood over, the one under the body
+/// included: three to five.
+pub const SPLASH_TILES: (u32, u32) = (3, 5);
 
 /// How far around itself the Bim notices, in tiles. Three either way, so a
 /// seven by seven block.
@@ -137,6 +147,10 @@ const FOULED_RELIEF: f32 = 1.0;
 /// out of place on a deck that is otherwise grey and cyan.
 const MESS: Color = Color::rgb(0.31, 0.24, 0.11);
 const MESS_DARK: Color = Color::rgb(0.20, 0.15, 0.07);
+/// Blood is the one kind drawn in its own colour — a dark red for the wash
+/// and the blobs alike — because a pool of it beside a body has to read as
+/// what it is and not as somebody having been sick there.
+const BLOOD: Color = Color::rgb(0.45, 0.04, 0.05);
 /// The alpha a fouled tile reaches. Short of opaque: the deck seams should
 /// still show through, or the tile reads as a hole in the floor.
 const MESS_ALPHA: f32 = 0.72;
@@ -196,13 +210,20 @@ impl Discomfort {
 /// [`Mess::Grime`] is the one that is not an accident. Cooking, planting and
 /// lifting all flick something onto the deck around them, and boots carry it
 /// on from there — see [`Filth::spatter`] and [`Filth::track`].
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+///
+/// [`Mess::Blood`] is what a bleeding Bim drips (`Bim::tick_drips`), and it
+/// is **last** on purpose, code appended and ordering with it: blood
+/// dripped onto, or walked off a tile onto, any other mess reads as blood,
+/// because a pool of it is what the player is looking for after a fight,
+/// and a print off a bloody tile is a bloody print rather than grime.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Mess {
     None,
     Grime,
     Wet,
     Soiled,
     Sick,
+    Blood,
 }
 
 impl Mess {
@@ -560,7 +581,9 @@ impl Filth {
     ///
     /// What comes with it is a share of the score and the name that goes with
     /// it: a boot out of a fouled tile leaves a smear of the same thing, not
-    /// a fresh kind of mess.
+    /// a fresh kind of mess. Blood in particular stays blood wherever it is
+    /// walked to — it is last in the ordering for exactly that, so the
+    /// worst-of rule below is the rule for the rest and blood wins outright.
     pub fn track(&mut self, from: Vec2, to: Vec2, rng: &mut Rng) -> bool {
         let (fc, fr) = self.cell(from);
         let (tc, tr) = self.cell(to);
@@ -685,6 +708,45 @@ impl Filth {
         self.soil(at, RUINED, Mess::Sick);
     }
 
+    /// A cut opens: blood over [`SPLASH_TILES`] of the nine round `at`,
+    /// the tile under the body always among them, a drop's worth each. A
+    /// shot wound only drips (`Bim::tick_drips`); a blade throws it about,
+    /// which is what a fight with one leaves on the deck. `can_get_to` is
+    /// [`Filth::spatter`]'s filter, for the same reason it has one: blood
+    /// flung under the lip of a counter is blood the broom never reaches.
+    /// The rolls are the caller's stream — a cut is a fight, and no
+    /// seed-pinned probe has one.
+    pub fn splash_blood(&mut self, at: Vec2, rng: &mut Rng, can_get_to: impl Fn(Vec2) -> bool) {
+        self.soil(at, BLOOD_COST, Mess::Blood);
+        let (c0, r0) = self.cell(at);
+        let mut choices = [vec2(0.0, 0.0); 8];
+        let mut found = 0;
+        for dr in -1..=1 {
+            for dc in -1..=1 {
+                if (dc, dr) == (0, 0) || self.index(c0 + dc, r0 + dr).is_none() {
+                    continue;
+                }
+                let tile = self.centre(c0 + dc, r0 + dr);
+                if !can_get_to(tile) {
+                    continue;
+                }
+                choices[found] = tile;
+                found += 1;
+            }
+        }
+        let (lo, hi) = SPLASH_TILES;
+        let mut want = (lo + rng.below(hi - lo + 1)).saturating_sub(1) as usize;
+        // Each of the rest picked out of what is left, so no tile is hit
+        // twice and the count is the count.
+        while want > 0 && found > 0 {
+            let i = rng.below(found as u32) as usize;
+            self.soil(choices[i], BLOOD_COST, Mess::Blood);
+            choices[i] = choices[found - 1];
+            found -= 1;
+            want -= 1;
+        }
+    }
+
     // --- drawing ----------------------------------------------------------
 
     /// Under everything: the mess is on the deck, so the Bim walks over it.
@@ -711,12 +773,19 @@ impl Filth {
                     .clamp(0.0, 1.0)
                     .sqrt();
                 let at = self.centre(c, r);
+                // The colour is the kind's: blood is red, everything else
+                // the one brown.
+                let (wash, blob) = if self.kinds[i] == Mess::Blood {
+                    (BLOOD, BLOOD)
+                } else {
+                    (MESS, MESS_DARK)
+                };
                 list.rect(
                     at,
                     vec2(TILE, TILE),
                     0.0,
                     6.0,
-                    MESS.alpha(MESS_ALPHA * deep * 0.55),
+                    wash.alpha(MESS_ALPHA * deep * 0.55),
                 );
                 // A few blobs on top, placed off the tile's own coordinates so
                 // they stay put between frames without anything being stored.
@@ -729,7 +798,7 @@ impl Filth {
                         at + off,
                         vec2(size, size * 0.8),
                         h,
-                        MESS_DARK.alpha(MESS_ALPHA * deep),
+                        blob.alpha(MESS_ALPHA * deep),
                     );
                 }
             }

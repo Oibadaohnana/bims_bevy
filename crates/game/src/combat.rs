@@ -1,7 +1,7 @@
 //! Arms, armour, and the shots in the air.
 //!
-//! Every Bim carries a [`Gear`]: three armour slots, empty so far, and a
-//! weapon slot with the hand laser everybody is issued. A Bim under orders
+//! Every Bim carries a [`Gear`]: three armour slots, a weapon slot with
+//! the hand laser everybody is issued, and a nine-cell pack. A Bim under orders
 //! — recruited — is in **combat mode**: it draws the weapon and, whenever
 //! an enemy is in range and in its own line of sight (`crate::sight`, the
 //! peek round a wall included), fires. The shot is a [`Bolt`]: a thing
@@ -24,32 +24,93 @@
 //! room, a hit on one of our own goes onto [`Combat::wounds_taken`] and
 //! the game applies it itself. A [`Hit`] carries the **part** it landed
 //! on, rolled from the combat stream the instant the bolt reaches the body
-//! ([`crate::health::Part::hit_by`]).
+//! ([`crate::health::Part::hit_by`]), and the **damage**, worked out then
+//! too: a weapon's damage falls off with the distance the bolt has flown
+//! ([`WeaponStats::damage_at`]), and the bolt remembers where it was fired
+//! from for exactly that.
+//!
+//! # Melee: a lock is a distance
+//!
+//! The schword is a blade, and a blade is used within [`MELEE_RANGE`]. A
+//! body with a melee weapon swings at any enemy that close; and a body
+//! with a gun that has a *melee* enemy that close is **locked** — it
+//! cannot fire, and brawls with its fists ([`FIST_DAMAGE`]) instead. Either
+//! starts a blow every [`MELEE_PERIOD`] seconds — a [`Blow`], which
+//! lands when the swing's animation ends (`crate::character::SWING_TIME`,
+//! half a second on) and only if the target is still within reach then
+//! — as [`Combat::brawl`], which is a [`Hit`] straight onto the hits in
+//! the crew's room, or a melee [`Shot`] in a hostile one for the world to
+//! deliver — no bolt, since a blow has nothing to fly. The lock is
+//! nothing but the distance: walking out of reach ends it, and a swing
+//! already begun then lands on nobody. A schword's wound is a **cut**, which bleeds
+//! three times what a shot does (`crate::health`), and `Hit` and `Shot`
+//! carry whether they are one. The world says which of the targets carry
+//! a blade: each target comes with its weapon kind.
+//!
+//! # A peek exposes the peek
+//!
+//! A body aiming from a peek beside a wall (`crate::sight`) leans out to
+//! do it, and is shot at where it leans: the world hands the enemies the
+//! peek position while it peeks (`Game::exposed_at`). Being in cover, a
+//! bolt reaching it is **dodged** half the time ([`DODGE_IN_COVER`]) and
+//! flies on past. The same for an enemy peeking at the crew — the world
+//! says which targets are (`Game::set_hostiles_peeking`).
 //!
 //! # The enemy's tactics
 //!
 //! An enemy knows where the crew are — the world tells its room, the way
 //! it tells the crew's — and [`Tactics::stand`] is where it chooses to
-//! stand: a spot in range of a crew member from which it can shoot, and
-//! for choice one **against a wall** where only the peek round it sees the
-//! target, so the target's own shot has a wall in the way. Cover first,
-//! then the open at the greatest distance the weapon reaches, less a
-//! little for every tile of walking; the spot it stands on already gets a
-//! bonus so it does not dither between two as good as each other.
+//! stand, scored in **tiles of walking** so the trade-offs are numbers:
+//! a spot in range of a crew member from which it can shoot, and for
+//! choice one **against a wall** where only the peek round it sees the
+//! target, so the target's own shot has a wall in the way — cover, worth
+//! walking [`COVER_WORTH`] tiles for, which is what makes it take the
+//! cover near it and not the cover across the station. On top of that
+//! the weapon in its hand **plays to its strength** ([`Tactics::fit`]):
+//! what it would do a second at that distance against what the target's
+//! weapon would do back, so a sniper rifle hangs back at twenty tiles
+//! where the pistol has run out, a shotgun closes to four, an auto rifle
+//! stands just beyond a pistol's reach, and any gun keeps out of a
+//! blade's; two pistols are a match and keeping away is what is left.
+//! Less half a tile a tile of walking, and the spot it stands on already
+//! gets a bonus so it does not dither. It **shoots when it can**: on the
+//! move too, from its own eyes, without turning off its route — the crew
+//! hold their fire while they walk, since a walk has the facing. A
+//! schword's tactics are a **charge**: the free cell nearest the nearest
+//! target, and cover be damned.
 //!
 //! No strings: a weapon is a code and its stats are numbers, and the app
 //! names them (`WEAPON_NAMES`, `ARMOUR_NAMES` in `crates/app/src/names.rs`).
 //!
-//! # Accuracy is a number at ten tiles
+//! # Armour is clothes, and a piece is a thing
 //!
-//! A weapon's `accuracy` is its odds of a hit on a body **ten tiles away**
-//! — [`ACCURACY_RANGE`] — and the odds fall off with distance from there:
-//! `accuracy ^ (tiles / 10)`, so a 70% pistol is about 84% at five tiles
-//! and 49% at twenty. A shot that is going to hit is aimed at the body; one
-//! that is going to miss is aimed a little wide of it and flies past,
-//! which is what a miss should look like. The roll is drawn from the
+//! A piece of armour ([`Piece`]) goes on the part it is cut for
+//! ([`ArmourKind::slot`]) and stands between that part and a hit: its
+//! **protection** comes off every hit's damage before anything else, and
+//! what is left drains the piece's own **health** first — only what the
+//! piece cannot take reaches the body and opens a wound (`Game::wound`).
+//! At nothing the piece is **broken**: still worn, still drawn, doing
+//! nothing. A piece keeps its damage wherever it goes — into the pack, the
+//! hold, another Bim — which is why it has an `id` and is carried about
+//! as an [`Item`] rather than counted. The world keeps the pieces in the
+//! hold; the room keeps the ones on a body (`Gear::pack`, the three
+//! slots), because the room's health reads them.
+//!
+//! # Accuracy and damage are two points and a line
+//!
+//! A weapon's odds of a hit are `accuracy` out to `sweet` tiles and
+//! `accuracy_far` at `range`, a straight line between, and the same for
+//! `damage` and `damage_far` ([`WeaponStats::hit_chance`],
+//! [`WeaponStats::damage_at`]): a shotgun does everything it can at four
+//! tiles and a good deal less at ten, a sniper rifle cannot miss at twenty
+//! and can at thirty-five. A shot that is going to hit is aimed at the
+//! body; one that is going to miss is aimed a little wide of it and flies
+//! past, which is what a miss should look like. The roll is drawn from the
 //! combat's own stream, so a fight re-rolls nothing in the rest of the
 //! room — see `crates/game/CLAUDE.md` on what re-rolling does to probes.
+//! A `burst` is several shots to one trigger pull, `burst_gap` apart,
+//! each rolled on its own; `fire_rate` is then the rate of trigger pulls,
+//! and [`WeaponStats::dps`] counts the burst in.
 //!
 //! # Time
 //!
@@ -57,16 +118,15 @@
 //! are per real second at 1x and the world's 24x is twenty-four times as
 //! fast, the way everything else aboard is.
 
+use crate::balance;
+use crate::door;
 use crate::draw::{Color, DrawList};
 use crate::health::Part;
-use crate::math::Vec2;
+use crate::math::{Rect, Vec2};
 use crate::nav::Nav;
 use crate::rng::Rng;
 use crate::room::TILE;
 use crate::sight::Sight;
-
-/// The distance a weapon's accuracy is quoted at, in tiles.
-pub const ACCURACY_RANGE: f32 = 10.0;
 
 /// How near a bolt has to pass a body's middle to hit it, in room units:
 /// the body's own half-width, near enough.
@@ -76,19 +136,34 @@ pub const HIT_RADIUS: f32 = 17.0;
 /// radius by a clear margin, so a miss visibly whistles by.
 const MISS_BY: f32 = HIT_RADIUS + 22.0;
 
-/// How long a bolt is drawn, in room units, and how thick.
+/// The melee's numbers, kept with every other number of the fight in
+/// `crate::balance` and read from here as they always were.
+pub use crate::balance::{DODGE_IN_COVER, FIST_DAMAGE, MELEE_PERIOD, MELEE_RANGE};
+
+/// How long a pistol's bolt is drawn, in room units, and how thick.
 const BOLT_LENGTH: f32 = 42.0;
 const BOLT_CORE: f32 = 3.5;
 const BOLT_GLOW: f32 = 11.0;
+/// The shotgun's pellets: five short ones fanned about the flight.
+const PELLETS: usize = 5;
+const PELLET_LENGTH: f32 = 14.0;
+const PELLET_SPREAD: f32 = 6.0 * (std::f32::consts::PI / 180.0);
+/// The rifle's tracer, short and thin, and the sniper's streak, long.
+const TRACER_LENGTH: f32 = 26.0;
+const STREAK_LENGTH: f32 = 90.0;
 
 /// How long the flash where a bolt lands lasts, in seconds.
 const SPARK_LIFE: f32 = 0.18;
 
 /// Friendly fire is blue and an enemy's is red — always, so a glance at
-/// the air says who is shooting whom.
+/// the air says who is shooting whom. The other guns' colours are mixed
+/// with the side's, so the tint still says whose it is.
 pub const FRIENDLY_BOLT: Color = Color::rgb(0.40, 0.72, 1.0);
 pub const HOSTILE_BOLT: Color = Color::rgb(1.0, 0.28, 0.22);
 const BOLT_CORE_WHITE: Color = Color::rgb(0.92, 0.97, 1.0);
+const PELLET: Color = Color::rgb(1.0, 0.62, 0.25);
+const TRACER: Color = Color::rgb(1.0, 0.92, 0.35);
+const STREAK: Color = Color::rgb(0.80, 0.92, 1.0);
 
 /// What a Bim can shoot with. The discriminants are the codes the app
 /// names, written out so a reordering cannot renumber anything; `0` is
@@ -98,26 +173,64 @@ const BOLT_CORE_WHITE: Color = Color::rgb(0.92, 0.97, 1.0);
 pub enum WeaponKind {
     /// The hand laser everybody starts with.
     LaserPistol = 1,
+    /// Close and hard: everything it has inside four tiles, little past ten.
+    Shotgun = 2,
+    /// Eight light shots to a trigger pull, then a wait to recharge.
+    AutoRifle = 3,
+    /// Cannot miss at twenty tiles, and still shoots at thirty-five.
+    SniperRifle = 4,
+    /// A blade with a laser edge: used within reach, and a cut bleeds.
+    Schword = 5,
 }
 
 impl WeaponKind {
-    pub const ALL: [WeaponKind; 1] = [WeaponKind::LaserPistol];
+    pub const ALL: [WeaponKind; 5] = [
+        WeaponKind::LaserPistol,
+        WeaponKind::Shotgun,
+        WeaponKind::AutoRifle,
+        WeaponKind::SniperRifle,
+        WeaponKind::Schword,
+    ];
 
     pub fn code(self) -> u32 {
         self as u32
     }
 
-    /// The weapon's numbers. One table, here, for a native server to
-    /// agree with.
+    pub fn from_code(code: u32) -> Option<WeaponKind> {
+        WeaponKind::ALL.iter().copied().find(|k| k.code() == code)
+    }
+
+    /// What the weapon is in the hold: the `ResourceId` code, the way a
+    /// piece of armour has one ([`ArmourKind::resource`]) — a number,
+    /// since this crate does not know `physics`.
+    pub fn resource(self) -> u32 {
+        match self {
+            WeaponKind::LaserPistol => 9,
+            WeaponKind::Shotgun => 18,
+            WeaponKind::AutoRifle => 19,
+            WeaponKind::SniperRifle => 20,
+            WeaponKind::Schword => 21,
+        }
+    }
+
+    /// The weapon a resource code is, if it is one.
+    pub fn from_resource(code: u32) -> Option<WeaponKind> {
+        WeaponKind::ALL
+            .iter()
+            .copied()
+            .find(|k| k.resource() == code)
+    }
+
+    /// The weapon's numbers: one table, `crate::balance`, for a native
+    /// server to agree with and for tuning. See the module note on the
+    /// two-point curves.
     pub fn stats(self) -> WeaponStats {
         match self {
-            WeaponKind::LaserPistol => WeaponStats {
-                range: 12.0,
-                accuracy: 0.70,
-                speed: 18.0,
-                damage: 12.0,
-                fire_rate: 1.5,
-            },
+            WeaponKind::LaserPistol => balance::LASER_PISTOL,
+            WeaponKind::Shotgun => balance::SHOTGUN,
+            WeaponKind::AutoRifle => balance::AUTO_RIFLE,
+            WeaponKind::SniperRifle => balance::SNIPER_RIFLE,
+            WeaponKind::Schword => balance::SCHWORD,
         }
     }
 }
@@ -128,25 +241,65 @@ pub struct WeaponStats {
     /// How far it reaches, in tiles. Nothing beyond is shot at, and a bolt
     /// dies there.
     pub range: f32,
-    /// Odds of a hit at [`ACCURACY_RANGE`] tiles, 0 to 1.
+    /// Out to this many tiles it does its best; from here to `range` the
+    /// odds and the damage fall in a straight line to the `_far` numbers.
+    pub sweet: f32,
+    /// Odds of a hit within `sweet`, 0 to 1, and at `range`.
     pub accuracy: f32,
+    pub accuracy_far: f32,
+    /// Health points taken off per shot that lands, within `sweet` and at
+    /// `range`.
+    pub damage: f32,
+    pub damage_far: f32,
     /// How fast the shot flies, in tiles a second.
     pub speed: f32,
-    /// Health points taken off per shot that lands.
-    pub damage: f32,
-    /// Shots a second.
+    /// Trigger pulls a second.
     pub fire_rate: f32,
+    /// Shots a trigger pull, `burst_gap` seconds apart.
+    pub burst: u32,
+    pub burst_gap: f32,
+    /// A blade: swung within `range`, never fired.
+    pub melee: bool,
 }
 
 impl WeaponStats {
-    /// What it could do a second with every shot landing.
+    /// What it could do a second with every shot landing, at its best:
+    /// the burst, the damage and the trigger rate multiplied.
     pub fn dps(&self) -> f32 {
-        self.fire_rate * self.damage
+        self.burst as f32 * self.fire_rate * self.damage
     }
 
     /// Odds of a hit on a body `tiles` away. See the module note.
     pub fn hit_chance(&self, tiles: f32) -> f32 {
-        self.accuracy.powf(tiles.max(0.0) / ACCURACY_RANGE)
+        self.along(tiles, self.accuracy, self.accuracy_far)
+    }
+
+    /// What a shot landing on a body `tiles` away takes off it.
+    pub fn damage_at(&self, tiles: f32) -> f32 {
+        self.along(tiles, self.damage, self.damage_far)
+    }
+
+    /// What it would do a second to a body `tiles` away with the odds
+    /// taken in: the burst, the trigger rate, and the damage and the hit
+    /// chance at that distance. Nothing beyond the reach — a blade is
+    /// nothing past arm's length. What the tactics weigh a distance by.
+    pub fn dps_at(&self, tiles: f32) -> f32 {
+        if tiles > self.range {
+            return 0.0;
+        }
+        self.burst as f32 * self.fire_rate * self.damage_at(tiles) * self.hit_chance(tiles)
+    }
+
+    /// `near` out to `sweet`, `far` at `range`, a straight line between.
+    fn along(&self, tiles: f32, near: f32, far: f32) -> f32 {
+        let span = self.range - self.sweet;
+        if tiles <= self.sweet || span <= 0.0 {
+            near
+        } else if tiles >= self.range {
+            far
+        } else {
+            near + (far - near) * ((tiles - self.sweet) / span)
+        }
     }
 
     /// Range and speed in room units.
@@ -158,37 +311,319 @@ impl WeaponStats {
         self.speed * TILE
     }
 }
-
-/// What a Bim can wear. Nothing yet: the slots exist so the inventory has
-/// somewhere to put a helmet when there is one. An empty enum, so that the
-/// name table pins to nought and grows with it.
+/// What a Bim can wear. The discriminants are the codes the app names
+/// (`ARMOUR_NAMES`), written out like the weapons'; `0` is the empty
+/// slot. Each is cut for one part — see [`ArmourKind::slot`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ArmourKind {}
+#[repr(u32)]
+pub enum ArmourKind {
+    /// A steel cap: the head.
+    BasicHelm = 1,
+    /// A plate vest: the body.
+    BasicKevlar = 2,
+    /// Shin guards over the boots: the legs.
+    BasicLegs = 3,
+}
 
 impl ArmourKind {
+    pub const ALL: [ArmourKind; 3] = [
+        ArmourKind::BasicHelm,
+        ArmourKind::BasicKevlar,
+        ArmourKind::BasicLegs,
+    ];
+
     pub fn code(self) -> u32 {
-        match self {}
+        self as u32
+    }
+
+    pub fn from_code(code: u32) -> Option<ArmourKind> {
+        ArmourKind::ALL.iter().copied().find(|k| k.code() == code)
+    }
+
+    /// The part it goes on. One piece a part, and the three kinds are one
+    /// each, so the slot is the kind's and never a choice.
+    pub fn slot(self) -> Part {
+        match self {
+            ArmourKind::BasicHelm => Part::Head,
+            ArmourKind::BasicKevlar => Part::Body,
+            ArmourKind::BasicLegs => Part::Legs,
+        }
+    }
+
+    /// What the piece is in the hold: the `ResourceId` code, since a piece
+    /// in a container is a resource and one anywhere else is an instance.
+    /// A code and not the id — this crate does not know `physics`, and a
+    /// number is enough for the world to match the two.
+    pub fn resource(self) -> u32 {
+        match self {
+            ArmourKind::BasicHelm => 15,
+            ArmourKind::BasicKevlar => 16,
+            ArmourKind::BasicLegs => 17,
+        }
+    }
+
+    /// The piece's numbers: in `crate::balance`, like the weapons'.
+    pub fn stats(self) -> ArmourStats {
+        match self {
+            ArmourKind::BasicHelm => balance::BASIC_HELM,
+            ArmourKind::BasicKevlar => balance::BASIC_KEVLAR,
+            ArmourKind::BasicLegs => balance::BASIC_LEGS,
+        }
     }
 }
 
-/// What one Bim has on it: three armour slots, top to bottom, and the
-/// weapon in its hand.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// What a piece of armour does, in health points.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ArmourStats {
+    /// What the piece can take before it is broken, and what it adds to
+    /// the part's health while it is whole.
+    pub health: f32,
+    /// Taken off every hit's damage before anything else, while whole.
+    pub protection: f32,
+}
+
+/// One piece of armour, wherever it is: its `id` (the world's, only ever
+/// climbing, so a piece is the same piece in the hold and on a body), what
+/// it is, and what it has left. See the module note.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Piece {
+    pub id: u32,
+    pub kind: ArmourKind,
+    pub health: f32,
+}
+
+impl Piece {
+    /// A fresh piece, whole.
+    pub fn new(id: u32, kind: ArmourKind) -> Piece {
+        Piece {
+            id,
+            kind,
+            health: kind.stats().health,
+        }
+    }
+
+    /// Worn out: still worn, doing nothing.
+    pub fn broken(&self) -> bool {
+        self.health <= 0.0
+    }
+
+    /// What it takes off a hit: the kind's protection, or nothing once it
+    /// is broken.
+    pub fn effective_protection(&self) -> f32 {
+        if self.broken() {
+            0.0
+        } else {
+            self.kind.stats().protection
+        }
+    }
+
+    /// What it adds to the part's health: what it has left, or nothing
+    /// once it is broken.
+    pub fn bonus(&self) -> f32 {
+        if self.broken() { 0.0 } else { self.health }
+    }
+}
+
+/// One thing in a pack cell: a piece of armour, a weapon, or one unit of a
+/// resource by its `ResourceId` code (a bandage, a medkit — the world
+/// knows what the number is; the room only carries it).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Item {
+    Armour(Piece),
+    Weapon(WeaponKind),
+    Stack(u32),
+}
+
+/// How many cells a Bim's pack has: three by three.
+pub const PACK_CELLS: usize = 9;
+
+/// How many cells a body shows when it is looted: the pack's nine, then
+/// the three worn pieces and the weapon in hand — see [`LootCell`].
+pub const LOOT_CELLS: usize = PACK_CELLS + 4;
+
+/// One cell of what a body shows when it is looted, in the order the Loot
+/// window lays them out: the nine of its pack, then the head, the body,
+/// the legs and the weapon in hand. `code()` is that order — 0..8 the
+/// pack, then 9, 10, 11, 12 — which is what a `Command::Loot` names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LootCell {
+    Pack(u8),
+    Head,
+    Body,
+    Legs,
+    Weapon,
+}
+
+impl LootCell {
+    pub fn code(self) -> u32 {
+        match self {
+            LootCell::Pack(cell) => cell as u32,
+            LootCell::Head => PACK_CELLS as u32,
+            LootCell::Body => PACK_CELLS as u32 + 1,
+            LootCell::Legs => PACK_CELLS as u32 + 2,
+            LootCell::Weapon => PACK_CELLS as u32 + 3,
+        }
+    }
+
+    pub fn from_code(code: u32) -> Option<LootCell> {
+        match code {
+            c if (c as usize) < PACK_CELLS => Some(LootCell::Pack(c as u8)),
+            c if c == PACK_CELLS as u32 => Some(LootCell::Head),
+            c if c == PACK_CELLS as u32 + 1 => Some(LootCell::Body),
+            c if c == PACK_CELLS as u32 + 2 => Some(LootCell::Legs),
+            c if c == PACK_CELLS as u32 + 3 => Some(LootCell::Weapon),
+            _ => None,
+        }
+    }
+}
+
+/// What one Bim has on it: three armour slots, top to bottom, the weapon
+/// in its hand, and the pack on its back — nine cells, one item each,
+/// indexed the way the app lays the grid out (row by row).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct Gear {
-    pub head: Option<ArmourKind>,
-    pub body: Option<ArmourKind>,
-    pub legs: Option<ArmourKind>,
+    pub head: Option<Piece>,
+    pub body: Option<Piece>,
+    pub legs: Option<Piece>,
     pub weapon: Option<WeaponKind>,
+    pub pack: [Option<Item>; PACK_CELLS],
 }
 
 impl Gear {
-    /// What everybody is issued: nothing to wear, and a hand laser.
+    /// What everybody is issued: nothing to wear, a hand laser, and an
+    /// empty pack.
     pub fn issued() -> Gear {
         Gear {
             weapon: Some(WeaponKind::LaserPistol),
             ..Gear::default()
         }
     }
+
+    /// What a station's resident is issued: a weapon rolled off `seed` —
+    /// half of them the pistol, a fifth a shotgun, a few a rifle, fewer a
+    /// sniper rifle, and one in ten a schword — and nothing else. Off a
+    /// stream of its own so the roll is a function of the seed alone,
+    /// which is what lets the world derive it rather than keep it.
+    pub fn issued_for(seed: u64) -> Gear {
+        let mut rng = Rng::new(seed);
+        Gear {
+            weapon: Some(roll_weapon(&mut rng, &ISSUE_ODDS)),
+            ..Gear::default()
+        }
+    }
+
+    /// What a mercenary carries: better arms than a resident's, rolled off
+    /// `seed` against [`MERCENARY_ODDS`] — a third the pistol, the rest
+    /// the heavier guns and a few the schword — and each piece of armour
+    /// with the odds in [`MERCENARY_ARMOUR_ODDS`], fresh, with ids off the
+    /// same stream (`piece_ids` and up, since the room's pieces are only
+    /// its own until the world takes one over). A function of the seed
+    /// alone, like [`Gear::issued_for`], so the world derives it.
+    pub fn hired_for(seed: u64, piece_ids: u32) -> Gear {
+        let mut rng = Rng::new(seed ^ 0x_4D45_5243);
+        let weapon = roll_weapon(&mut rng, &MERCENARY_ODDS);
+        let mut next = piece_ids;
+        let mut piece = |rng: &mut Rng, kind: ArmourKind, odds: f32| {
+            let worn = rng.chance(odds);
+            worn.then(|| {
+                next += 1;
+                Piece::new(next - 1, kind)
+            })
+        };
+        let [helm, kevlar, legs] = MERCENARY_ARMOUR_ODDS;
+        Gear {
+            head: piece(&mut rng, ArmourKind::BasicHelm, helm),
+            body: piece(&mut rng, ArmourKind::BasicKevlar, kevlar),
+            legs: piece(&mut rng, ArmourKind::BasicLegs, legs),
+            weapon: Some(weapon),
+            ..Gear::default()
+        }
+    }
+
+    /// The piece on a part, if any — broken or not.
+    pub fn worn(&self, part: Part) -> Option<Piece> {
+        *self.slot(part)
+    }
+
+    pub fn worn_mut(&mut self, part: Part) -> &mut Option<Piece> {
+        match part {
+            Part::Head => &mut self.head,
+            Part::Body => &mut self.body,
+            Part::Legs => &mut self.legs,
+        }
+    }
+
+    fn slot(&self, part: Part) -> &Option<Piece> {
+        match part {
+            Part::Head => &self.head,
+            Part::Body => &self.body,
+            Part::Legs => &self.legs,
+        }
+    }
+
+    /// What the armour adds to one part's health: the piece's health
+    /// left, nothing when there is none or it is broken.
+    pub fn part_bonus(&self, part: Part) -> f32 {
+        self.worn(part).map_or(0.0, |p| p.bonus())
+    }
+
+    /// What the armour adds all told — the unbroken worn pieces summed —
+    /// which is what the panel's blue bar is.
+    pub fn armour_health(&self) -> f32 {
+        Part::ALL.iter().map(|&p| self.part_bonus(p)).sum()
+    }
+
+    /// The first empty pack cell.
+    pub fn free_cell(&self) -> Option<usize> {
+        self.pack.iter().position(|c| c.is_none())
+    }
+}
+
+/// What a resident is issued, by the odds: the shares add to one, and
+/// whatever is left over by rounding goes to the last.
+const ISSUE_ODDS: [(WeaponKind, f32); 5] = [
+    (WeaponKind::LaserPistol, 0.50),
+    (WeaponKind::Shotgun, 0.20),
+    (WeaponKind::AutoRifle, 0.15),
+    (WeaponKind::SniperRifle, 0.05),
+    (WeaponKind::Schword, 0.10),
+];
+
+/// What a mercenary is armed with, by share: the heavier guns are the
+/// trade. See [`Gear::hired_for`].
+pub const MERCENARY_ODDS: [(WeaponKind, f32); 5] = [
+    (WeaponKind::LaserPistol, 0.35),
+    (WeaponKind::Shotgun, 0.25),
+    (WeaponKind::AutoRifle, 0.20),
+    (WeaponKind::SniperRifle, 0.12),
+    (WeaponKind::Schword, 0.08),
+];
+/// The odds a mercenary wears a helm, a kevlar and leg guards.
+pub const MERCENARY_ARMOUR_ODDS: [f32; 3] = [0.5, 0.6, 0.4];
+
+/// One weapon rolled off `rng` against a table of shares that add to
+/// one; the last kind takes whatever rounding leaves.
+fn roll_weapon(rng: &mut Rng, odds: &[(WeaponKind, f32)]) -> WeaponKind {
+    let roll = rng.unit();
+    let mut edge = 0.0;
+    for &(kind, share) in odds {
+        edge += share;
+        if roll < edge {
+            return kind;
+        }
+    }
+    odds.last()
+        .map_or(WeaponKind::LaserPistol, |(kind, _)| *kind)
+}
+
+/// One enemy as the room keeps it: where it stands — the peek position
+/// while it peeks — what it carries, and whether it is peeking from
+/// cover, which is what a bolt reaching it is dodged for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Target {
+    pub at: Vec2,
+    pub weapon: WeaponKind,
+    pub peeking: bool,
 }
 
 /// One shot in the air.
@@ -199,30 +634,59 @@ pub struct Bolt {
     pub vel: Vec2,
     /// Room units it may still fly.
     pub left: f32,
-    pub damage: f32,
+    /// What fired it: its picture, and its damage curve.
+    pub kind: WeaponKind,
+    /// Where it was fired from, for the damage at the distance it has
+    /// flown when it lands.
+    pub fired_from: Vec2,
     /// Fired by an enemy: red, and looking for this room's own bodies
     /// rather than for the targets. See the module note.
     pub hostile: bool,
+    /// The one body it has already slipped past — a peek that dodged it —
+    /// so a bolt crossing a body over several steps is rolled for once.
+    dodged: Option<usize>,
 }
 
-/// A bolt that reached a body: whose — an index into the targets for a
-/// friendly bolt, into this room's own crew for a hostile one — where on
-/// it, and how hard.
+/// A bolt that reached a body, or a blow that landed: whose — an index
+/// into the targets for a friendly one, into this room's own crew for a
+/// hostile one — where on it, how hard, and whether it is a cut, which
+/// bleeds three times what a shot does.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Hit {
     pub who: usize,
     pub part: Part,
     pub damage: f32,
+    pub cut: bool,
+}
+
+/// A blow on its way: a swing or a jab that has started, landing on the
+/// target with that index — `damage`, a cut or not — when `left` seconds
+/// have run out, which is the animation's length
+/// (`crate::character::SWING_TIME`). It lands only if the target is still
+/// within reach then ([`Combat::within_reach`]): a body that stepped back
+/// during the swing is missed. `Game::tick_combat` keeps one on the Bim.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Blow {
+    pub target: usize,
+    pub left: f32,
+    pub damage: f32,
+    pub cut: bool,
 }
 
 /// A shot an enemy took, for the world to carry into the crew's room and
 /// fire there. Where from — the eye it was aimed from, which for a peek
-/// is beside the body — where at, and with what.
+/// is beside the body — where at, and with what. A **melee** one is a
+/// blow, not a shot: nothing flies, and the world delivers it straight to
+/// the body (`Game::enemy_strike`) with the damage and whether it cuts
+/// carried here, since a fist's damage is not the gun's in the hand.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Shot {
     pub from: Vec2,
     pub at: Vec2,
     pub weapon: WeaponKind,
+    pub melee: bool,
+    pub damage: f32,
+    pub cut: bool,
 }
 
 /// Where a bolt ended, briefly lit.
@@ -236,17 +700,18 @@ struct Spark {
 /// The fight, as the room keeps it: the enemies the world named, the bolts
 /// flying, and the hits that landed since the world last asked.
 pub struct Combat {
-    /// Where the enemies stand, index for index with whoever the world
-    /// says they are; `None` for one that is down. Empty in peace.
-    targets: Vec<Option<Vec2>>,
+    /// Where the enemies stand and what they carry, index for index with
+    /// whoever the world says they are; `None` for one that is down.
+    /// Empty in peace.
+    targets: Vec<Option<Target>>,
     pub bolts: Vec<Bolt>,
     sparks: Vec<Spark>,
-    /// Every friendly bolt that landed on a target, for the world to carry
-    /// to the body it belongs to.
+    /// Every friendly bolt that landed on a target, and every blow, for
+    /// the world to carry to the body it belongs to.
     hits: Vec<Hit>,
-    /// Every hostile bolt that landed on one of this room's own bodies.
-    /// The game applies these itself, every step, and keeps a copy for
-    /// the world to log.
+    /// Every hostile bolt that landed on one of this room's own bodies,
+    /// and every blow the world delivered. The game applies these itself,
+    /// every step, and keeps a copy for the world to log.
     pub wounds_taken: Vec<Hit>,
     /// The shots this room's people took while its bodies were hostile —
     /// recorded here rather than flown, for the world to fire in the
@@ -269,12 +734,39 @@ impl Combat {
         }
     }
 
-    pub fn set_targets(&mut self, targets: Vec<Option<Vec2>>) {
-        self.targets = targets;
+    /// The enemies: where each stands and what it carries. Nobody is
+    /// peeking until [`Combat::set_peeking`] says so.
+    pub fn set_targets(&mut self, targets: Vec<Option<(Vec2, WeaponKind)>>) {
+        self.targets = targets
+            .into_iter()
+            .map(|t| {
+                t.map(|(at, weapon)| Target {
+                    at,
+                    weapon,
+                    peeking: false,
+                })
+            })
+            .collect();
     }
 
-    pub fn targets(&self) -> &[Option<Vec2>] {
+    /// Which of the targets are peeking from cover, index for index; one
+    /// past the end, or missing, is not.
+    pub fn set_peeking(&mut self, peeking: &[bool]) {
+        for (i, target) in self.targets.iter_mut().enumerate() {
+            if let Some(t) = target {
+                t.peeking = peeking.get(i).copied().unwrap_or(false);
+            }
+        }
+    }
+
+    pub fn targets(&self) -> &[Option<Target>] {
         &self.targets
+    }
+
+    /// Where the targets stand, for the tactics.
+    #[allow(dead_code)]
+    pub fn target_positions(&self) -> Vec<Option<Vec2>> {
+        self.targets.iter().map(|t| t.map(|t| t.at)).collect()
     }
 
     pub fn take_hits(&mut self) -> Vec<Hit> {
@@ -288,7 +780,15 @@ impl Combat {
     /// A shot taken but not flown: what a hostile room's people do
     /// instead of firing, so the bolt flies where the crew are.
     pub fn shoot(&mut self, from: Vec2, at: Vec2, weapon: WeaponKind) {
-        self.shots.push(Shot { from, at, weapon });
+        let stats = weapon.stats();
+        self.shots.push(Shot {
+            from,
+            at,
+            weapon,
+            melee: false,
+            damage: stats.damage,
+            cut: false,
+        });
     }
 
     /// The nearest enemy a shooter standing at `from` can see, within the
@@ -303,7 +803,7 @@ impl Combat {
         let reach = stats.reach();
         let mut best: Option<(f32, usize, Vec2, Vec2)> = None;
         for (i, target) in self.targets.iter().enumerate() {
-            let Some(at) = *target else {
+            let Some(at) = target.map(|t| t.at) else {
                 continue;
             };
             let d = (at - from).len();
@@ -317,9 +817,58 @@ impl Combat {
         best.map(|(_, i, eye, at)| (i, eye, at))
     }
 
+    /// Whether a body at `from` can see any target at all, at any range —
+    /// what tells a crew member under the alarm to act on its own rather
+    /// than keep to the player's side.
+    pub fn sees_any(&self, sight: &Sight, from: Vec2) -> bool {
+        self.targets
+            .iter()
+            .flatten()
+            .any(|t| sight.sees_from(from, t.at).is_some())
+    }
+
+    /// The enemy a body at `from` is in a melee with, if any: the nearest
+    /// target within [`MELEE_RANGE`] that it can see — any of them for a
+    /// body with a blade, and only one *carrying* a blade for a body with
+    /// a gun, since a gunner is locked by a blade at its throat and not by
+    /// a pistol beside it. See the module note.
+    pub fn melee_with(&self, sight: &Sight, from: Vec2, own: &WeaponStats) -> Option<usize> {
+        let reach = MELEE_RANGE * TILE;
+        let mut best: Option<(f32, usize)> = None;
+        for (i, target) in self.targets.iter().enumerate() {
+            let Some(t) = *target else {
+                continue;
+            };
+            if !own.melee && !t.weapon.stats().melee {
+                continue;
+            }
+            let d = (t.at - from).len();
+            if d > reach || best.is_some_and(|b| b.0 <= d) {
+                continue;
+            }
+            if sight.sees_from(from, t.at).is_some() {
+                best = Some((d, i));
+            }
+        }
+        best.map(|(_, i)| i)
+    }
+
+    /// Whether the target with that index is still within a blade's reach
+    /// of a body at `from`: what a [`Blow`] asks when its swing ends.
+    pub fn within_reach(&self, from: Vec2, target: usize) -> bool {
+        self.targets
+            .get(target)
+            .copied()
+            .flatten()
+            .is_some_and(|t| (t.at - from).len() <= MELEE_RANGE * TILE)
+    }
+
     /// A shot from `from` at a body at `at`. Whether it will hit is rolled
-    /// now, against the distance; a miss is aimed wide.
-    pub fn fire(&mut self, from: Vec2, at: Vec2, stats: &WeaponStats, hostile: bool) {
+    /// now, against the distance; a miss is aimed wide. The damage is not
+    /// rolled now: it is the weapon's at the distance the bolt has flown
+    /// when it lands.
+    pub fn fire(&mut self, from: Vec2, at: Vec2, kind: WeaponKind, hostile: bool) {
+        let stats = kind.stats();
         let to = at - from;
         let tiles = to.len() / TILE;
         let hits = self.rng.chance(stats.hit_chance(tiles));
@@ -337,24 +886,82 @@ impl Combat {
             pos: from,
             vel: dir * stats.pace(),
             left: stats.reach(),
-            damage: stats.damage,
+            kind,
+            fired_from: from,
             hostile,
+            dodged: None,
         });
+    }
+
+    /// A blow in a melee, from a body at `from` on the target with that
+    /// index: `damage` on a part rolled now, a cut or not. In the crew's
+    /// room it is a [`Hit`] straight onto the hits, for the world to carry
+    /// to the enemy's body; in a hostile room (`as_shot`) it is a melee
+    /// [`Shot`] for the world to deliver to the crew member. Nothing
+    /// flies either way.
+    pub fn brawl(
+        &mut self,
+        from: Vec2,
+        target: usize,
+        weapon: WeaponKind,
+        damage: f32,
+        cut: bool,
+        as_shot: bool,
+    ) {
+        let Some(at) = self.targets.get(target).copied().flatten().map(|t| t.at) else {
+            return;
+        };
+        if as_shot {
+            self.shots.push(Shot {
+                from,
+                at,
+                weapon,
+                melee: true,
+                damage,
+                cut,
+            });
+        } else {
+            self.hits.push(Hit {
+                who: target,
+                part: Part::hit_by(self.rng.unit()),
+                damage,
+                cut,
+            });
+        }
+    }
+
+    /// A blow the world delivered to one of this room's own bodies — an
+    /// enemy's melee [`Shot`], carried across — as the hit it is, on a
+    /// part rolled now from the combat stream. The game applies it.
+    pub fn struck(&mut self, who: usize, damage: f32, cut: bool) -> Hit {
+        Hit {
+            who,
+            part: Part::hit_by(self.rng.unit()),
+            damage,
+            cut,
+        }
     }
 
     /// Fly every bolt on by `dt`: into a body, into a wall, or out to the
     /// end of its range, whichever comes first. A friendly bolt looks for
     /// the targets; a hostile one for `bodies`, this room's own — each
     /// Bim's position while it is alive and on the deck, conscious or
-    /// not, and `None` for one dead or outside. Where a bolt reaches a
-    /// body the part it lands on is rolled then, from the combat stream.
-    pub fn step(&mut self, dt: f32, sight: &Sight, bodies: &[Option<Vec2>]) {
+    /// not, the peek position while it peeks, and whether it is peeking;
+    /// `None` for one dead or outside. Where a bolt reaches a body the
+    /// part it lands on is rolled then, from the combat stream, and the
+    /// damage is the weapon's at the distance flown; a body peeking from
+    /// cover dodges it half the time and it flies on.
+    pub fn step(&mut self, dt: f32, sight: &Sight, bodies: &[Option<(Vec2, bool)>]) {
         for s in &mut self.sparks {
             s.age += dt;
         }
         self.sparks.retain(|s| s.age < SPARK_LIFE);
 
-        let targets = &self.targets;
+        let targets: Vec<Option<(Vec2, bool)>> = self
+            .targets
+            .iter()
+            .map(|t| t.map(|t| (t.at, t.peeking)))
+            .collect();
         let rng = &mut self.rng;
         let mut landed: Vec<Hit> = Vec::new();
         let mut taken: Vec<Hit> = Vec::new();
@@ -374,14 +981,23 @@ impl Combat {
             if let Some(wall) = sight.first_opaque_along(from, to) {
                 stop = Some(((wall - from).len() / span.max(1e-6), None));
             }
-            let looking_for: &[Option<Vec2>] = if bolt.hostile { bodies } else { targets };
+            let looking_for: &[Option<(Vec2, bool)>] = if bolt.hostile { bodies } else { &targets };
             for (i, body) in looking_for.iter().enumerate() {
-                let Some(body) = *body else {
+                let Some((body, peeking)) = *body else {
                     continue;
                 };
+                if bolt.dodged == Some(i) {
+                    continue;
+                }
                 if let Some(t) = along(from, to, body, HIT_RADIUS)
                     && stop.is_none_or(|(s, _)| t < s)
                 {
+                    // In cover, it leans back in: the bolt flies on past,
+                    // and is not rolled for this body again.
+                    if peeking && rng.chance(DODGE_IN_COVER) {
+                        bolt.dodged = Some(i);
+                        continue;
+                    }
                     stop = Some((t, Some(i)));
                 }
             }
@@ -389,10 +1005,12 @@ impl Combat {
                 Some((t, who)) => {
                     let at = from + flight * t;
                     if let Some(who) = who {
+                        let flown = (at - bolt.fired_from).len() / TILE;
                         let hit = Hit {
                             who,
                             part: Part::hit_by(rng.unit()),
-                            damage: bolt.damage,
+                            damage: bolt.kind.stats().damage_at(flown),
+                            cut: false,
                         };
                         if bolt.hostile {
                             taken.push(hit);
@@ -429,24 +1047,63 @@ impl Combat {
     }
 
     /// The bolts and the sparks. Over the fog — a shot is always seen.
+    /// Each gun's shot has a look of its own, and an enemy's keeps the red
+    /// mixed in so the tint still says whose it is.
     pub fn draw(&self, list: &mut DrawList) {
         for bolt in &self.bolts {
             let dir = bolt.vel.normalize_or_zero();
             let head = bolt.pos;
-            let tail = head - dir * BOLT_LENGTH;
-            let colour = if bolt.hostile {
+            let side = if bolt.hostile {
                 HOSTILE_BOLT
             } else {
                 FRIENDLY_BOLT
             };
-            list.line(tail, head, BOLT_GLOW, colour.alpha(0.30));
-            list.line(tail, head, BOLT_CORE + 2.0, colour.alpha(0.85));
-            list.line(
-                tail + dir * (BOLT_LENGTH * 0.35),
-                head,
-                BOLT_CORE,
-                BOLT_CORE_WHITE,
-            );
+            match bolt.kind {
+                WeaponKind::Shotgun => {
+                    // A fan of pellets about the flight, the outer ones
+                    // trailing a little.
+                    let pellet = side.mix(PELLET, 0.7);
+                    for i in 0..PELLETS {
+                        let f = (i as f32 - (PELLETS as f32 - 1.0) * 0.5)
+                            / ((PELLETS - 1) as f32 * 0.5);
+                        let d = dir.rotate(f * PELLET_SPREAD);
+                        let tip = head - dir * (f.abs() * 6.0) + dir.perp() * (f * 7.0);
+                        list.line(tip - d * PELLET_LENGTH, tip, 3.0, pellet.alpha(0.9));
+                        list.circle(tip, 3.5, BOLT_CORE_WHITE.alpha(0.8));
+                    }
+                }
+                WeaponKind::AutoRifle => {
+                    let tracer = side.mix(TRACER, 0.65);
+                    let tail = head - dir * TRACER_LENGTH;
+                    list.line(tail, head, 5.0, tracer.alpha(0.35));
+                    list.line(tail, head, 2.0, tracer.alpha(0.95));
+                    list.circle(head, 3.0, BOLT_CORE_WHITE.alpha(0.9));
+                }
+                WeaponKind::SniperRifle => {
+                    let streak = side.mix(STREAK, 0.6);
+                    let tail = head - dir * STREAK_LENGTH;
+                    list.line(tail, head, 6.0, streak.alpha(0.18));
+                    list.line(
+                        tail + dir * (STREAK_LENGTH * 0.3),
+                        head,
+                        2.0,
+                        streak.alpha(0.9),
+                    );
+                    list.circle(head, 6.0, BOLT_CORE_WHITE.alpha(0.95));
+                }
+                // The pistol as it has always been; a blade never flies.
+                WeaponKind::LaserPistol | WeaponKind::Schword => {
+                    let tail = head - dir * BOLT_LENGTH;
+                    list.line(tail, head, BOLT_GLOW, side.alpha(0.30));
+                    list.line(tail, head, BOLT_CORE + 2.0, side.alpha(0.85));
+                    list.line(
+                        tail + dir * (BOLT_LENGTH * 0.35),
+                        head,
+                        BOLT_CORE,
+                        BOLT_CORE_WHITE,
+                    );
+                }
+            }
         }
         for spark in &self.sparks {
             let t = 1.0 - spark.age / SPARK_LIFE;
@@ -483,51 +1140,113 @@ fn along(a: Vec2, b: Vec2, centre: Vec2, radius: f32) -> Option<f32> {
         / len2.sqrt();
     Some((t - back).max(0.0))
 }
-
-/// What a candidate stand is worth to the enemy, before the walk to it is
-/// taken off: cover with a peek that sees the target, or the open with the
-/// target in plain sight, each plus the distance to the target so that the
-/// furthest spot of its kind wins. See the module note.
-const COVER_SCORE: f32 = 2000.0;
-const OPEN_SCORE: f32 = 1000.0;
-/// What a tile of walking costs against those.
-const WALK_COST_PER_TILE: f32 = 4.0;
+/// What a candidate stand is worth to the enemy, in **tiles of walking**
+/// — every term is in that one unit, so the trade-offs read off the
+/// numbers. Cover is worth walking [`COVER_WORTH`] tiles for, so cover a
+/// few tiles off beats the open anywhere and cover across the station
+/// loses to the open here. How the weapon fits the distance against
+/// what the target holds ([`Tactics::fit`]) is worth up to [`FIT_WORTH`]
+/// either way, and outweighs the plain preference for distance
+/// ([`DISTANCE_WORTH`] a tile), which is what is left when the two
+/// weapons are a match: keep away, all else equal.
+const COVER_WORTH: f32 = 15.0;
+const FIT_WORTH: f32 = 30.0;
+const DISTANCE_WORTH: f32 = 1.0;
+/// What a tile of walking costs against those: half of one, since a
+/// stand is worth getting to.
+const WALK_COST_PER_TILE: f32 = 0.5;
 /// What the spot the enemy already stands on is worth over a fresh one,
 /// so that two spots as good as each other do not have it walking
 /// between them every plan.
-const STAY_BONUS: f32 = 60.0;
+const STAY_BONUS: f32 = 2.0;
+
+/// How far round a target a charging blade looks for a cell to stand on,
+/// in tiles. Wide enough that a target hemmed in by furniture still has
+/// a free cell beside it somewhere.
+const CHARGE_LOOK: f32 = 3.0;
 
 /// The enemy's choice of where to stand. See the module note.
 pub struct Tactics;
 
 impl Tactics {
+    /// Where a body at `from` with a blade should go: the free cell it
+    /// can reach nearest the nearest target — a charge. Cover means
+    /// nothing to a blade, and distance is the one thing it wants less
+    /// of. Every cell of the grid is a candidate, not the tile-spaced
+    /// lattice a stand is chosen from: a blade wants to stand *beside*
+    /// the target, and the lattice's nearest cell can be half a tile
+    /// short of reach. `None` with no target it can get near.
+    pub fn charge(nav: &Nav, from: Vec2, targets: &[Option<Target>]) -> Option<Vec2> {
+        let by_distance_to = |to: Vec2| {
+            move |a: &Vec2, b: &Vec2| {
+                (*a - to)
+                    .len()
+                    .partial_cmp(&(*b - to).len())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }
+        };
+        let mut order: Vec<Vec2> = targets.iter().flatten().map(|t| t.at).collect();
+        order.sort_by(by_distance_to(from));
+        for target in order {
+            let best = nav
+                .free_cells_within(target, CHARGE_LOOK * TILE, 0.0)
+                .into_iter()
+                .filter(|&c| nav.can_reach(from, c))
+                .min_by(by_distance_to(target));
+            if best.is_some() {
+                return best;
+            }
+        }
+        None
+    }
+
     /// Where a body at `from`, armed with `stats`, should stand to shoot
     /// at `targets` — `None` for a target that is down — or `None` when
-    /// nowhere in reach of any of them can be shot from.
+    /// nowhere in reach of any of them can be shot from. A blade does not
+    /// stand: it [`Tactics::charge`]s.
     ///
     /// The candidates are a tile-spaced lattice of free cells within the
     /// weapon's reach of each target (`Nav::free_cells_within`), kept to
     /// the ones the body can walk to, plus the spot it stands on now. Each
-    /// is scored against every target in reach of it by what
-    /// `Sight::eyes_from` sees from there: the body's own eye blind to the
-    /// target but a peek beside a wall seeing it is cover, [`COVER_SCORE`]
-    /// plus the distance; the body's eye seeing it is the open,
-    /// [`OPEN_SCORE`] plus the distance; neither is nothing. The best
-    /// target's score stands for the spot, less [`WALK_COST_PER_TILE`] a
-    /// tile from `from`, plus [`STAY_BONUS`] for the spot it is on.
+    /// is scored against every target in reach of it, in tiles of walking
+    /// ([`Tactics::view_from`]): what is seen from there — the body's own
+    /// eye blind to the target but a peek beside a wall seeing it is
+    /// **cover**, worth [`COVER_WORTH`]; the body's eye seeing it is the
+    /// open, worth nothing; neither is no stand at all — plus how the
+    /// weapon **fits** the distance ([`Tactics::fit`]), up to
+    /// [`FIT_WORTH`] either way, plus [`DISTANCE_WORTH`] a tile of it. The best target's score stands for the
+    /// spot, less [`WALK_COST_PER_TILE`] a tile from `from`, plus
+    /// [`STAY_BONUS`] for the spot it is on.
+    ///
+    /// **A doorway is never a stand, nor is a cell within a door's reach
+    /// of one** (`doors`: every powered door and airlock, as rects). A
+    /// door opens for a body that near ([`door::REACH`]), so a shut leaf
+    /// that reads as a wall from afar — one to peek beside, or one to
+    /// stand in with the other leaf for cover — is gone by the time the
+    /// body gets there, and a spot scored as cover for it is a spot
+    /// nothing can be shot from. An enemy that picked the doorway at a
+    /// corridor's crossing walked between its two mirror doorways for
+    /// ever, opening each as it arrived. The spot it stands on now is
+    /// scored as it is, doors open or not: that is the real view.
     pub fn stand(
         sight: &Sight,
         nav: &Nav,
         from: Vec2,
-        targets: &[Option<Vec2>],
+        targets: &[Option<Target>],
         stats: &WeaponStats,
+        doors: &[Rect],
     ) -> Option<Vec2> {
+        if stats.melee {
+            return Tactics::charge(nav, from, targets);
+        }
         let reach = stats.reach();
         let here = nav.nearest_free(from);
+        let in_a_doorway = |c: Vec2| doors.iter().any(|d| d.expand(door::REACH).contains(c));
         let mut lattice: Vec<Vec2> = targets
             .iter()
             .flatten()
-            .flat_map(|&target| nav.free_cells_within(target, reach, TILE))
+            .flat_map(|t| nav.free_cells_within(t.at, reach, TILE))
+            .filter(|&c| !in_a_doorway(c))
             .collect();
         // Two targets in reach of one another offer the same spots
         // twice, and a spot scored twice is a trace wasted: the lattice is
@@ -546,7 +1265,7 @@ impl Tactics {
         );
         let mut best: Option<(f32, Vec2)> = None;
         for (i, &c) in candidates.iter().enumerate() {
-            let Some(view) = Tactics::view_from(sight, c, targets, reach) else {
+            let Some(view) = Tactics::view_from(sight, c, targets, stats) else {
                 continue;
             };
             let walk = (c - from).len() / TILE * WALK_COST_PER_TILE;
@@ -559,18 +1278,41 @@ impl Tactics {
         best.map(|(_, at)| at)
     }
 
+    /// How well a weapon likes a distance against what the target holds,
+    /// −1 to 1: what it would do a second from there against what would
+    /// come back, each as a share of the better of the two weapons' best.
+    /// A sniper rifle against a pistol is at its best at twenty tiles,
+    /// where its own curve is still full and the pistol's has run out; a
+    /// shotgun against the same wants four tiles or less; a pistol
+    /// against a pistol is indifferent, and cover decides. A blade in
+    /// the target's hand does nothing at range and everything at reach,
+    /// which is what keeps a gunner away from it.
+    pub fn fit(stats: &WeaponStats, target: &WeaponStats, tiles: f32) -> f32 {
+        let out = stats.dps_at(tiles);
+        let back = target.dps_at(tiles);
+        let most = stats.dps_at(0.0).max(target.dps_at(0.0)).max(1e-3);
+        ((out - back) / most).clamp(-1.0, 1.0)
+    }
+
     /// The best a spot is worth against any one target in reach of it,
-    /// by what is seen from there. `None` when no target can be shot at
-    /// from the spot.
-    fn view_from(sight: &Sight, c: Vec2, targets: &[Option<Vec2>], reach: f32) -> Option<f32> {
+    /// in tiles of walking: cover or the open by what is seen from there,
+    /// the weapon's fit at that distance, and the distance itself. `None` when no target can
+    /// be shot at from the spot.
+    fn view_from(
+        sight: &Sight,
+        c: Vec2,
+        targets: &[Option<Target>],
+        stats: &WeaponStats,
+    ) -> Option<f32> {
+        let reach = stats.reach();
         let eyes = sight.eyes_from(c);
         let mut best: Option<f32> = None;
         for target in targets.iter().flatten() {
-            let d = (*target - c).len();
+            let d = (target.at - c).len();
             if d > reach {
                 continue;
             }
-            let tile = sight.tile_of(*target);
+            let tile = sight.tile_of(target.at);
             let mut body_sees = false;
             let mut peek_sees = false;
             for eye in &eyes {
@@ -583,13 +1325,16 @@ impl Tactics {
                     body_sees = true;
                 }
             }
-            let score = if !body_sees && peek_sees {
-                COVER_SCORE + d
+            let cover = if !body_sees && peek_sees {
+                COVER_WORTH
             } else if body_sees {
-                OPEN_SCORE + d
+                0.0
             } else {
                 continue;
             };
+            let tiles = d / TILE;
+            let fit = Tactics::fit(stats, &target.weapon.stats(), tiles) * FIT_WORTH;
+            let score = cover + fit + tiles * DISTANCE_WORTH;
             if best.is_none_or(|b| score > b) {
                 best = Some(score);
             }
@@ -607,6 +1352,15 @@ mod tests {
     /// A room twenty tiles by ten with one wall down its middle, from the
     /// top to three tiles short of the bottom, so the two halves join
     /// through the gap. Tile-aligned, the way a ship's room is.
+    /// A target standing at `at` with the common weapon, not peeking.
+    fn pistol_at(at: Vec2) -> Target {
+        Target {
+            at,
+            weapon: WeaponKind::LaserPistol,
+            peeking: false,
+        }
+    }
+
     fn walled_room() -> (Sight, Nav) {
         let wall = Rect::from_min_size(vec2(10.0 * TILE, 0.0), vec2(TILE, 7.0 * TILE));
         room_with(&[wall])
@@ -642,13 +1396,42 @@ mod tests {
     }
 
     #[test]
+    fn a_piece_is_cut_for_one_part_and_does_nothing_once_broken() {
+        for kind in ArmourKind::ALL {
+            assert_eq!(ArmourKind::from_code(kind.code()), Some(kind));
+            assert!(kind.stats().health > 0.0 && kind.stats().protection > 0.0);
+        }
+        assert_eq!(ArmourKind::from_code(0), None);
+        assert_eq!(ArmourKind::BasicHelm.slot(), Part::Head);
+        assert_eq!(ArmourKind::BasicKevlar.slot(), Part::Body);
+        assert_eq!(ArmourKind::BasicLegs.slot(), Part::Legs);
+
+        let mut gear = Gear::issued();
+        assert_eq!(gear.armour_health(), 0.0);
+        assert_eq!(gear.free_cell(), Some(0));
+        let vest = Piece::new(1, ArmourKind::BasicKevlar);
+        *gear.worn_mut(Part::Body) = Some(vest);
+        assert_eq!(gear.worn(Part::Body), Some(vest));
+        assert_eq!(gear.part_bonus(Part::Body), 20.0);
+        assert_eq!(gear.armour_health(), 20.0);
+        assert_eq!(vest.effective_protection(), 2.0);
+        // Worn down to nothing: still worn, worth nothing.
+        gear.worn_mut(Part::Body).as_mut().unwrap().health = 0.0;
+        let worn = gear.worn(Part::Body).unwrap();
+        assert!(worn.broken());
+        assert_eq!(worn.effective_protection(), 0.0);
+        assert_eq!(gear.part_bonus(Part::Body), 0.0);
+        assert_eq!(gear.armour_health(), 0.0);
+    }
+
+    #[test]
     fn the_enemy_takes_cover_where_there_is_some_and_the_open_at_range_where_there_is_none() {
         let (sight, nav) = walled_room();
         let stats = WeaponKind::LaserPistol.stats();
         // The target on the right of the wall, the enemy on the left.
         let target = middle(14.0, 8.0);
         let from = middle(3.0, 2.0);
-        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &stats)
+        let stand = Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[])
             .expect("somewhere in reach can be shot from");
         let (body, peek) = views(&sight, stand, target);
         assert!(
@@ -665,33 +1448,132 @@ mod tests {
         let (sight, nav) = room_with(&[]);
         let target = middle(15.0, 8.5);
         let from = middle(17.0, 9.0);
-        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &stats).unwrap();
+        let stand =
+            Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[]).unwrap();
         let (body, _) = views(&sight, stand, target);
         assert!(body, "the open");
         let d = (stand - target).len();
         assert!(d <= stats.reach() && d > stats.reach() - 2.0 * TILE, "{d}");
 
         // Nothing named: nowhere to stand.
-        assert!(Tactics::stand(&sight, &nav, from, &[None], &stats).is_none());
+        assert!(Tactics::stand(&sight, &nav, from, &[None], &stats, &[]).is_none());
+    }
+
+    #[test]
+    fn an_enemy_stands_where_its_weapon_beats_the_target_s() {
+        // A long hall with nothing in it — nowhere to take cover, so the
+        // distance is all the weapon has to play with — the target at one
+        // end with a pistol, the enemy starting a few tiles from it.
+        let interior = Rect::from_min_size(Vec2::ZERO, vec2(40.0 * TILE, 6.0 * TILE));
+        let sight = Sight::new(interior, interior, TILE, &[], &[]);
+        let nav = Nav::tiled(interior, &[], BODY_MARGIN, TILE);
+        let target = pistol_at(middle(1.0, 3.0));
+        let from = middle(5.0, 3.0);
+        let tiles_off = |stand: Vec2| (stand - target.at).len() / TILE;
+
+        // A sniper rifle is full out to twenty tiles, where the pistol
+        // has long run out: it hangs back there, and not at its own
+        // thirty-five, where its curve has fallen off.
+        let sniper = WeaponKind::SniperRifle.stats();
+        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &sniper, &[]).unwrap();
+        let d = tiles_off(stand);
+        assert!((19.0..=24.0).contains(&d), "the sniper at {d} tiles");
+
+        // A shotgun is at its best inside four tiles and a pistol is not
+        // much worse there than anywhere: it closes.
+        let shotgun = WeaponKind::Shotgun.stats();
+        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &shotgun, &[]).unwrap();
+        let d = tiles_off(stand);
+        assert!(d <= 4.5, "the shotgun at {d} tiles");
+
+        // An auto rifle reaches sixteen tiles to the pistol's twelve: it
+        // stands where it can shoot and cannot be shot back at.
+        let rifle = WeaponKind::AutoRifle.stats();
+        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &rifle, &[]).unwrap();
+        let d = tiles_off(stand);
+        assert!(d > 12.0 && d <= 16.0, "the rifle at {d} tiles");
+
+        // Pistol against pistol is a match, and keeping away is what is
+        // left: the far end of its own reach.
+        let pistol = WeaponKind::LaserPistol.stats();
+        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &pistol, &[]).unwrap();
+        let d = tiles_off(stand);
+        assert!(d > 10.0 && d <= 12.0, "the pistol at {d} tiles");
+
+        // And against a blade a gun keeps out of arm's reach, where the
+        // fit is the worst there is, and otherwise stands where it is
+        // strongest — the shotgun at its four tiles.
+        let blade = Target {
+            weapon: WeaponKind::Schword,
+            ..target
+        };
+        let stand = Tactics::stand(&sight, &nav, from, &[Some(blade)], &shotgun, &[]).unwrap();
+        let d = tiles_off(stand);
+        assert!(
+            d > MELEE_RANGE + 0.5 && d <= 4.5,
+            "the shotgun off a blade at {d}"
+        );
+        assert!(Tactics::fit(&shotgun, &blade.weapon.stats(), 1.0) < 0.0);
+        assert!(Tactics::fit(&sniper, &target.weapon.stats(), 20.0) > 0.9);
+    }
+
+    #[test]
+    fn a_doorway_is_never_a_stand_since_it_opens_for_whoever_comes() {
+        // The walled room again, but the bottom two tiles of the wall are
+        // a shut door: opaque to the eye, open to the walk.
+        let interior = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 10.0 * TILE));
+        let wall = Rect::from_min_size(vec2(10.0 * TILE, 0.0), vec2(TILE, 5.0 * TILE));
+        let door = Rect::from_min_size(vec2(10.0 * TILE, 5.0 * TILE), vec2(TILE, 2.0 * TILE));
+        let mut sight = Sight::new(interior, interior, TILE, &[wall], &[]);
+        sight.set_shut(&[door]);
+        let nav = Nav::tiled(interior, &[wall], BODY_MARGIN, TILE);
+        let stats = WeaponKind::LaserPistol.stats();
+        let target = middle(14.0, 8.0);
+        let from = middle(3.0, 2.0);
+        // Told of no door, the tactics take the shut leaf for a wall and
+        // stand beside it to peek — a spot the body's own arrival opens.
+        let naive =
+            Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[]).unwrap();
+        assert!(
+            door.expand(door::REACH).contains(naive),
+            "beside the door leaf, at {naive:?}"
+        );
+        // Told of it, nowhere within the door's reach is a stand, and
+        // with no other wall to peek round the open at range it is.
+        let stand = Tactics::stand(
+            &sight,
+            &nav,
+            from,
+            &[Some(pistol_at(target))],
+            &stats,
+            &[door],
+        )
+        .unwrap();
+        assert!(
+            !door.expand(door::REACH).contains(stand),
+            "clear of the doorway, not {stand:?}"
+        );
+        let (body, _) = views(&sight, stand, target);
+        assert!(body, "the open");
+        assert!((stand - target).len() <= stats.reach());
     }
 
     #[test]
     fn a_hostile_bolt_finds_our_own_bodies_and_a_friendly_one_the_targets() {
         let (sight, _) = walled_room();
-        let stats = WeaponKind::LaserPistol.stats();
         let mut combat = Combat::new(7);
         let ours = middle(15.0, 8.0);
         let theirs = middle(15.0, 2.0);
-        combat.set_targets(vec![Some(theirs)]);
+        combat.set_targets(vec![Some((theirs, WeaponKind::LaserPistol))]);
         // Straight down the corridor at each, from four tiles off, until
         // one lands: the roll is the combat stream's and a miss flies wide.
         let mut own = 0;
         let mut hits = 0;
         for _ in 0..40 {
-            combat.fire(middle(19.0, 8.0), ours, &stats, true);
-            combat.fire(middle(19.0, 2.0), theirs, &stats, false);
+            combat.fire(middle(19.0, 8.0), ours, WeaponKind::LaserPistol, true);
+            combat.fire(middle(19.0, 2.0), theirs, WeaponKind::LaserPistol, false);
             for _ in 0..60 {
-                combat.step(0.05, &sight, &[Some(ours)]);
+                combat.step(0.05, &sight, &[Some((ours, false))]);
             }
             own += combat.wounds_taken.len();
             combat.wounds_taken.clear();
@@ -707,10 +1589,10 @@ mod tests {
         );
 
         // A hostile bolt never touches a target, nor a friendly one us.
-        combat.fire(middle(19.0, 2.0), theirs, &stats, true);
-        combat.fire(middle(19.0, 8.0), ours, &stats, false);
+        combat.fire(middle(19.0, 2.0), theirs, WeaponKind::LaserPistol, true);
+        combat.fire(middle(19.0, 8.0), ours, WeaponKind::LaserPistol, false);
         for _ in 0..60 {
-            combat.step(0.05, &sight, &[Some(ours)]);
+            combat.step(0.05, &sight, &[Some((ours, false))]);
         }
         assert!(combat.wounds_taken.is_empty() && combat.take_hits().is_empty());
         assert!(combat.quiet());
@@ -722,5 +1604,223 @@ mod tests {
         assert_eq!(shots.len(), 1);
         assert_eq!(shots[0].at, theirs);
         assert!(combat.take_shots().is_empty());
+    }
+
+    #[test]
+    fn the_curves_pin_the_numbers_the_guns_were_asked_for() {
+        // Every kind is its own code and its own resource, both ways.
+        for kind in WeaponKind::ALL {
+            assert_eq!(WeaponKind::from_code(kind.code()), Some(kind));
+            assert_eq!(WeaponKind::from_resource(kind.resource()), Some(kind));
+        }
+        assert_eq!(WeaponKind::from_code(0), None);
+        assert_eq!(WeaponKind::from_resource(15), None, "a helm is not a gun");
+        assert_eq!(WeaponKind::LaserPistol.resource(), 9);
+
+        // The pistol as the app has always printed it: 70% at ten tiles.
+        let pistol = WeaponKind::LaserPistol.stats();
+        assert!((pistol.hit_chance(10.0) - 0.70).abs() < 0.01);
+        assert_eq!(pistol.hit_chance(0.0), 0.95);
+        assert_eq!(pistol.hit_chance(20.0), 0.65, "no worse past the range");
+        assert_eq!(pistol.damage_at(11.0), 6.0);
+        assert_eq!(pistol.dps(), 9.0);
+
+        let shotgun = WeaponKind::Shotgun.stats();
+        assert_eq!(shotgun.damage_at(4.0), 50.0);
+        assert_eq!(shotgun.damage_at(2.0), 50.0);
+        assert!((shotgun.damage_at(7.0) - 40.0).abs() < 1e-3);
+        assert_eq!(shotgun.damage_at(10.0), 30.0);
+        assert_eq!(shotgun.hit_chance(4.0), 0.90);
+        assert!((shotgun.hit_chance(10.0) - 0.60).abs() < 1e-6);
+
+        let sniper = WeaponKind::SniperRifle.stats();
+        assert_eq!(sniper.hit_chance(20.0), 1.0);
+        assert_eq!(sniper.damage_at(20.0), 45.0);
+        assert!((sniper.hit_chance(35.0) - 0.70).abs() < 1e-6);
+        assert_eq!(sniper.damage_at(35.0), 25.0);
+
+        // A burst counts in the rate: eight fives every four seconds.
+        let rifle = WeaponKind::AutoRifle.stats();
+        assert_eq!(rifle.burst, 8);
+        assert!((rifle.dps() - 10.0).abs() < 1e-6);
+        assert!(
+            (rifle.burst as f32 - 1.0) * rifle.burst_gap <= 2.0,
+            "eight in two seconds"
+        );
+
+        // A blade reaches a tile and a bit, and swings every two seconds.
+        let blade = WeaponKind::Schword.stats();
+        assert!(blade.melee);
+        assert_eq!(blade.reach(), MELEE_RANGE * TILE);
+        assert_eq!(blade.damage_at(1.0), 35.0);
+        assert!((1.0 / blade.fire_rate - MELEE_PERIOD).abs() < 1e-6);
+        assert!(!pistol.melee && !shotgun.melee && !sniper.melee && !rifle.melee);
+    }
+
+    #[test]
+    fn damage_falls_off_with_the_distance_the_bolt_flew() {
+        let (sight, _) = room_with(&[]);
+        let mut combat = Combat::new(11);
+        // A shotgun from two tiles, and one from nine: every hit from
+        // close by is the full hundred, every one from far off is less.
+        let theirs = middle(10.0, 5.0);
+        combat.set_targets(vec![Some((theirs, WeaponKind::LaserPistol))]);
+        for (from, near) in [(middle(8.0, 5.0), true), (middle(1.0, 5.0), false)] {
+            let mut hits = Vec::new();
+            for _ in 0..40 {
+                combat.fire(from, theirs, WeaponKind::Shotgun, false);
+                for _ in 0..60 {
+                    combat.step(0.05, &sight, &[]);
+                }
+                hits.extend(combat.take_hits());
+            }
+            assert!(!hits.is_empty());
+            assert!(hits.iter().all(|h| !h.cut), "a shot is not a cut");
+            if near {
+                assert!(
+                    hits.iter().all(|h| (h.damage - 50.0).abs() < 1e-3),
+                    "{hits:?}"
+                );
+            } else {
+                assert!(
+                    hits.iter().all(|h| h.damage < 37.5 && h.damage > 30.0),
+                    "nine tiles, less the body's edge: {hits:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_body_peeking_from_cover_dodges_half_the_bolts() {
+        let (sight, _) = room_with(&[]);
+        let mut combat = Combat::new(5);
+        let ours = middle(10.0, 5.0);
+        let from = middle(8.0, 5.0);
+        // Straight at it from two tiles, where the pistol lands nine in
+        // ten: standing in the open near enough all of them land, and
+        // peeking about half.
+        let landed = |combat: &mut Combat, peeking: bool| {
+            let mut own = 0;
+            for _ in 0..400 {
+                combat.fire(from, ours, WeaponKind::LaserPistol, true);
+                for _ in 0..40 {
+                    combat.step(0.05, &sight, &[Some((ours, peeking))]);
+                }
+                own += combat.wounds_taken.len();
+                combat.wounds_taken.clear();
+            }
+            own
+        };
+        let open = landed(&mut combat, false);
+        let cover = landed(&mut combat, true);
+        assert!(open > 330 && open <= 400, "{open} of 400 in the open");
+        assert!(cover > 140 && cover < 220, "{cover} of 400 in cover");
+
+        // The same for a target peeking at us.
+        combat.set_targets(vec![Some((ours, WeaponKind::LaserPistol))]);
+        combat.set_peeking(&[true]);
+        assert!(combat.targets()[0].unwrap().peeking);
+        let mut hits = 0;
+        for _ in 0..400 {
+            combat.fire(from, ours, WeaponKind::LaserPistol, false);
+            for _ in 0..40 {
+                combat.step(0.05, &sight, &[]);
+            }
+            hits += combat.take_hits().len();
+        }
+        assert!(
+            hits > 140 && hits < 220,
+            "{hits} of 400 on a peeking target"
+        );
+        // Named again, nobody is peeking until said.
+        combat.set_targets(vec![Some((ours, WeaponKind::LaserPistol))]);
+        assert!(!combat.targets()[0].unwrap().peeking);
+    }
+
+    #[test]
+    fn an_issued_gear_rolls_every_kind_across_seeds_and_the_same_for_a_seed() {
+        let mut seen = [0u32; 5];
+        for seed in 0..400u64 {
+            let gear = Gear::issued_for(seed);
+            let weapon = gear.weapon.expect("always armed");
+            assert_eq!(gear.armour_health(), 0.0, "nothing to wear");
+            assert!(gear.pack.iter().all(|c| c.is_none()));
+            seen[weapon.code() as usize - 1] += 1;
+            assert_eq!(
+                Gear::issued_for(seed).weapon,
+                Some(weapon),
+                "a function of the seed"
+            );
+        }
+        assert!(seen.iter().all(|&n| n > 0), "{seen:?}");
+        // The pistol is the common one, and the sniper rifle the rare.
+        assert!(seen[0] > seen[1] && seen[1] > seen[3], "{seen:?}");
+        assert_eq!(Gear::issued().weapon, Some(WeaponKind::LaserPistol));
+    }
+
+    #[test]
+    fn a_blade_charges_the_nearest_target_and_a_gun_is_locked_only_by_a_blade() {
+        let (sight, nav) = walled_room();
+        let blade = WeaponKind::Schword.stats();
+        let pistol = WeaponKind::LaserPistol.stats();
+        let from = middle(3.0, 2.0);
+        let near = middle(6.0, 8.0);
+        let far = middle(15.0, 8.0);
+        let stand = Tactics::stand(
+            &sight,
+            &nav,
+            from,
+            &[Some(pistol_at(far)), Some(pistol_at(near))],
+            &blade,
+            &[],
+        )
+        .expect("somewhere beside a target");
+        assert!(
+            (stand - near).len() <= MELEE_RANGE * TILE,
+            "beside the nearer one, not {stand:?}"
+        );
+        assert!(Tactics::stand(&sight, &nav, from, &[None], &blade, &[]).is_none());
+
+        // A melee is a distance: a blade a tile off locks a gunner, a
+        // pistol a tile off does not, and a blade too far off does not.
+        let mut combat = Combat::new(3);
+        let body = middle(10.0, 8.0);
+        let beside = middle(11.0, 8.0);
+        combat.set_targets(vec![Some((beside, WeaponKind::Schword))]);
+        assert_eq!(combat.melee_with(&sight, body, &pistol), Some(0));
+        combat.set_targets(vec![Some((beside, WeaponKind::LaserPistol))]);
+        assert_eq!(combat.melee_with(&sight, body, &pistol), None);
+        assert_eq!(
+            combat.melee_with(&sight, body, &blade),
+            Some(0),
+            "a blade takes on anyone"
+        );
+        combat.set_targets(vec![Some((middle(13.0, 8.0), WeaponKind::Schword))]);
+        assert_eq!(
+            combat.melee_with(&sight, body, &pistol),
+            None,
+            "out of reach"
+        );
+
+        // A blow: a hit on the target in the crew's room, a melee shot in
+        // a hostile one, and nothing in the air either way.
+        combat.set_targets(vec![Some((beside, WeaponKind::Schword))]);
+        combat.brawl(body, 0, WeaponKind::LaserPistol, FIST_DAMAGE, false, false);
+        combat.brawl(body, 0, WeaponKind::Schword, 70.0, true, true);
+        assert!(combat.bolts.is_empty());
+        let hits = combat.take_hits();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            (hits[0].who, hits[0].damage, hits[0].cut),
+            (0, FIST_DAMAGE, false)
+        );
+        let shots = combat.take_shots();
+        assert_eq!(shots.len(), 1);
+        assert!(shots[0].melee && shots[0].cut && shots[0].damage == 70.0);
+        assert_eq!(shots[0].at, beside);
+        // A blow the world carried in lands on us, on a part, as a cut.
+        let blow = combat.struck(1, 70.0, true);
+        assert!(blow.who == 1 && blow.cut && blow.damage == 70.0);
+        assert!(combat.wounds_taken.is_empty(), "the game applies it");
     }
 }

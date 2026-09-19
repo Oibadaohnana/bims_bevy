@@ -46,6 +46,7 @@
 //! with it ([`docking`]); but a station is still not a solid a trip has to
 //! fly round.
 
+pub mod armour;
 pub mod build;
 pub mod checksum;
 pub mod crew;
@@ -54,11 +55,13 @@ pub mod docking;
 pub mod event;
 pub mod fixture;
 pub mod frame;
+pub mod mercenary;
 pub mod mining;
 pub mod speed;
 pub mod station;
 pub mod world;
 
+pub use armour::{FetchKind, LootSource, Piece, Where};
 pub use build::{BuildSite, SiteRefusal};
 pub use checksum::world_checksum;
 pub use event::{Refusal, WorldEvent};

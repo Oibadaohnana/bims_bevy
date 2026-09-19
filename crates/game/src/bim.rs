@@ -12,8 +12,8 @@
 
 use crate::character::{Character, Look};
 use crate::clock;
-use crate::combat::Gear;
-use crate::filth::Ordeal;
+use crate::combat::{Blow, Gear};
+use crate::filth::{self, Filth, Mess, Ordeal};
 use crate::health::Health;
 use crate::math::{Vec2, vec2};
 use crate::memory::Memory;
@@ -42,24 +42,16 @@ pub const TALKS_ABOUT: usize = 8;
 
 /// How often a bleeding Bim leaves a drop of blood on the deck, in
 /// seconds, with one open wound — with more it is that many times as
-/// often — and how long a drop stays, in seconds, before it has faded.
-/// Real seconds at 1x: the trail is a picture, and the world's speed
-/// leaves a longer one the way it leaves more of everything.
+/// often. Real seconds at 1x: the world's speed leaves a longer trail the
+/// way it leaves more of everything. A drop is filth on the tile it lands
+/// on — `Mess::Blood`, [`filth::BLOOD_COST`] — and stays until it is swept.
 pub const DRIP_EVERY: f32 = 1.2;
-pub const DRIP_LIFE: f32 = 90.0;
 /// How far from the body's middle a drop lands, in room units, either way.
 const DRIP_SCATTER: f32 = 10.0;
 
 pub struct Footprint {
     pub pos: Vec2,
     pub age: f32,
-}
-
-/// A drop of blood on the deck, where a bleeding Bim stood.
-pub struct Drip {
-    pub pos: Vec2,
-    pub age: f32,
-    pub size: f32,
 }
 
 pub struct Bim {
@@ -125,11 +117,27 @@ pub struct Bim {
     pub gear: Gear,
     /// Seconds until the weapon can fire again.
     pub reload: f32,
+    /// Shots left of the burst a trigger pull started, and seconds until
+    /// the next of them. See `Game::tick_combat`.
+    pub burst_left: u32,
+    pub burst_timer: f32,
+    /// The enemy — an index into the targets — it is in a melee with:
+    /// locked, unable to fire, trading blows every `MELEE_PERIOD`
+    /// seconds on `melee_timer`. Nothing but the distance between them
+    /// keeps it. See `crate::combat`.
+    pub locked: Option<usize>,
+    pub melee_timer: f32,
+    /// The blow it is in the middle of, if any: started with the swing,
+    /// landing when the animation ends. See `Game::tick_combat`.
+    pub blow: Option<Blow>,
+    /// Where it leans out to while it aims from a peek beside a wall:
+    /// the peek eye's tile middle, and where a shot at it is aimed and
+    /// lands. `None` standing in the open.
+    pub peek: Option<Vec2>,
     /// Seconds left of the flash a hit puts on the body.
     pub hit_flash: f32,
-    /// The blood it has left on the deck, and how long until the next
-    /// drop. See [`Bim::tick_drips`].
-    pub drips: Vec<Drip>,
+    /// How long until the next drop of blood on the deck. See
+    /// [`Bim::tick_drips`].
     pub drip_timer: f32,
     /// Seconds until an enemy at war next chooses where to stand. Its
     /// own clock, so a room of enemies does not all replan on one frame.
@@ -169,8 +177,13 @@ impl Bim {
             poisoned_for: 0.0,
             gear: Gear::issued(),
             reload: 0.0,
+            burst_left: 0,
+            burst_timer: 0.0,
+            locked: None,
+            melee_timer: 0.0,
+            blow: None,
+            peek: None,
             hit_flash: 0.0,
-            drips: Vec::new(),
             drip_timer: 0.0,
             plan_wait: 0.0,
         }
@@ -209,13 +222,17 @@ impl Bim {
         self.trail.retain(|f| f.age < TRAIL_LIFE);
     }
 
-    /// Lay and age the blood on the deck. A drop every [`DRIP_EVERY`]
-    /// seconds over the open wounds while it bleeds and lives — a dead
-    /// Bim has stopped — scattered a little about the body so a Bim
-    /// standing still leaves a pool rather than a dot. The scatter is
-    /// rolled off the room's stream: a Bim only bleeds after a fight, and
-    /// no seed-pinned probe has one, so nothing they pin is re-rolled.
-    pub fn tick_drips(&mut self, dt: f32, rng: &mut Rng) {
+    /// Drip blood on the deck. A drop every [`DRIP_EVERY`] seconds over the
+    /// open wounds while it bleeds and lives — a dead Bim has stopped —
+    /// scattered a little about the body so a Bim standing still leaves a
+    /// pool rather than a dot, and each drop is **filth**: the tile it
+    /// lands on is soiled with `Mess::Blood`, which the broom takes up like
+    /// any stain and the cleanliness need follows like any other. There is
+    /// no picture of a drop of its own any more; the deck draws the tile.
+    /// The scatter is rolled off the room's stream: a Bim only bleeds after
+    /// a fight, and no seed-pinned probe has one, so nothing they pin is
+    /// re-rolled.
+    pub fn tick_drips(&mut self, dt: f32, rng: &mut Rng, deck: &mut Filth) {
         let wounds = self.health.bleeding();
         if wounds > 0 && self.is_alive() {
             self.drip_timer -= dt;
@@ -223,18 +240,10 @@ impl Bim {
                 self.drip_timer = DRIP_EVERY / wounds as f32;
                 let at = self.character.pos
                     + vec2(rng.signed() * DRIP_SCATTER, rng.signed() * DRIP_SCATTER);
-                self.drips.push(Drip {
-                    pos: at,
-                    age: 0.0,
-                    size: rng.range(3.5, 6.5),
-                });
+                deck.soil(at, filth::BLOOD_COST, Mess::Blood);
             }
         } else {
             self.drip_timer = 0.0;
         }
-        for d in &mut self.drips {
-            d.age += dt;
-        }
-        self.drips.retain(|d| d.age < DRIP_LIFE);
     }
 }

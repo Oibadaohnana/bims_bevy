@@ -228,8 +228,22 @@ impl StationKind {
         use physics::ResourceId;
         match (self, resource) {
             (StationKind::Derelict, _) => false,
-            // Made at the armoury and the workbench; nobody stocks them.
-            (_, ResourceId::Emitter | ResourceId::Handgun | ResourceId::Vest) => false,
+            // Made at the armoury and the workbench; nobody stocks them. The
+            // three pieces of armour are the workbench's the same way, and
+            // the four weapons after the handgun the armoury's.
+            (
+                _,
+                ResourceId::Emitter
+                | ResourceId::Handgun
+                | ResourceId::Vest
+                | ResourceId::Helm
+                | ResourceId::Kevlar
+                | ResourceId::LegGuard
+                | ResourceId::Shotgun
+                | ResourceId::AutoRifle
+                | ResourceId::SniperRifle
+                | ResourceId::Schword,
+            ) => false,
             // Mined off an asteroid on the way to its ore; nobody stocks it.
             (_, ResourceId::Rock) => false,
             (StationKind::MiningOutpost, ResourceId::Galvum) => true,
@@ -421,7 +435,19 @@ mod tests {
             for resource in ResourceId::ALL {
                 let want = match (kind, resource) {
                     (StationKind::Derelict, _) => false,
-                    (_, ResourceId::Emitter | ResourceId::Handgun | ResourceId::Vest) => false,
+                    (
+                        _,
+                        ResourceId::Emitter
+                        | ResourceId::Handgun
+                        | ResourceId::Vest
+                        | ResourceId::Helm
+                        | ResourceId::Kevlar
+                        | ResourceId::LegGuard
+                        | ResourceId::Shotgun
+                        | ResourceId::AutoRifle
+                        | ResourceId::SniperRifle
+                        | ResourceId::Schword,
+                    ) => false,
                     (_, ResourceId::Rock) => false,
                     (StationKind::MiningOutpost, ResourceId::Galvum) => true,
                     (_, ResourceId::Galvum) => false,
@@ -439,6 +465,10 @@ mod tests {
         assert!(StationKind::Relay.sells(ResourceId::Fuel));
         assert!(StationKind::Orbital.sells(ResourceId::Medkit));
         assert!(!StationKind::Orbital.sells(ResourceId::Handgun));
+        assert!(!StationKind::Orbital.sells(ResourceId::Shotgun));
+        assert!(!StationKind::Refinery.sells(ResourceId::AutoRifle));
+        assert!(!StationKind::Relay.sells(ResourceId::SniperRifle));
+        assert!(!StationKind::MiningOutpost.sells(ResourceId::Schword));
         assert!(!StationKind::MiningOutpost.sells(ResourceId::Rock));
         // Fibre and bandages: the orbitals, bandages at the refineries too,
         // and neither is a staple.

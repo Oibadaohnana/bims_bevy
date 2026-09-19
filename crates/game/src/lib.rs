@@ -14,6 +14,7 @@
 // `world` reaches `aboard`, `game`, `room` and `math` — and the app drives
 // it through `game` and names what it is told through `room`'s codes.
 pub mod aboard;
+pub mod balance;
 pub mod bath;
 pub mod bim;
 pub mod character;

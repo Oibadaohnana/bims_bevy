@@ -100,7 +100,15 @@ Both fixtures are wired — `REFERENCE_CONDUIT`, `PLAYTEST_BRANCHES` off the
 spine in column 8 — which moved `REFERENCE_HASH`, `REFERENCE_PARTS`,
 `PLAYTEST_HASH`, `PLAYTEST_PARTS` and `REFERENCE_CHECKSUM`;
 `the_fixtures_are_wired` pins that neither warns and the playtest ship
-draws 57 of 100. `ship-check.mjs`'s `buildShip` lays the same run by
+draws **127 of 240** — six systems, the smelter, the workbench, the drug
+lab and the armoury — off **two reactors**. The first made 120 and had 3
+to spare with the drug lab drawing 5 rather than the workbench's 15;
+this note used to say a fourth bench aboard it was a second reactor or
+a brownout, and the armoury (10) was that bench, so it came aboard with
+a reactor of its own at `(13, 11)` and four more conduit tiles in
+`PLAYTEST_BRANCHES`. Still one network, no warnings: `networks(&design)`
+is one long and the supply is `2 × REACTOR_OUTPUT`, both in the same
+test. `ship-check.mjs`'s `buildShip` lays the same run by
 dragging conduit, which is an area tool like deck. **The station layout is
 not wired**: nothing reads a station's power and it is only checked for
 errors, so its reactors and batteries are still furniture.
@@ -113,12 +121,34 @@ errors, so its reactors and batteries are still furniture.
 `crates/shipdesign/src/design.rs` (an array length; `cargo_is_the_right_length`
 pins it, and **every design hash moves** because the cargo is hashed at
 fixed length — re-pin `REFERENCE_HASH`, `PLAYTEST_HASH` and
-`REFERENCE_CHECKSUM`), `RESOURCE_NAMES` in `crates/app/src/screens/game.rs`, and an icon rule
-in `web/ship.html` (`simulation-check.mjs` fails on a missing one). Then
-decide **who sells it**: `StationKind::sells` in `crates/worldgen/src/data.rs`
-is the only place that is written down, and its test enumerates every
-pair. Galvum is the outposts' alone, an emitter is nobody's, a derelict
-sells nothing. `Refusal::NotSoldHere = 9` is the world's answer and
+`REFERENCE_CHECKSUM` — and `worldgen::fixture::REFERENCE_CHECKSUMS`
+too, because a station's shelf is in the galaxy checksum and every kind
+that sells the new thing rolls it), `RESOURCE_NAMES` in
+`crates/app/src/names.rs` (the length is pinned against `ResourceId::ALL`
+by its tests, and `ITEM_TIPS` beside it the same), and a picture in
+`crates/app/src/icons.rs` — `icons::resource` is a `match` on
+`ResourceId`, so a resource with no icon is a compile error, and
+`every_resource_and_every_item_has_an_icon` draws each into a windowless
+painter. Then decide **who sells
+it**: `StationKind::sells` in `crates/worldgen/src/data.rs` is the only
+place that is written down, and its test enumerates every pair. Galvum is
+the outposts' alone, an emitter is nobody's, a derelict sells nothing;
+fibre is the orbitals' and a bandage the orbitals' and the refineries'.
+Shotgun (18), AutoRifle (19), SniperRifle (20) and Schword (21) are the
+last four added — locker class, sold nowhere, weighing their armoury
+recipes; see "Armour is three recipes" below — and Helm (15), Kevlar
+(16) and LegGuard (17) before them
+are the worked example: locker class like the medkit, at 16, 28 and 8 a
+unit — two metal, three metal and a galvum, one metal, so the three
+workbench recipes conserve mass — priced 300, 900 and 150 (the metal in
+each, since a station only ever buys one), and **sold nowhere**. That
+last is the edit that is easy to miss: `sells` falls through to `_ =>
+true`, so a resource left out of its "made, never sold" arm is on every
+lived-in station's shelf and every galaxy checksum moves. The arm and
+its mirror in `what_each_kind_of_station_sells` both name the three.
+(Fibre, 13, and Bandage, 14, were the pair before: a crop in the
+cold-store class at 1.0 and a dressing in the locker class at 2.0, so
+the drug lab's recipe conserves mass too.) `Refusal::NotSoldHere = 9` is the world's answer and
 `EditError::NotSoldHere = 17` the design phase's — the editor asks
 `Editor::market`, the spawn station's kind, before it asks `apply`, since
 `shipdesign` knows no stations. `Session::sold_here` is the one export both
@@ -433,8 +463,8 @@ Two things that follow:
   the skin rows, in place of the plating there. `ship-check.mjs`'s chamfer
   section peels those two before laying the run, and the frame out of the
   void corner as well, or the tiles left behind are exposed and the count
-  never reaches nought. `playtest_outline` in `fixture.rs` and `outline` in
-  `station.rs` are that rule written down.
+  never reaches nought. `playtest_outline` in `fixture.rs` is that rule
+  written down (the station plan has no chamfers any more).
 - **A diagonal drag is a staircase**, `editor::diagonal_line`: one tile a
   step along the shorter of the two distances, every tile at the ghost's
   turn. A removing drag is still a rectangle — it would take the deck beside
@@ -449,15 +479,91 @@ and it is hand-copied from a dump, so redraw it when the ship moves. The airlock
 `(17, 11)`, so it docks at heading nought and the station is to starboard,
 which `simulation-check.mjs` relies on; the engine is at `(9, 16)` with the
 two stern ring tiles decked so its bell *is* the stern and nothing of the
-ship is aft of it. Moving anything moves `PLAYTEST_HASH` and
-`PLAYTEST_PARTS` in `fixture.rs`, the hob's tile in `ship-check.mjs` and
-`ship-layout.mjs given` (`(6, 7)` on the twenty grid, `(16, 17)` on the
-lobby's forty), and possibly `world::fixture::REFERENCE_CHECKSUM`.
+ship is aft of it. The stern row holds the workshop — the workbench at
+`(11, 17)` and the smelter at `(14, 16)` to starboard of the engine, the
+drug lab at `(6, 17)` to port of it, all `R180` so they are worked from
+the row forward of them, the row aft being the stern. The **armoury** is
+not in the workshop: it stands on the main deck at `(14, 7)`, `R0`,
+along the bridge bulkhead to starboard and forward of the bunk, worked
+from `(14, 8)` the way the galley is worked from the row below it, and
+its **second reactor** is at `(13, 11)`, under the bay by the airlock —
+both placed clear of `(9..=11, 11)`, the tiles the world's tests lay
+their own conduit and armoury on. The cargo carries **5 bandages and 6
+fibre** (`PLAYTEST_CARGO`) so the dressing seam can be tried from the
+first minute, **one helm, one kevlar and one pair of leg guards** so
+the armoury's grid opens with something in it to equip, and **one of
+each of the four weapons** — a shotgun, an auto rifle, a sniper rifle
+and a schword — so each can be put in a hand and looked at. The locker
+class is what those had to fit in — the suit locker's two, the drug
+lab's six and the armoury's **eight** are sixteen, with a suit, five
+bandages, three pieces and four weapons in them, which is the "13 of 16
+in the lockers" the armoury's window says. The armoury's cabinet was
+four until the weapons came: twelve slots with nine used would have had
+one weapon quietly refused by `apply` rather than fail anything, and
+the armoury is the cabinet weapons live in, so it grew rather than the
+bandages shrinking — the same way, before the armoury, the lockers
+were eight with six used and the third piece would have been the one
+refused. The drug lab went to port rather than beside
+the workbench because the one tile left there is one wide, and it draws
+5 rather than the workbench's 15 because the first reactor had 8 to
+spare before the armoury (see "Power is a column"). Moving anything moves `PLAYTEST_HASH`
+and `PLAYTEST_PARTS` in `fixture.rs`, the hob's tile in `ship-check.mjs`
+and `ship-layout.mjs given` (`(6, 7)` on the twenty grid, `(16, 17)` on
+the lobby's forty), and `world::fixture::REFERENCE_CHECKSUM` whenever the
+world's tests say so. `parts_are_in_id_order` takes the first part *from*
+the middle that will come off rather than the one exactly there, because
+which tile is exactly in the middle moves every time the ship does, and
+one build it was a frame tile with something standing on it.
+
+**The combat ship is the playtest ship with a crew of five aboard.**
+`fixture::combat_ship()` is `playtest_ship()` plus four bunks at
+`COMBAT_BUNKS` and four chairs at `COMBAT_CHAIRS`, put down through
+`apply` after the cargo; `COMBAT_CREW` is 5 and it validates clean for
+that many (`the_combat_ship_sleeps_a_crew_of_five`). The bunks are on
+the **bridge** — one lying along the bow to port at `(6, 2)` `R270`,
+two standing against the life support at `(13, 2)` and `(13, 4)`, one
+beside the battery at `(5, 4)` `R180` — because the main deck's aft
+rows are two deep above the bulkhead and a row of bunks there seals
+the deck between them into pockets (`UseSpotsCutOff`), and a bunk in
+engineering cuts the compartment in two. Two things to know before
+moving one: the room does **not** read a bunk's use spot — `bed_side`
+in `room.rs` gets in from whichever side faces the middle of the room,
+and a lying bed in the east half is got into from the *north* — so a
+bunk's get-in side has to be deck by that rule as well as the
+validator's; and a chair is a seat anywhere, blocking nothing, so the
+three extra chairs sit along the aft bulkhead rather than at a second
+table there is no room for. Its hash is not pinned; `PLAYTEST_HASH` and
+`PLAYTEST_PARTS` do not move for it. What it is for is
+`crates/world/CLAUDE.md`'s arena.
 
 `ship-layout.mjs simulation` and `... station` are the pictures — `mode=1`,
 no ship built by hand, the playtest ship docked at its spawn an hour in.
 They are the only moments that show the fittings and the station's rooms at
 all, since every other game moment builds the flyer.
+
+## The trading desk is a station's part, and the ship never needs one
+
+`PartKind::TradingDesk = 36` is the thirty-seventh row: a table's
+footprint `(2, 1)` worked from `(0, 1)` and `(1, 1)`, three metal, €600,
+unpowered, `blocks_movement` and — it is a counter — in the
+`blocks_sight` exceptions beside the table. Nothing in this crate reads
+it; `world::station::build_layout` lays one in every station just inside
+the port and `world::World::at_the_desk` is the rule that a buy or a sell
+wants a crew member within reach of one. It is offered in the palette
+and the Build tab (Crew / Furniture) like any part, so a player who
+builds one on a ship has a desk nobody trades across — the rule reads
+the joined deck's desks, and a ship's own is on it too while docked,
+which is harmless: it is still the station's shelf that is bought from.
+The six edits were the six: the enum and `ALL`, `PARTS` (37),
+`PART_COLORS` (a wooden counter), `PART_NAMES`, `PART_GROUPS`,
+`BUILD_GROUPS`, and a picture in `fittings::trading_desk`.
+
+`PartKind::Sandbags = 37` is the row after it: a tile, one metal, €150, that blocks movement and, being a solid, sight, so
+that the room's peek rule makes it cover for nothing new; no use spots,
+since nothing is worked at it. Under Structure in the palette and the
+Build tab, and `fittings::sandbags` is the picture: three staggered
+courses of bags over a dark ground. The stations lay a barricade of them
+in every corridor arm (`crates/world/CLAUDE.md`).
 
 ## `blocks_sight` is the movement rule minus the low furniture
 
@@ -468,3 +574,84 @@ helm's console, a battery — and a door counts as opaque here because that
 is what it is shut; open or shut is the room's to know. `defs_are_sound`
 pins that nothing walked through blocks sight (bar the door) and every
 wall does. The room reads it in `aboard::layout_of` and nowhere else.
+
+## The drug lab is the fourth bench, and a bandage is the one recipe that heals
+
+`PartKind::DrugLab = 35` is the workbench's footprint and use spot — `(2, 1)`,
+worked from `(0, 1)` — with a lighter draw (5: a press and a steriliser,
+not a lathe), a cabinet of its own (`Storage::Locker`, six, the armoury's
+precedent for a bench that is also a container) and a recipe of five metal
+and six components. `recipes::RECIPES[6]` is what it makes: two **fibre**
+to one **bandage** in a quarter of an hour, `vents: false`, and the bandage
+weighs the fibre, which `every_recipe_holds_together` pins along with
+`at(DrugLab)` being one recipe long. Nothing here knows what a bandage
+*does* — that is `bims::health`, where a bandage closes every wound on one
+part of a body — any more than it knows what a handgun shoots; the table
+is what goes in, what comes out and how long. The cabinet is the reason
+the playtest ship can carry its five bandages: until the armoury came
+aboard its only other locker was the suit locker, two slots with a suit
+in one, and the armoury's eight are what the three pieces of armour and
+the four weapons sit in now (see "The playtest ship is three
+compartments").
+
+Two edits the six-edit rule did not name, because they are outside the
+crate and cannot be left out: `PART_COLORS` in `crates/ship/src/paint.rs`
+is indexed by `kind as usize` in every painter, so a part the table is one
+short for panics the designer on its first frame; and `trade_price` and
+`storage` in `economy` are exhaustive matches on `ResourceId`, so the
+resource half is a compile error there. The drug lab has a picture now
+— `fittings::drug_lab`, its `PART_COLORS` green-white as the bench top
+with a vial rack, a flask and a small still on it (`crates/ship/CLAUDE.md`)
+— so a block on the deck is once again a part somebody forgot to draw.
+
+## Armour is three recipes at the workbench, and the vest is not the kevlar
+
+`recipes::RECIPES[7..=9]` are a **helm** (two metal, half an hour),
+**kevlar** (three metal and a galvum, three quarters) and **leg guards**
+(one metal, twenty minutes), all at `PartKind::Workbench`, none venting,
+each weighing exactly its metal — which is why the three masses in
+`physics::RESOURCES` are 16, 28 and 8 and not round numbers. They went to
+the workbench because that is where the user put them, and the armoury's
+own vest (`RECIPES[4]`, four metal and two components) **stays**: a vest
+is a `Vest`, a count in a locker with no state, and the kevlar is a piece
+with a health of its own. `every_recipe_holds_together` pins all of it —
+the table fourteen long, `at(Workbench)` five (components, the emitter
+and the three pieces), the vest still at index 4, and the mass of every
+piece equal to its inputs — and it is the test to extend for a fourth
+piece, which is one more row appended (the index crosses the seam) and
+one more `ResourceId` in the locker class.
+
+The four weapons were exactly that, appended after the leg guards, back
+at the armoury. `RECIPES[10..=13]` are the **shotgun** (four metal, two
+components, three quarters of an hour), the **auto rifle** (three metal,
+three components, an emitter, an hour), the **sniper rifle** (four
+metal, two components, two emitters, an hour and a quarter) and the
+**schword** (one metal, one component, two emitters, an hour), none
+venting; `every_recipe_holds_together` pins each row's inputs, output,
+minutes, station and mass. The masses in `physics::RESOURCES` — 36, 46,
+68 and 42 — are what the inputs weigh (metal 8, components 2, an
+emitter 16), and not the 12/10/14/6 the spec first said, because the
+table conserves mass and the spec said to move the masses rather than
+the inputs; heavy, because an emitter is. What each weapon *does* is
+`bims::combat::WeaponKind::stats`, keyed on the resource code the same
+way (`WeaponKind::resource()`: 9, 18, 19, 20, 21).
+
+What a piece *does* — its health, its protection, the slot it is cut for
+— is `bims::combat::ArmourKind::stats`, keyed on the resource code (15,
+16, 17), and the rule that a piece is a resource in a container and an
+instance everywhere else is the world's (`World::pieces`,
+`crates/world/CLAUDE.md`). This crate knows the three only as goods:
+`CARGO_SLOTS` was 18 for them and is 22 for the weapons
+(`cargo_is_the_right_length`), the hold
+counts them like bandages, `apply(Buy)` refuses a fourth when the
+lockers are full exactly as it refuses a medkit, and a station only ever
+buys them since none sells. **Adding them moved `REFERENCE_HASH` even
+though `reference` did not change**, because the cargo is hashed at
+fixed length — and the weapons moved it again, along with
+`PLAYTEST_HASH` (the cargo grew, the parts did not: `PLAYTEST_PARTS` is
+still 647) and `world::fixture::REFERENCE_CHECKSUM`; expect that of the
+next resource too, and re-pin by running rather than assuming the
+reference ship is untouched. `worldgen`'s `REFERENCE_CHECKSUMS` did not
+move for the weapons, since a resource in the "made, never sold" arm is
+never rolled onto a shelf — and the weapons are priced (1 000, 2 000,
+3 000, 2 500) only so a station can buy them off the crew.

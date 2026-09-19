@@ -43,6 +43,18 @@ impl Color {
     pub const fn alpha(self, a: f32) -> Color {
         Color { a, ..self }
     }
+
+    /// So much of the way from this colour to `other`, alpha included:
+    /// a tint mixed with a side's colour.
+    pub fn mix(self, other: Color, t: f32) -> Color {
+        let l = |a: f32, b: f32| a + (b - a) * t;
+        Color {
+            r: l(self.r, other.r),
+            g: l(self.g, other.g),
+            b: l(self.b, other.b),
+            a: l(self.a, other.a),
+        }
+    }
 }
 
 #[derive(Default)]

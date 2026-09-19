@@ -27,6 +27,7 @@
 //! integers throughout precisely so its hash is exact on both targets, and
 //! that hash goes in whole.
 
+use crate::armour::Where;
 use crate::world::{ShipState, World, node_key};
 
 /// FNV-1a, written out by hand.
@@ -71,6 +72,10 @@ const POSITION_GRID: f64 = 1_000.0;
 
 /// A millionth of a radian, and of a unit per minute.
 const FINE_GRID: f64 = 1_000_000.0;
+
+/// A hundredth of a health point, for a piece of armour: a hit takes
+/// whole points off it.
+const HEALTH_GRID: f64 = 100.0;
 
 /// Everything about the world that two clients have to agree on.
 pub fn world_checksum(world: &World) -> u64 {
@@ -171,6 +176,50 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat_rounded(at.y, POSITION_GRID);
     }
     hash.eat_rounded(world.aboard.minutes(), FINE_GRID);
+
+    // Whose side each station is on: home, and the hostile list in id
+    // order. A stance is what decides whether anybody shoots, so two
+    // worlds that disagree about one are already two different fights.
+    // The station's people themselves — the residents' room — are not in
+    // here, for the reason the crew's room is only in by its positions.
+    hash.eat(world.home as u64);
+    hash.eat(world.hostile.len() as u64);
+    for &station in &world.hostile {
+        hash.eat(station as u64);
+    }
+    hash.eat(world.reinforcements as u64);
+    // The hired hands: who, what a month costs, when it is next due and
+    // whether one is owed. A crew member that costs money is a different
+    // crew from one that does not.
+    hash.eat(world.hired.len() as u64);
+    for hired in &world.hired {
+        hash.eat(hired.who as u64);
+        hash.eat(hired.fee);
+        hash.eat_rounded(hired.due, FINE_GRID);
+        hash.eat(hired.owed as u64);
+    }
+
+    // The armour: every piece, what it has left and where it is. A piece
+    // on a body or in a pack is the room's, and its health is `f32`
+    // arithmetic under fire, so it goes in to a hundredth — a hit is
+    // whole points, and a last-bit disagreement is nothing beside one.
+    // The next id is in for the reason `next_site` is.
+    hash.eat(world.next_piece as u64);
+    hash.eat(world.pieces.len() as u64);
+    for piece in &world.pieces {
+        hash.eat(piece.id as u64);
+        hash.eat(piece.kind.code() as u64);
+        hash.eat_rounded(piece.health as f64, HEALTH_GRID);
+        hash.eat(piece.at.code() as u64);
+        match piece.at {
+            Where::Hold => {}
+            Where::Pack { who, cell } => {
+                hash.eat(who as u64);
+                hash.eat(cell as u64);
+            }
+            Where::Worn { who } => hash.eat(who as u64),
+        }
+    }
 
     for node in &world.discovered {
         let (kind, id) = node_key(node);

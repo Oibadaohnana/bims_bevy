@@ -194,6 +194,26 @@ pub const HIT_SHOWER: u32 = 10;
 /// before asking the room, and `Game::hit_bim` says which. The menu on it
 /// is the bandages, for the player's Bim to dress whoever was clicked.
 pub const HIT_BIM: u32 = 11;
+/// A workstation, any kind: `Game::hit_bench` says which, and
+/// `Game::bench_part` what it is — the app opens the armoury's grid off
+/// that and nothing off the rest. Aboard only; the classic room has none.
+pub const HIT_BENCH: u32 = 12;
+/// A shelf — the storage grid. `Game::hit_shelf` says which.
+pub const HIT_SHELF: u32 = 13;
+/// A dead crew member under the click — a body, for looting. `Game::hit_at`
+/// used to skip the dead; it answers this for one now, and `Game::hit_body`
+/// says which. An unconscious crewmate is still `HIT_BIM`, and the menu on
+/// it decides what to offer — the bandages, and the looting beside them.
+pub const HIT_BODY: u32 = 14;
+/// A docked station's resident under the click, down — dead or out cold,
+/// which the world says through `Game::set_visitors_down` — for looting.
+/// `Game::hit_visitor` says which. One on its feet is not hit at all: the
+/// visitors are not this room's, and there is nothing else to do to one.
+pub const HIT_VISITOR: u32 = 15;
+/// A station's trading desk — the Trade row, which walks the Bim to it
+/// and opens the trade window. `Game::hit_desk` says which. Aboard only,
+/// and only on a joined deck: a ship has none.
+pub const HIT_DESK: u32 = 16;
 
 /// What is at a point, for the readout that names whatever the pointer is
 /// over.
@@ -476,6 +496,11 @@ pub struct Layout {
     /// in `others` as well — the room has no picture for a shelf; the ship
     /// draws it. Empty in the classic room.
     pub shelves: Vec<(Rect, Vec2)>,
+    /// The trading desks, each its footprint and where the Bim stands at
+    /// it: a station's, where the crew trade with it — the world wants a
+    /// crew member at one to buy or sell. Solids in `others` as well; the
+    /// ship draws it. Empty in the classic room and on a ship of its own.
+    pub desks: Vec<(Rect, Vec2)>,
     /// The powered doors, each its opening and whether its leaves slide
     /// along `x`. None in the classic room, whose one door is the heads'.
     pub doors: Vec<(Rect, bool)>,
@@ -715,6 +740,8 @@ pub struct Room {
     pub hull: Vec<Rect>,
     /// The shelves, footprint and stand spot each. See `Layout::shelves`.
     pub shelves: Vec<(Rect, Vec2)>,
+    /// The trading desks, the same. See `Layout::desks`.
+    pub desks: Vec<(Rect, Vec2)>,
     /// The construction sites the world wants worked, this step: what each
     /// still wants carried to it, or that it is to be built. Set by
     /// `Game::set_build_orders`; empty in the classic room and while the
@@ -791,12 +818,14 @@ pub struct Room {
     /// the chain can be tried there.
     pub bandages: u32,
     pub bandages_used: u32,
-    /// Every dressing finished since the game last looked — `(patient,
-    /// part code)`, pushed by the bandage chain as its hands come off the
-    /// patient. The game drains it after everybody has moved and does the
-    /// dressing: the room has the bandages but the patient's body is a
-    /// `Bim`, which the room never holds.
-    pub dressed: Vec<(usize, u32)>,
+    /// Every dressing finished since the game last looked — `(helper,
+    /// patient, part code)`, pushed by the bandage chain as its hands come
+    /// off the patient. The game drains it after everybody has moved and
+    /// does the dressing: the room has the bandages but the patient's body
+    /// is a `Bim`, which the room never holds. The helper is on it because
+    /// by then its chain is over and gone, and the game still has to ask
+    /// whether the two are standing together.
+    pub dressed: Vec<(usize, usize, u32)>,
     /// Where every one of the crew stands this step, by index — `None` for
     /// one dead or outside. The one thing about the crew the room is told,
     /// set by the game at the top of every step, so that a chain walking
@@ -899,6 +928,7 @@ impl Room {
             outside: None,
             hull: Vec::new(),
             shelves: Vec::new(),
+            desks: Vec::new(),
             builds: Vec::new(),
             suit_ok: Vec::new(),
             picked: Vec::new(),
@@ -1012,6 +1042,7 @@ impl Room {
             outside: layout.outside,
             hull: layout.hull,
             shelves: layout.shelves,
+            desks: layout.desks,
             builds: Vec::new(),
             suit_ok: Vec::new(),
             picked: Vec::new(),
@@ -1190,6 +1221,7 @@ impl Room {
         self.outside = layout.outside;
         self.hull = layout.hull;
         self.shelves = layout.shelves;
+        self.desks = layout.desks;
         // A bay keeps its trays unless it moved: a bay somewhere else is a
         // different bay, with nothing planted in it yet. By frame, like the
         // beds, so a bay built while another is growing leaves that one be.
@@ -1669,6 +1701,12 @@ impl Room {
             HIT_SHIP_DOOR
         } else if self.shower_at(p).is_some() {
             HIT_SHOWER
+        } else if self.bench_at(p).is_some() {
+            HIT_BENCH
+        } else if self.shelf_at(p).is_some() {
+            HIT_SHELF
+        } else if self.desk_at(p).is_some() {
+            HIT_DESK
         } else {
             // The heads: the room's own first, then every other, so a click
             // on any pan is a pan.
@@ -1677,6 +1715,27 @@ impl Room {
                 None => self.bath.hit(p),
             }
         }
+    }
+
+    /// Which workstation a click landed on, by index into `benches`.
+    pub fn bench_at(&self, p: Vec2) -> Option<usize> {
+        self.benches
+            .iter()
+            .position(|b| b.frame.expand(4.0).contains(p))
+    }
+
+    /// Which shelf a click landed on, by index into `shelves`.
+    pub fn shelf_at(&self, p: Vec2) -> Option<usize> {
+        self.shelves
+            .iter()
+            .position(|(frame, _)| frame.expand(4.0).contains(p))
+    }
+
+    /// Which trading desk a click landed on, by index into `desks`.
+    pub fn desk_at(&self, p: Vec2) -> Option<usize> {
+        self.desks
+            .iter()
+            .position(|(frame, _)| frame.expand(4.0).contains(p))
     }
 
     // Which of a kind a click landed on, with a click's slack; `None` off
@@ -1763,37 +1822,54 @@ impl Room {
         }
     }
 
-    /// Where a `SPOT_` code *is*, for ringing it on the deck.
+    /// Where a `SPOT_` code *is*, for ringing it on the deck: every fixture
+    /// of that kind, each its own rect.
     ///
-    /// The inverse of [`Room::spot`], and only defined for the things that are
-    /// one object in one place. Deck plating and bulkheads have no single
-    /// rect — they are everywhere the furniture is not — so they have no
-    /// answer here, and a panel that points at one gets nothing rather than a
-    /// ring round the whole room.
+    /// The inverse of [`Room::spot`], and only defined for the things that
+    /// are objects in places. Deck plating and bulkheads have no rect — they
+    /// are everywhere the furniture is not — so they answer nothing, and a
+    /// panel that points at one gets nothing rather than a ring round the
+    /// whole room.
+    ///
+    /// A row on a panel names a **kind** — "Cooking" happens at the hobs,
+    /// the cold store's row is every cold store — so every worktop, hob,
+    /// fridge, dishwasher, bay, locker, bench and shower is rung, and a
+    /// ship with two galleys rings both. The chairs and the beds are the
+    /// exception: they come in adjacent pairs, one a Bim, and ringing both
+    /// would read as one enormous fixture rather than two of a kind, so
+    /// the first stands for the pair.
+    pub fn spot_rects(&self, spot: u32) -> Vec<Rect> {
+        match spot {
+            SPOT_WORKTOP => self.worktops.iter().map(|w| w.frame).collect(),
+            SPOT_BOARD => self.worktops.iter().map(|w| w.board).collect(),
+            SPOT_FRIDGE => self.fridges.iter().map(|f| f.frame).collect(),
+            SPOT_HOB => self.hobs.iter().map(|h| h.frame).collect(),
+            SPOT_DISHWASHER => self.dishwashers.iter().map(|d| d.face).collect(),
+            SPOT_TABLE => vec![self.table],
+            SPOT_CHAIR => vec![Rect::from_center_size(self.chairs[0], CHAIR_SIZE)],
+            SPOT_BUNK => vec![self.beds[0].frame],
+            SPOT_BAY => self.bays.iter().map(|b| b.frame).collect(),
+            SPOT_LOCKER => self.lockers.iter().map(|l| l.frame).collect(),
+            SPOT_TOILET => vec![self.bath.toilet],
+            SPOT_BASIN => vec![self.bath.sink],
+            SPOT_DOOR => vec![self.bath.door],
+            SPOT_HELM => self.helm.into_iter().collect(),
+            SPOT_BENCH => self.benches.iter().map(|b| b.frame).collect(),
+            SPOT_SHOWER => self.showers.iter().map(|(frame, _)| *frame).collect(),
+            SPOT_SUIT_LOCKER => self
+                .suit_locker
+                .map(|(frame, _)| frame)
+                .into_iter()
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The first of [`Room::spot_rects`], for a reader that wants one place
+    /// to look — the probe that rings each spot and reads it back.
+    #[allow(dead_code)]
     pub fn spot_rect(&self, spot: u32) -> Option<Rect> {
-        Some(match spot {
-            SPOT_WORKTOP => self.worktops[0].frame,
-            SPOT_BOARD => self.worktops[0].board,
-            SPOT_FRIDGE => self.fridges[0].frame,
-            SPOT_HOB => self.hobs[0].frame,
-            SPOT_DISHWASHER => self.dishwashers[0].face,
-            SPOT_TABLE => self.table,
-            // Two of each, and one rect to ring. The first is the answer: a
-            // readout that names "Bunk" is naming the kind of thing, and
-            // ringing both would read as one enormous fixture.
-            SPOT_CHAIR => Rect::from_center_size(self.chairs[0], CHAIR_SIZE),
-            SPOT_BUNK => self.beds[0].frame,
-            SPOT_BAY => self.bays[0].frame,
-            SPOT_LOCKER => self.lockers[0].frame,
-            SPOT_TOILET => self.bath.toilet,
-            SPOT_BASIN => self.bath.sink,
-            SPOT_DOOR => self.bath.door,
-            SPOT_HELM => self.helm?,
-            SPOT_BENCH => self.benches.first()?.frame,
-            SPOT_SHOWER => self.showers.first().copied()?.0,
-            SPOT_SUIT_LOCKER => self.suit_locker?.0,
-            _ => return None,
-        })
+        self.spot_rects(spot).first().copied()
     }
 
     // --- state the player and the task both drive -----------------------

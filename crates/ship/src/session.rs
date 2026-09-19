@@ -147,15 +147,32 @@ impl Session {
         width: f32,
         height: f32,
     ) -> Session {
+        let design = shipdesign::fixture::playtest_ship();
+        Session::simulate_on(design, 1, seed, galaxy, spawn, width, height)
+    }
+
+    /// [`Session::simulate`] on `design` with `crew` aboard, one of them the
+    /// player: the `test` command opens on the combat ship with one crew
+    /// member this way, so its spare bunks can take a mercenary hired at
+    /// the dock.
+    pub fn simulate_on(
+        design: ShipDesign,
+        crew: u32,
+        seed: u64,
+        galaxy: u32,
+        spawn: Option<(u32, u32)>,
+        width: f32,
+        height: f32,
+    ) -> Session {
         let spawn =
             spawn.or_else(|| world::spawn(&worldgen::Galaxy::new(seed, galaxy_type(galaxy))));
-        let design = shipdesign::fixture::playtest_ship();
         let editor = Editor::settled(design.clone(), 1, 0, width, height);
         let game = spawn.and_then(|(star, station)| {
-            Game::start(
+            Game::start_with_crew(
                 design,
                 world::data::SIMULATION_MONEY,
                 1,
+                crew,
                 0,
                 seed,
                 galaxy_type(galaxy),
@@ -173,6 +190,64 @@ impl Session {
             spawn,
             list: DrawList::new(),
         }
+    }
+
+    /// The `combat` command's session: the simulation's spawn for `seed`,
+    /// on the combat ship (`shipdesign::fixture::combat_ship`) with its
+    /// crew of five — the first the player, the rest crew nobody steers —
+    /// a different gun in each hand, in `WeaponKind::ALL`'s order (pistol,
+    /// shotgun, auto rifle, sniper rifle, schword), docked at the spawn
+    /// rebuilt as the arena (`World::arena_dock_for_probe`) and that made
+    /// hostile: its people enemies, and more of them than a station puts
+    /// up. Nothing is recruited: whom to send in is the player's.
+    pub fn combat(seed: u64, width: f32, height: f32) -> Session {
+        use bims::combat::WeaponKind;
+        use shipdesign::fixture::{COMBAT_CREW, combat_ship};
+        let galaxy = 0;
+        let spawn = world::spawn(&worldgen::Galaxy::new(seed, galaxy_type(galaxy)));
+        let design = combat_ship();
+        let editor = Editor::settled(design.clone(), 1, 0, width, height);
+        let game = spawn.and_then(|(star, station)| {
+            let mut game = Game::start_with_crew(
+                design,
+                world::data::SIMULATION_MONEY,
+                1,
+                COMBAT_CREW,
+                0,
+                seed,
+                galaxy_type(galaxy),
+                star,
+                station,
+                width,
+                height,
+            )?;
+            game.world.arena_dock_for_probe();
+            let room = &mut game.world.aboard.room;
+            for (who, kind) in WeaponKind::ALL.into_iter().enumerate() {
+                if who >= room.crew_count() as usize {
+                    break;
+                }
+                let gear = room.gear(who);
+                room.issue(
+                    who,
+                    bims::combat::Gear {
+                        weapon: Some(kind),
+                        ..gear
+                    },
+                );
+            }
+            Some(game)
+        });
+        let mut session = Session {
+            editor,
+            game,
+            seed,
+            galaxy,
+            spawn,
+            list: DrawList::new(),
+        };
+        session.make_dock_hostile();
+        session
     }
 
     /// Whether the spawn the session was given is a station this galaxy
@@ -196,6 +271,14 @@ impl Session {
         self.game
             .as_mut()
             .is_some_and(|g| g.world.hold_at_belt_for_probe())
+    }
+
+    /// A mercenary for hire at the dock whatever the roll said — see
+    /// `World::mercenary_for_probe`. What the `test` command does.
+    pub fn mercenary_for_probe(&mut self) -> bool {
+        self.game
+            .as_mut()
+            .is_some_and(|g| g.world.mercenary_for_probe())
     }
 
     /// Stage a fight at the dock — see `World::stage_fight_for_probe`.
@@ -543,6 +626,12 @@ impl Session {
             .unwrap_or(0)
     }
 
+    /// What a month of that resident costs if it is a mercenary for hire —
+    /// `World::mercenary_fee` — for the `?` over its head.
+    pub fn mercenary_fee(&self, who: u32) -> Option<Money> {
+        self.game.as_ref()?.world.mercenary_fee(who)
+    }
+
     /// Which station they live on, or `None` for nobody.
     pub fn resident_station(&self) -> Option<u32> {
         let game = self.game.as_ref()?;
@@ -574,6 +663,26 @@ impl Session {
             Some(world::ShipState::Docked { station }) => Some(*station),
             _ => None,
         }
+    }
+
+    /// Whether that player's crew member is at the station's trading desk —
+    /// `World::at_the_desk`, what a buy or a sell wants beside the berth.
+    pub fn at_the_desk(&self, slot: u32) -> bool {
+        self.game
+            .as_ref()
+            .is_some_and(|g| g.world.at_the_desk(slot))
+    }
+
+    /// Walk that player's crew member to the station's trading desk — a
+    /// room order, no seam crossed. False with no desk to walk to.
+    pub fn walk_to_desk(&mut self, slot: u32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Some(at) = game.world.desk_spot() else {
+            return false;
+        };
+        game.world.aboard.room.send_to(slot as usize, at)
     }
 
     // --- the map ----------------------------------------------------------

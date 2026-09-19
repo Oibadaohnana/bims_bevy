@@ -15,19 +15,38 @@
 //! — and what the panel calls health is the three added up. A shot lands
 //! on one part ([`Part::HIT_ODDS`]: one in twenty the head, three in four
 //! the body, one in five the legs) and takes the weapon's damage off that
-//! part alone. The head or the body at nothing is death. The legs at
-//! nothing is a **leg lost**: the Bim goes on, on the one it has left, its
-//! leg health starts again from the base, and the second time the legs
-//! reach nothing there are none left. Starvation and mending run over all
-//! three in proportion, so the total behaves exactly as the one bar did.
+//! part alone. Starvation and mending run over all three in proportion,
+//! so the total behaves exactly as the one bar did.
+//!
+//! # A part at nothing is a dying state, not a death
+//!
+//! A part reaching nothing rolls a [`Trauma`] for it — three a part, four
+//! for the legs, [`Trauma::roll`] — and the Bim is **dying**
+//! ([`Health::dying`]): the part stays at nothing and does not mend, the
+//! trauma bleeds it ([`Trauma::bleed`]) or slows it ([`Trauma::pace`],
+//! [`Trauma::works_at`]) until **another Bim treats it with a medkit**
+//! ([`Health::treat`]), which puts the part back to [`TREATED_TO`] of its
+//! base and leaves whatever the trauma leaves behind — a [`Lasting`]
+//! penalty for a day or two ([`Trauma::after`]), or a **leg lost**
+//! ([`Trauma::loses_leg`]: the crushed legs, one in twenty of a leg's
+//! rolls each), which is for ever and costs [`LEG_LOST_PACE`] of the walk
+//! each. A hit on a part already at nothing opens a wound and nothing
+//! more: it is as dying as it gets. What kills a Bim now is its **blood**.
 //!
 //! Beside the three, **blood**: a hundred points, and every hit opens a
 //! wound that bleeds [`BLEED_PER_WOUND`] of it an hour until it is dressed
-//! — so ten open wounds bleed a Bim out in an hour. Under half, the Bim
+//! — so ten open wounds bleed a Bim out in an hour. A wound is counted
+//! in **units**: a shot opens one, a cut ([`CUT_WOUND`]) three, so a
+//! blade bleeds three times what a bolt does and a bandage still closes
+//! the lot on a part at once. An untreated trauma bleeds beside the
+//! wounds, [`HEAVY_BLEED`] or [`SLOW_BLEED`] an hour. Under half, the Bim
 //! walks at half its pace; under [`OUT_AT`], it is out cold where it
 //! stands; at nothing it is dead. A bandage ([`Health::bandage`]) closes
 //! every wound on one part, and blood comes back on its own once nothing
-//! is open. Armour will one day stop a wound opening; nothing does yet.
+//! is open and no trauma bleeds. Armour stands in front of all of this —
+//! a worn piece takes a hit before the part does, and only what gets
+//! through comes here (`Game::wound`, `crate::combat`); nothing in this
+//! file knows about it.
 
 use crate::clock::{DAY, HOUR};
 
@@ -39,18 +58,194 @@ pub const MAX_BLOOD: f32 = 100.0;
 /// Blood lost an hour by each open wound.
 pub const BLEED_PER_WOUND: f32 = 10.0;
 
+/// The wound units a cut opens, against a shot's one.
+pub const CUT_WOUND: u32 = 3;
+
 /// Below this share of its blood the Bim walks at half its pace, and
 /// below the second it is out cold.
 pub const SLOWED_AT: f32 = 0.5;
-pub const OUT_AT: f32 = 0.3;
+pub const OUT_AT: f32 = 0.4;
 
 /// How fast blood comes back once nothing is bleeding: from nothing to
 /// full in two days, the same as health.
 const BLOOD_RECOVER: f32 = MAX_BLOOD / (2.0 * DAY);
 
-/// How a lost leg slows the walk: half on one leg, a crawl on none.
-const ONE_LEG_PACE: f32 = 0.5;
-const NO_LEGS_PACE: f32 = 0.25;
+/// What a lost leg costs the walk, for ever: a fifth each.
+pub const LEG_LOST_PACE: f32 = 0.8;
+
+/// What an untreated trauma bleeds an hour: ten blood a quarter hour, or
+/// five.
+pub const HEAVY_BLEED: f32 = 40.0;
+pub const SLOW_BLEED: f32 = 20.0;
+
+/// Where a treated part starts again from: half its base, so the next
+/// hit on it is a hit and not another trauma at once.
+pub const TREATED_TO: f32 = 0.5;
+
+/// The odds a leg at nothing is crushed — the right, and the left — and
+/// lost for ever; the rest of the rolls split evenly between the other
+/// two.
+pub const CRUSHED_ODDS: f32 = 0.05;
+
+/// A dying state: what a part reaching nothing turned into, one of three
+/// or four for the part ([`Trauma::roll`]). The codes are the app's, for
+/// the name and the line under it. Each is what it does **untreated** —
+/// bleeding, or a slower walk and slower work — and what it leaves
+/// **after** a medkit, for a day or two or for ever.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Trauma {
+    /// A quarter slower walking and working, the two days after treatment
+    /// as well.
+    HeavyConcussion = 0,
+    /// Bleeds ten a quarter hour until treated; nothing after.
+    SkullFracture = 1,
+    /// Half as fast walking and working, and bleeding five a quarter hour
+    /// until treated; the day after treatment still half as fast.
+    CranialTrauma = 2,
+    /// Bleeds ten a quarter hour, and nothing shows: a medkit is the only
+    /// answer.
+    InternalBleeding = 3,
+    /// A quarter slower walking and working, the two days after treatment
+    /// as well.
+    BrokenRibs = 4,
+    /// Bleeds five a quarter hour and walks at half pace until treated;
+    /// the day after, still at half pace.
+    ChestTrauma = 5,
+    /// Bleeds ten a quarter hour until treated; nothing after.
+    FracturedFemur = 6,
+    /// Can barely move — a quarter of its pace — until treated; the two
+    /// days after, a quarter slower.
+    ShatteredKnee = 7,
+    /// The leg is gone, for ever, and it bleeds ten a quarter hour until
+    /// the stump is treated. One roll in twenty.
+    CrushedRightLeg = 8,
+    /// The other leg, the same.
+    CrushedLeftLeg = 9,
+}
+
+/// What a treated trauma leaves behind for a while: the trauma's
+/// [`Trauma::after`] pace and effort, for `left` more game minutes.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Lasting {
+    pub trauma: Trauma,
+    pub left: f32,
+}
+
+impl Trauma {
+    pub const ALL: [Trauma; 10] = [
+        Trauma::HeavyConcussion,
+        Trauma::SkullFracture,
+        Trauma::CranialTrauma,
+        Trauma::InternalBleeding,
+        Trauma::BrokenRibs,
+        Trauma::ChestTrauma,
+        Trauma::FracturedFemur,
+        Trauma::ShatteredKnee,
+        Trauma::CrushedRightLeg,
+        Trauma::CrushedLeftLeg,
+    ];
+
+    pub fn code(self) -> u32 {
+        self as u32
+    }
+
+    pub fn from_code(code: u32) -> Option<Trauma> {
+        Trauma::ALL.get(code as usize).copied()
+    }
+
+    /// The part it is a trauma of.
+    pub fn part(self) -> Part {
+        match self {
+            Trauma::HeavyConcussion | Trauma::SkullFracture | Trauma::CranialTrauma => Part::Head,
+            Trauma::InternalBleeding | Trauma::BrokenRibs | Trauma::ChestTrauma => Part::Body,
+            Trauma::FracturedFemur
+            | Trauma::ShatteredKnee
+            | Trauma::CrushedRightLeg
+            | Trauma::CrushedLeftLeg => Part::Legs,
+        }
+    }
+
+    /// Which trauma a roll of `unit` (0 to 1) lands on for `part`: the
+    /// head's and the body's three evenly, the legs' crushed ones
+    /// [`CRUSHED_ODDS`] each and the femur and the knee the rest, half
+    /// and half.
+    pub fn roll(part: Part, unit: f32) -> Trauma {
+        let unit = unit.clamp(0.0, 0.999_999);
+        match part {
+            Part::Head => match (unit * 3.0) as u32 {
+                0 => Trauma::HeavyConcussion,
+                1 => Trauma::SkullFracture,
+                _ => Trauma::CranialTrauma,
+            },
+            Part::Body => match (unit * 3.0) as u32 {
+                0 => Trauma::InternalBleeding,
+                1 => Trauma::BrokenRibs,
+                _ => Trauma::ChestTrauma,
+            },
+            Part::Legs => {
+                let rest = 1.0 - 2.0 * CRUSHED_ODDS;
+                if unit < rest * 0.5 {
+                    Trauma::FracturedFemur
+                } else if unit < rest {
+                    Trauma::ShatteredKnee
+                } else if unit < rest + CRUSHED_ODDS {
+                    Trauma::CrushedRightLeg
+                } else {
+                    Trauma::CrushedLeftLeg
+                }
+            }
+        }
+    }
+
+    /// Blood lost an hour while it is untreated.
+    pub fn bleed(self) -> f32 {
+        match self {
+            Trauma::SkullFracture
+            | Trauma::InternalBleeding
+            | Trauma::FracturedFemur
+            | Trauma::CrushedRightLeg
+            | Trauma::CrushedLeftLeg => HEAVY_BLEED,
+            Trauma::CranialTrauma | Trauma::ChestTrauma => SLOW_BLEED,
+            Trauma::HeavyConcussion | Trauma::BrokenRibs | Trauma::ShatteredKnee => 0.0,
+        }
+    }
+
+    /// How fast it walks while untreated, as a fraction of its pace.
+    pub fn pace(self) -> f32 {
+        match self {
+            Trauma::HeavyConcussion | Trauma::BrokenRibs => 0.75,
+            Trauma::CranialTrauma | Trauma::ChestTrauma => 0.5,
+            Trauma::ShatteredKnee => 0.25,
+            _ => 1.0,
+        }
+    }
+
+    /// How fast it works while untreated, as a fraction of its effort.
+    pub fn works_at(self) -> f32 {
+        match self {
+            Trauma::HeavyConcussion | Trauma::BrokenRibs => 0.75,
+            Trauma::CranialTrauma => 0.5,
+            _ => 1.0,
+        }
+    }
+
+    /// What it leaves after treatment — a pace, an effort, and for how
+    /// many game minutes — or nothing.
+    pub fn after(self) -> Option<(f32, f32, f32)> {
+        match self {
+            Trauma::HeavyConcussion | Trauma::BrokenRibs => Some((0.75, 0.75, 2.0 * DAY)),
+            Trauma::CranialTrauma => Some((0.5, 0.5, DAY)),
+            Trauma::ChestTrauma => Some((0.5, 1.0, DAY)),
+            Trauma::ShatteredKnee => Some((0.75, 1.0, 2.0 * DAY)),
+            _ => None,
+        }
+    }
+
+    /// Whether the leg is gone for good the moment it is rolled.
+    pub fn loses_leg(self) -> bool {
+        matches!(self, Trauma::CrushedRightLeg | Trauma::CrushedLeftLeg)
+    }
+}
 
 /// Where a shot lands. The codes are the app's: the three armour slots
 /// are in the same order.
@@ -227,8 +422,12 @@ pub struct Health {
     /// How many legs are gone: none, one, or both.
     legs_lost: u32,
     blood: f32,
-    /// Open wounds on each part, bleeding until dressed.
+    /// Open wound units on each part, bleeding until dressed.
     wounds: [u32; 3],
+    /// The untreated trauma on each part, while the part is at nothing.
+    traumas: [Option<Trauma>; 3],
+    /// What treated traumas have left behind, each for a while yet.
+    lasting: Vec<Lasting>,
 }
 
 impl Health {
@@ -240,6 +439,8 @@ impl Health {
             legs_lost: 0,
             blood: MAX_BLOOD,
             wounds: [0; 3],
+            traumas: [None; 3],
+            lasting: Vec::new(),
         }
     }
 
@@ -281,12 +482,12 @@ impl Health {
         self.blood
     }
 
-    /// Open wounds on one part.
+    /// Open wound units on one part.
     pub fn wounds(&self, part: Part) -> u32 {
         self.wounds[part as usize]
     }
 
-    /// Open wounds all told.
+    /// Open wound units all told.
     pub fn bleeding(&self) -> u32 {
         self.wounds.iter().sum()
     }
@@ -295,11 +496,33 @@ impl Health {
         self.legs_lost
     }
 
-    /// Dead: the head or the body at nothing, or bled out.
+    /// The untreated trauma on one part, while the part is at nothing.
+    pub fn trauma(&self, part: Part) -> Option<Trauma> {
+        self.traumas[part as usize]
+    }
+
+    /// Whether any part is at nothing with its trauma untreated: the
+    /// state a Bim runs from a fight in, and needs a medkit out of.
+    pub fn dying(&self) -> bool {
+        self.traumas.iter().any(|t| t.is_some())
+    }
+
+    /// What treated traumas have left behind, each with the game minutes
+    /// it has left to run.
+    pub fn lasting(&self) -> &[Lasting] {
+        &self.lasting
+    }
+
+    /// Dead: bled out, or the head and the body both at nothing with no
+    /// trauma on either — starved to nothing, or given up. A part at
+    /// nothing with its trauma untreated is dying, not dead: the blood
+    /// decides.
     pub fn is_dead(&self) -> bool {
-        self.parts[Part::Head as usize] <= 0.0
-            || self.parts[Part::Body as usize] <= 0.0
-            || self.blood <= 0.0
+        self.blood <= 0.0
+            || (self.parts[Part::Head as usize] <= 0.0
+                && self.parts[Part::Body as usize] <= 0.0
+                && self.traumas[Part::Head as usize].is_none()
+                && self.traumas[Part::Body as usize].is_none())
     }
 
     /// Out cold for want of blood. Not dead — that is [`Health::is_dead`].
@@ -308,49 +531,84 @@ impl Health {
     }
 
     /// How fast it walks for what the fight has done to it, as a fraction
-    /// of its usual pace: the legs it has left, and the blood.
+    /// of its usual pace: the legs it has left, the blood, and what every
+    /// trauma on it — untreated, or treated and lasting — costs.
     pub fn pace(&self) -> f32 {
-        let legs = match self.legs_lost {
-            0 => 1.0,
-            1 => ONE_LEG_PACE,
-            _ => NO_LEGS_PACE,
-        };
+        let legs = LEG_LOST_PACE.powi(self.legs_lost as i32);
         let blood = if self.blood < MAX_BLOOD * SLOWED_AT {
             0.5
         } else {
             1.0
         };
-        legs * blood
+        let traumas: f32 = self.traumas.iter().flatten().map(|t| t.pace()).product();
+        let lasting: f32 = self
+            .lasting
+            .iter()
+            .map(|l| l.trauma.after().map_or(1.0, |(pace, _, _)| pace))
+            .product();
+        legs * blood * traumas * lasting
+    }
+
+    /// How fast it works for what the fight has done to it, as a fraction
+    /// of its usual effort: what every trauma on it costs a task.
+    pub fn works_at(&self) -> f32 {
+        let traumas: f32 = self
+            .traumas
+            .iter()
+            .flatten()
+            .map(|t| t.works_at())
+            .product();
+        let lasting: f32 = self
+            .lasting
+            .iter()
+            .map(|l| l.trauma.after().map_or(1.0, |(_, work, _)| work))
+            .product();
+        traumas * lasting
     }
 
     /// A shot landing on `part`: the damage off that part, and a wound
-    /// opened on it. The legs at nothing is a leg lost and the leg health
-    /// started again; the second time, there are none left and the legs
-    /// stay at nothing. `true` when a leg went.
-    pub fn shot(&mut self, part: Part, damage: f32) -> bool {
+    /// opened on it — one unit, or [`CUT_WOUND`] for a `cut`. The part
+    /// reaching nothing rolls a [`Trauma`] for it off `roll` (0 to 1) and
+    /// hands it back; a crushed leg is lost then and there. A part already
+    /// at nothing with its trauma untreated takes the wound and nothing
+    /// else, and legs both lost take the wound alone.
+    pub fn shot(&mut self, part: Part, damage: f32, cut: bool, roll: f32) -> Option<Trauma> {
         let i = part as usize;
-        self.wounds[i] += 1;
-        let mut leg_lost = false;
-        match part {
-            Part::Head | Part::Body => {
-                self.parts[i] = (self.parts[i] - damage).max(0.0);
-            }
-            Part::Legs => {
-                if self.legs_lost < 2 {
-                    self.parts[i] = (self.parts[i] - damage).max(0.0);
-                    if self.parts[i] <= 0.0 {
-                        self.legs_lost += 1;
-                        leg_lost = true;
-                        self.parts[i] = if self.legs_lost < 2 {
-                            Part::Legs.max()
-                        } else {
-                            0.0
-                        };
-                    }
-                }
-            }
+        self.wounds[i] += if cut { CUT_WOUND } else { 1 };
+        if self.traumas[i].is_some() || (part == Part::Legs && self.legs_lost >= 2) {
+            return None;
         }
-        leg_lost
+        self.parts[i] = (self.parts[i] - damage).max(0.0);
+        if self.parts[i] > 0.0 {
+            return None;
+        }
+        let trauma = Trauma::roll(part, roll);
+        self.traumas[i] = Some(trauma);
+        if trauma.loses_leg() {
+            self.legs_lost += 1;
+        }
+        Some(trauma)
+    }
+
+    /// A medkit on one part's trauma: the trauma is over, the part starts
+    /// again from [`TREATED_TO`] of its base — nought for legs both gone —
+    /// and what the trauma leaves behind ([`Trauma::after`]) starts its
+    /// clock. The trauma treated, or `None` with nothing on that part.
+    pub fn treat(&mut self, part: Part) -> Option<Trauma> {
+        let i = part as usize;
+        let trauma = self.traumas[i].take()?;
+        self.parts[i] = if part == Part::Legs && self.legs_lost >= 2 {
+            0.0
+        } else {
+            part.max() * TREATED_TO
+        };
+        if let Some((_, _, minutes)) = trauma.after() {
+            self.lasting.push(Lasting {
+                trauma,
+                left: minutes,
+            });
+        }
+        Some(trauma)
     }
 
     /// Dress every wound on one part. `true` when there was one to dress.
@@ -375,6 +633,7 @@ impl Health {
     /// zero.
     pub fn give_up(&mut self) {
         self.parts = [0.0; 3];
+        self.traumas = [None; 3];
     }
 
     /// `minutes` is game minutes elapsed, `food` and `rest` the levels now,
@@ -395,16 +654,24 @@ impl Health {
         if self.is_dead() {
             return;
         }
-        // The blood: out through every open wound, back on its own once
-        // nothing is open. Bleeding to nothing is a death like any other,
-        // and the check at the top of the next tick is what says so.
+        // The blood: out through every open wound and every untreated
+        // trauma that bleeds, back on its own once nothing does. Bleeding
+        // to nothing is the death, and the check at the top of the next
+        // tick is what says so.
         let open = self.bleeding();
-        if open > 0 {
-            let loss = open as f32 * BLEED_PER_WOUND / HOUR * minutes;
+        let trauma: f32 = self.traumas.iter().flatten().map(|t| t.bleed()).sum();
+        let an_hour = open as f32 * BLEED_PER_WOUND + trauma;
+        if an_hour > 0.0 {
+            let loss = an_hour / HOUR * minutes;
             self.blood = (self.blood - loss).max(0.0);
         } else {
             self.blood = (self.blood + BLOOD_RECOVER * minutes).min(MAX_BLOOD);
         }
+        // What a treated trauma left behind runs out on its own clock.
+        for l in &mut self.lasting {
+            l.left -= minutes;
+        }
+        self.lasting.retain(|l| l.left > 0.0);
         if food <= EMPTY {
             self.starved += minutes;
         } else {
@@ -428,10 +695,15 @@ impl Health {
         };
         // Over the three parts in proportion to their size, so the total
         // goes from full to nothing in a day the way the one bar did. Legs
-        // that are gone do not grow back.
+        // that are gone do not grow back, and a part at nothing with its
+        // trauma untreated stays there: only a medkit starts it again.
         for part in Part::ALL {
             let i = part as usize;
             if part == Part::Legs && self.legs_lost >= 2 {
+                self.parts[i] = 0.0;
+                continue;
+            }
+            if self.traumas[i].is_some() {
                 self.parts[i] = 0.0;
                 continue;
             }
@@ -462,11 +734,11 @@ mod tests {
     #[test]
     fn a_head_shot_kills_and_a_body_shot_wears_it_down() {
         let mut h = Health::new();
-        assert!(!h.shot(Part::Body, 12.0));
+        assert!(!h.shot(Part::Body, 12.0, false));
         assert_eq!(h.part(Part::Body), 63.0);
         assert_eq!(h.points(), 88.0);
         assert!(!h.is_dead());
-        h.shot(Part::Head, 12.0);
+        h.shot(Part::Head, 12.0, false);
         assert!(h.is_dead());
     }
 
@@ -474,14 +746,17 @@ mod tests {
     fn the_legs_go_one_at_a_time_and_the_walk_slows_with_them() {
         let mut h = Health::new();
         assert_eq!(h.pace(), 1.0);
-        assert!(!h.shot(Part::Legs, 12.0));
-        assert!(h.shot(Part::Legs, 12.0), "the second shot takes the leg");
+        assert!(!h.shot(Part::Legs, 12.0, false));
+        assert!(
+            h.shot(Part::Legs, 12.0, false),
+            "the second shot takes the leg"
+        );
         assert_eq!(h.legs_lost(), 1);
         assert_eq!(h.part(Part::Legs), Part::Legs.max(), "started again");
         assert_eq!(h.pace(), ONE_LEG_PACE);
         assert!(!h.is_dead());
-        h.shot(Part::Legs, 12.0);
-        assert!(h.shot(Part::Legs, 12.0));
+        h.shot(Part::Legs, 12.0, false);
+        assert!(h.shot(Part::Legs, 12.0, false));
         assert_eq!(h.legs_lost(), 2);
         assert_eq!(h.part(Part::Legs), 0.0);
         assert_eq!(h.pace(), NO_LEGS_PACE);
@@ -495,7 +770,7 @@ mod tests {
     fn ten_wounds_bleed_a_bim_out_in_an_hour_and_a_bandage_stops_it() {
         let mut h = Health::new();
         for _ in 0..10 {
-            h.shot(Part::Body, 1.0);
+            h.shot(Part::Body, 1.0, false);
         }
         assert_eq!(h.bleeding(), 10);
         h.update(HOUR * 0.5, 1.0, 1.0, false);
@@ -516,10 +791,31 @@ mod tests {
 
         let mut h = Health::new();
         for _ in 0..10 {
-            h.shot(Part::Body, 1.0);
+            h.shot(Part::Body, 1.0, false);
         }
         h.update(HOUR, 1.0, 1.0, false);
         assert!(h.is_dead(), "bled out");
+    }
+
+    #[test]
+    fn a_cut_bleeds_three_units_and_a_bandage_closes_the_lot() {
+        let mut h = Health::new();
+        assert!(!h.shot(Part::Body, 12.0, true));
+        assert_eq!(h.wounds(Part::Body), CUT_WOUND);
+        assert_eq!(h.bleeding(), 3);
+        assert_eq!(h.part(Part::Body), 63.0, "the damage is the damage");
+        let mut shot = Health::new();
+        shot.shot(Part::Body, 12.0, false);
+        h.update(HOUR * 0.1, 1.0, 1.0, false);
+        shot.update(HOUR * 0.1, 1.0, 1.0, false);
+        let cut_lost = MAX_BLOOD - h.blood();
+        let shot_lost = MAX_BLOOD - shot.blood();
+        assert!(
+            (cut_lost - 3.0 * shot_lost).abs() < 1e-3,
+            "{cut_lost} vs {shot_lost}"
+        );
+        assert!(h.bandage(Part::Body));
+        assert_eq!(h.bleeding(), 0);
     }
 
     #[test]

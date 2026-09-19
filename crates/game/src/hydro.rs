@@ -513,12 +513,7 @@ fn draw_plant(list: &mut DrawList, tray: Rect, crop: Crop, share: f32, lit: f32)
             }
             // The seed head, once it is well on.
             if share > 0.5 {
-                list.ellipse(
-                    base - vec2(0.0, height * 0.98),
-                    vec2(3.0, 5.0),
-                    0.0,
-                    BEAN,
-                );
+                list.ellipse(base - vec2(0.0, height * 0.98), vec2(3.0, 5.0), 0.0, BEAN);
             }
         }
     }

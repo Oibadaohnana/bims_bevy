@@ -16,8 +16,8 @@ six things to run, and each is a name rather than a flag:
 | `nix run .#simulation` | `cargo run -- simulation` | straight into the world on the playtest ship |
 | `nix run .#design` | `cargo run -- design` | straight into the yard, the playtest ship given, docked where the simulation docks — how a change to the designer is looked at |
 | `nix run .#room` | `cargo run -- room` | the behaviour test room — Bims on a deck |
-| `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy |
-| `nix run .#combat` | `cargo run -- combat` | the simulation docked at a **hostile** station: the people living there are enemies, and a recruited crew member draws its laser and shoots at any it can see. `--combat` is taken too |
+| `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member (four bunks to spare) and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
+| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with five crew, a different gun in each hand, docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — the garrison plus `ARENA_REINFORCEMENTS`, thirteen for five — and a recruited crew member draws its weapon and shoots at any it can see. `Session::combat` is all of it; `--combat` is taken too |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
 default) builds from the working tree, which is the one to use while editing,
@@ -241,7 +241,8 @@ the room, say, is also a step of the world's clock and a menu in the app.
 | `crates/ship/CLAUDE.md` | the designer and the game view: the camera, the painters, drags, `Session` |
 | `crates/flight/CLAUDE.md` | a plan is read, never integrated; the two pinned placeholder numbers |
 | `crates/health/CLAUDE.md` | one body's health, and why a step of any length gives the same answer |
-| `crates/lobby/CLAUDE.md` | "has a station" is answered by generating the system |
+| `crates/lobby/CLAUDE.md` | "has a station" is answered by generating the system; a crew never starts at an enemy's |
+| `crates/worldgen/CLAUDE.md` | the generator: the checksum, up to six stations a system, which of them are hostile, who sells what |
 | `scratchpad/CLAUDE.md` | the native probes, and how to look at a room without a window |
 
 ## Never use `|` as a perl `s|…|…|` delimiter here

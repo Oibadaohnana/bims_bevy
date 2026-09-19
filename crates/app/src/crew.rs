@@ -24,18 +24,46 @@
 //! a whole row on purpose, because every row is about exactly one place.
 //! The ring is worked out afresh every frame from what is hovered, so a
 //! panel that folds away under the pointer cannot leave a fixture lit.
+//!
+//! # Gear moves by order, and the hold is handed in
+//!
+//! The pack, the worn slots and the container windows are grids
+//! (`crate::grid`), and what a click on a cell asks for — put this on, put
+//! it away, take that out — is a [`GearOrder`] left on
+//! [`CrewPanels::orders`] for the screen to send: on the ship through the
+//! seam as a `world::Command`, since the hold is the world's and every
+//! player's ship has to agree about what is in it; in the test room, which
+//! has no hold, straight to the room. The hold itself comes the other way
+//! as a [`Hold`] snapshot the ship's screen sets every frame, and it is
+//! `None` in the room, which is how the container windows know they have
+//! nothing to show there.
+//!
+//! A body is handed in the same way. The Loot window is a grid over what
+//! a dead or unconscious Bim has on it, and what it shows, whether the Bim
+//! is still down and whether the looter is within reach come as a [`Body`]
+//! snapshot the screen sets every frame *after* the fixture menu has run,
+//! since the menu is what opens the window — on the ship off the world,
+//! which is the only thing that can see one of a hostile station's people
+//! lying in its own room; in the test room off the room itself. Taking is
+//! an order like the rest, `GearOrder::Loot`, and the walk over to the
+//! body is the screen's too (`walk`), for the same reason: where a resident
+//! lies is the world's to say.
 
 use bevy_egui::egui;
-use bims::game::Game;
+use bims::combat::{Item as PackItem, LOOT_CELLS, PACK_CELLS, Piece};
+use bims::game::{Container, Game};
 use bims::manager::Stock;
 use bims::room::*;
 use bims::{bim, door, health, manager, schedule, task};
 use physics::ResourceId;
 use ship::game::Overlay;
-use shipdesign::CARGO_SLOTS;
 use shipdesign::parts::PartKind;
+use shipdesign::{CARGO_SLOTS, Storage};
+use world::{FetchKind, LootSource};
 
 use crate::format::{clock_text, date_text, span_text};
+use crate::grid::{self, Cell};
+use crate::icons;
 use crate::names::*;
 use crate::theme;
 
@@ -43,14 +71,167 @@ use crate::theme;
 /// sweep, in points.
 pub const CLICK_SLOP: f32 = 4.0;
 
-/// Which fixture answers each of the three targets: the bay grows the
-/// first two, the hob makes the third. Indexed by `manager::Stock`.
-const KEEP_SPOTS: [u32; 3] = [SPOT_BAY, SPOT_BAY, SPOT_HOB];
+/// The side of a pack cell, in points; the container windows' cells are
+/// smaller, by how many there are across — see [`container_cell`].
+const PACK_CELL: f32 = 34.0;
+
+/// The side of a container window's cells: small enough that the biggest
+/// grid, the shelves' twenty by twenty, fits a short window.
+fn container_cell(class: Storage) -> f32 {
+    match class {
+        Storage::Shelf => 20.0,
+        Storage::Locker => 26.0,
+        Storage::ColdStore | Storage::FuelTank => 30.0,
+    }
+}
+
+/// How many cells a container window has across and down, by the class it
+/// is a view of: the armoury fifteen by fifteen, a storage twenty by
+/// twenty, the cold store ten by ten. The tanks have no window — fuel is
+/// not a thing a Bim picks up — and get a token grid if one is ever asked
+/// for.
+fn container_dims(class: Storage) -> (usize, usize) {
+    match class {
+        Storage::Locker => (15, 15),
+        Storage::Shelf => (20, 20),
+        Storage::ColdStore => (10, 10),
+        Storage::FuelTank => (5, 5),
+    }
+}
+
+/// Where a container window sits: to the right of the left-hand stack,
+/// under the strip along the top. The inventory pop-up goes beside it
+/// while one is open.
+const CONTAINER_AT: egui::Vec2 = egui::vec2(290.0, 60.0);
+
+/// The hold, as the panels see it: a snapshot the ship's screen hands
+/// over every frame, and `None` in the test room, which has no hold.
+/// Counts and reach are by `ResourceId`; the pieces are the armour in the
+/// hold, one entry a piece; the class fills are by `Storage`.
+#[derive(Clone, Default)]
+pub struct Hold {
+    /// How many of each resource are aboard and not spoken for.
+    pub counts: [u32; CARGO_SLOTS],
+    /// Every piece of armour in the hold, as the room would carry it.
+    pub pieces: Vec<Piece>,
+    pub used: [u32; 4],
+    pub capacity: [u32; 4],
+    /// Whether the Bim whose inventory is shown stands within reach of a
+    /// container that takes each resource — `World::in_reach`.
+    pub reach: [bool; CARGO_SLOTS],
+}
+
+/// A mercenary's terms, as the panels see them: a snapshot the screen
+/// hands over every frame for the resident the Hire window is open on
+/// (`World::hire_offer`), and `None` once it is not for hire — hired, or
+/// the rooms parted — which shuts the window.
+#[derive(Clone, Copy)]
+pub struct Terms {
+    pub fee: economy::Money,
+    pub gear: bims::combat::Gear,
+    pub in_reach: bool,
+    pub affordable: bool,
+    pub bunk: bool,
+}
+
+/// The body the Loot window is over, as the panels see it: a snapshot the
+/// screen hands over every frame for the source that is open, and `None`
+/// when there is no such Bim any more — the rooms parted — which shuts
+/// the window. Cells in `bims::combat::LootCell` order: the pack's nine,
+/// then the head, the body, the legs and the weapon in hand.
+#[derive(Clone)]
+pub struct Body {
+    pub cells: [Option<PackItem>; LOOT_CELLS],
+    /// Still dead or out cold. A crewmate that came round is no longer a
+    /// body, and the window shuts on it.
+    pub down: bool,
+    /// Whether the Bim whose inventory is shown stands within reach of
+    /// it, alive and awake — `World::in_reach_of_body`.
+    pub reach: bool,
+}
+
+/// What a row or a ctrl-click asked for, about somebody's gear. The
+/// screen sends it: on the ship as the matching `world::Command`, in the
+/// room straight to the `Game`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum GearOrder {
+    /// Put what is in a pack cell into a container.
+    Stow { who: u32, cell: u32 },
+    /// Take a piece by its id, or one unit of a resource, into the pack.
+    Fetch { who: u32, kind: FetchKind },
+    /// Put on what is in a pack cell.
+    Equip { who: u32, cell: u32 },
+    /// Take off what is worn on a part, into the pack.
+    Unequip { who: u32, part: health::Part },
+    /// Throw away what is in a pack cell.
+    Discard { who: u32, cell: u32 },
+    /// Take one cell off a body — `cell` a `bims::combat::LootCell` code
+    /// — into the pack.
+    Loot {
+        who: u32,
+        source: LootSource,
+        cell: u32,
+    },
+    /// Hire the mercenary that is that resident of the station, `who`
+    /// doing the hiring — `Command::Hire`.
+    Hire { who: u32, resident: u32 },
+}
+
+/// What is up in the window beside the inventory: a container's grid, a
+/// body's, or a mercenary's terms.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Open {
+    Container(Container),
+    Loot(LootSource),
+    Hire(u32),
+    /// Not a window of the panels' own: the Trade row walks the Bim to
+    /// the desk and asks the screen for the trade window
+    /// (`CrewPanels::trade_requested`).
+    Trade(usize),
+}
+
+/// A cell's pop-up: where it was asked for, which cell, whose gear, and
+/// the same freshness guard as a fixture menu's.
+struct CellMenu {
+    at: egui::Pos2,
+    from: Source,
+    who: usize,
+    fresh: bool,
+}
+
+/// Which grid a cell pop-up is about.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Source {
+    /// A cell of the pack.
+    Pack(usize),
+    /// A cell of the open container window.
+    Hold(HoldCell),
+    /// A worn slot.
+    Worn(health::Part),
+    /// A cell of the open Loot window, by its `LootCell` code; whose body
+    /// is the window's.
+    Loot(u32),
+}
+
+/// A cell of a container window: one piece of armour by its id, or the
+/// stack of a resource.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum HoldCell {
+    Piece(u32),
+    Stack(ResourceId),
+}
+
+/// Which fixture answers each of the four targets: the bay grows the
+/// first two and the last, the hob makes the third. Indexed by
+/// `manager::Stock`.
+const KEEP_SPOTS: [u32; 4] = [SPOT_BAY, SPOT_BAY, SPOT_HOB, SPOT_BAY];
 
 /// Which fixture each job on the work list is about, so resting on a row
-/// rings the place it happens. Hauling is the crop carry, and where a haul
-/// *ends* is the thing worth pointing at.
-const WORK_SPOTS: [u32; 9] = [
+/// rings the place it happens — every fixture of that kind, since a row
+/// names a kind: both hobs for cooking, every bay for the bay jobs. Hauling
+/// is the crop carry, and where a haul *ends* is the thing worth pointing
+/// at. Indexed by `work::Job` code; the test below pins the length.
+const WORK_SPOTS: [u32; 10] = [
     SPOT_LOCKER,
     SPOT_BAY,
     SPOT_BAY,
@@ -60,6 +241,9 @@ const WORK_SPOTS: [u32; 9] = [
     SPOT_BENCH,
     SPOT_SUIT_LOCKER,
     // A site is wherever it was laid out; nothing fixed to ring.
+    SPOT_NOTHING,
+    // A patient is wherever it fell, and a ring round a body would be a
+    // selection; nothing fixed to ring.
     SPOT_NOTHING,
 ];
 
@@ -182,12 +366,15 @@ pub struct Menu {
 /// to do it.
 type Errand = Box<dyn FnOnce(&mut Game)>;
 
-/// One row of a fixture's menu.
+/// One row of a fixture's menu: an errand for the Bim, or a window to
+/// open — the cold store's "Open", a body's "Loot" — which is the panels'
+/// to do rather than the room's.
 struct Item {
     label: String,
     hint: String,
     disabled: bool,
     run: Option<Errand>,
+    opens: Option<Open>,
 }
 
 impl Item {
@@ -197,6 +384,7 @@ impl Item {
             hint,
             disabled: true,
             run: None,
+            opens: None,
         }
     }
 
@@ -211,6 +399,17 @@ impl Item {
             hint: hint.into(),
             disabled,
             run: Some(Box::new(f)),
+            opens: None,
+        }
+    }
+
+    fn opens(label: impl Into<String>, hint: impl Into<String>, what: Open) -> Item {
+        Item {
+            label: label.into(),
+            hint: hint.into(),
+            disabled: false,
+            run: None,
+            opens: Some(what),
         }
     }
 }
@@ -239,10 +438,38 @@ pub struct CrewPanels {
     search: String,
     open_group: Option<usize>,
     /// The inventory pop-up: up from the moment the player's crew member
-    /// is recruited until it is shut or they are let go, and whether they
-    /// were recruited last frame, which is how the moment is noticed.
+    /// is recruited, or a container is opened, until it is shut or they
+    /// are let go; and whether they were recruited last frame, which is
+    /// how the moment is noticed.
     inventory_open: bool,
     was_recruited: bool,
+    /// The hold, as the ship's screen last handed it over; `None` in the
+    /// room. See the module note.
+    pub hold: Option<Hold>,
+    /// The window that is up beside the inventory, if one is — a
+    /// container's or a body's — and the rect it took this frame, which is
+    /// where the inventory pop-up goes beside it.
+    open: Option<Open>,
+    container_rect: Option<egui::Rect>,
+    /// The body the Loot window is over, as the screen last handed it
+    /// over; `None` while none is open, or once the Bim is gone. See the
+    /// module note.
+    pub body: Option<Body>,
+    /// The body the Loot row just opened the window on: the screen walks
+    /// the Bim shown over to it and takes this. See the module note.
+    pub walk: Option<LootSource>,
+    /// The mercenary's terms the Hire window is over, as the screen last
+    /// handed them; `None` while none is open, or once the body is no
+    /// longer for hire — hired, or the rooms parted — which shuts it.
+    pub terms: Option<Terms>,
+    /// The Trade row was picked: the screen opens the trade window and
+    /// takes this.
+    pub trade_requested: bool,
+    /// A cell's pop-up, if one is up.
+    cell_menu: Option<CellMenu>,
+    /// What the rows and the ctrl-clicks asked for this frame, for the
+    /// screen to send. Drained by it.
+    pub orders: Vec<GearOrder>,
 }
 
 impl CrewPanels {
@@ -264,6 +491,15 @@ impl CrewPanels {
             open_group: None,
             inventory_open: false,
             was_recruited: false,
+            hold: None,
+            open: None,
+            container_rect: None,
+            body: None,
+            walk: None,
+            terms: None,
+            trade_requested: false,
+            cell_menu: None,
+            orders: Vec::new(),
         }
     }
 
@@ -276,6 +512,14 @@ impl CrewPanels {
         self.crew_count = count;
         self.diary_open = vec![false; count as usize];
         self.menu = None;
+        self.cell_menu = None;
+        // The room was rebuilt with it, and its benches and shelves are
+        // numbered afresh: the window would be over somebody else's — and
+        // a body being looted has gone with the room it lay in.
+        self.open = None;
+        self.body = None;
+        self.walk = None;
+        self.terms = None;
     }
 
     // --- pointing at the thing itself ---------------------------------------
@@ -304,7 +548,29 @@ impl CrewPanels {
 
     // --- fixture menus ------------------------------------------------------
 
-    pub fn open_menu(&mut self, fixture: u32, at: egui::Pos2) {
+    /// A click landed on a fixture: its menu opens at the pointer — or,
+    /// for a container on the ship, its window. A workstation is a
+    /// container when its part keeps a class of goods (the armoury and
+    /// the drug lab are lockers; the smelter keeps nothing and has no
+    /// menu either), a shelf always is; the cold store keeps its menu,
+    /// which has an "Open" row. Nothing is a container in the test room,
+    /// which has no hold.
+    pub fn open_menu(&mut self, fixture: u32, at: egui::Pos2, game: &mut Game) {
+        let container = match fixture {
+            HIT_BENCH if self.hold.is_some() => {
+                let bench = game.hit_bench();
+                PartKind::from_code(game.bench_part(bench))
+                    .and_then(|kind| kind.def().capacity)
+                    .map(|_| Container::Bench(bench))
+            }
+            HIT_SHELF if self.hold.is_some() => Some(Container::Shelf(game.hit_shelf())),
+            _ => None,
+        };
+        if let Some(container) = container {
+            self.open_container(game, container);
+            return;
+        }
+        self.cell_menu = None;
         self.menu = Some(Menu {
             fixture,
             at,
@@ -312,12 +578,87 @@ impl CrewPanels {
         });
     }
 
-    pub fn close_menu(&mut self) {
+    /// Open a container's window, and the inventory pop-up of the Bim
+    /// shown beside it, and walk that Bim to the container's use spot:
+    /// nothing moves until it is within reach, and the click is the
+    /// natural place to start it walking.
+    fn open_container(&mut self, game: &mut Game, container: Container) {
+        let who = self.inventory_who(game);
+        if let Some(spot) = game.container_spot(container)
+            && game.is_alive(who)
+        {
+            game.send_to(who, spot);
+        }
+        self.open = Some(Open::Container(container));
+        self.inventory_open = true;
         self.menu = None;
+        self.cell_menu = None;
     }
 
-    pub fn menu_open(&self) -> bool {
-        self.menu.is_some()
+    /// Open the Loot window on a body, and the inventory pop-up beside it,
+    /// the way a container's opens — except that the walk over is left
+    /// to the screen (`walk`): where one of the station's people lies is
+    /// the world's to say, not the room's.
+    fn open_loot(&mut self, source: LootSource) {
+        self.open = Some(Open::Loot(source));
+        self.walk = Some(source);
+        self.body = None;
+        self.inventory_open = true;
+        self.menu = None;
+        self.cell_menu = None;
+    }
+
+    /// The body the Loot window is up on, if it is: what the screen hands
+    /// a [`Body`] for.
+    pub fn loot_source(&self) -> Option<LootSource> {
+        match self.open {
+            Some(Open::Loot(source)) => Some(source),
+            _ => None,
+        }
+    }
+
+    /// Open the Hire window on one of the station's people, the way the
+    /// Loot window opens on a body: the walk over is the screen's, and
+    /// the terms are handed in every frame ([`Terms`]).
+    fn open_hire(&mut self, resident: u32) {
+        self.open = Some(Open::Hire(resident));
+        self.walk = Some(LootSource::Resident(resident));
+        self.terms = None;
+        self.menu = None;
+        self.cell_menu = None;
+    }
+
+    /// The resident the Hire window is up on, if it is: what the screen
+    /// hands [`Terms`] for.
+    pub fn hire_source(&self) -> Option<u32> {
+        match self.open {
+            Some(Open::Hire(resident)) => Some(resident),
+            _ => None,
+        }
+    }
+
+    /// Shut the menus — a fixture's, a cell's — the way a click away
+    /// does. A container window stays: a click on the deck beside it is
+    /// how a Bim is picked to use it.
+    pub fn close_menu(&mut self) {
+        self.menu = None;
+        self.cell_menu = None;
+    }
+
+    /// Escape: the innermost thing up goes first — a cell's pop-up, then a
+    /// fixture's menu, then the container or the Loot window. `true` when something
+    /// was shut, so the screen knows the key is spent.
+    pub fn escape(&mut self) -> bool {
+        if self.cell_menu.is_some() {
+            self.cell_menu = None;
+        } else if self.menu.is_some() {
+            self.menu = None;
+        } else if self.open.is_some() {
+            self.open = None;
+        } else {
+            return false;
+        }
+        true
     }
 
     /// Who has the run of a shared part of the ship, or `None` for nobody.
@@ -413,6 +754,16 @@ impl CrewPanels {
                     fridge_held.is_some(),
                     move |g| g.toggle_fridge(who, fridge),
                 ));
+                // On the ship the cold store is a container as well: its
+                // window is the hold's cold class, the way the armoury's
+                // is the lockers.
+                if self.hold.is_some() {
+                    items.push(Item::opens(
+                        "Open",
+                        "what is in it, a cell a thing — the Bim walks over to reach in",
+                        Open::Container(Container::Fridge(fridge)),
+                    ));
+                }
             }
             HIT_STOVE => {
                 let left = game.pot_servings(hob);
@@ -694,11 +1045,13 @@ impl CrewPanels {
                 items.push(Item::note(
                     "Store",
                     format!(
-                        "{} veg, {} tofu — keeping {} and {}",
+                        "{} veg, {} tofu, {} fibre — keeping {}, {} and {}",
                         game.store_veg(),
                         game.store_tofu(),
+                        game.store_fibre(),
                         game.target(Stock::Veg),
-                        game.target(Stock::Tofu)
+                        game.target(Stock::Tofu),
+                        game.target(Stock::Fibre)
                     ),
                 ));
                 items.push(Item::run(
@@ -726,6 +1079,11 @@ impl CrewPanels {
                         "Plant soy in every tray",
                         "a day and a half, and it presses into tofu",
                     ),
+                    (
+                        3,
+                        "Plant fibre in every tray",
+                        "a day, and two of it make a bandage at the drug lab",
+                    ),
                 ] {
                     let on = forced == code;
                     items.push(Item::run(
@@ -743,6 +1101,95 @@ impl CrewPanels {
                         move |g| g.set_hydro_forced(bay, if on { 0 } else { code }),
                     ));
                 }
+            }
+            HIT_BIM => {
+                // A body on the deck — the player's own, or a crewmate: a
+                // row a part of it, saying what is open there, and the
+                // player's Bim walks over and dresses the one picked. The
+                // patient may be anybody alive; the hands are always the
+                // player's.
+                let patient = game.hit_bim();
+                let bandages = game.bandages();
+                let out = game.is_unconscious(who) || game.is_outside(who);
+                let patient_out = game.is_outside(patient);
+                for (i, part) in health::Part::ALL.into_iter().enumerate() {
+                    let wounds = game.wounds(patient, part);
+                    let (count, hint) = bandage_words(wounds, bandages);
+                    let can = wounds > 0 && bandages > 0 && !out && !patient_out;
+                    items.push(Item::run(
+                        format!("Bandage the {} · {count}", SLOT_NAMES[i].to_lowercase()),
+                        if out {
+                            HELPER_OUT.to_string()
+                        } else if patient_out {
+                            PATIENT_OUT.to_string()
+                        } else if can {
+                            takes_over.unwrap_or(hint).to_string()
+                        } else {
+                            hint.to_string()
+                        },
+                        !can,
+                        move |g| {
+                            g.bandage(who, patient, part);
+                        },
+                    ));
+                }
+                items.push(Item::note("Bandages", format!("{bandages} to hand")));
+                // Out cold, a crewmate is a body as well as a patient: the
+                // Loot row sits beside the bandages, and which the player
+                // means is theirs to say.
+                if game.is_unconscious(patient) {
+                    items.push(Item::opens(
+                        LOOT_ROW,
+                        format!(
+                            "{} is out cold — everything on the body",
+                            name(patient as u32)
+                        ),
+                        Open::Loot(LootSource::Crew(patient as u32)),
+                    ));
+                }
+            }
+            // A dead crew member, or one of a hostile station's people
+            // lying in its own room: nothing to dress, and the one row is
+            // the Loot window. A resident is named as the world's names
+            // run — the crew first, then the station's people.
+            HIT_BODY => {
+                let body = game.hit_body() as u32;
+                items.push(Item::opens(
+                    LOOT_ROW,
+                    format!("{} — everything on the body", name(body)),
+                    Open::Loot(LootSource::Crew(body)),
+                ));
+            }
+            HIT_VISITOR => {
+                let body = game.hit_visitor() as u32;
+                if game.visitor_down(body as usize) {
+                    items.push(Item::opens(
+                        LOOT_ROW,
+                        format!("{} — everything on the body", name(self.crew_count + body)),
+                        Open::Loot(LootSource::Resident(body)),
+                    ));
+                } else {
+                    // On its feet and hailable: a mercenary for hire. What
+                    // it asks is the world's to say — the window reads it.
+                    items.push(Item::opens(
+                        HIRE_ROW,
+                        format!(
+                            "{} — a mercenary, paid by the month",
+                            name(self.crew_count + body)
+                        ),
+                        Open::Hire(body),
+                    ));
+                }
+            }
+            HIT_DESK => {
+                // A station's trading desk: the one row walks the Bim shown
+                // over and puts the trade window up.
+                let desk = game.hit_desk();
+                items.push(Item::opens(
+                    TRADE_ROW,
+                    "walk to the desk and trade with the station",
+                    Open::Trade(desk),
+                ));
             }
             HIT_BED => {
                 let now = game.clock_minutes();
@@ -780,54 +1227,30 @@ impl CrewPanels {
         }
         let at = menu.at;
         let fresh = menu.fresh;
-        let mut chosen: Option<Errand> = None;
-        let response = egui::Area::new(egui::Id::new("fixture-menu"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(at)
-            .constrain(true)
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
-                    .fill(theme::PANEL)
-                    .show(ui, |ui| {
-                        ui.set_min_width(200.0);
-                        for item in items {
-                            let mut text = egui::text::LayoutJob::default();
-                            text.append(
-                                &item.label,
-                                0.0,
-                                egui::TextFormat {
-                                    color: if item.disabled {
-                                        theme::MUTED
-                                    } else {
-                                        theme::INK
-                                    },
-                                    ..Default::default()
-                                },
-                            );
-                            if !item.hint.is_empty() {
-                                text.append(
-                                    &format!("\n{}", item.hint),
-                                    0.0,
-                                    egui::TextFormat {
-                                        font_id: egui::FontId::proportional(11.0),
-                                        color: theme::MUTED,
-                                        ..Default::default()
-                                    },
-                                );
-                            }
-                            let button = egui::Button::new(text)
-                                .frame(false)
-                                .min_size(egui::vec2(200.0, 0.0));
-                            let clicked = ui.add_enabled(!item.disabled, button).clicked();
-                            if clicked {
-                                chosen = item.run;
-                            }
-                        }
-                    });
-            });
-        if let Some(run) = chosen {
-            run(game);
+        let rows: Vec<theme::Row> = items
+            .iter()
+            .map(|item| theme::Row::new(item.label.clone(), item.hint.clone(), item.disabled))
+            .collect();
+        let (chosen, rect) = theme::popup(ctx, "fixture-menu", at, &rows);
+        if let Some(i) = chosen {
+            let item = items.into_iter().nth(i).unwrap();
             self.menu = None;
+            match item.opens {
+                Some(Open::Container(container)) => self.open_container(game, container),
+                Some(Open::Loot(source)) => self.open_loot(source),
+                Some(Open::Hire(resident)) => self.open_hire(resident),
+                Some(Open::Trade(desk)) => {
+                    if let Some(spot) = game.desk_spot(desk) {
+                        game.send_to(self.inventory_who(game), spot);
+                    }
+                    self.trade_requested = true;
+                }
+                None => {
+                    if let Some(run) = item.run {
+                        run(game);
+                    }
+                }
+            }
             return;
         }
         // Clicking away dismisses it — but not the press that opened it.
@@ -836,7 +1259,7 @@ impl CrewPanels {
         if let Some(menu) = &mut self.menu {
             if fresh {
                 menu.fresh = false;
-            } else if pressed && !pos.is_some_and(|p| response.response.rect.contains(p)) {
+            } else if pressed && !pos.is_some_and(|p| rect.contains(p)) {
                 self.menu = None;
             }
         }
@@ -910,9 +1333,12 @@ impl CrewPanels {
                 }
             });
 
-        // How it is bearing up.
+        // How it is bearing up. The armour worn adds its health to the
+        // body's: the blue on the end of the green is what the pieces
+        // still have, and the number reads the two apart.
         ui.add_space(4.0);
         let points = game.health(w);
+        let armour = if alive { game.armour_health(w) } else { 0.0 };
         let stage = game.malnutrition(w);
         let hurt = stage >= 3 || !alive;
         ui.horizontal(|ui| {
@@ -921,18 +1347,87 @@ impl CrewPanels {
             } else {
                 ui.label("Health");
             }
-            theme::bar(
+            let total = health::MAX_HEALTH + armour;
+            theme::two_tone_bar(
                 ui,
                 110.0,
-                points / health::MAX_HEALTH,
+                points / total,
+                armour / total,
                 if hurt { theme::BAD } else { theme::ACCENT },
+                theme::ARMOUR,
             );
             ui.label(
-                egui::RichText::new(format!("{}", points.round()))
-                    .small()
-                    .color(theme::MUTED),
+                egui::RichText::new(if armour > 0.0 {
+                    format!("{} hp + {} hp", points.round(), armour.round())
+                } else {
+                    format!("{}", points.round())
+                })
+                .small()
+                .color(theme::MUTED),
             );
         });
+        // What the bar is made of: the head, the body and the legs, a thin
+        // bar each, and the blood under them. Drawn for the dead too — a
+        // body with its head at nothing says how it died.
+        egui::Grid::new(("body", who))
+            .num_columns(3)
+            .spacing([8.0, 1.0])
+            .show(ui, |ui| {
+                for (i, part) in health::Part::ALL.into_iter().enumerate() {
+                    let left = game.part_health(w, part);
+                    let bonus = if alive { game.part_bonus(w, part) } else { 0.0 };
+                    let bleeding = alive && game.wounds(w, part) > 0;
+                    ui.label(
+                        egui::RichText::new(SLOT_NAMES[i])
+                            .small()
+                            .color(if bleeding {
+                                theme::CAUTION
+                            } else {
+                                theme::MUTED
+                            }),
+                    );
+                    let total = part.max() + bonus;
+                    theme::thin_two_tone_bar(
+                        ui,
+                        110.0,
+                        left / total,
+                        bonus / total,
+                        if bleeding { theme::BAD } else { theme::ACCENT },
+                        theme::ARMOUR,
+                    );
+                    ui.label(
+                        egui::RichText::new(if bonus > 0.0 {
+                            format!("{} + {}", left.round(), bonus.round())
+                        } else {
+                            format!("{}", left.round())
+                        })
+                        .small()
+                        .color(theme::MUTED),
+                    );
+                    ui.end_row();
+                }
+                // Red when there is less than half left, which is when the
+                // Bim starts to slow — the number alone does not say that.
+                let blood = game.blood(w) / health::MAX_BLOOD;
+                let low = blood < health::SLOWED_AT;
+                ui.label(egui::RichText::new("Blood").small().color(if low {
+                    theme::BAD
+                } else {
+                    theme::MUTED
+                }));
+                theme::thin_bar(
+                    ui,
+                    110.0,
+                    blood,
+                    if low { theme::BAD } else { theme::ACCENT },
+                );
+                ui.label(
+                    egui::RichText::new(format!("{}%", (blood * 100.0).round()))
+                        .small()
+                        .color(theme::MUTED),
+                );
+                ui.end_row();
+            });
         let line = |ui: &mut egui::Ui, text: String, warn: bool, gone: bool| {
             if text.is_empty() {
                 return;
@@ -946,6 +1441,32 @@ impl CrewPanels {
             };
             ui.label(egui::RichText::new(text).small().color(color));
         };
+        // The wounds first: they are the thing that is killing it fastest.
+        let open = if alive { game.bleeding(w) } else { 0 };
+        line(
+            ui,
+            match open {
+                0 => String::new(),
+                1 => "Bleeding · 1 open wound".into(),
+                n => format!("Bleeding · {n} open wounds"),
+            },
+            true,
+            false,
+        );
+        if alive && game.is_unconscious(w) {
+            ui.label(egui::RichText::new("Out cold").small().color(theme::BAD));
+        }
+        let legs = if alive { game.legs_lost(w) } else { 0 };
+        line(
+            ui,
+            match legs {
+                0 => String::new(),
+                1 => "One leg lost".into(),
+                _ => "No legs".into(),
+            },
+            true,
+            false,
+        );
         line(
             ui,
             if alive {
@@ -1222,66 +1743,162 @@ impl CrewPanels {
 
     // --- the inventory --------------------------------------------------------
 
-    /// Whose inventory the tab and the pop-up show: the selected crew
-    /// member, or the one the player steers when nobody is picked.
-    fn inventory_who(&self, game: &Game) -> usize {
+    /// Whose inventory the tab, the pop-up and the container windows are
+    /// about: the selected crew member, or the one the player steers when
+    /// nobody is picked.
+    pub fn inventory_who(&self, game: &Game) -> usize {
         (0..self.crew_count)
             .map(|w| w as usize)
             .find(|&w| game.is_selected(w))
             .unwrap_or(self.player)
     }
 
-    /// What a Bim has on it, as slots: head, body and leg protection down
-    /// the left, top to bottom, and the weapon on the right with its
-    /// numbers beside it. Slots, though nothing can be moved between them
-    /// yet — the shape is the one changing equipment will want.
+    /// What a Bim has on it: head, body and leg protection down the left,
+    /// top to bottom, each slot with the piece's icon, its health and its
+    /// numbers; the weapon beside them with its numbers, and under the
+    /// weapon the pack on its back, three by three. Right-click a worn
+    /// slot to take the piece off, a pack cell for what can be done with
+    /// the thing in it; ctrl-click a pack cell to put the thing straight
+    /// into a container within reach. Beside each armour slot, the wounds
+    /// open on that part of the body and a Bandage button that sends the
+    /// player's Bim to dress them; under the lot, how many bandages there
+    /// are to do it with.
     fn inventory(
         &mut self,
         ui: &mut egui::Ui,
-        game: &Game,
+        game: &mut Game,
         who: usize,
         name: &dyn Fn(u32) -> String,
     ) {
         let gear = game.gear(who);
+        let alive = game.is_alive(who);
+        let bandages = game.bandages();
+        // The hands are the player's whoever is shown, so the button is
+        // greyed for the same reasons the menu on a body is: the player's
+        // Bim dead, out cold or outside, or the patient outside. The room
+        // refuses the order silently otherwise, and the tab — unlike the
+        // pop-up — stays open past the player's death.
+        let helper_out = !game.is_alive(self.player)
+            || game.is_unconscious(self.player)
+            || game.is_outside(self.player);
+        let patient_out = alive && game.is_outside(who);
+        let mut dress: Option<health::Part> = None;
+        // A blade within reach is the state that changes what the gun in
+        // the slot is worth, so it is said in the header rather than
+        // beside the numbers: the numbers do not apply while it lasts.
+        let locked = alive && game.is_locked(who).is_some();
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(name(who as u32)).strong());
             ui.label(
-                egui::RichText::new(if game.is_armed(who) {
-                    "combat mode — weapon drawn"
+                egui::RichText::new(if locked {
+                    format!("combat mode — {LOCKED_STATUS}")
+                } else if game.is_armed(who) {
+                    "combat mode — weapon drawn".into()
                 } else if game.is_recruited() && who == self.player {
-                    "combat mode"
+                    "combat mode".into()
                 } else {
-                    "weapon holstered"
+                    "weapon holstered".into()
                 })
                 .small()
-                .color(if game.is_armed(who) {
+                .color(if locked {
+                    theme::CAUTION
+                } else if game.is_armed(who) {
                     theme::ACCENT
                 } else {
                     theme::MUTED
                 }),
             );
+            if locked {
+                theme::question_mark(ui, &locked_tip());
+            }
             theme::question_mark(ui, INVENTORY_TIP);
         });
         ui.add_space(4.0);
         ui.horizontal_top(|ui| {
-            // The three armour slots, one above the other.
+            // The three armour slots, one above the other, each with the
+            // bleeding on that part beside it. The button is live only
+            // when there is something to dress and something to dress it
+            // with; the hint says which is missing. A dead Bim is past it.
             ui.vertical(|ui| {
-                for (i, worn) in [gear.head, gear.body, gear.legs].into_iter().enumerate() {
-                    slot(ui, SLOT_NAMES[i], armour_name(worn), worn.is_some());
+                for (i, part) in health::Part::ALL.into_iter().enumerate() {
+                    let worn = gear.worn(part);
+                    let wounds = if alive { game.wounds(who, part) } else { 0 };
+                    ui.horizontal(|ui| {
+                        let line = worn.map(worn_line).unwrap_or_default();
+                        let response = slot(
+                            ui,
+                            SLOT_NAMES[i],
+                            worn.map(PackItem::Armour),
+                            armour_name(worn.map(|p| p.kind)),
+                            &line,
+                        );
+                        if let Some(piece) = worn {
+                            let response =
+                                response.on_hover_text(tip_of(PackItem::Armour(piece), 1));
+                            if response.secondary_clicked()
+                                && let Some(at) = response.interact_pointer_pos()
+                            {
+                                self.cell_menu = Some(CellMenu {
+                                    at,
+                                    from: Source::Worn(part),
+                                    who,
+                                    fresh: true,
+                                });
+                            }
+                        }
+                        ui.vertical(|ui| {
+                            let (count, hint) = bandage_words(wounds, bandages);
+                            ui.label(egui::RichText::new(count).small().color(if wounds > 0 {
+                                theme::CAUTION
+                            } else {
+                                theme::MUTED
+                            }));
+                            let can = wounds > 0 && bandages > 0 && !helper_out && !patient_out;
+                            let hint = if wounds > 0 && bandages > 0 && helper_out {
+                                HELPER_OUT
+                            } else if wounds > 0 && bandages > 0 && patient_out {
+                                PATIENT_OUT
+                            } else {
+                                hint
+                            };
+                            if ui
+                                .add_enabled(can, egui::Button::new("Bandage"))
+                                .on_hover_text(hint)
+                                .on_disabled_hover_text(hint)
+                                .clicked()
+                            {
+                                dress = Some(part);
+                            }
+                        });
+                    });
                 }
             });
-            ui.add_space(12.0);
-            // The weapon slot, and its numbers beside it.
+            ui.add_space(8.0);
+            // The weapon slot, and the pack under it.
             ui.vertical(|ui| {
                 slot(
                     ui,
                     SLOT_NAMES[3],
+                    gear.weapon.map(PackItem::Weapon),
                     weapon_name(gear.weapon),
-                    gear.weapon.is_some(),
+                    "",
                 );
+                ui.label(egui::RichText::new("Pack").small().color(theme::MUTED));
+                let cells: Vec<Option<Cell>> = gear
+                    .pack
+                    .iter()
+                    .map(|slot| slot.map(|item| cell_of(item, 1)))
+                    .collect();
+                let picked = grid::grid(ui, 3, 3, PACK_CELL, &cells);
+                self.pack_picked(who, &gear.pack, picked);
             });
             ui.add_space(8.0);
             if let Some(stats) = game.weapon_stats(who) {
+                // The numbers, off the two-point curves: a gun's odds and
+                // damage each as "its best to here, this much at the
+                // range"; a burst weapon's fire rate as the burst and the
+                // recharge; a blade in one line, since its range is an
+                // arm's length and nothing flies.
                 egui::Grid::new(("weapon-stats", who))
                     .num_columns(2)
                     .spacing([10.0, 2.0])
@@ -1291,17 +1908,30 @@ impl CrewPanels {
                             ui.label(value);
                             ui.end_row();
                         };
-                        row(ui, "Range", format!("{} tiles", stats.range));
-                        theme::asks(ui, "Accuracy", ACCURACY_TIP);
-                        ui.label(format!(
-                            "{}% at {} tiles",
-                            (stats.accuracy * 100.0).round(),
-                            bims::combat::ACCURACY_RANGE
-                        ));
-                        ui.end_row();
-                        row(ui, "Shot speed", format!("{} tiles/s", stats.speed));
-                        row(ui, "Damage", format!("{} a shot", stats.damage));
-                        row(ui, "Fire rate", format!("{} a second", stats.fire_rate));
+                        let asks = |ui: &mut egui::Ui, label: &str, tip: &str, value: String| {
+                            theme::asks(ui, label, tip);
+                            ui.label(value);
+                            ui.end_row();
+                        };
+                        if stats.melee {
+                            row(ui, "Weapon", melee_text(&stats));
+                            row(ui, "Reach", format!("{} tiles", stats.range));
+                        } else {
+                            row(ui, "Range", format!("{} tiles", stats.range));
+                            asks(ui, "Accuracy", ACCURACY_TIP, accuracy_text(&stats));
+                            asks(ui, "Damage", DAMAGE_TIP, damage_text(&stats));
+                            row(ui, "Shot speed", format!("{} tiles/s", stats.speed));
+                            asks(
+                                ui,
+                                if stats.burst > 1 {
+                                    "Burst"
+                                } else {
+                                    "Fire rate"
+                                },
+                                FIRE_RATE_TIP,
+                                fire_rate_text(&stats),
+                            );
+                        }
                         theme::asks(ui, "DPS", DPS_TIP);
                         ui.label(egui::RichText::new(format!("{}", stats.dps())).strong());
                         ui.end_row();
@@ -1310,40 +1940,698 @@ impl CrewPanels {
                 ui.label(egui::RichText::new("Nothing in hand.").color(theme::MUTED));
             }
         });
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("Bandages: {bandages}"))
+                    .small()
+                    .color(if bandages > 0 {
+                        theme::INK
+                    } else {
+                        theme::MUTED
+                    }),
+            );
+            theme::question_mark(ui, BANDAGE_TIP);
+        });
+        // The order goes through the player's Bim, whoever is shown: the
+        // other crew take no orders, and one of them is dressed by being
+        // walked over to.
+        if let Some(part) = dress {
+            game.bandage(self.player, who, part);
+        }
+    }
+
+    /// What the pointer did to a pack grid: a right-click on a full cell
+    /// is its pop-up; a ctrl-click is the quick move into a container
+    /// within reach — and one that cannot go opens the pop-up instead,
+    /// whose Store row says why.
+    fn pack_picked(
+        &mut self,
+        who: usize,
+        pack: &[Option<PackItem>; PACK_CELLS],
+        picked: grid::Picked,
+    ) {
+        if let Some((i, at)) = picked.right_clicked
+            && pack[i].is_some()
+        {
+            self.cell_menu = Some(CellMenu {
+                at,
+                from: Source::Pack(i),
+                who,
+                fresh: true,
+            });
+        }
+        if let Some((i, at)) = picked.ctrl_clicked
+            && let Some(item) = pack[i]
+        {
+            if self.can_stow(item).is_ok() {
+                self.orders.push(GearOrder::Stow {
+                    who: who as u32,
+                    cell: i as u32,
+                });
+            } else {
+                self.cell_menu = Some(CellMenu {
+                    at,
+                    from: Source::Pack(i),
+                    who,
+                    fresh: true,
+                });
+            }
+        }
+    }
+
+    /// Whether a thing in the pack can go into a container now, or why
+    /// not, in the words the Store row shows. The world checks the same
+    /// things again when the command lands; this is so the row can say so
+    /// first.
+    fn can_stow(&self, item: PackItem) -> Result<(), String> {
+        let Some(hold) = &self.hold else {
+            return Err("there is no hold to put it in".into());
+        };
+        if let PackItem::Armour(piece) = item
+            && piece.broken()
+        {
+            return Err("broken — worth nothing put away; discard it".into());
+        }
+        let Some(resource) = world::armour::resource_of_item(item) else {
+            return Err("nothing aboard takes it".into());
+        };
+        if !hold.reach[resource as usize] {
+            return Err(REACH_HINT.into());
+        }
+        let class = economy::storage(resource);
+        if hold.used[class as usize] >= hold.capacity[class as usize] {
+            return Err(format!(
+                "no room left in the {}",
+                STORAGE_NAMES[class as usize].to_lowercase()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether a thing in a container can come into `who`'s pack now, or
+    /// why not: reach, and a free cell.
+    fn can_fetch(&self, game: &Game, who: usize, resource: ResourceId) -> Result<(), String> {
+        let Some(hold) = &self.hold else {
+            return Err("there is no hold to take it from".into());
+        };
+        if !hold.reach[resource as usize] {
+            return Err(REACH_HINT.into());
+        }
+        if game.gear(who).free_cell().is_none() {
+            return Err("the pack is full".into());
+        }
+        Ok(())
     }
 
     /// The pop-up that opens the moment the crew member the player steers
-    /// is recruited: its inventory, in a window of its own, until it is
-    /// shut or the Bim is let go. Call once a frame after the tray.
+    /// is recruited, or a container window opens: the inventory of the
+    /// Bim shown, in a window of its own, until it is shut or the Bim is
+    /// let go. Beside the container window while one is up, else at the
+    /// top of the screen. Call once a frame after the tray and after
+    /// [`CrewPanels::container_window`].
     pub fn inventory_window(
         &mut self,
         ctx: &egui::Context,
-        game: &Game,
+        game: &mut Game,
         name: &dyn Fn(u32) -> String,
     ) {
         let recruited = game.is_recruited() && game.is_alive(self.player);
         if recruited && !self.was_recruited {
             self.inventory_open = true;
         }
-        if !recruited {
+        // Being let go shuts it — unless a container is open, in which
+        // case the pack is still what the container is being used with.
+        if !recruited && self.was_recruited && self.open.is_none() {
             self.inventory_open = false;
         }
         self.was_recruited = recruited;
         if !self.inventory_open {
             return;
         }
+        let who = self.inventory_who(game);
         let mut open = true;
-        egui::Window::new("Inventory")
+        let window = egui::Window::new("Inventory")
             .id(egui::Id::new("inventory-window"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 60.0))
+            .frame(crate::screens::room::panel_frame());
+        let window = match self.container_rect {
+            Some(rect) => window.fixed_pos(egui::pos2(rect.max.x + 10.0, rect.min.y)),
+            None => window.anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 60.0)),
+        };
+        window.show(ctx, |ui| {
+            self.inventory(ui, game, who, name);
+        });
+        self.inventory_open = open;
+    }
+
+    // --- the containers -------------------------------------------------------
+
+    /// The open container's window, if one is: the hold's class the
+    /// container keeps, as a grid — each piece of armour a cell of its
+    /// own with its health under it, everything else a stack with its
+    /// count — with how full the class is over it and what a click does
+    /// under it. Ctrl-click a cell to take one into the pack of the Bim
+    /// shown; right-click for the row. Shut by its cross, by Escape, or
+    /// by the container going away under it. Call once a frame after
+    /// the tray and before [`CrewPanels::inventory_window`], which sits
+    /// beside it.
+    pub fn container_window(
+        &mut self,
+        ctx: &egui::Context,
+        game: &Game,
+        name: &dyn Fn(u32) -> String,
+    ) {
+        self.container_rect = None;
+        let Some(Open::Container(container)) = self.open else {
+            return;
+        };
+        let (Some(hold), Some(class)) = (self.hold.as_ref(), class_of(game, container)) else {
+            self.open = None;
+            return;
+        };
+        let who = self.inventory_who(game);
+        let title = match container {
+            Container::Bench(i) => PartKind::from_code(game.bench_part(i))
+                .map(part_name)
+                .unwrap_or("Container")
+                .to_string(),
+            Container::Shelf(_) => STORAGE_WINDOW.to_string(),
+            Container::Fridge(_) => COLD_STORE_WINDOW.to_string(),
+        };
+        let (cols, rows) = container_dims(class);
+        let (cells, what): (Vec<Option<Cell>>, Vec<HoldCell>) = container_cells(class, hold);
+        let near = ResourceId::ALL
+            .iter()
+            .any(|&id| economy::storage(id) == class && hold.reach[id as usize]);
+        let used = hold.used[class as usize];
+        let capacity = hold.capacity[class as usize];
+        let mut open = true;
+        let mut picked = grid::Picked::default();
+        let response = egui::Window::new(title)
+            .id(egui::Id::new("container-window"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
             .frame(crate::screens::room::panel_frame())
             .show(ctx, |ui| {
-                self.inventory(ui, game, self.player, name);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{used} of {capacity} in the {}",
+                            STORAGE_NAMES[class as usize].to_lowercase()
+                        ))
+                        .small()
+                        .color(theme::MUTED),
+                    );
+                    theme::question_mark(ui, CONTAINER_TIP);
+                });
+                picked = grid::grid(ui, cols, rows, container_cell(class), &cells);
+                let hint = if near {
+                    format!(
+                        "Ctrl-click takes one into {}'s pack · right-click for the rows",
+                        name(who as u32)
+                    )
+                } else {
+                    format!(
+                        "{} is not within reach — walk over first; clicking the container sends the Bim",
+                        name(who as u32)
+                    )
+                };
+                ui.add(egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap());
             });
-        self.inventory_open = open;
+        if let Some(response) = response {
+            self.container_rect = Some(response.response.rect);
+        }
+        if !open {
+            self.open = None;
+        }
+        // The pointer on the grid: a right-click is the row, a ctrl-click
+        // the quick take — or the row, when the take cannot go, so the
+        // reason is read rather than guessed at.
+        if let Some((i, at)) = picked.right_clicked
+            && let Some(&cell) = what.get(i)
+        {
+            self.cell_menu = Some(CellMenu {
+                at,
+                from: Source::Hold(cell),
+                who,
+                fresh: true,
+            });
+        }
+        if let Some((i, at)) = picked.ctrl_clicked
+            && let Some(&cell) = what.get(i)
+        {
+            let resource = match cell {
+                HoldCell::Piece(id) => hold
+                    .pieces
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| ResourceId::ALL[p.kind.resource() as usize]),
+                HoldCell::Stack(id) => Some(id),
+            };
+            match resource.map(|r| self.can_fetch(game, who, r)) {
+                Some(Ok(())) => self.orders.push(GearOrder::Fetch {
+                    who: who as u32,
+                    kind: fetch_kind(cell),
+                }),
+                _ => {
+                    self.cell_menu = Some(CellMenu {
+                        at,
+                        from: Source::Hold(cell),
+                        who,
+                        fresh: true,
+                    });
+                }
+            }
+        }
+    }
+
+    /// The Hire window, if a mercenary is open: whose, what it carries —
+    /// the weapon and every piece worn, which is what the fee is — and a
+    /// month's fee, with the button that sends the hire through the seam
+    /// (`GearOrder::Hire`). Greyed, with the reason, while the Bim shown
+    /// is out of reach (the row walked it over), the money is short, or
+    /// there is no bunk aboard. Shut by its cross, by Escape, by the hire
+    /// going through, or by the body no longer being for hire — the rooms
+    /// parted. Call once a frame after the screen has set
+    /// [`CrewPanels::terms`], in the Loot window's place.
+    pub fn hire_window(&mut self, ctx: &egui::Context, game: &Game, name: &dyn Fn(u32) -> String) {
+        let Some(resident) = self.hire_source() else {
+            return;
+        };
+        let Some(terms) = self.terms else {
+            self.open = None;
+            return;
+        };
+        let who = self.inventory_who(game);
+        let whose = name(self.crew_count + resident);
+        let mut open = true;
+        let mut hired = false;
+        egui::Window::new(format!("{HIRE_WINDOW} — {whose}"))
+            .id(egui::Id::new("hire-window"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
+            .frame(crate::screens::room::panel_frame())
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Carries").small().color(theme::MUTED));
+                    theme::question_mark(ui, HIRE_TIP);
+                });
+                ui.label(weapon_name(terms.gear.weapon));
+                for part in health::Part::ALL {
+                    if let Some(piece) = terms.gear.worn(part) {
+                        ui.label(armour_name(Some(piece.kind)));
+                    }
+                }
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("A month").small().color(theme::MUTED));
+                    ui.label(egui::RichText::new(crate::format::euros(terms.fee)).strong());
+                });
+                let hint = if !terms.in_reach {
+                    Some(format!("{} — {REACH_HINT}", name(who as u32)))
+                } else if !terms.bunk {
+                    Some(NO_BUNK_HINT.to_string())
+                } else if !terms.affordable {
+                    Some(BROKE_HINT.to_string())
+                } else {
+                    None
+                };
+                let can = hint.is_none();
+                if ui
+                    .add_enabled(can, egui::Button::new(HIRE_BUTTON))
+                    .clicked()
+                {
+                    hired = true;
+                }
+                if let Some(hint) = hint {
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED))
+                            .wrap(),
+                    );
+                }
+            });
+        if hired {
+            self.orders.push(GearOrder::Hire {
+                who: who as u32,
+                resident,
+            });
+            open = false;
+        }
+        if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.open = None;
+            self.terms = None;
+        }
+    }
+
+    /// The Loot window, if a body is open: the body's pack three by three,
+    /// and under it a row of four — the head, the body, the legs and the
+    /// weapon in hand, labelled — every cell drawn the way the containers'
+    /// are, a piece with its health under it. Ctrl-click a cell to take
+    /// it into the pack of the Bim shown; right-click for the row. Shut
+    /// by its cross, by Escape, by the Bim getting up (a crewmate that
+    /// came round is no longer a body), or by the body going away under
+    /// it — the rooms parting. Call once a frame after the tray, after
+    /// [`CrewPanels::container_window`] and after the screen has set
+    /// [`CrewPanels::body`], and before [`CrewPanels::inventory_window`],
+    /// which sits beside it.
+    pub fn loot_window(&mut self, ctx: &egui::Context, game: &Game, name: &dyn Fn(u32) -> String) {
+        let Some(source) = self.loot_source() else {
+            return;
+        };
+        let Some(body) = self.body.as_ref() else {
+            self.open = None;
+            return;
+        };
+        if !body.down {
+            self.open = None;
+            return;
+        }
+        let who = self.inventory_who(game);
+        let whose = match source {
+            LootSource::Crew(body) => name(body),
+            LootSource::Resident(body) => name(self.crew_count + body),
+        };
+        let cells: Vec<Option<Cell>> = body
+            .cells
+            .iter()
+            .map(|slot| slot.map(|item| cell_of(item, 1)))
+            .collect();
+        let (pack_cells, worn_cells) = cells.split_at(PACK_CELLS);
+        let reach = body.reach;
+        let mut open = true;
+        let mut pack = grid::Picked::default();
+        let mut worn = grid::Picked::default();
+        let response = egui::Window::new(format!("{LOOT_WINDOW} — {whose}"))
+            .id(egui::Id::new("loot-window"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
+            .frame(crate::screens::room::panel_frame())
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Pack").small().color(theme::MUTED));
+                    theme::question_mark(ui, LOOT_TIP);
+                });
+                pack = grid::grid(ui, 3, 3, PACK_CELL, pack_cells);
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Worn, and in hand")
+                        .small()
+                        .color(theme::MUTED),
+                );
+                worn = grid::grid(ui, SLOT_NAMES.len(), 1, PACK_CELL, worn_cells);
+                // A label under each of the four, on the grid's own pitch,
+                // so the word sits under its cell.
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = grid::GAP;
+                    for label in SLOT_NAMES {
+                        ui.add_sized(
+                            [PACK_CELL, 14.0],
+                            egui::Label::new(
+                                egui::RichText::new(label).small().color(theme::MUTED),
+                            ),
+                        );
+                    }
+                });
+                let hint = if reach {
+                    format!(
+                        "Ctrl-click takes it into {}'s pack · right-click for the row",
+                        name(who as u32)
+                    )
+                } else {
+                    format!(
+                        "{} is not within reach — walk over first; the Loot row sends the Bim",
+                        name(who as u32)
+                    )
+                };
+                ui.add(
+                    egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap(),
+                );
+            });
+        if let Some(response) = response {
+            self.container_rect = Some(response.response.rect);
+        }
+        if !open {
+            self.open = None;
+        }
+        // The two grids as one list of cells, in `LootCell` order: the
+        // pack's index is its code, the row's is its code less nine.
+        let right_clicked = pack
+            .right_clicked
+            .or(worn.right_clicked.map(|(i, at)| (i + PACK_CELLS, at)));
+        let ctrl_clicked = pack
+            .ctrl_clicked
+            .or(worn.ctrl_clicked.map(|(i, at)| (i + PACK_CELLS, at)));
+        // The pointer on a cell: a right-click is the row, a ctrl-click
+        // the quick take — or the row, when the take cannot go, so the
+        // reason is read rather than guessed at.
+        if let Some((i, at)) = right_clicked {
+            self.cell_menu = Some(CellMenu {
+                at,
+                from: Source::Loot(i as u32),
+                who,
+                fresh: true,
+            });
+        }
+        if let Some((i, at)) = ctrl_clicked {
+            if self.can_loot(game, who).is_ok() {
+                self.orders.push(GearOrder::Loot {
+                    who: who as u32,
+                    source,
+                    cell: i as u32,
+                });
+            } else {
+                self.cell_menu = Some(CellMenu {
+                    at,
+                    from: Source::Loot(i as u32),
+                    who,
+                    fresh: true,
+                });
+            }
+        }
+    }
+
+    /// Whether a thing on the open body can come into `who`'s pack now, or
+    /// why not: the body still down, reach, and a free cell. The world
+    /// checks the same things again when the command lands; this is so
+    /// the row can say so first.
+    fn can_loot(&self, game: &Game, who: usize) -> Result<(), String> {
+        let Some(body) = &self.body else {
+            return Err("the body is gone".into());
+        };
+        if !body.down {
+            return Err("not down any more".into());
+        }
+        if !body.reach {
+            return Err(REACH_HINT.into());
+        }
+        if game.gear(who).free_cell().is_none() {
+            return Err("the pack is full".into());
+        }
+        Ok(())
+    }
+
+    /// The rows of a cell's pop-up, each with the order it sends. Empty
+    /// when the cell is empty now — the thing moved while the pop-up was
+    /// up — which shuts it.
+    fn cell_rows(
+        &self,
+        game: &Game,
+        menu: &CellMenu,
+        name: &dyn Fn(u32) -> String,
+    ) -> Vec<(theme::Row, GearOrder)> {
+        let who = menu.who;
+        let alive = game.is_alive(who);
+        let pack_full = game.gear(who).free_cell().is_none();
+        let mut rows = Vec::new();
+        match menu.from {
+            Source::Pack(cell) => {
+                let Some(item) = game.pack(who).get(cell).copied().flatten() else {
+                    return rows;
+                };
+                let (who32, cell32) = (who as u32, cell as u32);
+                match item {
+                    PackItem::Armour(piece) => {
+                        let slot = SLOT_NAMES[piece.kind.slot() as usize].to_lowercase();
+                        rows.push((
+                            theme::Row::new(
+                                "Equip",
+                                if !alive {
+                                    "not any more".to_string()
+                                } else if piece.broken() {
+                                    "broken — it goes on, and does nothing".to_string()
+                                } else {
+                                    format!("on the {slot}; whatever is worn there comes off into this cell")
+                                },
+                                !alive,
+                            ),
+                            GearOrder::Equip {
+                                who: who32,
+                                cell: cell32,
+                            },
+                        ));
+                    }
+                    PackItem::Weapon(_) => {
+                        rows.push((
+                            theme::Row::new(
+                                "Equip",
+                                if alive {
+                                    "swaps with the one in hand"
+                                } else {
+                                    "not any more"
+                                },
+                                !alive,
+                            ),
+                            GearOrder::Equip {
+                                who: who32,
+                                cell: cell32,
+                            },
+                        ));
+                    }
+                    PackItem::Stack(_) => {}
+                }
+                // Only where there is a hold: the room has nowhere to
+                // put a thing away.
+                if self.hold.is_some() {
+                    let (hint, disabled) = match self.can_stow(item) {
+                        Ok(()) => {
+                            let class = world::armour::resource_of_item(item)
+                                .map(economy::storage)
+                                .unwrap_or(Storage::Locker);
+                            (
+                                format!(
+                                    "into the {}",
+                                    STORAGE_NAMES[class as usize].to_lowercase()
+                                ),
+                                false,
+                            )
+                        }
+                        Err(why) => (why, true),
+                    };
+                    rows.push((
+                        theme::Row::new("Store", hint, disabled),
+                        GearOrder::Stow {
+                            who: who32,
+                            cell: cell32,
+                        },
+                    ));
+                }
+                rows.push((
+                    theme::Row::new("Discard", "thrown out, for good", false),
+                    GearOrder::Discard {
+                        who: who32,
+                        cell: cell32,
+                    },
+                ));
+            }
+            Source::Hold(cell) => {
+                let Some(hold) = &self.hold else {
+                    return rows;
+                };
+                let (label, resource) = match cell {
+                    HoldCell::Piece(id) => {
+                        let Some(piece) = hold.pieces.iter().find(|p| p.id == id) else {
+                            return rows;
+                        };
+                        ("Take", ResourceId::ALL[piece.kind.resource() as usize])
+                    }
+                    HoldCell::Stack(id) => {
+                        if hold.counts[id as usize] == 0 {
+                            return rows;
+                        }
+                        ("Take one", id)
+                    }
+                };
+                let (hint, disabled) = match self.can_fetch(game, who, resource) {
+                    Ok(()) => (format!("into {}'s pack", name(who as u32)), false),
+                    Err(why) => (why, true),
+                };
+                rows.push((
+                    theme::Row::new(label, hint, disabled),
+                    GearOrder::Fetch {
+                        who: who as u32,
+                        kind: fetch_kind(cell),
+                    },
+                ));
+            }
+            Source::Worn(part) => {
+                if game.worn(who, part).is_none() {
+                    return rows;
+                }
+                let (hint, disabled) = if !alive {
+                    ("not any more", true)
+                } else if pack_full {
+                    ("the pack is full", true)
+                } else {
+                    ("into the pack", false)
+                };
+                rows.push((
+                    theme::Row::new("Unequip", hint, disabled),
+                    GearOrder::Unequip {
+                        who: who as u32,
+                        part,
+                    },
+                ));
+            }
+            Source::Loot(cell) => {
+                let (Some(source), Some(body)) = (self.loot_source(), self.body.as_ref()) else {
+                    return rows;
+                };
+                if body.cells.get(cell as usize).copied().flatten().is_none() {
+                    return rows;
+                }
+                let (hint, disabled) = match self.can_loot(game, who) {
+                    Ok(()) => (format!("into {}'s pack", name(who as u32)), false),
+                    Err(why) => (why, true),
+                };
+                rows.push((
+                    theme::Row::new("Take", hint, disabled),
+                    GearOrder::Loot {
+                        who: who as u32,
+                        source,
+                        cell,
+                    },
+                ));
+            }
+        }
+        rows
+    }
+
+    /// Draw the open cell pop-up, if there is one, and shut it on a click
+    /// away or once its row is pressed. Call once a frame after the
+    /// windows.
+    pub fn cell_menu(&mut self, ctx: &egui::Context, game: &Game, name: &dyn Fn(u32) -> String) {
+        let Some(menu) = &self.cell_menu else { return };
+        let rows = self.cell_rows(game, menu, name);
+        if rows.is_empty() {
+            self.cell_menu = None;
+            return;
+        }
+        let at = menu.at;
+        let fresh = menu.fresh;
+        let (words, orders): (Vec<theme::Row>, Vec<GearOrder>) = rows.into_iter().unzip();
+        let (chosen, rect) = theme::popup(ctx, "cell-menu", at, &words);
+        if let Some(i) = chosen {
+            self.orders.push(orders[i]);
+            self.cell_menu = None;
+            return;
+        }
+        let pressed = ctx.input(|i| i.pointer.any_pressed());
+        let pos = ctx.input(|i| i.pointer.interact_pos());
+        if let Some(menu) = &mut self.cell_menu {
+            if fresh {
+                menu.fresh = false;
+            } else if pressed && !pos.is_some_and(|p| rect.contains(p)) {
+                self.cell_menu = None;
+            }
+        }
     }
 
     /// The parts, by category — a list of headings, one open at a time
@@ -1788,32 +3076,81 @@ impl CrewPanels {
         }
         let highest = game.work_highest();
         let lowest = game.work_lowest();
-        egui::Grid::new("work").num_columns(2).spacing([12.0, 2.0]).show(ui, |ui| {
-            ui.label(egui::RichText::new("Job").small().color(theme::MUTED));
-            ui.label(egui::RichText::new("Priority").small().color(theme::MUTED));
-            ui.end_row();
-            let mut clicked = None;
-            for (job, name) in rows {
-                let row = ui.label(name);
-                let level = game.work_priority(job);
-                let button = ui
-                    .add(egui::Button::new(level.to_string()).min_size(egui::vec2(28.0, 0.0)))
-                    .on_hover_text(format!(
-                        "Priority {level} — {highest} is done first, {lowest} last. Click to change."
-                    ));
-                if button.clicked() {
-                    clicked = Some(job);
-                }
-                let spot = WORK_SPOTS.get(job as usize).copied().unwrap_or(SPOT_NOTHING);
-                self.points(&row, spot);
-                self.points(&button, spot);
+        let never = game.work_never();
+        egui::Grid::new("work")
+            .num_columns(2)
+            .spacing([12.0, 2.0])
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Job").small().color(theme::MUTED));
+                ui.label(egui::RichText::new("Priority").small().color(theme::MUTED));
                 ui.end_row();
-            }
-            if let Some(job) = clicked {
-                game.cycle_work_priority(job);
-                self.sort = None;
-            }
-        });
+                // Which box was clicked, and which way: a left click takes one
+                // off the number, a right click puts one on.
+                let mut clicked: Option<(u32, bool)> = None;
+                for (job, name) in rows {
+                    let level = game.work_priority(job);
+                    let off = level == never;
+                    let row = ui.label(if off {
+                        egui::RichText::new(name).color(theme::MUTED)
+                    } else {
+                        egui::RichText::new(name)
+                    });
+                    // A colour a level, so the list reads at a glance: hot at
+                    // the top, cooling down the range, and a red cross for a
+                    // job the crew are never to do. The box is painted by hand
+                    // rather than through the button's text so the cross is a
+                    // shape and not a glyph the font may not have.
+                    let fill = priority_colour(level, never, highest, lowest);
+                    let text = if off {
+                        String::new()
+                    } else {
+                        level.to_string()
+                    };
+                    let button = ui
+                        .add(
+                            egui::Button::new(egui::RichText::new(text).color(theme::PANEL_DEEP))
+                                .fill(fill)
+                                .min_size(egui::vec2(28.0, 0.0)),
+                        )
+                        .on_hover_text(if off {
+                            "Never — the crew do not do this. Click to set a priority.".to_string()
+                        } else {
+                            format!(
+                                "Priority {level} — {highest} is done first, {lowest} last. \
+                             Click for one more important; right-click for one less; \
+                             past {highest} is never."
+                            )
+                        });
+                    if off {
+                        let r = button.rect.shrink(7.0);
+                        let stroke = egui::Stroke::new(2.0, theme::PANEL_DEEP);
+                        ui.painter()
+                            .line_segment([r.left_top(), r.right_bottom()], stroke);
+                        ui.painter()
+                            .line_segment([r.left_bottom(), r.right_top()], stroke);
+                    }
+                    if button.clicked() {
+                        clicked = Some((job, false));
+                    } else if button.secondary_clicked() {
+                        clicked = Some((job, true));
+                    }
+                    let spot = WORK_SPOTS
+                        .get(job as usize)
+                        .copied()
+                        .unwrap_or(SPOT_NOTHING);
+                    self.points(&row, spot);
+                    self.points(&button, spot);
+                    ui.end_row();
+                }
+                if let Some((job, back)) = clicked {
+                    if back {
+                        game.cycle_work_priority_back(job);
+                    } else {
+                        game.cycle_work_priority(job);
+                    }
+                    self.sort = None;
+                }
+            });
     }
 
     /// What is aboard, and what to keep in stock: the three targets, by
@@ -1842,9 +3179,17 @@ impl CrewPanels {
                     ("Vegetables", game.store_veg(), Stock::Veg),
                     ("Tofu", game.store_tofu(), Stock::Tofu),
                     ("Stew", game.store_stew(), Stock::Stew),
+                    ("Fibre", game.store_fibre(), Stock::Fibre),
                 ];
                 for (name, held, which) in rows {
-                    let a = ui.label(name);
+                    // Fibre is the one row that is not food, and the
+                    // Target tip above says nothing about it, so its own
+                    // word asks.
+                    let a = if which == Stock::Fibre {
+                        theme::asks(ui, name, FIBRE_TIP)
+                    } else {
+                        ui.label(name)
+                    };
                     let b = ui.label(held.to_string());
                     let c = ui.label("Cold store");
                     let mut target = game.target(which);
@@ -2002,33 +3347,279 @@ impl CrewPanels {
 }
 
 /// The room's own idea of who is steered: `bim::PLAYER`.
-/// One slot of the inventory: a box with what is in it, the slot's name
-/// under it. An empty slot is drawn hollow, a filled one lit. Painted on
-/// a rect of a fixed size rather than laid out, so it is a slot and not
-/// whatever space the window happens to have.
-fn slot(ui: &mut egui::Ui, label: &str, content: &str, filled: bool) {
+/// The colour of a priority box: red for never, and from there a ramp
+/// from hot at the top of the range to cool grey at the bottom, so the
+/// Work tab reads as a heat map rather than a column of threes.
+fn priority_colour(level: u32, never: u32, highest: u32, lowest: u32) -> egui::Color32 {
+    if level == never {
+        return theme::BAD;
+    }
+    // 0 at the most important, 1 at the least.
+    let span = lowest.saturating_sub(highest).max(1) as f32;
+    let t = (level.saturating_sub(highest) as f32 / span).clamp(0.0, 1.0);
+    // Two straight ramps: warm to the accent green over the first half,
+    // the accent down to the muted grey over the second.
+    let mix = |a: egui::Color32, b: egui::Color32, k: f32| {
+        let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * k).round() as u8;
+        egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
+    };
+    if t < 0.5 {
+        mix(theme::WARN, theme::ACCENT, t * 2.0)
+    } else {
+        mix(theme::ACCENT, theme::MUTED, (t - 0.5) * 2.0)
+    }
+}
+
+/// One slot of the inventory: a box with what is in it — its icon, its
+/// name, a line of its numbers and, for a piece of armour, its health
+/// along the bottom — and the slot's name under the box. An empty slot is
+/// drawn hollow, a filled one lit. Painted on a rect of a fixed size
+/// rather than laid out, so it is a slot and not whatever space the
+/// window happens to have. The response is the box's, for a right-click.
+fn slot(
+    ui: &mut egui::Ui,
+    label: &str,
+    item: Option<PackItem>,
+    name: &str,
+    line: &str,
+) -> egui::Response {
     ui.vertical(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(96.0, 42.0), egui::Sense::hover());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(SLOT_WIDTH, SLOT_HEIGHT), egui::Sense::click());
         let painter = ui.painter();
         painter.rect(
             rect,
             4.0,
             theme::PANEL_DEEP,
-            egui::Stroke::new(1.0, if filled { theme::ACCENT } else { theme::LINE }),
+            egui::Stroke::new(
+                1.0,
+                if item.is_some() {
+                    theme::ACCENT
+                } else {
+                    theme::LINE
+                },
+            ),
             egui::StrokeKind::Inside,
         );
-        painter.text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            content,
-            egui::FontId::proportional(13.0),
-            if filled { theme::INK } else { theme::MUTED },
-        );
+        match item {
+            None => {
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    name,
+                    egui::FontId::proportional(13.0),
+                    theme::MUTED,
+                );
+            }
+            Some(item) => {
+                let pad = 6.0;
+                let icon = egui::Rect::from_min_size(
+                    rect.min + egui::vec2(pad, pad),
+                    egui::vec2(SLOT_HEIGHT - pad * 2.0, SLOT_HEIGHT - pad * 2.0),
+                );
+                icons::icon(painter, icon, item);
+                let x = icon.max.x + pad;
+                painter.text(
+                    egui::pos2(x, rect.min.y + pad),
+                    egui::Align2::LEFT_TOP,
+                    name,
+                    egui::FontId::proportional(12.5),
+                    theme::INK,
+                );
+                if !line.is_empty() {
+                    painter.text(
+                        egui::pos2(x, rect.max.y - pad),
+                        egui::Align2::LEFT_BOTTOM,
+                        line,
+                        egui::FontId::proportional(10.0),
+                        theme::MUTED,
+                    );
+                }
+                if let PackItem::Armour(piece) = item {
+                    let bar = egui::Rect::from_min_max(
+                        egui::pos2(icon.min.x, rect.max.y - 5.0),
+                        egui::pos2(icon.max.x, rect.max.y - 3.0),
+                    );
+                    theme::bar_in(
+                        painter,
+                        bar,
+                        piece.health / piece.kind.stats().health.max(1.0),
+                        if piece.broken() {
+                            theme::BAD
+                        } else {
+                            theme::ARMOUR
+                        },
+                    );
+                }
+            }
+        }
         ui.label(egui::RichText::new(label).small().color(theme::MUTED));
         ui.add_space(4.0);
-    });
+        response
+    })
+    .inner
+}
+
+/// A slot's box.
+const SLOT_WIDTH: f32 = 120.0;
+const SLOT_HEIGHT: f32 = 44.0;
+
+/// The line under a worn piece's name: what it is adding and taking off,
+/// or that it is past it.
+fn worn_line(piece: Piece) -> String {
+    if piece.broken() {
+        "broken — does nothing".into()
+    } else {
+        format!(
+            "+{} hp · {} prot",
+            piece.health.round(),
+            piece.kind.stats().protection
+        )
+    }
+}
+
+/// A grid cell for a thing, with its tooltip.
+fn cell_of(item: PackItem, count: u32) -> Cell {
+    Cell {
+        item,
+        count,
+        tip: tip_of(item, count),
+    }
+}
+
+/// A cell's tooltip: the name, the numbers that matter — a piece's
+/// health and protection, and what it has left — and the resource's line.
+fn tip_of(item: PackItem, count: u32) -> String {
+    match item {
+        PackItem::Armour(piece) => {
+            let stats = piece.kind.stats();
+            let state = if piece.broken() {
+                "Broken — still worn, doing nothing".to_string()
+            } else {
+                format!("{} of {} hp left", piece.health.round(), stats.health)
+            };
+            format!(
+                "{} — {}\n+{} hp, {} protection · {state}\n{}",
+                armour_name(Some(piece.kind)),
+                SLOT_NAMES[piece.kind.slot() as usize].to_lowercase(),
+                stats.health,
+                stats.protection,
+                item_tip(ResourceId::ALL[piece.kind.resource() as usize])
+            )
+        }
+        PackItem::Weapon(weapon) => {
+            // The curve in a line, the way the Inventory says it, or a
+            // blade's swing.
+            let stats = weapon.stats();
+            let numbers = if stats.melee {
+                melee_text(&stats)
+            } else {
+                format!(
+                    "Damage {}, range {} tiles",
+                    damage_text(&stats),
+                    stats.range
+                )
+            };
+            format!(
+                "{}\n{numbers}\n{}",
+                weapon_name(Some(weapon)),
+                item_tip(world::armour::weapon_resource(weapon))
+            )
+        }
+        PackItem::Stack(code) => match ResourceId::ALL.get(code as usize) {
+            Some(&id) if count > 1 => format!("{} × {count}\n{}", resource_name(id), item_tip(id)),
+            Some(&id) => format!("{}\n{}", resource_name(id), item_tip(id)),
+            None => "Something the hold does not know".into(),
+        },
+    }
+}
+
+/// Which class of the hold a container is a window onto: a workstation's
+/// is its part's, if it keeps one (the armoury's lockers), a shelf's the
+/// shelves, a cold store's the cold; `None` for a container the room no
+/// longer has.
+fn class_of(game: &Game, container: Container) -> Option<Storage> {
+    match container {
+        Container::Bench(i) => PartKind::from_code(game.bench_part(i))?
+            .def()
+            .capacity
+            .map(|(class, _)| class),
+        Container::Shelf(_) => game.container_frame(container).map(|_| Storage::Shelf),
+        Container::Fridge(_) => game.container_frame(container).map(|_| Storage::ColdStore),
+    }
+}
+
+/// The cells of a container window over one class of the hold, and what
+/// each is: the lockers' pieces of armour first, one cell each, then a
+/// stack a resource of the class with anything in it. Armour is never a
+/// stack — every piece is an instance — so the armour resources are
+/// skipped where the stacks are built.
+fn container_cells(class: Storage, hold: &Hold) -> (Vec<Option<Cell>>, Vec<HoldCell>) {
+    let mut cells = Vec::new();
+    let mut what = Vec::new();
+    if class == Storage::Locker {
+        let mut pieces = hold.pieces.clone();
+        pieces.sort_by_key(|p| p.id);
+        for piece in pieces {
+            cells.push(Some(cell_of(PackItem::Armour(piece), 1)));
+            what.push(HoldCell::Piece(piece.id));
+        }
+    }
+    for &id in ResourceId::ALL.iter() {
+        if economy::storage(id) != class || world::armour::kind_of(id).is_some() {
+            continue;
+        }
+        let count = hold.counts[id as usize];
+        if count == 0 {
+            continue;
+        }
+        cells.push(Some(cell_of(world::armour::item_of(id), count)));
+        what.push(HoldCell::Stack(id));
+    }
+    (cells, what)
+}
+
+/// What a fetch of a container cell asks the world for.
+fn fetch_kind(cell: HoldCell) -> FetchKind {
+    match cell {
+        HoldCell::Piece(id) => FetchKind::Piece(id),
+        HoldCell::Stack(id) => FetchKind::Resource(id as u32),
+    }
+}
+
+/// The two words beside a Bandage button, or under a menu row: how many
+/// wounds are open on the part, and why the button is dead if it is —
+/// nothing to dress, or nothing to dress it with.
+fn bandage_words(wounds: u32, bandages: u32) -> (String, &'static str) {
+    let count = match wounds {
+        0 => "no wounds".to_string(),
+        1 => "1 wound".to_string(),
+        n => format!("{n} wounds"),
+    };
+    let hint = if wounds == 0 {
+        "nothing open on it — a bandage here would be a bandage wasted"
+    } else if bandages == 0 {
+        "no bandages — the drug lab makes them out of fibre"
+    } else {
+        "closes every wound on it — ten minutes with hands on"
+    };
+    (count, hint)
 }
 
 pub fn player() -> usize {
     bim::PLAYER
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The work list's rows are built off `work_count`, so a spot table a
+    /// row short would ring nothing for the last job and nobody would
+    /// notice; the target table is indexed by `manager::Stock` the same way.
+    #[test]
+    fn every_job_and_every_target_has_a_place_to_ring() {
+        assert_eq!(WORK_SPOTS.len(), bims::work::Job::ALL.len());
+        assert_eq!(KEEP_SPOTS.len(), Stock::ALL.len());
+    }
 }

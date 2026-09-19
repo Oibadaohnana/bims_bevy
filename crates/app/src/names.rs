@@ -7,12 +7,13 @@
 //! by the codes each crate writes out and never renumbers. Adding a part, an
 //! event or a job is a variant there and a name here.
 
+use bims::combat::WeaponStats;
 use physics::ResourceId;
 use shipdesign::parts::PartKind;
 use world::{Refusal, WorldEvent};
 
 /// Who is aboard, by lobby slot. The room calls crew 0 James.
-pub const CREW_NAMES: [&str; 4] = ["James", "Kate", "Priya", "Tomas"];
+pub const CREW_NAMES: [&str; 5] = ["James", "Kate", "Priya", "Tomas", "Mateo"];
 
 pub fn crew_name(who: u32) -> String {
     CREW_NAMES
@@ -37,7 +38,7 @@ pub fn resident_name(station: u32, who: u32) -> String {
 
 /// What each part is called. Indexed by the `PartKind` discriminant in
 /// `crates/shipdesign/src/parts.rs`.
-pub const PART_NAMES: [&str; 36] = [
+pub const PART_NAMES: [&str; 38] = [
     "Deck plating",
     "Wall",
     "Door",
@@ -74,6 +75,8 @@ pub const PART_NAMES: [&str; 36] = [
     "Suit locker",
     "Armoury",
     "Drug lab",
+    "Trading desk",
+    "Sandbags",
 ];
 
 pub fn part_name(kind: PartKind) -> &'static str {
@@ -90,9 +93,9 @@ pub fn part_name(kind: PartKind) -> &'static str {
 pub const PART_GROUPS: &[(&str, &[u32])] = &[
     // Hull first, in the order a ship is actually built: deck, skin, then the
     // ways through it. The frame is not a tool of its own — see NOT_A_TOOL.
-    ("Hull", &[0, 1, 29, 16, 30, 2, 23]),
+    ("Hull", &[0, 1, 29, 16, 30, 2, 23, 37]),
     ("Systems", &[3, 28, 27, 17, 18, 19, 20, 21, 22, 24]),
-    ("Crew", &[4, 9, 10, 26]),
+    ("Crew", &[4, 9, 10, 26, 36]),
     ("Galley", &[5, 6, 7, 8]),
     ("Heads", &[11, 12]),
     ("Storage", &[25, 33]),
@@ -109,13 +112,13 @@ pub const PART_GROUPS: &[(&str, &[u32])] = &[
 pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
     (
         "Structure",
-        "The frame and the skin: deck to walk on, walls to divide it, the hull that keeps the outside out, and the ways through.",
-        &[0, 1, 29, 16, 30, 2, 23],
+        "The frame and the skin: deck to walk on, walls to divide it, the hull that keeps the outside out, the ways through, and sandbags for cover.",
+        &[0, 1, 29, 16, 30, 2, 23, 37],
     ),
     (
         "Furniture",
-        "What the crew live with: somewhere to sleep, sit and eat, and somewhere to keep things.",
-        &[4, 9, 10, 25, 14],
+        "What the crew live with: somewhere to sleep, sit and eat, somewhere to keep things, and a desk to trade across.",
+        &[4, 9, 10, 25, 14, 36],
     ),
     (
         "Production",
@@ -152,7 +155,7 @@ pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
 pub const NOT_A_TOOL: &[u32] = &[15];
 
 /// What a station sells, indexed by `physics::ResourceId`.
-pub const RESOURCE_NAMES: [&str; 15] = [
+pub const RESOURCE_NAMES: [&str; 22] = [
     "Ore",
     "Metal",
     "Fuel",
@@ -168,6 +171,13 @@ pub const RESOURCE_NAMES: [&str; 15] = [
     "Rock",
     "Fibre",
     "Bandages",
+    "Helm",
+    "Kevlar",
+    "Leg guards",
+    "Shotguns",
+    "Auto rifles",
+    "Sniper rifles",
+    "Schwords",
 ];
 
 pub fn resource_name(id: ResourceId) -> &'static str {
@@ -288,6 +298,14 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::UnderConstruction => {
             "the ship stays put while something is being built — cancel the site, or let them finish"
         }
+        Refusal::OutOfReach => "it is out of reach — walk over first",
+        Refusal::PackFull => "the pack is full",
+        Refusal::NoRoom => "there is no room for it aboard",
+        Refusal::Broken => "it is broken, and worth nothing put away — discard it",
+        Refusal::NotDown => "nobody on their feet is looted — it is not down any more",
+        Refusal::NotForHire => "that is not a mercenary for hire",
+        Refusal::NoBunk => "there is no bunk aboard for one more",
+        Refusal::NotAtTheDesk => "nobody of yours is at the trading desk — walk over first",
     }
 }
 
@@ -427,7 +445,86 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::EnemyDown { station, who: w } => {
             format!("{} is down.", resident_name(station, w))
         }
+        // A shot that landed on one of the crew: which part, and the fact
+        // that every hit bleeds until it is dressed — the line is what
+        // sends a player to the bandages.
+        WorldEvent::CrewHit { who: w, part } => {
+            format!(
+                "{} was hit in the {} — and is bleeding.",
+                who(w),
+                body_part_name(part)
+            )
+        }
+        WorldEvent::CrewDown { who: w } => format!("{} is down.", who(w)),
+        WorldEvent::Equipped { who: w, kind } => {
+            format!(
+                "{} put on the {}.",
+                who(w),
+                armour_name(Some(kind)).to_lowercase()
+            )
+        }
+        WorldEvent::Stowed { who: w } => format!("{} put it away.", who(w)),
+        // A piece at nothing is still worn and does nothing from now on:
+        // the line is what sends a player to the armoury for another.
+        WorldEvent::PieceBroke { who: w, kind } => {
+            format!(
+                "{}'s {} is broken — it stops nothing now.",
+                who(w),
+                armour_name(Some(kind)).to_lowercase()
+            )
+        }
+        // A blade within reach: no more firing until it is out of reach.
+        // The line is what tells a player why the gun has gone quiet.
+        WorldEvent::Locked { who: w } => {
+            format!(
+                "{} is locked in melee — no firing until it is clear.",
+                who(w)
+            )
+        }
+        // One thing off a body into the pack; whose body by its kind,
+        // `LootSource::code` — a crewmate's, or one of the station's
+        // people's.
+        WorldEvent::Looted {
+            who: w,
+            source_kind,
+        } => {
+            format!(
+                "{} took something off {}.",
+                who(w),
+                if source_kind == 1 {
+                    "one of the station's people"
+                } else {
+                    "a crewmate"
+                }
+            )
+        }
+        WorldEvent::Hired { who: w } => {
+            format!("{} signed on — a hired hand, paid by the month.", who(w))
+        }
+        WorldEvent::MercenaryPaid { who: w, fee } => {
+            format!(
+                "{}'s month came round: {} paid.",
+                who(w),
+                crate::format::euros(fee)
+            )
+        }
+        WorldEvent::MercenaryLeft { who: w } => format!(
+            "{}'s month came round and there was not the money — a hired hand unpaid walks off at the next berth.",
+            who(w)
+        ),
     })
+}
+
+/// The parts of a body a shot can land on, indexed by
+/// `bims::health::Part::code`: the head, the body, the legs. Lower case,
+/// because every line that names one runs it into a sentence.
+pub const BODY_PART_NAMES: [&str; 3] = ["head", "body", "leg"];
+
+pub fn body_part_name(code: u32) -> &'static str {
+    BODY_PART_NAMES
+        .get(code as usize)
+        .copied()
+        .unwrap_or("body")
 }
 
 /// What a recipe makes, in words: "4 components".
@@ -563,7 +660,19 @@ pub fn need_tip(need: usize) -> &'static str {
     }
 }
 
-pub const HEALTH_TIP: &str = "Only the worst stage of malnutrition actually costs health, and eating properly walks it back. The lines underneath name whatever is wrong.";
+pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar: a shot takes its damage off whichever it lands on, and the head or the body at nothing is death. The legs at nothing is a leg lost. Every hit opens a wound that bleeds until it is dressed — the Blood bar underneath — and below half blood the Bim is slow, below a third out cold, at nothing dead. Only the worst stage of malnutrition costs health of itself, and eating properly walks it back. The lines underneath name whatever is wrong. The blue on the end of a bar is armour: a worn piece adds what it has left to the part, takes every hit first — its protection comes off the damage before anything else, and the rest drains the piece — and only what the piece cannot take reaches the body. At nothing it is broken: still worn, doing nothing, worth nothing put away — discard it and make another.";
+
+pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a body — the head, the body or the legs — and stops the bleeding there. Order one here, or right-click a Bim on the deck, and the crew member you steer walks over and dresses it, ten minutes with hands on. Bandages are made at the drug lab out of fibre, or bought where a station sells them.";
+
+/// Why a Bandage row is greyed when the helper cannot do it: the crew
+/// member you steer is dead, out cold, or outside in a suit.
+pub const HELPER_OUT: &str = "not from where the Bim is";
+
+/// Why a Bandage row is greyed for a patient outside in a suit: nobody
+/// can walk to it there.
+pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in first";
+
+pub const FIBRE_TIP: &str = "Fibre is the one crop nobody eats: a day in a tray, and two of it make a bandage at the drug lab. A target here has the bay grow it like greens and soy; 0 means never.";
 
 pub const AUTONOMY_TIP: &str = "Off, the Bim starts nothing by itself — no meals, no sleep, no trips to the toilet — but still does everything it is told. The levels carry on moving either way.";
 
@@ -576,7 +685,7 @@ pub const SPEED_TIP: &str =
 
 pub const BUILD_TIP: &str = "Lay out a part and the crew build it, out of what is on the shelves: whoever is free carries what it is made of to the site a load at a time, then stands beside it and puts it together — Hauling and Building on the Work tab say how soon. A site beyond the hull is reached in a suit, through the airlock. Nothing is built while the ship is moving, and the ship stays put while something is being built.";
 
-pub const ITEMS_TIP: &str = "What is aboard, by where it is kept: ore, metal and components on the shelves; fuel in the tanks; vegetables and tofu in the cold store. The food is what the crew can eat now — the cold store is refilled from the manifest at every dock.";
+pub const ITEMS_TIP: &str = "What is aboard, by where it is kept: ore, metal and components on the shelves; fuel in the tanks; vegetables and tofu in the cold store; armour, weapons and medical things in the lockers. The food is what the crew can eat now — the cold store is refilled from the manifest at every dock. Click the armoury, a shelf or the cold store on the deck to reach into it.";
 
 /// Months of the ship's calendar. Twelve of them and no leap years — see
 /// `crates/game/src/clock.rs`, which does the arithmetic; these are only
@@ -727,7 +836,7 @@ pub const PLAIN_SPOTS: [u32; 4] = [0, 1, 2, 15];
 
 /// What is on the deck there, by the code from `spot_mess`. Ordered least
 /// bad first, the same as `filth::Mess`.
-pub const MESS_NAMES: [&str; 5] = ["", "Grime", "Wet", "Soiled", "Vomit"];
+pub const MESS_NAMES: [&str; 6] = ["", "Grime", "Wet", "Soiled", "Vomit", "Blood"];
 
 /// The three stages of going without sleep.
 pub const DROWSINESS: [&str; 4] = [
@@ -792,6 +901,7 @@ pub fn job_name(code: u32) -> &'static str {
         19 => "Mining outside",
         20 => "Carrying materials",
         21 => "Building",
+        22 => "Dressing a wound",
         _ => "Busy",
     }
 }
@@ -814,6 +924,7 @@ pub fn activity_line(code: u32) -> Option<&'static str> {
         19 => "Outside, mining…",
         20 => "Carrying a load to the site…",
         21 => "Building…",
+        22 => "Dressing a wound…",
         _ => return None,
     })
 }
@@ -830,7 +941,7 @@ pub fn order_refused(code: u32) -> Option<&'static str> {
 
 /// The jobs on the work list, by `work::Job` code, and which fixture each
 /// is about so resting on a row rings the place it happens.
-pub const WORK_NAMES: [&str; 9] = [
+pub const WORK_NAMES: [&str; 10] = [
     "Cleaning",
     "Planting",
     "Plant cutting",
@@ -840,6 +951,7 @@ pub const WORK_NAMES: [&str; 9] = [
     "Making things",
     "Mining outside",
     "Building",
+    "Medical",
 ];
 
 pub const IDLE_HINT: &str = "Click a fixture for its menu · 1 or drag to select · right-click the floor to move · r to recruit";
@@ -848,28 +960,191 @@ pub const IDLE_HINT: &str = "Click a fixture for its menu · 1 or drag to select
 
 /// What a weapon is called, indexed by `bims::combat::WeaponKind::code`;
 /// `0` is an empty slot.
-pub const WEAPON_NAMES: [&str; 2] = ["—", "Laser pistol"];
+pub const WEAPON_NAMES: [&str; 6] = [
+    "—",
+    "Laser pistol",
+    "Shotgun",
+    "Auto rifle",
+    "Sniper rifle",
+    "Schword",
+];
 
 /// What a piece of armour is called, indexed by `bims::combat::ArmourKind::code`;
-/// `0` is an empty slot. Nothing to wear yet.
-pub const ARMOUR_NAMES: [&str; 1] = ["—"];
+/// `0` is an empty slot.
+pub const ARMOUR_NAMES: [&str; 4] = ["—", "Basic helm", "Basic kevlar", "Basic leg guards"];
 
 pub fn weapon_name(kind: Option<bims::combat::WeaponKind>) -> &'static str {
     WEAPON_NAMES[kind.map(|k| k.code() as usize).unwrap_or(0)]
 }
 
 pub fn armour_name(kind: Option<bims::combat::ArmourKind>) -> &'static str {
-    ARMOUR_NAMES[kind.map(|k| k.code() as usize).unwrap_or(0)]
+    ARMOUR_NAMES
+        .get(kind.map(|k| k.code() as usize).unwrap_or(0))
+        .copied()
+        .unwrap_or("Armour")
 }
 
 /// The three armour slots, top to bottom, and the weapon's.
 pub const SLOT_NAMES: [&str; 4] = ["Head", "Body", "Legs", "Weapon"];
 
-pub const INVENTORY_TIP: &str = "What the Bim has on it: head, body and leg protection down the left, the weapon in hand on the right. Recruited, a Bim is in combat mode — it draws the weapon and shoots at any enemy it can see and reach. Nothing can be changed yet.";
-pub const ACCURACY_TIP: &str =
-    "The odds of a shot landing on somebody ten tiles away. Nearer is better, further is worse.";
-pub const DPS_TIP: &str =
-    "Damage a second with every shot landing: the fire rate times the damage a shot does.";
+/// A weapon's numbers as the Inventory says them, off the two-point
+/// curves in `bims::combat::WeaponStats`: each number is its best out to
+/// the sweet distance and falls in a straight line to the far one at the
+/// range. "90% to 4 tiles, 60% at 10" is the shape; a curve with no sweet
+/// distance starts "up close", and a flat one is just the number, since
+/// "12 to 0 tiles, 12 at 12" would be three numbers for one.
+fn curve_text(stats: &WeaponStats, near: String, far: String) -> String {
+    if near == far {
+        near
+    } else if stats.sweet <= 0.0 {
+        format!("{near} up close, {far} at {} tiles", stats.range)
+    } else {
+        format!("{near} to {} tiles, {far} at {}", stats.sweet, stats.range)
+    }
+}
+
+fn percent(odds: f32) -> String {
+    format!("{}%", (odds * 100.0).round())
+}
+
+/// "90% to 4 tiles, 60% at 10".
+pub fn accuracy_text(stats: &WeaponStats) -> String {
+    curve_text(stats, percent(stats.accuracy), percent(stats.accuracy_far))
+}
+
+/// "100 to 4 tiles, 60 at 10"; "12 a shot" for a flat curve, "90 a
+/// swing" for a blade.
+pub fn damage_text(stats: &WeaponStats) -> String {
+    let flat = stats.damage == stats.damage_far;
+    match (stats.melee, flat) {
+        (true, _) => format!("{} a swing", stats.damage),
+        (false, true) => format!("{} a shot", stats.damage),
+        (false, false) => curve_text(
+            stats,
+            format!("{}", stats.damage),
+            format!("{}", stats.damage_far),
+        ),
+    }
+}
+
+/// How often it goes off. A burst weapon's is "8 in 2 s, then 2 s": the
+/// burst counted at a gap a shot, and the rest of the trigger's period
+/// after it as the recharge; a single-shot gun's "1.5 a second"; a
+/// blade's "a swing every 2 s".
+pub fn fire_rate_text(stats: &WeaponStats) -> String {
+    let period = 1.0 / stats.fire_rate.max(1e-3);
+    if stats.melee {
+        format!("a swing every {} s", period)
+    } else if stats.burst > 1 {
+        let burst = stats.burst as f32 * stats.burst_gap;
+        format!(
+            "{} in {} s, then {} s",
+            stats.burst,
+            burst,
+            (period - burst).max(0.0)
+        )
+    } else {
+        format!("{} a second", stats.fire_rate)
+    }
+}
+
+/// What a blade is, in one line: "Melee — 70 a swing every 2 s".
+pub fn melee_text(stats: &WeaponStats) -> String {
+    format!("Melee — {} {}", stats.damage, fire_rate_text(stats))
+}
+
+/// The Inventory's status for a Bim locked in a melee — a blade within
+/// reach — and the header's: no firing until one of them is out of reach.
+pub const LOCKED_STATUS: &str = "locked in melee";
+
+/// Why, with the room's numbers rather than a copy of them.
+pub fn locked_tip() -> String {
+    use bims::combat::{FIST_DAMAGE, MELEE_PERIOD, WeaponKind};
+    format!(
+        "A blade within reach: the gun stays quiet and it fights with its fists, {} every {} s — a schword in its own hand cuts for {} instead. It is free again when one of them steps out of reach.",
+        FIST_DAMAGE,
+        MELEE_PERIOD,
+        WeaponKind::Schword.stats().damage
+    )
+}
+
+/// What each thing in a grid cell is, for the tooltip under its icon,
+/// indexed by `physics::ResourceId`. A piece of armour's numbers are put
+/// after its line by the grid, off the piece itself.
+pub const ITEM_TIPS: [&str; 22] = [
+    "Iron ore off a belt. Two lumps smelt into a bar of metal.",
+    "A bar of metal: what most of the ship is built of, and what the workbench works.",
+    "Fuel, in the tanks. What a trip burns.",
+    "Components, worked out of metal at the workbench. Four to a bar.",
+    "A vegetable off the bay. Two of them make a stew.",
+    "A block of tofu, pressed from soy.",
+    "Galvum, the rare crystal. Emitters and kevlar want it.",
+    "An emitter: metal, components and galvum at the workbench. What a laser fires through.",
+    "A pressure suit, for a walk outside.",
+    "A laser handgun: two components and an emitter at the armoury.",
+    "A vest, from the armoury.",
+    "A medkit, from the armoury.",
+    "Rock off a belt. Worth little.",
+    "Fibre, the one crop nobody eats. Two of it roll into a bandage at the drug lab.",
+    "A bandage. Closes every wound on one part of a body.",
+    "A basic helm, for the head: two bars of metal at the workbench.",
+    "Basic kevlar, for the body: three bars of metal and a galvum at the workbench.",
+    "Basic leg guards: a bar of metal at the workbench.",
+    "A shotgun: four bars of metal and two components at the armoury. Hits hard up close.",
+    "An auto rifle: three bars of metal, three components and an emitter at the armoury. Fires in bursts.",
+    "A sniper rifle: four bars of metal, two components and two emitters at the armoury. Reaches furthest.",
+    "A schword, a blade with a laser edge: a bar of metal, a component and two emitters at the armoury. Cuts, at arm's length.",
+];
+
+pub fn item_tip(id: ResourceId) -> &'static str {
+    ITEM_TIPS.get(id as usize).copied().unwrap_or("")
+}
+
+/// The container windows' titles. A workstation's window is named for the
+/// part — the armoury, the drug lab — off `PART_NAMES`; the other two have
+/// no part of their own to be named for.
+pub const STORAGE_WINDOW: &str = "Storage";
+pub const COLD_STORE_WINDOW: &str = "Cold store";
+
+/// The Loot window's title, with the body's name after it, and the menu
+/// row on a body — a dead crew member, one out cold, or one of a hostile
+/// station's people lying in its own room — that opens it.
+pub const LOOT_WINDOW: &str = "Loot";
+pub const LOOT_ROW: &str = "Loot";
+
+pub const LOOT_TIP: &str = "Everything on the body: the pack on its back, the three pieces it wears with the health they have left, and the weapon in its hand. Ctrl-click a thing to take it into the pack of the Bim shown; right-click for the row. Taking wants the Bim within two tiles of the body — the Loot row walks it over — and a free cell in its pack; a piece comes off the body as it is, broken or not, and a weapon goes into the pack to be equipped from there. Nothing is put onto a body. A crewmate that comes round is no longer a body, and the window shuts.";
+
+/// The Hire window's title, with the mercenary's name after it, the menu
+/// row on a mercenary for hire — one of a friendly station's people in
+/// the olive coverall, with a `?` over its head — that opens it, and the
+/// button in it.
+pub const HIRE_WINDOW: &str = "Hire";
+pub const HIRE_ROW: &str = "Hire — see the terms";
+pub const HIRE_BUTTON: &str = "Hire";
+pub const HIRE_TIP: &str = "A mercenary lives at a friendly station and is for hire: the fee is a month of them, paid now and again every month after out of the crew's money, and it is what they carry — a heavier gun and a piece of armour each cost more. Hiring wants the Bim shown within two tiles of them (opening this walks it over), the money for the first month, and a free bunk aboard. A month the money will not cover has them walk off at the next berth, for hire again.";
+pub const NO_BUNK_HINT: &str = "no bunk aboard for one more";
+pub const BROKE_HINT: &str = "not the money for the first month";
+pub const MERCENARY_MARK: &str = "?";
+
+/// The trade window's word while nobody of yours is at the station's
+/// trading desk, the button beside it, and the desk's own menu row.
+pub const NOT_AT_DESK: &str = "Nobody of yours is at the trading desk";
+pub const WALK_TO_DESK: &str = "Walk over";
+pub const TRADE_ROW: &str = "Trade";
+
+/// The header's word while the crew's alarm is up, and what it means.
+pub const ALARM_STATUS: &str = "To arms — an enemy is near";
+pub const ALARM_TIP: &str = "An enemy within a hundred tiles of anybody, or a crew member hit in the last half minute: every crew member but the one you steer draws a weapon — out of the pack if the hand is empty — and fights, walking to wherever it can shoot from, until nobody is near and nobody has been hit for a while. The one you steer is yours: recruit it yourself, or leave it to its errands.";
+
+pub const INVENTORY_TIP: &str = "What the Bim has on it: head, body and leg protection down the left, the weapon in hand, and the pack on its back — nine cells, one thing each. Recruited, a Bim is in combat mode — it draws the weapon and shoots at any enemy it can see and reach, leaning out from cover to do it, where half the shots at it miss. A blade within reach locks it in melee: the gun goes quiet and it fights with its fists until one of them is out of reach. Right-click a thing in the pack to put it on, put it away or throw it out; right-click a worn piece to take it off. Ctrl-click moves a thing straight into the open container, or out of one into the pack. Beside each slot is the bleeding on that part of the body, and a Bandage button that sends the crew member you steer to dress it.";
+
+pub const CONTAINER_TIP: &str = "What is in the hold, by where it is kept: the armoury is the lockers — each piece of armour a cell of its own with its health under it, everything else a stack — the shelves take materials and, since a storage can hold armour and weapons as well, anything worn or held; the cold store is the food. Ctrl-click a thing to take one into the pack of the Bim shown; right-click for the rows. The Bim has to be within two tiles: clicking a container walks it over.";
+
+pub const REACH_HINT: &str = "walk over first — it is out of reach";
+pub const ACCURACY_TIP: &str = "The odds of a shot landing: its best out to the first distance, then falling in a straight line to the second at the weapon's range, beyond which it does not shoot.";
+pub const DAMAGE_TIP: &str = "What a shot takes off the part it lands on, by how far it flew: its best out to the first distance, falling in a straight line to the second at the range. Armour on the part takes it first.";
+pub const FIRE_RATE_TIP: &str = "How often the trigger goes. A burst weapon fires its burst a shot at a time and then recharges for the rest.";
+pub const DPS_TIP: &str = "Damage a second with every shot landing up close: the shots a trigger pull, the fire rate and the damage a shot multiplied.";
 
 #[cfg(test)]
 mod tests {
@@ -910,6 +1185,15 @@ mod tests {
     }
 
     #[test]
+    fn the_readout_names_every_mess() {
+        // Blood is the last kind; the table is indexed by the code.
+        assert_eq!(
+            MESS_NAMES.len(),
+            bims::filth::Mess::Blood.code() as usize + 1
+        );
+    }
+
+    #[test]
     fn every_weapon_has_a_name_and_the_empty_slot_is_first() {
         // Slot 0 is empty; every kind's code indexes its name.
         assert_eq!(WEAPON_NAMES.len(), bims::combat::WeaponKind::ALL.len() + 1);
@@ -917,16 +1201,133 @@ mod tests {
             assert!(!weapon_name(Some(kind)).is_empty());
             assert_ne!(weapon_name(Some(kind)), WEAPON_NAMES[0]);
         }
-        // No armour exists yet: the table is the empty slot alone.
-        assert_eq!(ARMOUR_NAMES.len(), 1);
+        // The same for the armour: slot 0 empty, then one name a kind.
+        assert_eq!(ARMOUR_NAMES.len(), bims::combat::ArmourKind::ALL.len() + 1);
         assert_eq!(armour_name(None), ARMOUR_NAMES[0]);
+        for &kind in bims::combat::ArmourKind::ALL.iter() {
+            assert!(!armour_name(Some(kind)).is_empty());
+            assert_ne!(armour_name(Some(kind)), ARMOUR_NAMES[0]);
+        }
+    }
+
+    #[test]
+    fn the_weapon_lines_say_the_curves_the_user_asked_for() {
+        // The four sentences the Inventory was rewritten for, off the
+        // real tables: a two-point curve, a flat one, a burst, a blade.
+        use bims::combat::WeaponKind;
+        let shotgun = WeaponKind::Shotgun.stats();
+        assert_eq!(accuracy_text(&shotgun), "90% to 4 tiles, 60% at 10");
+        assert_eq!(damage_text(&shotgun), "50 to 4 tiles, 30 at 10");
+        let pistol = WeaponKind::LaserPistol.stats();
+        assert_eq!(accuracy_text(&pistol), "95% up close, 65% at 12 tiles");
+        assert_eq!(damage_text(&pistol), "6 a shot");
+        assert_eq!(fire_rate_text(&pistol), "1.5 a second");
+        let rifle = WeaponKind::AutoRifle.stats();
+        assert_eq!(fire_rate_text(&rifle), "8 in 2 s, then 2 s");
+        let schword = WeaponKind::Schword.stats();
+        assert_eq!(melee_text(&schword), "Melee — 35 a swing every 2 s");
+        assert!(!locked_tip().is_empty());
+    }
+
+    #[test]
+    fn every_thing_in_a_cell_has_a_tip() {
+        // A cell's tooltip is the resource's line; a blank one is an icon
+        // nobody can ask about.
+        assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
+        for &id in ResourceId::ALL.iter() {
+            assert!(!item_tip(id).is_empty(), "{id:?} has no tip");
+        }
     }
 
     #[test]
     fn every_event_has_a_line() {
         // A code with no sentence is a row that never appears; the newest
         // event is the one most likely to have been forgotten.
+        use bims::combat::ArmourKind;
         assert!(event_line(WorldEvent::EnemyDown { station: 3, who: 1 }).is_some());
+        assert!(event_line(WorldEvent::CrewHit { who: 0, part: 2 }).is_some());
+        assert!(event_line(WorldEvent::CrewDown { who: 0 }).is_some());
+        assert!(
+            event_line(WorldEvent::Equipped {
+                who: 0,
+                kind: ArmourKind::BasicHelm
+            })
+            .is_some()
+        );
+        assert!(event_line(WorldEvent::Stowed { who: 0 }).is_some());
+        assert!(
+            event_line(WorldEvent::PieceBroke {
+                who: 0,
+                kind: ArmourKind::BasicKevlar
+            })
+            .is_some()
+        );
+        assert!(event_line(WorldEvent::Locked { who: 0 }).is_some());
+        // A loot names whose body it was by the kind code, and both kinds
+        // read differently.
+        let off_crew = event_line(WorldEvent::Looted {
+            who: 0,
+            source_kind: 0,
+        });
+        let off_resident = event_line(WorldEvent::Looted {
+            who: 0,
+            source_kind: 1,
+        });
+        assert!(off_crew.is_some() && off_resident.is_some());
+        assert_ne!(off_crew, off_resident);
+        // And the refusals a gear command can come back with each say
+        // something other than the fallback.
+        for why in [
+            Refusal::OutOfReach,
+            Refusal::PackFull,
+            Refusal::NoRoom,
+            Refusal::Broken,
+            Refusal::NotDown,
+        ] {
+            assert!(!refusal(why).is_empty());
+        }
+        assert!(!LOOT_WINDOW.is_empty() && !LOOT_ROW.is_empty() && !LOOT_TIP.is_empty());
+    }
+
+    #[test]
+    fn the_loot_window_has_a_label_for_every_cell() {
+        // The Loot window is the pack's nine cells and a row of four under
+        // them labelled off `SLOT_NAMES`, which is how the row's length is
+        // tied to what a body shows.
+        assert_eq!(
+            bims::combat::PACK_CELLS + SLOT_NAMES.len(),
+            bims::combat::LOOT_CELLS
+        );
+        for (i, code) in [
+            bims::combat::LootCell::Head,
+            bims::combat::LootCell::Body,
+            bims::combat::LootCell::Legs,
+            bims::combat::LootCell::Weapon,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(code.code() as usize, bims::combat::PACK_CELLS + i);
+        }
+    }
+
+    #[test]
+    fn every_part_of_a_body_has_a_name() {
+        // `CrewHit` carries the part as a code, and the hit line runs it
+        // into a sentence; the bandage menu names the same three.
+        assert_eq!(BODY_PART_NAMES.len(), bims::health::Part::ALL.len());
+        for part in bims::health::Part::ALL {
+            assert!(!body_part_name(part.code()).is_empty());
+        }
+    }
+
+    #[test]
+    fn the_bandage_job_has_a_name_and_a_line() {
+        // The newest job code, the one most likely to have been forgotten:
+        // `bims::game::JOB_BANDAGE` on the agenda and the status line.
+        let code = bims::game::JOB_BANDAGE;
+        assert_ne!(job_name(code), job_name(u32::MAX));
+        assert!(activity_line(code).is_some());
     }
 
     #[test]

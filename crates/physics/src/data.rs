@@ -83,12 +83,38 @@ pub enum ResourceId {
     /// A bandage: two fibre at the drug lab. What closes a wound; used up
     /// on the wound. Kept in a locker like the medkit.
     Bandage = 14,
+    /// A basic helm: two metal at the workbench. Armour for the head —
+    /// the first of three pieces a Bim wears, one to a part of the body.
+    /// A resource **in a container** and a thing with a health of its own
+    /// everywhere else (`bims::combat::Piece`; the world keeps the two in
+    /// step), so buying, selling and crafting it need no new mechanism.
+    /// Made, never sold, like the vest.
+    Helm = 15,
+    /// Basic kevlar: three metal and a galvum at the workbench. Armour for
+    /// the body. Not the vest, which is the armoury's and older.
+    Kevlar = 16,
+    /// Basic leg guards: one metal at the workbench. Armour for the legs.
+    LegGuard = 17,
+    /// A shotgun: four metal and two components at the armoury. The second
+    /// weapon after the handgun; like it, a resource in a container and a
+    /// `bims::combat::WeaponKind` in a hand, mapped one to one by
+    /// `WeaponKind::resource`. Made, never sold.
+    Shotgun = 18,
+    /// An auto rifle: three metal, three components and an emitter at the
+    /// armoury. Made, never sold.
+    AutoRifle = 19,
+    /// A sniper rifle: four metal, two components and two emitters at the
+    /// armoury. Made, never sold.
+    SniperRifle = 20,
+    /// The schword, a blade with a laser edge: one metal, one component and
+    /// two emitters at the armoury. The one melee weapon. Made, never sold.
+    Schword = 21,
 }
 
 impl ResourceId {
     /// Every resource, in discriminant order. `ALL[id as usize].id == id`,
     /// which [`ResourceId::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [ResourceId; 15] = [
+    pub const ALL: [ResourceId; 22] = [
         ResourceId::Ore,
         ResourceId::Metal,
         ResourceId::Fuel,
@@ -104,6 +130,13 @@ impl ResourceId {
         ResourceId::Rock,
         ResourceId::Fibre,
         ResourceId::Bandage,
+        ResourceId::Helm,
+        ResourceId::Kevlar,
+        ResourceId::LegGuard,
+        ResourceId::Shotgun,
+        ResourceId::AutoRifle,
+        ResourceId::SniperRifle,
+        ResourceId::Schword,
     ];
 
     pub fn def(self) -> &'static ResourceDef {
@@ -137,7 +170,7 @@ pub struct ResourceDef {
 /// components and the galvum that went into it, and four components weigh
 /// one metal. `shipdesign::recipes` is where those recipes live and
 /// `every_recipe_conserves_mass` there is what holds this column to them.
-pub static RESOURCES: [ResourceDef; 15] = [
+pub static RESOURCES: [ResourceDef; 22] = [
     ResourceDef {
         id: ResourceId::Ore,
         mass_per_unit: 10.0,
@@ -201,6 +234,40 @@ pub static RESOURCES: [ResourceDef; 15] = [
     ResourceDef {
         id: ResourceId::Bandage,
         mass_per_unit: 2.0,
+    },
+    // The three pieces of armour weigh their recipes at the workbench: two
+    // metal, three metal and a galvum, one metal.
+    ResourceDef {
+        id: ResourceId::Helm,
+        mass_per_unit: 16.0,
+    },
+    ResourceDef {
+        id: ResourceId::Kevlar,
+        mass_per_unit: 28.0,
+    },
+    ResourceDef {
+        id: ResourceId::LegGuard,
+        mass_per_unit: 8.0,
+    },
+    // The four weapons after the handgun weigh their armoury recipes, like
+    // it: four metal and two components; three metal, three components and
+    // an emitter; four metal, two components and two emitters; one metal,
+    // one component and two emitters. Heavy, because an emitter is.
+    ResourceDef {
+        id: ResourceId::Shotgun,
+        mass_per_unit: 36.0,
+    },
+    ResourceDef {
+        id: ResourceId::AutoRifle,
+        mass_per_unit: 46.0,
+    },
+    ResourceDef {
+        id: ResourceId::SniperRifle,
+        mass_per_unit: 68.0,
+    },
+    ResourceDef {
+        id: ResourceId::Schword,
+        mass_per_unit: 42.0,
     },
 ];
 

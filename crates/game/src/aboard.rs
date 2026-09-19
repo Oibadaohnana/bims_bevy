@@ -324,6 +324,19 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
             (part_rect(p), at)
         })
         .collect();
+    // And the trading desks, worked the same way: a station's, where the
+    // crew stand to trade with it.
+    let desks: Vec<(Rect, Vec2)> = of_kind(design, PartKind::TradingDesk)
+        .iter()
+        .map(|p| {
+            let at = p
+                .use_spots()
+                .first()
+                .map(|&(x, y)| tile_middle(x, y))
+                .unwrap_or_else(|| part_rect(p).center() + vec2(0.0, t));
+            (part_rect(p), at)
+        })
+        .collect();
 
     // The workstations: every part with a recipe made at it, in id order,
     // each with the spot in front of it off its use spot, turned with the
@@ -372,6 +385,7 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
         outside,
         hull,
         shelves,
+        desks,
         others,
         opaque,
         more,

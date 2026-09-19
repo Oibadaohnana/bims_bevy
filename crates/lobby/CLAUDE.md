@@ -44,4 +44,13 @@ asks before it offers "Start here", and `Lobby::station_hostile(station)`
 answers for the inspected system so the row can say why. The diagram rings a
 hostile station's icon in `draw::ENEMY` — the same red the room draws a
 hostile body in, written out here because the lobby imports neither
-`game` nor `ship`.
+`game` nor `ship` (and `ship::world_paint` writes it out again for the
+system map, for the same reason: change one, change all three).
+`can_start_is_has_station_less_the_hostile_ones`,
+`a_start_is_never_at_a_hostile_station` and
+`the_diagram_rings_the_hostile_stations` pin the three, and the page's
+"Start here" is `add_enabled(can_start_at(star, i))` with the row named
+in `theme::BAD` and "· hostile" beside it, so the refusal says why. The
+side is the generator's roll and nothing else — `crates/worldgen/CLAUDE.md`
+has where it comes from; the world's `stance` is what reads it once the
+game is open.

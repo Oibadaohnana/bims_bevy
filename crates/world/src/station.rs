@@ -44,6 +44,8 @@ use worldgen::rng::Rng;
 use worldgen::system::StationBlueprint;
 use worldgen::{Node, StarSystem, StationKind, Stock};
 
+use crate::data;
+
 /// Layouts already built, by kind and seed. A layout is a pure function of
 /// the two, and building one is two thousand edits through `apply`, each of
 /// which rebuilds the grid — cheap enough once, and a world opens every
@@ -57,11 +59,11 @@ static BUILT: std::sync::Mutex<Vec<((StationKind, u64), ShipDesign)>> =
 /// — because a station is where ships go, not a ship.
 pub fn side_of(kind: StationKind) -> u32 {
     match kind {
-        StationKind::Orbital => 40,
-        StationKind::Refinery => 36,
-        StationKind::MiningOutpost => 32,
-        StationKind::Derelict => 34,
-        StationKind::Relay => 26,
+        StationKind::Orbital => 64,
+        StationKind::Refinery => 56,
+        StationKind::MiningOutpost => 52,
+        StationKind::Derelict => 54,
+        StationKind::Relay => 48,
     }
 }
 
@@ -74,6 +76,32 @@ pub fn residents_of(kind: StationKind) -> u32 {
         StationKind::Relay => 1,
         _ => bims::room::BERTHS as u32,
     }
+}
+
+/// How many enemies a hostile station holds against a crew of `crew`,
+/// whose ship and hold are worth `worth` now and were worth `start_worth`
+/// when the world opened: [`data::ENEMIES_BASE`] and one a crewmate,
+/// doubled every time the worth has risen by another half of what it
+/// started at, and never more than [`data::ENEMIES_MAX`]. Whole euros in
+/// and a whole number out, so a server counts the same crowd.
+///
+/// A crew that has not got richer meets the baseline; a ship worth nothing
+/// at the start has no half to grow by, and its crew meet it for good.
+pub fn enemies_of(crew: u32, worth: Money, start_worth: Money) -> u32 {
+    let baseline = data::ENEMIES_BASE.saturating_add(crew);
+    let step = start_worth / 2;
+    if step == 0 || worth <= start_worth {
+        return baseline.min(data::ENEMIES_MAX);
+    }
+    let doublings = (worth - start_worth) / step;
+    let mut count = baseline;
+    for _ in 0..doublings {
+        if count >= data::ENEMIES_MAX {
+            break;
+        }
+        count *= 2;
+    }
+    count.min(data::ENEMIES_MAX)
 }
 
 /// Where a ship goes to be docked at a station: its centre of mass and its
@@ -99,6 +127,11 @@ pub struct Station {
     pub map_seed: u64,
     /// What is on its shelves; `World::buy` asks it and nothing else does.
     pub stock: Stock,
+    /// Whether the people aboard are enemies, as the generator rolled it —
+    /// the blueprint's word, carried here for the painter and for
+    /// `World::start`. The rule a caller wants is `World::stance`: the
+    /// spawn is home whatever this says, and nothing else overrides it.
+    pub hostile: bool,
 }
 
 impl Station {
@@ -113,6 +146,7 @@ impl Station {
             design,
             map_seed: blueprint.map_seed,
             stock: blueprint.stock,
+            hostile: blueprint.hostile,
         }
     }
 
@@ -235,45 +269,91 @@ pub fn layout(kind: StationKind, map_seed: u64) -> ShipDesign {
     {
         return design.clone();
     }
-    let design = build_layout(kind, map_seed);
+    let design = build_layout(kind, side_of(kind), 1, map_seed);
     if let Ok(mut built) = BUILT.lock() {
         built.push(((kind, map_seed), design.clone()));
     }
     design
 }
 
-/// How many tiles each corner of the hull is cut back by.
-const CHAMFER: u32 = 3;
-
-/// Whether a tile of a station's grid is on the frame, and if it is on a
-/// cut, which way the corner piece there faces: `None` off the station,
-/// `Some(None)` a plain tile, `Some(Some(r))` a corner piece turned `r`.
-/// The solid half of each piece faces the middle of the station, which is
-/// what seals the corner.
-fn outline(side: u32, x: u32, y: u32) -> Option<Option<Rotation>> {
-    let last = side - 2;
-    if x < 1 || x > last || y < 1 || y > last {
-        return None;
-    }
-    let corners = [
-        ((x - 1) + (y - 1), Rotation::R270),
-        ((last - x) + (y - 1), Rotation::R0),
-        ((x - 1) + (last - y), Rotation::R180),
-        ((last - x) + (last - y), Rotation::R90),
-    ];
-    for (distance, turn) in corners {
-        if distance < CHAMFER {
-            return None;
-        }
-        if distance == CHAMFER {
-            return Some(Some(turn));
-        }
-    }
-    Some(None)
+/// The arena: the same plan as [`layout`], the same kind and seed, laid
+/// out [`data::ARENA_SIDE`] tiles across — bigger than any kind of
+/// station — with the quarters' bunks in [`data::ARENA_BUNK_COLUMNS`]
+/// columns, since the room sleeps at most as many as it has bunks and a
+/// garrison of [`data::ENEMIES_MAX`] wants a bunk each. What the
+/// `combat` command rebuilds its dock as (`World::arena_dock_for_probe`):
+/// longer corridors and bigger rooms to fight through, and a crowd to
+/// fight. Not cached, since one is built a run.
+pub fn arena(kind: StationKind, map_seed: u64) -> ShipDesign {
+    build_layout(kind, data::ARENA_SIDE, data::ARENA_BUNK_COLUMNS, map_seed)
 }
 
-fn build_layout(kind: StationKind, map_seed: u64) -> ShipDesign {
-    let side = side_of(kind);
+/// The hub's half-size, in hull tiles: a thirteen-tile square where the
+/// four arms meet, eleven of deck inside its skin.
+const HUB: u32 = 6;
+/// An arm's half-width in hull tiles: seven across, a corridor five wide
+/// inside its two walls.
+const ARM: u32 = 3;
+/// A docking lobby's half-width and depth, in hull tiles: the nine-by-seven
+/// block at the end of each arm with the airlock in its outer skin. The
+/// west one — the port's — is the reactor room as well, thirteen tall and
+/// eleven deep, the corridor running through the middle of it.
+const LOBBY: u32 = 4;
+const LOBBY_DEPTH: u32 = 7;
+const PORT_LOBBY: u32 = 6;
+const PORT_LOBBY_DEPTH: u32 = 11;
+/// How far past the lobby an arm's rooms begin, and how far short of the
+/// hub they end: a tile of void between a room and the block beside it,
+/// so the skin seals and the room is a room rather than a corner opened
+/// into the hub.
+const ROOM_GAP: u32 = 2;
+/// How far out from the hub's skin each arm's barricade of sandbags stands.
+const BARRICADE_OUT: u32 = 4;
+
+/// A block of hull, tile ranges inclusive: the plan is a union of these.
+#[derive(Clone, Copy)]
+struct Block {
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+}
+
+impl Block {
+    fn new(x0: u32, y0: u32, x1: u32, y1: u32) -> Block {
+        Block { x0, y0, x1, y1 }
+    }
+
+    fn contains(&self, x: i32, y: i32) -> bool {
+        x >= self.x0 as i32 && x <= self.x1 as i32 && y >= self.y0 as i32 && y <= self.y1 as i32
+    }
+
+    /// The deck inside the skin.
+    fn inner(&self) -> Block {
+        Block::new(self.x0 + 1, self.y0 + 1, self.x1 - 1, self.y1 - 1)
+    }
+}
+
+/// The plan: a hub and four arms to a docking lobby each — the port in
+/// the west one, the array on the north — with the rooms hung off the
+/// arms the way the picture had them. Two rooms deep either side of the
+/// north arm: the mess (the galley) inside and the crew's quarters beyond
+/// it to the west, the heads inside and the laboratory (the bay) beyond
+/// to the east; two deep either side of the south arm: the rec room and
+/// the research room (more bays) to the west, the storage and the cargo
+/// (the shelves) to the east; and the port's lobby, bigger than the
+/// others, is the reactor room, with the trading desk by the door. Every
+/// room has a two-tile doorway — the inner rooms onto their arm, the
+/// outer rooms through the partition into the inner — and
+/// a barricade of sandbags stands across three of each arm's five tiles
+/// a few tiles out from the hub, the gap past it on alternate sides. A
+/// tile of void between a room and the block beside it keeps the skin
+/// sealed, since the hull is the union of the blocks: every tile in one
+/// is frame and deck, and one with any of its eight neighbours outside
+/// them all is outside wall instead. A derelict is the same hull with
+/// holes in its skin and nobody home. Sized by `side`; forty-eight is
+/// the smallest the rooms fit at.
+fn build_layout(kind: StationKind, side: u32, bunk_columns: u32, map_seed: u64) -> ShipDesign {
     let budget = Budget::new(Money::MAX);
     let mut design = ShipDesign::new(side);
     let mut rng = Rng::new(map_seed);
@@ -302,175 +382,119 @@ fn build_layout(kind: StationKind, map_seed: u64) -> ShipDesign {
         }
     };
 
-    // Frame, deck and skin over the outline: plating along the straight
-    // runs, corner pieces on the cuts, deck inside.
+    let mid = side / 2;
     let last = side - 2;
+    // The hub, the four arms and their lobbies.
+    let hub = Block::new(mid - HUB, mid - HUB, mid + HUB, mid + HUB);
+    let lobby_w = Block::new(1, mid - PORT_LOBBY, PORT_LOBBY_DEPTH, mid + PORT_LOBBY);
+    let lobby_e = Block::new(last - LOBBY_DEPTH + 1, mid - LOBBY, last, mid + LOBBY);
+    let lobby_n = Block::new(mid - LOBBY, 1, mid + LOBBY, LOBBY_DEPTH);
+    let lobby_s = Block::new(mid - LOBBY, last - LOBBY_DEPTH + 1, mid + LOBBY, last);
+    let arm_w = Block::new(PORT_LOBBY_DEPTH, mid - ARM, mid - HUB, mid + ARM);
+    let arm_e = Block::new(mid + HUB, mid - ARM, last - LOBBY_DEPTH + 1, mid + ARM);
+    let arm_n = Block::new(mid - ARM, LOBBY_DEPTH, mid + ARM, mid - HUB);
+    let arm_s = Block::new(mid - ARM, mid + HUB, mid + ARM, last - LOBBY_DEPTH + 1);
+    // The rooms off the north and south arms, two deep a side: from a
+    // tile past the lobby to a tile short of the hub, each as wide as
+    // half the space between the arm and the hull's edge allows.
+    let span_n = Block::new(0, LOBBY_DEPTH + ROOM_GAP, 0, mid - HUB - ROOM_GAP);
+    let span_s = Block::new(
+        0,
+        mid + HUB + ROOM_GAP,
+        0,
+        last - LOBBY_DEPTH + 1 - ROOM_GAP,
+    );
+    let room_w = (mid - ARM - 2) / 2;
+    let inner_w = Block::new(mid - ARM - room_w, 0, mid - ARM, 0);
+    let outer_w = Block::new(mid - ARM - 2 * room_w + 1, 0, mid - ARM - room_w, 0);
+    let inner_e = Block::new(mid + ARM, 0, mid + ARM + room_w, 0);
+    let outer_e = Block::new(mid + ARM + room_w, 0, mid + ARM + 2 * room_w - 1, 0);
+    let at = |cols: Block, rows: Block| Block::new(cols.x0, rows.y0, cols.x1, rows.y1);
+    let mess = at(inner_w, span_n);
+    let quarters = at(outer_w, span_n);
+    let heads = at(inner_e, span_n);
+    let lab = at(outer_e, span_n);
+    let rec = at(inner_w, span_s);
+    let research = at(outer_w, span_s);
+    let storage = at(inner_e, span_s);
+    let cargo = at(outer_e, span_s);
+    let blocks = [
+        hub, lobby_w, lobby_e, lobby_n, lobby_s, arm_w, arm_e, arm_n, arm_s, mess, quarters, heads,
+        lab, rec, research, storage, cargo,
+    ];
+    let inside = |x: i32, y: i32| blocks.iter().any(|b| b.contains(x, y));
+    let skin = |x: i32, y: i32| {
+        inside(x, y)
+            && (-1..=1).any(|dx| (-1..=1).any(|dy| (dx != 0 || dy != 0) && !inside(x + dx, y + dy)))
+    };
+
+    // Frame, deck and skin over the union.
+    let mut skins = Vec::new();
     for y in 1..=last {
         for x in 1..=last {
-            let Some(cut) = outline(side, x, y) else {
+            if !inside(x as i32, y as i32) {
                 continue;
-            };
+            }
             put(&mut design, PartKind::Structure, (x, y), Rotation::R0);
-            let skin = x == 1 || x == last || y == 1 || y == last;
-            match cut {
-                Some(turn) => put(&mut design, PartKind::DiagonalOutsideWall, (x, y), turn),
-                None if skin => put(&mut design, PartKind::OutsideWall, (x, y), Rotation::R0),
-                None => put(&mut design, PartKind::Floor, (x, y), Rotation::R0),
+            if skin(x as i32, y as i32) {
+                put(&mut design, PartKind::OutsideWall, (x, y), Rotation::R0);
+                skins.push((x, y));
+            } else {
+                put(&mut design, PartKind::Floor, (x, y), Rotation::R0);
             }
         }
     }
 
-    // The port: two tiles of the west skin, decked, with the airlock on
-    // them. The array in the north skin.
-    let mid = side / 2;
-    for tile in [(1, mid - 1), (1, mid)] {
-        take(&mut design, tile);
-        put(&mut design, PartKind::Floor, tile, Rotation::R0);
-    }
-    put(&mut design, PartKind::Airlock, (1, mid - 1), Rotation::R0);
-    take(&mut design, (mid, 1));
-    put(&mut design, PartKind::SensorArray, (mid, 1), Rotation::R0);
-
-    // The bulkheads: the walls either side of the two corridors, with the
-    // crossing left open and a two-tile doorway into each room from each
-    // corridor. The doorways sit where the room meets the crossing, except
-    // hydroponics' north one, which is at the west end so the bays can run
-    // along that wall.
-    let (near, far) = (mid - 2, mid + 2);
-    let doors: [((u32, u32), (u32, u32)); 8] = [
-        // (from, to) inclusive, each a run of two tiles in a wall.
-        ((near, mid - 4), (near, mid - 3)), // galley, east wall
-        ((mid - 4, near), (mid - 3, near)), // galley, south wall
-        ((far, mid - 4), (far, mid - 3)),   // quarters, west wall
-        ((mid + 3, near), (mid + 4, near)), // quarters, south wall
-        ((near, mid + 3), (near, mid + 4)), // hydroponics, east wall
-        ((2, far), (3, far)),               // hydroponics, north wall
-        ((far, mid + 3), (far, mid + 4)),   // engineering, west wall
-        ((mid + 3, far), (mid + 4, far)),   // engineering, north wall
+    // The port: two tiles of the west lobby's skin, decked, with the
+    // airlock on them — the first airlock, which is what a ship docks at
+    // — and a docking bay's airlock at the end of each of the other arms.
+    // The array in the north lobby's skin beside its airlock.
+    let airlocks = [
+        ((1, mid - 1), Rotation::R0),
+        ((last, mid - 1), Rotation::R0),
+        ((mid - 1, 1), Rotation::R90),
+        ((mid - 1, last), Rotation::R90),
     ];
-    let in_door = |x: u32, y: u32| {
-        doors
-            .iter()
-            .any(|&((x0, y0), (x1, y1))| x >= x0 && x <= x1 && y >= y0 && y <= y1)
-    };
-    for y in 2..last {
-        for x in 2..last {
-            let on_row = (y == near || y == far) && !(x >= mid - 1 && x <= mid + 1);
-            let on_column = (x == near || x == far) && !(y >= mid - 1 && y <= mid + 1);
-            if !(on_row || on_column) || outline(side, x, y) != Some(None) || in_door(x, y) {
-                continue;
-            }
-            put(&mut design, PartKind::Wall, (x, y), Rotation::R0);
+    let mut kept = vec![(mid + 3, 1)];
+    for &((x, y), rotation) in &airlocks {
+        let tiles = if rotation == Rotation::R0 {
+            [(x, y), (x, y + 1)]
+        } else {
+            [(x, y), (x + 1, y)]
+        };
+        for tile in tiles {
+            take(&mut design, tile);
+            put(&mut design, PartKind::Floor, tile, Rotation::R0);
+            kept.push(tile);
         }
+        put(&mut design, PartKind::Airlock, (x, y), rotation);
     }
-    // Each doorway is one door, two tiles along its wall: turned for a run
-    // along a row, upright for one down a column.
-    for &((x0, y0), (x1, _)) in &doors {
-        let rotation = if x1 > x0 { Rotation::R90 } else { Rotation::R0 };
-        put(&mut design, PartKind::Door, (x0, y0), rotation);
-    }
-
-    // The galley and mess, north-west: the galley along the north wall
-    // from where the cut ends, worked from the row below; a table with a
-    // chair a side under it, and a second table in a room deep enough.
-    let (x0, y0, y1) = (2u32, 2u32, mid - 3);
-    for (kind, x) in [
-        (PartKind::ColdStore, x0 + 2),
-        (PartKind::Worktop, x0 + 3),
-        (PartKind::Hob, x0 + 5),
-        (PartKind::Dishwasher, x0 + 6),
-    ] {
-        put(&mut design, kind, (x, y0), Rotation::R0);
-    }
-    let mut table_y = y0 + 4;
-    while table_y + 1 <= y1 - 2 {
-        put(
-            &mut design,
-            PartKind::Table,
-            (x0 + 3, table_y),
-            Rotation::R0,
-        );
-        put(
-            &mut design,
-            PartKind::Chair,
-            (x0 + 3, table_y + 1),
-            Rotation::R0,
-        );
-        put(
-            &mut design,
-            PartKind::Chair,
-            (x0 + 4, table_y + 1),
-            Rotation::R0,
-        );
-        table_y += 4;
-        if table_y + 1 > y1 - 2 || y1 - y0 < 12 {
-            break;
-        }
-    }
-
-    // The quarters, north-east: the heads along the north wall, from the
-    // corner nearest the corridor, and the bunks down the east skin, each
-    // used from the tile west of it.
-    let (x0, y0, x1, y1) = (mid + 3, 2u32, last - 1, mid - 3);
-    for (kind, x) in [
-        (PartKind::Toilet, x0),
-        (PartKind::Basin, x0 + 1),
-        (PartKind::Shower, x0 + 2),
-    ] {
-        put(&mut design, kind, (x, y0), Rotation::R0);
-    }
-    let mut bunk_y = y0 + 3;
-    while bunk_y + 1 <= y1 {
-        put(&mut design, PartKind::Bunk, (x1, bunk_y), Rotation::R0);
-        bunk_y += 3;
-    }
-
-    // Hydroponics, south-west: runs of six trays across the room, one
-    // every three rows from two below the north wall — so the row a run is
-    // worked from and the row behind it are clear — as many as the seed
-    // likes and the room holds, more on a bigger station, which feeds
-    // more, and side by side where the room is wide enough for two. The
-    // runs start three tiles in from the west wall, and the broom locker
-    // stands against that wall under the doorway with the two-tile gangway
-    // between it and the runs: a run ending diagonally against the locker
-    // pinched the tile it is worked from to a sliver, which is the
-    // corner-to-corner rule again.
-    let (x0, y0, x1, y1) = (2u32, mid + 3, mid - 3, last - 1);
-    let bays = 1 + rng.below(3) + (side - 26) / 7;
-    let columns = ((x1 - x0 - 1) / 7).max(1);
-    for i in 0..bays {
-        let (column, row) = (i % columns, i / columns);
-        let at = (x0 + 3 + column * 7, y0 + 2 + row * 3);
-        // Three rows off the south wall, not two: the corner piece of the
-        // chamfer and the end of a run two tiles from it diagonally leave
-        // the tile between them a sliver, and the rows under the run were
-        // deck nobody could get to.
-        if at.1 + 3 > y1 {
-            break;
-        }
-        put(&mut design, PartKind::HydroBay, at, Rotation::R0);
-    }
+    take(&mut design, (mid + 3, 1));
     put(
         &mut design,
-        PartKind::BroomLocker,
-        (x0, y0 + 2),
+        PartKind::SensorArray,
+        (mid + 3, 1),
         Rotation::R0,
     );
 
-    // Engineering, south-east: the reactor and life support along the
-    // north wall clear of the doorways, with the batteries in the slot
-    // between them; the tank down the west wall, far enough below the
-    // doorways that the way past the reactor's corner is two tiles wide —
-    // two solids a tile apart corner to corner leave a diagonal gap the
-    // navigation will not squeeze through, and the whole room was cut off
-    // by exactly that once; and shelves stood two tiles off the south wall
-    // so they are worked from a gangway.
-    let (x0, y0, x1, y1) = (mid + 3, mid + 3, last - 1, last - 1);
-    put(&mut design, PartKind::Reactor, (x0 + 3, y0), Rotation::R0);
+    // The port lobby is the reactor room too: the trading desk against its
+    // north wall by the port, worked from the row below — the first thing
+    // a crew coming aboard meets, clear of the spot the station's people
+    // are sent home to — the reactor beyond it along the same wall with
+    // two tiles of gangway between, and life support, the batteries and
+    // the tank along the south wall; the corridor runs through the middle.
+    let lobby = lobby_w.inner();
+    put(
+        &mut design,
+        PartKind::TradingDesk,
+        (3, lobby.y0),
+        Rotation::R0,
+    );
+    put(&mut design, PartKind::Reactor, (7, lobby.y0), Rotation::R0);
     put(
         &mut design,
         PartKind::LifeSupport,
-        (x0 + 6, y0),
+        (8, lobby.y1 - 1),
         Rotation::R0,
     );
     let batteries = rng.below(3);
@@ -478,52 +502,243 @@ fn build_layout(kind: StationKind, map_seed: u64) -> ShipDesign {
         put(
             &mut design,
             PartKind::Battery,
-            (x0 + 5, y0 + i),
+            (6, lobby.y1 - i),
             Rotation::R0,
         );
     }
-    // A big station runs a second reactor, beyond life support.
-    if x0 + 10 <= x1 {
-        put(&mut design, PartKind::Reactor, (x0 + 9, y0), Rotation::R0);
-    }
-    put(&mut design, PartKind::FuelTank, (x0, y0 + 4), Rotation::R0);
-    let shelves = 2 + rng.below(4) + (side - 26) / 5;
-    let mut shelf_x = x0 + 3;
-    let mut shelf_y = y1 - 2;
-    for _ in 0..shelves {
-        if shelf_x > last - 3 {
-            // A second row, four tiles up, in a room deep enough for the
-            // gangway between the two.
-            if shelf_y != y1 - 2 || y1 - y0 < 12 {
-                break;
+    // The tank is filled from below its left-hand column, so it stands a
+    // row up from the wall with two rows of deck under it.
+    put(
+        &mut design,
+        PartKind::FuelTank,
+        (3, lobby.y1 - 3),
+        Rotation::R0,
+    );
+
+    // The partitions: a wall down every edge a room shares with its arm
+    // or with the room beside it, with a two-tile doorway in each — the
+    // inner rooms' onto the arm, the outer rooms' through the partition —
+    // placed towards the hub for the west rooms and towards the lobby for
+    // the east, so no two face each other across the corridor, and clear
+    // of the barricades. The wall tiles are the shared hull column or row
+    // itself, which the union made deck.
+    let mut doors: Vec<((u32, u32), Rotation)> = Vec::new();
+    let mut walls: Vec<(u32, u32)> = Vec::new();
+    // A wall down column `x` for rows `y0..=y1`, less a doorway at `door`
+    // (two tiles, `door` and `door + 1`), the door upright.
+    let mut column = |x: u32, y0: u32, y1: u32, door: u32| {
+        for y in y0..=y1 {
+            if y == door || y == door + 1 {
+                continue;
             }
-            shelf_x = x0 + 3;
-            shelf_y = y1 - 6;
+            walls.push((x, y));
         }
-        put(
-            &mut design,
-            PartKind::Shelf,
-            (shelf_x, shelf_y),
-            Rotation::R0,
-        );
-        shelf_x += 2;
+        doors.push(((x, door), Rotation::R0));
+    };
+    let door_n_w = span_n.y1 - 4;
+    let door_n_e = span_n.y0 + 3;
+    let door_s_w = span_s.y0 + 3;
+    let door_s_e = span_s.y1 - 4;
+    column(mess.x1, mess.y0 + 1, mess.y1 - 1, door_n_w);
+    column(quarters.x1, mess.y0 + 1, mess.y1 - 1, door_n_w);
+    column(heads.x0, heads.y0 + 1, heads.y1 - 1, door_n_e);
+    column(lab.x0, heads.y0 + 1, heads.y1 - 1, door_n_e);
+    column(rec.x1, rec.y0 + 1, rec.y1 - 1, door_s_w);
+    column(research.x1, rec.y0 + 1, rec.y1 - 1, door_s_w);
+    column(storage.x0, storage.y0 + 1, storage.y1 - 1, door_s_e);
+    column(cargo.x0, storage.y0 + 1, storage.y1 - 1, door_s_e);
+    for &(x, y) in &walls {
+        put(&mut design, PartKind::Wall, (x, y), Rotation::R0);
+    }
+    for &(origin, rotation) in &doors {
+        put(&mut design, PartKind::Door, origin, rotation);
     }
 
-    // A derelict has lost some of its skin — not the port, and not the
-    // array, which is what a passing ship still picks up. A roll that
-    // lands on a corner the cut took off takes nothing, and is still a
+    // Cover in the hallways: a line of sandbags across three of each
+    // arm's five tiles, `BARRICADE_OUT` tiles out from the hub's skin,
+    // from alternate walls so the gap past each is on the other side — a
+    // body behind one peeks round its end and is dodged half the shots at
+    // it (`bims::sight`). Clear of every doorway's two tiles of approach:
+    // the west rooms' doors are on the far side of each arm from its
+    // barricade, and the east rooms' further out.
+    let out = HUB + BARRICADE_OUT;
+    for i in 0..3u32 {
+        put(
+            &mut design,
+            PartKind::Sandbags,
+            (mid - out, mid + i),
+            Rotation::R0,
+        );
+        put(
+            &mut design,
+            PartKind::Sandbags,
+            (mid + out, mid - ARM + 1 + i),
+            Rotation::R0,
+        );
+        put(
+            &mut design,
+            PartKind::Sandbags,
+            (mid - ARM + 1 + i, mid - out),
+            Rotation::R0,
+        );
+        put(
+            &mut design,
+            PartKind::Sandbags,
+            (mid + i, mid + out),
+            Rotation::R0,
+        );
+    }
+
+    // The mess: the galley along the north wall from the corner, worked
+    // from the row below, and tables with a chair a side under it, as
+    // many as the room is deep for.
+    let m = mess.inner();
+    for (kind, x) in [
+        (PartKind::ColdStore, m.x0 + 1),
+        (PartKind::Worktop, m.x0 + 2),
+        (PartKind::Hob, m.x0 + 4),
+        (PartKind::Dishwasher, m.x0 + 5),
+    ] {
+        put(&mut design, kind, (x, m.y0), Rotation::R0);
+    }
+    let mut table_y = m.y0 + 3;
+    while table_y + 1 <= m.y1 - 1 {
+        put(
+            &mut design,
+            PartKind::Table,
+            (m.x0 + 2, table_y),
+            Rotation::R0,
+        );
+        put(
+            &mut design,
+            PartKind::Chair,
+            (m.x0 + 2, table_y + 1),
+            Rotation::R0,
+        );
+        put(
+            &mut design,
+            PartKind::Chair,
+            (m.x0 + 3, table_y + 1),
+            Rotation::R0,
+        );
+        table_y += 4;
+    }
+
+    // The crew's quarters: bunks down the west skin, a column every three
+    // tiles for a station that wants more of them (the arena) — the bunk,
+    // its use tile, and a tile of gangway before the next — never nearer
+    // the partition than two tiles of gangway.
+    let q = quarters.inner();
+    for column in 0..bunk_columns {
+        let Some(x) = q.x0.checked_add(3 * column) else {
+            break;
+        };
+        if x + 3 > q.x1 {
+            break;
+        }
+        let mut bunk_y = q.y0 + 1;
+        while bunk_y + 1 <= q.y1 - 1 {
+            put(&mut design, PartKind::Bunk, (x, bunk_y), Rotation::R180);
+            bunk_y += 3;
+        }
+    }
+
+    // The heads: along the north wall from the corner away from the arm,
+    // worked from the row below.
+    let h = heads.inner();
+    for (kind, x) in [
+        (PartKind::Toilet, h.x1 - 3),
+        (PartKind::Basin, h.x1 - 2),
+        (PartKind::Shower, h.x1 - 1),
+    ] {
+        put(&mut design, kind, (x, h.y0), Rotation::R0);
+    }
+
+    // The laboratory and the research room: runs of six trays, one every
+    // three rows from two below the north wall so the row a run is worked
+    // from and the row behind it are clear, as many as the seed likes and
+    // the rooms hold — more on a bigger station, which feeds more. The
+    // broom locker against the laboratory's north wall by the partition.
+    let bays = 1 + rng.below(3) + (side - 40) / 6;
+    let mut placed = 0;
+    for room in [lab.inner(), research.inner()] {
+        let columns = ((room.x1 - room.x0 + 1) / 7).max(1);
+        let mut i = 0;
+        while placed < bays {
+            let (column, row) = (i % columns, i / columns);
+            let at = (room.x0 + 1 + column * 7, room.y0 + 2 + row * 3);
+            if at.1 + 2 > room.y1 || at.0 + 5 > room.x1 {
+                break;
+            }
+            put(&mut design, PartKind::HydroBay, at, Rotation::R0);
+            placed += 1;
+            i += 1;
+        }
+    }
+    put(
+        &mut design,
+        PartKind::BroomLocker,
+        (lab.inner().x0, lab.inner().y0),
+        Rotation::R0,
+    );
+
+    // The rec room: a table with a chair a side, as many as the room is
+    // deep for, down its west side.
+    let r = rec.inner();
+    let mut table_y = r.y0 + 1;
+    while table_y + 1 <= r.y1 - 1 {
+        put(
+            &mut design,
+            PartKind::Table,
+            (r.x0 + 1, table_y),
+            Rotation::R0,
+        );
+        put(
+            &mut design,
+            PartKind::Chair,
+            (r.x0 + 1, table_y + 1),
+            Rotation::R0,
+        );
+        put(
+            &mut design,
+            PartKind::Chair,
+            (r.x0 + 2, table_y + 1),
+            Rotation::R0,
+        );
+        table_y += 4;
+    }
+
+    // The storage and the cargo: shelves along the north walls, two tiles
+    // apart, and a second row four tiles down in a room deep enough.
+    let shelves = 2 + rng.below(4) + (side - 40) / 4;
+    let mut placed = 0;
+    for room in [storage.inner(), cargo.inner()] {
+        let mut shelf_y = room.y0;
+        while placed < shelves && shelf_y + 2 <= room.y1 {
+            let mut shelf_x = room.x0 + 2;
+            while placed < shelves && shelf_x + 1 <= room.x1 - 1 {
+                put(
+                    &mut design,
+                    PartKind::Shelf,
+                    (shelf_x, shelf_y),
+                    Rotation::R0,
+                );
+                placed += 1;
+                shelf_x += 2;
+            }
+            shelf_y += 4;
+        }
+    }
+
+    // A derelict has lost some of its skin — not the port, not the other
+    // airlocks and not the array, which is what a passing ship still picks
+    // up. A roll that lands on one of those takes nothing, and is still a
     // roll, so the stream stays in step.
     if kind == StationKind::Derelict {
         let holes = 6 + rng.below(6);
         for _ in 0..holes {
-            let along = 2 + rng.below(last - 3);
-            let tile = match rng.below(4) {
-                0 => (along, 1),
-                1 => (along, last),
-                2 => (1, along),
-                _ => (last, along),
-            };
-            if tile == (1, mid - 1) || tile == (1, mid) || tile == (mid, 1) {
+            let tile = skins[rng.below(skins.len() as u32) as usize];
+            if kept.contains(&tile) {
                 continue;
             }
             take(&mut design, tile);

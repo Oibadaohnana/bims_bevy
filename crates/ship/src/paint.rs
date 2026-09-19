@@ -42,7 +42,7 @@ const FLAME: Color = Color::rgb(1.0, 0.62, 0.22);
 /// Index 0 is the deck and index 15 is the frame; both are drawn as tiles
 /// rather than as objects, and both are in the table anyway so the palette
 /// buttons for them have swatches.
-pub static PART_COLORS: [Color; 36] = [
+pub static PART_COLORS: [Color; 38] = [
     Color::rgb(0.13, 0.15, 0.18), // Floor
     Color::rgb(0.30, 0.34, 0.40), // Wall
     Color::rgb(0.38, 0.86, 0.95), // Door
@@ -79,6 +79,8 @@ pub static PART_COLORS: [Color; 36] = [
     Color::rgb(0.78, 0.80, 0.84), // SuitLocker — suit-white
     Color::rgb(0.42, 0.38, 0.44), // Armoury — gunmetal
     Color::rgb(0.74, 0.82, 0.78), // DrugLab — clinical, a pale green-white
+    Color::rgb(0.62, 0.48, 0.30), // TradingDesk — a wooden counter
+    Color::rgb(0.66, 0.60, 0.42), // Sandbags — hessian
 ];
 
 /// The frame, drawn as the tile under everything. Dimmer than the deck and

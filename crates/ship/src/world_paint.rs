@@ -59,6 +59,22 @@ const MUTED: Color = Color::rgba(0.55, 0.85, 0.95, 0.22);
 /// The electricity overlay: a part on a live network, and one that is not.
 const LIVE: Color = Color::rgb(0.50, 0.90, 0.60);
 const DEAD: Color = Color::rgb(0.98, 0.45, 0.32);
+/// A station's stance (`World::stance`), on the map and on its far plate.
+/// Hostile is the enemy red the lobby rings a hostile station in on the
+/// system diagram (`lobby::draw::ENEMY` — the same three numbers, since the
+/// two crates share no palette and the player has already learnt the colour
+/// there); home is a friendly green; neutral is nothing at all, so the map
+/// stays what it was for the stations that are only somebody's.
+const ENEMY: Color = Color::rgb(1.0, 0.28, 0.22);
+const FRIEND: Color = Color::rgb(0.45, 0.85, 0.50);
+/// How strongly a hostile station's far plate is washed in that red: enough
+/// to tell it from a neutral stranger's black at a glance, faint enough
+/// that the icon on it still reads.
+const ENEMY_TINT: f32 = 0.22;
+/// The stance ring on the map, as a share of the icon size: outside the
+/// aim ring (which is the icon size across), so the two never sit on each
+/// other when the helm is pointed at an enemy's station.
+const STANCE_RING: f32 = 1.3;
 
 /// What the rocks of a mining site are drawn in, by `world::Rock` code:
 /// stone, iron ore and galvum. Stone is the dull brown of the belt's icon,
@@ -618,7 +634,8 @@ fn stations(game: &Game, list: &mut DrawList) {
         // to there it stays the plate it was from further off: a shape
         // and a kind, and nothing of what is inside. The crew's own is
         // its hull from the local frame in, as before.
-        let stranger = game.world.stance(station.id) != Stance::Friendly;
+        let stance = game.world.stance(station.id);
+        let stranger = stance != Stance::Friendly;
         if clearance > world::data::LOCAL_RADIUS_STATION || (stranger && residents.is_none()) {
             let hull = (station.design.build_area as f32 - 2.0) * TILE as f32;
             let plate = if stranger {
@@ -637,6 +654,22 @@ fn stations(game: &Game, list: &mut DrawList) {
                 0.0,
                 plate,
             );
+            // An enemy's plate is washed in the enemy red, under its icon:
+            // the fog says nothing about who is in there, and from this far
+            // off the stance is the one thing worth knowing about a station.
+            if stance == Stance::Hostile {
+                list.push(
+                    crate::draw::KIND_RECT,
+                    at.0,
+                    at.1,
+                    hull,
+                    hull,
+                    turn,
+                    8.0,
+                    0.0,
+                    ENEMY.alpha(ENEMY_TINT),
+                );
+            }
             paint_station(list, at.0, at.1, hull * 0.8, station.kind, 6.0);
             continue;
         }
@@ -1151,6 +1184,20 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         let (x, y) = place(at);
         if let Some(station) = game.world.system.station(id) {
             paint_station(list, x, y, size * 0.75, station.kind, thin * 1.5);
+        }
+        // Ringed by stance, outside the aim ring so the two read apart when
+        // the helm is pointed at an enemy's: red for a hostile station, green
+        // for home, and nothing for a station that is merely somebody's.
+        // This is what the map says about who lives where; `World::stance`
+        // is the one rule, and the plates out of the window agree with it.
+        let stance = match game.world.stance(id) {
+            Stance::Hostile => Some(ENEMY),
+            Stance::Friendly => Some(FRIEND),
+            Stance::Neutral => None,
+        };
+        if let Some(colour) = stance {
+            let d = size * STANCE_RING;
+            ring(list, x, y, d, d, 0.0, thin * 1.5, colour.alpha(0.9));
         }
     }
 

@@ -29,6 +29,7 @@ use world::Speed;
 use world::world::Command;
 
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui, zoom_factor};
+use crate::crew::GearOrder;
 use crate::format::euros;
 use crate::names::*;
 use crate::shapes::View;
@@ -111,6 +112,10 @@ pub enum Order {
     Cancel {
         site: u32,
     },
+    /// Somebody's gear moved: into or out of the hold, on or off. The
+    /// hold is the world's, so even putting a helm on goes through the
+    /// seam — every player's ship has to agree about where each piece is.
+    Gear(GearOrder),
 }
 
 /// What the other end said about a message.
@@ -270,6 +275,32 @@ impl Net {
                             rotation,
                         },
                         Order::Cancel { site } => Command::CancelSite { slot, site },
+                        Order::Gear(GearOrder::Stow { who, cell }) => {
+                            Command::Stow { slot, who, cell }
+                        }
+                        Order::Gear(GearOrder::Fetch { who, kind }) => {
+                            Command::Fetch { slot, who, kind }
+                        }
+                        Order::Gear(GearOrder::Equip { who, cell }) => {
+                            Command::Equip { slot, who, cell }
+                        }
+                        Order::Gear(GearOrder::Unequip { who, part }) => {
+                            Command::Unequip { slot, who, part }
+                        }
+                        Order::Gear(GearOrder::Discard { who, cell }) => {
+                            Command::Discard { slot, who, cell }
+                        }
+                        Order::Gear(GearOrder::Loot { who, source, cell }) => Command::Loot {
+                            slot,
+                            who,
+                            source,
+                            cell,
+                        },
+                        Order::Gear(GearOrder::Hire { who, resident }) => Command::Hire {
+                            slot,
+                            who,
+                            resident,
+                        },
                     });
                 }
                 0

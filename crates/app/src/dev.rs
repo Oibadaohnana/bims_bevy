@@ -20,7 +20,10 @@
 //! `BIMS_AT_BELT=1` opens the simulation holding at a belt, its mining site
 //! laid out, instead of docked. `BIMS_FIGHT=1` opens it with a fight staged
 //! at the dock: the station hostile, the crew member recruited inside its
-//! door and one of its people down the corridor.
+//! door and one of its people down the corridor. `BIMS_WEAPON=schword` (or
+//! `pistol`, `shotgun`, `rifle`, `sniper`) puts that in the crew member's
+//! hand instead of the pistol, and `BIMS_ENEMY_WEAPON=…` the same in every
+//! resident's — how a swing, a burst or a long shot is looked at.
 
 use bevy::diagnostic::{DiagnosticsStore, FrameCount, FrameTimeDiagnosticsPlugin};
 use bevy::input::ButtonState;
@@ -42,6 +45,40 @@ pub fn at_belt() -> bool {
 /// at without walking the station for one.
 pub fn fight() -> bool {
     std::env::var("BIMS_FIGHT").as_deref() == Ok("1")
+}
+
+/// `BIMS_WEAPON=schword` puts a schword in the crew member's hand for the
+/// run, and `BIMS_ENEMY_WEAPON=…` one in every resident's: a schword's
+/// swing, a rifle's burst and a sniper's long shot are each looked at
+/// this way rather than by waiting for a station to have issued one. A
+/// word the table does not have is nobody's weapon changed.
+pub fn weapon() -> Option<bims::combat::WeaponKind> {
+    weapon_named(std::env::var("BIMS_WEAPON").ok()?)
+}
+
+pub fn enemy_weapon() -> Option<bims::combat::WeaponKind> {
+    weapon_named(std::env::var("BIMS_ENEMY_WEAPON").ok()?)
+}
+
+/// `BIMS_ARMOURED=1` puts a fresh helm, kevlar and leg guards on the crew
+/// member for the run — pieces the hold has never seen, so the world's
+/// mirror of the pieces ignores them — which is how a crew member lives
+/// through a schword's first cut long enough for the melee lock to be
+/// looked at.
+pub fn armoured() -> bool {
+    std::env::var("BIMS_ARMOURED").as_deref() == Ok("1")
+}
+
+fn weapon_named(word: String) -> Option<bims::combat::WeaponKind> {
+    use bims::combat::WeaponKind;
+    Some(match word.as_str() {
+        "pistol" => WeaponKind::LaserPistol,
+        "shotgun" => WeaponKind::Shotgun,
+        "rifle" => WeaponKind::AutoRifle,
+        "sniper" => WeaponKind::SniperRifle,
+        "schword" => WeaponKind::Schword,
+        _ => return None,
+    })
 }
 
 pub fn smoke_frames() -> Option<u32> {
@@ -162,6 +199,7 @@ fn scripted_input(
                 let ch = other.chars().next().unwrap().to_ascii_lowercase();
                 let code = match ch {
                     'a' => KeyCode::KeyA,
+                    'c' => KeyCode::KeyC,
                     'd' => KeyCode::KeyD,
                     'f' => KeyCode::KeyF,
                     'm' => KeyCode::KeyM,

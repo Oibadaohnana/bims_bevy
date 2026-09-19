@@ -54,7 +54,7 @@ pub struct Recipe {
 
 /// The table. Indexed by position, and the index is what crosses the wasm
 /// boundary — `ship_recipe_*` — so a recipe is appended, never inserted.
-pub static RECIPES: [Recipe; 7] = [
+pub static RECIPES: [Recipe; 14] = [
     Recipe {
         station: PartKind::Smelter,
         inputs: &[(ResourceId::Ore, 2)],
@@ -110,6 +110,76 @@ pub static RECIPES: [Recipe; 7] = [
         inputs: &[(ResourceId::Fibre, 2)],
         output: (ResourceId::Bandage, 1),
         minutes: 15,
+        vents: false,
+    },
+    // Armour, back at the workbench: a helm, a kevlar vest and a pair of
+    // leg guards, each weighing the metal in it. What a piece does for
+    // the body wearing it is `bims::combat`'s, like everything the
+    // armoury makes. The armoury's vest stays: it is not the kevlar.
+    Recipe {
+        station: PartKind::Workbench,
+        inputs: &[(ResourceId::Metal, 2)],
+        output: (ResourceId::Helm, 1),
+        minutes: 30,
+        vents: false,
+    },
+    Recipe {
+        station: PartKind::Workbench,
+        inputs: &[(ResourceId::Metal, 3), (ResourceId::Galvum, 1)],
+        output: (ResourceId::Kevlar, 1),
+        minutes: 45,
+        vents: false,
+    },
+    Recipe {
+        station: PartKind::Workbench,
+        inputs: &[(ResourceId::Metal, 1)],
+        output: (ResourceId::LegGuard, 1),
+        minutes: 20,
+        vents: false,
+    },
+    // The four weapons after the handgun, back at the armoury. Metal is
+    // the stock and the barrel, components the action, and an emitter
+    // what a laser fires through — so the shotgun wants none, the rifle
+    // one, the sniper two, and the schword two for the edge alone. Each
+    // weighs what went into it, like the handgun.
+    Recipe {
+        station: PartKind::Armoury,
+        inputs: &[(ResourceId::Metal, 4), (ResourceId::Components, 2)],
+        output: (ResourceId::Shotgun, 1),
+        minutes: 45,
+        vents: false,
+    },
+    Recipe {
+        station: PartKind::Armoury,
+        inputs: &[
+            (ResourceId::Metal, 3),
+            (ResourceId::Components, 3),
+            (ResourceId::Emitter, 1),
+        ],
+        output: (ResourceId::AutoRifle, 1),
+        minutes: 60,
+        vents: false,
+    },
+    Recipe {
+        station: PartKind::Armoury,
+        inputs: &[
+            (ResourceId::Metal, 4),
+            (ResourceId::Components, 2),
+            (ResourceId::Emitter, 2),
+        ],
+        output: (ResourceId::SniperRifle, 1),
+        minutes: 75,
+        vents: false,
+    },
+    Recipe {
+        station: PartKind::Armoury,
+        inputs: &[
+            (ResourceId::Metal, 1),
+            (ResourceId::Components, 1),
+            (ResourceId::Emitter, 2),
+        ],
+        output: (ResourceId::Schword, 1),
+        minutes: 60,
         vents: false,
     },
 ];

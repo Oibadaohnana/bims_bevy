@@ -16,8 +16,9 @@ include!("modules.rs");
 
 use bim::CREW;
 use game::Game;
+use health::Part;
 use math::vec2;
-use work::{HIGHEST, Job, LOWEST, Priorities};
+use work::{HIGHEST, Job, LOWEST, NEVER, Priorities};
 
 const STEP: f32 = 1.0 / 60.0;
 const FRAMES_PER_DAY: u32 = 24 * 60 * 60;
@@ -57,15 +58,16 @@ fn main() {
     );
     check!("and nothing is before anything", !list.before(Job::Clean, Job::Cook));
 
-    // Round the houses and back, one step less important each time.
+    // Round the houses and back, one off the number each time: up through
+    // the top to never, and round to the bottom from there.
     let start = list.of(Job::Clean);
     let mut seen = Vec::new();
-    for _ in HIGHEST..=LOWEST {
+    for _ in NEVER..=LOWEST {
         seen.push(list.cycle(Job::Clean));
     }
     check!(
-        "a click is one step less important and wraps at the bottom",
-        seen == vec![4, 5, 1, 2, 3],
+        "a click is one off the number, through the top to never, and wraps at the bottom",
+        seen == vec![2, 1, 0, 5, 4, 3],
         format!("{seen:?}")
     );
     check!("and lands back where it began", list.of(Job::Clean) == start);
@@ -73,12 +75,21 @@ fn main() {
         "cycling one job leaves the others alone",
         Job::ALL.iter().filter(|&&j| j != Job::Clean).all(|&j| list.of(j) == start)
     );
+    let mut back = Vec::new();
+    for _ in NEVER..=LOWEST {
+        back.push(list.cycle_back(Job::Clean));
+    }
+    check!(
+        "and the other way round is the same road backwards",
+        back == vec![4, 5, 0, 1, 2, 3],
+        format!("{back:?}")
+    );
 
     // Out of range is clamped rather than refused: the number arrives from the
     // host as a bare integer, and a silent no-op would leave the panel showing
     // a setting the ship is not working to.
-    list.set(Job::Cook, 0);
-    check!("below the range clamps to the top", list.of(Job::Cook) == HIGHEST, list.of(Job::Cook));
+    list.set(Job::Cook, NEVER);
+    check!("never is in the range", list.never(Job::Cook));
     list.set(Job::Cook, 99);
     check!("above it clamps to the bottom", list.of(Job::Cook) == LOWEST, list.of(Job::Cook));
 
@@ -118,6 +129,14 @@ fn main() {
         game.work_waits_on_for_probe(Job::Clean.code())
             == game.work_priority(Job::Clean.code())
     );
+    // Never is the smallest number, and a max would read it as the most
+    // urgent thing aboard: either half switched off switches the cutting off.
+    game.set_work_priority(Job::Haul.code(), NEVER);
+    check!(
+        "and hauling set to never switches the cutting off",
+        game.work_waits_on_for_probe(Job::Cut.code()) == NEVER,
+        game.work_waits_on_for_probe(Job::Cut.code())
+    );
 
     // --- the galley against the deck ----------------------------------------
     //
@@ -150,6 +169,19 @@ fn main() {
         "and one step apart is enough to decide it",
         offered(Some((Job::Clean, 2, Job::Cook, 3))) == vec![Job::Clean.code(), Job::Cook.code()],
         format!("{:?}", offered(Some((Job::Clean, 2, Job::Cook, 3))))
+    );
+    // Never is not a place in the order: a job set to it is not offered at
+    // all. The meal is the exception — the cook row at never is the stew
+    // for the shelf switched off, not a licence to starve.
+    check!(
+        "cleaning set to never is not on offer, however filthy the deck",
+        offered(Some((Job::Clean, NEVER, Job::Cook, LOWEST))) == vec![Job::Cook.code()],
+        format!("{:?}", offered(Some((Job::Clean, NEVER, Job::Cook, LOWEST))))
+    );
+    check!(
+        "but a hungry Bim is still fed with cooking set to never",
+        offered(Some((Job::Cook, NEVER, Job::Clean, LOWEST))) == vec![Job::Cook.code(), Job::Clean.code()],
+        format!("{:?}", offered(Some((Job::Cook, NEVER, Job::Clean, LOWEST))))
     );
 
     // --- the bay against the deck -------------------------------------------
@@ -243,6 +275,106 @@ fn main() {
             );
         }
     }
+
+    // --- the medical row ----------------------------------------------------
+    //
+    // The one row that is also an interruption. On offer while somebody
+    // bleeds and a bandage is to hand; at 1 it displaces whatever the Bim is
+    // on, at never nobody doctors of their own accord. The classic room
+    // starts with three bandages, so it can be staged without a fight — and
+    // Kate is put under orders, so that she neither takes the job herself
+    // nor comes over to dress James, which would be the other rule (a part
+    // somebody else is walking over to dress is left to them).
+    //
+    // The wound is opened *mid-sweep*: an idle Bim with a wound and a
+    // bandage takes the dressing the frame it is offered, whatever the
+    // number, there being nothing else to do — which is right, and would
+    // leave nothing to measure the interruption against.
+
+    let mut game = Game::new(9, 960.0, 640.0);
+    game.recruit_for_probe(1, true);
+    game.update(STEP);
+    check!(
+        "nobody bleeding, no medical row on offer",
+        !game.work_on_offer_for_probe(0).contains(&Job::Medical.code()),
+        format!("{:?}", game.work_on_offer_for_probe(0))
+    );
+    mess_up(&mut game, 20);
+    let mut sweeping = false;
+    for _ in 0..(20 * 60 * 60) {
+        game.update(STEP);
+        if game.activity(0) == JOB_CLEAN {
+            sweeping = true;
+            break;
+        }
+    }
+    check!("a filthy deck has James sweeping", sweeping);
+    game.wound(0, Part::Legs, 3.0);
+    check!(
+        "a wound open and a bandage aboard puts the row on offer",
+        game.work_on_offer_for_probe(0).contains(&Job::Medical.code()),
+        format!("{:?}", game.work_on_offer_for_probe(0))
+    );
+    check!(
+        "and before the deck, among equals",
+        game.work_on_offer_for_probe(0).first() == Some(&Job::Medical.code()),
+        format!("{:?}", game.work_on_offer_for_probe(0))
+    );
+    game.set_work_priority(Job::Medical.code(), NEVER);
+    check!(
+        "set to never it is not on offer, however much it bleeds",
+        !game.work_on_offer_for_probe(0).contains(&Job::Medical.code()),
+        format!("{:?}", game.work_on_offer_for_probe(0))
+    );
+    // At the bottom of the list it waits its turn: the sweep goes on.
+    game.set_work_priority(Job::Medical.code(), LOWEST);
+    for _ in 0..(2 * 60) {
+        game.update(STEP);
+    }
+    check!(
+        "with the row at the bottom, the sweep goes on",
+        game.activity(0) == JOB_CLEAN,
+        game.activity(0)
+    );
+    check!(
+        "and the wound stays open",
+        game.bleeding(0) > 0,
+        game.bleeding(0)
+    );
+    game.set_work_priority(Job::Medical.code(), HIGHEST);
+    game.update(STEP);
+    check!(
+        "put at the top, the sweep is dropped for the dressing at once",
+        game.activity(0) == game::JOB_BANDAGE,
+        game.activity(0)
+    );
+    check!(
+        "and the sweep waits on the queue behind it",
+        game.agenda_len(0) == 2 && game.agenda_job(0, 1) == JOB_CLEAN,
+        format!("{} entries, second {}", game.agenda_len(0), game.agenda_job(0, 1))
+    );
+    let mut dressed = None;
+    for f in 0..(60 * 60) {
+        game.update(STEP);
+        if game.bleeding(0) == 0 {
+            dressed = Some(f);
+            break;
+        }
+    }
+    check!(
+        "and the wound is closed within the hour",
+        dressed.is_some(),
+        format!("{dressed:?}")
+    );
+    let mut resumed = false;
+    for _ in 0..(10 * 60) {
+        game.update(STEP);
+        if game.activity(0) == JOB_CLEAN {
+            resumed = true;
+            break;
+        }
+    }
+    check!("and the sweep is picked back up", resumed, game.activity(0));
 
     println!();
     if fails > 0 { println!("{fails} FAILED"); std::process::exit(1); }

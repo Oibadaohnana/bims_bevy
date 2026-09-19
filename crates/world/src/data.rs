@@ -74,6 +74,41 @@ pub const RESIDENTS_RANGE: f64 = 50.0 * shipdesign::TILE as f64;
 pub const RESIDENT_VEG_EACH: u32 = 100;
 pub const RESIDENT_TOFU_EACH: u32 = 50;
 pub const RESIDENT_STEW_EACH: u32 = 2;
+/// Bandages in a station's locker when its room opens — for the whole
+/// room, not a head — so its people can dress a wound the crew gave them.
+/// A station has no hold the world keeps, so this is all there ever is
+/// while the room is open.
+pub const RESIDENT_BANDAGES: u32 = 2;
+
+/// How many people an enemy station puts up against the crew, before the
+/// crew themselves are counted: a hostile station's room is opened with
+/// [`crate::station::enemies_of`] rather than `residents_of` — this many,
+/// one more a crewmate, and doubled for every half of the crew's starting
+/// worth their worth has grown by since, up to [`ENEMIES_MAX`]. So a rich
+/// crew finds every enemy's dock harder than a poor one does.
+pub const ENEMIES_BASE: u32 = 2;
+/// The most an enemy station ever arms. The room sleeps at most as many
+/// as it has bunks — a station's quarters hold a handful, the arena's a
+/// garrison — and past this it is a crowd, and every step of it is paid
+/// for in sight and shots.
+pub const ENEMIES_MAX: u32 = 16;
+
+/// The arena the `combat` command docks at (`crate::station::arena`): how
+/// many tiles across — bigger than any kind of station, for corridors
+/// worth fighting down — and how many columns of bunks its quarters hold,
+/// three tiles apart, so that a garrison of [`ENEMIES_MAX`] has a bunk
+/// each and the room opens with every one of them in it.
+pub const ARENA_SIDE: u32 = 72;
+pub const ARENA_BUNK_COLUMNS: u32 = 4;
+/// How many more enemies the arena arms over [`crate::station::enemies_of`]:
+/// what `World::reinforcements` is set to by the `combat` command, so a
+/// crew of five meets thirteen.
+pub const ARENA_REINFORCEMENTS: u32 = 6;
+
+/// How many mercenaries the `test` command's dock has for hire at the
+/// least, whatever the roll said (`World::mercenary_for_probe`): one, so
+/// there is always somebody to click on and price.
+pub const TEST_MERCENARY: u32 = 1;
 
 /// How far out a station is drawn as a hull in the ship view rather than
 /// left to the map. Twice the local frame: far enough that a station comes
@@ -92,12 +127,21 @@ pub const DOCK_MINUTES: f64 = 5.0;
 /// ashore and its own to come back aboard before it leaves without them.
 /// Whoever is still on the wrong side of the airlock then is put where the
 /// room puts a body with no floor under it — see `crew::Aboard::unjoined`.
-pub const CASTING_OFF_LIMIT: f64 = 30.0;
+/// An hour: the walk back from the far end of the biggest station is the
+/// better part of half of one.
+pub const CASTING_OFF_LIMIT: f64 = 60.0;
 
 /// How far a crew member may stand from the helm's seat and still be at the
 /// helm: a tile, which is where a route to the seat can be relied on to
 /// leave a body, and no further.
 pub const HELM_REACH: f64 = shipdesign::TILE as f64;
+
+/// How far a crew member may stand from a container's footprint and still
+/// reach into it, in tiles: an armoury, a shelf or a cold store two tiles
+/// off is near enough to take a piece out of or put one back. What a stow
+/// or a fetch is refused beyond (`Refusal::OutOfReach`); putting on what
+/// is already in the pack wants no container at all.
+pub const REACH: f32 = 2.0;
 
 /// How far inside a door the people going through it are sent, in tiles:
 /// the corridor just inside a station's port, and the deck just inside the

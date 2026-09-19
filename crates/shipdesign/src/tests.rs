@@ -249,7 +249,7 @@ fn shielding_and_storage_are_where_they_are_meant_to_be() {
             (PartKind::FuelTank, (Storage::FuelTank, 200)),
             (PartKind::Shelf, (Storage::Shelf, 100)),
             (PartKind::SuitLocker, (Storage::Locker, 2)),
-            (PartKind::Armoury, (Storage::Locker, 4)),
+            (PartKind::Armoury, (Storage::Locker, 8)),
             (PartKind::DrugLab, (Storage::Locker, 6)),
         ],
     );
@@ -2160,6 +2160,7 @@ fn the_playtest_ship_is_a_whole_ship_for_one() {
         (PartKind::Smelter, 1),
         (PartKind::Workbench, 1),
         (PartKind::DrugLab, 1),
+        (PartKind::Armoury, 1),
         (PartKind::SuitLocker, 1),
         (PartKind::ColdStore, 1),
         (PartKind::Worktop, 1),
@@ -2173,7 +2174,9 @@ fn the_playtest_ship_is_a_whole_ship_for_one() {
         (PartKind::Shower, 1),
         (PartKind::HydroBay, 1),
         (PartKind::BroomLocker, 1),
-        (PartKind::Reactor, 1),
+        // Two: the armoury is the fourth bench, and the first reactor had
+        // three units to spare.
+        (PartKind::Reactor, 2),
         (PartKind::LifeSupport, 1),
         (PartKind::Battery, 1),
         // Five corner pieces a side cut the bow back, and two bulkheads
@@ -2183,7 +2186,7 @@ fn the_playtest_ship_is_a_whole_ship_for_one() {
         (PartKind::Door, 2),
         (PartKind::Wall, 24),
         // The spine, bow to reactor, and the branches to every consumer.
-        (PartKind::PowerConduit, 54),
+        (PartKind::PowerConduit, 58),
     ] {
         assert_eq!(design.count(kind), want, "{kind:?}");
     }
@@ -2218,6 +2221,46 @@ fn the_playtest_ship_hashes_to_the_number_it_is_pinned_to() {
         design.parts.len()
     );
     assert_ne!(PLAYTEST_HASH, REFERENCE_HASH[0]);
+}
+
+/// The combat ship is the playtest ship with a bunk for each of five crew
+/// — every one of the four extra bunks actually placed, its use tile deck
+/// — and it is a whole ship for five: no errors and no warnings, and the
+/// playtest ship's own numbers untouched.
+#[test]
+fn the_combat_ship_sleeps_a_crew_of_five() {
+    use crate::fixture::{
+        COMBAT_BUNKS, COMBAT_CHAIRS, COMBAT_CREW, PLAYTEST_HASH, PLAYTEST_PARTS, combat_ship,
+        playtest_ship,
+    };
+    let design = combat_ship();
+    assert_eq!(design.count(PartKind::Bunk), COMBAT_CREW);
+    assert_eq!(design.count(PartKind::Chair), COMBAT_CREW);
+    assert_eq!(
+        design.parts.len() as u32,
+        PLAYTEST_PARTS + (COMBAT_BUNKS.len() + COMBAT_CHAIRS.len()) as u32
+    );
+    let grid = design.grid();
+    for (origin, rotation) in COMBAT_BUNKS {
+        let id = grid.get(Layer::Object, (origin.0 as i32, origin.1 as i32));
+        let part = design.part(id).expect("a bunk stands there");
+        assert_eq!((part.kind, part.rotation), (PartKind::Bunk, rotation));
+        for (x, y) in part.use_spots() {
+            assert!(grid.has_floor((x, y)), "{origin:?}'s use tile is deck");
+            assert_eq!(
+                grid.get(Layer::Object, (x, y)),
+                0,
+                "{origin:?}'s use tile is clear"
+            );
+        }
+    }
+    let issues = validate(&design, COMBAT_CREW);
+    assert!(issues.is_empty(), "the combat ship complains: {issues:?}");
+    assert_eq!(
+        design_hash(&playtest_ship()),
+        PLAYTEST_HASH,
+        "the playtest ship is as it was"
+    );
 }
 
 /// The ship the design phase opens with is the playtest ship, whole, on the
@@ -2700,10 +2743,12 @@ fn the_fixtures_are_wired() {
     let nets = networks(&design);
     assert_eq!(nets.len(), 1, "{nets:?}");
     let power = budget(&design);
-    assert_eq!(power.supply, 120.0);
+    // Two reactors: the first had three units to spare when the armoury
+    // came aboard drawing ten.
+    assert_eq!(power.supply, 240.0);
     // Life support, the helm, the array, the cold store, the bay, two
-    // doors, the smelter, the workbench and the drug lab.
-    assert_eq!(power.draw, 117.0);
+    // doors, the smelter, the workbench, the drug lab and the armoury.
+    assert_eq!(power.draw, 127.0);
     assert_eq!(power.storage, crate::parts::BATTERY_CHARGE);
     let codes = all_codes(&design, 1);
     assert!(!codes.contains(&IssueCode::Unpowered.code()));
@@ -2718,7 +2763,7 @@ fn the_fixtures_are_wired() {
 fn every_recipe_holds_together() {
     use crate::recipes::{RECIPES, at, recipes_are_sound};
     assert!(recipes_are_sound());
-    assert_eq!(RECIPES.len(), 7);
+    assert_eq!(RECIPES.len(), 14);
 
     let smelt = &RECIPES[0];
     assert_eq!(smelt.station, PartKind::Smelter);
@@ -2748,8 +2793,8 @@ fn every_recipe_holds_together() {
     assert_eq!(emitter.output_mass(), emitter.input_mass());
 
     assert_eq!(at(PartKind::Smelter).count(), 1);
-    assert_eq!(at(PartKind::Workbench).count(), 2);
-    assert_eq!(at(PartKind::Armoury).count(), 3);
+    assert_eq!(at(PartKind::Workbench).count(), 5);
+    assert_eq!(at(PartKind::Armoury).count(), 7);
     assert_eq!(at(PartKind::DrugLab).count(), 1);
     assert_eq!(at(PartKind::Hob).count(), 0);
     // The three the armoury makes, and what they are made of: the handgun
@@ -2779,6 +2824,73 @@ fn every_recipe_holds_together() {
     assert_eq!(bandage.output, (ResourceId::Bandage, 1));
     assert!(!bandage.vents);
     assert_eq!(bandage.output_mass(), bandage.input_mass());
+    // The three pieces of armour, back at the workbench, each weighing
+    // its metal: the kevlar is the one that wants galvum, and the vest at
+    // the armoury is still the vest.
+    let armour = &RECIPES[7..10];
+    assert_eq!(armour[0].inputs, &[(ResourceId::Metal, 2)]);
+    assert_eq!(armour[0].output, (ResourceId::Helm, 1));
+    assert_eq!(armour[0].minutes, 30);
+    assert_eq!(
+        armour[1].inputs,
+        &[(ResourceId::Metal, 3), (ResourceId::Galvum, 1)]
+    );
+    assert_eq!(armour[1].output, (ResourceId::Kevlar, 1));
+    assert_eq!(armour[1].minutes, 45);
+    assert_eq!(armour[2].inputs, &[(ResourceId::Metal, 1)]);
+    assert_eq!(armour[2].output, (ResourceId::LegGuard, 1));
+    assert_eq!(armour[2].minutes, 20);
+    for r in armour {
+        assert_eq!(r.station, PartKind::Workbench);
+        assert!(!r.vents);
+        assert_eq!(r.output_mass(), r.input_mass(), "{:?}", r.output);
+    }
+    assert_eq!(RECIPES[4].output, (ResourceId::Vest, 1), "the vest stays");
+    // The four weapons after the handgun, at the armoury again, each
+    // weighing what went into it: the shotgun is the one gun with no
+    // emitter in it, and the sniper and the schword want two.
+    let weapons = &RECIPES[10..14];
+    assert_eq!(
+        weapons[0].inputs,
+        &[(ResourceId::Metal, 4), (ResourceId::Components, 2)]
+    );
+    assert_eq!(weapons[0].output, (ResourceId::Shotgun, 1));
+    assert_eq!(weapons[0].minutes, 45);
+    assert_eq!(
+        weapons[1].inputs,
+        &[
+            (ResourceId::Metal, 3),
+            (ResourceId::Components, 3),
+            (ResourceId::Emitter, 1)
+        ]
+    );
+    assert_eq!(weapons[1].output, (ResourceId::AutoRifle, 1));
+    assert_eq!(weapons[1].minutes, 60);
+    assert_eq!(
+        weapons[2].inputs,
+        &[
+            (ResourceId::Metal, 4),
+            (ResourceId::Components, 2),
+            (ResourceId::Emitter, 2)
+        ]
+    );
+    assert_eq!(weapons[2].output, (ResourceId::SniperRifle, 1));
+    assert_eq!(weapons[2].minutes, 75);
+    assert_eq!(
+        weapons[3].inputs,
+        &[
+            (ResourceId::Metal, 1),
+            (ResourceId::Components, 1),
+            (ResourceId::Emitter, 2)
+        ]
+    );
+    assert_eq!(weapons[3].output, (ResourceId::Schword, 1));
+    assert_eq!(weapons[3].minutes, 60);
+    for r in weapons {
+        assert_eq!(r.station, PartKind::Armoury);
+        assert!(!r.vents);
+        assert_eq!(r.output_mass(), r.input_mass(), "{:?}", r.output);
+    }
     // Every station draws, so every one of them stops in a brownout.
     for r in RECIPES.iter() {
         assert!(r.station.def().draws(), "{:?}", r.station);

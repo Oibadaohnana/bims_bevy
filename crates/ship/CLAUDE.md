@@ -156,6 +156,23 @@ puff into the hull or a flame over the deck is obvious. The map marker is
 `the_map_is_north_up_whatever_the_ship_is_doing`, which knows the marker is
 the only thing on the map that turns.
 
+## The map says whose a station is, and the rule is the world's
+
+`World::stance` is the one answer — home is friendly, the world's
+`hostile` list is hostile, everywhere else is neutral — and the painter
+draws it twice without deciding anything. On the map (`paint_map`) every
+discovered station's icon is ringed by stance: `ENEMY` red for hostile,
+`FRIEND` green for home, nothing for neutral, so a system with only
+strangers in it looks the way it always did. The ring is `STANCE_RING`
+times the icon size, outside the aim ring, so pointing the helm at an
+enemy's station draws two rings that read apart. Out of the window
+(`stations`) a hostile station's far plate — the black `HULL_UNKNOWN` fog
+plate every stranger's is — gets a wash of the same red at `ENEMY_TINT`
+under its icon; a neutral stranger's stays black. `ENEMY` is the lobby's
+`lobby::draw::ENEMY` by value, not by import (`ship` does not depend on
+`lobby`): the player learnt the colour on the system diagram before they
+launched, and it has to be the same colour here. Change one, change both.
+
 ## "Is it finished" is one export, not three
 
 `ship_phase()` and nothing else. "Is it finished", "may I still edit" and
@@ -279,9 +296,21 @@ shelf and the shower, in each part's own frame through `hull::Local` so a
 turned part is drawn turned. `world_paint::hull_tiles` asks `hull::part`
 first and `fittings::part` second and draws a block for whatever both
 refuse. Every part has a picture now — the reactor, the tank, life support,
-the battery, and the workshop: the smelter, the workbench, the suit locker
-and the armoury — so a block on the deck is a new part somebody forgot to
-draw. **The design phase draws the same pictures** (`paint::objects` asks
+the battery, and the workshop: the smelter, the workbench, the suit locker,
+the armoury and, last, the **drug lab** (`fittings::drug_lab`, the
+`PartKind::DrugLab` arm of `fittings::part`) — so a block on the deck is
+a new part somebody forgot to draw. The drug lab is the workbench's
+footprint and stance, and its picture says so: the same frame and drawer
+on the near side where the Bim stands, but the bench top in the palette
+swatch's clinical green-white (`LAB`), a rail of five capped vials along
+the far edge, a round-bottomed flask on a ring stand in the middle with
+the dressing's green in it, a small still at the right-hand end — a
+flame, a pot, a riser, a coil and the receiver it drips into — and the
+steriliser's lamp lit at the left-hand end, since the bench is on. It
+was looked at as SVG at `R0` and `R90` beside the
+workbench through a throwaway test since removed; the designer's palette
+swatch stays a colour, not a picture, so nothing changed there.
+**The design phase draws the same pictures** (`paint::objects` asks
 the same two, in the same order), and the room's own fixtures on top of
 them through `paint::fixtures`: the room is laid out from the design as it
 stands with `bims::aboard::layout_of` and asked, through
@@ -291,6 +320,27 @@ has not got on the worktop, and drawn whole it would be a heap of galley on
 one tile. The picture is cached on the `Editor` (`Editor::fixtures`) and
 redone in `refresh` with the issues, since laying the room out is a walk of
 the whole design. `bims design` is how to look at it.
+
+## Three sessions, and the two windows that read the world before a command is sent
+
+`Session::simulate` is `simulate_on(playtest_ship(), 1, ..)`;
+`simulate_on(design, crew, ..)` opens `Game::start_with_crew` — `crew`
+aboard, one of them the player — and the `test` command uses it on the
+combat ship with one crew member so a mercenary hired at the dock has a
+bunk; `Session::combat` is the fight (`crates/world/CLAUDE.md`'s arena),
+`Session::mercenary_for_probe` the `test` command's hired hand.
+`Session::at_the_desk(slot)`/`walk_to_desk(slot)` and
+`Session::mercenary_fee(who)` are the app's reads for the trade window,
+the desk's row and the `?` over a mercenary's name
+(`theme::badge_over`). The Hire window in `crates/app/src/crew.rs` is
+the Loot window's shape: opened off the `HIT_VISITOR` menu on a body on
+its feet (`Open::Hire`), the walk over left to the screen (`walk`), and
+`CrewPanels::terms` handed in every frame off `World::hire_offer` so the
+button is greyed with the reason — out of reach, no bunk, not the money
+— before `GearOrder::Hire` goes through the seam as `Command::Hire`.
+`fittings::trading_desk` is the desk's picture: a counter with a ledge
+and a lit terminal along the far edge, a ledger and a coin tray on the
+near side.
 
 ## The rocks are part of the ship's picture, and the pick is the pointer's
 
@@ -353,3 +403,90 @@ what the readout names a blueprint by.
 pins it. The app side — `Tab::Build`, `Tool::Build(kind)`, `BUILD_GROUPS`
 and the search — is `crates/app/src/crew.rs` and `names.rs`; `R` there
 turns the blueprint when one is in hand and recruits otherwise.
+
+## A container's grid is the app's window over the hold, and the seam is a gear order
+
+The ship crate draws no grid and moves no piece. A click on the deck
+reaches `Game::hit_at` through `Session::room_point` as it always did,
+and `HIT_BENCH`, `HIT_SHELF` and `HIT_FRIDGE` come back to the app, where
+`CrewPanels::open_menu` (`crates/app/src/crew.rs`) decides whether the
+fixture is a **container**: a bench whose part keeps a class of goods
+(`PartKind::def().capacity` — the armoury and the drug lab open the
+lockers; the smelter and the workbench open nothing, and have no menu
+either), any shelf, and the cold store through the "Open" row its menu
+gained. Opening one walks the Bim shown to `Game::container_spot`
+through `send_to` — the click is the natural place to start it walking,
+since nothing moves until it is within `world::data::REACH` — and puts
+the container window (`container_window`) up with the inventory pop-up
+beside it (`fixed_pos`, since the two are read together). `Esc` shuts
+the innermost thing first: a cell's pop-up, then a fixture menu, then
+the window (`CrewPanels::escape`). Nothing is a container in the test
+room, which has no hold: `CrewPanels::hold` is `None` there and a bench
+click is a menu as before.
+
+**The window is a class, not the fixture** — the app's reading of the
+world's rule that the class is the one truth about capacity. The lockers
+are fifteen by fifteen, the shelves twenty by twenty, the cold store ten
+by ten (`grid::grid`, one egui response for the whole grid, since four
+hundred widgets a frame would show nothing for the cost): one cell per
+piece of armour in the hold with a sliver of its health under it, then
+one stack a resource with its count, showing `World::free` rather than
+raw cargo. So the drug lab's window is the armoury's, and a piece stowed
+across a shelf appears in the lockers' window and not the shelves' —
+showing it in both would be two of it. The tooltips are `names::item_tip`
+and the icons `icons::icon`, one per `ResourceId` (a compile error to
+leave out) and a piece's cracked when it is broken.
+
+The seam is `crew::GearOrder` — Stow, Fetch, Equip, Unequip, Discard, the
+world's five commands with the sender left off — pushed onto
+`CrewPanels::orders` by a row or a ctrl-click and drained by the screen:
+on the ship `screens/game.rs` wraps each as `Order::Gear` and
+`screens/designer.rs` maps it onto `Command::Stow…` stamped with the
+slot and the step like every other order, so the hold's every change is
+a command every player's ship applies; in the room `screens/room.rs`
+applies Equip, Unequip and Discard straight to the `Game`, there being
+no hold to stow into or fetch from. The rows say why before the world
+does: `hold_of` in `screens/game.rs` snapshots the hold once a frame —
+`World::free` a resource, the pieces at `Where::Hold`, each class's fill
+off `Session::storage_used`/`storage_capacity`, and `World::in_reach`
+for the Bim shown — so Store and Take are greyed with "walk over
+first", "the pack is full" or "no room left in the lockers", a broken
+piece's Store says to discard it instead, and a ctrl-click that cannot
+go opens the pop-up whose row says so, rather than sending a command
+the world refuses. Equip needs no reach and is greyed only for a dead
+Bim; a broken piece goes on and does nothing, as the room allows. The
+orders act on **the Bim
+whose inventory is shown** — the selected crew member, else the
+player's — not always the player's, which is what lets a crewmate be
+dressed from its own tab.
+
+Two things that bit:
+
+- **An egui `Area` claims its bounding box for the pointer.** The
+  `game-left` stack's first row — Bims, the clock, "Recruited" — was as
+  wide as the three together and sat over a stack as tall as the panel,
+  so egui counted the whole rectangle as its own and a canvas click on
+  the ship's left half (the cold store at `(3, 7)`, the shelves) never
+  reached the room. The row is its own `game-top-left` Area now; the
+  stack under it starts below the row. A click that lands on nothing
+  is this before it is anything else.
+- **The health bars are two-tone on purpose**, not two bars:
+  `theme::two_tone_bar`/`thin_two_tone_bar` draw the green with the
+  armour's blue appended in proportion, and the text reads `100 hp +
+  15 hp`, so a worn piece reads as more bar rather than a second one to
+  look for. `theme::popup` is the one pop-up — the fixture menus, the
+  cell rows and the Unequip row all go through it — so a change to the
+  look of one is a change to all.
+
+`BIMS_FIGHT=1 bims combat` with a `BIMS_POINTER` script that clicks the
+armoury at tile `(14, 7)` is how it is looked at: the window reads
+"Armoury · 13 of 16 in the lockers" with the three pieces, the four
+weapons, the suit and
+the bandages, and at 10× the Bim walks over and the rows come alive.
+The fight itself is looked at the same way: `BIMS_WEAPON=schword` (or
+`pistol|shotgun|rifle|sniper`) in the crew member's hand,
+`BIMS_ENEMY_WEAPON=…` in every resident's, and `BIMS_ARMOURED=1` for a
+fresh helm, kevlar and leg guards on the crew member, all through the
+public `Game::gear`/`Game::issue` from the app's `open` (`dev.rs`),
+so a swing, a burst, a tracer in flight or the "locked in melee" tag
+over a name can be read off a PNG.

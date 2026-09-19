@@ -7,11 +7,13 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bims::combat::LootCell;
 use bims::game::Game;
-use bims::room::{HIT_DOOR, HIT_SHIP_DOOR};
+use bims::room::{HIT_DOOR, HIT_SHIP_DOOR, TILE};
+use world::LootSource;
 
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui};
-use crate::crew::{CLICK_SLOP, CrewPanels};
+use crate::crew::{Body, CLICK_SLOP, CrewPanels, GearOrder};
 use crate::format::{clock_text, span_text};
 use crate::names::*;
 use crate::shapes::View;
@@ -190,10 +192,14 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
             screen.panels.close_menu();
             let fixture = screen.game.hit_at(p.x, p.y);
             if fixture != 0 {
-                // Right-clicking a fixture opens its menu.
+                // Right-clicking a fixture opens its menu — and a body is
+                // a fixture here, living (`HIT_BIM`, the bandage menu) or
+                // dead (`HIT_BODY`, the Loot row): never a walk to the deck
+                // under it.
                 screen.panels.open_menu(
                     fixture,
                     egui::pos2(pointer.pos.unwrap().x, pointer.pos.unwrap().y),
+                    &mut screen.game,
                 );
             }
             if fixture == 0 || fixture == HIT_DOOR || fixture == HIT_SHIP_DOOR {
@@ -223,7 +229,9 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
                 // A click that landed on a fixture opens its menu instead of
                 // selecting.
                 if fixture != 0 && !moved {
-                    screen.panels.open_menu(fixture, egui::pos2(here.x, here.y));
+                    screen
+                        .panels
+                        .open_menu(fixture, egui::pos2(here.x, here.y), &mut screen.game);
                 }
             }
         } else if pointer.primary_released || pointer.pos.is_none() {
@@ -240,12 +248,8 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
             if i.key_pressed(egui::Key::R) {
                 screen.game.toggle_recruited();
             }
-            if i.key_pressed(egui::Key::Escape) {
-                if screen.panels.menu_open() {
-                    screen.panels.close_menu();
-                } else {
-                    screen.game.clear_selection();
-                }
+            if i.key_pressed(egui::Key::Escape) && !screen.panels.escape() {
+                screen.game.clear_selection();
             }
         });
     }
@@ -309,8 +313,66 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
         });
 
     screen.panels.menu(&ctx, &mut screen.game, &name);
-    screen.panels.inventory_window(&ctx, &screen.game, &name);
+    screen.panels.container_window(&ctx, &screen.game, &name);
+    // The body under the Loot window, after the menu — which is what
+    // opens it. Only a crewmate here: the room has no station's people
+    // lying beside it.
+    let who = screen.panels.inventory_who(&screen.game);
+    if let Some(LootSource::Crew(body)) = screen.panels.walk.take() {
+        let at = screen.game.bim_pos(body as usize);
+        screen.game.send_to(who, at);
+    }
+    screen.panels.body = screen
+        .panels
+        .loot_source()
+        .and_then(|source| body_in_room(&screen.game, who, source));
+    screen.panels.loot_window(&ctx, &screen.game, &name);
+    screen
+        .panels
+        .inventory_window(&ctx, &mut screen.game, &name);
+    screen.panels.cell_menu(&ctx, &screen.game, &name);
     screen.panels.end_frame(&mut screen.game);
+    // No hold and no seam here: what the pack's rows asked for goes
+    // straight to the room. Nothing is put away or fetched, since there
+    // is nowhere to put it or take it from; a loot is the room's two
+    // halves back to back, under the checks the world would make.
+    for order in screen.panels.orders.drain(..) {
+        let game = &mut screen.game;
+        match order {
+            GearOrder::Equip { who, cell } => {
+                game.equip(who as usize, cell as usize);
+            }
+            GearOrder::Unequip { who, part } => {
+                game.unequip(who as usize, part);
+            }
+            GearOrder::Discard { who, cell } => {
+                game.discard(who as usize, cell as usize);
+            }
+            GearOrder::Loot {
+                who,
+                source: LootSource::Crew(body),
+                cell,
+            } => {
+                let who = who as usize;
+                let can = body_in_room(game, who, LootSource::Crew(body))
+                    .is_some_and(|b| b.down && b.reach)
+                    && game.gear(who).free_cell().is_some();
+                if can
+                    && let Some(cell) = LootCell::from_code(cell)
+                    && let Some(item) = game.take_from_body(body as usize, cell)
+                {
+                    game.give(who, None, item);
+                }
+            }
+            GearOrder::Stow { .. }
+            | GearOrder::Fetch { .. }
+            | GearOrder::Hire { .. }
+            | GearOrder::Loot {
+                source: LootSource::Resident(_),
+                ..
+            } => {}
+        }
+    }
 
     // --- painting --------------------------------------------------------------
     screen.game.render();
@@ -337,6 +399,29 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
         }
     }
     Ok(())
+}
+
+/// A body as the Loot window wants it, read off the room itself: what it
+/// has on it, whether it is still down, and whether `who` stands within
+/// reach of it. The reach is the world's rule (`World::in_reach_of_body`:
+/// the looter alive, awake and within `REACH` tiles), measured here
+/// because the test room has no world to ask. Only a crewmate is a body
+/// here: the room has no station's people lying beside it, so a resident
+/// is `None`, which shuts the window.
+fn body_in_room(game: &Game, who: usize, source: LootSource) -> Option<Body> {
+    let LootSource::Crew(body) = source else {
+        return None;
+    };
+    let body = body as usize;
+    if body >= game.crew_count() as usize {
+        return None;
+    }
+    let near = (game.bim_pos(who) - game.bim_pos(body)).len() <= world::data::REACH * TILE;
+    Some(Body {
+        cells: game.loot_cells(body),
+        down: game.is_down(body),
+        reach: game.is_alive(who) && !game.is_unconscious(who) && near,
+    })
 }
 
 /// The status line is the player's Bim and nobody else's: it is where an

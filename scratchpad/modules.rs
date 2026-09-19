@@ -3,6 +3,8 @@
 // every probe but the newest failed to *compile*, and rustc failing leaves the
 // previous binary in place — so running one printed a confident pass from
 // stale code. Three separate rounds of that happened.
+#[path = "../crates/game/src/balance.rs"]
+mod balance;
 #[path = "../crates/game/src/bath.rs"]
 mod bath;
 #[path = "../crates/game/src/bim.rs"]

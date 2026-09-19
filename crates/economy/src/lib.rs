@@ -176,6 +176,18 @@ pub fn trade_price(resource: ResourceId) -> Money {
         // drug lab rolls two of into a dressing for a wound.
         ResourceId::Fibre => 6,
         ResourceId::Bandage => 40,
+        // Armour, made at the workbench and never sold; a station buys a
+        // piece, and pays for the metal in it rather than the fit.
+        ResourceId::Helm => 300,
+        ResourceId::Kevlar => 900,
+        ResourceId::LegGuard => 150,
+        // The four weapons after the handgun, made at the armoury and never
+        // sold, priced as it is: what went into each, and something for the
+        // making. The emitters are most of it.
+        ResourceId::Shotgun => 1_000,
+        ResourceId::AutoRifle => 2_000,
+        ResourceId::SniperRifle => 3_000,
+        ResourceId::Schword => 2_500,
     }
 }
 
@@ -204,7 +216,14 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::Handgun
         | ResourceId::Vest
         | ResourceId::Medkit
-        | ResourceId::Bandage => Storage::Locker,
+        | ResourceId::Bandage
+        | ResourceId::Helm
+        | ResourceId::Kevlar
+        | ResourceId::LegGuard
+        | ResourceId::Shotgun
+        | ResourceId::AutoRifle
+        | ResourceId::SniperRifle
+        | ResourceId::Schword => Storage::Locker,
     }
 }
 
@@ -283,6 +302,13 @@ mod tests {
         assert_eq!(trade_price(ResourceId::Rock), 2);
         assert_eq!(trade_price(ResourceId::Fibre), 6);
         assert_eq!(trade_price(ResourceId::Bandage), 40);
+        assert_eq!(trade_price(ResourceId::Helm), 300);
+        assert_eq!(trade_price(ResourceId::Kevlar), 900);
+        assert_eq!(trade_price(ResourceId::LegGuard), 150);
+        assert_eq!(trade_price(ResourceId::Shotgun), 1_000);
+        assert_eq!(trade_price(ResourceId::AutoRifle), 2_000);
+        assert_eq!(trade_price(ResourceId::SniperRifle), 3_000);
+        assert_eq!(trade_price(ResourceId::Schword), 2_500);
 
         assert_eq!(storage(ResourceId::Ore), Storage::Shelf);
         assert_eq!(storage(ResourceId::Metal), Storage::Shelf);
@@ -299,6 +325,13 @@ mod tests {
         assert_eq!(storage(ResourceId::Rock), Storage::Shelf);
         assert_eq!(storage(ResourceId::Fibre), Storage::ColdStore);
         assert_eq!(storage(ResourceId::Bandage), Storage::Locker);
+        assert_eq!(storage(ResourceId::Helm), Storage::Locker);
+        assert_eq!(storage(ResourceId::Kevlar), Storage::Locker);
+        assert_eq!(storage(ResourceId::LegGuard), Storage::Locker);
+        assert_eq!(storage(ResourceId::Shotgun), Storage::Locker);
+        assert_eq!(storage(ResourceId::AutoRifle), Storage::Locker);
+        assert_eq!(storage(ResourceId::SniperRifle), Storage::Locker);
+        assert_eq!(storage(ResourceId::Schword), Storage::Locker);
     }
 
     #[test]

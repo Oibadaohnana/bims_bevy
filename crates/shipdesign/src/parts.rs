@@ -188,12 +188,23 @@ pub enum PartKind {
     /// The workbench's size and its habits: worked from the tile below,
     /// draws, and a body sees over nothing of it.
     DrugLab = 35,
+    /// A station's trading desk: where the crew trade with the station.
+    /// A table's footprint, worked from the tile below, and a body sees
+    /// over it. Every station lays one down inside its port; a ship has
+    /// no use for one, and buying and selling want somebody at it —
+    /// `world::World::at_the_desk`.
+    TradingDesk = 36,
+    /// Sandbags: a tile of cover. A solid a body cannot walk through or
+    /// see over, so a body beside it peeks round it the way it peeks round
+    /// a wall and is dodged half the shots at it — `bims::sight`. Laid in
+    /// a station's hallways, and buildable on a ship.
+    Sandbags = 37,
 }
 
 impl PartKind {
     /// Every kind, in discriminant order. `ALL[k as usize] == k`, which
     /// [`PartKind::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [PartKind; 36] = [
+    pub const ALL: [PartKind; 38] = [
         PartKind::Floor,
         PartKind::Wall,
         PartKind::Door,
@@ -230,6 +241,8 @@ impl PartKind {
         PartKind::SuitLocker,
         PartKind::Armoury,
         PartKind::DrugLab,
+        PartKind::TradingDesk,
+        PartKind::Sandbags,
     ];
 
     /// The number that crosses the wasm boundary. No strings do.
@@ -440,6 +453,7 @@ impl PartDef {
             | PartKind::Basin
             | PartKind::HydroBay
             | PartKind::Helm
+            | PartKind::TradingDesk
             | PartKind::Battery => false,
             _ => self.blocks_movement,
         }
@@ -452,7 +466,7 @@ impl PartDef {
 /// told about how a part is approached — [`crate::validate`] already insists
 /// every one of them is floor a body can stand on and that they can all reach
 /// each other, so a design that passes here is one the crew can work.
-pub static PARTS: [PartDef; 36] = [
+pub static PARTS: [PartDef; 38] = [
     PartDef {
         kind: PartKind::Floor,
         footprint: (1, 1),
@@ -1074,7 +1088,9 @@ pub static PARTS: [PartDef; 36] = [
         use_spots: &[(0, 1)],
         price: 6_000,
         shields: false,
-        capacity: Some((Storage::Locker, 4)),
+        // Eight: a rack for the handgun and the four weapons after it, and
+        // room beside them for what the workbench makes to wear.
+        capacity: Some((Storage::Locker, 8)),
         recipe: &[(ResourceId::Metal, 10), (ResourceId::Components, 8)],
         thrust: 0.0,
         torque_thrust: 0.0,
@@ -1100,6 +1116,41 @@ pub static PARTS: [PartDef; 36] = [
         thrust: 0.0,
         torque_thrust: 0.0,
         power: -5.0,
+        charge: 0.0,
+    },
+    // The trading desk: a table with a counter, low, worked from the tile
+    // below. Cheap and unpowered: it is a desk.
+    PartDef {
+        kind: PartKind::TradingDesk,
+        footprint: (2, 1),
+        layer: Layer::Object,
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[(0, 1), (1, 1)],
+        price: 600,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 3)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
+    // Sandbags: a tile of cover, a body's height, worked from nowhere.
+    PartDef {
+        kind: PartKind::Sandbags,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 150,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        power: 0.0,
         charge: 0.0,
     },
 ];

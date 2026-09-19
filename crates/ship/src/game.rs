@@ -169,7 +169,48 @@ impl Game {
         width: f32,
         height: f32,
     ) -> Option<Game> {
-        let world = World::start(design, money, players, seed, galaxy_type, star, station).ok()?;
+        Game::start_with_crew(
+            design,
+            money,
+            players,
+            players,
+            local,
+            seed,
+            galaxy_type,
+            star,
+            station,
+            width,
+            height,
+        )
+    }
+
+    /// [`Game::start`] with `crew` aboard, of whom `players` are players —
+    /// see `World::start_with_crew`. The `combat` command's five.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_with_crew(
+        design: ShipDesign,
+        money: Money,
+        players: u32,
+        crew: u32,
+        local: u32,
+        seed: u64,
+        galaxy_type: GalaxyType,
+        star: u32,
+        station: u32,
+        width: f32,
+        height: f32,
+    ) -> Option<Game> {
+        let world = World::start_with_crew(
+            design,
+            money,
+            players,
+            crew,
+            seed,
+            galaxy_type,
+            star,
+            station,
+        )
+        .ok()?;
         let mut game = Game {
             world,
             mode: ViewMode::Ship,

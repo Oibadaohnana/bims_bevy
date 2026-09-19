@@ -1275,8 +1275,17 @@ pub fn site_stand(room: &Room, maps: &Maps, site: u32, from: Vec2, outside: bool
 ///
 /// Asked as the walk is entered, from where the patient stands *then*
 /// (`Room::crew`), so a chain picked up off the queue walks to where the
-/// patient has got to rather than where it was.
-fn patient_stand(room: &Room, maps: &Maps, who: usize, patient: usize, from: Vec2) -> Option<Vec2> {
+/// patient has got to rather than where it was — and by
+/// `Game::medical_on_offer` before the errand is offered at all, so a
+/// patient nobody can get to is not a chain started and given up every
+/// step.
+pub fn patient_stand(
+    room: &Room,
+    maps: &Maps,
+    who: usize,
+    patient: usize,
+    from: Vec2,
+) -> Option<Vec2> {
     if patient == who {
         return Some(from);
     }
@@ -2284,6 +2293,13 @@ impl Task {
         self.step
     }
 
+    /// Whether the hands are on a bandage this instant: the dressing
+    /// itself, not the walk to the patient. A Bim winding one has no hand
+    /// free for a weapon — `Game::tick_combat` holsters it for the while.
+    pub fn is_dressing(&self) -> bool {
+        self.step == Step::Dress
+    }
+
     pub fn picks(&self) -> Picks {
         self.picks
     }
@@ -2548,7 +2564,7 @@ impl Task {
                         ch.face(d.y.atan2(d.x));
                     }
                 }
-                ch.set_action(Action::Reach);
+                ch.set_action(Action::Bandage);
             }
             // Working the door panel. From the deck the Bim faces the
             // bulkhead; from inside it turns round and faces it the other way.
@@ -2729,7 +2745,7 @@ impl Task {
             // bandages — does the dressing, if the two are still together.
             Dress => {
                 if let Kind::Bandage { patient, part } = self.kind {
-                    room.dressed.push((patient, part));
+                    room.dressed.push((self.who, patient, part));
                 }
             }
             // A shelf stew takes its two things one trip each — the

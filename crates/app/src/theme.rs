@@ -23,6 +23,9 @@ pub const YOURS: egui::Color32 = ACCENT;
 pub const THEIRS: egui::Color32 = INK;
 pub const SLEEP: egui::Color32 = egui::Color32::from_rgb(0x3f, 0x6e, 0xa8);
 pub const ANY: egui::Color32 = egui::Color32::from_rgb(0x4a, 0x55, 0x60);
+/// Armour: the blue on the end of a health bar, and a piece's own health
+/// under its icon.
+pub const ARMOUR: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);
 pub const NAME_STROKE: egui::Color32 = egui::Color32::from_rgba_premultiplied(6, 10, 9, 217);
 
 /// The name over a Bim's head: how big, and how far above the body it
@@ -128,13 +131,153 @@ pub fn question_mark(ui: &mut egui::Ui, tip: &str) -> egui::Response {
 
 /// A bar: a fraction of a strip, with the track behind it.
 pub fn bar(ui: &mut egui::Ui, width: f32, fraction: f32, fill: egui::Color32) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 8.0), egui::Sense::hover());
+    bar_of_height(ui, width, 8.0, &[(fraction, fill)])
+}
+
+/// The same bar half as tall, for the parts a bar is made of — the head,
+/// the body and the legs under Health — so they read as its detail and
+/// not as three more needs.
+pub fn thin_bar(
+    ui: &mut egui::Ui,
+    width: f32,
+    fraction: f32,
+    fill: egui::Color32,
+) -> egui::Response {
+    bar_of_height(ui, width, 4.0, &[(fraction, fill)])
+}
+
+/// A bar in two tones: `first` of the strip in `fill`, and `second` of it
+/// in `fill2` set on the end of that — the body's health in green with
+/// the armour's in blue after it. Both fractions are of the *whole*
+/// strip, so the two together are the Bim's total.
+pub fn two_tone_bar(
+    ui: &mut egui::Ui,
+    width: f32,
+    first: f32,
+    second: f32,
+    fill: egui::Color32,
+    fill2: egui::Color32,
+) -> egui::Response {
+    bar_of_height(ui, width, 8.0, &[(first, fill), (second, fill2)])
+}
+
+/// The thin bar in two tones, for the parts.
+pub fn thin_two_tone_bar(
+    ui: &mut egui::Ui,
+    width: f32,
+    first: f32,
+    second: f32,
+    fill: egui::Color32,
+    fill2: egui::Color32,
+) -> egui::Response {
+    bar_of_height(ui, width, 4.0, &[(first, fill), (second, fill2)])
+}
+
+/// The bar behind them all: the track, then each segment laid end to end
+/// from the left, clipped at the far end of the strip.
+fn bar_of_height(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    segments: &[(f32, egui::Color32)],
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, 3.0, RAISED);
+    let round = height * 0.375;
+    painter.rect_filled(rect, round, RAISED);
+    let mut from = rect.min.x;
+    for &(fraction, fill) in segments {
+        let to = (from + rect.width() * fraction.clamp(0.0, 1.0)).min(rect.max.x);
+        if to <= from {
+            continue;
+        }
+        let done =
+            egui::Rect::from_min_max(egui::pos2(from, rect.min.y), egui::pos2(to, rect.max.y));
+        painter.rect_filled(done, round, fill);
+        from = to;
+    }
+    response
+}
+
+/// A tiny bar with no track spacing of its own, painted into a rect the
+/// caller has: a piece's health under its icon in a grid cell.
+pub fn bar_in(painter: &egui::Painter, rect: egui::Rect, fraction: f32, fill: egui::Color32) {
+    let round = rect.height() * 0.375;
+    painter.rect_filled(rect, round, RAISED);
     let mut done = rect;
     done.set_width(rect.width() * fraction.clamp(0.0, 1.0));
-    painter.rect_filled(done, 3.0, fill);
-    response
+    painter.rect_filled(done, round, fill);
+}
+
+// --- pop-up menus -----------------------------------------------------------
+
+/// One row of a pop-up menu: what it does, a line under it saying why or
+/// with what, and whether it can be pressed at all.
+pub struct Row {
+    pub label: String,
+    pub hint: String,
+    pub disabled: bool,
+}
+
+impl Row {
+    pub fn new(label: impl Into<String>, hint: impl Into<String>, disabled: bool) -> Row {
+        Row {
+            label: label.into(),
+            hint: hint.into(),
+            disabled,
+        }
+    }
+}
+
+/// A small menu at a point on the window — a fixture's, a grid cell's —
+/// one button a row, disabled rows dimmed with their hint still legible.
+/// Answers the row pressed, if one was, and the rect the menu took, so the
+/// caller can shut it on a press anywhere else.
+pub fn popup(
+    ctx: &egui::Context,
+    id: &str,
+    at: egui::Pos2,
+    rows: &[Row],
+) -> (Option<usize>, egui::Rect) {
+    let mut chosen = None;
+    let response = egui::Area::new(egui::Id::new(id))
+        .order(egui::Order::Foreground)
+        .fixed_pos(at)
+        .constrain(true)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).fill(PANEL).show(ui, |ui| {
+                ui.set_min_width(200.0);
+                for (i, row) in rows.iter().enumerate() {
+                    let mut text = egui::text::LayoutJob::default();
+                    text.append(
+                        &row.label,
+                        0.0,
+                        egui::TextFormat {
+                            color: if row.disabled { MUTED } else { INK },
+                            ..Default::default()
+                        },
+                    );
+                    if !row.hint.is_empty() {
+                        text.append(
+                            &format!("\n{}", row.hint),
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::proportional(11.0),
+                                color: MUTED,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    let button = egui::Button::new(text)
+                        .frame(false)
+                        .min_size(egui::vec2(200.0, 0.0));
+                    if ui.add_enabled(!row.disabled, button).clicked() {
+                        chosen = Some(i);
+                    }
+                }
+            });
+        });
+    (chosen, response.response.rect)
 }
 
 /// A button that is marked as the one in force.
@@ -226,4 +369,20 @@ pub fn name_over(painter: &egui::Painter, at: egui::Pos2, name: &str, color: egu
         );
     }
     painter.text(at, egui::Align2::CENTER_BOTTOM, name, font, color);
+}
+
+/// A mark over a name — the `?` over a mercenary for hire: a small disc in
+/// the void's darkness with the glyph on it in `color`, on the background
+/// layer like [`name_over`]. `at` is the bottom middle, as for a name.
+pub fn badge_over(painter: &egui::Painter, at: egui::Pos2, mark: &str, color: egui::Color32) {
+    let r = NAME_SIZE * 0.62;
+    let centre = at - egui::vec2(0.0, r);
+    painter.circle(centre, r, NAME_STROKE, egui::Stroke::new(1.0, color));
+    painter.text(
+        centre,
+        egui::Align2::CENTER_CENTER,
+        mark,
+        egui::FontId::proportional(NAME_SIZE),
+        color,
+    );
 }

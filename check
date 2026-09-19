@@ -61,7 +61,7 @@ test      cargo test --workspace: the rules crates' pinned arithmetic, the
 clippy    cargo clippy on the app crate, with warnings as errors
 smoke     `bims game`, `simulation`, `design`, `room`, `test` and `combat` each run
           sixty frames in a hidden window and exit; the room, the simulation, the yard
-          and the combat dock leave a
+          and the combat dock (with its fight staged, BIMS_FIGHT=1) leave a
           screenshot in target/check/ — a black picture is a bug no test sees
 probes    every scratchpad/*.rs probe compiled fresh into target/probes/ and
           run; a compile failure is a failure
@@ -119,7 +119,13 @@ step_smoke() {
     shot=""
     case "$what" in room | simulation | design | combat) shot="$LOGS/smoke-$what.png" ;; esac
     rm -f "$shot"
-    local cmd="BIMS_SMOKE_FRAMES=60 BIMS_FULLSCREEN=1 ${shot:+BIMS_SCREENSHOT=$shot} target/debug/bims $what"
+    # The combat dock is screenshotted with the fight staged (the crew
+    # member inside the station's door, one of its people down the
+    # corridor), so the picture shows enemies and a bolt rather than a
+    # quiet berth — `BIMS_FIGHT=1` is `World::stage_fight_for_probe`.
+    local staged=""
+    [ "$what" = combat ] && staged="BIMS_FIGHT=1 "
+    local cmd="${staged}BIMS_SMOKE_FRAMES=60 BIMS_FULLSCREEN=1 ${shot:+BIMS_SCREENSHOT=$shot} target/debug/bims $what"
     if [ $exec_in_shell = 1 ]; then
       cmd="nix-shell shell.nix --run '$cmd'"
     fi

@@ -921,24 +921,42 @@ fn system_card(
             }
             for (i, (name, whereabouts)) in stations.into_iter().enumerate() {
                 let on = settings.spawn == Some((star, i as u32));
+                // Somebody else's station: named in the enemy's red, and
+                // not somewhere to start — the button is dead and says why.
+                let hostile = screen.lobby.station_hostile(i as u32);
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label(egui::RichText::new(name).color(if on {
                             theme::ACCENT
+                        } else if hostile {
+                            theme::BAD
                         } else {
                             theme::INK
                         }));
-                        ui.label(egui::RichText::new(whereabouts).small().color(theme::MUTED));
+                        ui.label(
+                            egui::RichText::new(if hostile {
+                                format!("{whereabouts} · hostile")
+                            } else {
+                                whereabouts
+                            })
+                            .small()
+                            .color(theme::MUTED),
+                        );
                     });
                     let label = if editable {
                         if on { "Starting here" } else { "Start here" }
                     } else {
                         "Suggest"
                     };
-                    if ui
-                        .add_enabled(!(editable && on), egui::Button::new(label))
-                        .clicked()
-                    {
+                    let can_start = !editable || screen.lobby.can_start_at(star, i as u32);
+                    let mut button =
+                        ui.add_enabled(!(editable && on) && can_start, egui::Button::new(label));
+                    if hostile {
+                        button = button.on_disabled_hover_text(
+                            "Hostile — the people living there are enemies, and a crew cannot start at an enemy's.",
+                        );
+                    }
+                    if button.clicked() {
                         if editable {
                             settings.spawn = Some((star, i as u32));
                             screen.lobby.spawn = settings.spawn;
@@ -954,34 +972,15 @@ fn system_card(
         });
 }
 
-/// A random station among every star that has one.
+/// A random station among every star that has one a crew can start at:
+/// the lobby's rule (`Lobby::random_start`), which skips the hostile
+/// ones — a crew cannot start at an enemy's — off this page's roll.
 fn pick_random_start(screen: &mut BuilderScreen, settings: &mut Settings) {
-    let with_station: Vec<u32> = (0..screen.lobby.galaxy.stars.len() as u32)
-        .filter(|&s| {
-            screen
-                .lobby
-                .has_station
-                .get(s as usize)
-                .copied()
-                .unwrap_or(false)
-        })
-        .collect();
-    if with_station.is_empty() {
-        return;
-    }
     let roll = crate::screens::room::rand_seed();
-    let star = with_station[(roll % with_station.len() as u64) as usize];
-    inspect(screen, star);
-    let count = screen
-        .lobby
-        .inspected
-        .as_ref()
-        .map(|(_, s)| s.stations.len())
-        .unwrap_or(0);
-    if count == 0 {
+    let Some((star, station)) = screen.lobby.random_start(roll) else {
         return;
-    }
-    let station = ((roll >> 32) % count as u64) as u32;
+    };
+    inspect(screen, star);
     settings.spawn = Some((star, station));
     screen.lobby.spawn = settings.spawn;
     screen.net.push(settings);

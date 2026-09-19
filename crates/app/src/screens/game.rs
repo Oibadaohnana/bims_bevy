@@ -22,12 +22,12 @@ use ship::Session;
 use ship::game::ViewMode;
 use shipdesign::Storage;
 use shipdesign::parts::Rotation;
-use world::{ShipState, Speed};
+use world::{ShipState, Speed, Where};
 use worldgen::Node;
 
 use super::designer::{Net, Order, ShipSession, settings_sheet, trade_rows};
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui, zoom_factor};
-use crate::crew::{Actions, CLICK_SLOP, Craft, CrewPanels, Tool};
+use crate::crew::{Actions, Body, CLICK_SLOP, Craft, CrewPanels, Hold, Tool};
 use crate::format::{euros, grouped, spell};
 use crate::names::*;
 use crate::screens::room::panel_frame;
@@ -136,18 +136,77 @@ fn open(
                 }
                 _ => (world::data::DEFAULT_SEED, None),
             };
-            let mut session = Session::simulate(seed, 0, spawn, size.x, size.y);
+            // The `combat` command is the fight: the combat ship's five crew,
+            // a different gun in each hand, docked at the spawn rebuilt as
+            // the arena and turned against them — its people enemies, and
+            // more of them — so a recruited crew member has somebody to
+            // shoot at and somewhere to do it. `Session::combat` is all of
+            // that; `BIMS_FIGHT` stages the two a few tiles apart on top.
+            // The `test` command is on the combat ship too, with one crew
+            // member — four bunks to spare — and a mercenary for hire at
+            // the dock whatever the roll said, so a hire can be looked at.
+            let mut session = match *launch {
+                Launch::Combat => Session::combat(seed, size.x, size.y),
+                Launch::Test => {
+                    let design = shipdesign::fixture::combat_ship();
+                    let mut session =
+                        Session::simulate_on(design, 1, seed, 0, spawn, size.x, size.y);
+                    session.mercenary_for_probe();
+                    session
+                }
+                _ => Session::simulate(seed, 0, spawn, size.x, size.y),
+            };
             if crate::dev::at_belt() {
                 session.hold_at_belt_for_probe();
             }
-            // The `combat` command is the simulation with the dock turned
-            // against the crew: the people living there are enemies, and a
-            // recruited crew member shoots at any it can see.
-            if *launch == Launch::Combat {
-                session.make_dock_hostile();
-            }
             if crate::dev::fight() {
                 session.stage_fight_for_probe();
+            }
+            // A weapon asked for by name goes into the hand in place of
+            // whatever was issued, the rest of the gear kept: the crew
+            // member's, or every resident's; and armour asked for goes on
+            // the crew member, pieces with ids the hold does not have.
+            // `Game::issue` redraws the picture, so the swing or the
+            // barrel is on screen from the first frame.
+            let worn = crate::dev::armoured();
+            if (worn || crate::dev::weapon().is_some())
+                && let Some(game) = session.game.as_mut()
+            {
+                use bims::combat::{ArmourKind, Piece};
+                let room = &mut game.world.aboard.room;
+                let gear = room.gear(0);
+                let piece = |kind: ArmourKind| {
+                    worn.then(|| Piece::new(u32::MAX - kind.code(), kind))
+                        .or(gear.worn(kind.slot()))
+                };
+                room.issue(
+                    0,
+                    bims::combat::Gear {
+                        weapon: crate::dev::weapon().or(gear.weapon),
+                        head: piece(ArmourKind::BasicHelm),
+                        body: piece(ArmourKind::BasicKevlar),
+                        legs: piece(ArmourKind::BasicLegs),
+                        ..gear
+                    },
+                );
+            }
+            if let Some(kind) = crate::dev::enemy_weapon()
+                && let Some(residents) = session
+                    .game
+                    .as_mut()
+                    .and_then(|g| g.world.residents.as_mut())
+            {
+                let room = &mut residents.aboard.room;
+                for who in 0..room.crew_count() as usize {
+                    let gear = room.gear(who);
+                    room.issue(
+                        who,
+                        bims::combat::Gear {
+                            weapon: Some(kind),
+                            ..gear
+                        },
+                    );
+                }
             }
             let out = (session.editor.local, session.editor.players);
             commands.insert_resource(ShipSession(session));
@@ -268,6 +327,14 @@ fn frame(
             panels.rebuild_crew(crew_now);
             panels.begin_frame();
         }
+    }
+    // The hold, for the pack's rows and the container windows: what is
+    // in it, and whether the Bim whose inventory is shown can reach into
+    // something that takes each thing. Fresh every frame — the Bim is
+    // walking.
+    if let Some(panels) = &mut screen.panels {
+        let who = session.room_ref().map(|r| panels.inventory_who(r));
+        panels.hold = who.map(|who| hold_of(session, who));
     }
     let crew_count = session
         .game
@@ -505,12 +572,16 @@ fn frame(
                     let fixture = room.hit_at(rx, ry);
                     if fixture != 0 {
                         let at = pointer.pos.unwrap();
-                        panels.open_menu(fixture, egui::pos2(at.x, at.y));
+                        panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
                     }
                     // A doorway is somewhere to stand as well as something
                     // to work: the door's menu opens *and* the order goes
                     // through, so a right-click on one walks the Bim into
-                    // it. Every other fixture keeps the click for its menu.
+                    // it. Every other fixture keeps the click for its menu
+                    // — a body included, living (`HIT_BIM`, the bandage
+                    // menu), dead (`HIT_BODY`) or one of the station's
+                    // people down in its own room (`HIT_VISITOR`, the Loot
+                    // row): never the deck it lies on.
                     if fixture == 0 || fixture == HIT_SHIP_DOOR || fixture == HIT_DOOR {
                         let code = room.order_move(rx, ry);
                         if let Some(refused) = order_refused(code) {
@@ -538,7 +609,7 @@ fn frame(
                             let moved = (p - from).length() > CLICK_SLOP;
                             if fixture != 0 && !moved {
                                 let at = pointer.pos.unwrap();
-                                panels.open_menu(fixture, egui::pos2(at.x, at.y));
+                                panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
                             }
                             screen.marquee_from = None;
                         }
@@ -622,10 +693,9 @@ fn frame(
                     // A tool in hand is put down first, and nothing else
                     // happens.
                     panels.tool = None;
-                } else if panels.menu_open() {
-                    // A menu, or the trade window, is shut without opening
-                    // the sheet.
-                    panels.close_menu();
+                } else if panels.escape() {
+                    // A menu, a container window or the trade window is
+                    // shut without opening the sheet.
                 } else if screen.trading {
                     screen.trading = false;
                 } else {
@@ -747,12 +817,16 @@ fn frame(
         _ => (String::new(), String::new()),
     };
 
-    egui::Area::new(egui::Id::new("game-left"))
+    // The name of the game, the clock and the speed, each in a little
+    // frame of its own along the top. An area of its own rather than the
+    // first row of the stack under it: egui counts the whole of an area's
+    // bounding box as its own for the pointer, so a row this wide over a
+    // stack this tall would make a dead rectangle of the ship's left half
+    // — a click there would be nobody's.
+    let top = egui::Area::new(egui::Id::new("game-top-left"))
         .fixed_pos(egui::pos2(canvas.min.x + 10.0, canvas.min.y + 10.0))
         .order(egui::Order::Middle)
         .show(&ctx, |ui| {
-            // The name of the game, the clock and the speed, each in a
-            // little frame of its own along the top.
             ui.horizontal(|ui| {
                 panel_frame().show(ui, |ui| {
                     ui.heading("Bims");
@@ -760,14 +834,53 @@ fn frame(
                 panel_frame().show(ui, |ui| {
                     clock_panel(ui, session, &screen.net, &mut orders);
                 });
-                if session.room_ref().is_some_and(|r| r.is_recruited()) {
+                // The recruited panel says why the gun has gone quiet
+                // while a blade is at the player's crew member: the same
+                // panel, since nothing on the screen may grow — the left
+                // stack already fills a short window, and a panel added
+                // to it shoves the whole stack up over this row.
+                if let Some(room) = session.room_ref()
+                    && room.is_recruited()
+                {
+                    let locked =
+                        room.is_alive(local as usize) && room.is_locked(local as usize).is_some();
                     panel_frame().show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new("Recruited — orders only").color(theme::ACCENT),
-                        );
+                        ui.horizontal(|ui| {
+                            if locked {
+                                ui.label(
+                                    egui::RichText::new(format!("Recruited — {LOCKED_STATUS}"))
+                                        .color(theme::CAUTION),
+                                );
+                                theme::question_mark(ui, &locked_tip());
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("Recruited — orders only")
+                                        .color(theme::ACCENT),
+                                );
+                            }
+                        });
+                    });
+                }
+                // And the alarm: the rest of the crew under arms of their own
+                // accord, an enemy near or one of them hit.
+                if let Some(room) = session.room_ref()
+                    && room.is_alarmed()
+                {
+                    panel_frame().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(ALARM_STATUS).color(theme::CAUTION));
+                            theme::question_mark(ui, ALARM_TIP);
+                        });
                     });
                 }
             });
+        })
+        .response
+        .rect;
+    egui::Area::new(egui::Id::new("game-left"))
+        .fixed_pos(egui::pos2(canvas.min.x + 10.0, top.max.y + 4.0))
+        .order(egui::Order::Middle)
+        .show(&ctx, |ui| {
             panel_frame().show(ui, |ui| {
                 ui.set_max_width(260.0);
                 items_panel(ui, session, panels);
@@ -809,14 +922,18 @@ fn frame(
     }
 
     // --- the strip across the top: where the ship is, and where it is going ----
-    egui::Area::new(egui::Id::new("game-trip"))
-        .anchor(
-            egui::Align2::CENTER_TOP,
-            egui::vec2(
-                (canvas.min.x + canvas.max.x) / 2.0 - ctx.viewport_rect().center().x,
-                canvas.min.y + 10.0,
-            ),
-        )
+    // Centred on the canvas, but never over the row of frames at the top
+    // left: that row grows a "Recruited" panel in combat, and at the
+    // default window width the two met in the middle. Its width is last
+    // frame's (the first frame guesses the minimum), which is what egui's
+    // own anchoring reads too.
+    let trip_id = egui::Id::new("game-trip");
+    let trip_width = ctx
+        .memory(|m| m.area_rect(trip_id).map(|r| r.width()))
+        .unwrap_or(300.0);
+    let trip_x = ((canvas.min.x + canvas.max.x - trip_width) / 2.0).max(top.max.x + 8.0);
+    egui::Area::new(trip_id)
+        .fixed_pos(egui::pos2(trip_x, canvas.min.y + 10.0))
         .order(egui::Order::Middle)
         .show(&ctx, |ui| {
             panel_frame().show(ui, |ui| {
@@ -862,11 +979,16 @@ fn frame(
     if actions.station {
         screen.trading = !screen.trading;
     }
+    // So does the Trade row on the station's desk, which walked the Bim
+    // over as well.
+    if std::mem::take(&mut panels.trade_requested) {
+        screen.trading = true;
+    }
     if !actions.docked {
         screen.trading = false;
     }
     if screen.trading {
-        trade_window(&ctx, session, &mut screen.trading, &mut orders);
+        trade_window(&ctx, session, local, &mut screen.trading, &mut orders);
     }
     if actions.clear {
         orders.push(Order::ClearMarks);
@@ -926,8 +1048,56 @@ fn frame(
 
     if let Some(room) = session.room() {
         panels.menu(&ctx, room, &name);
+        panels.container_window(&ctx, room, &name);
+    }
+    // The body under the Loot window, after the menu — which is what
+    // opens it — and fresh every frame: the looter is walking, and a
+    // crewmate out cold may come round. The walk over is the world's to
+    // start, since where one of the station's people lies is a point of
+    // its own room put through the station's frame.
+    if let Some(game) = &mut session.game {
+        let world = &mut game.world;
+        let who = panels.inventory_who(&world.aboard.room);
+        if let Some(source) = panels.walk.take()
+            && let Some(at) = world.body_position(source)
+        {
+            world.aboard.room.send_to(who, at);
+        }
+        panels.body = panels
+            .loot_source()
+            .and_then(|source| body_of(world, who, source));
+        // And the mercenary under the Hire window, the same way: for hire
+        // still, and what it asks, read off the world every frame.
+        panels.terms = panels.hire_source().and_then(|resident| {
+            let offer = world.hire_offer(who as u32, resident)?;
+            let gear = world
+                .residents
+                .as_ref()?
+                .aboard
+                .room
+                .gear(resident as usize);
+            Some(crate::crew::Terms {
+                fee: offer.fee,
+                gear,
+                in_reach: offer.in_reach,
+                affordable: offer.affordable,
+                bunk: offer.bunk,
+            })
+        });
+        let room = &mut world.aboard.room;
+        panels.loot_window(&ctx, room, &name);
+        panels.hire_window(&ctx, room, &name);
         panels.inventory_window(&ctx, room, &name);
+        panels.cell_menu(&ctx, room, &name);
         panels.end_frame(room);
+    }
+    // What the grids asked for: gear moves through the seam like every
+    // other change to the hold.
+    for order in panels.orders.drain(..) {
+        orders.push(Order::Gear(order));
+    }
+    for order in orders.drain(..) {
+        screen.net.order(session, order);
     }
     if screen.sheet {
         settings_sheet(&ctx, &mut screen.sheet);
@@ -963,6 +1133,15 @@ fn frame(
                     theme::THEIRS
                 };
                 theme::name_over(&painter, at, &crew_name(who), color);
+                // Locked in a melee, it says so over its head, where the
+                // eye is during a fight: the deck shows the brawl and not
+                // why the shooting stopped.
+                if session.room_ref().is_some_and(|r| {
+                    r.is_alive(who as usize) && r.is_locked(who as usize).is_some()
+                }) {
+                    let above = egui::pos2(at.x, at.y - theme::NAME_SIZE - 2.0);
+                    theme::name_over(&painter, above, LOCKED_STATUS, theme::CAUTION);
+                }
             }
         }
         let station = session.resident_station().unwrap_or(0);
@@ -971,6 +1150,12 @@ fn frame(
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
                 let at = egui::pos2(at.x, at.y - theme::NAME_LIFT * view.scale);
                 theme::name_over(&painter, at, &resident_name(station, who), theme::THEIRS);
+                // A mercenary for hire wears a `?` over its name: somebody
+                // to right-click and talk to, which nobody else ashore is.
+                if session.mercenary_fee(who).is_some() {
+                    let above = egui::pos2(at.x, at.y - theme::NAME_SIZE - 4.0);
+                    theme::badge_over(&painter, above, MERCENARY_MARK, theme::ACCENT);
+                }
             }
         }
     }
@@ -1289,12 +1474,23 @@ fn clock_panel(ui: &mut egui::Ui, session: &Session, net: &Net, orders: &mut Vec
 /// trades, a row a resource, the ones it does not stock dimmed, and the
 /// hold's room under. Only while docked — the button that opens it is
 /// only there then — and shut by its own cross, by Escape, or by leaving.
-fn trade_window(ctx: &egui::Context, session: &Session, open: &mut bool, orders: &mut Vec<Order>) {
+fn trade_window(
+    ctx: &egui::Context,
+    session: &mut Session,
+    local: u32,
+    open: &mut bool,
+    orders: &mut Vec<Order>,
+) {
     let Some(station) = session.docked_at() else {
         *open = false;
         return;
     };
     let title = node_name(session, Node::Station(station));
+    // The station is traded with across its desk: the rows are live only
+    // while the crew member steered stands at it, and the button walks
+    // it over. The world refuses a deal from across the room either way.
+    let at_desk = session.at_the_desk(local);
+    let mut walk = false;
     egui::Window::new(title)
         .id(egui::Id::new("trade"))
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
@@ -1310,9 +1506,21 @@ fn trade_window(ctx: &egui::Context, session: &Session, open: &mut bool, orders:
                 );
                 ui.label(egui::RichText::new(euros(session.remaining())).strong());
             });
+            if !at_desk {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(NOT_AT_DESK)
+                            .small()
+                            .color(theme::CAUTION),
+                    );
+                    if ui.small_button(WALK_TO_DESK).clicked() {
+                        walk = true;
+                    }
+                });
+            }
             ui.add_space(4.0);
             if let Some((resource, units, buying)) =
-                trade_rows(ui, session, true, |s, id| s.cargo(id))
+                trade_rows(ui, session, at_desk, |s, id| s.cargo(id))
             {
                 orders.push(Order::Deal {
                     resource: ResourceId::ALL[resource as usize],
@@ -1321,6 +1529,9 @@ fn trade_window(ctx: &egui::Context, session: &Session, open: &mut bool, orders:
                 });
             }
         });
+    if walk {
+        session.walk_to_desk(local);
+    }
 }
 
 /// The Ship tab: the helm, and the ship's facts.
@@ -1550,6 +1761,46 @@ fn items_panel(ui: &mut egui::Ui, session: &Session, panels: &mut CrewPanels) {
                 ui.end_row();
             }
         });
+}
+
+/// The hold as the crew's panels want it: what is aboard and not spoken
+/// for, the pieces of armour in it, how full each class is, and whether
+/// crew member `who` stands within reach of a container that takes each
+/// resource — the world's own `in_reach`, asked once a resource, so the
+/// rows can say "walk over first" before a command is sent and refused.
+fn hold_of(session: &Session, who: usize) -> Hold {
+    let mut hold = Hold::default();
+    let Some(game) = session.game.as_ref() else {
+        return hold;
+    };
+    let world = &game.world;
+    for &id in ResourceId::ALL.iter() {
+        hold.counts[id as usize] = world.free(id);
+        hold.reach[id as usize] = world.in_reach(who as u32, id);
+    }
+    for piece in world.pieces.iter().filter(|p| p.at == Where::Hold) {
+        if let bims::combat::Item::Armour(piece) = piece.item() {
+            hold.pieces.push(piece);
+        }
+    }
+    for &class in Storage::ALL.iter() {
+        hold.used[class as usize] = session.storage_used(class);
+        hold.capacity[class as usize] = session.storage_capacity(class);
+    }
+    hold
+}
+
+/// A body as the Loot window wants it: what it has on it, whether it is
+/// still down, and whether crew member `who` stands within reach of it —
+/// the world's own `in_reach_of_body`, so the window can say "walk over
+/// first" before a command is sent and refused. `None` for a Bim the
+/// world no longer has — a resident once the rooms have parted.
+fn body_of(world: &world::World, who: usize, source: world::LootSource) -> Option<Body> {
+    Some(Body {
+        cells: world.loot_cells(source)?,
+        down: world.is_down(source),
+        reach: world.in_reach_of_body(who as u32, source),
+    })
 }
 
 /// What the benches make, a row each for the Management tab: one per

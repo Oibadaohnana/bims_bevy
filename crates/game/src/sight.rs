@@ -149,7 +149,10 @@ pub struct Sight {
     /// What the mask was last worked out from: the eyes' tiles and the
     /// shut doors. When these have not moved, neither has the mask.
     eyes_at: Vec<(i32, i32)>,
+    /// The shut doors `cells` carries now — see `set_shut`.
     shut: Vec<Rect>,
+    /// Whether the doors have moved since the mask was traced.
+    stale: bool,
     /// Whether anything has been traced yet. Until it has, nothing is
     /// seen, which is right for a room nobody is looking into.
     traced: bool,
@@ -176,6 +179,7 @@ impl Sight {
             near: vec![false; (columns * rows) as usize],
             eyes_at: Vec::new(),
             shut: Vec::new(),
+            stale: false,
             traced: false,
             own: Stance::Friendly,
             foreign: Stance::Neutral,
@@ -341,23 +345,36 @@ impl Sight {
             .map(|eye| eye.at)
     }
 
-    /// Work the mask out again from these eyes and these shut doors, if
-    /// anything about them has changed since last time. True when it was.
-    pub fn observe(&mut self, eyes: &[Vec2], shut: &[Rect]) -> bool {
-        let eyes_at: Vec<(i32, i32)> = eyes.iter().map(|&p| self.tile_of(p)).collect();
-        if self.traced && eyes_at == self.eyes_at && shut == self.shut {
+    /// Put these shut doors over the fixed picture, for every line of
+    /// sight to read — the trace's and a shot's alike — if they are not
+    /// the ones there already. True when they were not. On its own this
+    /// is all a room nobody looks through needs: its people aim through
+    /// `cells` whether or not a mask is ever traced.
+    pub fn set_shut(&mut self, shut: &[Rect]) -> bool {
+        if shut == self.shut {
             return false;
         }
-        self.eyes_at = eyes_at;
         self.shut = shut.to_vec();
-        self.traced = true;
-
-        // The doors, shut, over the fixed picture.
+        self.stale = true;
         let mut cells = self.fixed.clone();
         for door in shut {
             self.mark(&mut cells, door, &mut |c| c.opaque = true);
         }
         self.cells = cells;
+        true
+    }
+
+    /// Work the mask out again from these eyes and these shut doors, if
+    /// anything about them has changed since last time. True when it was.
+    pub fn observe(&mut self, eyes: &[Vec2], shut: &[Rect]) -> bool {
+        let eyes_at: Vec<(i32, i32)> = eyes.iter().map(|&p| self.tile_of(p)).collect();
+        self.set_shut(shut);
+        if self.traced && !self.stale && eyes_at == self.eyes_at {
+            return false;
+        }
+        self.eyes_at = eyes_at;
+        self.stale = false;
+        self.traced = true;
 
         for s in self.seen.iter_mut() {
             *s = false;
