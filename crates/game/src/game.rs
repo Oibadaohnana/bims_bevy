@@ -7,22 +7,23 @@ use crate::clock::MINUTES_PER_SECOND;
 use crate::clock::{self, Clock};
 use crate::combat::{
     ArmourKind, Blow, Combat, FIST_DAMAGE, Gear, Hit, Item, LOOT_CELLS, LootCell, MELEE_PERIOD,
-    MELEE_RANGE, PACK_CELLS, Piece, Shot, Tactics, WeaponKind, WeaponStats,
+    MELEE_RANGE, PACK_CELLS, Piece, Shot, Tactics, Weapon, WeaponStats,
 };
+use crate::cue::{Cue, Cued};
 use crate::door;
 use crate::draw::{Color, DrawList};
 use crate::filth;
-use crate::health::{Health, Malnutrition, Part};
+use crate::health::{Health, Lasting, Malnutrition, Part, Trauma};
 use crate::hydro;
 use crate::manager::{Manager, Stock};
-use crate::math::{Rect, Vec2, clamp, vec2};
+use crate::math::{Rect, TAU, Vec2, clamp, vec2};
 use crate::memory::What;
 use crate::nav::{self, Maps, Nav};
 use crate::needs::{Need, Urge};
 use crate::rng::Rng;
 use crate::room::{
-    self, Dish, GLOW, HIT_BIM, HIT_BODY, HIT_NONE, HIT_VISITOR, ROOM_H, ROOM_W, Room, Switch, TILE,
-    WARN,
+    self, Dish, Dropped, GLOW, HIT_BIM, HIT_BODY, HIT_DROPPED, HIT_NONE, HIT_VISITOR, ROOM_H,
+    ROOM_W, Room, Switch, TILE, WARN,
 };
 use crate::schedule::{IGNORE_ABOVE, Schedule, Slot, WAKE_AT};
 use crate::sight::{Fog, Stance};
@@ -45,11 +46,18 @@ pub const SEEN_FOR: f32 = 2.0;
 /// How long the flash a hit puts on a body lasts, in seconds.
 const HIT_FLASH: f32 = 0.22;
 
+/// How far ahead of a body going out cold its gun lands, in room units:
+/// beside the fallen figure rather than under it.
+const DROP_FLUNG: f32 = 30.0;
+
 /// How a shot on a body went — see [`Game::wound`]. All nought for a shot
 /// on nobody: a dead Bim, or one that is not there.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct WoundOutcome {
-    /// The shot took a leg — see `Health::shot`.
+    /// The shot took the part to nothing, and this is the dying state it
+    /// rolled — see `Health::shot`.
+    pub trauma: Option<Trauma>,
+    /// The shot took a leg: the trauma is a crushed one.
     pub leg_lost: bool,
     /// What the armour on the part took off it, its protection included.
     pub absorbed: f32,
@@ -60,13 +68,15 @@ pub struct WoundOutcome {
 }
 
 /// A container the crew can reach into, for [`Game::container_spot`]: a
-/// workstation (the armoury among them), a shelf or a cold store, each
-/// by its index in the room's list of that kind.
+/// workstation (the armoury among them), a shelf, a cold store or a
+/// research desk, each by its index in the room's list of that kind.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Container {
     Bench(usize),
     Shelf(usize),
     Fridge(usize),
+    /// A research desk: the slot a research key sits in.
+    Desk(usize),
 }
 /// The flash itself: the colour of what hit it, lit white in the middle.
 const HIT: Color = Color::rgb(1.0, 0.95, 0.85);
@@ -85,6 +95,10 @@ pub const ALARM_RANGE: f32 = 100.0;
 /// How long the alarm holds after a crew member is hit with no enemy in
 /// range, in seconds at 1x.
 pub const ALARM_HOLD: f32 = 30.0;
+/// How long an enemy's people go on believing a crew member is where one
+/// of them last saw it, in seconds, once nobody sees it any more. They
+/// chase that spot for this long and then give the hunt up.
+pub const FORGET_AFTER: f32 = 60.0;
 /// Where the crew stand round the player's Bim under the alarm, in tiles
 /// off it, by rank: behind and beside, a body's width apart, so the ring
 /// is a squad at its back rather than a crowd on top of it.
@@ -99,6 +113,20 @@ pub const GATHER_SLOTS: [(f32, f32); 6] = [
 /// How far off its slot a gathered crew member may stand before it walks
 /// to it again, in tiles.
 pub const GATHER_SLACK: f32 = 1.0;
+/// Where several selected crew go for one right-click, in tiles off the
+/// point, in crew order: the point itself, then a ring round it a body's
+/// width out, so an order for a squad is a huddle and not a stack.
+pub const CLUSTER_SLOTS: [(f32, f32); 9] = [
+    (0.0, 0.0),
+    (-1.0, 0.0),
+    (1.0, 0.0),
+    (0.0, -1.0),
+    (0.0, 1.0),
+    (-1.0, -1.0),
+    (1.0, -1.0),
+    (-1.0, 1.0),
+    (1.0, 1.0),
+];
 
 /// How far outside a fixture its highlight ring sits. Enough to read as a ring
 /// round the thing rather than an outline drawn on it.
@@ -174,6 +202,28 @@ const RETCH_TIME: f32 = 2.2;
 /// replanning on the spot; this is often enough to look decisive.
 const FLEE_EVERY: f32 = 2.0;
 const FLEE_LOOK: i32 = 4;
+/// One door's lock as the world carries it between rooms — see
+/// `Game::door_states`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct DoorState {
+    /// The middle of the opening, in the room's units.
+    pub centre: Vec2,
+    pub locked: bool,
+    /// Locked from the panel by the crew, rather than by one of the room's
+    /// own bodies sealing itself in.
+    pub by_crew: bool,
+    /// How far a smashing has got, while one is on.
+    pub smash: Option<f32>,
+    /// The lock changed since the world last looked.
+    pub changed: bool,
+}
+
+/// Where a body stands to work a door's panel or heave at it: the room's
+/// own stand-off, a tile's half out of the opening.
+const DOOR_STAND_OFF: f32 = 26.0;
+/// Seconds between the wounds an enemy sealed in binds. See
+/// `Game::seal_and_bind`.
+pub const BIND_EVERY: f32 = 10.0;
 
 /// How long a nod-off lasts, and how often one comes over a Bim that is past
 /// the point of staying upright — about one in every three quarters of an hour
@@ -222,6 +272,9 @@ pub const JOB_EVA: u32 = 19;
 pub const JOB_HAUL: u32 = 20;
 pub const JOB_BUILD: u32 = 21;
 pub const JOB_BANDAGE: u32 = 22;
+pub const JOB_TREAT: u32 = 23;
+pub const JOB_FETCH: u32 = 24;
+pub const JOB_EXECUTE: u32 = 25;
 
 fn job_code(kind: Kind, rest_minutes: f32) -> u32 {
     match kind {
@@ -250,6 +303,9 @@ fn job_code(kind: Kind, rest_minutes: f32) -> u32 {
         Kind::Haul { .. } => JOB_HAUL,
         Kind::Build { .. } => JOB_BUILD,
         Kind::Bandage { .. } => JOB_BANDAGE,
+        Kind::Treat { .. } => JOB_TREAT,
+        Kind::Fetch { .. } => JOB_FETCH,
+        Kind::Execute { .. } => JOB_EXECUTE,
     }
 }
 
@@ -259,6 +315,15 @@ const NIGHT: Color = Color::rgb(0.03, 0.05, 0.13);
 /// How dark it gets at the middle of the night. Short of black: you still
 /// want to see the Bim sleeping.
 const NIGHT_DEPTH: f32 = 0.46;
+
+/// What a hostile room's people believe about one of the world's targets:
+/// where one of them last saw it, what it carries, and how long ago.
+#[derive(Clone, Copy, Debug)]
+struct Seen {
+    at: Vec2,
+    weapon: Weapon,
+    ago: f32,
+}
 
 struct Marker {
     pos: Vec2,
@@ -378,8 +443,19 @@ fn exclusive(kind: Kind) -> Option<Exclusive> {
         | Kind::Heads
         | Kind::Clean
         | Kind::Shower
-        | Kind::Bandage { .. } => None,
+        | Kind::Bandage { .. }
+        | Kind::Treat { .. }
+        | Kind::Fetch { .. }
+        | Kind::Execute { .. } => None,
     }
+}
+
+/// What the medical row has for a Bim: a part of somebody's to dress, or
+/// a crewmate's dying state to treat. See `Game::medical_on_offer`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Care {
+    Bandage(usize, Part),
+    Treat(usize, Part),
 }
 
 /// What became of a right-click on the floor. The host turns these into words.
@@ -436,6 +512,7 @@ pub struct Game {
     hit_bench: usize,
     hit_shelf: usize,
     hit_desk: usize,
+    hit_research: usize,
     /// Which side of the bathroom bulkhead the Bim was on last frame, and how
     /// long the door has left to stand open after it crossed.
     bim_was_inside: bool,
@@ -451,6 +528,10 @@ pub struct Game {
     first_tick: usize,
     /// Corners of the selection box while the mouse is down; `None` otherwise.
     drag: Option<(Vec2, Vec2)>,
+    /// A right-drag on the deck with a selection: the line the selected
+    /// crew will be spread along, drawn while it is drawn. See
+    /// `Game::order_drag_end`.
+    order_drag: Option<(Vec2, Vec2)>,
     markers: Vec<Marker>,
 
     /// The day's timetable. Only sleep is on it so far, and there is one of it
@@ -544,6 +625,22 @@ pub struct Game {
     /// Every worn piece a hit broke since the world last asked — whose,
     /// and what it was — for the world to say so. See `Game::wound`.
     pieces_broken: Vec<(usize, ArmourKind)>,
+    /// Every dying state a hit put a body in since the world last asked,
+    /// and every one a medkit took it out of — whose, and which — for the
+    /// world to say so. See `Game::strike` and `Game::apply_treatments`.
+    traumas: Vec<(usize, Trauma)>,
+    treated: Vec<(usize, Trauma)>,
+    /// The dropped weapon a click last landed on, for the host to ask
+    /// after `hit_at` said `HIT_DROPPED`: its id.
+    hit_dropped: u32,
+    /// The dropped weapon the pointer rests on, ringed in `render` so the
+    /// gun under the mouse reads as something to click; `None` for none.
+    hover_dropped: Option<u32>,
+    /// What a hostile room's people believe about each of the world's
+    /// targets: where it was when one of them last saw it, and how long
+    /// ago. Index for index with `set_hostiles`; `None` for one never
+    /// seen, down, or forgotten. See `set_hostiles`.
+    last_seen: Vec<Option<Seen>>,
     list: DrawList,
 
     /// Maps the fixed-size room onto whatever canvas the host has. The host
@@ -650,12 +747,14 @@ impl Game {
             hit_bench: 0,
             hit_shelf: 0,
             hit_desk: 0,
+            hit_research: 0,
             bim_was_inside: false,
             door_shut_in: 0.0,
             rng,
             bims,
             first_tick: 0,
             drag: None,
+            order_drag: None,
             markers: Vec::new(),
             schedule: Schedule::new(),
             manager: Manager::new(),
@@ -683,6 +782,11 @@ impl Game {
             attacked_for: 0.0,
             wounds_taken: Vec::new(),
             pieces_broken: Vec::new(),
+            traumas: Vec::new(),
+            treated: Vec::new(),
+            hit_dropped: 0,
+            hover_dropped: None,
+            last_seen: Vec::new(),
             list: DrawList::new(),
             view_scale: 1.0,
             view_offset: Vec2::ZERO,
@@ -709,6 +813,13 @@ impl Game {
         self.room.beds.len()
     }
 
+    /// Where a body stands to get into the bunk with that index, for the
+    /// tests: somewhere on the deck, in a room of its own.
+    #[allow(dead_code)]
+    pub fn bed_station_for_probe(&self, bed: usize) -> Vec2 {
+        self.room.bed_station(bed)
+    }
+
     pub fn take_crew(&mut self) -> Vec<Bim> {
         for bim in &mut self.bims {
             if let Some(task) = bim.task.take() {
@@ -725,6 +836,19 @@ impl Game {
             bim.character.hold_main(crate::character::Held::Nothing);
             bim.character.hold_tool(crate::character::Held::Nothing);
             bim.pending_move = None;
+        }
+        // The room is about to be thrown away, and a gun on its deck with
+        // it: whoever dropped one takes it along — into the hand, else the
+        // pack, else it is lost with the deck.
+        for (who, bim) in self.bims.iter_mut().enumerate() {
+            while let Some(i) = self.room.weapons_down.iter().position(|d| d.owner == who) {
+                let d = self.room.weapons_down.remove(i);
+                if bim.gear.weapon.is_none() {
+                    bim.gear.weapon = Some(d.weapon);
+                } else if let Some(cell) = bim.gear.free_cell() {
+                    bim.gear.pack[cell] = Some(Item::Weapon(d.weapon));
+                }
+            }
         }
         std::mem::take(&mut self.bims)
     }
@@ -880,6 +1004,21 @@ impl Game {
         // chain says hands came off a part, and the body it was on is
         // looked at here.
         self.apply_dressings();
+        self.apply_treatments();
+        self.apply_pickups();
+        // Under arms, bodies do not stack: whoever is recruited is pushed
+        // apart from whoever else is, after everybody has moved.
+        self.separate_under_arms();
+        // A belief about where the crew are ages, and is given up after a
+        // minute unseen.
+        for seen in self.last_seen.iter_mut() {
+            if let Some(s) = seen.as_mut() {
+                s.ago += dt;
+                if s.ago > FORGET_AFTER {
+                    *seen = None;
+                }
+            }
+        }
         // The blood on the deck, for everybody: a drop is a stain on the
         // tile it lands on, and the deck keeps it until somebody sweeps.
         for bim in &mut self.bims {
@@ -998,21 +1137,52 @@ impl Game {
             if let Some(blow) = bim.blow.as_mut() {
                 blow.left -= dt;
             }
-            // Not while winding a bandage: both hands are on it, so the
-            // weapon is holstered for the dressing and drawn again after.
-            // The walk to the patient is not the dressing — it holds its
-            // fire the way any walk does, and shoots again on arriving.
-            let dressing = bim.task.as_ref().is_some_and(|t| t.is_dressing());
+            // Not while doctoring: both hands are on the bandage, or on the
+            // kit on the way to the patient, so the weapon is holstered for
+            // the whole errand — the walk included, since a bot that fired
+            // on its way over would be a bot that never got there — and
+            // drawn again after. The tactics leave it alone for the same
+            // span (`doctoring`, below).
+            let dressing = bim
+                .task
+                .as_ref()
+                .is_some_and(|t| matches!(t.kind(), Kind::Bandage { .. } | Kind::Treat { .. }));
+            // A body dying with an enemy about runs, whoever it is — the
+            // player's own too — and neither aims nor fires while it does.
+            let fleeing = self.is_fleeing(who);
+            // Finishing a body off draws the weapon whether or not the Bim
+            // is under arms: the body it is at, while the hands are at it.
+            let executing = self.bims[who]
+                .task
+                .as_ref()
+                .and_then(|t| t.executing_at(&self.room));
+            let bim = &mut self.bims[who];
             let armed = bim.is_alive()
-                && bim.character.is_recruited()
+                && (bim.character.is_recruited() || executing.is_some())
                 && bim.gear.weapon.is_some()
                 && !bim.character.is_outside()
                 && !bim.character.is_seated()
                 && !bim.character.is_napping()
                 && !bim.character.is_unconscious()
-                && !dressing;
+                && !dressing
+                && !fleeing;
             let weapon = bim.gear.weapon.filter(|_| armed);
-            bim.character.set_armed(weapon);
+            bim.character.set_armed(weapon.map(|w| w.kind));
+            if fleeing {
+                bim.burst_left = 0;
+                bim.locked = None;
+                bim.blow = None;
+                bim.peek = None;
+                bim.character.set_lean(None);
+                bim.smashing = None;
+                self.flee(who, dt);
+                // An enemy's run locks the door behind it, and sealed in it
+                // binds its wounds; a crew member's does neither.
+                if self.hostile_bodies {
+                    self.seal_and_bind(who, dt);
+                }
+                continue;
+            }
             let Some(weapon) = weapon else {
                 bim.burst_left = 0;
                 bim.locked = None;
@@ -1022,13 +1192,53 @@ impl Game {
                 continue;
             };
             let stats = weapon.stats();
+            // At a body it is finishing off: squared up to it, a pull of the
+            // trigger every `1 / fire_rate` — the bolt flies at where it
+            // lies, and over it, since a body down is nobody's target — or a
+            // swing every `MELEE_PERIOD`; nothing else, until the chain says
+            // it is done. The room says who was finished, the world kills.
+            if let Some(at) = executing {
+                let from = bim.character.pos;
+                bim.burst_left = 0;
+                bim.locked = None;
+                bim.blow = None;
+                bim.peek = None;
+                bim.character.set_lean(None);
+                if (at - from).len() > 1e-3 {
+                    bim.character.face((at - from).angle());
+                }
+                if stats.melee {
+                    // Set outright rather than as an antic: a body on a chain
+                    // is scripted, and `antic` defers to the script.
+                    if bim.melee_timer <= 0.0 {
+                        bim.melee_timer = MELEE_PERIOD;
+                        bim.character.set_action(Action::Swing);
+                    } else if bim.melee_timer < MELEE_PERIOD - SWING_TIME {
+                        bim.character.set_action(Action::None);
+                    }
+                } else if bim.reload <= 0.0 {
+                    bim.reload = 1.0 / stats.fire_rate.max(1e-3);
+                    if self.hostile_bodies {
+                        self.combat.shoot(from, at, weapon, false);
+                    } else {
+                        self.combat.fire(from, at, weapon, false, false);
+                    }
+                }
+                continue;
+            }
             // At war it picks its own stand. A crew member under the alarm
             // that is not the player's to steer keeps to the player's side
             // until it sees an enemy for itself, and then picks its own —
-            // unless the player ordered it somewhere, when it holds that.
-            if war {
+            // unless the player ordered it somewhere, when it holds that. A
+            // patient somebody is walking over to holds still for them
+            // instead (`tick_bim`), and shoots from where it stands.
+            let seen_to = self.is_being_seen_to(who);
+            let holds_post = self.bims[who].character.post().is_some();
+            if war && !seen_to {
                 self.plan_stand(who, dt, &stats);
-            } else if alarm && who != PLAYER && self.bims[who].character.post().is_none() {
+                // And, with nobody it can get to, the doors in the way.
+                self.breach(who, dt);
+            } else if alarm && !seen_to && who != PLAYER && !holds_post {
                 let from = self.bims[who].character.pos;
                 let player_up =
                     self.bims[PLAYER].is_alive() && !self.bims[PLAYER].character.is_outside();
@@ -1100,13 +1310,14 @@ impl Game {
                 continue;
             };
             // Squared up to it, and a shot the moment the weapon is ready.
-            // Not while walking, for the crew: a Bim on its way somewhere
-            // is facing the way it is going, and turns to shoot when it
-            // gets there. An enemy shoots when it can — on the move too,
-            // from its own eyes and without turning off its route; only a
-            // peek wants standing against the wall to lean from.
+            // On the move too, crew and enemy alike, at half the odds
+            // (`WALKING_ACCURACY`): a Bim on its way somewhere shoots
+            // from its own eyes without turning off its route, and the
+            // bots stand still for it unless the walk is to cover
+            // (`plan_stand`). Only a peek wants standing against the wall
+            // to lean from.
             let walking = bim.character.is_walking();
-            if walking && (!self.hostile_bodies || eye != from) {
+            if walking && eye != from {
                 bim.burst_left = 0;
                 bim.peek = None;
                 bim.character.set_lean(None);
@@ -1143,22 +1354,28 @@ impl Game {
             };
             if shoot {
                 if self.hostile_bodies {
-                    self.combat.shoot(eye, at, weapon);
+                    self.combat.shoot(eye, at, weapon, walking);
                 } else {
-                    self.combat.fire(eye, at, weapon, false);
+                    self.combat.fire(eye, at, weapon, false, walking);
                 }
             }
         }
         if !self.combat.quiet() || !self.combat.targets().is_empty() {
             // Our own bodies, for a hostile bolt to find: whoever is alive
-            // and on the deck, out cold or not — where it leans out to
-            // while it peeks, and whether it does.
-            let bodies: Vec<Option<(Vec2, bool)>> = self
+            // and on its feet on the deck — where it leans out to while it
+            // peeks, whether it does, and the odds its armour dodges a
+            // bolt. A body out cold is nobody's target and a bolt flies
+            // over it.
+            let bodies: Vec<Option<(Vec2, bool, f32)>> = self
                 .bims
                 .iter()
                 .map(|b| {
-                    (b.is_alive() && !b.character.is_outside())
-                        .then_some((b.peek.unwrap_or(b.character.pos), b.peek.is_some()))
+                    (b.is_alive() && !b.character.is_outside() && !b.character.is_unconscious())
+                        .then_some((
+                            b.peek.unwrap_or(b.character.pos),
+                            b.peek.is_some(),
+                            b.gear.dodge(),
+                        ))
                 })
                 .collect();
             self.combat.step(dt, &self.room.sight, &bodies);
@@ -1196,9 +1413,12 @@ impl Game {
     /// The crew's alarm, on or off: every living crew member but the
     /// player's own under arms with its errand put down — a weapon taken
     /// out of the pack into an empty hand first, since a recruited body
-    /// with nothing in its hand is a body standing still — or let go, the
-    /// queue kept, so peace picks it all up again. The player's own is
-    /// left as the player has it: recruiting it is the player's.
+    /// with nothing in its hand is a body standing still, and for a blade
+    /// in the hand every piece of armour in the pack put on over a part
+    /// that has none or a broken one, since a melee bot always wears what
+    /// armour it has — or let go, the queue kept, so peace picks it all up
+    /// again. The player's own is left as the player has it: recruiting
+    /// it is the player's.
     fn muster_crew(&mut self, alarm: bool) {
         for who in 0..self.bims.len() {
             if who == PLAYER || !self.bims[who].is_alive() {
@@ -1214,6 +1434,9 @@ impl Game {
                 {
                     self.equip(who, cell);
                 }
+                if self.bims[who].gear.weapon.is_some_and(|w| w.stats().melee) {
+                    self.wear_what_it_has(who);
+                }
                 self.interrupt(who);
                 self.bims[who].plan_wait = 0.0;
             }
@@ -1221,6 +1444,24 @@ impl Game {
             // during the alarm — is over either way.
             self.bims[who].character.set_post(None);
             self.bims[who].character.set_recruited(alarm);
+        }
+    }
+
+    /// Every unbroken piece of armour in the pack put on, where the part
+    /// wears nothing or a broken piece: what a melee bot does at the
+    /// alarm. A better piece already worn is left alone.
+    fn wear_what_it_has(&mut self, who: usize) {
+        for cell in 0..PACK_CELLS {
+            let Some(Item::Armour(piece)) = self.bims[who].gear.pack[cell] else {
+                continue;
+            };
+            if piece.broken() {
+                continue;
+            }
+            let worn = self.bims[who].gear.worn(piece.kind.slot());
+            if worn.is_none_or(|w| w.broken()) {
+                self.equip(who, cell);
+            }
         }
     }
 
@@ -1241,12 +1482,16 @@ impl Game {
         self.alarm
     }
 
-    /// One enemy's choice of where to stand, when its clock comes round:
-    /// `Tactics::stand`, and a march there if it is more than a tile from
-    /// where it is already going. Not a post — it is recruited, so it
-    /// stays wherever it arrives without one — and no marker on the deck,
-    /// since a ping where an enemy is about to stand would be a picture
-    /// through the fog.
+    /// One bot's choice of where to stand, when its clock comes round:
+    /// `Tactics::stand_with_cover`, and a march there if it is more than a
+    /// tile from where it is already going — **unless it has a shot from
+    /// where it is and the stand is not cover**: walking halves the odds
+    /// (`WALKING_ACCURACY`), so a bot that can shoot stands still to do
+    /// it, and moves only to reach cover or because it has no shot at all
+    /// (nothing in sight, or out of reach). Not a post — it is recruited,
+    /// so it stays wherever it arrives without one — and no marker on the
+    /// deck, since a ping where an enemy is about to stand would be a
+    /// picture through the fog.
     fn plan_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats) {
         let bim = &mut self.bims[who];
         bim.plan_wait -= dt;
@@ -1266,10 +1511,40 @@ impl Game {
             .map(|d| d.rect)
             .chain(self.room.airlocks.iter().copied())
             .collect();
-        let Some(to) = Tactics::stand(&self.room.sight, nav, from, &targets, stats, &doorways)
-        else {
+        // Where the rest of its side stand, or are walking to: nobody's
+        // stand but theirs.
+        let taken: Vec<Vec2> = self
+            .bims
+            .iter()
+            .enumerate()
+            .filter(|&(i, b)| {
+                i != who && b.is_alive() && b.character.is_recruited() && !b.character.is_outside()
+            })
+            .map(|(_, b)| b.character.destination().unwrap_or(b.character.pos))
+            .collect();
+        let Some(stand) = Tactics::stand_with_cover(
+            &self.room.sight,
+            nav,
+            from,
+            &targets,
+            stats,
+            &doorways,
+            &taken,
+        ) else {
             return;
         };
+        let to = stand.at;
+        // A shot from here, and nothing better than the open over there:
+        // it stops where it is and shoots. A walk already under way is
+        // kept only for cover.
+        let has_a_shot = !stats.melee && self.combat.aim(&self.room.sight, from, stats).is_some();
+        let bim = &mut self.bims[who];
+        if has_a_shot && !stand.cover {
+            if bim.character.is_walking() {
+                bim.character.halt();
+            }
+            return;
+        }
         let going = bim.character.destination().unwrap_or(from);
         if (to - going).len() <= TILE {
             return;
@@ -1277,6 +1552,166 @@ impl Game {
         let route = nav.path(from, to);
         if !route.is_empty() {
             self.bims[who].character.follow_path(route);
+        }
+    }
+
+    /// An enemy with nobody it can get to goes for the doors. On its own
+    /// clock like a stand: if a route to any target is open it does
+    /// nothing here; otherwise the nearest locked door whose panel it can
+    /// reach — one it locked itself first, which it unlocks on arrival
+    /// (`door::Locker::Body`), else one it **smashes**: standing at the
+    /// panel it heaves at the door every frame (`Door::smash`),
+    /// `SMASH_DOOR` or `SMASH_AIRLOCK` seconds of it, and the lock gives.
+    /// One body to a door; a second finds another door or waits. The
+    /// crew's side never does this — only a hostile room's people, since
+    /// the crew are the player's to send.
+    fn breach(&mut self, who: usize, dt: f32) {
+        let from = self.bims[who].character.pos;
+        // Heaving at the door it stands at: every frame, until it gives or
+        // the body has moved off.
+        if let Some(i) = self.bims[who].smashing {
+            let at_it = self.room.doors.get(i).is_some_and(|d| {
+                d.locked && (d.station(from, DOOR_STAND_OFF) - from).len() <= TILE * 0.75
+            });
+            if at_it {
+                if self.bims[who].character.is_walking() {
+                    self.bims[who].character.halt();
+                }
+                let door = &mut self.room.doors[i];
+                let centre = door.rect.center();
+                if let Some(cue) = door.smash(who, dt) {
+                    self.room.cues.push(Cued { cue, at: centre });
+                }
+                if !self.room.doors[i].locked {
+                    self.bims[who].smashing = None;
+                }
+                return;
+            }
+            if let Some(door) = self.room.doors.get_mut(i)
+                && door.smash.is_some_and(|s| s.by == who)
+            {
+                door.drop_smash();
+            }
+            self.bims[who].smashing = None;
+        }
+
+        let bim = &mut self.bims[who];
+        bim.breach_wait -= dt;
+        if bim.breach_wait > 0.0 {
+            return;
+        }
+        bim.breach_wait = PLAN_EVERY;
+        let nav = self.maps.for_body(false, self.room.bath.is_open());
+        let targets: Vec<Vec2> = self
+            .combat
+            .target_positions()
+            .into_iter()
+            .flatten()
+            .collect();
+        if targets.is_empty() || targets.iter().any(|&t| !nav.path(from, t).is_empty()) {
+            return;
+        }
+        // The nearest locked door it can get to the panel of, its own
+        // locks before anybody else's — those cost nothing to open.
+        let mut best: Option<(f32, usize, Vec2)> = None;
+        for (i, door) in self.room.doors.iter().enumerate() {
+            if !door.locked || door.smash.is_some_and(|s| s.by != who) {
+                continue;
+            }
+            let at = door.station(from, DOOR_STAND_OFF);
+            let near = (at - from).len() <= TILE * 0.75;
+            if !near && nav.path(from, at).is_empty() {
+                continue;
+            }
+            let own = door.locked_by == door::Locker::Body(who);
+            let cost = (at - from).len() + if own { 0.0 } else { 1.0e6 };
+            if best.is_none_or(|(c, _, _)| cost < c) {
+                best = Some((cost, i, at));
+            }
+        }
+        let Some((_, i, at)) = best else {
+            return;
+        };
+        if (at - from).len() <= TILE * 0.75 {
+            if self.room.doors[i].locked_by == door::Locker::Body(who) {
+                self.room.doors[i].unlock();
+                self.bims[who].sealed_in = None;
+            } else {
+                self.bims[who].smashing = Some(i);
+            }
+            return;
+        }
+        let going = self.bims[who].character.destination().unwrap_or(from);
+        if (at - going).len() <= TILE * 0.5 {
+            return;
+        }
+        let route = nav.path(from, at);
+        if route.is_empty() {
+            return;
+        }
+        if self.bims[who].task.is_some() {
+            self.interrupt(who);
+        }
+        self.bims[who].character.follow_path(route);
+    }
+
+    /// A fleeing enemy that has just come through a door locks it behind
+    /// itself, and sealed in it binds its wounds: every [`BIND_EVERY`]
+    /// seconds one wounded part is dressed, or its trauma treated once no
+    /// wound is open on it — a field dressing out of its own pockets — and
+    /// with nothing bleeding it is dying no more, stops running, unlocks
+    /// its door (`breach`, its own lock first) and fights again. The
+    /// crew's own fleeing Bims do neither: a crewmate with a kit sees to
+    /// them, and locking the crew out of their own rooms is nobody's idea.
+    fn seal_and_bind(&mut self, who: usize, dt: f32) {
+        // Through the door its run took it to: the far side, and clear of
+        // the opening, so the leaves can shut.
+        if let Some((i, side)) = self.bims[who].seal {
+            match self.room.doors.get(i) {
+                Some(door) if door.locked => self.bims[who].seal = None,
+                Some(door) => {
+                    let from = self.bims[who].character.pos;
+                    let across = (from - door.rect.center()).dot(door.through());
+                    if across.signum() != side.signum() && across.abs() > TILE * 0.9 {
+                        self.room.doors[i].lock(door::Locker::Body(who));
+                        self.bims[who].seal = None;
+                        self.bims[who].sealed_in = Some(i);
+                    }
+                }
+                None => self.bims[who].seal = None,
+            }
+        }
+        let sealed = self.bims[who]
+            .sealed_in
+            .is_some_and(|i| self.room.doors.get(i).is_some_and(|d| d.locked));
+        if !sealed {
+            self.bims[who].bind_timer = 0.0;
+            return;
+        }
+        let bim = &mut self.bims[who];
+        bim.bind_timer += dt;
+        if bim.bind_timer < BIND_EVERY {
+            return;
+        }
+        bim.bind_timer = 0.0;
+        // The part bleeding most, dressed; a part at nothing with no wound
+        // left on it, treated.
+        let worst = Part::ALL
+            .into_iter()
+            .max_by_key(|&p| bim.health.wounds(p))
+            .filter(|&p| bim.health.wounds(p) > 0);
+        match worst {
+            Some(part) => {
+                bim.health.bandage(part);
+            }
+            None => {
+                if let Some(part) = Part::ALL
+                    .into_iter()
+                    .find(|&p| bim.health.trauma(p).is_some())
+                {
+                    bim.health.treat(part);
+                }
+            }
         }
     }
 
@@ -1438,6 +1873,9 @@ impl Game {
         if out != self.bims[who].character.is_unconscious() {
             if out {
                 self.interrupt(who);
+                // And the gun goes on the deck: a body out cold holds
+                // nothing, and it has to come back for it.
+                self.drop_weapon(who);
             }
             self.bims[who].character.knock_out(out);
         }
@@ -1492,6 +1930,21 @@ impl Game {
             return;
         }
 
+        // A patient somebody is walking over to — to dress, or to treat —
+        // holds still for them: whatever it was on is put down onto the
+        // queue and the frame stops here for it, like a nap, until the
+        // hands come off. A patient that walked off mid-way was minutes
+        // lost and the walk begun again, for as long as it kept walking.
+        // Not while it runs from a fight: the helper follows.
+        if !self.is_fleeing(who) && self.is_being_seen_to(who) {
+            if self.bims[who].task.is_some() {
+                self.interrupt(who);
+            }
+            self.bims[who].character.halt();
+            self.move_body(who, dt);
+            return;
+        }
+
         // A wound the medical row says is urgent — set to the top — is
         // dressed *now*, whatever the Bim was in the middle of: the errand
         // is put down onto the queue the way a need's is, and picked up
@@ -1505,18 +1958,22 @@ impl Game {
             && !self.bims[who]
                 .task
                 .as_ref()
-                .is_some_and(|t| matches!(t.kind(), Kind::Bandage { .. }))
-            && let Some((patient, part)) = self.medical_on_offer(who)
+                .is_some_and(|t| matches!(t.kind(), Kind::Bandage { .. } | Kind::Treat { .. }))
+            && let Some(care) = self.medical_on_offer(who)
         {
-            self.bandage(who, patient, part);
+            self.give_care(who, care);
         }
+        // A bot that came round finds its hand empty and its gun on the
+        // deck, and goes for it.
+        self.fetch_own_weapon(who);
 
         let fumble = self.bims[who].health.drowsiness().fumble();
         // A Bim with nobody to talk to drags: a tenth longer over everything
         // it does. `Task` applies it only to the working steps — sleeping and
         // eating are not work and are not slowed — and the walking half of the
-        // same tenth is in the pace above.
-        let effort = self.bims[who].solitude.stage().works_at();
+        // same tenth is in the pace above. A trauma on it, untreated or
+        // lasting, slows the work the same way.
+        let effort = self.bims[who].solitude.stage().works_at() * self.bims[who].health.works_at();
         let taken = self.taken_for(who);
         {
             let (bims, room, maps, rng) =
@@ -1579,6 +2036,18 @@ impl Game {
                 .iter()
                 .map(|b| (b.is_alive() && !b.character.is_outside()).then_some(b.character.pos)),
         );
+        // And where the other room's people lie, for an execution to walk
+        // to: a visitor the world marked down, where it was put.
+        self.room.bodies_down.clear();
+        self.room
+            .bodies_down
+            .extend(self.visitors.iter().enumerate().map(|(i, &at)| {
+                self.visitors_down
+                    .get(i)
+                    .copied()
+                    .unwrap_or(false)
+                    .then_some(at)
+            }));
     }
 
     /// One frame of the body: on the deck, kept clear of the walls and
@@ -1703,6 +2172,50 @@ impl Game {
             self.interrupt(who);
         } else {
             self.bims[who].character.follow_path(route);
+        }
+    }
+
+    /// Bodies under arms keep apart. The crew pass through each other in
+    /// peace (`crowding`, below) because a route is planned once and a
+    /// push at a chokepoint is a deadlock waiting to happen — but a fight
+    /// replans every `PLAN_EVERY` and `unstick` watches the rest, and a
+    /// squad stacked on one tile is one body to shoot at and a picture
+    /// nobody can read. So every pair of **recruited** bodies on their
+    /// feet on the deck — an enemy's people at war, the crew under the
+    /// alarm — closer than `CREW_CLEARANCE` is shoved apart, each half the
+    /// overlap, along the line between them (a nudge off the combat stream
+    /// when they are on one spot). Both recruited, so a recruited James
+    /// standing in the classic room is never moved by a Kate walking past,
+    /// which is what the seeded probes rely on. A push into a wall is
+    /// undone by the body's own push-out on its next move.
+    fn separate_under_arms(&mut self) {
+        let n = self.bims.len();
+        let up = |b: &Bim| {
+            b.is_alive()
+                && b.character.is_recruited()
+                && !b.character.is_seated()
+                && !b.character.is_outside()
+                && !b.character.is_unconscious()
+        };
+        for a in 0..n {
+            for b in (a + 1)..n {
+                if !up(&self.bims[a]) || !up(&self.bims[b]) {
+                    continue;
+                }
+                let between = self.bims[b].character.pos - self.bims[a].character.pos;
+                let gap = between.len();
+                if gap >= CREW_CLEARANCE {
+                    continue;
+                }
+                let dir = if gap > 1e-3 {
+                    between * (1.0 / gap)
+                } else {
+                    Vec2::from_angle(self.combat.roll() * TAU)
+                };
+                let shove = dir * ((CREW_CLEARANCE - gap) * 0.5);
+                self.bims[a].character.pos = self.bims[a].character.pos - shove;
+                self.bims[b].character.pos = self.bims[b].character.pos + shove;
+            }
         }
     }
 
@@ -1841,6 +2354,7 @@ impl Game {
         self.bims[who].flee_wait = (self.bims[who].flee_wait - dt).max(0.0);
         if !self.bims[who].ordeal.discomfort().flees()
             || self.bims[who].character.is_recruited()
+            || self.is_fleeing(who)
             || !self.autonomous
             || self.bims[who].task.is_some()
             || !self.bims[who].queue.is_empty()
@@ -2112,6 +2626,7 @@ impl Game {
         // Under orders, work that was put down stays put down. The queue is
         // kept, not thrown away, so letting the Bim go picks it all up again.
         if self.bims[who].character.is_recruited()
+            || self.is_fleeing(who)
             || self.bims[who].task.is_some()
             || self.bims[who].queue.is_empty()
             || !self.bims[who].character.arrived()
@@ -2276,6 +2791,16 @@ impl Game {
         self.bims[who].task = None;
         self.bims[who].queue.clear();
         self.bims[who].character.die();
+        // The gun it let go of going out cold lies beside the body, and
+        // the body is what gets looted: back into its hand, so the Loot
+        // window shows it and a crew looting a station's dead is not
+        // reaching for a floor in the other room.
+        if self.bims[who].gear.weapon.is_none()
+            && let Some(i) = self.room.weapons_down.iter().position(|d| d.owner == who)
+        {
+            let d = self.room.weapons_down.remove(i);
+            self.bims[who].gear.weapon = Some(d.weapon);
+        }
     }
 
     pub fn is_alive(&self, who: usize) -> bool {
@@ -2513,6 +3038,18 @@ impl Game {
         self.room.worktops[0].board_sides
     }
 
+    /// Where the board is, and where the heads' door is: where the cues
+    /// probe expects a knife stroke and a door to be heard.
+    #[allow(dead_code)]
+    pub fn board_pos_for_probe(&self, i: usize) -> Vec2 {
+        self.room.worktops[i].board.center()
+    }
+
+    #[allow(dead_code)]
+    pub fn bath_door_for_probe(&self) -> Vec2 {
+        self.room.bath.door.center()
+    }
+
     /// Whether this Bim has the broom in its hands. For the probes.
     #[allow(dead_code)]
     pub fn holds_broom_for_probe(&self, who: usize) -> bool {
@@ -2660,6 +3197,7 @@ impl Game {
         // for the heads — to take yet: that is what lets the errand below be
         // started in its place.
         if self.bims[who].character.is_recruited()
+            || self.is_fleeing(who)
             || !self.autonomous
             || self.bims[who].task.is_some()
             || self.queue_ready(who)
@@ -2790,7 +3328,7 @@ impl Game {
                 // orders from the menu on a body, chosen by the room.
                 Job::Medical => self
                     .medical_on_offer(who)
-                    .is_some_and(|(patient, part)| self.bandage(who, patient, part)),
+                    .is_some_and(|care| self.give_care(who, care)),
             };
             if started {
                 return true;
@@ -2799,40 +3337,71 @@ impl Game {
         false
     }
 
-    /// Whom `who` would dress, and where, if it took the medical row: its
-    /// own worst part while it bleeds, else the crewmate with the most
-    /// wounds open and that one's worst part. `None` with no bandage to
-    /// hand, nobody bleeding, or a helper in no state to do it — dead, out
-    /// cold, outside, or under orders, since a recruited Bim takes no
-    /// errand of its own.
+    /// What `who` would do if it took the medical row. **Itself first**: its
+    /// own worst part while it bleeds, dressed on the spot. Then a crewmate
+    /// dying — the one nearest, its worst-bleeding trauma, while a medkit
+    /// is on a shelf to fetch — since a trauma left alone bleeds ten a
+    /// quarter hour where a wound bleeds ten an hour; never its own, since
+    /// a Bim cannot treat its own. Then the crewmate with the most wounds
+    /// open and that one's worst part. `None` with nothing to hand for
+    /// anything, nobody hurt, or a helper in no state to do it — dead, out
+    /// cold, outside, or under orders with an enemy in its sight or a
+    /// blade at its throat; **a bot under arms with nothing in sight
+    /// doctors** — the fight is over for it, whatever the alarm says — and
+    /// takes its weapon up again the moment `aim` sees something. The
+    /// player's own Bim recruited is the player's: it never doctors of its
+    /// own accord under orders.
     ///
     /// The patient may be out cold — it lies still, which is the easiest
     /// patient there is — but not outside, where the walk cannot follow,
     /// and not somewhere the helper cannot get to: the chain would start,
     /// find no route and be given up, and this would offer it again on the
     /// next step, for ever. A part somebody else is already walking over to
-    /// dress is left to them, so two crew do not dress one wound twice and
-    /// waste the second's ten minutes.
-    fn medical_on_offer(&self, who: usize) -> Option<(usize, Part)> {
-        if self.room.bandages == 0
-            || !self.bims.get(who).is_some_and(|b| b.is_alive())
+    /// dress or treat is left to them, so two crew do not doctor one part
+    /// twice and waste the second's minutes.
+    fn medical_on_offer(&self, who: usize) -> Option<Care> {
+        if !self.bims.get(who).is_some_and(|b| b.is_alive())
             || self.bims[who].character.is_unconscious()
             || self.bims[who].character.is_outside()
-            || self.bims[who].character.is_recruited()
         {
             return None;
         }
-        // What the others have in hand, by patient and part.
-        let being_dressed: Vec<(usize, u32)> = self
-            .bims
-            .iter()
-            .enumerate()
-            .filter(|&(other, _)| other != who)
-            .filter_map(|(_, b)| match b.task.as_ref().map(|t| t.kind()) {
-                Some(Kind::Bandage { patient, part }) => Some((patient, part)),
-                _ => None,
-            })
-            .collect();
+        if self.bims[who].character.is_recruited() {
+            let bot = self.hostile_bodies || who != PLAYER;
+            let quiet = self.bims[who].locked.is_none()
+                && self.bims[who].blow.is_none()
+                && !self
+                    .combat
+                    .sees_any(&self.room.sight, self.bims[who].character.pos);
+            if !bot || !quiet {
+                return None;
+            }
+        }
+        // What the others have in hand, by patient and part — a dressing
+        // and a treatment apart, since a part being bandaged (its wounds)
+        // can still want its trauma treated, and the other way round.
+        let in_hand = |wanted: fn(Kind) -> Option<(usize, u32)>| -> Vec<(usize, u32)> {
+            self.bims
+                .iter()
+                .enumerate()
+                .filter(|&(other, _)| other != who)
+                .filter_map(|(_, b)| b.task.as_ref().and_then(|t| wanted(t.kind())))
+                .collect()
+        };
+        let being_dressed = in_hand(|k| match k {
+            Kind::Bandage { patient, part } => Some((patient, part)),
+            _ => None,
+        });
+        let being_treated = in_hand(|k| match k {
+            Kind::Treat { patient, part } => Some((patient, part)),
+            _ => None,
+        });
+        let from = self.bims[who].character.pos;
+        let can_get_to = |patient: usize| {
+            self.bims[patient].is_alive()
+                && !self.bims[patient].character.is_outside()
+                && task::patient_stand(&self.room, &self.maps, who, patient, from).is_some()
+        };
         let worst_part = |patient: usize| -> Option<Part> {
             Part::ALL
                 .iter()
@@ -2841,17 +3410,65 @@ impl Game {
                 .filter(|&p| self.bims[patient].health.wounds(p) > 0)
                 .max_by_key(|&p| self.bims[patient].health.wounds(p))
         };
-        if let Some(part) = worst_part(who) {
-            return Some((who, part));
+        // Its own wound first, while there is a bandage for it.
+        if self.room.bandages > 0
+            && let Some(part) = worst_part(who)
+        {
+            return Some(Care::Bandage(who, part));
         }
-        let from = self.bims[who].character.pos;
+        if self.room.medkits > 0 {
+            let worst_trauma = |patient: usize| -> Option<Part> {
+                Part::ALL
+                    .iter()
+                    .copied()
+                    .filter(|p| !being_treated.contains(&(patient, p.code())))
+                    .filter_map(|p| self.bims[patient].health.trauma(p).map(|t| (p, t)))
+                    .max_by(|a, b| a.1.bleed().total_cmp(&b.1.bleed()))
+                    .map(|(p, _)| p)
+            };
+            let dying = (0..self.bims.len())
+                .filter(|&p| p != who && can_get_to(p))
+                .filter(|&p| worst_trauma(p).is_some())
+                .min_by(|&a, &b| {
+                    (self.bims[a].character.pos - from)
+                        .len()
+                        .total_cmp(&(self.bims[b].character.pos - from).len())
+                });
+            if let Some(patient) = dying
+                && let Some(part) = worst_trauma(patient)
+            {
+                return Some(Care::Treat(patient, part));
+            }
+        }
+        if self.room.bandages == 0 {
+            return None;
+        }
         let patient = (0..self.bims.len())
             .filter(|&p| p != who)
-            .filter(|&p| self.bims[p].is_alive() && !self.bims[p].character.is_outside())
+            .filter(|&p| can_get_to(p))
             .filter(|&p| self.bims[p].health.bleeding() > 0)
-            .filter(|&p| task::patient_stand(&self.room, &self.maps, who, p, from).is_some())
             .max_by_key(|&p| self.bims[p].health.bleeding())?;
-        worst_part(patient).map(|part| (patient, part))
+        worst_part(patient).map(|part| Care::Bandage(patient, part))
+    }
+
+    /// Whether a crewmate is on its way to `who`, or has its hands on it:
+    /// a dressing or a treatment with `who` as the patient, somebody
+    /// else's.
+    fn is_being_seen_to(&self, who: usize) -> bool {
+        self.bims.iter().enumerate().any(|(other, b)| {
+            other != who
+                && b.task
+                    .as_ref()
+                    .is_some_and(|t| t.kind().patient() == Some(who))
+        })
+    }
+
+    /// Start what the medical row offered: the dressing or the treatment.
+    fn give_care(&mut self, who: usize, care: Care) -> bool {
+        match care {
+            Care::Bandage(patient, part) => self.bandage(who, patient, part),
+            Care::Treat(patient, part) => self.treat(who, patient, part),
+        }
     }
 
     /// What work there is for `who` right now, most important first.
@@ -4093,25 +4710,39 @@ impl Game {
         self.select_only(None);
     }
 
-    /// Exactly one of the crew is selected, or none.
+    /// One of the crew selected, or none.
     ///
     /// Selecting is *looking at*, not taking charge of: any of them can be
     /// picked, and picking one is what puts its panels on screen. Whether it
-    /// takes orders is a separate question, and the answer is always the same
-    /// one — see `order_move`, which asks after [`PLAYER`] and nobody else.
+    /// takes orders is a separate question — see `order_move`, which asks
+    /// after [`PLAYER`] always and a crewmate only under the alarm.
     ///
-    /// One at a time because the panels show one at a time. A marquee over
-    /// both has to mean something, and "whichever you can actually order
-    /// about" is the least surprising thing it can mean.
+    /// A click picks one; a marquee picks everybody it touches
+    /// (`select_many`), and the panels show the first of them.
     fn select_only(&mut self, who: Option<usize>) {
         for (i, bim) in self.bims.iter_mut().enumerate() {
             bim.character.selected = who == Some(i);
         }
     }
 
-    /// Which of them is selected, or `None`.
+    /// Several at once: what a marquee does. Nobody else stays selected.
+    fn select_many(&mut self, who: &[usize]) {
+        for (i, bim) in self.bims.iter_mut().enumerate() {
+            bim.character.selected = who.contains(&i);
+        }
+    }
+
+    /// Which of them is selected, or `None` — the first, when several are:
+    /// the player's own if it is among them, since it comes first.
     pub fn selected(&self) -> Option<usize> {
         self.bims.iter().position(|b| b.character.selected)
+    }
+
+    /// Everybody selected, in crew order.
+    pub fn selected_all(&self) -> Vec<usize> {
+        (0..self.bims.len())
+            .filter(|&i| self.bims[i].character.selected)
+            .collect()
     }
 
     pub fn is_selected(&self, who: usize) -> bool {
@@ -4129,7 +4760,7 @@ impl Game {
     }
 
     pub fn selected_count(&self) -> u32 {
-        self.selected().is_some() as u32
+        self.selected_all().len() as u32
     }
 
     pub fn drag_begin(&mut self, x: f32, y: f32) {
@@ -4165,10 +4796,11 @@ impl Game {
             }
         }
 
-        // Whoever the box touched. The player's own comes first when it
-        // caught both: a sweep across the compartment most likely meant the
-        // one that can be told to do something.
+        // Whoever the box touched — all of them, for a sweep; a click on a
+        // spot two share picks the player's own, which comes first, since a
+        // click most likely meant the one that can be told to do something.
         let touched: Vec<usize> = (0..self.bims.len())
+            .filter(|&i| self.bims[i].is_alive())
             .filter(|&i| {
                 box_.touches_circle(
                     self.bims[i].character.pos,
@@ -4176,12 +4808,11 @@ impl Game {
                 )
             })
             .collect();
-        let pick = touched
-            .iter()
-            .copied()
-            .find(|&i| i == PLAYER)
-            .or_else(|| touched.first().copied());
-        self.select_only(pick);
+        if box_.width() < 4.0 && box_.height() < 4.0 {
+            self.select_only(touched.first().copied());
+        } else {
+            self.select_many(&touched);
+        }
         HIT_NONE
     }
 
@@ -4198,24 +4829,120 @@ impl Game {
     /// twice: once with the door as it stands, and — if that comes back with
     /// nothing — once with it open. A destination only the second finds is one
     /// the Bim can reach by letting itself through, which it goes and does.
+    ///
+    /// With several selected, each gets a spot of its own round the point
+    /// ([`CLUSTER_SLOTS`], in crew order) rather than all of them the one
+    /// tile; a right-*drag* is a line instead — [`Game::order_line`].
     pub fn order_move(&mut self, x: f32, y: f32) -> u32 {
-        // The player's own always; a crewmate only while the alarm is up —
-        // in combat mode the crew take orders, and only then.
-        let Some(who) = self.selected() else {
-            return ORDER_IGNORED;
-        };
-        if who != PLAYER && !self.alarm {
+        let squad = self.orderable();
+        if squad.is_empty() {
             return ORDER_IGNORED;
         }
-        let code = self.order_move_for(who, x, y);
+        let at = vec2(x, y);
+        if squad.len() == 1 {
+            return self.order_one(squad[0], at);
+        }
+        let spots: Vec<Vec2> = (0..squad.len())
+            .map(|i| {
+                let (dx, dy) = CLUSTER_SLOTS[i % CLUSTER_SLOTS.len()];
+                at + vec2(dx * TILE, dy * TILE)
+            })
+            .collect();
+        self.order_squad(&squad, &spots)
+    }
+
+    /// A right-drag from `from` to `to` with a selection: the crew that
+    /// take orders are spread evenly along that line, ends included, each
+    /// to the point nearest its own place along it so nobody crosses
+    /// anybody. One alone goes to where the drag began. The codes are
+    /// `order_move`'s: `ORDER_MOVING` if anybody set off, else the first
+    /// refusal.
+    pub fn order_line(&mut self, from: Vec2, to: Vec2) -> u32 {
+        let mut squad = self.orderable();
+        if squad.is_empty() {
+            return ORDER_IGNORED;
+        }
+        let n = squad.len();
+        if n == 1 {
+            return self.order_one(squad[0], from);
+        }
+        let along = (to - from).normalize_or_zero();
+        squad.sort_by(|&a, &b| {
+            let pa = (self.bims[a].character.pos - from).dot(along);
+            let pb = (self.bims[b].character.pos - from).dot(along);
+            pa.total_cmp(&pb)
+        });
+        let spots: Vec<Vec2> = (0..n)
+            .map(|i| from + (to - from) * (i as f32 / (n - 1) as f32))
+            .collect();
+        self.order_squad(&squad, &spots)
+    }
+
+    /// Whoever is selected and takes orders: the player's own always; a
+    /// crewmate only while the alarm is up — in combat mode the crew take
+    /// orders, and only then.
+    fn orderable(&self) -> Vec<usize> {
+        self.selected_all()
+            .into_iter()
+            .filter(|&who| who == PLAYER || self.alarm)
+            .collect()
+    }
+
+    /// One order each, spot for spot; the best code of them.
+    fn order_squad(&mut self, squad: &[usize], spots: &[Vec2]) -> u32 {
+        let mut best = ORDER_IGNORED;
+        for (&who, &spot) in squad.iter().zip(spots) {
+            let code = self.order_one(who, spot);
+            if code == ORDER_MOVING || best == ORDER_IGNORED {
+                best = code;
+            }
+        }
+        best
+    }
+
+    /// [`Game::order_move`] for one of the crew that takes orders.
+    fn order_one(&mut self, who: usize, at: Vec2) -> u32 {
+        let code = self.order_move_for(who, at.x, at.y);
         // A crewmate ordered somewhere holds that spot rather than falling
         // back into the gathering round the player, until the alarm is over.
         if who != PLAYER && code != ORDER_IGNORED && code != ORDER_NOWHERE && code != ORDER_LOCKED {
             let nav = self.maps.pick(true);
-            let spot = nav.nearest_free(vec2(x, y));
+            let spot = nav.nearest_free(at);
             self.bims[who].character.set_post(Some(spot));
         }
         code
+    }
+
+    /// A right-drag on the deck begins: the line is drawn from here.
+    pub fn order_drag_begin(&mut self, x: f32, y: f32) {
+        let p = vec2(x, y);
+        self.order_drag = Some((p, p));
+    }
+
+    pub fn order_drag_update(&mut self, x: f32, y: f32) {
+        if let Some((_, end)) = &mut self.order_drag {
+            *end = vec2(x, y);
+        }
+    }
+
+    /// The right-drag ends: a line longer than a click is
+    /// [`Game::order_line`], anything shorter [`Game::order_move`] at the
+    /// point. The screen is what decides a drag is a drag, since a click
+    /// is judged in points on the glass, not in room units.
+    pub fn order_drag_end(&mut self, x: f32, y: f32, dragged: bool) -> u32 {
+        self.order_drag_update(x, y);
+        let Some((from, to)) = self.order_drag.take() else {
+            return ORDER_IGNORED;
+        };
+        if dragged {
+            self.order_line(from, to)
+        } else {
+            self.order_move(to.x, to.y)
+        }
+    }
+
+    pub fn order_drag_cancel(&mut self) {
+        self.order_drag = None;
     }
 
     /// [`Game::order_move`] for one Bim, the checks on who is done.
@@ -4464,6 +5191,13 @@ impl Game {
                 return HIT_VISITOR;
             }
         }
+        // Then a weapon lying on the deck, to pick up.
+        for d in &self.room.weapons_down {
+            if (d.at - p).len() <= PICK_RADIUS {
+                self.hit_dropped = d.id;
+                return HIT_DROPPED;
+            }
+        }
         self.room.hit(vec2(x, y))
     }
 
@@ -4514,6 +5248,24 @@ impl Game {
         &self.room.desks
     }
 
+    /// The research desk the last click landed on, after `HIT_RESEARCH`.
+    pub fn hit_research(&self) -> usize {
+        self.hit_research
+    }
+
+    /// Where the Bim stands at that research desk, for `send_to`; `None`
+    /// for no such desk.
+    pub fn research_spot(&self, desk: usize) -> Option<Vec2> {
+        self.room.research.get(desk).map(|d| d.1)
+    }
+
+    /// Every research desk on the deck: its footprint and its stand spot,
+    /// the ship's own first and a docked station's after. What the
+    /// world asks to tell one from the other.
+    pub fn research_desks(&self) -> &[(Rect, Vec2)] {
+        &self.room.research
+    }
+
     /// What kind of part a workstation is — its `PartKind` code, the way
     /// the world handed it over in `Bench::kind` — so the app knows whether
     /// the bench under a click is the armoury. Nought for no such bench.
@@ -4540,9 +5292,103 @@ impl Game {
             (&mut self.hit_bench, room.bench_at(p)),
             (&mut self.hit_shelf, room.shelf_at(p)),
             (&mut self.hit_desk, room.desk_at(p)),
+            (&mut self.hit_research, room.research_at(p)),
         ] {
             if let Some(i) = at {
                 *hit = i;
+            }
+        }
+    }
+
+    // --- the doors, for the world to carry between two rooms ---------------------
+
+    /// Every powered door's lock, in this room's units, for the world to
+    /// carry to the same door in another room — the joined deck and the
+    /// station's own room have the station's doors twice, and a lock the
+    /// crew set on one has to stop the people walking in the other, as a
+    /// smash in theirs has to open the door the crew are looking at.
+    pub fn door_states(&self) -> Vec<DoorState> {
+        self.room
+            .doors
+            .iter()
+            .map(|d| DoorState {
+                centre: d.rect.center(),
+                locked: d.locked,
+                by_crew: d.locked_by == door::Locker::Crew,
+                smash: d.smash_progress(),
+                changed: d.changed,
+            })
+            .collect()
+    }
+
+    /// The door whose opening `p` is in, if any.
+    pub fn door_index_at(&self, p: Vec2) -> Option<usize> {
+        self.room.door_at(p)
+    }
+
+    /// Put another room's lock on door `i`: locked or not, and whose. Not
+    /// a change of this room's own making, so it is not carried back.
+    pub fn mirror_door_lock(&mut self, i: usize, locked: bool, by_crew: bool) {
+        let Some(door) = self.room.doors.get_mut(i) else {
+            return;
+        };
+        if locked {
+            door.lock(if by_crew {
+                door::Locker::Crew
+            } else {
+                // Somebody's in the other room; nobody's here.
+                door::Locker::Body(usize::MAX)
+            });
+        } else {
+            door.unlock();
+        }
+        door.changed = false;
+    }
+
+    /// Show another room's smashing on door `i`: the bar, and nothing else
+    /// — nobody here is heaving at it. `None` takes it off.
+    pub fn mirror_door_smash(&mut self, i: usize, progress: Option<f32>) {
+        let Some(door) = self.room.doors.get_mut(i) else {
+            return;
+        };
+        door.smash = progress.map(|p| door::Smash {
+            by: usize::MAX,
+            done: p * door.smash_time(),
+            since_heave: 0.0,
+        });
+    }
+
+    /// The world has read door `i`'s change.
+    pub fn door_change_seen(&mut self, i: usize) {
+        if let Some(door) = self.room.doors.get_mut(i) {
+            door.changed = false;
+        }
+    }
+
+    /// Whose lock is on door `i`, while it is locked.
+    pub fn door_locked_by(&self, i: usize) -> Option<door::Locker> {
+        self.room
+            .doors
+            .get(i)
+            .filter(|d| d.locked)
+            .map(|d| d.locked_by)
+    }
+
+    /// Work door `i`'s panel without the walk: what the hand does when it
+    /// gets there. For the probes, and the world's tests.
+    pub fn order_door_now(&mut self, i: usize, order: door::Order) {
+        if let Some(door) = self.room.doors.get_mut(i) {
+            door.order(order);
+        }
+    }
+
+    /// Lock door `i` as `by` would, or unlock it, without the walk. For
+    /// the probes.
+    pub fn set_door_locked_for_probe(&mut self, i: usize, by: Option<door::Locker>) {
+        if let Some(door) = self.room.doors.get_mut(i) {
+            match by {
+                Some(by) => door.lock(by),
+                None => door.unlock(),
             }
         }
     }
@@ -4569,11 +5415,19 @@ impl Game {
         self.room.doors_drawn = drawn;
     }
 
+    pub fn doors_drawn(&self) -> bool {
+        self.room.doors_drawn
+    }
+
     // --- sight ------------------------------------------------------------------
 
     /// Whose eyes this room is drawn through. See `crate::sight::Fog`.
     pub fn set_fog(&mut self, fog: Fog) {
         self.fog = fog;
+    }
+
+    pub fn fog(&self) -> Fog {
+        self.fog
     }
 
     /// Under `Fog::None`: which of this room's bodies the crew of the room
@@ -4637,15 +5491,109 @@ impl Game {
     /// melee (`crate::combat`). Where one is peeking, this is the peek
     /// position (`Game::exposed_at`) and [`Game::set_hostiles_peeking`]
     /// says so, after.
-    pub fn set_hostiles(&mut self, at: Vec<Option<(Vec2, WeaponKind)>>) {
-        self.combat.set_targets(at);
+    ///
+    /// **A hostile room's people know only what they have seen.** The
+    /// crew's room takes the list as it comes; a room whose bodies are
+    /// hostile keeps `last_seen`: a target one of its living, waking
+    /// people on the deck can see right now (`Sight::sees_from`, any
+    /// range) is known where it is, one nobody sees is believed where it
+    /// was last seen — the tactics walk there, through the passage and
+    /// onto the ship if that is where it went, while `aim` still wants
+    /// real sight so nobody shoots at a belief — and one unseen for
+    /// [`FORGET_AFTER`] is nobody to them, so with the last crew member
+    /// out of sight for a minute the hunt is over and the room leaves war.
+    pub fn set_hostiles(&mut self, at: Vec<Option<(Vec2, Weapon)>>) {
+        if !self.hostile_bodies {
+            self.last_seen.clear();
+            self.combat.set_targets(at);
+            return;
+        }
+        self.last_seen.resize(at.len(), None);
+        let eyes: Vec<Vec2> = self
+            .bims
+            .iter()
+            .filter(|b| b.is_alive() && !b.character.is_unconscious() && !b.character.is_outside())
+            .map(|b| b.character.pos)
+            .collect();
+        let mut believed = Vec::with_capacity(at.len());
+        let mut stale = Vec::with_capacity(at.len());
+        for (i, target) in at.into_iter().enumerate() {
+            let mut seen = false;
+            match target {
+                None => self.last_seen[i] = None,
+                Some((p, weapon)) => {
+                    seen = eyes
+                        .iter()
+                        .any(|&eye| self.room.sight.sees_from(eye, p).is_some());
+                    if seen {
+                        self.last_seen[i] = Some(Seen {
+                            at: p,
+                            weapon,
+                            ago: 0.0,
+                        });
+                    } else if let Some(seen) = self.last_seen[i].as_mut() {
+                        // The weapon it carries is known whether or not it
+                        // is in sight — the world says — and the tactics
+                        // read it.
+                        seen.weapon = weapon;
+                    }
+                }
+            }
+            believed.push(self.last_seen[i].map(|s| (s.at, s.weapon)));
+            stale.push(!seen);
+        }
+        self.combat.set_targets(believed);
+        self.combat.set_stale(&stale);
+    }
+
+    /// How many powered doors stand shut right now, for the tests.
+    #[allow(dead_code)]
+    pub fn doors_shut_for_probe(&self) -> usize {
+        self.shut_now().len()
+    }
+
+    /// Whether `who`'s own eyes — or a peek beside a wall — see a point
+    /// of the room, for the tests.
+    #[allow(dead_code)]
+    pub fn sees_for_probe(&self, who: usize, p: Vec2) -> bool {
+        self.room
+            .sight
+            .sees_from(self.bims[who].character.pos, p)
+            .is_some()
+    }
+
+    /// Where a hostile room's people believe each target is, for the
+    /// tests: `last_seen` as handed to the fight.
+    #[allow(dead_code)]
+    pub fn believed_for_probe(&self) -> Vec<Option<Vec2>> {
+        self.last_seen.iter().map(|s| s.map(|s| s.at)).collect()
     }
 
     /// Which of the enemies named by [`Game::set_hostiles`] are peeking
     /// from cover, index for index: a bolt reaching one is dodged half
     /// the time. Nobody is until this says so, every step.
+    /// Where the targets the world named stand, index for index — `None`
+    /// for one down. For the tests.
+    #[allow(dead_code)]
+    pub fn combat_targets_for_probe(&self) -> Vec<Option<Vec2>> {
+        self.combat.target_positions()
+    }
+
     pub fn set_hostiles_peeking(&mut self, peeking: &[bool]) {
         self.combat.set_peeking(peeking);
+    }
+
+    /// The odds each hostile dodges a bolt for its armour, index for
+    /// index with `set_hostiles`, the way `set_hostiles_peeking` is: the
+    /// world hands the other room's `Game::dodge`s across.
+    pub fn set_hostiles_dodge(&mut self, dodge: &[f32]) {
+        self.combat.set_dodge(dodge);
+    }
+
+    /// The odds a bolt reaching this Bim is dodged for what it wears —
+    /// `Gear::dodge`, nought for anything below tier three.
+    pub fn dodge(&self, who: usize) -> f32 {
+        self.bims.get(who).map_or(0.0, |b| b.gear.dodge())
     }
 
     /// The enemy a Bim is locked in a melee with — an index into the
@@ -4655,7 +5603,7 @@ impl Game {
     }
 
     /// What is in a Bim's hand.
-    pub fn weapon(&self, who: usize) -> Option<WeaponKind> {
+    pub fn weapon(&self, who: usize) -> Option<Weapon> {
         self.bims[who].gear.weapon
     }
 
@@ -4696,9 +5644,10 @@ impl Game {
     }
 
     /// An enemy's shot, fired here as a hostile bolt: red, and looking
-    /// for this room's own bodies. `from` and `at` in this room's units.
-    pub fn enemy_fire(&mut self, from: Vec2, at: Vec2, weapon: WeaponKind) {
-        self.combat.fire(from, at, weapon, true);
+    /// for this room's own bodies. `from` and `at` in this room's units;
+    /// `moving` while the enemy walked as it fired, for the odds.
+    pub fn enemy_fire(&mut self, from: Vec2, at: Vec2, weapon: Weapon, moving: bool) {
+        self.combat.fire(from, at, weapon, true, moving);
     }
 
     /// An enemy's blow, delivered: a melee `Shot` the world carried
@@ -4724,6 +5673,11 @@ impl Game {
         self.strike(who, hit.part, damage, cut);
         self.wounds_taken.push(hit);
         self.attacked_for = ALARM_HOLD;
+        let at = self.bims[who].character.pos;
+        self.combat.cues.push(Cued {
+            cue: Cue::Blow { cut, on_crew: true },
+            at,
+        });
         true
     }
 
@@ -4733,6 +5687,15 @@ impl Game {
     /// happened, not to do anything about it.
     pub fn take_wounds_taken(&mut self) -> Vec<Hit> {
         std::mem::take(&mut self.wounds_taken)
+    }
+
+    /// Everything worth hearing since last asked — the doors, the board
+    /// and the fight — in the order it happened. See `crate::cue`. The
+    /// host plays them; a server drops them.
+    pub fn take_cues(&mut self) -> Vec<Cued> {
+        let mut cues = std::mem::take(&mut self.room.cues);
+        cues.append(&mut self.combat.cues);
+        cues
     }
 
     /// Every wound closed and every part back to its full, blood and all —
@@ -4746,6 +5709,24 @@ impl Game {
         if self.bims[who].is_alive() {
             self.bims[who].health = Health::new();
         }
+    }
+
+    /// The opposite, for a probe or a test that wants a body: dead on its
+    /// next tick, by the same check as any death.
+    #[allow(dead_code)]
+    pub fn kill_for_probe(&mut self, who: usize) {
+        self.bims[who].health.give_up();
+    }
+
+    /// Out cold where it stands, for a probe: the blood put just under the
+    /// line with nothing open, so it lies there for days rather than
+    /// bleeding out in minutes. Takes at the top of its next tick, like a
+    /// knock-out.
+    #[allow(dead_code)]
+    pub fn knock_out_for_probe(&mut self, who: usize) {
+        self.bims[who]
+            .health
+            .set_blood_for_probe(crate::health::OUT_AT * 0.9);
     }
 
     /// A shot landed on one of this room's Bims: [`Game::strike`], not a
@@ -4797,7 +5778,15 @@ impl Game {
         }
         if through > 0.0 {
             out.through = through;
-            out.leg_lost = bim.health.shot(part, through, cut);
+            // The dying state a part reaching nothing turns into is
+            // rolled off the combat stream, like the part the bolt hit.
+            let roll = self.combat.roll();
+            let bim = &mut self.bims[who];
+            out.trauma = bim.health.shot(part, through, cut, roll);
+            out.leg_lost = out.trauma.is_some_and(|t| t.loses_leg());
+            if let Some(trauma) = out.trauma {
+                self.traumas.push((who, trauma));
+            }
             let wounds = Part::ALL.map(|p| bim.health.wounds(p) > 0);
             bim.character.set_wounds(wounds);
             // The first drop now, on the tile under it; a cut splashes.
@@ -4957,6 +5946,416 @@ impl Game {
         core::mem::take(&mut self.room.bandages_used)
     }
 
+    // --- treating a dying state ---------------------------------------------
+
+    /// The dying state on one part of a Bim, untreated — see
+    /// `health::Trauma`. `None` for a part above nothing.
+    pub fn trauma(&self, who: usize, part: Part) -> Option<Trauma> {
+        self.bims[who].health.trauma(part)
+    }
+
+    /// Whether any part is at nothing with its trauma untreated: it runs
+    /// from a fight, and needs a medkit from a crewmate.
+    pub fn is_dying(&self, who: usize) -> bool {
+        self.bims[who].health.dying()
+    }
+
+    /// What treated traumas have left on it, each with the game minutes it
+    /// has to run.
+    pub fn lasting(&self, who: usize) -> &[Lasting] {
+        self.bims[who].health.lasting()
+    }
+
+    /// Every dying state a hit put one of this room's Bims in since the
+    /// world last asked — whose, and which — and every one a medkit took
+    /// one out of.
+    pub fn take_traumas(&mut self) -> Vec<(usize, Trauma)> {
+        std::mem::take(&mut self.traumas)
+    }
+
+    pub fn take_treated(&mut self) -> Vec<(usize, Trauma)> {
+        std::mem::take(&mut self.treated)
+    }
+
+    /// Send `who` to treat the trauma on `part` of `patient` — a crewmate,
+    /// never itself: a Bim with a part at nothing is past doctoring
+    /// itself — with one of the room's medkits: the walk over and
+    /// [`task::TREAT_MINUTES`] with hands on it, and the trauma over when
+    /// the hands come off (`apply_treatments`). Refused for the same
+    /// reasons a bandage is, for a helper that is the patient, no medkit,
+    /// or a part with no trauma on it.
+    pub fn treat(&mut self, who: usize, patient: usize, part: Part) -> bool {
+        if who >= self.bims.len()
+            || patient >= self.bims.len()
+            || who == patient
+            || !self.bims[who].is_alive()
+            || !self.bims[patient].is_alive()
+            || self.bims[who].character.is_unconscious()
+            || self.bims[who].character.is_outside()
+            || self.bims[patient].character.is_outside()
+            || self.room.medkits == 0
+            || self.bims[patient].health.trauma(part).is_none()
+        {
+            return false;
+        }
+        let kind = Kind::Treat {
+            patient,
+            part: part.code(),
+        };
+        if !self.take_over(who, kind, task::TREAT_MINUTES) {
+            return false;
+        }
+        self.tell_the_room_where_the_crew_are();
+        let taken = self.taken_for(who);
+        self.bims[who].task = Some(Task::treat(
+            who,
+            patient,
+            part.code(),
+            &mut self.bims[who].character,
+            &mut self.room,
+            &self.maps,
+            &taken,
+        ));
+        true
+    }
+
+    /// Every treatment the chains finished this step, done: the trauma on
+    /// the part over (`Health::treat`), a medkit off the count, and the
+    /// world told. Under the same conditions as a dressing — the helper
+    /// within two tiles of the patient, a medkit still to hand, the
+    /// patient alive.
+    fn apply_treatments(&mut self) {
+        for (helper, patient, part) in core::mem::take(&mut self.room.treated) {
+            let Some(part) = Part::from_code(part) else {
+                continue;
+            };
+            if helper >= self.bims.len()
+                || patient >= self.bims.len()
+                || !self.bims[patient].is_alive()
+            {
+                continue;
+            }
+            let apart = (self.bims[helper].character.pos - self.bims[patient].character.pos).len();
+            // The kit was the one in the helper's hands, fetched by the chain
+            // and spent as the hands came off (`Step::Dress`); the room says
+            // so only when there was one.
+            if apart > 2.0 * TILE {
+                continue;
+            }
+            if let Some(trauma) = self.bims[patient].health.treat(part) {
+                self.treated.push((patient, trauma));
+            }
+        }
+    }
+
+    /// Medkits on the shelf, like the bandages: the hold's aboard, set by
+    /// the world every step; the classic room's few otherwise. One in a
+    /// helper's hands is not on the shelf.
+    pub fn medkits(&self) -> u32 {
+        self.room.medkits
+    }
+
+    /// The hold's count, less every kit a helper is carrying — those are
+    /// the hold's still, until the treatment is done and `take_medkits_used`
+    /// says so, but they are not on the shelf for a second helper to set
+    /// out for.
+    pub fn set_medkits(&mut self, n: u32) {
+        let in_hand = self
+            .bims
+            .iter()
+            .filter(|b| b.character.main_held() == Held::Medkit)
+            .count() as u32;
+        self.room.medkits = n.saturating_sub(in_hand);
+    }
+
+    /// Where the kits are fetched from: the use spots of the containers
+    /// that hold one, the world's word every step. None — the classic
+    /// room, a station's — and a kit is taken where the helper stands.
+    pub fn set_kit_stands(&mut self, stands: &[Vec2]) {
+        if self.room.kit_stands != stands {
+            self.room.kit_stands = stands.to_vec();
+        }
+    }
+
+    /// Medkits used up since the last call, for the world to take off the
+    /// hold.
+    pub fn take_medkits_used(&mut self) -> u32 {
+        core::mem::take(&mut self.room.medkits_used)
+    }
+
+    // --- a weapon on the deck ------------------------------------------------
+
+    /// The weapons lying on the deck, dropped by bodies knocked out.
+    pub fn weapons_down(&self) -> &[Dropped] {
+        &self.room.weapons_down
+    }
+
+    /// The dropped weapon the last click landed on, by id, after
+    /// [`Game::hit_at`] said `HIT_DROPPED`.
+    pub fn hit_dropped(&self) -> u32 {
+        self.hit_dropped
+    }
+
+    /// The dropped weapon under a room point, by id: within `PICK_RADIUS`
+    /// of where it lies, the same reach as a click. Nothing is noted; this
+    /// is the hover's question, asked every frame.
+    pub fn dropped_at(&self, x: f32, y: f32) -> Option<u32> {
+        let p = vec2(x, y);
+        self.room
+            .weapons_down
+            .iter()
+            .find(|d| (d.at - p).len() <= PICK_RADIUS)
+            .map(|d| d.id)
+    }
+
+    /// Ring the dropped weapon with this id on the deck — the one the
+    /// pointer rests on — or none. Worked out afresh every frame by the
+    /// host, like the highlight, so nothing stays lit.
+    pub fn set_hover_dropped(&mut self, id: Option<u32>) {
+        self.hover_dropped = id;
+    }
+
+    /// Send `who` to pick the dropped weapon `item` up: the walk over and a
+    /// moment bending for it, and it is in the hand if the hand is empty,
+    /// Send `who` to finish off the other room's `visitor` lying on this
+    /// deck: the walk to within reach — `EXECUTE_RANGE` with a clear line
+    /// for a gun, beside it for a blade — and `EXECUTE_SECONDS` shooting or
+    /// hacking at it, then `Room::executed` for the world to kill it in its
+    /// own room (`take_executed`). The player's order from the menu on a
+    /// downed enemy; whether it *is* an enemy is the world's check. Refused
+    /// for a Bim that cannot — dead, out cold, outside, nothing in its
+    /// hand — or a visitor that is not down.
+    pub fn execute(&mut self, who: usize, visitor: usize) -> bool {
+        if who >= self.bims.len()
+            || !self.bims[who].is_alive()
+            || self.bims[who].character.is_unconscious()
+            || self.bims[who].character.is_outside()
+            || !self.visitor_down(visitor)
+        {
+            return false;
+        }
+        let Some(weapon) = self.bims[who].gear.weapon else {
+            return false;
+        };
+        let kind = Kind::Execute {
+            visitor,
+            blade: weapon.stats().melee,
+        };
+        if !self.take_over(who, kind, 0.0) {
+            return false;
+        }
+        self.tell_the_room_where_the_crew_are();
+        let taken = self.taken_for(who);
+        self.bims[who].task = Some(Task::execute(
+            who,
+            visitor,
+            weapon.stats().melee,
+            &mut self.bims[who].character,
+            &mut self.room,
+            &self.maps,
+            &taken,
+        ));
+        true
+    }
+
+    /// Every execution finished since last asked — `(who, visitor)` — for
+    /// the world to carry to the body's own room (`execute_body`).
+    #[allow(dead_code)]
+    pub fn bodies_down_for_probe(&self) -> Vec<Option<Vec2>> {
+        self.room.bodies_down.clone()
+    }
+
+    pub fn take_executed(&mut self) -> Vec<(usize, usize)> {
+        core::mem::take(&mut self.room.executed)
+    }
+
+    /// One of this room's own finished off where it lay, in the other
+    /// room: dead outright — the head and the body to nothing with no
+    /// trauma to keep it dying, which is `Health::give_up` — if it was
+    /// still down. Whether it was.
+    pub fn execute_body(&mut self, who: usize) -> bool {
+        if !self.is_down(who) || !self.is_alive(who) {
+            return false;
+        }
+        self.bims[who].health.give_up();
+        true
+    }
+
+    /// else in the pack (`apply_pickups`). The player's order from the menu
+    /// on it, and what a bot does for its own gun the moment it comes round
+    /// (`fetch_own_weapon`). Refused for a Bim that cannot — dead, out
+    /// cold, outside — or a weapon that is not there any more.
+    pub fn fetch(&mut self, who: usize, item: u32) -> bool {
+        if who >= self.bims.len()
+            || !self.bims[who].is_alive()
+            || self.bims[who].character.is_unconscious()
+            || self.bims[who].character.is_outside()
+            || !self.room.weapons_down.iter().any(|d| d.id == item)
+        {
+            return false;
+        }
+        let kind = Kind::Fetch { item };
+        if !self.take_over(who, kind, 0.0) {
+            return false;
+        }
+        let taken = self.taken_for(who);
+        self.bims[who].task = Some(Task::fetch(
+            who,
+            item,
+            &mut self.bims[who].character,
+            &mut self.room,
+            &self.maps,
+            &taken,
+        ));
+        true
+    }
+
+    /// Every pick-up the chains finished this step, done — as long as the
+    /// Bim is still within two tiles of it. The player's own Bim puts the
+    /// weapon in its **pack** (the hand if the pack is full), since a
+    /// right-click on a gun is "into the inventory" and what goes in the
+    /// hand is the player's to choose; a bot — a crewmate, or one of a
+    /// hostile room's — puts it in its hand if that is empty, else the
+    /// pack, since it came for its own gun to fight with. Left where it
+    /// lies when neither has room.
+    fn apply_pickups(&mut self) {
+        for (who, item) in core::mem::take(&mut self.room.picked_up) {
+            if who >= self.bims.len() || !self.bims[who].is_alive() {
+                continue;
+            }
+            let Some(i) = self.room.weapons_down.iter().position(|d| d.id == item) else {
+                continue;
+            };
+            let dropped = self.room.weapons_down[i];
+            if (self.bims[who].character.pos - dropped.at).len() > 2.0 * TILE {
+                continue;
+            }
+            let bot = self.hostile_bodies || who != PLAYER;
+            let gear = &mut self.bims[who].gear;
+            let hand_first = bot && gear.weapon.is_none();
+            if hand_first {
+                gear.weapon = Some(dropped.weapon);
+            } else if let Some(cell) = gear.free_cell() {
+                gear.pack[cell] = Some(Item::Weapon(dropped.weapon));
+            } else if gear.weapon.is_none() {
+                gear.weapon = Some(dropped.weapon);
+            } else {
+                continue;
+            }
+            self.room.weapons_down.remove(i);
+        }
+    }
+
+    /// The weapon in the hand of a body going out cold, let go of where
+    /// it lies: onto the deck, numbered, for whoever comes for it.
+    fn drop_weapon(&mut self, who: usize) {
+        let bim = &mut self.bims[who];
+        let Some(weapon) = bim.gear.weapon.take() else {
+            return;
+        };
+        bim.character.set_armed(None);
+        let id = self.room.next_weapon_down;
+        self.room.next_weapon_down += 1;
+        // Flung a little ahead of the body as it falls, so it lies beside
+        // the fallen figure and not under it.
+        let at = bim.character.pos + Vec2::from_angle(bim.character.heading) * DROP_FLUNG;
+        self.room.weapons_down.push(Dropped {
+            id,
+            at,
+            weapon,
+            owner: who,
+        });
+    }
+
+    /// A bot back on its feet with nothing in its hand goes for the gun it
+    /// dropped, if it still lies there and there is a way to it. Every Bim
+    /// but the player's own in the crew's room, and every one of a
+    /// hostile room's; not one already on its way, not one dying with an
+    /// enemy about — it is running — and not while it is under arms at a
+    /// post the player gave it.
+    fn fetch_own_weapon(&mut self, who: usize) {
+        let bot = self.hostile_bodies || who != PLAYER;
+        let bim = &self.bims[who];
+        if !bot
+            || bim.gear.weapon.is_some()
+            || bim
+                .task
+                .as_ref()
+                .is_some_and(|t| matches!(t.kind(), Kind::Fetch { .. }))
+            || self.is_fleeing(who)
+        {
+            return;
+        }
+        let from = bim.character.pos;
+        let Some(item) = self
+            .room
+            .weapons_down
+            .iter()
+            .filter(|d| d.owner == who)
+            .find(|d| task::dropped_stand(&self.room, &self.maps, d.id, from).is_some())
+            .map(|d| d.id)
+        else {
+            return;
+        };
+        self.fetch(who, item);
+    }
+
+    // --- running from a fight ------------------------------------------------
+
+    /// Whether `who` is running from the fight: dying, on its feet on the
+    /// deck, and an enemy up somewhere. It goes nowhere else while it is
+    /// — no errand, no post, no order — and does not shoot.
+    pub fn is_fleeing(&self, who: usize) -> bool {
+        let bim = &self.bims[who];
+        bim.is_alive()
+            && bim.health.dying()
+            && !bim.character.is_outside()
+            && !bim.character.is_unconscious()
+            && self.combat.targets().iter().any(|t| t.is_some())
+    }
+
+    /// One dying body's run, when its clock comes round: away from where
+    /// the enemy are on average (`Tactics::flee`), whatever it was doing
+    /// put down first. Its own `plan_wait` clock, like a stand.
+    fn flee(&mut self, who: usize, dt: f32) {
+        let bim = &mut self.bims[who];
+        bim.plan_wait -= dt;
+        if bim.plan_wait > 0.0 {
+            return;
+        }
+        bim.plan_wait = PLAN_EVERY;
+        let from = bim.character.pos;
+        let nav = self.maps.for_body(false, self.room.bath.is_open());
+        let targets = self.combat.targets().to_vec();
+        let Some(to) = Tactics::flee(nav, from, &targets) else {
+            return;
+        };
+        let going = self.bims[who].character.destination().unwrap_or(from);
+        if (to - going).len() <= TILE {
+            return;
+        }
+        let route = nav.path(from, to);
+        if route.is_empty() {
+            return;
+        }
+        if self.bims[who].task.is_some() {
+            self.interrupt(who);
+        }
+        // An enemy's run through a door is a door to lock behind it: the
+        // first door the route passes, and which side it set out from.
+        if self.hostile_bodies {
+            self.bims[who].seal = self
+                .room
+                .doors
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| !d.locked)
+                .find(|(_, d)| route.iter().any(|&p| d.rect.expand(TILE * 0.6).contains(p)))
+                .map(|(i, d)| (i, (from - d.rect.center()).dot(d.through())));
+        }
+        self.bims[who].character.follow_path(route);
+    }
+
     /// What a Bim has on it.
     pub fn gear(&self, who: usize) -> Gear {
         self.bims[who].gear
@@ -4986,24 +6385,23 @@ impl Game {
         self.bims[who].gear.armour_health()
     }
 
-    /// Put an item in a Bim's pack: into `cell`, or the first free one.
-    /// The world's half of a fetch — the piece has already left the hold.
-    /// `false`, and the item is not taken, when the cell is full or there
-    /// is none free.
+    /// Put an item in a Bim's pack: into `cell`, or the first free one —
+    /// the first the item fits, for a tall one, whose tail wants the cell
+    /// under it free as well. The world's half of a fetch — the piece has
+    /// already left the hold. `false`, and the item is not taken, when the
+    /// cell is full or there is none free.
     pub fn give(&mut self, who: usize, cell: Option<usize>, item: Item) -> bool {
         let Some(bim) = self.bims.get_mut(who) else {
             return false;
         };
-        let Some(cell) = cell.or_else(|| bim.gear.free_cell()) else {
+        let Some(cell) = cell.or_else(|| bim.gear.free_cell_for(item)) else {
             return false;
         };
-        match bim.gear.pack.get_mut(cell) {
-            Some(slot @ None) => {
-                *slot = Some(item);
-                true
-            }
-            _ => false,
+        if !bim.gear.fits(cell, item) {
+            return false;
         }
+        bim.gear.pack[cell] = Some(item);
+        true
     }
 
     /// Take an item out of a Bim's pack, for the hold or a shelf: the
@@ -5011,7 +6409,10 @@ impl Game {
     /// it is — the hold counts pieces as resources and a broken one is
     /// worth nothing there; it can only be [`Game::discard`]ed.
     pub fn take(&mut self, who: usize, cell: usize) -> Option<Item> {
-        let slot = self.bims.get_mut(who)?.gear.pack.get_mut(cell)?;
+        let gear = &mut self.bims.get_mut(who)?.gear;
+        // A tall item is taken by either of its cells.
+        let cell = gear.head_of(cell);
+        let slot = gear.pack.get_mut(cell)?;
         if let Some(Item::Armour(piece)) = slot
             && piece.broken()
         {
@@ -5023,9 +6424,12 @@ impl Game {
     /// Throw an item away for good. What the pop-up offers for a broken
     /// piece. `false` when the cell was empty.
     pub fn discard(&mut self, who: usize, cell: usize) -> bool {
-        self.bims
-            .get_mut(who)
-            .and_then(|b| b.gear.pack.get_mut(cell))
+        let Some(gear) = self.bims.get_mut(who).map(|b| &mut b.gear) else {
+            return false;
+        };
+        let cell = gear.head_of(cell);
+        gear.pack
+            .get_mut(cell)
             .is_some_and(|slot| slot.take().is_some())
     }
 
@@ -5052,7 +6456,7 @@ impl Game {
                 gear.pack[cell] = off;
                 off
             }
-            Some(Item::Stack(_)) | None => return None,
+            Some(Item::Stack(_) | Item::Key(_)) | None => return None,
         };
         self.refresh_worn(who);
         off
@@ -5118,7 +6522,10 @@ impl Game {
         }
         let gear = &mut self.bims[who].gear;
         let taken = match cell {
-            LootCell::Pack(cell) => gear.pack.get_mut(cell as usize)?.take(),
+            LootCell::Pack(cell) => {
+                let cell = gear.head_of(cell as usize);
+                gear.pack.get_mut(cell)?.take()
+            }
             LootCell::Head => gear.head.take().map(Item::Armour),
             LootCell::Body => gear.body.take().map(Item::Armour),
             LootCell::Legs => gear.legs.take().map(Item::Armour),
@@ -5155,6 +6562,7 @@ impl Game {
             Container::Fridge(i) => {
                 (i < self.room.fridges.len()).then(|| self.room.fridge_station(i))
             }
+            Container::Desk(i) => self.room.research.get(i).map(|d| d.1),
         }
     }
 
@@ -5165,6 +6573,7 @@ impl Game {
             Container::Bench(i) => self.room.benches.get(i).map(|b| b.frame),
             Container::Shelf(i) => self.room.shelves.get(i).map(|s| s.0),
             Container::Fridge(i) => self.room.fridges.get(i).map(|f| f.frame),
+            Container::Desk(i) => self.room.research.get(i).map(|d| d.0),
         }
     }
 
@@ -5195,6 +6604,15 @@ impl Game {
 
     /// Whether a Bim has its weapon drawn: in combat mode, and able to
     /// use it this instant.
+    /// Give `who`'s errand up for good, for the tests: what a chain that
+    /// finds nowhere to go does, banking whatever was in the hands.
+    #[allow(dead_code)]
+    pub fn abandon_for_probe(&mut self, who: usize) {
+        if let Some(task) = self.bims[who].task.take() {
+            task.abandon(&mut self.bims[who].character, &mut self.room);
+        }
+    }
+
     pub fn is_armed(&self, who: usize) -> bool {
         self.bims[who].character.is_armed()
     }
@@ -5244,6 +6662,13 @@ impl Game {
             shut.push(door);
         }
         shut
+    }
+
+    /// The smooth picture of what the crew see and what is lit, for the
+    /// host to draw over the room — `sight::LightMap`, worked out in
+    /// `render`. `None` for a room not drawn through the crew's eyes.
+    pub fn light_map(&self) -> Option<&crate::sight::LightMap> {
+        (self.fog == Fog::Crew && self.room.sight.map().width > 0).then(|| self.room.sight.map())
     }
 
     /// Whether the crew see the tile a room point is in, as of the last
@@ -5734,6 +7159,21 @@ impl Game {
             }
         }
 
+        // What lies on the deck under the bodies: the guns dropped by
+        // whoever went out cold, where they fell — the one under the
+        // pointer ringed in the highlight's cyan, so it reads as something
+        // a right-click picks up.
+        for d in &self.room.weapons_down {
+            if self.hover_dropped == Some(d.id) {
+                let size = vec2(PICK_RADIUS, PICK_RADIUS) * 2.0;
+                self.list
+                    .rect(d.at, size, 0.0, PICK_RADIUS, GLOW.alpha(0.16));
+                self.list
+                    .stroke_rect(d.at, size, 0.0, PICK_RADIUS, 2.0, GLOW.alpha(0.95));
+            }
+            crate::character::draw_dropped(&mut self.list, d.at, d.weapon.kind);
+        }
+
         // Bodies in crew order, so who is drawn on top of whom does not
         // change as they walk past each other — and only the ones in view:
         // a station's people behind a bulkhead are not drawn at all.
@@ -5759,7 +7199,16 @@ impl Game {
         // pointer's own marks would be a fog over the pointer.
         self.observe();
         match self.fog {
-            Fog::Crew => self.room.sight.draw(&mut self.list, false),
+            // The crew's own semi fog is the light map's — smooth, and
+            // drawn by the host over this picture — so the tile passes
+            // here are a stranger's grey and black alone.
+            Fog::Crew => {
+                self.room.sight.draw_veils(&mut self.list, false, false);
+                if self.room.sight.take_map_stale() {
+                    let eyes: Vec<Vec2> = self.bims.iter().map(|b| b.character.pos).collect();
+                    self.room.sight.light_map(&eyes);
+                }
+            }
             Fog::All => self.room.sight.draw(&mut self.list, true),
             Fog::None => {}
         }
@@ -5807,6 +7256,20 @@ impl Game {
                 MARQUEE_EDGE.alpha(0.8),
             );
         }
+        // And the line a right-drag is drawing: where each of the selected
+        // will stand along it, a pip apiece, so the order can be read
+        // before it is given.
+        if let Some((from, to)) = self.order_drag {
+            let n = self.orderable().len();
+            if n > 0 && (to - from).len() > 1.0 {
+                self.list.line(from, to, 1.5, MARQUEE_EDGE.alpha(0.8));
+                let pips = n.max(2);
+                for i in 0..n.max(1) {
+                    let at = from + (to - from) * (i as f32 / (pips - 1) as f32);
+                    self.list.circle(at, 10.0, MARQUEE_EDGE.alpha(0.9));
+                }
+            }
+        }
     }
 
     /// The frame's shapes, for a host that embeds this room in a picture of
@@ -5820,6 +7283,7 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::{Tier, WeaponKind};
     use crate::health::MAX_BLOOD;
 
     /// A frame at 1x.
@@ -5838,7 +7302,7 @@ mod tests {
         game.set_hostile_bodies(true);
         // A target out in the open, four tiles from both.
         let target = kate + vec2(4.0 * TILE, 0.0);
-        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
         game.simulate(DT);
         assert!(game.is_recruited(), "at war, under orders");
         assert!(game.bims[1].character.is_recruited());
@@ -5856,7 +7320,7 @@ mod tests {
         assert!(
             shots
                 .iter()
-                .all(|s| s.at == target && s.weapon == WeaponKind::LaserPistol)
+                .all(|s| s.at == target && s.weapon == WeaponKind::LaserPistol.basic())
         );
         assert!(game.take_shots().is_empty(), "drained");
         assert!(
@@ -5882,7 +7346,7 @@ mod tests {
         // Until one lands: the odds at three tiles are nine in ten.
         let mut landed = Vec::new();
         for _ in 0..30 {
-            game.enemy_fire(from, james, WeaponKind::LaserPistol);
+            game.enemy_fire(from, james, WeaponKind::LaserPistol.basic(), false);
             for _ in 0..30 {
                 game.simulate(DT);
             }
@@ -5963,8 +7427,15 @@ mod tests {
         let had = game.bandages();
         assert!(had > 0);
 
-        // Shot mid-sweep with the medical row left where it started: it
-        // is on offer, but it waits its turn behind the sweep.
+        // Shot mid-sweep with the medical row taken down to the middle —
+        // it starts at the top now — it is on offer, but it waits its turn
+        // behind the sweep.
+        assert_eq!(
+            game.priorities.of(Job::Medical),
+            work::HIGHEST,
+            "the default"
+        );
+        game.set_work_priority(Job::Medical.code(), work::DEFAULT);
         assert!(!game.wound(who, Part::Legs, 3.0).leg_lost);
         game.simulate(DT);
         assert_eq!(game.activity(who), JOB_CLEAN, "a wound at 3 waits");
@@ -6050,7 +7521,7 @@ mod tests {
         );
         assert_eq!(
             game.medical_on_offer(0),
-            Some((1, Part::Body)),
+            Some(Care::Bandage(1, Part::Body)),
             "the part with the most wounds first"
         );
         assert_eq!(
@@ -6078,6 +7549,598 @@ mod tests {
     }
 
     #[test]
+    fn a_dying_bim_runs_from_where_the_enemy_are_and_does_not_shoot() {
+        let mut game = room();
+        game.set_autonomous(false);
+        // Kate under arms with James's pistol in her hand, an enemy four
+        // tiles to her right: she shoots at it. James unarmed, out of it.
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
+        game.issue(0, Gear::default());
+        let near = kate + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((near, WeaponKind::LaserPistol.basic()))]);
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert!(game.is_alarmed());
+        assert!(game.is_armed(1));
+        // Her body at nothing: dying, and running the other way — further
+        // from the enemy every second, its gun holstered and silent.
+        let out = game.wound(1, Part::Body, Part::Body.max());
+        assert!(out.trauma.is_some());
+        assert!(game.is_dying(1));
+        game.take_hits();
+        let before = (game.bim_pos(1) - near).len();
+        let bolts_before = game.combat.bolts.len();
+        for _ in 0..(60 * 4) {
+            game.simulate(DT);
+        }
+        assert!(game.is_fleeing(1));
+        assert!(!game.is_armed(1), "no shooting while it runs");
+        assert_eq!(game.combat.bolts.len().min(1), bolts_before.min(1));
+        let after = (game.bim_pos(1) - near).len();
+        assert!(
+            after > before + 2.0 * TILE,
+            "ran from {before} to {after} off the enemy"
+        );
+        // The player's own runs too, whatever the player said.
+        game.toggle_recruited();
+        let james = game.bim_pos(0);
+        game.set_hostiles(vec![Some((
+            james + vec2(3.0 * TILE, 0.0),
+            WeaponKind::LaserPistol.basic(),
+        ))]);
+        game.wound(0, Part::Head, Part::Head.max());
+        let before = 3.0 * TILE;
+        for _ in 0..(60 * 4) {
+            game.simulate(DT);
+        }
+        assert!(game.is_fleeing(0));
+        let after = (game.bim_pos(0) - (james + vec2(3.0 * TILE, 0.0))).len();
+        assert!(after > before + TILE, "{after}");
+        // The enemy gone, it stops running and stands.
+        game.set_hostiles(Vec::new());
+        assert!(!game.is_fleeing(0));
+        assert!(!game.is_fleeing(1));
+        assert!(game.is_dying(1), "and waits for a medkit");
+    }
+
+    /// The playtest ship as a hostile room — its people the enemies —
+    /// with a body at each of `starts`, in tiles. The room has two
+    /// bulkhead doors (row 6 and row 13) and the airlock, all doors now.
+    fn hostile_ship(starts: &[(f32, f32)]) -> Game {
+        let layout = crate::aboard::layout_of(&shipdesign::fixture::playtest_ship());
+        let (w, h) = (layout.bounds.width(), layout.bounds.height());
+        let at: Vec<Vec2> = starts.iter().map(|&(x, y)| tile_middle(x, y)).collect();
+        let mut game = Game::with_layout(layout, 7, &at, w, h);
+        game.set_autonomous(false);
+        game.set_hostile_bodies(true);
+        game
+    }
+
+    fn tile_middle(x: f32, y: f32) -> Vec2 {
+        vec2((x + 0.5) * TILE, (y + 0.5) * TILE)
+    }
+
+    /// The door whose opening holds tile `(x, y)`.
+    fn door_at_tile(game: &Game, x: f32, y: f32) -> usize {
+        game.door_index_at(tile_middle(x, y))
+            .unwrap_or_else(|| panic!("no door at ({x}, {y})"))
+    }
+
+    /// An airlock is a door: it locks from the panel, it is a wall to the
+    /// pathfinder locked, and it is a solid to the eye shut like the rest.
+    #[test]
+    fn an_airlock_is_a_door_that_locks() {
+        let mut game = hostile_ship(&[(8.0, 10.0)]);
+        // The playtest airlock is the starboard skin at (17, 11)–(17, 12).
+        let lock = door_at_tile(&game, 17.0, 11.0);
+        assert!(game.room.doors[lock].airlock);
+        assert_eq!(game.room.doors[lock].smash_time(), door::SMASH_AIRLOCK);
+        let bulkhead = door_at_tile(&game, 15.0, 13.0);
+        assert!(!game.room.doors[bulkhead].airlock);
+        assert_eq!(game.room.doors[bulkhead].smash_time(), door::SMASH_DOOR);
+        assert!(game.room.locked_doors().is_empty());
+        game.room.doors[lock].order(door::Order::Lock);
+        game.simulate(DT);
+        assert_eq!(game.room.locked_doors().len(), 1);
+        assert!(game.room.doors[lock].locked);
+        assert_eq!(game.room.doors[lock].locked_by, door::Locker::Crew);
+        game.room.doors[lock].order(door::Order::Unlock);
+        game.simulate(DT);
+        assert!(game.room.locked_doors().is_empty());
+    }
+
+    /// An enemy with its target behind a locked door goes to the door and
+    /// forces it: fifteen seconds of heaving, heard every couple of
+    /// seconds and drawn as a bar, and the lock gives. One at a door.
+    #[test]
+    fn an_enemy_smashes_through_a_locked_door_in_fifteen_seconds() {
+        // The enemy a tile inside engineering with the aft door open for
+        // it, the target on the main deck in plain view through the
+        // doorway — a hostile room's people hunt only what they have
+        // seen — and then the crew lock the door between them.
+        let mut game = hostile_ship(&[(15.0, 14.0)]);
+        let door = door_at_tile(&game, 15.0, 13.0);
+        let target = tile_middle(15.0, 10.0);
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert!(
+            game.room.doors[door].is_open(),
+            "open for the body a tile off"
+        );
+        // The lock, and the sighting through the leaves as they shut: the
+        // nav is a wall from the order, so the enemy never gets through.
+        game.room.doors[door].order(door::Order::Lock);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        game.simulate(DT);
+        assert!(game.at_war, "seen through the closing door");
+        let mut heaves = 0;
+        let mut forced_at = None;
+        let mut bar_seen = false;
+        for frame in 0..(60 * 30) {
+            game.simulate(DT);
+            for cued in game.take_cues() {
+                match cued.cue {
+                    Cue::DoorSmash => heaves += 1,
+                    Cue::DoorForced => forced_at = forced_at.or(Some(frame)),
+                    _ => {}
+                }
+            }
+            if game.room.doors[door].smash_progress().is_some() {
+                bar_seen = true;
+            }
+            if forced_at.is_some() {
+                break;
+            }
+        }
+        let forced = forced_at.expect("the door should have been forced");
+        assert!(bar_seen, "the smashing is drawn");
+        assert!(heaves >= 5, "{heaves} heaves");
+        // Fifteen seconds of heaving, after however long the walk took.
+        assert!(
+            forced >= (door::SMASH_DOOR / DT) as i32,
+            "forced at frame {forced}"
+        );
+        assert!(!game.room.doors[door].locked);
+        assert!(game.room.doors[door].smash.is_none());
+        assert!(game.room.locked_doors().is_empty());
+    }
+
+    /// A dying enemy running through a door locks it behind itself, binds
+    /// its wounds sealed in — a dressing every ten seconds, the trauma
+    /// treated once nothing bleeds — and, dying no more, unlocks its own
+    /// door and comes out to fight.
+    #[test]
+    fn a_fleeing_enemy_seals_itself_in_binds_its_wounds_and_comes_back() {
+        // The enemy just north of the aft door, the target four tiles
+        // north of it: the run goes south, through the door.
+        let mut game = hostile_ship(&[(15.0, 12.0)]);
+        let door = door_at_tile(&game, 15.0, 13.0);
+        let target = tile_middle(15.0, 8.0);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        game.simulate(DT);
+        let out = game.wound(0, Part::Body, Part::Body.max());
+        assert!(out.trauma.is_some());
+        assert!(game.is_dying(0));
+        game.take_hits();
+        let mut sealed_at = None;
+        for frame in 0..(60 * 20) {
+            game.simulate(DT);
+            if game.room.doors[door].locked {
+                sealed_at = Some(frame);
+                break;
+            }
+        }
+        let sealed = sealed_at.expect("it should have locked the door behind it");
+        assert_eq!(game.room.doors[door].locked_by, door::Locker::Body(0));
+        let south = game.bim_pos(0).y > game.room.doors[door].rect.max.y;
+        assert!(south, "sealed in on the far side");
+        // Bound, treated, and out again: the lock lifted by its own hand.
+        let mut unlocked_at = None;
+        for frame in 0..(60 * 60) {
+            game.simulate(DT);
+            if !game.room.doors[door].locked {
+                unlocked_at = Some(frame);
+                break;
+            }
+        }
+        let unlocked = unlocked_at.expect("it should have come back out");
+        assert!(
+            unlocked as f32 * DT >= 2.0 * BIND_EVERY - 1.0,
+            "unlocked after {unlocked} frames, sealed at {sealed}"
+        );
+        assert!(!game.is_dying(0));
+        assert_eq!(game.bleeding(0), 0);
+        assert!(!game.is_fleeing(0));
+    }
+
+    /// A bare hull twenty tiles across, decked, with these lights on it.
+    fn box_ship(lights: &[(shipdesign::PartKind, (u32, u32))]) -> shipdesign::ShipDesign {
+        use shipdesign::parts::{PartKind, Rotation};
+        use shipdesign::{Budget, Edit, ShipDesign, apply};
+        let budget = Budget::new(10_000_000);
+        let mut design = ShipDesign::new(20);
+        let mut put = |design: &mut ShipDesign, kind: PartKind, origin: (u32, u32)| {
+            if let Ok(next) = apply(
+                design,
+                &budget,
+                Edit::Place {
+                    kind,
+                    origin,
+                    rotation: Rotation::R0,
+                },
+            ) {
+                *design = next;
+            }
+        };
+        for y in 1..19 {
+            for x in 1..19 {
+                put(&mut design, PartKind::Structure, (x, y));
+            }
+        }
+        for y in 2..18 {
+            for x in 2..18 {
+                put(&mut design, PartKind::Floor, (x, y));
+            }
+        }
+        for i in 1..19 {
+            put(&mut design, PartKind::OutsideWall, (i, 1));
+            put(&mut design, PartKind::OutsideWall, (i, 18));
+            put(&mut design, PartKind::OutsideWall, (1, i));
+            put(&mut design, PartKind::OutsideWall, (18, i));
+        }
+        for &(kind, at) in lights {
+            put(&mut design, kind, at);
+        }
+        design
+    }
+
+    /// In the dark a Bim sees ten tiles: a tile no light reaches is seen
+    /// only from that close, however clear the line. A light on a tile is
+    /// seen from across the deck, and so is everything its reach makes
+    /// out — and a wall stops the light like it stops the eye, so a room
+    /// behind a bulkhead is dark for all the lamp on the far side.
+    #[test]
+    fn the_dark_is_seen_ten_tiles_and_a_lit_tile_further() {
+        use shipdesign::PartKind;
+        let eye = tile_middle(3.0, 10.0);
+        let mid = tile_middle(11.0, 10.0);
+        let far = tile_middle(15.0, 10.0);
+
+        // No lights at all: dark everywhere, and eight tiles is seen where
+        // twelve is not.
+        let layout = crate::aboard::layout_of(&box_ship(&[]));
+        let (w, h) = (layout.bounds.width(), layout.bounds.height());
+        let mut dark = Game::with_layout(layout, 7, &[eye], w, h);
+        dark.set_autonomous(false);
+        dark.simulate(DT);
+        dark.observe();
+        assert!(!dark.room.sight.lit_at(mid));
+        assert!(dark.seen_at(mid.x, mid.y), "eight tiles, in the dark");
+        assert!(!dark.seen_at(far.x, far.y), "twelve tiles, in the dark");
+        assert!(dark.room.sight.sees_from(eye, mid).is_some());
+        assert!(dark.room.sight.sees_from(eye, far).is_none());
+
+        // A wall light on the far hull: the far tile is lit and seen.
+        let layout = crate::aboard::layout_of(&box_ship(&[(PartKind::WallLight, (16, 10))]));
+        let mut lit = Game::with_layout(layout, 7, &[eye], w, h);
+        lit.set_autonomous(false);
+        lit.simulate(DT);
+        lit.observe();
+        assert!(lit.room.sight.lit_at(far));
+        assert!(lit.seen_at(far.x, far.y), "twelve tiles, lit");
+        assert!(lit.room.sight.sees_from(eye, far).is_some());
+        assert_eq!(lit.room.sight.lights().len(), 1);
+
+        // A wall between the lamp and the eye keeps the light behind it:
+        // the tile on the eye's side of the wall is dark again, and seen
+        // only because it is within the ten.
+        let mut walled = box_ship(&[(PartKind::WallLight, (16, 10))]);
+        {
+            use shipdesign::{Budget, Edit, Rotation, apply};
+            let budget = Budget::new(10_000_000);
+            for y in 2..18 {
+                if let Ok(next) = apply(
+                    &walled,
+                    &budget,
+                    Edit::Place {
+                        kind: PartKind::Wall,
+                        origin: (13, y),
+                        rotation: Rotation::R0,
+                    },
+                ) {
+                    walled = next;
+                }
+            }
+        }
+        let layout = crate::aboard::layout_of(&walled);
+        let mut walled = Game::with_layout(layout, 7, &[eye], w, h);
+        walled.set_autonomous(false);
+        walled.simulate(DT);
+        walled.observe();
+        let before_wall = tile_middle(12.0, 10.0);
+        assert!(!walled.room.sight.lit_at(before_wall), "the wall shades it");
+        assert!(
+            walled.seen_at(before_wall.x, before_wall.y),
+            "nine tiles, dark, and still within the ten"
+        );
+    }
+
+    #[test]
+    fn a_bim_knocked_out_drops_its_gun_and_a_bot_comes_back_for_it() {
+        let mut game = room();
+        game.set_autonomous(false);
+        game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
+        assert_eq!(game.weapon(1), Some(WeaponKind::LaserPistol.basic()));
+        for _ in 0..10 {
+            game.wound(1, Part::Body, 1.0);
+        }
+        let mut minutes = 0.0;
+        while !game.is_unconscious(1) && minutes < 60.0 {
+            game.simulate(1.0);
+            minutes += MINUTES_PER_SECOND;
+        }
+        assert!(game.is_unconscious(1));
+        // The gun on the deck under her, her hand empty.
+        assert_eq!(game.weapon(1), None);
+        assert_eq!(game.weapons_down().len(), 1);
+        let d = game.weapons_down()[0];
+        assert_eq!(d.weapon, WeaponKind::LaserPistol.basic());
+        assert_eq!(d.owner, 1);
+        assert!((d.at - game.bim_pos(1)).len() < TILE, "flung beside her");
+        let at = game.bim_pos(1);
+        assert_eq!(game.hit_at(at.x + 2.0, at.y), HIT_BIM, "the body first");
+        assert_eq!(game.hit_at(d.at.x, d.at.y), HIT_DROPPED);
+        // Out cold, nothing is aimed at her, and a bolt flies over her.
+        let wounds = game.bleeding(1);
+        let at = game.bim_pos(1);
+        game.enemy_fire(
+            at + vec2(-3.0 * TILE, 0.0),
+            at,
+            WeaponKind::LaserPistol.basic(),
+            false,
+        );
+        for _ in 0..(60 * 3) {
+            game.simulate(DT);
+        }
+        assert_eq!(game.bleeding(1), wounds, "a body out cold is not shot");
+        game.take_wounds_taken();
+        // Dressed, she comes round — and, a bot, goes for it: the chain,
+        // and the gun back in her hand.
+        assert!(game.bims[1].health.bandage(Part::Body));
+        while game.is_unconscious(1) && minutes < 24.0 * 60.0 {
+            game.simulate(1.0);
+            minutes += MINUTES_PER_SECOND;
+        }
+        assert!(!game.is_unconscious(1));
+        let mut steps = 0;
+        while game.weapon(1).is_none() && steps < 60 * 30 {
+            game.simulate(DT);
+            steps += 1;
+        }
+        assert_eq!(
+            game.weapon(1),
+            Some(WeaponKind::LaserPistol.basic()),
+            "picked up"
+        );
+        assert!(game.weapons_down().is_empty());
+        // The player's own is not a bot: its gun lies where it fell until
+        // the player sends it, and the click on it says what it is.
+        for _ in 0..10 {
+            game.wound(0, Part::Body, 1.0);
+        }
+        minutes = 0.0;
+        while !game.is_unconscious(0) && minutes < 60.0 {
+            game.simulate(1.0);
+            minutes += MINUTES_PER_SECOND;
+        }
+        assert!(game.bims[0].health.bandage(Part::Body));
+        while game.is_unconscious(0) && minutes < 24.0 * 60.0 {
+            game.simulate(1.0);
+            minutes += MINUTES_PER_SECOND;
+        }
+        assert!(!game.is_unconscious(0));
+        for _ in 0..(60 * 5) {
+            game.simulate(DT);
+        }
+        assert_eq!(game.weapon(0), None, "the player's waits to be told");
+        assert_eq!(game.weapons_down().len(), 1);
+        let d = game.weapons_down()[0];
+        // Somewhere off the body's own tile: the walk to it moves.
+        game.put_for_probe(0, d.at + vec2(4.0 * TILE, 0.0));
+        assert_eq!(game.hit_at(d.at.x + 3.0, d.at.y - 2.0), HIT_DROPPED);
+        assert_eq!(game.hit_dropped(), d.id);
+        // The hover asks the same reach and notes nothing.
+        assert_eq!(game.dropped_at(d.at.x + 3.0, d.at.y - 2.0), Some(d.id));
+        assert_eq!(game.dropped_at(d.at.x + 3.0 * TILE, d.at.y), None);
+        assert!(game.fetch(0, d.id));
+        assert_eq!(game.activity(0), JOB_FETCH);
+        let mut steps = 0;
+        while game.weapons_down().len() == 1 && steps < 60 * 30 {
+            game.simulate(DT);
+            steps += 1;
+        }
+        // The player's own puts it in the pack — the right-click is "into
+        // the inventory" — and the hand stays as the player left it.
+        assert!(game.weapons_down().is_empty());
+        assert_eq!(game.weapon(0), None, "not in the hand");
+        assert_eq!(
+            game.pack(0)[0],
+            Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
+        );
+        assert!(!game.fetch(0, d.id), "nothing there any more");
+    }
+
+    #[test]
+    fn a_treatment_walks_to_the_kit_first_and_carries_it_to_the_patient() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.55, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        // The kits live in a cabinet across the room, the world's word.
+        let cabinet = vec2(ROOM_W * 0.75, ROOM_H * 0.5);
+        game.set_kit_stands(&[cabinet]);
+        let had = game.medkits();
+        assert!(had > 0);
+        assert!(game.wound(1, Part::Body, Part::Body.max()).trauma.is_some());
+        assert!(game.treat(0, 1, Part::Body));
+        assert_eq!(game.activity(0), JOB_TREAT);
+        // First to the cabinet, empty-handed.
+        let to = game.destination_for_probe(0).expect("walking");
+        assert!(
+            (to - cabinet).len() < 2.0 * TILE,
+            "to the cabinet first: {to:?}"
+        );
+        assert!((to - james).len() > 3.0 * TILE);
+        assert_ne!(game.bims[0].character.main_held(), Held::Medkit);
+        // The kit in hand as it leaves the cabinet, and one off the shelf.
+        let mut steps = 0;
+        while game.bims[0].character.main_held() != Held::Medkit && steps < 60 * 60 {
+            game.simulate(DT);
+            steps += 1;
+        }
+        assert_eq!(
+            game.bims[0].character.main_held(),
+            Held::Medkit,
+            "the kit in hand"
+        );
+        assert_eq!(game.medkits(), had - 1, "off the shelf");
+        assert!(
+            (game.bim_pos(0) - cabinet).len() < 2.0 * TILE,
+            "taken at the cabinet"
+        );
+        // A world setting the shelf again does not count the one in hand.
+        game.set_medkits(had);
+        assert_eq!(game.medkits(), had - 1);
+        // Then to the patient, and the kit is spent on her.
+        while game.is_dying(1) && steps < 60 * 120 {
+            game.simulate(DT);
+            steps += 1;
+        }
+        assert!(!game.is_dying(1), "treated");
+        assert_eq!(game.bims[0].character.main_held(), Held::Nothing, "spent");
+        assert_eq!(game.take_medkits_used(), 1);
+        assert_eq!(game.medkits(), had - 1);
+
+        // A treatment given up on the way puts the kit back.
+        game.set_kit_stands(&[]);
+        assert!(game.wound(1, Part::Legs, Part::Legs.max()).trauma.is_some());
+        let shelf = game.medkits();
+        assert!(game.treat(0, 1, Part::Legs));
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        assert_eq!(
+            game.bims[0].character.main_held(),
+            Held::Medkit,
+            "on the spot, no cabinet"
+        );
+        assert_eq!(game.medkits(), shelf - 1);
+        game.abandon_for_probe(0);
+        assert_eq!(game.bims[0].character.main_held(), Held::Nothing);
+        assert_eq!(game.medkits(), shelf, "back on the shelf");
+    }
+
+    #[test]
+    fn under_the_alarm_a_crewmate_with_nothing_in_sight_doctors_and_one_with_an_enemy_in_sight_does_not()
+     {
+        let mut game = room();
+        game.set_autonomous(true);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+        assert_eq!(
+            game.priorities.of(Job::Medical),
+            work::HIGHEST,
+            "the default"
+        );
+        // James under the player's orders, so he does not dress himself —
+        // a recruited player's Bim waits to be told — and Kate has to.
+        game.recruit_for_probe(0, true);
+        // An enemy within range but out of sight — beyond the room's walls
+        // — is the alarm without a target to act on; James bleeds.
+        let unseen = james + vec2(30.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((unseen, WeaponKind::LaserPistol.basic()))]);
+        assert!(!game.wound(0, Part::Body, 4.0).leg_lost);
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert!(game.is_alarmed());
+        assert!(game.bims[1].character.is_recruited(), "Kate under arms");
+        assert_eq!(
+            game.activity(1),
+            JOB_BANDAGE,
+            "and doctoring, nothing in sight"
+        );
+        assert!(!game.is_armed(1), "holstered for it");
+        let mut steps = 0;
+        while game.bleeding(0) > 0 && steps < 60 * 60 {
+            game.simulate(DT);
+            steps += 1;
+        }
+        assert_eq!(game.bleeding(0), 0, "James dressed under the alarm");
+
+        // An enemy in plain view: the wound waits, the gun does not.
+        assert!(!game.wound(0, Part::Body, 4.0).leg_lost);
+        let seen = james + vec2(5.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((seen, WeaponKind::LaserPistol.basic()))]);
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert_ne!(game.activity(1), JOB_BANDAGE, "not with an enemy in sight");
+        assert!(game.is_armed(1));
+    }
+
+    #[test]
+    fn a_dying_crewmate_is_treated_with_a_medkit_by_whoever_is_free() {
+        let mut game = room();
+        game.put_for_probe(0, vec2(ROOM_W * 0.55, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        game.set_autonomous(false);
+        let out = game.wound(1, Part::Body, Part::Body.max());
+        let trauma = out.trauma.expect("dying");
+        assert_eq!(trauma.part(), Part::Body);
+        assert!(!game.treat(1, 1, Part::Body), "nobody treats their own");
+        assert!(!game.treat(0, 1, Part::Head), "nothing on the head");
+        game.set_autonomous(true);
+        game.simulate(DT);
+        assert_eq!(
+            game.medical_on_offer(0),
+            Some(Care::Treat(1, Part::Body)),
+            "the trauma before her wound"
+        );
+        // Her own trauma is nobody's to treat; the wound the shot opened
+        // she dresses herself, and that comes first for her.
+        assert_eq!(
+            game.medical_on_offer(1),
+            Some(Care::Bandage(1, Part::Body)),
+            "her own wound, never her own trauma"
+        );
+        let had = game.medkits();
+        assert!(had > 0);
+        let mut steps = 0;
+        while game.is_dying(1) && steps < 60 * 60 {
+            game.simulate(DT);
+            steps += 1;
+        }
+        assert!(!game.is_dying(1), "treated within the hour");
+        assert_eq!(game.medkits(), had - 1);
+        assert_eq!(game.take_medkits_used(), 1);
+        assert_eq!(game.take_treated(), vec![(1, trauma)]);
+        assert_eq!(
+            game.part_health(1, Part::Body),
+            Part::Body.max() * crate::health::TREATED_TO
+        );
+        assert!(game.is_alive(1));
+        // What it left behind, if anything, is on her for a while.
+        assert_eq!(game.lasting(1).len(), usize::from(trauma.after().is_some()));
+        // The wound is still open: the medical row goes on to it.
+        assert_eq!(game.medical_on_offer(0), Some(Care::Bandage(1, Part::Body)));
+    }
+
+    #[test]
     fn enough_wounds_knock_a_bim_out_and_it_lies_there_till_it_comes_round() {
         let mut game = room();
         game.set_autonomous(false);
@@ -6099,7 +8162,7 @@ mod tests {
             "out cold at {} blood",
             game.blood(0)
         );
-        assert!(game.blood(0) < MAX_BLOOD * 0.3);
+        assert!(game.blood(0) < MAX_BLOOD * crate::health::OUT_AT);
         assert!(game.is_alive(0));
         assert!(!game.is_walking(0));
         assert!(!game.is_armed(0));
@@ -6118,10 +8181,18 @@ mod tests {
         );
         assert!(game.is_alive(0));
 
-        // A leg goes on the second shot that empties it.
-        assert!(!game.wound(1, Part::Legs, 12.0).leg_lost);
-        assert!(game.wound(1, Part::Legs, 12.0).leg_lost);
-        assert_eq!(game.legs_lost(1), 1);
+        // The second shot that empties the legs is a dying state for them
+        // — which one is the combat stream's roll — and not a death.
+        assert_eq!(game.wound(1, Part::Legs, 12.0).trauma, None);
+        let out = game.wound(1, Part::Legs, 12.0);
+        let trauma = out.trauma.expect("a trauma");
+        assert_eq!(trauma.part(), Part::Legs);
+        assert_eq!(out.leg_lost, trauma.loses_leg());
+        assert!(game.is_dying(1));
+        assert_eq!(game.trauma(1, Part::Legs), Some(trauma));
+        assert_eq!(game.take_traumas(), vec![(1, trauma)]);
+        game.simulate(DT);
+        assert!(game.is_alive(1));
         // And bled out is dead.
         for _ in 0..10 {
             game.wound(1, Part::Body, 1.0);
@@ -6202,7 +8273,7 @@ mod tests {
         game.recruit_for_probe(0, true);
         // An enemy four tiles off in plain view: James shoots at it.
         let target = james + vec2(4.0 * TILE, 0.0);
-        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
         // A pistol bolt reaches a body four tiles off in a quarter of a
         // second, so it is watched for over the run rather than at its end.
         let shot_over = |game: &mut Game, steps: i32| {
@@ -6278,10 +8349,78 @@ mod tests {
     }
 
     #[test]
-    fn an_enemy_shoots_on_the_move_and_the_crew_do_not() {
+    fn a_hostile_room_chases_what_it_last_saw_and_forgets_it_after_a_minute() {
+        // Kate armed in a hostile room, James out of it; a target in plain
+        // view is known where it stands.
+        let mut game = room();
+        game.set_autonomous(false);
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.8));
+        game.issue(0, Gear::default());
+        game.set_hostile_bodies(true);
+        let seen_at = kate + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((seen_at, WeaponKind::LaserPistol.basic()))]);
+        game.simulate(DT);
+        assert_eq!(game.believed_for_probe(), vec![Some(seen_at)]);
+        assert_eq!(game.combat_targets_for_probe(), vec![Some(seen_at)]);
+        assert!(game.bims[1].character.is_recruited(), "at war");
+
+        // The target steps behind the heads' walls: nobody sees it there,
+        // so it is believed where it was — and the tactics go there, while
+        // nothing is fired at the empty spot.
+        let hidden = game.room.spot_rects(room::SPOT_TOILET)[0].center();
+        game.set_hostiles(vec![Some((hidden, WeaponKind::LaserPistol.basic()))]);
+        game.take_shots();
+        let mut shots = 0;
+        for _ in 0..60 {
+            game.simulate(DT);
+            game.set_hostiles(vec![Some((hidden, WeaponKind::LaserPistol.basic()))]);
+            shots += game.take_shots().len();
+        }
+        assert_eq!(
+            game.believed_for_probe(),
+            vec![Some(seen_at)],
+            "believed where last seen"
+        );
+        assert_eq!(game.combat_targets_for_probe(), vec![Some(seen_at)]);
+        assert_eq!(shots, 0, "nobody shoots at a belief");
+        assert!(game.bims[1].character.is_recruited(), "still hunting");
+        assert!(
+            game.destination_for_probe(1)
+                .is_some_and(|d| (d - seen_at).len() < 4.0 * TILE)
+                || (game.bim_pos(1) - seen_at).len() < 4.0 * TILE,
+            "walking to where it was last seen"
+        );
+
+        // A minute unseen and the belief is dropped: nothing to be at war
+        // over, and she goes back to her day.
+        let steps = (FORGET_AFTER / DT) as usize + 5;
+        for _ in 0..steps {
+            game.simulate(DT);
+            game.set_hostiles(vec![Some((hidden, WeaponKind::LaserPistol.basic()))]);
+        }
+        assert_eq!(game.believed_for_probe(), vec![None]);
+        assert_eq!(game.combat_targets_for_probe(), vec![None]);
+        assert!(!game.bims[1].character.is_recruited(), "stood down");
+
+        // Seen again — the target walks out — and the hunt is on again.
+        game.set_hostiles(vec![Some((seen_at, WeaponKind::LaserPistol.basic()))]);
+        game.simulate(DT);
+        assert_eq!(game.believed_for_probe(), vec![Some(seen_at)]);
+        assert!(game.bims[1].character.is_recruited());
+        // The crew's own room takes the list as it comes: no belief.
+        game.set_hostile_bodies(false);
+        game.set_hostiles(vec![Some((hidden, WeaponKind::LaserPistol.basic()))]);
+        assert_eq!(game.combat_targets_for_probe(), vec![Some(hidden)]);
+        assert!(game.believed_for_probe().is_empty());
+    }
+
+    #[test]
+    fn a_bot_with_a_shot_stands_still_and_the_player_s_bim_fires_on_the_move_at_half_the_odds() {
         // Kate armed in a hostile room, a target in plain view a few
-        // tiles off, and the stand the tactics want somewhere else: she
-        // records shots while she is still walking there.
+        // tiles off in an open room: the stand the tactics would walk to
+        // is no cover, so she stays put and shoots from where she is —
+        // walking would halve her odds.
         let mut game = room();
         game.set_autonomous(false);
         let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
@@ -6289,19 +8428,21 @@ mod tests {
         game.issue(0, Gear::default());
         game.set_hostile_bodies(true);
         let target = kate + vec2(3.0 * TILE, 0.0);
-        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol))]);
-        let mut shot_walking = false;
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        let mut shots = 0;
+        let mut walked = false;
         for _ in 0..(60 * 4) {
             game.simulate(DT);
-            if !game.take_shots().is_empty() && game.is_walking(1) {
-                shot_walking = true;
-            }
+            shots += game.take_shots().len();
+            walked |= game.is_walking(1);
         }
-        assert!(shot_walking, "an enemy fires while it repositions");
+        assert!(shots > 0, "she shoots");
+        assert!(!walked, "and never walks for an open stand");
+        assert!((game.bim_pos(1) - kate).len() < TILE, "stood where she was");
 
-        // The crew hold their fire on the move: James recruited, sent
-        // across the room past a target he can see, fires nothing until
-        // he arrives.
+        // The player's own Bim, recruited and sent across the room past
+        // a target it can see, fires on the move — and every one of those
+        // shots is at half the odds.
         let mut game = room();
         game.set_autonomous(false);
         let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
@@ -6311,7 +8452,7 @@ mod tests {
         game.recruit_for_probe(0, true);
         game.set_hostiles(vec![Some((
             james + vec2(3.0 * TILE, 0.0),
-            WeaponKind::LaserPistol,
+            WeaponKind::LaserPistol.basic(),
         ))]);
         assert!(game.send_for_probe(0, james + vec2(8.0 * TILE, 0.0)));
         // A bolt in the air is one that was fired: more of them after a
@@ -6324,7 +8465,36 @@ mod tests {
                 fired_walking = true;
             }
         }
-        assert!(!fired_walking, "a crew member on the move holds its fire");
+        assert!(fired_walking, "a Bim on the move still fires");
+
+        // The odds themselves, off the combat stream: from two tiles the
+        // pistol lands about 85 in 100 standing and about half that
+        // walking.
+        let landed = |moving: bool| {
+            let mut combat = crate::combat::Combat::new(3);
+            let hall = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 10.0 * TILE));
+            let sight = crate::sight::Sight::new(hall, hall, TILE, &[], &[]);
+            let theirs = vec2(10.0 * TILE, 5.0 * TILE);
+            combat.set_targets(vec![Some((theirs, WeaponKind::LaserPistol.basic()))]);
+            let mut hits = 0;
+            for _ in 0..400 {
+                combat.fire(
+                    theirs - vec2(2.0 * TILE, 0.0),
+                    theirs,
+                    WeaponKind::LaserPistol.basic(),
+                    false,
+                    moving,
+                );
+                for _ in 0..40 {
+                    combat.step(0.05, &sight, &[]);
+                }
+                hits += combat.take_hits().len();
+            }
+            hits
+        };
+        let (still, walking) = (landed(false), landed(true));
+        assert!(still > 300 && still < 380, "{still} of 400 standing");
+        assert!(walking > 130 && walking < 210, "{walking} of 400 walking");
     }
 
     #[test]
@@ -6338,15 +8508,15 @@ mod tests {
         game.issue(
             1,
             Gear {
-                weapon: Some(WeaponKind::AutoRifle),
+                weapon: Some(WeaponKind::AutoRifle.basic()),
                 ..Gear::default()
             },
         );
         game.issue(0, Gear::default());
-        assert_eq!(game.weapon(1), Some(WeaponKind::AutoRifle));
+        assert_eq!(game.weapon(1), Some(WeaponKind::AutoRifle.basic()));
         game.set_hostile_bodies(true);
         let target = kate + vec2(4.0 * TILE, 0.0);
-        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
         // Six seconds to walk to her stand — a burst a walk interrupts is
         // over — then every shot timed: from a trigger pull, eight within
         // two seconds, nothing for the next two, and the trigger again.
@@ -6385,7 +8555,7 @@ mod tests {
         game.recruit_for_probe(0, true);
         // A pistol beside him is a target; a blade beside him is a fight.
         let beside = james + vec2(TILE, 0.0);
-        game.set_hostiles(vec![Some((beside, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((beside, WeaponKind::LaserPistol.basic()))]);
         for _ in 0..30 {
             game.simulate(DT);
         }
@@ -6394,7 +8564,7 @@ mod tests {
             game.bolts_in_flight() > 0 || !game.take_hits().is_empty(),
             "shooting"
         );
-        game.set_hostiles(vec![Some((beside, WeaponKind::Schword))]);
+        game.set_hostiles(vec![Some((beside, WeaponKind::Schword.basic()))]);
         game.simulate(DT);
         assert_eq!(game.is_locked(0), Some(0), "locked");
         game.take_hits();
@@ -6421,7 +8591,7 @@ mod tests {
         // Out of reach, the lock ends and the shooting starts again.
         game.set_hostiles(vec![Some((
             james + vec2(4.0 * TILE, 0.0),
-            WeaponKind::Schword,
+            WeaponKind::Schword.basic(),
         ))]);
         game.simulate(DT);
         assert_eq!(game.is_locked(0), None);
@@ -6440,7 +8610,7 @@ mod tests {
         game.issue(
             1,
             Gear {
-                weapon: Some(WeaponKind::Schword),
+                weapon: Some(WeaponKind::Schword.basic()),
                 ..Gear::default()
             },
         );
@@ -6448,7 +8618,7 @@ mod tests {
         game.set_hostile_bodies(true);
         // A target five tiles off in the open: a blade goes to it.
         let target = kate + vec2(5.0 * TILE, 0.0);
-        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
         let mut swings = Vec::new();
         for _ in 0..(60 * 12) {
             game.simulate(DT);
@@ -6468,7 +8638,7 @@ mod tests {
         assert!(
             swings
                 .iter()
-                .all(|s| s.melee && s.cut && s.damage == 35.0 && s.at == target)
+                .all(|s| s.melee && s.cut && s.damage == 42.0 && s.at == target)
         );
         assert_eq!(game.bolts_in_flight(), 0, "nothing flies from a blade");
 
@@ -6496,6 +8666,131 @@ mod tests {
         assert!((3..=5).contains(&bloody), "{bloody} tiles splashed");
     }
 
+    #[test]
+    fn bodies_under_arms_are_pushed_apart_and_in_peace_they_are_not() {
+        // Two of a hostile room's people put on one spot at war: a step
+        // later they stand a body's clearance apart, and the pair keep
+        // that clearance while the fight is on.
+        let mut game = room();
+        game.set_autonomous(false);
+        let spot = vec2(ROOM_W * 0.4, ROOM_H * 0.5);
+        game.put_for_probe(0, spot);
+        game.put_for_probe(1, spot + vec2(3.0, 0.0));
+        game.set_hostile_bodies(true);
+        game.set_hostiles(vec![Some((
+            spot + vec2(6.0 * TILE, 0.0),
+            WeaponKind::LaserPistol.basic(),
+        ))]);
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert!(game.bims[0].character.is_recruited() && game.bims[1].character.is_recruited());
+        let gap = (game.bim_pos(0) - game.bim_pos(1)).len();
+        assert!(gap >= CREW_CLEARANCE - 1.0, "apart: {gap}");
+
+        // The same two at peace pass through each other: put on one spot
+        // with nobody recruited, they are left where they are.
+        let mut game = room();
+        game.set_autonomous(false);
+        game.put_for_probe(0, spot);
+        game.put_for_probe(1, spot + vec2(3.0, 0.0));
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        let gap = (game.bim_pos(0) - game.bim_pos(1)).len();
+        assert!(gap < CREW_CLEARANCE, "not pushed: {gap}");
+    }
+
+    #[test]
+    fn a_crewmate_with_a_blade_puts_the_armour_in_its_pack_on_at_the_alarm() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
+        // The schword and a helm and leg guards in the pack, a broken vest
+        // on the body: the alarm draws the blade and puts on what is whole,
+        // and leaves the broken vest, since there is nothing to replace it.
+        let mut gear = Gear::default();
+        gear.pack[0] = Some(Item::Weapon(WeaponKind::Schword.basic()));
+        gear.pack[1] = Some(Item::Armour(Piece::new(
+            1,
+            ArmourKind::BasicHelm,
+            Tier::One,
+        )));
+        let mut cracked = Piece::new(2, ArmourKind::BasicKevlar, Tier::One);
+        cracked.health = 0.0;
+        gear.body = Some(cracked);
+        gear.pack[4] = Some(Item::Armour(Piece::new(
+            3,
+            ArmourKind::BasicLegs,
+            Tier::One,
+        )));
+        game.issue(1, gear);
+        assert_eq!(game.armour_health(1), 0.0);
+        game.set_hostiles(vec![Some((
+            kate + vec2(6.0 * TILE, 0.0),
+            WeaponKind::LaserPistol.basic(),
+        ))]);
+        for _ in 0..10 {
+            game.simulate(DT);
+        }
+        assert!(game.is_alarmed());
+        assert_eq!(game.weapon(1), Some(WeaponKind::Schword.basic()));
+        let worn = game.gear(1);
+        assert!(worn.head.is_some_and(|p| p.id == 1), "the helm on");
+        assert!(worn.legs.is_some_and(|p| p.id == 3), "the guards on");
+        assert!(
+            worn.body.is_some_and(|p| p.id == 2 && p.broken()),
+            "the cracked vest as it was"
+        );
+        assert_eq!(game.armour_health(1), 25.0);
+
+        // A gunner leaves its armour in the pack: the alarm is not a
+        // dressing-up for a body that keeps its distance.
+        let mut game = room();
+        game.set_autonomous(false);
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
+        let mut gear = Gear::default();
+        gear.pack[0] = Some(Item::Weapon(WeaponKind::LaserPistol.basic()));
+        gear.pack[1] = Some(Item::Armour(Piece::new(
+            1,
+            ArmourKind::BasicHelm,
+            Tier::One,
+        )));
+        game.issue(1, gear);
+        game.set_hostiles(vec![Some((
+            kate + vec2(6.0 * TILE, 0.0),
+            WeaponKind::LaserPistol.basic(),
+        ))]);
+        for _ in 0..10 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.weapon(1), Some(WeaponKind::LaserPistol.basic()));
+        assert!(game.gear(1).head.is_none());
+
+        // And what the world issues: a resident rolled the schword wears
+        // the basic set, a mercenary with one too.
+        let blades = (0..400u64)
+            .filter(|&seed| Gear::issued_for(seed).weapon == Some(WeaponKind::Schword.basic()));
+        let mut seen = 0;
+        for seed in blades {
+            seen += 1;
+            assert_eq!(Gear::issued_for(seed).armour_health(), 45.0);
+            let hired = Gear::hired_for(seed, 10);
+            if hired.weapon == Some(WeaponKind::Schword.basic()) {
+                assert_eq!(hired.armour_health(), 45.0, "seed {seed}");
+            }
+        }
+        assert!(seen > 10);
+        let mercenary_blades = (0..2000u64)
+            .map(|seed| Gear::hired_for(seed, 10))
+            .filter(|g| g.weapon == Some(WeaponKind::Schword.basic()))
+            .collect::<Vec<_>>();
+        assert!(!mercenary_blades.is_empty());
+        assert!(mercenary_blades.iter().all(|g| g.armour_health() == 45.0));
+    }
+
     /// The crew's alarm: an enemy within `ALARM_RANGE` of anybody puts
     /// every crew member but the player's under arms — Kate draws the
     /// pistol out of her pack and shoots what she can see — and nobody
@@ -6510,13 +8805,13 @@ mod tests {
         game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
         // Her pistol in the pack, not in the hand: the alarm equips it.
         let mut gear = Gear::default();
-        gear.pack[2] = Some(Item::Weapon(WeaponKind::LaserPistol));
+        gear.pack[2] = Some(Item::Weapon(WeaponKind::LaserPistol.basic()));
         game.issue(1, gear);
         assert!(game.weapon(1).is_none());
         // A target far off: nothing.
         // Far from everybody: James stands nearer it than she does.
         let far = kate + vec2((ALARM_RANGE + 20.0) * TILE, 0.0);
-        game.set_hostiles(vec![Some((far, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((far, WeaponKind::LaserPistol.basic()))]);
         for _ in 0..10 {
             game.simulate(DT);
         }
@@ -6526,7 +8821,7 @@ mod tests {
         // Within range and in view: to arms, the pistol out of the pack,
         // and shots at it.
         let near = kate + vec2(4.0 * TILE, 0.0);
-        game.set_hostiles(vec![Some((near, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((near, WeaponKind::LaserPistol.basic()))]);
         let mut shot = false;
         for _ in 0..(60 * 3) {
             game.simulate(DT);
@@ -6536,7 +8831,7 @@ mod tests {
         assert!(game.bims[1].character.is_recruited(), "Kate under arms");
         assert_eq!(
             game.weapon(1),
-            Some(WeaponKind::LaserPistol),
+            Some(WeaponKind::LaserPistol.basic()),
             "drawn from the pack"
         );
         assert!(shot, "and shooting");
@@ -6570,6 +8865,76 @@ mod tests {
     /// otherwise: an order holds it where it was sent until the alarm is
     /// over, when its post and its recruitment go together.
     #[test]
+    fn a_marquee_selects_everybody_it_touches_and_a_right_drag_forms_them_up_along_a_line() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+        // A sweep over both selects both; the panels' one is James, first.
+        game.drag_begin(james.x - TILE, james.y - TILE);
+        game.drag_end(kate.x + TILE, kate.y + TILE);
+        assert_eq!(game.selected_count(), 2);
+        assert_eq!(game.selected_all(), vec![0, 1]);
+        assert_eq!(game.selected(), Some(0));
+        // A click on one is that one alone.
+        game.drag_begin(kate.x, kate.y);
+        game.drag_end(kate.x, kate.y);
+        assert_eq!(game.selected_all(), vec![1]);
+        game.drag_begin(james.x - TILE, james.y - TILE);
+        game.drag_end(kate.x + TILE, kate.y + TILE);
+
+        // In peace a line moves the player's own alone — Kate takes no
+        // orders — and one alone goes to where the drag began.
+        let a = vec2(ROOM_W * 0.35, ROOM_H * 0.8);
+        let b = vec2(ROOM_W * 0.55, ROOM_H * 0.8);
+        assert_eq!(game.order_line(a, b), ORDER_MOVING);
+        assert!((game.destination_for_probe(0).unwrap() - a).len() < TILE);
+        assert!(
+            game.destination_for_probe(1)
+                .is_none_or(|d| (d - b).len() > TILE)
+        );
+
+        // Under the alarm both take it: spread along the line, each to the
+        // end nearest its own place, so James — the western one — takes
+        // the western end.
+        let near = kate + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((near, WeaponKind::LaserPistol.basic()))]);
+        for _ in 0..5 {
+            game.simulate(DT);
+        }
+        assert!(game.is_alarmed());
+        game.drag_begin(0.0, 0.0);
+        game.drag_end(ROOM_W, ROOM_H);
+        assert_eq!(game.selected_count(), 2);
+        assert_eq!(
+            game.order_line(b, a),
+            ORDER_MOVING,
+            "the drag's direction does not matter"
+        );
+        let (dj, dk) = (
+            game.destination_for_probe(0).unwrap(),
+            game.destination_for_probe(1).unwrap(),
+        );
+        assert!((dj - a).len() < TILE, "James to the west end: {dj:?}");
+        assert!((dk - b).len() < TILE, "Kate to the east end: {dk:?}");
+        // The line is drawn while it is dragged, and cleared when it ends.
+        game.order_drag_begin(a.x, a.y);
+        game.order_drag_update(b.x, b.y);
+        assert!(game.order_drag.is_some());
+        assert_eq!(game.order_drag_end(b.x, b.y, true), ORDER_MOVING);
+        assert!(game.order_drag.is_none());
+        // A point for two is a huddle: two spots, not one.
+        let c = vec2(ROOM_W * 0.45, ROOM_H * 0.3);
+        assert_eq!(game.order_move(c.x, c.y), ORDER_MOVING);
+        let (dj, dk) = (
+            game.destination_for_probe(0).unwrap(),
+            game.destination_for_probe(1).unwrap(),
+        );
+        assert!((dj - dk).len() >= CREW_CLEARANCE, "apart: {dj:?} {dk:?}");
+        assert!((dj - c).len() < 1.5 * TILE && (dk - c).len() < 1.5 * TILE);
+    }
+
+    #[test]
     fn under_the_alarm_the_crew_gather_round_the_player_and_take_orders() {
         let mut game = room();
         game.set_autonomous(false);
@@ -6583,7 +8948,7 @@ mod tests {
         // An enemy within range but out of sight — beyond the room's walls
         // — is the alarm without a target to act on.
         let unseen = james + vec2(30.0 * TILE, 0.0);
-        game.set_hostiles(vec![Some((unseen, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((unseen, WeaponKind::LaserPistol.basic()))]);
         game.simulate(DT);
         game.observe();
         assert!(
@@ -6658,13 +9023,13 @@ mod tests {
         game.issue(
             1,
             Gear {
-                weapon: Some(WeaponKind::Schword),
+                weapon: Some(WeaponKind::Schword.basic()),
                 ..Gear::default()
             },
         );
         game.recruit_for_probe(1, true);
         let beside = kate + vec2(TILE, 0.0);
-        game.set_hostiles(vec![Some((beside, WeaponKind::LaserPistol))]);
+        game.set_hostiles(vec![Some((beside, WeaponKind::LaserPistol.basic()))]);
         game.simulate(DT);
         assert_eq!(game.is_locked(1), Some(0), "locked");
         assert!(game.take_hits().is_empty(), "the swing has only begun");
@@ -6681,7 +9046,7 @@ mod tests {
             landed.extend(game.take_hits());
         }
         assert_eq!(landed.len(), 1, "one blow as the swing ends");
-        assert!(landed[0].who == 0 && landed[0].cut && landed[0].damage == 35.0);
+        assert!(landed[0].who == 0 && landed[0].cut && landed[0].damage == 42.0);
 
         // The next swing begins at MELEE_PERIOD; the target steps back
         // during it, and the blow lands on nobody. Run until it starts —
@@ -6695,7 +9060,7 @@ mod tests {
         }
         game.set_hostiles(vec![Some((
             kate + vec2(4.0 * TILE, 0.0),
-            WeaponKind::LaserPistol,
+            WeaponKind::LaserPistol.basic(),
         ))]);
         for _ in 0..(steps + 4) {
             game.simulate(DT);
@@ -6710,7 +9075,7 @@ mod tests {
         let mut game = room();
         game.set_autonomous(false);
         game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
-        let vest = Piece::new(7, ArmourKind::BasicKevlar);
+        let vest = Piece::new(7, ArmourKind::BasicKevlar, Tier::One);
         assert!(game.give(0, None, Item::Armour(vest)));
         assert!(game.equip(0, 0).is_none(), "nothing was worn before");
         assert_eq!(game.worn(0, Part::Body), Some(vest));
@@ -6725,6 +9090,7 @@ mod tests {
         assert_eq!(
             out,
             WoundOutcome {
+                trauma: None,
                 leg_lost: false,
                 absorbed: 15.0,
                 through: 0.0,
@@ -6776,10 +9142,10 @@ mod tests {
     #[test]
     fn equipping_swaps_with_what_is_worn_and_a_weapon_with_the_weapon() {
         let mut game = room();
-        let helm = Piece::new(1, ArmourKind::BasicHelm);
+        let helm = Piece::new(1, ArmourKind::BasicHelm, Tier::One);
         let other = Piece {
             health: 4.0,
-            ..Piece::new(2, ArmourKind::BasicHelm)
+            ..Piece::new(2, ArmourKind::BasicHelm, Tier::One)
         };
         assert!(game.give(0, Some(4), Item::Armour(helm)));
         assert!(game.give(0, None, Item::Armour(other)));
@@ -6804,12 +9170,12 @@ mod tests {
         assert!(!game.unequip(0, Part::Head), "nothing there now");
 
         // A weapon swaps with the hand; a stack is refused and stays put.
-        assert!(game.give(0, Some(8), Item::Weapon(WeaponKind::LaserPistol)));
+        assert!(game.give(0, Some(8), Item::Weapon(WeaponKind::LaserPistol.basic())));
         assert_eq!(
             game.equip(0, 8),
-            Some(Item::Weapon(WeaponKind::LaserPistol))
+            Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
         );
-        assert_eq!(game.gear(0).weapon, Some(WeaponKind::LaserPistol));
+        assert_eq!(game.gear(0).weapon, Some(WeaponKind::LaserPistol.basic()));
         assert!(game.give(0, Some(5), Item::Stack(14)));
         assert_eq!(game.equip(0, 5), None);
         assert_eq!(game.pack(0)[5], Some(Item::Stack(14)));
@@ -6822,7 +9188,7 @@ mod tests {
         let mut game = room();
         let legs = Piece {
             health: 3.5,
-            ..Piece::new(9, ArmourKind::BasicLegs)
+            ..Piece::new(9, ArmourKind::BasicLegs, Tier::One)
         };
         assert!(game.give(0, Some(2), Item::Armour(legs)));
         assert!(!game.give(0, Some(2), Item::Stack(1)), "the cell is full");
@@ -6839,7 +9205,7 @@ mod tests {
 
         let broken = Piece {
             health: 0.0,
-            ..Piece::new(10, ArmourKind::BasicHelm)
+            ..Piece::new(10, ArmourKind::BasicHelm, Tier::One)
         };
         assert!(game.give(0, Some(0), Item::Armour(broken)));
         assert_eq!(game.take(0, 0), None, "a broken piece is not stowed");
@@ -6879,8 +9245,8 @@ mod tests {
         let at = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
         game.put_for_probe(0, vec2(ROOM_W * 0.2, ROOM_H * 0.8));
         assert!(!game.is_down(1));
-        // Shot through the head: dead on the next step, and a body.
-        game.wound(1, Part::Head, 1000.0);
+        // Dead on the next step, and a body.
+        game.kill_for_probe(1);
         game.simulate(DT);
         assert!(!game.is_alive(1));
         assert!(game.is_down(1));
@@ -6905,12 +9271,12 @@ mod tests {
         game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
         let helm = Piece {
             health: 6.0,
-            ..Piece::new(7, ArmourKind::BasicHelm)
+            ..Piece::new(7, ArmourKind::BasicHelm, Tier::One)
         };
         assert!(game.give(0, Some(0), Item::Armour(helm)));
         assert_eq!(game.equip(0, 0), None);
         assert!(game.give(0, Some(4), Item::Stack(14)));
-        assert_eq!(game.gear(0).weapon, Some(WeaponKind::LaserPistol));
+        assert_eq!(game.gear(0).weapon, Some(WeaponKind::LaserPistol.basic()));
         // The window shows the pack, the worn pieces and the hand.
         let cells = game.loot_cells(0);
         assert_eq!(cells[4], Some(Item::Stack(14)));
@@ -6921,7 +9287,7 @@ mod tests {
         assert_eq!(cells[LootCell::Body.code() as usize], None);
         assert_eq!(
             cells[LootCell::Weapon.code() as usize],
-            Some(Item::Weapon(WeaponKind::LaserPistol))
+            Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
         );
         // Alive and awake, nothing comes off it.
         assert!(!game.is_down(0));
@@ -6930,7 +9296,7 @@ mod tests {
         assert_eq!(game.worn(0, Part::Head), Some(helm), "still worn");
         // Dead, everything does: the helm with its damage, the hand, the
         // pack cell, and each only once.
-        game.wound(0, Part::Body, 1000.0);
+        game.kill_for_probe(0);
         game.simulate(DT);
         assert!(game.is_down(0));
         assert_eq!(
@@ -6941,7 +9307,7 @@ mod tests {
         assert_eq!(game.take_from_body(0, LootCell::Head), None, "bare now");
         assert_eq!(
             game.take_from_body(0, LootCell::Weapon),
-            Some(Item::Weapon(WeaponKind::LaserPistol))
+            Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
         );
         assert_eq!(game.weapon(0), None);
         assert_eq!(
@@ -6963,6 +9329,114 @@ mod tests {
         assert_eq!(LootCell::from_code(LOOT_CELLS as u32), None);
         assert_eq!(LootCell::Pack(8).code(), 8);
         assert_eq!(LootCell::Weapon.code(), 12);
+    }
+
+    #[test]
+    fn an_execution_walks_to_the_body_and_the_room_says_who_was_finished() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        game.issue(1, Gear::default());
+        // One of the other room's people lying eight tiles off, marked
+        // down by the world; a second on its feet beside it.
+        let body = james + vec2(8.0 * TILE, 0.0);
+        let up = body + vec2(0.0, 2.0 * TILE);
+        game.set_visitors(vec![body, up]);
+        game.set_visitors_down(&[true, false]);
+        assert!(!game.execute(0, 1), "one on its feet is nobody to finish");
+        assert!(!game.execute(0, 5), "nor one that is not there");
+        // With the pistol: to within three tiles, then three seconds of
+        // shooting — bolts in the air — and the room says whose body.
+        assert!(game.execute(0, 0));
+        assert_eq!(game.activity(0), JOB_EXECUTE);
+        let to = game.destination_for_probe(0).expect("walking");
+        assert!(
+            (to - body).len() <= (task::EXECUTE_RANGE + 0.5) * TILE,
+            "to within range: {to:?}"
+        );
+        assert!((to - body).len() > TILE, "a gun keeps a little off");
+        let mut fired = false;
+        let mut steps = 0;
+        let mut done = Vec::new();
+        while done.is_empty() && steps < 60 * 30 {
+            game.simulate(DT);
+            fired |= game.bolts_in_flight() > 0;
+            done.extend(game.take_executed());
+            steps += 1;
+        }
+        assert_eq!(done, vec![(0, 0)], "finished");
+        assert!(fired, "shot at where it lay");
+        assert!(game.is_armed(0) || game.activity(0) != JOB_EXECUTE);
+        assert!(
+            game.bims[0].task.is_none() || game.activity(0) != JOB_EXECUTE,
+            "over"
+        );
+
+        // With the schword: beside it, and swings; no bolt. The pistol's
+        // bolts flown out first.
+        for _ in 0..60 * 3 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.bolts_in_flight(), 0);
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::Schword.basic()),
+                ..Gear::default()
+            },
+        );
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        game.set_visitors(vec![body, up]);
+        game.set_visitors_down(&[true, false]);
+        assert!(game.execute(0, 0));
+        let to = game.destination_for_probe(0).expect("walking");
+        assert!((to - body).len() <= 1.5 * TILE, "beside it: {to:?}");
+        let mut fired = false;
+        let mut swung = false;
+        let mut steps = 0;
+        let mut done = Vec::new();
+        while done.is_empty() && steps < 60 * 30 {
+            game.simulate(DT);
+            fired |= game.bolts_in_flight() > 0;
+            swung |= game.bims[0].character.action() == Action::Swing;
+            done.extend(game.take_executed());
+            steps += 1;
+        }
+        assert_eq!(done, vec![(0, 0)]);
+        assert!(swung, "hacked at: fired {fired}");
+        assert!(!fired, "not shot");
+        let _ = james;
+
+        // The body coming round mid-walk ends it: nowhere to go.
+        game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        assert!(game.execute(0, 0));
+        game.set_visitors(vec![body, up]);
+        game.set_visitors_down(&[false, false]);
+        for _ in 0..60 * 20 {
+            game.simulate(DT);
+        }
+        assert!(game.take_executed().is_empty());
+        assert_ne!(game.activity(0), JOB_EXECUTE, "given up");
+
+        // In the body's own room, the killing: down and alive, dead after;
+        // one on its feet is left alone.
+        let mut theirs = room();
+        theirs.set_autonomous(false);
+        assert!(!theirs.execute_body(1), "on her feet");
+        for _ in 0..10 {
+            theirs.wound(1, Part::Body, 1.0);
+        }
+        let mut minutes = 0.0;
+        while !theirs.is_unconscious(1) && minutes < 60.0 {
+            theirs.simulate(1.0);
+            minutes += MINUTES_PER_SECOND;
+        }
+        assert!(theirs.is_unconscious(1) && theirs.is_alive(1));
+        assert!(theirs.execute_body(1));
+        theirs.simulate(DT);
+        assert!(!theirs.is_alive(1), "dead");
+        assert!(!theirs.execute_body(1), "and dead is not down to finish");
     }
 
     #[test]

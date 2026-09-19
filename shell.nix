@@ -22,9 +22,14 @@ pkgs.mkShell {
     rustfmt
     clippy
     pkg-config
+    # The sounds are cut from the recordings by crates/app/sounds/prepare.sh.
+    ffmpeg
   ];
 
-  buildInputs = runtimeLibs;
+  # ALSA is the one thing the sound *links*: cpal, under Bevy's audio,
+  # finds it through pkg-config at build time, so a `cargo build` wants it
+  # on the path as well as `cargo run`.
+  buildInputs = runtimeLibs ++ [ pkgs.alsa-lib ];
 
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibs;
 }

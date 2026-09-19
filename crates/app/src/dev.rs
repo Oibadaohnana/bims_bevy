@@ -24,6 +24,10 @@
 //! `pistol`, `shotgun`, `rifle`, `sniper`) puts that in the crew member's
 //! hand instead of the pistol, and `BIMS_ENEMY_WEAPON=…` the same in every
 //! resident's — how a swing, a burst or a long shot is looked at.
+//!
+//! `BIMS_SOUND_LOG=1` prints every clip as it is played and every bed as
+//! it starts or stops — how a sound is *heard* from a terminal, where a
+//! hidden window has no speaker anybody is listening to.
 
 use bevy::diagnostic::{DiagnosticsStore, FrameCount, FrameTimeDiagnosticsPlugin};
 use bevy::input::ButtonState;
@@ -51,12 +55,14 @@ pub fn fight() -> bool {
 /// run, and `BIMS_ENEMY_WEAPON=…` one in every resident's: a schword's
 /// swing, a rifle's burst and a sniper's long shot are each looked at
 /// this way rather than by waiting for a station to have issued one. A
-/// word the table does not have is nobody's weapon changed.
-pub fn weapon() -> Option<bims::combat::WeaponKind> {
+/// word the table does not have is nobody's weapon changed. A digit on
+/// the end is the tier — `pistol3` is a gold pistol — which is how the
+/// tint on a cell and a slot is looked at without a day at the bench.
+pub fn weapon() -> Option<bims::combat::Weapon> {
     weapon_named(std::env::var("BIMS_WEAPON").ok()?)
 }
 
-pub fn enemy_weapon() -> Option<bims::combat::WeaponKind> {
+pub fn enemy_weapon() -> Option<bims::combat::Weapon> {
     weapon_named(std::env::var("BIMS_ENEMY_WEAPON").ok()?)
 }
 
@@ -69,16 +75,27 @@ pub fn armoured() -> bool {
     std::env::var("BIMS_ARMOURED").as_deref() == Ok("1")
 }
 
-fn weapon_named(word: String) -> Option<bims::combat::WeaponKind> {
-    use bims::combat::WeaponKind;
-    Some(match word.as_str() {
+/// `BIMS_SOUND_LOG=1` prints each sound as it is played: what a smoke run
+/// sounded like, read off the log the way a screenshot is read.
+pub fn sound_log() -> bool {
+    std::env::var("BIMS_SOUND_LOG").as_deref() == Ok("1")
+}
+
+fn weapon_named(word: String) -> Option<bims::combat::Weapon> {
+    use bims::combat::{Tier, WeaponKind};
+    let (name, tier) = match word.strip_suffix(['2', '3']) {
+        Some(name) => (name, Tier::from_code(word[name.len()..].parse().ok()?)?),
+        None => (word.as_str(), Tier::One),
+    };
+    let kind = match name {
         "pistol" => WeaponKind::LaserPistol,
         "shotgun" => WeaponKind::Shotgun,
         "rifle" => WeaponKind::AutoRifle,
         "sniper" => WeaponKind::SniperRifle,
         "schword" => WeaponKind::Schword,
         _ => return None,
-    })
+    };
+    Some(kind.at(tier))
 }
 
 pub fn smoke_frames() -> Option<u32> {

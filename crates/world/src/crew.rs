@@ -44,6 +44,7 @@ use worldgen::math::{DVec2, dvec2};
 
 use crate::data;
 use crate::docking::Joined;
+use crate::station::{Berth, Station};
 
 /// A world step, in the room's own unit: real seconds at 1x.
 const STEP_SECONDS: f32 = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
@@ -168,6 +169,55 @@ impl Aboard {
         }
     }
 
+    /// The same two hulls as one deck the other way round, for the station's
+    /// people: `joined` from [`crate::docking::join_mirror`], the station at
+    /// its own coordinates plus the shift and the ship turned in, with
+    /// `everybody` — the residents out of their old room through
+    /// `Game::take_crew`, so nobody is mid-errand — put back where they
+    /// stood, shifted. The ship's box is the foreign one here, and its
+    /// fixtures are left to the crew (`leave_the_station_s`, which knows
+    /// only a box). No gangway and no ashore: nobody walks these home.
+    pub fn mirrored(
+        joined: Joined,
+        ship: &ShipDesign,
+        everybody: Vec<Bim>,
+        seed: u64,
+        minutes: f64,
+    ) -> Aboard {
+        let mut layout = bims::aboard::layout_of(&joined.design);
+        let side = ship.build_area as f64 * TILE as f64;
+        let corners = [
+            joined.from_station(dvec2(0.0, 0.0)),
+            joined.from_station(dvec2(side, 0.0)),
+            joined.from_station(dvec2(0.0, side)),
+            joined.from_station(dvec2(side, side)),
+        ];
+        let (mut lo, mut hi) = (corners[0], corners[0]);
+        for c in &corners {
+            lo = dvec2(lo.x.min(c.x), lo.y.min(c.y));
+            hi = dvec2(hi.x.max(c.x), hi.y.max(c.y));
+        }
+        let station_box = Some((lo, hi));
+        Self::leave_the_station_s(station_box, &mut layout);
+        let (w, h) = (layout.bounds.width(), layout.bounds.height());
+        let mut room = Room::with_layout(layout, seed, &[], w, h);
+        let shift = joined.ship_shift();
+        let count = everybody.len() as u32;
+        room.adopt(everybody, vec2(shift.x as f32, shift.y as f32));
+        room.wind_clock(minutes as f32);
+        room.render();
+        Aboard {
+            room,
+            offset: shift,
+            crew: count,
+            design: joined.design,
+            ashore: None,
+            gangway: None,
+            station_frame: Some((joined.station_origin, joined.station_ex, joined.station_ey)),
+            station_box,
+        }
+    }
+
     /// The station's fixtures are the residents' to work and to draw —
     /// their own room does both — so on the joined deck they are furniture
     /// to walk round and nothing more: not a bay the crew would go and
@@ -260,32 +310,30 @@ impl Aboard {
     }
 
     /// Where the crew stand, as the station's people would find them: in
-    /// the station's own units, one an index, `None` for one that is dead
-    /// or outside in a suit — out cold is still a body on the deck — or
-    /// **still on the ship's own deck**, since the station's grid stops at
-    /// its hull and its people can neither see nor stand to shoot at a
-    /// body off it: a target they cannot act on would only put them at
-    /// war with nobody, every errand dropped for as long as the ship is
-    /// docked. What a hostile station's room is handed as its targets, so
+    /// the station's own design units, one an index, `None` for one that
+    /// is dead, out cold — a body down is nobody's target — or outside in
+    /// a suit. On the ship's own deck too, since September 2026: the
+    /// residents' room holds the ship as well (`Residents::join`), so its
+    /// people can walk the passage after a crew member that runs aboard.
+    /// What a hostile station's room is handed as its targets, so
     /// its people shoot at where the crew actually are — which, for one
     /// peeking round a corner, is the peek it leans out to
     /// (`Game::exposed_at`), not the wall it stands behind; `crew_peeking`
     /// says which, index for index. Empty for a ship on its own.
     pub fn crew_ashore(&self) -> Vec<Option<DVec2>> {
-        let (Some(_), Some((lo, hi))) = (self.station_frame, self.station_box) else {
+        if self.station_frame.is_none() {
             return Vec::new();
-        };
+        }
         (0..self.crew as usize)
             .map(|who| {
-                if !self.room.is_alive(who) || self.room.is_outside(who) {
+                if !self.room.is_alive(who)
+                    || self.room.is_unconscious(who)
+                    || self.room.is_outside(who)
+                {
                     return None;
                 }
                 let p = self.room.exposed_at(who);
-                let p = dvec2(p.x as f64, p.y as f64);
-                if p.x < lo.x || p.x > hi.x || p.y < lo.y || p.y > hi.y {
-                    return None;
-                }
-                self.to_station(p)
+                self.to_station(dvec2(p.x as f64, p.y as f64))
             })
             .collect()
     }
@@ -484,6 +532,18 @@ impl Aboard {
         dvec2(p.x as f64, p.y as f64).sub(self.offset)
     }
 
+    /// A point of the design this room was laid out from, as a point of
+    /// the room: the offset put on. The inverse of [`Aboard::to_design`].
+    pub fn to_room(&self, design: DVec2) -> bims::math::Vec2 {
+        let at = design.add(self.offset);
+        vec2(at.x as f32, at.y as f32)
+    }
+
+    /// A point of the room as a point of its design: the offset taken off.
+    pub fn to_design(&self, room: bims::math::Vec2) -> DVec2 {
+        dvec2(room.x as f64, room.y as f64).sub(self.offset)
+    }
+
     /// Where a shot at one of them is aimed, in the same units: the peek
     /// it leans out to while it aims from cover, else where it stands
     /// (`Game::exposed_at`). What the other room is handed as the
@@ -522,7 +582,7 @@ impl Aboard {
         let mut out: Vec<Container> = (0..self.room.benches().len())
             .map(Container::Bench)
             .collect();
-        for make in [Container::Shelf, Container::Fridge] {
+        for make in [Container::Shelf, Container::Fridge, Container::Desk] {
             let mut i = 0;
             while self.room.container_frame(make(i)).is_some() {
                 out.push(make(i));
@@ -636,6 +696,7 @@ impl Residents {
         // dress a wound of their own. The world keeps no hold for a
         // station, so this is the count for as long as the room is open.
         aboard.room.set_bandages(data::RESIDENT_BANDAGES);
+        aboard.room.set_medkits(data::RESIDENT_MEDKITS);
         aboard.room.render();
         let down = vec![false; aboard.count() as usize];
         Residents {
@@ -644,6 +705,83 @@ impl Residents {
             down,
             fee,
         }
+    }
+
+    /// The station and the ship as one deck for its people, the ship turned
+    /// into the station's frame (`docking::join_mirror`), so that they can
+    /// walk the passage onto the ship: what `World::join_rooms` does to
+    /// this room as it makes the crew's. Everybody comes across where
+    /// they stood — errands dropped, like the crew's at a dock — with the
+    /// room's own counts: the larder, its targets, the bandages and the
+    /// kits. Nothing happens when the two have no ports to join by.
+    pub fn join(
+        &mut self,
+        ship: &ShipDesign,
+        com: DVec2,
+        station: &Station,
+        berth: &Berth,
+        minutes: f64,
+    ) {
+        let Some(joined) = crate::docking::join_mirror(ship, com, station, berth) else {
+            return;
+        };
+        let seed = station.map_seed ^ 0x5A17;
+        let everybody = self.aboard.room.take_crew();
+        let fresh = Aboard::mirrored(joined, ship, everybody, seed, minutes);
+        self.replace_room(fresh);
+    }
+
+    /// The station's own room again, the ship gone: everybody back where
+    /// they stood, less the shift, and one still aboard the ship — its
+    /// deck is no longer here — at its bunk (`Game::adopt`).
+    pub fn unjoin(&mut self, station: &Station, minutes: f64) {
+        if self.aboard.station_frame.is_none() {
+            return;
+        }
+        let offset = self.aboard.offset;
+        let seed = station.map_seed ^ 0x5A17;
+        let everybody = self.aboard.room.take_crew();
+        let layout = bims::aboard::layout_of(&station.design);
+        let (w, h) = (layout.bounds.width(), layout.bounds.height());
+        let mut room = Room::with_layout(layout, seed, &[], w, h);
+        let count = everybody.len() as u32;
+        room.adopt(everybody, vec2(-offset.x as f32, -offset.y as f32));
+        room.wind_clock(minutes as f32);
+        room.render();
+        let fresh = Aboard {
+            room,
+            offset: DVec2::ZERO,
+            crew: count,
+            design: station.design.clone(),
+            ashore: None,
+            gangway: None,
+            station_frame: None,
+            station_box: None,
+        };
+        self.replace_room(fresh);
+    }
+
+    /// A fresh room in the old one's place, with what the old room held
+    /// that is not a body's: the larder and its targets, the medicine, the
+    /// fog and whether the doors are drawn. `down` and `fee` are by index
+    /// and the indices are kept (`adopt` keeps the order).
+    fn replace_room(&mut self, mut fresh: Aboard) {
+        let old = &self.aboard.room;
+        for which in [Stock::Veg, Stock::Tofu, Stock::Stew, Stock::Fibre] {
+            fresh.room.set_target(which, old.target(which));
+        }
+        fresh.room.set_stock(
+            old.store_veg(),
+            old.store_tofu(),
+            old.store_stew(),
+            old.store_fibre(),
+        );
+        fresh.room.set_bandages(old.bandages());
+        fresh.room.set_medkits(old.medkits());
+        fresh.room.set_fog(old.fog());
+        fresh.room.set_doors_drawn(old.doors_drawn());
+        fresh.room.render();
+        self.aboard = fresh;
     }
 
     /// Which of them may be spoken to — a mercenary for hire, alive and on

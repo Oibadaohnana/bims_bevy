@@ -63,10 +63,13 @@ const DEAD: Color = Color::rgb(0.98, 0.45, 0.32);
 /// Hostile is the enemy red the lobby rings a hostile station in on the
 /// system diagram (`lobby::draw::ENEMY` — the same three numbers, since the
 /// two crates share no palette and the player has already learnt the colour
-/// there); home is a friendly green; neutral is nothing at all, so the map
-/// stays what it was for the stations that are only somebody's.
+/// there); every other station somebody lives on — home and the neutral
+/// ones alike — is a friendly blue, so the map says at a glance which
+/// corner of the system is theirs and which is not. A derelict is
+/// nobody's and gets neither. The blue is not the aim ring's cyan
+/// (`GLOW`), so the two rings read apart on one station.
 const ENEMY: Color = Color::rgb(1.0, 0.28, 0.22);
-const FRIEND: Color = Color::rgb(0.45, 0.85, 0.50);
+const FRIEND: Color = Color::rgb(0.36, 0.55, 1.0);
 /// How strongly a hostile station's far plate is washed in that red: enough
 /// to tell it from a neutral stranger's black at a glance, faint enough
 /// that the icon on it still reads.
@@ -98,6 +101,13 @@ const SITE_FADE: f32 = 0.55;
 const GHOST_FADE: f32 = 0.50;
 /// Where whoever uses a part would stand, as the designer marks it.
 const SPOT: Color = Color::rgba(0.98, 0.82, 0.35, 0.85);
+/// The lights round a research desk with a key on it: the spot's gold,
+/// pulsing, and a wash of it over the desk so it is seen from across the
+/// room.
+const KEY_LIGHT: Color = Color::rgb(1.0, 0.86, 0.40);
+const KEY_WASH: Color = Color::rgba(1.0, 0.86, 0.40, 0.22);
+/// How many frames one pulse of them takes.
+const KEY_PULSE: f32 = 90.0;
 
 /// One colour per lobby slot. The route line is drawn in the colour of
 /// whoever set the destination, which is the whole of what
@@ -139,6 +149,103 @@ pub fn crew_on_screen(game: &Game, who: u32) -> (f32, f32) {
         game.world.ship.dynamics.centre_of_mass,
         game.ship_turn(),
     )
+}
+
+/// The four corners of the room's light map — its origin, then clockwise
+/// — in the camera's units, through the same turn the room's picture
+/// goes through, so the fog lands on the deck it was traced over. `None`
+/// for a room with no map (nobody's eyes).
+pub fn light_map_on_screen(game: &Game) -> Option<[(f32, f32); 4]> {
+    let map = game.world.aboard.room.light_map()?;
+    let (w, h) = (map.size().x as f64, map.size().y as f64);
+    let o = dvec2(map.origin.x as f64, map.origin.y as f64).sub(game.world.aboard.offset);
+    let centre = game.world.ship.dynamics.centre_of_mass;
+    let turn = game.ship_turn();
+    Some([
+        on_screen(o, centre, turn),
+        on_screen(o.add(dvec2(w, 0.0)), centre, turn),
+        on_screen(o.add(dvec2(w, h)), centre, turn),
+        on_screen(o.add(dvec2(0.0, h)), centre, turn),
+    ])
+}
+
+/// One number over a part in the electricity view: where it lands in the
+/// camera's units — over the top of its footprint, the same arithmetic the
+/// crew's names use — what it draws **now** and what it draws at most.
+/// The two differ only for an engine: nothing while it is not lit, its
+/// throttled share while it is, against the full draw of the table. The
+/// host writes the words; this is the numbers.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct PowerLabel {
+    pub x: f32,
+    pub y: f32,
+    pub now: f64,
+    pub full: f64,
+    /// Whether the part is on a live network at all. A dark consumer is
+    /// still labelled — with what it would draw — so the view says what
+    /// wiring it would cost.
+    pub live: bool,
+}
+
+/// Every consumer's draw, for the numbers the electricity view puts over
+/// the drainers. The engines are in it — they are what drains most — with
+/// what they draw at this moment of the plan, so the numbers agree with
+/// the exhaust. Asked once a frame while the view is up, and never
+/// otherwise; it is a union-find over the grid.
+pub fn power_labels(game: &Game) -> Vec<PowerLabel> {
+    let design = &game.world.ship.design;
+    let live: Vec<u32> = shipdesign::networks(design)
+        .into_iter()
+        .filter(|net| net.live())
+        .flat_map(|net| net.parts)
+        .collect();
+    let firing = game.firing();
+    let dynamics = &game.world.ship.dynamics;
+    let centre = dynamics.centre_of_mass;
+    let turn = game.ship_turn();
+    let mut out = Vec::new();
+    for part in &design.parts {
+        let def = part.kind.def();
+        if !(def.draws() || def.pushes()) {
+            continue;
+        }
+        let is_live = live.contains(&part.id);
+        let (now, full) = if def.pushes() {
+            let (lit, throttle) = match part.rotation.facing() {
+                physics::Facing::Forward => (firing.forward, dynamics.forward_throttle),
+                physics::Facing::Backward => (firing.backward, dynamics.backward_throttle),
+                _ => (false, 0.0),
+            };
+            let now = if lit && is_live {
+                def.thrust_power * throttle
+            } else {
+                0.0
+            };
+            (now, def.thrust_power)
+        } else {
+            (-def.power, -def.power)
+        };
+        // Over the middle of the footprint's top edge, in design units,
+        // then through the ship's turn like everything else drawn on it.
+        let tiles = part.tiles();
+        let (x0, x1) = tiles
+            .iter()
+            .fold((u32::MAX, 0), |(lo, hi), &(x, _)| (lo.min(x), hi.max(x)));
+        let y0 = tiles.iter().map(|&(_, y)| y).min().unwrap_or(0);
+        let at = dvec2(
+            (x0 as f64 + x1 as f64 + 1.0) * 0.5 * TILE as f64,
+            y0 as f64 * TILE as f64,
+        );
+        let (x, y) = on_screen(at, centre, turn);
+        out.push(PowerLabel {
+            x,
+            y,
+            now,
+            full,
+            live: is_live,
+        });
+    }
+    out
 }
 
 /// The middle of a tile, in design world units.
@@ -204,6 +311,14 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     sites(game, &grid, &mut ship);
     blueprint(game, &grid, &mut ship);
     hull::lights(&mut ship, design, &grid, game.frame);
+    // The reactors' glow over their pictures: brighter the harder they
+    // work, which under a burn is the engines drawing on them.
+    let load = game.world.power().load() as f32;
+    for part in &design.parts {
+        if part.kind.def().supplies() {
+            crate::fittings::reactor_glow(&mut ship, part, load, game.frame);
+        }
+    }
 
     // The tile under the pointer, rung. Part of the ship, so turned with it
     // — and a rock under the pointer while the player is marking rocks,
@@ -400,6 +515,74 @@ fn part_box(kind: PartKind, origin: (u32, u32), rotation: Rotation) -> (f32, f32
     let x0 = origin.0 as f32 * t;
     let y0 = origin.1 as f32 * t;
     (x0, y0, x0 + w as f32 * t, y0 + h as f32 * t)
+}
+
+/// The lights round every research desk of a design with a key on it: a
+/// wash over the desk and a ring of small lights a little way out from
+/// its footprint, pulsing together on the frame's clock — what
+/// "highlighted" is on the deck, and how a crew ashore finds the desk in
+/// a station of rooms. In the design's frame, like the hull.
+fn key_lights(list: &mut DrawList, design: &ShipDesign, frame: u32) {
+    let pulse = 0.55 + 0.45 * (frame as f32 / KEY_PULSE * core::f32::consts::TAU).sin();
+    let out = TILE as f32 * 0.55;
+    for part in design
+        .parts
+        .iter()
+        .filter(|p| p.kind == PartKind::ResearchDesk)
+    {
+        let (x0, y0, x1, y1) = part_box(part.kind, part.origin, part.rotation);
+        let (w, h) = (x1 - x0 + 2.0 * out, y1 - y0 + 2.0 * out);
+        let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+        list.push(
+            crate::draw::KIND_RECT,
+            cx,
+            cy,
+            w,
+            h,
+            0.0,
+            8.0,
+            0.0,
+            KEY_WASH.alpha(KEY_WASH.a * pulse),
+        );
+        // The lights along each edge, a tile apart, corners included.
+        let mut spots = Vec::new();
+        let along = |a: f32, b: f32| {
+            let n = ((b - a) / TILE as f32).round().max(1.0) as u32;
+            (0..=n).map(move |i| a + (b - a) * i as f32 / n as f32)
+        };
+        for x in along(x0 - out, x1 + out) {
+            spots.push((x, y0 - out));
+            spots.push((x, y1 + out));
+        }
+        for y in along(y0 - out, y1 + out) {
+            spots.push((x0 - out, y));
+            spots.push((x1 + out, y));
+        }
+        for (x, y) in spots {
+            list.push(
+                crate::draw::KIND_ELLIPSE,
+                x,
+                y,
+                12.0 * pulse + 4.0,
+                12.0 * pulse + 4.0,
+                0.0,
+                0.0,
+                0.0,
+                KEY_LIGHT.alpha(0.25 * pulse),
+            );
+            list.push(
+                crate::draw::KIND_ELLIPSE,
+                x,
+                y,
+                5.0,
+                5.0,
+                0.0,
+                0.0,
+                0.0,
+                KEY_LIGHT.alpha(0.5 + 0.5 * pulse),
+            );
+        }
+    }
 }
 
 /// Every construction site, over the deck: the part shown through in the
@@ -694,9 +877,19 @@ fn stations(game: &Game, list: &mut DrawList) {
             open,
         );
         hull::lights(&mut picture, &station.design, &grid, game.frame);
+        // The key on its research desk, lit so the crew can find it: a
+        // ring of lights round the desk while the key is there.
+        if game.world.station_has_key(station.id) {
+            key_lights(&mut picture, &station.design, game.frame);
+        }
         list.append_turned_at(picture.shapes(), middle, turn, at);
         if let Some(residents) = residents {
-            list.append_turned_at(residents.aboard.room.shapes(), middle, turn, at);
+            // Their room is the station's design plus the shift its deck
+            // took with the ship on it, so its picture turns about the
+            // station's middle where that middle is in the room.
+            let shift = residents.aboard.offset;
+            let pivot = (middle.0 + shift.x as f32, middle.1 + shift.y as f32);
+            list.append_turned_at(residents.aboard.room.shapes(), pivot, turn, at);
         }
     }
 }
@@ -939,6 +1132,59 @@ pub fn paint_body(list: &mut DrawList, x: f32, y: f32, size: f32, kind: BodyKind
     }
 }
 
+/// The pickaxe's two parts: a wooden haft and a steel head.
+const HAFT: Color = Color::rgb(0.66, 0.44, 0.24);
+const HEAD: Color = Color::rgb(0.90, 0.90, 0.86);
+
+/// A pickaxe, `size` across its box, centred on `(x, y)`: the haft up from
+/// bottom left to top right, and the head across its top end, the two
+/// halves of it bent back down towards the haft the way a pick's are. The
+/// mark of a mining site on the map. Rectangles alone — turned, and
+/// rounded at the ends — since that is what the format has.
+pub fn paint_pickaxe(list: &mut DrawList, x: f32, y: f32, size: f32) {
+    use core::f32::consts::FRAC_PI_4;
+    let r = size / 2.0;
+    // Along the haft, bottom left to top right, in the screen's y-down.
+    let up = -FRAC_PI_4;
+    let (ux, uy) = (up.cos(), up.sin());
+    // The haft: from a little inside the bottom-left corner to the head.
+    let (haft, width) = (1.7 * r, 0.14 * size);
+    let (hx, hy) = (x - 0.1 * r * ux, y - 0.1 * r * uy);
+    list.push(
+        crate::draw::KIND_RECT,
+        hx,
+        hy,
+        haft,
+        width,
+        up,
+        width / 2.0,
+        0.0,
+        HAFT,
+    );
+    // The head sits on the haft's top end and reaches out either side of
+    // it, each half bent a little back towards the haft.
+    let (tx, ty) = (hx + 0.5 * haft * ux, hy + 0.5 * haft * uy);
+    let (half, thick) = (0.44 * size, 0.15 * size);
+    let bend = 0.45;
+    for side in [1.0f32, -1.0] {
+        let a = up + side * (core::f32::consts::FRAC_PI_2 + bend);
+        let (ax, ay) = (a.cos(), a.sin());
+        list.push(
+            crate::draw::KIND_RECT,
+            tx + 0.5 * half * ax,
+            ty + 0.5 * half * ay,
+            half,
+            thick,
+            a,
+            thick / 2.0,
+            0.0,
+            HEAD,
+        );
+    }
+    // The boss where the head meets the haft, so the join reads as one piece.
+    disc(list, tx, ty, thick * 1.3, HEAD);
+}
+
 /// A station, `size` across, centred on `(x, y)`.
 pub fn paint_station(list: &mut DrawList, x: f32, y: f32, size: f32, kind: StationKind, thin: f32) {
     let color = station_color(Some(kind));
@@ -1174,6 +1420,12 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         let (x, y) = place(at);
         if let Some(body) = game.world.system.body(id) {
             paint_body(list, x, y, size, body.kind, thin);
+            // A belt is a mining site — hold station at it and the rocks
+            // are laid out about the ship, and nothing else stands at one
+            // — and the map says so with a pickaxe at its shoulder.
+            if body.kind == BodyKind::AsteroidBelt {
+                paint_pickaxe(list, x + 0.62 * size, y - 0.62 * size, size * 0.6);
+            }
         }
     }
     for &node in &game.world.discovered {
@@ -1182,23 +1434,25 @@ fn paint_map(game: &Game, list: &mut DrawList) {
             continue;
         };
         let (x, y) = place(at);
-        if let Some(station) = game.world.system.station(id) {
-            paint_station(list, x, y, size * 0.75, station.kind, thin * 1.5);
-        }
-        // Ringed by stance, outside the aim ring so the two read apart when
-        // the helm is pointed at an enemy's: red for a hostile station, green
-        // for home, and nothing for a station that is merely somebody's.
-        // This is what the map says about who lives where; `World::stance`
-        // is the one rule, and the plates out of the window agree with it.
-        let stance = match game.world.stance(id) {
-            Stance::Hostile => Some(ENEMY),
-            Stance::Friendly => Some(FRIEND),
-            Stance::Neutral => None,
+        let Some(station) = game.world.system.station(id) else {
+            continue;
         };
-        if let Some(colour) = stance {
-            let d = size * STANCE_RING;
-            ring(list, x, y, d, d, 0.0, thin * 1.5, colour.alpha(0.9));
+        paint_station(list, x, y, size * 0.75, station.kind, thin * 1.5);
+        // Ringed by stance, outside the aim ring so the two read apart when
+        // the helm is pointed at an enemy's: red for a hostile station, blue
+        // for any other somebody lives on — home and a stranger's alike —
+        // and nothing for a derelict, which is nobody's. This is what the
+        // map says about who lives where; `World::stance` is the one rule,
+        // and the plates out of the window agree with it.
+        if station.kind == StationKind::Derelict {
+            continue;
         }
+        let colour = match game.world.stance(id) {
+            Stance::Hostile => ENEMY,
+            Stance::Friendly | Stance::Neutral => FRIEND,
+        };
+        let d = size * STANCE_RING;
+        ring(list, x, y, d, d, 0.0, thin * 1.5, colour.alpha(0.9));
     }
 
     // What the helm is aimed at, ringed, so a click has visibly landed on
@@ -1237,10 +1491,42 @@ fn paint_map(game: &Game, list: &mut DrawList) {
 
     list.turn_from(out_there, game.camera_turn() as f32);
 
-    // The ship, pointing where it is pointing — a little hull with fins, so
-    // it says which way round it is and that it is the ship. Head up, that
-    // is straight up, and it is the map that says where north went.
+    // Where you are, over everything: a reticle round the ship — a ring
+    // wider than any icon, so it stands out from the station the ship is
+    // docked on top of, with a tick at each compass point and a breathing
+    // wash inside it — and the ship itself on top, pointing where it is
+    // pointing: a little hull with fins, so it says which way round it is
+    // and that it is the ship. Head up, that is straight up, and it is the
+    // map that says where north went. The reticle is not turned with the
+    // world: it is the screen's, and its ticks stay square to the window.
+    here_reticle(list, scale as f32, game.frame);
     hull::marker(list, game.ship_turn() as f32, (18.0 / scale) as f32, GLOW);
+}
+
+/// How wide the reticle round the ship is on the map, in pixels: outside
+/// a station's stance ring (`26 * 0.75 * STANCE_RING`, about 25), so the
+/// two never sit on each other at a dock.
+const HERE_RING: f32 = 44.0;
+/// How long a tick of it is, and how far outside the ring it starts.
+const HERE_TICK: f32 = 9.0;
+/// How many frames one breath of its wash takes.
+const HERE_PULSE: f32 = 120.0;
+
+/// The mark that says *you are here* on the map, about the origin — the
+/// ship — in the camera's units so it comes out the same size at any zoom.
+fn here_reticle(list: &mut DrawList, scale: f32, frame: u32) {
+    let px = 1.0 / scale;
+    let d = HERE_RING * px;
+    let breath = 0.5 + 0.5 * (frame as f32 / HERE_PULSE * core::f32::consts::TAU).sin();
+    // The wash: a soft disc that breathes, so the eye is drawn to it even
+    // on a busy map, and never so strong that the icon under it is lost.
+    list.ellipse(0.0, 0.0, d, d, GLOW.alpha(0.06 + 0.10 * breath));
+    ring(list, 0.0, 0.0, d, d, 0.0, 2.0 * px, GLOW.alpha(0.95));
+    // Four ticks, outside the ring at the compass points of the window.
+    let (from, to) = (d / 2.0 + 2.0 * px, d / 2.0 + 2.0 * px + HERE_TICK * px);
+    for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+        list.line(dx * from, dy * from, dx * to, dy * to, 2.0 * px, GLOW.alpha(0.95));
+    }
 }
 
 fn body_color(kind: Option<BodyKind>) -> Color {

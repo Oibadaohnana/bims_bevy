@@ -50,7 +50,15 @@
 
             cargoLock.lockFile = ./Cargo.lock;
 
-            nativeBuildInputs = [ pkgs.makeWrapper ];
+            nativeBuildInputs = [
+              pkgs.makeWrapper
+              pkgs.pkg-config
+            ];
+            # ALSA is linked, not opened at run time: cpal, under Bevy's
+            # audio, finds it through pkg-config. The sounds themselves are
+            # bytes in the binary (`crates/app/sounds/`), so nothing else
+            # is installed.
+            buildInputs = [ pkgs.alsa-lib ];
 
             # The whole workspace is tested — the rules crates carry the
             # tests that pin the world's arithmetic, and the app the ones

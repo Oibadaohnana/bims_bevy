@@ -216,6 +216,11 @@ pub struct Ping {
 pub struct Marks<'a> {
     pub hovered: Option<u32>,
     pub spawn: Option<u32>,
+    /// The star the ship is at, on the chart in the game: ringed in the
+    /// ship's own green with a dot in it, which nothing else on the map is.
+    pub here: Option<u32>,
+    /// The star picked for a jump: ringed in the hyperdrive's violet.
+    pub target: Option<u32>,
     pub pings: &'a [Ping],
 }
 
@@ -223,6 +228,8 @@ const VOID: Color = Color::rgb(0.03, 0.05, 0.05);
 const HOVER: Color = Color::rgb(0.50, 0.82, 0.66);
 const SPAWN: Color = Color::rgb(1.0, 0.86, 0.45);
 const PING: Color = Color::rgb(0.55, 0.80, 0.95);
+const HERE: Color = Color::rgb(0.50, 0.82, 0.66);
+const TARGET: Color = Color::rgb(0.62, 0.42, 0.86);
 
 /// How much of a star without a station shows. Dimmed rather than hidden:
 /// it can still be inspected, and a map with holes in it reads as a map that
@@ -342,6 +349,57 @@ pub fn paint(
         );
     }
 
+    if let Some(star) = marks.here.and_then(|id| stars.get(id as usize)) {
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            22.0,
+            22.0,
+            0.0,
+            0.0,
+            2.0,
+            HERE,
+        );
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            30.0,
+            30.0,
+            0.0,
+            0.0,
+            1.0,
+            HERE.alpha(0.5),
+        );
+        list.ellipse(x, y, 5.0, 5.0, HERE);
+    }
+    if let Some(star) = marks.target.and_then(|id| stars.get(id as usize)) {
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            22.0,
+            22.0,
+            0.0,
+            0.0,
+            2.0,
+            TARGET,
+        );
+        list.push(
+            crate::draw::KIND_RECT,
+            x,
+            y,
+            24.0,
+            24.0,
+            core::f32::consts::FRAC_PI_4,
+            0.0,
+            1.0,
+            TARGET.alpha(0.7),
+        );
+    }
     for ping in marks.pings {
         let Some(star) = stars.get(ping.star as usize) else {
             continue;

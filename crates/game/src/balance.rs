@@ -49,19 +49,27 @@ pub const MELEE_PERIOD: f32 = 2.0;
 /// animation ends, so this is also how long a body has to step back out
 /// of one.
 pub const SWING_TIME: f32 = 0.5;
-/// The odds a bolt reaching a body peeking from cover is dodged.
+/// The odds a bolt reaching a body in cover is dodged: one peeking from
+/// beside a wall, or one standing close behind sandbags.
 pub const DODGE_IN_COVER: f32 = 0.5;
+/// What a shooter's odds are multiplied by while it walks: half. A bot
+/// therefore stands still to shoot unless the stand it wants is cover.
+pub const WALKING_ACCURACY: f32 = 0.5;
 
 // ---- The weapons ----
+//
+// The second tuning of September 2026: every gun's damage up a fifth and
+// its odds down a tenth, the pistol's and the auto rifle's range up ten
+// tiles. The blade keeps its odds — a swing lands by reach, not by a roll.
 
-/// The pistol everybody is issued: short range, quick, light.
+/// The pistol everybody is issued: quick, light, twenty-two tiles.
 pub const LASER_PISTOL: WeaponStats = WeaponStats {
-    range: 12.0,
+    range: 22.0,
     sweet: 0.0,
-    accuracy: 0.95,
-    accuracy_far: 0.65,
-    damage: 6.0,
-    damage_far: 6.0,
+    accuracy: 0.855,
+    accuracy_far: 0.585,
+    damage: 7.2,
+    damage_far: 7.2,
     speed: 18.0,
     fire_rate: 1.5,
     burst: 1,
@@ -73,10 +81,10 @@ pub const LASER_PISTOL: WeaponStats = WeaponStats {
 pub const SHOTGUN: WeaponStats = WeaponStats {
     range: 10.0,
     sweet: 4.0,
-    accuracy: 0.90,
-    accuracy_far: 0.60,
-    damage: 50.0,
-    damage_far: 30.0,
+    accuracy: 0.81,
+    accuracy_far: 0.54,
+    damage: 60.0,
+    damage_far: 36.0,
     speed: 20.0,
     fire_rate: 0.25,
     burst: 1,
@@ -84,14 +92,15 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
     melee: false,
 };
 
-/// Eight light shots in two seconds, then two seconds' recharge.
+/// Eight light shots in two seconds, then two seconds' recharge; full
+/// out to eight tiles, reaching twenty-six.
 pub const AUTO_RIFLE: WeaponStats = WeaponStats {
-    range: 16.0,
+    range: 26.0,
     sweet: 8.0,
-    accuracy: 0.85,
-    accuracy_far: 0.50,
-    damage: 5.0,
-    damage_far: 4.0,
+    accuracy: 0.765,
+    accuracy_far: 0.45,
+    damage: 6.0,
+    damage_far: 4.8,
     speed: 22.0,
     fire_rate: 0.25,
     burst: 8,
@@ -99,15 +108,15 @@ pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     melee: false,
 };
 
-/// Cannot miss at twenty tiles, can at thirty-five; one shot every four
-/// seconds.
+/// Nine in ten at twenty tiles, fewer at thirty-five; one shot every
+/// four seconds.
 pub const SNIPER_RIFLE: WeaponStats = WeaponStats {
     range: 35.0,
     sweet: 20.0,
-    accuracy: 1.0,
-    accuracy_far: 0.70,
-    damage: 45.0,
-    damage_far: 25.0,
+    accuracy: 0.9,
+    accuracy_far: 0.63,
+    damage: 54.0,
+    damage_far: 30.0,
     speed: 60.0,
     fire_rate: 0.25,
     burst: 1,
@@ -122,8 +131,8 @@ pub const SCHWORD: WeaponStats = WeaponStats {
     sweet: MELEE_RANGE,
     accuracy: 1.0,
     accuracy_far: 1.0,
-    damage: 35.0,
-    damage_far: 35.0,
+    damage: 42.0,
+    damage_far: 42.0,
     speed: 0.0,
     fire_rate: 1.0 / MELEE_PERIOD,
     burst: 1,
@@ -150,3 +159,26 @@ pub const BASIC_LEGS: ArmourStats = ArmourStats {
     health: 10.0,
     protection: 1.0,
 };
+
+// ---- The tiers ----
+//
+// Every weapon and every piece of armour is one of three tiers
+// (`crate::combat::Tier`), and the tier scales the kind's numbers above:
+// tier one is the baseline, and the factors here are what two and three
+// multiply in, three on top of two. See `Tier::weapon_factors` and
+// `Tier::armour_factor`.
+
+/// Tier two: damage and accuracy up by a quarter.
+pub const TIER_TWO_DAMAGE: f32 = 1.25;
+pub const TIER_TWO_ACCURACY: f32 = 1.25;
+/// Tier three, on top of tier two: another quarter of damage, a twentieth
+/// of accuracy, and a fifth more range.
+pub const TIER_THREE_DAMAGE: f32 = 1.25;
+pub const TIER_THREE_ACCURACY: f32 = 1.05;
+pub const TIER_THREE_RANGE: f32 = 1.2;
+/// Each tier of armour has half again the health and the protection of
+/// the one below.
+pub const ARMOUR_TIER_STEP: f32 = 1.5;
+/// The odds a bolt reaching a body is dodged for each whole tier-three
+/// piece it wears, combined across the pieces (`Gear::dodge`).
+pub const TIER_THREE_DODGE: f32 = 0.10;

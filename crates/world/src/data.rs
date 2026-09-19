@@ -80,6 +80,10 @@ pub const RESIDENT_STEW_EACH: u32 = 2;
 /// while the room is open.
 pub const RESIDENT_BANDAGES: u32 = 2;
 
+/// And medkits, the same way: enough to treat one of their own that the
+/// crew left dying, once the fight is over.
+pub const RESIDENT_MEDKITS: u32 = 1;
+
 /// How many people an enemy station puts up against the crew, before the
 /// crew themselves are counted: a hostile station's room is opened with
 /// [`crate::station::enemies_of`] rather than `residents_of` — this many,
@@ -122,6 +126,18 @@ pub const STATION_VISIBLE: f64 = 2.0 * LOCAL_RADIUS_STATION;
 /// and a server catching up put the ship in the same place.
 pub const UNDOCK_MINUTES: f64 = 3.0;
 pub const DOCK_MINUTES: f64 = 5.0;
+
+/// How long the hyperdrive charges before it fires, in game minutes: twenty
+/// seconds of real time at 1x, since a game minute is a real second there
+/// (`time::MINUTES_PER_SECOND`). Read off the clock like a docking — see
+/// `crate::jump`.
+pub const JUMP_CHARGE_MINUTES: f64 = 20.0 * time::MINUTES_PER_SECOND;
+
+/// How far from everything in a system a jump lands, in world units. Four
+/// times a body's arrival radius, so the ship is in empty space and not on
+/// the doorstep of whatever it happens to be nearest — a trip from there
+/// is a trip. `crate::jump::landing_point` is what uses it.
+pub const JUMP_CLEARANCE: f64 = 4.0 * flight::data::ARRIVAL_RADIUS_BODY;
 
 /// How long the ship waits at the berth for the station's people to go
 /// ashore and its own to come back aboard before it leaves without them.
@@ -191,3 +207,12 @@ pub const BUILD_MINUTES_PER_UNIT: f64 = 0.5;
 /// one trip. A wall is one trip; the heavy engine's hundred and fifty
 /// metal is eight.
 pub const HAUL_LOAD: u32 = 20;
+
+/// Combining two of a kind at the workbench into one of the next tier
+/// (`World::upgrade`) is a day's work, taken an hour at a time: each
+/// session is one `Order` the room runs like a recipe, and the world counts
+/// the sessions, so the progress is the world's and whole hours, and a Bim
+/// that goes to eat between two loses nothing. Pinned together as a day
+/// by `upgrade_sessions_make_a_day`.
+pub const UPGRADE_SESSION_MINUTES: f64 = time::HOUR;
+pub const UPGRADE_SESSIONS: u32 = 24;

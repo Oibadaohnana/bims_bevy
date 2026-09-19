@@ -38,7 +38,7 @@ pub fn resident_name(station: u32, who: u32) -> String {
 
 /// What each part is called. Indexed by the `PartKind` discriminant in
 /// `crates/shipdesign/src/parts.rs`.
-pub const PART_NAMES: [&str; 38] = [
+pub const PART_NAMES: [&str; 42] = [
     "Deck plating",
     "Wall",
     "Door",
@@ -57,10 +57,9 @@ pub const PART_NAMES: [&str; 38] = [
     "Structure",
     "Outside wall",
     "Helm",
-    "Reactor",
+    "Fusion reactor",
     "Power conduit",
     "Battery",
-    "Fuel tank",
     "Life support",
     "Airlock",
     "Sensor array",
@@ -77,6 +76,11 @@ pub const PART_NAMES: [&str; 38] = [
     "Drug lab",
     "Trading desk",
     "Sandbags",
+    "Research desk",
+    "Large fusion reactor",
+    "Hyperdrive",
+    "Wall light",
+    "Standing light",
 ];
 
 pub fn part_name(kind: PartKind) -> &'static str {
@@ -89,18 +93,84 @@ pub fn part_name(kind: PartKind) -> &'static str {
 /// The palette, grouped the way a ship is thought about rather than the way
 /// the enum is numbered. The rows are built off `PartKind::ALL` rather than
 /// off this list, so a kind added to the enum and forgotten here still gets
-/// a button — under "Anything else", where it is obvious.
+/// a button — under "Anything else", where it is obvious. Named kinds, not
+/// numbers: the fuel tank's retirement renumbered half the enum, and a
+/// table of numbers quietly moved every part after it into the wrong
+/// group.
 pub const PART_GROUPS: &[(&str, &[u32])] = &[
     // Hull first, in the order a ship is actually built: deck, skin, then the
     // ways through it. The frame is not a tool of its own — see NOT_A_TOOL.
-    ("Hull", &[0, 1, 29, 16, 30, 2, 23, 37]),
-    ("Systems", &[3, 28, 27, 17, 18, 19, 20, 21, 22, 24]),
-    ("Crew", &[4, 9, 10, 26, 36]),
-    ("Galley", &[5, 6, 7, 8]),
-    ("Heads", &[11, 12]),
-    ("Storage", &[25, 33]),
-    ("Bay", &[13, 14]),
-    ("Workshop", &[31, 32, 34, 35]),
+    (
+        "Hull",
+        &[
+            PartKind::Floor as u32,
+            PartKind::Wall as u32,
+            PartKind::DiagonalWall as u32,
+            PartKind::OutsideWall as u32,
+            PartKind::DiagonalOutsideWall as u32,
+            PartKind::Door as u32,
+            PartKind::Airlock as u32,
+            PartKind::Sandbags as u32,
+        ],
+    ),
+    (
+        "Systems",
+        &[
+            PartKind::Engine as u32,
+            PartKind::HeavyEngine as u32,
+            PartKind::Thruster as u32,
+            PartKind::Hyperdrive as u32,
+            PartKind::Helm as u32,
+            PartKind::Reactor as u32,
+            PartKind::FusionReactor as u32,
+            PartKind::PowerConduit as u32,
+            PartKind::Battery as u32,
+            PartKind::LifeSupport as u32,
+            PartKind::SensorArray as u32,
+        ],
+    ),
+    (
+        "Crew",
+        &[
+            PartKind::Bunk as u32,
+            PartKind::Table as u32,
+            PartKind::Chair as u32,
+            PartKind::Shower as u32,
+            PartKind::TradingDesk as u32,
+            PartKind::ResearchDesk as u32,
+        ],
+    ),
+    (
+        "Galley",
+        &[
+            PartKind::ColdStore as u32,
+            PartKind::Worktop as u32,
+            PartKind::Hob as u32,
+            PartKind::Dishwasher as u32,
+        ],
+    ),
+    ("Heads", &[PartKind::Toilet as u32, PartKind::Basin as u32]),
+    (
+        "Storage",
+        &[PartKind::Shelf as u32, PartKind::SuitLocker as u32],
+    ),
+    (
+        "Bay",
+        &[PartKind::HydroBay as u32, PartKind::BroomLocker as u32],
+    ),
+    (
+        "Workshop",
+        &[
+            PartKind::Smelter as u32,
+            PartKind::Workbench as u32,
+            PartKind::Armoury as u32,
+            PartKind::DrugLab as u32,
+        ],
+    ),
+    (
+        "Light",
+        &[PartKind::WallLight as u32, PartKind::StandingLight as u32],
+    ),
 ];
 
 /// The Build tab's categories, the way a colonist-game player thinks about
@@ -113,38 +183,91 @@ pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
     (
         "Structure",
         "The frame and the skin: deck to walk on, walls to divide it, the hull that keeps the outside out, the ways through, and sandbags for cover.",
-        &[0, 1, 29, 16, 30, 2, 23, 37],
+        &[
+            PartKind::Floor as u32,
+            PartKind::Wall as u32,
+            PartKind::DiagonalWall as u32,
+            PartKind::OutsideWall as u32,
+            PartKind::DiagonalOutsideWall as u32,
+            PartKind::Door as u32,
+            PartKind::Airlock as u32,
+            PartKind::Sandbags as u32,
+        ],
     ),
     (
         "Furniture",
-        "What the crew live with: somewhere to sleep, sit and eat, somewhere to keep things, and a desk to trade across.",
-        &[4, 9, 10, 25, 14, 36],
+        "What the crew live with: somewhere to sleep, sit and eat, somewhere to keep things, a desk to trade across, the research desk the AI works at, and the lights — a deck no light reaches is a dark one, and the crew see ten tiles in the dark.",
+        &[
+            PartKind::WallLight as u32,
+            PartKind::StandingLight as u32,
+            PartKind::Bunk as u32,
+            PartKind::Table as u32,
+            PartKind::Chair as u32,
+            PartKind::Shelf as u32,
+            PartKind::BroomLocker as u32,
+            PartKind::TradingDesk as u32,
+            PartKind::ResearchDesk as u32,
+        ],
     ),
     (
         "Production",
         "Where something is made: the workshop benches, the armoury, the drug lab, and the bay that grows the food.",
-        &[31, 32, 34, 35, 13],
+        &[
+            PartKind::Smelter as u32,
+            PartKind::Workbench as u32,
+            PartKind::Armoury as u32,
+            PartKind::DrugLab as u32,
+            PartKind::HydroBay as u32,
+        ],
     ),
     (
         "Galley",
         "Where a meal is cooked and cleared up after.",
-        &[5, 6, 7, 8],
+        &[
+            PartKind::ColdStore as u32,
+            PartKind::Worktop as u32,
+            PartKind::Hob as u32,
+            PartKind::Dishwasher as u32,
+        ],
     ),
-    ("Hygiene", "The heads and the shower.", &[11, 12, 26]),
+    (
+        "Hygiene",
+        "The heads and the shower.",
+        &[
+            PartKind::Toilet as u32,
+            PartKind::Basin as u32,
+            PartKind::Shower as u32,
+        ],
+    ),
     (
         "Power",
         "What makes power, what carries it, and what holds it.",
-        &[18, 19, 20],
+        &[
+            PartKind::Reactor as u32,
+            PartKind::FusionReactor as u32,
+            PartKind::PowerConduit as u32,
+            PartKind::Battery as u32,
+        ],
     ),
     (
         "Ship systems",
-        "What flies the ship and keeps it alive: the helm, life support, the sensors, the tank, and the suits.",
-        &[17, 22, 24, 21, 33],
+        "What flies the ship and keeps it alive: the helm, life support, the sensors, and the suits.",
+        &[
+            PartKind::Helm as u32,
+            PartKind::LifeSupport as u32,
+            PartKind::SensorArray as u32,
+            PartKind::SuitLocker as u32,
+        ],
     ),
     (
         "Propulsion",
-        "The engines that push and the thrusters that turn.",
-        &[3, 28, 27],
+        "The engines that push, the thrusters that turn, and the hyperdrive that jumps.",
+        &[
+            PartKind::Engine as u32,
+            PartKind::HeavyEngine as u32,
+            PartKind::Thruster as u32,
+            PartKind::Hyperdrive as u32,
+        ],
     ),
 ];
 
@@ -152,13 +275,12 @@ pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
 /// is the one: deck plating lays its own frame, so to a player the frame and
 /// the deck are one thing and a second button for the half underneath would
 /// be a trap.
-pub const NOT_A_TOOL: &[u32] = &[15];
+pub const NOT_A_TOOL: &[u32] = &[PartKind::Structure as u32];
 
 /// What a station sells, indexed by `physics::ResourceId`.
 pub const RESOURCE_NAMES: [&str; 22] = [
     "Ore",
     "Metal",
-    "Fuel",
     "Components",
     "Vegetables",
     "Tofu",
@@ -178,6 +300,7 @@ pub const RESOURCE_NAMES: [&str; 22] = [
     "Auto rifles",
     "Sniper rifles",
     "Schwords",
+    "Research keys",
 ];
 
 pub fn resource_name(id: ResourceId) -> &'static str {
@@ -187,8 +310,32 @@ pub fn resource_name(id: ResourceId) -> &'static str {
         .unwrap_or("Something")
 }
 
+/// The same off a `ResourceId` code, for an event that carries one.
+pub fn resource_name_by_code(code: u32) -> &'static str {
+    RESOURCE_NAMES
+        .get(code as usize)
+        .copied()
+        .unwrap_or("Something")
+}
+
+/// An equipment tier, by `bims::combat::Tier::code`: what a cell's
+/// tooltip and the workbench's events say. "tier 1" for the baseline,
+/// which no cell says — see [`tier_word`].
+pub fn tier_name(code: u32) -> String {
+    format!("tier {code}")
+}
+
+/// The word for a tier above one, or none for tier one: what is
+/// appended to a tiered item's name in a tooltip.
+pub fn tier_word(tier: bims::combat::Tier) -> Option<String> {
+    match tier {
+        bims::combat::Tier::One => None,
+        other => Some(tier_name(other.code())),
+    }
+}
+
 /// Where goods are stowed, indexed by `economy::Storage`.
-pub const STORAGE_NAMES: [&str; 4] = ["Shelves", "Fuel tanks", "Cold stores", "Lockers"];
+pub const STORAGE_NAMES: [&str; 4] = ["Shelves", "Cold stores", "Lockers", "Research desk"];
 
 /// How many units a buy or sell button moves.
 pub const TRADE_STEPS: [u32; 3] = [1, 10, 100];
@@ -245,7 +392,6 @@ pub fn issue_line(code: u32) -> Option<&'static str> {
         27 => "No thruster, so nothing turns the ship.",
         28 => "No airlock, so no way off it — a station can only be held beside.",
         29 => "No sensor array. Nothing will be seen beyond eyesight.",
-        30 => "No fuel aboard, so no trip can be started.",
         31 => {
             "The airlock is sealed in — no side of it opens onto space, so the ship cannot dock by it. Put it in the skin."
         }
@@ -256,6 +402,13 @@ pub fn issue_line(code: u32) -> Option<&'static str> {
         34 => {
             "This run draws more than its reactor makes. The batteries will go flat and the ship will brown out."
         }
+        35 => {
+            "The reactor cannot feed these engines flat out: the ship will push with a fraction of its thrust. Add a reactor, or take an engine off."
+        }
+        36 => {
+            "The hyperdrive is bolted to nothing: put it against a main engine, block to block, or it will never jump."
+        }
+        37 => "A wall light with no wall at its back: put it against a bulkhead or the hull.",
         _ => return None,
     })
 }
@@ -268,19 +421,17 @@ pub const ISSUE_GRAVE: u32 = 24;
 /// Why a trip could not be planned. Indexed by `flight::PlanError`.
 pub fn plan_error(code: u32) -> &'static str {
     match code {
-        1 => "No engine pushes the ship forward.",
+        1 => "No engine pushes the ship forward — none built, or none on a live reactor.",
         2 => "Nothing to turn with — it cannot aim or stop.",
         3 => "No helm to fly it from.",
-        4 => "Not enough fuel that is not already spoken for.",
         5 => "Nobody has found that yet.",
         6 => "The ship is already there.",
-        7 => "No fuel aboard at all.",
         _ => "That cannot be flown.",
     }
 }
 
 /// Why an order did nothing. Separate from the list above on purpose: "you
-/// are not docked" and "you have no fuel" are different things to be told.
+/// are not docked" and "you have no engine" are different things to be told.
 pub fn refusal(why: Refusal) -> &'static str {
     match why {
         Refusal::NotDocked => "not while the ship is away from a station",
@@ -306,6 +457,18 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotForHire => "that is not a mercenary for hire",
         Refusal::NoBunk => "there is no bunk aboard for one more",
         Refusal::NotAtTheDesk => "nobody of yours is at the trading desk — walk over first",
+        Refusal::NoKey => "there is no research key there",
+        Refusal::NoResearchDesk => "the ship has no research desk running — the AI works on one",
+        Refusal::NotResearchable => "that cannot be researched now",
+        Refusal::NotResearched => "the crew do not know how to build that yet",
+        Refusal::NotHostile => "only an enemy's people are finished off",
+        Refusal::Unarmed => "nothing in hand to do it with",
+        Refusal::NoHyperdrive => {
+            "there is no working hyperdrive — one bolted to an engine, on a live cable"
+        }
+        Refusal::NotHolding => "a jump wants the ship holding on its own, away from any berth",
+        Refusal::NoSuchStar => "there is no such star",
+        Refusal::SameStar => "the ship is at that star already",
     }
 }
 
@@ -320,6 +483,10 @@ pub fn site_refusal_line(why: world::SiteRefusal) -> String {
         world::SiteRefusal::Fault(code) => issue_line(code)
             .map(|line| format!("It would go, but then: {line}"))
             .unwrap_or_else(|| "It would leave the ship with a fault.".into()),
+        world::SiteRefusal::NotResearched(node) => format!(
+            "The crew do not know how to build that yet — research {}.",
+            node_name(node)
+        ),
     }
 }
 
@@ -340,13 +507,14 @@ pub fn site_progress(site: &world::BuildSite, design: &shipdesign::ShipDesign) -
 }
 
 /// What the ship is doing, indexed by `world::ShipState::code`.
-pub const STATE_NAMES: [&str; 6] = [
+pub const STATE_NAMES: [&str; 7] = [
     "Docked",
     "Holding",
     "Under way",
     "Casting off",
     "Undocking",
     "Docking",
+    "Charging",
 ];
 
 /// Which part of a trip the ship is in, indexed by `flight::Phase`.
@@ -455,7 +623,31 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 body_part_name(part)
             )
         }
-        WorldEvent::CrewDown { who: w } => format!("{} is down.", who(w)),
+        WorldEvent::CrewDown { who: w } => format!("{} is dead.", who(w)),
+        // A part shot to nothing: the dying state it rolled, and the fact
+        // that a medkit in a crewmate's hands is the only way out of it —
+        // the line is what sends a player to the armoury.
+        WorldEvent::CrewDying { who: w, trauma } => {
+            format!(
+                "{} is dying — {}. {} Another crew member has to treat it with a medkit.",
+                who(w),
+                trauma_name(trauma).to_lowercase(),
+                trauma_line(trauma)
+            )
+        }
+        WorldEvent::CrewTreated { who: w, trauma } => {
+            let after = trauma_after(trauma);
+            format!(
+                "{} was treated for the {}{}",
+                who(w),
+                trauma_name(trauma).to_lowercase(),
+                if after.is_empty() {
+                    ".".to_string()
+                } else {
+                    format!(" — {after}")
+                }
+            )
+        }
         WorldEvent::Equipped { who: w, kind } => {
             format!(
                 "{} put on the {}.",
@@ -501,6 +693,12 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Hired { who: w } => {
             format!("{} signed on — a hired hand, paid by the month.", who(w))
         }
+        WorldEvent::Executed { who: w, .. } => {
+            format!(
+                "{} finished off one of the station's people where it lay.",
+                who(w)
+            )
+        }
         WorldEvent::MercenaryPaid { who: w, fee } => {
             format!(
                 "{}'s month came round: {} paid.",
@@ -512,6 +710,32 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             "{}'s month came round and there was not the money — a hired hand unpaid walks off at the next berth.",
             who(w)
         ),
+        WorldEvent::KeyTaken { who: w } => {
+            format!("{} took the research key off the station's desk.", who(w))
+        }
+        WorldEvent::Unlocked { node } => format!(
+            "The key was consumed at the research desk: {} is open to research.",
+            node_name(node)
+        ),
+        WorldEvent::ResearchBegun { node } => {
+            format!("The AI is researching {}.", node_name(node))
+        }
+        WorldEvent::Researched { node } => format!("Researched: {}.", node_name(node)),
+        WorldEvent::UpgradeBegun { resource, tier } => format!(
+            "Two of {} went onto the workbench: one will come off at {}.",
+            resource_name_by_code(resource),
+            tier_name(tier)
+        ),
+        WorldEvent::Upgraded { resource, tier } => format!(
+            "A {} came off the workbench at {}.",
+            resource_name_by_code(resource).to_lowercase(),
+            tier_name(tier)
+        ),
+        WorldEvent::Charging { slot, star } => {
+            format!("{} charges the hyperdrive for star {star}.", who(slot))
+        }
+        WorldEvent::Jumped { star } => format!("Jumped. The ship is in the system of star {star}."),
+        WorldEvent::JumpFailed => "The hyperdrive did not fire: nothing working to fire.".into(),
     })
 }
 
@@ -525,6 +749,81 @@ pub fn body_part_name(code: u32) -> &'static str {
         .get(code as usize)
         .copied()
         .unwrap_or("body")
+}
+
+/// The dying states, indexed by `bims::health::Trauma::code`: what a part
+/// shot to nothing turned into. Pinned against `Trauma::ALL` below.
+pub const TRAUMA_NAMES: [&str; 10] = [
+    "Heavy concussion",
+    "Skull fracture",
+    "Cranial trauma",
+    "Internal bleeding",
+    "Broken ribs",
+    "Severe chest trauma",
+    "Fractured femur",
+    "Shattered knee",
+    "Crushed right leg",
+    "Crushed left leg",
+];
+
+/// What each does **until it is treated**, as a sentence.
+pub const TRAUMA_LINES: [&str; 10] = [
+    "A quarter slower walking and working.",
+    "Losing 10 blood every quarter hour.",
+    "Half as fast walking and working, and losing 5 blood every quarter hour.",
+    "Losing 10 blood every quarter hour, and nothing shows.",
+    "A quarter slower walking and working.",
+    "Losing 5 blood every quarter hour and walking at half pace.",
+    "Losing 10 blood every quarter hour.",
+    "Can barely move — a quarter of its pace.",
+    "The leg is lost, for good, and the stump is losing 10 blood every quarter hour.",
+    "The leg is lost, for good, and the stump is losing 10 blood every quarter hour.",
+];
+
+/// What each leaves **after** a medkit, as the tail of a sentence, or
+/// nothing.
+pub const TRAUMA_AFTER: [&str; 10] = [
+    "a quarter slower walking and working for the next two days.",
+    "",
+    "half as fast walking and working for the next day.",
+    "",
+    "a quarter slower walking and working for the next two days.",
+    "walking at half pace for the next day.",
+    "",
+    "a quarter slower walking for the next two days.",
+    "a fifth slower walking, for ever.",
+    "a fifth slower walking, for ever.",
+];
+
+pub fn trauma_name(code: u32) -> &'static str {
+    TRAUMA_NAMES.get(code as usize).copied().unwrap_or("Trauma")
+}
+
+pub fn trauma_line(code: u32) -> &'static str {
+    TRAUMA_LINES.get(code as usize).copied().unwrap_or("")
+}
+
+/// The same, short, for the panel's line while it lasts: what it costs,
+/// without the how long — the panel counts that down itself.
+pub const TRAUMA_LASTING: [&str; 10] = [
+    "a quarter slower",
+    "",
+    "half as fast",
+    "",
+    "a quarter slower",
+    "walking at half pace",
+    "",
+    "a quarter slower walking",
+    "",
+    "",
+];
+
+pub fn trauma_lasting(code: u32) -> &'static str {
+    TRAUMA_LASTING.get(code as usize).copied().unwrap_or("")
+}
+
+pub fn trauma_after(code: u32) -> &'static str {
+    TRAUMA_AFTER.get(code as usize).copied().unwrap_or("")
 }
 
 /// What a recipe makes, in words: "4 components".
@@ -668,6 +967,10 @@ pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a bod
 /// member you steer is dead, out cold, or outside in a suit.
 pub const HELPER_OUT: &str = "not from where the Bim is";
 
+/// What the log says when a right-click on a gun on the deck cannot send
+/// the Bim for it: dead, out cold, outside, or the gun already gone.
+pub const PICK_UP_REFUSED: &str = "Can't pick that up from here.";
+
 /// Why a Bandage row is greyed for a patient outside in a suit: nobody
 /// can walk to it there.
 pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in first";
@@ -675,6 +978,27 @@ pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in 
 pub const FIBRE_TIP: &str = "Fibre is the one crop nobody eats: a day in a tray, and two of it make a bandage at the drug lab. A target here has the bay grow it like greens and soy; 0 means never.";
 
 pub const AUTONOMY_TIP: &str = "Off, the Bim starts nothing by itself — no meals, no sleep, no trips to the toilet — but still does everything it is told. The levels carry on moving either way.";
+/// The Management tab's other tick box: the workbench's upgrade.
+pub const UPGRADE_LABEL: &str = "Combine matching gear";
+pub const UPGRADE_TIP: &str = "Ticked, two of a kind at the same tier in the hold — two pistols, two helms — go onto the workbench the moment there is a pair, and a day of work later one comes off a tier up: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. The two are out of the hold from the start; the hours done are kept whoever is at the bench.";
+
+/// The line under it while something is on the bench: what, to which
+/// tier, and how far — or that it is done and waiting for room.
+pub fn upgrade_line(resource: ResourceId, tier: u32, done: u32, of: u32, waiting: bool) -> String {
+    let name = resource_name(resource);
+    if waiting {
+        format!(
+            "{name} at {} is ready — no room in the lockers",
+            tier_name(tier)
+        )
+    } else {
+        format!(
+            "Upgrading {} to {} — {done} of {of} hours",
+            name.to_lowercase(),
+            tier_name(tier)
+        )
+    }
+}
 
 pub const TARGET_TIP: &str = "A target is a standing order: keep at least this many in the cold store. Whenever the count falls below it, the work goes on the crew's list by itself and whoever is free does it — for vegetables and tofu, planting a tray in the hydroponic bay (greens, or soy for tofu) and carrying the harvest to the store; for stew, cooking a pot on the hob out of one vegetable and one block of tofu and putting it on the shelf. Once the count is back at the target the job comes off the list, and above it nothing is grown or cooked. 0 means never. How soon it gets done is the Planting and Cooking priorities on the Work tab.";
 
@@ -685,7 +1009,7 @@ pub const SPEED_TIP: &str =
 
 pub const BUILD_TIP: &str = "Lay out a part and the crew build it, out of what is on the shelves: whoever is free carries what it is made of to the site a load at a time, then stands beside it and puts it together — Hauling and Building on the Work tab say how soon. A site beyond the hull is reached in a suit, through the airlock. Nothing is built while the ship is moving, and the ship stays put while something is being built.";
 
-pub const ITEMS_TIP: &str = "What is aboard, by where it is kept: ore, metal and components on the shelves; fuel in the tanks; vegetables and tofu in the cold store; armour, weapons and medical things in the lockers. The food is what the crew can eat now — the cold store is refilled from the manifest at every dock. Click the armoury, a shelf or the cold store on the deck to reach into it.";
+pub const ITEMS_TIP: &str = "What is aboard, by where it is kept: ore, metal and components on the shelves; vegetables and tofu in the cold store; armour, weapons and medical things in the lockers. The food is what the crew can eat now — the cold store is refilled from the manifest at every dock. Click the armoury, a shelf or the cold store on the deck to reach into it.";
 
 /// Months of the ship's calendar. Twelve of them and no leap years — see
 /// `crates/game/src/clock.rs`, which does the arithmetic; these are only
@@ -800,7 +1124,7 @@ pub fn chat_topic(code: u32) -> &'static str {
 
 /// What `spot_at` says is under the pointer. Must match the `SPOT_` codes
 /// in `crates/game/src/room.rs`.
-pub const SPOT_NAMES: [&str; 22] = [
+pub const SPOT_NAMES: [&str; 23] = [
     "Outside the hull",
     "Deck plating",
     "Bulkhead",
@@ -823,6 +1147,7 @@ pub const SPOT_NAMES: [&str; 22] = [
     "Workbench",
     "Suit locker",
     "Shower",
+    "Research desk",
 ];
 
 /// Which spots are deck: the only ones a mess can be lying on.
@@ -902,6 +1227,9 @@ pub fn job_name(code: u32) -> &'static str {
         20 => "Carrying materials",
         21 => "Building",
         22 => "Dressing a wound",
+        23 => "Treating a trauma",
+        24 => "Picking a weapon up",
+        25 => "Finishing off",
         _ => "Busy",
     }
 }
@@ -925,6 +1253,9 @@ pub fn activity_line(code: u32) -> Option<&'static str> {
         20 => "Carrying a load to the site…",
         21 => "Building…",
         22 => "Dressing a wound…",
+        23 => "Treating with a medkit…",
+        24 => "Going for the weapon on the deck…",
+        25 => "Finishing off a body…",
         _ => return None,
     })
 }
@@ -997,9 +1328,24 @@ fn curve_text(stats: &WeaponStats, near: String, far: String) -> String {
     if near == far {
         near
     } else if stats.sweet <= 0.0 {
-        format!("{near} up close, {far} at {} tiles", stats.range)
+        format!("{near} up close, {far} at {} tiles", tidy(stats.range))
     } else {
-        format!("{near} to {} tiles, {far} at {}", stats.sweet, stats.range)
+        format!(
+            "{near} to {} tiles, {far} at {}",
+            tidy(stats.sweet),
+            tidy(stats.range)
+        )
+    }
+}
+
+/// A stat to a tenth, without a float's noise: a tier-three pistol's range
+/// is "26.4 tiles", not "26.400002", and a whole number stays whole.
+pub fn tidy(x: f32) -> String {
+    let tenths = (x * 10.0).round() / 10.0;
+    if tenths.fract() == 0.0 {
+        format!("{}", tenths as i64)
+    } else {
+        format!("{tenths:.1}")
     }
 }
 
@@ -1017,13 +1363,9 @@ pub fn accuracy_text(stats: &WeaponStats) -> String {
 pub fn damage_text(stats: &WeaponStats) -> String {
     let flat = stats.damage == stats.damage_far;
     match (stats.melee, flat) {
-        (true, _) => format!("{} a swing", stats.damage),
-        (false, true) => format!("{} a shot", stats.damage),
-        (false, false) => curve_text(
-            stats,
-            format!("{}", stats.damage),
-            format!("{}", stats.damage_far),
-        ),
+        (true, _) => format!("{} a swing", tidy(stats.damage)),
+        (false, true) => format!("{} a shot", tidy(stats.damage)),
+        (false, false) => curve_text(stats, tidy(stats.damage), tidy(stats.damage_far)),
     }
 }
 
@@ -1050,7 +1392,7 @@ pub fn fire_rate_text(stats: &WeaponStats) -> String {
 
 /// What a blade is, in one line: "Melee — 70 a swing every 2 s".
 pub fn melee_text(stats: &WeaponStats) -> String {
-    format!("Melee — {} {}", stats.damage, fire_rate_text(stats))
+    format!("Melee — {} {}", tidy(stats.damage), fire_rate_text(stats))
 }
 
 /// The Inventory's status for a Bim locked in a melee — a blade within
@@ -1074,7 +1416,6 @@ pub fn locked_tip() -> String {
 pub const ITEM_TIPS: [&str; 22] = [
     "Iron ore off a belt. Two lumps smelt into a bar of metal.",
     "A bar of metal: what most of the ship is built of, and what the workbench works.",
-    "Fuel, in the tanks. What a trip burns.",
     "Components, worked out of metal at the workbench. Four to a bar.",
     "A vegetable off the bay. Two of them make a stew.",
     "A block of tofu, pressed from soy.",
@@ -1094,11 +1435,61 @@ pub const ITEM_TIPS: [&str; 22] = [
     "An auto rifle: three bars of metal, three components and an emitter at the armoury. Fires in bursts.",
     "A sniper rifle: four bars of metal, two components and two emitters at the armoury. Reaches furthest.",
     "A schword, a blade with a laser edge: a bar of metal, a component and two emitters at the armoury. Cuts, at arm's length.",
+    "A tier-one research key: an artifact off a station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the locked part of the research tree.",
 ];
 
 pub fn item_tip(id: ResourceId) -> &'static str {
     ITEM_TIPS.get(id as usize).copied().unwrap_or("")
 }
+
+/// The research tree's nodes, indexed by `shipdesign::research::Node`, and
+/// what each of them opens.
+pub const NODE_NAMES: [&str; 9] = [
+    "Living aboard",
+    "Mining",
+    "Medicine",
+    "Smelting",
+    "Workshop",
+    "Fusion power",
+    "Armoury",
+    "Emitters",
+    "Hyperdrive",
+];
+
+pub const NODE_LINES: [&str; 9] = [
+    "Everything a crew needs to live and to fly: the hull, the galley, the heads, the bunks, the hydroponic bay, the fusion reactor, the helm and the engines. Known from the start.",
+    "A walk outside with a pick: the suit locker and the suit. Known from the start.",
+    "Bandages and medkits at the drug lab. Known from the start.",
+    "The smelter: two ore into a bar of metal.",
+    "The workbench: a bar of metal into four components.",
+    "The large fusion reactor: four reactors' power in a three-by-three block — a heavy engine flat out, and every bench and system aboard.",
+    "The armoury, every weapon it makes, the vest, and the three pieces of armour at the workbench.",
+    "The emitter at the workbench: what a laser fires through, and what the guns want.",
+    "The hyperdrive: a jump to another star, bolted to a main engine. Charged from the helm for twenty seconds, and then the ship is in empty space round the star picked on the galaxy chart.",
+];
+
+pub fn node_name(code: u32) -> &'static str {
+    NODE_NAMES
+        .get(code as usize)
+        .copied()
+        .unwrap_or("something")
+}
+
+pub fn node_line(code: u32) -> &'static str {
+    NODE_LINES.get(code as usize).copied().unwrap_or("")
+}
+
+/// The Research tab.
+pub const RESEARCH_TIP: &str = "Research is done by the ship's AI at the research desk, on the desk's power — the crew have stopped being able to. Pick a node the crew can begin and the AI works through it on the clock; what it opens can be built from the Build tab and made at the benches after. The nodes behind a lock want a research key each — one key opens one node: a key is found on the research desk of most friendly stations — lit up, so it can be seen from the door — and a crew member within two tiles takes it into their pack, where it is two cells tall. Put it in the ship's own desk and consume it there for the node, and that node is open for good.";
+pub const NO_DESK_HINT: &str =
+    "No research desk aboard — the AI works on one. Build one from the Build tab.";
+pub const DESK_DARK_HINT: &str =
+    "The research desk is unpowered: nothing is researched until it is.";
+pub const KEY_ROW: &str = "Take the research key";
+pub const KEY_ROW_HINT: &str = "walk over and take it into the pack — it is two cells tall";
+pub const NO_KEY_ROW_HINT: &str = "there is no key on this desk";
+pub const RESEARCH_WINDOW: &str = "Research desk";
+pub const RESEARCH_LOCKED: &str = "needs research";
 
 /// The container windows' titles. A workstation's window is named for the
 /// part — the armoury, the drug lab — off `PART_NAMES`; the other two have
@@ -1111,6 +1502,22 @@ pub const COLD_STORE_WINDOW: &str = "Cold store";
 /// station's people lying in its own room — that opens it.
 pub const LOOT_WINDOW: &str = "Loot";
 pub const LOOT_ROW: &str = "Loot";
+
+/// The row on one of an enemy station's people lying out cold: finish it
+/// off. RimWorld's execution — the Bim shown walks over and shoots it
+/// where it lies, or cuts it from beside it with a blade.
+pub const KILL_ROW: &str = "Kill";
+/// Why the Kill row is greyed: nothing in the Bim's hand to do it with.
+pub const KILL_UNARMED: &str = "nothing in hand to do it with";
+
+/// What the Kill row says it will do, by the weapon in hand.
+pub fn kill_hint(weapon: Option<bims::combat::WeaponKind>) -> &'static str {
+    match weapon {
+        Some(w) if w.stats().melee => "cut it where it lies, from beside it",
+        Some(_) => "shoot it where it lies, from close by",
+        None => KILL_UNARMED,
+    }
+}
 
 pub const LOOT_TIP: &str = "Everything on the body: the pack on its back, the three pieces it wears with the health they have left, and the weapon in its hand. Ctrl-click a thing to take it into the pack of the Bim shown; right-click for the row. Taking wants the Bim within two tiles of the body — the Loot row walks it over — and a free cell in its pack; a piece comes off the body as it is, broken or not, and a weapon goes into the pack to be equipped from there. Nothing is put onto a body. A crewmate that comes round is no longer a body, and the window shuts.";
 
@@ -1165,6 +1572,18 @@ mod tests {
     }
 
     #[test]
+    fn every_research_node_has_a_name_and_a_line() {
+        assert_eq!(NODE_NAMES.len(), shipdesign::research::Node::ALL.len());
+        assert_eq!(NODE_LINES.len(), shipdesign::research::Node::ALL.len());
+        assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
+        assert_eq!(
+            SPOT_NAMES.len(),
+            bims::room::SPOT_RESEARCH as usize + 1,
+            "the research desk is the last spot"
+        );
+    }
+
+    #[test]
     fn the_word_tables_are_as_long_as_the_generator_expects() {
         assert_eq!(STAR_WORDS.len(), worldgen::name::STAR_WORDS as usize);
         assert_eq!(STATION_WORDS.len(), worldgen::name::STATION_WORDS as usize);
@@ -1173,10 +1592,12 @@ mod tests {
     #[test]
     fn every_issue_the_validator_can_raise_has_a_line() {
         // The codes are written out in `IssueCode` and never renumbered:
-        // 1 to 12 and 20 to 34, with the gap on purpose.
-        for code in (1..=12).chain(20..=34) {
+        // 1 to 12 and 20 to 37, with the gap on purpose — and 30, the fuel
+        // warning, retired with the fuel and left a hole.
+        for code in (1..=12).chain(20..=37).filter(|&c| c != 30) {
             assert!(issue_line(code).is_some(), "issue {code} has no line");
         }
+        assert!(issue_line(30).is_none(), "30 was retired");
     }
 
     #[test]
@@ -1216,16 +1637,16 @@ mod tests {
         // real tables: a two-point curve, a flat one, a burst, a blade.
         use bims::combat::WeaponKind;
         let shotgun = WeaponKind::Shotgun.stats();
-        assert_eq!(accuracy_text(&shotgun), "90% to 4 tiles, 60% at 10");
-        assert_eq!(damage_text(&shotgun), "50 to 4 tiles, 30 at 10");
+        assert_eq!(accuracy_text(&shotgun), "81% to 4 tiles, 54% at 10");
+        assert_eq!(damage_text(&shotgun), "60 to 4 tiles, 36 at 10");
         let pistol = WeaponKind::LaserPistol.stats();
-        assert_eq!(accuracy_text(&pistol), "95% up close, 65% at 12 tiles");
-        assert_eq!(damage_text(&pistol), "6 a shot");
+        assert_eq!(accuracy_text(&pistol), "86% up close, 58% at 22 tiles");
+        assert_eq!(damage_text(&pistol), "7.2 a shot");
         assert_eq!(fire_rate_text(&pistol), "1.5 a second");
         let rifle = WeaponKind::AutoRifle.stats();
         assert_eq!(fire_rate_text(&rifle), "8 in 2 s, then 2 s");
         let schword = WeaponKind::Schword.stats();
-        assert_eq!(melee_text(&schword), "Melee — 35 a swing every 2 s");
+        assert_eq!(melee_text(&schword), "Melee — 42 a swing every 2 s");
         assert!(!locked_tip().is_empty());
     }
 
@@ -1263,6 +1684,22 @@ mod tests {
             .is_some()
         );
         assert!(event_line(WorldEvent::Locked { who: 0 }).is_some());
+        let begun = event_line(WorldEvent::UpgradeBegun {
+            resource: 8,
+            tier: 2,
+        })
+        .unwrap();
+        assert!(
+            begun.contains("tier 2") && begun.contains(resource_name(ResourceId::Handgun)),
+            "{begun}"
+        );
+        assert!(
+            event_line(WorldEvent::Upgraded {
+                resource: 14,
+                tier: 3
+            })
+            .is_some()
+        );
         // A loot names whose body it was by the kind code, and both kinds
         // read differently.
         let off_crew = event_line(WorldEvent::Looted {
@@ -1325,9 +1762,54 @@ mod tests {
     fn the_bandage_job_has_a_name_and_a_line() {
         // The newest job code, the one most likely to have been forgotten:
         // `bims::game::JOB_BANDAGE` on the agenda and the status line.
-        let code = bims::game::JOB_BANDAGE;
-        assert_ne!(job_name(code), job_name(u32::MAX));
-        assert!(activity_line(code).is_some());
+        for code in [
+            bims::game::JOB_BANDAGE,
+            bims::game::JOB_TREAT,
+            bims::game::JOB_FETCH,
+            bims::game::JOB_EXECUTE,
+        ] {
+            assert_ne!(job_name(code), job_name(u32::MAX));
+            assert!(activity_line(code).is_some());
+        }
+    }
+
+    #[test]
+    fn every_trauma_has_a_name_and_a_line_and_the_events_say_them() {
+        use bims::health::Trauma;
+        assert_eq!(TRAUMA_NAMES.len(), Trauma::ALL.len());
+        assert_eq!(TRAUMA_LINES.len(), Trauma::ALL.len());
+        assert_eq!(TRAUMA_AFTER.len(), Trauma::ALL.len());
+        assert_eq!(TRAUMA_LASTING.len(), Trauma::ALL.len());
+        for t in Trauma::ALL {
+            assert!(!trauma_name(t.code()).is_empty());
+            assert!(!trauma_line(t.code()).is_empty());
+            // What is said to linger is what the rules say lingers: a leg
+            // lost for ever, or a lasting penalty.
+            assert_eq!(
+                trauma_after(t.code()).is_empty(),
+                t.after().is_none() && !t.loses_leg(),
+                "{t:?}"
+            );
+            assert_eq!(
+                trauma_lasting(t.code()).is_empty(),
+                t.after().is_none(),
+                "{t:?}"
+            );
+            assert!(
+                event_line(WorldEvent::CrewDying {
+                    who: 0,
+                    trauma: t.code()
+                })
+                .is_some()
+            );
+            assert!(
+                event_line(WorldEvent::CrewTreated {
+                    who: 0,
+                    trauma: t.code()
+                })
+                .is_some()
+            );
+        }
     }
 
     #[test]

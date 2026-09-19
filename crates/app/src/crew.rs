@@ -58,6 +58,7 @@ use bims::{bim, door, health, manager, schedule, task};
 use physics::ResourceId;
 use ship::game::Overlay;
 use shipdesign::parts::PartKind;
+use shipdesign::research::{KEY_CELLS, NODES, Node};
 use shipdesign::{CARGO_SLOTS, Storage};
 use world::{FetchKind, LootSource};
 
@@ -81,21 +82,21 @@ fn container_cell(class: Storage) -> f32 {
     match class {
         Storage::Shelf => 20.0,
         Storage::Locker => 26.0,
-        Storage::ColdStore | Storage::FuelTank => 30.0,
+        Storage::ColdStore => 30.0,
+        // The desk's slot is the key's size: a pack cell, two down.
+        Storage::Research => PACK_CELL,
     }
 }
 
 /// How many cells a container window has across and down, by the class it
 /// is a view of: the armoury fifteen by fifteen, a storage twenty by
-/// twenty, the cold store ten by ten. The tanks have no window — fuel is
-/// not a thing a Bim picks up — and get a token grid if one is ever asked
-/// for.
+/// twenty, the cold store ten by ten.
 fn container_dims(class: Storage) -> (usize, usize) {
     match class {
         Storage::Locker => (15, 15),
         Storage::Shelf => (20, 20),
         Storage::ColdStore => (10, 10),
-        Storage::FuelTank => (5, 5),
+        Storage::Research => (KEY_CELLS.0 as usize, KEY_CELLS.1 as usize),
     }
 }
 
@@ -114,11 +115,18 @@ pub struct Hold {
     pub counts: [u32; CARGO_SLOTS],
     /// Every piece of armour in the hold, as the room would carry it.
     pub pieces: Vec<Piece>,
+    /// Every weapon in the hold with its tier — `World::guns`.
+    pub guns: Vec<bims::combat::Weapon>,
     pub used: [u32; 4],
     pub capacity: [u32; 4],
     /// Whether the Bim whose inventory is shown stands within reach of a
     /// container that takes each resource — `World::in_reach`.
     pub reach: [bool; CARGO_SLOTS],
+    /// Which research desk on the deck is the station's, while docked —
+    /// `World::station_desk` — and whether its key is still on it. The
+    /// desk's row reads both.
+    pub station_desk: Option<usize>,
+    pub station_key: bool,
 }
 
 /// A mercenary's terms, as the panels see them: a snapshot the screen
@@ -175,6 +183,13 @@ pub enum GearOrder {
     /// Hire the mercenary that is that resident of the station, `who`
     /// doing the hiring — `Command::Hire`.
     Hire { who: u32, resident: u32 },
+    /// Finish off the resident lying out cold, `who` doing it —
+    /// `Command::Execute`.
+    Execute { who: u32, resident: u32 },
+    /// Take the research key off the station's desk into `who`'s pack —
+    /// `Command::TakeKey`. Sent by the screen once `who` is within reach
+    /// of the desk, after the desk's row walked them there.
+    TakeKey { who: u32 },
 }
 
 /// What is up in the window beside the inventory: a container's grid, a
@@ -184,10 +199,19 @@ pub enum Open {
     Container(Container),
     Loot(LootSource),
     Hire(u32),
+    /// Not a window either: the Kill row on one of the station's people
+    /// lying out cold — `Command::Execute` through `GearOrder::Execute`,
+    /// the Bim shown walking over to shoot it where it lies, or to cut it
+    /// from beside it with a blade.
+    Kill(u32),
     /// Not a window of the panels' own: the Trade row walks the Bim to
     /// the desk and asks the screen for the trade window
     /// (`CrewPanels::trade_requested`).
     Trade(usize),
+    /// Not a window either: the station's research desk's row walks
+    /// the Bim shown to it and asks the screen for the key
+    /// (`CrewPanels::key_requested`).
+    Key(usize),
 }
 
 /// A cell's pop-up: where it was asked for, which cell, whose gear, and
@@ -213,11 +237,12 @@ enum Source {
     Loot(u32),
 }
 
-/// A cell of a container window: one piece of armour by its id, or the
-/// stack of a resource.
+/// A cell of a container window: one piece of armour by its id, the guns
+/// of a kind at one tier, or the stack of a resource.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum HoldCell {
     Piece(u32),
+    Gun(bims::combat::WeaponKind, bims::combat::Tier),
     Stack(ResourceId),
 }
 
@@ -265,6 +290,10 @@ enum Tab {
     /// box over them; and the sites laid out so far. Only on the ship's
     /// screen: the room is not a ship.
     Build,
+    /// The research tree: what the crew know, what the AI is on, and what
+    /// a key would open. Only on the ship's screen: research is the
+    /// world's.
+    Research,
     /// The helm and the ship's facts. Only on the ship's screen, and drawn
     /// by it: the tray lays out the tabs and leaves the body to the
     /// caller, since everything on it is the world's rather than the
@@ -296,6 +325,9 @@ pub struct Craft {
     pub kept_in: &'static str,
     /// The recipe in words, for the tooltip.
     pub recipe: String,
+    /// The node of the research tree the recipe waits on, while it is not
+    /// researched: the row is greyed and says so.
+    pub needs: Option<u32>,
 }
 
 /// What the Actions tab has to know that the room does not: whether the
@@ -333,6 +365,65 @@ pub struct Actions {
     /// was pressed this frame.
     pub docked: bool,
     pub station: bool,
+    /// The Research tab: the tree as the crew stand in it; and — going
+    /// the other way — what was asked of the AI this frame.
+    pub research: ResearchView,
+    pub research_orders: Vec<ResearchOrder>,
+    /// The workbench's upgrade: whether the crew combine matching gear —
+    /// `World::auto_upgrade` — and, going the other way, the box ticked or
+    /// unticked this frame; and what is on the bench, for the line under it.
+    pub auto_upgrade: bool,
+    pub set_auto_upgrade: Option<bool>,
+    pub upgrade: Option<UpgradeView>,
+}
+
+/// What is on the workbench being upgraded, as the Management tab says it:
+/// a snapshot off `World::upgrade`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct UpgradeView {
+    pub resource: ResourceId,
+    /// The tier it comes out at, as `Tier::code`.
+    pub tier: u32,
+    /// Sessions done, of `of` — hours of a day.
+    pub done: u32,
+    pub of: u32,
+    /// Done, and waiting for room in the lockers.
+    pub waiting: bool,
+}
+
+/// The research tree, as the panels see it: a snapshot the screen hands
+/// over every frame off `World::research`.
+#[derive(Clone, Default)]
+pub struct ResearchView {
+    /// By `Node` code.
+    pub done: [bool; NODES],
+    /// By `Node` code: could be begun now.
+    pub available: [bool; NODES],
+    /// By `Node` code: waiting on its tier's key and nothing else.
+    pub needs_key: [bool; NODES],
+    /// By `Node` code: a locked node whose key has been consumed.
+    pub unlocked: [bool; NODES],
+    /// What the AI is on, and how far, nought to one.
+    pub current: Option<u32>,
+    pub fraction: f64,
+    /// A research desk aboard, and running.
+    pub desk: bool,
+    pub powered: bool,
+    /// Keys in the crew's own desk.
+    pub keys: u32,
+    /// Whether each part may be laid out, by `PartKind` code.
+    pub parts: Vec<bool>,
+}
+
+/// What the Research tab asked for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ResearchOrder {
+    /// Put the AI onto a node — `Command::Research`.
+    Begin(u32),
+    /// Take it off — `Command::CancelResearch`.
+    Cancel,
+    /// Consume the key in the desk to open a locked node — `Command::Unlock`.
+    Unlock(u32),
 }
 
 /// One construction site, for the Build tab's list: what and where, how
@@ -437,6 +528,8 @@ pub struct CrewPanels {
     /// is open — `None` for the list of categories.
     search: String,
     open_group: Option<usize>,
+    /// The Research tab: the node picked, whose details are under the tree.
+    research_pick: Option<Node>,
     /// The inventory pop-up: up from the moment the player's crew member
     /// is recruited, or a container is opened, until it is shut or they
     /// are let go; and whether they were recruited last frame, which is
@@ -455,6 +548,10 @@ pub struct CrewPanels {
     /// over; `None` while none is open, or once the Bim is gone. See the
     /// module note.
     pub body: Option<Body>,
+    /// Whether the station alongside is an enemy's, the world's word every
+    /// frame: what puts the Kill row on a downed visitor's menu. Only an
+    /// enemy's people are finished off; the command refuses the rest.
+    pub enemies_alongside: bool,
     /// The body the Loot row just opened the window on: the screen walks
     /// the Bim shown over to it and takes this. See the module note.
     pub walk: Option<LootSource>,
@@ -465,6 +562,9 @@ pub struct CrewPanels {
     /// The Trade row was picked: the screen opens the trade window and
     /// takes this.
     pub trade_requested: bool,
+    /// The station desk's Take row was picked for this Bim: the screen
+    /// sends the take once they are within reach, and takes this.
+    pub key_requested: Option<u32>,
     /// A cell's pop-up, if one is up.
     cell_menu: Option<CellMenu>,
     /// What the rows and the ctrl-clicks asked for this frame, for the
@@ -489,15 +589,18 @@ impl CrewPanels {
             menu: None,
             search: String::new(),
             open_group: None,
+            research_pick: None,
             inventory_open: false,
             was_recruited: false,
             hold: None,
             open: None,
             container_rect: None,
             body: None,
+            enemies_alongside: false,
             walk: None,
             terms: None,
             trade_requested: false,
+            key_requested: None,
             cell_menu: None,
             orders: Vec::new(),
         }
@@ -564,6 +667,16 @@ impl CrewPanels {
                     .map(|_| Container::Bench(bench))
             }
             HIT_SHELF if self.hold.is_some() => Some(Container::Shelf(game.hit_shelf())),
+            // The ship's own research desk is a container — the key's slot;
+            // the station's has a row instead.
+            HIT_RESEARCH
+                if self
+                    .hold
+                    .as_ref()
+                    .is_some_and(|h| h.station_desk != Some(game.hit_research())) =>
+            {
+                Some(Container::Desk(game.hit_research()))
+            }
             _ => None,
         };
         if let Some(container) = container {
@@ -599,13 +712,35 @@ impl CrewPanels {
     /// the way a container's opens — except that the walk over is left
     /// to the screen (`walk`): where one of the station's people lies is
     /// the world's to say, not the room's.
-    fn open_loot(&mut self, source: LootSource) {
+    pub fn open_loot(&mut self, source: LootSource) {
         self.open = Some(Open::Loot(source));
         self.walk = Some(source);
         self.body = None;
         self.inventory_open = true;
         self.menu = None;
         self.cell_menu = None;
+    }
+
+    /// The body under a plain left click, if a body is what was clicked:
+    /// a dead crewmate (`HIT_BODY`), one out cold (`HIT_BIM` with the Bim
+    /// down), or one of the station's people the world marked down
+    /// (`HIT_VISITOR`, down). A click on one opens its inventory straight
+    /// off — the Loot window, the way the row would — rather than a menu;
+    /// the right-click keeps the rows. `None` for anything else.
+    pub fn body_under_click(&self, game: &Game, fixture: u32) -> Option<LootSource> {
+        match fixture {
+            HIT_BODY => Some(LootSource::Crew(game.hit_body() as u32)),
+            HIT_BIM => {
+                let who = game.hit_bim();
+                game.is_down(who).then_some(LootSource::Crew(who as u32))
+            }
+            HIT_VISITOR => {
+                let body = game.hit_visitor();
+                game.visitor_down(body)
+                    .then_some(LootSource::Resident(body as u32))
+            }
+            _ => None,
+        }
     }
 
     /// The body the Loot window is up on, if it is: what the screen hands
@@ -1134,6 +1269,53 @@ impl CrewPanels {
                     ));
                 }
                 items.push(Item::note("Bandages", format!("{bandages} to hand")));
+                // A part at nothing: the dying state on it, and a medkit
+                // in somebody else's hands the only way out. The player's
+                // Bim treats a crewmate; for the player's own, the nearest
+                // crewmate that is free is sent, since nobody treats
+                // their own.
+                let medkits = game.medkits();
+                let dying: Vec<(usize, health::Part, bims::health::Trauma)> = health::Part::ALL
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(i, part)| game.trauma(patient, part).map(|t| (i, part, t)))
+                    .collect();
+                if !dying.is_empty() {
+                    let helper = treat_helper(game, who, patient);
+                    for (i, part, trauma) in dying {
+                        let can = helper.is_some() && medkits > 0 && !patient_out;
+                        let hint = if medkits == 0 {
+                            "no medkits — the armoury makes them".to_string()
+                        } else if patient_out {
+                            PATIENT_OUT.to_string()
+                        } else if let Some(h) = helper {
+                            if h == who {
+                                takes_over.unwrap_or(trauma_line(trauma.code())).to_string()
+                            } else {
+                                format!("{} walks over — nobody treats their own", name(h as u32))
+                            }
+                        } else if patient == who {
+                            "nobody free to do it — nobody treats their own".to_string()
+                        } else {
+                            HELPER_OUT.to_string()
+                        };
+                        items.push(Item::run(
+                            format!(
+                                "Treat the {} · {}",
+                                SLOT_NAMES[i].to_lowercase(),
+                                trauma_name(trauma.code()).to_lowercase()
+                            ),
+                            hint,
+                            !can,
+                            move |g| {
+                                if let Some(h) = helper {
+                                    g.treat(h, patient, part);
+                                }
+                            },
+                        ));
+                    }
+                    items.push(Item::note("Medkits", format!("{medkits} to hand")));
+                }
                 // Out cold, a crewmate is a body as well as a patient: the
                 // Loot row sits beside the bandages, and which the player
                 // means is theirs to say.
@@ -1168,6 +1350,26 @@ impl CrewPanels {
                         format!("{} — everything on the body", name(self.crew_count + body)),
                         Open::Loot(LootSource::Resident(body)),
                     ));
+                    // And, at an enemy's station, the end of it: the Bim
+                    // shown walks over and shoots it where it lies, or cuts
+                    // it from beside it with a blade. Greyed with nothing in
+                    // hand; the command checks the rest.
+                    if self.enemies_alongside {
+                        let armed = game.weapon(who).is_some();
+                        items.push(if armed {
+                            Item::opens(
+                                KILL_ROW,
+                                format!(
+                                    "{} — {}",
+                                    name(self.crew_count + body),
+                                    kill_hint(game.weapon(who).map(|w| w.kind))
+                                ),
+                                Open::Kill(body),
+                            )
+                        } else {
+                            Item::note(KILL_ROW, KILL_UNARMED.to_string())
+                        });
+                    }
                 } else {
                     // On its feet and hailable: a mercenary for hire. What
                     // it asks is the world's to say — the window reads it.
@@ -1181,6 +1383,11 @@ impl CrewPanels {
                     ));
                 }
             }
+            // A weapon on the deck has no menu: the right-click itself picks
+            // it up — the screen calls `Game::fetch` — into the pack of the
+            // Bim shown, and the gun under the pointer is ringed on the deck
+            // (`Game::set_hover_dropped`).
+            HIT_DROPPED => {}
             HIT_DESK => {
                 // A station's trading desk: the one row walks the Bim shown
                 // over and puts the trade window up.
@@ -1190,6 +1397,17 @@ impl CrewPanels {
                     "walk to the desk and trade with the station",
                     Open::Trade(desk),
                 ));
+            }
+            HIT_RESEARCH => {
+                // A station's research desk: the one row walks the Bim
+                // shown over and takes the key, if there is one.
+                let desk = game.hit_research();
+                let key = self.hold.as_ref().is_some_and(|h| h.station_key);
+                if key {
+                    items.push(Item::opens(KEY_ROW, KEY_ROW_HINT, Open::Key(desk)));
+                } else {
+                    items.push(Item::note(KEY_ROW, NO_KEY_ROW_HINT.into()));
+                }
             }
             HIT_BED => {
                 let now = game.clock_minutes();
@@ -1239,11 +1457,22 @@ impl CrewPanels {
                 Some(Open::Container(container)) => self.open_container(game, container),
                 Some(Open::Loot(source)) => self.open_loot(source),
                 Some(Open::Hire(resident)) => self.open_hire(resident),
+                Some(Open::Kill(resident)) => {
+                    let who = self.inventory_who(game) as u32;
+                    self.orders.push(GearOrder::Execute { who, resident });
+                }
                 Some(Open::Trade(desk)) => {
                     if let Some(spot) = game.desk_spot(desk) {
                         game.send_to(self.inventory_who(game), spot);
                     }
                     self.trade_requested = true;
+                }
+                Some(Open::Key(desk)) => {
+                    let who = self.inventory_who(game);
+                    if let Some(spot) = game.research_spot(desk) {
+                        game.send_to(who, spot);
+                    }
+                    self.key_requested = Some(who as u32);
                 }
                 None => {
                     if let Some(run) = item.run {
@@ -1455,6 +1684,45 @@ impl CrewPanels {
         );
         if alive && game.is_unconscious(w) {
             ui.label(egui::RichText::new("Out cold").small().color(theme::BAD));
+        }
+        // A part at nothing: the dying state on it, in red, with what it
+        // is doing under it — the line is what sends a player to the
+        // medkits. Then what treated traumas have left behind, and for
+        // how long.
+        if alive {
+            for part in health::Part::ALL {
+                if let Some(trauma) = game.trauma(w, part) {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Dying · {}",
+                            trauma_name(trauma.code()).to_lowercase()
+                        ))
+                        .small()
+                        .color(theme::BAD),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} Needs a medkit from a crewmate.",
+                            trauma_line(trauma.code())
+                        ))
+                        .small()
+                        .color(theme::MUTED),
+                    );
+                }
+            }
+            for l in game.lasting(w) {
+                line(
+                    ui,
+                    format!(
+                        "{} · {} · {} left",
+                        trauma_name(l.trauma.code()),
+                        trauma_lasting(l.trauma.code()),
+                        span_text(l.left)
+                    ),
+                    true,
+                    false,
+                );
+            }
         }
         let legs = if alive { game.legs_lost(w) } else { 0 };
         line(
@@ -1672,8 +1940,12 @@ impl CrewPanels {
             tabs.push((Tab::View, "View"));
             tabs.push((Tab::Actions, "Actions"));
             tabs.push((Tab::Build, "Build"));
+            tabs.push((Tab::Research, "Research"));
             tabs.push((Tab::Ship, "Ship"));
-        } else if matches!(self.tab, Tab::Actions | Tab::View | Tab::Build | Tab::Ship) {
+        } else if matches!(
+            self.tab,
+            Tab::Actions | Tab::View | Tab::Build | Tab::Research | Tab::Ship
+        ) {
             self.tab = Tab::Schedule;
         }
         let docked = actions.as_ref().is_some_and(|a| a.docked);
@@ -1737,6 +2009,11 @@ impl CrewPanels {
                     self.build(ui, actions);
                 }
             }
+            Tab::Research => {
+                if let Some(actions) = actions {
+                    self.research(ui, actions);
+                }
+            }
         }
         false
     }
@@ -1761,8 +2038,9 @@ impl CrewPanels {
     /// the thing in it; ctrl-click a pack cell to put the thing straight
     /// into a container within reach. Beside each armour slot, the wounds
     /// open on that part of the body and a Bandage button that sends the
-    /// player's Bim to dress them; under the lot, how many bandages there
-    /// are to do it with.
+    /// player's Bim to dress them — and, for a part at nothing, the dying
+    /// state on it and a Treat button that sends a crewmate with a medkit;
+    /// under the lot, how many bandages there are to do it with.
     fn inventory(
         &mut self,
         ui: &mut egui::Ui,
@@ -1783,6 +2061,8 @@ impl CrewPanels {
             || game.is_outside(self.player);
         let patient_out = alive && game.is_outside(who);
         let mut dress: Option<health::Part> = None;
+        let mut treat: Option<(usize, health::Part)> = None;
+        let medkits = game.medkits();
         // A blade within reach is the state that changes what the gun in
         // the slot is worth, so it is said in the header rather than
         // beside the numbers: the numbers do not apply while it lasts.
@@ -1869,6 +2149,48 @@ impl CrewPanels {
                             {
                                 dress = Some(part);
                             }
+                            // A part at nothing: the dying state on it,
+                            // and a Treat button that sends the helper
+                            // `treat_helper` picks with a medkit.
+                            if let Some(trauma) = alive.then(|| game.trauma(who, part)).flatten() {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Dying · {}",
+                                        trauma_name(trauma.code()).to_lowercase()
+                                    ))
+                                    .small()
+                                    .color(theme::BAD),
+                                );
+                                let helper = treat_helper(game, self.player, who);
+                                let can = helper.is_some() && medkits > 0 && !patient_out;
+                                let hint = if medkits == 0 {
+                                    "no medkits — the armoury makes them".to_string()
+                                } else if patient_out {
+                                    PATIENT_OUT.to_string()
+                                } else if let Some(h) = helper {
+                                    if h == self.player {
+                                        trauma_line(trauma.code()).to_string()
+                                    } else {
+                                        format!(
+                                            "{} walks over — nobody treats their own",
+                                            name(h as u32)
+                                        )
+                                    }
+                                } else if who == self.player {
+                                    "nobody free to do it — nobody treats their own".to_string()
+                                } else {
+                                    HELPER_OUT.to_string()
+                                };
+                                if ui
+                                    .add_enabled(can, egui::Button::new("Treat"))
+                                    .on_hover_text(&hint)
+                                    .on_disabled_hover_text(&hint)
+                                    .clicked()
+                                    && let Some(h) = helper
+                                {
+                                    treat = Some((h, part));
+                                }
+                            }
                         });
                     });
                 }
@@ -1876,12 +2198,17 @@ impl CrewPanels {
             ui.add_space(8.0);
             // The weapon slot, and the pack under it.
             ui.vertical(|ui| {
+                // The tier under the name, when it is above one.
+                let weapon_line = gear
+                    .weapon
+                    .and_then(|w| tier_word(w.tier))
+                    .unwrap_or_default();
                 slot(
                     ui,
                     SLOT_NAMES[3],
                     gear.weapon.map(PackItem::Weapon),
-                    weapon_name(gear.weapon),
-                    "",
+                    weapon_name(gear.weapon.map(|w| w.kind)),
+                    &weapon_line,
                 );
                 ui.label(egui::RichText::new("Pack").small().color(theme::MUTED));
                 let cells: Vec<Option<Cell>> = gear
@@ -1915,9 +2242,9 @@ impl CrewPanels {
                         };
                         if stats.melee {
                             row(ui, "Weapon", melee_text(&stats));
-                            row(ui, "Reach", format!("{} tiles", stats.range));
+                            row(ui, "Reach", format!("{} tiles", tidy(stats.range)));
                         } else {
-                            row(ui, "Range", format!("{} tiles", stats.range));
+                            row(ui, "Range", format!("{} tiles", tidy(stats.range)));
                             asks(ui, "Accuracy", ACCURACY_TIP, accuracy_text(&stats));
                             asks(ui, "Damage", DAMAGE_TIP, damage_text(&stats));
                             row(ui, "Shot speed", format!("{} tiles/s", stats.speed));
@@ -1957,6 +2284,9 @@ impl CrewPanels {
         // walked over to.
         if let Some(part) = dress {
             game.bandage(self.player, who, part);
+        }
+        if let Some((helper, part)) = treat {
+            game.treat(helper, who, part);
         }
     }
 
@@ -2119,6 +2449,7 @@ impl CrewPanels {
                 .to_string(),
             Container::Shelf(_) => STORAGE_WINDOW.to_string(),
             Container::Fridge(_) => COLD_STORE_WINDOW.to_string(),
+            Container::Desk(_) => RESEARCH_WINDOW.to_string(),
         };
         let (cols, rows) = container_dims(class);
         let (cells, what): (Vec<Option<Cell>>, Vec<HoldCell>) = container_cells(class, hold);
@@ -2190,6 +2521,7 @@ impl CrewPanels {
                     .iter()
                     .find(|p| p.id == id)
                     .map(|p| ResourceId::ALL[p.kind.resource() as usize]),
+                HoldCell::Gun(kind, _) => Some(world::armour::weapon_resource(kind)),
                 HoldCell::Stack(id) => Some(id),
             };
             match resource.map(|r| self.can_fetch(game, who, r)) {
@@ -2242,7 +2574,7 @@ impl CrewPanels {
                     ui.label(egui::RichText::new("Carries").small().color(theme::MUTED));
                     theme::question_mark(ui, HIRE_TIP);
                 });
-                ui.label(weapon_name(terms.gear.weapon));
+                ui.label(weapon_name(terms.gear.weapon.map(|w| w.kind)));
                 for part in health::Part::ALL {
                     if let Some(piece) = terms.gear.worn(part) {
                         ui.label(armour_name(Some(piece.kind)));
@@ -2495,7 +2827,7 @@ impl CrewPanels {
                             },
                         ));
                     }
-                    PackItem::Stack(_) => {}
+                    PackItem::Stack(_) | PackItem::Key(_) => {}
                 }
                 // Only where there is a hold: the room has nowhere to
                 // put a thing away.
@@ -2541,6 +2873,12 @@ impl CrewPanels {
                             return rows;
                         };
                         ("Take", ResourceId::ALL[piece.kind.resource() as usize])
+                    }
+                    HoldCell::Gun(kind, tier) => {
+                        if !hold.guns.iter().any(|g| g.kind == kind && g.tier == tier) {
+                            return rows;
+                        }
+                        ("Take", world::armour::weapon_resource(kind))
                     }
                     HoldCell::Stack(id) => {
                         if hold.counts[id as usize] == 0 {
@@ -2667,7 +3005,16 @@ impl CrewPanels {
         }
 
         // Which rows to show: a category's, or the search's matches from
-        // every category.
+        // every category — and only the parts the crew know how to build;
+        // the rest are the Research tab's to name.
+        let known = |code: &u32| {
+            actions
+                .research
+                .parts
+                .get(*code as usize)
+                .copied()
+                .unwrap_or(true)
+        };
         let needle = self.search.trim().to_lowercase();
         let rows: Vec<u32> = if !needle.is_empty() {
             BUILD_GROUPS
@@ -2677,11 +3024,12 @@ impl CrewPanels {
                     PartKind::from_code(code)
                         .is_some_and(|k| part_name(k).to_lowercase().contains(&needle))
                 })
+                .filter(known)
                 .collect()
         } else if let Some(open) = self.open_group {
             BUILD_GROUPS
                 .get(open)
-                .map(|(_, _, kinds)| kinds.to_vec())
+                .map(|(_, _, kinds)| kinds.iter().copied().filter(known).collect())
                 .unwrap_or_default()
         } else {
             Vec::new()
@@ -2779,6 +3127,272 @@ impl CrewPanels {
         ui.add(egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap());
     }
 
+    /// The research tree: the nodes as boxes in columns by how deep they
+    /// sit — what is known from the start on the left, what waits on it
+    /// to the right — with a line from each to what it needs, coloured
+    /// for their state: known, being researched (and how far), open to
+    /// begin, waiting on a key, or waiting on something else. A click on
+    /// a box picks it, and under the tree the picked node says what it
+    /// opens, what it wants and what it is waiting on, with the button
+    /// that puts the AI onto it. Over the tree, the desk: whether there
+    /// is one running, and the key in it with the button that consumes
+    /// it.
+    fn research(&mut self, ui: &mut egui::Ui, actions: &mut Actions) {
+        let view = &actions.research;
+        ui.set_max_width(400.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Research").small().color(theme::MUTED));
+            theme::question_mark(ui, RESEARCH_TIP);
+        });
+        // The desk and the key.
+        if !view.desk {
+            ui.label(egui::RichText::new(NO_DESK_HINT).small().color(theme::WARN));
+        } else if !view.powered {
+            ui.label(
+                egui::RichText::new(DESK_DARK_HINT)
+                    .small()
+                    .color(theme::WARN),
+            );
+        }
+        ui.label(
+            egui::RichText::new(format!(
+                "Keys in the desk: {} — a locked node wants one consumed for it",
+                view.keys
+            ))
+            .small()
+            .color(theme::MUTED),
+        );
+        ui.add_space(4.0);
+
+        // The tree. Depth is one past the deepest prerequisite; the boxes
+        // of a depth are stacked in table order.
+        let view = &actions.research;
+        let mut depth = [0usize; NODES];
+        for node in Node::ALL {
+            depth[node as usize] = node
+                .def()
+                .requires
+                .iter()
+                .map(|r| depth[*r as usize] + 1)
+                .max()
+                .unwrap_or(0);
+        }
+        let cols = depth.iter().max().copied().unwrap_or(0) + 1;
+        let mut row = [0usize; NODES];
+        let mut per_col = vec![0usize; cols];
+        for node in Node::ALL {
+            let d = depth[node as usize];
+            row[node as usize] = per_col[d];
+            per_col[d] += 1;
+        }
+        let rows = per_col.iter().max().copied().unwrap_or(1);
+        let (bw, bh, gx, gy) = (88.0f32, 30.0f32, 22.0f32, 10.0f32);
+        let size = egui::vec2(
+            cols as f32 * bw + (cols as f32 - 1.0) * gx,
+            rows as f32 * bh + (rows as f32 - 1.0) * gy,
+        );
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        let painter = ui.painter_at(rect);
+        let box_of = |node: Node| {
+            let (d, r) = (depth[node as usize] as f32, row[node as usize] as f32);
+            egui::Rect::from_min_size(
+                egui::pos2(rect.min.x + d * (bw + gx), rect.min.y + r * (bh + gy)),
+                egui::vec2(bw, bh),
+            )
+        };
+        // The lines first, under the boxes.
+        for node in Node::ALL {
+            let to = box_of(node);
+            for r in node.def().requires {
+                let from = box_of(*r);
+                let a = egui::pos2(from.max.x, from.center().y);
+                let b = egui::pos2(to.min.x, to.center().y);
+                let mid = egui::pos2((a.x + b.x) / 2.0, a.y);
+                let mid2 = egui::pos2(mid.x, b.y);
+                let ink = if view.done[node as usize] {
+                    theme::ACCENT
+                } else {
+                    theme::LINE
+                };
+                painter.line_segment([a, mid], egui::Stroke::new(1.5, ink));
+                painter.line_segment([mid, mid2], egui::Stroke::new(1.5, ink));
+                painter.line_segment([mid2, b], egui::Stroke::new(1.5, ink));
+            }
+        }
+        let hovered = response
+            .hover_pos()
+            .and_then(|p| Node::ALL.into_iter().find(|n| box_of(*n).contains(p)));
+        if let Some(p) = response.interact_pointer_pos()
+            && response.clicked()
+            && let Some(node) = Node::ALL.into_iter().find(|n| box_of(*n).contains(p))
+        {
+            self.research_pick = Some(node);
+        }
+        let picked = self.research_pick;
+        for node in Node::ALL {
+            let b = box_of(node);
+            let i = node as usize;
+            let current = view.current == Some(node.code());
+            let (fill, edge, ink) = if view.done[i] {
+                (theme::RAISED_ON, theme::ACCENT, theme::INK)
+            } else if current {
+                (theme::RAISED, theme::ACCENT, theme::INK)
+            } else if view.available[i] {
+                (theme::RAISED, theme::MUTED, theme::INK)
+            } else if view.needs_key[i] {
+                (theme::PANEL_DEEP, theme::GRAVE, theme::CAUTION)
+            } else {
+                (theme::PANEL_DEEP, theme::LINE, theme::MUTED)
+            };
+            let lit = hovered == Some(node) || picked == Some(node);
+            painter.rect(
+                b,
+                4.0,
+                fill,
+                egui::Stroke::new(
+                    if lit { 2.0 } else { 1.0 },
+                    if lit { theme::INK } else { edge },
+                ),
+                egui::StrokeKind::Inside,
+            );
+            if current {
+                // How far the AI has got, as a wash along the bottom.
+                let bar = egui::Rect::from_min_max(
+                    egui::pos2(b.min.x + 3.0, b.max.y - 5.0),
+                    egui::pos2(b.max.x - 3.0, b.max.y - 2.0),
+                );
+                theme::bar_in(&painter, bar, view.fraction as f32, theme::ACCENT);
+            }
+            let label = node_name(node.code());
+            let font = egui::FontId::proportional(11.5);
+            let galley = painter.layout_no_wrap(label.to_string(), font, ink);
+            let at = egui::pos2(
+                b.center().x - galley.size().x / 2.0,
+                b.center().y - galley.size().y / 2.0 - if current { 2.0 } else { 0.0 },
+            );
+            painter.galley(at, galley, ink);
+            if view.needs_key[i] {
+                // A small lock: a mark in the corner.
+                painter.circle_filled(egui::pos2(b.max.x - 7.0, b.min.y + 7.0), 3.0, theme::GRAVE);
+            }
+        }
+        if let Some(node) = hovered {
+            response.clone().on_hover_text(node_line(node.code()));
+        }
+
+        // The picked node, under the tree.
+        ui.add_space(6.0);
+        let Some(node) = picked else {
+            ui.label(
+                egui::RichText::new("Click a node for what it opens and to put the AI onto it.")
+                    .small()
+                    .color(theme::MUTED),
+            );
+            return;
+        };
+        let i = node as usize;
+        let def = node.def();
+        ui.label(egui::RichText::new(node_name(node.code())).strong());
+        ui.add(egui::Label::new(egui::RichText::new(node_line(node.code())).small()).wrap());
+        if !def.requires.is_empty() {
+            let wants: Vec<&str> = def.requires.iter().map(|r| node_name(r.code())).collect();
+            ui.label(
+                egui::RichText::new(format!("After: {}", wants.join(", ")))
+                    .small()
+                    .color(theme::MUTED),
+            );
+        }
+        let state = if view.done[i] {
+            if def.minutes == 0 {
+                "Known from the start.".to_string()
+            } else {
+                "Researched.".to_string()
+            }
+        } else if view.current == Some(node.code()) {
+            format!(
+                "Being researched — {} of {}.",
+                span_text((view.fraction * def.minutes as f64) as f32),
+                span_text(def.minutes as f32)
+            )
+        } else if view.needs_key[i] {
+            format!(
+                "Locked: wants a tier-{} research key consumed at the desk for it. {}",
+                def.tier,
+                span_text(def.minutes as f32)
+            )
+        } else if view.available[i] {
+            format!(
+                "{}Can be begun: {} of the AI's time.",
+                if view.unlocked[i] {
+                    "Key consumed. "
+                } else {
+                    ""
+                },
+                span_text(def.minutes as f32)
+            )
+        } else {
+            format!(
+                "Waiting on what it comes after. {}",
+                span_text(def.minutes as f32)
+            )
+        };
+        ui.label(egui::RichText::new(state).small().color(theme::MUTED));
+        ui.horizontal(|ui| {
+            if view.needs_key[i] {
+                let can = view.keys > 0 && view.desk && view.powered;
+                let hint = if view.keys == 0 {
+                    "no key in the research desk — one is found on a friendly station's desk"
+                } else if !view.powered {
+                    "the desk has to be running"
+                } else {
+                    "consumes the key in the desk for this node; it stays open for good"
+                };
+                if ui
+                    .add_enabled(can, egui::Button::new("Consume a key").small())
+                    .on_hover_text(hint)
+                    .on_disabled_hover_text(hint)
+                    .clicked()
+                {
+                    actions
+                        .research_orders
+                        .push(ResearchOrder::Unlock(node.code()));
+                }
+            }
+            if view.current == Some(node.code()) {
+                if ui
+                    .small_button("Stop")
+                    .on_hover_text("takes the AI off it; what was put in is lost")
+                    .clicked()
+                {
+                    actions.research_orders.push(ResearchOrder::Cancel);
+                }
+            } else if !view.done[i] {
+                let can = view.available[i] && view.desk;
+                let hint = if !view.desk {
+                    NO_DESK_HINT
+                } else if view.needs_key[i] {
+                    "consume a key at the desk first"
+                } else if !view.available[i] {
+                    "research what it comes after first"
+                } else if view.current.is_some() {
+                    "puts the AI onto this instead; what it was on is dropped"
+                } else {
+                    "puts the AI onto it"
+                };
+                if ui
+                    .add_enabled(can, egui::Button::new("Research").small())
+                    .on_hover_text(hint)
+                    .on_disabled_hover_text(hint)
+                    .clicked()
+                {
+                    actions
+                        .research_orders
+                        .push(ResearchOrder::Begin(node.code()));
+                }
+            }
+        });
+    }
+
     /// One part on the Build tab: its colour, a button that puts it in
     /// hand, its size, and what it is made of — each material dimmed to a
     /// warning where the hold has fewer free than the part wants.
@@ -2855,7 +3469,7 @@ impl CrewPanels {
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(
-                        "Green is wired to a reactor; red is not. A cable joins the cable beside it, and powers whatever stands over it.",
+                        "Green is wired to a reactor; red is not. A cable joins the cable beside it, and powers whatever stands over it. The yellow number over a part is what it draws a minute — an engine's while it burns, against what it would flat out.",
                     )
                     .small()
                     .color(theme::MUTED),
@@ -3155,7 +3769,12 @@ impl CrewPanels {
 
     /// What is aboard, and what to keep in stock: the three targets, by
     /// `manager::Stock`, each in the row of the thing it is a target for.
-    fn management(&mut self, ui: &mut egui::Ui, game: &mut Game, actions: Option<&mut Actions>) {
+    fn management(
+        &mut self,
+        ui: &mut egui::Ui,
+        game: &mut Game,
+        mut actions: Option<&mut Actions>,
+    ) {
         ui.horizontal(|ui| {
             let mut on = game.is_autonomous();
             if ui.checkbox(&mut on, "").changed() {
@@ -3163,6 +3782,31 @@ impl CrewPanels {
             }
             theme::asks(ui, "Let the Bim decide", AUTONOMY_TIP);
         });
+        // The workbench's upgrade: a tick box, and while one is on the
+        // bench a line saying what and how far. The ship's only — the
+        // room alone has no hold and no bench worth the name.
+        if let Some(actions) = actions.as_deref_mut() {
+            ui.horizontal(|ui| {
+                let mut on = actions.auto_upgrade;
+                if ui.checkbox(&mut on, "").changed() {
+                    actions.set_auto_upgrade = Some(on);
+                }
+                theme::asks(ui, UPGRADE_LABEL, UPGRADE_TIP);
+            });
+            if let Some(upgrade) = actions.upgrade {
+                ui.label(
+                    egui::RichText::new(upgrade_line(
+                        upgrade.resource,
+                        upgrade.tier,
+                        upgrade.done,
+                        upgrade.of,
+                        upgrade.waiting,
+                    ))
+                    .small()
+                    .color(theme::MUTED),
+                );
+            }
+        }
         egui::Grid::new("stock")
             .num_columns(4)
             .spacing([12.0, 2.0])
@@ -3226,13 +3870,30 @@ impl CrewPanels {
                 );
                 ui.end_row();
                 for craft in &actions.crafts {
-                    let tip = format!("Keep this many made. {}", craft.recipe);
-                    ui.label(resource_name(craft.resource)).on_hover_text(&tip);
-                    ui.label(craft.held.to_string());
-                    ui.label(craft.kept_in);
+                    // A recipe the crew have not researched is greyed, and
+                    // its box is dead: a target nobody can work to is a
+                    // target that reads as a bench that is broken.
+                    let tip = match craft.needs {
+                        Some(node) => format!(
+                            "{RESEARCH_LOCKED}: {} — see the Research tab. {}",
+                            node_name(node),
+                            craft.recipe
+                        ),
+                        None => format!("Keep this many made. {}", craft.recipe),
+                    };
+                    let ink = if craft.needs.is_some() {
+                        theme::MUTED
+                    } else {
+                        theme::INK
+                    };
+                    ui.label(egui::RichText::new(resource_name(craft.resource)).color(ink))
+                        .on_hover_text(&tip);
+                    ui.label(egui::RichText::new(craft.held.to_string()).color(ink));
+                    ui.label(egui::RichText::new(craft.kept_in).color(ink));
                     let mut target = craft.target;
                     let input = ui
-                        .add(
+                        .add_enabled(
+                            craft.needs.is_none(),
                             egui::DragValue::new(&mut target)
                                 .range(0..=craft.most)
                                 .speed(0.2),
@@ -3412,6 +4073,11 @@ fn slot(
                 );
             }
             Some(item) => {
+                // A tiered thing's slot is washed and edged in its tier's
+                // colour, like its cell in a grid.
+                if let Some(tint) = theme::item_tint(item) {
+                    theme::tint_cell(painter, rect, 4.0, tint);
+                }
                 let pad = 6.0;
                 let icon = egui::Rect::from_min_size(
                     rect.min + egui::vec2(pad, pad),
@@ -3443,7 +4109,7 @@ fn slot(
                     theme::bar_in(
                         painter,
                         bar,
-                        piece.health / piece.kind.stats().health.max(1.0),
+                        piece.health / piece.stats().health.max(1.0),
                         if piece.broken() {
                             theme::BAD
                         } else {
@@ -3473,34 +4139,40 @@ fn worn_line(piece: Piece) -> String {
         format!(
             "+{} hp · {} prot",
             piece.health.round(),
-            piece.kind.stats().protection
+            piece.stats().protection
         )
     }
 }
 
 /// A grid cell for a thing, with its tooltip.
 fn cell_of(item: PackItem, count: u32) -> Cell {
-    Cell {
-        item,
-        count,
-        tip: tip_of(item, count),
-    }
+    Cell::new(item, count, tip_of(item, count))
 }
 
 /// A cell's tooltip: the name, the numbers that matter — a piece's
 /// health and protection, and what it has left — and the resource's line.
 fn tip_of(item: PackItem, count: u32) -> String {
+    // A tier above one is said after the name: "Basic helm — tier 2".
+    let tiered = |name: &str, tier: bims::combat::Tier| match tier_word(tier) {
+        Some(word) => format!("{name} — {word}"),
+        None => name.to_string(),
+    };
     match item {
         PackItem::Armour(piece) => {
-            let stats = piece.kind.stats();
+            let stats = piece.stats();
             let state = if piece.broken() {
                 "Broken — still worn, doing nothing".to_string()
             } else {
                 format!("{} of {} hp left", piece.health.round(), stats.health)
             };
+            let dodge = if piece.dodge() > 0.0 {
+                format!(", {}% dodge", (piece.dodge() * 100.0).round())
+            } else {
+                String::new()
+            };
             format!(
-                "{} — {}\n+{} hp, {} protection · {state}\n{}",
-                armour_name(Some(piece.kind)),
+                "{} — {}\n+{} hp, {} protection{dodge} · {state}\n{}",
+                tiered(armour_name(Some(piece.kind)), piece.tier),
                 SLOT_NAMES[piece.kind.slot() as usize].to_lowercase(),
                 stats.health,
                 stats.protection,
@@ -3509,7 +4181,7 @@ fn tip_of(item: PackItem, count: u32) -> String {
         }
         PackItem::Weapon(weapon) => {
             // The curve in a line, the way the Inventory says it, or a
-            // blade's swing.
+            // blade's swing — the tier's numbers, not the kind's.
             let stats = weapon.stats();
             let numbers = if stats.melee {
                 melee_text(&stats)
@@ -3517,19 +4189,33 @@ fn tip_of(item: PackItem, count: u32) -> String {
                 format!(
                     "Damage {}, range {} tiles",
                     damage_text(&stats),
-                    stats.range
+                    tidy(stats.range)
                 )
             };
+            let name = tiered(weapon_name(Some(weapon.kind)), weapon.tier);
+            let name = if count > 1 {
+                format!("{name} × {count}")
+            } else {
+                name
+            };
             format!(
-                "{}\n{numbers}\n{}",
-                weapon_name(Some(weapon)),
-                item_tip(world::armour::weapon_resource(weapon))
+                "{name}\n{numbers}\n{}",
+                item_tip(world::armour::weapon_resource(weapon.kind))
             )
         }
         PackItem::Stack(code) => match ResourceId::ALL.get(code as usize) {
             Some(&id) if count > 1 => format!("{} × {count}\n{}", resource_name(id), item_tip(id)),
             Some(&id) => format!("{}\n{}", resource_name(id), item_tip(id)),
             None => "Something the hold does not know".into(),
+        },
+        PackItem::Key(tier) => match world::armour::key_resource(tier) {
+            Some(id) => format!(
+                "{} — tier {tier}
+{}",
+                resource_name(id),
+                item_tip(id)
+            ),
+            None => "A research key of a tier the hold does not know".into(),
         },
     }
 }
@@ -3546,14 +4232,17 @@ fn class_of(game: &Game, container: Container) -> Option<Storage> {
             .map(|(class, _)| class),
         Container::Shelf(_) => game.container_frame(container).map(|_| Storage::Shelf),
         Container::Fridge(_) => game.container_frame(container).map(|_| Storage::ColdStore),
+        Container::Desk(_) => game.container_frame(container).map(|_| Storage::Research),
     }
 }
 
 /// The cells of a container window over one class of the hold, and what
-/// each is: the lockers' pieces of armour first, one cell each, then a
-/// stack a resource of the class with anything in it. Armour is never a
-/// stack — every piece is an instance — so the armour resources are
-/// skipped where the stacks are built.
+/// each is: the lockers' pieces of armour first, one cell each, then the
+/// weapons, a stack per kind **and tier** — a tier-two pistol is not a
+/// tier-one one, and a cell that took either would hand over whichever
+/// — then a stack a resource of the class with anything in it. Armour is
+/// never a stack — every piece is an instance — so the armour and weapon
+/// resources are skipped where the plain stacks are built.
 fn container_cells(class: Storage, hold: &Hold) -> (Vec<Option<Cell>>, Vec<HoldCell>) {
     let mut cells = Vec::new();
     let mut what = Vec::new();
@@ -3564,9 +4253,23 @@ fn container_cells(class: Storage, hold: &Hold) -> (Vec<Option<Cell>>, Vec<HoldC
             cells.push(Some(cell_of(PackItem::Armour(piece), 1)));
             what.push(HoldCell::Piece(piece.id));
         }
+        for kind in bims::combat::WeaponKind::ALL {
+            for tier in bims::combat::Tier::ALL {
+                let count = hold
+                    .guns
+                    .iter()
+                    .filter(|g| g.kind == kind && g.tier == tier)
+                    .count() as u32;
+                if count == 0 {
+                    continue;
+                }
+                cells.push(Some(cell_of(PackItem::Weapon(kind.at(tier)), count)));
+                what.push(HoldCell::Gun(kind, tier));
+            }
+        }
     }
     for &id in ResourceId::ALL.iter() {
-        if economy::storage(id) != class || world::armour::kind_of(id).is_some() {
+        if economy::storage(id) != class || world::armour::is_gear(id) {
             continue;
         }
         let count = hold.counts[id as usize];
@@ -3583,8 +4286,31 @@ fn container_cells(class: Storage, hold: &Hold) -> (Vec<Option<Cell>>, Vec<HoldC
 fn fetch_kind(cell: HoldCell) -> FetchKind {
     match cell {
         HoldCell::Piece(id) => FetchKind::Piece(id),
+        HoldCell::Gun(kind, tier) => FetchKind::Tiered {
+            resource: kind.resource(),
+            tier: tier.code(),
+        },
         HoldCell::Stack(id) => FetchKind::Resource(id as u32),
     }
+}
+
+/// Whose hands a treatment of `patient` would be: the player's own Bim
+/// for a crewmate, while it is alive, awake and aboard; for the player's
+/// own — nobody treats their own — the nearest crewmate that is free to.
+/// `None` when nobody can.
+fn treat_helper(game: &Game, player: usize, patient: usize) -> Option<usize> {
+    let up = |h: usize| game.is_alive(h) && !game.is_unconscious(h) && !game.is_outside(h);
+    if patient != player {
+        return up(player).then_some(player);
+    }
+    let at = game.bim_pos(patient);
+    (0..game.crew_count() as usize)
+        .filter(|&h| h != patient && up(h))
+        .min_by(|&a, &b| {
+            (game.bim_pos(a) - at)
+                .len()
+                .total_cmp(&(game.bim_pos(b) - at).len())
+        })
 }
 
 /// The two words beside a Bandage button, or under a menu row: how many

@@ -58,10 +58,13 @@ const DECK_THROUGH: Color = Color::rgb(0.13, 0.15, 0.18);
 const DISH: Color = Color::rgb(0.80, 0.86, 0.92);
 const SHADOW: Color = Color::rgba(0.0, 0.01, 0.03, 0.72);
 
-const FLAME_CORE: Color = Color::rgb(1.0, 0.93, 0.72);
-const FLAME: Color = Color::rgb(1.0, 0.62, 0.22);
-const FLAME_TAIL: Color = Color::rgb(0.86, 0.30, 0.08);
-const FLAME_GLOW: Color = Color::rgba(1.0, 0.52, 0.20, 0.10);
+// The exhaust is **blue**: there is no fuel, and what comes out of the bell
+// is plasma off the reactor — a white-blue core, an electric blue body and
+// a violet tail, the way an ion drive burns rather than a rocket.
+const FLAME_CORE: Color = Color::rgb(0.86, 0.96, 1.0);
+const FLAME: Color = Color::rgb(0.30, 0.66, 1.0);
+const FLAME_TAIL: Color = Color::rgb(0.24, 0.30, 0.92);
+const FLAME_GLOW: Color = Color::rgba(0.34, 0.62, 1.0, 0.12);
 const PUFF: Color = Color::rgb(0.82, 0.91, 1.0);
 
 const PORT: Color = Color::rgb(1.0, 0.28, 0.22);

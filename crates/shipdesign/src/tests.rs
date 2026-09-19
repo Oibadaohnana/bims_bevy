@@ -11,13 +11,12 @@ use physics::{Facing, ResourceId};
 
 use crate::budget::Budget;
 use crate::design::{CARGO_SLOTS, Edit, EditError, ShipDesign, apply, design_hash};
-use crate::fixture::{
-    CREWS, FLYER_FUEL, REFERENCE_HASH, REFERENCE_PARTS, REFERENCE_POOL, flyer, reference,
-};
+use crate::fixture::{CREWS, REFERENCE_HASH, REFERENCE_PARTS, REFERENCE_POOL, flyer, reference};
 use crate::mass::{acceleration, hull_mass, ship_mass};
 use crate::materials::{bound_mass, bound_materials, build_from_cargo, deconstruct_to_cargo};
 use crate::parts::{
-    Layer, PartKind, Rotation, TILE, covered, defs_are_sound, footprint, part_mass, use_spots,
+    ENGINE_POWER, Layer, PartKind, REACTOR_OUTPUT, Rotation, TILE, covered, defs_are_sound,
+    footprint, part_mass, use_spots,
 };
 use crate::validate::{IssueCode, REQUIRED, Severity, exposure, has_errors, validate, walkable};
 
@@ -246,11 +245,11 @@ fn shielding_and_storage_are_where_they_are_meant_to_be() {
         holding,
         vec![
             (PartKind::ColdStore, (Storage::ColdStore, 100)),
-            (PartKind::FuelTank, (Storage::FuelTank, 200)),
             (PartKind::Shelf, (Storage::Shelf, 100)),
             (PartKind::SuitLocker, (Storage::Locker, 2)),
             (PartKind::Armoury, (Storage::Locker, 8)),
             (PartKind::DrugLab, (Storage::Locker, 6)),
+            (PartKind::ResearchDesk, (Storage::Research, 1)),
         ],
     );
 }
@@ -259,7 +258,12 @@ fn shielding_and_storage_are_where_they_are_meant_to_be() {
 /// `walkable` asks, said out loud.
 #[test]
 fn what_a_body_can_walk_through() {
-    for kind in [PartKind::Door, PartKind::Chair, PartKind::Airlock] {
+    for kind in [
+        PartKind::Door,
+        PartKind::Chair,
+        PartKind::Airlock,
+        PartKind::Sandbags,
+    ] {
         assert!(!kind.def().blocks_movement, "{kind:?} should be walkable");
     }
     for kind in [
@@ -271,6 +275,16 @@ fn what_a_body_can_walk_through() {
     ] {
         assert!(kind.def().blocks_movement, "{kind:?} should block");
     }
+    // Sandbags are the one part that is low cover: walked over, seen
+    // over, and nothing else is.
+    for kind in PartKind::ALL {
+        assert_eq!(
+            crate::parts::is_cover(kind),
+            kind == PartKind::Sandbags,
+            "{kind:?}"
+        );
+    }
+    assert!(!PartKind::Sandbags.def().blocks_sight(), "seen over");
 }
 
 /// The two corner pieces are walls in every rule and a triangle only in the
@@ -332,7 +346,7 @@ fn all_four_turns_of_an_asymmetric_part_land_where_they_should() {
         out
     };
     let spots = |rotation| {
-        use_spots(PartKind::FuelTank, rotation)
+        use_spots(PartKind::Smelter, rotation)
             .into_iter()
             .map(|(dx, dy)| (at.0 as i32 + dx, at.1 as i32 + dy))
             .collect::<Vec<_>>()
@@ -344,7 +358,7 @@ fn all_four_turns_of_an_asymmetric_part_land_where_they_should() {
         tiles(Rotation::R0),
         vec![(10, 10), (10, 11), (10, 12), (11, 10), (11, 11), (11, 12)]
     );
-    // The tank: you stand below its left-hand column.
+    // The smelter: you stand below its left-hand column.
     assert_eq!(spots(Rotation::R0), vec![(10, 12)]);
 
     // A quarter turn clockwise: three across, two down; and south has become
@@ -798,11 +812,12 @@ fn a_lone_player_can_afford_the_reference_ship() {
 
 // --- the hold, and the station ---------------------------------------------
 
-/// A ship with a shelf, a tank and a cold store on it, with room to spare.
+/// A ship with a shelf, a suit locker and a cold store on it, with room to
+/// spare.
 fn with_holds() -> ShipDesign {
     let mut design = floored(12, (1, 1), (11, 11));
     design = put(design, PartKind::Shelf, (2, 2));
-    design = put(design, PartKind::FuelTank, (4, 2));
+    design = put(design, PartKind::SuitLocker, (4, 2));
     design = put(design, PartKind::ColdStore, (8, 2));
     design
 }
@@ -817,7 +832,7 @@ fn what_the_ship_can_hold_is_the_sum_of_what_is_on_it() {
 
     let design = with_holds();
     assert_eq!(design.capacity(Storage::Shelf), 100);
-    assert_eq!(design.capacity(Storage::FuelTank), 200);
+    assert_eq!(design.capacity(Storage::Locker), 2);
     assert_eq!(design.capacity(Storage::ColdStore), 100);
 
     // Two shelves are twice the shelf.
@@ -837,12 +852,12 @@ fn buying_fills_the_right_hold_and_costs_the_price() {
         budget.remaining(&stocked) + trade_value(ResourceId::Metal, 10).unwrap(),
         before,
     );
-    // Metal is racking, so it is the shelf that filled up and not the tank.
+    // Metal is racking, so it is the shelf that filled up and not the locker.
     assert_eq!(stocked.stored(Storage::Shelf), 10);
-    assert_eq!(stocked.stored(Storage::FuelTank), 0);
+    assert_eq!(stocked.stored(Storage::Locker), 0);
     assert_eq!(stocked.stored(Storage::ColdStore), 0);
 
-    // Food and fuel go to their own classes, and two resources sharing a
+    // Food and gear go to their own classes, and two resources sharing a
     // class share the room.
     let full = bought(
         &bought(&stocked, &budget, ResourceId::Tofu, 30),
@@ -851,8 +866,8 @@ fn buying_fills_the_right_hold_and_costs_the_price() {
         20,
     );
     assert_eq!(full.stored(Storage::ColdStore), 50);
-    let fuelled = bought(&full, &budget, ResourceId::Fuel, 150);
-    assert_eq!(fuelled.stored(Storage::FuelTank), 150);
+    let suited = bought(&full, &budget, ResourceId::Suit, 1);
+    assert_eq!(suited.stored(Storage::Locker), 1);
 }
 
 #[test]
@@ -990,15 +1005,15 @@ fn what_cannot_be_paid_for_or_stowed_is_refused() {
         Err(EditError::NoRoomAboard),
     );
 
-    // A ship with no tank cannot take fuel at all, however much money there
-    // is: there is nowhere to put it.
-    let tankless = floored(12, (1, 1), (11, 11));
+    // A ship with no cold store cannot take food at all, however much money
+    // there is: there is nowhere to put it.
+    let storeless = floored(12, (1, 1), (11, 11));
     assert_eq!(
         apply(
-            &tankless,
+            &storeless,
             &rich,
             Edit::Buy {
-                resource: ResourceId::Fuel,
+                resource: ResourceId::Tofu,
                 units: 1
             }
         ),
@@ -1333,16 +1348,15 @@ fn the_reference_ship_is_valid_for_the_crew_it_was_built_for() {
                 .filter(|i| i.severity == Severity::Error)
                 .collect::<Vec<_>>()
         );
-        // It has a forward engine, a bay, a locker, a helm and food, so what
-        // is left is exactly the four things a *trip* wants and living
-        // aboard does not: something to turn with, something to burn,
+        // It has a forward engine on the reactor, a bay, a locker, a helm
+        // and food, so what is left is exactly the three things a *trip*
+        // wants and living aboard does not: something to turn with,
         // somewhere to dock through and something to see with.
         let warnings: Vec<u32> = issues.iter().map(|i| i.code).collect();
         assert_eq!(
             warnings,
             vec![
                 IssueCode::NoThruster.code(),
-                IssueCode::NoFuelAboard.code(),
                 IssueCode::NoAirlock.code(),
                 IssueCode::NoSensorArray.code(),
             ],
@@ -1371,11 +1385,13 @@ fn the_flyer_is_a_ship_a_trip_can_actually_be_planned_for() {
         assert_eq!(design.count(PartKind::Thruster), 4);
         assert_eq!(design.count(PartKind::Airlock), 1);
         assert_eq!(design.count(PartKind::SensorArray), 1);
-        assert_eq!(design.carrying(ResourceId::Fuel), FLYER_FUEL);
-        // A full tank and not a unit more: the tank is what bounds it, and a
-        // fixture that quietly bought less would make every fuel scenario
-        // measure something other than what it says.
-        assert_eq!(design.capacity(Storage::FuelTank), FLYER_FUEL);
+        // The engine is fed flat out: one reactor has more than an engine's
+        // draw over after the ship's systems, and every flight scenario
+        // measures the flyer at full thrust.
+        let thrust = crate::power::thrust(&design);
+        assert_eq!(thrust.forward_throttle, 1.0);
+        assert_eq!(thrust.forward_power, ENGINE_POWER);
+        assert_eq!(thrust.count(Facing::Forward), 1);
     }
 }
 
@@ -1386,11 +1402,11 @@ fn the_flyer_is_a_ship_a_trip_can_actually_be_planned_for() {
 fn a_flyer_is_still_sealed() {
     assert!(exposure(&flyer(4)).is_empty());
     // And it is the same ship underneath: seven tiles of plating came off;
-    // four thrusters, an array, two tiles of deck with the airlock standing
-    // on them, and a tank went on.
+    // four thrusters, an array, and two tiles of deck with the airlock
+    // standing on them went on.
     assert_eq!(
         flyer(4).parts.len(),
-        reference(4).parts.len() - 7 + 9,
+        reference(4).parts.len() - 7 + 8,
         "the flyer should be the reference with its hull swapped and three parts added",
     );
     assert_eq!(
@@ -1592,20 +1608,15 @@ fn what_a_trip_wants_is_said_without_being_insisted_on() {
         assert!(codes.contains(&code.code()), "{kind:?}: {codes:?}");
     }
 
-    // Fuel is what is aboard rather than what the tank could hold. A full
-    // tank sold off is a ship that goes nowhere, and the tank is still there.
-    let dry = apply(
-        &whole,
-        &rich(),
-        Edit::Sell {
-            resource: ResourceId::Fuel,
-            units: FLYER_FUEL,
-        },
-    )
-    .expect("the fuel would not sell");
-    let codes: Vec<u32> = validate(&dry, 1).iter().map(|i| i.code).collect();
-    assert_eq!(codes, vec![IssueCode::NoFuelAboard.code()]);
-    assert_eq!(dry.count(PartKind::FuelTank), 1);
+    // And the reactor is what feeds the engine: a flyer with its reactor
+    // taken off is a ship whose every consumer is dark, the engine among
+    // them, and that is the one warning it raises — a dark engine pushes
+    // nothing rather than less, so it is not throttled as well.
+    let mut dark = whole.clone();
+    dark.parts.retain(|p| p.kind != PartKind::Reactor);
+    let codes: Vec<u32> = validate(&dark, 1).iter().map(|i| i.code).collect();
+    assert_eq!(codes, vec![IssueCode::Unpowered.code()]);
+    assert_eq!(crate::power::thrust(&dark).engines.len(), 0);
 }
 
 #[test]
@@ -1789,7 +1800,7 @@ fn an_axis_with_nothing_pushing_it_accelerates_at_nothing() {
     );
     let mass = ship_mass(&design, 1).unwrap().get();
     let forward = acceleration(&design, 1, Facing::Forward).unwrap();
-    assert!((forward - 2_000.0 / mass).abs() < 1e-12, "{forward}");
+    assert!((forward - 20_000.0 / mass).abs() < 1e-12, "{forward}");
     for axis in [Facing::Backward, Facing::Left, Facing::Right] {
         assert_eq!(acceleration(&design, 1, axis), Some(0.0));
     }
@@ -1805,7 +1816,7 @@ fn two_engines_on_one_axis_add_up() {
     design = put(design, PartKind::Engine, (5, 2));
     let mass = ship_mass(&design, 0).unwrap().get();
     let forward = acceleration(&design, 0, Facing::Forward).unwrap();
-    assert!((forward - 4_000.0 / mass).abs() < 1e-12, "{forward}");
+    assert!((forward - 40_000.0 / mass).abs() < 1e-12, "{forward}");
 }
 
 // --- materials, and mass that is moved rather than made -------------------
@@ -2113,12 +2124,7 @@ fn what_is_welded_in_and_what_is_in_the_hold_are_one_stock() {
 
     // Nothing is made of food or ore, so those columns stay empty however
     // the ship is built.
-    for id in [
-        ResourceId::Ore,
-        ResourceId::Fuel,
-        ResourceId::Vegetable,
-        ResourceId::Tofu,
-    ] {
+    for id in [ResourceId::Ore, ResourceId::Vegetable, ResourceId::Tofu] {
         assert_eq!(after[id as usize], 0, "{id:?} is welded into something");
     }
 
@@ -2155,7 +2161,8 @@ fn the_playtest_ship_is_a_whole_ship_for_one() {
         (PartKind::SensorArray, 1),
         (PartKind::Engine, 1),
         (PartKind::Helm, 1),
-        (PartKind::FuelTank, 1),
+        (PartKind::WallLight, 6),
+        (PartKind::StandingLight, 1),
         (PartKind::Shelf, 2),
         (PartKind::Smelter, 1),
         (PartKind::Workbench, 1),
@@ -2200,11 +2207,6 @@ fn the_playtest_ship_is_a_whole_ship_for_one() {
     for (resource, units) in PLAYTEST_CARGO {
         assert_eq!(design.carrying(resource), units, "{resource:?}");
     }
-    // A full tank and not a unit less.
-    assert_eq!(
-        design.carrying(ResourceId::Fuel),
-        design.capacity(Storage::FuelTank)
-    );
 }
 
 /// The other half is `ship_self_check` in `crates/ship`, as for the
@@ -2511,8 +2513,12 @@ fn power_is_made_held_and_drawn_where_it_is_meant_to_be() {
         .copied()
         .filter(|k| k.def().supplies())
         .collect();
-    assert_eq!(making, vec![PartKind::Reactor]);
+    assert_eq!(making, vec![PartKind::Reactor, PartKind::FusionReactor]);
     assert_eq!(PartKind::Reactor.def().power, REACTOR_OUTPUT);
+    assert_eq!(
+        PartKind::FusionReactor.def().power,
+        crate::parts::FUSION_OUTPUT
+    );
 
     let holding: Vec<PartKind> = PartKind::ALL
         .iter()
@@ -2541,6 +2547,8 @@ fn power_is_made_held_and_drawn_where_it_is_meant_to_be() {
             (PartKind::Workbench, 15.0),
             (PartKind::Armoury, 10.0),
             (PartKind::DrugLab, 5.0),
+            (PartKind::ResearchDesk, 10.0),
+            (PartKind::Hyperdrive, 50.0),
         ],
     );
     for kind in PartKind::ALL {
@@ -2657,10 +2665,10 @@ fn a_part_joins_the_conduit_under_it_into_one_network() {
     assert_eq!(nets[0].supply, REACTOR_OUTPUT);
     assert_eq!(nets[0].tiles.len(), 8);
 
-    // The same two runs under a fuel tank instead of a reactor are two
-    // networks: a tank is not a wire.
+    // The same two runs under a shelf instead of a reactor are two
+    // networks: a shelf is not a wire.
     let mut design = floored(10, (1, 1), (9, 9));
-    design = put(design, PartKind::FuelTank, (4, 4));
+    design = put(design, PartKind::Shelf, (4, 4));
     for y in 1..=4 {
         design = put(design, PartKind::PowerConduit, (4, y));
     }
@@ -2670,32 +2678,44 @@ fn a_part_joins_the_conduit_under_it_into_one_network() {
     assert_eq!(networks(&design).len(), 2);
 }
 
-/// Six life supports on one reactor draw exactly what it makes and are
-/// not short; a seventh is, and the warning is on that run, with
-/// everything on it. A battery on the run holds the number and changes
-/// nothing about the warning.
+/// A hundred and twenty-five life supports on one reactor draw exactly what
+/// it makes and are not short; a hundred and twenty-sixth is, and the
+/// warning is on that run, with everything on it. A battery on the run
+/// holds the number and changes nothing about the warning. That many,
+/// because a basic fusion reactor makes a lot: the ship's systems are a
+/// small part of what it is for, the engines the rest.
 #[test]
 fn a_network_drawing_more_than_it_makes_is_warned_about_per_run() {
-    use crate::parts::REACTOR_OUTPUT;
     use crate::power::{budget, networks};
-    let mut design = floored(20, (1, 1), (19, 19));
-    design = put(design, PartKind::Reactor, (2, 2));
-    for x in 2..=17 {
-        design = put(design, PartKind::PowerConduit, (x, 2));
+    let mut design = floored(44, (1, 1), (43, 43));
+    design = put(design, PartKind::Reactor, (40, 2));
+    // A spine down column 40 under the reactor, and a run off it along
+    // every third row, with two-by-two life supports along each.
+    let rows = [2u32, 5, 8, 11, 14, 17, 20];
+    for y in 2..=20 {
+        design = put(design, PartKind::PowerConduit, (40, y));
     }
-    for i in 0..6u32 {
-        design = put(design, PartKind::LifeSupport, (5 + 2 * i, 2));
+    for &y in &rows {
+        for x in 2..40 {
+            design = put(design, PartKind::PowerConduit, (x, y));
+        }
+    }
+    let mut spots = rows
+        .iter()
+        .flat_map(|&y| (0..18u32).map(move |i| (2 + 2 * i, y)));
+    for _ in 0..125 {
+        design = put(design, PartKind::LifeSupport, spots.next().unwrap());
     }
     assert!(!all_codes(&design, 0).contains(&IssueCode::PowerShort.code()));
     assert!(!all_codes(&design, 0).contains(&IssueCode::Unpowered.code()));
-    assert_eq!(budget(&design).draw, 120.0);
+    assert_eq!(budget(&design).draw, 2_500.0);
     assert_eq!(
         budget(&design).draw,
         REACTOR_OUTPUT,
         "the test leans on this"
     );
 
-    design = put(design, PartKind::LifeSupport, (17, 2));
+    design = put(design, PartKind::LifeSupport, spots.next().unwrap());
     let nets = networks(&design);
     assert!(nets[0].short());
     let issue = validate(&design, 0)
@@ -2703,25 +2723,219 @@ fn a_network_drawing_more_than_it_makes_is_warned_about_per_run() {
         .find(|i| i.code == IssueCode::PowerShort.code())
         .expect("a short network should be warned about");
     assert_eq!(issue.severity, Severity::Warning);
-    assert_eq!(issue.parts.len(), 8);
+    assert_eq!(issue.parts.len(), 127);
     assert_eq!(issue.tiles, nets[0].tiles);
-    assert_eq!(budget(&design).draw, 140.0);
+    assert_eq!(budget(&design).draw, 2_520.0);
     assert_eq!(budget(&design).supply, REACTOR_OUTPUT);
 
-    design = put(design, PartKind::Battery, (2, 5));
-    design = put(design, PartKind::PowerConduit, (2, 3));
-    design = put(design, PartKind::PowerConduit, (2, 4));
-    design = put(design, PartKind::PowerConduit, (2, 5));
+    design = put(design, PartKind::Battery, (40, 23));
+    design = put(design, PartKind::PowerConduit, (40, 21));
+    design = put(design, PartKind::PowerConduit, (40, 22));
+    design = put(design, PartKind::PowerConduit, (40, 23));
     assert!(all_codes(&design, 0).contains(&IssueCode::PowerShort.code()));
     assert_eq!(budget(&design).storage, crate::parts::BATTERY_CHARGE);
 
     // A second reactor on a run of its own with nothing on it counts for
     // nothing: the budget is over live networks, but the short one is
     // still short.
-    design = put(design, PartKind::Reactor, (10, 10));
-    design = put(design, PartKind::PowerConduit, (10, 10));
+    design = put(design, PartKind::Reactor, (30, 30));
+    design = put(design, PartKind::PowerConduit, (30, 30));
     assert_eq!(budget(&design).supply, 2.0 * REACTOR_OUTPUT);
     assert!(all_codes(&design, 0).contains(&IssueCode::PowerShort.code()));
+}
+
+/// There is no fuel: an engine is fed by the reactor on its network, and
+/// pushes what the reactor has over after the ship's systems. One engine on
+/// a basic reactor is fed flat out; three forward are throttled to what is
+/// left, share it, and are warned about; one on no live network pushes
+/// nothing and is warned about as unpowered like any dark consumer; and a
+/// backward engine has the whole spare to itself, because only one set
+/// burns at a time.
+#[test]
+fn the_engines_push_what_the_reactor_can_feed() {
+    use crate::power::{budget, thrust, unpowered};
+    // A frame open to the south, so the engines' bells fire into space:
+    // deck from row 1 to row 9, engines standing on rows 7 to 9, and
+    // nothing below them. Wired along row 7 from the reactor at the left.
+    let mut design = floored(20, (1, 1), (19, 10));
+    design = put(design, PartKind::Reactor, (2, 2));
+    design = put(design, PartKind::LifeSupport, (5, 2));
+    for y in 2..=7 {
+        design = put(design, PartKind::PowerConduit, (2, y));
+    }
+    for x in 3..=5 {
+        design = put(design, PartKind::PowerConduit, (x, 2));
+    }
+    for x in 3..=17 {
+        design = put(design, PartKind::PowerConduit, (x, 7));
+    }
+    design = put(design, PartKind::Engine, (4, 7));
+    let one = thrust(&design);
+    assert_eq!(budget(&design).engine_draw, ENGINE_POWER);
+    assert_eq!(budget(&design).spare(), REACTOR_OUTPUT - 20.0);
+    assert_eq!(one.forward_throttle, 1.0);
+    assert_eq!(one.forward_power, ENGINE_POWER);
+    assert_eq!(one.backward_power, 0.0);
+    assert_eq!(one.engines.len(), 1);
+    assert_eq!(one.engines[0].thrust, PartKind::Engine.def().thrust);
+    assert!(!one.throttled());
+    assert!(!all_codes(&design, 0).contains(&IssueCode::EnginesThrottled.code()));
+
+    // Two are still inside the spare; three are not, and share it.
+    design = put(design, PartKind::Engine, (7, 7));
+    assert!(!thrust(&design).throttled());
+    design = put(design, PartKind::Engine, (10, 7));
+    let three = thrust(&design);
+    let spare = REACTOR_OUTPUT - 20.0;
+    assert!((three.forward_throttle - spare / (3.0 * ENGINE_POWER)).abs() < 1e-12);
+    assert!((three.forward_power - spare).abs() < 1e-9);
+    assert_eq!(three.engines.len(), 3);
+    for engine in &three.engines {
+        assert!(
+            (engine.thrust - PartKind::Engine.def().thrust * three.forward_throttle).abs() < 1e-6
+        );
+    }
+    let issue = validate(&design, 0)
+        .into_iter()
+        .find(|i| i.code == IssueCode::EnginesThrottled.code())
+        .expect("throttled engines should be warned about");
+    assert_eq!(issue.severity, Severity::Warning);
+    assert_eq!(issue.parts.len(), 3);
+    assert_eq!(issue.tiles.len(), 18);
+
+    // A fourth engine off the conduit is in the dark: it is not in any set,
+    // and it is the unpowered warning's, not this one's.
+    design = put(design, PartKind::Engine, (14, 7));
+    let dark = design.parts.last().unwrap().id;
+    design = apply(
+        &design,
+        &rich(),
+        Edit::Remove {
+            part_id: design
+                .parts
+                .iter()
+                .find(|p| p.kind == PartKind::PowerConduit && p.origin == (14, 7))
+                .unwrap()
+                .id,
+        },
+    )
+    .unwrap();
+    design = apply(
+        &design,
+        &rich(),
+        Edit::Remove {
+            part_id: design
+                .parts
+                .iter()
+                .find(|p| p.kind == PartKind::PowerConduit && p.origin == (15, 7))
+                .unwrap()
+                .id,
+        },
+    )
+    .unwrap();
+    assert_eq!(unpowered(&design), vec![dark]);
+    assert_eq!(thrust(&design).engines.len(), 3);
+    assert!(thrust(&design).throttled());
+}
+
+/// A hyperdrive is bolted to an engine or it is furniture: one against an
+/// engine's block is connected, one a tile away is warned about, and
+/// `ready` wants the connection **and** a live network under it.
+#[test]
+fn a_hyperdrive_has_to_touch_an_engine_and_be_wired() {
+    use crate::hyperdrive::{connected, ready, unconnected};
+    let mut design = floored(20, (1, 1), (19, 10));
+    design = put(design, PartKind::Reactor, (2, 2));
+    for y in 2..=7 {
+        design = put(design, PartKind::PowerConduit, (2, y));
+    }
+    for x in 3..=12 {
+        design = put(design, PartKind::PowerConduit, (x, 7));
+    }
+    design = put(design, PartKind::Engine, (6, 7));
+    // A tile of air between the drive and the engine: loose.
+    design = put(design, PartKind::Hyperdrive, (9, 7));
+    let loose = design.parts.last().unwrap().id;
+    assert!(!connected(&design, design.part(loose).unwrap()));
+    assert_eq!(unconnected(&design), vec![loose]);
+    assert!(!ready(&design));
+    let issue = validate(&design, 0)
+        .into_iter()
+        .find(|i| i.code == IssueCode::HyperdriveUnconnected.code())
+        .expect("a loose drive should be warned about");
+    assert_eq!(issue.severity, Severity::Warning);
+    assert_eq!(issue.parts, vec![loose]);
+    assert_eq!(issue.tiles.len(), 4);
+
+    // Against the engine's starboard side, and wired: connected and ready.
+    design = apply(&design, &rich(), Edit::Remove { part_id: loose }).unwrap();
+    design = put(design, PartKind::Hyperdrive, (8, 7));
+    let snug = design.parts.last().unwrap().id;
+    assert!(connected(&design, design.part(snug).unwrap()));
+    assert!(unconnected(&design).is_empty());
+    assert!(ready(&design));
+    assert!(!all_codes(&design, 0).contains(&IssueCode::HyperdriveUnconnected.code()));
+
+    // Connected but dark — the run under it cut — is not ready, and is the
+    // unpowered warning's, not this one's.
+    let mut dark = design.clone();
+    dark.parts
+        .retain(|p| !(p.kind == PartKind::PowerConduit && p.origin.0 >= 8 && p.origin.1 == 7));
+    assert!(connected(&dark, dark.part(snug).unwrap()));
+    assert!(!ready(&dark));
+    assert!(unpowered_ids(&dark).contains(&snug));
+}
+
+fn unpowered_ids(design: &ShipDesign) -> Vec<u32> {
+    crate::power::unpowered(design)
+}
+
+/// A wall light hangs from a wall — one of the four tiles round it holds
+/// something that blocks — or it is warned about; a standing light stands
+/// anywhere. Both are lights with a reach, walked under or seen over, and
+/// neither draws: a light is always on.
+#[test]
+fn a_wall_light_wants_a_wall_at_its_back() {
+    use crate::parts::{is_light, light_tiles};
+    for kind in PartKind::ALL {
+        assert_eq!(
+            is_light(kind),
+            matches!(kind, PartKind::WallLight | PartKind::StandingLight),
+            "{kind:?}"
+        );
+        if is_light(kind) {
+            assert!(light_tiles(kind).unwrap() > 0.0);
+            assert!(!kind.def().draws(), "{kind:?} is always on");
+            assert!(!kind.def().blocks_sight(), "{kind:?} is seen past");
+        }
+    }
+    assert!(!PartKind::WallLight.def().blocks_movement);
+    assert!(PartKind::StandingLight.def().blocks_movement);
+
+    let mut design = floored(10, (1, 1), (9, 9));
+    design = put(design, PartKind::Wall, (4, 4));
+    // Against the wall: fine. Out on the deck: loose.
+    design = put(design, PartKind::WallLight, (5, 4));
+    assert!(!all_codes(&design, 0).contains(&IssueCode::LightOffTheWall.code()));
+    design = put(design, PartKind::WallLight, (7, 7));
+    let loose = design.parts.last().unwrap().id;
+    let issue = validate(&design, 0)
+        .into_iter()
+        .find(|i| i.code == IssueCode::LightOffTheWall.code())
+        .expect("a loose wall light should be warned about");
+    assert_eq!(issue.severity, Severity::Warning);
+    assert_eq!(issue.parts, vec![loose]);
+    assert_eq!(issue.tiles, vec![(7, 7)]);
+    // A standing light anywhere is nobody's business.
+    design = put(design, PartKind::StandingLight, (2, 7));
+    let codes = all_codes(&design, 0);
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|&&c| c == IssueCode::LightOffTheWall.code())
+            .count(),
+        1
+    );
 }
 
 /// Both fixtures are wired: nothing aboard either is in the dark, one
@@ -2743,12 +2957,15 @@ fn the_fixtures_are_wired() {
     let nets = networks(&design);
     assert_eq!(nets.len(), 1, "{nets:?}");
     let power = budget(&design);
-    // Two reactors: the first had three units to spare when the armoury
-    // came aboard drawing ten.
-    assert_eq!(power.supply, 240.0);
+    // Two reactors, from before a basic reactor was a fusion reactor: one
+    // would feed the ship and two engines now.
+    assert_eq!(power.supply, 2.0 * REACTOR_OUTPUT);
+    // The one engine, wired along row 16, which is what it burns.
+    assert_eq!(power.engine_draw, ENGINE_POWER);
     // Life support, the helm, the array, the cold store, the bay, two
-    // doors, the smelter, the workbench, the drug lab and the armoury.
-    assert_eq!(power.draw, 127.0);
+    // doors, the smelter, the workbench, the drug lab, the armoury and
+    // the research desk.
+    assert_eq!(power.draw, 137.0);
     assert_eq!(power.storage, crate::parts::BATTERY_CHARGE);
     let codes = all_codes(&design, 1);
     assert!(!codes.contains(&IssueCode::Unpowered.code()));
@@ -2794,8 +3011,11 @@ fn every_recipe_holds_together() {
 
     assert_eq!(at(PartKind::Smelter).count(), 1);
     assert_eq!(at(PartKind::Workbench).count(), 5);
-    assert_eq!(at(PartKind::Armoury).count(), 7);
-    assert_eq!(at(PartKind::DrugLab).count(), 1);
+    // Six at the armoury since the medkit went to the drug lab, which
+    // makes two: medicine is made from the first day, and the armoury is
+    // researched (`crate::research`).
+    assert_eq!(at(PartKind::Armoury).count(), 6);
+    assert_eq!(at(PartKind::DrugLab).count(), 2);
     assert_eq!(at(PartKind::Hob).count(), 0);
     // The three the armoury makes, and what they are made of: the handgun
     // is the one thing that wants an emitter, so it is the one thing that
@@ -2811,8 +3031,12 @@ fn every_recipe_holds_together() {
     assert_eq!(handgun.output_mass(), handgun.input_mass());
     assert_eq!(RECIPES[4].output, (ResourceId::Vest, 1));
     assert_eq!(RECIPES[5].output, (ResourceId::Medkit, 1));
+    assert_eq!(RECIPES[5].station, PartKind::DrugLab);
     for r in &RECIPES[3..6] {
-        assert_eq!(r.station, PartKind::Armoury);
+        assert_eq!(
+            r.station == PartKind::Armoury,
+            r.output.0 != ResourceId::Medkit
+        );
         assert!(!r.vents);
         assert_eq!(r.output_mass(), r.input_mass(), "{:?}", r.output);
     }
@@ -2924,4 +3148,135 @@ fn parts_are_in_id_order() {
     for part in &fewer.parts {
         assert_eq!(fewer.part(part.id).map(|p| p.id), Some(part.id));
     }
+}
+
+// --- research ----------------------------------------------------------------
+
+/// The tree holds together, and the crew set out knowing what a crew
+/// needs to live: every part that is not a bench or the fusion reactor,
+/// mining, and medicine — the drug lab and both its recipes — with the
+/// smelter, the workbench, the armoury and the emitter still to learn.
+#[test]
+fn the_research_tree_is_sound_and_the_crew_know_how_to_live() {
+    use crate::recipes::RECIPES;
+    use crate::research::{Node, Research, node_of_part, node_of_recipe, tree_is_sound};
+    assert!(tree_is_sound());
+    let fresh = Research::new();
+    for node in Node::ALL {
+        assert_eq!(fresh.is_done(node), node.known_at_start(), "{node:?}");
+    }
+    assert!(fresh.is_done(Node::Survival));
+    assert!(fresh.is_done(Node::Mining));
+    assert!(fresh.is_done(Node::Medicine));
+    for kind in PartKind::ALL {
+        let expected = !matches!(
+            kind,
+            PartKind::Smelter
+                | PartKind::Workbench
+                | PartKind::Armoury
+                | PartKind::FusionReactor
+                | PartKind::Hyperdrive
+        );
+        assert_eq!(fresh.part_allowed(kind), expected, "{kind:?}");
+    }
+    assert!(fresh.part_allowed(PartKind::SuitLocker));
+    assert!(fresh.part_allowed(PartKind::ResearchDesk));
+    assert!(fresh.part_allowed(PartKind::Reactor));
+    // Medicine from the first day: the bandage and the medkit, both at
+    // the drug lab, and nothing else the benches make.
+    for (i, recipe) in RECIPES.iter().enumerate() {
+        let medicine = matches!(recipe.output.0, ResourceId::Bandage | ResourceId::Medkit);
+        assert_eq!(fresh.recipe_allowed(i), medicine, "recipe {i}");
+        assert_eq!(node_of_recipe(i) == Node::Medicine, medicine, "recipe {i}");
+    }
+    assert_eq!(node_of_recipe(2), Node::Emitters);
+    assert_eq!(node_of_recipe(0), Node::Smelting);
+    assert_eq!(node_of_recipe(1), Node::Workshop);
+    for i in [3, 4, 7, 8, 9, 10, 11, 12, 13] {
+        assert_eq!(node_of_recipe(i), Node::Armoury, "recipe {i}");
+    }
+    assert_eq!(node_of_part(PartKind::FusionReactor), Node::FusionPower);
+    assert_eq!(node_of_part(PartKind::Hyperdrive), Node::Hyperdrive);
+    assert_eq!(Node::Hyperdrive.def().requires, &[Node::FusionPower]);
+    // Locked nodes are the armoury, the emitters and the hyperdrive, all in
+    // tier one, all wanting a key.
+    for node in Node::ALL {
+        let locked = matches!(node, Node::Armoury | Node::Emitters | Node::Hyperdrive);
+        assert_eq!(node.def().locked, locked, "{node:?}");
+        assert_eq!(fresh.needs_key(node), locked, "{node:?}");
+        assert_eq!(node.def().tier, 1);
+    }
+}
+
+/// The AI works one node at a time, in prerequisite order, and a locked
+/// node waits for its key: smelting is available at once, the workshop
+/// only after it, and the armoury not until a key has been consumed for
+/// it — for it alone: the emitters stay locked until a key of their own,
+/// and a second key on the armoury does nothing, since one opens a node
+/// for good.
+#[test]
+fn research_runs_in_order_and_a_key_opens_a_node() {
+    use crate::research::{Node, Research};
+    let mut r = Research::new();
+    assert!(r.available(Node::Smelting));
+    assert!(!r.available(Node::Workshop));
+    assert!(!r.available(Node::Armoury));
+    assert!(!r.begin(Node::Workshop));
+    assert!(r.begin(Node::Smelting));
+    // Not there yet: nothing finished, and the fraction climbs.
+    assert_eq!(r.advance(100.0), None);
+    assert!(r.fraction() > 0.4 && r.fraction() < 0.5);
+    // A cancel loses the progress: beginning again starts over.
+    r.cancel();
+    assert_eq!(r.current, None);
+    assert!(r.begin(Node::Smelting));
+    assert_eq!(r.advance(140.0), None);
+    assert_eq!(r.advance(100.0), Some(Node::Smelting));
+    assert!(r.is_done(Node::Smelting));
+    assert!(r.part_allowed(PartKind::Smelter));
+    assert!(r.recipe_allowed(0));
+    assert_eq!(r.current, None);
+    assert!(r.available(Node::Workshop));
+    assert!(r.begin(Node::Workshop));
+    assert_eq!(r.advance(360.0), Some(Node::Workshop));
+    // The workshop done, three things open up: the fusion reactor at
+    // once, and the two locked nodes only behind the key.
+    assert!(r.available(Node::FusionPower));
+    assert!(!r.available(Node::Armoury));
+    assert!(r.needs_key(Node::Armoury));
+    assert!(r.needs_key(Node::Emitters));
+    assert!(!r.begin(Node::Armoury));
+    assert!(
+        !r.unlock(Node::FusionPower),
+        "nothing to unlock on a keyless node"
+    );
+    assert!(r.is_unlocked(Node::FusionPower));
+    assert_eq!(Research::key_wanted(Node::Armoury), Some(1));
+    assert_eq!(Research::key_wanted(Node::Smelting), None);
+    assert!(r.unlock(Node::Armoury));
+    assert!(!r.unlock(Node::Armoury), "a node unlocks once");
+    assert!(r.is_unlocked(Node::Armoury));
+    assert!(!r.needs_key(Node::Armoury));
+    assert!(r.available(Node::Armoury));
+    assert!(
+        r.needs_key(Node::Emitters),
+        "a key opens one node, not the tier"
+    );
+    assert!(!r.available(Node::Emitters));
+    assert!(r.begin(Node::Armoury));
+    assert_eq!(r.advance(720.0), Some(Node::Armoury));
+    assert!(r.part_allowed(PartKind::Armoury));
+    for i in [3, 4, 7, 10, 13] {
+        assert!(r.recipe_allowed(i), "recipe {i}");
+    }
+    assert!(!r.recipe_allowed(2), "the emitter is its own node");
+    assert!(!r.begin(Node::Emitters), "still behind its own key");
+    assert!(r.unlock(Node::Emitters));
+    // Switching nodes drops what was put into the last one.
+    assert!(r.begin(Node::Emitters));
+    assert_eq!(r.advance(300.0), None);
+    assert!(r.begin(Node::FusionPower));
+    assert_eq!(r.progress, 0.0);
+    assert!(r.begin(Node::Emitters));
+    assert_eq!(r.progress, 0.0);
 }

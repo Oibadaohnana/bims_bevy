@@ -68,4 +68,4 @@ pub use system::{Body, Node, StarSystem, StationBlueprint};
 /// that alters where anything is has to be declared, because the alternative
 /// is two players on different builds walking around what they both think is
 /// the same station.
-pub const GENERATOR_VERSION: u32 = 3;
+pub const GENERATOR_VERSION: u32 = 6;

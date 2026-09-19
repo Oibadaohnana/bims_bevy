@@ -133,6 +133,10 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
     // And what stops a line of sight: the same tiles, and the parts that
     // do, below. A door is not here — see `doors`.
     let mut opaque: Vec<Rect> = Vec::new();
+    // And the low cover a body ducks behind: the sandbags.
+    let mut cover: Vec<Rect> = Vec::new();
+    // And the lights, each at the middle of its tile with its reach.
+    let mut lights: Vec<crate::sight::Light> = Vec::new();
     let mut extras: Vec<(Still, Rect)> = Vec::new();
     let mut more = More::default();
     let (x0, y0) = ((interior.min.x / t) as i32, (interior.min.y / t) as i32);
@@ -179,9 +183,17 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
     // stands in, which is the long side of the part — a door is two tiles
     // along and one deep, so its rotation says which, and the painter reads
     // the same function.
-    let doors: Vec<(Rect, bool)> = of_kind(design, PartKind::Door)
+    // And the airlocks after them, as doors that are airlocks: the same
+    // footprint and the same slide, and the room locks and forces them
+    // like the rest; the hull draws them.
+    let doors: Vec<(Rect, bool, bool)> = of_kind(design, PartKind::Door)
         .iter()
-        .map(|p| (part_rect(p), door_slides_along_x(p.rotation)))
+        .map(|p| (part_rect(p), door_slides_along_x(p.rotation), false))
+        .chain(
+            of_kind(design, PartKind::Airlock)
+                .iter()
+                .map(|p| (part_rect(p), door_slides_along_x(p.rotation), true)),
+        )
         .collect();
 
     // Everything else a body cannot walk through: parts the room has no
@@ -204,6 +216,15 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
         let def = part.kind.def();
         if def.layer == Layer::Object && def.blocks_sight() && part.kind != PartKind::Door {
             opaque.push(part_rect(part));
+        }
+        if shipdesign::is_cover(part.kind) {
+            cover.push(part_rect(part));
+        }
+        if let Some(tiles) = shipdesign::light_tiles(part.kind) {
+            lights.push(crate::sight::Light {
+                at: part_rect(part).center(),
+                reach: tiles as f32 * t,
+            });
         }
         if def.layer != Layer::Object || !def.blocks_movement {
             continue;
@@ -337,6 +358,19 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
             (part_rect(p), at)
         })
         .collect();
+    // And the research desks: the ship's own, and a station's on the
+    // joined deck.
+    let research: Vec<(Rect, Vec2)> = of_kind(design, PartKind::ResearchDesk)
+        .iter()
+        .map(|p| {
+            let at = p
+                .use_spots()
+                .first()
+                .map(|&(x, y)| tile_middle(x, y))
+                .unwrap_or_else(|| part_rect(p).center() + vec2(0.0, t));
+            (part_rect(p), at)
+        })
+        .collect();
 
     // The workstations: every part with a recipe made at it, in id order,
     // each with the spot in front of it off its use spot, turned with the
@@ -386,8 +420,11 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
         hull,
         shelves,
         desks,
+        research,
         others,
         opaque,
+        cover,
+        lights,
         more,
         extras,
         doors,

@@ -58,17 +58,39 @@ use physics::ResourceId;
 /// navigation grid over hand-placed furniture. A ship is tiles.
 pub const TILE: u32 = 52;
 
-/// What one reactor makes, in units a minute. Placeholder, pinned to one
-/// outcome: the playtest ship's nine consumers — six systems, the smelter,
-/// the workbench and the drug lab — draw a hundred and seventeen between
-/// them, so one reactor runs the ship as it comes and a fourth bench is a
-/// second reactor or a brownout.
-pub const REACTOR_OUTPUT: f64 = 120.0;
+/// How far a light reaches, in tiles: a wall light's bracket lamp, and a
+/// standing light's taller one. Placeholders like the rest; the room's
+/// `bims::sight` is what reads them, and it is what makes a deck with no
+/// light on it a dark one.
+pub const WALL_LIGHT_TILES: f64 = 7.0;
+pub const STANDING_LIGHT_TILES: f64 = 9.0;
+
+/// What one basic fusion reactor makes, in units a minute. Placeholder,
+/// pinned to one outcome: a main engine flat out draws [`ENGINE_POWER`],
+/// so one reactor feeds **two** engines and has five hundred over for the
+/// ship's systems, which the playtest ship's benches and systems draw
+/// well inside. There is no fuel: the reactor is what the engines run on,
+/// and how hard they can push is how much of this is not spoken for by
+/// the rest of the ship — see [`crate::power::thrust`].
+pub const REACTOR_OUTPUT: f64 = 2_500.0;
+
+/// What a main engine draws at full thrust, in units a minute. The small
+/// engine's figure; the heavy one draws in proportion to its push, so power
+/// goes as **thrust** the way fuel used to — `defs_are_sound` insists on
+/// the ratio — and a heavy engine on one basic reactor is throttled to
+/// half. Nothing while the engine is not burning.
+pub const ENGINE_POWER: f64 = 1_000.0;
 
 /// What one battery holds: half an hour of a reactor's output. Enough to
 /// ride out a reactor going down between two stations and not enough to
 /// run a ship on.
 pub const BATTERY_CHARGE: f64 = 30.0 * REACTOR_OUTPUT;
+
+/// What the large fusion reactor makes, in units a minute: four basic
+/// reactors' worth in one three-by-three block — a heavy engine flat out
+/// and every bench and system aboard, which is what researching it is
+/// for. Placeholder like the rest.
+pub const FUSION_OUTPUT: f64 = 4.0 * REACTOR_OUTPUT;
 
 /// Which of a tile's four slots a part sits in.
 ///
@@ -143,21 +165,20 @@ pub enum PartKind {
     Reactor = 18,
     PowerConduit = 19,
     Battery = 20,
-    FuelTank = 21,
-    LifeSupport = 22,
-    Airlock = 23,
-    SensorArray = 24,
-    Shelf = 25,
-    Shower = 26,
+    LifeSupport = 21,
+    Airlock = 22,
+    SensorArray = 23,
+    Shelf = 24,
+    Shower = 25,
     /// A manoeuvring thruster. What turns the ship, and the only thing that
     /// does — the main engines push through the centre of mass and never spin
     /// it.
-    Thruster = 27,
+    Thruster = 26,
     /// The big main engine: five times the push of an [`PartKind::Engine`]
-    /// for three and a half times the weight, and a fuel bill to match. What
+    /// for three and a half times the weight, and a draw to match. What
     /// moves a heavy ship in reasonable time; on a light one it is mostly
     /// engine.
-    HeavyEngine = 28,
+    HeavyEngine = 27,
     /// A plain wall cut across the corner of its tile: a right-angled
     /// triangle filling the half of the tile its [`Rotation`] names — see
     /// [`solid_corner`]. What lets a bulkhead turn a corner at forty-five
@@ -165,46 +186,77 @@ pub enum PartKind {
     /// this kind do. It fills the whole tile as far as the rules are
     /// concerned: one object a tile, a body cannot pass, and nothing else
     /// stands there. Only the picture is a triangle.
-    DiagonalWall = 29,
+    DiagonalWall = 28,
     /// The same cut across the hull: an [`PartKind::OutsideWall`] as a
     /// triangle, so a ship can have a pointed bow and chamfered corners and
     /// still keep the radiation out. It seals its whole tile — the
     /// exposure fill is four-neighbour, and a staircase of these touching
     /// corner to corner is as tight as a straight run.
-    DiagonalOutsideWall = 30,
+    DiagonalOutsideWall = 29,
     /// Two ore in, one metal out, the slag vented. The first workstation,
     /// and the one that draws most — see [`crate::recipes`].
-    Smelter = 31,
+    Smelter = 30,
     /// Metal into components, and metal, components and galvum into an
     /// emitter. See [`crate::recipes`].
-    Workbench = 32,
+    Workbench = 31,
     /// Where the pressure suits hang: the locker class of storage, two of
     /// them. Where a walk outside starts and ends.
-    SuitLocker = 33,
+    SuitLocker = 32,
     /// A bench and a locker in one: where handguns, vests and medkits are
     /// made — [`crate::recipes`] — and where they are kept, four of them.
-    Armoury = 34,
+    Armoury = 33,
     /// The bench where fibre is rolled into bandages — [`crate::recipes`].
     /// The workbench's size and its habits: worked from the tile below,
     /// draws, and a body sees over nothing of it.
-    DrugLab = 35,
+    DrugLab = 34,
     /// A station's trading desk: where the crew trade with the station.
     /// A table's footprint, worked from the tile below, and a body sees
     /// over it. Every station lays one down inside its port; a ship has
     /// no use for one, and buying and selling want somebody at it —
     /// `world::World::at_the_desk`.
-    TradingDesk = 36,
-    /// Sandbags: a tile of cover. A solid a body cannot walk through or
-    /// see over, so a body beside it peeks round it the way it peeks round
-    /// a wall and is dodged half the shots at it — `bims::sight`. Laid in
-    /// a station's hallways, and buildable on a ship.
-    Sandbags = 37,
+    TradingDesk = 35,
+    /// Sandbags: a tile of low cover, half a body's height. Walked over
+    /// and seen over, but a body standing close behind it is dodged half
+    /// the shots that come across it — `is_cover`, and `bims::sight`'s
+    /// `covered`. Laid in a station's hallways, and buildable on a ship.
+    Sandbags = 36,
+    /// The research computer desk: a console the ship's AI does its
+    /// research at — see [`crate::research`] — with one slot in it for a
+    /// research key (`Storage::Research`, one). A table's footprint,
+    /// worked from the tile below, seen over, and it draws. Every friendly
+    /// station keeps one in its research room, and the key on it is what
+    /// the crew go ashore for.
+    ResearchDesk = 37,
+    /// The large fusion reactor: [`FUSION_OUTPUT`] a minute, four basic
+    /// reactors' worth in a three-by-three block. What the research
+    /// tree's first big node buys; nothing else about it is new — it
+    /// supplies like the reactor and is wired like it.
+    FusionReactor = 38,
+    /// The hyperdrive: what jumps the ship to another star. A two-by-two
+    /// block on deck that draws all day like a system and is **bolted to a
+    /// main engine** — a tile of its footprint four-neighbour to a tile of
+    /// an engine's, [`crate::hyperdrive::connected`] — or it does nothing;
+    /// wired like everything else. Behind a tier-one key in the research
+    /// tree (`research::Node::Hyperdrive`). What a jump *is* — the charge,
+    /// the empty space it lands in — is `world`'s.
+    Hyperdrive = 39,
+    /// A wall light: a lamp on a bracket against a bulkhead or the hull —
+    /// a one-tile part on the deck beside the wall it hangs from
+    /// ([`is_light`]; `validate` warns about one with no wall at its
+    /// back), walked under and seen past, lighting [`WALL_LIGHT_TILES`]
+    /// round it. Always on, and draws nothing — it has its own cell. What
+    /// light *does* — the dark, and how far a Bim sees in it — is the
+    /// room's, `bims::sight`.
+    WallLight = 40,
+    /// A standing light: a lamp on a pole, one tile, anywhere on the
+    /// deck, seen over and walked round, lighting [`STANDING_LIGHT_TILES`].
+    StandingLight = 41,
 }
 
 impl PartKind {
     /// Every kind, in discriminant order. `ALL[k as usize] == k`, which
     /// [`PartKind::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [PartKind; 38] = [
+    pub const ALL: [PartKind; 42] = [
         PartKind::Floor,
         PartKind::Wall,
         PartKind::Door,
@@ -226,7 +278,6 @@ impl PartKind {
         PartKind::Reactor,
         PartKind::PowerConduit,
         PartKind::Battery,
-        PartKind::FuelTank,
         PartKind::LifeSupport,
         PartKind::Airlock,
         PartKind::SensorArray,
@@ -243,6 +294,11 @@ impl PartKind {
         PartKind::DrugLab,
         PartKind::TradingDesk,
         PartKind::Sandbags,
+        PartKind::ResearchDesk,
+        PartKind::FusionReactor,
+        PartKind::Hyperdrive,
+        PartKind::WallLight,
+        PartKind::StandingLight,
     ];
 
     /// The number that crosses the wasm boundary. No strings do.
@@ -354,7 +410,7 @@ pub struct PartDef {
     /// What the part is **made of**: units of each material, and nothing
     /// else. Never empty, and only [`ResourceId::Metal`],
     /// [`ResourceId::Components`] and [`ResourceId::Emitter`] — ore and
-    /// galvum are what those are made from, fuel is burnt and the food is
+    /// galvum are what those are made from and the food is
     /// eaten, so none of them belongs in a wall.
     ///
     /// There is no separate mass. [`part_mass`] adds the recipe up, so a
@@ -381,6 +437,16 @@ pub struct PartDef {
     /// one of them turns the ship in both directions and four of them turn it
     /// faster; there is no left thruster and no right one.
     pub torque_thrust: f64,
+    /// What the part draws **while it is burning**, in units a minute:
+    /// [`ENGINE_POWER`] on the small engine, in proportion to its thrust on
+    /// the heavy one, and nought on everything else — greater than zero
+    /// exactly where [`PartDef::pushes`] is, and `defs_are_sound` insists
+    /// the ratio to `thrust` is one figure across the table, so power goes
+    /// as thrust. Not [`PartDef::power`]: that is a draw the ship pays all
+    /// day, this one only while the autopilot has the engines lit, and the
+    /// reactor's spare after the day-long draws is what feeds it. How much
+    /// of the push that spare buys is [`crate::power::thrust`].
+    pub thrust_power: f64,
     /// Power, in units a minute: **positive** on the reactor, which makes
     /// it, **negative** on what draws it, and nought on everything else.
     /// [`PartDef::supplies`] and [`PartDef::draws`] are the questions;
@@ -417,7 +483,7 @@ impl PartDef {
 
     /// Whether this is a main engine — something the autopilot burns along
     /// the start–arrival line. There are two sizes of them, and everything
-    /// that wants "the engines" — the validator, the dynamics, the fuel
+    /// that wants "the engines" — the validator, the dynamics, the power
     /// bill, the painter — asks this rather than naming either kind, so a
     /// third size is one row in the table.
     pub fn pushes(&self) -> bool {
@@ -434,7 +500,7 @@ impl PartDef {
     ///
     /// The whole of the rule, and the only place it is written down.
     /// Everything a body cannot walk through stands in the way of its eyes
-    /// too — a wall, a shelf, a reactor, a tank, the engines — except the
+    /// too — a wall, a shelf, a reactor, the engines — except the
     /// **low** furniture a Bim sees over: a bunk, the worktop, the hob, a
     /// dishwasher, a table, a toilet, a basin, a tray of crops, the helm's
     /// console, a battery on the deck. A door is a wall while its leaves
@@ -454,7 +520,9 @@ impl PartDef {
             | PartKind::HydroBay
             | PartKind::Helm
             | PartKind::TradingDesk
-            | PartKind::Battery => false,
+            | PartKind::ResearchDesk
+            | PartKind::Battery
+            | PartKind::StandingLight => false,
             _ => self.blocks_movement,
         }
     }
@@ -466,7 +534,7 @@ impl PartDef {
 /// told about how a part is approached — [`crate::validate`] already insists
 /// every one of them is floor a body can stand on and that they can all reach
 /// each other, so a design that passes here is one the crew can work.
-pub static PARTS: [PartDef; 38] = [
+pub static PARTS: [PartDef; 42] = [
     PartDef {
         kind: PartKind::Floor,
         footprint: (1, 1),
@@ -480,6 +548,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 1)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -499,6 +568,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -523,6 +593,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 2), (ResourceId::Components, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -1.0,
         charge: 0.0,
     },
@@ -539,8 +610,9 @@ pub static PARTS: [PartDef; 38] = [
         shields: true,
         capacity: None,
         recipe: &[(ResourceId::Metal, 40), (ResourceId::Components, 40)],
-        thrust: 2_000.0,
+        thrust: 20_000.0,
         torque_thrust: 0.0,
+        thrust_power: ENGINE_POWER,
         power: 0.0,
         charge: 0.0,
     },
@@ -557,6 +629,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -573,6 +646,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 6), (ResourceId::Components, 6)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -5.0,
         charge: 0.0,
     },
@@ -589,6 +663,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 3)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -605,6 +680,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 3)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -621,6 +697,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 5), (ResourceId::Components, 3)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -640,6 +717,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -659,6 +737,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 1)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -675,6 +754,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 1)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -691,6 +771,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -710,6 +791,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 12), (ResourceId::Components, 12)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -15.0,
         charge: 0.0,
     },
@@ -726,6 +808,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 1), (ResourceId::Components, 1)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -746,6 +829,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -764,6 +848,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 1)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -783,6 +868,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 20)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -5.0,
         charge: 0.0,
     },
@@ -802,6 +888,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 30), (ResourceId::Components, 30)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: REACTOR_OUTPUT,
         charge: 0.0,
     },
@@ -818,6 +905,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 1)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -834,26 +922,9 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 10)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: BATTERY_CHARGE,
-    },
-    PartDef {
-        kind: PartKind::FuelTank,
-        footprint: (2, 2),
-        layer: Layer::Object,
-        blocks_movement: true,
-        requires: Some(Layer::Floor),
-        // Somewhere to stand to fill it, below the left-hand column, the
-        // same way the bay is approached.
-        use_spots: &[(0, 2)],
-        price: 4_000,
-        shields: false,
-        capacity: Some((Storage::FuelTank, 200)),
-        recipe: &[(ResourceId::Metal, 10)],
-        thrust: 0.0,
-        torque_thrust: 0.0,
-        power: 0.0,
-        charge: 0.0,
     },
     PartDef {
         kind: PartKind::LifeSupport,
@@ -868,6 +939,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 8), (ResourceId::Components, 12)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -20.0,
         charge: 0.0,
     },
@@ -886,6 +958,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 8), (ResourceId::Components, 6)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -903,6 +976,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 12)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -10.0,
         charge: 0.0,
     },
@@ -920,6 +994,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -936,6 +1011,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -965,6 +1041,7 @@ pub static PARTS: [PartDef; 38] = [
         // what pins it, and `what_the_fixture_actually_flies_like` beside it
         // prints the numbers for whoever has to move this next.
         torque_thrust: 1_000.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -982,12 +1059,13 @@ pub static PARTS: [PartDef; 38] = [
         // Three and a half times an `Engine` for five times the push, so it
         // is the better engine *per tonne* — which is the point of it: a
         // ship heavy enough to want one has hull and cargo to move, and a
-        // small engine on a big hull crawls. The fuel bill is per unit of
-        // thrust (`flight::data::FUEL_PER_THRUST_MINUTE`), so it also burns
-        // five times as much a minute, and a fast trip is a dear one.
+        // small engine on a big hull crawls. Its draw is per unit of thrust
+        // too — five times the small engine's — so on one basic reactor it
+        // runs at half throttle, and a fast ship is a well-powered one.
         recipe: &[(ResourceId::Metal, 150), (ResourceId::Components, 100)],
-        thrust: 10_000.0,
+        thrust: 100_000.0,
         torque_thrust: 0.0,
+        thrust_power: 5.0 * ENGINE_POWER,
         power: 0.0,
         charge: 0.0,
     },
@@ -1007,6 +1085,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -1023,6 +1102,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 1)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -1044,6 +1124,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 20), (ResourceId::Components, 10)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -40.0,
         charge: 0.0,
     },
@@ -1060,6 +1141,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 6), (ResourceId::Components, 4)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -15.0,
         charge: 0.0,
     },
@@ -1076,6 +1158,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
@@ -1094,6 +1177,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 10), (ResourceId::Components, 8)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -10.0,
         charge: 0.0,
     },
@@ -1115,6 +1199,7 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 5), (ResourceId::Components, 6)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: -5.0,
         charge: 0.0,
     },
@@ -1133,15 +1218,17 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 3)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
-    // Sandbags: a tile of cover, a body's height, worked from nowhere.
+    // Sandbags: a tile of low cover, half a body's height — walked over,
+    // seen over, and ducked behind (`is_cover`). Worked from nowhere.
     PartDef {
         kind: PartKind::Sandbags,
         footprint: (1, 1),
         layer: Layer::Object,
-        blocks_movement: true,
+        blocks_movement: false,
         requires: Some(Layer::Floor),
         use_spots: &[],
         price: 150,
@@ -1150,10 +1237,140 @@ pub static PARTS: [PartDef; 38] = [
         recipe: &[(ResourceId::Metal, 1)],
         thrust: 0.0,
         torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
+    // The research desk: a console on a table's footprint, worked from
+    // the tile below and seen over like the trading desk, drawing what a
+    // bench does — the AI runs on it — and holding one research key in
+    // its own class of slot.
+    PartDef {
+        kind: PartKind::ResearchDesk,
+        footprint: (2, 1),
+        layer: Layer::Object,
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[(0, 1)],
+        price: 8_000,
+        shields: false,
+        capacity: Some((Storage::Research, 1)),
+        recipe: &[(ResourceId::Metal, 6), (ResourceId::Components, 12)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: -10.0,
+        charge: 0.0,
+    },
+    // The fusion reactor: a three-by-three block that makes thirty times
+    // what the fission one does, worked by nobody like it, and dear. Metal
+    // and components only, so a crew that has researched it can build it
+    // without the emitters that sit behind a key.
+    PartDef {
+        kind: PartKind::FusionReactor,
+        footprint: (3, 3),
+        layer: Layer::Object,
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 180_000,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 120), (ResourceId::Components, 80)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: FUSION_OUTPUT,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Hyperdrive,
+        footprint: (2, 2),
+        layer: Layer::Object,
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        // Nobody works it by hand: it is charged from the helm and fires on
+        // its own, so it has nowhere to stand and wants none, like the
+        // reactor.
+        use_spots: &[],
+        price: 90_000,
+        shields: false,
+        capacity: None,
+        // Metal and components alone, like the fusion reactor and for the
+        // same reason: an emitter in it would put a second key behind this
+        // one's.
+        recipe: &[(ResourceId::Metal, 60), (ResourceId::Components, 80)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        // The field coils idle all day; the charge before a jump is the
+        // world's clock, not a draw.
+        power: -50.0,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::WallLight,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // A lamp on the wall over the deck: walked under.
+        blocks_movement: false,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 200,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 1), (ResourceId::Components, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        // No draw: a light is always on, wired or not — the lamp has its
+        // own cell — so a ship's lights are not a thing to run conduit to
+        // or to lose in a brownout.
+        power: 0.0,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::StandingLight,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 400,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 2), (ResourceId::Components, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
         power: 0.0,
         charge: 0.0,
     },
 ];
+
+/// Whether a part is a light, and how far it reaches in tiles if it is.
+/// The two lights and nothing else; the room lays a light at the middle
+/// of each and a lit tile is one a straight line from a light reaches
+/// within its tiles.
+pub fn light_tiles(kind: PartKind) -> Option<f64> {
+    match kind {
+        PartKind::WallLight => Some(WALL_LIGHT_TILES),
+        PartKind::StandingLight => Some(STANDING_LIGHT_TILES),
+        _ => None,
+    }
+}
+
+pub fn is_light(kind: PartKind) -> bool {
+    light_tiles(kind).is_some()
+}
+
+/// Whether a part is **low cover**: sandbags. Half a body's height, so it
+/// stops neither a walk nor a line of sight, but a body standing close
+/// behind it ducks under a shot from the far side — the room's
+/// `Sight::covered` is the rule and this is what it is built from.
+pub fn is_cover(kind: PartKind) -> bool {
+    matches!(kind, PartKind::Sandbags)
+}
 
 /// Whether a part is one of the two cut across its tile. What the painters
 /// and the drag vocabulary ask, so a third kind of corner is one row here.
@@ -1345,15 +1562,22 @@ pub fn defs_are_sound() -> bool {
             && def.pushes() == engine
             // The two are exclusive on purpose. A part that both pushed and
             // turned would make "which engines are burning" — and therefore
-            // the fuel bill — a different question for every design.
+            // the power bill — a different question for every design.
             && def.torque_thrust.is_finite()
             && def.torque_thrust >= 0.0
             && def.turns() == thruster
+            // An engine draws while it burns, in proportion to its push — one
+            // ratio across the table, so power goes as thrust and a heavy
+            // engine is not the only engine worth having.
+            && def.thrust_power.is_finite()
+            && def.thrust_power >= 0.0
+            && (def.thrust_power > 0.0) == engine
+            && (!engine || (def.thrust_power / def.thrust - ENGINE_POWER / 20_000.0).abs() < 1e-9)
             // Power is the same shape: made by the reactor, held by the
             // battery, drawn by what `essential` names among others, and
             // never two of those on one part.
             && def.power.is_finite()
-            && def.supplies() == (kind == PartKind::Reactor)
+            && def.supplies() == matches!(kind, PartKind::Reactor | PartKind::FusionReactor)
             && def.charge.is_finite()
             && def.charge >= 0.0
             && def.stores() == (kind == PartKind::Battery)

@@ -21,7 +21,11 @@ than carrying a copy — so re-pinning here is enough for both.
 `the_checksum_notices_a_station_changing_sides` flips one station's
 `hostile` and asks for a different number.
 
-Anything on `data.rs`'s bump list moves `GENERATOR_VERSION` (3 now). The
+Anything on `data.rs`'s bump list moves `GENERATOR_VERSION` (6 now: 4 was
+the body count going from one-to-seven to two-to-ten so a system could
+hold more stations, and every position moved with it; 6 took the stations
+off the belts — see below — which re-sites a station in every system with
+a belt). The
 station shares, the shelves and the hazards are *not* on that list, on
 purpose: they change what is in a system without changing whether its layout
 passes `layout`, so they can be tuned while the galaxy keeps its shape. The
@@ -32,14 +36,18 @@ is drawn *after* the existing ones in `Stock::roll` (it walks
 `ResourceId::ALL` in order), so a shelf already rolled keeps what it had.
 The checksum still moves, because the shelf is in it.
 
-## A system has up to six stations, and two of a kind is allowed
+## A system has up to nine stations, and two of a kind is allowed
 
-`data::MORE_STATIONS` is five rolls — `[0.8, 0.65, 0.5, 0.4, 0.3]` — for a
-second, third and on up to a sixth station once a system has one; each is
-drawn whether or not the last one took, so the stream stays in step
-between a system that stopped at one and one that went on to two. It was
-one roll, and a galaxy where most systems had one dock had nowhere to go
-once that dock turned out to be an enemy's. `pick_kind` no longer refuses
+`data::MORE_STATIONS` is eight rolls — `[0.9, 0.85, 0.8, 0.7, 0.6, 0.5,
+0.4, 0.3]` — for a second, third and on up to a ninth station once a
+system has one; each is drawn whether or not the last one took, so the
+stream stays in step between a system that stopped at one and one that
+went on to two. It was one roll, then five, and a galaxy where most
+systems had one dock had nowhere to go once that dock turned out to be an
+enemy's; five became eight, with `MIN_BODIES`/`MAX_BODIES` in `system.rs`
+going from `1..=7` to `2..=10` (stations sit one to a body, so the rolls
+alone could not do it — a system with a station had three on average and
+now has four and a half). `pick_kind` no longer refuses
 a kind already wanted — two orbitals round two rocky planets is the whole
 point — but it still asks only whether the system has a body of the right
 sort at all; **whether that body is free** is `site`'s question, since what
@@ -47,20 +55,49 @@ is already wanted has not been placed yet, and a kind that finds every body
 of its sort taken is simply not there. "One station per parent body" and
 the relay's desolation rule are unchanged, and so is the pruning of a
 station with nowhere in its own system to fly to.
-`a_system_with_a_station_has_two_on_average` pins the mean across the
-reference galaxies at two or more and never more than
+`a_system_with_a_station_has_four_on_average` pins the mean across the
+reference galaxies at four or more and never more than
 `1 + MORE_STATIONS.len()`; `about_three_fifths_of_systems_have_a_station`
-still pins the first roll at `0.5..0.7` — five rolls of extras change
+still pins the first roll at `0.5..0.7` — eight rolls of extras change
 nothing about it — and asks that more than half of those systems have a
 second station.
 
-## A station's side is rolled here, and a derelict has none
+## Nothing stands at a belt
+
+`data::parent_suits` is the matching rule, and its first arm refuses
+**every** kind a belt for a parent. A belt is the crew's mining site —
+`world::mining` lays the asteroids out about the ship holding at it — and
+a station in orbit of one got in the way: a trip to a body ends
+`flight`'s `ARRIVAL_RADIUS_BODY` (15 000) short of it, a station orbits
+its parent at `STATION_ORBIT` of the minimum separation (about 10 000),
+so a ship that came in on the station's side had the station for its
+nearest node, the world's view settled on that and no site was laid out.
+The mining outposts, which were bolted to belts, are dug into rocky
+planets and ice worlds now, beside the orbitals, and still the only
+place galvum is sold. `nothing_stands_at_a_belt` (in `system.rs`'s
+tests) walks every station of the four reference galaxies: none has a
+belt for a parent, none stands within twice the arrival radius of one,
+and there are still outposts. The world's `spawn` wants a belt in the
+spawn system for the same reason (`crates/world/CLAUDE.md`).
+
+## A station's side is rolled here, and the enemy's are together in one corner
 
 `StationBlueprint::hostile` is `data::HOSTILE_SHARE` (0.3) of the stations
 somebody lives on, rolled in `furnish` off `base.branch(0x_484f_5354_0000_0000
-^ id)` — its own branch, so a station does not change sides when its
-neighbour gains a hazard — and **never for a `Derelict`**, which draws
-nothing from that branch at all: there is nobody aboard to be hostile. The
+^ id)` — its own branch, so the count does not change when a neighbour
+gains a hazard — and **never for a `Derelict`**, which draws nothing from
+that branch at all: there is nobody aboard to be hostile. But the roll is
+only **how many**: `take_sides`, the last thing `place_stations` does, draws
+one direction for the system off `SIDES_BRANCH` of the same stream and
+hands the hostile rolls to the stations furthest along it, so a system's
+enemies sit together at one end of it and the friendly stations at the
+other, and a crew that has learnt which corner is theirs can keep out of
+it. The ordering is by the distance along that direction rounded onto
+`SIDES_GRID` (a thousandth, the checksum's grid), then by id, so it is
+plain arithmetic and not the last bit of a libm's `cos`.
+`the_enemys_stations_are_in_one_corner_and_the_friendly_ones_in_the_other`
+draws the direction again and checks the nearest of theirs stands at or
+beyond the furthest of ours in every reference system with both. The
 kind does not enter into it; any lived-on kind can be an enemy's
 (`a_hostile_station_stays_hostile_and_any_kind_can_be`), and
 `some_stations_are_hostile_and_derelicts_never_are` pins the share in

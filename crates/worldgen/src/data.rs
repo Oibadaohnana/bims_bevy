@@ -165,20 +165,24 @@ pub fn target_hop_days(desolation: f64) -> f64 {
 pub const STATION_SHARE: f64 = 0.6;
 
 /// Once a system has a station, the chance of a second, and then of a
-/// third, and so on up to six. Each only where there is a body of the right
-/// kind free for it — [`parent_suits`] and "at most one station per parent
-/// body" still hold — so a one-planet system stays a one-station system
-/// whatever these say. Two of a kind in one system is allowed: a system
-/// with two rocky planets can have an orbital round each, and with some of
-/// them now hostile there is a reason to have the second. Going from two
-/// rolls to five went with a version bump all the same — not for the
-/// layouts, which it leaves alone, but because a station's side went into
-/// the checksum at the same time and every pinned number moved anyway.
-pub const MORE_STATIONS: [f64; 5] = [0.8, 0.65, 0.5, 0.4, 0.3];
+/// third, and so on up to nine. Each only where there is a body of the
+/// right kind free for it — [`parent_suits`] and "at most one station per
+/// parent body" still hold — so a two-planet system stays a two-station
+/// system whatever these say. Two of a kind in one system is allowed: a
+/// system with two rocky planets can have an orbital round each, and with
+/// some of them now hostile there is a reason to have the second. Eight
+/// rolls, up from five, went in with the wider body count (`MIN_BODIES`
+/// and `MAX_BODIES` in `system`) and the version bump that took: a system
+/// with a station has four or five now rather than three, which is what
+/// gives the two sides ([`HOSTILE_SHARE`]) a corner each to sit in.
+pub const MORE_STATIONS: [f64; 8] = [0.9, 0.85, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3];
 
 /// What share of the stations somebody lives on are somebody else's: docked
 /// there, the crew are the enemy. Rolled off a station's own branch, so a
-/// station does not change sides when its neighbour gains a hazard. A
+/// station does not change sides when its neighbour gains a hazard — but
+/// the roll decides only **how many** of a system's stations are the
+/// enemy's; *which* of them is `system::take_sides`, which puts them
+/// together at one end of the system and the rest at the other. A
 /// derelict is never hostile — there is nobody aboard to be.
 pub const HOSTILE_SHARE: f64 = 0.3;
 
@@ -198,7 +202,9 @@ pub enum StationKind {
     Orbital = 0,
     /// Hung off a gas giant, cracking its atmosphere.
     Refinery = 1,
-    /// Bolted to a belt.
+    /// Dug into a rocky planet or an ice world. It was bolted to a belt
+    /// until the belts became the crew's own mining sites — see
+    /// [`parent_suits`].
     MiningOutpost = 2,
     /// Nobody aboard. What is left is worth taking.
     Derelict = 3,
@@ -241,8 +247,11 @@ impl StationKind {
                 | ResourceId::LegGuard
                 | ResourceId::Shotgun
                 | ResourceId::AutoRifle
+            // A research key is found on a station's research desk, never on
+            // its shelf.
                 | ResourceId::SniperRifle
-                | ResourceId::Schword,
+                | ResourceId::Schword
+                | ResourceId::ResearchKey,
             ) => false,
             // Mined off an asteroid on the way to its ore; nobody stocks it.
             (_, ResourceId::Rock) => false,
@@ -298,13 +307,24 @@ impl BodyKind {
 ///
 /// This is the whole of the matching rule and the only place it is written
 /// down. A refinery hangs off a gas giant because that is what it refines; an
-/// outpost is on a belt because that is what it mines; a relay is out in deep
-/// space on its own; and a derelict can be anywhere, because whatever it was
+/// outpost is dug into a rocky planet or an ice world, because that is where
+/// there is a crust to dig; a relay is out in deep space on its own; and a
+/// derelict can be anywhere a station could stand, because whatever it was
 /// for stopped mattering a long time ago.
+///
+/// **Nothing sits at a belt.** A belt is the crew's mining site — the ship
+/// holds at it and the asteroids are laid out about the hull — and a
+/// station in orbit of one stood in the way of that: a trip to a body ends
+/// `flight`'s `ARRIVAL_RADIUS_BODY` short of it, further out than a station
+/// orbits its parent, so a station on the near side was the nearest thing
+/// to the ship when it came to rest, the view settled on *it* rather than
+/// on the belt, and no site was laid out. The outposts were bolted to the
+/// belts until the belts became sites, and moved then.
 pub fn parent_suits(kind: StationKind, parent: Option<BodyKind>) -> bool {
     match (kind, parent) {
+        (_, Some(BodyKind::AsteroidBelt)) => false,
         (StationKind::Refinery, Some(BodyKind::GasGiant)) => true,
-        (StationKind::MiningOutpost, Some(BodyKind::AsteroidBelt)) => true,
+        (StationKind::MiningOutpost, Some(BodyKind::RockyPlanet | BodyKind::IceWorld)) => true,
         (StationKind::Orbital, Some(BodyKind::RockyPlanet | BodyKind::IceWorld)) => true,
         (StationKind::Relay, None) => true,
         (StationKind::Derelict, _) => true,
@@ -446,7 +466,8 @@ mod tests {
                         | ResourceId::Shotgun
                         | ResourceId::AutoRifle
                         | ResourceId::SniperRifle
-                        | ResourceId::Schword,
+                        | ResourceId::Schword
+                        | ResourceId::ResearchKey,
                     ) => false,
                     (_, ResourceId::Rock) => false,
                     (StationKind::MiningOutpost, ResourceId::Galvum) => true,
@@ -462,7 +483,6 @@ mod tests {
         assert!(StationKind::MiningOutpost.sells(ResourceId::Galvum));
         assert!(!StationKind::Orbital.sells(ResourceId::Galvum));
         assert!(!StationKind::MiningOutpost.sells(ResourceId::Emitter));
-        assert!(StationKind::Relay.sells(ResourceId::Fuel));
         assert!(StationKind::Orbital.sells(ResourceId::Medkit));
         assert!(!StationKind::Orbital.sells(ResourceId::Handgun));
         assert!(!StationKind::Orbital.sells(ResourceId::Shotgun));
@@ -470,6 +490,7 @@ mod tests {
         assert!(!StationKind::Relay.sells(ResourceId::SniperRifle));
         assert!(!StationKind::MiningOutpost.sells(ResourceId::Schword));
         assert!(!StationKind::MiningOutpost.sells(ResourceId::Rock));
+        assert!(!StationKind::Orbital.sells(ResourceId::ResearchKey));
         // Fibre and bandages: the orbitals, bandages at the refineries too,
         // and neither is a staple.
         assert!(StationKind::Orbital.sells(ResourceId::Fibre));
@@ -491,8 +512,10 @@ mod tests {
         assert!(parent_suits(Refinery, Some(GasGiant)));
         assert!(!parent_suits(Refinery, Some(RockyPlanet)));
         assert!(!parent_suits(Refinery, None));
-        assert!(parent_suits(MiningOutpost, Some(AsteroidBelt)));
-        assert!(!parent_suits(MiningOutpost, Some(IceWorld)));
+        assert!(parent_suits(MiningOutpost, Some(RockyPlanet)));
+        assert!(parent_suits(MiningOutpost, Some(IceWorld)));
+        assert!(!parent_suits(MiningOutpost, Some(GasGiant)));
+        assert!(!parent_suits(MiningOutpost, None));
         assert!(parent_suits(Orbital, Some(RockyPlanet)));
         assert!(parent_suits(Orbital, Some(IceWorld)));
         assert!(!parent_suits(Orbital, Some(GasGiant)));
@@ -500,9 +523,13 @@ mod tests {
         assert!(parent_suits(Relay, None));
         assert!(!parent_suits(Relay, Some(RockyPlanet)));
         for &b in &BodyKind::ALL {
-            assert!(parent_suits(Derelict, Some(b)));
+            assert_eq!(parent_suits(Derelict, Some(b)), b != AsteroidBelt);
         }
         assert!(parent_suits(Derelict, None));
+        // A belt is a mining site, and nothing at all stands at one.
+        for &k in &StationKind::ALL {
+            assert!(!parent_suits(k, Some(AsteroidBelt)), "{k:?} at a belt");
+        }
     }
 
     #[test]
@@ -523,20 +550,19 @@ mod tests {
 ///
 /// [`StationKind::sells`] is the ceiling — nothing a kind never stocks is
 /// ever on a shelf — and this is what one station keeps under it. The
-/// staples ([`STAPLES`]: ore, metal, fuel and both foods) are on every
-/// shelf, because a station where the crew can buy no fuel and nothing to
-/// eat is a trap rather than a place; each of the rest is rolled off the
+/// staples ([`STAPLES`]: ore, metal and both foods) are on every shelf,
+/// because a station where the crew can buy nothing to build with and
+/// nothing to eat is a trap rather than a place; each of the rest is rolled off the
 /// station's own stream, so two stations of a kind stock different things
 /// and there is a reason to fly to the other one. A theme — what a
 /// station is *for* — would replace the roll, not the ceiling.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Stock(pub u32);
 
-/// On every shelf the kind allows: what the crew build with, fly on and eat.
-pub const STAPLES: [ResourceId; 5] = [
+/// On every shelf the kind allows: what the crew build with and eat.
+pub const STAPLES: [ResourceId; 4] = [
     ResourceId::Ore,
     ResourceId::Metal,
-    ResourceId::Fuel,
     ResourceId::Vegetable,
     ResourceId::Tofu,
 ];

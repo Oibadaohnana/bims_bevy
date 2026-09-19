@@ -25,11 +25,16 @@ and `cargo run --release -- test` is the release build docked somewhere new;
 `nix run` builds from the **git tree**. `bims --self-check` prints whether
 the build agrees with the pinned constants and exits non-zero if not.
 
-**The window wants the shell.** winit and wgpu open the window system's
-libraries and the Vulkan loader at run time, and `shell.nix` puts them on
-`LD_LIBRARY_PATH`. Build anywhere; run inside `nix-shell shell.nix` (or
-`nix develop`), or through `./check`, which re-enters the shell itself. A
-`cargo run` that opens nothing, or dies looking for `libvulkan`, is this.
+**The window wants the shell, and so does the build.** winit and wgpu open
+the window system's libraries and the Vulkan loader at run time, and
+`shell.nix` puts them on `LD_LIBRARY_PATH`; and since the sound went in,
+the app *links* ALSA — cpal, under Bevy's audio, finds it through
+pkg-config — so a `cargo build -p app` outside the shell dies in
+`alsa-sys` with a misleading "build failed". Build and run inside
+`nix-shell shell.nix` (or `nix develop`), or through `./check`, which
+re-enters the shell itself when either is missing. A `cargo run` that
+opens nothing, or dies looking for `libvulkan`, is this. The rules crates
+alone (`cargo test -p bims`, `-p world`) build anywhere.
 
 **A run with nobody at the keyboard** is `crates/app/src/dev.rs`:
 `BIMS_SMOKE_FRAMES=n` runs `n` frames in a hidden window and exits;
@@ -42,7 +47,10 @@ simulation holding at a belt with its mining site laid out, for looking at
 the outside without flying there; `BIMS_FIGHT=1` opens `combat` with the
 crew member recruited inside the station's door and one of its people a
 few tiles down the corridor, for looking at a fight without walking the
-station for one. Move at least a frame before
+station for one. `BIMS_SOUND_LOG=1` prints every clip as it is played
+and every bed as it fades up or out, which is how a sound is *heard* from
+a terminal — `BIMS_SOUND_LOG=1 BIMS_FIGHT=1 BIMS_SMOKE_FRAMES=900 bims
+combat | grep ^sound:` is a fight's worth. Move at least a frame before
 clicking — egui hit-tests a click against the widgets laid out on the
 previous frame. That is how a change to a screen is *looked at* from a
 terminal: run it, read the PNG. Two things about it: on Wayland the
@@ -98,14 +106,18 @@ Things about that which are easy to get wrong:
   the last bit. Positions go in at a thousandth of a unit and angles at a
   millionth, which is orders of magnitude finer than any real divergence and
   orders coarser than a rounding one.
-- **No strings come out of the rules crates.** The room hands over crew
-  member 0 and spot code 6; `ship` hands over a part kind and an issue
-  code; `world` hands over a `WorldEvent`. Every word is
+- **No strings come out of the rules crates, and no sounds.** The room hands
+  over crew member 0 and spot code 6; `ship` hands over a part kind and an
+  issue code; `world` hands over a `WorldEvent`. Every word is
   `crates/app/src/names.rs`, and `format.rs` is the only place the euro sign,
-  the digit grouping and the clock's colon exist. That is deliberate — a
-  server has no words to say — so keep it that way: a new part, event or job
-  is a variant there and a name here, and `names.rs`'s tests pin the tables'
-  lengths against the enums.
+  the digit grouping and the clock's colon exist. The same for what is
+  heard: the room says a door started sliding or a bolt landed as a
+  `bims::cue::Cue` with a place (`Game::take_cues`), and
+  `crates/app/src/sound.rs` is where the recordings are and what each cue
+  is played as. That is deliberate — a server has no words to say and no
+  speaker — so keep it that way: a new part, event, job or noise is a
+  variant there and a name or a clip here, and `names.rs`'s tests pin the
+  tables' lengths against the enums.
 - **`crate::time`, never `time::`.** `crates/game/src/clock.rs` reaches the
   `time` crate through the crate root, because the probes link nothing and
   stand a plain `mod time;` over the same file — see `scratchpad/modules.rs`.
@@ -134,8 +146,13 @@ Things about that which are easy to get wrong:
   is `painter.pixels_per_point()`, so it stays one device pixel under any
   UI scale. A new kind of shape has to go through `fill` or `stroke` there,
   or it comes out jagged beside everything else.
+- **The Esc sheet is `settings.rs`**: three pages in one window — the
+  menu (the UI scale, and a button each for Audio and Controls), the
+  audio page (`sound::Mix`: master, effects, ambience, mute) and the
+  controls page (the key tables). A screen holds it as `Option<Sheet>`,
+  opens it on Esc at the menu, and Esc closes it from any page.
 - **The UI scale is egui's zoom factor** (`theme::ui_scale_row`, on the Esc
-  sheet): it scales the type, the panels and the canvas alike, and
+  sheet's menu): it scales the type, the panels and the canvas alike, and
   bevy_egui divides the pointer by it, so nothing in the screens has to
   know. A `BIMS_POINTER` script is in points *before* the zoom, so drive a
   screen at 100% or the clicks land elsewhere.
@@ -172,6 +189,27 @@ Things about that which are easy to get wrong:
 - **The default font has no arrows.** `▾`, `←`, `‖` come out as boxes;
   the panels say `Hide`, `< Back`, `||` instead. Check a new glyph on
   screen before trusting it.
+- **Sound is `sound.rs`, and the clips are bytes in the binary.** The
+  recordings are `Sounds/` at the root, left as recorded;
+  `crates/app/sounds/prepare.sh` (ffmpeg) cuts and filters them into the
+  `.ogg` clips beside it — one-shots trimmed to the event and peaked at
+  -1 dBFS, loops
+  seamed by cross-fading their own tail into their head, the ambiences
+  brought down to -30 LUFS — and `sound.rs` `include_bytes!`s those, so a
+  re-run of the script is a rebuild and nothing is read from disk at run
+  time. Every level the game applies is in `sound.rs`'s tables, not in
+  the files; the player's own volumes are `Sounds::mix`, set on the Esc
+  sheet's audio page and multiplied in at the end — a one-shot's when it
+  starts, so a mute does not spawn one, and a bed's every frame. A one-shot despawns itself; a **bed** (the ship's hum, a
+  station's, the engines) loops the whole time at whatever level the
+  screen asks for *every frame*, and fades out when nobody asks, so a
+  screen that closes takes its sound with it. Cues are thinned with a
+  cool-down **per kind and per place**: at 24x a frame holds a whole
+  meal's chopping, which is one stroke, but two guns in one frame are two
+  shots — the staged fight puts both gunners on the same cadence, and a
+  cool-down per kind alone silenced every enemy shot. No audio device is
+  a warning from Bevy and silence, never a failure, which is what the
+  hidden smoke runs rely on.
 
 ## Verifying a change
 

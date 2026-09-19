@@ -78,6 +78,17 @@ pub fn residents_of(kind: StationKind) -> u32 {
     }
 }
 
+/// The odds a friendly station has a research key on its desk when the
+/// world opens: four in five.
+pub const KEY_CHANCE: u32 = 80;
+
+/// Whether a station's research desk holds a key, off its seed — a stream
+/// of its own, so the layout's rolls are what they were. Only asked of a
+/// station that is neither an enemy's nor a derelict.
+pub fn key_rolled(map_seed: u64) -> bool {
+    Rng::new(map_seed ^ 0x_4B45_5931).below(100) < KEY_CHANCE
+}
+
 /// How many enemies a hostile station holds against a crew of `crew`,
 /// whose ship and hold are worth `worth` now and were worth `start_worth`
 /// when the world opened: [`data::ENEMIES_BASE`] and one a crewmate,
@@ -132,6 +143,12 @@ pub struct Station {
     /// `World::start`. The rule a caller wants is `World::stance`: the
     /// spawn is home whatever this says, and nothing else overrides it.
     pub hostile: bool,
+    /// Whether a tier-one research key was found on its research desk
+    /// when the world opened: rolled off the seed at [`KEY_CHANCE`] for a
+    /// station that is neither an enemy's nor a derelict. The blueprint's
+    /// word; whether the key is still there is `World::station_keys`, and
+    /// the spawn has one whatever this says.
+    pub key: bool,
 }
 
 impl Station {
@@ -147,6 +164,9 @@ impl Station {
             map_seed: blueprint.map_seed,
             stock: blueprint.stock,
             hostile: blueprint.hostile,
+            key: !blueprint.hostile
+                && blueprint.kind != StationKind::Derelict
+                && key_rolled(blueprint.map_seed),
         }
     }
 
@@ -170,6 +190,12 @@ impl Station {
     /// the system.
     pub fn to_system(&self, design: DVec2) -> DVec2 {
         self.anchor.add(angle::rotate_design(design, 0.0))
+    }
+
+    /// The inverse: a point of the system as a point of the design. A
+    /// station never turns, so it is the anchor taken off.
+    pub fn from_system(&self, system: DVec2) -> DVec2 {
+        angle::unrotate_design(system.sub(self.anchor), 0.0)
     }
 
     /// The middle of the grid, in the system: the blueprint's position.
@@ -506,14 +532,6 @@ fn build_layout(kind: StationKind, side: u32, bunk_columns: u32, map_seed: u64) 
             Rotation::R0,
         );
     }
-    // The tank is filled from below its left-hand column, so it stands a
-    // row up from the wall with two rows of deck under it.
-    put(
-        &mut design,
-        PartKind::FuelTank,
-        (3, lobby.y1 - 3),
-        Rotation::R0,
-    );
 
     // The partitions: a wall down every edge a room shares with its arm
     // or with the room beside it, with a two-tile doorway in each — the
@@ -654,6 +672,20 @@ fn build_layout(kind: StationKind, side: u32, bunk_columns: u32, map_seed: u64) 
         put(&mut design, kind, (x, h.y0), Rotation::R0);
     }
 
+    // The research room: the research desk against its north wall from
+    // the corner, worked from the row below — the desk the station's key
+    // sits on, and what the crew go ashore for — with its trays starting
+    // a row lower than the laboratory's so the desk's spot has deck on
+    // its far side (the room's navigation will not walk a spot between
+    // two solids).
+    let rr = research.inner();
+    put(
+        &mut design,
+        PartKind::ResearchDesk,
+        (rr.x0 + 1, rr.y0),
+        Rotation::R0,
+    );
+
     // The laboratory and the research room: runs of six trays, one every
     // three rows from two below the north wall so the row a run is worked
     // from and the row behind it are clear, as many as the seed likes and
@@ -661,12 +693,12 @@ fn build_layout(kind: StationKind, side: u32, bunk_columns: u32, map_seed: u64) 
     // broom locker against the laboratory's north wall by the partition.
     let bays = 1 + rng.below(3) + (side - 40) / 6;
     let mut placed = 0;
-    for room in [lab.inner(), research.inner()] {
+    for (room, first_row) in [(lab.inner(), 2), (research.inner(), 3)] {
         let columns = ((room.x1 - room.x0 + 1) / 7).max(1);
         let mut i = 0;
         while placed < bays {
             let (column, row) = (i % columns, i / columns);
-            let at = (room.x0 + 1 + column * 7, room.y0 + 2 + row * 3);
+            let at = (room.x0 + 1 + column * 7, room.y0 + first_row + row * 3);
             if at.1 + 2 > room.y1 || at.0 + 5 > room.x1 {
                 break;
             }
@@ -727,6 +759,33 @@ fn build_layout(kind: StationKind, side: u32, bunk_columns: u32, map_seed: u64) 
                 shelf_x += 2;
             }
             shelf_y += 4;
+        }
+    }
+
+    // Light: a wall light in every room's inner corners and one every six
+    // tiles along its long walls, on whatever tile is still free — last,
+    // so a lamp never takes a fixture's tile. A tile no light reaches is
+    // dark, and a dark deck is one the crew see ten tiles across
+    // (`bims::sight`); a lamp at a corner where two blocks open into each
+    // other has no wall at its back and is only a warning.
+    for block in &blocks {
+        let i = block.inner();
+        let mut lamps: Vec<(u32, u32)> =
+            vec![(i.x0, i.y0), (i.x1, i.y0), (i.x0, i.y1), (i.x1, i.y1)];
+        let mut x = i.x0 + 6;
+        while x < i.x1 {
+            lamps.push((x, i.y0));
+            lamps.push((x, i.y1));
+            x += 6;
+        }
+        let mut y = i.y0 + 6;
+        while y < i.y1 {
+            lamps.push((i.x0, y));
+            lamps.push((i.x1, y));
+            y += 6;
+        }
+        for at in lamps {
+            put(&mut design, PartKind::WallLight, at, Rotation::R0);
         }
     }
 

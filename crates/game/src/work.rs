@@ -125,10 +125,15 @@ pub struct Priorities {
 }
 
 impl Priorities {
+    /// Every row at [`DEFAULT`] but the medical one, which starts at
+    /// [`HIGHEST`]: a wound is dressed the moment there is a bandage for
+    /// it, and a crewmate dying is treated before the deck is swept,
+    /// unless the player says otherwise. No seeded probe bleeds, so the
+    /// default costs nothing there.
     pub fn new() -> Priorities {
-        Priorities {
-            level: [DEFAULT; Job::ALL.len()],
-        }
+        let mut level = [DEFAULT; Job::ALL.len()];
+        level[Job::Medical as usize] = HIGHEST;
+        Priorities { level }
     }
 
     pub fn of(&self, job: Job) -> u32 {

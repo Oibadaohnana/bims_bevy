@@ -22,9 +22,9 @@
 //!   penalty is a design decision nobody has taken, and a rule that quietly
 //!   ate a tenth of every wall would be discovered as a ship that mysteriously
 //!   lightens every time it is rebuilt.
-//! - **Total mass changes through four things and no others**: trading while
-//!   docked, fuel burnt by the engines, food eaten or grown, and crew joining
-//!   or leaving. Anything else that changes it is a bug, and this list is the
+//! - **Total mass changes through three things and no others**: trading while
+//!   docked, food eaten or grown, and crew joining or leaving. Nothing is
+//!   burnt in flight — the engines run on the reactor. Anything else that changes it is a bug, and this list is the
 //!   thing to check it against.
 //! - **Money is only usable while docked at a station.** That is where euros
 //!   and materials can be swapped for each other, in either direction. The

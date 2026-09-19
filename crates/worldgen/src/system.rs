@@ -76,9 +76,11 @@ pub struct StationBlueprint {
     pub stock: Stock,
     /// Whose side the people aboard are on. Docked at a hostile station the
     /// crew are the enemy: the world's stance machinery draws its people in
-    /// the enemy colours and they shoot. Rolled off its own branch like the
-    /// shelf ([`data::HOSTILE_SHARE`]), and never true of a derelict, which
-    /// has nobody aboard to take a side. A crew cannot start at one.
+    /// the enemy colours and they shoot. How many of a system's are is
+    /// rolled off each station's own branch ([`data::HOSTILE_SHARE`]);
+    /// which of them are is where they stand — the enemy's are together at
+    /// one end of the system (`take_sides`). Never true of a derelict,
+    /// which has nobody aboard to take a side. A crew cannot start at one.
     pub hostile: bool,
 }
 
@@ -171,10 +173,13 @@ impl Galaxy {
     }
 }
 
-/// How many bodies a system can have. One is allowed and is a bleak little
-/// place; the upper end is where a system stops being legible on a preview.
-const MIN_BODIES: u32 = 1;
-const MAX_BODIES: u32 = 7;
+/// How many bodies a system can have. Two is the floor — a body and
+/// somewhere to fly to from it; the upper end is where a system stops being
+/// legible on a preview. It was one to seven, and went to two to ten with
+/// the `GENERATOR_VERSION` bump to 4, because stations sit one to a body
+/// and a system was asked to hold more of them.
+const MIN_BODIES: u32 = 2;
+const MAX_BODIES: u32 = 10;
 
 /// Tries at placing one body before it is given up on.
 ///
@@ -400,7 +405,75 @@ fn place_stations(
     for (i, s) in built.iter_mut().enumerate() {
         s.id = i as u32;
     }
+    take_sides(seed, star_id, version, bodies, &mut built);
     built
+}
+
+/// The branch of the contents stream the system's line of battle is drawn
+/// off: one direction a system, not one a station.
+const SIDES_BRANCH: u64 = 0x_5349_4445_0000_0000;
+
+/// The grid a station's distance along that direction is put on before
+/// the stations are ordered by it: a thousandth of a unit, the same as
+/// the checksum's. The order is then plain arithmetic on rounded numbers
+/// rather than the last bit of a libm's `cos`, so two builds sort the same
+/// stations onto the same sides.
+const SIDES_GRID: f64 = 1_000.0;
+
+/// Which of the stations somebody lives on are somebody else's — and where
+/// they are.
+///
+/// **How many** is the roll `furnish` made, one a station off its own
+/// branch, so the share is [`data::HOSTILE_SHARE`] as it always was. **Which**
+/// is decided here: a direction is drawn for the system and the stations
+/// furthest along it are the enemy's, so a system's hostile stations sit
+/// together in one corner of it and the friendly ones in the other, and a
+/// crew that has learnt which corner is the enemy's can keep out of it. A
+/// derelict is nobody's: it neither counts nor is counted.
+fn take_sides(
+    seed: u64,
+    star_id: u32,
+    version: u32,
+    bodies: &[Body],
+    built: &mut [StationBlueprint],
+) {
+    let enemies = built.iter().filter(|s| s.hostile).count();
+    if enemies == 0 {
+        return;
+    }
+    let mut rng =
+        Rng::stream(seed, star_id, version, Purpose::StationContents).branch(SIDES_BRANCH);
+    let towards = DVec2::polar(rng.angle(), 1.0);
+
+    // Every lived-on station by how far along the line it stands, furthest
+    // first; ties — a pair standing square to the line — by id.
+    let mut along: Vec<(i64, u32)> = built
+        .iter()
+        .filter(|s| s.kind != StationKind::Derelict)
+        .map(|s| {
+            let at = absolute_of(s, bodies);
+            let distance = (at.x * towards.x + at.y * towards.y) * SIDES_GRID;
+            (distance.round() as i64, s.id)
+        })
+        .collect();
+    along.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+
+    let theirs: Vec<u32> = along.iter().take(enemies).map(|&(_, id)| id).collect();
+    for s in built.iter_mut() {
+        s.hostile = theirs.contains(&s.id);
+    }
+}
+
+/// Where a station stands, measured from the star.
+fn absolute_of(station: &StationBlueprint, bodies: &[Body]) -> DVec2 {
+    match station.parent_body {
+        None => station.position,
+        Some(id) => bodies
+            .iter()
+            .find(|b| b.id == id)
+            .map(|b| b.position.add(station.position))
+            .unwrap_or(station.position),
+    }
 }
 
 /// Which kind of station could stand here, weighted by what the system has.
@@ -602,9 +675,12 @@ fn furnish(
         })
         .collect();
 
-    // Whose side it is on: its own branch, like the shelf, so a station
-    // does not change sides when the hazards or the stock are reworked. A
-    // derelict draws nothing — there is nobody aboard to take one.
+    // Whether it is one of the enemy's: its own branch, like the shelf, so
+    // the count of them does not change when the hazards or the stock are
+    // reworked. This is the roll and not the side — `take_sides` moves the
+    // rolls onto the stations at one end of the system once they all
+    // stand somewhere. A derelict draws nothing — there is nobody aboard to
+    // take one.
     let hostile = kind != StationKind::Derelict
         && base
             .branch(0x_484f_5354_0000_0000 ^ id as u64)
@@ -755,11 +831,12 @@ mod tests {
         );
     }
 
-    /// The point of [`data::MORE_STATIONS`] being five long: a system with
-    /// a station has two or more on average, in every reference galaxy,
-    /// and never more than the rolls allow.
+    /// The point of [`data::MORE_STATIONS`] being eight long and a system
+    /// having up to ten bodies: a system with a station has four or more
+    /// on average, in every reference galaxy, and never more than the
+    /// rolls allow.
     #[test]
-    fn a_system_with_a_station_has_two_on_average() {
+    fn a_system_with_a_station_has_four_on_average() {
         for &t in &GalaxyType::ALL {
             let systems = crate::fixture::reference(t).every_system();
             let with: Vec<usize> = systems
@@ -768,7 +845,7 @@ mod tests {
                 .filter(|&n| n > 0)
                 .collect();
             let mean = with.iter().sum::<usize>() as f64 / with.len().max(1) as f64;
-            assert!(mean >= 2.0, "{t:?}: {mean} stations a system with one");
+            assert!(mean >= 4.0, "{t:?}: {mean} stations a system with one");
             let most = with.iter().copied().max().unwrap_or(0);
             assert!(
                 most <= 1 + data::MORE_STATIONS.len(),
@@ -801,6 +878,112 @@ mod tests {
                 "{t:?}: {share} of {lived_on} lived-on stations were hostile"
             );
         }
+    }
+
+    /// A belt is the crew's mining site and nothing stands at one, in any
+    /// galaxy: no station's parent is a belt, and none sits nearer a belt
+    /// than the trip to it ends — `flight`'s arrival radius for a body,
+    /// read as a whole number here rather than imported, since `worldgen`
+    /// is below `flight` — so a ship that has just come to rest at a belt
+    /// has the belt for its nearest neighbour whichever way it came in.
+    /// The outposts still exist, dug into planets now, and there are
+    /// still enough of them to be somewhere to buy galvum.
+    #[test]
+    fn nothing_stands_at_a_belt() {
+        const ARRIVAL_RADIUS_BODY: f64 = 15_000.0;
+        let mut outposts = 0;
+        for &t in &GalaxyType::ALL {
+            let systems = crate::fixture::reference(t).every_system();
+            for s in &systems {
+                for st in &s.stations {
+                    let parent = st.parent_body.and_then(|id| s.body(id));
+                    assert!(
+                        parent.is_none_or(|b| b.kind != BodyKind::AsteroidBelt),
+                        "{t:?} star {}: {:?} {} sits at a belt",
+                        s.star_id,
+                        st.kind,
+                        st.id
+                    );
+                    let at = absolute_of(st, &s.bodies);
+                    for belt in s.bodies.iter().filter(|b| b.kind == BodyKind::AsteroidBelt) {
+                        assert!(
+                            belt.position.distance(at) > 2.0 * ARRIVAL_RADIUS_BODY,
+                            "{t:?} star {}: {:?} {} crowds belt {}",
+                            s.star_id,
+                            st.kind,
+                            st.id,
+                            belt.id
+                        );
+                    }
+                    outposts += usize::from(st.kind == StationKind::MiningOutpost);
+                }
+            }
+        }
+        assert!(
+            outposts >= 40,
+            "{outposts} mining outposts in four galaxies"
+        );
+    }
+
+    /// The enemy's stations are together at one end of a system and the
+    /// friendly ones at the other: in every system with stations on both
+    /// sides, along the direction `take_sides` drew for it, the nearest of
+    /// the enemy's stands further out than the furthest of the friendly
+    /// ones — a line across the system with one side on each side of it.
+    /// The direction is drawn again here, off the same branch, since it is
+    /// not stored; the grid is the one the sort used, so a pair standing
+    /// square to the line is allowed to stand level.
+    #[test]
+    fn the_enemys_stations_are_in_one_corner_and_the_friendly_ones_in_the_other() {
+        let mut mixed = 0;
+        for &t in &GalaxyType::ALL {
+            let g = crate::fixture::reference(t);
+            for s in g.every_system() {
+                let towards = DVec2::polar(
+                    Rng::stream(
+                        g.seed,
+                        s.star_id,
+                        g.generator_version,
+                        Purpose::StationContents,
+                    )
+                    .branch(SIDES_BRANCH)
+                    .angle(),
+                    1.0,
+                );
+                let along = |st: &StationBlueprint| {
+                    let at = s.absolute_position(Node::Station(st.id)).unwrap();
+                    ((at.x * towards.x + at.y * towards.y) * SIDES_GRID).round() as i64
+                };
+                let lived_on: Vec<&StationBlueprint> = s
+                    .stations
+                    .iter()
+                    .filter(|st| st.kind != StationKind::Derelict)
+                    .collect();
+                let theirs = lived_on
+                    .iter()
+                    .filter(|st| st.hostile)
+                    .map(|st| along(st))
+                    .min();
+                let ours = lived_on
+                    .iter()
+                    .filter(|st| !st.hostile)
+                    .map(|st| along(st))
+                    .max();
+                let (Some(nearest_of_theirs), Some(furthest_of_ours)) = (theirs, ours) else {
+                    continue;
+                };
+                mixed += 1;
+                assert!(
+                    nearest_of_theirs >= furthest_of_ours,
+                    "{t:?} star {}: the sides are mixed up together",
+                    s.star_id
+                );
+            }
+        }
+        assert!(
+            mixed > 100,
+            "only {mixed} systems with stations on both sides"
+        );
     }
 
     /// Whose side a station is on is its own roll: the same station comes

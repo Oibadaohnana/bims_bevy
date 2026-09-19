@@ -60,13 +60,11 @@ const CRATES: [Color; 4] = [
 /// A conduit, as the design phase draws it.
 const CONDUIT: Color = Color::rgba(0.74, 0.66, 0.22, 0.75);
 
-/// The machinery's own colours: the reactor's amber, the tank's blue-grey,
-/// the battery's brass and life support's teal — the palette swatches, so
-/// the deck and the design phase agree about what is what.
+/// The machinery's own colours: the reactor's amber, the battery's brass
+/// and life support's teal — the palette swatches, so the deck and the
+/// design phase agree about what is what.
 const REACTOR: Color = Color::rgb(0.86, 0.62, 0.24);
 const REACTOR_CORE: Color = Color::rgb(1.0, 0.80, 0.42);
-const TANK: Color = Color::rgb(0.40, 0.48, 0.58);
-const TANK_LIT: Color = Color::rgb(0.52, 0.60, 0.70);
 const BATTERY: Color = Color::rgb(0.62, 0.58, 0.30);
 const LIFE: Color = Color::rgb(0.34, 0.62, 0.52);
 const STRIPE: Color = Color::rgb(0.92, 0.72, 0.18);
@@ -115,7 +113,6 @@ pub fn part(list: &mut DrawList, part: &PlacedPart) -> bool {
         PartKind::Shelf => shelf(list, part),
         PartKind::Shower => shower(list, part),
         PartKind::Reactor => reactor(list, part),
-        PartKind::FuelTank => tank(list, part),
         PartKind::Battery => battery(list, part),
         PartKind::LifeSupport => life_support(list, part),
         PartKind::Smelter => smelter(list, part),
@@ -125,6 +122,11 @@ pub fn part(list: &mut DrawList, part: &PlacedPart) -> bool {
         PartKind::DrugLab => drug_lab(list, part),
         PartKind::TradingDesk => trading_desk(list, part),
         PartKind::Sandbags => sandbags(list, part),
+        PartKind::ResearchDesk => research_desk(list, part),
+        PartKind::FusionReactor => fusion_reactor(list, part),
+        PartKind::Hyperdrive => hyperdrive(list, part),
+        PartKind::WallLight => wall_light(list, part),
+        PartKind::StandingLight => standing_light(list, part),
         _ => return false,
     }
     true
@@ -566,6 +568,69 @@ fn shower(list: &mut DrawList, part: &PlacedPart) {
 
 // --- machinery ----------------------------------------------------------------------
 
+/// The reactor's glow, over its picture: the harder it works the brighter
+/// it shines. `load` is what is drawn now over what the reactors make —
+/// `world::Power::load`, or the design phase's day-long draw over its
+/// supply — nought for a reactor idling and one for one flat out, and a
+/// touch past it when the ship is short. The core brightens and a halo
+/// spreads over the housing with it, breathing a little off `frame`, so an
+/// engine lighting up can be seen at the reactor as well as at the stern.
+/// The amber of the reactor or the plasma blue of the fusion one; the
+/// picture underneath is untouched.
+pub fn reactor_glow(list: &mut DrawList, part: &PlacedPart, load: f32, frame: u32) {
+    let (core, glow) = match part.kind {
+        PartKind::Reactor => (REACTOR_CORE, REACTOR),
+        PartKind::FusionReactor => (PLASMA_CORE, PLASMA),
+        _ => return,
+    };
+    let load = if load.is_finite() {
+        load.clamp(0.0, 1.2)
+    } else {
+        0.0
+    };
+    let (local, across, along) = Local::of(part);
+    let d = (across - 6.0).min(along - 6.0) * 0.7;
+    // A slow breath, deeper the harder it runs, off the frame count the way
+    // the exhaust flickers — this is a picture, and nothing reads it back.
+    let breath = ((frame as f32 + part.id as f32 * 17.0) * 0.045).sin() * 0.5 + 0.5;
+    let pulse = 1.0 + 0.08 * load * breath;
+    // The halo over the whole housing, faint at idle and plain flat out.
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        across * (0.9 + 0.5 * load) * pulse,
+        along * (0.9 + 0.5 * load) * pulse,
+        0.0,
+        0.0,
+        glow.alpha(0.04 + 0.22 * load),
+    );
+    // The vessel lit from within, and the core white-hot at the top.
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.72,
+        d * 0.72,
+        0.0,
+        0.0,
+        glow.alpha(0.10 + 0.45 * load),
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * (0.3 + 0.25 * load) * pulse,
+        d * (0.3 + 0.25 * load) * pulse,
+        0.0,
+        0.0,
+        core.alpha(0.35 + 0.65 * load.min(1.0)),
+    );
+}
+
 /// The reactor: a housing with the containment vessel set into it, rings
 /// round a core that glows, and the hazard stripes along its edges that
 /// say what it is from across the deck.
@@ -631,82 +696,6 @@ fn reactor(list: &mut DrawList, part: &PlacedPart) {
             0.0,
             STEEL,
         );
-    }
-}
-
-/// The fuel tank: two cylinders side by side in a cradle, capped at both
-/// ends, with the filler on the side it is worked from and a gauge down
-/// one of them.
-fn tank(list: &mut DrawList, part: &PlacedPart) {
-    let (local, across, along) = Local::of(part);
-    let (w, h) = (across - 6.0, along - 6.0);
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 4.0, 0.0, PANEL);
-    let cyl = w * 0.42;
-    for (i, u) in [-w * 0.24, w * 0.24].iter().enumerate() {
-        // The body, a lighter strip down its crown, and the caps.
-        local.push(list, KIND_RECT, *u, 0.0, cyl, h - 8.0, cyl * 0.5, 0.0, TANK);
-        local.push(
-            list,
-            KIND_RECT,
-            *u - cyl * 0.18,
-            0.0,
-            cyl * 0.2,
-            h - 22.0,
-            3.0,
-            0.0,
-            TANK_LIT.alpha(0.7),
-        );
-        for v in [-h / 2.0 + 8.0, h / 2.0 - 8.0] {
-            local.push(list, KIND_RECT, *u, v, cyl - 4.0, 5.0, 2.0, 0.0, STEEL);
-        }
-        // The gauge on the first, a filler cap on the second.
-        if i == 0 {
-            local.push(
-                list,
-                KIND_RECT,
-                *u + cyl * 0.3,
-                0.0,
-                3.0,
-                h * 0.5,
-                0.0,
-                0.0,
-                DRAIN,
-            );
-            local.push(
-                list,
-                KIND_RECT,
-                *u + cyl * 0.3,
-                h * 0.08,
-                3.0,
-                h * 0.34,
-                0.0,
-                0.0,
-                GOOD,
-            );
-        } else {
-            local.push(
-                list,
-                KIND_ELLIPSE,
-                *u,
-                h / 2.0 - 8.0,
-                9.0,
-                9.0,
-                0.0,
-                0.0,
-                STEEL,
-            );
-            local.push(
-                list,
-                KIND_ELLIPSE,
-                *u,
-                h / 2.0 - 8.0,
-                4.0,
-                4.0,
-                0.0,
-                0.0,
-                DRAIN,
-            );
-        }
     }
 }
 
@@ -1623,6 +1612,357 @@ fn trading_desk(list: &mut DrawList, part: &PlacedPart) {
             CRATES[3],
         );
     }
+}
+
+// --- the research desk ----------------------------------------------------------
+
+/// The research desk's own colours: the console's blue-grey, its screens
+/// lit in the deck's glow, and the key's slot, a dark well with a brass
+/// rim, on the far side of the console. The part colour is the palette
+/// swatch again.
+const CONSOLE: Color = Color::rgb(0.30, 0.52, 0.62);
+const SCREEN: Color = Color::rgb(0.16, 0.30, 0.38);
+const SCREEN_LIT: Color = Color::rgba(0.38, 0.86, 0.95, 0.85);
+const SLOT: Color = Color::rgb(0.08, 0.09, 0.11);
+const BRASS: Color = Color::rgb(0.80, 0.66, 0.30);
+
+/// The research desk: a console on a table's footprint, worked from the
+/// near side, with two screens lit along it, a keyboard's ledge in
+/// front, and the key's slot let into the top on the far side — a tall
+/// dark well with a brass rim, the shape of the key that goes in it. The
+/// AI lives in the cabinet under it, which is the thing itself.
+fn research_desk(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across - 6.0, along - 6.0);
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 3.0, 0.0, PANEL);
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        0.0,
+        w - 4.0,
+        h - 6.0,
+        2.0,
+        0.0,
+        CONSOLE,
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        0.0,
+        w - 4.0,
+        h - 6.0,
+        2.0,
+        1.0,
+        PANEL_EDGE,
+    );
+    // Two screens along the far edge, each with a lit line or two on it.
+    for (i, u) in [-w * 0.26, w * 0.06].into_iter().enumerate() {
+        local.push(
+            list,
+            KIND_RECT,
+            u,
+            -h / 2.0 + 11.0,
+            22.0,
+            12.0,
+            1.5,
+            0.0,
+            SCREEN,
+        );
+        for (j, dv) in [-3.0f32, 0.0, 3.0].into_iter().enumerate() {
+            let len = if (i + j) % 2 == 0 { 14.0 } else { 9.0 };
+            local.push(
+                list,
+                KIND_RECT,
+                u - (22.0 - len) / 2.0 + 3.0,
+                -h / 2.0 + 11.0 + dv,
+                len,
+                1.2,
+                0.0,
+                0.0,
+                SCREEN_LIT,
+            );
+        }
+    }
+    // The key's slot at the far right, tall and narrow with a brass rim.
+    local.push(
+        list,
+        KIND_RECT,
+        w * 0.36,
+        -h / 2.0 + 12.0,
+        9.0,
+        16.0,
+        1.5,
+        0.0,
+        BRASS,
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        w * 0.36,
+        -h / 2.0 + 12.0,
+        5.0,
+        12.0,
+        1.0,
+        0.0,
+        SLOT,
+    );
+    // The keyboard's ledge on the near side, and a few keys on it.
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        h / 2.0 - 8.0,
+        w - 12.0,
+        7.0,
+        1.0,
+        0.0,
+        PANEL_EDGE,
+    );
+    for i in 0..6 {
+        let u = -w * 0.3 + i as f32 * w * 0.12;
+        local.push(list, KIND_RECT, u, h / 2.0 - 8.0, 4.0, 3.0, 0.5, 0.0, STEEL);
+    }
+}
+
+// --- the fusion reactor -----------------------------------------------------------
+
+/// The fusion reactor's plasma: blue-white where the fission reactor's
+/// core is amber.
+const PLASMA: Color = Color::rgb(0.55, 0.78, 0.92);
+const PLASMA_CORE: Color = Color::rgb(0.90, 0.97, 1.0);
+
+/// The fusion reactor: the fission reactor's vessel writ large across
+/// three tiles — a panelled block with hazard stripes down both long
+/// edges, a ring of eight field coils round a well, and the plasma in
+/// it, blue-white — so the two read as the same kind of machine and not
+/// the same machine.
+fn fusion_reactor(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across - 6.0, along - 6.0);
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 6.0, 0.0, PANEL);
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 6.0, 1.5, PANEL_EDGE);
+    for u in [-w / 2.0 + 6.0, w / 2.0 - 6.0] {
+        for i in 0..7 {
+            let v = -h / 2.0 + 10.0 + i as f32 * (h - 20.0) / 6.0;
+            local.push(list, KIND_RECT, u, v, 7.0, 7.0, 0.0, 0.0, STRIPE);
+        }
+    }
+    let d = w.min(h) * 0.76;
+    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 0.0, PANEL_LIT);
+    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 2.5, PANEL_EDGE);
+    // Eight field coils round the ring.
+    for i in 0..8 {
+        let a = i as f32 * core::f32::consts::FRAC_PI_4;
+        let (u, v) = (a.cos() * d * 0.44, a.sin() * d * 0.44);
+        local.push(list, KIND_ELLIPSE, u, v, 10.0, 10.0, 0.0, 0.0, STEEL);
+        local.push(list, KIND_ELLIPSE, u, v, 5.0, 5.0, 0.0, 0.0, PANEL_EDGE);
+    }
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.66,
+        d * 0.66,
+        0.0,
+        0.0,
+        DRAIN,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.5,
+        d * 0.5,
+        0.0,
+        0.0,
+        PLASMA.alpha(0.6),
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.3,
+        d * 0.3,
+        0.0,
+        0.0,
+        PLASMA,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.14,
+        d * 0.14,
+        0.0,
+        0.0,
+        PLASMA_CORE,
+    );
+}
+
+// --- the hyperdrive ---------------------------------------------------------------
+
+/// The hyperdrive's violet, the far end of the exhaust: the palette swatch.
+const HYPER: Color = Color::rgb(0.62, 0.42, 0.86);
+const HYPER_CORE: Color = Color::rgb(0.90, 0.84, 1.0);
+
+/// The hyperdrive: a housing like the reactor's, six field coils round a
+/// ring, and a core that is the violet of the exhaust's tail — the
+/// reactor's shape in another colour, since it is the reactor's other
+/// customer. The picture only; whether it is bolted to an engine is the
+/// validator's, and the checks panel says so.
+fn hyperdrive(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across - 6.0, along - 6.0);
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 5.0, 0.0, PANEL);
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 5.0, 1.5, PANEL_EDGE);
+    let d = w.min(h) * 0.72;
+    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 0.0, PANEL_LIT);
+    local.push(list, KIND_ELLIPSE, 0.0, 0.0, d, d, 0.0, 2.0, PANEL_EDGE);
+    for i in 0..6 {
+        let a = i as f32 * core::f32::consts::FRAC_PI_3;
+        let (u, v) = (a.cos() * d * 0.42, a.sin() * d * 0.42);
+        local.push(list, KIND_ELLIPSE, u, v, 8.0, 8.0, 0.0, 0.0, STEEL);
+        local.push(list, KIND_ELLIPSE, u, v, 4.0, 4.0, 0.0, 0.0, HYPER);
+    }
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.56,
+        d * 0.56,
+        0.0,
+        0.0,
+        DRAIN,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.4,
+        d * 0.4,
+        0.0,
+        0.0,
+        HYPER.alpha(0.7),
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        d * 0.18,
+        d * 0.18,
+        0.0,
+        0.0,
+        HYPER_CORE,
+    );
+}
+
+// --- the lights --------------------------------------------------------------------
+
+/// Lamplight, and the fitting it comes out of.
+const LAMPLIGHT: Color = Color::rgb(1.0, 0.92, 0.70);
+const FITTING: Color = Color::rgb(0.30, 0.32, 0.36);
+
+/// A wall light: a bracket along the top of its tile with the lamp on it
+/// and a warm halo over the deck below. It hangs from whatever wall is at
+/// its back; the picture is the same whichever side that is, since the
+/// part has no rotation worth reading.
+fn wall_light(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        w * 1.6,
+        h * 1.6,
+        0.0,
+        0.0,
+        LAMPLIGHT.alpha(0.10),
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        -h * 0.32,
+        w * 0.6,
+        6.0,
+        2.0,
+        0.0,
+        FITTING,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        -h * 0.2,
+        w * 0.42,
+        h * 0.22,
+        0.0,
+        0.0,
+        LAMPLIGHT,
+    );
+}
+
+/// A standing light: a pole on a round base with the lamp head over it,
+/// and the halo of it on the deck.
+fn standing_light(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        w * 1.8,
+        h * 1.8,
+        0.0,
+        0.0,
+        LAMPLIGHT.alpha(0.12),
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        h * 0.28,
+        w * 0.5,
+        h * 0.28,
+        0.0,
+        0.0,
+        FITTING,
+    );
+    local.push(list, KIND_RECT, 0.0, 0.0, 4.0, h * 0.6, 0.0, 0.0, STEEL);
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        -h * 0.3,
+        w * 0.44,
+        w * 0.44,
+        0.0,
+        0.0,
+        LAMPLIGHT,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        -h * 0.3,
+        w * 0.44,
+        w * 0.44,
+        0.0,
+        1.5,
+        FITTING,
+    );
 }
 
 // --- sandbags ----------------------------------------------------------------------

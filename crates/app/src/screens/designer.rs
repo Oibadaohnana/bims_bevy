@@ -29,10 +29,12 @@ use world::Speed;
 use world::world::Command;
 
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui, zoom_factor};
-use crate::crew::GearOrder;
+use crate::crew::{GearOrder, ResearchOrder};
 use crate::format::euros;
 use crate::names::*;
+use crate::settings::{Sheet, settings_sheet};
 use crate::shapes::View;
+use crate::sound::Sounds;
 use crate::{Screen, theme};
 
 use super::builder::Settings;
@@ -116,6 +118,15 @@ pub enum Order {
     /// hold is the world's, so even putting a helm on goes through the
     /// seam — every player's ship has to agree about where each piece is.
     Gear(GearOrder),
+    /// The AI put onto a node, taken off, or a key consumed at the desk:
+    /// what the crew know is the world's, so it goes through the seam too.
+    Research(ResearchOrder),
+    /// The Management tab's tick box: combine matching gear at the
+    /// workbench, or stop. The hold is the world's, so it is a command.
+    AutoUpgrade(bool),
+    /// Charge the hyperdrive for a jump to a star picked on the galaxy
+    /// chart. From the helm, like a trip.
+    Jump(u32),
 }
 
 /// What the other end said about a message.
@@ -236,6 +247,7 @@ impl Net {
                     game.send(match order {
                         Order::Fly(target) => Command::Confirm { slot, target },
                         Order::Stop => Command::Abort { slot },
+                        Order::Jump(star) => Command::Jump { slot, star },
                         Order::Speed(speed) => Command::SetSpeed { slot, speed },
                         Order::Deal {
                             resource,
@@ -301,6 +313,20 @@ impl Net {
                             who,
                             resident,
                         },
+                        Order::Gear(GearOrder::Execute { who, resident }) => Command::Execute {
+                            slot,
+                            who,
+                            resident,
+                        },
+                        Order::Gear(GearOrder::TakeKey { who }) => Command::TakeKey { slot, who },
+                        Order::Research(ResearchOrder::Begin(node)) => {
+                            Command::Research { slot, node }
+                        }
+                        Order::Research(ResearchOrder::Cancel) => Command::CancelResearch { slot },
+                        Order::Research(ResearchOrder::Unlock(node)) => {
+                            Command::Unlock { slot, node }
+                        }
+                        Order::AutoUpgrade(on) => Command::SetAutoUpgrade { slot, on },
                     });
                 }
                 0
@@ -319,8 +345,8 @@ pub struct DesignerScreen {
     said: Option<(String, f64)>,
     /// A middle-drag, panning: where the pointer was last.
     pan_from: Option<Vec2>,
-    /// Whether the settings sheet is up.
-    pub sheet: bool,
+    /// The Esc sheet, if it is up, and which page.
+    pub sheet: Option<Sheet>,
     size: Vec2,
     /// Why there is nowhere to start, on the lost screen.
     lost: String,
@@ -354,7 +380,7 @@ fn open(
             },
             said: None,
             pan_from: None,
-            sheet: false,
+            sheet: None,
             size: Vec2::ZERO,
             lost: "The lobby did not say which station to start at.".into(),
         });
@@ -389,7 +415,7 @@ fn open(
         },
         said: None,
         pan_from: None,
-        sheet: false,
+        sheet: None,
         size: Vec2::ZERO,
         lost,
     });
@@ -430,6 +456,7 @@ fn frame(
     mut session: ResMut<ShipSession>,
     mut next: ResMut<NextState<Screen>>,
     time: Res<Time>,
+    mut sounds: ResMut<Sounds>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -468,14 +495,19 @@ fn frame(
         .default_size(200.0)
         .show(&mut root, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
+                // Only what a crew knows how to build at the start: the yard
+                // builds what the crew can ask for, and a smelter or an
+                // armoury is researched in the game — `shipdesign::research`.
+                let known = shipdesign::research::Research::new();
+                let offered = |k: &u32| {
+                    (*k as usize) < PartKind::ALL.len()
+                        && !NOT_A_TOOL.contains(k)
+                        && PartKind::from_code(*k).is_some_and(|kind| known.part_allowed(kind))
+                };
                 let mut placed: Vec<u32> = Vec::new();
                 let mut groups: Vec<(&str, Vec<u32>)> = Vec::new();
                 for (name, kinds) in PART_GROUPS {
-                    let kinds: Vec<u32> = kinds
-                        .iter()
-                        .copied()
-                        .filter(|k| (*k as usize) < PartKind::ALL.len() && !NOT_A_TOOL.contains(k))
-                        .collect();
+                    let kinds: Vec<u32> = kinds.iter().copied().filter(offered).collect();
                     if kinds.is_empty() {
                         continue;
                     }
@@ -485,7 +517,7 @@ fn frame(
                 // Whatever the enum has that the groups above have not. Empty
                 // in a healthy build; a heading nobody meant to see is the point.
                 let rest: Vec<u32> = (0..PartKind::ALL.len() as u32)
-                    .filter(|k| !placed.contains(k) && !NOT_A_TOOL.contains(k))
+                    .filter(|k| !placed.contains(k) && offered(k))
                     .collect();
                 if !rest.is_empty() {
                     groups.push(("Anything else", rest));
@@ -613,7 +645,7 @@ fn frame(
     }
     let pointer = Pointer::read(&ctx);
     let on_grid = pointer.on(canvas);
-    let keys = !ctx.egui_wants_keyboard_input() && !screen.sheet;
+    let keys = !ctx.egui_wants_keyboard_input() && screen.sheet.is_none();
 
     // Left drags place, right drags clear, middle drags pan.
     if let Some(p) = on_grid {
@@ -669,7 +701,7 @@ fn frame(
             }
             if i.key_pressed(egui::Key::Escape) {
                 session.editor.drag_cancel();
-                screen.sheet = true;
+                screen.sheet = Some(Sheet::Menu);
             }
             let step = PAN_SPEED * dt;
             let mut d = Vec2::ZERO;
@@ -689,8 +721,8 @@ fn frame(
                 session.pan(d.x, d.y);
             }
         });
-    } else if screen.sheet && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        screen.sheet = false;
+    } else if screen.sheet.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        screen.sheet = None;
     }
 
     // --- the readout ---------------------------------------------------------
@@ -750,9 +782,7 @@ fn frame(
                 .color(theme::MUTED),
             );
         });
-    if screen.sheet {
-        settings_sheet(&ctx, &mut screen.sheet);
-    }
+    settings_sheet(&ctx, &mut screen.sheet, &mut sounds.mix);
 
     // --- painting --------------------------------------------------------------
     let view = View {
@@ -853,11 +883,6 @@ pub fn trade_rows(
 ) -> Option<(u32, u32, bool)> {
     let mut deal = None;
     let left = session.remaining();
-    let reserved_fuel = session
-        .game
-        .as_ref()
-        .map(|g| g.world.ship.reserved_fuel)
-        .unwrap_or(0);
     egui::Grid::new(("goods", enabled))
         .num_columns(4)
         .spacing([8.0, 2.0])
@@ -870,12 +895,6 @@ pub fn trade_rows(
                     .storage_capacity(class)
                     .saturating_sub(session.storage_used(class));
                 let price = Session::trade_price(id);
-                // Fuel held against a trip under way is not the crew's to sell.
-                let reserved = if id == ResourceId::Fuel {
-                    reserved_fuel
-                } else {
-                    0
-                };
                 let color = if sold { theme::INK } else { theme::MUTED };
                 ui.label(egui::RichText::new(resource_name(id)).color(color));
                 ui.label(
@@ -900,7 +919,7 @@ pub fn trade_rows(
                         }
                     }
                     for step in TRADE_STEPS {
-                        let can = enabled && step <= held.saturating_sub(reserved);
+                        let can = enabled && step <= held;
                         if ui
                             .add_enabled(can, egui::Button::new(format!("−{step}")).small())
                             .clicked()
@@ -974,63 +993,4 @@ fn issue_rows(ui: &mut egui::Ui, session: &Session) -> Option<usize> {
         ui.label(egui::RichText::new("Nothing wrong with it.").color(theme::ACCENT));
     }
     focus
-}
-
-/// The settings — the one there is, the UI scale — and every key,
-/// explained, on one sheet. Escape opens it and Escape or the button
-/// closes it.
-pub fn settings_sheet(ctx: &egui::Context, open: &mut bool) {
-    egui::Window::new("Settings and keys")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-        .show(ctx, |ui| {
-            let table = |ui: &mut egui::Ui, title: &str, rows: &[(&str, &str)]| {
-                theme::heading(ui, title);
-                egui::Grid::new(title).num_columns(2).spacing([12.0, 2.0]).show(ui, |ui| {
-                    for (key, what) in rows {
-                        ui.label(egui::RichText::new(*key).strong());
-                        ui.label(*what);
-                        ui.end_row();
-                    }
-                });
-            };
-            theme::heading(ui, "UI scale");
-            theme::ui_scale_row(ui);
-            ui.add_space(4.0);
-            table(ui, "At the helm", &[
-                ("M", "Switch between the ship and the map."),
-                ("N", "Turn the view head up or north up."),
-                ("F", "Follow the crew member you steer, or let the camera go free."),
-                ("Space", "Pause the world, or set it going again."),
-                ("1 2 3 4", "Run the world at 1×, 3×, 10× or the top speed."),
-                ("W A S D", "Pan the view. Middle-drag does the same. A free camera goes anywhere; one following the crew stops at the edge."),
-                ("Wheel", "Zoom, about the pointer."),
-                ("Take the helm", "Send the crew member you steer to the helm. The ship is flown from there: nothing can be aimed at or confirmed until they are standing at it."),
-                ("Click the map", "Aim at a planet or a station; the helm quotes the trip, and Confirm sends the ship. At a station, the crew all come back aboard first and the ship casts off once they have."),
-            ]);
-            table(ui, "On the deck", &[
-                ("C", "Select the crew member you steer, and put them in the middle of the view."),
-                ("Drag", "Select whoever is inside the box."),
-                ("Right-click the deck", "Send the selected crew member there."),
-                ("Right-click a fixture", "Open its menu."),
-                ("R", "Recruit the crew member you steer, or let them go."),
-            ]);
-            table(ui, "Building", &[
-                ("Build tab", "Pick a part by category, or search for one. The crew carry what it is made of from the shelves and build it; a site beyond the hull is built in a suit."),
-                ("Click", "Lay the part in hand out where the pointer is. Green goes; red says why not at the top left."),
-                ("R", "Turn the part in hand."),
-                ("Right-click, Esc", "Put the part down."),
-            ]);
-            table(ui, "In the yard", &[
-                ("Drag", "Lay the chosen part over every tile of the box."),
-                ("Right-drag", "Take the top part off every tile of the box."),
-                ("R", "Turn the part you are about to place."),
-            ]);
-            table(ui, "Anywhere", &[("Esc", "Close a menu, stop aiming, or open and close this sheet.")]);
-            ui.add_space(8.0);
-            if ui.button("Close").clicked() {
-                *open = false;
-            }
-        });
 }

@@ -9,7 +9,7 @@
 //!
 //! # Why there are events at all, when there is already a state
 //!
-//! A caller that wants to draw a fuel gauge reads the state. A caller that
+//! A caller that wants to draw a power gauge reads the state. A caller that
 //! wants to *say* "docked at Wana 231-4" has to watch for the crossing, and
 //! polling the state for a change misses one that happened and reversed
 //! inside a single update — which at 24x is an ordinary thing for a step to
@@ -98,9 +98,10 @@ pub enum WorldEvent {
     /// landed (`Game::take_wounds_taken`), and this is the world saying
     /// so, once per hit.
     CrewHit { who: u32, part: u32 },
-    /// A crew member is down: dead, or their health at nought. Said the
-    /// step it happens, whatever did it — a shot, blood lost to a wound
-    /// nobody dressed, or the room's own hunger.
+    /// A crew member is dead. Said the step it happens, whatever did it —
+    /// bled out through a wound nobody dressed or a trauma nobody
+    /// treated, or the room's own hunger. A part shot to nothing is not
+    /// this any more: it is `CrewDying`.
     CrewDown { who: u32 },
     /// A crew member put a piece of armour on, out of their pack —
     /// `Command::Equip`. Whatever was worn there is in the pack now. A
@@ -128,20 +129,61 @@ pub enum WorldEvent {
     /// A mercenary was hired — `Command::Hire` — and is crew member `who`
     /// now, the first month paid. See `crate::mercenary`.
     Hired { who: u32 },
+    /// A crew member finished off one of a hostile station's people
+    /// lying out cold — `Command::Execute` — and it is dead. `who` did it,
+    /// `resident` the body.
+    Executed { who: u32, resident: u32 },
     /// A hired mercenary's month came round and was paid, `fee` euros.
     MercenaryPaid { who: u32, fee: u64 },
     /// A hired mercenary went unpaid — the month came round and the
     /// crew's money would not cover it — and left at the dock, or is
     /// waiting to. Said once a month owed.
     MercenaryLeft { who: u32 },
+    /// A hit took a crew member's part to nothing and they are **dying**:
+    /// in the state `trauma` — `bims::health::Trauma`'s code — until a
+    /// crewmate treats it with a medkit. Said the step it happens, off the
+    /// room's `take_traumas`, one per trauma; the room applied it the step
+    /// the bolt landed, the way `CrewHit` is said.
+    CrewDying { who: u32, trauma: u32 },
+    /// A crewmate's medkit took a crew member out of the dying state
+    /// `trauma`. Whatever it leaves behind is on the body now.
+    CrewTreated { who: u32, trauma: u32 },
+    /// A crew member took the research key off a station's research
+    /// desk — `Command::TakeKey`. It is in their pack now, and the desk
+    /// is bare.
+    KeyTaken { who: u32 },
+    /// A research key was consumed at the crew's research desk and node
+    /// `node`'s lock is open — `Command::Unlock`. See
+    /// `shipdesign::research`.
+    Unlocked { node: u32 },
+    /// The AI was put onto a node of the research tree —
+    /// `Command::Research`; `node` is `shipdesign::research::Node`'s code.
+    ResearchBegun { node: u32 },
+    /// The AI finished a node: what it gates can be built and made now.
+    Researched { node: u32 },
+    /// Two of a kind at the same tier went onto the workbench, out of the
+    /// hold, to become one of tier `tier` — `World::upgrade`; `resource`
+    /// is what they count as in the hold, as a `ResourceId` code.
+    UpgradeBegun { resource: u32, tier: u32 },
+    /// The upgrade came off the workbench into the hold: one `resource` at
+    /// `tier`.
+    Upgraded { resource: u32, tier: u32 },
+    /// The hyperdrive began charging for a jump to `star`, on `slot`'s
+    /// order — see `crate::jump`.
+    Charging { slot: u32, star: u32 },
+    /// The ship is in another system: the one round `star`, in empty space.
+    Jumped { star: u32 },
+    /// The charge ran out with no drive to fire: it was taken off or
+    /// browned out in the meantime. The ship is where it was, holding.
+    JumpFailed,
 }
 
 /// Why a command did nothing.
 ///
 /// Separate from [`PlanError`] on purpose: these are about *whether the
 /// command was allowed*, and those are about whether the trip could be flown.
-/// A player who is told "not enough fuel" when what actually happened is
-/// "you are not docked" will go and buy fuel.
+/// A player who is told "no forward engine" when what actually happened is
+/// "you are not at the helm" will go and build one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 pub enum Refusal {
@@ -152,9 +194,9 @@ pub enum Refusal {
     Unaffordable = 2,
     /// Nowhere aboard to stow it.
     NoRoomAboard = 3,
-    /// Selling more than is aboard, or more than is not spoken for: fuel held
-    /// against a trip under way is not fuel anybody may sell. And, since the
-    /// pack, the thing asked for not being there at all: a fetch of a piece
+    /// Selling more than is aboard, or more than is not spoken for by the
+    /// construction sites. And, since the pack, the thing asked for not
+    /// being there at all: a fetch of a piece
     /// the hold has not got, a stow or an equip of an empty cell, a stack
     /// where a piece was wanted.
     NotAboard = 4,
@@ -213,6 +255,34 @@ pub enum Refusal {
     /// A buy or a sell by a player whose crew member is not at the
     /// station's trading desk — see `World::at_the_desk`.
     NotAtTheDesk = 21,
+    /// A take of a key off a desk with none on it, or an unlock with no
+    /// key in the crew's own desk.
+    NoKey = 22,
+    /// Research, or an unlock, with no research desk aboard, or one that is
+    /// not powered: the AI runs on it.
+    NoResearchDesk = 23,
+    /// Research of a node that cannot be begun: done already, wanting
+    /// something not yet researched, or behind a lock still shut — and an
+    /// unlock of a node with no lock, or one open already.
+    NotResearchable = 24,
+    /// A site for a part the crew do not know how to build yet — see
+    /// `shipdesign::research`.
+    NotResearched = 25,
+    /// An execution at a station that is not an enemy's: a downed
+    /// crewmate, a friend's or a stranger's people are never finished off.
+    NotHostile = 26,
+    /// An execution by a crew member with nothing in its hand.
+    Unarmed = 27,
+    /// A jump with no working hyperdrive: none aboard, none bolted to an
+    /// engine, or none on a live network — `shipdesign::hyperdrive::ready`.
+    NoHyperdrive = 28,
+    /// A jump from anywhere but a hold: docked, the rooms are joined and
+    /// the station's people are aboard; under way, the ship is flying.
+    NotHolding = 29,
+    /// A jump to a star the galaxy has not got.
+    NoSuchStar = 30,
+    /// A jump to the star the ship is already at.
+    SameStar = 31,
 }
 
 impl Refusal {
@@ -261,6 +331,18 @@ impl WorldEvent {
             WorldEvent::Hired { .. } => 39,
             WorldEvent::MercenaryPaid { .. } => 40,
             WorldEvent::MercenaryLeft { .. } => 41,
+            WorldEvent::CrewDying { .. } => 42,
+            WorldEvent::CrewTreated { .. } => 43,
+            WorldEvent::KeyTaken { .. } => 44,
+            WorldEvent::Unlocked { .. } => 45,
+            WorldEvent::ResearchBegun { .. } => 46,
+            WorldEvent::Researched { .. } => 47,
+            WorldEvent::UpgradeBegun { .. } => 48,
+            WorldEvent::Upgraded { .. } => 49,
+            WorldEvent::Executed { .. } => 48,
+            WorldEvent::Charging { .. } => 50,
+            WorldEvent::Jumped { .. } => 51,
+            WorldEvent::JumpFailed => 52,
         }
     }
 
@@ -283,6 +365,11 @@ impl WorldEvent {
             // The part in the tens, the person in the units: three parts,
             // and a crew is never ten.
             WorldEvent::CrewHit { who, part } => (who + 10 * part) as i64,
+            // The trauma in the tens the same way: ten of them, and a crew
+            // is never ten.
+            WorldEvent::CrewDying { who, trauma } | WorldEvent::CrewTreated { who, trauma } => {
+                (who + 10 * trauma) as i64
+            }
             // The kind in the tens the same way: three kinds, and a crew
             // is never ten.
             WorldEvent::Equipped { who, kind } | WorldEvent::PieceBroke { who, kind } => {
@@ -290,6 +377,8 @@ impl WorldEvent {
             }
             // The source's kind in the tens, likewise: two kinds.
             WorldEvent::Looted { who, source_kind } => (who + 10 * source_kind) as i64,
+            // The body in the tens, likewise.
+            WorldEvent::Executed { who, resident } => (who + 10 * resident) as i64,
             // The fee in the hundreds: a crew is never a hundred.
             WorldEvent::MercenaryPaid { who, fee } => (who as i64) + 100 * (fee as i64),
             WorldEvent::Health { who, .. }
@@ -297,7 +386,15 @@ impl WorldEvent {
             | WorldEvent::Locked { who }
             | WorldEvent::Hired { who }
             | WorldEvent::MercenaryLeft { who }
+            | WorldEvent::KeyTaken { who }
             | WorldEvent::Stowed { who } => who as i64,
+            WorldEvent::Unlocked { node }
+            | WorldEvent::ResearchBegun { node }
+            | WorldEvent::Researched { node } => node as i64,
+            // The tier in the hundreds: under a hundred resources, and a
+            // tier is never a hundred.
+            WorldEvent::UpgradeBegun { resource, tier }
+            | WorldEvent::Upgraded { resource, tier } => (resource + 100 * tier) as i64,
             WorldEvent::SitePlaced { kind, .. }
             | WorldEvent::SiteCancelled { kind }
             | WorldEvent::Built { kind }
@@ -310,6 +407,9 @@ impl WorldEvent {
             WorldEvent::FrameChanged { frame } => frame.code() as i64,
             WorldEvent::Traded { units, .. } => units,
             WorldEvent::Refused { why, .. } => why.code() as i64,
+            // The star: a galaxy has a thousand, and a slot is never that.
+            WorldEvent::Charging { star, .. } | WorldEvent::Jumped { star } => star as i64,
+            WorldEvent::JumpFailed => 0,
         }
     }
 }

@@ -236,7 +236,7 @@ pool the same way, in whole euros, with overflow an error rather than a wrap.
 
 ### Buying what the ship will live on
 
-Under **Station** on the right is what there is to buy: ore, metal, fuel,
+Under **Station** on the right is what there is to buy: ore, metal,
 components, vegetables and tofu, at a price a unit. Buttons move one, ten or a
 hundred, and selling hands back the whole price — nothing has left the dock,
 so there is nothing to lose on the deal.
@@ -245,9 +245,9 @@ Two things bound a purchase, and the station is neither of them. Supply is
 unlimited and every station charges the same; what refuses an order is **the
 pool** — goods come out of the same money the hull does, so a player who
 spends everything on plating has nothing to load it with — or **the ship**.
-Goods are stowed: food in a cold store, fuel in a tank, everything else on a
-shelf. The readout under the rows is how full each class is, and a ship with
-no tank cannot take fuel at all however much money there is.
+Goods are stowed: food in a cold store, gear in a locker, everything else on
+a shelf. The readout under the rows is how full each class is, and a ship
+with no cold store cannot take food at all however much money there is.
 
 What is bought is aboard from the moment it is bought. It is in the design
 hash, so a purchase clears everybody's Accept the way a wall does; it is in
@@ -257,8 +257,7 @@ for it; and a shelf with something on it cannot be taken off until it is sold.
 ### Everything is made of something, and it weighs what it is made of
 
 Every part has a **recipe** — so many units of metal, so many of components,
-and never ore, fuel or food, which are mined, burnt and eaten rather than
-built with. A part's mass is that recipe added up and there is no other
+and never ore or food, which are mined and eaten rather than built with. A part's mass is that recipe added up and there is no other
 number: a wall is two metal, and two metal is what a wall weighs.
 
 That is what makes construction a **move** rather than a purchase. Take two
@@ -266,8 +265,8 @@ metal out of the hold, put a wall on the frame, and the ship weighs exactly
 what it weighed a moment ago — the materials have changed where they are and
 nothing else. Take the wall off again and all two units come back; there is no
 wastage, no scrap and no scrapping penalty. A ship's mass changes only by
-trading at a station, by burning fuel, by food being eaten or grown, and by
-crew coming aboard or leaving.
+trading at a station, by food being eaten or grown, and by crew coming
+aboard or leaving — nothing is burnt in flight.
 
 None of that is visible yet, because in the design phase there is a station
 outside and everything is bought with money. **Money only works docked** —
@@ -435,7 +434,8 @@ The ship is flown **from the helm**, and the strip across the top of the
 screen is where it is flown from. Open the map with **M** — it keeps
 whatever zoom it was left at — click a planet, a station or a bare point in
 space, and the strip quotes the trip before anybody commits to it: how
-long, how much fuel, and whether it ends docked or holding alongside.
+long, what the engines will draw off the reactor and at what throttle, and
+whether it ends docked or holding alongside.
 Aiming is only looking, from anywhere. **Confirm** is the order, and an
 order wants somebody at the seat: the crew member you steer walks to the
 helm — the strip says so, with a Cancel beside it — and the order goes
@@ -485,22 +485,83 @@ off again on its own. Only the latest confirmed
 target is kept, and the route line on the map is drawn in the colour of
 whoever set it.
 
-### Fuel, and what it is spoken for
+### There is no fuel: the engines run on the reactor
 
-Confirming a trip **reserves** the fuel it will take. Reserved fuel cannot be
-sold and no second trip can be planned against it, so a crew cannot promise the
-same hundred units to two places. It is burnt over the engine phases — an align
-and a flip cost nothing, because thrusters burn nothing — and it comes out of
-the hold when the plan ends. An abort is charged for what was actually burnt:
-the part of the trip that happened, plus the stopping, and the rest of the
-reservation is handed back.
+A ship flies on its **fusion reactor**. A main engine is wired like anything
+else that draws — conduit under it from a reactor — and while it burns it
+draws a thousand a minute (the heavy engine five times that, in proportion
+to its push); a basic reactor makes two and a half thousand, so one feeds
+two engines flat out with five hundred over for the ship's systems. What
+the reactor has over after the day-long draw is what the engines get: more
+engine than that and they run **throttled**, sharing the spare, and the
+ship is slower — the designer says so (`Engines throttled`) and the helm's
+quote says the throttle. An engine on no live conduit pushes nothing at all.
+Nothing comes out of the hold for a trip; what a burn costs is that the
+batteries charge at the surplus less the engines' draw while they are lit,
+and nothing during an align or a flip, because thrusters draw nothing. The
+exhaust is blue — plasma, not a flame — and the reactor glows brighter the
+harder it works, so an engine lighting can be seen at the reactor as well
+as at the stern; the **Electricity** view writes over every drainer what
+it draws, the engines with what they draw at that moment against what they
+would flat out.
+
+### Light, and the dark
+
+A deck no light reaches is **dark**, and in the dark the crew see ten
+tiles. Two lights are built like any part: a **wall light** hangs from a
+bulkhead or the hull (the designer says so if it has no wall at its back)
+and reaches seven tiles, a **standing light** stands anywhere and reaches
+nine; both are always on and draw nothing. A wall stops light the way it
+stops the eye, so a room behind a bulkhead is dark for all the lamps on
+the other side, and the shadow a lamp casts round a table is a shade —
+light, but there. What the crew see is drawn as it is: a smooth cone from
+each of them with the walls' straight edges, the dark shaded where they
+see it, the fog where they do not. The default ship and every station
+come lit; a ship of your own wants lamps, or its corridors are ten tiles
+long to whoever walks them.
+
+### Locking doors, and what the enemy do about it
+
+Every airlock is a door now: right-click one for the same four words a
+bulkhead door has — open, close, lock, unlock — and a locked airlock is a
+wall, to a walk and to the eye. An enemy with nobody it can get to goes
+for the doors: it walks to the nearest locked door it can reach and
+**smashes** it, fifteen seconds for a bulkhead door and thirty for an
+airlock, one body to a door, with a bar over the door saying how long the
+lock has left and a heave heard every couple of seconds; then the lock
+gives and the door opens for it. A dying enemy runs, and it locks the
+door behind it: sealed in, it binds its wounds every ten seconds, and
+once nothing bleeds it unlocks its own door and comes out to fight. The
+crew never smash a door and never seal themselves in — they are yours to
+send. Docked, the station's doors are the same doors on both sides of the
+passage: a lock you set stops the station's people, and a lock they set
+you can lift from the panel.
+
+### The hyperdrive, and the galaxy behind the map
+
+A **hyperdrive** jumps the ship to another star. It is a part like an
+engine — a two-by-two block on deck, wired like anything that draws — and
+it has to be **bolted to a main engine**, block against block, or the
+designer says so and it never fires. It is behind a tier-one research key,
+after fusion power. On the map, **Galaxy view** swaps the system for the
+galaxy the lobby showed: the star the ship is at is ringed in green, and
+the strip lists what its system holds — every planet and station, the
+hostile ones in red. Click another star and the strip lists what *that*
+one holds, and **Jump** charges the drive for it: twenty seconds, holding
+still, away from any berth (docked, the station's people are aboard; under
+way, the ship is flying), and then the ship is in that system, in empty
+space, pointing the way it was, with only what its own sensors reach on
+the chart. Nothing of the old system comes along — its stations, its
+people, its mining site — and everything of the ship's does. Abort during
+the charge leaves the ship where it was. **System view** puts the map back.
 
 ### The reactor, the batteries and the brownout
 
 Every step, what the wired reactors made less what the wired consumers drew
-goes into the batteries, and the **Power** line on the ship panel says so:
-so much drawn of so much made, and what the batteries have of what they
-hold. A battery on the run arrives empty and fills at the surplus; one
+— and less what the engines are drawing, under a burn — goes into the
+batteries, and the **Power** line on the ship panel says so: so much drawn,
+so much to the engines, of so much made, and what the batteries have of
+what they hold. A battery on the run arrives empty and fills at the surplus; one
 taken off takes what was in it. A ship drawing more than it makes drains
 its batteries at the difference, and when they are flat it **browns out**:
 everything optional stops — the bay, the cold store, and the workshops
@@ -523,11 +584,14 @@ hour — and, out of metal alone or metal and a galvum, the three pieces of
 **armour** (see *Armour* under *What the ship will make*). Galvum is the rare one — only a mining outpost sells it, and only one
 asteroid in ten has it in its core — and the emitter is what the interesting parts will be made of: a turret, a shield,
 a mining laser. Nobody sells an emitter. The **armoury** makes the handgun,
-the three other guns and the schword (below), the vest and the medkit, and
-the **drug lab** turns two **fibre**
-into one **bandage** in a quarter of an hour — fibre being the one crop
-the bay grows that nobody eats, and a bandage the one thing made aboard
-that the crew already use, on each other.
+the three other guns and the schword (below) and the vest, and the
+**drug lab** turns two **fibre** into one **bandage** in a quarter of an
+hour — fibre being the one crop the bay grows that nobody eats, and a
+bandage the one thing made aboard that the crew already use, on each other
+— and two vegetables and a component into a **medkit**. Medicine is made
+from the first day; most of the rest has to be **researched** first, by
+the ship's AI — see [Research](#research) — and a bench aboard a ship
+whose crew have not researched what it does stands idle.
 
 What turns a recipe into an errand is a **target**: on the items panel,
 every row for something the benches can make carries a *keep so many*
@@ -546,10 +610,52 @@ other three benches make weighs exactly what went into it — a bandage is
 two fibre's worth. Every bench draws power, and every one stops in a
 brownout.
 
+### Research
+
+**Research is done by the ship's AI**, at the **research desk** — a
+console on a table's footprint, worked from the tile below, drawing ten —
+because the humans aboard have stopped being able to. The **Research** tab
+at the bottom left is the tree: the nodes as boxes, what is known on the
+left and what waits on it to the right, a line from each to what it
+needs. A crew sets out knowing everything a crew needs to live and to fly
+— the hull, the galley, the heads, the bunks, the hydroponic bay, the
+fission reactor, the helm and the engines — and knowing how to **mine**
+(the suit locker and the suit) and how to make **medicine** (the drug lab,
+its bandage and its medkit), so all three are possible from the first day.
+The rest is researched: **smelting** (the smelter), the **workshop** (the
+workbench and its components), **fusion power** (a **fusion reactor** that
+makes 3 500 a minute in a three-by-three block, thirty times the fission
+one), and then, behind a **lock**, the **armoury** (the bench, every weapon
+and the three pieces of armour) and **emitters**. Click a node for what it
+opens and to put the AI onto it; it works through the node on the clock,
+hours for the workshop nodes and a day for the reactor, as long as the
+desk has power, and stops if the power goes. A part the crew do not know
+is not on the Build tab and not in the designer's palette, and a recipe
+they do not know is greyed on the Management tab, so a playtest ship's
+smelter smelts nothing until smelting is known.
+
+The lock is opened with a **research key**: an artifact, sold nowhere and
+made nowhere, that sits on the research desk of **four friendly stations
+in five** — the one you set out from always has one — **lit up**, a ring
+of lights round the desk that pulse while the key is there, so it can be
+seen from the door. Right-click the station's desk and **Take the
+research key** walks the crew member you steer over and takes it into
+their pack, where it is **two cells tall**: a pack with no two free cells
+one over the other cannot take it. Carry it home, store it from the pack
+into the ship's own research desk (a click on the desk opens its
+window, one slot the key's exact size) and on the Research tab **Consume
+the key**: the key is gone and tier one's lock is open for good — both
+locked nodes at once, since the key opens the tier, not a node. There
+are three tiers to come; the second's key will be bigger, want a bigger
+desk, and want a tier-one key as well, which is where the progression
+goes. A key a station buys back for five thousand euros if you have no
+use for it, and a key taken is a key gone: the desk stays bare.
+
 ### Mining, on foot
 
 Ore is dug out of asteroids by a Bim in a **pressure suit** with a pick,
-and the outside is a place. Hold station at an asteroid belt and the belt
+and the outside is a place. Hold station at an asteroid belt — fly to it,
+and the trip ends short of it, alongside — and the belt
 becomes a **mining site**: a field of eight to twelve asteroids laid out
 round the ship on the ship's own tile grid, close in — the nearest a few
 tiles off the hull — so that a walk to the rock is minutes. Every asteroid
@@ -590,6 +696,10 @@ as fits — and the log says what the walk brought when the Bim comes in.
 Rock is cargo like anything else, heavy and worth two euros a unit at any
 station, and nobody sells it. The site remembers: a tile mined is gone
 for good, and coming back to the belt finds the field as it was left.
+**Nothing stands at a belt**: no station hangs off one, so a belt is the
+ship's alone when it gets there — the mining outposts, which used to be
+bolted to the belts, are dug into rocky planets and ice worlds instead,
+and are still the one place that sells galvum.
 
 There is no air gauge. What bounds a walk is **radiation**: the suit lets a
 quarter of the open dose through, and the dose comes off at half a minute
@@ -670,9 +780,15 @@ lobby's chart showed is on the map from the first step, drawn as what it is —
 a rocky world with its continents, a gas giant with its bands and ring, an
 ice world under glare, a belt of rocks; an orbital wheel, a refinery's tanks
 and stack, a mining rig in its rubble, a broken derelict, a relay's dish — on
-faint rings that show their orbits. Click one and the helm quotes the trip;
-Confirm sends the ship. A planet you are alongside is drawn under the hull
-in the ship view, as the ground.
+faint rings that show their orbits. **You are the reticle**: the ship is
+the map's origin, drawn as a little hull pointing where it points, inside
+a breathing cyan ring with a tick at each compass point that sits over
+every icon — a docked ship is on top of its station's, and the ring is
+wider than the station's — with *You · Docked · the station*, *You ·
+Alongside the belt* or *You · Open space* written over it in your own
+colour, the way the galaxy chart tags your star. Click one and the helm
+quotes the trip; Confirm sends the ship. A planet you are alongside is
+drawn under the hull in the ship view, as the ground.
 
 A **station is a place**, not an icon: every one in the system is a hull on
 a grid of its own — forty-eight to sixty-four tiles across by kind, laid
@@ -687,12 +803,12 @@ with its bays, the rec room and the research room, the storage and the
 cargo shelves, each behind a bulkhead with a two-tile doorway, the outer
 rooms opening through the inner. A barricade of **sandbags** stands
 across three of each corridor's five tiles a few tiles out from the hub —
-cover to fight from, the gap past it on alternate sides. The seed decides
+cover to crouch behind, and low enough to walk and shoot over. The seed decides
 how many bays, shelves, tables and batteries; a bigger station gets more
 of each. Bulkheads and doors, the helm, the shelves and the shower
 are drawn as themselves rather than as coloured blocks, in the room's
 palette, so a station reads as a building and a ship as a ship — and so
-are the reactor, the fuel tank, the battery and life support.
+are the reactor, the battery and life support.
 
 **A door in a bulkhead is a powered door**, two tiles along the bulkhead
 and one deep — the whole of a doorway the crew can walk — and turned with
@@ -774,9 +890,9 @@ middle of the screen and the cross, Escape or casting off shuts it — and
 what is *on* it is two rules deep. The kind's is the ceiling: galvum only
 at a mining outpost, an emitter nowhere, rock nowhere, nothing at a
 derelict — there is nobody aboard to sell it. Under that each station keeps
-a shelf of its own, rolled off its seed: ore, metal, fuel and both foods
-are on every one, because a station where the crew can buy no fuel and
-nothing to eat is a trap, and each of the rest — components, suits,
+a shelf of its own, rolled off its seed: ore, metal and both foods are on
+every one, because a station where the crew can buy nothing to build with
+and nothing to eat is a trap, and each of the rest — components, suits,
 medkits, an outpost's galvum, an orbital's fibre, a bandage at an orbital
 or a refinery — is there or not, so two refineries stock
 different things and there is a reason to fly to the other one. A row the
@@ -934,9 +1050,8 @@ Built, and the outside is a place now: *Mining, on foot* under the game.
 
 Built, as far as the making goes. The **armoury** is a bench and a locker in
 one: two components and an emitter make a **laser handgun** in three
-quarters of an hour, four metal and two components a **vest**, two
-vegetables and a component a **medkit** — and, since the fight grew four
-more weapons, metal and components with or without an emitter make the
+quarters of an hour, four metal and two components a **vest** — and,
+since the fight grew four more weapons, metal and components with or without an emitter make the
 **shotgun**, the **auto rifle**, the **sniper rifle** and the **schword**
 (*Combat mode* under the game says what each does) — and it holds eight
 of them beside the suits. Set a target for a handgun with galvum aboard and the benches
@@ -945,11 +1060,14 @@ is not on offer until there is an emitter, and an emitter is not until
 there are components. Nobody sells a handgun or a vest; a medkit is on
 every lived-in station's shelf. Beside it stands the **drug lab**, the
 fourth bench: two **fibre** — a crop, grown in the bay — make a
-**bandage** in a quarter of an hour, and a bandage is the one thing made
+**bandage** in a quarter of an hour, two vegetables and a component a
+**medkit** (the armoury's until research came in, since medicine is made
+from the first day and the armoury is researched), and a bandage is the one thing made
 aboard that a Bim already *does* something with: it closes the wounds on
-one part of a body (see *Getting hurt* under the game). What a Bim does
+one part of a body (see *Getting hurt* under the game), and a medkit is
+the other — it is what gets a Bim out of a dying state. What a Bim does
 with a handgun is the fight, below — the boarding half of it; what it
-does with a vest or a medkit is still nothing.
+does with a vest is still nothing.
 
 ### Armour
 
@@ -1648,7 +1766,7 @@ you have to undo before you can use anything.
 | **Making things** | working a bench the manager has an order for |
 | **Mining outside** | a walk out to the belt in a suit |
 | **Building** | putting a laid-out part together once its materials are there |
-| **Medical** | dressing a wound — its own, or a crewmate's — with a bandage |
+| **Medical** | treating a crewmate's dying state with a medkit, and dressing a wound — its own, or a crewmate's — with a bandage |
 
 The colour of the box says what the number means without anybody having to
 remember which end is which: warm at the top of the list, cold at the bottom,
@@ -1670,8 +1788,11 @@ was laid out and a patient wherever it fell. Nothing pops up and nothing is
 said — see [A highlight is not a tooltip](#what-the-pointer-is-over).
 
 **Medical is the one row that can interrupt.** It is on offer while somebody
-aboard is bleeding and there is a bandage to hand — the Bim's own wounds
-first, else the crewmate with the most open, and that one's worst part — and at
+aboard is dying and there is a medkit to hand — the nearest crewmate in a
+dying state, its worst trauma first; never the Bim's own, since nobody
+treats their own — or bleeding and there is a bandage to hand — the Bim's
+own wounds first, else the crewmate with the most open, and that one's
+worst part — and at
 any number from 2 to 5 it waits its turn like the rest, though among equals a
 wound is dressed before the blood under it is swept up. Set it to **1** and it
 is urgent: a Bim drops whatever it is on the moment there is a wound to dress,
@@ -1679,7 +1800,8 @@ the errand going onto the queue the way a meal would push it, and picks it back
 up when the hands come off. Set it to **never** and nobody doctors of their own
 accord; your own bandage orders from the inventory or the menu on a body still
 work. A patient nobody can walk to, or one somebody is already walking over to
-dress, is not offered.
+dress, is not offered. A patient somebody is walking over to holds still
+for them.
 
 ### What it actually changes
 
@@ -1951,10 +2073,16 @@ Two things a corridor fight turns on. **Peeking exposes the peek.** A Bim
 that aims from the peek beside a wall leans out to it, and that is where
 the enemy shoots at — but it is in cover, and a bolt reaching a body that
 is peeking is **dodged half the time** and flies on. The same for the
-enemy peeking at the crew. A line of **sandbags** is a wall a tile
-wide for this: stand beside one and you peek round its end with the same
-half of the shots missing, and every station's corridors have a
-barricade of them; a ship can build them too, under Structure. **A blade at your throat is a melee.** A Bim
+enemy peeking at the crew. A line of **sandbags** is **low cover**: a
+body can walk over it and see over it, but standing close behind it —
+the tile next to it, on the far side from the shooter — half the bolts
+coming over it miss, the same as a peek; a bot picks such a spot to
+shoot from, and every station's corridors have a barricade of them; a
+ship can build them too, under Structure. **Walking halves your aim.**
+Every gun shoots on the move at half its odds, so a bot with a shot from
+where it stands stays put and takes it, and walks only for cover or
+when it has no shot at all; a Bim you send across a room fires as it
+goes, at half. **A blade at your throat is a melee.** A Bim
 with a gun that has an enemy with a schword within arm's reach is
 **locked**: it cannot fire, and brawls with its fists instead — twenty
 every two seconds — while the blade lands its thirty-five; a Bim with a
@@ -1970,10 +2098,12 @@ with — so a crew that has been trading and building well finds every
 enemy's dock a bigger fight than a poor one does, up to sixteen. The
 money in hand is not counted, only the ship and its cargo, and a station
 keeps the crowd you reached it with until you have left and come back.
-A crew member down is
-said in the log, and so is every hit. What a hit does to a body, and how
-it is dressed, is [Getting hurt](#getting-hurt); the enemy's people bleed
-the same way, and nobody dresses theirs.
+A crew member dying, treated
+or dead is said in the log, and so is every hit. What a hit does to a
+body, and how it is dressed, is [Getting hurt](#getting-hurt); the
+enemy's people bleed and die the same way — one shot to a dying state
+runs from you — and nobody dresses theirs until the fight is over, when
+the station's own bandages and its one medkit come out.
 
 The moment a Bim is recruited its **inventory** pops up, and the tray's
 **Inventory** tab shows the same for whoever is selected, recruited or not:
@@ -2054,11 +2184,35 @@ A shot lands on one part — one in twenty the head, three in four the body,
 one in five the legs — and takes the weapon's damage *at the distance it
 flew* off that part alone; a blow in a melee, a fist's twenty or a
 schword's thirty-five, lands the same way, on a part rolled where it lands.
-The head or the body at nothing is **death**: a laser pistol's shot is
-more than a head has, so a head shot kills. The legs at nothing is a **leg
-lost**: the Bim goes on, at half its pace, its leg health starts again
-from twenty, and the second time the legs reach nothing there are none
-left and it crawls. The panel says "One leg lost" and "No legs".
+A part at nothing is not death any more: it is a **dying state**, rolled
+for the part the moment it goes, and the panel says it in red under the
+bars — *Dying · skull fracture* — with what it is doing under that. The
+head's three are a **heavy concussion** (a quarter slower walking and
+working), a **skull fracture** (losing ten blood every quarter hour) and
+**cranial trauma** (half as fast, and five blood a quarter hour); the
+body's an **internal bleeding** (ten a quarter hour, and nothing to see),
+**broken ribs** (a quarter slower) and a **severe chest trauma** (five a
+quarter hour, and half pace); the legs' a **fractured femur** (ten a
+quarter hour), a **shattered knee** (it can barely move — a quarter of its
+pace) and, one roll in twenty each, a **crushed right or left leg**: the
+leg is **lost, for ever**, a fifth off its pace for good, and the stump
+bleeds ten a quarter hour. The part stays at nothing and does not mend;
+**only another crew member with a medkit** gets it out (below), and what
+the trauma leaves behind stays a while after: the concussion and the
+ribs a quarter slower for two days, the cranial trauma half as fast for
+a day, the chest trauma at half pace for a day, the knee a quarter slower
+for two. A hit on a part already at nothing opens a wound and nothing
+more. The panel counts the lasting effects down under the bars, and the
+log says *is dying — skull fracture* the moment it happens and *was
+treated* when it is over.
+
+A Bim that is dying **runs from the fight** — the enemy are one place,
+the middle of wherever they all are, and it runs the other way, round a
+wall if it has to, and neither aims nor shoots while it does. Your own
+does it too, whatever you told it, and so does one of the station's
+people you shot to that state; with the enemy gone it stops where it is
+and waits for the medkit. And a body **out cold is nobody's target**:
+nobody aims at one, and a bolt already flying passes over it.
 
 Every hit, wherever it lands, opens a **wound**, and a wound bleeds until
 somebody dresses it: **ten points of blood an hour each**, out of a
@@ -2066,10 +2220,18 @@ hundred, so ten open wounds bleed a Bim out in an hour and one takes ten.
 A schword's cut counts as **three** — it bleeds three times what a shot
 does, and throws blood over the tiles round the body besides — and a
 bandage still closes the lot on a part at once.
-Under half its blood the Bim walks at half pace; under three tenths it is
+Under half its blood the Bim walks at half pace; under **four tenths** it is
 **out cold** — lying where it fell, breathing, doing nothing, its errand
 put back on the queue for when it comes round — until the blood comes back;
-at nothing it is dead. Blood comes back on its own, over two days, once
+at nothing it is dead, which is how a Bim dies now: bled out, through
+wounds nobody dressed or a dying state nobody treated. **Going out cold
+drops the gun**: it lies on the deck beside the fallen figure, and the Bim
+has to pick it back up when it comes round. A crewmate or one of the
+station's people does that on its own — the walk over and a moment bending
+for it, *Picking a weapon up* on the agenda; your own waits to be told:
+right-click the gun and the one row is **Pick up**, into the hand if it is
+empty, else into the pack. A body that dies with its gun on the deck takes
+it back, so looting the body finds it. Blood comes back on its own, over two days, once
 nothing is open. It shows: a dark blotch on the head, the middle of the
 coverall or the boots while that part has a wound open, **blood on the deck**
 under a Bim that is bleeding — a drop every second or so a wound, and a drop is
@@ -2129,6 +2291,20 @@ test room starts with three of its own so `bims room` can try it. The crew
 dress each other **on their own** as well — the **Medical** row on the Work tab
 is that, and at priority 1 it interrupts whatever they are doing; see [Work
 priorities](#work-priorities).
+
+A **medkit** is the other thing, and the only way out of a dying state.
+It is ordered the same two ways — a **Treat** button under the part's
+Bandage one on the inventory, *Treat the head · skull fracture* on the
+menu on a body — and the hands are your Bim's for a crewmate; for your
+own, since **nobody treats their own**, the nearest crewmate that is free
+walks over instead, and the row says who. Twenty minutes with hands on
+the part, *Treating a trauma* on the agenda, the medkit off the hold when
+they come off, and the part starts again from half. The patient holds
+still while the helper walks over. The medkits are the hold's: the
+playtest ship carries two, every lived-in station sells them, and the
+**armoury** makes one out of vegetables and a component; the test room
+starts with two. The crew treat each other on their own too — a dying
+crewmate comes before any wound on the Medical row.
 
 ## Needs, and the day they make
 
@@ -2600,9 +2776,11 @@ steps whichever screen is up and asks it for a flat buffer of shapes; the
 buffer is tessellated into one mesh (`crates/app/src/shapes.rs`) and drawn by
 egui with the panels round it, and the words — names over heads, labels on
 the map, the readouts — go on after. The rules crates hand over numbers and
-shapes and nothing else: no string leaves them, so the native server that
-will one day run the same crates has nothing to say and nothing to disagree
-about. `cargo build` is the whole pipeline.
+shapes and nothing else: no string leaves them, and no sound either — the
+room says a door slid or a shot was fired as a *cue*, and the app owns the
+recording — so the native server that will one day run the same crates has
+nothing to say and nothing to disagree about. `cargo build` is the whole
+pipeline.
 
 ### Eleven crates
 
@@ -2667,6 +2845,8 @@ And in `crates/app/src/`:
 | `crew.rs` | The crew's panels, shared by the room and the game: needs, the sheet, the agendas, the tray, the fixture menus |
 | `names.rs` | Every word on the screen, indexed by the codes the crates hand over |
 | `shapes.rs` | The shape buffer, turned into a mesh |
+| `sound.rs` | Every sound, the way `names.rs` is every word: the room's cues and the world's events played as clips cut from `Sounds/` |
+| `settings.rs` | The Esc sheet: the UI scale, the audio volumes, and the keys |
 | `canvas.rs`, `theme.rs`, `format.rs`, `dev.rs` | The pointer, the palette and widgets, numbers as words, and the smoke run |
 
 ### Getting about

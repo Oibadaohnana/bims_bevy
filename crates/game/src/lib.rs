@@ -20,6 +20,7 @@ pub mod bim;
 pub mod character;
 pub mod clock;
 pub mod combat;
+pub mod cue;
 pub mod dish;
 pub mod door;
 pub mod draw;

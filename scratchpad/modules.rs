@@ -15,6 +15,8 @@ mod character;
 mod clock;
 #[path = "../crates/game/src/combat.rs"]
 mod combat;
+#[path = "../crates/game/src/cue.rs"]
+mod cue;
 #[path = "../crates/game/src/door.rs"]
 mod door;
 #[path = "../crates/game/src/dish.rs"]

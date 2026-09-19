@@ -34,6 +34,23 @@ pub struct Cell {
     pub count: u32,
     /// The tooltip: the name, and the numbers that matter.
     pub tip: String,
+    /// How many rows down the grid it reaches: one for everything but a
+    /// research key, which is two, kept in the upper cell. The cells it
+    /// reaches over are left `None` by the caller, drawn as part of this
+    /// one, and a click on them is a click on this one.
+    pub rows: usize,
+}
+
+impl Cell {
+    /// A cell for an item, as tall as the item is.
+    pub fn new(item: Item, count: u32, tip: String) -> Cell {
+        Cell {
+            item,
+            count,
+            tip,
+            rows: item.rows(),
+        }
+    }
 }
 
 /// What the pointer did to the grid this frame. A cell index is row by
@@ -63,8 +80,20 @@ pub fn grid(
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     let painter = ui.painter_at(rect);
 
+    // The cell a tall item in the row above reaches down into, if one
+    // does: the cell it is kept in.
+    let head_of = |i: usize| -> usize {
+        if i >= cols
+            && let Some(Some(above)) = cells.get(i - cols)
+            && above.rows > 1
+        {
+            return i - cols;
+        }
+        i
+    };
     // Which cell the pointer is in, if it is in one at all and the cell
-    // has something in it.
+    // has something in it — or is reached into by a tall one above it,
+    // which is the same thing.
     let cell_at = |p: Pos2| -> Option<usize> {
         if !rect.contains(p) {
             return None;
@@ -74,10 +103,14 @@ pub fn grid(
         if c >= cols || r >= rows {
             return None;
         }
-        // The gap between cells is nobody's.
+        let i = head_of(r * cols + c);
+        // The gap between cells is nobody's — bar the gap inside a tall
+        // item, which is its own.
+        let tall = cells
+            .get(i)
+            .is_some_and(|cell| cell.as_ref().is_some_and(|c| c.rows > 1));
         let inside = (p.x - rect.min.x) - c as f32 * step <= side
-            && (p.y - rect.min.y) - r as f32 * step <= side;
-        let i = r * cols + c;
+            && ((p.y - rect.min.y) - r as f32 * step <= side || (tall && i != r * cols + c));
         (inside && cells.get(i).is_some_and(|cell| cell.is_some())).then_some(i)
     };
     let hovered = response.hover_pos().and_then(cell_at);
@@ -85,9 +118,18 @@ pub fn grid(
     for r in 0..rows {
         for c in 0..cols {
             let i = r * cols + c;
+            // A cell a tall item reaches into is drawn as part of it.
+            if head_of(i) != i {
+                continue;
+            }
+            let tall = cells
+                .get(i)
+                .and_then(|cell| cell.as_ref().map(|c| c.rows))
+                .unwrap_or(1)
+                .clamp(1, rows - r);
             let cell_rect = Rect::from_min_size(
                 pos2(rect.min.x + c as f32 * step, rect.min.y + r as f32 * step),
-                vec2(side, side),
+                vec2(side, tall as f32 * step - GAP),
             );
             let lit = hovered == Some(i);
             painter.rect(
@@ -104,7 +146,23 @@ pub fn grid(
             let Some(Some(cell)) = cells.get(i) else {
                 continue;
             };
+            // A tiered thing's cell is washed and edged in its tier's
+            // colour — blue at two, gold at three — under the icon.
+            if let Some(tint) = theme::item_tint(cell.item) {
+                theme::tint_cell(&painter, cell_rect, 3.0, tint);
+            }
             let mut icon_rect = cell_rect.shrink(side * INSET);
+            if tall > 1 {
+                // A tall item's icon is drawn as tall as the cell, not
+                // squared off: a key is a tall thing.
+                icon_rect = Rect::from_center_size(
+                    cell_rect.center(),
+                    vec2(
+                        side * (1.0 - 2.0 * INSET),
+                        cell_rect.height() - 2.0 * side * INSET,
+                    ),
+                );
+            }
             if let Item::Armour(piece) = cell.item {
                 // The health left, as a sliver along the bottom: blue while
                 // the piece is whole, red once it is broken.
@@ -113,7 +171,7 @@ pub fn grid(
                     pos2(cell_rect.min.x + 3.0, cell_rect.max.y - BAR - 2.0),
                     pos2(cell_rect.max.x - 3.0, cell_rect.max.y - 2.0),
                 );
-                let max = piece.kind.stats().health.max(1.0);
+                let max = piece.stats().health.max(1.0);
                 theme::bar_in(
                     &painter,
                     bar,

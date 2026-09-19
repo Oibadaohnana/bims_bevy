@@ -117,7 +117,7 @@ pub fn how_many(worth: Money, start_worth: Money, seed: u64) -> u32 {
 /// worn piece's. A body with nothing in its hand is priced as a pistol,
 /// since every mercenary carries at least that.
 pub fn fee_of(gear: &Gear) -> Money {
-    let weapon = gear.weapon.unwrap_or(WeaponKind::LaserPistol);
+    let weapon = gear.weapon.map_or(WeaponKind::LaserPistol, |w| w.kind);
     let mut fee = WEAPON_FEE
         .iter()
         .find(|(kind, _)| *kind == weapon)
@@ -163,22 +163,22 @@ pub fn at_least_for_probe(count: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bims::combat::Piece;
+    use bims::combat::{Piece, Tier};
 
     /// The two prices the user named, and the variance kept within its
     /// bounds every way it can fall.
     #[test]
     fn a_pistol_is_two_thousand_and_a_sniper_in_armour_twenty() {
         let pistol = Gear {
-            weapon: Some(WeaponKind::LaserPistol),
+            weapon: Some(WeaponKind::LaserPistol.basic()),
             ..Gear::default()
         };
         assert_eq!(fee_of(&pistol), 2_000);
         let heavy = Gear {
-            weapon: Some(WeaponKind::SniperRifle),
-            head: Some(Piece::new(1, ArmourKind::BasicHelm)),
-            body: Some(Piece::new(2, ArmourKind::BasicKevlar)),
-            legs: Some(Piece::new(3, ArmourKind::BasicLegs)),
+            weapon: Some(WeaponKind::SniperRifle.basic()),
+            head: Some(Piece::new(1, ArmourKind::BasicHelm, Tier::One)),
+            body: Some(Piece::new(2, ArmourKind::BasicKevlar, Tier::One)),
+            legs: Some(Piece::new(3, ArmourKind::BasicLegs, Tier::One)),
             ..Gear::default()
         };
         assert_eq!(fee_of(&heavy), 20_000);

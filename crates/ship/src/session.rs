@@ -4,7 +4,7 @@
 //! A [`Session`] is what `crates/app` owns for the whole of `ship`'s life —
 //! an [`Editor`] from the first frame, a [`Game`] from the moment everybody
 //! has accepted. Almost every question about the ship is one question
-//! whichever half it is in — "how much fuel is aboard" is asked of the
+//! whichever half it is in — "how much metal is aboard" is asked of the
 //! design being laid out and of the ship that is flying — which is why the
 //! two-armed reads below live here rather than in the app: the app should
 //! not have to know which phase it is in to ask.
@@ -231,7 +231,7 @@ impl Session {
                 room.issue(
                     who,
                     bims::combat::Gear {
-                        weapon: Some(kind),
+                        weapon: Some(kind.basic()),
                         ..gear
                     },
                 );
@@ -610,6 +610,25 @@ impl Session {
             return None;
         }
         Some(world_paint::crew_on_screen(game, who))
+    }
+
+    /// The room's light map and where its corners land in the camera's
+    /// units — `world_paint::light_map_on_screen` — for the host to draw
+    /// the smooth fog with. `None` before there is a world.
+    pub fn light_map(&self) -> Option<(&bims::sight::LightMap, [(f32, f32); 4])> {
+        let game = self.game.as_ref()?;
+        let corners = world_paint::light_map_on_screen(game)?;
+        Some((game.world.aboard.room.light_map()?, corners))
+    }
+
+    /// The numbers the electricity view puts over the drainers, in the
+    /// camera's units — `world_paint::power_labels`. Empty before there is
+    /// a world.
+    pub fn power_labels(&self) -> Vec<world_paint::PowerLabel> {
+        match &self.game {
+            Some(game) => world_paint::power_labels(game),
+            None => Vec::new(),
+        }
     }
 
     /// How many residents are being simulated. Nought away from any

@@ -7,8 +7,8 @@
 //! of somebody's disconnection in a single call. Those three have to agree
 //! about where the ship is, and the only way to make that true rather than
 //! hope it is to never integrate: a [`Plan`] is a fixed list of segments with
-//! fixed durations, and [`state_at`] evaluates position, velocity, heading and
-//! fuel **from the elapsed minutes alone**. Nothing accumulates, nothing has a
+//! fixed durations, and [`state_at`] evaluates position, velocity and heading
+//! **from the elapsed minutes alone**. Nothing accumulates, nothing has a
 //! tick of its own, and calling it with 0, then 3, then 3.5 gives the same
 //! answers as calling it with 3.5.
 //!
@@ -25,7 +25,9 @@
 //! 1. **Align** — turn to the bearing. Bang-bang: full angular acceleration
 //!    for half the turn, full deceleration for the other half, so the ship
 //!    starts and finishes at rest. Skipped when already pointing there.
-//! 2. **Burn** — the forward engines, flat out.
+//! 2. **Burn** — the forward engines, as hard as the reactor feeds them
+//!    (`shipdesign::power::thrust`; there is no fuel, and the throttle is
+//!    in the [`Dynamics`] already).
 //! 3. **Brake** — one of two, whichever is quicker:
 //!    - **flip**: coast through a half turn, then the *same* forward engines
 //!      pointing the other way;
@@ -115,12 +117,12 @@ impl Phase {
 /// `crates/app/src/names.rs`; `0` is left free for "nothing went wrong", the shape every
 /// other code in this workspace has.
 ///
-/// Two of them are never returned by [`plan_trip`] and live here anyway, for
+/// One of them is never returned by [`plan_trip`] and lives here anyway, for
 /// the same reason `EditError::Locked` lives beside the placement errors: a
 /// player is given **one** table of reasons rather than two.
 /// [`PlanError::TargetUndiscovered`] is a question about what the crew have
-/// seen, which is `world`'s to answer, and [`PlanError::NoFuelAboard`] is the
-/// shape of the same thing for a ship that has none at all.
+/// seen, which is `world`'s to answer. Codes 4 and 7 were the two fuel
+/// refusals, retired with the fuel in September 2026 and left as holes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 pub enum PlanError {
@@ -131,17 +133,12 @@ pub enum PlanError {
     CannotRotate = 2,
     /// Nowhere aboard to fly it from.
     NoHelm = 3,
-    /// Not enough unreserved fuel for the burns this trip would take.
-    NotEnoughFuel = 4,
     /// Nobody has seen that yet. **Never returned by [`plan_trip`]** — see the
     /// note above.
     TargetUndiscovered = 5,
     /// The ship is already at the arrival point, or inside the radius round
     /// the target.
     AlreadyThere = 6,
-    /// No fuel aboard at all. **Never returned by [`plan_trip`]**, which sees
-    /// only how much is unreserved and answers [`PlanError::NotEnoughFuel`].
-    NoFuelAboard = 7,
 }
 
 impl PlanError {
@@ -305,6 +302,10 @@ pub struct Effort {
     pub accel: f64,
     /// Engines burning. Nothing while turning, and never the thrusters.
     pub engines: u32,
+    /// What those engines draw off the reactor, in units a minute — the
+    /// segment's [`Segment::power`]. Nothing while turning. What the
+    /// world's power stage charges the ship for flying.
+    pub power: f64,
     /// Angular acceleration, signed: positive is the heading climbing.
     /// Nothing while the ship is not turning or is coasting through a flip.
     pub alpha: f64,
@@ -314,6 +315,7 @@ impl Effort {
     pub const NONE: Effort = Effort {
         accel: 0.0,
         engines: 0,
+        power: 0.0,
         alpha: 0.0,
     };
 }
@@ -330,6 +332,7 @@ pub fn effort_at(plan: &Plan, minutes: f64) -> Effort {
             return Effort {
                 accel: segment.accel,
                 engines: segment.engines,
+                power: segment.power,
                 alpha: segment.spin.alpha_at(left),
             };
         }
@@ -347,8 +350,13 @@ pub struct Segment {
     /// never moves anywhere but along that line.
     pub accel: f64,
     /// Engines burning through it. Zero while turning, and zero always for
-    /// thrusters — they are not what the fuel is for.
+    /// thrusters — they draw nothing.
     pub engines: u32,
+    /// What the burning engines draw off the reactor through it, in units
+    /// a minute: the dynamics' `forward_power` or `backward_power`, whichever
+    /// set is lit, and nought while turning. Constant through the segment
+    /// like everything else in one.
+    pub power: f64,
     pub spin: Spin,
 }
 
@@ -363,9 +371,6 @@ pub struct State {
     pub speed: f64,
     pub heading: f64,
     pub phase: Phase,
-    /// Fuel burnt since the trip that this plan is part of began, including
-    /// anything burnt by a plan this one replaced.
-    pub fuel: f64,
 }
 
 /// A trip: a line, a list of segments, and what it will cost.
@@ -394,12 +399,6 @@ pub struct Plan {
     /// Whether this plan is a stop rather than a trip.
     pub aborting: bool,
     pub segments: Vec<Segment>,
-    /// Every unit of fuel the whole trip will take, `prior_fuel` included.
-    pub fuel_required: f64,
-    /// What a plan this one replaced had already burnt. An abort inherits it,
-    /// so the fuel taken out of the hold at the end is the fuel actually
-    /// burnt and not just the last leg's.
-    pub prior_fuel: f64,
 }
 
 impl Plan {
@@ -427,14 +426,12 @@ pub fn state_at(plan: &Plan, minutes: f64) -> State {
     let mut along = 0.0;
     let mut speed = plan.start_speed;
     let mut heading = plan.start_heading;
-    let mut fuel = plan.prior_fuel;
     let mut phase = Phase::Arrived;
     let mut settled = false;
 
     for segment in &plan.segments {
         let t = left.min(segment.duration);
         along += speed * t + 0.5 * segment.accel * t * t;
-        fuel += plan.dynamics.fuel_per_minute(segment.accel) * t;
         speed += segment.accel * t;
         heading = segment.spin.angle_at(heading, t);
         if !settled && t < segment.duration {
@@ -450,31 +447,22 @@ pub fn state_at(plan: &Plan, minutes: f64) -> State {
         speed,
         heading: angle::wrap(heading),
         phase,
-        fuel,
     }
-}
-
-/// How much fuel the trip has burnt `minutes` in.
-///
-/// Zero at departure and [`Plan::fuel_required`] at arrival, flat through
-/// every turn in between — a thruster burns nothing.
-pub fn fuel_burned_at(plan: &Plan, minutes: f64) -> f64 {
-    state_at(plan, minutes).fuel
 }
 
 /// Plan a trip from rest.
 ///
-/// `fuel_available` is the **unreserved** fuel aboard: a reservation held for
-/// a trip already under way is not fuel this one may spend. It is a parameter
-/// rather than a field on [`Dynamics`] because it is a fact about the world at
-/// one moment and the dynamics are a fact about the design.
+/// Nothing about the hold comes into it: the engines run on the reactor,
+/// and what the reactor can feed them is in the [`Dynamics`] already, as
+/// the acceleration. A ship with a reactor flies; one without has no
+/// forward engine as far as this is concerned, since a dark engine pushes
+/// nothing.
 pub fn plan_trip(
     dynamics: &Dynamics,
     start: DVec2,
     start_heading: f64,
     target: Target,
     target_position: DVec2,
-    fuel_available: f64,
 ) -> Result<Plan, PlanError> {
     if !dynamics.has_helm {
         return Err(PlanError::NoHelm);
@@ -501,9 +489,6 @@ pub fn plan_trip(
     }
 
     let braking = choose_brake(dynamics, distance).ok_or(PlanError::CannotRotate)?;
-    if braking.fuel > fuel_available + data::STILL {
-        return Err(PlanError::NotEnoughFuel);
-    }
 
     let mut segments = Vec::with_capacity(4);
     if align != Spin::Still {
@@ -512,6 +497,7 @@ pub fn plan_trip(
             duration: align.duration(),
             accel: 0.0,
             engines: 0,
+            power: 0.0,
             spin: align,
         });
     }
@@ -533,8 +519,6 @@ pub fn plan_trip(
         docks: matches!(target, Target::Station(_)) && dynamics.has_airlock,
         aborting: false,
         segments,
-        fuel_required: braking.fuel,
-        prior_fuel: 0.0,
     })
 }
 
@@ -542,7 +526,6 @@ pub fn plan_trip(
 /// stopping is quicker.
 struct Braking {
     segments: Vec<Segment>,
-    fuel: f64,
 }
 
 /// Work both options out and take the shorter.
@@ -562,7 +545,6 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
         let turn = Spin::swing(std::f64::consts::PI, dynamics.alpha);
         let t_flip = turn.duration();
         let t1 = (-t_flip + (t_flip * t_flip + 4.0 * distance / a_f).sqrt()) / 2.0;
-        let fuel = dynamics.fuel_per_minute(a_f) * 2.0 * t1;
         (
             2.0 * t1 + t_flip,
             Braking {
@@ -572,6 +554,7 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t1,
                         accel: a_f,
                         engines: dynamics.forward_engines,
+                        power: dynamics.forward_power,
                         spin: Spin::Still,
                     },
                     Segment {
@@ -579,6 +562,7 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t_flip,
                         accel: 0.0,
                         engines: 0,
+                        power: 0.0,
                         spin: turn,
                     },
                     Segment {
@@ -586,10 +570,10 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t1,
                         accel: -a_f,
                         engines: dynamics.forward_engines,
+                        power: dynamics.forward_power,
                         spin: Spin::Still,
                     },
                 ],
-                fuel,
             },
         )
     });
@@ -600,7 +584,6 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
         // This is `physics::travel_days`' shape, split into its two legs.
         let t1 = (2.0 * distance * a_b / (a_f * (a_f + a_b))).sqrt();
         let t2 = t1 * a_f / a_b;
-        let fuel = dynamics.fuel_per_minute(a_f) * t1 + dynamics.fuel_per_minute(a_b) * t2;
         (
             t1 + t2,
             Braking {
@@ -610,6 +593,7 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t1,
                         accel: a_f,
                         engines: dynamics.forward_engines,
+                        power: dynamics.forward_power,
                         spin: Spin::Still,
                     },
                     Segment {
@@ -617,10 +601,10 @@ fn choose_brake(dynamics: &Dynamics, distance: f64) -> Option<Braking> {
                         duration: t2,
                         accel: -a_b,
                         engines: dynamics.backward_engines,
+                        power: dynamics.backward_power,
                         spin: Spin::Still,
                     },
                 ],
-                fuel,
             },
         )
     });
@@ -663,17 +647,16 @@ pub fn abort(plan: &Plan, minutes: f64) -> Plan {
             duration: halt.duration(),
             accel: 0.0,
             engines: 0,
+            power: 0.0,
             spin: halt,
         });
     }
     let after_halt = halt.angle_at(now.heading, halt.duration());
 
-    let mut fuel = now.fuel;
-    if now.speed > data::STILL {
-        if let Some(stop) = choose_stop(&dynamics, now.speed, plan.bearing, after_halt) {
-            fuel += stop.fuel;
-            segments.extend(stop.segments);
-        }
+    if now.speed > data::STILL
+        && let Some(stop) = choose_stop(&dynamics, now.speed, plan.bearing, after_halt)
+    {
+        segments.extend(stop.segments);
     }
 
     // However many segments there are, the ship only ever moves along the
@@ -703,8 +686,6 @@ pub fn abort(plan: &Plan, minutes: f64) -> Plan {
         docks: false,
         aborting: true,
         segments,
-        fuel_required: fuel,
-        prior_fuel: now.fuel,
     }
 }
 
@@ -725,11 +706,11 @@ fn choose_stop(dynamics: &Dynamics, speed: f64, bearing: f64, heading: f64) -> O
         options.push((
             turn.duration() + t,
             brake_segments(
-                dynamics,
                 turn,
                 t,
                 -dynamics.a_forward,
                 dynamics.forward_engines,
+                dynamics.forward_power,
             ),
         ));
     }
@@ -744,11 +725,11 @@ fn choose_stop(dynamics: &Dynamics, speed: f64, bearing: f64, heading: f64) -> O
         options.push((
             turn.duration() + t,
             brake_segments(
-                dynamics,
                 turn,
                 t,
                 -dynamics.a_backward,
                 dynamics.backward_engines,
+                dynamics.backward_power,
             ),
         ));
     }
@@ -759,13 +740,7 @@ fn choose_stop(dynamics: &Dynamics, speed: f64, bearing: f64, heading: f64) -> O
         .map(|(_, braking)| braking)
 }
 
-fn brake_segments(
-    dynamics: &Dynamics,
-    turn: Spin,
-    duration: f64,
-    accel: f64,
-    engines: u32,
-) -> Braking {
+fn brake_segments(turn: Spin, duration: f64, accel: f64, engines: u32, power: f64) -> Braking {
     let mut segments = Vec::with_capacity(2);
     if turn != Spin::Still {
         segments.push(Segment {
@@ -773,6 +748,7 @@ fn brake_segments(
             duration: turn.duration(),
             accel: 0.0,
             engines: 0,
+            power: 0.0,
             spin: turn,
         });
     }
@@ -781,12 +757,10 @@ fn brake_segments(
         duration,
         accel,
         engines,
+        power,
         spin: Spin::Still,
     });
-    Braking {
-        fuel: dynamics.fuel_per_minute(accel) * duration,
-        segments,
-    }
+    Braking { segments }
 }
 
 /// Which segment a moment falls in, and how far into it.

@@ -53,8 +53,30 @@ const FOG_GREY: Color = Color::rgba(0.06, 0.07, 0.08, 0.80);
 /// The rest of somebody else's structure: nothing.
 const FOG_BLACK: Color = Color::rgba(0.0, 0.0, 0.0, 1.0);
 
+/// How far a Bim sees in the dark, in tiles: a tile a light does not reach
+/// is seen only from this close. Lit tiles are seen as far as the line is
+/// clear. See [`Light`].
+pub const DARK_RANGE: f32 = 10.0;
+
+/// A light in the room: where it is and how far it reaches, in room units.
+/// A tile is **lit** when the straight line from some light to its middle
+/// crosses nothing opaque (the walls and the tall parts — never a door,
+/// which is not there to a light the way it is to an eye) and is within the
+/// light's reach. Lights are always on. A room never handed any lights is
+/// lit throughout — the classic room, which has no lighting to speak of —
+/// and a designed deck handed none is dark everywhere.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Light {
+    pub at: Vec2,
+    pub reach: f32,
+}
+
 /// How far the grey ring reaches past what is seen, in tiles.
 pub const RING: i32 = 3;
+/// How close behind low cover a body has to stand to be covered by it,
+/// in tiles from the body to the sandbags' middle: the tile beside it,
+/// diagonals included, and no further.
+pub const COVER_REACH: f32 = 1.5;
 
 /// How far an opaque fog rectangle reaches past its tiles on each side, in
 /// room units, so that two meeting edge to edge show no seam.
@@ -90,6 +112,9 @@ struct Cell {
     /// Somebody else's: a station's tile on a joined deck, under the
     /// foreign stance rather than the room's own.
     foreign: bool,
+    /// Low cover: sandbags, seen and walked over, that a body close
+    /// behind ducks under — see `Sight::covered`.
+    cover: bool,
 }
 
 /// One place a body looks from: where, and — for a peek — what it may
@@ -142,6 +167,18 @@ pub struct Sight {
     cells: Vec<Cell>,
     /// Whether anybody sees each tile.
     seen: Vec<bool>,
+    /// Whether a light reaches each tile — see [`Light`] — and the lights
+    /// themselves, for the picture. With no lights, every tile is lit.
+    lit: Vec<bool>,
+    lights: Vec<Light>,
+    /// Never handed lights at all: lit throughout. See [`Light`].
+    lit_everywhere: bool,
+    /// The smooth picture — see [`LightMap`] — and the light field it is
+    /// built on, worked out once per layout.
+    map: LightMap,
+    map_stale: bool,
+    light_field: Vec<u8>,
+    light_field_stale: bool,
     /// Whether each tile is within [`RING`] of one that is seen, or ever
     /// was: what has been looked at stays known — the grey is the fog of
     /// war's "explored", and only the bodies in it are forgotten.
@@ -176,6 +213,13 @@ impl Sight {
             fixed: Vec::new(),
             cells: Vec::new(),
             seen: vec![false; (columns * rows) as usize],
+            lit: vec![true; (columns * rows) as usize],
+            lights: Vec::new(),
+            lit_everywhere: true,
+            map: LightMap::default(),
+            map_stale: true,
+            light_field: Vec::new(),
+            light_field_stale: true,
             near: vec![false; (columns * rows) as usize],
             eyes_at: Vec::new(),
             shut: Vec::new(),
@@ -189,6 +233,7 @@ impl Sight {
                 opaque: false,
                 fogged: fogged.is_empty(),
                 foreign: false,
+                cover: false,
             };
             (columns * rows) as usize
         ];
@@ -339,6 +384,9 @@ impl Sight {
         if !self.inside(tile.0, tile.1) {
             return None;
         }
+        if !self.in_the_light(from, tile) {
+            return None;
+        }
         self.eyes_from(from)
             .into_iter()
             .find(|eye| eye.admits(tile) && self.clear_line(eye.at, tile))
@@ -364,6 +412,132 @@ impl Sight {
         true
     }
 
+    /// Put the lights in, and work out what they reach: a tile within a
+    /// light's reach with a clear line from it, over the fixed picture —
+    /// the walls and the tall parts, and no door, since the leaves of a
+    /// door are not a thing a light waits for. Handed none, the deck is
+    /// dark throughout; never handed any, it is lit (`new`). Once per
+    /// layout; the lights do not move.
+    pub fn set_lights(&mut self, lights: &[Light]) {
+        self.lights = lights.to_vec();
+        self.lit_everywhere = false;
+        self.light_field_stale = true;
+        self.stale = true;
+        for l in self.lit.iter_mut() {
+            *l = false;
+        }
+        for light in lights {
+            let (lx, ly) = self.tile_of(light.at);
+            let span = (light.reach / self.tile).ceil() as i32 + 1;
+            for y in (ly - span).max(0)..=(ly + span).min(self.rows - 1) {
+                for x in (lx - span).max(0)..=(lx + span).min(self.columns - 1) {
+                    let i = self.index(x, y);
+                    if self.lit[i] || (self.middle(x, y) - light.at).len() > light.reach {
+                        continue;
+                    }
+                    if self.clear_line_over(&self.fixed, light.at, (x, y)) {
+                        self.lit[i] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The lights, as put in.
+    pub fn lights(&self) -> &[Light] {
+        &self.lights
+    }
+
+    /// Whether a light reaches the tile a point is in.
+    pub fn lit_at(&self, p: Vec2) -> bool {
+        let (x, y) = self.tile_of(p);
+        self.inside(x, y) && self.lit[self.index(x, y)]
+    }
+
+    /// Whether an eye at `from` can make the tile out at all: lit, or
+    /// within [`DARK_RANGE`] of the eye. The dark rule, on top of the
+    /// line being clear.
+    fn in_the_light(&self, from: Vec2, tile: (i32, i32)) -> bool {
+        self.lit[self.index(tile.0, tile.1)]
+            || (self.middle(tile.0, tile.1) - from).len() <= DARK_RANGE * self.tile
+    }
+
+    /// Mark these rectangles as low cover — sandbags: nothing to sight or
+    /// to a walk, but a body within [`COVER_REACH`] behind one, on the
+    /// side a bolt comes from, ducks under it. Part of the fixed picture,
+    /// so it survives every `set_shut`.
+    pub fn set_cover(&mut self, cover: &[Rect]) {
+        let mut fixed = std::mem::take(&mut self.fixed);
+        for c in fixed.iter_mut() {
+            c.cover = false;
+        }
+        for rect in cover {
+            self.mark(&mut fixed, rect, &mut |c| c.cover = true);
+        }
+        for (c, f) in self.cells.iter_mut().zip(&fixed) {
+            c.cover = f.cover;
+        }
+        self.fixed = fixed;
+    }
+
+    /// Whether a tile is low cover.
+    pub fn cover_at(&self, x: i32, y: i32) -> bool {
+        self.inside(x, y) && self.cells[self.index(x, y)].cover
+    }
+
+    /// Whether a body at `body` is in cover from something at `from`: a
+    /// tile of low cover lies on the straight line between them, within
+    /// [`COVER_REACH`] of the body, and the body is not standing on the
+    /// sandbags itself. The same traversal as [`Sight::clear_line`], read
+    /// for cover rather than for a wall; where the line goes past the reach
+    /// the answer is no, so a body far behind a barricade is in the open
+    /// — a bolt comes over it.
+    pub fn covered(&self, body: Vec2, from: Vec2) -> bool {
+        let (mut x, mut y) = self.tile_of(body);
+        let (tx, ty) = self.tile_of(from);
+        if (x, y) == (tx, ty) || self.cover_at(x, y) {
+            return false;
+        }
+        let d = from - body;
+        let step_x: i32 = if d.x > 0.0 { 1 } else { -1 };
+        let step_y: i32 = if d.y > 0.0 { 1 } else { -1 };
+        let next_x = self.origin.x + (x + if d.x > 0.0 { 1 } else { 0 }) as f32 * self.tile;
+        let next_y = self.origin.y + (y + if d.y > 0.0 { 1 } else { 0 }) as f32 * self.tile;
+        let (mut t_x, delta_x) = if d.x.abs() > 1e-6 {
+            ((next_x - body.x) / d.x, self.tile / d.x.abs())
+        } else {
+            (f32::INFINITY, f32::INFINITY)
+        };
+        let (mut t_y, delta_y) = if d.y.abs() > 1e-6 {
+            ((next_y - body.y) / d.y, self.tile / d.y.abs())
+        } else {
+            (f32::INFINITY, f32::INFINITY)
+        };
+        let reach = COVER_REACH * self.tile;
+        let most = (tx - x).abs() + (ty - y).abs() + 2;
+        for _ in 0..most {
+            let t = if t_x < t_y {
+                let t = t_x;
+                x += step_x;
+                t_x += delta_x;
+                t
+            } else {
+                let t = t_y;
+                y += step_y;
+                t_y += delta_y;
+                t
+            };
+            // Past the reach, or at the shooter: nothing between counts.
+            if t >= 1.0 || (x, y) == (tx, ty) || (self.middle(x, y) - body).len() > reach {
+                return false;
+            }
+            if self.cover_at(x, y) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Work the mask out again from these eyes and these shut doors, if
     /// anything about them has changed since last time. True when it was.
     pub fn observe(&mut self, eyes: &[Vec2], shut: &[Rect]) -> bool {
@@ -374,6 +548,7 @@ impl Sight {
         }
         self.eyes_at = eyes_at;
         self.stale = false;
+        self.map_stale = true;
         self.traced = true;
 
         for s in self.seen.iter_mut() {
@@ -388,7 +563,7 @@ impl Sight {
                 for y in 0..self.rows {
                     for x in 0..self.columns {
                         let i = self.index(x, y);
-                        if self.seen[i] || !eye.admits((x, y)) {
+                        if self.seen[i] || !eye.admits((x, y)) || !self.in_the_light(body, (x, y)) {
                             continue;
                         }
                         if self.clear_line(eye.at, (x, y)) {
@@ -432,6 +607,12 @@ impl Sight {
     /// two opaque tiles set corner to corner still has to pass through one
     /// of them, and is stopped.
     pub fn clear_line(&self, from: Vec2, to: (i32, i32)) -> bool {
+        self.clear_line_over(&self.cells, from, to)
+    }
+
+    /// The same over any set of cells: the fixed picture for a light, the
+    /// picture with the doors in for an eye.
+    fn clear_line_over(&self, cells: &[Cell], from: Vec2, to: (i32, i32)) -> bool {
         let (mut x, mut y) = self.tile_of(from);
         let (tx, ty) = to;
         if (x, y) == (tx, ty) {
@@ -469,7 +650,7 @@ impl Sight {
             if (x, y) == (tx, ty) {
                 return true;
             }
-            if !self.inside(x, y) || self.cells[self.index(x, y)].opaque {
+            if !self.inside(x, y) || cells[self.index(x, y)].opaque {
                 return false;
             }
         }
@@ -575,11 +756,22 @@ impl Sight {
     /// thousand, and a run that matches the run under it is one shape
     /// taller.
     pub fn draw(&self, list: &mut DrawList, all: bool) {
+        self.draw_veils(list, all, true);
+    }
+
+    /// The same, with the semi fog over the crew's own tiles left to the
+    /// [`LightMap`] when `semi` is false: the tile passes then draw only a
+    /// stranger's grey and black, which stay on the tile grid — they are
+    /// what the crew remember, and memory is by the tile.
+    pub fn draw_veils(&self, list: &mut DrawList, all: bool, semi: bool) {
         for (veil, colour) in [
             (Veil::Semi, FOG),
             (Veil::Grey, FOG_GREY),
             (Veil::Black, FOG_BLACK),
         ] {
+            if veil == Veil::Semi && !semi {
+                continue;
+            }
             self.draw_runs(list, colour, |i| self.veil(i, all) == Some(veil));
         }
     }
@@ -636,6 +828,219 @@ impl Sight {
     }
 }
 
+/// How many pixels of the light map a tile is across. Eight: fine enough
+/// that a shadow's edge, drawn magnified and filtered, reads as a line
+/// and not as steps, and coarse enough that a joined deck is under half a
+/// million pixels to march.
+pub const MAP_PX_PER_TILE: i32 = 8;
+/// How many rays an eye or a light is marched along. Two thousand: a ray
+/// and its neighbour are under two pixels apart at the far side of a
+/// joined deck, so nothing between them is missed.
+const RAYS: u32 = 2048;
+/// The fog over what the crew do not see of their own deck, and the dark
+/// over what they see of it that no light reaches — light, so a shadow
+/// is a shade and not a wall.
+const MAP_FOG: f32 = 0.62;
+const MAP_DARK: f32 = 0.34;
+/// How much of a light's reach is full brightness before it fades.
+const LIGHT_CORE: f32 = 0.55;
+
+/// The smooth picture of the crew's sight: one byte a pixel, the darkness
+/// to draw over the room — nought where the crew see a lit tile, the
+/// dark's where they see an unlit one, the fog's where they see nothing —
+/// over the room's own fogged tiles, and nought everywhere else (a
+/// stranger's tiles are the tile veil's). Marched, not traced: from every
+/// eye and every light a fan of [`RAYS`] rays is walked pixel by pixel
+/// until it meets an opaque cell, so what is lit and what is seen have
+/// the straight edges of the walls that stop them and not the tile grid's
+/// steps. The tile mask stays the **rule** — the fight and the world read
+/// it — and this is the picture of it.
+#[derive(Clone, Debug, Default)]
+pub struct LightMap {
+    /// The grid's corner, in room units, and a pixel's side.
+    pub origin: Vec2,
+    pub px: f32,
+    pub width: usize,
+    pub height: usize,
+    /// Darkness, nought to 255, row by row.
+    pub alpha: Vec<u8>,
+    /// Bumped every time the map is worked out again, so a host can tell a
+    /// new picture from the one it has already uploaded.
+    pub version: u64,
+}
+
+impl LightMap {
+    /// The map's extent in room units.
+    pub fn size(&self) -> Vec2 {
+        vec2(self.width as f32 * self.px, self.height as f32 * self.px)
+    }
+}
+
+impl Sight {
+    /// Whether the map wants working out again: the mask was, since.
+    pub fn take_map_stale(&mut self) -> bool {
+        std::mem::take(&mut self.map_stale)
+    }
+
+    /// The light over the fixed picture, one byte a pixel, nought dark to
+    /// 255 lit — worked out once per layout and per change of the doors
+    /// the lights are not stopped by, which is to say once. Kept on the
+    /// sight and read by [`Sight::light_map`].
+    fn light_field(&self) -> Vec<u8> {
+        let (w, h) = self.map_dims();
+        let mut field = vec![0u8; w * h];
+        if self.lit_everywhere {
+            for v in field.iter_mut() {
+                *v = 255;
+            }
+            return field;
+        }
+        for light in &self.lights {
+            self.march(light.at, Some(light.reach), &self.fixed, &mut |i, d| {
+                let t = d / light.reach;
+                let bright = if t <= LIGHT_CORE {
+                    1.0
+                } else {
+                    ((1.0 - t) / (1.0 - LIGHT_CORE)).clamp(0.0, 1.0)
+                };
+                let v = (bright * 255.0) as u8;
+                if field[i] < v {
+                    field[i] = v;
+                }
+            });
+        }
+        field
+    }
+
+    /// The map's pixels across and down.
+    fn map_dims(&self) -> (usize, usize) {
+        (
+            (self.columns * MAP_PX_PER_TILE) as usize,
+            (self.rows * MAP_PX_PER_TILE) as usize,
+        )
+    }
+
+    /// The pixel a room point is in.
+    fn map_index(&self, p: Vec2) -> Option<usize> {
+        let (w, h) = self.map_dims();
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        let x = ((p.x - self.origin.x) / px).floor();
+        let y = ((p.y - self.origin.y) / px).floor();
+        if x < 0.0 || y < 0.0 || x >= w as f32 || y >= h as f32 {
+            return None;
+        }
+        Some(y as usize * w + x as usize)
+    }
+
+    /// Walk [`RAYS`] rays out from `from`, a pixel at a time, calling `f`
+    /// with each pixel reached and how far it is, until the ray meets an
+    /// opaque cell of `cells`, leaves the grid, or has gone `reach`.
+    fn march(&self, from: Vec2, reach: Option<f32>, cells: &[Cell], f: &mut dyn FnMut(usize, f32)) {
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        let (w, h) = self.map_dims();
+        let far = reach.unwrap_or((w.max(h) as f32) * px * 1.5);
+        let steps = (far / (px * 0.5)).ceil() as u32;
+        let (fx, fy) = self.tile_of(from);
+        let from_opaque = self.inside(fx, fy) && cells[self.index(fx, fy)].opaque;
+        for r in 0..RAYS {
+            let a = r as f32 / RAYS as f32 * core::f32::consts::TAU;
+            let dir = vec2(a.cos(), a.sin());
+            let mut last: Option<usize> = None;
+            for s in 1..=steps {
+                let d = s as f32 * px * 0.5;
+                let p = from + dir * d;
+                let Some(i) = self.map_index(p) else {
+                    break;
+                };
+                let (tx, ty) = self.tile_of(p);
+                if !self.inside(tx, ty) {
+                    break;
+                }
+                let opaque = cells[self.index(tx, ty)].opaque;
+                // A ray reaches into the wall that stops it — the wall is
+                // seen, and lit, from the room — and no further; one that
+                // starts inside a wall (an eye pressed to it) gets out.
+                if opaque && !(from_opaque && (tx, ty) == (fx, fy)) {
+                    if last != Some(i) {
+                        f(i, d);
+                    }
+                    break;
+                }
+                if last != Some(i) {
+                    f(i, d);
+                    last = Some(i);
+                }
+            }
+        }
+    }
+
+    /// The picture of the mask, from these eyes — the ones `observe` was
+    /// last given — for the room's own fogged tiles. Works the light field
+    /// out first if the layout changed. See [`LightMap`].
+    pub fn light_map(&mut self, eyes: &[Vec2]) -> &LightMap {
+        if self.light_field.is_empty() || self.light_field_stale {
+            self.light_field = self.light_field();
+            self.light_field_stale = false;
+        }
+        let (w, h) = self.map_dims();
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        // Seen: from every eye, a pixel a ray reaches that is lit or within
+        // the dark range of that eye.
+        let mut seen = vec![false; w * h];
+        let range = DARK_RANGE * self.tile;
+        for &body in eyes {
+            for eye in self.eyes_from(body) {
+                let admits = |i: usize| {
+                    let (x, y) = (
+                        (i % w) as i32 / MAP_PX_PER_TILE,
+                        (i / w) as i32 / MAP_PX_PER_TILE,
+                    );
+                    eye.admits((x, y))
+                };
+                self.march(eye.at, None, &self.cells, &mut |i, d| {
+                    if !seen[i] && admits(i) && (self.light_field[i] > 0 || d <= range) {
+                        seen[i] = true;
+                    }
+                });
+            }
+        }
+        let mut alpha = vec![0u8; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                let cell = self.index(x as i32 / MAP_PX_PER_TILE, y as i32 / MAP_PX_PER_TILE);
+                let c = &self.cells[cell];
+                // Only the room's own fogged tiles: a stranger's are the
+                // tile veil's, black or grey, and the unfogged outside is
+                // nobody's.
+                if !c.fogged
+                    || (if c.foreign { self.foreign } else { self.own }) != Stance::Friendly
+                {
+                    continue;
+                }
+                let a = if !seen[i] {
+                    MAP_FOG
+                } else {
+                    MAP_DARK * (1.0 - self.light_field[i] as f32 / 255.0)
+                };
+                alpha[i] = (a * 255.0) as u8;
+            }
+        }
+        self.map.origin = self.origin;
+        self.map.px = px;
+        self.map.width = w;
+        self.map.height = h;
+        self.map.alpha = alpha;
+        self.map.version += 1;
+        &self.map
+    }
+
+    /// The map as last worked out.
+    pub fn map(&self) -> &LightMap {
+        &self.map
+    }
+}
+
 /// What a room draws of the fog, and whether its bodies are drawn: whose
 /// eyes the picture is through.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -651,4 +1056,62 @@ pub enum Fog {
     /// the joined room's to draw. No fog here, and a body is drawn only
     /// when the world says it is in the crew's view (`Game::set_seen`).
     None,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TILE: f32 = 52.0;
+
+    fn middle(x: f32, y: f32) -> Vec2 {
+        vec2((x + 0.5) * TILE, (y + 0.5) * TILE)
+    }
+
+    /// Sandbags at (5, 5) in an open room: a body just south of them is
+    /// covered from the north and from nowhere else, one standing on them
+    /// is in the open, and one two tiles back is past the reach — a bolt
+    /// comes over.
+    #[test]
+    fn a_body_close_behind_sandbags_is_covered_from_across_them_and_from_nowhere_else() {
+        let room = Rect::from_min_size(Vec2::ZERO, vec2(12.0 * TILE, 12.0 * TILE));
+        let mut sight = Sight::new(room, room, TILE, &[], &[]);
+        let bags = Rect::from_min_size(vec2(5.0 * TILE, 5.0 * TILE), vec2(TILE, TILE));
+        sight.set_cover(&[bags]);
+        assert!(sight.cover_at(5, 5) && !sight.cover_at(5, 6));
+        // Nothing to sight or to the trace: the tile beyond is seen.
+        assert!(sight.clear_line(middle(5.0, 6.0), (5, 3)));
+
+        let behind = middle(5.0, 6.0);
+        assert!(
+            sight.covered(behind, middle(5.0, 1.0)),
+            "from straight across"
+        );
+        assert!(
+            sight.covered(behind, middle(4.0, 1.0)),
+            "and from a little off the line"
+        );
+        assert!(
+            !sight.covered(behind, middle(10.0, 6.0)),
+            "not from the side"
+        );
+        assert!(!sight.covered(behind, middle(5.0, 10.0)), "not from behind");
+        assert!(
+            !sight.covered(middle(5.0, 5.0), middle(5.0, 1.0)),
+            "standing on them is the open"
+        );
+        assert!(
+            !sight.covered(middle(5.0, 8.0), middle(5.0, 1.0)),
+            "two tiles back is past the reach"
+        );
+        // Diagonally behind counts too: the sandbags' middle is within the
+        // reach and on the line.
+        assert!(
+            sight.covered(middle(6.0, 6.0), middle(3.0, 3.0)),
+            "corner to corner"
+        );
+        // The shut doors do not wipe the cover: it is part of the fixed picture.
+        sight.set_shut(&[Rect::from_min_size(vec2(0.0, 0.0), vec2(TILE, TILE))]);
+        assert!(sight.covered(behind, middle(5.0, 1.0)));
+    }
 }

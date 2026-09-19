@@ -32,7 +32,7 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// Pinned rather than computed, for the same reason `REFERENCE_HASH` is: a
 /// test comparing two computed values would pass happily while both were
 /// wrong. Update it only when the scenario below is meant to change.
-pub const REFERENCE_CHECKSUM: u64 = 0x_80a6_d0b3_b7d9_5b08;
+pub const REFERENCE_CHECKSUM: u64 = 0x_3938_4fa3_c88f_231b;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -66,7 +66,9 @@ pub fn simulation_world(
 
 /// Somewhere in the spawn system that is not where the ship is standing.
 ///
-/// The lowest-numbered node that is not the dock, so the scenario does not
+/// The lowest-numbered node that is not the dock and is not already
+/// there — the dock's own parent body is inside its arrival radius, and
+/// which body that is depends on the generator — so the scenario does not
 /// depend on which of them the generator happened to put nearest.
 pub fn reference_target(world: &World) -> Target {
     let docked = match &world.ship.state {
@@ -74,10 +76,13 @@ pub fn reference_target(world: &World) -> Target {
         _ => None,
     };
     for node in world.system.nodes() {
-        match node {
+        let target = match node {
             worldgen::Node::Station(id) if Some(id) == docked => continue,
-            worldgen::Node::Body(id) => return Target::Body(id),
-            worldgen::Node::Station(id) => return Target::Station(id),
+            worldgen::Node::Body(id) => Target::Body(id),
+            worldgen::Node::Station(id) => Target::Station(id),
+        };
+        if world.preview(target) != Err(flight::PlanError::AlreadyThere) {
+            return target;
         }
     }
     Target::Point(worldgen::math::dvec2(0.0, 0.0))
@@ -86,8 +91,8 @@ pub fn reference_target(world: &World) -> Target {
 /// The scenario: open a world, confirm a trip, and run for
 /// [`REFERENCE_STEPS`].
 ///
-/// Everything a checksum is meant to catch is in it — a plan made, fuel
-/// reserved, a heading turning through a trigonometric function, the local
+/// Everything a checksum is meant to catch is in it — a plan made, a burn
+/// drawing on the reactor, a heading turning through a trigonometric function, the local
 /// frame changing as the ship leaves the dock.
 pub fn reference_run() -> u64 {
     let mut world = reference_world();

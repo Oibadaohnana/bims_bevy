@@ -90,6 +90,16 @@ pub const SLEEP_MINUTES: f32 = 6.0 * HOUR;
 /// the chain has one clock for "for as long as it was told".
 pub const BANDAGE_MINUTES: f32 = 10.0;
 
+/// How long treating a trauma with a medkit takes, the same way: twice a
+/// dressing.
+pub const TREAT_MINUTES: f32 = 20.0;
+/// How long finishing a body off takes, in seconds: three pulls of a
+/// pistol's trigger, or two swings of a blade, give or take.
+pub const EXECUTE_SECONDS: f32 = 3.0;
+/// How close a gun gets to a body it is finishing off, in tiles: near
+/// enough that nothing is missed, with a clear line to it.
+pub const EXECUTE_RANGE: f32 = 3.0;
+
 /// Facing for the fixtures along the top wall.
 const FACE_WALL: f32 = -PI * 0.5;
 /// In the heads: the door is in the north bulkhead and the pan is against the
@@ -297,9 +307,33 @@ pub enum Step {
     // `BANDAGE_MINUTES`, riding in `rest_minutes` like a craft's. The room
     // has the bandages but not the bodies, so `Dress` only says, on the way
     // out, that a part was dressed (`Room::dressed`), and `Game` does the
+    // A treatment first fetches the kit: over to the nearest container
+    // holding one (`Room::kit_stands`, the world's word; the spot the Bim
+    // stands on where the room has none, the classic room's "to hand") and
+    // a moment reaching for it, which puts `Held::Medkit` in the hands and
+    // takes one off `Room::medkits`. Then the patient, as a dressing.
+    GoToKit,
+    TakeKit,
     // dressing: the patient's health is a `Bim`'s. See `Kind::Bandage`.
     GoToPatient,
     Dress,
+
+    // Picking a dropped weapon up off the deck: over to where it lies
+    // (`Room::weapons_down`, by the id in `Kind::Fetch`) and a moment bending
+    // for it. `PickUp` only says, on the way out, that the hand closed on
+    // it (`Room::picked_up`); `Game` moves the weapon, since the gear is a
+    // `Bim`'s.
+    GoToDropped,
+    PickUp,
+
+    // Finishing a body off: over to it — within `EXECUTE_RANGE` with a
+    // clear line for a gun, beside it for a blade (`victim_stand`) — and
+    // `EXECUTE_SECONDS` of shooting or hacking at it, the picture being
+    // `Game::tick_combat`'s. `Execute` only says, on the way out, whose
+    // body it was (`Room::executed`); the world does the killing, since
+    // the body is in the other room.
+    GoToVictim,
+    Execute,
 
     Done,
 }
@@ -402,10 +436,14 @@ impl Step {
             TakeMaterials => CarryToSite,
             CarryToSite => DropMaterials,
             GoToSite => Construct,
+            GoToKit => TakeKit,
+            TakeKit => GoToPatient,
             GoToPatient => Dress,
+            GoToDropped => PickUp,
+            GoToVictim => Execute,
             StartDishwasher | FlipSwitch | ClimbOutOfBed | ShutDoorBehind | PutBroomBack | Talk
             | ShutStoreOnStew | Shower | Work | PutSuitBack | DropMaterials | Construct | Dress
-            | Done => Done,
+            | PickUp | Execute | Done => Done,
         }
     }
 
@@ -455,6 +493,8 @@ impl Step {
             ClimbOutOfBed => 1.0,
             Eat => BITE_PERIOD * BITES as f32,
             Rest => 1.6,
+            PickUp | TakeKit => 0.8,
+            Execute => EXECUTE_SECONDS,
             _ => 0.0,
         }
     }
@@ -500,7 +540,10 @@ impl Step {
                 | GoToShelf
                 | CarryToSite
                 | GoToSite
+                | GoToKit
                 | GoToPatient
+                | GoToDropped
+                | GoToVictim
         )
     }
 
@@ -618,6 +661,29 @@ pub enum Kind {
         patient: usize,
         part: u32,
     },
+    /// Treating the trauma on one part of `patient` — a crewmate, never
+    /// the Bim itself — with a medkit out of the room's store. The same
+    /// two steps as a bandage, [`TREAT_MINUTES`] with hands on it, and
+    /// `Dress` hands the pair back on `Room::treated` instead.
+    Treat {
+        patient: usize,
+        part: u32,
+    },
+    /// Picking a weapon up off the deck — `Room::weapons_down`, by its id —
+    /// where a body knocked out let go of it: the walk over and a moment
+    /// bending for it, and `Room::picked_up` says the hand closed on it.
+    Fetch {
+        item: u32,
+    },
+    /// Finishing off one of the other room's people lying on this deck —
+    /// `visitor` an index into `Room::bodies_down` — by shooting it from
+    /// close by or, with a `blade` in hand, hacking at it from beside it:
+    /// the walk over and `EXECUTE_SECONDS` at it, and `Room::executed`
+    /// says whose body.
+    Execute {
+        visitor: usize,
+        blade: bool,
+    },
 }
 
 impl Kind {
@@ -640,6 +706,18 @@ impl Kind {
             Kind::Build { outside: true, .. } => Step::GoToSuitLocker,
             Kind::Build { outside: false, .. } => Step::GoToSite,
             Kind::Bandage { .. } => Step::GoToPatient,
+            Kind::Treat { .. } => Step::GoToKit,
+            Kind::Fetch { .. } => Step::GoToDropped,
+            Kind::Execute { .. } => Step::GoToVictim,
+        }
+    }
+
+    /// The crewmate a dressing or a treatment walks to, or `None` for every
+    /// other errand.
+    pub fn patient(self) -> Option<usize> {
+        match self {
+            Kind::Bandage { patient, .. } | Kind::Treat { patient, .. } => Some(patient),
+            _ => None,
         }
     }
 
@@ -1137,8 +1215,10 @@ fn destination(
         // grid it is standing on.
         GoToShelf | CarryToSite | GoToSite => target,
         // Beside the patient, chosen as the walk is entered from where the
-        // patient stands then.
-        GoToPatient => target,
+        // patient stands then; the kit's container the same.
+        GoToKit | GoToPatient => target,
+        // And beside the weapon on the deck, likewise; and the body.
+        GoToDropped | GoToVictim => target,
         _ => None,
     }
 }
@@ -1298,6 +1378,66 @@ pub fn patient_stand(
         vec2(crate::filth::TILE, 0.0)
     };
     let stand = nav.nearest_free(at + step);
+    nav.can_reach(from, stand).then_some(stand)
+}
+
+/// Where to stand for a medkit: the nearest of `Room::kit_stands` — the
+/// use spots of the containers the world says hold one — that there is a
+/// way to from `from`; `None` in a room with none, where a kit is to hand.
+pub fn kit_stand(room: &Room, maps: &Maps, from: Vec2) -> Option<Vec2> {
+    let nav = maps.pick(room.bath.is_open());
+    let mut stands: Vec<Vec2> = room.kit_stands.clone();
+    stands.sort_by(|a, b| {
+        (*a - from)
+            .len()
+            .partial_cmp(&(*b - from).len())
+            .unwrap_or(core::cmp::Ordering::Equal)
+    });
+    stands
+        .into_iter()
+        .map(|at| nav.nearest_free(at))
+        .find(|&at| nav.can_reach(from, at))
+}
+
+/// Where to stand to finish a body off: for a gun (`ranged`) the free cell
+/// nearest `from` within [`EXECUTE_RANGE`] of the body with a clear line
+/// to it, for a blade — or a gun with no such cell — a tile from the body
+/// towards `from`, as for a patient. `None` with no way to any of it.
+pub fn victim_stand(room: &Room, maps: &Maps, at: Vec2, from: Vec2, ranged: bool) -> Option<Vec2> {
+    let nav = maps.pick(room.bath.is_open());
+    if ranged {
+        let tile = room.sight.tile_of(at);
+        let best = nav
+            .free_cells_within(at, EXECUTE_RANGE * crate::filth::TILE, crate::filth::TILE)
+            .into_iter()
+            .filter(|&c| nav.can_reach(from, c) && room.sight.clear_line(c, tile))
+            .min_by(|a, b| {
+                (*a - from)
+                    .len()
+                    .partial_cmp(&(*b - from).len())
+                    .unwrap_or(core::cmp::Ordering::Equal)
+            });
+        if best.is_some() {
+            return best;
+        }
+    }
+    let toward = from - at;
+    let step = if toward.len() > 1e-3 {
+        toward * (crate::filth::TILE / toward.len())
+    } else {
+        vec2(crate::filth::TILE, 0.0)
+    };
+    let stand = nav.nearest_free(at + step);
+    nav.can_reach(from, stand).then_some(stand)
+}
+
+/// Where to stand for the dropped weapon `item`: the nearest free cell to
+/// where it lies, if it still lies there and there is a way to it from
+/// `from`.
+pub fn dropped_stand(room: &Room, maps: &Maps, item: u32, from: Vec2) -> Option<Vec2> {
+    let at = room.weapons_down.iter().find(|d| d.id == item)?.at;
+    let nav = maps.pick(room.bath.is_open());
+    let stand = nav.nearest_free(at);
     nav.can_reach(from, stand).then_some(stand)
 }
 
@@ -1893,6 +2033,85 @@ impl Task {
         )
     }
 
+    /// Off to treat the trauma on `part` of `patient` with a medkit — over to
+    /// wherever it stands, and [`TREAT_MINUTES`] with hands on it.
+    pub fn treat(
+        who: usize,
+        patient: usize,
+        part: u32,
+        ch: &mut Character,
+        room: &mut Room,
+        maps: &Maps,
+        taken: &Taken,
+    ) -> Task {
+        Task::starting_at(
+            who,
+            Kind::Treat { patient, part },
+            Step::GoToKit,
+            TREAT_MINUTES,
+            ch,
+            room,
+            maps,
+            taken,
+        )
+    }
+
+    /// Off to finish the other room's `visitor` off where it lies: the walk
+    /// to within reach and [`EXECUTE_SECONDS`] at it.
+    pub fn execute(
+        who: usize,
+        visitor: usize,
+        blade: bool,
+        ch: &mut Character,
+        room: &mut Room,
+        maps: &Maps,
+        taken: &Taken,
+    ) -> Task {
+        Task::starting_at(
+            who,
+            Kind::Execute { visitor, blade },
+            Step::GoToVictim,
+            0.0,
+            ch,
+            room,
+            maps,
+            taken,
+        )
+    }
+
+    /// Where the body this chain is finishing off lies, while the hands are
+    /// at it — the `Execute` step — for `Game::tick_combat` to shoot or
+    /// swing at; `None` on any other step or errand.
+    pub fn executing_at(&self, room: &Room) -> Option<Vec2> {
+        match (self.kind, self.step) {
+            (Kind::Execute { visitor, .. }, Step::Execute) => {
+                room.bodies_down.get(visitor).copied().flatten()
+            }
+            _ => None,
+        }
+    }
+
+    /// Off to pick the dropped weapon `item` up off the deck.
+    pub fn fetch(
+        who: usize,
+        item: u32,
+        ch: &mut Character,
+        room: &mut Room,
+        maps: &Maps,
+        taken: &Taken,
+    ) -> Task {
+        Task::starting_at(
+            who,
+            Kind::Fetch { item },
+            Step::GoToDropped,
+            0.0,
+            ch,
+            room,
+            maps,
+            taken,
+        )
+    }
+
     /// Off to make `recipe` at `bench`, for `minutes` at it.
     pub fn craft(
         who: usize,
@@ -2187,6 +2406,12 @@ impl Task {
             room.return_plate();
             ch.hold_main(Held::Nothing);
         }
+        // And a medkit: back on the shelf it came off, for good only — a
+        // suspended treatment keeps it on `Saved.main` and walks on with it.
+        if for_good && ch.main_held() == Held::Medkit {
+            room.medkits += 1;
+            ch.hold_main(Held::Nothing);
+        }
         // A harvest in the hands of a chain that is being given up for good.
         // It goes in the store rather than nowhere: the produce is real, the
         // Bim grew it, and a plant that evaporates because a door shut across
@@ -2405,10 +2630,46 @@ impl Task {
             // patient dead since the order, or outside — and the errand is
             // given up like any other walk with nowhere to go.
             Step::GoToPatient => {
-                let Kind::Bandage { patient, .. } = self.kind else {
-                    unreachable!("GoToPatient is a Bandage's step")
+                let Some(patient) = self.kind.patient() else {
+                    unreachable!("GoToPatient is a Bandage's or a Treat's step")
                 };
                 self.target = patient_stand(room, maps, self.who, patient, ch.pos);
+                if self.target.is_none() {
+                    self.blocked = true;
+                    return;
+                }
+            }
+            // The nearest container with a kit in it, or — a room with none,
+            // where the kits are simply to hand — the spot the Bim is on,
+            // so the walk is of no length and `TakeKit` follows at once.
+            Step::GoToKit => {
+                self.target = kit_stand(room, maps, ch.pos).or(Some(ch.pos));
+            }
+            // Beside the weapon on the deck, if it still lies there. Gone —
+            // somebody else picked it up since the order — and the errand is
+            // given up the same way.
+            Step::GoToDropped => {
+                let Kind::Fetch { item } = self.kind else {
+                    unreachable!("GoToDropped is a Fetch's step")
+                };
+                self.target = dropped_stand(room, maps, item, ch.pos);
+                if self.target.is_none() {
+                    self.blocked = true;
+                    return;
+                }
+            }
+            // Over to the body, if it still lies there and is still down:
+            // one that came round, or was carried off, is nobody to finish.
+            Step::GoToVictim => {
+                let Kind::Execute { visitor, blade } = self.kind else {
+                    unreachable!("GoToVictim is an Execute's step")
+                };
+                self.target = room
+                    .bodies_down
+                    .get(visitor)
+                    .copied()
+                    .flatten()
+                    .and_then(|at| victim_stand(room, maps, at, ch.pos, !blade));
                 if self.target.is_none() {
                     self.blocked = true;
                     return;
@@ -2555,7 +2816,7 @@ impl Task {
             // Turned to the patient, hands on it. Its own wounds it dresses
             // facing whichever way it arrived.
             Dress => {
-                if let Kind::Bandage { patient, .. } = self.kind
+                if let Some(patient) = self.kind.patient()
                     && patient != self.who
                     && let Some(Some(at)) = room.crew.get(patient)
                 {
@@ -2565,6 +2826,48 @@ impl Task {
                     }
                 }
                 ch.set_action(Action::Bandage);
+            }
+            // Reaching into the cabinet for the kit — or, with no cabinet,
+            // simply for the kit.
+            TakeKit => {
+                if let Some(at) = self.target
+                    && (at - ch.pos).len() > 1e-3
+                {
+                    let to = at - ch.pos;
+                    ch.face(to.y.atan2(to.x));
+                }
+                ch.set_action(Action::Reach);
+            }
+            // Squared up to the body; the shots and the swings are
+            // `Game::tick_combat`'s. A body that came round on the way over
+            // is nobody to finish: the chain is given up here.
+            Execute => {
+                if let Kind::Execute { visitor, .. } = self.kind {
+                    match room.bodies_down.get(visitor).copied().flatten() {
+                        Some(at) => {
+                            let to = at - ch.pos;
+                            if to.len() > 1e-3 {
+                                ch.face(to.y.atan2(to.x));
+                            }
+                        }
+                        None => {
+                            self.blocked = true;
+                            return;
+                        }
+                    }
+                }
+            }
+            // Bending for the weapon where it lies.
+            PickUp => {
+                if let Kind::Fetch { item } = self.kind
+                    && let Some(d) = room.weapons_down.iter().find(|d| d.id == item)
+                {
+                    let to = d.at - ch.pos;
+                    if to.len() > 1e-3 {
+                        ch.face(to.y.atan2(to.x));
+                    }
+                }
+                ch.set_action(Action::Reach);
             }
             // Working the door panel. From the deck the Bim faces the
             // bulkhead; from inside it turns round and faces it the other way.
@@ -2743,9 +3046,43 @@ impl Task {
             // Hands off the patient: the room says which part of whom was
             // dressed, and the game — which has the body and the count of
             // bandages — does the dressing, if the two are still together.
-            Dress => {
-                if let Kind::Bandage { patient, part } = self.kind {
+            Dress => match self.kind {
+                Kind::Bandage { patient, part } => {
                     room.dressed.push((self.who, patient, part));
+                }
+                // The kit is opened and spent here, whatever the game finds
+                // when it looks: a kit used on a patient that walked off is
+                // a kit used. Spent here rather than in `apply_treatments`
+                // because the finished chain is let go of first, and
+                // `let_go` puts a kit still in the hands back on the shelf.
+                Kind::Treat { patient, part } => {
+                    if ch.main_held() == Held::Medkit {
+                        ch.hold_main(Held::Nothing);
+                        room.medkits_used += 1;
+                        room.treated.push((self.who, patient, part));
+                    }
+                }
+                _ => {}
+            },
+            // The kit is in the hands and off the shelf. The game charges the
+            // hold for it only when the treatment is done; a chain given up
+            // for good puts it back (`let_go`).
+            TakeKit => {
+                room.medkits = room.medkits.saturating_sub(1);
+                ch.hold_main(Held::Medkit);
+            }
+            // Done with the body: the room says whose, and the world kills
+            // it in its own room, if it still lies there.
+            Execute => {
+                if let Kind::Execute { visitor, .. } = self.kind {
+                    room.executed.push((self.who, visitor));
+                }
+            }
+            // The hand closed on the weapon: the room says which, and the
+            // game — which has the gear — moves it, if it still lies there.
+            PickUp => {
+                if let Kind::Fetch { item } = self.kind {
+                    room.picked_up.push((self.who, item));
                 }
             }
             // A shelf stew takes its two things one trip each — the

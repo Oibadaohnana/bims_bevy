@@ -118,13 +118,14 @@ pub fn add(a: Money, b: Money) -> Result<Money, EconomyError> {
 pub enum Storage {
     /// Racking. Ore, metal, components — anything that keeps.
     Shelf = 0,
-    /// Fuel, which is not going on a shelf.
-    FuelTank = 1,
     /// Food, which goes off.
-    ColdStore = 2,
+    ColdStore = 1,
     /// Things worn or carried: suits, and later weapons and medkits. A
     /// suit locker provides it.
-    Locker = 3,
+    Locker = 2,
+    /// A research desk's own slot: where a research key sits until it is
+    /// consumed. One a desk, and nothing else goes in it.
+    Research = 3,
 }
 
 impl Storage {
@@ -132,9 +133,9 @@ impl Storage {
     /// readout per entry.
     pub const ALL: [Storage; 4] = [
         Storage::Shelf,
-        Storage::FuelTank,
         Storage::ColdStore,
         Storage::Locker,
+        Storage::Research,
     ];
 
     pub fn code(self) -> u32 {
@@ -155,7 +156,6 @@ pub fn trade_price(resource: ResourceId) -> Money {
     match resource {
         ResourceId::Ore => 20,
         ResourceId::Metal => 60,
-        ResourceId::Fuel => 40,
         ResourceId::Components => 150,
         ResourceId::Vegetable => 8,
         ResourceId::Tofu => 12,
@@ -188,6 +188,9 @@ pub fn trade_price(resource: ResourceId) -> Money {
         ResourceId::AutoRifle => 2_000,
         ResourceId::SniperRifle => 3_000,
         ResourceId::Schword => 2_500,
+        // Found, never made and never sold; a station pays for one as a
+        // curiosity, which is a great deal less than what it opens.
+        ResourceId::ResearchKey => 5_000,
     }
 }
 
@@ -209,7 +212,6 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::Galvum
         | ResourceId::Emitter
         | ResourceId::Rock => Storage::Shelf,
-        ResourceId::Fuel => Storage::FuelTank,
         // Fibre is a crop, and goes cold with the rest of the harvest.
         ResourceId::Vegetable | ResourceId::Tofu | ResourceId::Fibre => Storage::ColdStore,
         ResourceId::Suit
@@ -224,6 +226,7 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
         | ResourceId::Schword => Storage::Locker,
+        ResourceId::ResearchKey => Storage::Research,
     }
 }
 
@@ -289,7 +292,6 @@ mod tests {
         }
         assert_eq!(trade_price(ResourceId::Ore), 20);
         assert_eq!(trade_price(ResourceId::Metal), 60);
-        assert_eq!(trade_price(ResourceId::Fuel), 40);
         assert_eq!(trade_price(ResourceId::Components), 150);
         assert_eq!(trade_price(ResourceId::Vegetable), 8);
         assert_eq!(trade_price(ResourceId::Tofu), 12);
@@ -313,7 +315,6 @@ mod tests {
         assert_eq!(storage(ResourceId::Ore), Storage::Shelf);
         assert_eq!(storage(ResourceId::Metal), Storage::Shelf);
         assert_eq!(storage(ResourceId::Components), Storage::Shelf);
-        assert_eq!(storage(ResourceId::Fuel), Storage::FuelTank);
         assert_eq!(storage(ResourceId::Vegetable), Storage::ColdStore);
         assert_eq!(storage(ResourceId::Tofu), Storage::ColdStore);
         assert_eq!(storage(ResourceId::Galvum), Storage::Shelf);
@@ -347,8 +348,10 @@ mod tests {
             Ok(150 * u32::MAX as Money),
         );
         assert!(Storage::from_code(4).is_none());
-        assert_eq!(Storage::from_code(2), Some(Storage::ColdStore));
-        assert_eq!(Storage::from_code(3), Some(Storage::Locker));
+        assert_eq!(Storage::from_code(1), Some(Storage::ColdStore));
+        assert_eq!(Storage::from_code(2), Some(Storage::Locker));
+        assert_eq!(Storage::from_code(3), Some(Storage::Research));
+        assert_eq!(storage(ResourceId::ResearchKey), Storage::Research);
     }
 
     #[test]

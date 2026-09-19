@@ -22,9 +22,18 @@
 //! Nothing here knows what a tile is. A door is a rect and which way it
 //! runs, and `aboard.rs` is what works those out from a design.
 
+use crate::cue::{self, Cue};
 use crate::draw::DrawList;
 use crate::math::{Rect, Vec2, clamp, lerp, vec2};
 use crate::room::{GLOW, HULL, PANEL_LIT, STEEL, WARN};
+
+/// How long a body takes to force a locked door, in seconds: a bulkhead
+/// door, and an airlock, which is hull and twice as stubborn. One body at
+/// a door at a time — see [`Smash`].
+pub const SMASH_DOOR: f32 = 15.0;
+pub const SMASH_AIRLOCK: f32 = 30.0;
+/// Seconds between heaves, for the sound of it.
+const HEAVE_EVERY: f32 = 2.0;
 
 /// How fast the leaves travel, in fractions of open per second. The
 /// bathroom door's rate.
@@ -64,10 +73,32 @@ impl Order {
     }
 }
 
+/// Who locked a door: the crew, from the panel, or one of the room's own
+/// bodies — an enemy sealing itself in — who unlocks it again itself.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Locker {
+    Crew,
+    Body(usize),
+}
+
+/// A body forcing the door: who, and how many seconds of it are done.
+/// One at a time — a second body at the same door waits.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Smash {
+    pub by: usize,
+    pub done: f32,
+    /// Seconds since the last heave was heard.
+    pub since_heave: f32,
+}
+
 pub struct Door {
     /// The opening: the two tiles the design put the door in, a run along
     /// the bulkhead one tile deep.
     pub rect: Rect,
+    /// An airlock rather than a bulkhead door: the hull draws it, so the
+    /// room draws only its lamp and a smashing's bar over it; it takes
+    /// [`SMASH_AIRLOCK`] to force; and the walk outside goes through it.
+    pub airlock: bool,
     /// Whether the leaves slide along `x` — a door in a bulkhead that runs
     /// east–west — or along `y`. The long side of `rect`.
     pub along_x: bool,
@@ -76,22 +107,45 @@ pub struct Door {
     /// Held open by the player, so it does not shut itself.
     pub held: bool,
     pub locked: bool,
+    /// Who locked it, while it is locked.
+    pub locked_by: Locker,
+    /// A body forcing it, while one is.
+    pub smash: Option<Smash>,
+    /// The lock changed since the world last looked — an order, a body
+    /// sealing itself in, a smash — for the world to carry to the same
+    /// door in the other room (the joined deck and the station's own).
+    pub changed: bool,
     /// Seconds since the doorway was last clear; the door shuts itself when
     /// it reaches [`SHUT_AFTER`].
     clear_for: f32,
+    /// Which way the leaves went last frame, for [`cue::door_motion`].
+    moving: i8,
     /// A picture clock for the lamp.
     time: f32,
 }
 
 impl Door {
     pub fn new(rect: Rect, along_x: bool) -> Door {
+        Door::of_kind(rect, along_x, false)
+    }
+
+    pub fn new_airlock(rect: Rect, along_x: bool) -> Door {
+        Door::of_kind(rect, along_x, true)
+    }
+
+    pub fn of_kind(rect: Rect, along_x: bool, airlock: bool) -> Door {
         Door {
             rect,
+            airlock,
             along_x,
             open: 0.0,
             held: false,
             locked: false,
+            locked_by: Locker::Crew,
+            smash: None,
+            changed: false,
             clear_for: SHUT_AFTER,
+            moving: 0,
             time: 0.0,
         }
     }
@@ -151,18 +205,87 @@ impl Door {
                 }
             }
             Order::Close => self.held = false,
-            Order::Lock => {
-                self.held = false;
-                self.locked = true;
-            }
-            Order::Unlock => self.locked = false,
+            Order::Lock => self.lock(Locker::Crew),
+            Order::Unlock => self.unlock(),
         }
+    }
+
+    /// Shut and locked, by `by`. A body sealing itself in locks the same
+    /// way the panel does, and the door remembers whose lock it is.
+    pub fn lock(&mut self, by: Locker) {
+        self.held = false;
+        if !self.locked || self.locked_by != by {
+            self.changed = true;
+        }
+        self.locked = true;
+        self.locked_by = by;
+    }
+
+    pub fn unlock(&mut self) {
+        if self.locked {
+            self.changed = true;
+        }
+        self.locked = false;
+        self.smash = None;
+    }
+
+    /// How long a body takes to force this one.
+    pub fn smash_time(&self) -> f32 {
+        if self.airlock {
+            SMASH_AIRLOCK
+        } else {
+            SMASH_DOOR
+        }
+    }
+
+    /// How far a smashing has got, nought to one, while one is on.
+    pub fn smash_progress(&self) -> Option<f32> {
+        self.smash
+            .map(|s| clamp(s.done / self.smash_time(), 0.0, 1.0))
+    }
+
+    /// `by` heaves at the door for `dt` seconds: the smashing starts if
+    /// nobody else is at it, goes on if it is theirs, and when it is done
+    /// the lock gives — the door is unlocked, and opens for whoever is
+    /// there. Says so: a heave every [`HEAVE_EVERY`], and the door going.
+    pub fn smash(&mut self, by: usize, dt: f32) -> Option<Cue> {
+        if !self.locked {
+            self.smash = None;
+            return None;
+        }
+        let time = self.smash_time();
+        let smash = self.smash.get_or_insert(Smash {
+            by,
+            done: 0.0,
+            since_heave: HEAVE_EVERY,
+        });
+        if smash.by != by {
+            return None;
+        }
+        smash.done += dt;
+        smash.since_heave += dt;
+        if smash.done >= time {
+            self.unlock();
+            return Some(Cue::DoorForced);
+        }
+        if smash.since_heave >= HEAVE_EVERY {
+            smash.since_heave = 0.0;
+            return Some(Cue::DoorSmash);
+        }
+        None
+    }
+
+    /// Nobody is at it any more: the smashing is dropped, and the next
+    /// body starts from nothing.
+    pub fn drop_smash(&mut self) {
+        self.smash = None;
     }
 
     /// One frame. `bodies` is where everybody in the room is standing: the
     /// door opens for anyone within reach, waits for anyone in the opening,
-    /// and shuts itself once the doorway has been clear a moment.
-    pub fn update(&mut self, dt: f32, bodies: &[Vec2]) {
+    /// and shuts itself once the doorway has been clear a moment. Says so
+    /// the frame the leaves start moving either way.
+    pub fn update(&mut self, dt: f32, bodies: &[Vec2]) -> Option<Cue> {
         self.time += dt;
         let near = bodies.iter().any(|&p| self.rect.expand(REACH).contains(p));
         let in_the_way = bodies
@@ -182,7 +305,9 @@ impl Door {
             0.0
         };
         let step = RATE * dt;
+        let was = self.open;
         self.open += clamp(target - self.open, -step, step);
+        cue::door_motion(was, self.open, &mut self.moving)
     }
 
     /// Two leaves parting in the middle, each sliding away under the
@@ -212,6 +337,29 @@ impl Door {
         } else {
             core::f32::consts::FRAC_PI_2
         };
+        let lamp_colour = if self.locked {
+            WARN
+        } else if self.held {
+            GLOW.alpha(0.9)
+        } else {
+            GLOW
+        };
+        // The lamp on the bulkhead beside the opening, pulsing when locked.
+        let lamp = c + u * (width * 0.5 + 9.0) + v * (deep * 0.5 + 6.0);
+        let pulse = 0.65 + 0.35 * (self.time * 3.4).sin();
+        let strength = if self.locked { pulse } else { 0.8 };
+
+        // An airlock is the hull's picture; the room adds only what the
+        // hull does not know — the lamp while it is locked, and the bar of
+        // a smashing.
+        if self.airlock {
+            if self.locked {
+                list.circle(lamp, 9.0, lamp_colour.alpha(0.18 * strength));
+                list.circle(lamp, 4.5, lamp_colour.alpha(strength));
+            }
+            self.draw_smash(list, c, v, width, deep, rot);
+            return;
+        }
 
         // The opening: a dark slot across the bulkhead line, lit down both
         // jambs, so that an open door is plainly a gap.
@@ -227,13 +375,6 @@ impl Door {
         }
 
         let leaf = width * 0.5;
-        let lamp_colour = if self.locked {
-            WARN
-        } else if self.held {
-            GLOW.alpha(0.9)
-        } else {
-            GLOW
-        };
         for side in [-1.0f32, 1.0] {
             let shut = side * leaf * 0.5;
             let at = c + u * lerp(shut, shut + side * leaf, self.open);
@@ -252,11 +393,33 @@ impl Door {
             }
         }
 
-        // The lamp on the bulkhead beside the opening, pulsing when locked.
-        let lamp = c + u * (width * 0.5 + 9.0) + v * (deep * 0.5 + 6.0);
-        let pulse = 0.65 + 0.35 * (self.time * 3.4).sin();
-        let strength = if self.locked { pulse } else { 0.8 };
         list.circle(lamp, 9.0, lamp_colour.alpha(0.18 * strength));
         list.circle(lamp, 4.5, lamp_colour.alpha(strength));
+        self.draw_smash(list, c, v, width, deep, rot);
+    }
+
+    /// The bar of a smashing, over the door across the opening: how far the
+    /// lock has to go, in the warning colour, so when it will give is plain.
+    fn draw_smash(&self, list: &mut DrawList, c: Vec2, v: Vec2, width: f32, deep: f32, rot: f32) {
+        let Some(progress) = self.smash_progress() else {
+            return;
+        };
+        let at = c - v * (deep * 0.5 + 12.0);
+        let w = width * 0.8;
+        list.rect(at, vec2(w + 4.0, 8.0), rot, 2.0, HULL.alpha(0.9));
+        list.rect(at, vec2(w, 4.0), rot, 1.0, STEEL.alpha(0.5));
+        let u = if self.along_x {
+            vec2(1.0, 0.0)
+        } else {
+            vec2(0.0, 1.0)
+        };
+        let filled = w * progress;
+        list.rect(
+            at - u * ((w - filled) * 0.5),
+            vec2(filled.max(0.5), 4.0),
+            rot,
+            1.0,
+            WARN,
+        );
     }
 }

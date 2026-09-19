@@ -82,7 +82,7 @@
 //!   does to a Bim standing in one — over what time, with what effect on
 //!   health — is the play phase's and is not decided.
 //! - **What is bought is stowed where its class says.** Food in a cold
-//!   store, fuel in a tank, everything else on a shelf; `economy::storage` is
+//!   store, gear in a locker, everything else on a shelf; `economy::storage` is
 //!   the mapping and `PartDef::capacity` is what provides each class. A play
 //!   phase that moves a crate of ore into the fridge has broken the contract
 //!   the purchase was checked against.
@@ -110,11 +110,13 @@ pub mod budget;
 pub mod design;
 pub mod dock;
 pub mod fixture;
+pub mod hyperdrive;
 pub mod mass;
 pub mod materials;
 pub mod parts;
 pub mod power;
 pub mod recipes;
+pub mod research;
 pub mod validate;
 
 pub use budget::Budget;
@@ -127,13 +129,18 @@ pub use economy::{Money, Storage, starting_pool, storage, trade_price, trade_val
 pub use mass::{acceleration, hull_mass, ship_mass};
 pub use materials::{bound_materials, build_from_cargo, deconstruct_to_cargo, recipe_for};
 pub use parts::{
-    BATTERY_CHARGE, Layer, PartDef, PartKind, REACTOR_OUTPUT, Rotation, TILE, essential,
-    is_diagonal, part_mass, solid_corner,
+    BATTERY_CHARGE, ENGINE_POWER, FUSION_OUTPUT, Layer, PartDef, PartKind, REACTOR_OUTPUT,
+    Rotation, STANDING_LIGHT_TILES, TILE, WALL_LIGHT_TILES, essential, is_cover, is_diagonal,
+    is_light, light_tiles, part_mass, solid_corner,
 };
 pub use power::{
-    Budget as PowerBudget, Network, budget as power_budget, is_powered, networks, unpowered,
+    Budget as PowerBudget, Network, Thrust, budget as power_budget, is_powered, networks, thrust,
+    unpowered,
 };
 pub use recipes::{RECIPES, Recipe, recipes_are_sound};
+pub use research::{
+    KEY_CELLS, NODES, Node, NodeDef, RESEARCH, Research, TIERS, node_of_part, node_of_recipe,
+};
 pub use validate::{
     ExposureMap, Issue, IssueCode, Severity, exhaust_blocked, exhaust_tiles, exposure, has_errors,
     validate,

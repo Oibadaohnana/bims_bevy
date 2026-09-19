@@ -7,6 +7,11 @@
 //! that is meant to be called from, precisely so there is one moment at which
 //! a ship's flying changes rather than a scattering of them.
 //!
+//! The engines in it are the ones the reactor feeds — `shipdesign::power::thrust`
+//! — at the push it can feed them. There is no fuel; a ship with a dark
+//! engine has no engine, and one with more engine than reactor has a slower
+//! ship.
+//!
 //! # Two simplifications, both deliberate
 //!
 //! - **A main engine produces no torque**, wherever it is bolted. Its push
@@ -68,10 +73,21 @@ pub struct Dynamics {
     /// fly the heading it was left on.
     pub alpha: f64,
     /// How many engines burn when the ship is pushing forward, and how many
-    /// when it is pushing back. What the painter lights; the fuel bill is
-    /// per unit of thrust and comes off the acceleration instead.
+    /// when it is pushing back. The **fed** ones — on a live network — since
+    /// a dark engine pushes nothing; what the painter lights.
     pub forward_engines: u32,
     pub backward_engines: u32,
+    /// What those engines draw off the reactor while they burn, in units a
+    /// minute, after the throttle: `shipdesign::power::thrust`'s answer,
+    /// kept here so a plan carries it in every burning segment and the
+    /// world's power stage reads it off the effort. Nothing while turning.
+    pub forward_power: f64,
+    pub backward_power: f64,
+    /// How much of the engines' full push the reactor feeds, `0.0` to
+    /// `1.0`, each way. Already in `a_forward` and `a_backward`; here for
+    /// whoever wants to say so.
+    pub forward_throttle: f64,
+    pub backward_throttle: f64,
     /// Whether there is anywhere to fly it from.
     pub has_helm: bool,
     /// Whether there is a way off it — an airlock that opens onto space, a
@@ -81,18 +97,6 @@ pub struct Dynamics {
 }
 
 impl Dynamics {
-    /// What one minute of burning costs at `accel` along the ship's line.
-    ///
-    /// Fuel goes as **thrust**, not as a count of engines: a heavy engine
-    /// pushing five times as hard burns five times as much, or it would be
-    /// the only engine worth having. The thrust is the acceleration times
-    /// the mass, which is why this takes the segment's `accel` rather than
-    /// its engine count — the count is what the painter lights, and the two
-    /// are read off the same segment. Nothing while coasting or turning.
-    pub fn fuel_per_minute(&self, accel: f64) -> f64 {
-        data::FUEL_PER_THRUST_MINUTE * accel.abs() * self.mass.get()
-    }
-
     /// Whether the ship can turn at all.
     pub fn can_rotate(&self) -> bool {
         self.alpha > 0.0
@@ -140,24 +144,25 @@ pub fn dynamics(design: &ShipDesign, crew_count: u32) -> Result<Dynamics, Dynami
         }
     }
 
-    let engines = shipdesign::mass::engines(design);
-    let count = |facing: Facing| {
-        design
-            .parts
-            .iter()
-            .filter(|p| p.kind.def().pushes() && p.rotation.facing() == facing)
-            .count() as u32
-    };
+    // The engines as the reactor feeds them, not as the table lists them:
+    // a wired engine pushes its thrust times its facing's throttle, and an
+    // engine on no live network is not here at all. There is no fuel; this
+    // is the whole of what power does to a trip.
+    let fed = shipdesign::thrust(design);
 
     Ok(Dynamics {
         mass,
         centre_of_mass,
         inertia,
-        a_forward: physics::axis_acceleration(&engines, mass, Facing::Forward),
-        a_backward: physics::axis_acceleration(&engines, mass, Facing::Backward),
+        a_forward: physics::axis_acceleration(&fed.engines, mass, Facing::Forward),
+        a_backward: physics::axis_acceleration(&fed.engines, mass, Facing::Backward),
         alpha: torque / inertia,
-        forward_engines: count(Facing::Forward),
-        backward_engines: count(Facing::Backward),
+        forward_engines: fed.count(Facing::Forward),
+        backward_engines: fed.count(Facing::Backward),
+        forward_power: fed.forward_power,
+        backward_power: fed.backward_power,
+        forward_throttle: fed.forward_throttle,
+        backward_throttle: fed.backward_throttle,
         has_helm: design.count(PartKind::Helm) > 0,
         has_airlock: shipdesign::port(design).is_some(),
     })

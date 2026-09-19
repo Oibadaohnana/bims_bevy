@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bims::combat::LootCell;
 use bims::game::Game;
-use bims::room::{HIT_DOOR, HIT_SHIP_DOOR, TILE};
+use bims::room::{HIT_DOOR, HIT_DROPPED, HIT_SHIP_DOOR, TILE};
 use world::LootSource;
 
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui};
@@ -17,6 +17,7 @@ use crate::crew::{Body, CLICK_SLOP, CrewPanels, GearOrder};
 use crate::format::{clock_text, span_text};
 use crate::names::*;
 use crate::shapes::View;
+use crate::sound::{Bed, Sounds};
 use crate::{Screen, theme};
 
 /// The simulation always advances in steps of this size, whatever the
@@ -56,12 +57,18 @@ impl Plugin for RoomPlugin {
 pub struct RoomScreen {
     game: Game,
     panels: CrewPanels,
+    /// The smooth fog over the deck, as a texture — see `fogmap`.
+    fog: crate::fogmap::FogTexture,
     speed: u32,
     backlog: f32,
     /// Where the pointer is over the deck, in room coordinates.
     hover_at: Option<Vec2>,
     /// A marquee under way: where the press landed, in window points.
     drag_from: Option<egui::Pos2>,
+    /// Where a right-drag on the deck began, on the glass: an order in the
+    /// making — a line for the selected crew, or a point if it never moves
+    /// further than a click.
+    order_from: Option<egui::Pos2>,
     /// A refused order, and when to stop saying so.
     refusal: Option<(String, f64)>,
     size: Vec2,
@@ -75,10 +82,12 @@ fn open(mut commands: Commands, window: Single<&Window>) {
     let mut screen = RoomScreen {
         game,
         panels,
+        fog: crate::fogmap::FogTexture::default(),
         speed: 1,
         backlog: 0.0,
         hover_at: None,
         drag_from: None,
+        order_from: None,
         refusal: None,
         size,
     };
@@ -101,7 +110,13 @@ pub fn rand_seed() -> u64 {
     h.finish()
 }
 
-fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<Time>) -> Result {
+fn frame(
+    mut contexts: EguiContexts,
+    mut screen: ResMut<RoomScreen>,
+    time: Res<Time>,
+    mut sounds: ResMut<Sounds>,
+    mut commands: Commands,
+) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
     let dt = time.delta_secs().min(MAX_FRAME_DT);
@@ -119,6 +134,12 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
     if screen.backlog > SIM_STEP * MAX_STEPS_PER_FRAME as f32 {
         screen.backlog = 0.0; // gave up catching up
     }
+    // What the steps sounded like, and the deck's own hum under it: the
+    // test room is a ship's deck.
+    for cued in screen.game.take_cues() {
+        sounds.play(&mut commands, cued);
+    }
+    sounds.want(Bed::Ship);
 
     screen.panels.begin_frame();
     let now = ctx.input(|i| i.time);
@@ -187,11 +208,22 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
         screen.hover_at = None;
     }
 
+    // The gun under the pointer, ringed; nothing lit when there is none.
+    let under = on_deck.and_then(|p| screen.game.dropped_at(p.x, p.y));
+    screen.game.set_hover_dropped(under);
     if let Some(p) = on_deck {
         if pointer.secondary_pressed {
             screen.panels.close_menu();
             let fixture = screen.game.hit_at(p.x, p.y);
-            if fixture != 0 {
+            if fixture == HIT_DROPPED {
+                // A gun on the deck is picked up by the right-click itself
+                // — no menu — into the pack of the Bim shown.
+                let id = screen.game.hit_dropped();
+                let who = screen.panels.inventory_who(&screen.game);
+                if !screen.game.fetch(who, id) {
+                    screen.refusal = Some((PICK_UP_REFUSED.into(), now + REFUSAL_SECONDS));
+                }
+            } else if fixture != 0 {
                 // Right-clicking a fixture opens its menu — and a body is
                 // a fixture here, living (`HIT_BIM`, the bandage menu) or
                 // dead (`HIT_BODY`, the Loot row): never a walk to the deck
@@ -205,11 +237,10 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
             if fixture == 0 || fixture == HIT_DOOR || fixture == HIT_SHIP_DOOR {
                 // On bare floor a right-click is an order — and on a door
                 // it is both: the menu, and a walk into the doorway, which
-                // is somewhere a Bim may stand.
-                let code = screen.game.order_move(p.x, p.y);
-                if let Some(refused) = order_refused(code) {
-                    screen.refusal = Some((refused.into(), now + REFUSAL_SECONDS));
-                }
+                // is somewhere a Bim may stand. Given when the button comes
+                // up: held and dragged, it is a line the crew form along.
+                screen.order_from = pointer.pos.map(|p| egui::pos2(p.x, p.y));
+                screen.game.order_drag_begin(p.x, p.y);
             }
         }
         if pointer.primary_pressed {
@@ -227,16 +258,39 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
                 let here = pointer.pos.unwrap();
                 let moved = (egui::pos2(here.x, here.y) - from).length() > CLICK_SLOP;
                 // A click that landed on a fixture opens its menu instead of
-                // selecting.
+                // selecting — or, on a body, its inventory straight off.
                 if fixture != 0 && !moved {
-                    screen
-                        .panels
-                        .open_menu(fixture, egui::pos2(here.x, here.y), &mut screen.game);
+                    if let Some(source) = screen.panels.body_under_click(&screen.game, fixture) {
+                        screen.panels.open_loot(source);
+                    } else {
+                        screen.panels.open_menu(
+                            fixture,
+                            egui::pos2(here.x, here.y),
+                            &mut screen.game,
+                        );
+                    }
                 }
             }
         } else if pointer.primary_released || pointer.pos.is_none() {
             screen.drag_from = None;
             screen.game.drag_cancel();
+        }
+    }
+    if screen.order_from.is_some() {
+        if let Some(p) = pointer.pos.map(|p| view.to_world(p - canvas.min)) {
+            screen.game.order_drag_update(p.x, p.y);
+            if pointer.secondary_released {
+                let from = screen.order_from.take().unwrap();
+                let here = pointer.pos.unwrap();
+                let dragged = (egui::pos2(here.x, here.y) - from).length() > CLICK_SLOP;
+                let code = screen.game.order_drag_end(p.x, p.y, dragged);
+                if let Some(refused) = order_refused(code) {
+                    screen.refusal = Some((refused.into(), now + REFUSAL_SECONDS));
+                }
+            }
+        } else if pointer.secondary_released || pointer.pos.is_none() {
+            screen.order_from = None;
+            screen.game.order_drag_cancel();
         }
     }
 
@@ -367,6 +421,8 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
             GearOrder::Stow { .. }
             | GearOrder::Fetch { .. }
             | GearOrder::Hire { .. }
+            | GearOrder::Execute { .. }
+            | GearOrder::TakeKey { .. }
             | GearOrder::Loot {
                 source: LootSource::Resident(_),
                 ..
@@ -378,6 +434,23 @@ fn frame(mut contexts: EguiContexts, mut screen: ResMut<RoomScreen>, time: Res<T
     screen.game.render();
     let painter = canvas_painter(&ctx, canvas);
     paint_shapes(&painter, canvas, view, screen.game.shapes());
+    // The smooth fog over the deck, as the room's light map through the
+    // room's own scale and offset.
+    if let Some(map) = screen.game.light_map() {
+        let o = map.origin;
+        let s = map.size();
+        let corners = [
+            Vec2::new(o.x, o.y),
+            Vec2::new(o.x + s.x, o.y),
+            Vec2::new(o.x + s.x, o.y + s.y),
+            Vec2::new(o.x, o.y + s.y),
+        ]
+        .map(|p| {
+            let at = view.to_canvas(p) + canvas.min;
+            egui::pos2(at.x, at.y)
+        });
+        screen.fog.paint(&ctx, &painter, map, corners);
+    }
 
     // The names and the bubbles, over the deck and under the panels. Text
     // is the app's: the shape buffer has rectangles and ellipses in it and

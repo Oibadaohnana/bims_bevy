@@ -25,7 +25,7 @@
 //! sold, only discarded. That is why no piece at `Hold` is ever broken.
 
 use bims::combat::Piece as RoomPiece;
-use bims::combat::{ArmourKind, Item, WeaponKind};
+use bims::combat::{ArmourKind, Item, Tier, Weapon, WeaponKind};
 use physics::ResourceId;
 
 /// Where a piece of armour is.
@@ -60,20 +60,24 @@ pub struct Piece {
     /// the next one alike.
     pub id: u32,
     pub kind: ArmourKind,
-    /// What it has left, out of `kind.stats().health`. Kept wherever it
-    /// goes.
+    /// How good it is — `bims::combat::Tier`. A purchase or a bench makes
+    /// tier one; the workbench combines two of a tier into one of the next
+    /// (`World::upgrade`).
+    pub tier: Tier,
+    /// What it has left, out of `stats().health`. Kept wherever it goes.
     pub health: f32,
     pub at: Where,
 }
 
 impl Piece {
-    /// A fresh piece, whole, in the hold: what a purchase or a bench
-    /// pushes.
-    pub fn new(id: u32, kind: ArmourKind) -> Piece {
+    /// A fresh piece, whole at its tier's health, in the hold: what a
+    /// purchase or a bench pushes at tier one, and an upgrade above it.
+    pub fn new(id: u32, kind: ArmourKind, tier: Tier) -> Piece {
         Piece {
             id,
             kind,
-            health: kind.stats().health,
+            tier,
+            health: RoomPiece::new(id, kind, tier).health,
             at: Where::Hold,
         }
     }
@@ -92,18 +96,27 @@ impl Piece {
         Item::Armour(RoomPiece {
             id: self.id,
             kind: self.kind,
+            tier: self.tier,
             health: self.health,
         })
     }
 }
 
-/// What a fetch takes out of a container: one particular piece, or one
-/// unit of a resource by its `ResourceId` code — for an armour resource,
-/// the least damaged piece of that kind in the hold.
+/// What a fetch takes out of a container: one particular piece; one unit
+/// of a resource by its `ResourceId` code — for an armour resource the
+/// least damaged piece of that kind in the hold, for a weapon the
+/// highest tier of it; or one weapon of exactly that tier.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FetchKind {
     Piece(u32),
     Resource(u32),
+    Tiered { resource: u32, tier: u32 },
+}
+
+/// The tiers a resource's units in the hold can differ by: a weapon by its
+/// tier, in `World::guns`. `None` for anything that is not a weapon.
+pub fn weapon_at(resource: ResourceId, tier: Tier) -> Option<Weapon> {
+    weapon_of(resource).map(|kind| kind.at(tier))
 }
 
 /// Whose body a loot takes from: one of the crew, or one of the station's
@@ -182,14 +195,38 @@ pub fn is_gear(resource: ResourceId) -> bool {
     kind_of(resource).is_some() || weapon_of(resource).is_some()
 }
 
-/// What one unit of a resource is as a pack item: a weapon by its kind,
-/// anything else a stack of one. A piece of armour is never made this way
-/// — it has an id and a health, and comes out of [`Piece::item`].
-pub fn item_of(resource: ResourceId) -> Item {
-    match weapon_of(resource) {
-        Some(weapon) => Item::Weapon(weapon),
-        None => Item::Stack(resource as u32),
+/// The tier of research key a resource is, if it is one: the tier-one key
+/// is the one there is. The room carries a key as `Item::Key(tier)` — two
+/// cells tall — and the hold counts it as this resource.
+pub fn key_tier_of(resource: ResourceId) -> Option<u8> {
+    match resource {
+        ResourceId::ResearchKey => Some(1),
+        _ => None,
     }
+}
+
+/// The resource a research key of `tier` is in the hold, if the tier has
+/// one.
+pub fn key_resource(tier: u8) -> Option<ResourceId> {
+    match tier {
+        1 => Some(ResourceId::ResearchKey),
+        _ => None,
+    }
+}
+/// What one unit of a resource is as a pack item: a weapon by its kind at
+/// tier one (the hold's tiers are `World::guns`, and a fetch reads them), a
+/// What one unit of a resource is as a pack item: a weapon by its kind, a
+/// research key by its tier, anything else a stack of one. A piece of
+/// armour is never made this way — it has an id and a health, and comes
+/// out of [`Piece::item`].
+pub fn item_of(resource: ResourceId) -> Item {
+    if let Some(weapon) = weapon_of(resource) {
+        return Item::Weapon(weapon.basic());
+    }
+    if let Some(tier) = key_tier_of(resource) {
+        return Item::Key(tier);
+    }
+    Item::Stack(resource as u32)
 }
 
 /// What a pack item is in the hold: the resource one unit of it counts
@@ -197,7 +234,8 @@ pub fn item_of(resource: ResourceId) -> Item {
 pub fn resource_of_item(item: Item) -> Option<ResourceId> {
     match item {
         Item::Armour(piece) => Some(resource_of(piece.kind)),
-        Item::Weapon(weapon) => Some(weapon_resource(weapon)),
+        Item::Weapon(weapon) => Some(weapon_resource(weapon.kind)),
         Item::Stack(code) => ResourceId::ALL.get(code as usize).copied(),
+        Item::Key(tier) => key_resource(tier),
     }
 }

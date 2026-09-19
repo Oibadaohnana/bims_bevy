@@ -33,8 +33,10 @@ const GLOW: Color = Color::rgb(0.38, 0.86, 0.95);
 const WARN: Color = Color::rgb(0.98, 0.45, 0.32);
 const GOOD: Color = Color::rgb(0.50, 0.90, 0.60);
 const SPOT: Color = Color::rgba(0.98, 0.82, 0.35, 0.85);
-/// An engine's exhaust on the deck, while building: the flame's colour.
-const FLAME: Color = Color::rgb(1.0, 0.62, 0.22);
+/// An engine's exhaust on the deck, while building: the flame's colour —
+/// blue, since the engines run on the reactor and the exhaust is plasma,
+/// the same as `hull.rs` draws it lit.
+const FLAME: Color = Color::rgb(0.30, 0.66, 1.0);
 
 /// One colour per [`PartKind`], indexed by discriminant. `PARTS` order, and
 /// the same order the palette is built in.
@@ -42,7 +44,7 @@ const FLAME: Color = Color::rgb(1.0, 0.62, 0.22);
 /// Index 0 is the deck and index 15 is the frame; both are drawn as tiles
 /// rather than as objects, and both are in the table anyway so the palette
 /// buttons for them have swatches.
-pub static PART_COLORS: [Color; 38] = [
+pub static PART_COLORS: [Color; 42] = [
     Color::rgb(0.13, 0.15, 0.18), // Floor
     Color::rgb(0.30, 0.34, 0.40), // Wall
     Color::rgb(0.38, 0.86, 0.95), // Door
@@ -64,7 +66,6 @@ pub static PART_COLORS: [Color; 38] = [
     Color::rgb(0.86, 0.62, 0.24), // Reactor
     Color::rgb(0.74, 0.66, 0.22), // PowerConduit
     Color::rgb(0.62, 0.58, 0.30), // Battery
-    Color::rgb(0.40, 0.48, 0.58), // FuelTank
     Color::rgb(0.34, 0.62, 0.52), // LifeSupport
     Color::rgb(0.58, 0.68, 0.74), // Airlock
     Color::rgb(0.70, 0.74, 0.80), // SensorArray
@@ -81,6 +82,11 @@ pub static PART_COLORS: [Color; 38] = [
     Color::rgb(0.74, 0.82, 0.78), // DrugLab — clinical, a pale green-white
     Color::rgb(0.62, 0.48, 0.30), // TradingDesk — a wooden counter
     Color::rgb(0.66, 0.60, 0.42), // Sandbags — hessian
+    Color::rgb(0.30, 0.52, 0.62), // ResearchDesk — a console's blue-grey
+    Color::rgb(0.55, 0.78, 0.92), // FusionReactor — the plasma's blue-white
+    Color::rgb(0.62, 0.42, 0.86), // Hyperdrive — a violet, the far end of the exhaust
+    Color::rgb(1.0, 0.92, 0.70),  // WallLight — lamplight
+    Color::rgb(0.96, 0.90, 0.72), // StandingLight — lamplight, a shade cooler
 ];
 
 /// The frame, drawn as the tile under everything. Dimmer than the deck and
@@ -107,6 +113,7 @@ pub fn paint(editor: &Editor, list: &mut DrawList) {
     deck(editor, list);
     conduit(editor, list);
     objects(editor, list);
+    reactor_glow(editor, list);
     // Before the faults, so an issue outline is still legible over it, and
     // after the parts, so it reads as a wash over the ship rather than as
     // something underneath it.
@@ -115,6 +122,25 @@ pub fn paint(editor: &Editor, list: &mut DrawList) {
     faults(editor, list);
     pointed_at(editor, list);
     ghost(editor, list);
+}
+
+/// The reactors' glow over their pictures, at the load the ship as drawn
+/// would put on them at rest: the day-long draw over the supply, over the
+/// live networks. An engine lit is the game's to show; here it is what the
+/// ship costs to run standing still, and a reactor with nothing wired to
+/// it barely glows. Still, since nothing is stepping.
+fn reactor_glow(editor: &Editor, list: &mut DrawList) {
+    let budget = shipdesign::power_budget(&editor.design);
+    let load = if budget.supply > 0.0 {
+        (budget.draw / budget.supply) as f32
+    } else {
+        0.0
+    };
+    for part in &editor.design.parts {
+        if part.kind.def().supplies() {
+            crate::fittings::reactor_glow(list, part, load, 0);
+        }
+    }
 }
 
 /// Where every engine's exhaust goes, drawn on the deck while building:

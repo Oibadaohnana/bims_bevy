@@ -482,6 +482,15 @@ impl Health {
         self.blood
     }
 
+    /// Set the blood to a share of [`MAX_BLOOD`], for a probe that wants a
+    /// body out cold without a wound on it: under [`OUT_AT`] it lies
+    /// where it is until the blood comes back, which with nothing open
+    /// takes days.
+    #[allow(dead_code)]
+    pub fn set_blood_for_probe(&mut self, share: f32) {
+        self.blood = MAX_BLOOD * share;
+    }
+
     /// Open wound units on one part.
     pub fn wounds(&self, part: Part) -> u32 {
         self.wounds[part as usize]
@@ -732,45 +741,147 @@ mod tests {
     }
 
     #[test]
-    fn a_head_shot_kills_and_a_body_shot_wears_it_down() {
+    fn a_body_shot_wears_it_down_and_a_head_at_nothing_is_dying_not_dead() {
         let mut h = Health::new();
-        assert!(!h.shot(Part::Body, 12.0, false));
+        assert_eq!(h.shot(Part::Body, 12.0, false, 0.0), None);
         assert_eq!(h.part(Part::Body), 63.0);
         assert_eq!(h.points(), 88.0);
         assert!(!h.is_dead());
-        h.shot(Part::Head, 12.0, false);
-        assert!(h.is_dead());
+        assert_eq!(
+            h.shot(Part::Head, 12.0, false, 0.5),
+            Some(Trauma::SkullFracture)
+        );
+        assert!(!h.is_dead(), "a part at nothing is a dying state");
+        assert!(h.dying());
+        assert_eq!(h.trauma(Part::Head), Some(Trauma::SkullFracture));
+        assert_eq!(h.part(Part::Head), 0.0);
+        // Another hit on the same part is a wound and nothing more.
+        assert_eq!(h.shot(Part::Head, 12.0, false, 0.0), None);
+        assert_eq!(h.wounds(Part::Head), 2);
+        // The part does not mend on its own, and the fracture bleeds it
+        // ten a quarter hour besides the wounds.
+        h.update(HOUR * 0.25, 1.0, 1.0, false);
+        assert_eq!(h.part(Part::Head), 0.0);
+        let lost = MAX_BLOOD - h.blood();
+        assert!((lost - (10.0 + 3.0 * 2.5)).abs() < 1e-3, "{lost}");
+        // Treated: the head starts again from half, nothing lasting.
+        assert_eq!(h.treat(Part::Head), Some(Trauma::SkullFracture));
+        assert!(!h.dying());
+        assert_eq!(h.part(Part::Head), Part::Head.max() * TREATED_TO);
+        assert!(h.lasting().is_empty());
+        assert_eq!(h.treat(Part::Head), None, "nothing left to treat");
     }
 
     #[test]
-    fn the_legs_go_one_at_a_time_and_the_walk_slows_with_them() {
+    fn an_untreated_bleed_kills_and_a_concussion_lasts_two_days_after() {
+        let mut h = Health::new();
+        assert_eq!(
+            h.shot(Part::Body, 75.0, false, 0.0),
+            Some(Trauma::InternalBleeding)
+        );
+        // Forty an hour, and the wound itself ten: gone in two hours.
+        h.update(HOUR * 1.5, 1.0, 1.0, false);
+        assert!(!h.is_dead(), "{}", h.blood());
+        h.update(HOUR * 0.5 + 1.0, 1.0, 1.0, false);
+        assert!(h.is_dead(), "bled out, {}", h.blood());
+
+        let mut h = Health::new();
+        assert_eq!(
+            h.shot(Part::Head, 5.0, false, 0.0),
+            Some(Trauma::HeavyConcussion)
+        );
+        assert_eq!(h.pace(), 0.75);
+        assert_eq!(h.works_at(), 0.75);
+        h.bandage(Part::Head);
+        h.update(DAY, 1.0, 1.0, false);
+        assert!(h.dying(), "nothing mends it but a medkit");
+        assert_eq!(h.part(Part::Head), 0.0);
+        assert_eq!(h.treat(Part::Head), Some(Trauma::HeavyConcussion));
+        assert_eq!(h.pace(), 0.75, "and the two days after");
+        assert_eq!(h.lasting().len(), 1);
+        h.update(DAY, 1.0, 1.0, false);
+        assert_eq!(h.pace(), 0.75);
+        h.update(DAY + 1.0, 1.0, 1.0, false);
+        assert_eq!(h.pace(), 1.0);
+        assert!(h.lasting().is_empty());
+    }
+
+    #[test]
+    fn the_rolls_split_as_asked() {
+        assert_eq!(Trauma::roll(Part::Head, 0.0), Trauma::HeavyConcussion);
+        assert_eq!(Trauma::roll(Part::Head, 0.34), Trauma::SkullFracture);
+        assert_eq!(Trauma::roll(Part::Head, 0.99), Trauma::CranialTrauma);
+        assert_eq!(Trauma::roll(Part::Body, 0.0), Trauma::InternalBleeding);
+        assert_eq!(Trauma::roll(Part::Body, 0.5), Trauma::BrokenRibs);
+        assert_eq!(Trauma::roll(Part::Body, 0.7), Trauma::ChestTrauma);
+        assert_eq!(Trauma::roll(Part::Legs, 0.0), Trauma::FracturedFemur);
+        assert_eq!(Trauma::roll(Part::Legs, 0.449), Trauma::FracturedFemur);
+        assert_eq!(Trauma::roll(Part::Legs, 0.45), Trauma::ShatteredKnee);
+        assert_eq!(Trauma::roll(Part::Legs, 0.899), Trauma::ShatteredKnee);
+        assert_eq!(Trauma::roll(Part::Legs, 0.9), Trauma::CrushedRightLeg);
+        assert_eq!(Trauma::roll(Part::Legs, 0.949), Trauma::CrushedRightLeg);
+        assert_eq!(Trauma::roll(Part::Legs, 0.95), Trauma::CrushedLeftLeg);
+        assert_eq!(Trauma::roll(Part::Legs, 1.0), Trauma::CrushedLeftLeg);
+        for t in Trauma::ALL {
+            assert_eq!(Trauma::from_code(t.code()), Some(t));
+            assert_eq!(Trauma::roll(t.part(), 0.5).part(), t.part());
+        }
+    }
+
+    #[test]
+    fn a_crushed_leg_is_lost_for_ever_and_a_knee_barely_moves() {
         let mut h = Health::new();
         assert_eq!(h.pace(), 1.0);
-        assert!(!h.shot(Part::Legs, 12.0, false));
-        assert!(
-            h.shot(Part::Legs, 12.0, false),
+        assert_eq!(h.shot(Part::Legs, 12.0, false, 0.0), None);
+        assert_eq!(
+            h.shot(Part::Legs, 12.0, false, 0.92),
+            Some(Trauma::CrushedRightLeg),
             "the second shot takes the leg"
         );
         assert_eq!(h.legs_lost(), 1);
-        assert_eq!(h.part(Part::Legs), Part::Legs.max(), "started again");
-        assert_eq!(h.pace(), ONE_LEG_PACE);
+        assert_eq!(h.part(Part::Legs), 0.0, "and the stump waits for a medkit");
+        assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6);
         assert!(!h.is_dead());
-        h.shot(Part::Legs, 12.0, false);
-        assert!(h.shot(Part::Legs, 12.0, false));
+        h.update(HOUR * 0.25, 1.0, 1.0, false);
+        assert!(h.blood() < MAX_BLOOD - 10.0, "it bleeds until treated");
+        assert_eq!(h.treat(Part::Legs), Some(Trauma::CrushedRightLeg));
+        assert_eq!(h.part(Part::Legs), Part::Legs.max() * TREATED_TO);
+        assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6, "for ever");
+        h.bandage(Part::Legs);
+        h.update(DAY * 3.0, 1.0, 1.0, false);
+        assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6, "for ever");
+        // The other one too, and there are none left.
+        h.shot(Part::Legs, 20.0, false, 0.96);
         assert_eq!(h.legs_lost(), 2);
+        assert_eq!(h.treat(Part::Legs), Some(Trauma::CrushedLeftLeg));
         assert_eq!(h.part(Part::Legs), 0.0);
-        assert_eq!(h.pace(), NO_LEGS_PACE);
+        assert!((h.pace() - LEG_LOST_PACE * LEG_LOST_PACE).abs() < 1e-6);
         assert!(!h.is_dead(), "no legs is not dead");
-        // And nothing grows back.
+        assert_eq!(
+            h.shot(Part::Legs, 20.0, false, 0.96),
+            None,
+            "nothing left to take"
+        );
         h.update(DAY, 1.0, 1.0, false);
-        assert_eq!(h.part(Part::Legs), 0.0);
+        assert_eq!(h.part(Part::Legs), 0.0, "and nothing grows back");
+
+        let mut h = Health::new();
+        assert_eq!(
+            h.shot(Part::Legs, 20.0, false, 0.5),
+            Some(Trauma::ShatteredKnee)
+        );
+        assert_eq!(h.pace(), 0.25);
+        assert_eq!(h.works_at(), 1.0);
+        h.treat(Part::Legs);
+        assert_eq!(h.pace(), 0.75);
+        assert_eq!(h.legs_lost(), 0);
     }
 
     #[test]
     fn ten_wounds_bleed_a_bim_out_in_an_hour_and_a_bandage_stops_it() {
         let mut h = Health::new();
         for _ in 0..10 {
-            h.shot(Part::Body, 1.0, false);
+            h.shot(Part::Body, 1.0, false, 0.0);
         }
         assert_eq!(h.bleeding(), 10);
         h.update(HOUR * 0.5, 1.0, 1.0, false);
@@ -791,7 +902,7 @@ mod tests {
 
         let mut h = Health::new();
         for _ in 0..10 {
-            h.shot(Part::Body, 1.0, false);
+            h.shot(Part::Body, 1.0, false, 0.0);
         }
         h.update(HOUR, 1.0, 1.0, false);
         assert!(h.is_dead(), "bled out");
@@ -800,12 +911,12 @@ mod tests {
     #[test]
     fn a_cut_bleeds_three_units_and_a_bandage_closes_the_lot() {
         let mut h = Health::new();
-        assert!(!h.shot(Part::Body, 12.0, true));
+        assert_eq!(h.shot(Part::Body, 12.0, true, 0.0), None);
         assert_eq!(h.wounds(Part::Body), CUT_WOUND);
         assert_eq!(h.bleeding(), 3);
         assert_eq!(h.part(Part::Body), 63.0, "the damage is the damage");
         let mut shot = Health::new();
-        shot.shot(Part::Body, 12.0, false);
+        shot.shot(Part::Body, 12.0, false, 0.0);
         h.update(HOUR * 0.1, 1.0, 1.0, false);
         shot.update(HOUR * 0.1, 1.0, 1.0, false);
         let cut_lost = MAX_BLOOD - h.blood();

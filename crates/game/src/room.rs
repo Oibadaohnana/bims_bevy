@@ -7,6 +7,7 @@
 
 use crate::bath::Bath;
 use crate::clock::MINUTES_PER_SECOND;
+use crate::cue::{Cue, Cued};
 use crate::dish::Dishwasher;
 use crate::door::{Door, Order};
 use crate::draw::{Color, DrawList};
@@ -120,7 +121,7 @@ pub const GRIP: Color = Color::rgb(0.12, 0.14, 0.17);
 /// What is on a plate. A bowl is tofu and salad, uncooked; a stew has been in
 /// the pot. They are drawn from the same shapes in different colours, which is
 /// as much difference as a plate seen from above can carry.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Dish {
     Stew,
     Bowl,
@@ -148,6 +149,22 @@ pub const START_PLATES: u32 = 20;
 /// dressing without a drug lab. Aboard, the count is the hold's and the
 /// world sets it — see `Room::bandages`.
 pub const BANDAGES_AT_DAWN: u32 = 3;
+
+/// Medkits the classic room starts with, the same way: a trauma can be
+/// treated in `bims room` without an armoury.
+pub const MEDKITS_AT_DAWN: u32 = 2;
+
+/// A weapon lying on the deck, let go of by a body knocked out: what it
+/// is, where it lies, and whose hand it fell from — that Bim comes back
+/// for it when it comes round (`Game::fetch`), and the player can send
+/// anybody. `id` is the number a chain names it by.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Dropped {
+    pub id: u32,
+    pub at: Vec2,
+    pub weapon: crate::combat::Weapon,
+    pub owner: usize,
+}
 
 /// Something the Bim can walk up to and work with its hands.
 ///
@@ -214,6 +231,12 @@ pub const HIT_VISITOR: u32 = 15;
 /// and opens the trade window. `Game::hit_desk` says which. Aboard only,
 /// and only on a joined deck: a ship has none.
 pub const HIT_DESK: u32 = 16;
+/// A weapon lying on the deck — dropped by a body knocked out, for
+/// picking up. `Game::hit_dropped` says which.
+pub const HIT_DROPPED: u32 = 17;
+/// A research desk — the ship's own, for its window, or a station's on
+/// the joined deck, for the key on it. `Game::hit_research` says which.
+pub const HIT_RESEARCH: u32 = 18;
 
 /// What is at a point, for the readout that names whatever the pointer is
 /// over.
@@ -253,6 +276,8 @@ pub const SPOT_BENCH: u32 = 19;
 pub const SPOT_SHOWER: u32 = 21;
 /// The suit locker, the same way again: the mining row rings it.
 pub const SPOT_SUIT_LOCKER: u32 = 20;
+/// A research desk, for ringing: the research tab's rows ring it.
+pub const SPOT_RESEARCH: u32 = 22;
 
 /// The chair, which is drawn from a centre and a size rather than kept as a
 /// rect. Written down once here so the readout and `draw_table` agree.
@@ -486,6 +511,15 @@ pub struct Layout {
     /// deck — `PartDef::blocks_sight` is the rule. The doors are their own
     /// list, since a door is in the way only while it is shut.
     pub opaque: Vec<Rect>,
+    /// Low cover — every sandbags part (`shipdesign::is_cover`): nothing
+    /// to a walk or a line of sight, but a body close behind ducks a shot
+    /// from across it. `Sight::covered` is the rule.
+    pub cover: Vec<Rect>,
+    /// The lights — every wall light and standing light, `shipdesign::light_tiles`
+    /// — each where it is and how far it reaches. None in the classic room,
+    /// which is lit throughout; a designed deck with none is dark, and
+    /// `Sight` says what that costs.
+    pub lights: Vec<crate::sight::Light>,
     /// Every tile of the hull, frame and all: what a body outside walks
     /// round, and what the fog of what the crew cannot see is drawn over.
     /// Empty in the classic room, which has no outside and whose fog
@@ -501,9 +535,17 @@ pub struct Layout {
     /// crew member at one to buy or sell. Solids in `others` as well; the
     /// ship draws it. Empty in the classic room and on a ship of its own.
     pub desks: Vec<(Rect, Vec2)>,
-    /// The powered doors, each its opening and whether its leaves slide
-    /// along `x`. None in the classic room, whose one door is the heads'.
-    pub doors: Vec<(Rect, bool)>,
+    /// The research desks, the same: the ship's own, where a research key
+    /// is put and the AI works, and a station's on the joined deck, where
+    /// one is found. Solids in `others` as well; the ship draws it. Empty
+    /// in the classic room.
+    pub research: Vec<(Rect, Vec2)>,
+    /// The powered doors, each its opening, whether its leaves slide along
+    /// `x`, and whether it is an airlock — the airlocks are doors too, so
+    /// they lock and are forced like the rest; `airlocks` below keeps
+    /// their footprints for the walk outside. None in the classic room,
+    /// whose one door is the heads'.
+    pub doors: Vec<(Rect, bool, bool)>,
     /// The airlocks, each its footprint. Walked onto, never a solid, and
     /// the ship draws them; they are here for sight alone, which they
     /// stop like a door with nobody at it. Empty in the classic room.
@@ -742,6 +784,8 @@ pub struct Room {
     pub shelves: Vec<(Rect, Vec2)>,
     /// The trading desks, the same. See `Layout::desks`.
     pub desks: Vec<(Rect, Vec2)>,
+    /// The research desks, the same. See `Layout::research`.
+    pub research: Vec<(Rect, Vec2)>,
     /// The construction sites the world wants worked, this step: what each
     /// still wants carried to it, or that it is to be built. Set by
     /// `Game::set_build_orders`; empty in the classic room and while the
@@ -826,6 +870,36 @@ pub struct Room {
     /// by then its chain is over and gone, and the game still has to ask
     /// whether the two are standing together.
     pub dressed: Vec<(usize, usize, u32)>,
+    /// Medkits to hand, the same way as the bandages: the hold's aboard,
+    /// a couple in the classic room (`MEDKITS_AT_DAWN`).
+    pub medkits: u32,
+    pub medkits_used: u32,
+    /// Where a kit is fetched from: the use spot of every container the
+    /// world says holds one, set every step aboard (`Game::set_kit_stands`);
+    /// empty in the classic room and a station's, where a kit is to hand.
+    pub kit_stands: Vec<Vec2>,
+    /// Every treatment finished since the game last looked — `(helper,
+    /// patient, part code)`, like `dressed`, pushed by the treat chain as
+    /// its hands come off. The game does the treating: the trauma is on
+    /// the patient's `Health`.
+    pub treated: Vec<(usize, usize, u32)>,
+    /// Weapons lying on the deck: what a body knocked out let go of, where
+    /// it fell. Each numbered from `next_weapon_down`, so a chain walking to
+    /// one names it by a number that survives another being picked up.
+    pub weapons_down: Vec<Dropped>,
+    pub next_weapon_down: u32,
+    /// Every pick-up finished since the game last looked — `(who, dropped
+    /// id)`, pushed by the fetch chain as the hand closes on it. The game
+    /// moves the weapon: the gear is a `Bim`'s.
+    pub picked_up: Vec<(usize, u32)>,
+    /// The other room's people lying on this deck, index for index with
+    /// the visitors: where each is while it is down, `None` for one on
+    /// its feet or not there. What an execution walks to; written by
+    /// `Game::tell_the_room_where_the_crew_are` every step.
+    pub bodies_down: Vec<Option<Vec2>>,
+    /// Every execution finished since the game last looked — `(who, visitor)`
+    /// — for the world to carry to the body's own room.
+    pub executed: Vec<(usize, usize)>,
     /// Where every one of the crew stands this step, by index — `None` for
     /// one dead or outside. The one thing about the crew the room is told,
     /// set by the game at the top of every step, so that a chain walking
@@ -844,6 +918,10 @@ pub struct Room {
 
     /// Free-running clock for bubbling, steam and the burner flicker.
     time: f32,
+    /// What happened this step that a host may want to hear — see
+    /// `crate::cue`. Said by the doors and the board; drained through
+    /// `Game::take_cues`.
+    pub cues: Vec<Cued>,
 }
 
 impl Room {
@@ -929,6 +1007,7 @@ impl Room {
             hull: Vec::new(),
             shelves: Vec::new(),
             desks: Vec::new(),
+            research: Vec::new(),
             builds: Vec::new(),
             suit_ok: Vec::new(),
             picked: Vec::new(),
@@ -961,10 +1040,20 @@ impl Room {
             bandages: BANDAGES_AT_DAWN,
             bandages_used: 0,
             dressed: Vec::new(),
+            medkits: MEDKITS_AT_DAWN,
+            medkits_used: 0,
+            kit_stands: Vec::new(),
+            treated: Vec::new(),
+            weapons_down: Vec::new(),
+            next_weapon_down: 0,
+            picked_up: Vec::new(),
+            bodies_down: Vec::new(),
+            executed: Vec::new(),
             crew: Vec::new(),
             plates: START_PLATES,
             plate_on_table: vec![None; SEATS],
             time: 0.0,
+            cues: Vec::new(),
         }
     }
 
@@ -994,7 +1083,9 @@ impl Room {
         let (board, drawer, dish_face) = galley_faces(counter, layout.dishwasher);
         let mut dishwasher = Dishwasher::at(dish_face);
         dishwasher.body = Some(layout.dishwasher);
-        let sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &layout.hull);
+        let mut sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &layout.hull);
+        sight.set_cover(&layout.cover);
+        sight.set_lights(&layout.lights);
 
         Room {
             bounds: layout.bounds,
@@ -1003,7 +1094,7 @@ impl Room {
             doors: layout
                 .doors
                 .iter()
-                .map(|&(rect, along_x)| Door::new(rect, along_x))
+                .map(|&(rect, along_x, airlock)| Door::of_kind(rect, along_x, airlock))
                 .collect(),
             doors_drawn: true,
             airlocks: layout.airlocks,
@@ -1043,6 +1134,7 @@ impl Room {
             hull: layout.hull,
             shelves: layout.shelves,
             desks: layout.desks,
+            research: layout.research,
             builds: Vec::new(),
             suit_ok: Vec::new(),
             picked: Vec::new(),
@@ -1089,10 +1181,20 @@ impl Room {
             bandages: 0,
             bandages_used: 0,
             dressed: Vec::new(),
+            medkits: 0,
+            medkits_used: 0,
+            kit_stands: Vec::new(),
+            treated: Vec::new(),
+            weapons_down: Vec::new(),
+            next_weapon_down: 0,
+            picked_up: Vec::new(),
+            bodies_down: Vec::new(),
+            executed: Vec::new(),
             crew: Vec::new(),
             plates: START_PLATES,
             plate_on_table: seats_free,
             time: 0.0,
+            cues: Vec::new(),
         }
     }
 
@@ -1122,14 +1224,16 @@ impl Room {
         // The walls moved: the mask is traced again from the new ones the
         // first time anybody looks.
         self.sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &layout.hull);
+        self.sight.set_cover(&layout.cover);
+        self.sight.set_lights(&layout.lights);
         // The doors, by opening: one that was there keeps its state, one
         // that is new starts shut.
         let mut doors: Vec<Door> = Vec::with_capacity(layout.doors.len());
         let mut old_doors = core::mem::take(&mut self.doors);
-        for (rect, along_x) in layout.doors.iter().copied() {
+        for (rect, along_x, airlock) in layout.doors.iter().copied() {
             match old_doors.iter().position(|d| d.rect == rect) {
                 Some(i) => doors.push(old_doors.swap_remove(i)),
-                None => doors.push(Door::new(rect, along_x)),
+                None => doors.push(Door::of_kind(rect, along_x, airlock)),
             }
         }
         self.doors = doors;
@@ -1222,6 +1326,7 @@ impl Room {
         self.hull = layout.hull;
         self.shelves = layout.shelves;
         self.desks = layout.desks;
+        self.research = layout.research;
         // A bay keeps its trays unless it moved: a bay somewhere else is a
         // different bay, with nothing planted in it yet. By frame, like the
         // beds, so a bay built while another is growing leaves that one be.
@@ -1503,25 +1608,28 @@ impl Room {
     }
 
     /// What an eye stops at that a step may not: every powered door whose
-    /// leaves are shut, locked or not, and every airlock with nobody within
-    /// a door's `REACH` of it — the room's own rule for when a door opens,
-    /// asked of the airlock too, since the room has no leaves for it.
+    /// leaves are shut, locked or not; and every airlock with nobody within
+    /// a door's `REACH` of it, or locked with its leaves shut. An airlock
+    /// is a door now, but to the eye it is still the passage it was: open
+    /// the instant somebody is at it, since the ship painter's
+    /// `airlock_ajar` is a picture and the leaves' travel is not what the
+    /// hunt through it turns on — a chase read off the leaves lost its
+    /// quarry in the fifth of a second they took to part.
     pub fn shut_leaves(&self, bodies: &[Vec2]) -> Vec<Rect> {
-        let mut shut: Vec<Rect> = self
-            .doors
+        self.doors
             .iter()
-            .filter(|d| !d.is_open())
+            .filter(|d| {
+                if d.airlock {
+                    let near = bodies
+                        .iter()
+                        .any(|&p| d.rect.expand(crate::door::REACH).contains(p));
+                    !near || (d.locked && !d.is_open())
+                } else {
+                    !d.is_open()
+                }
+            })
             .map(|d| d.rect)
-            .collect();
-        for &lock in &self.airlocks {
-            let near = bodies
-                .iter()
-                .any(|&p| lock.expand(crate::door::REACH).contains(p));
-            if !near {
-                shut.push(lock);
-            }
-        }
-        shut
+            .collect()
     }
 
     /// The powered doors a body walks into right now: locked and shut.
@@ -1553,7 +1661,12 @@ impl Room {
     /// `bodies` says.
     pub fn update_doors(&mut self, dt: f32, bodies: &[Vec2]) {
         for door in &mut self.doors {
-            door.update(dt, bodies);
+            if let Some(cue) = door.update(dt, bodies) {
+                self.cues.push(Cued {
+                    cue,
+                    at: door.rect.center(),
+                });
+            }
         }
     }
 
@@ -1707,6 +1820,8 @@ impl Room {
             HIT_SHELF
         } else if self.desk_at(p).is_some() {
             HIT_DESK
+        } else if self.research_at(p).is_some() {
+            HIT_RESEARCH
         } else {
             // The heads: the room's own first, then every other, so a click
             // on any pan is a pan.
@@ -1734,6 +1849,13 @@ impl Room {
     /// Which trading desk a click landed on, by index into `desks`.
     pub fn desk_at(&self, p: Vec2) -> Option<usize> {
         self.desks
+            .iter()
+            .position(|(frame, _)| frame.expand(4.0).contains(p))
+    }
+
+    /// Which research desk a click landed on, by index into `research`.
+    pub fn research_at(&self, p: Vec2) -> Option<usize> {
+        self.research
             .iter()
             .position(|(frame, _)| frame.expand(4.0).contains(p))
     }
@@ -1861,6 +1983,7 @@ impl Room {
                 .map(|(frame, _)| frame)
                 .into_iter()
                 .collect(),
+            SPOT_RESEARCH => self.research.iter().map(|(frame, _)| *frame).collect(),
             _ => Vec::new(),
         }
     }
@@ -1940,6 +2063,8 @@ impl Room {
         let cut = &mut top.board_sides[top.board_cutting];
         cut.whole = (1.0 - done as f32 / of.max(1) as f32).max(0.0);
         cut.pieces += 1;
+        let at = top.board.center();
+        self.cues.push(Cued { cue: Cue::Chop, at });
     }
 
     /// What is cut on the board, to be gathered up: rounds of vegetable and
@@ -2059,13 +2184,17 @@ impl Room {
 
     pub fn update(&mut self, dt: f32) {
         self.time += dt;
-        self.bath.update(dt);
+        for bath in core::iter::once(&mut self.bath).chain(&mut self.more_baths) {
+            if let Some(cue) = bath.update(dt) {
+                self.cues.push(Cued {
+                    cue,
+                    at: bath.door.center(),
+                });
+            }
+        }
         // A finished cycle's rack goes back in the drawer, which is where
         // the plates are counted; over the drawer's capacity they are
         // simply stacked, and nothing is lost.
-        for bath in &mut self.more_baths {
-            bath.update(dt);
-        }
         for washer in &mut self.dishwashers {
             let washed = washer.update(dt);
             self.plates = (self.plates + washed).min(PLATE_DRAWER);

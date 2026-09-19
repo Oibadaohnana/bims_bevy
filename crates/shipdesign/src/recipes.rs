@@ -96,8 +96,12 @@ pub static RECIPES: [Recipe; 14] = [
         minutes: 40,
         vents: false,
     },
+    // The medkit is the drug lab's since research came in: medicine is
+    // made from the first day, and the armoury is a bench that has to be
+    // researched (`crate::research`). The row keeps its index — the index
+    // crosses the seam — and only the station moved.
     Recipe {
-        station: PartKind::Armoury,
+        station: PartKind::DrugLab,
         inputs: &[(ResourceId::Vegetable, 2), (ResourceId::Components, 1)],
         output: (ResourceId::Medkit, 1),
         minutes: 15,

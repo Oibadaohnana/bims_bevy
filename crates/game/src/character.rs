@@ -92,6 +92,9 @@ const TOFU_EDGE: Color = Color::rgb(0.78, 0.76, 0.66);
 /// round it.
 const CRATE: Color = Color::rgb(0.55, 0.47, 0.32);
 const CRATE_STRAP: Color = Color::rgb(0.32, 0.27, 0.19);
+/// A medkit's white box, and the cross on it.
+const MEDKIT: Color = Color::rgb(0.92, 0.93, 0.92);
+const MEDKIT_CROSS: Color = Color::rgb(0.80, 0.16, 0.16);
 /// What a Bim that has had an accident is covered in. The same colour as the
 /// mess on the deck, so the two read as the same substance.
 const GRIME: Color = Color::rgb(0.24, 0.18, 0.09);
@@ -253,7 +256,7 @@ enum Activity {
 }
 
 /// Something in the Bim's hands.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Held {
     Nothing,
     Vegetable,
@@ -282,6 +285,8 @@ pub enum Held {
     /// A crate of materials off a shelf, on its way to a construction site.
     /// The room never knows what is in it: the count is the world's.
     Crate,
+    /// A medkit off a cabinet, on its way to a crewmate dying.
+    Medkit,
 }
 
 /// What the hands are busy doing. Each one drives its own arm animation.
@@ -593,6 +598,17 @@ impl Character {
 
     pub fn stand(&mut self) {
         self.seated = false;
+    }
+
+    /// Stop where it is: the walk dropped, the feet still. What a patient
+    /// does while a crewmate walks over to it.
+    pub fn halt(&mut self) {
+        self.path.clear();
+        self.speed = 0.0;
+        self.target_speed = 0.0;
+        if self.activity == Activity::Marching {
+            self.activity = Activity::Pausing;
+        }
     }
 
     /// Out through the airlock: standing at `at`, beyond the hull, in the
@@ -1706,6 +1722,14 @@ impl Character {
                 list.stroke_rect(at, vec2(26.0, 30.0), self.heading, 2.0, 1.5, CRATE_STRAP);
                 list.rect(at, vec2(26.0, 5.0), self.heading, 0.0, CRATE_STRAP);
             }
+            // A medkit in one hand: a small white box with a red cross on
+            // its lid.
+            Held::Medkit => {
+                let at = to_world(vec2(18.0 + pose.reach * 6.0, -4.0));
+                list.rect(at, vec2(16.0, 12.0), self.heading, 2.0, MEDKIT);
+                list.rect(at, vec2(8.0, 2.5), self.heading, 0.0, MEDKIT_CROSS);
+                list.rect(at, vec2(2.5, 8.0), self.heading, 0.0, MEDKIT_CROSS);
+            }
             Held::Broom => {
                 // Held out in front and across, the way anyone carries one:
                 // the pole running away from the body and the head on the
@@ -1881,6 +1905,51 @@ fn draw_pick(list: &mut DrawList, at: Vec2, rot: f32) {
 /// The schword: a hilt at `hilt`, the blade `length` along `dir` — a
 /// white core between two cyan strokes, one wide and faint and one thin
 /// and bright, so the edge reads as light rather than paint.
+/// A weapon lying on the deck at `at`, dropped by a body knocked out:
+/// the gun the hands draw, without the hands, its muzzle unlit, laid
+/// askew the way a thing falls. A shadow under it so it reads as *on*
+/// the deck and not painted on it.
+pub fn draw_dropped(list: &mut DrawList, at: Vec2, weapon: WeaponKind) {
+    const ASKEW: f32 = 0.55;
+    let s = BODY_SCALE;
+    list.ellipse(at + vec2(2.0, 3.0), vec2(30.0, 12.0) * s, ASKEW, SHADOW);
+    if weapon == WeaponKind::Schword {
+        let dir = Vec2::from_angle(ASKEW);
+        draw_blade(list, at - dir * (14.0 * s), dir, 30.0 * s);
+        return;
+    }
+    let mut b = list.brush(at, ASKEW, s);
+    let (length, width) = match weapon {
+        WeaponKind::LaserPistol => (16.0, 5.0),
+        WeaponKind::Shotgun => (28.0, 6.5),
+        WeaponKind::AutoRifle => (22.0, 5.0),
+        WeaponKind::SniperRifle => (36.0, 4.5),
+        WeaponKind::Schword => unreachable!("drawn above"),
+    };
+    let grip = vec2(-length * 0.5, 0.0);
+    let mid = vec2(0.0, 0.0);
+    b.rect(mid, vec2(length + 2.0, width + 2.0), 0.0, 1.5, GUN_EDGE);
+    b.rect(mid, vec2(length, width), 0.0, 1.0, GUN);
+    match weapon {
+        WeaponKind::LaserPistol => {
+            b.rect(grip + vec2(1.0, 3.0), vec2(5.0, 8.0), 0.0, 1.0, GUN);
+        }
+        WeaponKind::Shotgun => {
+            b.rect(grip + vec2(-3.0, 1.5), vec2(8.0, 6.0), 0.0, 1.5, STOCK);
+            b.rect(grip + vec2(14.0, 1.0), vec2(9.0, 5.5), 0.0, 1.5, STOCK);
+        }
+        WeaponKind::AutoRifle => {
+            b.rect(grip + vec2(-2.0, 1.5), vec2(6.0, 6.0), 0.0, 1.0, GUN);
+            b.rect(grip + vec2(7.0, 4.0), vec2(4.5, 7.0), 0.0, 1.0, GUN_EDGE);
+        }
+        WeaponKind::SniperRifle => {
+            b.rect(grip + vec2(-4.0, 1.5), vec2(9.0, 6.0), 0.0, 1.5, STOCK);
+            b.rect(grip + vec2(8.0, -1.0), vec2(10.0, 3.5), 0.0, 1.5, SCOPE);
+        }
+        WeaponKind::Schword => {}
+    }
+}
+
 fn draw_blade(list: &mut DrawList, hilt: Vec2, dir: Vec2, length: f32) {
     let rot = dir.angle();
     let s = BODY_SCALE;

@@ -43,6 +43,17 @@ fn main() {
     // re-pinned each frame, because the other one coming over for a word
     // would put the clock straight back to nothing.
     let sulking = want == "sad";
+    // Out cold on the deck, its gun dropped beside it: ten wounds on the
+    // body and the blood run down until it drops. For looking at the
+    // dropped weapon and the fallen figure together.
+    let down = want == "down";
+    if down {
+        // Nobody dresses her first: James would, and she would never drop.
+        game.set_autonomous(false);
+        for _ in 0..10 {
+            game.wound(1, health::Part::Body, 1.0);
+        }
+    }
     let target: u32 = match want.as_str() {
         "bed" => 4,
         "table" => 1,
@@ -59,6 +70,10 @@ fn main() {
         n += 1;
         if sulking {
             if game.broken_down_for_probe(bim::PLAYER) {
+                break;
+            }
+        } else if down {
+            if game.is_unconscious(1) {
                 break;
             }
         } else if board {

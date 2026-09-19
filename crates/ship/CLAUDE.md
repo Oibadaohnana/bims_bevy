@@ -119,6 +119,17 @@ its own idea of whether the engines are on, because a flame that lagged the
 ship at 24x or after a catch-up would say the ship was in two places. Four
 rules that fall out of it:
 
+- **The flame is blue.** There is no fuel; the exhaust is plasma off the
+  reactor, and `hull.rs`'s `FLAME_*` and `paint.rs`'s `FLAME` (the designer's
+  exhaust marks) are a white-blue core, an electric blue body and a violet
+  tail. The thrusters' `PUFF` was already pale blue. And the **reactor
+  glows with its load**: `fittings::reactor_glow(list, part, load, frame)`
+  is drawn over every `supplies()` part after the tiles — in the game at
+  `World::power().load()` (day-long draw plus what the engines draw now,
+  over the supply), so a burn lights the reactor as well as the stern; in
+  the designer at the static `draw / supply` of `power_budget`, frame 0 —
+  a halo over the housing and a brighter core, amber for the reactor and
+  plasma blue for the large one, breathing a little off the frame.
 - **A forward engine burns through the burn *and* through a flip brake**;
   a backward one through a brake without a flip; a sideways one never — the
   autopilot does not fly it. `Firing::of` is the arithmetic (the nose
@@ -162,16 +173,44 @@ the only thing on the map that turns.
 `hostile` list is hostile, everywhere else is neutral — and the painter
 draws it twice without deciding anything. On the map (`paint_map`) every
 discovered station's icon is ringed by stance: `ENEMY` red for hostile,
-`FRIEND` green for home, nothing for neutral, so a system with only
-strangers in it looks the way it always did. The ring is `STANCE_RING`
+`FRIEND` blue for anything else somebody lives on — home and a stranger's
+alike — and nothing for a derelict, which is nobody's. It was green for
+home and nothing for neutral; blue for every station that is not an
+enemy's went in with the generator putting the enemy's stations in one
+corner of a system (`crates/worldgen/CLAUDE.md`), since the point of the
+corner is to be seen on the map. The ring is `STANCE_RING`
 times the icon size, outside the aim ring, so pointing the helm at an
-enemy's station draws two rings that read apart. Out of the window
+enemy's station draws two rings that read apart; the blue is not the aim
+ring's cyan for the same reason. Every discovered belt gets a **pickaxe**
+at its top-right shoulder (`paint_pickaxe`: a haft and a bent head, four
+rounded rectangles and a disc), because a belt is a mining site — hold
+station at it and the rocks are laid out — and the map should say so
+before the crew fly there. Nothing else stands at a belt
+(`worldgen::data::parent_suits`), so the pickaxe has the belt to itself.
+Out of the window
 (`stations`) a hostile station's far plate — the black `HULL_UNKNOWN` fog
 plate every stranger's is — gets a wash of the same red at `ENEMY_TINT`
 under its icon; a neutral stranger's stays black. `ENEMY` is the lobby's
 `lobby::draw::ENEMY` by value, not by import (`ship` does not depend on
 `lobby`): the player learnt the colour on the system diagram before they
 launched, and it has to be the same colour here. Change one, change both.
+
+**Where you are is a reticle, drawn last.** `world_paint::here_reticle`
+rings the ship on the map in `GLOW` — `HERE_RING` pixels across, wider
+than a station's stance ring so a docked ship's mark stands out from the
+station icon it sits on, with a tick at each compass point and a wash
+inside that breathes on `game.frame` over `HERE_PULSE` frames — after
+`turn_from`, so it is the screen's and its ticks stay square to the
+window whatever the camera did, and `hull::marker` goes on top of it. It
+is sized in the camera's units off the scale, like every icon, so it is
+the same size at any zoom. The words are the app's: `screens/game.rs`
+writes `You · ` and `whereabouts(session)` — the trip strip's first words,
+*Docked · the station*, *Alongside the belt* or *Open space* — over it in
+`theme::YOURS` with `name_over`, `HERE_LIFT` above `view.to_canvas(ZERO)`,
+which is the ship wherever the map has been panned. The galaxy chart tags
+the ship's star the same way (`· here`). Before this the marker was
+eighteen pixels of hull under a twenty-pixel station icon, and a player
+who had panned the map could not find themselves on it.
 
 ## "Is it finished" is one export, not three
 
@@ -295,7 +334,7 @@ the part's long side, in its own frame), the conduit, the helm, the
 shelf and the shower, in each part's own frame through `hull::Local` so a
 turned part is drawn turned. `world_paint::hull_tiles` asks `hull::part`
 first and `fittings::part` second and draws a block for whatever both
-refuse. Every part has a picture now — the reactor, the tank, life support,
+refuse. Every part has a picture now — the reactor, life support,
 the battery, and the workshop: the smelter, the workbench, the suit locker,
 the armoury and, last, the **drug lab** (`fittings::drug_lab`, the
 `PartKind::DrugLab` arm of `fittings::part`) — so a block on the deck is
@@ -375,7 +414,16 @@ or stores power washed and rung — `LIVE` on a network with a reactor,
 on top, appended **after** the room's picture so a powered galley fixture
 is rung over its own picture. `Overlay` is a view setting like `head_up`:
 this window's own, read by the painter and by nothing that decides
-anything.
+anything. The **numbers** over the drainers are the app's words, off
+`Session::power_labels` → `world_paint::power_labels`: one `PowerLabel` a
+consumer or engine — the camera-frame point over the top of its footprint
+(the same `on_screen` the crew's names use), `now` and `full`, and `live`
+— which `screens/game.rs` writes in `theme::DRAW` yellow with
+`name_over` while the overlay is up, `now` alone when the two agree and
+`now / full` for an engine idle or throttled, muted for a dark part. An
+engine's `now` is its `thrust_power × throttle` while `Firing` lights its
+facing and it is on a live network, nought otherwise, so the numbers
+agree with the exhaust.
 
 ## The blueprint is the part's own picture, and its answer is asked once a tile
 
@@ -490,3 +538,32 @@ fresh helm, kevlar and leg guards on the crew member, all through the
 public `Game::gear`/`Game::issue` from the app's `open` (`dev.rs`),
 so a swing, a burst, a tracer in flight or the "locked in melee" tag
 over a name can be read off a PNG.
+
+## The research desk and the fusion reactor have pictures, and a key lights its desk
+
+`fittings::research_desk` is a console on a table's footprint — two lit
+screens along the far edge, the key's slot at the far right as a tall dark
+well with a brass rim, a keyboard's ledge on the near side — and
+`fittings::fusion_reactor` is the fission reactor's vessel writ large across
+three tiles, eight field coils round a blue-white plasma, so the two read as
+the same kind of machine. Both are rows in `PART_COLORS` (40 now).
+
+`world_paint::key_lights` is what "highlighted" is on the deck: for every
+research desk of a station's design, while `World::station_has_key(id)`,
+a gold wash over the desk and a ring of small lights a little way out from
+its footprint, pulsing together on `game.frame` (`KEY_PULSE` frames a
+pulse). Drawn in `stations` after `hull::lights`, in the station's frame,
+so it turns with the picture; the ship's own desk gets none — a key in it
+is the container window's to show.
+
+## Two lights, and the fog is a texture now
+
+`fittings::wall_light` and `fittings::standing_light` (September 2026):
+a bracket lamp with a warm halo, and a lamp on a pole; the halo is a
+picture, and what the light *does* is `bims::sight` (`crates/game/CLAUDE.md`,
+"The dark"). The crew's own semi fog is no longer in the shape buffer:
+`Game::light_map` is a byte-a-pixel picture the app draws as a texture
+(`crates/app/src/fogmap.rs`), and `world_paint::light_map_on_screen` /
+`Session::light_map` hand over its four corners through the ship's camera
+and heading — the `on_screen` the crew's names use — so it lands on the
+deck at any zoom and heading.

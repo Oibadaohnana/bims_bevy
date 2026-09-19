@@ -21,7 +21,6 @@ use crate::theme;
 // the cap on the Bim's head agree.
 const ORE: Color32 = Color32::from_rgb(0xa8, 0x7c, 0x5a);
 const METAL: Color32 = Color32::from_rgb(0xb4, 0xbe, 0xc8);
-const FUEL: Color32 = Color32::from_rgb(0xe8, 0xa8, 0x3a);
 const COMPONENTS: Color32 = Color32::from_rgb(0x5f, 0xc8, 0xb8);
 const VEG: Color32 = Color32::from_rgb(0x7c, 0xc4, 0x5a);
 const TOFU: Color32 = Color32::from_rgb(0xf0, 0xe8, 0xd0);
@@ -49,6 +48,11 @@ const HILT: Color32 = Color32::from_rgb(0x38, 0x38, 0x42);
 const BLADE_CORE: Color32 = Color32::from_rgb(0xfa, 0xff, 0xff);
 const BLADE_EDGE: Color32 = Color32::from_rgb(0x73, 0xf2, 0xff);
 const BLADE_GLOW: Color32 = Color32::from_rgba_premultiplied(0x1c, 0x3d, 0x40, 0x40);
+/// The research key: a slab of somebody else's circuitry, dark, with a
+/// brass edge and a lit trace down it.
+const KEY: Color32 = Color32::from_rgb(0x2a, 0x2e, 0x38);
+const KEY_EDGE: Color32 = Color32::from_rgb(0xcc, 0xa8, 0x4c);
+const KEY_TRACE: Color32 = Color32::from_rgb(0xff, 0xdb, 0x66);
 /// The crack across a broken piece: the same light stroke the deck draws.
 const CRACK: Color32 = Color32::from_rgb(0xe8, 0xf0, 0xf4);
 /// A darker edge on a light shape, so it does not vanish on a pale cell.
@@ -60,7 +64,7 @@ const SHINE: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 70);
 pub fn icon(painter: &egui::Painter, rect: Rect, item: Item) {
     match item {
         Item::Armour(piece) => armour(painter, rect, piece.kind, piece.broken()),
-        Item::Weapon(kind) => match ResourceId::ALL.get(kind.resource() as usize) {
+        Item::Weapon(weapon) => match ResourceId::ALL.get(weapon.kind.resource() as usize) {
             Some(&id) => resource(painter, rect, id),
             None => unknown(painter, rect),
         },
@@ -68,6 +72,10 @@ pub fn icon(painter: &egui::Painter, rect: Rect, item: Item) {
             Some(&id) => resource(painter, rect, id),
             None => unknown(painter, rect),
         },
+        // A key is its tier's resource, tall: the cell it is given is two
+        // cells high, and the picture is drawn to fill it.
+        Item::Key(1) => resource(painter, rect, ResourceId::ResearchKey),
+        Item::Key(_) => unknown(painter, rect),
     }
 }
 
@@ -111,12 +119,6 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
             // A bar, with the light along its top edge.
             painter.rect_filled(b.rect(0.12, 0.34, 0.88, 0.66), b.px(0.06), METAL);
             painter.rect_filled(b.rect(0.16, 0.37, 0.84, 0.44), b.px(0.03), SHINE);
-        }
-        ResourceId::Fuel => {
-            // A can with a spout.
-            painter.rect_filled(b.rect(0.22, 0.32, 0.78, 0.86), b.px(0.06), FUEL);
-            painter.rect_filled(b.rect(0.32, 0.18, 0.50, 0.34), b.px(0.03), FUEL);
-            painter.rect_filled(b.rect(0.32, 0.50, 0.68, 0.72), b.px(0.03), SHADE);
         }
         ResourceId::Components => {
             // Three chips.
@@ -302,6 +304,26 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
                 Stroke::new(b.px(0.12), HILT),
             );
         }
+        // The research key: a tall dark slab with a brass rim, a notch cut
+        // out of its top edge, and a lit trace zig-zagging down it. Drawn
+        // to the cell's height, so in a two-cell slot it is a tall key
+        // and in a one-cell one a short one.
+        ResourceId::ResearchKey => {
+            painter.rect_filled(b.rect(0.28, 0.08, 0.72, 0.92), b.px(0.04), KEY_EDGE);
+            painter.rect_filled(b.rect(0.33, 0.13, 0.67, 0.87), b.px(0.03), KEY);
+            painter.rect_filled(b.rect(0.44, 0.08, 0.56, 0.18), 0.0, KEY);
+            let trace = [
+                b.at(0.50, 0.24),
+                b.at(0.40, 0.38),
+                b.at(0.60, 0.52),
+                b.at(0.40, 0.66),
+                b.at(0.50, 0.80),
+            ];
+            for pair in trace.windows(2) {
+                painter.line_segment([pair[0], pair[1]], Stroke::new(b.px(0.05), KEY_TRACE));
+            }
+            painter.circle_filled(b.at(0.50, 0.80), b.px(0.05), KEY_TRACE);
+        }
     }
 }
 
@@ -394,14 +416,16 @@ mod tests {
             icon(&painter, rect, Item::Stack(id as u32));
         }
         for &kind in ArmourKind::ALL.iter() {
-            let mut piece = Piece::new(1, kind);
+            let mut piece = Piece::new(1, kind, bims::combat::Tier::One);
             icon(&painter, rect, Item::Armour(piece));
             piece.health = 0.0;
             icon(&painter, rect, Item::Armour(piece));
         }
         for &weapon in WeaponKind::ALL.iter() {
-            icon(&painter, rect, Item::Weapon(weapon));
+            icon(&painter, rect, Item::Weapon(weapon.basic()));
         }
         icon(&painter, rect, Item::Stack(u32::MAX));
+        icon(&painter, rect, Item::Key(1));
+        icon(&painter, rect, Item::Key(9));
     }
 }

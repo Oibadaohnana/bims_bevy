@@ -5,6 +5,7 @@
 //! when it is shut and thin air when it is open, which is why the pathfinder
 //! keeps two grids rather than one — see [`crate::nav::Maps`].
 
+use crate::cue::{self, Cue};
 use crate::draw::{Color, DrawList};
 use crate::math::{PI, Rect, TAU, Vec2, clamp, lerp, vec2};
 use crate::room::{DECK_SEAM, GLOW, GLOW_DIM, HULL, PANEL, PANEL_EDGE, PANEL_LIT, STEEL, WARN};
@@ -54,6 +55,8 @@ pub struct Bath {
     /// 0 shut, 1 fully retracted into the bulkhead. Animated towards `target`.
     pub open: f32,
     target: f32,
+    /// Which way the panels went last frame, for [`cue::door_motion`].
+    moving: i8,
     pub locked: bool,
 
     /// Seconds left of the cistern refilling, and of the tap running.
@@ -108,6 +111,7 @@ impl Bath {
             bare: false,
             open: 0.0,
             target: 0.0,
+            moving: 0,
             locked: false,
             flush: 0.0,
             tap: 0.0,
@@ -135,6 +139,7 @@ impl Bath {
             bare: true,
             open: 1.0,
             target: 1.0,
+            moving: 0,
             locked: false,
             flush: 0.0,
             tap: 0.0,
@@ -263,12 +268,16 @@ impl Bath {
         }
     }
 
-    pub fn update(&mut self, dt: f32) {
+    /// One frame: the panels towards their target, the cistern and the
+    /// tap running down. Says so the frame the panels start moving.
+    pub fn update(&mut self, dt: f32) -> Option<Cue> {
         self.time += dt;
         let step = DOOR_RATE * dt;
+        let was = self.open;
         self.open += clamp(self.target - self.open, -step, step);
         self.flush = (self.flush - dt).max(0.0);
         self.tap = (self.tap - dt).max(0.0);
+        cue::door_motion(was, self.open, &mut self.moving)
     }
 
     // --- drawing ---------------------------------------------------------

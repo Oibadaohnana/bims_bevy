@@ -1,23 +1,21 @@
 //! The numbers a trip is flown by, kept apart from the arithmetic.
 //!
-//! Placeholders, like every other table in this workspace — but two of them
-//! are placeholders **against a scenario** rather than against nothing, and
-//! that is the only thing that makes them checkable:
+//! Placeholders, like every other table in this workspace — but one of them
+//! is a placeholder **against a scenario** rather than against nothing, and
+//! that is the only thing that makes it checkable: `PartDef::torque_thrust`
+//! — which lives next door in `shipdesign`, because it is a fact about a
+//! part — is set so that four thrusters on the flyable fixture
+//! (`shipdesign::fixture::flyer`) turn it through half a circle inside two
+//! game hours. A flip that takes a day would make braking by turning round
+//! a worse deal than a backward engine in every case, and the choice between
+//! them would stop being a choice. It is pinned by a test rather than by a
+//! comment: `four_thrusters_flip_the_reference_inside_two_hours`.
 //!
-//! - [`FUEL_PER_THRUST_MINUTE`] is set so that the flyable fixture
-//!   (`shipdesign::fixture::flyer`) can cross the world generator's longest
-//!   reference hop on one full tank and still have something left. A ship that
-//!   cannot reach the far side of its own system is a ship with nowhere to go.
-//! - `PartDef::torque_thrust` — which lives next door in `shipdesign`, because
-//!   it is a fact about a part — is set so that four thrusters on the same
-//!   fixture turn it through half a circle inside two game hours. A flip that
-//!   takes a day would make braking by turning round a worse deal than a
-//!   backward engine in every case, and the choice between them would stop
-//!   being a choice.
-//!
-//! Both are pinned by tests rather than by comments: see
-//! `one_full_tank_crosses_the_longest_reference_hop` and
-//! `four_thrusters_flip_the_reference_inside_two_hours`.
+//! There used to be a second, the fuel a unit of thrust burnt a minute, set
+//! so one tank crossed the longest reference hop. There is no fuel now: the
+//! engines run on the reactor, and what bounds a trip is how hard the
+//! reactor lets them push — `shipdesign::power::thrust` — which is in the
+//! `Dynamics` before a plan is made.
 
 /// How close to a station a trip finishes.
 ///
@@ -37,20 +35,6 @@ pub const ARRIVAL_RADIUS_BODY: f64 = 15_000.0;
 /// which would be a rotation phase of no length that the plan walker would
 /// have to special-case anyway.
 pub const ALIGN_TOLERANCE: f64 = 0.01;
-
-/// Units of fuel one unit of thrust gets through in a game minute.
-///
-/// Per **thrust**, not per engine: there are two sizes of main engine, and
-/// one that pushed five times as hard for the same fuel would be the only
-/// one worth buying. Written as the reference engine's bill over its thrust,
-/// so `shipdesign::PartKind::Engine` — 2 000 of thrust — burns exactly the
-/// 0.0015 a minute it always did and the heavy engine five times that.
-///
-/// See the module note: the reference bill is chosen against the longest
-/// reference hop, not out of the air. Engines that are not burning — during
-/// an align, during a flip, while holding, while docked — use nothing at
-/// all, and thrusters use nothing ever.
-pub const FUEL_PER_THRUST_MINUTE: f64 = 0.0015 / 2_000.0;
 
 /// The floor under a ship's moment of inertia.
 ///

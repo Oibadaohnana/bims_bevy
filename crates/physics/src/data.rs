@@ -40,75 +40,85 @@ pub const MIN_HULL_MASS: f64 = 1.0;
 ///
 /// The discriminants are written out because they cross the wasm boundary as
 /// numbers one day, and a reordered enum must not silently renumber a save.
-/// **0 to 3 are fixed** and a new resource is appended.
+/// A new resource is appended. (Fuel was `2` until September 2026, when
+/// the ship went over to reactor power — there is no fuel for spacecraft —
+/// and, with no save format yet, the rest were closed up rather than
+/// leaving a hole in every table indexed by this.)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 pub enum ResourceId {
     Ore = 0,
     Metal = 1,
-    Fuel = 2,
-    Components = 3,
-    Vegetable = 4,
-    Tofu = 5,
+    Components = 2,
+    Vegetable = 3,
+    Tofu = 4,
     /// The rare one. Sold only at mining outposts, mined only from rich
     /// belts, and wanted only by the emitter — so a crew that never fights
     /// never needs any, and a crew that does has a reason to visit a belt.
-    Galvum = 6,
+    Galvum = 5,
     /// The rare tier of component: metal, components and galvum at a
     /// workbench, and what a turret, a shield, a mining laser and a sensor
     /// array are made of. Made, never sold.
-    Emitter = 7,
+    Emitter = 6,
     /// A pressure suit. Worn for a walk outside — mining ore off a belt —
     /// and kept in a suit locker, which is the locker class of storage. A
     /// resource rather than a thing with a state of its own, until a suit
     /// wears out.
-    Suit = 8,
+    Suit = 7,
     /// A laser handgun: two components and an emitter at the armoury.
     /// What a Bim will carry into a fight. Made, never sold.
-    Handgun = 9,
+    Handgun = 8,
     /// A vest: metal and components at the armoury. Worn into a fight.
     /// Made, never sold.
-    Vest = 10,
+    Vest = 9,
     /// A medkit: vegetables and a component at the armoury. What treating a
     /// wound will use up.
-    Medkit = 11,
+    Medkit = 10,
     /// Bare rock: what the outside of an asteroid is made of, and what a
     /// pick brings back from it until it is through to the ore. Worth
     /// almost nothing and heavier than anything — a shelf of it is ballast.
-    Rock = 12,
+    Rock = 11,
     /// A crop: what the bay grows besides food, and what a bandage is made
     /// of. Stowed cold like the vegetables, because it is a plant, and
     /// worth nothing to anyone but a drug lab.
-    Fibre = 13,
+    Fibre = 12,
     /// A bandage: two fibre at the drug lab. What closes a wound; used up
     /// on the wound. Kept in a locker like the medkit.
-    Bandage = 14,
+    Bandage = 13,
     /// A basic helm: two metal at the workbench. Armour for the head —
     /// the first of three pieces a Bim wears, one to a part of the body.
     /// A resource **in a container** and a thing with a health of its own
     /// everywhere else (`bims::combat::Piece`; the world keeps the two in
     /// step), so buying, selling and crafting it need no new mechanism.
     /// Made, never sold, like the vest.
-    Helm = 15,
+    Helm = 14,
     /// Basic kevlar: three metal and a galvum at the workbench. Armour for
     /// the body. Not the vest, which is the armoury's and older.
-    Kevlar = 16,
+    Kevlar = 15,
     /// Basic leg guards: one metal at the workbench. Armour for the legs.
-    LegGuard = 17,
+    LegGuard = 16,
     /// A shotgun: four metal and two components at the armoury. The second
     /// weapon after the handgun; like it, a resource in a container and a
     /// `bims::combat::WeaponKind` in a hand, mapped one to one by
     /// `WeaponKind::resource`. Made, never sold.
-    Shotgun = 18,
+    Shotgun = 17,
     /// An auto rifle: three metal, three components and an emitter at the
     /// armoury. Made, never sold.
-    AutoRifle = 19,
+    AutoRifle = 18,
     /// A sniper rifle: four metal, two components and two emitters at the
     /// armoury. Made, never sold.
-    SniperRifle = 20,
+    SniperRifle = 19,
     /// The schword, a blade with a laser edge: one metal, one component and
     /// two emitters at the armoury. The one melee weapon. Made, never sold.
-    Schword = 21,
+    Schword = 20,
+    /// A tier-one research key: an artifact found on a friendly station's
+    /// research desk, carried off in a pack — where it takes two cells,
+    /// one over the other — and put into the crew's own research desk,
+    /// which holds exactly one. Consumed there to open the research tree
+    /// locked behind it (`shipdesign::research`). A resource so the desk
+    /// counts it the way a locker counts a medkit; made nowhere and sold
+    /// nowhere, and a station buys one for the curiosity.
+    ResearchKey = 21,
 }
 
 impl ResourceId {
@@ -117,7 +127,6 @@ impl ResourceId {
     pub const ALL: [ResourceId; 22] = [
         ResourceId::Ore,
         ResourceId::Metal,
-        ResourceId::Fuel,
         ResourceId::Components,
         ResourceId::Vegetable,
         ResourceId::Tofu,
@@ -137,6 +146,7 @@ impl ResourceId {
         ResourceId::AutoRifle,
         ResourceId::SniperRifle,
         ResourceId::Schword,
+        ResourceId::ResearchKey,
     ];
 
     pub fn def(self) -> &'static ResourceDef {
@@ -160,8 +170,8 @@ pub struct ResourceDef {
     pub mass_per_unit: f64,
 }
 
-/// The table. Ore is the raw rock, metal is what it refines to, fuel is
-/// lighter than either and components are light and fiddly. A crate of
+/// The table. Ore is the raw rock, metal is what it refines to, and
+/// components are light and fiddly. A crate of
 /// vegetables and a block of tofu are lighter again — a week's meals for two
 /// weighs less than one girder, which is the relation that matters.
 ///
@@ -178,10 +188,6 @@ pub static RESOURCES: [ResourceDef; 22] = [
     ResourceDef {
         id: ResourceId::Metal,
         mass_per_unit: 8.0,
-    },
-    ResourceDef {
-        id: ResourceId::Fuel,
-        mass_per_unit: 5.0,
     },
     ResourceDef {
         id: ResourceId::Components,
@@ -268,6 +274,12 @@ pub static RESOURCES: [ResourceDef; 22] = [
     ResourceDef {
         id: ResourceId::Schword,
         mass_per_unit: 42.0,
+    },
+    // A research key is a slab of somebody else's circuitry: light, and
+    // made of nothing the crew know, so no recipe holds it to anything.
+    ResourceDef {
+        id: ResourceId::ResearchKey,
+        mass_per_unit: 2.0,
     },
 ];
 

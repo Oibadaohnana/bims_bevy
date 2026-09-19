@@ -318,7 +318,49 @@ of drowsiness is unreachable. That cost a wrong diagnosis once already.
 Any of the crew can be selected; only `bim::PLAYER` takes orders. The two are
 deliberately separate questions, and the split is what lets the right-hand side
 show whichever Bim you clicked while `order_move` still refuses anybody but
-James. Exactly one is selected at a time, because the panels show one at a time.
+James in peace (a crewmate under the alarm, see the fight). **A click
+selects one; a marquee selects everybody it touches** (`select_many`,
+`selected_all`, `selected_count`), and the panels show the first of them —
+`selected()` — which is the player's own when it is among them. An order
+with several selected goes to each that takes orders (`orderable`): a
+right-click is a huddle round the point, a spot apiece off `CLUSTER_SLOTS`
+in crew order; a **right-drag is a line** (`order_line`, RimWorld's
+formation drag) — the squad spread evenly along it, ends included, each to
+the point nearest its own place along the line so nobody crosses anybody,
+one alone going to where the drag began. The screens hold the button:
+`order_drag_begin/update/end(x, y, dragged)`, the glass deciding whether
+it moved more than `CLICK_SLOP`, and `render` draws the line with a pip
+where each will stand while it is dragged.
+`a_marquee_selects_everybody_it_touches_and_a_right_drag_forms_them_up_along_a_line`
+pins it.
+
+## The room says what it sounds like, and plays nothing
+
+`cue.rs` is the diary's arrangement for sound: a `Cue` is a code and a
+place — a door's leaves starting to slide, a knife stroke on the board, a
+shot leaving a gun, a bolt landing on a body or a bulkhead, a blow landing
+— pushed onto `Room::cues` or `Combat::cues` the step it happens and
+drained by the app through `Game::take_cues`. What each is played as is
+`crates/app/src/sound.rs`'s; a server drops them.
+
+- **A door is heard when its leaves change direction**, not when a target
+  changes. `cue::door_motion` keeps a `moving` memory on the door (the
+  ship's `Door` and the heads' `Bath` alike) and compares `open` before
+  and after the step, so a door reversing part way is heard shutting, a
+  held door told to hold again is silent, and the powered doors — which
+  open for whoever walks up — say nothing about *why*.
+- **A cue is a list, never a state.** At the world's top speed one step
+  holds a door's whole open-and-shut; a flag read afterwards would show
+  nothing. The room says every one and the app thins them — so do not
+  rate-limit here.
+- **Shots are heard where they fly.** A hostile room's people record
+  `Shot`s rather than firing (`Combat::shoot`), and the world flies those
+  in the crew's room through `Game::enemy_fire`, which is where the cue
+  comes from; a hostile room's `Combat` says nothing about them. A blow on
+  a crew member is `Game::enemy_strike`'s cue, on an enemy `Combat::brawl`'s.
+- `scratchpad/cues.rs` is the probe: a stew's ten strokes on the board, a
+  day's heads' door opening and shutting turn and turn about, and nothing
+  at all in a quiet first second.
 
 ## The diary keeps no words, and almost no entries
 
@@ -350,11 +392,26 @@ Two knock-ons worth knowing, both of which bit when this changed:
   dead the moment it stopped recording errands. Both are gone. If a diary
   entry ever wants that detail back, it has to be carried again.
 
-## The crew pass through each other on purpose
+## The crew pass through each other on purpose — in peace
 
 Bodies do not collide. Two Bims that meet overlap, and both drop to
 `CROWDED_PACE` while they are within `CREW_CLEARANCE`. That is the whole rule —
 `Game::crowding` and one multiplier on the pace.
+
+**Under arms they do collide.** `Game::separate_under_arms`, after every
+body has moved: every pair of *recruited* bodies on their feet on the deck
+— an enemy's people at war, the crew under the alarm — closer than
+`CREW_CLEARANCE` is shoved apart, each half the overlap along the line
+between them (a nudge off the combat stream when they are on one spot).
+The deadlock below is what a fight already guards against: `plan_stand`
+replans every `PLAN_EVERY` and `unstick` watches the rest. Both bodies
+recruited, so a recruited James standing in the classic room is never
+moved by a Kate walking past — `scratchpad/crew.rs` relies on that. The
+other half of the same picture (a squad stacked on one tile) is
+`Tactics::stand_with_cover`'s `taken`: where the rest of its side stand
+or are walking to, no cell within a tile of one being a stand.
+`bodies_under_arms_are_pushed_apart_and_in_peace_they_are_not` pins the
+push; the sandbags test in `combat::tests` the second stand.
 
 It is deliberate and it is the *only* resolution that cannot deadlock. **A
 route is planned once and never replanned**, so a Bim whose line goes through
@@ -1072,7 +1129,7 @@ slot, and a nine-cell `pack` — `Gear::issued()` a
 which `tick_combat` owns. `WeaponKind` is five kinds with written-out
 codes — `LaserPistol = 1`, `Shotgun = 2`, `AutoRifle = 3`, `SniperRifle
 = 4`, `Schword = 5` — and `resource()`/`from_resource` is the one table
-from a kind to its `ResourceId` code (9, 18, 19, 20, 21), a number since
+from a kind to its `ResourceId` code (8, 17, 18, 19, 20 since the fuel resource went), a number since
 this crate does not know `physics`; the world's `armour::weapon_resource`
 is its typed mirror. `WeaponKind::stats()` is the one table of numbers,
 range and speed in **tiles**, and a weapon's odds and its damage are
@@ -1080,23 +1137,31 @@ range and speed in **tiles**, and a weapon's odds and its damage are
 `accuracy_far` at `range`, `damage` and `damage_far` the same, straight
 between (`WeaponStats::along`), read through `hit_chance(tiles)` and
 `damage_at(tiles)`. `ACCURACY_RANGE` and the `accuracy ^ (tiles / 10)`
-curve are gone; the pistol is pinned to its old numbers within a
-percent (`range 12, sweet 0, 0.95 → 0.65, 6 damage flat — the twelve it
-was, halved with every gun's in September 2026 — speed 18, fire_rate 1.5`
-— 0.70 at ten tiles as the app always printed). `burst`
+curve are gone. **The second tuning of September 2026** put every gun's
+damage up a fifth and its odds down a tenth, and the pistol's and the
+auto rifle's range up ten tiles; the pistol is `range 22, sweet 0,
+0.855 → 0.585, 7.2 damage flat, speed 18, fire_rate 1.5` — 0.73 at ten
+tiles, where the app used to print 0.70. `burst`
 is shots to a trigger pull and `burst_gap` the seconds between them;
 `fire_rate` is then **trigger pulls** a second, and `dps()` is `burst ×
 fire_rate × damage`. `melee` is a blade: `sweet = range = MELEE_RANGE`,
 accuracy 1, `fire_rate = 1 / MELEE_PERIOD`, `speed 0`. The numbers the
-user asked for, at half the damage they were first given: shotgun range
-10, sweet 4, 0.90/0.60, 50/30 (so 40 at seven), speed 20, one pull every
-four seconds; auto rifle range 16, sweet 8, 0.85/0.50, 5/4, speed 22,
+user asked for, after that tuning: shotgun range 10, sweet 4,
+0.81/0.54, 60/36 (so 48 at seven), speed 20, one pull every four
+seconds; auto rifle range 26, sweet 8, 0.765/0.45, 6/4.8, speed 22,
 `burst 8`, `burst_gap 0.25`, one pull every four seconds (eight in two,
-two to recharge); sniper rifle range 35, sweet 20, 1.0/0.70, 45/25, speed
-60, one every four seconds; schword 35 a swing. A body is 75, so no
-single shot but a head shot kills now. The constants beside them: `MELEE_RANGE = 1.2`
-tiles, `FIST_DAMAGE = 20`, `MELEE_PERIOD = 2.0` s, `SWING_TIME = 0.5` s,
-`DODGE_IN_COVER = 0.5`. **Every one of those numbers lives in
+two to recharge); sniper rifle range 35, sweet 20, 0.9/0.63, 54/30,
+speed 60, one every four seconds; schword 42 a swing, its odds left at 1
+since a swing lands by reach and not by a roll. A body is 75, so no
+single shot but a head shot kills. The constants beside them:
+`MELEE_RANGE = 1.2` tiles, `FIST_DAMAGE = 20`, `MELEE_PERIOD = 2.0` s,
+`SWING_TIME = 0.5` s, `DODGE_IN_COVER = 0.5`, and `WALKING_ACCURACY =
+0.5` — **a shot on the move is at half the odds**: `Combat::fire` takes
+`moving`, a hostile room's `Shot` carries it, and the world hands it to
+`enemy_fire`, so an enemy's bolt fired in the crew's room is rolled
+by the same rule. Everybody shoots on the move now — the crew held
+their fire while walking before — and what keeps the bots from doing
+it is `plan_stand` (below). **Every one of those numbers lives in
 `crates/game/src/balance.rs`** — the five `WeaponStats` and the three
 `ArmourStats` as `const`s, the melee constants beside them — and
 `WeaponKind::stats`/`ArmourKind::stats` are lookups into it; `combat.rs`
@@ -1136,10 +1201,10 @@ prints the curves itself.
   which is what broke `scratchpad/crew.rs` ("a recruited James never sets
   off"), and nobody talks to a Bim that is out cold.
 - **The targets are the world's, and each comes with its weapon.**
-  `Combat::targets` is `Vec<Option<combat::Target { at, weapon, peeking
+  `Combat::targets` is `Vec<Option<combat::Target { at, weapon, peeking, stale, dodge
   }>>`, index for index with the other room's people (`None` for one
   down), set every step by `World::visit` through `Game::set_hostiles(
-  Vec<Option<(Vec2, WeaponKind)>>)` while the station is hostile — on
+  Vec<Option<(Vec2, Weapon)>>)` while the station is hostile — on
   **both** rooms, each told where the other's are — and cleared
   otherwise. The weapon is what says which targets lock a gunner (below).
   `peeking` is a **second call**, `Game::set_hostiles_peeking(&[bool])`
@@ -1250,11 +1315,14 @@ prints the curves itself.
   general wound — `Game::wound(who, part, damage)` is kept as "a shot",
   `strike(.., false)`, because `scratchpad/priority.rs` calls it. The
   armour on that part first (below), then `Health::shot(part, damage,
-  cut)` with what got through: the damage off that part, and a wound
+  cut, roll)` with what got through: the damage off that part, and a wound
   opened on it in **units** — one for a shot, `CUT_WOUND` (3) for a cut,
   since `BLEED_PER_WOUND` is per unit and a blade is meant to bleed three
   times what a bolt does; a bandage still closes the lot on a part —
-  `leg_lost` when a leg went, the flash, and `Character::set_wounds` — a
+  the `trauma` the part rolled if it reached nothing (`roll` off the
+  combat stream, `Combat::roll`; see "A part at nothing is a dying
+  state" below) and `leg_lost` when that trauma is a crushed leg, the
+  flash, and `Character::set_wounds` — a
   `BLOOD` blotch on the head, the coverall's middle or the boots while
   that part bleeds, standing or lying. Then the blood: `drip_timer` is
   zeroed so the first drop lands under the body at once, and a **cut
@@ -1264,12 +1332,16 @@ prints the curves itself.
   through the same `can_get_to` filter as `spatter` (blood flung under a
   counter's lip is blood the broom never reaches; `strike` passes
   `nav.can_reach`). `part_health`, `blood`, `wounds(who, part)`,
-  `bleeding`, `legs_lost`, `is_unconscious` are the readouts. `tick_bim`
-  multiplies the pace by `Health::pace()` (the legs left, and the blood
-  under half); after the death check, `Health::unconscious()` differing
-  from `Character::is_unconscious()` is `knock_out(out)` — going out
-  `interrupt`s the errand onto the queue first, and the frame stops
-  there for that Bim, like a nap, until the blood comes back. Out cold
+  `bleeding`, `legs_lost`, `trauma(who, part)`, `is_dying`, `lasting`,
+  `is_unconscious` are the readouts. `tick_bim`
+  multiplies the pace by `Health::pace()` (the legs lost, the blood
+  under half, and every trauma on it) and the effort by
+  `Health::works_at()`; after the death check, `Health::unconscious()`
+  differing from `Character::is_unconscious()` is `knock_out(out)` —
+  going out `interrupt`s the errand onto the queue first **and drops
+  the gun** (`drop_weapon`, below), and the frame stops there for that
+  Bim, like a nap, until the blood comes back (`OUT_AT` is **0.4**
+  now). Out cold
   it is drawn by `draw_lying`: the fallen figure in the **live** colours
   with a slow breath and no Zs. `Bim::tick_drips` drips **blood on the
   deck** every `DRIP_EVERY / wounds` seconds while it bleeds and lives,
@@ -1326,11 +1398,27 @@ prints the curves itself.
   `ALARM_STATUS` while it is up. Mind that James wanders in the classic
   room under `set_autonomous(false)` — the chat walks him — so a test
   reads `bim_pos(0)` rather than where it put him.
-- **Sandbags are a wall a tile wide.** `PartKind::Sandbags` blocks
-  movement and sight (the default for what blocks movement), so the peek
-  rule and the cover score need nothing new: a body beside a line of them
-  peeks round its end and is dodged half the shots at it. The stations
-  lay a barricade in each arm (`crates/world/CLAUDE.md`).
+- **Sandbags are low cover.** `PartKind::Sandbags` is half a body's
+  height since September 2026: `blocks_movement: false`, so the nav grid
+  walks over it and (`blocks_sight` following) a line of sight goes over
+  it too, and `shipdesign::is_cover` marks it the one part that is cover
+  of this kind. `Layout::cover` collects them and the room hands them to
+  `Sight::set_cover` (part of the fixed picture, so `set_shut` keeps
+  them). `Sight::covered(body, from)` is the rule: a cover tile on the
+  straight line from the body towards `from` within `COVER_REACH` (1.5)
+  tiles of the body — the tile beside it, diagonals in — and the body not
+  standing on the bags itself. Two places read it: `Combat::step` dodges
+  a bolt reaching a covered body with `DODGE_IN_COVER`, the same roll as
+  a peek, for its own bodies and for the targets alike, each room off its
+  own mask (the joined deck has the station's bags; the residents' room
+  its own); and `Tactics::view_from` scores a spot the body sees the
+  target from *through* its bags as cover, `COVER_WORTH`, so a bot picks
+  the tile behind a barricade over the open. The stations lay one in
+  each arm (`crates/world/CLAUDE.md`).
+  `sandbags_are_a_stand_the_tactics_take_and_half_the_bolts_over_them_are_dodged`
+  in `combat::tests` and `sight::tests` pin it. A body *on* the bags is
+  in the open, and one two tiles back is past the reach — a bolt comes
+  over.
 - **The enemy's tactics.** A room with hostile bodies **and** a `Some`
   target is **at war** (`Game::at_war`, `muster`): every living body is
   `set_recruited(true)` with its errand `interrupt`ed (queue kept) and its
@@ -1363,18 +1451,49 @@ prints the curves itself.
   reach and a blade wants to stand *beside* its target; cover means
   nothing to it. It **shoots when it can**: the moment `aim` sees a
   target, mid-plan or not, and on the move too — from its own eyes only,
-  the walk keeping the facing, where the crew hold their fire until they
-  arrive; a blade swings the moment `melee_with` says so. `Eye::is_peek`,
+  the walk keeping the facing, at half the odds; a blade swings the
+  moment `melee_with` says so. **A bot with a shot stands still for it**:
+  `plan_stand` reads `Tactics::stand_with_cover` (`Stand { at, cover }`,
+  `stand` being the same less the flag) and, when `aim` has a target
+  from where the body is and the stand it picked is not cover, halts
+  the walk and stays — walking would halve its odds — so a bot moves
+  only for cover or when it has no shot at all. The crew's bots under
+  the alarm run the same `plan_stand`; the player's own Bim walks where
+  it is sent and fires as it goes.
+  `a_bot_with_a_shot_stands_still_and_the_player_s_bim_fires_on_the_move_at_half_the_odds`
+  in `game::tests` pins both halves and the odds. `Eye::is_peek`,
   `Eye::admits`, `Sight::tile_of` and `Sight::clear_line` are public for
-  it. Enemies know where the crew are — the world tells them — and need
-  no line of sight to *know*, only to shoot.
+  it. **Enemies know only what they have seen.** The world hands a
+  hostile room every crew position, and `Game::set_hostiles` there
+  keeps `last_seen` a target: one any of the room's living, waking
+  people on the deck `sees_from` (any range) is known where it is; one
+  nobody sees is believed where it was last seen and handed to the fight
+  **stale** (`Combat::set_stale`) — the tactics walk there, through the
+  passage and onto the ship if that is where it went, while `aim`,
+  `sees_any` and `melee_with` skip a stale target so nobody shoots at a
+  belief; and one unseen for `FORGET_AFTER` (60 s) is `None`, so with
+  the last crew member out of sight for a minute the room leaves war and
+  its people go back to their day. The crew's own room takes the list
+  as it comes. `a_hostile_room_chases_what_it_last_saw_and_forgets_it_after_a_minute`
+  pins it; the chase onto the ship is the world's
+  (`an_enemy_follows_the_crew_member_it_saw_onto_the_ship_and_is_put_ashore_when_it_leaves`).
   `an_enemy_stands_where_its_weapon_beats_the_target_s` (combat) and
-  `an_enemy_shoots_on_the_move_and_the_crew_do_not` (game) pin the two.
+  `a_bot_with_a_shot_stands_still_and_the_player_s_bim_fires_on_the_move_at_half_the_odds`
+  (game) pin the two.
 - **What a station's people carry is rolled, not kept.**
   `Gear::issued_for(seed)` draws one roll off `Rng::new(seed)` against
   `ISSUE_ODDS` — pistol 0.50, shotgun 0.20, auto rifle 0.15, sniper 0.05,
-  schword 0.10 — and issues that and nothing else. A function of the seed
-  alone, so the world derives it (`Residents::open`, `map_seed ^ who`)
+  schword 0.10 — and issues that and nothing else, **unless it is the
+  schword: a melee bot always wears the basic armour**
+  (`Gear::basic_armour`, a fresh helm, kevlar and leg guards, ids 1–3,
+  the room's own until a loot renumbers one), since a body of 75 with a
+  blade is dead before it closes. `Gear::hired_for` does the same for a
+  mercenary rolled the schword (its armour rolls are drawn either way,
+  so the stream is the same), and a crewmate bot drawing a blade at the
+  alarm puts on every whole piece in its pack over a part with nothing or
+  a broken piece (`muster_crew` → `wear_what_it_has`) —
+  `a_crewmate_with_a_blade_puts_the_armour_in_its_pack_on_at_the_alarm`
+  pins all three. A function of the seed alone, so the world derives it (`Residents::open`, `map_seed ^ who`)
   and `world_checksum` hashes nothing new. `Game::issue(who, gear)` puts
   it in the hand and refreshes the picture; `Game::weapon(who)` and
   `Game::gear(who)` read it back, and the app's `BIMS_WEAPON`,
@@ -1439,9 +1558,9 @@ the cut's splash, the knock-out and `HIT_BIM` in the classic room.
 
 `combat::ArmourKind` — `BasicHelm = 1`, `BasicKevlar = 2`, `BasicLegs =
 3`, each cut for one `health::Part` (`slot()`), each a `ResourceId` code
-in the hold (`resource()`: 15, 16, 17 — a number, since this crate does
+in the hold (`resource()`: 14, 15, 16 since the fuel resource went — a number, since this crate does
 not know `physics`), each with `stats()` of `health` and `protection`:
-(15, 2), (20, 2), (10, 1). A **piece** (`combat::Piece { id, kind, health
+(15, 2), (20, 2), (10, 1). A **piece** (`combat::Piece { id, kind, tier, health
 }`) is one instance of one: the `id` is the world's and only climbs, so
 the piece in the hold and the piece on a body are the same piece and
 its damage goes with it. `broken()` is health at nothing;
@@ -1463,7 +1582,7 @@ room only ever holds instances — on a body, or in its pack.
   `armour_health(who)` is the unbroken worn pieces summed — the blue bar
   on the end of the green one — and `part_bonus(who, part)` one part's.
 - **The pack is `Gear::pack`, `[Option<Item>; PACK_CELLS]`** (nine, row
-  by row), an `Item` being `Armour(Piece)`, `Weapon(WeaponKind)` or
+  by row), an `Item` being `Armour(Piece)`, `Weapon(Weapon)` or
   `Stack(resource code)` — one unit a cell. `Game::give(who, cell, item)`
   (the first free cell for `None`) and `Game::take(who, cell)` are the
   world's two halves of a fetch and a stow; **`take` refuses a broken
@@ -1471,7 +1590,7 @@ room only ever holds instances — on a body, or in its pack.
   resources and a broken one is worth nothing there — `Game::discard`
   is the only way out for it. `Game::equip(who, cell)` puts a piece on
   the part it is cut for and drops what was worn back into that cell
-  (a weapon — `Item::Weapon(kind)`, any of the five — swaps with the
+  (a weapon — `Item::Weapon(weapon)`, any of the five at any tier — swaps with the
   hand; a stack is refused), returning what
   came off; `Game::unequip(who, part)` takes it off into the first free
   cell. Both refuse a dead Bim; neither cares where the Bim stands —
@@ -1518,6 +1637,55 @@ burst or a lock is looked at without walking the station for one —
 without the armour a crew member charged by a schword is dead before it
 is ever seen locked.
 
+## A weapon is a value with a tier, a piece has one too, and the tier scales the kind
+
+`combat::Tier` — `One = 1`, `Two = 2`, `Three = 3`, never nought, with
+`next()` — is how good a piece of equipment is, since September 2026
+(38.6). **A weapon is `combat::Weapon { kind, tier }` now**, not a bare
+`WeaponKind`: what a hand holds (`Gear::weapon`), a pack carries
+(`Item::Weapon`), a `Shot` or a `Bolt` was fired from, a `Target` or a
+`Seen` carries and a `Dropped` lies as. `WeaponKind::basic()` is the kind
+at tier one — what everybody is issued, what a bench makes, what every
+resident and mercenary carries — and `kind.at(tier)` any other. A weapon
+stays a value because it has no wear and no id: two pistols of a tier are
+the same pistol, which is why the world keeps the hold's weapons as a
+list of `Weapon`s and the armour as instances. A `Piece` has `tier`
+beside `id`, `kind` and `health`; `Piece::new(id, kind, tier)` is whole
+at the tier's health.
+
+**The tier scales the kind's numbers, and everything reads the
+instance.** `Weapon::stats()` and `Piece::stats()` are the kind's
+`balance` row multiplied by the tier's factors, and every curve, the
+tactics, the tooltips and the health bars read those — a `kind.stats()`
+in new code is a tier-one number where a tier-two one was meant. The
+factors are `balance.rs` constants:
+
+| | damage, damage_far | accuracy, accuracy_far (capped at 1) | range, sweet | armour health, protection | dodge |
+| --- | --- | --- | --- | --- | --- |
+| One | ×1 | ×1 | ×1 | ×1 | 0 |
+| Two | ×1.25 `TIER_TWO_DAMAGE` | ×1.25 `TIER_TWO_ACCURACY` | ×1 | ×1.5 `ARMOUR_TIER_STEP` | 0 |
+| Three | ×1.25×1.25 (`TIER_THREE_DAMAGE` on top) | ×1.25×1.05 (`TIER_THREE_ACCURACY` on top) | ×1.2 `TIER_THREE_RANGE` | ×1.5×1.5 | 0.10 `TIER_THREE_DODGE` |
+
+The pistol's 0.855 at tier two is capped at one, so its `accuracy_far`
+is where the quarter shows; a blade's `range` scales too, so a tier-three
+schword is swung a little further. **Dodge** is the one thing a tier adds
+that a kind has not got: a whole tier-three piece gives its wearer
+`TIER_THREE_DODGE`, and `Gear::dodge()` combines the worn pieces'
+(`1 − Π(1 − d)`, so three are a little over a quarter). It is rolled in
+`Combat::step` after the cover roll, for bolts only — a blade's blow is
+not dodged — and **only for a body whose dodge is above nought**, so a
+fight with nobody in gold draws exactly what it always did and no seeded
+probe moved. The bodies handed to `step` carry it as a third element,
+`(position, peeking, dodge)`, and a target's comes across from the other
+room the way its peeking does: `Game::set_hostiles_dodge(&[f32])` →
+`Combat::set_dodge`, called right after `set_hostiles`, off the other
+room's `Game::dodge(who)`. The deck draws no tier — `Character::set_armed`
+still takes the kind — and the app tints the cell and the slot instead.
+`a_tier_scales_the_numbers_and_tier_three_armour_dodges` in
+`combat::tests` pins the table, the cap, the combining and both rolls;
+how two of a tier become one of the next is the world's
+(`crates/world/CLAUDE.md`, "Two of a kind go onto the workbench").
+
 ## A body is looted, and down is dead or out cold
 
 `Game::is_down(who)` is `!is_alive || is_unconscious`: what a Bim has to
@@ -1556,6 +1724,36 @@ world's check. Things that are not obvious:
 and `a_visitor_marked_down_is_a_body_and_one_on_its_feet_is_not` in
 `game::tests` pin it; the command, reach and the piece's new id are the
 world's (`crates/world/CLAUDE.md`).
+
+**A left click on a body opens its inventory straight off** — the app's
+`CrewPanels::body_under_click`: `HIT_BODY`, `HIT_BIM` with the Bim down,
+or `HIT_VISITOR` with the visitor down, and the click goes to `open_loot`
+(which also walks the Bim shown over) instead of a menu; the right-click
+keeps the rows, since a Bim out cold has the bandages on it too.
+
+**A downed enemy is finished off** (RimWorld's execution). `Kind::Execute
+{ visitor, blade }` — `GoToVictim` then `Execute` (`EXECUTE_SECONDS`, 3) —
+walks to `task::victim_stand`: a gun to the free cell nearest it within
+`EXECUTE_RANGE` (3 tiles) of the body with `Sight::clear_line` to it, a
+blade (or a gun with no such cell) to a tile from the body towards it, as
+for a patient. The body's place is `Room::bodies_down`, written from the
+visitors and `visitors_down` in `tell_the_room_where_the_crew_are` every
+step; a body that came round by the time the Bim arrives blocks the chain
+at `Execute`'s enter. The picture is `tick_combat`'s: `Task::executing_at`
+says where the body is while the hands are at it, the weapon is drawn
+whether or not the Bim is under arms, and it fires at where the body lies
+every `1 / fire_rate` (the bolt flies over it — a body down is nobody's
+target) or swings every `MELEE_PERIOD` (`set_action(Swing)` outright: a
+body on a chain is scripted and `antic` defers to the script); nothing
+else until the chain is done. `Execute`'s leave pushes `(who, visitor)`
+onto `Room::executed` (`Game::take_executed`), and the world kills the
+body in its own room through `Game::execute_body` — `Health::give_up`,
+which is dead at the top of the next tick, if it was still down and
+alive. `Game::execute(who, visitor)` starts it (dead, out cold, outside
+or empty-handed refused; a visitor not down refused); whether it is an
+*enemy* is the world's check. `JOB_EXECUTE = 25`.
+`an_execution_walks_to_the_body_and_the_room_says_who_was_finished` pins
+both weapons, the body coming round, and the killing.
 
 **A visitor on its feet is hit only when the world says it may be
 spoken to.** `Game::set_visitors_hailable(&[bool])`, told right after
@@ -1718,3 +1916,276 @@ pin both — the second at frame rate, because **`simulate(1.0)` cannot
 walk a Bim**: a one-second step overshoots every waypoint and the body
 marches for ever, which is what `unstick` then sees every second. The
 tests that step a whole second at a time are the ones where nobody walks.
+
+## A part at nothing is a dying state, not a death; a Bim dying runs, and one out cold is no target
+
+`crates/game/src/health.rs`, since September 2026. A part reaching
+nothing used to be death (the head or the body) or a leg gone (the
+legs). Now it rolls a **`Trauma`** for that part — `Trauma::roll(part,
+unit)`, three each for the head and the body evenly, four for the legs:
+femur and knee 45% each, the crushed right and left leg `CRUSHED_ODDS`
+(5%) each — and the Bim is **dying** (`Health::dying`, `Game::is_dying`):
+the part stays at nothing and **does not mend**, the trauma bleeds it
+(`Trauma::bleed`: `HEAVY_BLEED` 40 an hour = ten a quarter hour, or
+`SLOW_BLEED` 20) or slows it (`Trauma::pace`, `Trauma::works_at`), and
+a hit on a part already at nothing opens a wound and nothing more. A
+crushed leg is **lost the moment it is rolled** (`legs_lost`, for ever,
+`LEG_LOST_PACE` 0.8 each, multiplied) and bleeds until the stump is
+treated. **What kills a Bim is its blood**: `is_dead` is blood at
+nothing, or the head and the body both at nothing with no trauma on
+either — starvation and `give_up`, which clears the traumas. The
+codes 0–9 are the app's (`TRAUMA_NAMES`, `TRAUMA_LINES`,
+`TRAUMA_AFTER`, `TRAUMA_LASTING` in `names.rs`, pinned against
+`Trauma::ALL`). `Health::shot` takes the `roll` and hands the trauma
+back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
+
+- **Only another Bim, with a medkit, gets it out.** `Health::treat(part)`
+  takes the trauma off, puts the part back to `TREATED_TO` (half its
+  base — nought for legs both gone) and pushes a `Lasting { trauma, left
+  }` if `Trauma::after()` says the trauma leaves something: concussion
+  and broken ribs a quarter slower walking *and* working for two days,
+  cranial trauma half for a day, chest trauma half pace walking for a
+  day, the knee a quarter slower walking for two; the fractures and the
+  bleeds nothing; the crushed legs only the leg. `lasting` counts down
+  in `update` and `pace()`/`works_at()` multiply every untreated and
+  every lasting trauma in. `Kind::Treat { patient, part }` is the chain:
+  the bandage's two steps, `GoToPatient` and `Dress`, `TREAT_MINUTES` (20)
+  riding in `rest_minutes`, `Kind::patient()` the one accessor both
+  kinds answer, and `Dress`'s `leave` pushes onto `Room::treated`
+  instead of `Room::dressed`; `Game::treat(who, patient, part)` starts
+  it and **refuses `who == patient`** — nobody treats their own — and
+  `apply_treatments` does it after everybody has moved, under the
+  dressing's conditions, off `Room::medkits` (`set_medkits`,
+  `take_medkits_used`, `MEDKITS_AT_DAWN` = 2 in the classic room; the
+  hold's aboard). `JOB_TREAT = 23`. The world is told through
+  `take_traumas()` and `take_treated()` (`CrewDying`, `CrewTreated`).
+- **The medical row: itself first, then a kit for the dying, then the
+  rest.** `medical_on_offer` answers a `Care`: `Care::Bandage(who, part)`
+  for the helper's own worst wound while there is a bandage; else
+  `Care::Treat(patient, part)` for the nearest crewmate dying that the
+  helper can get to, its worst-bleeding trauma, while a kit is on a shelf
+  — never the helper's own; else the crewmate bleeding most. `give_care`
+  starts either. A part somebody else is already walking to is left to
+  them — a dressing and a treatment apart (`being_dressed`,
+  `being_treated`), since a part being bandaged can still want its
+  trauma treated. **The row starts at `HIGHEST`** (`Priorities::new`),
+  so a wound is dressed the moment there is a bandage; no seeded probe
+  bleeds, so nothing moved. **A bot under arms with nothing in sight
+  doctors** — recruited, no target in `sees_any`, no lock and no blow —
+  and takes its weapon up again the moment `aim` sees something; the
+  player's own recruited Bim never does, being the player's. The whole
+  doctoring errand is holstered (`dressing` in `tick_combat` covers the
+  walk now), which is also what keeps the tactics off it.
+  **The kit is fetched.** `Kind::Treat` is `GoToKit → TakeKit →
+  GoToPatient → Dress`: `task::kit_stand` picks the nearest of
+  `Room::kit_stands` — the use spots of every container that takes a
+  medkit, `Game::set_kit_stands` from the world every step
+  (`hand_the_room_the_hold_s_medicine`, empty while the hold has none) —
+  and a room with none (the classic room, a station's) takes the kit on
+  the spot: the target is the Bim's own position and the walk is of no
+  length. `TakeKit` (0.8 s, `Action::Reach`) puts `Held::Medkit` in the
+  hands — a white box with a red cross — and takes one off
+  `Room::medkits`; `Game::set_medkits(n)` sets the shelf to the hold
+  *less the kits in hands*, so a second helper does not set out for the
+  last one; `Dress`'s leave for a Treat **spends the kit** (hand emptied,
+  `medkits_used += 1`, the pair on `Room::treated`) — there rather than
+  in `apply_treatments`, because the finished chain is let go of first
+  and `let_go` puts a kit still in the hands back on the shelf (for good
+  only; a suspended treatment keeps it on `Saved.main`).
+  `a_treatment_walks_to_the_kit_first_and_carries_it_to_the_patient`,
+  `under_the_alarm_a_crewmate_with_nothing_in_sight_doctors…` and the
+  world's `a_treatment_aboard_fetches_the_kit_from_a_cabinet…` pin it. **A patient holds still**: `tick_bim`
+  stops the frame for a Bim that `is_being_seen_to` (somebody else's
+  `Bandage` or `Treat` names it), its errand interrupted onto the queue
+  and `Character::halt`ed — a dying Bim walking its errands had the
+  helper arrive at an empty spot, twenty minutes lost and the walk
+  begun again, for as long as it kept walking. Not while it flees.
+- **A Bim dying runs from the fight, and does not shoot.**
+  `Game::is_fleeing(who)`: dying, on its feet on the deck, and any target
+  the world named is `Some`. In `tick_combat` that comes before arming:
+  the weapon stays in the hand but is holstered (`set_armed(None)`), the
+  burst, lock, blow and peek are dropped, and `flee(who, dt)` runs on the
+  `plan_wait` clock — `Tactics::flee(nav, from, targets)`: the enemy is
+  one place, the **average of every target up**, and the best cell is the
+  reachable one within `FLEE_LOOK` (10) tiles furthest from it less
+  `WALK_COST_PER_TILE` a tile, so it runs the opposite way and round a
+  wall if it has to; a route there, the errand interrupted first. It
+  goes for **the player's own Bim too**, recruited or not, and for a
+  hostile room's people (a resident shot to a dying state runs from the
+  crew). `pump_queue`, `consider_errand` and `flee_filth` skip a fleeing
+  Bim like a recruited one; the enemy gone, it stops where it is and the
+  queue picks up. `a_dying_bim_runs_from_where_the_enemy_are_and_does_not_shoot`
+  pins both Bims.
+- **Out cold is nobody's target.** The world hands `None` for an
+  unconscious body on both sides (`crew_ashore`, and `alive` in
+  `visit`), so `aim`/`melee_with`/`sees_any` never pick one, and
+  `tick_combat`'s `bodies` for a hostile bolt leave it out too, so a bolt
+  already flying passes over it. A Bim bleeding towards nothing therefore
+  goes out cold at 40% blood, is left alone, and dies of the blood alone
+  — which is how most of a fight's dead die now, and why
+  `one_on_one` in the world tests uses `Game::kill_for_probe` (health
+  `give_up`) rather than a head shot.
+- **A body going out cold drops its gun.** `drop_weapon` in the
+  knock-out: the weapon out of the hand onto `Room::weapons_down` as a
+  `room::Dropped { id, at, weapon, owner }`, numbered from
+  `next_weapon_down`, drawn on the deck under the bodies by
+  `character::draw_dropped` (the gun the hands draw, without the hands,
+  askew on a shadow). `Kind::Fetch { item }` is the chain back to it —
+  `GoToDropped` (`task::dropped_stand`, `None` if it is gone) and
+  `PickUp` (0.8 s, `Action::Reach`), `Room::picked_up`, and
+  `apply_pickups`: for a bot into the hand if empty, else a free pack
+  cell; for the player's own Bim **into the pack** (the hand only when
+  the pack is full), since the right-click is "into the inventory" and
+  what goes in the hand is the player's to choose; else left lying;
+  `JOB_FETCH = 24`. **Bots fetch their own**:
+  `fetch_own_weapon` in `tick_bim`, for every Bim but `PLAYER` in the
+  crew's room and every one of a hostile room's, hand empty and its own
+  gun on the deck with a way to it, not while fleeing. The player's own
+  waits to be told: `HIT_DROPPED = 17` under a click (`hit_dropped()` the
+  id, after the bodies and the visitors, before the room), and **the
+  right-click itself is the order** — no menu: both screens call
+  `Game::fetch(who, id)` for the Bim shown, and say `PICK_UP_REFUSED`
+  when it cannot go. `Game::dropped_at(x, y)` is the hover's question,
+  the same reach without noting anything, and `set_hover_dropped(id)`
+  rings that gun on the deck in the highlight's cyan, worked out afresh
+  every frame by the screen like the highlight. And **a body that dies with its
+  gun on the deck takes it back** (`die`): the gun lies beside the
+  corpse and the corpse is what gets looted — a resident's, in the other
+  room, would otherwise be on a floor the crew can never reach.
+  `a_bim_knocked_out_drops_its_gun_and_a_bot_comes_back_for_it` and
+  `a_dying_crewmate_is_treated_with_a_medkit_by_whoever_is_free` in
+  `game::tests`, and the four trauma tests in `health::tests`, pin it.
+
+## A key is two cells tall, and a research desk is a container the world reads
+
+`combat::Item::Key(tier)` is the one pack item that takes more than a cell:
+`Item::rows()` is two for it and one for everything else, and it is kept
+in the **upper** cell with the cell under it (`PACK_COLS` further on) as
+its tail — `Gear::occupied` says the tail is taken, `Gear::head_of` maps a
+tail cell back to its key, `Gear::fits(cell, item)` is the rule for a
+give, and `free_cell_for(item)` is `free_cell` for a tall thing. `Game::give`
+asks `fits`; `take`, `discard` and `take_from_body` go through `head_of`,
+so a key is taken by either of its cells; `equip` refuses it like a stack.
+`a_key_takes_two_cells_one_over_the_other` pins it. The app's grid draws a
+`Cell` with `rows: 2` two cells high and hit-tests the tail as the head
+(`crates/app/src/grid.rs`); a `Cell::new` takes the rows off the item.
+
+`Layout::research`/`Room::research` are the research desks the way `desks`
+are the trading desks — footprint and stand spot, from `aboard.rs` off
+`PartKind::ResearchDesk`, kept on the joined deck (the ship's first, the
+station's after) — with `HIT_RESEARCH = 18` under a click,
+`Game::hit_research`, `research_spot(i)`, `research_desks()`, and
+`Container::Desk(i)` for the reach check, since the world puts a key into
+the ship's desk through the same `Stow` a bandage goes into a locker by.
+`SPOT_RESEARCH = 22` is the ringing code, so `SPOT_NAMES` in the app is
+twenty-three long. The room knows nothing of what a key opens.
+
+## An airlock is a door, a locked door is smashed, and a fleeing enemy seals itself in
+
+September 2026. **Every airlock is a `Door`** (`Door::airlock`,
+`Door::new_airlock`/`of_kind`): `aboard::layout_of` appends the airlocks to
+`Layout::doors` as `(rect, along_x, true)`, so they lock and unlock from
+the panel like the bulkhead doors (`HIT_SHIP_DOOR` lands on one, the same
+four words), a locked one is a solid to the nav and a wall to the eye, and
+`Room::airlocks` still keeps the footprints for the walk outside. The
+hull draws the airlock; `Door::draw` draws only its lamp while it is
+locked and the bar of a smashing. **To the eye an airlock is still the
+passage it was**: `shut_leaves` reads a bulkhead door off its leaves
+(`!is_open()`) but an airlock off nearness — nobody within `REACH`, or
+locked with the leaves shut — because the fifth of a second the leaves
+take to part lost a hunter its quarry: the chase in
+`an_enemy_follows_the_crew_member_it_saw_onto_the_ship…` turns on the
+resident seeing James *in* the ship's airlock the instant it reaches the
+station's, and read off the leaves the belief stuck in the doorway.
+
+**Smashing.** `Door::locked_by` is a `Locker` — `Crew` from the panel,
+`Body(who)` for one of the room's own — and `Door::smash(by, dt)` is a
+body heaving at a locked door: one at a time (`Smash { by, done,
+since_heave }`), `SMASH_DOOR` 15 s for a bulkhead door and
+`SMASH_AIRLOCK` 30 s for an airlock, a `Cue::DoorSmash` every two seconds
+and `Cue::DoorForced` when the lock gives (`unlock`), drawn as a bar over
+the door across the opening in `WARN` (`smash_progress`). The app plays
+`Force_opening_Door_and_Arilock.mp3` cut to one heave (`door_force.ogg`,
+`Kind::Smash`) for both. **Only a hostile room's people smash**:
+`Game::breach(who, dt)`, after `plan_stand` for a body at war, on its own
+`breach_wait` clock — nothing while a route to any target is open;
+otherwise the nearest locked door whose panel (`station`, `DOOR_STAND_OFF`)
+it can reach, its own locks first, and it walks there; at the panel it
+unlocks its own lock or sets `Bim::smashing` and heaves every frame until
+the door gives or it moves off (`drop_smash`). The crew's bots never do
+— the crew are the player's to send.
+
+**Sealing in.** In `flee` a hostile body's run notes the first unlocked
+door its route passes and which side it set out from (`Bim::seal`);
+`seal_and_bind`, in the fleeing branch of `tick_combat` for hostile rooms
+only, locks that door `Locker::Body(who)` once the body is through and
+clear of the opening (`Bim::sealed_in`), and while its lock stands binds
+its wounds every `BIND_EVERY` (10 s): the part bleeding most bandaged,
+else a trauma treated — a field dressing out of its own pockets — so with
+nothing bleeding it is dying no more, `is_fleeing` is false, `breach`
+finds its target behind its own lock, unlocks it, and it fights again.
+The crew's fleeing Bims do neither. `an_airlock_is_a_door_that_locks`,
+`an_enemy_smashes_through_a_locked_door_in_fifteen_seconds` and
+`a_fleeing_enemy_seals_itself_in_binds_its_wounds_and_comes_back` in
+`game::tests` pin it, on the playtest ship as a hostile room
+(`hostile_ship`); a hostile room's people hunt only what they have seen,
+so the smash test lets the enemy see its target through the closing door.
+
+**Two rooms, one lock.** The station's doors are in the joined deck and
+in the station's own room, so `Game::door_states` (`DoorState`: centre,
+locked, by_crew, smash, changed), `door_index_at`, `mirror_door_lock`,
+`mirror_door_smash` and `door_change_seen` are the seam, and
+`World::sync_doors` in `visit` matches each of the residents' doors to
+the deck's by its middle through the station frame and copies whichever
+side changed (`Door::changed`, set by `lock`/`unlock`, cleared when
+carried), the smashing one way — see `crates/world/CLAUDE.md`.
+
+## The dark: lights, ten tiles, and a smooth picture over the tile mask
+
+September 2026, `sight.rs`. **The rule stays on the tile grid** — the fight
+and the world read it, and a server has to agree — and a **picture** is
+laid over it. Two things:
+
+- **Light.** `sight::Light { at, reach }` is a lamp; `Layout::lights` is
+  every `shipdesign::light_tiles` part (`WallLight` 7 tiles, `StandingLight`
+  9, at the middle of its tile), and `Sight::set_lights` marks a tile
+  **lit** when a straight line from some light reaches its middle within
+  the reach over the **fixed** cells — the walls and the tall parts, never
+  a door: a door's leaves are not what a light waits for. Lights are
+  always on and draw nothing (`power: 0`), so nothing wires them and no
+  brownout puts them out. A room *never handed* lights is lit throughout
+  (`Room::new`, the classic room); a designed deck handed none is dark
+  everywhere. **In the dark a Bim sees `DARK_RANGE` (10) tiles**:
+  `in_the_light(eye, tile)` — lit, or within ten tiles of the eye — gates
+  `observe` and `sees_from` on top of the clear line, so an enemy in an
+  unlit corridor twenty tiles off is nobody until it is lit or close. The
+  fixtures and `station::build_layout` carry lights (the reference's four
+  wall lights and a lamp, the playtest's six and a lamp, a station's inner
+  corners and every sixth tile of wall — last, so a lamp never takes a
+  fixture's tile), and the reaches were raised from 5.5/7 to 7/9 when the
+  station's dark patches had the sniper walking in to 19 tiles.
+  `the_dark_is_seen_ten_tiles_and_a_lit_tile_further` in `game::tests`
+  pins the rule; `a_wall_light_wants_a_wall_at_its_back` in shipdesign the
+  parts.
+- **The picture is `sight::LightMap`**: one byte a pixel of darkness at
+  `MAP_PX_PER_TILE` (8) over the whole grid, worked out in `Game::render`
+  when the mask was traced (`take_map_stale`), by **marching** `RAYS`
+  (2048) rays out of every eye and every light half a pixel at a time
+  until an opaque cell stops them — so what is seen and what is lit have
+  the walls' straight edges and not the tile grid's steps. A pixel is
+  seen from an eye when a ray reaches it and it is lit or within the dark
+  range of that eye; the light field is cached per layout
+  (`light_field`, full brightness to `LIGHT_CORE` of the reach and fading
+  to the edge, which is the "very light" shadow: `MAP_DARK` 0.34 behind a
+  wall a lamp cannot see round, nought under the lamp). Unseen is
+  `MAP_FOG` (0.62); only the room's **own friendly fogged** tiles are in
+  it — a stranger's grey and black stay on the tile grid, since they are
+  what the crew remember and memory is by the tile — and `draw_veils(…,
+  semi: false)` leaves the semi fog out of the shape buffer under
+  `Fog::Crew`. `Game::light_map()` hands it to the host; the shape buffer
+  cannot carry it, so `crates/app/src/fogmap.rs` uploads it as a texture
+  (`version` says when) and draws one textured quad, filtered, over the
+  shapes and under the words, its corners the map's through the screen's
+  transform — the room's scale on the room screen,
+  `world_paint::light_map_on_screen` (the crew's names' arithmetic) on
+  the game's. `Fog::All` is unchanged: tiles, black.

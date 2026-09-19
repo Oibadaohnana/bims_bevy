@@ -146,4 +146,8 @@ pub enum SiteRefusal {
     /// The part would go, and the ship would then have a fault it has not
     /// got now: a `shipdesign::IssueCode` code.
     Fault(u32),
+    /// The crew do not know how to build the part yet: its node of the
+    /// research tree — `shipdesign::research::node_of_part` — is not
+    /// researched. The code is the node's.
+    NotResearched(u32),
 }

@@ -12,7 +12,7 @@
 //! full. Goods bought at the station work the same way: nothing has left the
 //! dock, so a sale hands back what it cost.
 //!
-//! **Both come out of the one figure.** A ship and a hold full of fuel are
+//! **Both come out of the one figure.** A ship and a hold full of ore are
 //! paid for from the same pool, so a player who spends everything on hull has
 //! nothing to load it with — which is the whole of the decision the design
 //! phase asks anybody to make.

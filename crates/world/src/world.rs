@@ -32,9 +32,9 @@
 //!
 //! # What changes a ship's mass
 //!
-//! Four things, and this is the list to check anything new against: trading
-//! while docked, fuel burnt by the engines, food eaten or grown, and crew
-//! joining or leaving. Construction and deconstruction move materials from the
+//! Three things, and this is the list to check anything new against: trading
+//! while docked, food eaten or grown, and crew joining or leaving. Nothing is
+//! burnt in flight: the engines run on the reactor. Construction and deconstruction move materials from the
 //! hold into the hull and back — `shipdesign::materials` is that contract —
 //! and change the centre of mass and the inertia without changing the total.
 
@@ -42,11 +42,12 @@ use economy::{Money, Storage, storage, trade_value};
 use flight::{Dynamics, Phase, Plan, PlanError, Target, angle};
 use physics::ResourceId;
 use shipdesign::parts::{PartKind, Rotation};
+use shipdesign::research::{Node as ResearchNode, Research};
 use shipdesign::{CARGO_SLOTS, ShipDesign, design_hash};
-use worldgen::math::DVec2;
+use worldgen::math::{DVec2, dvec2};
 use worldgen::{Galaxy, GalaxyType, Node, StarSystem};
 
-use bims::combat::{Item, LOOT_CELLS, LootCell, PACK_CELLS, WeaponKind};
+use bims::combat::{ArmourKind, Item, LOOT_CELLS, LootCell, PACK_CELLS, Tier, Weapon, WeaponKind};
 use bims::game::Container;
 use bims::health::Part;
 use bims::sight::Stance;
@@ -79,6 +80,12 @@ pub enum Command {
     /// Stop.
     Abort {
         slot: u32,
+    },
+    /// Charge the hyperdrive for a jump to another star — see
+    /// [`crate::jump`]. From the helm, holding, with a working drive.
+    Jump {
+        slot: u32,
+        star: u32,
     },
     SetSpeed {
         slot: u32,
@@ -204,6 +211,60 @@ pub enum Command {
         who: u32,
         resident: u32,
     },
+    /// Finish off resident `resident` of the station the ship is tied to,
+    /// lying out cold, crew member `who` doing it: the station hostile —
+    /// a downed crewmate or a friend's is never finished — the body alive
+    /// and out cold, `who` alive, awake, aboard and with a weapon in its
+    /// hand. The walk over and the shots or the swings are the room's
+    /// (`Game::execute`); when the hands come off, the body is dead in its
+    /// own room and `WorldEvent::Executed` is said.
+    Execute {
+        slot: u32,
+        who: u32,
+        resident: u32,
+    },
+    /// Take the research key off the research desk of the station the
+    /// ship is tied to, into crew member `who`'s pack: the ship docked,
+    /// a key there (`World::station_keys`), `who` alive, awake, aboard
+    /// and within [`data::REACH`] of that desk, and two cells free in the
+    /// pack, one over the other — a key is that big. The desk is bare
+    /// after; the key is stowed in the crew's own desk from the pack
+    /// like anything else, and consumed there by an `Unlock`.
+    TakeKey {
+        slot: u32,
+        who: u32,
+    },
+    /// Consume the research key in the crew's research desk to open the
+    /// lock on node `node` (`shipdesign::research::Node`'s code) — one
+    /// key, one node. Wants a key in the desk and a powered research desk
+    /// aboard; a node open already, or with no lock, is refused, so no
+    /// key is spent for nothing.
+    Unlock {
+        slot: u32,
+        node: u32,
+    },
+    /// Put the ship's AI onto node `node` of the research tree
+    /// (`shipdesign::research::Node`'s code). Wants a research desk
+    /// aboard and the node to be one that can be begun; what the AI was on
+    /// before is dropped. A command because every player's ship has to
+    /// agree about what its crew know.
+    Research {
+        slot: u32,
+        node: u32,
+    },
+    /// Take the AI off whatever it is on.
+    CancelResearch {
+        slot: u32,
+    },
+    /// Whether the crew combine matching gear at the workbench: with `on`,
+    /// whenever the hold has two of a kind at the same tier and a
+    /// workbench is aboard, the two go onto the bench and come off as one
+    /// of the next tier a day of work later — `World::upgrade`. Never
+    /// refused; off is off, and an upgrade already begun finishes.
+    SetAutoUpgrade {
+        slot: u32,
+        on: bool,
+    },
 }
 
 /// What the ship is doing.
@@ -248,6 +309,11 @@ pub enum ShipState {
         hold: DVec2,
         began: f64,
     },
+    /// The hyperdrive charging for a jump to `star`, since `began` on the
+    /// clock, the ship holding where it is. [`data::JUMP_CHARGE_MINUTES`]
+    /// later it is in that system — `World::jump`; an Abort before then
+    /// leaves it holding. See [`crate::jump`].
+    Charging { star: u32, began: f64 },
 }
 
 impl ShipState {
@@ -260,6 +326,7 @@ impl ShipState {
             ShipState::CastingOff { .. } => 3,
             ShipState::Undocking { .. } => 4,
             ShipState::Docking { .. } => 5,
+            ShipState::Charging { .. } => 6,
         }
     }
 
@@ -309,9 +376,6 @@ pub struct Ship {
     pub anchor: DVec2,
     pub heading: f64,
     pub state: ShipState,
-    /// Fuel spoken for by the trip under way. It cannot be sold, and it does
-    /// not count towards what another trip could be planned with.
-    pub reserved_fuel: u32,
     /// Who set the destination. The route line on the map is drawn in their
     /// colour, which is the whole of what it is for.
     pub destination_set_by: Option<u32>,
@@ -348,15 +412,6 @@ impl Ship {
     /// Put the centre of mass there, by moving the anchor under it.
     fn set_position(&mut self, at: DVec2) {
         self.anchor = at.sub(angle::rotate_design(self.live_centre(), self.heading));
-    }
-
-    pub fn fuel_aboard(&self) -> u32 {
-        self.design.carrying(ResourceId::Fuel)
-    }
-
-    /// Fuel nobody has spoken for. What a new trip may be planned against.
-    pub fn unreserved_fuel(&self) -> u32 {
-        self.fuel_aboard().saturating_sub(self.reserved_fuel)
     }
 }
 
@@ -451,6 +506,9 @@ pub struct World {
     /// The station the crew set out from: the one place they are at home,
     /// and friendly unless it is on the list below.
     pub home: u32,
+    /// The star `home` is at. A jump takes the ship to a system with ids of
+    /// its own, and home is only home while the ship is at its star.
+    pub home_star: u32,
     /// The stations whose people are enemies, sorted by id: every station
     /// the generator rolled hostile (`StationBlueprint::hostile`) bar
     /// `home`, from [`World::start`], and whatever [`World::set_hostile`]
@@ -495,7 +553,59 @@ pub struct World {
     /// [`World::people_of`]. Not in `world_checksum`: it is a function of
     /// the design the world started on, which two clients share.
     pub start_worth: Money,
+    /// What the crew know how to build and make, and what the AI is on —
+    /// `shipdesign::research`. In `world_checksum` whole.
+    pub research: Research,
+    /// Whether each station's research desk still has its key on it, by
+    /// index into `stations`: what the blueprint rolled (`Station::key`),
+    /// the spawn's always, until a crew member takes it. In
+    /// `world_checksum` whole.
+    pub station_keys: Vec<bool>,
+    /// The weapons in the hold, each with its tier, sorted by kind and
+    /// tier. **The hold's count of each weapon resource is always the
+    /// number of these of that kind** — [`World::settle_guns`] holds it
+    /// the way `settle_pieces` holds the pieces'. A weapon in a pack or a
+    /// hand is the room's `Item::Weapon`, tier and all, and the world
+    /// keeps no copy of it. In `world_checksum` whole.
+    pub guns: Vec<Weapon>,
+    /// Whether the crew combine two of a kind at the same tier into one
+    /// of the next whenever there is a pair — the Management tab's tick
+    /// box, `Command::SetAutoUpgrade`. Off at the start. In
+    /// `world_checksum`.
+    pub auto_upgrade: bool,
+    /// What is on the workbench being upgraded, and how far along. The
+    /// two that went in are out of the hold; the one that comes out is
+    /// delivered by `deliver_upgrade`. In `world_checksum` whole.
+    pub upgrade: Option<Upgrade>,
 }
+
+/// An upgrade under way at the workbench: two items of a kind and a tier,
+/// gone from the hold the step it began, becoming one of the next tier
+/// over [`data::UPGRADE_SESSIONS`] hours of work. Progress is whole
+/// sessions and the world's, so a Bim that leaves the bench between them
+/// loses nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Upgrade {
+    /// What is being made, as the resource it counts as in the hold.
+    pub resource: ResourceId,
+    /// The tier it comes out at.
+    pub to: Tier,
+    /// Sessions done, of [`data::UPGRADE_SESSIONS`].
+    pub done: u32,
+}
+
+impl Upgrade {
+    /// Whether the day's work is done and the item waits only for room in
+    /// the lockers.
+    pub fn complete(&self) -> bool {
+        self.done >= data::UPGRADE_SESSIONS
+    }
+}
+
+/// The room's `Order.recipe` for one session of an upgrade at the
+/// workbench: not a recipe — past every row of `shipdesign::RECIPES`, which
+/// a test pins — so `finish_craft` knows it for what it is.
+pub const UPGRADE_ORDER: u32 = 1_000;
 
 impl World {
     /// Open a world with the accepted ship docked at a station.
@@ -568,6 +678,10 @@ impl World {
         let start_worth = shipdesign::Budget::spent(&design);
         let dynamics = flight::dynamics(&design, crew).map_err(StartError::NotAShip)?;
         let aboard = Aboard::new(&design, crew, seed);
+        let station_keys: Vec<bool> = stations
+            .iter()
+            .map(|s| s.key || s.id == station_id)
+            .collect();
         let design_for_charge = design.clone();
         let ship = Ship {
             design,
@@ -578,7 +692,6 @@ impl World {
             state: ShipState::Docked {
                 station: station_id,
             },
-            reserved_fuel: 0,
             destination_set_by: None,
             frame: Frame::Local(Node::Station(station_id)),
             pending: None,
@@ -611,6 +724,7 @@ impl World {
             builds: Vec::new(),
             next_site: 1,
             home: station_id,
+            home_star: star_id,
             hostile,
             reinforcements: 0,
             hired: Vec::new(),
@@ -620,11 +734,20 @@ impl World {
             pieces: Vec::new(),
             next_piece: 1,
             start_worth,
+            research: Research::new(),
+            // The spawn has a key whatever it rolled: the first key is
+            // how the research loop is learnt, and a crew that had to fly
+            // for it would learn nothing at the start.
+            station_keys,
+            guns: Vec::new(),
+            auto_upgrade: false,
+            upgrade: None,
         };
 
         // Whatever armour the design was accepted carrying is so many
         // whole pieces in the hold from the first step.
         world.settle_pieces();
+        world.settle_guns();
         // The whole system, charted. The crew picked this dock off the
         // lobby's chart of this very system — every planet and every station
         // on it — and a map that then hid what they had just been looking at
@@ -684,6 +807,12 @@ impl World {
         self.fly(&mut events);
         self.cast_off(&mut events);
         self.come_alongside(&mut events);
+        //    And the jump, which is not flown either: a charge read off the
+        //    clock, and then another system altogether — see `crate::jump`.
+        //    A jump replaces the chart, so what follows discovers afresh
+        //    from where the ship landed.
+        let jumped = self.charge_jump(&mut events);
+        let was = if jumped { self.ship.position() } else { was };
         let now = self.ship.position();
 
         // 4. What that brought into range.
@@ -711,6 +840,10 @@ impl World {
         //    And what the benches are wanted for, worked out fresh from the
         //    hold, the targets and the power; then, after the step, what
         //    they finished, moved through the hold.
+        //    First, with the tick box on, a pair of matching gear goes onto
+        //    the workbench — out of the hold now — so the orders below can
+        //    have a Bim work at it.
+        self.begin_upgrade(&mut events);
         let orders = self.craft_orders();
         self.aboard.room.set_craft_orders(orders);
         //    The sickbay's shelf is the hold's too: the bandages to hand
@@ -742,6 +875,7 @@ impl World {
         for recipe in self.aboard.room.take_crafted() {
             self.finish_craft(recipe, &mut events);
         }
+        self.deliver_upgrade(&mut events);
         for at in self.aboard.room.take_mined() {
             self.finish_tile(at);
         }
@@ -754,6 +888,8 @@ impl World {
         //    running in a brownout is `World::powered`, read by whatever
         //    draws — nothing aboard reads it yet.
         self.run_power();
+        //    And the AI's research, which runs on the research desk's power.
+        self.run_research(&mut events);
 
         // 7. Construction: what the crew did at the sites this step — a load
         //    taken off a shelf, a load put down, a load given up, a part put
@@ -788,6 +924,7 @@ impl World {
         let slot = match command {
             Command::Confirm { slot, .. }
             | Command::Abort { slot }
+            | Command::Jump { slot, .. }
             | Command::SetSpeed { slot, .. }
             | Command::Buy { slot, .. }
             | Command::Sell { slot, .. }
@@ -802,7 +939,13 @@ impl World {
             | Command::Unequip { slot, .. }
             | Command::Discard { slot, .. }
             | Command::Loot { slot, .. }
-            | Command::Hire { slot, .. } => slot,
+            | Command::Hire { slot, .. }
+            | Command::Execute { slot, .. }
+            | Command::TakeKey { slot, .. }
+            | Command::Unlock { slot, .. }
+            | Command::Research { slot, .. }
+            | Command::CancelResearch { slot }
+            | Command::SetAutoUpgrade { slot, .. } => slot,
         };
 
         match command {
@@ -823,6 +966,13 @@ impl World {
                     return;
                 }
                 self.give_up(slot, events);
+            }
+            Command::Jump { star, .. } => {
+                if !self.can_command(slot) {
+                    events.push(refused(slot, Refusal::NotAtTheHelm));
+                    return;
+                }
+                self.begin_jump(slot, star, events);
             }
             Command::Buy {
                 resource, units, ..
@@ -851,6 +1001,12 @@ impl World {
                 who, source, cell, ..
             } => self.loot(slot, who, source, cell, events),
             Command::Hire { who, resident, .. } => self.hire(slot, who, resident, events),
+            Command::Execute { who, resident, .. } => self.execute(slot, who, resident, events),
+            Command::TakeKey { who, .. } => self.take_key(slot, who, events),
+            Command::Unlock { node, .. } => self.unlock(slot, node, events),
+            Command::Research { node, .. } => self.research(slot, node, events),
+            Command::CancelResearch { .. } => self.research.cancel(),
+            Command::SetAutoUpgrade { on, .. } => self.auto_upgrade = on,
         }
     }
 
@@ -875,18 +1031,10 @@ impl World {
         self.finish(&plan, events);
     }
 
-    /// A plan has run out. Take the fuel, release what is left of the
-    /// reservation, put the ship down, and pick up a redirect if one is
-    /// waiting.
+    /// A plan has run out. Put the ship down, and pick up a redirect if one
+    /// is waiting. Nothing comes out of the hold: the trip ran on the
+    /// reactor, and the power stage charged it as it went.
     fn finish(&mut self, plan: &Plan, events: &mut Vec<WorldEvent>) {
-        // The fuel actually burnt, which for an abort includes what the trip
-        // it replaced had already got through.
-        let burnt = units_of(plan.fuel_required)
-            .min(self.ship.reserved_fuel)
-            .min(self.ship.fuel_aboard());
-        self.ship.design.cargo[ResourceId::Fuel as usize] -= burnt;
-        self.ship.reserved_fuel = 0;
-
         let station = plan
             .docks
             .then(|| match plan.target {
@@ -930,6 +1078,130 @@ impl World {
         } else {
             events.push(WorldEvent::Arrived { station });
         }
+    }
+
+    // --- the jump --------------------------------------------------------------
+
+    /// Whether the ship can jump: a hyperdrive bolted to an engine on a live
+    /// network — `shipdesign::hyperdrive::ready` — and the ship not browned
+    /// out, since the drive is an optional consumer like the smelter.
+    pub fn hyperdrive_ready(&self) -> bool {
+        shipdesign::hyperdrive::ready(&self.ship.design) && self.powered(PartKind::Hyperdrive)
+    }
+
+    /// How far along a charge is, nought to one, and the star it is for.
+    /// `None` unless the drive is charging. For the strip.
+    pub fn jump_charge(&self) -> Option<(u32, f64)> {
+        match self.ship.state {
+            ShipState::Charging { star, began } => Some((
+                star,
+                ((self.clock_minutes - began) / data::JUMP_CHARGE_MINUTES).clamp(0.0, 1.0),
+            )),
+            _ => None,
+        }
+    }
+
+    /// The galaxy this world is a system of, generated afresh: the stars
+    /// and, per star, the system — what the galaxy chart in the map shows.
+    /// Cheap for the stars; a system is generated when asked for.
+    pub fn galaxy(&self) -> Galaxy {
+        Galaxy::new(self.galaxy_seed, self.galaxy_type)
+    }
+
+    /// A Jump: start the charge, or say why not. Wants the ship holding —
+    /// not docked, with the rooms joined and the station's people aboard,
+    /// and not under way — a working drive, and a star that is another
+    /// star.
+    fn begin_jump(&mut self, slot: u32, star: u32, events: &mut Vec<WorldEvent>) {
+        if !matches!(self.ship.state, ShipState::Holding) {
+            events.push(refused(slot, Refusal::NotHolding));
+            return;
+        }
+        if !self.hyperdrive_ready() {
+            events.push(refused(slot, Refusal::NoHyperdrive));
+            return;
+        }
+        if star == self.star_id {
+            events.push(refused(slot, Refusal::SameStar));
+            return;
+        }
+        if self.galaxy().star(star).is_none() {
+            events.push(refused(slot, Refusal::NoSuchStar));
+            return;
+        }
+        if self.under_construction() {
+            events.push(refused(slot, Refusal::UnderConstruction));
+            return;
+        }
+        self.ship.destination_set_by = Some(slot);
+        self.ship.state = ShipState::Charging {
+            star,
+            began: self.clock_minutes,
+        };
+        events.push(WorldEvent::Charging { slot, star });
+    }
+
+    /// The charge, read off the clock: nothing until it is done, and then
+    /// the jump. `true` when the ship has just landed somewhere else.
+    fn charge_jump(&mut self, events: &mut Vec<WorldEvent>) -> bool {
+        let ShipState::Charging { star, began } = self.ship.state else {
+            return false;
+        };
+        if self.clock_minutes - began < data::JUMP_CHARGE_MINUTES {
+            return false;
+        }
+        // The drive has to still be there and working when it fires: a
+        // brownout or a deconstruction in the twenty seconds leaves the
+        // ship where it was.
+        if !self.hyperdrive_ready() {
+            self.ship.state = ShipState::Holding;
+            self.ship.destination_set_by = None;
+            events.push(WorldEvent::JumpFailed);
+            return false;
+        }
+        self.jump(star, events)
+    }
+
+    /// Put the ship in another system. **The one place a system is
+    /// replaced**, so this is the list of what belongs to one: the chart,
+    /// the stations and their people, the hostile list, the mining site,
+    /// the keys on the stations' desks, the local frame. The ship, the crew,
+    /// the hold, the sites on the deck, the research, the money and the
+    /// hired hands come along. It lands holding, in empty space
+    /// (`jump::landing_point`), pointing the way it was, with only what its
+    /// own sensors reach on the chart.
+    fn jump(&mut self, star: u32, events: &mut Vec<WorldEvent>) -> bool {
+        let Some(system) = self.galaxy().system(star) else {
+            self.ship.state = ShipState::Holding;
+            self.ship.destination_set_by = None;
+            events.push(WorldEvent::JumpFailed);
+            return false;
+        };
+        let at = crate::jump::landing_point(&system);
+        self.star_id = star;
+        self.system = system;
+        self.stations = Station::all_of(&self.system);
+        let mut hostile: Vec<u32> = self
+            .stations
+            .iter()
+            .filter(|s| s.hostile)
+            .map(|s| s.id)
+            .collect();
+        hostile.sort_unstable();
+        self.hostile = hostile;
+        self.station_keys = self.stations.iter().map(|s| s.key).collect();
+        self.residents = None;
+        self.reinforcements = 0;
+        self.sites.clear();
+        self.site_version += 1;
+        self.discovered.clear();
+        self.ship.state = ShipState::Holding;
+        self.ship.destination_set_by = None;
+        self.ship.pending = None;
+        self.ship.set_position(at);
+        self.ship.frame = Frame::Space;
+        events.push(WorldEvent::Jumped { star });
+        true
     }
 
     /// The two halves of leaving a station. Waiting at the berth for
@@ -1080,6 +1352,13 @@ impl World {
             ShipState::Docking { .. } => {
                 events.push(refused(slot, Refusal::ComingAlongside));
             }
+            // A trip called while the drive charges is the charge given up
+            // for it: the drive is the ship's other way of going somewhere,
+            // and the helm holds one intention at a time.
+            ShipState::Charging { .. } => {
+                self.ship.state = ShipState::Holding;
+                self.set_off(slot, target, events);
+            }
             ShipState::Holding => self.set_off(slot, target, events),
         }
     }
@@ -1089,6 +1368,13 @@ impl World {
     /// off, the push-off finishes and the ship holds there.
     fn give_up(&mut self, slot: u32, events: &mut Vec<WorldEvent>) {
         let under_way = match &self.ship.state {
+            ShipState::Charging { .. } => {
+                // The charge called off: the ship was holding, and holds.
+                self.ship.state = ShipState::Holding;
+                self.ship.destination_set_by = None;
+                events.push(WorldEvent::Aborted { slot });
+                return;
+            }
             ShipState::Travelling { plan, departed } => Some((plan.clone(), *departed)),
             ShipState::CastingOff { station, .. } => {
                 self.ship.state = ShipState::Docked { station: *station };
@@ -1119,9 +1405,6 @@ impl World {
 
     fn begin_abort(&mut self, plan: &Plan, elapsed: f64) {
         let stop = flight::abort(plan, elapsed);
-        // The reservation becomes the stop's bill, which covers what has
-        // already been burnt as well as the braking still to come.
-        self.ship.reserved_fuel = units_of(stop.fuel_required).min(self.ship.fuel_aboard());
         self.ship.state = ShipState::Travelling {
             plan: stop,
             departed: self.clock_minutes,
@@ -1132,7 +1415,6 @@ impl World {
     fn set_off(&mut self, slot: u32, target: Target, events: &mut Vec<WorldEvent>) {
         match self.plan_from_here(target) {
             Ok(plan) => {
-                self.ship.reserved_fuel = units_of(plan.fuel_required);
                 self.ship.destination_set_by = Some(slot);
                 self.ship.pending = None;
                 self.ship.state = ShipState::Travelling {
@@ -1152,9 +1434,6 @@ impl World {
     }
 
     fn plan_from_here(&self, target: Target) -> Result<Plan, PlanError> {
-        if self.ship.fuel_aboard() == 0 {
-            return Err(PlanError::NoFuelAboard);
-        }
         let at = self
             .target_position(target)
             .ok_or(PlanError::TargetUndiscovered)?;
@@ -1164,7 +1443,6 @@ impl World {
             self.ship.heading,
             target,
             at,
-            self.ship.unreserved_fuel() as f64,
         )
     }
 
@@ -1329,6 +1607,17 @@ impl World {
         // And its fog is the joined room's, over both decks: this room
         // draws none, and its people only where the crew can see them.
         residents.aboard.room.set_fog(bims::sight::Fog::None);
+        // And the ship is on its deck too, turned into the station's frame,
+        // so its people can follow the crew aboard.
+        if let Some(station) = self.station(id) {
+            residents.join(
+                &self.ship.design,
+                self.ship.dynamics.centre_of_mass,
+                station,
+                &berth,
+                self.clock_minutes,
+            );
+        }
         self.residents = Some(residents);
         self.apply_stances();
         if banked {
@@ -1341,7 +1630,7 @@ impl World {
     pub fn stance(&self, station: u32) -> Stance {
         if self.hostile.binary_search(&station).is_ok() {
             Stance::Hostile
-        } else if station == self.home {
+        } else if station == self.home && self.star_id == self.home_star {
             Stance::Friendly
         } else {
             Stance::Neutral
@@ -1382,6 +1671,15 @@ impl World {
             if self.aboard.is_joined() && self.ship.state.station() == Some(station) {
                 residents.aboard.room.set_doors_drawn(false);
                 residents.aboard.room.set_fog(bims::sight::Fog::None);
+                if let (Some(s), Some(berth)) = (self.station(station), self.berth_at(station)) {
+                    residents.join(
+                        &self.ship.design,
+                        self.ship.dynamics.centre_of_mass,
+                        s,
+                        &berth,
+                        self.clock_minutes,
+                    );
+                }
             }
             self.residents = Some(residents);
         }
@@ -1424,6 +1722,54 @@ impl World {
     /// for the crew. Once a step, after both rooms have moved. And, at a
     /// hostile station, where the fight crosses between the two rooms —
     /// both ways; see the crate note.
+    /// The station's doors are in two rooms while the ship is docked — the
+    /// joined deck the crew walk, and the station's own room its people
+    /// walk — and a lock has to be the same door's in both: one the crew
+    /// set from the panel stops the station's people (and is what they
+    /// smash), one an enemy set sealing itself in stops the crew, and a
+    /// smash in the station's room is the bar the crew watch on the deck.
+    /// Each door is matched by its middle through the station frame, and
+    /// whichever room changed the lock last is copied to the other; the
+    /// smashing is copied one way, since nobody heaves at a door on the
+    /// joined deck.
+    fn sync_doors(&mut self) {
+        let Some(residents) = &mut self.residents else {
+            return;
+        };
+        let theirs = residents.aboard.room.door_states();
+        let mine = self.aboard.room.door_states();
+        for (j, state) in theirs.iter().enumerate() {
+            let design =
+                dvec2(state.centre.x as f64, state.centre.y as f64).sub(residents.aboard.offset);
+            let Some(on_deck) = self.aboard.from_station(design) else {
+                continue;
+            };
+            let Some(i) = self
+                .aboard
+                .room
+                .door_index_at(bims::math::vec2(on_deck.x as f32, on_deck.y as f32))
+            else {
+                continue;
+            };
+            let Some(ours) = mine.get(i) else {
+                continue;
+            };
+            if ours.changed {
+                residents
+                    .aboard
+                    .room
+                    .mirror_door_lock(j, ours.locked, ours.by_crew);
+                self.aboard.room.door_change_seen(i);
+            } else if state.changed || ours.locked != state.locked {
+                self.aboard
+                    .room
+                    .mirror_door_lock(i, state.locked, state.by_crew);
+                residents.aboard.room.door_change_seen(j);
+            }
+            self.aboard.room.mirror_door_smash(i, state.smash);
+        }
+    }
+
     fn visit(&mut self, events: &mut Vec<WorldEvent>) {
         if !self.aboard.is_joined() {
             // Out of reach of each other: nobody is anybody's target. The
@@ -1450,6 +1796,7 @@ impl World {
             None => (Vec::new(), Vec::new()),
         };
         self.aboard.visit(&visitors, &down);
+        self.sync_doors();
         // And which of them may be spoken to — the mercenaries for hire —
         // so a click on one on its feet is a click on it. After the
         // positions too, for the same reason.
@@ -1479,6 +1826,7 @@ impl World {
             .as_ref()
             .is_some_and(|r| self.stance(r.station) == Stance::Hostile);
         let hits = self.aboard.room.take_hits();
+        let executed = self.aboard.room.take_executed();
         let Some(residents) = self.residents.as_mut().filter(|_| hostile) else {
             self.aboard.room.set_hostiles(Vec::new());
             if let Some(residents) = &mut self.residents {
@@ -1486,6 +1834,7 @@ impl World {
             }
             return;
         };
+        let shift = residents.aboard.offset;
         let room = &mut residents.aboard.room;
         for hit in hits {
             let who = hit.who;
@@ -1494,12 +1843,23 @@ impl World {
             }
             room.strike(who, hit.part, hit.damage, hit.cut);
         }
+        // And the bodies the crew finished off where they lay: dead in
+        // their own room, if still down — one that came round on the way
+        // over is left as it is — and said.
+        for (who, resident) in executed {
+            if resident < room.crew_count() as usize && room.execute_body(resident) {
+                events.push(WorldEvent::Executed {
+                    who: who as u32,
+                    resident: resident as u32,
+                });
+            }
+        }
         // Who is down, asked of the room rather than read off the hits: a
         // shot to the head kills at the top of the body's next tick with
         // the total still well above nought, and a wound nobody dresses
         // kills without a hit landing at all. Said once each.
         for who in 0..residents.down.len().min(room.crew_count() as usize) {
-            let down = !room.is_alive(who) || room.health(who) <= 0.0;
+            let down = !room.is_alive(who);
             if down && !residents.down[who] {
                 residents.down[who] = true;
                 events.push(WorldEvent::EnemyDown {
@@ -1515,7 +1875,9 @@ impl World {
         // (`bims::combat`), and at the peek it leans out to while it
         // peeks, with a word that it does, since a bolt reaching a body
         // in cover is dodged half the time.
-        let crew: Vec<Option<(bims::math::Vec2, WeaponKind)>> = self
+        // In the residents' room's own units: the station's design units
+        // plus the shift its deck took when the ship was turned onto it.
+        let crew: Vec<Option<(bims::math::Vec2, Weapon)>> = self
             .aboard
             .crew_ashore()
             .into_iter()
@@ -1525,16 +1887,27 @@ impl World {
                     .aboard
                     .room
                     .weapon(who)
-                    .unwrap_or(WeaponKind::LaserPistol);
-                p.map(|p| (bims::math::vec2(p.x as f32, p.y as f32), weapon))
+                    .unwrap_or(WeaponKind::LaserPistol.basic());
+                p.map(|p| {
+                    let at = p.add(shift);
+                    (bims::math::vec2(at.x as f32, at.y as f32), weapon)
+                })
             })
             .collect();
         room.set_hostiles(crew.clone());
         room.set_hostiles_peeking(&self.aboard.crew_peeking());
+        // And the odds each dodges a bolt for its armour, the same way.
+        let crew_dodge: Vec<f32> = (0..self.aboard.crew_count())
+            .map(|who| self.aboard.room.dodge(who as usize))
+            .collect();
+        room.set_hostiles_dodge(&crew_dodge);
         let shots = room.take_shots();
         if let Some((origin, ex, ey)) = self.aboard.station_frame {
+            // A point of the residents' room onto the joined deck: its
+            // shift off, then the station's frame.
             let on_deck = |p: bims::math::Vec2| {
-                let at = origin.add(ex.scale(p.x as f64)).add(ey.scale(p.y as f64));
+                let p = dvec2(p.x as f64, p.y as f64).sub(shift);
+                let at = origin.add(ex.scale(p.x)).add(ey.scale(p.y));
                 bims::math::vec2(at.x as f32, at.y as f32)
             };
             for shot in shots {
@@ -1561,21 +1934,31 @@ impl World {
                     }
                     continue;
                 }
-                self.aboard
-                    .room
-                    .enemy_fire(on_deck(shot.from), on_deck(shot.at), shot.weapon);
+                self.aboard.room.enemy_fire(
+                    on_deck(shot.from),
+                    on_deck(shot.at),
+                    shot.weapon,
+                    shot.moving,
+                );
             }
         }
-        // And the residents for the crew, the same way: alive, each with
-        // its weapon, at the peek while peeking, and which are peeking.
+        // And the residents for the crew, the same way: alive and on their
+        // feet — one out cold is nobody's target — each with its weapon, at
+        // the peek while peeking, and which are peeking.
         let alive: Vec<bool> = (0..room.crew_count())
-            .map(|who| room.is_alive(who as usize) && room.health(who as usize) > 0.0)
+            .map(|who| room.is_alive(who as usize) && !room.is_unconscious(who as usize))
             .collect();
-        let weapons: Vec<WeaponKind> = (0..room.crew_count())
-            .map(|who| room.weapon(who as usize).unwrap_or(WeaponKind::LaserPistol))
+        let weapons: Vec<Weapon> = (0..room.crew_count())
+            .map(|who| {
+                room.weapon(who as usize)
+                    .unwrap_or(WeaponKind::LaserPistol.basic())
+            })
             .collect();
         let peeking: Vec<bool> = (0..room.crew_count())
             .map(|who| room.peek(who as usize).is_some())
+            .collect();
+        let dodge: Vec<f32> = (0..room.crew_count())
+            .map(|who| room.dodge(who as usize))
             .collect();
         let exposed: Vec<DVec2> = (0..residents.aboard.count())
             .map(|who| residents.aboard.exposed(who))
@@ -1589,6 +1972,7 @@ impl World {
             .collect();
         self.aboard.room.set_hostiles(targets);
         self.aboard.room.set_hostiles_peeking(&peeking);
+        self.aboard.room.set_hostiles_dodge(&dodge);
     }
 
     /// Who of the crew is locked in a melee — an enemy with a blade within
@@ -1623,8 +2007,24 @@ impl World {
                 });
             }
         }
+        for (who, trauma) in self.aboard.room.take_traumas() {
+            if who < self.aboard.crew_count() as usize {
+                events.push(WorldEvent::CrewDying {
+                    who: who as u32,
+                    trauma: trauma.code(),
+                });
+            }
+        }
+        for (who, trauma) in self.aboard.room.take_treated() {
+            if who < self.aboard.crew_count() as usize {
+                events.push(WorldEvent::CrewTreated {
+                    who: who as u32,
+                    trauma: trauma.code(),
+                });
+            }
+        }
         for who in 0..self.crew_down.len().min(self.aboard.crew_count() as usize) {
-            let down = !self.aboard.room.is_alive(who) || self.aboard.room.health(who) <= 0.0;
+            let down = !self.aboard.room.is_alive(who);
             if down && !self.crew_down[who] {
                 self.crew_down[who] = true;
                 events.push(WorldEvent::CrewDown { who: who as u32 });
@@ -1633,9 +2033,10 @@ impl World {
     }
 
     /// The hold's medicine, put on the room's shelves before it steps:
-    /// the bandages to hand are the hold's `Bandage` count, and the fibre
-    /// on the cold store's shelf is the hold's `Fibre` count, since the
-    /// hold keeps both and the room keeps neither aboard. The store's
+    /// the bandages and the medkits to hand are the hold's `Bandage` and
+    /// `Medkit` counts, and the fibre on the cold store's shelf is the
+    /// hold's `Fibre` count, since the hold keeps all three and the room
+    /// keeps none aboard. The store's
     /// food is the room's own and is handed back unchanged.
     fn hand_the_room_the_hold_s_medicine(&mut self) {
         let design = &self.ship.design;
@@ -1643,8 +2044,25 @@ impl World {
             design.carrying(ResourceId::Bandage),
             design.carrying(ResourceId::Fibre),
         );
+        let medkits = design.carrying(ResourceId::Medkit);
+        // And where a kit is fetched from: the use spot of every container
+        // that takes one — a locker-class cabinet, a shelf — so the walk
+        // to the kit is a walk to a real cabinet. Only while there are any:
+        // a stand with nothing on the shelf is nowhere to go.
+        let stands: Vec<bims::math::Vec2> = if medkits > 0 {
+            self.aboard
+                .containers()
+                .into_iter()
+                .filter(|&c| self.container_takes(c, ResourceId::Medkit))
+                .filter_map(|c| self.aboard.room.container_spot(c))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let room = &mut self.aboard.room;
         room.set_bandages(bandages);
+        room.set_medkits(medkits);
+        room.set_kit_stands(&stands);
         let (veg, tofu, stew) = (room.store_veg(), room.store_tofu(), room.store_stew());
         room.set_stock(veg, tofu, stew, fibre);
     }
@@ -1682,6 +2100,16 @@ impl World {
         if let Some(residents) = &mut self.residents {
             residents.aboard.room.set_doors_drawn(true);
             residents.aboard.room.set_fog(bims::sight::Fog::All);
+            // And the ship off their deck: anybody still aboard it is put
+            // at its bunk, since the ship has left without it.
+            let station = self
+                .stations
+                .iter()
+                .find(|s| s.id == residents.station)
+                .cloned();
+            if let Some(station) = station {
+                residents.unjoin(&station, self.clock_minutes);
+            }
         }
         if banked {
             self.on_ship_changed();
@@ -1765,32 +2193,24 @@ impl World {
 
         // Under way, the honest quote includes stopping first — which is what
         // a redirect actually does, and it is often most of the bill.
-        let (stopping, from, heading, spent) = match &self.ship.state {
+        let (stopping, from, heading) = match &self.ship.state {
             ShipState::Travelling { plan, departed } => {
                 let stop = flight::abort(plan, self.clock_minutes - departed);
                 let end = flight::state_at(&stop, stop.duration());
-                (
-                    stop.duration(),
-                    end.position,
-                    end.heading,
-                    stop.fuel_required,
-                )
+                (stop.duration(), end.position, end.heading)
             }
-            _ => (0.0, self.ship.position(), self.ship.heading, 0.0),
+            _ => (0.0, self.ship.position(), self.ship.heading),
         };
 
-        if self.ship.fuel_aboard() == 0 {
-            return Err(PlanError::NoFuelAboard);
-        }
         let at = self
             .target_position(target)
             .ok_or(PlanError::TargetUndiscovered)?;
-        let spare = (self.ship.fuel_aboard() as f64 - spent).max(0.0);
-        let plan = flight::plan_trip(&self.ship.dynamics, from, heading, target, at, spare)?;
+        let plan = flight::plan_trip(&self.ship.dynamics, from, heading, target, at)?;
         Ok(Preview {
             minutes: stopping + plan.duration(),
             stopping,
-            fuel: spent + plan.fuel_required,
+            power: self.ship.dynamics.forward_power,
+            throttle: self.ship.dynamics.forward_throttle,
             docks: plan.docks,
         })
     }
@@ -1825,21 +2245,36 @@ impl World {
         // through, so the invariant holds by construction rather than by
         // every caller remembering.
         self.settle_pieces();
+        self.settle_guns();
     }
 
     /// Stage 6 of [`World::step`]: the reactors' output less the wired
-    /// consumers' draw, over one step, into the batteries and clamped to
-    /// what they hold. Closed form off the step length, so a browser at
-    /// 24x and a server catching up land on the same charge.
+    /// consumers' draw and what the engines are drawing this step, over one
+    /// step, into the batteries and clamped to what they hold. Closed form
+    /// off the step length, so a browser at 24x and a server catching up
+    /// land on the same charge.
     ///
     /// The draw is charged in full whether or not the ship is browned
     /// out: what stops in a brownout is the consumers, and what they would
     /// have drawn was never there to take. The clamp at nought *is* the
-    /// brownout.
+    /// brownout. The engines' draw is the plan's — throttled to the spare
+    /// before the trip was planned — so a burn never on its own takes the
+    /// charge down; what it does is leave nothing over to charge with.
     fn run_power(&mut self) {
         let budget = self.power_budget;
-        let net = (budget.supply - budget.draw) * data::STEP_MINUTES;
+        let net = (budget.supply - budget.draw - self.engine_draw_now()) * data::STEP_MINUTES;
         self.ship.charge = (self.ship.charge + net).clamp(0.0, budget.storage);
+    }
+
+    /// What the engines are drawing at this moment: the effort's power,
+    /// under way; nothing otherwise.
+    fn engine_draw_now(&self) -> f64 {
+        match &self.ship.state {
+            ShipState::Travelling { plan, departed } => {
+                flight::effort_at(plan, self.clock_minutes - departed).power
+            }
+            _ => 0.0,
+        }
     }
 
     // --- making things -------------------------------------------------------
@@ -1895,6 +2330,11 @@ impl World {
             if self.ship.design.carrying(output) + coming >= self.craft_targets[output as usize] {
                 continue;
             }
+            //    A recipe the crew have not researched is not offered, however
+            //    the bench came aboard — see `shipdesign::research`.
+            if !self.research.recipe_allowed(i) {
+                continue;
+            }
             if !self.can_make(recipe) || !self.powered(recipe.station) {
                 continue;
             }
@@ -1908,6 +2348,26 @@ impl World {
                 }
             }
         }
+        // And a session of the upgrade, at the first workbench only — one
+        // pair of hands a day, however many benches — while one is under
+        // way and unfinished, the bench is powered and nobody is at it.
+        if let Some(upgrade) = self.upgrade
+            && !upgrade.complete()
+            && self.powered(PartKind::Workbench)
+            && self.aboard.room.crafts_under_way(UPGRADE_ORDER) == 0
+            && let Some(bench) = self
+                .aboard
+                .room
+                .benches()
+                .iter()
+                .position(|b| b.kind == PartKind::Workbench.code())
+        {
+            orders.push(bims::game::Order {
+                recipe: UPGRADE_ORDER,
+                bench,
+                minutes: data::UPGRADE_SESSION_MINUTES as f32,
+            });
+        }
         orders
     }
 
@@ -1916,6 +2376,10 @@ impl World {
     /// the Bim stood at the smelter — and an event either way. The mass
     /// moves with the cargo; `on_ship_changed` is what notices.
     fn finish_craft(&mut self, recipe: u32, events: &mut Vec<WorldEvent>) {
+        if recipe == UPGRADE_ORDER {
+            self.finish_upgrade_session();
+            return;
+        }
         let Some(r) = shipdesign::RECIPES.get(recipe as usize) else {
             return;
         };
@@ -2004,6 +2468,11 @@ impl World {
         if !self.at_rest() {
             return Err(SiteRefusal::UnderWay);
         }
+        if !self.research.part_allowed(kind) {
+            return Err(SiteRefusal::NotResearched(
+                shipdesign::research::node_of_part(kind).code(),
+            ));
+        }
         let site = BuildSite::new(0, kind, origin, rotation);
         let before = self.design_with_sites();
         let after =
@@ -2038,6 +2507,10 @@ impl World {
             Ok(()) => {}
             Err(SiteRefusal::UnderWay) => {
                 events.push(refused(slot, Refusal::UnderWay));
+                return;
+            }
+            Err(SiteRefusal::NotResearched(_)) => {
+                events.push(refused(slot, Refusal::NotResearched));
                 return;
             }
             Err(SiteRefusal::WontFit(_) | SiteRefusal::Fault(_)) => {
@@ -2438,6 +2911,7 @@ impl World {
         Power {
             supply: budget.supply,
             draw: budget.draw,
+            engines: self.engine_draw_now(),
             storage: budget.storage,
             charge: self.ship.charge,
         }
@@ -2468,25 +2942,17 @@ impl World {
 
     /// Whether the construction step may touch a part of this kind.
     ///
-    /// **It has to be asked before any construction or deconstruction.** Two
-    /// things it refuses, and both of them are about a promise already made:
-    /// an engine or a thruster taken off mid-flight would change a trip that
-    /// has been quoted, and a fuel tank taken off could leave a reservation
-    /// with nowhere to sit.
+    /// **It has to be asked before any construction or deconstruction.** One
+    /// thing it refuses, and it is about a promise already made: an engine,
+    /// a thruster or a reactor taken off mid-flight would change a trip that
+    /// has been quoted — the reactor because it is what the engines run on.
+    /// A trip keeps the dynamics it was planned with either way
+    /// (`flight::dynamics`'s note); this keeps the picture honest with them.
     pub fn can_modify_part(&self, kind: PartKind) -> bool {
         let travelling = matches!(self.ship.state, ShipState::Travelling { .. });
-        if travelling && (kind.def().pushes() || kind.def().turns()) {
+        let def = kind.def();
+        if travelling && (def.pushes() || def.turns() || def.supplies()) {
             return false;
-        }
-        if let Some((Storage::FuelTank, units)) = kind.def().capacity {
-            let left = self
-                .ship
-                .design
-                .capacity(Storage::FuelTank)
-                .saturating_sub(units);
-            if left < self.ship.reserved_fuel {
-                return false;
-            }
         }
         true
     }
@@ -2664,17 +3130,10 @@ impl World {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         }
-        // Reserved fuel is not the crew's to sell. It is spoken for by a trip
-        // that has been committed to, and selling it would leave the ship
-        // short somewhere there is nothing to buy. Nor is what the
-        // construction sites have claimed — see `free`.
+        // What the construction sites have claimed is not the crew's to
+        // sell — see `free`.
         let aboard = self.free(resource);
-        let sellable = if resource == ResourceId::Fuel {
-            aboard.saturating_sub(self.ship.reserved_fuel)
-        } else {
-            aboard
-        };
-        if units > sellable {
+        if units > aboard {
             events.push(refused(slot, Refusal::NotAboard));
             return;
         }
@@ -2727,7 +3186,7 @@ impl World {
                 if held.len() < wanted {
                     let id = self.next_piece;
                     self.next_piece += 1;
-                    self.pieces.push(Piece::new(id, kind));
+                    self.pieces.push(Piece::new(id, kind, Tier::One));
                 } else if held.len() > wanted {
                     // The most damaged; the lowest id among equals, since
                     // `min_by` keeps the first.
@@ -2790,6 +3249,198 @@ impl World {
         }
     }
 
+    // --- tiers and the workbench's upgrade -----------------------------------
+
+    /// The weapons in the hold against its count of them: for each kind,
+    /// as many `guns` as the hold counts of its resource. A count that has
+    /// grown — the armoury, a test poking `cargo[]` — gets tier-one
+    /// weapons; one that has shrunk loses its lowest tier first, which is
+    /// the sell rule. The list is kept sorted by kind and tier, so two
+    /// worlds that did the same things hash the same list. Idempotent,
+    /// and asked at every `on_ship_changed` after `settle_pieces`; a stow
+    /// or a fetch moves the gun *before* the count, so this finds nothing
+    /// to do there.
+    fn settle_guns(&mut self) {
+        for kind in WeaponKind::ALL {
+            let wanted = self.ship.design.carrying(armour::weapon_resource(kind)) as usize;
+            loop {
+                let held = self.guns.iter().filter(|g| g.kind == kind).count();
+                if held < wanted {
+                    self.guns.push(kind.basic());
+                } else if held > wanted {
+                    let worst = self
+                        .guns
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, g)| g.kind == kind)
+                        .min_by_key(|(_, g)| g.tier)
+                        .map(|(i, _)| i)
+                        .expect("held is not empty");
+                    self.guns.remove(worst);
+                } else {
+                    break;
+                }
+            }
+        }
+        self.guns.sort_by_key(|g| (g.kind.code(), g.tier.code()));
+    }
+
+    /// How many weapons of `kind` at `tier` the hold has — what a
+    /// container window lists a cell for.
+    pub fn guns_at(&self, kind: WeaponKind, tier: Tier) -> u32 {
+        self.guns
+            .iter()
+            .filter(|g| g.kind == kind && g.tier == tier)
+            .count() as u32
+    }
+
+    /// Whether the crew combine matching gear at the workbench whenever
+    /// there is a pair — `Command::SetAutoUpgrade`.
+    pub fn auto_upgrade(&self) -> bool {
+        self.auto_upgrade
+    }
+
+    /// Whether a workbench is aboard at all: the bench an upgrade is
+    /// worked at, powered or not.
+    fn workbench_aboard(&self) -> bool {
+        self.aboard
+            .room
+            .benches()
+            .iter()
+            .any(|b| b.kind == PartKind::Workbench.code())
+    }
+
+    /// The first pair of matching gear in the hold that could go up a
+    /// tier: armour kinds first, then weapons, the lowest tier first
+    /// within a kind, tier three never. For armour the two **most
+    /// damaged** pieces of the kind and tier — the good ones stay in
+    /// circulation, and the piece that comes out is fresh whatever went
+    /// in. What the pair is and, for armour, which two pieces.
+    fn upgrade_pair(&self) -> Option<(ResourceId, Tier, Vec<u32>)> {
+        for kind in ArmourKind::ALL {
+            for tier in Tier::ALL {
+                if tier.next().is_none() {
+                    continue;
+                }
+                let mut held: Vec<&Piece> = self
+                    .pieces
+                    .iter()
+                    .filter(|p| p.kind == kind && p.tier == tier && p.at == Where::Hold)
+                    .collect();
+                if held.len() < 2 {
+                    continue;
+                }
+                held.sort_by(|a, b| {
+                    a.health
+                        .partial_cmp(&b.health)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then(a.id.cmp(&b.id))
+                });
+                return Some((
+                    armour::resource_of(kind),
+                    tier,
+                    held.iter().take(2).map(|p| p.id).collect(),
+                ));
+            }
+        }
+        for kind in WeaponKind::ALL {
+            for tier in Tier::ALL {
+                if tier.next().is_some() && self.guns_at(kind, tier) >= 2 {
+                    return Some((armour::weapon_resource(kind), tier, Vec::new()));
+                }
+            }
+        }
+        None
+    }
+
+    /// Stage 5, before the craft orders: with the tick box on, nothing on
+    /// the workbench and a workbench aboard, the first pair goes onto it —
+    /// out of the hold now, the way the user asked, so what is being made
+    /// is never also what is being worn — and the upgrade is begun. A pair
+    /// with no workbench aboard waits, untouched.
+    fn begin_upgrade(&mut self, events: &mut Vec<WorldEvent>) {
+        if !self.auto_upgrade || self.upgrade.is_some() || !self.workbench_aboard() {
+            return;
+        }
+        let Some((resource, tier, pieces)) = self.upgrade_pair() else {
+            return;
+        };
+        let Some(to) = tier.next() else {
+            return;
+        };
+        // The instances before the count, so the settle finds them
+        // agreeing.
+        if pieces.is_empty() {
+            for _ in 0..2 {
+                if let Some(i) = self
+                    .guns
+                    .iter()
+                    .position(|g| armour::weapon_resource(g.kind) == resource && g.tier == tier)
+                {
+                    self.guns.remove(i);
+                }
+            }
+        } else {
+            self.pieces.retain(|p| !pieces.contains(&p.id));
+        }
+        self.ship.design.cargo[resource as usize] -= 2;
+        self.on_ship_changed();
+        self.upgrade = Some(Upgrade {
+            resource,
+            to,
+            done: 0,
+        });
+        events.push(WorldEvent::UpgradeBegun {
+            resource: resource as u32,
+            tier: to.code(),
+        });
+    }
+
+    /// One session of the upgrade finished at the workbench — the room
+    /// said `UPGRADE_ORDER` through `take_crafted`: an hour more of the
+    /// day. The item itself is delivered by `deliver_upgrade`.
+    fn finish_upgrade_session(&mut self) {
+        if let Some(upgrade) = self.upgrade.as_mut()
+            && upgrade.done < data::UPGRADE_SESSIONS
+        {
+            upgrade.done += 1;
+        }
+    }
+
+    /// Every step after the crafts: an upgrade with its day done goes
+    /// into the hold as one item of the next tier — a fresh piece, or a
+    /// gun on the list — if the lockers have room for it. No room, and it
+    /// waits, complete, and is tried again next step: nothing is lost.
+    fn deliver_upgrade(&mut self, events: &mut Vec<WorldEvent>) {
+        let Some(upgrade) = self.upgrade else {
+            return;
+        };
+        if upgrade.done < data::UPGRADE_SESSIONS {
+            return;
+        }
+        let class = storage(upgrade.resource);
+        if self.ship.design.stored(class) >= self.ship.design.capacity(class) {
+            return;
+        }
+        // The instance before the count, as everywhere.
+        if let Some(kind) = armour::kind_of(upgrade.resource) {
+            let id = self.next_piece;
+            self.next_piece += 1;
+            self.pieces.push(Piece::new(id, kind, upgrade.to));
+        } else if let Some(gun) = armour::weapon_at(upgrade.resource, upgrade.to) {
+            self.guns.push(gun);
+        } else {
+            self.upgrade = None;
+            return;
+        }
+        self.ship.design.cargo[upgrade.resource as usize] += 1;
+        self.on_ship_changed();
+        self.upgrade = None;
+        events.push(WorldEvent::Upgraded {
+            resource: upgrade.resource as u32,
+            tier: upgrade.to.code(),
+        });
+    }
     /// Whether a container takes a resource: a bench whose part is a
     /// cabinet of the resource's class — the armoury and the drug lab are
     /// lockers; the smelter and the workbench hold nothing — a shelf for
@@ -2806,6 +3457,9 @@ impl World {
                 .is_some_and(|(held, _)| held == class),
             Container::Shelf(_) => class == Storage::Shelf || armour::is_gear(resource),
             Container::Fridge(_) => class == Storage::ColdStore,
+            // The crew's own desks only: a key put on a station's desk
+            // would be the station's, and the hold would count it.
+            Container::Desk(i) => class == Storage::Research && Some(i) != self.station_desk(),
         }
     }
 
@@ -2823,12 +3477,14 @@ impl World {
     }
 
     /// What is in a pack cell, or `None` for no such crew member, no such
-    /// cell, or nothing in it.
+    /// cell, or nothing in it. The tail cell of a tall item — a key — is
+    /// that item, the way the room reads it.
     fn pack_item(&self, who: u32, cell: u32) -> Option<Item> {
         if who >= self.aboard.crew_count() || cell as usize >= PACK_CELLS {
             return None;
         }
-        self.aboard.room.pack(who as usize)[cell as usize]
+        let gear = self.aboard.room.gear(who as usize);
+        gear.pack[gear.head_of(cell as usize)]
     }
 
     /// A stow: the thing out of the pack, the count up by one, and a piece
@@ -2864,11 +3520,17 @@ impl World {
             events.push(refused(slot, Refusal::Broken));
             return;
         };
-        if let Item::Armour(p) = taken
-            && let Some(piece) = self.pieces.iter_mut().find(|q| q.id == p.id)
-        {
-            piece.health = p.health;
-            piece.at = Where::Hold;
+        match taken {
+            Item::Armour(p) => {
+                if let Some(piece) = self.pieces.iter_mut().find(|q| q.id == p.id) {
+                    piece.health = p.health;
+                    piece.at = Where::Hold;
+                }
+            }
+            // A weapon keeps its tier on the list, the way a piece keeps
+            // its health.
+            Item::Weapon(gun) => self.guns.push(gun),
+            Item::Stack(_) | Item::Key(_) => {}
         }
         self.ship.design.cargo[resource as usize] += 1;
         self.on_ship_changed();
@@ -2880,13 +3542,15 @@ impl World {
     /// and into the first free pack cell. See [`Command::Fetch`].
     fn fetch(&mut self, slot: u32, who: u32, kind: FetchKind, events: &mut Vec<WorldEvent>) {
         let in_hold = |p: &&Piece| p.at == Where::Hold;
-        let (resource, piece) = match kind {
+        // What is being taken: the resource, and the instance — a piece,
+        // or a gun off the list — if the resource is one that has them.
+        let (resource, piece, gun) = match kind {
             FetchKind::Piece(id) => {
                 let Some(p) = self.pieces.iter().find(|p| p.id == id).filter(in_hold) else {
                     events.push(refused(slot, Refusal::NotAboard));
                     return;
                 };
-                (p.resource(), Some(*p))
+                (p.resource(), Some(*p), None)
             }
             FetchKind::Resource(code) => {
                 let Some(resource) = ResourceId::ALL.get(code as usize).copied() else {
@@ -2905,16 +3569,37 @@ impl World {
                         })
                         .copied()
                 });
-                match best {
-                    // An armour resource with no piece to its count would
-                    // be the invariant broken; refused rather than made up.
-                    Some(None) => {
+                // A weapon by resource is the best of them: the highest
+                // tier, the way a piece by resource is the least damaged.
+                let gun = armour::weapon_of(resource).map(|kind| {
+                    self.guns
+                        .iter()
+                        .filter(|g| g.kind == kind)
+                        .max_by_key(|g| g.tier)
+                        .copied()
+                });
+                match (best, gun) {
+                    // An armour resource with no piece to its count, or a
+                    // weapon with no gun, would be the invariant broken;
+                    // refused rather than made up.
+                    (Some(None), _) | (_, Some(None)) => {
                         events.push(refused(slot, Refusal::NotAboard));
                         return;
                     }
-                    Some(piece) => (resource, piece),
-                    None => (resource, None),
+                    (piece, gun) => (resource, piece.flatten(), gun.flatten()),
                 }
+            }
+            FetchKind::Tiered { resource, tier } => {
+                let Some(resource) = ResourceId::ALL.get(resource as usize).copied() else {
+                    events.push(refused(slot, Refusal::NotAboard));
+                    return;
+                };
+                let gun = Tier::from_code(tier).and_then(|tier| armour::weapon_at(resource, tier));
+                let Some(gun) = gun.filter(|g| self.guns.contains(g)) else {
+                    events.push(refused(slot, Refusal::NotAboard));
+                    return;
+                };
+                (resource, None, Some(gun))
             }
         };
         if self.free(resource) == 0 {
@@ -2925,16 +3610,22 @@ impl World {
             events.push(refused(slot, Refusal::OutOfReach));
             return;
         }
-        let Some(cell) = self.aboard.room.gear(who as usize).free_cell() else {
+        let item = match (piece, gun) {
+            (Some(p), _) => p.item(),
+            (None, Some(g)) => Item::Weapon(g),
+            (None, None) => armour::item_of(resource),
+        };
+        // The first cell the thing fits: a key wants two, one over the
+        // other.
+        let Some(cell) = self.aboard.room.gear(who as usize).free_cell_for(item) else {
             events.push(refused(slot, Refusal::PackFull));
             return;
         };
-        let item = piece.map_or_else(|| armour::item_of(resource), |p| p.item());
         if !self.aboard.room.give(who as usize, Some(cell), item) {
             events.push(refused(slot, Refusal::PackFull));
             return;
         }
-        // The piece first and the count second, so `settle_pieces` finds
+        // The instance first and the count second, so the settle finds
         // them agreeing.
         if let Some(p) = piece
             && let Some(piece) = self.pieces.iter_mut().find(|q| q.id == p.id)
@@ -2943,6 +3634,11 @@ impl World {
                 who,
                 cell: cell as u8,
             };
+        }
+        if let Some(g) = gun
+            && let Some(i) = self.guns.iter().position(|q| *q == g)
+        {
+            self.guns.remove(i);
         }
         self.ship.design.cargo[resource as usize] -= 1;
         self.on_ship_changed();
@@ -2954,7 +3650,7 @@ impl World {
         let kind = match self.pack_item(who, cell) {
             Some(Item::Armour(p)) => Some(p.kind),
             Some(Item::Weapon(_)) => None,
-            Some(Item::Stack(_)) | None => {
+            Some(Item::Stack(_) | Item::Key(_)) | None => {
                 events.push(refused(slot, Refusal::NotAboard));
                 return;
             }
@@ -3134,6 +3830,7 @@ impl World {
                 let piece = Piece {
                     id,
                     kind: p.kind,
+                    tier: p.tier,
                     health: p.health,
                     at: Where::Pack {
                         who,
@@ -3205,6 +3902,48 @@ impl World {
     /// on the joined deck, in its own coverall still. Its armour becomes
     /// pieces of the world's under fresh ids, the way loot does. The
     /// first month is paid now and the next falls due a month on.
+    /// An execution ordered: see [`Command::Execute`] for what is checked.
+    /// The room does the walking and the shooting; `visit` carries the
+    /// finish to the body's own room when the room says it is done.
+    fn execute(&mut self, slot: u32, who: u32, resident: u32, events: &mut Vec<WorldEvent>) {
+        let Some(residents) = self.residents.as_ref() else {
+            events.push(refused(slot, Refusal::NotDocked));
+            return;
+        };
+        if !self.aboard.is_joined() || self.ship.state.station() != Some(residents.station) {
+            events.push(refused(slot, Refusal::NotDocked));
+            return;
+        }
+        if self.stance(residents.station) != Stance::Hostile {
+            events.push(refused(slot, Refusal::NotHostile));
+            return;
+        }
+        let body = &residents.aboard.room;
+        if resident >= residents.aboard.count()
+            || !body.is_alive(resident as usize)
+            || !body.is_unconscious(resident as usize)
+        {
+            events.push(refused(slot, Refusal::NotDown));
+            return;
+        }
+        let room = &self.aboard.room;
+        if who >= self.aboard.crew_count()
+            || !room.is_alive(who as usize)
+            || room.is_unconscious(who as usize)
+            || room.is_outside(who as usize)
+        {
+            events.push(refused(slot, Refusal::NotAboard));
+            return;
+        }
+        if room.weapon(who as usize).is_none() {
+            events.push(refused(slot, Refusal::Unarmed));
+            return;
+        }
+        if !self.aboard.room.execute(who as usize, resident as usize) {
+            events.push(refused(slot, Refusal::NotDown));
+        }
+    }
+
     fn hire(&mut self, slot: u32, who: u32, resident: u32, events: &mut Vec<WorldEvent>) {
         let Some(offer) = self.hire_offer(who, resident) else {
             events.push(refused(slot, Refusal::NotForHire));
@@ -3259,6 +3998,7 @@ impl World {
                 self.pieces.push(Piece {
                     id,
                     kind: worn.kind,
+                    tier: worn.tier,
                     health: worn.health,
                     at: Where::Worn { who: new_who },
                 });
@@ -3383,6 +4123,175 @@ impl World {
         self.mirror_pieces(events);
     }
 
+    // --- research -------------------------------------------------------------
+
+    /// Which of the research desks on the deck is the station's, while the
+    /// rooms are joined: the one standing in the station's box. `None` on
+    /// a ship of its own, or at a station without one.
+    pub fn station_desk(&self) -> Option<usize> {
+        let (lo, hi) = self.aboard.station_box?;
+        self.aboard
+            .room
+            .research_desks()
+            .iter()
+            .position(|(frame, _)| {
+                let m = frame.center();
+                (m.x as f64) >= lo.x
+                    && (m.x as f64) <= hi.x
+                    && (m.y as f64) >= lo.y
+                    && (m.y as f64) <= hi.y
+            })
+    }
+
+    /// Whether a station's research desk still has its key on it.
+    pub fn station_has_key(&self, station: u32) -> bool {
+        self.stations
+            .iter()
+            .zip(&self.station_keys)
+            .any(|(s, &key)| s.id == station && key)
+    }
+
+    /// Whether the station the ship is tied to has a key on its desk.
+    pub fn key_at_the_dock(&self) -> bool {
+        match self.ship.state {
+            ShipState::Docked { station } => self.station_has_key(station),
+            _ => false,
+        }
+    }
+
+    /// Where a crew member stands at the station's research desk, in the
+    /// room's units, for the app to `send_to`. `None` with no such desk on
+    /// the deck.
+    pub fn key_desk_spot(&self) -> Option<bims::math::Vec2> {
+        self.aboard.room.research_spot(self.station_desk()?)
+    }
+
+    /// Whether crew member `who` stands within [`data::REACH`] of the
+    /// station's research desk, alive and awake — what a `TakeKey` wants,
+    /// so the row can say "walk over first" before it is refused.
+    pub fn key_in_reach(&self, who: u32) -> bool {
+        let Some(desk) = self.station_desk() else {
+            return false;
+        };
+        let room = &self.aboard.room;
+        who < self.aboard.crew_count()
+            && !room.is_unconscious(who as usize)
+            && room.within_reach(who as usize, Container::Desk(desk), data::REACH)
+    }
+
+    /// Whether the ship has a research desk of its own, and whether that
+    /// desk is running: the AI thinks on its power.
+    pub fn research_desk_aboard(&self) -> bool {
+        self.ship.design.count(PartKind::ResearchDesk) > 0
+    }
+
+    pub fn research_desk_powered(&self) -> bool {
+        self.research_desk_aboard() && self.powered(PartKind::ResearchDesk)
+    }
+
+    /// How many research keys are in the crew's own desk and not spoken
+    /// for. What an `Unlock` consumes one of.
+    pub fn keys_in_desk(&self) -> u32 {
+        self.free(ResourceId::ResearchKey)
+    }
+
+    /// A take of the station's key. See [`Command::TakeKey`] for what is
+    /// checked, in this order: docked with a desk on the deck, a key on
+    /// it, the Bim in reach, and room in the pack.
+    fn take_key(&mut self, slot: u32, who: u32, events: &mut Vec<WorldEvent>) {
+        let ShipState::Docked { station } = self.ship.state else {
+            events.push(refused(slot, Refusal::NotDocked));
+            return;
+        };
+        let Some(at) = self.stations.iter().position(|s| s.id == station) else {
+            events.push(refused(slot, Refusal::NotDocked));
+            return;
+        };
+        if !self.station_keys[at] || self.station_desk().is_none() {
+            events.push(refused(slot, Refusal::NoKey));
+            return;
+        }
+        if !self.key_in_reach(who) {
+            events.push(refused(slot, Refusal::OutOfReach));
+            return;
+        }
+        let key = Item::Key(1);
+        let Some(cell) = self.aboard.room.gear(who as usize).free_cell_for(key) else {
+            events.push(refused(slot, Refusal::PackFull));
+            return;
+        };
+        if !self.aboard.room.give(who as usize, Some(cell), key) {
+            events.push(refused(slot, Refusal::PackFull));
+            return;
+        }
+        self.station_keys[at] = false;
+        events.push(WorldEvent::KeyTaken { who });
+    }
+
+    /// An unlock: a key out of the crew's desk, gone, and the node's lock
+    /// open. See [`Command::Unlock`] for what is checked.
+    fn unlock(&mut self, slot: u32, node: u32, events: &mut Vec<WorldEvent>) {
+        if !self.research_desk_powered() {
+            events.push(refused(slot, Refusal::NoResearchDesk));
+            return;
+        }
+        if self.keys_in_desk() == 0 {
+            events.push(refused(slot, Refusal::NoKey));
+            return;
+        }
+        let opened = ResearchNode::from_code(node).is_some_and(|n| self.research.unlock(n));
+        if !opened {
+            events.push(refused(slot, Refusal::NotResearchable));
+            return;
+        }
+        self.ship.design.cargo[ResourceId::ResearchKey as usize] -= 1;
+        self.on_ship_changed();
+        events.push(WorldEvent::Unlocked { node });
+    }
+
+    /// Put the AI onto a node. See [`Command::Research`].
+    fn research(&mut self, slot: u32, node: u32, events: &mut Vec<WorldEvent>) {
+        if !self.research_desk_aboard() {
+            events.push(refused(slot, Refusal::NoResearchDesk));
+            return;
+        }
+        let begun = ResearchNode::from_code(node).is_some_and(|n| self.research.begin(n));
+        if !begun {
+            events.push(refused(slot, Refusal::NotResearchable));
+            return;
+        }
+        events.push(WorldEvent::ResearchBegun { node });
+    }
+
+    /// The AI's step: a step's minutes onto whatever it is on, while a
+    /// research desk aboard is running, and the word when a node is done.
+    /// Stage 6's second half — it runs on the desk's power.
+    fn run_research(&mut self, events: &mut Vec<WorldEvent>) {
+        if self.research.current.is_none() || !self.research_desk_powered() {
+            return;
+        }
+        if let Some(node) = self.research.advance(data::STEP_MINUTES) {
+            events.push(WorldEvent::Researched { node: node.code() });
+        }
+    }
+
+    /// Have the crew know `node` and everything it needs, without the
+    /// AI's time. For probes of what research gates.
+    pub fn research_for_probe(&mut self, node: ResearchNode) {
+        for r in node.def().requires {
+            self.research_for_probe(*r);
+        }
+        self.research.done[node as usize] = true;
+    }
+
+    /// Have the crew know the whole tree. For probes of the benches, which
+    /// predate research and want every recipe on offer.
+    pub fn know_everything_for_probe(&mut self) {
+        for node in ResearchNode::ALL {
+            self.research.done[node as usize] = true;
+        }
+    }
+
     // --- looking out of the window ------------------------------------------
 
     /// How far the crew can see: their own eyes, or the sensor arrays, and
@@ -3433,7 +4342,7 @@ impl World {
             | ShipState::CastingOff { station, .. }
             | ShipState::Undocking { station, .. }
             | ShipState::Docking { station, .. } => Node::Station(*station),
-            ShipState::Holding => self.nearest_discovered()?,
+            ShipState::Holding | ShipState::Charging { .. } => self.nearest_discovered()?,
             ShipState::Travelling { plan, departed } => {
                 // The last leg of a trip aimed at somewhere, and only that.
                 // Passing something on the way is not arriving at it.
@@ -3603,6 +4512,14 @@ impl World {
         self.unjoin_rooms();
     }
 
+    /// Pretend the reactors make `supply` a minute until the ship next
+    /// changes. For probes of a short network: with a basic reactor making
+    /// two and a half thousand, nothing a twenty-tile ship can carry draws
+    /// more than it makes, and the brownout is otherwise unreachable.
+    pub fn throttle_reactors_for_probe(&mut self, supply: f64) {
+        self.power_budget.supply = supply;
+    }
+
     /// Settle the local frame, for a probe that has just moved the ship.
     pub fn settle_frame_for_probe(&mut self) -> Vec<WorldEvent> {
         let mut events = Vec::new();
@@ -3649,9 +4566,12 @@ impl World {
             (port.centre.1 - port.outward.1 as f64 * reach) as f32,
         );
         if let Some(residents) = &mut self.residents {
+            let there = residents
+                .aboard
+                .to_room(dvec2(there.x as f64, there.y as f64));
             residents.aboard.room.put_for_probe(0, there);
             let mut gear = residents.aboard.room.gear(0);
-            gear.weapon = Some(bims::combat::WeaponKind::LaserPistol);
+            gear.weapon = Some(bims::combat::WeaponKind::LaserPistol.basic());
             residents.aboard.room.issue(0, gear);
         }
         // The crew member: just inside the station's door, under orders.
@@ -3758,12 +4678,28 @@ impl World {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Power {
     pub supply: f64,
+    /// The day-long draw: every wired consumer, engines aside.
     pub draw: f64,
+    /// What the engines are drawing **now** — the lit set's throttled
+    /// draw while the ship is under a burn, nothing while it turns, holds
+    /// or is docked. Read off the plan's effort, so it agrees with the
+    /// exhaust drawn behind the ship.
+    pub engines: f64,
     pub storage: f64,
     pub charge: f64,
 }
 
 impl Power {
+    /// How hard the reactors are working: everything drawn now over what
+    /// they make, `0.0` idle to `1.0` flat out and past it when short.
+    /// Nought with no reactor. What the reactor's glow is drawn from.
+    pub fn load(&self) -> f64 {
+        if self.supply <= 0.0 {
+            return 0.0;
+        }
+        (self.draw + self.engines) / self.supply
+    }
+
     /// Whether the optional consumers have stopped: more drawn than made,
     /// and nothing left in the batteries to cover the difference. A ship
     /// with no batteries and a short network is browned out for good.
@@ -3779,7 +4715,12 @@ pub struct Preview {
     pub minutes: f64,
     /// How much of that is coming to rest first. Zero from a standstill.
     pub stopping: f64,
-    pub fuel: f64,
+    /// What the forward engines will draw off the reactor a minute while
+    /// they burn, and how much of their full push that is — the dynamics'
+    /// `forward_power` and `forward_throttle`. There is no fuel to quote;
+    /// this is what a trip costs the ship, and it costs it nothing after.
+    pub power: f64,
+    pub throttle: f64,
     pub docks: bool,
 }
 
@@ -3788,7 +4729,7 @@ fn refused(slot: u32, why: Refusal) -> WorldEvent {
 }
 
 /// What a room banked since last asked, folded into the hold: the
-/// bandages used off the count, the fibre harvested onto the shelf as far
+/// bandages and medkits used off their counts, the fibre harvested onto the shelf as far
 /// as it has room. `true` when anything moved, so the caller knows to run
 /// `on_ship_changed`. Asked of the crew's room every step
 /// (`take_the_room_s_medicine`), and of a room about to be thrown away —
@@ -3797,25 +4738,19 @@ fn refused(slot: u32, why: Refusal) -> WorldEvent {
 /// sheaf in somebody's hands into the store.
 fn bank_medicine(design: &mut ShipDesign, room: &mut bims::game::Game) -> bool {
     let used = room.take_bandages_used();
+    let kits = room.take_medkits_used();
     let grown = room.take_harvested_fibre();
-    if used == 0 && grown == 0 {
+    if used == 0 && kits == 0 && grown == 0 {
         return false;
     }
     let bandages = &mut design.cargo[ResourceId::Bandage as usize];
     *bandages = bandages.saturating_sub(used);
+    let medkits = &mut design.cargo[ResourceId::Medkit as usize];
+    *medkits = medkits.saturating_sub(kits);
     let class = storage(ResourceId::Fibre);
     let space = design.capacity(class).saturating_sub(design.stored(class));
     design.cargo[ResourceId::Fibre as usize] += grown.min(space);
     true
-}
-
-/// Fuel is bought and stowed in whole units, so a bill of 148.6 costs 149.
-/// Rounding down would let a trip burn fuel nobody had.
-fn units_of(amount: f64) -> u32 {
-    if !amount.is_finite() || amount <= 0.0 {
-        return 0;
-    }
-    amount.ceil().min(u32::MAX as f64) as u32
 }
 
 /// A total order over nodes, for keeping [`World::discovered`] sorted.
@@ -3876,15 +4811,20 @@ pub fn spawn_anywhere(galaxy: &Galaxy, pick: u64) -> Option<(u32, u32)> {
     Some(docks[(pick % docks.len() as u64) as usize])
 }
 
-/// Where the **simulation** starts: the lowest star id with a station
-/// somebody lives on, and the lowest such station in that system.
+/// Where the **simulation** starts: the lowest star id with an orbital
+/// nobody shoots from and a belt to mine, and the lowest such orbital in
+/// that system.
 ///
-/// Somebody lives on it, because a crew that opens docked at a derelict
-/// opens beside a wreck with nobody aboard — which is a place to salvage,
-/// not a place to start from. `crate::station::residents_of` is what says
-/// who lives where. And nobody there is an enemy
+/// An orbital, because it is the ordinary case — somewhere people live,
+/// with the bunks and the shelf of a town — and not a derelict, since a
+/// crew that opens docked at a wreck with nobody aboard opens at a place
+/// to salvage rather than a place to start from. Nobody there is an enemy
 /// (`StationBlueprint::hostile`), because a crew that opens at an enemy's
-/// opens under fire.
+/// opens under fire. And the system has an asteroid belt, because a belt
+/// is the mining site (`crate::mining`) and the playtest is where mining
+/// is looked at: `BIMS_AT_BELT` and every fixture test that walks outside
+/// hold at the spawn system's first belt, and a spawn system without one
+/// would leave them nothing to hold at.
 ///
 /// The game proper starts where the lobby's World tab said, and that pair
 /// comes into [`World::start`] from outside. This is for `nix run
@@ -3895,10 +4835,17 @@ pub fn spawn(galaxy: &Galaxy) -> Option<(u32, u32)> {
         let Some(system) = galaxy.system(star.id) else {
             continue;
         };
+        if !system
+            .bodies
+            .iter()
+            .any(|b| b.kind == worldgen::BodyKind::AsteroidBelt)
+        {
+            continue;
+        }
         if let Some(station) = system
             .stations
             .iter()
-            .filter(|s| crate::station::residents_of(s.kind) > 0 && !s.hostile)
+            .filter(|s| s.kind == worldgen::StationKind::Orbital && !s.hostile)
             .map(|s| s.id)
             .min()
         {

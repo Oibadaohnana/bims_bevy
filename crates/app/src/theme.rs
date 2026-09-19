@@ -26,6 +26,16 @@ pub const ANY: egui::Color32 = egui::Color32::from_rgb(0x4a, 0x55, 0x60);
 /// Armour: the blue on the end of a health bar, and a piece's own health
 /// under its icon.
 pub const ARMOUR: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);
+/// Equipment tiers: a tier-two piece or weapon is tinted blue in its cell
+/// and slot, a tier-three one gold; tier one is untinted.
+pub const TIER_TWO: egui::Color32 = egui::Color32::from_rgb(0x5a, 0x9c, 0xf0);
+pub const TIER_THREE: egui::Color32 = egui::Color32::from_rgb(0xf0, 0xc4, 0x4a);
+/// The numbers the electricity view writes over the drainers: what each
+/// draws, in the yellow of a meter's needle.
+pub const DRAW: egui::Color32 = egui::Color32::from_rgb(0xff, 0xe0, 0x3c);
+/// The hyperdrive's violet: the star picked on the galaxy chart, and the
+/// charge bar.
+pub const HYPER: egui::Color32 = egui::Color32::from_rgb(0x9e, 0x6b, 0xdb);
 pub const NAME_STROKE: egui::Color32 = egui::Color32::from_rgba_premultiplied(6, 10, 9, 217);
 
 /// The name over a Bim's head: how big, and how far above the body it
@@ -207,6 +217,39 @@ pub fn bar_in(painter: &egui::Painter, rect: egui::Rect, fraction: f32, fill: eg
     let mut done = rect;
     done.set_width(rect.width() * fraction.clamp(0.0, 1.0));
     painter.rect_filled(done, round, fill);
+}
+
+/// The tint a tier is drawn in: `None` for tier one, which is what
+/// everything is unless it has been through the workbench.
+pub fn tier_tint(tier: bims::combat::Tier) -> Option<egui::Color32> {
+    match tier {
+        bims::combat::Tier::One => None,
+        bims::combat::Tier::Two => Some(TIER_TWO),
+        bims::combat::Tier::Three => Some(TIER_THREE),
+    }
+}
+
+/// The tint an item is drawn in, if it has a tier above one: a weapon's or
+/// a piece's; a stack and a key have none.
+pub fn item_tint(item: bims::combat::Item) -> Option<egui::Color32> {
+    match item {
+        bims::combat::Item::Armour(piece) => tier_tint(piece.tier),
+        bims::combat::Item::Weapon(weapon) => tier_tint(weapon.tier),
+        bims::combat::Item::Stack(_) | bims::combat::Item::Key(_) => None,
+    }
+}
+
+/// A tiered item's cell: the tint washed over the fill and the border
+/// stroked in it, over whatever the cell was drawn as. The icon on top is
+/// unchanged, so a gold pistol is the pistol in a gold cell.
+pub fn tint_cell(painter: &egui::Painter, rect: egui::Rect, round: f32, tint: egui::Color32) {
+    painter.rect(
+        rect,
+        round,
+        egui::Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), 48),
+        egui::Stroke::new(1.5, tint),
+        egui::StrokeKind::Inside,
+    );
 }
 
 // --- pop-up menus -----------------------------------------------------------

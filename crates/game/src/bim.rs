@@ -142,6 +142,19 @@ pub struct Bim {
     /// Seconds until an enemy at war next chooses where to stand. Its
     /// own clock, so a room of enemies does not all replan on one frame.
     pub plan_wait: f32,
+    /// Seconds until an enemy with nobody it can reach next looks for a
+    /// locked door to go through. See `Game::breach`.
+    pub breach_wait: f32,
+    /// The door it is heaving at, while it is.
+    pub smashing: Option<usize>,
+    /// A door its run takes it through, and which side of it the run
+    /// began on: locked behind it once it is through. See `Game::flee`.
+    pub seal: Option<(usize, f32)>,
+    /// The door it locked behind itself, while that lock stands: sealed
+    /// in, it binds its wounds. See `Game::flee`.
+    pub sealed_in: Option<usize>,
+    /// Seconds towards the next wound bound while sealed in.
+    pub bind_timer: f32,
 }
 
 /// The years the crew were born in. Everyone aboard is somewhere between
@@ -186,6 +199,11 @@ impl Bim {
             hit_flash: 0.0,
             drip_timer: 0.0,
             plan_wait: 0.0,
+            breach_wait: 0.0,
+            smashing: None,
+            seal: None,
+            sealed_in: None,
+            bind_timer: 0.0,
         }
     }
 

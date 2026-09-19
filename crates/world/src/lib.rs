@@ -55,6 +55,7 @@ pub mod docking;
 pub mod event;
 pub mod fixture;
 pub mod frame;
+pub mod jump;
 pub mod mercenary;
 pub mod mining;
 pub mod speed;
@@ -70,7 +71,8 @@ pub use mining::{MiningSite, Rock, RockTile};
 pub use speed::Speed;
 pub use station::{Berth, Station};
 pub use world::{
-    Command, Power, Preview, Ship, ShipState, StartError, World, spawn, spawn_anywhere,
+    Command, Power, Preview, Ship, ShipState, StartError, UPGRADE_ORDER, Upgrade, World, spawn,
+    spawn_anywhere,
 };
 
 // The three things a caller of this crate wants from the ones underneath it,

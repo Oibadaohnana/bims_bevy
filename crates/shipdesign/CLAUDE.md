@@ -46,10 +46,14 @@ leaving them at the default:
   with, and `defs_are_sound` insists they are **exclusive**: thrust on
   `Engine` and nowhere else, turning force on `Thruster` and nowhere else. A
   part that did both would make "which engines are burning" — and therefore
-  the fuel bill — a different question for every design.
-- **`power` and `charge`.** Whether it draws, and how much. Leaving a
-  workstation at nought is a machine that runs in a brownout and never
-  needs the conduit under it; see "Power is a column" below.
+  the power bill — a different question for every design.
+- **`power`, `thrust_power` and `charge`.** Whether it draws, and how much.
+  Leaving a workstation at nought is a machine that runs in a brownout and
+  never needs the conduit under it; see "Power is a column" below.
+  `thrust_power` is the engines' draw **while they burn** — `ENGINE_POWER`
+  on the small one, in proportion to thrust on the heavy one, and
+  `defs_are_sound` insists on the one ratio — kept apart from `power`
+  because it is not paid all day; see "There is no fuel" below.
 
 The first three are fixed-size arrays, so leaving one out is a compile error.
 The last two are not, and both fail quietly — which is what
@@ -88,8 +92,9 @@ table is not). Only a network with a reactor is `live()`. `validate` warns
 `PowerShort = 34` (one per live run drawing more than it makes, tiles = the
 run); neither is an error, for the flight warnings' reason.
 
-`World::run_power` is stage 6: `charge += (supply − draw) · STEP_MINUTES`,
-clamped to the wired batteries' storage, closed form. `Power::brownout()`
+`World::run_power` is stage 6: `charge += (supply − draw − engines) · STEP_MINUTES`,
+clamped to the wired batteries' storage, closed form — `engines` being what
+the lit set draws this step, off the plan's effort (see "There is no fuel"). `Power::brownout()`
 is `draw > supply && charge == 0`, and `World::powered(kind)` is what a
 chain will ask: some part of that kind wired, and not browned out unless
 the kind is essential. **Nothing aboard reads it yet** — the smelter will.
@@ -100,8 +105,10 @@ Both fixtures are wired — `REFERENCE_CONDUIT`, `PLAYTEST_BRANCHES` off the
 spine in column 8 — which moved `REFERENCE_HASH`, `REFERENCE_PARTS`,
 `PLAYTEST_HASH`, `PLAYTEST_PARTS` and `REFERENCE_CHECKSUM`;
 `the_fixtures_are_wired` pins that neither warns and the playtest ship
-draws **127 of 240** — six systems, the smelter, the workbench, the drug
-lab and the armoury — off **two reactors**. The first made 120 and had 3
+draws **137 of 5 000** — six systems, the smelter, the workbench, the drug
+lab, the armoury and the research desk — off **two reactors**, plus its
+engine's 1 000 while it burns. The two reactors are from when one made
+120: the first made 120 and had 3
 to spare with the drug lab drawing 5 rather than the workbench's 15;
 this note used to say a fourth bench aboard it was a second reactor or
 a brownout, and the armoury (10) was that bench, so it came aboard with
@@ -166,8 +173,8 @@ built.
 What that buys is in `crates/shipdesign/src/materials.rs`, and it is a
 contract rather than a feature. Building moves the recipe out of the hold and
 into the part; deconstructing moves **all** of it back. Total ship mass is
-unchanged either way, and changes only through trading while docked, fuel
-burnt, food eaten or grown, and crew joining or leaving. `build_from_cargo`
+unchanged either way, and changes only through trading while docked, food
+eaten or grown, and crew joining or leaving — nothing is burnt in flight. `build_from_cargo`
 and `deconstruct_to_cargo` are that rule written down and tested against every
 part in the table. `world`'s construction step calls the first — see
 `crates/world/CLAUDE.md` — with a Bim and a site in the middle: what is
@@ -371,8 +378,8 @@ Three things this depends on and that are easy to undo:
 
 ## What a trip needs is five warnings, not an error
 
-`validate` now warns about a missing thruster, airlock, sensor array, fuel and
-forward engine. All five are warnings, like the engine warnings before them: a
+`validate` now warns about a missing thruster, airlock, sensor array and
+forward engine. All four are warnings, like the engine warnings before them: a
 ship that cannot fly is still a ship you can live on, and refusing to let a
 player accept one would be the design phase having an opinion about how to
 play. `NoEngineOnAxis` **became** `NoForwardEngine` and kept its code — the
@@ -381,9 +388,9 @@ line and a sideways engine is dead weight.
 
 `shipdesign::fixture` therefore has **two** ships. `reference` is one you can
 live on and deliberately cannot fly, which is what those warnings are tested
-against; `flyer` is `reference` plus four thrusters, an airlock, an array, a
-tank and a full load of fuel, and it is what `flight` and `world` measure
-their scenarios against. Only `reference`'s hash is pinned, because only that
+against; `flyer` is `reference` plus four thrusters, an airlock and an array, and it
+is what `flight` and `world` measure their scenarios against; its engine
+runs on the reference's reactor, wired down column 8. Only `reference`'s hash is pinned, because only that
 one is about two targets agreeing.
 
 ## Two engines, and "is it an engine" is asked of the table
@@ -398,15 +405,53 @@ thruster; the validator, `mass::engines`, `flight::dynamics`,
 so a third size is one row in the table. `defs_are_sound` is the one place
 the kinds are named, because it is the thing checking the column.
 
-**Fuel goes as thrust, not as a count of engines.** `Dynamics::fuel_per_minute`
-takes a segment's `accel` and multiplies by the mass — that is the thrust
-burning — rather than the `engines` count, which is still on every `Segment`
-and `Effort` because it is what the painter lights. A flat rate per engine
-would have made the heavy engine the only engine worth having.
-`the_heavy_engine_is_faster_and_dearer_over_the_same_hop` in
-`crates/flight/src/tests.rs` pins the trade: swapped into the flyer it crosses
-the longest hop sooner and burns more doing it, and its minute costs exactly
-five times the small one's whatever the ship weighs.
+**Power goes as thrust, not as a count of engines.** `PartDef::thrust_power`
+is `ENGINE_POWER` (1 000) on the small engine and five times it on the heavy
+one, and `defs_are_sound` pins the ratio to `thrust` as one figure across
+the table. A flat rate per engine would have made the heavy engine the only
+engine worth having; as it is, a heavy engine flat out wants twice a basic
+reactor, so on one it is throttled to under half and still out-pushes the
+small one. `the_heavy_engine_is_faster_and_dearer_over_the_same_hop` in
+`crates/flight/src/tests.rs` pins the trade: swapped into the flyer it
+crosses the longest hop sooner, draws the whole of the reactor's spare doing
+it, and a unit of push costs the same a minute on either.
+
+## There is no fuel: the engines run on the reactor (September 2026)
+
+`ResourceId::Fuel`, `PartKind::FuelTank` and `Storage::FuelTank` are gone,
+and — there being no save format yet — the discriminants after each were
+closed up rather than left as holes: `Components` is `2`, `LifeSupport` is
+`21` and everything after it one less than it was, `Storage` has four
+classes. That moved every pinned hash (`REFERENCE_HASH`, `PLAYTEST_HASH`,
+`REFERENCE_CHECKSUM`, the galaxy checksums with a `GENERATOR_VERSION` bump
+to 5, since every station's shelf bits shifted) and the fixed-length tables
+in the app (`PART_NAMES` 39, `RESOURCE_NAMES` and `ITEM_TIPS` 22,
+`STORAGE_NAMES` 4, the `[u32; 4]` fill readouts). `IssueCode` 30
+(`NoFuelAboard`) and `PlanError` 4 and 7 are holes: those codes cross to
+`names.rs` and are not reissued.
+
+What replaced it is in `power.rs`. **An engine is on the network** like a
+consumer — `electrical` includes `pushes()`, `unpowered()` lists a dark
+engine, and a dark engine pushes nothing — but its draw is
+`Network::engine_draw`/`Budget::engine_draw`, kept apart from `draw` because
+it is only paid while the engine burns. `power::thrust(design)` is the rule
+the flight is built on: per **facing** (only one set burns at a time), the
+reactors' `spare()` — supply less the day-long draw — over the set's full
+draw is its throttle, capped at one; `Thrust::engines` is the wired engines
+with thrust × throttle, which `flight::dynamics` accelerates by in place of
+`mass::engines`, and `forward_power`/`backward_power` is what the lit set
+draws a minute, carried on every burning `Segment` for the world's power
+stage. `REACTOR_OUTPUT` is **2 500** — a basic reactor is a fusion reactor
+now, named so in the app — so one feeds two engines flat out with five
+hundred over for the systems, and `FUSION_OUTPUT` is four of those.
+`BATTERY_CHARGE` is still half an hour of a reactor. `EnginesThrottled = 35`
+is the warning when a set cannot be fed flat out (parts = the throttled
+engines); `PowerShort` is now practically unreachable with the consumers in
+the table, and its test builds a hundred and twenty-six life supports to
+reach it. `the_engines_push_what_the_reactor_can_feed` in `tests.rs` is the
+rule end to end. The playtest ship's engine was on row 16's conduit already;
+the reference's got three more tiles of column 8 (`REFERENCE_CONDUIT` is
+23), and its tank's deck is bare.
 
 The `yard` in `crates/shipdesign/src/tests.rs` stocks **exactly** the heavy
 engine's recipe, because it is the heaviest recipe there is and the
@@ -558,9 +603,12 @@ The six edits were the six: the enum and `ALL`, `PARTS` (37),
 `PART_COLORS` (a wooden counter), `PART_NAMES`, `PART_GROUPS`,
 `BUILD_GROUPS`, and a picture in `fittings::trading_desk`.
 
-`PartKind::Sandbags = 37` is the row after it: a tile, one metal, €150, that blocks movement and, being a solid, sight, so
-that the room's peek rule makes it cover for nothing new; no use spots,
-since nothing is worked at it. Under Structure in the palette and the
+`PartKind::Sandbags = 37` is the row after it: a tile, one metal, €150,
+half a body's height — **walked over and seen over**, so neither the nav
+grid nor a line of sight stops at it, and `parts::is_cover` marks it the
+one part that is **low cover**: the room's `Sight::covered` has a body
+close behind it dodge half the shots from across it. No use spots, since
+nothing is worked at it. Under Structure in the palette and the
 Build tab, and `fittings::sandbags` is the picture: three staggered
 courses of bags over a dark ground. The stations lay a barricade of them
 in every corridor arm (`crates/world/CLAUDE.md`).
@@ -655,3 +703,74 @@ reference ship is untouched. `worldgen`'s `REFERENCE_CHECKSUMS` did not
 move for the weapons, since a resource in the "made, never sold" arm is
 never rolled onto a shelf — and the weapons are priced (1 000, 2 000,
 3 000, 2 500) only so a station can buy them off the crew.
+
+## Research is a tree in `research.rs`, and a key opens one node
+
+`crates/shipdesign/src/research.rs` is the rules crate's half of what the
+crew know: `Node` (eight, codes 0–7, appended never renumbered), `RESEARCH`
+(a `NodeDef` a node — what it `requires`, its `tier`, whether it is
+`locked` — wanting a key of its tier consumed **for it**; a key opens one
+node, never a tier — and `minutes` of the AI's time, nought for
+what is known at the start), `node_of_part`/`node_of_recipe` (the gates:
+everything not named waits on `Survival`, so a new part is buildable
+unless the table says otherwise), and `Research`, the state the world keeps
+and hashes — `done` and `unlocked` as a boolean a node, `current` and
+`progress`. `Research::unlock(node)` refuses a node with no lock, one open
+already or one researched, so no key is spent for nothing.
+`tree_is_sound` pins the table's shape; `the_research_tree_is_sound_and_the_crew_know_how_to_live`
+and `research_runs_in_order_and_a_key_opens_a_node` in `tests.rs` pin what
+a fresh crew know (every part but the four benches and the fusion reactor;
+the bandage and the medkit and nothing else the benches make) and the
+order. **`Research::begin` on a different node loses the progress**, and
+so does `cancel`: the AI thinks about one thing at a time.
+
+Two parts came with it, both the six edits. `PartKind::ResearchDesk = 38`
+is a table's footprint worked from the tile below, seen over like the
+trading desk, drawing 10, with a capacity of **one in a class of its own**
+— `Storage::Research = 4`, the fifth class, which moved `Storage::ALL`,
+`STORAGE_NAMES` and the two `[u32; 5]` fill readouts in the app — and
+`PartKind::FusionReactor = 39` is a three-by-three that `supplies()`
+`FUSION_OUTPUT` (3 500): `defs_are_sound`'s "supplies only the reactor"
+became `matches!(kind, Reactor | FusionReactor)` and `power_is_made_held_and_drawn…`
+names both. Its recipe is metal and components alone on purpose — an
+emitter in it would put a keyless node behind the key. The playtest ship
+carries a research desk at `(8, 14)` `R0`, on the spine in engineering's
+forward row between the shelves and the heads, which was the one two-tile
+spot on the ship whose use spot has deck on its far side — the aft
+bulkhead, the combat chairs and the galley's row rule out every other —
+and that moved `PLAYTEST_HASH`, `PLAYTEST_PARTS` (648) and the draw the
+wiring test pins (137).
+
+`ResourceId::ResearchKey = 22` is the key: mass 2, €5 000 (a station buys
+one), `Storage::Research`, sold nowhere (`StationKind::sells`'s
+"made, never sold" arm, so no galaxy checksum moved), which grew
+`CARGO_SLOTS` to 23 and re-pinned both `REFERENCE_HASH`es. What it does is
+the world's — `crates/world/CLAUDE.md` — and what it is in a pack is the
+room's (`bims::combat::Item::Key`, two cells tall; `crates/game/CLAUDE.md`).
+`KEY_CELLS` here is the pair the desk's slot and the pack's cells agree on.
+
+**The medkit moved to the drug lab.** `RECIPES[5]` keeps its index and its
+inputs and its `station` is `DrugLab` now: medicine is made from the first
+day and the armoury is a locked node, so a medkit at the armoury would have
+been no medkit until the key. `every_recipe_holds_together` counts the
+armoury at six and the drug lab at two.
+
+## The hyperdrive is bolted to an engine, and `hyperdrive.rs` is the rule
+
+`PartKind::Hyperdrive = 39` (September 2026): a two-by-two on deck that
+draws 50 all day like a system, €90 000, metal and components alone for
+the fusion reactor's reason. `research::Node::Hyperdrive = 8` is its node —
+after `FusionPower`, **locked**, so it wants a tier-one key like the
+armoury and the emitters (`the_research_tree_is_sound…` names all three).
+`hyperdrive::connected(design, part)` is the one rule: a tile of the
+drive's footprint four-neighbour to a tile of a part that `pushes()`. Not
+the conduit — the drive wants power too, and a dark one is `Unpowered`
+like any consumer — but block against block. `unconnected(design)` is
+what `validate` warns with `IssueCode::HyperdriveUnconnected = 36`
+(parts = the loose drives), and `ready(design)` — connected **and**
+`power::is_powered` — is what `world` asks before a charge, so the two
+cannot disagree. `a_hyperdrive_has_to_touch_an_engine_and_be_wired` pins
+it. What a jump is — the charge, the empty space — is
+`crates/world/CLAUDE.md`. The app's part groups (`PART_GROUPS`,
+`BUILD_GROUPS`) are written as `PartKind::X as u32` now rather than
+numbers, after the fuel tank's retirement renumbered half of them.

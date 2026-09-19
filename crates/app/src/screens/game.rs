@@ -15,23 +15,27 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use bims::room::{HIT_DOOR, HIT_SHIP_DOOR};
+use bims::room::{HIT_DOOR, HIT_DROPPED, HIT_SHIP_DOOR};
 use flight::Target;
 use physics::{Facing, ResourceId};
 use ship::Session;
 use ship::game::ViewMode;
 use shipdesign::Storage;
 use shipdesign::parts::Rotation;
-use world::{ShipState, Speed, Where};
+use world::{ShipState, Speed, Where, WorldEvent};
 use worldgen::Node;
 
-use super::designer::{Net, Order, ShipSession, settings_sheet, trade_rows};
+use super::designer::{Net, Order, ShipSession, trade_rows};
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui, zoom_factor};
-use crate::crew::{Actions, Body, CLICK_SLOP, Craft, CrewPanels, Hold, Tool};
-use crate::format::{euros, grouped, spell};
+use crate::crew::{
+    Actions, Body, CLICK_SLOP, Craft, CrewPanels, GearOrder, Hold, ResearchView, Tool, UpgradeView,
+};
+use crate::format::{euros, grouped, roman, spell};
 use crate::names::*;
 use crate::screens::room::panel_frame;
+use crate::settings::{Sheet, settings_sheet};
 use crate::shapes::View;
+use crate::sound::{Bed, Sounds};
 use crate::{Launch, Screen, theme};
 
 /// Ceiling on world steps per frame. It has to be at least `TOP_SPEED * 60
@@ -42,6 +46,12 @@ const MAX_STEPS_PER_FRAME: u32 = 64;
 
 /// How many lines of what-just-happened stay on screen.
 const LOG_LINES: usize = 4;
+
+/// What the map writes over the ship, before where it is.
+const HERE_TAG: &str = "You";
+/// How far above the ship's mark on the map its words sit: clear of the
+/// reticle `ship::world_paint` draws round it, ring and ticks.
+const HERE_LIFT: f32 = 36.0;
 
 /// How near a click has to come to a map icon to count as picking it, in
 /// points. Measured on screen rather than in world units: the thing being
@@ -73,6 +83,8 @@ impl Aim {
 enum HelmOrder {
     Fly(Aim),
     Stop,
+    /// Charge the hyperdrive for the star picked on the galaxy chart.
+    Jump(u32),
 }
 
 #[derive(Resource)]
@@ -98,11 +110,28 @@ pub struct GameScreen {
     hover_at: Option<Vec2>,
     /// A marquee under way on the deck: where the press landed.
     marquee_from: Option<Vec2>,
+    /// Where a right-drag on the deck began, on the glass: an order in the
+    /// making — a line for the selected crew, or a point if it never moves
+    /// further than a click.
+    order_from: Option<Vec2>,
     pan_from: Option<Vec2>,
-    sheet: bool,
+    /// The Esc sheet, if it is up, and which page.
+    sheet: Option<Sheet>,
     size: Vec2,
     /// The speed Space pauses from, for Space to go back to.
     resume: Speed,
+    /// The smooth fog over the deck, as a texture — see `fogmap`.
+    fog: crate::fogmap::FogTexture,
+    /// The galaxy chart, up over the system map: the strip's `Galaxy view`.
+    /// The chart itself is the lobby's, made the first time it is asked
+    /// for — it generates every system once — and kept for the game.
+    galaxy_up: bool,
+    galaxy: Option<lobby::Lobby>,
+    galaxy_list: lobby::draw::DrawList,
+    galaxy_size: Vec2,
+    /// The star picked on the chart: what its system holds is in the
+    /// strip, and it is where Jump goes.
+    picked_star: Option<u32>,
 }
 
 pub struct GamePlugin;
@@ -176,7 +205,7 @@ fn open(
                 let room = &mut game.world.aboard.room;
                 let gear = room.gear(0);
                 let piece = |kind: ArmourKind| {
-                    worn.then(|| Piece::new(u32::MAX - kind.code(), kind))
+                    worn.then(|| Piece::new(u32::MAX - kind.code(), kind, bims::combat::Tier::One))
                         .or(gear.worn(kind.slot()))
                 };
                 room.issue(
@@ -224,10 +253,17 @@ fn open(
         log: Vec::new(),
         hover_at: None,
         marquee_from: None,
+        order_from: None,
         pan_from: None,
-        sheet: false,
+        sheet: None,
         size: Vec2::ZERO,
         resume: Speed::Real,
+        fog: crate::fogmap::FogTexture::default(),
+        galaxy_up: false,
+        galaxy: None,
+        galaxy_list: lobby::draw::DrawList::new(),
+        galaxy_size: Vec2::ZERO,
+        picked_star: None,
     });
 }
 
@@ -258,6 +294,8 @@ fn frame(
     mut screen: ResMut<GameScreen>,
     mut session: ResMut<ShipSession>,
     time: Res<Time>,
+    mut sounds: ResMut<Sounds>,
+    mut commands: Commands,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -304,9 +342,42 @@ fn frame(
             if let Some(line) = event_line(event) {
                 screen.log.push(line);
             }
+            // The engines catch as the ship pushes off its berth, or as a
+            // trip begins from a hold; `Sounds` plays one ignition for
+            // the undocking and the departure that follows it.
+            if matches!(
+                event,
+                WorldEvent::Undocking { .. } | WorldEvent::Departed { .. }
+            ) {
+                sounds.engine_start(&mut commands);
+            }
         }
         while screen.log.len() > LOG_LINES {
             screen.log.remove(0);
+        }
+        // What the steps sounded like: the crew's room, and the station's
+        // beside it while the decks are joined — its doors and its galley
+        // are on the same picture.
+        for cued in game.world.aboard.room.take_cues() {
+            sounds.play(&mut commands, cued);
+        }
+        if let Some(residents) = game.world.residents.as_mut() {
+            let joined = game.world.ship.state.alongside().is_some();
+            for cued in residents.aboard.room.take_cues() {
+                if joined {
+                    sounds.play(&mut commands, cued);
+                }
+            }
+        }
+        // The beds: a station's hum while tied up with the rooms joined,
+        // the ship's own otherwise, and the engines while they burn —
+        // and the world is moving, since a paused burn is silent.
+        match game.world.ship.state {
+            ShipState::Docked { .. } | ShipState::CastingOff { .. } => sounds.want(Bed::Station),
+            _ => sounds.want(Bed::Ship),
+        }
+        if game.world.effort().engines > 0 && game.world.effective_speed().multiplier() > 0 {
+            sounds.want(Bed::Engine);
         }
     }
 
@@ -370,6 +441,7 @@ fn frame(
             orders.push(match order {
                 HelmOrder::Fly(aim) => Order::Fly(aim.target()),
                 HelmOrder::Stop => Order::Stop,
+                HelmOrder::Jump(star) => Order::Jump(star),
             });
             if matches!(order, HelmOrder::Fly(_)) {
                 screen.aimed = None;
@@ -395,11 +467,22 @@ fn frame(
     let pointer = Pointer::read(&ctx);
     let on_canvas = pointer.on(canvas);
     let here = pointer.pos.map(|p| p - canvas.min);
-    let keys = !ctx.egui_wants_keyboard_input() && !screen.sheet;
+    let keys = !ctx.egui_wants_keyboard_input() && screen.sheet.is_none();
     let map_up = session
         .game
         .as_ref()
         .is_some_and(|g| g.mode == ViewMode::Map);
+    // The galaxy chart over the system map, once it has been made. Its
+    // marks are the world's: the star the ship is at, and the one picked.
+    let galaxy_up = map_up && screen.galaxy_up && screen.galaxy.is_some();
+    if galaxy_up && let Some(chart) = &mut screen.galaxy {
+        chart.here = session.game.as_ref().map(|g| g.world.star_id);
+        chart.target = screen.picked_star;
+        if canvas.size() != screen.galaxy_size {
+            screen.galaxy_size = canvas.size();
+            chart.preview.resize(canvas.size().x, canvas.size().y);
+        }
+    }
     let panels = screen.panels.as_mut().unwrap();
 
     // The tool in the pointer's hand. Mine only means anything at a
@@ -459,6 +542,14 @@ fn frame(
         follow: session.game.as_ref().is_some_and(|g| g.follow),
         docked: session.docked_at().is_some(),
         station: false,
+        research: research_view(session),
+        research_orders: Vec::new(),
+        auto_upgrade: session
+            .game
+            .as_ref()
+            .is_some_and(|g| g.world.auto_upgrade()),
+        set_auto_upgrade: None,
+        upgrade: upgrade_view(session),
     };
 
     // Middle drags pan, in either view.
@@ -470,7 +561,10 @@ fn frame(
     if let Some(from) = screen.pan_from {
         match here {
             Some(p) if pointer.middle_down => {
-                session.pan(p.x - from.x, p.y - from.y);
+                match &mut screen.galaxy {
+                    Some(chart) if galaxy_up => chart.preview.pan(p.x - from.x, p.y - from.y),
+                    _ => session.pan(p.x - from.x, p.y - from.y),
+                }
                 screen.pan_from = Some(p);
             }
             _ => screen.pan_from = None,
@@ -479,7 +573,10 @@ fn frame(
     if let Some(p) = on_canvas
         && pointer.scroll != 0.0
     {
-        session.zoom(p.x, p.y, zoom_factor(pointer.scroll));
+        match &mut screen.galaxy {
+            Some(chart) if galaxy_up => chart.preview.zoom(p.x, p.y, zoom_factor(pointer.scroll)),
+            _ => session.zoom(p.x, p.y, zoom_factor(pointer.scroll)),
+        }
     }
 
     if map_up {
@@ -487,10 +584,28 @@ fn frame(
         if let Some(game) = &mut session.game {
             game.hover = None;
         }
+        // On the chart, the pointer is over stars: the one under it is
+        // rung, and a click picks it — its system goes into the strip,
+        // and it is where Jump goes. Picking is looking, like aiming.
+        if galaxy_up {
+            if let Some(chart) = &mut screen.galaxy {
+                match here.filter(|_| on_canvas.is_some()) {
+                    Some(p) => chart.hover(p.x, p.y),
+                    None => chart.hovered = None,
+                }
+                if on_canvas.is_some()
+                    && pointer.primary_pressed
+                    && let Some(star) = chart.hovered
+                {
+                    chart.inspect(star);
+                    screen.picked_star = Some(star);
+                }
+            }
+        }
         // Plot a trip to whatever a click on the map landed on — a thing,
         // or the empty space beside it, which is a perfectly good place to
         // go. Aiming is looking; it is Confirm that wants the helm.
-        if let Some(p) = on_canvas
+        else if let Some(p) = on_canvas
             && pointer.primary_pressed
         {
             let game = session.game.as_mut().unwrap();
@@ -515,6 +630,10 @@ fn frame(
             .map(|p| p - canvas.min);
         if let Some(game) = &mut session.game {
             game.hover = screen.hover_at.map(|p| game.tile_at(p.x, p.y));
+        }
+        // Nothing on the deck is lit until the pointer is found over it.
+        if let Some(room) = session.room() {
+            room.set_hover_dropped(None);
         }
         // With a blueprint in hand the pointer is about laying it out: a
         // click on a tile it would go on sends the site through the seam,
@@ -566,11 +685,28 @@ fn frame(
             }
         } else if let Some(p) = on_canvas {
             let (rx, ry) = session.room_point(p.x, p.y);
+            // The gun under the pointer, ringed — worked out afresh every
+            // frame, like the highlight, so one walked off with is not
+            // left lit.
+            let who = session.room().map(|room| panels.inventory_who(room));
+            if let Some(room) = session.room() {
+                let under = room.dropped_at(rx, ry);
+                room.set_hover_dropped(under);
+            }
             if pointer.secondary_pressed {
                 panels.close_menu();
                 if let Some(room) = session.room() {
                     let fixture = room.hit_at(rx, ry);
-                    if fixture != 0 {
+                    // A gun on the deck is picked up by the right-click
+                    // itself — no menu — into the pack of the Bim shown.
+                    if fixture == HIT_DROPPED {
+                        let id = room.hit_dropped();
+                        if let Some(who) = who
+                            && !room.fetch(who, id)
+                        {
+                            screen.log.push(PICK_UP_REFUSED.into());
+                        }
+                    } else if fixture != 0 {
                         let at = pointer.pos.unwrap();
                         panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
                     }
@@ -582,11 +718,11 @@ fn frame(
                     // menu), dead (`HIT_BODY`) or one of the station's
                     // people down in its own room (`HIT_VISITOR`, the Loot
                     // row): never the deck it lies on.
+                    // The order is given when the button comes up: held and
+                    // dragged, it is a line the crew form along.
                     if fixture == 0 || fixture == HIT_SHIP_DOOR || fixture == HIT_DOOR {
-                        let code = room.order_move(rx, ry);
-                        if let Some(refused) = order_refused(code) {
-                            screen.log.push(refused.into());
-                        }
+                        screen.order_from = Some(p);
+                        room.order_drag_begin(rx, ry);
                     }
                 }
             }
@@ -608,8 +744,15 @@ fn frame(
                             let fixture = room.drag_end(rx, ry);
                             let moved = (p - from).length() > CLICK_SLOP;
                             if fixture != 0 && !moved {
-                                let at = pointer.pos.unwrap();
-                                panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
+                                // A body — dead, out cold, or one of the
+                                // station's people down — opens its inventory
+                                // straight off; anything else its menu.
+                                if let Some(source) = panels.body_under_click(room, fixture) {
+                                    panels.open_loot(source);
+                                } else {
+                                    let at = pointer.pos.unwrap();
+                                    panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
+                                }
                             }
                             screen.marquee_from = None;
                         }
@@ -619,6 +762,30 @@ fn frame(
                     screen.marquee_from = None;
                     if let Some(room) = session.room() {
                         room.drag_cancel();
+                    }
+                }
+            }
+        }
+        if let Some(from) = screen.order_from {
+            match here {
+                Some(p) => {
+                    let (rx, ry) = session.room_point(p.x, p.y);
+                    if let Some(room) = session.room() {
+                        room.order_drag_update(rx, ry);
+                        if pointer.secondary_released {
+                            let dragged = (p - from).length() > CLICK_SLOP;
+                            let code = room.order_drag_end(rx, ry, dragged);
+                            if let Some(refused) = order_refused(code) {
+                                screen.log.push(refused.into());
+                            }
+                            screen.order_from = None;
+                        }
+                    }
+                }
+                None => {
+                    screen.order_from = None;
+                    if let Some(room) = session.room() {
+                        room.order_drag_cancel();
                     }
                 }
             }
@@ -700,7 +867,7 @@ fn frame(
                     screen.trading = false;
                 } else {
                     screen.aimed = None;
-                    screen.sheet = true;
+                    screen.sheet = Some(Sheet::Menu);
                 }
             }
             let step = super::designer::PAN_SPEED * dt as f32;
@@ -720,8 +887,8 @@ fn frame(
         if d != Vec2::ZERO {
             session.pan(d.x, d.y);
         }
-    } else if screen.sheet && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        screen.sheet = false;
+    } else if screen.sheet.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        screen.sheet = None;
     }
     if screen.aimed.is_none() {
         session.clear_preview();
@@ -947,6 +1114,11 @@ fn frame(
                     &mut screen.pending,
                     &mut screen.relieve,
                     &mut screen.log,
+                    &mut Chart {
+                        up: &mut screen.galaxy_up,
+                        lobby: &mut screen.galaxy,
+                        picked: &mut screen.picked_star,
+                    },
                 );
             });
         });
@@ -998,6 +1170,12 @@ fn frame(
     }
     for site in actions.cancel.drain(..) {
         orders.push(Order::Cancel { site });
+    }
+    if let Some(on) = actions.set_auto_upgrade.take() {
+        orders.push(Order::AutoUpgrade(on));
+    }
+    for order in actions.research_orders.drain(..) {
+        orders.push(Order::Research(order));
     }
     if let Some(game) = &mut session.game {
         game.overlay = actions.overlay;
@@ -1063,6 +1241,12 @@ fn frame(
         {
             world.aboard.room.send_to(who, at);
         }
+        // Whose the station alongside is, for the Kill row on a body among
+        // its people: an enemy's, or not.
+        panels.enemies_alongside = world
+            .residents
+            .as_ref()
+            .is_some_and(|r| world.stance(r.station) == bims::sight::Stance::Hostile);
         panels.body = panels
             .loot_source()
             .and_then(|source| body_of(world, who, source));
@@ -1084,6 +1268,17 @@ fn frame(
                 bunk: offer.bunk,
             })
         });
+        // The station's key: the desk's row walked the Bim over, and the
+        // take goes through the seam the frame they are within reach —
+        // or is forgotten if the key goes or the ship does.
+        if let Some(who) = panels.key_requested {
+            if !world.key_at_the_dock() {
+                panels.key_requested = None;
+            } else if world.key_in_reach(who) {
+                orders.push(Order::Gear(GearOrder::TakeKey { who }));
+                panels.key_requested = None;
+            }
+        }
         let room = &mut world.aboard.room;
         panels.loot_window(&ctx, room, &name);
         panels.hire_window(&ctx, room, &name);
@@ -1099,9 +1294,7 @@ fn frame(
     for order in orders.drain(..) {
         screen.net.order(session, order);
     }
-    if screen.sheet {
-        settings_sheet(&ctx, &mut screen.sheet);
-    }
+    settings_sheet(&ctx, &mut screen.sheet, &mut sounds.mix);
 
     // --- painting ------------------------------------------------------------------
     let view = View {
@@ -1112,7 +1305,55 @@ fn frame(
         },
     };
     let painter = canvas_painter(&ctx, canvas);
-    paint_shapes(&painter, canvas, view, session.render());
+    if galaxy_up && let Some(chart) = &screen.galaxy {
+        // The chart in place of the map: the lobby's picture, in pixels,
+        // and the names of the star the ship is at and the one picked over
+        // them, since the buffer holds no words.
+        chart.paint(&mut screen.galaxy_list);
+        paint_shapes(&painter, canvas, View::PIXELS, screen.galaxy_list.shapes());
+        for (star, color, tag) in [
+            (chart.here, theme::YOURS, "here"),
+            (screen.picked_star, theme::HYPER, "picked"),
+        ] {
+            if let Some(s) = star.and_then(|id| chart.galaxy.star(id)) {
+                let (x, y) = chart.preview.to_screen(s.position.x, s.position.y);
+                let at = egui::pos2(canvas.min.x + x, canvas.min.y + y - 16.0);
+                theme::name_over(
+                    &painter,
+                    at,
+                    &format!("{} · {tag}", star_name(s.name)),
+                    color,
+                );
+            }
+        }
+    } else {
+        paint_shapes(&painter, canvas, view, session.render());
+        // Where you are, in words, over the reticle the map draws round the
+        // ship — `You`, and the berth or the place — in the colour the
+        // player's own things are, the way the chart tags the star the ship
+        // is at. The ship is the map's origin, wherever it has been panned
+        // to; off the canvas the words go with it and the strip still says.
+        if map_up && session.game.is_some() {
+            let at = view.to_canvas(Vec2::ZERO) + canvas.min;
+            let at = egui::pos2(at.x, at.y - HERE_LIFT);
+            theme::name_over(
+                &painter,
+                at,
+                &format!("{HERE_TAG} · {}", whereabouts(session)),
+                theme::YOURS,
+            );
+        }
+        // The smooth fog over the deck — what the crew do not see, and
+        // the dark where no light reaches — as the room's light map,
+        // through the ship's camera and heading like the crew's names.
+        if !map_up && let Some((map, corners)) = session.light_map() {
+            let corners = corners.map(|(x, y)| {
+                let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                egui::pos2(at.x, at.y)
+            });
+            screen.fog.paint(&ctx, &painter, map, corners);
+        }
+    }
 
     // The pick in the pointer's hand, where the system's cursor was.
     if marking && let Some(p) = on_canvas {
@@ -1159,6 +1400,33 @@ fn frame(
             }
         }
     }
+    // The electricity view's numbers: what every drainer draws, in yellow
+    // over the top of it — the engines with what they draw at this moment,
+    // against what they would flat out, so a burn can be read at the deck
+    // as well as at the reactor. A dark consumer is written muted, with the
+    // draw it would have if it were wired.
+    if !map_up
+        && session
+            .game
+            .as_ref()
+            .is_some_and(|g| g.overlay == ship::game::Overlay::Electricity)
+    {
+        for label in session.power_labels() {
+            let at = view.to_canvas(Vec2::new(label.x, label.y)) + canvas.min;
+            let at = egui::pos2(at.x, at.y - 3.0);
+            let words = if label.now == label.full {
+                format!("{}", label.now.round())
+            } else {
+                format!("{} / {}", label.now.round(), label.full.round())
+            };
+            let color = if label.live {
+                theme::DRAW
+            } else {
+                theme::MUTED
+            };
+            theme::name_over(&painter, at, &words, color);
+        }
+    }
     let _ = now;
     Ok(())
 }
@@ -1179,6 +1447,19 @@ fn pick_cursor(painter: &egui::Painter, at: egui::Pos2) {
     painter.circle_filled(at, 1.5, theme::ACCENT);
 }
 
+/// Where the ship is, in words: the berth it is tied up at, the place it is
+/// alongside, or open space. The trip strip's first words, and what the
+/// map writes over the ship.
+fn whereabouts(session: &Session) -> String {
+    match session.docked_at() {
+        Some(station) => format!("Docked · {}", node_name(session, Node::Station(station))),
+        None => match session.game.as_ref().unwrap().world.ship.frame.node() {
+            Some(node) => format!("Alongside {}", node_name(session, node)),
+            None => "Open space".into(),
+        },
+    }
+}
+
 /// The strip across the top of the canvas: where the ship is, and where it
 /// is going. With the map up it is the helm — what is aimed at, the quote
 /// for it, and Confirm; with the ship view up it is the trip under way, as
@@ -1196,6 +1477,7 @@ fn trip_panel(
     pending: &mut Option<HelmOrder>,
     relieve: &mut bool,
     log: &mut Vec<String>,
+    chart: &mut Chart,
 ) {
     // Re-quoted every frame while the player is aiming at something. A
     // quote goes stale the moment the ship moves.
@@ -1203,13 +1485,7 @@ fn trip_panel(
         None => session.clear_preview(),
         Some(aim) => session.preview(aim.target()),
     }
-    let whereabouts = match session.docked_at() {
-        Some(station) => format!("Docked · {}", node_name(session, Node::Station(station))),
-        None => match session.game.as_ref().unwrap().world.ship.frame.node() {
-            Some(node) => format!("Alongside {}", node_name(session, node)),
-            None => "Open space".into(),
-        },
-    };
+    let whereabouts = whereabouts(session);
     let game = session.game.as_ref().unwrap();
     let state = game.world.ship.state.code();
     let aborting = game.world.plan().is_some_and(|p| p.aborting);
@@ -1217,18 +1493,56 @@ fn trip_panel(
     let mut press: Option<HelmOrder> = None;
     let mut cancel = false;
 
+    // The chart's toggle, on the map: the same button either way round.
+    // The chart is made the first time it is asked for — every system of
+    // the galaxy, once — and the star the ship is at is the one open in it
+    // until another is picked.
+    let charging = game.world.jump_charge();
     if map_up {
+        ui.horizontal(|ui| {
+            let label = if *chart.up {
+                "System view"
+            } else {
+                "Galaxy view"
+            };
+            if ui.button(label).clicked() {
+                *chart.up = !*chart.up;
+                if *chart.up {
+                    if chart.lobby.is_none() {
+                        *chart.lobby = Some(lobby::Lobby::new(
+                            game.world.galaxy_seed,
+                            game.world.galaxy_type,
+                            800.0,
+                            600.0,
+                        ));
+                    }
+                    if let Some(lobby) = chart.lobby.as_mut() {
+                        lobby.inspect(chart.picked.unwrap_or(game.world.star_id));
+                    }
+                }
+            }
+            if let Some((star, done)) = charging {
+                ui.label(
+                    egui::RichText::new(format!("Charging for star {star}")).color(theme::HYPER),
+                );
+                theme::bar(ui, 120.0, done as f32, theme::HYPER);
+            }
+        });
+    }
+    if map_up && *chart.up {
+        if let Some(order) = chart_panel(ui, session, chart, walking) {
+            press = Some(order);
+        }
+        ui.horizontal(|ui| {
+            brake_buttons(ui, state, aborting, walking, &mut press);
+        });
+    } else if map_up {
         let quoted = match game.preview.as_ref() {
             Some(Err(why)) => {
                 ui.label(egui::RichText::new(plan_error(why.code())).color(theme::WARN));
                 false
             }
             Some(Ok(p)) => {
-                let spare = game
-                    .world
-                    .ship
-                    .fuel_aboard()
-                    .saturating_sub(game.world.ship.reserved_fuel);
                 let mut rows = vec![
                     ("Going to", describe_aim(session, *aimed)),
                     ("Arrives in", spell(p.minutes)),
@@ -1236,7 +1550,20 @@ fn trip_panel(
                 if p.stopping > 0.0 {
                     rows.push(("Stopping first", spell(p.stopping)));
                 }
-                rows.push(("Fuel", format!("{} of {spare} spare", p.fuel.ceil())));
+                // What the burn costs the ship: the engines' draw off the
+                // reactor, and how much of their push that buys.
+                rows.push((
+                    "Engines",
+                    if p.throttle >= 1.0 {
+                        format!("{} a minute, flat out", p.power.round())
+                    } else {
+                        format!(
+                            "{} a minute, throttled to {}%",
+                            p.power.round(),
+                            (p.throttle * 100.0).round()
+                        )
+                    },
+                ));
                 rows.push(("Ends", if p.docks { "Docked" } else { "Holding" }.into()));
                 egui::Grid::new("quote")
                     .num_columns(2)
@@ -1351,8 +1678,162 @@ fn trip_panel(
     }
 }
 
+/// The galaxy chart's state, as the strip sees it: whether it is up, the
+/// chart itself, and the star picked on it.
+struct Chart<'a> {
+    up: &'a mut bool,
+    lobby: &'a mut Option<lobby::Lobby>,
+    picked: &'a mut Option<u32>,
+}
+
+/// One system's contents, as rows: each body by its numeral and kind, each
+/// station by its name, kind and side. What the chart says a star holds —
+/// the star the ship is at, or the one picked — off the generator, the way
+/// the lobby lists a system before the game opens.
+fn system_contents(ui: &mut egui::Ui, base: &str, system: &worldgen::StarSystem) {
+    for body in &system.bodies {
+        ui.horizontal(|ui| {
+            ui.label(format!("{base} {}", roman(body.name.part as u32)));
+            ui.label(
+                egui::RichText::new(
+                    BODY_KIND_NAMES
+                        .get(body.kind as usize)
+                        .copied()
+                        .unwrap_or("Body"),
+                )
+                .small()
+                .color(theme::MUTED),
+            );
+        });
+    }
+    for station in &system.stations {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(station_name(station.name)).color(if station.hostile {
+                    theme::BAD
+                } else {
+                    theme::INK
+                }),
+            );
+            ui.label(
+                egui::RichText::new(format!(
+                    "{}{}",
+                    STATION_KIND_NAMES
+                        .get(station.kind as usize)
+                        .copied()
+                        .unwrap_or("Station"),
+                    if station.hostile { " · hostile" } else { "" }
+                ))
+                .small()
+                .color(theme::MUTED),
+            );
+        });
+    }
+    if system.bodies.is_empty() && system.stations.is_empty() {
+        ui.label(egui::RichText::new("Nothing there.").color(theme::MUTED));
+    }
+}
+
+/// The chart's half of the strip: where the ship is and what is round it,
+/// what the picked star holds, and Jump. `Some(order)` is a press.
+fn chart_panel(
+    ui: &mut egui::Ui,
+    session: &Session,
+    chart: &mut Chart,
+    walking: bool,
+) -> Option<HelmOrder> {
+    let game = session.game.as_ref().unwrap();
+    let lobby = chart.lobby.as_mut()?;
+    let here = game.world.star_id;
+    let name_of = |star: u32| {
+        lobby
+            .galaxy
+            .star(star)
+            .map(|s| {
+                format!(
+                    "{} · class {}",
+                    star_name(s.name),
+                    STAR_CLASS_NAMES
+                        .get(s.star_class as usize)
+                        .copied()
+                        .unwrap_or("?")
+                )
+            })
+            .unwrap_or_default()
+    };
+    let base_of = |star: u32| {
+        lobby
+            .galaxy
+            .star(star)
+            .map(|s| star_name(s.name))
+            .unwrap_or_default()
+    };
+
+    ui.label(egui::RichText::new("Here").small().color(theme::MUTED));
+    ui.label(egui::RichText::new(name_of(here)).strong());
+    system_contents(ui, &base_of(here), &game.world.system);
+
+    ui.add_space(4.0);
+    let mut press = None;
+    match *chart.picked {
+        Some(star) if star != here => {
+            ui.label(egui::RichText::new("Picked").small().color(theme::MUTED));
+            ui.label(egui::RichText::new(name_of(star)).strong());
+            match lobby.inspected.as_ref().filter(|(id, _)| *id == star) {
+                Some((_, system)) => system_contents(ui, &base_of(star), system),
+                None => {
+                    ui.label(egui::RichText::new("Looking…").color(theme::MUTED));
+                }
+            }
+            let state = game.world.ship.state.code();
+            let ready = game.world.hyperdrive_ready();
+            let why = if !ready {
+                Some("No working hyperdrive: one bolted to an engine, on a live cable.")
+            } else if state != 1 {
+                Some("A jump wants the ship holding on its own, away from any berth.")
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                ui.label(egui::RichText::new(why).small().color(theme::WARN));
+            }
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(why.is_none() && !walking, egui::Button::new("Jump"))
+                    .clicked()
+                {
+                    press = Some(HelmOrder::Jump(star));
+                }
+                if ui.button("Clear").clicked() {
+                    *chart.picked = None;
+                }
+            });
+        }
+        Some(_) => {
+            ui.label(
+                egui::RichText::new(
+                    "That is the star the ship is at. Click another to see what it holds.",
+                )
+                .small()
+                .color(theme::MUTED),
+            );
+        }
+        None => {
+            ui.label(
+                egui::RichText::new(
+                    "Click a star to see what it holds. The hyperdrive jumps there.",
+                )
+                .small()
+                .color(theme::MUTED),
+            );
+        }
+    }
+    press
+}
+
 /// Brake stops a ship under way — once. Abort calls off a departure while
-/// the ship is still casting off or pushing off the berth. The two are the
+/// the ship is still casting off or pushing off the berth, or a hyperdrive
+/// charging. The two are the
 /// same command at the seam and never both live.
 fn brake_buttons(
     ui: &mut egui::Ui,
@@ -1372,7 +1853,7 @@ fn brake_buttons(
     }
     if ui
         .add_enabled(
-            (state == 3 || state == 4) && !walking,
+            (state == 3 || state == 4 || state == 6) && !walking,
             egui::Button::new("Abort"),
         )
         .clicked()
@@ -1570,8 +2051,13 @@ fn facts_panel(ui: &mut egui::Ui, session: &Session, net: &Net) {
     } else {
         String::new()
     };
+    let engines = if power.engines > 0.0 {
+        format!(" + {} to the engines", power.engines.round())
+    } else {
+        String::new()
+    };
     let power_line = format!(
-        "{} drawn of {} made{batteries}{}",
+        "{} drawn{engines} of {} made{batteries}{}",
         power.draw.round(),
         power.supply.round(),
         if power.brownout() {
@@ -1589,14 +2075,6 @@ fn facts_panel(ui: &mut egui::Ui, session: &Session, net: &Net) {
     let by = game.world.ship.destination_set_by;
     let at = game.world.ship.position();
     let rows = [
-        (
-            "Fuel",
-            format!(
-                "{} aboard, {} held",
-                game.world.ship.fuel_aboard(),
-                game.world.ship.reserved_fuel
-            ),
-        ),
         ("Power", power_line),
         (
             "Dose",
@@ -1778,6 +2256,7 @@ fn hold_of(session: &Session, who: usize) -> Hold {
         hold.counts[id as usize] = world.free(id);
         hold.reach[id as usize] = world.in_reach(who as u32, id);
     }
+    hold.guns = world.guns.clone();
     for piece in world.pieces.iter().filter(|p| p.at == Where::Hold) {
         if let bims::combat::Item::Armour(piece) = piece.item() {
             hold.pieces.push(piece);
@@ -1787,7 +2266,53 @@ fn hold_of(session: &Session, who: usize) -> Hold {
         hold.used[class as usize] = session.storage_used(class);
         hold.capacity[class as usize] = session.storage_capacity(class);
     }
+    hold.station_desk = world.station_desk();
+    hold.station_key = world.key_at_the_dock();
     hold
+}
+
+/// What is on the workbench being upgraded, for the Management tab's line
+/// under its tick box, off `World::upgrade`.
+fn upgrade_view(session: &Session) -> Option<UpgradeView> {
+    let upgrade = session.game.as_ref()?.world.upgrade?;
+    Some(UpgradeView {
+        resource: upgrade.resource,
+        tier: upgrade.to.code(),
+        done: upgrade.done.min(world::data::UPGRADE_SESSIONS),
+        of: world::data::UPGRADE_SESSIONS,
+        waiting: upgrade.complete(),
+    })
+}
+
+/// The research tree as the crew stand in it, for the Research tab, off
+/// `World::research`; and which parts may be laid out, by kind, for the
+/// Build tab to leave the rest out.
+fn research_view(session: &Session) -> ResearchView {
+    let Some(game) = session.game.as_ref() else {
+        return ResearchView::default();
+    };
+    let world = &game.world;
+    let research = &world.research;
+    let mut view = ResearchView {
+        unlocked: research.unlocked,
+        current: research.current.map(|n| n.code()),
+        fraction: research.fraction(),
+        desk: world.research_desk_aboard(),
+        powered: world.research_desk_powered(),
+        keys: world.keys_in_desk(),
+        parts: shipdesign::PartKind::ALL
+            .iter()
+            .map(|&kind| research.part_allowed(kind))
+            .collect(),
+        ..ResearchView::default()
+    };
+    for node in shipdesign::research::Node::ALL {
+        let i = node as usize;
+        view.done[i] = research.is_done(node);
+        view.available[i] = research.available(node);
+        view.needs_key[i] = research.needs_key(node);
+    }
+    view
 }
 
 /// A body as the Loot window wants it: what it has on it, whether it is
@@ -1823,6 +2348,22 @@ fn crafts(session: &Session) -> Vec<Craft> {
                 most: game.world.ship.design.capacity(class),
                 kept_in: STORAGE_NAMES.get(class as usize).copied().unwrap_or(""),
                 recipe: recipe_lines(id),
+                // The first recipe for it that is not researched, if none
+                // is: a thing two benches make is made at whichever is known.
+                needs: {
+                    let rows: Vec<usize> = shipdesign::RECIPES
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, r)| r.output.0 == id)
+                        .map(|(i, _)| i)
+                        .collect();
+                    if rows.iter().any(|&i| game.world.research.recipe_allowed(i)) {
+                        None
+                    } else {
+                        rows.first()
+                            .map(|&i| shipdesign::research::node_of_recipe(i).code())
+                    }
+                },
             }
         })
         .collect()

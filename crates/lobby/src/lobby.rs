@@ -51,6 +51,10 @@ pub struct Lobby {
     pub hovered: Option<u32>,
     /// The pending start, as the page last said: a star and a station in it.
     pub spawn: Option<(u32, u32)>,
+    /// In the game: the star the ship is at, and the one picked for a jump.
+    /// Marks, and nothing else — see `preview::Marks`.
+    pub here: Option<u32>,
+    pub target: Option<u32>,
     pub pings: Vec<Ping>,
     /// The star whose system is in the side panel, and the system itself.
     pub inspected: Option<(u32, StarSystem)>,
@@ -77,6 +81,8 @@ impl Lobby {
             preview,
             hovered: None,
             spawn: None,
+            here: None,
+            target: None,
             pings: Vec::new(),
             inspected: None,
             placed: Placed::default(),
@@ -187,6 +193,8 @@ impl Lobby {
         let marks = Marks {
             hovered: self.hovered,
             spawn: self.spawn.map(|(star, _)| star),
+            here: self.here,
+            target: self.target,
             pings: &self.pings,
         };
         preview::paint(

@@ -30,12 +30,15 @@
 mod canvas;
 mod crew;
 mod dev;
+mod fogmap;
 mod format;
 mod grid;
 mod icons;
 mod names;
 mod screens;
+mod settings;
 mod shapes;
+mod sound;
 mod theme;
 
 use bevy::prelude::*;
@@ -122,6 +125,7 @@ fn main() {
     .add_plugins((
         canvas::CanvasPlugin,
         dev::DevPlugin,
+        sound::SoundPlugin,
         theme::ThemePlugin,
         screens::builder::BuilderPlugin,
         screens::designer::DesignerPlugin,

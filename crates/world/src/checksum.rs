@@ -102,7 +102,6 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat_rounded(ship.anchor.x, POSITION_GRID);
     hash.eat_rounded(ship.anchor.y, POSITION_GRID);
     hash.eat_rounded(ship.heading, FINE_GRID);
-    hash.eat(ship.reserved_fuel as u64);
     hash.eat_rounded(ship.charge, FINE_GRID);
     hash.eat(ship.destination_set_by.map(u64::from).unwrap_or(u64::MAX));
     hash.eat(ship.frame.code() as u64);
@@ -125,11 +124,19 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat_rounded(plan.duration(), FINE_GRID);
             hash.eat_rounded(plan.distance, POSITION_GRID);
             hash.eat_rounded(plan.bearing, FINE_GRID);
-            hash.eat_rounded(plan.fuel_required, FINE_GRID);
+            // What the burn draws: the throttle the trip was planned under,
+            // which two clients could disagree about if one wired an engine
+            // the other did not see.
+            hash.eat_rounded(plan.dynamics.forward_power, FINE_GRID);
+            hash.eat_rounded(plan.dynamics.backward_power, FINE_GRID);
             hash.eat(plan.target.code() as u64);
             hash.eat(u64::from(plan.docks));
             hash.eat(u64::from(plan.aborting));
             hash.eat(plan.segments.len() as u64);
+        }
+        ShipState::Charging { star, began } => {
+            hash.eat(*star as u64);
+            hash.eat_rounded(*began, FINE_GRID);
         }
         ShipState::CastingOff { station, since } => {
             hash.eat(*station as u64);
@@ -183,6 +190,7 @@ pub fn world_checksum(world: &World) -> u64 {
     // The station's people themselves — the residents' room — are not in
     // here, for the reason the crew's room is only in by its positions.
     hash.eat(world.home as u64);
+    hash.eat(world.home_star as u64);
     hash.eat(world.hostile.len() as u64);
     for &station in &world.hostile {
         hash.eat(station as u64);
@@ -209,6 +217,7 @@ pub fn world_checksum(world: &World) -> u64 {
     for piece in &world.pieces {
         hash.eat(piece.id as u64);
         hash.eat(piece.kind.code() as u64);
+        hash.eat(piece.tier.code() as u64);
         hash.eat_rounded(piece.health as f64, HEALTH_GRID);
         hash.eat(piece.at.code() as u64);
         match piece.at {
@@ -218,6 +227,24 @@ pub fn world_checksum(world: &World) -> u64 {
                 hash.eat(cell as u64);
             }
             Where::Worn { who } => hash.eat(who as u64),
+        }
+    }
+    // The weapons in the hold by tier, the tick box, and what is on the
+    // workbench and how far along: integers throughout. A crew whose
+    // pistol came off the bench at tier two and one whose did not are two
+    // different games.
+    hash.eat(world.guns.len() as u64);
+    for gun in &world.guns {
+        hash.eat(gun.kind.code() as u64);
+        hash.eat(gun.tier.code() as u64);
+    }
+    hash.eat(u64::from(world.auto_upgrade));
+    match world.upgrade {
+        None => hash.eat(u64::MAX),
+        Some(upgrade) => {
+            hash.eat(upgrade.resource as u64);
+            hash.eat(upgrade.to.code() as u64);
+            hash.eat(upgrade.done as u64);
         }
     }
 
@@ -262,6 +289,30 @@ pub fn world_checksum(world: &World) -> u64 {
         for &units in site.delivered.iter().chain(site.carrying.iter()) {
             hash.eat(units as u64);
         }
+    }
+
+    // What the crew know: every node done or not, every lock open or not,
+    // what the AI is on and how far it has got — a crew that knows how to
+    // build a thing and one that does not are two different games. And
+    // which stations still have their key: a key taken is a key nobody
+    // else can take.
+    for &done in world.research.done.iter() {
+        hash.eat(u64::from(done));
+    }
+    for &open in world.research.unlocked.iter() {
+        hash.eat(u64::from(open));
+    }
+    hash.eat(
+        world
+            .research
+            .current
+            .map(|n| n.code() as u64)
+            .unwrap_or(u64::MAX),
+    );
+    hash.eat_rounded(world.research.progress, FINE_GRID);
+    hash.eat(world.station_keys.len() as u64);
+    for &key in &world.station_keys {
+        hash.eat(u64::from(key));
     }
 
     hash.0
