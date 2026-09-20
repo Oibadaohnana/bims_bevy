@@ -18,10 +18,15 @@ use worldgen::Node;
 /// other.
 pub const STEP_MINUTES: f64 = time::MINUTES_PER_SECOND / 60.0;
 
-/// How fast the world will run. One constant, and raising it is not a change
-/// to this step — see the note on `MAX_STEPS_PER_FRAME` in `crates/app/src/screens/game.rs`,
-/// which has to move with it or the top of the range stops being reachable.
-pub const TOP_SPEED: u32 = 24;
+/// A day a minute: the speed the room's own slider tops out at, and the one
+/// everything above was tuned against.
+pub const DAY_SPEED: u32 = 24;
+
+/// How fast the world will run: twice that, a day every half minute. One
+/// constant, and raising it is not a change to this step — see the note on
+/// `MAX_STEPS_PER_FRAME` in `crates/app/src/screens/game.rs`, which has to
+/// move with it or the top of the range stops being reachable.
+pub const TOP_SPEED: u32 = 48;
 
 /// How far the crew can see with their own eyes.
 ///
@@ -90,7 +95,7 @@ pub const RESIDENT_MEDKITS: u32 = 1;
 /// one more a crewmate, and doubled for every half of the crew's starting
 /// worth their worth has grown by since, up to [`ENEMIES_MAX`]. So a rich
 /// crew finds every enemy's dock harder than a poor one does.
-pub const ENEMIES_BASE: u32 = 2;
+pub const ENEMIES_BASE: u32 = 1;
 /// The most an enemy station ever arms. The room sleeps at most as many
 /// as it has bunks — a station's quarters hold a handful, the arena's a
 /// garrison — and past this it is a crowd, and every step of it is paid
@@ -106,7 +111,7 @@ pub const ARENA_SIDE: u32 = 72;
 pub const ARENA_BUNK_COLUMNS: u32 = 4;
 /// How many more enemies the arena arms over [`crate::station::enemies_of`]:
 /// what `World::reinforcements` is set to by the `combat` command, so a
-/// crew of five meets thirteen.
+/// crew of five meets twelve.
 pub const ARENA_REINFORCEMENTS: u32 = 6;
 
 /// How many mercenaries the `test` command's dock has for hire at the
@@ -216,3 +221,31 @@ pub const HAUL_LOAD: u32 = 20;
 /// by `upgrade_sessions_make_a_day`.
 pub const UPGRADE_SESSION_MINUTES: f64 = time::HOUR;
 pub const UPGRADE_SESSIONS: u32 = 24;
+
+/// A planet's surface — a rocky planet's or an ice world's — is a place
+/// the ship lands at: a settlement laid out on the ground as a station is
+/// laid out in a hull (`crate::surface`, `crate::station::Plan::Surface`).
+/// This many tiles across, a landing pad at its west edge and two
+/// buildings on the ground beside it — the trading house, where the
+/// settlement's people live and trade, and the watch house, where its
+/// guard stands looking out — with the ground between them lit by
+/// standing lights. Bigger than any station: the ground is open, and it
+/// is the beginning of a town.
+pub const SURFACE_SIDE: u32 = 56;
+
+/// How many people live at a settlement: the trader and the guard.
+pub const SURFACE_RESIDENTS: u32 = 2;
+
+/// How high over a planet a landing begins its descent and a lift-off
+/// ends, in world units: where a trip to the body ends, so a ship that
+/// has just lifted off is exactly where one that has just arrived is.
+/// A landing slides to this point straight over the planet first and
+/// comes down from there — the ship approaches from the top — and a
+/// lift-off climbs straight up to it.
+pub const LANDING_HEIGHT: f64 = flight::data::ARRIVAL_RADIUS_BODY;
+
+/// How long a landing and a lift-off take, in game minutes, read off the
+/// clock the way a docking is (`World::come_alongside`, `World::cast_off`).
+/// Longer than a docking: the planet has to grow under the ship.
+pub const LAND_MINUTES: f64 = 8.0;
+pub const LIFT_MINUTES: f64 = 6.0;

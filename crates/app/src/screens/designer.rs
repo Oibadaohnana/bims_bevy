@@ -31,11 +31,13 @@ use world::world::Command;
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui, zoom_factor};
 use crate::crew::{GearOrder, ResearchOrder};
 use crate::format::euros;
+use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::settings::{Sheet, settings_sheet};
 use crate::shapes::View;
 use crate::sound::Sounds;
-use crate::{Screen, theme};
+use crate::{Screen, icons, theme};
+use economy::Money;
 
 use super::builder::Settings;
 
@@ -302,6 +304,32 @@ impl Net {
                         Order::Gear(GearOrder::Discard { who, cell }) => {
                             Command::Discard { slot, who, cell }
                         }
+                        Order::Gear(GearOrder::Arrange {
+                            class,
+                            id,
+                            x,
+                            y,
+                            turned,
+                        }) => Command::Arrange {
+                            slot,
+                            class: class.code(),
+                            id,
+                            x,
+                            y,
+                            turned,
+                        },
+                        Order::Gear(GearOrder::Repack {
+                            who,
+                            cell,
+                            to,
+                            turned,
+                        }) => Command::Repack {
+                            slot,
+                            who,
+                            cell,
+                            to,
+                            turned,
+                        },
                         Order::Gear(GearOrder::Loot { who, source, cell }) => Command::Loot {
                             slot,
                             who,
@@ -343,6 +371,8 @@ pub struct DesignerScreen {
     pub net: Net,
     /// Something said for a moment: a refusal.
     said: Option<(String, f64)>,
+    /// What is in the station panel's cart, not yet bought or sold.
+    cart: Cart,
     /// A middle-drag, panning: where the pointer was last.
     pan_from: Option<Vec2>,
     /// The Esc sheet, if it is up, and which page.
@@ -379,6 +409,7 @@ fn open(
                 players: 1,
             },
             said: None,
+            cart: Cart::new(),
             pan_from: None,
             sheet: None,
             size: Vec2::ZERO,
@@ -414,6 +445,7 @@ fn open(
             players: session.editor.players,
         },
         said: None,
+        cart: Cart::new(),
         pan_from: None,
         sheet: None,
         size: Vec2::ZERO,
@@ -457,10 +489,12 @@ fn frame(
     mut next: ResMut<NextState<Screen>>,
     time: Res<Time>,
     mut sounds: ResMut<Sounds>,
+    mut bindings: ResMut<Keys>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
     let session = &mut session.0;
+    let keys_now = *bindings;
     let now = ctx.input(|i| i.time);
     let dt = time.delta_secs().min(MAX_FRAME_DT);
     let mut root = root_ui(&ctx);
@@ -562,14 +596,21 @@ fn frame(
 
     // --- what is wrong with it, and the station ------------------------------
     let mut accept_clicked = false;
-    let mut trade: Option<(u32, u32, bool)> = None;
+    let mut trade: Vec<(u32, u32, bool)> = Vec::new();
     let mut focus: Option<usize> = None;
     egui::Panel::right("checks")
-        .default_size(300.0)
+        .default_size(420.0)
         .show(&mut root, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 theme::heading(ui, "Station");
-                trade = trade_rows(ui, session, editable, |s, id| s.cargo(id));
+                trade = trade_rows(
+                    ui,
+                    session,
+                    &mut screen.cart,
+                    editable,
+                    editable,
+                    |s, id| s.cargo(id),
+                );
                 theme::heading(ui, "Checks");
                 focus = issue_rows(ui, session);
                 theme::heading(ui, "Crew");
@@ -611,13 +652,21 @@ fn frame(
         });
     session.editor.focus = focus;
 
-    if let Some((resource, units, buying)) = trade {
+    // The cart goes as one lot, sells first; the first refusal is what is
+    // said, and the rest of the lot still goes — a line that fits fits.
+    let mut refused = None;
+    for (resource, units, buying) in trade {
         let done = if buying {
             screen.net.buy(session, resource, units)
         } else {
             screen.net.sell(session, resource, units)
         };
-        screen.said = (!done.ok).then(|| (edit_line(done.why).to_string(), now + SAID_SECONDS));
+        if !done.ok && refused.is_none() {
+            refused = Some(done.why);
+        }
+    }
+    if let Some(why) = refused {
+        screen.said = Some((edit_line(why).to_string(), now + SAID_SECONDS));
     }
     if accept_clicked {
         let mine = session.editor.accepted(screen.net.slot);
@@ -696,7 +745,7 @@ fn frame(
 
     if keys {
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::R) {
+            if keys_now.pressed(i, Action::Turn) {
                 session.editor.rotate_ghost();
             }
             if i.key_pressed(egui::Key::Escape) {
@@ -705,23 +754,27 @@ fn frame(
             }
             let step = PAN_SPEED * dt;
             let mut d = Vec2::ZERO;
-            if i.key_down(egui::Key::A) {
+            if keys_now.down(i, Action::PanLeft) {
                 d.x += step;
             }
-            if i.key_down(egui::Key::D) {
+            if keys_now.down(i, Action::PanRight) {
                 d.x -= step;
             }
-            if i.key_down(egui::Key::W) {
+            if keys_now.down(i, Action::PanUp) {
                 d.y += step;
             }
-            if i.key_down(egui::Key::S) {
+            if keys_now.down(i, Action::PanDown) {
                 d.y -= step;
             }
             if d != Vec2::ZERO {
                 session.pan(d.x, d.y);
             }
         });
-    } else if screen.sheet.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+    } else if screen.sheet.is_some()
+        && keys_now.listening.is_none()
+        && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+    {
+        // Esc while the controls page waits on a key is that page's.
         screen.sheet = None;
     }
 
@@ -774,15 +827,21 @@ fn frame(
             {
                 ui.label(egui::RichText::new(said).color(theme::WARN));
             }
+            let key = |a: Action| keys_now.key(a).symbol_or_name();
             ui.label(
-                egui::RichText::new(
-                    "R turns · drag to fill · right-click peels the top part, again for the next · middle-drag or WASD to pan · wheel to zoom · Esc for the keys",
-                )
+                egui::RichText::new(format!(
+                    "{} turns · drag to fill · right-click peels the top part, again for the next · middle-drag or {}{}{}{} to pan · wheel to zoom · Esc for the keys",
+                    key(Action::Turn),
+                    key(Action::PanUp),
+                    key(Action::PanLeft),
+                    key(Action::PanDown),
+                    key(Action::PanRight),
+                ))
                 .small()
                 .color(theme::MUTED),
             );
         });
-    settings_sheet(&ctx, &mut screen.sheet, &mut sounds.mix);
+    settings_sheet(&ctx, &mut screen.sheet, &mut sounds.mix, &mut bindings);
 
     // --- painting --------------------------------------------------------------
     let view = View {
@@ -820,16 +879,17 @@ fn commit_drag(screen: &mut DesignerScreen, session: &mut Session, now: f64) {
             .collect()
     } else {
         let kind = session.editor.tool.code();
-        let rotation = session.editor.ghost.code();
-        session
-            .editor
+        let editor = &session.editor;
+        editor
             .drag_tiles()
             .into_iter()
             .map(|(x, y)| Message::Place {
                 kind,
                 x,
                 y,
-                rotation,
+                // Each tile's own turn: a run of wall lights along a
+                // bulkhead hangs from it tile by tile.
+                rotation: editor.turn_at((x, y)).code(),
             })
             .collect()
     };
@@ -871,37 +931,213 @@ fn commit_drag(screen: &mut DesignerScreen, session: &mut Session, now: f64) {
     };
 }
 
-/// The station's goods and the ship's holds: one row per resource — what
-/// it costs, how much is aboard, and the buttons that move it — then how
-/// full each hold is. `aboard` says where the count comes from. Returns a
-/// deal the player asked for, if any.
+/// What a player means to trade, before any of it is: a line a resource,
+/// units to buy (positive) or to sell (negative), summed and priced under
+/// the rows and sent as one lot on Confirm — a deal is looked over before
+/// it is done, the way a market's is. The app's own: nothing moves in the
+/// hold or the money until the orders go, and the rules crates never see
+/// a cart, so a line that stopped fitting (somebody spent the money,
+/// something was stowed) is refused where it always was.
+pub struct Cart {
+    /// Indexed by `ResourceId`.
+    lines: Vec<i32>,
+}
+
+/// Why the cart cannot go as it stands, worst first.
+enum Short {
+    Money(Money),
+    Room(shipdesign::Storage, u32),
+}
+
+impl Cart {
+    pub fn new() -> Cart {
+        Cart {
+            lines: vec![0; ResourceId::ALL.len()],
+        }
+    }
+
+    fn line(&self, id: ResourceId) -> i32 {
+        self.lines.get(id as usize).copied().unwrap_or(0)
+    }
+
+    fn add(&mut self, id: ResourceId, by: i32) {
+        if let Some(line) = self.lines.get_mut(id as usize) {
+            *line = line.saturating_add(by);
+        }
+    }
+
+    fn set(&mut self, id: ResourceId, to: i32) {
+        if let Some(line) = self.lines.get_mut(id as usize) {
+            *line = to;
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.lines.iter_mut().for_each(|l| *l = 0);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.lines.iter().all(|&l| l == 0)
+    }
+
+    /// Units bought and sold, and what they come to: `(bought, cost,
+    /// sold, earned)`. Saturated rather than refused — a sum too big to
+    /// hold is one the world refuses when it is sent, and the window only
+    /// has to show it.
+    fn totals(&self) -> (u32, Money, u32, Money) {
+        let mut out = (0u32, 0 as Money, 0u32, 0 as Money);
+        for &id in ResourceId::ALL.iter() {
+            let line = self.line(id);
+            let units = line.unsigned_abs();
+            let value = Session::trade_price(id).saturating_mul(units as Money);
+            if line > 0 {
+                out.0 = out.0.saturating_add(units);
+                out.1 = out.1.saturating_add(value);
+            } else if line < 0 {
+                out.2 = out.2.saturating_add(units);
+                out.3 = out.3.saturating_add(value);
+            }
+        }
+        out
+    }
+
+    /// How many units a class of storage gains (or, negative, loses).
+    /// What the cart does to a class, in cells: the stacks each resource
+    /// would be in after, less the stacks it is in now, a footprint each —
+    /// so a buy that tops up a part-full stack costs no cell, and a sale
+    /// frees one only when a stack empties.
+    fn change(&self, session: &Session, class: shipdesign::Storage) -> i64 {
+        ResourceId::ALL
+            .iter()
+            .filter(|&&id| Session::storage_of(id) == class)
+            .map(|&id| {
+                let now = session.cargo(id) as i64;
+                let after = (now + self.line(id) as i64).max(0) as u32;
+                let stacks = |units: u32| {
+                    shipdesign::stacks_of(id, units) as i64 * shipdesign::cells(id) as i64
+                };
+                stacks(after) - stacks(now as u32)
+            })
+            .sum()
+    }
+
+    /// What is in the way of the cart going, if anything: the money it
+    /// wants beyond what there is, or a hold it would overfill and by how
+    /// much. The sells are counted first, as they are sent first, so a
+    /// cart that sells the ore off a shelf to make room for metal fits.
+    fn short(&self, session: &Session) -> Option<Short> {
+        let (_, cost, _, earned) = self.totals();
+        let have = session.remaining().saturating_add(earned);
+        if cost > have {
+            return Some(Short::Money(cost - have));
+        }
+        for &class in shipdesign::Storage::ALL.iter() {
+            let after = session.storage_used(class) as i64 + self.change(session, class);
+            let over = after - session.storage_capacity(class) as i64;
+            if over > 0 {
+                return Some(Short::Room(class, over as u32));
+            }
+        }
+        None
+    }
+
+    /// The deals to send, sells first so the money and the room are there
+    /// for the buys: `(resource index, units, buying)`.
+    pub fn deals(&self) -> Vec<(u32, u32, bool)> {
+        let mut out = Vec::new();
+        for (i, &id) in ResourceId::ALL.iter().enumerate() {
+            let line = self.line(id);
+            if line < 0 {
+                out.push((i as u32, line.unsigned_abs(), false));
+            }
+        }
+        for (i, &id) in ResourceId::ALL.iter().enumerate() {
+            let line = self.line(id);
+            if line > 0 {
+                out.push((i as u32, line.unsigned_abs(), true));
+            }
+        }
+        out
+    }
+}
+
+/// The station's goods and the ship's holds: one row per resource — its
+/// icon, what one of it costs, how much is aboard, the buttons that put
+/// it in the cart or take it out, the cart's line as a number to type
+/// over (bought above zero, sold below), and what that line comes to —
+/// then what the cart comes to, how full each hold would be, and Confirm.
+/// `aboard` says where the count comes from. Rows are edited while
+/// `editable`; Confirm goes while `confirm` too. Returns the deals the
+/// player confirmed, sells first, and empties the cart — or nothing.
 pub fn trade_rows(
     ui: &mut egui::Ui,
     session: &Session,
-    enabled: bool,
+    cart: &mut Cart,
+    editable: bool,
+    confirm: bool,
     aboard: impl Fn(&Session, ResourceId) -> u32,
-) -> Option<(u32, u32, bool)> {
-    let mut deal = None;
-    let left = session.remaining();
-    egui::Grid::new(("goods", enabled))
-        .num_columns(4)
+) -> Vec<(u32, u32, bool)> {
+    // Whether the cart with `id`'s line at `to` would still go.
+    let fits_at = |cart: &Cart, id: ResourceId, to: i32| -> bool {
+        let mut next = Cart {
+            lines: cart.lines.clone(),
+        };
+        next.set(id, to);
+        if to < 0 && to.unsigned_abs() > aboard(session, id) {
+            return false;
+        }
+        next.short(session).is_none()
+    };
+    // Whether the cart with `by` more of `id` in it would still go: the
+    // buttons are greyed a step early rather than a deal refused late.
+    let fits = |cart: &Cart, id: ResourceId, by: i32| -> bool {
+        fits_at(cart, id, cart.line(id).saturating_add(by))
+    };
+    // A number typed into a line is held to what fits, the way the
+    // buttons are: the furthest from `from` (which fit) towards `to`
+    // that still does. Money and room run one way along a line, so the
+    // search can halve. If `from` itself no longer fits — somebody spent
+    // the money since — the typed number stands and the summary says.
+    let held_to = |cart: &Cart, id: ResourceId, from: i32, to: i32| -> i32 {
+        if fits_at(cart, id, to) || !fits_at(cart, id, from) {
+            return to;
+        }
+        let (mut lo, mut hi) = (from as i64, to as i64);
+        while (hi - lo).abs() > 1 {
+            let mid = lo + (hi - lo) / 2;
+            if fits_at(cart, id, mid as i32) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        lo as i32
+    };
+    egui::Grid::new(("goods", editable))
+        .num_columns(7)
+        .min_col_width(icons::INLINE)
         .spacing([8.0, 2.0])
         .show(ui, |ui| {
-            for (i, &id) in ResourceId::ALL.iter().enumerate() {
+            for word in ["", "", PRICE_HEAD, ABOARD_HEAD, "", CART_HEAD, ""] {
+                ui.label(egui::RichText::new(word).small().color(theme::MUTED));
+            }
+            ui.end_row();
+            for &id in ResourceId::ALL.iter() {
                 let sold = session.sold_here(id);
                 let held = aboard(session, id);
-                let class = Session::storage_of(id);
-                let room = session
-                    .storage_capacity(class)
-                    .saturating_sub(session.storage_used(class));
                 let price = Session::trade_price(id);
-                let color = if sold { theme::INK } else { theme::MUTED };
+                let line = cart.line(id);
+                let color = if sold || held > 0 {
+                    theme::INK
+                } else {
+                    theme::MUTED
+                };
+                icons::resource_cell(ui, id);
                 ui.label(egui::RichText::new(resource_name(id)).color(color));
-                ui.label(
-                    egui::RichText::new(euros(price))
-                        .small()
-                        .color(theme::MUTED),
-                );
+                // What one of it costs here, bought or sold: the station's
+                // price list, every line of it, whether it stocks the
+                // thing or only takes it.
+                ui.label(egui::RichText::new(euros(price)).color(color));
                 ui.label(egui::RichText::new(held.to_string()).color(if held > 0 {
                     theme::ACCENT
                 } else {
@@ -910,32 +1146,136 @@ pub fn trade_rows(
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     for step in TRADE_STEPS {
-                        let can = enabled && sold && step as u64 * price <= left && step <= room;
+                        let by = step as i32;
+                        // Taking a sale back is always fine; buying wants
+                        // the station to sell it and the cart to fit.
+                        let can = editable && (line + by <= 0 || sold) && fits(cart, id, by);
                         if ui
                             .add_enabled(can, egui::Button::new(format!("+{step}")).small())
                             .clicked()
                         {
-                            deal = Some((i as u32, step, true));
+                            cart.add(id, by);
                         }
                     }
                     for step in TRADE_STEPS {
-                        let can = enabled && step <= held;
+                        let by = -(step as i32);
+                        let can = editable && fits(cart, id, by);
                         if ui
                             .add_enabled(can, egui::Button::new(format!("−{step}")).small())
                             .clicked()
                         {
-                            deal = Some((i as u32, step, false));
+                            cart.add(id, by);
                         }
                     }
                 });
+                // The cart's line, as a number to type over or drag:
+                // above zero bought, below zero sold. It can go no lower
+                // than what is aboard and no higher than zero where the
+                // station does not stock the thing, and a number beyond
+                // the money or the room is held back to the most that
+                // fits, the way the buttons stop a step early.
+                let line = cart.line(id);
+                let mut typed = line;
+                let lowest = -(held.min(i32::MAX as u32) as i32);
+                let highest = if sold { i32::MAX } else { 0 };
+                let field = ui.add_enabled(
+                    editable,
+                    egui::DragValue::new(&mut typed)
+                        .range(lowest..=highest)
+                        .speed(0.2)
+                        .custom_formatter(|n, _| {
+                            let n = n as i64;
+                            if n > 0 {
+                                format!("+{n}")
+                            } else if n < 0 {
+                                format!("−{}", -n)
+                            } else {
+                                "—".into()
+                            }
+                        })
+                        .custom_parser(|text| {
+                            let text = text.trim().replace('−', "-");
+                            if text.is_empty() || text == "—" {
+                                Some(0.0)
+                            } else {
+                                text.parse::<i64>().ok().map(|n| n as f64)
+                            }
+                        }),
+                );
+                if field.changed() && typed != line {
+                    cart.set(id, held_to(cart, id, line, typed));
+                }
+                // And what that line comes to.
+                let line = cart.line(id);
+                if line == 0 {
+                    ui.label("");
+                } else {
+                    ui.label(
+                        egui::RichText::new(euros(
+                            price.saturating_mul(line.unsigned_abs() as Money),
+                        ))
+                        .small()
+                        .color(if line > 0 {
+                            theme::ACCENT
+                        } else {
+                            theme::CAUTION
+                        }),
+                    );
+                }
                 ui.end_row();
             }
         });
-    ui.add_space(4.0);
+    ui.add_space(6.0);
+
+    // --- what the cart comes to --------------------------------------------
+    let (bought, cost, sold, earned) = cart.totals();
+    let short = cart.short(session);
+    if bought > 0 {
+        ui.label(
+            egui::RichText::new(format!("Buying {bought} for {}", euros(cost)))
+                .small()
+                .color(theme::MUTED),
+        );
+    }
+    if sold > 0 {
+        ui.label(
+            egui::RichText::new(format!("Selling {sold} for {}", euros(earned)))
+                .small()
+                .color(theme::MUTED),
+        );
+    }
+    let money = session.remaining();
+    ui.horizontal(|ui| {
+        if cart.is_empty() {
+            ui.label(egui::RichText::new(CART_EMPTY).color(theme::MUTED));
+        } else if cost >= earned {
+            ui.label(egui::RichText::new(format!("{YOU_PAY} {}", euros(cost - earned))).strong());
+        } else {
+            ui.label(
+                egui::RichText::new(format!("{YOU_EARN} {}", euros(earned - cost)))
+                    .strong()
+                    .color(theme::ACCENT),
+            );
+        }
+    });
+    let after = money.saturating_add(earned).saturating_sub(cost);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(MONEY_AFTER).small().color(theme::MUTED));
+        ui.label(egui::RichText::new(euros(after)).small().color(
+            if matches!(short, Some(Short::Money(_))) {
+                theme::WARN
+            } else {
+                theme::INK
+            },
+        ));
+    });
     for &class in shipdesign::Storage::ALL.iter() {
         let total = session.storage_capacity(class);
         let used = session.storage_used(class);
-        let full = total > 0 && used >= total;
+        let change = cart.change(session, class);
+        let would = (used as i64 + change).max(0) as u32;
+        let full = total > 0 && would >= total;
+        let over = would > total;
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(
@@ -947,14 +1287,67 @@ pub fn trade_rows(
                 .small()
                 .color(theme::MUTED),
             );
-            ui.label(
-                egui::RichText::new(format!("{used} / {total}"))
-                    .small()
-                    .color(if full { theme::WARN } else { theme::INK }),
-            );
+            let words = if change == 0 {
+                format!("{used} / {total}")
+            } else {
+                format!("{used} / {total}, {would} after")
+            };
+            ui.label(egui::RichText::new(words).small().color(if over {
+                theme::WARN
+            } else if full {
+                theme::CAUTION
+            } else {
+                theme::INK
+            }));
         });
     }
-    deal
+    match short {
+        Some(Short::Money(by)) => {
+            ui.label(
+                egui::RichText::new(format!("{SHORT_BY} {}.", euros(by)))
+                    .small()
+                    .color(theme::WARN),
+            );
+        }
+        Some(Short::Room(class, by)) => {
+            // The lockers count cells, a thing's footprint each; the rest
+            // count units.
+            let what = if class == shipdesign::Storage::Locker {
+                format!("{by} more cells")
+            } else {
+                format!("{by} more")
+            };
+            ui.label(
+                egui::RichText::new(format!(
+                    "{NO_ROOM_FOR} {what} on the {}.",
+                    STORAGE_NAMES
+                        .get(class as usize)
+                        .copied()
+                        .unwrap_or("storage")
+                        .to_lowercase()
+                ))
+                .small()
+                .color(theme::WARN),
+            );
+        }
+        None => {}
+    }
+    ui.add_space(4.0);
+    let mut deals = Vec::new();
+    ui.horizontal(|ui| {
+        let can = editable && confirm && !cart.is_empty() && short.is_none();
+        if theme::big(ui, CONFIRM_TRADE, can).clicked() {
+            deals = cart.deals();
+            cart.clear();
+        }
+        if ui
+            .add_enabled(editable && !cart.is_empty(), egui::Button::new(CLEAR_CART))
+            .clicked()
+        {
+            cart.clear();
+        }
+    });
+    deals
 }
 
 /// One row per issue, worst first. Resting on a row rings the tiles it
@@ -993,4 +1386,58 @@ fn issue_rows(ui: &mut egui::Ui, session: &Session) -> Option<usize> {
         ui.label(egui::RichText::new("Nothing wrong with it.").color(theme::ACCENT));
     }
     focus
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A cart is a list of what to buy and sell, priced off the same table
+    /// the world charges from, and it goes sells first: the money and the
+    /// shelf room a sale frees are there for the buys behind it.
+    #[test]
+    fn a_cart_prices_its_lines_and_sells_before_it_buys() {
+        let mut cart = Cart::new();
+        assert!(cart.is_empty());
+        assert!(cart.deals().is_empty());
+        cart.add(ResourceId::Ore, 10);
+        cart.add(ResourceId::Metal, -10);
+        cart.add(ResourceId::Tofu, 3);
+        cart.add(ResourceId::Tofu, -3);
+        assert!(!cart.is_empty());
+        let (bought, cost, sold, earned) = cart.totals();
+        assert_eq!((bought, sold), (10, 10));
+        assert_eq!(cost, 10 * Session::trade_price(ResourceId::Ore));
+        assert_eq!(earned, 10 * Session::trade_price(ResourceId::Metal));
+        // Ore and metal share a class, and the change to it is in cells,
+        // a stack a footprint: on an empty hold ten ore bought is a stack
+        // laid and ten metal sold is nothing gone, so the class is one
+        // cell up; three tofu bought and three sold is nought; three tofu
+        // on their own would be a block of four by four.
+        let session = Session::design(12, 10_000, 1, 0, 1, 0, None, Preset::Playtest, 800.0, 600.0);
+        assert_eq!(session.cargo(ResourceId::Ore), 0, "an empty hold");
+        assert_eq!(
+            cart.change(&session, Session::storage_of(ResourceId::Ore)),
+            1
+        );
+        assert_eq!(
+            cart.change(&session, Session::storage_of(ResourceId::Tofu)),
+            0
+        );
+        let mut block = Cart::new();
+        block.add(ResourceId::Tofu, 3);
+        assert_eq!(
+            block.change(&session, Session::storage_of(ResourceId::Tofu)),
+            16
+        );
+        assert_eq!(
+            cart.deals(),
+            vec![
+                (ResourceId::Metal as u32, 10, false),
+                (ResourceId::Ore as u32, 10, true),
+            ]
+        );
+        cart.clear();
+        assert!(cart.is_empty());
+    }
 }

@@ -53,7 +53,7 @@
 //! whole recipe leaves the hold in the one call that puts the part down.
 //! Nothing calls the second yet.
 
-use economy::{Money, storage};
+use economy::Money;
 use physics::ResourceId;
 
 use crate::budget::Budget;
@@ -185,9 +185,7 @@ pub fn deconstruct_to_cargo(design: &ShipDesign, part_id: u32) -> Result<ShipDes
     // and components are both shelved, so what the first one takes up is
     // room the second one has not got.
     for &(id, units) in kind.def().recipe {
-        let class = storage(id);
-        let room = next.capacity(class).saturating_sub(next.stored(class));
-        if units > room {
+        if !next.has_room(id, units) {
             return Err(EditError::NoRoomAboard);
         }
         next.cargo[id as usize] += units;

@@ -511,6 +511,11 @@ pub struct Layout {
     /// deck — `PartDef::blocks_sight` is the rule. The doors are their own
     /// list, since a door is in the way only while it is shut.
     pub opaque: Vec<Rect>,
+    /// Which of `opaque` are furniture rather than wall — the tall parts,
+    /// `shipdesign::is_wall` failing — so the light picture can shade
+    /// behind a cabinet softly where it blacks out behind a bulkhead.
+    /// `Sight::set_tall`.
+    pub tall: Vec<Rect>,
     /// Low cover — every sandbags part (`shipdesign::is_cover`): nothing
     /// to a walk or a line of sight, but a body close behind ducks a shot
     /// from across it. `Sight::covered` is the rule.
@@ -520,6 +525,11 @@ pub struct Layout {
     /// which is lit throughout; a designed deck with none is dark, and
     /// `Sight` says what that costs.
     pub lights: Vec<crate::sight::Light>,
+    /// The comforts — every plant and picture, `shipdesign::comfort` —
+    /// each where it stands and what it lifts the deck round it by.
+    /// `Filth::set_comforts` lays them over the tiles; none in the classic
+    /// room.
+    pub comforts: Vec<crate::filth::Comfort>,
     /// Every tile of the hull, frame and all: what a body outside walks
     /// round, and what the fog of what the crew cannot see is drawn over.
     /// Empty in the classic room, which has no outside and whose fog
@@ -1085,7 +1095,10 @@ impl Room {
         dishwasher.body = Some(layout.dishwasher);
         let mut sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &layout.hull);
         sight.set_cover(&layout.cover);
+        sight.set_tall(&layout.tall);
         sight.set_lights(&layout.lights);
+        let mut filth = Filth::new(interior);
+        filth.set_comforts(&layout.comforts);
 
         Room {
             bounds: layout.bounds,
@@ -1149,7 +1162,7 @@ impl Room {
             mined: Vec::new(),
             walks_done: 0,
             crafted: Vec::new(),
-            filth: Filth::new(interior),
+            filth,
             sight,
             bath: Bath::aboard(layout.toilet, layout.sink),
             more_baths: layout
@@ -1218,6 +1231,9 @@ impl Room {
         if interior != self.interior {
             self.filth = self.filth.resized(interior);
         }
+        // The comforts are laid afresh: a plant built is a lift gained, and
+        // one taken down a lift gone.
+        self.filth.set_comforts(&layout.comforts);
         self.interior = interior;
         let chairs = layout_chairs(&layout);
         self.others = layout.others;
@@ -1225,6 +1241,7 @@ impl Room {
         // first time anybody looks.
         self.sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &layout.hull);
         self.sight.set_cover(&layout.cover);
+        self.sight.set_tall(&layout.tall);
         self.sight.set_lights(&layout.lights);
         // The doors, by opening: one that was there keeps its state, one
         // that is new starts shut.
@@ -2184,6 +2201,9 @@ impl Room {
 
     pub fn update(&mut self, dt: f32) {
         self.time += dt;
+        // The lamps' flicker — a shot one for a moment, a failing one now
+        // and then. See `sight::Lamp`.
+        self.sight.tick_lamps(dt);
         for bath in core::iter::once(&mut self.bath).chain(&mut self.more_baths) {
             if let Some(cue) = bath.update(dt) {
                 self.cues.push(Cued {

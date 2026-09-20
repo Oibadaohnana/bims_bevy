@@ -772,7 +772,7 @@ the part itself. `under_way_the_helm_is_a_job_and_somebody_takes_it` in
 `crates/world/src/tests.rs` pins it — and note it has to `select_group(1)`
 before `order_move`, which refuses an unselected James.
 
-## Washing is its own need, and it is not Cleanliness
+## Washing is its own need, and it is not Surroundings
 
 `Need::Hygiene` — "Washing" on the panel, index 5, with a trigger row of
 its own in `TRIGGER_NEEDS` — drains on the waking day like food and comes
@@ -781,7 +781,7 @@ is `Kind::Shower`: `GoToShower`, then `Shower` for `SHOWER_MINUTES` under
 `Exclusive::Shower`, restoring the need and `ch.wash(1.0)` — the whole of
 the Bim's own filth off, which the basin never managed. `JOB_SHOWER = 17`.
 
-It is deliberately **not** a clock on `Need::Cleanliness`. That one is the
+It is deliberately **not** a clock on `Need::Surroundings`. That one is the
 *deck* — it follows the mess round the Bim — and the stages of being sick
 in `filth::Ordeal` hang off it reaching nothing, so a time drain on it
 would have a crew with nowhere to wash falling ill on a spotless deck.
@@ -794,6 +794,41 @@ asks `room.shower.is_some()` itself** — any other errand whose station is
 optional needs the same guard.
 `a_bim_aboard_takes_a_shower_when_a_day_s_grime_has_caught_up_with_it` in
 the world tests empties the need by hand rather than waiting a day for it.
+
+**An accident empties it.** `Needs::soiled(on_bim)` in `mind_the_mess`,
+beside `Character::soil`: the washing need drops to whatever share of
+the Bim the mess left clean — nought for a fouling, just over half for a
+wetting — and never rises for it, so a Bim that has soiled itself goes
+for the shower next rather than at the end of the day, and comes out
+with its own filth off. The deck under it is still the broom's.
+`an_accident_empties_the_washing_need_along_with_covering_the_bim` in
+`game::tests` and `a_bim_that_soils_itself_goes_for_a_shower` in the
+world's pin it (a poisoned Bim at the extreme urge goes at once, which is
+how both force the accident).
+
+## Surroundings is the deck round the Bim, and a comfort lifts it
+
+`Need::Surroundings` (index 3, "Surroundings" on the panel; it was
+`Cleanliness` until September 2026) has no clock: `Filth::around(at)` is
+the average of the tiles within `REACH` of the Bim **plus the lift of
+the tile it stands on**, and `Filth::grinding` runs the need off that
+and the Bim's own filth as before. The lift is `Filth::set_comforts`, a
+`Vec<f32>` a tile beside the scores: every `filth::Comfort { at, lift,
+tiles }` in the layout adds its lift to the square block round it,
+summed where two overlap and capped at `LIFT_CAP` (a clean tile's 10),
+laid afresh from the whole list on `Room::from_layout` and every
+`relayout` — a plant built is a lift gained, one taken down a lift gone
+— and carried across a `resized` deck by position like the stains. It is
+a layer *over* the mess, not a change to it: no broom sweeps it, no
+spatter dents it, `at`, `depth_at`, `dirty_share` and `worst_tile` never
+see it, and a fouled tile under a plant is still fouled — only the
+average the need reads is higher there. `aboard::layout_of` makes the
+list off `shipdesign::comfort` (the small plant, the big plant, the
+picture; `crates/shipdesign/CLAUDE.md`), at each part's centre; the
+classic room has none. `somewhere_cleaner` reads `around`, so a Bim
+fleeing a mess drifts towards the plants.
+`a_plant_lifts_the_surroundings_and_the_mess_stays_underneath` in
+`game::tests` pins the reach, the cap and the mess underneath.
 
 ## A meal is judged by the mess round the hob, not by the stains it makes
 
@@ -1104,16 +1139,27 @@ for the doors themselves. The classic room's opaque is the heads' walls.
   Neutral, Hostile — on the room's own tiles (`Game::set_stance`) and on a
   foreign box (`Game::set_foreign`, the station's box on a joined deck;
   both kept on `Game` and put back on the fresh grid at `relayout`). A
-  friendly tile unseen is the semi `FOG`; a stranger's is `FOG_BLACK`,
-  or `FOG_GREY` within `RING` (3) tiles of a seen one — `near`, dilated
-  in two passes after each trace and **sticky**: explored stays grey.
-  `draw` is three passes of the run-merging, one a veil; an opaque
-  rectangle is grown by `OVERLAP` so the feathered seams between black
-  runs do not show as lines. `Game::veil_at` reads it for the probes.
-  Under `Fog::All` a stranger's room is black entirely, which is what a
-  hostile station alongside looks like; beyond the residents' range the
-  ship painter keeps drawing a stranger as its far plate
-  (`HULL_UNKNOWN`) so nothing is revealed at fifty tiles.
+  friendly tile unseen is the semi `FOG`; a stranger's is `FOG_BLACK`
+  where no line of sight has ever reached, `FOG_GREY` where one has and
+  none does now — `explored`, OR'd from `seen` after each trace and
+  **sticky**: what has been looked at stays grey, and only the bodies in
+  it are forgotten. There is no ring: a wall is seen from the room it
+  walls, so a room's outline comes in as its inside is looked at, and
+  nothing behind a bulkhead shows until somebody has seen past it (the
+  three-tile ring that used to reveal the next room's console through
+  the wall is gone, September 2026). Under `Fog::Crew` the picture is
+  the light map's (below); `draw` is the tile passes for `Fog::All` —
+  three passes of the run-merging, one a veil; an opaque rectangle is
+  grown by `OVERLAP` so the feathered seams between black runs do not
+  show as lines. `Game::veil_at` reads the tile rule for the probes, and
+  `Game::observe_from_for_probe(eyes)` traces from wherever a probe says
+  — from nowhere, to see what is remembered. Under `Fog::All` a
+  stranger's room is black entirely, which is what a hostile station
+  alongside looks like; beyond the residents' range the ship painter
+  keeps drawing a stranger as its far plate (`HULL_UNKNOWN`) so nothing
+  is revealed at fifty tiles.
+  `a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have`
+  in the world tests pins it.
 - **A body on somebody else's deck stays drawn for `SEEN_FOR`** (2 s)
   after the world last said it was in view: `set_seen` re-arms
   `seen_for` per body, `body_seen` reads it, `simulate` counts it down.
@@ -1477,6 +1523,20 @@ prints the curves itself.
   as it comes. `a_hostile_room_chases_what_it_last_saw_and_forgets_it_after_a_minute`
   pins it; the chase onto the ship is the world's
   (`an_enemy_follows_the_crew_member_it_saw_onto_the_ship_and_is_put_ashore_when_it_leaves`).
+  **And the airlock is watched** (since September 2026): `Game::watched`
+  is a spot the room's people have eyes on whatever they are doing —
+  `set_watched(Some(p))`, which the world sets to the tile just inside
+  the station's door while the ship is docked (`Residents::join`) and
+  the room otherwise has none — and `set_hostiles` counts a target
+  within `AIRLOCK_WATCH` (2.5) tiles of it as *seen*, not stale, with
+  nobody looking. A boarding is therefore what puts a station's people
+  at war, at the door, rather than the moment one of them happens to
+  look down the right corridor; a crew that stays aboard its own ship
+  (the ship's airlock is three and a half tiles from the spot) is still
+  nobody to them. A shot still wants real sight, so nobody fires at the
+  door from across the station. `a_hostile_room_s_airlock_is_watched_and_a_boarder_at_it_is_seen_by_nobody_in_particular`
+  (game) and `a_hostile_station_notices_a_boarding_at_its_airlock_with_nobody_looking`
+  (world, every resident dead so no eye but the airlock's) pin it.
   `an_enemy_stands_where_its_weapon_beats_the_target_s` (combat) and
   `a_bot_with_a_shot_stands_still_and_the_player_s_bim_fires_on_the_move_at_half_the_odds`
   (game) pin the two.
@@ -1581,19 +1641,38 @@ room only ever holds instances — on a body, or in its pack.
   applied by the room itself and the world never sees the outcome.
   `armour_health(who)` is the unbroken worn pieces summed — the blue bar
   on the end of the green one — and `part_bonus(who, part)` one part's.
-- **The pack is `Gear::pack`, `[Option<Item>; PACK_CELLS]`** (nine, row
-  by row), an `Item` being `Armour(Piece)`, `Weapon(Weapon)` or
-  `Stack(resource code)` — one unit a cell. `Game::give(who, cell, item)`
-  (the first free cell for `None`) and `Game::take(who, cell)` are the
+- **The pack is `Gear::pack`, `[Option<Item>; PACK_CELLS]`** (seven by
+  seven since feature 49, September 2026, row by row), an `Item` being
+  `Armour(Piece)`, `Weapon(Weapon)`, `Stack(resource code)` or `Key(tier)`
+  — **each thing kept in the cell its top-left corner is in and reaching
+  over its `Item::footprint()`**, turned a quarter round where
+  `Gear::turned[cell]` says, the way the world lays the lockers out. The
+  footprint table is the world's (`economy::footprint`) said again by
+  resource code, since this crate knows no `physics`, and
+  `the_pack_lays_things_by_the_same_footprints_as_the_lockers` in the
+  world pins the two together; a key is two tall, a rifle seven along, a
+  vest four by four. `Gear::head_of(cell)` is the corner of whatever
+  reaches over a cell, `occupied` whether anything does,
+  `fits_turned(cell, item, turned, ignoring)` the one rule (on the grid,
+  no wrap round the edge, nothing under it bar the thing being moved),
+  `first_fit` row by row unturned everywhere before turned anywhere,
+  `put` lays a thing the way round it fits, `take_out` takes it by any
+  of its cells, and `rearrange(cell, to, turned)` is a drag —
+  `Game::rearrange`, the world's `Command::Repack`.
+  `a_thing_lies_over_its_footprint_and_turns_to_fit` pins it. **`Gear`'s
+  `Default` is by hand**: an array of forty-nine has none of its own.
+  `Game::give(who, cell, item)`
+  (the first place it fits for `None`) and `Game::take(who, cell)` are the
   world's two halves of a fetch and a stow; **`take` refuses a broken
   piece** and leaves it in the cell, because the hold counts pieces as
   resources and a broken one is worth nothing there — `Game::discard`
   is the only way out for it. `Game::equip(who, cell)` puts a piece on
-  the part it is cut for and drops what was worn back into that cell
-  (a weapon — `Item::Weapon(weapon)`, any of the five at any tier — swaps with the
-  hand; a stack is refused), returning what
-  came off; `Game::unequip(who, part)` takes it off into the first free
-  cell. Both refuse a dead Bim; neither cares where the Bim stands —
+  the part it is cut for and drops what was worn back into the cells it
+  left — or the first place it fits, and **refuses the whole swap when
+  nowhere does**, so nothing is ever lost — (a weapon — `Item::Weapon(weapon)`,
+  any of the five at any tier — swaps with the hand; a stack is refused),
+  returning what came off; `Game::unequip(who, part)` takes it off into
+  the first place it fits. Both refuse a dead Bim; neither cares where the Bim stands —
   reach is the world's check (`Game::within_reach(who, container,
   tiles)` and `container_frame` are there for it).
 - **The picture is `Character::set_worn([Option<Worn>; 3])`**, `Worn {
@@ -1888,7 +1967,14 @@ are not like the other chains:
   Bim's own spot for itself, else the nearest free cell a tile from the
   patient towards the helper, and `blocked` when the patient has no
   position or no route). Picked as the walk is entered, so a chain picked
-  back up off the queue walks to where the patient has got to.
+  back up off the queue walks to where the patient has got to. **And
+  the walk follows a patient that moves** (since September 2026):
+  `Task::patient_at` is where the patient stood when the walk was
+  planned, and `Task::update` re-`enter`s `GoToPatient` — a fresh
+  stand and route from where the patient is now — the moment it is
+  more than `FOLLOW_SLACK` (1.5) tiles from there. A route is planned
+  once everywhere else; this is the one walk whose destination is a
+  body that runs from a fight, and it used to arrive at the empty spot.
 - **The room says, the game dresses.** `Dress`'s `leave` pushes
   `(helper, patient, part)` onto `Room::dressed` — the helper too,
   because by the time the game looks its chain is finished and gone —
@@ -1976,6 +2062,30 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   player's own recruited Bim never does, being the player's. The whole
   doctoring errand is holstered (`dressing` in `tick_combat` covers the
   walk now), which is also what keeps the tactics off it.
+  **A crewmate is doctored only in the calm** (since September 2026):
+  `Game::calm` is three things at once — `Combat::lull()` (seconds
+  since anything was fired or landed in this room, either side's: `fire`,
+  `shoot`, `brawl` and `struck` set it to nought, `Combat::age` counts
+  it up every step of `tick_combat`, `f32::MAX` in a fresh room) at
+  least `CALM_AFTER` (20 s); `enemy_unseen_for` (seconds since any of the
+  room's living, waking people on the deck had a target in sight — in a
+  hostile room, since any target was a sighting rather than stale, the
+  airlock's eyes counting) at least `CALM_AFTER`; and no enemy within
+  `CALM_RANGE` (20) tiles of any of them (`enemy_within`, against the
+  targets as handed — the crew's room knows every enemy's position, a
+  hostile room its beliefs). `medical_on_offer` asks it **after** the
+  helper's own bandage and before either kind of care for anybody else,
+  so a wound of its own is still dressed on the spot whenever it has
+  nothing in its own sight, and a crewmate is walked over to only when
+  the fight has gone quiet — not the fight's end, which nobody in the
+  room can know, but twenty seconds of it. Both rooms' people, so a
+  hostile station's stop patching each other under fire too. The
+  player's explicit `bandage`/`treat` orders are not gated: the menu is
+  the player's call.
+  `a_crewmate_is_doctored_only_twenty_seconds_after_the_last_shot_sighting_and_enemy_near`
+  pins the three clocks one at a time — an enemy hidden in the heads
+  (the room is under twenty tiles across), a hostile bolt fired at the
+  floor, a sighting that ends — and the own wound bound regardless.
   **The kit is fetched.** `Kind::Treat` is `GoToKit → TakeKit →
   GoToPatient → Dress`: `task::kit_stand` picks the nearest of
   `Room::kit_stands` — the use spots of every container that takes a
@@ -2016,6 +2126,32 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   Bim like a recruited one; the enemy gone, it stops where it is and the
   queue picks up. `a_dying_bim_runs_from_where_the_enemy_are_and_does_not_shoot`
   pins both Bims.
+  **And a crew member merely hurt runs too** (since September 2026):
+  `Health::is_hurt` — an open wound, blood under `SLOWED_AT`, or dying
+  — makes `is_fleeing` true for a crew member that is **not the
+  player's own** and not a hostile room's; the player's Bim walks where
+  it is sent unless it is dying, and a garrison that ran at every
+  scratch would be a chase and not a fight. Before that a wounded bot
+  ran `plan_stand` like a whole one and walked *towards* the enemy for
+  its stand. Two things keep the run from being a bleed-out:
+  - **It binds its own wound where it stands once out of sight.** The
+    medical row's own-wound case (`medical_on_offer`, off `tick_bim`'s
+    `HIGHEST` interruption) is not gated on fleeing, and `tick_combat`
+    leaves a fleeing Bim's doctoring chain (`dressing`) alone while
+    `sees_any` is false — the run waits for the hands to come off —
+    and interrupts it and runs on the moment an enemy comes into view.
+    Dressed, it is not hurt, not fleeing, and back on `plan_stand`.
+  - **It holds still for a crewmate nearly at it.** `is_fleeing` is
+    false while `helper_near`: somebody's `Bandage`/`Treat` names it
+    and that somebody is within `HELPER_NEAR` (3) tiles or already in
+    `Dress` — which is what lets `tick_bim`'s hold-still take over, so
+    a helper can catch a runner at all. Without it a bandage ordered on
+    a running Bim was ten minutes at an empty spot and nothing else,
+    which is what "the bandage did nothing" looked like.
+  `a_hurt_crew_member_runs_from_the_enemy_and_the_player_s_own_and_an_enemy_s_people_do_not`,
+  `a_hurt_crew_member_out_of_the_enemy_s_sight_binds_its_own_wound_and_comes_back`
+  and `a_helper_follows_a_patient_that_moved_and_a_runner_holds_still_for_it`
+  pin the three.
 - **Out cold is nobody's target.** The world hands `None` for an
   unconscious body on both sides (`crew_ashore`, and `alive` in
   `visit`), so `aim`/`melee_with`/`sees_any` never pick one, and
@@ -2058,17 +2194,12 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
 
 ## A key is two cells tall, and a research desk is a container the world reads
 
-`combat::Item::Key(tier)` is the one pack item that takes more than a cell:
-`Item::rows()` is two for it and one for everything else, and it is kept
-in the **upper** cell with the cell under it (`PACK_COLS` further on) as
-its tail — `Gear::occupied` says the tail is taken, `Gear::head_of` maps a
-tail cell back to its key, `Gear::fits(cell, item)` is the rule for a
-give, and `free_cell_for(item)` is `free_cell` for a tall thing. `Game::give`
-asks `fits`; `take`, `discard` and `take_from_body` go through `head_of`,
-so a key is taken by either of its cells; `equip` refuses it like a stack.
-`a_key_takes_two_cells_one_over_the_other` pins it. The app's grid draws a
-`Cell` with `rows: 2` two cells high and hit-tests the tail as the head
-(`crates/app/src/grid.rs`); a `Cell::new` takes the rows off the item.
+`combat::Item::Key(tier)` was the one pack item that took more than a
+cell, before every thing had a footprint (above): it is two tall and one
+wide — `Item::rows()` is two for it, which is what a desk's slot grid
+still draws — kept in the **upper** cell with the cell under it
+(`PACK_COLS` further on) reached over, taken by either, and refused by
+`equip` like a stack.
 
 `Layout::research`/`Room::research` are the research desks the way `desks`
 are the trading desks — footprint and stand spot, from `aboard.rs` off
@@ -2148,44 +2279,119 @@ laid over it. Two things:
 
 - **Light.** `sight::Light { at, reach }` is a lamp; `Layout::lights` is
   every `shipdesign::light_tiles` part (`WallLight` 7 tiles, `StandingLight`
-  9, at the middle of its tile), and `Sight::set_lights` marks a tile
-  **lit** when a straight line from some light reaches its middle within
-  the reach over the **fixed** cells — the walls and the tall parts, never
-  a door: a door's leaves are not what a light waits for. Lights are
-  always on and draw nothing (`power: 0`), so nothing wires them and no
-  brownout puts them out. A room *never handed* lights is lit throughout
-  (`Room::new`, the classic room); a designed deck handed none is dark
-  everywhere. **In the dark a Bim sees `DARK_RANGE` (10) tiles**:
-  `in_the_light(eye, tile)` — lit, or within ten tiles of the eye — gates
-  `observe` and `sees_from` on top of the clear line, so an enemy in an
-  unlit corridor twenty tiles off is nobody until it is lit or close. The
-  fixtures and `station::build_layout` carry lights (the reference's four
-  wall lights and a lamp, the playtest's six and a lamp, a station's inner
-  corners and every sixth tile of wall — last, so a lamp never takes a
-  fixture's tile), and the reaches were raised from 5.5/7 to 7/9 when the
-  station's dark patches had the sniper walking in to 19 tiles.
-  `the_dark_is_seen_ten_tiles_and_a_lit_tile_further` in `game::tests`
-  pins the rule; `a_wall_light_wants_a_wall_at_its_back` in shipdesign the
-  parts.
-- **The picture is `sight::LightMap`**: one byte a pixel of darkness at
-  `MAP_PX_PER_TILE` (8) over the whole grid, worked out in `Game::render`
-  when the mask was traced (`take_map_stale`), by **marching** `RAYS`
-  (2048) rays out of every eye and every light half a pixel at a time
-  until an opaque cell stops them — so what is seen and what is lit have
-  the walls' straight edges and not the tile grid's steps. A pixel is
-  seen from an eye when a ray reaches it and it is lit or within the dark
-  range of that eye; the light field is cached per layout
-  (`light_field`, full brightness to `LIGHT_CORE` of the reach and fading
-  to the edge, which is the "very light" shadow: `MAP_DARK` 0.34 behind a
-  wall a lamp cannot see round, nought under the lamp). Unseen is
-  `MAP_FOG` (0.62); only the room's **own friendly fogged** tiles are in
-  it — a stranger's grey and black stay on the tile grid, since they are
-  what the crew remember and memory is by the tile — and `draw_veils(…,
-  semi: false)` leaves the semi fog out of the shape buffer under
-  `Fog::Crew`. `Game::light_map()` hands it to the host; the shape buffer
-  cannot carry it, so `crates/app/src/fogmap.rs` uploads it as a texture
-  (`version` says when) and draws one textured quad, filtered, over the
+  9) — a standing light at the middle of its tile, a wall light
+  `aboard::WALL_LAMP_IN` (0.38 of a tile) towards the wall it hangs from
+  (`shipdesign::wall_light_back` of its rotation), so its shadows fan
+  out from the wall and not from the middle of the gangway — and
+  `Sight::set_lights` marks a tile **lit** when a straight line from some
+  light reaches its middle within the reach over the **fixed** cells —
+  the walls and the tall parts, never a door: a door's leaves are not
+  what a light waits for. Lights are always on and draw nothing (`power:
+  0`), so nothing wires them and no brownout puts them out. A room *never
+  handed* lights is lit throughout (`Room::new`, the classic room); a
+  designed deck handed none is dark everywhere. **In the dark a Bim sees
+  `DARK_RANGE` (10) tiles**: `in_the_light(eye, tile)` — lit, or within
+  ten tiles of the eye — gates `observe` and `sees_from` on top of the
+  clear line, so an enemy in an unlit corridor twenty tiles off is nobody
+  until it is lit or close. The fixtures and `station::build_layout` carry
+  lights (the reference's four wall lights and a lamp, the playtest's six
+  and a lamp, a station's inner corners and every sixth tile of wall —
+  last, so a lamp never takes a fixture's tile, and each turned to its
+  wall, `crates/shipdesign/CLAUDE.md`), and the reaches were raised from
+  5.5/7 to 7/9 when the station's dark patches had the sniper walking in
+  to 19 tiles. `the_dark_is_seen_ten_tiles_and_a_lit_tile_further` in
+  `game::tests` pins the rule; `a_wall_light_wants_a_wall_at_its_back` in
+  shipdesign the parts.
+- **The picture is `sight::LightMap`**: two bytes a pixel at
+  `MAP_PX_PER_TILE` (8) over the whole grid — the **darkness** to draw,
+  and the **glow**, how much lamplight falls there — by **marching**
+  `RAYS` (2048) rays out of every eye and every light until an opaque
+  cell stops them, so what is seen and what is lit have the walls'
+  straight edges and not the tile grid's steps, and a lamp throws a cone
+  through a doorway. A ray is the grid traversal in pixels (`march`):
+  it steps to whichever pixel edge comes next, so every pixel the line
+  crosses is visited once and none skipped — the same walk as
+  `clear_line` at eight times the resolution, integers bar one add a
+  step. It used to step half a pixel at a time in floats with four
+  divisions a step, and a joined deck cost 18 ms every time anybody
+  crossed a tile. A pixel is seen from an eye when a ray reaches it and
+  it is lit or within the dark range of the *body*, as the trace
+  measures it. **Every fogged tile is in it, the crew's own and a
+  stranger's alike** — seen and lit is nought darkness and `GLOW` (0.24)
+  of lamplight; seen and unlit is `MAP_DARK` (0.50); a friendly tile
+  unseen is `MAP_FOG` (0.62); a stranger's tile once seen and unseen now
+  is `MAP_GREY` (0.80), `explored_px` remembering per pixel; a
+  stranger's never seen is black, no glow — so the station's fog has the
+  same straight edges as the ship's and no tile pass is drawn under
+  `Fog::Crew`. The lamplight shows through the fog and the grey at
+  `GLOW_UNDER_FOG` (half), since the lamps are always on and the crew
+  know where they hang. The **light field** is cached per layout
+  (`build_light_fields`): every lamp is marched **twice**, its direct
+  fall, which every opaque cell stops, and a fill of `SHADOW_FILL`
+  (0.55) of it which the furniture lets past and the walls do not —
+  `Layout::tall` / `Sight::set_tall` marks the opaque cells that are not
+  `shipdesign::is_wall` as `Cell::soft` — so behind a shelf is a shade
+  and behind a bulkhead the dark; full brightness to `LIGHT_CORE` (0.35)
+  of the reach, then falling off at `LIGHT_FALL` (1.6). **Each lamp's
+  fall is kept on its own** (`LampField`, a byte a pixel over the box
+  its reach can fall in) **and the field is their sum**, saturating
+  (`sum_fields`). It was the brightest alone, and that drew a dark
+  four-pointed star on the deck between every four lamps — the point
+  equidistant from all four got one lamp's half-light where it should
+  have had four — which is the "far shadows" the user saw. A room lit
+  for want of any lamp (`lit_everywhere`) has no glow.
+- **A lamp has health, and is shot out.** `sight::Lamp` — one a light,
+  `Sight::lamps()`, `Game::lamps()` — carries `health` of `LAMP_HEALTH`
+  (16: two pistol bolts leave it failing, a third puts it out, a shotgun
+  or a sniper does it in one) and `level`, how bright it is shown.
+  `Combat::step` stops a bolt within `LAMP_RADIUS` (10 units) of a lamp
+  that is not out, like at a wall — a bolt aimed down a gangway misses
+  the lamps on its walls, a miss (`MISS_BY`) may not — and puts the
+  damage at the distance flown on `Combat::lamp_hits`; `tick_combat`
+  takes it off the lamp (`Sight::damage_lamp`), which sets it
+  flickering for `LAMP_HIT_FLICKER` (0.6 s) and, at nought,
+  `lamp_switched`: `relight` (the tile mask without it, `stale`,
+  `views_stale` — what it lit is what was seen by it), and its box of
+  the field summed again. Below `LAMP_FAILING` (a fifth) it is
+  **failing** and starts a `LAMP_FAIL_FLICKER` on `FAIL_FLICKER_ODDS`
+  (0.3) a second of its own. **The flicker is the picture's alone**:
+  there are two fields, `light_field` — every lamp not out at full,
+  what `view_of` reads for the seen rule — and `shown_field`, with each
+  lamp at its `level`, what `compose` draws; and it is `noise(lamp,
+  slot)` of the lamp's index and the clock (`Room::update` →
+  `Sight::tick_lamps`, `FLICKER_RATE` 24 a second), never a roll, so a
+  fight that shoots a lamp draws nothing off any stream. A level change
+  is the lamp's box summed again and `field_dirty`, which `light_map`
+  joins into the frame's dirty box. The world remembers the damage
+  across a relayout and mirrors it to the other room
+  (`Game::take_lamp_changes`, `set_lamp_health`, which also puts a
+  lamp back; `crates/world/CLAUDE.md`). The fitting's glass is the
+  ship painter's (`fittings::lamp_face`: dark and cracked out, veiled
+  while dim). `a_lamp_shot_out_goes_dark_and_flickers_on_the_way` in
+  `game::tests` pins the lot; `Game::damage_lamp_for_probe` lands a hit
+  with nothing fired.
+- **It is worked out per body, and only for a body that moved.**
+  `Sight::light_map(bodies)` is asked every frame from `Game::render`
+  under `Fog::Crew`; it keeps a `View` per body — the eyes it was marched
+  from, a flag a pixel, and the box those pixels lie in — and marches a
+  body again only when one of its eyes is half a pixel or more from
+  where it was, or its peeks changed; every body when the cells did
+  (`views_stale`: `set_shut` with a change, `set_tall`, `set_lights`).
+  Then `compose` puts the views, `explored_px` and the light field
+  together **over the box the changed views cover** and nowhere else,
+  bumps `version`, and says so in `LightMap::changed` (`(x, y, w, h)`,
+  whole tiles; `None` for the whole map — a stance change through
+  `map_stale`, or a fresh grid). Nothing moved is no version and no
+  upload. On the docked deck of the world tests that is under 1.5 ms in
+  a frame somebody walks and about 0.5 ms a marched eye; the tile trace
+  beside it is 0.3 ms. `Game::light_map()` hands it to the host; the
+  shape buffer cannot carry it, so `crates/app/src/fogmap.rs` composes
+  the two bytes into one premultiplied pixel (black under `LAMPLIGHT`),
+  uploads the changed box with `set_partial` when it holds the version
+  before (else the lot) and draws one textured quad, filtered, over the
   shapes and under the words, its corners the map's through the screen's
   transform — the room's scale on the room screen,
-  `world_paint::light_map_on_screen` (the crew's names' arithmetic) on
-  the game's. `Fog::All` is unchanged: tiles, black.
+  `world_paint::light_map_on_screen` (the crew's names' arithmetic) on the
+  game's. The lamps' own pictures (`fittings::wall_light`, flush to its
+  wall; `standing_light`) draw no halo: the map is the light. `Fog::All`
+  is unchanged: tiles, black.

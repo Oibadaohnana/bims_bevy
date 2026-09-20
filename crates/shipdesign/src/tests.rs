@@ -10,13 +10,15 @@ use economy::{Money, Storage, trade_price, trade_value};
 use physics::{Facing, ResourceId};
 
 use crate::budget::Budget;
-use crate::design::{CARGO_SLOTS, Edit, EditError, ShipDesign, apply, design_hash};
+use crate::design::{
+    CARGO_SLOTS, Edit, EditError, ShipDesign, apply, design_hash, wall_light_rotation,
+};
 use crate::fixture::{CREWS, REFERENCE_HASH, REFERENCE_PARTS, REFERENCE_POOL, flyer, reference};
 use crate::mass::{acceleration, hull_mass, ship_mass};
 use crate::materials::{bound_mass, bound_materials, build_from_cargo, deconstruct_to_cargo};
 use crate::parts::{
-    ENGINE_POWER, Layer, PartKind, REACTOR_OUTPUT, Rotation, TILE, covered, defs_are_sound,
-    footprint, part_mass, use_spots,
+    ENGINE_POWER, GRID_COLS, Layer, PartKind, REACTOR_OUTPUT, Rotation, TILE, covered,
+    defs_are_sound, footprint, part_mass, use_spots,
 };
 use crate::validate::{IssueCode, REQUIRED, Severity, exposure, has_errors, validate, walkable};
 
@@ -246,9 +248,11 @@ fn shielding_and_storage_are_where_they_are_meant_to_be() {
         vec![
             (PartKind::ColdStore, (Storage::ColdStore, 100)),
             (PartKind::Shelf, (Storage::Shelf, 100)),
-            (PartKind::SuitLocker, (Storage::Locker, 2)),
-            (PartKind::Armoury, (Storage::Locker, 8)),
-            (PartKind::DrugLab, (Storage::Locker, 6)),
+            // The lockers are cells of a grid `GRID_COLS` across: two
+            // rows, eight and six.
+            (PartKind::SuitLocker, (Storage::Locker, 2 * GRID_COLS)),
+            (PartKind::Armoury, (Storage::Locker, 8 * GRID_COLS)),
+            (PartKind::DrugLab, (Storage::Locker, 6 * GRID_COLS)),
             (PartKind::ResearchDesk, (Storage::Research, 1)),
         ],
     );
@@ -832,7 +836,7 @@ fn what_the_ship_can_hold_is_the_sum_of_what_is_on_it() {
 
     let design = with_holds();
     assert_eq!(design.capacity(Storage::Shelf), 100);
-    assert_eq!(design.capacity(Storage::Locker), 2);
+    assert_eq!(design.capacity(Storage::Locker), 2 * GRID_COLS);
     assert_eq!(design.capacity(Storage::ColdStore), 100);
 
     // Two shelves are twice the shelf.
@@ -852,8 +856,9 @@ fn buying_fills_the_right_hold_and_costs_the_price() {
         budget.remaining(&stocked) + trade_value(ResourceId::Metal, 10).unwrap(),
         before,
     );
-    // Metal is racking, so it is the shelf that filled up and not the locker.
-    assert_eq!(stocked.stored(Storage::Shelf), 10);
+    // Metal is racking, so it is the shelf that filled up and not the
+    // locker — one cell, since ten metal is one stack.
+    assert_eq!(stocked.stored(Storage::Shelf), 1);
     assert_eq!(stocked.stored(Storage::Locker), 0);
     assert_eq!(stocked.stored(Storage::ColdStore), 0);
 
@@ -865,9 +870,21 @@ fn buying_fills_the_right_hold_and_costs_the_price() {
         ResourceId::Vegetable,
         20,
     );
-    assert_eq!(full.stored(Storage::ColdStore), 50);
+    // Three blocks of tofu at four by four, two crates of vegetables at
+    // one by two.
+    assert_eq!(full.stored(Storage::ColdStore), 3 * 16 + 2 * 2);
+    // The lockers count cells, and a suit folded is three by three of
+    // them; a bandage is one, and either fits by area while it fits.
     let suited = bought(&full, &budget, ResourceId::Suit, 1);
-    assert_eq!(suited.stored(Storage::Locker), 1);
+    assert_eq!(suited.stored(Storage::Locker), 9);
+    assert_eq!(suited.spare(Storage::Locker), 2 * GRID_COLS - 9);
+    assert!(suited.has_room(ResourceId::Suit, 1));
+    assert!(!suited.has_room(ResourceId::Suit, 2));
+    assert!(suited.has_room(ResourceId::Bandage, 11));
+    assert!(!suited.has_room(ResourceId::Bandage, 12));
+    assert_eq!(suited.most_of(ResourceId::Suit), 2);
+    assert_eq!(suited.most_of(ResourceId::SniperRifle), 2);
+    assert_eq!(suited.most_of(ResourceId::Ore), 1000, "ten to a stack");
 }
 
 #[test]
@@ -954,8 +971,9 @@ fn what_cannot_be_paid_for_or_stowed_is_refused() {
         Err(EditError::CargoUnaffordable),
     );
 
-    // Room for a hundred on the shelf and an order for a hundred and one —
-    // with money for both, so what refuses it is the ship and not the pool.
+    // Room for a hundred stacks on the shelf — a thousand ore, ten to a
+    // stack — and an order for one more than that — with money for both,
+    // so what refuses it is the ship and not the pool.
     let rich = Budget::new(REFERENCE_POOL);
     assert!(
         apply(
@@ -963,7 +981,7 @@ fn what_cannot_be_paid_for_or_stowed_is_refused() {
             &rich,
             Edit::Buy {
                 resource: ResourceId::Ore,
-                units: 100
+                units: 1000
             }
         )
         .is_ok()
@@ -974,21 +992,22 @@ fn what_cannot_be_paid_for_or_stowed_is_refused() {
             &rich,
             Edit::Buy {
                 resource: ResourceId::Ore,
-                units: 101
+                units: 1001
             }
         ),
         Err(EditError::NoRoomAboard),
     );
 
-    // And the class is shared: eighty units of ore leaves twenty for metal.
-    let part_full = bought(&design, &rich, ResourceId::Ore, 80);
+    // And the class is shared: eighty stacks of ore leaves twenty cells,
+    // two hundred metal.
+    let part_full = bought(&design, &rich, ResourceId::Ore, 800);
     assert!(
         apply(
             &part_full,
             &rich,
             Edit::Buy {
                 resource: ResourceId::Metal,
-                units: 20
+                units: 200
             }
         )
         .is_ok()
@@ -999,10 +1018,23 @@ fn what_cannot_be_paid_for_or_stowed_is_refused() {
             &rich,
             Edit::Buy {
                 resource: ResourceId::Metal,
-                units: 21
+                units: 201
             }
         ),
         Err(EditError::NoRoomAboard),
+    );
+    // A part-full stack is topped up for nothing: with 805 aboard, five
+    // more ore take no cell and the metal still fits.
+    let odd = bought(&design, &rich, ResourceId::Ore, 805);
+    assert_eq!(odd.stored(Storage::Shelf), 81);
+    assert!(odd.has_room(ResourceId::Ore, 5));
+    assert!(!odd.has_room(ResourceId::Ore, 196));
+    assert_eq!(odd.room_for(ResourceId::Ore), 195);
+    assert_eq!(odd.most_of(ResourceId::Ore), 1000);
+    assert_eq!(
+        odd.most_of(ResourceId::Tofu),
+        60,
+        "six blocks of four by four, ten each"
     );
 
     // A ship with no cold store cannot take food at all, however much money
@@ -1067,24 +1099,25 @@ fn selling_what_is_not_aboard_is_refused() {
 #[test]
 fn a_hold_with_something_in_it_cannot_be_taken_off() {
     let budget = Budget::new(REFERENCE_POOL);
-    // Two shelves, a hundred each, and a hundred and fifty units aboard.
+    // Two shelves, a hundred cells each — a thousand ore in stacks of
+    // ten — and fifteen hundred units aboard.
     let mut design = put(with_holds(), PartKind::Shelf, (2, 4));
-    design = bought(&design, &budget, ResourceId::Ore, 150);
+    design = bought(&design, &budget, ResourceId::Ore, 1500);
 
     let shelf = design.grid().get(Layer::Object, (2, 2));
     assert_eq!(
         apply(&design, &budget, Edit::Remove { part_id: shelf }),
         Err(EditError::StorageInUse),
-        "a shelf came off under a hundred and fifty units of ore",
+        "a shelf came off under fifteen hundred units of ore",
     );
 
-    // Sell fifty and one shelf is spare, so it comes off.
+    // Sell five hundred and one shelf is spare, so it comes off.
     let lighter = apply(
         &design,
         &budget,
         Edit::Sell {
             resource: ResourceId::Ore,
-            units: 50,
+            units: 500,
         },
     )
     .unwrap();
@@ -1849,6 +1882,11 @@ fn yard() -> ShipDesign {
 
 /// Somewhere in [`yard`] that this kind can legally go.
 fn yard_spot(kind: PartKind) -> (u32, u32) {
+    // A wall light and a picture hang from a wall: the shelves, at its
+    // back turned `R0`.
+    if crate::parts::hangs_on_wall(kind) {
+        return (3, 3);
+    }
     match kind.def().requires {
         // The frame needs nothing under it, and the tile outside the frame
         // is the one tile with nothing in it at all.
@@ -2163,6 +2201,8 @@ fn the_playtest_ship_is_a_whole_ship_for_one() {
         (PartKind::Helm, 1),
         (PartKind::WallLight, 6),
         (PartKind::StandingLight, 1),
+        (PartKind::SmallPlant, 1),
+        (PartKind::Picture, 1),
         (PartKind::Shelf, 2),
         (PartKind::Smelter, 1),
         (PartKind::Workbench, 1),
@@ -2914,28 +2954,129 @@ fn a_wall_light_wants_a_wall_at_its_back() {
 
     let mut design = floored(10, (1, 1), (9, 9));
     design = put(design, PartKind::Wall, (4, 4));
-    // Against the wall: fine. Out on the deck: loose.
-    design = put(design, PartKind::WallLight, (5, 4));
-    assert!(!all_codes(&design, 0).contains(&IssueCode::LightOffTheWall.code()));
-    design = put(design, PartKind::WallLight, (7, 7));
+    // A lamp hangs from the wall its rotation names, and from nothing
+    // else: beside the wall, turned to it, it goes down; turned away, or
+    // out on the deck, it is refused. `wall_light_rotation` finds the
+    // turn, and none where there is no wall.
+    assert_eq!(wall_light_rotation(&design, (5, 4)), Some(Rotation::R270));
+    assert_eq!(wall_light_rotation(&design, (4, 5)), Some(Rotation::R0));
+    assert_eq!(wall_light_rotation(&design, (7, 7)), None);
+    assert_eq!(
+        place(&design, &rich(), PartKind::WallLight, (5, 4), Rotation::R0),
+        Err(EditError::NoWallAtBack)
+    );
+    assert_eq!(
+        place(&design, &rich(), PartKind::WallLight, (7, 7), Rotation::R0),
+        Err(EditError::NoWallAtBack)
+    );
+    design = place(
+        &design,
+        &rich(),
+        PartKind::WallLight,
+        (5, 4),
+        Rotation::R270,
+    )
+    .unwrap();
+    assert!(!all_codes(&design, 0).contains(&IssueCode::OffTheWall.code()));
+    // The wall taken down after: the lamp is loose, and warned about.
+    let wall = design
+        .parts
+        .iter()
+        .find(|p| p.kind == PartKind::Wall)
+        .unwrap()
+        .id;
+    design = apply(&design, &rich(), Edit::Remove { part_id: wall }).unwrap();
     let loose = design.parts.last().unwrap().id;
     let issue = validate(&design, 0)
         .into_iter()
-        .find(|i| i.code == IssueCode::LightOffTheWall.code())
+        .find(|i| i.code == IssueCode::OffTheWall.code())
         .expect("a loose wall light should be warned about");
     assert_eq!(issue.severity, Severity::Warning);
     assert_eq!(issue.parts, vec![loose]);
-    assert_eq!(issue.tiles, vec![(7, 7)]);
+    assert_eq!(issue.tiles, vec![(5, 4)]);
     // A standing light anywhere is nobody's business.
     design = put(design, PartKind::StandingLight, (2, 7));
     let codes = all_codes(&design, 0);
     assert_eq!(
         codes
             .iter()
-            .filter(|&&c| c == IssueCode::LightOffTheWall.code())
+            .filter(|&&c| c == IssueCode::OffTheWall.code())
             .count(),
         1
     );
+}
+
+/// The three comforts lift the surroundings and do nothing else: each
+/// has a lift and a reach, none draws, none is worked, and every one is
+/// seen over or past. The picture hangs from a wall exactly as a lamp
+/// does — refused on nothing, turned to its wall, warned about when the
+/// wall comes down — and the plants stand anywhere.
+#[test]
+fn a_comfort_lifts_the_surroundings_and_a_picture_hangs_from_a_wall() {
+    use crate::parts::{
+        BIG_PLANT_LIFT, PICTURE_LIFT, SMALL_PLANT_LIFT, comfort, hangs_on_wall, is_comfort,
+    };
+    for kind in PartKind::ALL {
+        assert_eq!(
+            is_comfort(kind),
+            matches!(
+                kind,
+                PartKind::SmallPlant | PartKind::BigPlant | PartKind::Picture
+            ),
+            "{kind:?}"
+        );
+        assert_eq!(
+            hangs_on_wall(kind),
+            matches!(kind, PartKind::WallLight | PartKind::Picture),
+            "{kind:?}"
+        );
+        if let Some(lift) = comfort(kind) {
+            assert!(lift.lift > 0.0 && lift.tiles > 0, "{kind:?}");
+            assert!(!kind.def().draws(), "{kind:?} draws nothing");
+            assert!(kind.def().use_spots.is_empty(), "{kind:?} is not worked");
+            assert!(!kind.def().blocks_sight(), "{kind:?} is seen over");
+            assert!(kind.def().capacity.is_none(), "{kind:?} holds nothing");
+        }
+    }
+    // Dearer is better: the lifts go up with the price.
+    assert!(SMALL_PLANT_LIFT < PICTURE_LIFT && PICTURE_LIFT < BIG_PLANT_LIFT);
+    assert!(
+        PartKind::SmallPlant.def().price < PartKind::Picture.def().price
+            && PartKind::Picture.def().price < PartKind::BigPlant.def().price
+    );
+    assert!(!PartKind::SmallPlant.def().blocks_movement, "stepped past");
+    assert!(PartKind::BigPlant.def().blocks_movement, "walked round");
+    assert!(!PartKind::Picture.def().blocks_movement, "walked under");
+
+    let mut design = floored(10, (1, 1), (9, 9));
+    design = put(design, PartKind::Wall, (4, 4));
+    assert_eq!(
+        place(&design, &rich(), PartKind::Picture, (5, 4), Rotation::R0),
+        Err(EditError::NoWallAtBack)
+    );
+    assert_eq!(
+        place(&design, &rich(), PartKind::Picture, (7, 7), Rotation::R0),
+        Err(EditError::NoWallAtBack)
+    );
+    let hung = wall_light_rotation(&design, (5, 4)).unwrap();
+    design = place(&design, &rich(), PartKind::Picture, (5, 4), hung).unwrap();
+    // The plants go down anywhere on the deck, turned any way.
+    design = put(design, PartKind::SmallPlant, (7, 7));
+    design = put(design, PartKind::BigPlant, (2, 7));
+    assert!(!all_codes(&design, 0).contains(&IssueCode::OffTheWall.code()));
+    let wall = design
+        .parts
+        .iter()
+        .find(|p| p.kind == PartKind::Wall)
+        .unwrap()
+        .id;
+    design = apply(&design, &rich(), Edit::Remove { part_id: wall }).unwrap();
+    let issue = validate(&design, 0)
+        .into_iter()
+        .find(|i| i.code == IssueCode::OffTheWall.code())
+        .expect("a picture off its wall should be warned about");
+    assert_eq!(issue.severity, Severity::Warning);
+    assert_eq!(issue.tiles, vec![(5, 4)]);
 }
 
 /// Both fixtures are wired: nothing aboard either is in the dark, one

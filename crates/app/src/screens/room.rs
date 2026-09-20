@@ -13,8 +13,9 @@ use bims::room::{HIT_DOOR, HIT_DROPPED, HIT_SHIP_DOOR, TILE};
 use world::LootSource;
 
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui};
-use crate::crew::{Body, CLICK_SLOP, CrewPanels, GearOrder};
+use crate::crew::{Body, CLICK_SLOP, CrewPanels, GearOrder, Near, Open};
 use crate::format::{clock_text, span_text};
+use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::shapes::View;
 use crate::sound::{Bed, Sounds};
@@ -57,6 +58,9 @@ impl Plugin for RoomPlugin {
 pub struct RoomScreen {
     game: Game,
     panels: CrewPanels,
+    /// Tab went down last frame with the keys ours: the focus egui gave a
+    /// widget for it is to be surrendered (`keys::release_tab_focus`).
+    tab_took_focus: bool,
     /// The smooth fog over the deck, as a texture — see `fogmap`.
     fog: crate::fogmap::FogTexture,
     speed: u32,
@@ -82,6 +86,7 @@ fn open(mut commands: Commands, window: Single<&Window>) {
     let mut screen = RoomScreen {
         game,
         panels,
+        tab_took_focus: false,
         fog: crate::fogmap::FogTexture::default(),
         speed: 1,
         backlog: 0.0,
@@ -115,11 +120,13 @@ fn frame(
     mut screen: ResMut<RoomScreen>,
     time: Res<Time>,
     mut sounds: ResMut<Sounds>,
+    bindings: Res<Keys>,
     mut commands: Commands,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
     let dt = time.delta_secs().min(MAX_FRAME_DT);
+    let keys_now = *bindings;
 
     // Speed is applied by running more fixed steps, never by stretching
     // one: a 24x step would move the Bim several times its own body in a
@@ -194,6 +201,11 @@ fn frame(
 
     let pointer = Pointer::read(&ctx);
     let on_deck = pointer.on(canvas).map(|p| view.to_world(p));
+    crate::keys::release_tab_focus(
+        &ctx,
+        &mut screen.tab_took_focus,
+        !ctx.egui_wants_keyboard_input(),
+    );
     let keys = !ctx.egui_wants_keyboard_input();
 
     // The pointer over the deck, asked about every frame rather than only
@@ -296,11 +308,14 @@ fn frame(
 
     if keys {
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::C) {
+            if keys_now.pressed(i, Action::Select) {
                 screen.game.select_group(1);
             }
-            if i.key_pressed(egui::Key::R) {
+            if keys_now.pressed(i, Action::Recruit) {
                 screen.game.toggle_recruited();
+            }
+            if keys_now.pressed(i, Action::Inventory) {
+                screen.panels.toggle_inventory();
             }
             if i.key_pressed(egui::Key::Escape) && !screen.panels.escape() {
                 screen.game.clear_selection();
@@ -345,7 +360,7 @@ fn frame(
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
         .order(egui::Order::Middle)
         .show(&ctx, |ui| {
-            panel_frame().show(ui, |ui| {
+            tray_frame().show(ui, |ui| {
                 // No ship under the room, so no Ship tab to draw under the tabs.
                 let _ = screen.panels.tray(ui, &mut screen.game, None, &name);
             });
@@ -371,7 +386,9 @@ fn frame(
     // The body under the Loot window, after the menu — which is what
     // opens it. Only a crewmate here: the room has no station's people
     // lying beside it.
+    screen.panels.keys = keys_now;
     let who = screen.panels.inventory_who(&screen.game);
+    screen.panels.nearby = nearby_in_room(&screen.game, who);
     if let Some(LootSource::Crew(body)) = screen.panels.walk.take() {
         let at = screen.game.bim_pos(body as usize);
         screen.game.send_to(who, at);
@@ -402,6 +419,14 @@ fn frame(
             GearOrder::Discard { who, cell } => {
                 game.discard(who as usize, cell as usize);
             }
+            GearOrder::Repack {
+                who,
+                cell,
+                to,
+                turned,
+            } => {
+                game.rearrange(who as usize, cell as usize, to as usize, turned);
+            }
             GearOrder::Loot {
                 who,
                 source: LootSource::Crew(body),
@@ -420,6 +445,7 @@ fn frame(
             }
             GearOrder::Stow { .. }
             | GearOrder::Fetch { .. }
+            | GearOrder::Arrange { .. }
             | GearOrder::Hire { .. }
             | GearOrder::Execute { .. }
             | GearOrder::TakeKey { .. }
@@ -481,6 +507,29 @@ fn frame(
 /// because the test room has no world to ask. Only a crewmate is a body
 /// here: the room has no station's people lying beside it, so a resident
 /// is `None`, which shuts the window.
+/// What is within reach of crew member `who` in the test room, nearest
+/// first: the crewmates down within `REACH` — there is no hold here, so
+/// no container has a window.
+fn nearby_in_room(game: &Game, who: usize) -> Vec<Near> {
+    let at = game.bim_pos(who);
+    let mut found: Vec<(f32, Near)> = (0..game.crew_count() as usize)
+        .filter(|&body| body != who && game.is_down(body))
+        .map(|body| (body, (at - game.bim_pos(body)).len()))
+        .filter(|&(_, d)| d <= world::data::REACH * TILE)
+        .map(|(body, d)| {
+            (
+                d,
+                Near {
+                    open: Open::Loot(LootSource::Crew(body as u32)),
+                    label: format!("{LOOT_WINDOW} — {}", crew_name(body as u32)),
+                },
+            )
+        })
+        .collect();
+    found.sort_by(|a, b| a.0.total_cmp(&b.0));
+    found.into_iter().map(|(_, near)| near).collect()
+}
+
 fn body_in_room(game: &Game, who: usize, source: LootSource) -> Option<Body> {
     let LootSource::Crew(body) = source else {
         return None;
@@ -492,6 +541,7 @@ fn body_in_room(game: &Game, who: usize, source: LootSource) -> Option<Body> {
     let near = (game.bim_pos(who) - game.bim_pos(body)).len() <= world::data::REACH * TILE;
     Some(Body {
         cells: game.loot_cells(body),
+        turned: game.gear(body).turned,
         down: game.is_down(body),
         reach: game.is_alive(who) && !game.is_unconscious(who) && near,
     })
@@ -542,6 +592,13 @@ pub fn panel_frame() -> egui::Frame {
         .stroke(egui::Stroke::new(1.0, theme::LINE))
         .corner_radius(6.0)
         .inner_margin(8.0)
+}
+
+/// The tray at the bottom left — the crew's tabs — in the same green but
+/// near enough solid: it is the one panel dense with rows and bars, and
+/// the deck showing through it made them hard to read.
+pub fn tray_frame() -> egui::Frame {
+    panel_frame().fill(egui::Color32::from_rgba_unmultiplied(20, 29, 25, 250))
 }
 
 /// What one of them is saying, in a bubble over its head. Only one of them

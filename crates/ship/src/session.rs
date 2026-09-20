@@ -288,6 +288,14 @@ impl Session {
             .is_some_and(|g| g.world.stage_fight_for_probe())
     }
 
+    /// Shoot the `n` lamps nearest the crew member out, and leave the
+    /// next failing — see `World::shoot_lamps_for_probe`.
+    pub fn shoot_lamps_for_probe(&mut self, n: usize) {
+        if let Some(game) = self.game.as_mut() {
+            game.world.shoot_lamps_for_probe(n);
+        }
+    }
+
     /// Make the station the ship is tied to an enemy's: what the `combat`
     /// command does to the simulation's dock. False with no world, or
     /// away from a berth.

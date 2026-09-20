@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-six things to run, and each is a name rather than a flag:
+seven things to run, and each is a name rather than a flag:
 
 | command | `cargo run` | opens |
 | --- | --- | --- |
@@ -17,7 +17,8 @@ six things to run, and each is a name rather than a flag:
 | `nix run .#design` | `cargo run -- design` | straight into the yard, the playtest ship given, docked where the simulation docks — how a change to the designer is looked at |
 | `nix run .#room` | `cargo run -- room` | the behaviour test room — Bims on a deck |
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member (four bunks to spare) and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
-| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with five crew, a different gun in each hand, docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — the garrison plus `ARENA_REINFORCEMENTS`, thirteen for five — and a recruited crew member draws its weapon and shoots at any it can see. `Session::combat` is all of it; `--combat` is taken too |
+| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with five crew, a different gun in each hand, docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — the garrison plus `ARENA_REINFORCEMENTS`, twelve for five — and a recruited crew member draws its weapon and shoots at any it can see. `Session::combat` is all of it; `--combat` is taken too |
+| `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
 default) builds from the working tree, which is the one to use while editing,
@@ -47,9 +48,16 @@ simulation holding at a belt with its mining site laid out, for looking at
 the outside without flying there; `BIMS_FIGHT=1` opens `combat` with the
 crew member recruited inside the station's door and one of its people a
 few tiles down the corridor, for looking at a fight without walking the
-station for one. `BIMS_SOUND_LOG=1` prints every clip as it is played
-and every bed as it fades up or out, which is how a sound is *heard* from
-a terminal — `BIMS_SOUND_LOG=1 BIMS_FIGHT=1 BIMS_SMOKE_FRAMES=900 bims
+station for one. `BIMS_TRADE=1` opens the simulation with the station's
+trade window up, for looking at the cart; `BIMS_ARMOURY=1` opens it
+with the armoury window up, for looking at the lockers' grid — a
+`press`, `move`s and a `release` in `BIMS_POINTER` drag a thing across
+it. `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
+out at open and leaves the next one failing, for looking at the dark
+round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1
+BIMS_LAMPS_OUT=3` is the lobby dark). `BIMS_SOUND_LOG=1` prints
+every clip as it is played and every bed as it fades up or out, which is
+how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_FIGHT=1 BIMS_SMOKE_FRAMES=900 bims
 combat | grep ^sound:` is a fight's worth. Move at least a frame before
 clicking — egui hit-tests a click against the widgets laid out on the
 previous frame. That is how a change to a screen is *looked at* from a
@@ -149,8 +157,35 @@ Things about that which are easy to get wrong:
 - **The Esc sheet is `settings.rs`**: three pages in one window — the
   menu (the UI scale, and a button each for Audio and Controls), the
   audio page (`sound::Mix`: master, effects, ambience, mute) and the
-  controls page (the key tables). A screen holds it as `Option<Sheet>`,
-  opens it on Esc at the menu, and Esc closes it from any page.
+  controls page (every key, rebindable). A screen holds it as
+  `Option<Sheet>`, opens it on Esc at the menu, and Esc closes it from
+  any page — except while the controls page is waiting on a key
+  (`Keys::listening`), when Esc is that page's to cancel with.
+- **Every hotkey is an `Action` in `keys.rs`, never a key in a screen.**
+  `Keys` is a Bevy resource the screens read (`keys.pressed(i,
+  Action::Map)`), the crew panels get a copy each frame for the armoury's
+  Turn key and the hints, and the Controls page rebinds any of them —
+  click the key, press another, Esc keeps the old one. Two actions may
+  share a key (Recruit and Turn both start on R, told apart by what is
+  in hand); the page says "also …" rather than refusing. Esc is not an
+  action. The bindings are saved to `$XDG_CONFIG_HOME/bims/keys`
+  (`~/.config/bims/keys`), one `action=Key` a line, and read at start —
+  the one thing the sheet keeps between runs so far. Tab is the
+  Inventory action: it opens and shuts the crew member's inventory —
+  and opens with it the nearest thing within reach, a container or a
+  body down, the rest of them a click away on the **Nearby** strip over
+  the window (`CrewPanels::nearby`, a `Near` list the screens rebuild
+  every frame off the room's `within_reach` and the world's
+  `in_reach_of_body`). `BIMS_KEYS` knows `Tab` and `Space` by name.
+  **egui moves keyboard focus on Tab**, and a widget with focus is egui
+  wanting the keyboard, so the frame after a Tab every key would have
+  been egui's: `keys::release_tab_focus` at the top of a screen's frame
+  surrenders the focus Tab gave (`tab_took_focus` on the screen). A
+  text field that has focus keeps it.
+- **The pack is the lockers' grid again, seven by seven** — the same
+  `grid::lockers` widget, `CrewPanels::pack_drag`, and a drop is
+  `GearOrder::Repack` → `Command::Repack`. The Loot window draws a body's
+  pack on it too, with `movable` off: looked at, not tidied.
 - **The UI scale is egui's zoom factor** (`theme::ui_scale_row`, on the Esc
   sheet's menu): it scales the type, the panels and the canvas alike, and
   bevy_egui divides the pointer by it, so nothing in the screens has to
@@ -178,6 +213,22 @@ Things about that which are easy to get wrong:
   the ship's it is `Session::room_point`, the pointer read back through the
   ship's camera and heading. Every `Game` method that takes a point takes a
   room point.
+- **Every container window is `grid::lockers`, and the rule for a drop
+  is the world's.** The shelves, the cold store and the lockers are the
+  world's grids (`World::grids`, `crates/world/CLAUDE.md`), every thing
+  drawn over its footprint with a stack's count in the corner; only the
+  research desk is `grid::grid`, a cell. The widget carries a thing on a
+  drag, turns it on `R` and hands back a `Moved` — the drag itself lives
+  on `CrewPanels::locker_drag` between frames. Whether the ghost is
+  green is `Grid::fits` asked of the `Hold` snapshot, never worked out
+  here, and the drop goes through the seam as `Command::Arrange` like
+  every other change to the hold. `BIMS_ARMOURY=storage` and `=fridge`
+  open those windows for a screenshot. A
+  thing's picture over a long footprint is `icons::laid`: the long guns
+  have a wide drawing (`draw_wide`), everything else sits square in the
+  middle, and a turned thing is drawn upright into a `Sketch` — the
+  shapes gathered rather than painted — and turned a quarter, since a
+  painter cannot turn a shape once it has it.
 - **A highlight is not a tooltip.** Resting on a row that names a fixture
   rings it on the deck (`CrewPanels::points`); nothing pops up. The ring is
   worked out afresh every frame from what is hovered, so a panel folding
@@ -219,7 +270,7 @@ layer — none of that is a type error.
 
 **`./check` runs all of it.** The quick tier — `./check` — is the git-tree
 check, `cargo fmt`, the workspace build, `cargo test --workspace`, clippy on
-the app, and a smoke run of each of the six windows (sixty frames, hidden,
+the app, and a smoke run of each of the seven windows (sixty frames, hidden,
 with a screenshot of the room, the simulation, the yard and the combat
 dock left in `target/check/`); `./check full` adds the native probes (compiled fresh into `target/probes/`,
 never the stale binaries in `scratchpad/`) and `nix flake check`.

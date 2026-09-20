@@ -309,6 +309,35 @@ impl Aboard {
         Some(dvec2(d.x * ex.x + d.y * ex.y, d.x * ey.x + d.y * ey.y))
     }
 
+    /// A point of the room as a point of the design it came from: the
+    /// **foreign** one's, through the frame, for a point in the foreign
+    /// box — the station's on the crew's deck, the ship's on the
+    /// residents' mirrored one — else the room's own design's, the shift
+    /// off. Whether it was the foreign one comes back with it. What a
+    /// lamp is remembered by across a relayout (`World::lamps`).
+    pub fn design_of(&self, p: DVec2) -> (bool, DVec2) {
+        if let (Some((lo, hi)), Some(q)) = (self.station_box, self.to_station(p))
+            && p.x >= lo.x
+            && p.x <= hi.x
+            && p.y >= lo.y
+            && p.y <= hi.y
+        {
+            return (true, q);
+        }
+        (false, p.sub(self.offset))
+    }
+
+    /// The other way: a design point back into the room — the foreign
+    /// design's through the frame, `None` while there is none, or the
+    /// room's own, shifted.
+    pub fn room_of(&self, foreign: bool, p: DVec2) -> Option<DVec2> {
+        if foreign {
+            self.from_station(p)
+        } else {
+            Some(p.add(self.offset))
+        }
+    }
+
     /// Where the crew stand, as the station's people would find them: in
     /// the station's own design units, one an index, `None` for one that
     /// is dead, out cold — a body down is nobody's target — or outside in
@@ -727,7 +756,21 @@ impl Residents {
         };
         let seed = station.map_seed ^ 0x5A17;
         let everybody = self.aboard.room.take_crew();
-        let fresh = Aboard::mirrored(joined, ship, everybody, seed, minutes);
+        // The station's people watch their own airlock: the tile just
+        // inside its door, in this room's units — the station's design
+        // plus the shift its deck took — so a crew member coming through
+        // it is seen (`Game::set_watched`, `bims::game::AIRLOCK_WATCH`)
+        // and a boarding is what starts the fight at a hostile station.
+        let inside = station.port().map(|port| {
+            let t = TILE as f64;
+            dvec2(
+                port.centre.0 - port.outward.0 as f64 * t,
+                port.centre.1 - port.outward.1 as f64 * t,
+            )
+        });
+        let mut fresh = Aboard::mirrored(joined, ship, everybody, seed, minutes);
+        let watched = inside.map(|p| fresh.to_room(p));
+        fresh.room.set_watched(watched);
         self.replace_room(fresh);
     }
 

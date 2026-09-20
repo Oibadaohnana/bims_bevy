@@ -38,7 +38,7 @@
 //! hold into the hull and back — `shipdesign::materials` is that contract —
 //! and change the centre of mass and the inertia without changing the total.
 
-use economy::{Money, Storage, storage, trade_value};
+use economy::{Money, Storage, footprint, storage, trade_value};
 use flight::{Dynamics, Phase, Plan, PlanError, Target, angle};
 use physics::ResourceId;
 use shipdesign::parts::{PartKind, Rotation};
@@ -58,10 +58,12 @@ use crate::crew::{Aboard, Residents};
 use crate::data;
 use crate::event::{Refusal, WorldEvent};
 use crate::frame::{self, Frame};
+use crate::grid::{Grid, Kept, Wanted};
 use crate::mercenary::{self, Hired, Offer};
 use crate::mining::{self, MiningSite};
 use crate::speed::{self, Speed};
 use crate::station::{Berth, Station, enemies_of};
+use crate::surface::{self, Surface};
 
 /// What a player can ask the world to do.
 ///
@@ -86,6 +88,14 @@ pub enum Command {
     Jump {
         slot: u32,
         star: u32,
+    },
+    /// Land on the planet the ship is holding over — see
+    /// [`crate::surface`]. From the helm, holding in a rocky planet's or an
+    /// ice world's frame, nothing under construction: a slide to the
+    /// point straight over it and a descent onto the pad, and the ship is
+    /// docked at the settlement there.
+    Land {
+        slot: u32,
     },
     SetSpeed {
         slot: u32,
@@ -264,6 +274,35 @@ pub enum Command {
     SetAutoUpgrade {
         slot: u32,
         on: bool,
+    },
+    /// Move a slot of the lockers' grid — `World::lockers`, by the slot's
+    /// id — to column `x`, row `y`, `turned` a quarter round or not: what
+    /// a drag in the armoury window asks, and the R key over a thing
+    /// there. Refused `NoRoom` when it would not lie there — off the grid,
+    /// or over another slot — or there is no such slot. Wants nobody in
+    /// reach: it is tidying, and nothing leaves the lockers. A command
+    /// because the grid is in the checksum: every player's ship has to
+    /// agree about where the rifle lies.
+    Arrange {
+        slot: u32,
+        class: u32,
+        id: u32,
+        x: u32,
+        y: u32,
+        turned: bool,
+    },
+    /// Move a thing across `who`'s pack: the one kept in `cell` — or
+    /// reaching over it — so its corner is in `to`, `turned` a quarter
+    /// round or not; a drag in the inventory window. The pack is the
+    /// room's, but a piece's `Where::Pack` is in the checksum, so it is a
+    /// command like the rest. Refused `NoRoom` when it would not lie
+    /// there, `NotAboard` for nothing in the cell or no such crew member.
+    Repack {
+        slot: u32,
+        who: u32,
+        cell: u32,
+        to: u32,
+        turned: bool,
     },
 }
 
@@ -456,6 +495,12 @@ pub struct World {
     /// position, with a door the ship docks by. Built once, in id order.
     /// See [`crate::station`].
     pub stations: Vec<Station>,
+    /// Every landable body of the system as a place — its settlement, a
+    /// station the ship lands at rather than docks by, found through
+    /// [`World::station`] by [`surface::surface_id`]. Rolled at the
+    /// start, in body order; built when first asked for. See
+    /// [`crate::surface`].
+    pub surfaces: Vec<Surface>,
     /// The station the ship is near, if it is near one, as a room: the
     /// room's whole simulation again, laid out on that station with the
     /// people who live there in it, opened when the ship comes within
@@ -577,6 +622,30 @@ pub struct World {
     /// two that went in are out of the hold; the one that comes out is
     /// delivered by `deliver_upgrade`. In `world_checksum` whole.
     pub upgrade: Option<Upgrade>,
+    /// The shelves, the cold stores and the lockers as grids, in
+    /// [`World::GRID_CLASSES`] order: where every stack, piece and gun
+    /// lies and which way round, as far as they fit.
+    /// [`World::settle_grids`] holds them the way `settle_pieces` holds
+    /// the pieces; see [`crate::grid`]. In `world_checksum` whole.
+    pub grids: [Grid; 3],
+    /// Every lamp a fight has damaged, by where it hangs, with what it has
+    /// left. A room is built afresh at every dock, undock and relayout,
+    /// and this is what puts the damage back on its lamps, and what
+    /// carries a hit on the crew's deck to the same lamp on the residents'
+    /// ([`World::sync_lamps`]). In `world_checksum`, the health to a
+    /// hundredth like a piece of armour's.
+    pub lamps: Vec<LampDamage>,
+}
+
+/// A lamp a fight has damaged, remembered by where it hangs: which
+/// station's design it is in — `None` for the ship's own — and its tile
+/// there, with what it has left of `bims::sight::LAMP_HEALTH`; nought is
+/// out, for good. See [`World::lamps`].
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct LampDamage {
+    pub station: Option<u32>,
+    pub tile: (u32, u32),
+    pub health: f32,
 }
 
 /// An upgrade under way at the workbench: two items of a kind and a tier,
@@ -658,9 +727,17 @@ impl World {
         let crew = crew.max(players);
         let galaxy = Galaxy::new(seed, galaxy_type);
         let system = galaxy.system(star_id).ok_or(StartError::NoSuchStation)?;
-        let stations = Station::all_of(&system);
-        if !stations.iter().any(|s| s.id == station_id) {
+        let mut stations = Station::all_of(&system);
+        let Some(home) = stations.iter_mut().find(|s| s.id == station_id) else {
             return Err(StartError::NoSuchStation);
+        };
+        // The spawn is the hub whatever its seed rolled, the way it is home
+        // whatever its stance rolled: a crew's first dock is the familiar
+        // one, and every fixture test and the arena are built on it. The
+        // other five plans are what a crew meets elsewhere
+        // (`station::Plan`).
+        if home.plan != crate::station::Plan::Hub {
+            home.replan(crate::station::Plan::Hub);
         }
         // Whose people are enemies: what the generator rolled, except that
         // the spawn is home whatever it rolled — a crew cannot start at an
@@ -742,12 +819,16 @@ impl World {
             guns: Vec::new(),
             auto_upgrade: false,
             upgrade: None,
+            grids: [Grid::default(), Grid::default(), Grid::default()],
+            lamps: Vec::new(),
         };
 
         // Whatever armour the design was accepted carrying is so many
-        // whole pieces in the hold from the first step.
+        // whole pieces in the hold from the first step, and everything in
+        // the locker class is laid out on the lockers' grid.
         world.settle_pieces();
         world.settle_guns();
+        world.settle_grids();
         // The whole system, charted. The crew picked this dock off the
         // lobby's chart of this very system — every planet and every station
         // on it — and a map that then hid what they had just been looking at
@@ -865,6 +946,7 @@ impl World {
             residents.aboard.step();
         }
         self.visit(&mut events);
+        self.sync_lamps();
         self.casualties(&mut events);
         self.melee_locks(&mut events);
         //    And what the fight did to the armour: the pieces in packs and
@@ -925,6 +1007,7 @@ impl World {
             Command::Confirm { slot, .. }
             | Command::Abort { slot }
             | Command::Jump { slot, .. }
+            | Command::Land { slot }
             | Command::SetSpeed { slot, .. }
             | Command::Buy { slot, .. }
             | Command::Sell { slot, .. }
@@ -945,7 +1028,9 @@ impl World {
             | Command::Unlock { slot, .. }
             | Command::Research { slot, .. }
             | Command::CancelResearch { slot }
-            | Command::SetAutoUpgrade { slot, .. } => slot,
+            | Command::SetAutoUpgrade { slot, .. }
+            | Command::Arrange { slot, .. }
+            | Command::Repack { slot, .. } => slot,
         };
 
         match command {
@@ -973,6 +1058,13 @@ impl World {
                     return;
                 }
                 self.begin_jump(slot, star, events);
+            }
+            Command::Land { .. } => {
+                if !self.can_command(slot) {
+                    events.push(refused(slot, Refusal::NotAtTheHelm));
+                    return;
+                }
+                self.land(slot, events);
             }
             Command::Buy {
                 resource, units, ..
@@ -1007,6 +1099,21 @@ impl World {
             Command::Research { node, .. } => self.research(slot, node, events),
             Command::CancelResearch { .. } => self.research.cancel(),
             Command::SetAutoUpgrade { on, .. } => self.auto_upgrade = on,
+            Command::Arrange {
+                class,
+                id,
+                x,
+                y,
+                turned,
+                ..
+            } => self.arrange(slot, class, id, x, y, turned, events),
+            Command::Repack {
+                who,
+                cell,
+                to,
+                turned,
+                ..
+            } => self.repack(slot, who, cell, to, turned, events),
         }
     }
 
@@ -1620,6 +1727,7 @@ impl World {
         }
         self.residents = Some(residents);
         self.apply_stances();
+        self.restore_lamps();
         if banked {
             self.on_ship_changed();
         }
@@ -1767,6 +1875,143 @@ impl World {
                 residents.aboard.room.door_change_seen(j);
             }
             self.aboard.room.mirror_door_smash(i, state.smash);
+        }
+    }
+
+    /// Which design a lamp of `aboard` hangs in — `foreign` for one in
+    /// the room's foreign box, `home` else — and its tile there.
+    fn lamp_key(
+        aboard: &Aboard,
+        home: Option<u32>,
+        foreign: Option<u32>,
+        at: bims::math::Vec2,
+    ) -> (Option<u32>, (u32, u32)) {
+        let (is_foreign, p) = aboard.design_of(dvec2(at.x as f64, at.y as f64));
+        let t = shipdesign::TILE as f64;
+        let tile = (
+            (p.x / t).floor().max(0.0) as u32,
+            (p.y / t).floor().max(0.0) as u32,
+        );
+        (if is_foreign { foreign } else { home }, tile)
+    }
+
+    /// The lamp of `aboard` that hangs at `tile` of a design — the
+    /// foreign one's or the room's own — with its index, if it is on
+    /// this deck.
+    fn lamp_index(aboard: &Aboard, foreign: bool, tile: (u32, u32)) -> Option<usize> {
+        let t = shipdesign::TILE as f64;
+        let middle = dvec2((tile.0 as f64 + 0.5) * t, (tile.1 as f64 + 0.5) * t);
+        let p = aboard.room_of(foreign, middle)?;
+        aboard
+            .room
+            .lamp_at(bims::math::vec2(p.x as f32, p.y as f32))
+            .map(|(i, _)| i)
+    }
+
+    /// The lamps, both rooms' and the record's, kept the same: every
+    /// lamp a bolt landed on this step on the crew's deck — the one
+    /// deck bolts fly on — is remembered by where it hangs, and then
+    /// every lamp remembered is set on whichever rooms it hangs in, which
+    /// carries the hit to the residents' mirror of the same lamp and
+    /// puts the damage back on a room built afresh. Every step, since a
+    /// room is built afresh in more places than one.
+    fn sync_lamps(&mut self) {
+        let station = self.residents.as_ref().map(|r| r.station);
+        for i in self.aboard.room.take_lamp_changes() {
+            let Some(lamp) = self.aboard.room.lamps().get(i).copied() else {
+                continue;
+            };
+            let (which, tile) = Self::lamp_key(&self.aboard, None, station, lamp.at);
+            match self
+                .lamps
+                .iter_mut()
+                .find(|d| d.station == which && d.tile == tile)
+            {
+                Some(d) => d.health = lamp.health,
+                None => self.lamps.push(LampDamage {
+                    station: which,
+                    tile,
+                    health: lamp.health,
+                }),
+            }
+        }
+        if let Some(residents) = &mut self.residents {
+            // Bolts do not fly there: nothing to remember, only to drain.
+            residents.aboard.room.take_lamp_changes();
+        }
+        self.restore_lamps();
+    }
+
+    /// Every lamp remembered damaged, set so on the rooms it hangs in.
+    fn restore_lamps(&mut self) {
+        let docked = self.ship.state.alongside();
+        for d in &self.lamps {
+            // The crew's deck: the ship's lamps always, the docked
+            // station's while docked there.
+            let mine = match d.station {
+                None => Some(false),
+                Some(id) if self.aboard.is_joined() && docked == Some(id) => Some(true),
+                Some(_) => None,
+            };
+            if let Some(foreign) = mine
+                && let Some(i) = Self::lamp_index(&self.aboard, foreign, d.tile)
+            {
+                self.aboard.room.set_lamp_health(i, d.health);
+            }
+            // The residents' room: the station's own, and the ship's while
+            // it is on their deck.
+            if let Some(residents) = &mut self.residents {
+                let theirs = match d.station {
+                    None => Some(true),
+                    Some(id) if id == residents.station => Some(false),
+                    Some(_) => None,
+                };
+                if let Some(foreign) = theirs
+                    && let Some(i) = Self::lamp_index(&residents.aboard, foreign, d.tile)
+                {
+                    residents.aboard.room.set_lamp_health(i, d.health);
+                }
+            }
+        }
+    }
+
+    /// A lamp as it is to be drawn: what it has left of its health as a
+    /// share, and how bright it is shown this frame — the ship's own at
+    /// `station` `None`, else that station's, at its tile of the design.
+    /// Read off whichever room has it — the crew's deck, or the
+    /// residents' — and, for a station's lamp out of every room, off the
+    /// record; whole and steady for one nobody has shot.
+    pub fn lamp_look(&self, station: Option<u32>, tile: (u32, u32)) -> (f32, f32) {
+        let docked = self.ship.state.alongside();
+        let live = match station {
+            None => Self::lamp_index(&self.aboard, false, tile)
+                .and_then(|i| self.aboard.room.lamps().get(i)),
+            Some(id) if self.aboard.is_joined() && docked == Some(id) => {
+                Self::lamp_index(&self.aboard, true, tile)
+                    .and_then(|i| self.aboard.room.lamps().get(i))
+            }
+            Some(id) => self
+                .residents
+                .as_ref()
+                .filter(|r| r.station == id)
+                .and_then(|r| {
+                    Self::lamp_index(&r.aboard, false, tile)
+                        .and_then(|i| r.aboard.room.lamps().get(i))
+                }),
+        };
+        if let Some(lamp) = live {
+            return (lamp.health / bims::sight::LAMP_HEALTH, lamp.level);
+        }
+        match self
+            .lamps
+            .iter()
+            .find(|d| d.station == station && d.tile == tile)
+        {
+            Some(d) => {
+                let share = d.health / bims::sight::LAMP_HEALTH;
+                (share, if d.health > 0.0 { 1.0 } else { 0.0 })
+            }
+            None => (1.0, 1.0),
         }
     }
 
@@ -2111,6 +2356,7 @@ impl World {
                 residents.unjoin(&station, self.clock_minutes);
             }
         }
+        self.restore_lamps();
         if banked {
             self.on_ship_changed();
         }
@@ -2246,6 +2492,7 @@ impl World {
         // every caller remembering.
         self.settle_pieces();
         self.settle_guns();
+        self.settle_grids();
     }
 
     /// Stage 6 of [`World::step`]: the reactors' output less the wired
@@ -2279,11 +2526,11 @@ impl World {
 
     // --- making things -------------------------------------------------------
 
-    /// Set what the crew are to keep made of `resource`. Clamped to what the
-    /// shelf could hold, since a target past that is one the benches would
-    /// never reach.
+    /// Set what the crew are to keep made of `resource`. Clamped to what its
+    /// class could hold of it with nothing else there, since a target past
+    /// that is one the benches would never reach.
     pub fn set_craft_target(&mut self, resource: ResourceId, units: u32) {
-        let most = self.ship.design.capacity(storage(resource));
+        let most = self.ship.design.most_of(resource);
         self.craft_targets[resource as usize] = units.min(most);
     }
 
@@ -2301,18 +2548,15 @@ impl World {
             .inputs
             .iter()
             .all(|&(id, units)| self.free(id) >= units);
-        let class = storage(recipe.output.0);
-        let freed: u32 = recipe
-            .inputs
-            .iter()
-            .filter(|&&(id, _)| storage(id) == class)
-            .map(|&(_, units)| units)
-            .sum();
-        let after = design
-            .stored(class)
-            .saturating_sub(freed)
-            .saturating_add(recipe.output.1);
-        inputs_aboard && after <= design.capacity(class)
+        let (output, units) = recipe.output;
+        // Room for the output as the hold stands: what the inputs free is
+        // not counted — the smelter's ore and its metal share the shelves,
+        // but a stack of ore going does not make a place for the metal
+        // until it has gone, and the order is placed before it does. So
+        // a bench with a full shelf waits a step for the ore to be spent,
+        // and is not lost.
+        let _ = design;
+        inputs_aboard && self.has_room(output, units)
     }
 
     /// Every recipe the benches are wanted for this step, one order per
@@ -2704,6 +2948,7 @@ impl World {
                 self.aboard.relayout(design);
             }
         }
+        self.restore_lamps();
     }
 
     // --- a walk outside ------------------------------------------------------
@@ -2864,11 +3109,10 @@ impl World {
         };
         self.site_version += 1;
         let (resource, units) = mining::yield_of(kind);
+        // What the shelves have room for: a stack topped up, or a new one
+        // where it fits.
+        let got = self.room_for(resource, units);
         let design = &mut self.ship.design;
-        let room = design
-            .capacity(Storage::Shelf)
-            .saturating_sub(design.stored(Storage::Shelf));
-        let got = units.min(room);
         design.cargo[resource as usize] += got;
         match kind {
             mining::Rock::Stone => self.walk_tally.0 += got,
@@ -3103,9 +3347,7 @@ impl World {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
-        let class = storage(resource);
-        let wanted = self.ship.design.stored(class).saturating_add(units);
-        if wanted > self.ship.design.capacity(class) {
+        if !self.has_room(resource, units) {
             events.push(refused(slot, Refusal::NoRoomAboard));
             return;
         }
@@ -3285,6 +3527,161 @@ impl World {
         self.guns.sort_by_key(|g| (g.kind.code(), g.tier.code()));
     }
 
+    // --- the lockers' grid ----------------------------------------------------
+
+    /// The grids' classes, in the order `grids` keeps them: the code of
+    /// each is its index. The research desk is a count of one and has
+    /// none.
+    pub const GRID_CLASSES: [Storage; 3] = [Storage::Shelf, Storage::ColdStore, Storage::Locker];
+
+    /// A class's grid, if the class is one: the shelves', the cold
+    /// stores' or the lockers'.
+    pub fn grid(&self, class: Storage) -> Option<&Grid> {
+        World::GRID_CLASSES
+            .iter()
+            .position(|&c| c == class)
+            .map(|i| &self.grids[i])
+    }
+
+    fn grid_mut(&mut self, class: Storage) -> Option<&mut Grid> {
+        World::GRID_CLASSES
+            .iter()
+            .position(|&c| c == class)
+            .map(|i| &mut self.grids[i])
+    }
+
+    /// A class's grid in cells: every part of the class's capacity added
+    /// up.
+    pub fn grid_capacity(&self, class: Storage) -> u32 {
+        self.ship.design.capacity(class)
+    }
+
+    /// Everything a class holds, in the order the slots are settled in:
+    /// for the lockers the pieces of armour in the hold by id and the
+    /// guns by kind and tier; then every other resource of the class with
+    /// its count, in `ResourceId` order — each with its footprint.
+    fn grid_wanted(&self, class: Storage) -> Vec<Wanted> {
+        let mut wanted = Vec::new();
+        if class == Storage::Locker {
+            for piece in self.pieces.iter().filter(|p| p.at == Where::Hold) {
+                wanted.push(Wanted::Piece(piece.id, footprint(piece.resource())));
+            }
+            for gun in &self.guns {
+                wanted.push(Wanted::Gun(
+                    gun.kind,
+                    gun.tier,
+                    footprint(armour::weapon_resource(gun.kind)),
+                ));
+            }
+        }
+        for &id in ResourceId::ALL.iter() {
+            if storage(id) != class || armour::is_gear(id) {
+                continue;
+            }
+            wanted.push(Wanted::Units(
+                id,
+                self.ship.design.carrying(id),
+                footprint(id),
+            ));
+        }
+        wanted
+    }
+
+    /// The slots of every grid against what its class holds — see
+    /// [`crate::grid`] for the rule and what an overflow does. Asked at
+    /// every `on_ship_changed` after the pieces and the guns, since a
+    /// slot names a piece by id and a gun by tier.
+    fn settle_grids(&mut self) {
+        for class in World::GRID_CLASSES {
+            let wanted = self.grid_wanted(class);
+            let capacity = self.grid_capacity(class);
+            if let Some(grid) = self.grid_mut(class) {
+                grid.settle(capacity, &wanted);
+            }
+        }
+    }
+
+    /// Whether `units` more of a resource could come aboard: room in its
+    /// class by area (`ShipDesign::has_room`) and a place on the class's
+    /// grid for each — a part-full stack topped up, or a run of cells for
+    /// a new one — the rule every purchase, craft, stow and upgrade asks
+    /// before the count moves, so the settle finds room for what they let
+    /// through.
+    pub fn has_room(&self, resource: ResourceId, units: u32) -> bool {
+        if !self.ship.design.has_room(resource, units) {
+            return false;
+        }
+        let class = storage(resource);
+        match self.grid(class) {
+            Some(grid) => grid.can_take(
+                self.grid_capacity(class),
+                resource,
+                units,
+                footprint(resource),
+            ),
+            None => true,
+        }
+    }
+
+    /// The most of `wanted` more units of a resource that would come
+    /// aboard — what a haul or a harvest is cut to.
+    pub fn room_for(&self, resource: ResourceId, wanted: u32) -> u32 {
+        (0..=wanted)
+            .rev()
+            .find(|&n| self.has_room(resource, n))
+            .unwrap_or(0)
+    }
+
+    /// Move a slot of a class's grid to `(x, y)`, turned or not — see
+    /// [`Command::Arrange`]. Refused `NoRoom` when it would not lie there,
+    /// there is no such slot, or the class has no grid.
+    fn arrange(
+        &mut self,
+        slot: u32,
+        class: u32,
+        id: u32,
+        x: u32,
+        y: u32,
+        turned: bool,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        let moved = Storage::from_code(class).is_some_and(|class| {
+            let capacity = self.grid_capacity(class);
+            self.grid_mut(class)
+                .is_some_and(|grid| grid.arrange(capacity, id, x, y, turned))
+        });
+        if !moved {
+            events.push(refused(slot, Refusal::NoRoom));
+        }
+    }
+
+    /// Move a thing across a crew member's pack — see [`Command::Repack`].
+    /// The room does the moving; the pieces are read back after, since a
+    /// piece's cell is in the checksum.
+    fn repack(
+        &mut self,
+        slot: u32,
+        who: u32,
+        cell: u32,
+        to: u32,
+        turned: bool,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        if self.pack_item(who, cell).is_none() {
+            events.push(refused(slot, Refusal::NotAboard));
+            return;
+        }
+        if !self
+            .aboard
+            .room
+            .rearrange(who as usize, cell as usize, to as usize, turned)
+        {
+            events.push(refused(slot, Refusal::NoRoom));
+            return;
+        }
+        self.mirror_pieces(events);
+    }
+
     /// How many weapons of `kind` at `tier` the hold has — what a
     /// container window lists a cell for.
     pub fn guns_at(&self, kind: WeaponKind, tier: Tier) -> u32 {
@@ -3418,8 +3815,7 @@ impl World {
         if upgrade.done < data::UPGRADE_SESSIONS {
             return;
         }
-        let class = storage(upgrade.resource);
-        if self.ship.design.stored(class) >= self.ship.design.capacity(class) {
+        if !self.has_room(upgrade.resource, 1) {
             return;
         }
         // The instance before the count, as everywhere.
@@ -3509,8 +3905,7 @@ impl World {
             events.push(refused(slot, Refusal::OutOfReach));
             return;
         }
-        let class = storage(resource);
-        if self.ship.design.stored(class) >= self.ship.design.capacity(class) {
+        if !self.has_room(resource, 1) {
             events.push(refused(slot, Refusal::NoRoom));
             return;
         }
@@ -3542,6 +3937,34 @@ impl World {
     /// and into the first free pack cell. See [`Command::Fetch`].
     fn fetch(&mut self, slot: u32, who: u32, kind: FetchKind, events: &mut Vec<WorldEvent>) {
         let in_hold = |p: &&Piece| p.at == Where::Hold;
+        // A slot of a grid is whatever lies in it, asked for the way the
+        // rest are: the piece by id, the gun by its tier, one off the stack
+        // by its resource — and it is that slot which goes, not the first
+        // of its kind.
+        let (kind, from_slot) = match kind {
+            FetchKind::Slot { class, id } => {
+                let found = Storage::from_code(class)
+                    .and_then(|class| self.grid(class))
+                    .and_then(|grid| grid.slot(id))
+                    .map(|s| s.kept);
+                match found {
+                    Some(Kept::Piece(piece)) => (FetchKind::Piece(piece), Some(id)),
+                    Some(Kept::Gun(kind, tier)) => (
+                        FetchKind::Tiered {
+                            resource: armour::weapon_resource(kind) as u32,
+                            tier: tier.code(),
+                        },
+                        Some(id),
+                    ),
+                    Some(Kept::Stack(resource)) => (FetchKind::Resource(resource as u32), Some(id)),
+                    None => {
+                        events.push(refused(slot, Refusal::NotAboard));
+                        return;
+                    }
+                }
+            }
+            kind => (kind, None),
+        };
         // What is being taken: the resource, and the instance — a piece,
         // or a gun off the list — if the resource is one that has them.
         let (resource, piece, gun) = match kind {
@@ -3601,6 +4024,11 @@ impl World {
                 };
                 (resource, None, Some(gun))
             }
+            // Resolved above into one of the three.
+            FetchKind::Slot { .. } => {
+                events.push(refused(slot, Refusal::NotAboard));
+                return;
+            }
         };
         if self.free(resource) == 0 {
             events.push(refused(slot, Refusal::NotAboard));
@@ -3639,6 +4067,30 @@ impl World {
             && let Some(i) = self.guns.iter().position(|q| *q == g)
         {
             self.guns.remove(i);
+        }
+        // And off its class's grid: a piece or a gun with its slot — the
+        // one asked for, else the first that holds the thing — one unit
+        // off a stack, the one asked for else the last; before the count,
+        // like the rest, so the settle finds nothing to drop.
+        let class = storage(resource);
+        if let Some(grid) = self.grid_mut(class) {
+            match (piece, gun) {
+                (None, None) => {
+                    grid.remove(resource, 1, from_slot);
+                }
+                (piece, gun) => {
+                    let kept = match (piece, gun) {
+                        (Some(p), _) => Kept::Piece(p.id),
+                        (_, Some(g)) => Kept::Gun(g.kind, g.tier),
+                        (None, None) => unreachable!(),
+                    };
+                    let taken = from_slot
+                        .or_else(|| grid.slots.iter().find(|s| s.kept == kept).map(|s| s.id));
+                    if let Some(id) = taken {
+                        grid.take(id);
+                    }
+                }
+            }
         }
         self.ship.design.cargo[resource as usize] -= 1;
         self.on_ship_changed();
@@ -3734,6 +4186,13 @@ impl World {
     pub fn loot_cells(&self, source: LootSource) -> Option<[Option<Item>; LOOT_CELLS]> {
         let (room, who) = self.body_room(source)?;
         Some(room.loot_cells(who))
+    }
+
+    /// Which way round each thing in a body's pack lies — `Gear::turned`
+    /// — for the Loot window to draw it as it is.
+    pub fn loot_turned(&self, source: LootSource) -> Option<[bool; PACK_CELLS]> {
+        let (room, who) = self.body_room(source)?;
+        Some(room.gear(who).turned)
     }
 
     /// Where a body lies, in the crew's room's units — the ones
@@ -4416,14 +4875,20 @@ impl World {
         time::MINUTES_PER_SECOND / data::STEP_MINUTES
     }
 
-    /// The whole day count, and the minutes into it. The host formats; no
-    /// strings cross the boundary.
+    /// The day count, and the minutes into it — the **crew's** clock, read
+    /// through the room. `clock_minutes` is elapsed time since the world
+    /// opened; the room's clock opened at the waking hour and has run in
+    /// step with it since (`the_crew_keep_the_world_s_clock`), and the
+    /// room's is what the schedule strip, the light and the Bims' day go
+    /// by, so it is the one the player is shown. Read as `clock_minutes %
+    /// DAY` this was eight hours behind the schedule's "now". The host
+    /// formats; no strings cross the boundary.
     pub fn day(&self) -> u32 {
-        (self.clock_minutes / time::DAY) as u32
+        self.aboard.room.clock_day()
     }
 
     pub fn minutes_into_day(&self) -> f64 {
-        self.clock_minutes % time::DAY
+        self.aboard.minutes() % time::DAY
     }
 
     /// Where the trip has got to, for a caller that wants to draw it.
@@ -4510,6 +4975,42 @@ impl World {
     pub fn undock_for_probe(&mut self) {
         self.ship.state = ShipState::Holding;
         self.unjoin_rooms();
+    }
+
+    /// Shoot the `n` lamps nearest the first crew member out, and leave
+    /// the next one failing — each hit as a bolt would land it, so the
+    /// world remembers them and the residents' room follows on the next
+    /// step. How a lamp out and a lamp failing are looked at without a
+    /// fight that happens to hit one: `BIMS_LAMPS_OUT` in the app.
+    pub fn shoot_lamps_for_probe(&mut self, n: usize) {
+        if self.aboard.count() == 0 {
+            return;
+        }
+        let at = self.aboard.room.bim_pos(0);
+        let mut near: Vec<(f32, usize)> = self
+            .aboard
+            .room
+            .lamps()
+            .iter()
+            .enumerate()
+            .map(|(i, l)| ((l.at - at).len(), i))
+            .collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (k, &(_, i)) in near.iter().take(n + 1).enumerate() {
+            let damage = if k < n {
+                bims::sight::LAMP_HEALTH
+            } else {
+                bims::sight::LAMP_HEALTH * (1.0 - bims::sight::LAMP_FAILING * 0.5)
+            };
+            self.aboard.room.damage_lamp_for_probe(i, damage);
+        }
+    }
+
+    /// Tie up at a station without flying there: docked, the rooms joined.
+    /// For probes of what a dock builds afresh.
+    pub fn dock_for_probe(&mut self, id: u32) {
+        self.ship.state = ShipState::Docked { station: id };
+        self.dock_at(id);
     }
 
     /// Pretend the reactors make `supply` a minute until the ship next
@@ -4747,8 +5248,9 @@ fn bank_medicine(design: &mut ShipDesign, room: &mut bims::game::Game) -> bool {
     *bandages = bandages.saturating_sub(used);
     let medkits = &mut design.cargo[ResourceId::Medkit as usize];
     *medkits = medkits.saturating_sub(kits);
-    let class = storage(ResourceId::Fibre);
-    let space = design.capacity(class).saturating_sub(design.stored(class));
+    // By area: a stack of fibre is one cell, so a cell spare is a stack
+    // that lies.
+    let space = design.room_for(ResourceId::Fibre);
     design.cargo[ResourceId::Fibre as usize] += grown.min(space);
     true
 }

@@ -180,11 +180,11 @@ fn main() {
     // "significant" was meant to mean.
 
     let mut game = Game::new(4, 960.0, 640.0);
-    // Ten days alone is past the point where a Bim gives up. Re-pinned every
+    // Fourteen days alone is past the point where a Bim gives up. Re-pinned every
     // frame, because the other one coming over for a word resets the clock.
     let mut gone = false;
     for _ in 0..(3 * FRAMES_PER_DAY) {
-        game.leave_alone_for_probe(PLAYER, 11.0);
+        game.leave_alone_for_probe(PLAYER, 14.0);
         game.update(STEP);
         if !game.is_alive(PLAYER) {
             gone = true;

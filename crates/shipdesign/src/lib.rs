@@ -120,18 +120,26 @@ pub mod research;
 pub mod validate;
 
 pub use budget::Budget;
-pub use design::{CARGO_SLOTS, Edit, EditError, Grid, PlacedPart, ShipDesign, apply, design_hash};
+pub use design::{
+    CARGO_SLOTS, Edit, EditError, Grid, PlacedPart, ShipDesign, apply, design_hash, wall_at_back,
+    wall_light_rotation,
+};
 pub use dock::{Port, port};
 // Money and what a station sells are the design phase's units, so they are
 // re-exported here rather than leaving every caller to depend on `economy`
 // for the sake of a type and two lookups.
-pub use economy::{Money, Storage, starting_pool, storage, trade_price, trade_value};
+pub use economy::{
+    Footprint, Money, Storage, cells, footprint as resource_footprint, stack_size, stacks_of,
+    starting_pool, storage, trade_price, trade_value,
+};
 pub use mass::{acceleration, hull_mass, ship_mass};
 pub use materials::{bound_materials, build_from_cargo, deconstruct_to_cargo, recipe_for};
 pub use parts::{
-    BATTERY_CHARGE, ENGINE_POWER, FUSION_OUTPUT, Layer, PartDef, PartKind, REACTOR_OUTPUT,
-    Rotation, STANDING_LIGHT_TILES, TILE, WALL_LIGHT_TILES, essential, is_cover, is_diagonal,
-    is_light, light_tiles, part_mass, solid_corner,
+    BATTERY_CHARGE, BIG_PLANT_LIFT, BIG_PLANT_TILES, Comfort, ENGINE_POWER, FUSION_OUTPUT,
+    GRID_COLS, Layer, PICTURE_LIFT, PICTURE_TILES, PartDef, PartKind, REACTOR_OUTPUT, Rotation,
+    SMALL_PLANT_LIFT, SMALL_PLANT_TILES, STANDING_LIGHT_TILES, TILE, WALL_LIGHT_TILES, comfort,
+    essential, hangs_on_wall, is_comfort, is_cover, is_diagonal, is_light, is_wall, light_tiles,
+    part_mass, solid_corner, wall_light_back,
 };
 pub use power::{
     Budget as PowerBudget, Network, Thrust, budget as power_budget, is_powered, networks, thrust,

@@ -52,7 +52,7 @@
 
 use physics::ResourceId;
 use shipdesign::parts::{Layer, TILE, door_slides_along_x};
-use shipdesign::{PartKind, PlacedPart, ShipDesign};
+use shipdesign::{PartKind, PlacedPart, ShipDesign, is_wall};
 
 use crate::game::Game;
 use crate::math::{Rect, Vec2, vec2};
@@ -63,6 +63,9 @@ use crate::room::{Bench, Layout, More, Still};
 /// end of the collar a body on a walk outside is held.
 const GANGWAY_TILES: f32 = 2.5;
 const OUTSIDE_TILES: f32 = 1.0;
+/// How far in from the wall's face a wall light shines from, in tiles:
+/// the lamp is on the bracket, a hand's breadth off the wall.
+const WALL_LAMP_IN: f32 = 0.38;
 
 /// A tile's rect, in room units.
 fn tile_rect(x: i32, y: i32) -> Rect {
@@ -135,8 +138,15 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
     let mut opaque: Vec<Rect> = Vec::new();
     // And the low cover a body ducks behind: the sandbags.
     let mut cover: Vec<Rect> = Vec::new();
-    // And the lights, each at the middle of its tile with its reach.
+    // And which of the opaque parts are furniture rather than wall — the
+    // shelves, the cabinets, a table — that the light picture shades
+    // behind softly rather than blacking out. See `Sight::set_tall`.
+    let mut tall: Vec<Rect> = Vec::new();
+    // And the lights, each where it shines from with its reach.
     let mut lights: Vec<crate::sight::Light> = Vec::new();
+    // And the comforts — the plants, the pictures — each where it stands
+    // with what it lifts the deck round it by. See `Filth::set_comforts`.
+    let mut comforts: Vec<crate::filth::Comfort> = Vec::new();
     let mut extras: Vec<(Still, Rect)> = Vec::new();
     let mut more = More::default();
     let (x0, y0) = ((interior.min.x / t) as i32, (interior.min.y / t) as i32);
@@ -216,14 +226,35 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
         let def = part.kind.def();
         if def.layer == Layer::Object && def.blocks_sight() && part.kind != PartKind::Door {
             opaque.push(part_rect(part));
+            if !is_wall(part.kind) {
+                tall.push(part_rect(part));
+            }
         }
         if shipdesign::is_cover(part.kind) {
             cover.push(part_rect(part));
         }
         if let Some(tiles) = shipdesign::light_tiles(part.kind) {
+            // A wall light shines from the wall it hangs on: its source is
+            // at the face of the tile its rotation names, a little in, so
+            // the shadows fan out from the wall and not from the middle of
+            // the gangway. A standing light is where its pole is.
+            let rect = part_rect(part);
+            let at = if part.kind == PartKind::WallLight {
+                let (dx, dy) = shipdesign::wall_light_back(part.rotation);
+                rect.center() + vec2(dx as f32, dy as f32) * (t * WALL_LAMP_IN)
+            } else {
+                rect.center()
+            };
             lights.push(crate::sight::Light {
-                at: part_rect(part).center(),
+                at,
                 reach: tiles as f32 * t,
+            });
+        }
+        if let Some(comfort) = shipdesign::comfort(part.kind) {
+            comforts.push(crate::filth::Comfort {
+                at: part_rect(part).center(),
+                lift: comfort.lift as f32,
+                tiles: comfort.tiles as i32,
             });
         }
         if def.layer != Layer::Object || !def.blocks_movement {
@@ -423,8 +454,10 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
         research,
         others,
         opaque,
+        tall,
         cover,
         lights,
+        comforts,
         more,
         extras,
         doors,

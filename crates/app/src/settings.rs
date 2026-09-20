@@ -2,13 +2,15 @@
 //!
 //! One window in the middle of the screen, three pages. The first is the
 //! menu — the UI scale, and a button each for the audio and the controls —
-//! and the other two are those, with a way back. Esc opens it from any
+//! and the other two are those, with a way back. The controls page is
+//! where every key is rebound (`crate::keys`). Esc opens it from any
 //! screen that has one and closes it again from any page; the screens
 //! own whether it is up and which page, as a [`Sheet`], and lay it out
 //! with [`settings_sheet`] after their panels so it sits over them.
 
 use bevy_egui::egui;
 
+use crate::keys::{Action, Keys};
 use crate::sound::Mix;
 use crate::theme;
 
@@ -21,8 +23,15 @@ pub enum Sheet {
     Controls,
 }
 
-/// The sheet, on `page`. `None` afterwards means it was closed.
-pub fn settings_sheet(ctx: &egui::Context, sheet: &mut Option<Sheet>, mix: &mut Mix) {
+/// The sheet, on `page`. `None` afterwards means it was closed. While the
+/// controls page is waiting on a key (`keys.listening`) Esc is its to
+/// cancel with, and the screens leave the sheet up.
+pub fn settings_sheet(
+    ctx: &egui::Context,
+    sheet: &mut Option<Sheet>,
+    mix: &mut Mix,
+    keys: &mut Keys,
+) {
     let Some(page) = *sheet else {
         return;
     };
@@ -38,7 +47,7 @@ pub fn settings_sheet(ctx: &egui::Context, sheet: &mut Option<Sheet>, mix: &mut 
         .show(ctx, |ui| match page {
             Sheet::Menu => menu(ui, sheet),
             Sheet::Audio => audio(ui, sheet, mix),
-            Sheet::Controls => controls(ui, sheet),
+            Sheet::Controls => controls(ui, sheet, keys),
         });
 }
 
@@ -96,7 +105,95 @@ fn audio(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, mix: &mut Mix) {
     }
 }
 
-fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>) {
+/// The keys, and the player's say over them: every [`Action`] with its
+/// key on a button — click it, press the key you want, Esc to think
+/// again — a line where a key is used twice, and a way back to the
+/// defaults. The rest of the page is what the pointer does, which is
+/// not rebound. A change is kept for next time (`Keys::save`).
+/// A wrapped line in a grid's column: given its width, since a grid
+/// gives a wrapping label none and it comes out a word a line.
+fn wide(ui: &mut egui::Ui, text: &str) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(400.0, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_min_width(400.0);
+            ui.add(egui::Label::new(text).wrap());
+        },
+    );
+}
+
+fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
+    // The key being chosen: the next key down is it, bar Esc, which
+    // cancels — asked before the rows, so the row it lands on is drawn
+    // already bound.
+    if let Some(action) = keys.listening {
+        let pressed = ui.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Key {
+                    key, pressed: true, ..
+                } => Some(*key),
+                _ => None,
+            })
+        });
+        match pressed {
+            Some(egui::Key::Escape) => keys.listening = None,
+            Some(key) => {
+                keys.set(action, key);
+                keys.listening = None;
+                keys.save();
+            }
+            None => {}
+        }
+    }
+    ui.set_max_width(620.0);
+    // Sixteen rows and the pointer's table: taller than a short window, so
+    // the page scrolls and the way back stays under it.
+    egui::ScrollArea::vertical().max_height(560.0).show(ui, |ui| {
+    theme::heading(ui, "Keys");
+    ui.label(
+        egui::RichText::new(
+            "Click a key to change it, then press the one you want; Esc keeps the old one. Two actions on one key both happen — Recruit and Turn share R and are told apart by what is in hand.",
+        )
+        .small()
+        .color(theme::MUTED),
+    );
+    ui.add_space(4.0);
+    // A row an action rather than a grid: a grid gives a wrapped line no
+    // height of its own, and the rows ran into each other.
+    for action in Action::ALL {
+        ui.horizontal_top(|ui| {
+                let listening = keys.listening == Some(action);
+                let label = if listening {
+                    "press a key…".to_string()
+                } else {
+                    keys.key(action).symbol_or_name().to_string()
+                };
+                let button = egui::Button::new(egui::RichText::new(label).strong())
+                    .min_size(egui::vec2(96.0, 0.0))
+                    .selected(listening);
+                if ui.add(button).clicked() {
+                    keys.listening = if listening { None } else { Some(action) };
+                }
+                wide(ui, action.what());
+                let shared = keys.shared_with(action);
+                if !shared.is_empty() {
+                    let names: Vec<&str> = shared.iter().map(|a| a.name()).collect();
+                    ui.label(
+                        egui::RichText::new(format!("also {}", names.join(", ")))
+                            .small()
+                            .color(theme::WARN),
+                    );
+                }
+        });
+        ui.add_space(2.0);
+    }
+    ui.add_space(4.0);
+    if ui.button("Reset to defaults").clicked() {
+        *keys = Keys::default();
+        keys.save();
+    }
+    ui.add_space(8.0);
     let table = |ui: &mut egui::Ui, title: &str, rows: &[(&str, &str)]| {
         theme::heading(ui, title);
         egui::Grid::new(title)
@@ -105,28 +202,17 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>) {
             .show(ui, |ui| {
                 for (key, what) in rows {
                     ui.label(egui::RichText::new(*key).strong());
-                    ui.label(*what);
+                    wide(ui, what);
                     ui.end_row();
                 }
             });
     };
     table(
         ui,
-        "At the helm",
+        "The pointer",
         &[
-            ("M", "Switch between the ship and the map."),
-            ("N", "Turn the view head up or north up."),
-            (
-                "F",
-                "Follow the crew member you steer, or let the camera go free.",
-            ),
-            ("Space", "Pause the world, or set it going again."),
-            ("1 2 3 4", "Run the world at 1×, 3×, 10× or the top speed."),
-            (
-                "W A S D",
-                "Pan the view. Middle-drag does the same. A free camera goes anywhere; one following the crew stops at the edge.",
-            ),
             ("Wheel", "Zoom, about the pointer."),
+            ("Middle-drag", "Pan the view."),
             (
                 "Take the helm",
                 "Send the crew member you steer to the helm. The ship is flown from there: nothing can be aimed at or confirmed until they are standing at it.",
@@ -135,60 +221,36 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>) {
                 "Click the map",
                 "Aim at a planet or a station; the helm quotes the trip, and Confirm sends the ship. At a station, the crew all come back aboard first and the ship casts off once they have.",
             ),
-        ],
-    );
-    table(
-        ui,
-        "On the deck",
-        &[
-            (
-                "C",
-                "Select the crew member you steer, and put them in the middle of the view.",
-            ),
-            ("Drag", "Select whoever is inside the box."),
+            ("Drag on the deck", "Select whoever is inside the box."),
             (
                 "Right-click the deck",
                 "Send the selected crew member there.",
             ),
             ("Right-click a fixture", "Open its menu."),
-            ("R", "Recruit the crew member you steer, or let them go."),
-        ],
-    );
-    table(
-        ui,
-        "Building",
-        &[
             (
                 "Build tab",
                 "Pick a part by category, or search for one. The crew carry what it is made of from the shelves and build it; a site beyond the hull is built in a suit.",
             ),
             (
-                "Click",
-                "Lay the part in hand out where the pointer is. Green goes; red says why not at the top left.",
+                "Click with a part in hand",
+                "Lay it out where the pointer is. Green goes; red says why not at the top left. Right-click or Esc puts it down.",
             ),
-            ("R", "Turn the part in hand."),
-            ("Right-click, Esc", "Put the part down."),
+            (
+                "In the armoury",
+                "Drag a thing to move it, Turn while carrying it to stand it on end, and let go where the ghost is green. Ctrl-click takes a thing into the pack.",
+            ),
+            ("Drag in the yard", "Lay the chosen part over every tile of the box."),
+            ("Right-drag in the yard", "Take the top part off every tile of the box."),
+            (
+                "Esc",
+                "Close a menu, stop aiming, put a part down, or open and close the settings. Not rebound: it is what closes this sheet.",
+            ),
         ],
     );
-    table(
-        ui,
-        "In the yard",
-        &[
-            ("Drag", "Lay the chosen part over every tile of the box."),
-            ("Right-drag", "Take the top part off every tile of the box."),
-            ("R", "Turn the part you are about to place."),
-        ],
-    );
-    table(
-        ui,
-        "Anywhere",
-        &[(
-            "Esc",
-            "Close a menu, stop aiming, or open and close the settings.",
-        )],
-    );
+    });
     ui.add_space(8.0);
     if ui.button("< Back").clicked() {
+        keys.listening = None;
         *sheet = Some(Sheet::Menu);
     }
 }

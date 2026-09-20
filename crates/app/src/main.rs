@@ -7,7 +7,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Six things to run, and each is a name rather than a flag:
+//! Seven things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -24,6 +24,10 @@
 //!                    arena and made hostile, its people enemies and more
 //!                    of them than a station puts up; a recruited crew
 //!                    member shoots at any it can see
+//! bims stationbuilder [name]
+//!                    a grid to sketch a station's rough shape on, saved as
+//!                    text to `stations/<name>.txt` for a plan to be
+//!                    written from
 //! bims --self-check  the pinned constants, checked, and the verdict printed
 //! ```
 
@@ -34,6 +38,7 @@ mod fogmap;
 mod format;
 mod grid;
 mod icons;
+mod keys;
 mod names;
 mod screens;
 mod settings;
@@ -45,7 +50,7 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy_egui::EguiPlugin;
 
-/// Which of the six things this process is.
+/// Which of the seven things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -54,6 +59,7 @@ pub enum Launch {
     Room,
     Test,
     Combat,
+    StationBuilder,
 }
 
 /// Which screen is up. One at a time, and the whole game is a walk through
@@ -73,10 +79,13 @@ pub enum Screen {
     Design,
     Game,
     Room,
+    StationBuilder,
 }
 
 fn usage() -> ! {
-    eprintln!("usage: bims [game|simulation|design|room|test|combat|--self-check]");
+    eprintln!(
+        "usage: bims [game|simulation|design|room|test|combat|stationbuilder [name]|--self-check]"
+    );
     std::process::exit(2)
 }
 
@@ -89,6 +98,7 @@ fn main() {
         Some("test") => Launch::Test,
         // Accepted as a flag too, since that is how it was first asked for.
         Some("combat") | Some("--combat") => Launch::Combat,
+        Some("stationbuilder") => Launch::StationBuilder,
         Some("--self-check") => {
             let bits = ship::session::self_check();
             let all = ship::session::SELF_CHECK_ALL;
@@ -96,6 +106,18 @@ fn main() {
             std::process::exit(if bits == all { 0 } else { 1 });
         }
         Some(_) => usage(),
+    };
+    // The sketch's name, after `stationbuilder`: letters, digits, `-` and
+    // `_`, so it names a file and not a path.
+    let sketch = match (launch, std::env::args().nth(2)) {
+        (Launch::StationBuilder, Some(name)) => {
+            if !screens::station::valid_name(&name) {
+                eprintln!("a sketch's name is letters, digits, '-' and '_': {name:?}");
+                std::process::exit(2);
+            }
+            name
+        }
+        _ => screens::station::DEFAULT_NAME.to_string(),
     };
 
     let mut app = App::new();
@@ -121,6 +143,8 @@ fn main() {
     .add_plugins(EguiPlugin::default())
     .insert_resource(ClearColor(theme::VOID))
     .insert_resource(launch)
+    .insert_resource(screens::station::SketchName(sketch))
+    .insert_resource(keys::Keys::load())
     .init_state::<Screen>()
     .add_plugins((
         canvas::CanvasPlugin,
@@ -131,6 +155,7 @@ fn main() {
         screens::designer::DesignerPlugin,
         screens::game::GamePlugin,
         screens::room::RoomPlugin,
+        screens::station::StationBuilderPlugin,
     ))
     .add_systems(Startup, open);
     app.run();
@@ -152,5 +177,6 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
             next.set(Screen::Design);
         }
         Launch::Room => next.set(Screen::Room),
+        Launch::StationBuilder => next.set(Screen::StationBuilder),
     }
 }

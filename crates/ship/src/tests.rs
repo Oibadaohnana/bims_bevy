@@ -248,51 +248,40 @@ fn the_sky_and_what_is_alongside_do_not_turn_with_the_ship() {
     let mut game = game();
     let mut list = crate::draw::DrawList::new();
 
-    // Every shape is either square to the window or turned with the ship —
-    // to the heading, or, for one of the crew, to the heading plus the way
-    // they are facing on the deck. There is no other thing: the sky, the
-    // station alongside and the void behind them are never turned.
+    // Every shape is either where it was at rest — the sky, the station
+    // alongside and the void behind them are never turned, and neither
+    // are the turns of their own their pictures carry — or turned by
+    // exactly the heading on top of what it was at rest: the hull, the
+    // fittings (a lamp hung `R270` from the side wall is drawn at its own
+    // turn plus the heading), the room aboard's own turned things — a
+    // Bim's body, a pot's handle. The same frame at rest is the reference,
+    // shape for shape.
     game.world.ship.heading = 1.1;
     world_paint::paint(&game, &mut list);
     let angles = shape_rotations(&list);
-    // What the ship is alongside is drawn square to the window, and its
-    // picture has turns of its own that do not move with the ship: whatever
-    // was turned at rest is still turned by exactly that much.
     game.world.ship.heading = 0.0;
     let mut at_rest = crate::draw::DrawList::new();
     world_paint::paint(&game, &mut at_rest);
     let fixed = shape_rotations(&at_rest);
-    // The room aboard draws turned things of its own — a Bim's body, a
-    // pot's handle — and every one of them is turned by the heading on top.
-    let room: Vec<f32> = game
-        .world
-        .aboard
-        .room
-        .shapes()
-        .chunks_exact(bims::draw::STRIDE)
-        .map(|shape| shape[5] + 1.1)
-        .collect();
-    for angle in &angles {
-        assert!(
-            angle.abs() < 1e-6
-                || (angle - 1.1).abs() < 1e-6
-                || room.iter().any(|f| (angle - f).abs() < 1e-5)
-                || fixed.iter().any(|f| (angle - f).abs() < 1e-6),
-            "a shape was drawn at {angle}, which is neither square nor turned with the ship",
-        );
+    assert_eq!(
+        angles.len(),
+        fixed.len(),
+        "the same frame turned should draw the same shapes"
+    );
+    let (mut square, mut turned) = (0, 0);
+    for (angle, rest) in angles.iter().zip(&fixed) {
+        if (angle - rest).abs() < 1e-6 {
+            square += 1;
+        } else if (angle - rest - 1.1).abs() < 1e-5 {
+            turned += 1;
+        } else {
+            panic!(
+                "a shape at {rest} at rest was drawn at {angle}, which is neither still nor turned with the ship"
+            );
+        }
     }
-    assert!(
-        !room.is_empty(),
-        "the room aboard should have drawn something"
-    );
-    assert!(
-        angles.iter().any(|a| a.abs() < 1e-6),
-        "the starfield should be square to the window",
-    );
-    assert!(
-        angles.iter().any(|a| (a - 1.1).abs() < 1e-6),
-        "the ship should be turned to its heading",
-    );
+    assert!(square > 0, "the starfield should be square to the window");
+    assert!(turned > 0, "the ship should be turned to its heading");
 }
 
 /// The sky streams past a ship under way and stands still otherwise. It is
@@ -787,4 +776,116 @@ fn the_blueprint_asks_the_world_once_a_tile_and_finds_a_site_under_the_pointer()
     game.set_placing(None);
     assert!(game.ghost_check().is_none());
     assert!(!game.ghost_ok());
+}
+
+/// A station's person who has followed the crew through the passage is
+/// drawn *over* the ship's deck, not under it. The stations are painted
+/// before the ship, the residents' room with them, so a body standing on
+/// the ship's tiles was under the hull — a name walking about over an
+/// empty tile. The room hands its frame over split at the bodies
+/// (`bims::game::Game::shapes_split`) and the painter lifts that half over
+/// the ship's own picture.
+#[test]
+fn a_resident_on_the_ship_s_deck_is_drawn_over_it() {
+    use crate::draw::{KIND_ELLIPSE, KIND_RECT, STRIDE};
+    use crate::session::Session;
+
+    let mut session = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
+    assert!(session.stage_fight_for_probe());
+    let game = session.game.as_mut().unwrap();
+    // Crew member 1 is at its bunk on the ship; stand the resident near
+    // it — a tile or two off, so the two bodies are told apart on screen
+    // — on the ship's deck and in the crew's sight.
+    let ship = game.world.ship.design.clone();
+    let tile = TILE as f32;
+    assert!(game.world.aboard.on_ship(1, &ship));
+    let near = game.world.aboard.crew_ashore()[1].expect("crew member 1 is on its feet");
+    // Where the resident stands, on the ship's own grid: its spot on the
+    // joined deck through the station frame, less the ship's shift.
+    let on_ship = |game: &Game| {
+        let (origin, ex, ey) = game.world.aboard.station_frame.unwrap();
+        let p = game.world.residents.as_ref().unwrap().aboard.exposed(0);
+        let at = origin
+            .add(ex.scale(p.x))
+            .add(ey.scale(p.y))
+            .sub(game.world.aboard.offset);
+        let t = TILE as f64;
+        let tile = ((at.x / t).floor() as i32, (at.y / t).floor() as i32);
+        ship.grid().get(shipdesign::Layer::Structure, tile) != 0
+    };
+    let placed = [
+        (1.0, 0.0),
+        (-1.0, 0.0),
+        (0.0, 1.0),
+        (0.0, -1.0),
+        (2.0, 0.0),
+        (0.0, 2.0),
+    ]
+    .into_iter()
+    .any(|(dx, dy): (f64, f64)| {
+        let there = near.add(dvec2(dx * tile as f64, dy * tile as f64));
+        {
+            let residents = game.world.residents.as_mut().unwrap();
+            let spot = residents.aboard.to_room(there);
+            residents.aboard.room.put_for_probe(0, spot);
+        }
+        let (x, y) = world_paint::resident_on_screen(game, 0);
+        let apart = (0..2).all(|who| {
+            let (cx, cy) = world_paint::crew_on_screen(game, who);
+            (cx - x).abs().max((cy - y).abs()) > 0.75 * tile
+        });
+        on_ship(game) && apart
+    });
+    assert!(placed, "somewhere on the ship's deck a tile from anybody");
+    for _ in 0..3 {
+        game.world.step(&[]);
+    }
+    assert!(
+        game.world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .body_seen(0),
+        "the crew see the resident beside them"
+    );
+    assert!(on_ship(game), "and it has not walked off the ship");
+    let list = session.render().to_vec();
+    let (x, y) = session
+        .resident_on_screen(0)
+        .expect("a resident in sight is on screen");
+
+    let shapes: Vec<&[f32]> = list.chunks_exact(STRIDE).collect();
+    // The last deck tile under the resident: a tile-sized rectangle the
+    // point is inside. The hull's, or the room's — whichever is painted
+    // last is what a body under it would be hidden by.
+    let deck = shapes
+        .iter()
+        .rposition(|s| {
+            s[0] == KIND_RECT
+                && (s[3] - tile).abs() < 1.0
+                && (s[4] - tile).abs() < 1.0
+                && (s[1] - x).abs() <= tile / 2.0
+                && (s[2] - y).abs() <= tile / 2.0
+        })
+        .expect("the resident stands on a deck tile");
+    // The resident's body: its torso, an ellipse over half a tile across,
+    // centred within a quarter tile of where its name goes. Not the
+    // bolt it fires from there, which is thin rectangles and specks, and
+    // not the crew member a tile off.
+    let body = shapes
+        .iter()
+        .rposition(|s| {
+            s[0] == KIND_ELLIPSE
+                && s[3] > tile / 2.0
+                && s[4] > tile / 2.0
+                && (s[1] - x).abs() < tile / 4.0
+                && (s[2] - y).abs() < tile / 4.0
+        })
+        .expect("the resident is drawn");
+    assert!(
+        body > deck,
+        "the resident (shape {body}) is under the deck (shape {deck})"
+    );
 }

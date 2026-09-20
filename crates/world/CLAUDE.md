@@ -72,8 +72,10 @@ The playtest ship has a smelter, a workbench and a drug lab aft, all
 `R180` so they are worked from the row forward of them (the row aft is
 the stern), an armoury forward by the bunk with a second reactor to pay
 for it, a second shelf, 40 ore, five bandages, six fibre, a piece of
-each armour and one of each of the four weapons — thirteen of the
-sixteen locker slots, which is why the armoury's cabinet grew to eight.
+each armour and one of each of the four weapons — 84 of the lockers'
+160 cells since they became a grid ("Every hold but the desk is a grid" below);
+thirteen of sixteen slots before, which is why the armoury's cabinet
+grew to eight.
 `a_target_for_metal_has_a_bim_smelt_ore_at_the_bench` runs
 the whole seam natively and `simulation-check.mjs`'s keep section from a
 click; both craft tests count `benches()` as four now, the drug lab and
@@ -222,13 +224,16 @@ a shortcut round it.
 ## A station is a place, and the ship docks beside it
 
 `crates/world/src/station.rs` turns every `StationBlueprint` of the system
-into a `ShipDesign` through `apply` — the same parts, the same rules — sized
-by kind (26 to 40 tiles) and dressed by `map_seed`, with the port in the
-west skin and the array in the north. `World::stations` holds them from
-`World::start`; `Station::all_of` is the only place they are built, and
-`station::layout` **caches by (kind, seed)** because a layout is two
-thousand `apply`s and the world test suite went from two seconds to a
-minute before it did.
+into a `ShipDesign` through `apply` — the same parts, the same rules — on
+one of six **plans** (`station::Plan`, rolled off `map_seed` on a stream
+of its own; the section "A station is one of six plans" below), sized
+by plan and kind (34 to 72 tiles) and dressed by `map_seed`, with the port
+in the west skin and the array in the north. `World::stations` holds them
+from `World::start`; `Station::all_of` is the only place they are built
+(`Station::build_as` for a plan of your own, `Station::replan` to lay one
+out again where it stands), and `station::layout` **caches by (kind,
+plan, seed)** because a layout is two thousand `apply`s and the world
+test suite went from two seconds to a minute before it did.
 
 Five things that hang off that:
 
@@ -462,7 +467,7 @@ nothing at fifty tiles, and the map rings every station by it
 opened with `World::people_of(station)`, never `residents()` straight:
 the residents at a friendly or neutral station, nobody on a derelict,
 and at a hostile one `station::enemies_of(crew, worth, start_worth)` —
-`data::ENEMIES_BASE` (two) plus one a crewmate, doubled for every half
+`data::ENEMIES_BASE` (one) plus one a crewmate, doubled for every half
 of `World::start_worth` that `World::worth()` has grown by since, capped
 at `data::ENEMIES_MAX` (sixteen). Worth is `shipdesign::Budget::spent`
 of the ship's design — every part at its price and every unit in the
@@ -504,7 +509,7 @@ room, `health`, `crew_down`, `crew_locked` and `Ship::crew_count` by
 not hold the speed at 1x (`speed::effective` is the *slowest* request).
 `Session::combat` in `crates/ship` does the whole thing and issues
 `WeaponKind::ALL` down the crew, one each.
-`the_combat_dock_is_the_arena_with_five_crew_and_a_garrison_of_thirteen`
+`the_combat_dock_is_the_arena_with_five_crew_and_a_garrison_of_twelve`
 and `the_arena_and_the_combat_ship_can_be_walked` (the walkability
 contract again, by `Nav::can_reach` rather than a search per tile)
 are the tests.
@@ -549,7 +554,17 @@ target (`Game::set_hostiles` in a hostile room, `crates/game/CLAUDE.md`),
 walks to where it last saw one and gives the hunt up after
 `FORGET_AFTER`, so a crew that docks at a hostile station and stays
 aboard unseen leaves its people to their day rather than at war with
-nobody. What they need line of sight for is the shot. A room whose bodies are hostile does not
+nobody. **But the airlock is watched** (since September 2026):
+`Residents::join` hands the fresh room the tile just inside the
+station's own door — `station.port()`, a tile back from `outward`,
+through `to_room` — as `Game::set_watched`, and a crew member within
+`bims::game::AIRLOCK_WATCH` (2.5) tiles of it is seen with nobody
+looking, so a boarding is noticed at the door and is what starts the
+fight; the ship's own airlock is beyond the watch, so a crew still
+aboard is not. `unjoin`'s fresh room has none.
+`a_hostile_station_notices_a_boarding_at_its_airlock_with_nobody_looking`
+pins it with every resident dead. What they need line of sight for is
+the shot. A room whose bodies are hostile does not
 fly bolts — it records `combat::Shot`s, and `visit` reads them back
 (`take_shots`), puts `from` and `at` through `station_frame` onto the
 joined deck and fires each there as a hostile bolt
@@ -859,7 +874,108 @@ the pistols follow the step after; `upgrade_sessions_make_a_day` pins the
 constants and the codes. Setting a test up: poking `cargo[]` past the
 class's capacity is how the wait path is reached, and the playtest hold
 has no pistol — the crew's is in the hand — so a pistol pair is `+= 2`.
+Since the lockers became a grid the poke that fills them is **bandages**
+— `cargo[Bandage] += design.spare(Locker)` — because a bandage is one
+cell and the count fills the grid to the cell; a medkit is four and
+would overshoot by area while leaving holes.
 
+## Every hold but the desk is a grid, and a thing lies on it where it fits
+
+Feature 38.13 (September 2026) made the lockers a grid; the shelves and
+the cold store followed when the user asked for a ten-by-ten storage
+whose limit is the stacking. `crates/world/src/grid.rs`. **Every class
+but the research desk is one grid `GRID_COLS` (10) across**, every part
+of the class so many rows of it (`PartDef::capacity` in cells — a shelf
+100, a cold store 100, the suit locker 20, the armoury 80, the drug lab
+60; `crates/shipdesign/CLAUDE.md`), and every thing kept there covers
+its `economy::footprint` — a pistol 1×2, an auto rifle 1×7, a shotgun
+2×5, a sniper rifle 1×10, a schword 1×5; a helm 2×4, kevlar 4×4, leg
+guards 3×2; a suit 3×3, a medkit 2×2, a bandage 1×1; a crate of
+vegetables 1×2, a block of tofu 4×4, the materials 1×1 — the way a
+survival game's inventory is laid out. **Goods that stack cover a
+footprint a stack** (`economy::stack_size`: ten ore, twenty components,
+ten vegetables or tofu, one of anything worn, held or dressed with), so
+what a shelf holds is its cells times the stacks: the playtest ship's
+forty ore are four cells. Beside the counts the world keeps
+`World::grids: [Grid; 3]` in `World::GRID_CLASSES` order (shelf, cold
+store, locker — `World::grid(class)` looks one up) — each `slots:
+Vec<Slot>`, `{ id, kept: Kept, count, foot, x, y, turned }` with
+`Kept::Piece(id) | Gun(kind, tier) | Stack(resource)`, and `next`, an id
+that only climbs. **The invariant is the pieces' again: a class's slots
+are exactly what it holds — one per piece at `Hold`, one per gun on the
+list, and for each other resource stacks whose counts add up to the
+hold's, none over the stack size — as far as they fit**, held by
+`settle_grids` inside `on_ship_changed` right after `settle_guns` (a slot
+names a piece by id and a gun by tier, so those settle first): a count
+grown tops up the stacks with room first (the lowest id first) and lays
+new ones by `first_fit` — row by row from the top left, the *whole grid
+unturned before any of it turned*, so a rifle lies along a row while any
+row has room and stands up only when none has — a count shrunk empties
+the last stack first (the highest id) and drops what is empty, a piece
+or gun gone loses its slot, and a thing that fits nowhere has the grid
+`repack`ed once, biggest first, before it is left **unplaced**: counted,
+in no slot, laid the step room is made, never lost and never forced in.
+`Grid::covered` is what the slots take, `units_of` what the stacks of a
+resource add up to; `lockers_agree` in the tests asks the whole
+invariant of the lockers.
+
+**The gate is `World::has_room(resource, units)`**, asked *before* a
+count moves — by `buy`, `can_make` (the output onto the grid as it
+stands; what the inputs would free is not counted, so a bench whose
+shelf is full waits a step for the ore to be spent), `deliver_upgrade`
+and `stow` — and it is the area rule (`ShipDesign::has_room`) **and** a
+place on the grid as it stands (`Grid::can_take`, a trial `add` on a
+clone: part-full stacks topped up, then new stacks laid). So a stow can
+be refused `NoRoom` with cells to spare — the lockers full but for seven
+scattered cells refuse a rifle the count would take
+(`a_fetch_takes_the_slot_asked_for_and_a_stow_wants_a_run_of_cells`), the
+cold store with area for three blocks of tofu and a four-by-four run for
+two refuses the third
+(`the_shelves_hold_stacks_and_a_fetch_takes_one_off_the_stack_asked_for`)
+— and that is the point: tidy, or turn something. `World::room_for(resource,
+wanted)` is the most of `wanted` that would go, for a haul off a rock or
+a harvest banked. The designer's `Edit::Buy` has only the area rule,
+since the yard has no grid; a design bought full in the yard is laid out
+at `World::new` and overflows, if it does, the way a poked count does.
+
+**Where a thing lies is a command.** `Command::Arrange { slot, class, id,
+x, y, turned }` moves a slot of a class's grid — a drag in a container
+window, or `R` over a thing there — refused `NoRoom` off the grid, over
+another slot, for no such slot or a class with no grid, and wants nobody
+in reach: it is tidying, nothing leaves the hold. The grids are in the
+checksum, so it is a command: each grid's `next`, then every slot's id,
+`Kept::codes()`, count, x, y and turned, after the guns and before the
+tick box; `REFERENCE_CHECKSUM` moved. **A fetch names the slot**:
+`FetchKind::Slot { class, id }` is what a container window asks, resolved
+in `fetch` to the piece by id, the gun by kind and tier or one unit of
+the stack's resource, and *that* slot is taken — or that stack is one
+lighter — before the count moves, so two rifles alike, the one clicked is
+the one that goes; the older kinds take the first slot holding the
+thing, or one off the last stack. `Grid::fits(capacity, foot, x, y,
+turned, ignoring)` is public so the app can colour a drag's ghost by the
+same rule the command will apply. Four tests:
+`the_lockers_lay_the_gear_out_and_a_thing_can_be_moved_and_turned` (the
+playtest layout, an Arrange seen by the checksum and the twin, the three
+refusals), the fetch-and-stow one, the shelves-and-stacks one, and
+`the_grid_turns_a_thing_to_fit_and_keeps_an_overflow_unplaced` on a bare
+`Grid` — stacks topping up and emptying included.
+
+**The pack is a grid too** (feature 49): seven by seven, the room's
+(`crates/game/CLAUDE.md`, "The pack is `Gear::pack`"), every thing over
+the same footprints — `Item::footprint` is `economy::footprint` said
+again by code, and `the_pack_lays_things_by_the_same_footprints_as_the_lockers`
+pins the two. A `cell` in `Stow`, `Equip`, `Discard`, `Where::Pack` and
+`LootCell::Pack` is the cell a thing's top-left corner is in, and a
+command naming any cell a thing reaches over lands on that thing
+(`Gear::head_of`). `Command::Repack { slot, who, cell, to, turned }`
+moves one — a drag in the inventory window — through the room's
+`rearrange`, refused `NoRoom` where it would not lie and `NotAboard` for
+an empty cell, and `mirror_pieces` after it, since a piece's cell is in
+the checksum. A fetch lands in the first place the thing fits
+(`Gear::free_cell_for`), so a test that reads `pack(0)[n]` after a
+fetch has to know the footprints of what went before — a pistol lies
+along two cells, so the next thing is at 2, not 1. `LOOT_CELLS` is 53
+now: the pack's 49, then head, body, legs, weapon.
 
 ## A loot is a command across two rooms, and a resident's piece is new to the world
 
@@ -1017,9 +1133,26 @@ from a berth it is never true. `man_the_desk_for_probe(slot)` posts a
 Bim at it for the tests that trade (`post_for_probe`: a post, so it
 stays; `stand_down` lifts it). The app: the desk's menu row (`Trade`)
 walks the Bim over and opens the trade window
-(`CrewPanels::trade_requested`); the window greys its rows and offers
-"Walk over" while nobody of yours is at it (`Session::at_the_desk`,
-`walk_to_desk`). `trading_wants_somebody_at_the_station_s_desk` pins it.
+(`CrewPanels::trade_requested`); the window offers "Walk over" while
+nobody of yours is at it (`Session::at_the_desk`, `walk_to_desk`).
+`trading_wants_somebody_at_the_station_s_desk` pins it.
+
+**Nothing is bought or sold until it is confirmed** (September 2026).
+The trade rows — `trade_rows` in `crates/app/src/screens/designer.rs`,
+shared by the yard's Station panel and the docked window — fill a
+`Cart`, the app's own: a signed line a resource, a picture of it from
+`icons.rs` beside the word, and under the rows what the lot comes to
+(bought, sold, "You pay"/"You earn", the money after, each hold's
+count after), greyed a step early where it would not fit
+(`Cart::short`: the money, then a hold). The buttons are live from
+anywhere; **Confirm** is live at the desk, and sends the lot as
+`Command::Sell`s **then** `Command::Buy`s (`Cart::deals`), so what a
+sale frees is there for the buys behind it, each judged by the world as
+before — the rules crates never see a cart. Confirm empties it; so does
+shutting the window or casting off with it up. `BIMS_TRADE=1` opens the
+simulation with the window up, which is how it is looked at.
+`a_cart_prices_its_lines_and_sells_before_it_buys` pins the arithmetic
+and the order.
 The desk moved `REFERENCE_CHECKSUM` (every station's layout has one)
 and the walkability contract covers it.
 
@@ -1250,10 +1383,11 @@ returned false for all of it. The tank is at `y0 + 4` for that reason.
 `a_station_s_rooms_can_all_be_walked_from_its_door` in
 `crates/world/src/tests.rs` is the contract: it builds the room's own `Nav`
 from the layout and asks it for a route from the deck inside the port to
-every use spot and every open deck tile, for every kind at three seeds. Run
+every use spot and every open deck tile, for every plan on every kind — the
+hub at three seeds, the rest at two. Run
 it after moving anything in the layout; `validate` will not tell you.
 
-Knock-ons: the layout is one plan sized by kind, and the seed decides only
+Knock-ons: a layout is one plan sized by plan and kind, and the seed decides only
 how many bays, shelves, tables and batteries — two seeds are two stations
 without being two buildings. Only the **first** bay, cold store and so on
 by id is the room's fixture; the rest are furniture the painter draws as
@@ -1297,8 +1431,73 @@ tank against the wall has its spot in the skin (`UseSpotBlocked`).
 There are no chamfers: a diagonal piece where two blocks meet would be
 a pinch the navigation cannot walk, and the picture's round hub is a
 square one here. `nav_map_of_a_station` (ignored) prints the plan as
-digits; run it after moving anything, and the walkability contract
+digits (`BIMS_NAV_MAP=Ring` picks a plan by name); run it after moving
+anything, and the walkability contract
 after that.
+
+## A station is one of six plans, and the spawn is the hub whatever it rolled
+
+`station::Plan` (September 2026) is which building a station is: `Hub`,
+the plan above, and five more — `Pod`, `Cross`, `Spine`, `Ring`, `Comb`
+— rolled evenly off `map_seed ^ PLAN_SALT` (`Plan::rolled`; a stream of
+its own, so the layout's own rolls for bays, shelves, batteries and holes
+are what they were). `Station::plan` carries it, `station::layout(kind,
+plan, seed)` builds it and the cache is keyed by all three. The plan
+decides three things the seed does not: the **size** (`Plan::side`: the
+hub by kind as before, the others a base each — pod 34, cross 44, ring
+48, comb 52, spine 60 — plus 8 for an orbital, 4 a refinery, 2 an outpost
+or derelict, 0 a relay), the **corridors** (`Plan::corridor`: two wide
+on the pod, cross, ring and comb, three on the spine, five on the hub)
+and the **residents** (`Plan::residents`: pod 1, hub 2, cross 3, spine
+4, comb 5, ring 6 — `residents_of(kind)` caps it, so a relay houses one
+and a derelict nobody on any plan, and "does anybody live there" is
+still `residents_of(kind) > 0`). Each of the five newer plans has at
+least two bunks over its residents, for mercenaries.
+
+**The spawn is a hub whatever it rolled** — `World::start` calls
+`Station::replan(Plan::Hub)` on it — the way it is home whatever its
+stance rolled: a crew's first dock is the familiar one, every fixture
+test and `basic()` walk it, the pinned `REFERENCE_CHECKSUM` stands on its
+berth, and the arena (`station::arena`) is it laid out bigger. Every
+other station of the system, and every station after a jump, is what it
+rolled. So the variety is met by *flying somewhere else*; `nix run
+.#test` still docks at a hub.
+
+**How they are built.** `build_layout` is now `match plan` to a floor
+function — `hub`, `pod`, `cross`, `spine`, `ring`, `comb` — each
+returning a `Floor` (the hull blocks, the airlocks with the port first,
+the array tile, the reactor room's deck, the walls and doors, the cover,
+and a block per room role: mess, quarters, heads, research, optional lab
+and rec, any number of stores, the bunk columns, the lit blocks, the
+big plant's tile) and one `furnish` that fills it in **one order for
+every plan**: hull, airlocks and array, the reactor room (desk at
+`x0 + 1`, reactor `x0 + 5`, life support `x0 + 6` on the south wall,
+batteries `x0 + 4` — so a reactor room is at least eight wide and eleven
+tall), walls and doors, sandbags, galley and tables, bunks, heads,
+research desk, bays (the lab's then the research room's; the broom locker
+in the lab's corner or the research room's without one), rec tables,
+shelves, lamps, comforts, holes. The hub's floor reproduces the old
+`build_layout` step for step and its designs come out **hash-identical**
+(checked when the plans went in; the reference checksum did not move).
+The newer plans wall their rooms with `enclose` — a `Wall` on every
+ring tile of the room block that is deck (the skin refuses one) less the
+doorway's two tiles — so adjacent rooms must **share** their wall
+column or row exactly, or a one-tile corridor is left between them that
+nothing can walk. Things learnt laying them: a door's two inside tiles
+and the two beyond them must be clear of fixtures (the bunk column at
+`x0`, the shelves at `x0 + 2, x0 + 4, …`, the mess's chairs at
+`x0 + 2..x0 + 3`), which is why the quarters' door is in the wall the
+bunks do not stand against and the cargo's is in its far corner; a
+sandbag fits only in a corridor three wide or more (one tile from a
+wall leaves two), so the two-wide plans keep their cover in a hall or
+have none; lamps hang on the *inner skin* of a ring corridor as happily
+as on a wall. The port's straight run of deck stays at least nine tiles
+deep everywhere for `stage_fight_for_probe` and the ashore spot.
+`a_station_s_plan_is_rolled_off_its_seed_and_the_spawn_is_a_hub` pins
+the roll, that all six turn up in the default galaxy, that no two plans
+share (size, corridor, residents), and the spawn rule;
+`a_station_is_a_place_the_room_can_live_in` and the walkability contract
+run every plan on every kind.
 
 ## Construction is stage 7, and the materials never leave the hold until the part goes down
 
@@ -1463,6 +1662,36 @@ sealing itself in stops the crew on the deck (and the panel can lift it),
 and the bar the crew watch is the smash in the room where it happens.
 `a_lock_on_a_station_door_is_the_same_lock_in_both_rooms` pins it.
 
+## A lamp shot out is remembered by where it hangs, and is out in both rooms
+
+`World::lamps: Vec<LampDamage { station: Option<u32>, tile, health }>`
+(September 2026). A bolt lands on a lamp on the crew's deck — the one
+deck bolts fly on — and the room takes it off the lamp
+(`bims::sight::Lamp`, `crates/game/CLAUDE.md`); a room is built afresh
+at every dock, undock and relayout and starts every lamp whole, so the
+damage has to live here. `sync_lamps`, in the step right after `visit`,
+drains `Game::take_lamp_changes` off the crew's room and remembers each
+by **which design it hangs in and its tile there** — `Aboard::design_of(p)`
+says whether a room point is in the foreign box (the station's on the
+crew's deck, the ship's on the residents' mirror) and gives the design
+point through the frame or the shift; `room_of(foreign, p)` is the way
+back — then `restore_lamps` sets every remembered lamp on whichever rooms
+it hangs in (`Game::lamp_at` by tile, `set_lamp_health`), which is what
+carries a hit to the residents' mirror of the same lamp *and* what puts
+it back on a fresh room; it is also called outright at the end of
+`join_rooms`, `unjoin_rooms` and `relayout_room` so no frame draws a
+fresh room lit. The record is in `world_checksum` after the keys —
+length, then station or `u64::MAX`, tile, health to `HEALTH_GRID` —
+and `REFERENCE_CHECKSUM` moved (to `0x_01a6_a8a4_d852_c023`). The painter
+asks `World::lamp_look(station, tile)` a light part a frame — off the
+crew's deck, the residents' room, or the record for a station out of
+every room — for `fittings::lamp_face`.
+`a_lamp_shot_out_is_out_in_both_rooms_and_stays_out_across_a_dock` shoots
+a station lamp and a ship lamp out with `enemy_fire`, undocks
+(`undock_for_probe`) and docks again (`dock_for_probe`, which sets the
+docked state first, since `dock_at` does not);
+`shoot_lamps_for_probe(n)` is `BIMS_LAMPS_OUT` in the app.
+
 ## A jump is another system, and `World::jump` is the one list of what a system is
 
 `crates/world/src/jump.rs` (September 2026). A ship with a working
@@ -1507,3 +1736,18 @@ side, wired through `(6, 16)` and `(7, 16)`.
 `Galaxy view`), with `here` and `target` marks the lobby draws for the
 game — the lobby is the one thing that lists a system before the crew
 have been there.
+
+## A station lays a few comforts, after its lamps
+
+`build_layout` puts five comforts down (September 2026): a big plant in
+the middle of the hub at `(mid, mid)`, a small plant a tile in from the
+far south corner of the mess and of the rec room, and a picture on the
+north wall of the quarters and of the rec room, turned to it with
+`wall_light_rotation` like a lamp. **After the lamps**, so a comfort
+never takes a lamp's tile — `put` skips a taken tile, and the lamp
+stays. Only the hub's plant blocks a walk, and it stands in open deck
+where the inflated grid passes on every side; the other four are walked
+past or under, so `a_station_is_a_place_the_room_can_live_in` and the
+walkability test cover them without a change. The layout is not in
+`world_checksum`, so `REFERENCE_CHECKSUM` did not move. What a comfort
+does is `crates/game/CLAUDE.md`, "Surroundings".

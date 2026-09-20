@@ -38,7 +38,7 @@ pub fn resident_name(station: u32, who: u32) -> String {
 
 /// What each part is called. Indexed by the `PartKind` discriminant in
 /// `crates/shipdesign/src/parts.rs`.
-pub const PART_NAMES: [&str; 42] = [
+pub const PART_NAMES: [&str; 45] = [
     "Deck plating",
     "Wall",
     "Door",
@@ -81,6 +81,9 @@ pub const PART_NAMES: [&str; 42] = [
     "Hyperdrive",
     "Wall light",
     "Standing light",
+    "Small plant",
+    "Big plant",
+    "Picture",
 ];
 
 pub fn part_name(kind: PartKind) -> &'static str {
@@ -171,6 +174,16 @@ pub const PART_GROUPS: &[(&str, &[u32])] = &[
         "Light",
         &[PartKind::WallLight as u32, PartKind::StandingLight as u32],
     ),
+    // What makes a deck nicer to stand on and does nothing else: the
+    // surroundings need reads them.
+    (
+        "Comforts",
+        &[
+            PartKind::SmallPlant as u32,
+            PartKind::BigPlant as u32,
+            PartKind::Picture as u32,
+        ],
+    ),
 ];
 
 /// The Build tab's categories, the way a colonist-game player thinks about
@@ -178,7 +191,7 @@ pub const PART_GROUPS: &[(&str, &[u32])] = &[
 /// together, what it is lived in with, what makes things, and so on. Every
 /// kind the palette offers is in exactly one — `every_buildable_part_is_in_one_build_group`
 /// pins it — and the frame is left out for `NOT_A_TOOL`'s reason. Each is
-/// a name and a line saying what goes under it.
+/// a name and a line saying what goes under it, the button's tooltip.
 pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
     (
         "Structure",
@@ -196,10 +209,13 @@ pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
     ),
     (
         "Furniture",
-        "What the crew live with: somewhere to sleep, sit and eat, somewhere to keep things, a desk to trade across, the research desk the AI works at, and the lights — a deck no light reaches is a dark one, and the crew see ten tiles in the dark.",
+        "What the crew live with: somewhere to sleep, sit and eat, somewhere to keep things, a desk to trade across, the research desk the AI works at, the lights — a deck no light reaches is a dark one, and the crew see ten tiles in the dark — and the comforts, a plant or a picture, which lift the surroundings of the deck round them.",
         &[
             PartKind::WallLight as u32,
             PartKind::StandingLight as u32,
+            PartKind::SmallPlant as u32,
+            PartKind::BigPlant as u32,
+            PartKind::Picture as u32,
             PartKind::Bunk as u32,
             PartKind::Table as u32,
             PartKind::Chair as u32,
@@ -361,6 +377,7 @@ pub fn edit_line(code: u32) -> &'static str {
         15 => "Sell what is in it first.",
         16 => "There are not the materials aboard to build that.",
         17 => "This station does not sell that.",
+        18 => "A wall light hangs from a wall — turn it to one, or put it beside one.",
         _ => "That could not be done.",
     }
 }
@@ -408,7 +425,9 @@ pub fn issue_line(code: u32) -> Option<&'static str> {
         36 => {
             "The hyperdrive is bolted to nothing: put it against a main engine, block to block, or it will never jump."
         }
-        37 => "A wall light with no wall at its back: put it against a bulkhead or the hull.",
+        37 => {
+            "A wall light or a picture with no wall at its back: put it against a bulkhead or the hull."
+        }
         _ => return None,
     })
 }
@@ -542,8 +561,20 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 "Alongside.".into()
             }
         }
-        WorldEvent::Traded { units, .. } if units >= 0 => format!("{units} aboard."),
-        WorldEvent::Traded { units, .. } => format!("{} sold.", -units),
+        WorldEvent::Traded {
+            resource, units, ..
+        } if units >= 0 => {
+            format!("{units} {} aboard.", resource_name(resource).to_lowercase())
+        }
+        WorldEvent::Traded {
+            resource, units, ..
+        } => {
+            format!(
+                "{} {} sold.",
+                -units,
+                resource_name(resource).to_lowercase()
+            )
+        }
         WorldEvent::Refused { why, .. } => {
             format!("That could not be done — {}.", refusal(why))
         }
@@ -926,7 +957,7 @@ pub const NEED_NAMES: [&str; 6] = [
     "Rest",
     "Food",
     "Restroom",
-    "Cleanliness",
+    "Surroundings",
     "Socializing",
     "Washing",
 ];
@@ -947,13 +978,13 @@ pub fn need_tip(need: usize) -> &'static str {
             "Under 10% the Bim takes itself to the toilet. If it cannot — shut in, under orders — it fidgets, then risks wetting itself, and an hour after the bar empties it has an accident. A meal cooked in a dirty galley — every tile within two of the hob with a mess on it, a wetting or worse, is a one-in-five chance — is food poisoning: for two days this runs three times as fast and empties straight into an accident."
         }
         3 => {
-            "Not a clock like the others: it follows the mess within three tiles of the Bim and whatever the Bim has on itself. At nothing it treads carefully, then keeps away from the mess, then is sick in it every half hour."
+            "Not a clock like the others: it follows the deck within three tiles of the Bim — the mess on it, lifted by any plant or picture in reach — and whatever the Bim has on itself. At nothing it treads carefully, then keeps away from the mess, then is sick in it every half hour."
         }
         4 => {
-            "The one need that wants another Bim rather than a fixture. Past its trigger the Bim goes and finds the other one, and they stand and talk about whatever they have been doing. This bar is the comfortable end of it; what matters is the count of days underneath, because going without runs on a far longer clock — three days alone and a Bim is low and slow, five and it sits down on the deck, seven and it starts hurting itself."
+            "The one need that wants another Bim rather than a fixture. Past its trigger the Bim goes and finds the other one, and they stand and talk about whatever they have been doing. This bar is the comfortable end of it; what matters is the count of days underneath, because going without runs on a far longer clock that starts once this bar is empty — six days of that and a Bim is low and slow, eight and it sits down on the deck, ten and it starts hurting itself."
         }
         5 => {
-            "A day's grime, on the clock like food: it runs down over the waking day and the Bim wants a shower about once a day. Past its trigger it goes and takes one, where the ship has a shower — a room without one is a Bim that goes on wanting a wash and nothing worse. Separate from Cleanliness, which is the deck around it."
+            "A day's grime, on the clock like food: it runs down over the waking day and the Bim wants a shower about once a day. Past its trigger it goes and takes one, where the ship has a shower — a room without one is a Bim that goes on wanting a wash and nothing worse. Separate from Surroundings, which is the deck around it."
         }
         _ => "",
     }
@@ -1004,8 +1035,7 @@ pub const TARGET_TIP: &str = "A target is a standing order: keep at least this m
 
 pub const TRIGGER_TIP: &str = "How low a need may get before the Bim breaks off and does something about it: past the mark on a row it takes itself to bed, or goes and cooks, on its own account. The timetable above says when it may sleep; the Rest threshold is the floor under that — past it the Bim turns in whatever the hour, unless a meal or the heads comes first. Untick one and that need still runs down and still tells on the Bim; only the errand stops.";
 
-pub const SPEED_TIP: &str =
-    "How fast the simulation runs. At 24x a whole game day goes by in about a minute.";
+pub const SPEED_TIP: &str = "How fast the simulation runs. At 24x a whole game day goes by in about a minute, and at 48x in half of one.";
 
 pub const BUILD_TIP: &str = "Lay out a part and the crew build it, out of what is on the shelves: whoever is free carries what it is made of to the site a load at a time, then stands beside it and puts it together — Hauling and Building on the Work tab say how soon. A site beyond the hull is reached in a suit, through the airlock. Nothing is built while the ship is moving, and the ship stays put while something is being built.";
 
@@ -1539,13 +1569,29 @@ pub const NOT_AT_DESK: &str = "Nobody of yours is at the trading desk";
 pub const WALK_TO_DESK: &str = "Walk over";
 pub const TRADE_ROW: &str = "Trade";
 
+/// The cart under the trade rows: nothing is bought or sold until it is
+/// confirmed, and these are its words — the empty cart, which way the
+/// money goes, what is left after, the two buttons, and why it cannot go.
+pub const CART_EMPTY: &str = "Nothing in the cart.";
+pub const YOU_PAY: &str = "You pay";
+pub const YOU_EARN: &str = "You earn";
+pub const MONEY_AFTER: &str = "Money after";
+pub const CONFIRM_TRADE: &str = "Confirm trade";
+pub const CLEAR_CART: &str = "Clear";
+pub const SHORT_BY: &str = "Short by";
+pub const NO_ROOM_FOR: &str = "No room for";
+/// The trade rows' column headings.
+pub const PRICE_HEAD: &str = "Price";
+pub const ABOARD_HEAD: &str = "Aboard";
+pub const CART_HEAD: &str = "Cart";
+
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
 pub const ALARM_TIP: &str = "An enemy within a hundred tiles of anybody, or a crew member hit in the last half minute: every crew member but the one you steer draws a weapon — out of the pack if the hand is empty — and fights, walking to wherever it can shoot from, until nobody is near and nobody has been hit for a while. The one you steer is yours: recruit it yourself, or leave it to its errands.";
 
 pub const INVENTORY_TIP: &str = "What the Bim has on it: head, body and leg protection down the left, the weapon in hand, and the pack on its back — nine cells, one thing each. Recruited, a Bim is in combat mode — it draws the weapon and shoots at any enemy it can see and reach, leaning out from cover to do it, where half the shots at it miss. A blade within reach locks it in melee: the gun goes quiet and it fights with its fists until one of them is out of reach. Right-click a thing in the pack to put it on, put it away or throw it out; right-click a worn piece to take it off. Ctrl-click moves a thing straight into the open container, or out of one into the pack. Beside each slot is the bleeding on that part of the body, and a Bandage button that sends the crew member you steer to dress it.";
 
-pub const CONTAINER_TIP: &str = "What is in the hold, by where it is kept: the armoury is the lockers — each piece of armour a cell of its own with its health under it, everything else a stack — the shelves take materials and, since a storage can hold armour and weapons as well, anything worn or held; the cold store is the food. Ctrl-click a thing to take one into the pack of the Bim shown; right-click for the rows. The Bim has to be within two tiles: clicking a container walks it over.";
+pub const CONTAINER_TIP: &str = "What is in the hold, by where it is kept: each hold is a grid ten across, every part of its kind aboard so many rows of it, and everything kept there laid over the cells it takes — a pistol a row of two, a rifle seven, a sniper rifle the whole width; a vest four by four; a crate of vegetables one by two, a block of tofu four by four — a piece of armour with its health under it. Goods that stack take one footprint a stack, ten ore or twenty components to a cell, with the count in the corner; so what a shelf holds is its cells times the stacks. A thing goes in only where there is a run of cells for it: drag a thing to move it, press the Turn key (R, unless you changed it) while carrying it to turn it a quarter round, and let go where the ghost shows green. The armoury is the lockers, the shelves take materials and anything worn or held, the cold store is the food. Ctrl-click a thing to take one into the pack of the Bim shown; right-click for the rows. The Bim has to be within two tiles: clicking a container walks it over.";
 
 pub const REACH_HINT: &str = "walk over first — it is out of reach";
 pub const ACCURACY_TIP: &str = "The odds of a shot landing: its best out to the first distance, then falling in a straight line to the second at the weapon's range, beyond which it does not shoot.";

@@ -238,6 +238,26 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(gun.kind.code() as u64);
         hash.eat(gun.tier.code() as u64);
     }
+    // The grids — the shelves, the cold stores, the lockers: every slot,
+    // what it holds and how many, where it lies and which way round, and
+    // the next id — integers throughout. Two crews whose rifles lie in
+    // different places have different armouries, and the fit that
+    // refuses a stow depends on it.
+    for grid in &world.grids {
+        hash.eat(grid.next as u64);
+        hash.eat(grid.slots.len() as u64);
+        for slot in &grid.slots {
+            hash.eat(slot.id as u64);
+            let (kind, a, b) = slot.kept.codes();
+            hash.eat(kind);
+            hash.eat(a);
+            hash.eat(b);
+            hash.eat(slot.count as u64);
+            hash.eat(slot.x as u64);
+            hash.eat(slot.y as u64);
+            hash.eat(u64::from(slot.turned));
+        }
+    }
     hash.eat(u64::from(world.auto_upgrade));
     match world.upgrade {
         None => hash.eat(u64::MAX),
@@ -313,6 +333,17 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(world.station_keys.len() as u64);
     for &key in &world.station_keys {
         hash.eat(u64::from(key));
+    }
+
+    // The lamps a fight has damaged: where each hangs and what it has
+    // left, to a hundredth like a piece of armour — a corridor shot dark
+    // on one client and lit on the other is two different fights.
+    hash.eat(world.lamps.len() as u64);
+    for lamp in &world.lamps {
+        hash.eat(lamp.station.map(u64::from).unwrap_or(u64::MAX));
+        hash.eat(lamp.tile.0 as u64);
+        hash.eat(lamp.tile.1 as u64);
+        hash.eat_rounded(lamp.health as f64, HEALTH_GRID);
     }
 
     hash.0

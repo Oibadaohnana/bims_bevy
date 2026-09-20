@@ -105,12 +105,16 @@ impl Piece {
 /// What a fetch takes out of a container: one particular piece; one unit
 /// of a resource by its `ResourceId` code — for an armour resource the
 /// least damaged piece of that kind in the hold, for a weapon the
-/// highest tier of it; or one weapon of exactly that tier.
+/// highest tier of it; one weapon of exactly that tier; or whatever
+/// lies in one slot of a class's grid (`crate::grid`), by the class's code
+/// and the slot's id — one off a stack — which is what a container
+/// window asks, so the thing that was clicked is the thing that goes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FetchKind {
     Piece(u32),
     Resource(u32),
     Tiered { resource: u32, tier: u32 },
+    Slot { class: u32, id: u32 },
 }
 
 /// The tiers a resource's units in the hold can differ by: a weapon by its

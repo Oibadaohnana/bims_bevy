@@ -55,6 +55,7 @@ pub mod docking;
 pub mod event;
 pub mod fixture;
 pub mod frame;
+pub mod grid;
 pub mod jump;
 pub mod mercenary;
 pub mod mining;
@@ -67,9 +68,10 @@ pub use build::{BuildSite, SiteRefusal};
 pub use checksum::world_checksum;
 pub use event::{Refusal, WorldEvent};
 pub use frame::Frame;
+pub use grid::{Grid, Kept, Slot, Wanted};
 pub use mining::{MiningSite, Rock, RockTile};
 pub use speed::Speed;
-pub use station::{Berth, Station};
+pub use station::{Berth, Plan, Station};
 pub use world::{
     Command, Power, Preview, Ship, ShipState, StartError, UPGRADE_ORDER, Upgrade, World, spawn,
     spawn_anywhere,

@@ -16,7 +16,7 @@ use economy::Money;
 use physics::ResourceId;
 
 use crate::budget::Budget;
-use crate::design::{Edit, ShipDesign, apply};
+use crate::design::{Edit, ShipDesign, apply, wall_light_rotation};
 use crate::parts::{Layer, PartKind, Rotation};
 
 /// Tiles a side. Small enough to read, big enough to hold a working ship.
@@ -38,7 +38,7 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// hashing differently, and a test that compares two computed values would
 /// pass happily while both were wrong. Update them only when the reference
 /// design itself is meant to change.
-pub const REFERENCE_HASH: [u64; 2] = [0x99cd_ace1_32bc_e8a2, 0x32ec_a1ab_3522_df39];
+pub const REFERENCE_HASH: [u64; 2] = [0xa0d8_6162_e2bd_b6e2, 0xbd64_a74a_e209_9439];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -61,7 +61,8 @@ pub const REFERENCE_PARTS: [u32; 2] = [690, 696];
 const REFERENCE_ENGINE_STERN: [u32; 2] = [7, 8];
 
 /// Where the reference's wall lights hang: against the side walls, two a
-/// side; and where its standing light stands, amidships.
+/// side, each turned to its wall (`wall_light_rotation`); and where its
+/// standing light stands, amidships.
 const REFERENCE_LIGHTS: [(u32, u32); 4] = [(2, 5), (17, 5), (2, 14), (17, 14)];
 const REFERENCE_LAMP: (u32, u32) = (10, 9);
 
@@ -191,7 +192,8 @@ pub fn reference(crew: u32) -> ShipDesign {
     // light amidships. Without them the deck is dark and the crew see
     // ten tiles — `bims::sight`.
     for tile in REFERENCE_LIGHTS {
-        put(&mut design, PartKind::WallLight, tile, Rotation::R0);
+        let hung = wall_light_rotation(&design, tile).expect("a wall beside it");
+        put(&mut design, PartKind::WallLight, tile, hung);
     }
     put(
         &mut design,
@@ -316,12 +318,12 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// target that hashed the simulation's ship differently would start a
 /// different simulation. Update it only when the ship below is meant to
 /// change.
-pub const PLAYTEST_HASH: u64 = 0x5a3e_98b0_aa3f_57d3;
+pub const PLAYTEST_HASH: u64 = 0xb478_b13c_822a_a230;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
 /// reason [`REFERENCE_PARTS`] gives.
-pub const PLAYTEST_PARTS: u32 = 654;
+pub const PLAYTEST_PARTS: u32 = 656;
 
 /// The playtest hull, as columns of the grid: the west skin and the east,
 /// the bow row and the stern row. Sixteen tiles across and eighteen long,
@@ -364,6 +366,12 @@ const PLAYTEST_ENGINE_TILES: [(u32, u32); 2] = [(9, 18), (10, 18)];
 /// where its standing light stands, on the main deck.
 const PLAYTEST_LIGHTS: [(u32, u32); 6] = [(5, 3), (14, 3), (3, 8), (3, 11), (3, 15), (16, 15)];
 const PLAYTEST_LAMP: (u32, u32) = (7, 9);
+
+/// Where the playtest ship's comforts go: the picture on the bridge
+/// bulkhead beside the doorway, and the small plant at the foot of the
+/// bunk.
+const PLAYTEST_PICTURE: (u32, u32) = (8, 7);
+const PLAYTEST_PLANT: (u32, u32) = (16, 10);
 
 /// Where the playtest ship's conduit leaves its spine, column 8. See
 /// [`playtest_ship`].
@@ -684,12 +692,26 @@ pub fn playtest_ship() -> ShipDesign {
     // and a standing light on the main deck. See `bims::sight` for what
     // a dark deck costs.
     for tile in PLAYTEST_LIGHTS {
-        put(&mut design, PartKind::WallLight, tile, Rotation::R0);
+        let hung = wall_light_rotation(&design, tile).expect("a wall beside it");
+        put(&mut design, PartKind::WallLight, tile, hung);
     }
     put(
         &mut design,
         PartKind::StandingLight,
         PLAYTEST_LAMP,
+        Rotation::R0,
+    );
+
+    // Comforts on the main deck: a picture on the bridge bulkhead beside
+    // the doorway, hung like a lamp, and a small plant at the foot of the
+    // bunk, clear of the gangway inside the port. What they do to the
+    // crew's surroundings is `bims::filth`'s.
+    let hung = wall_light_rotation(&design, PLAYTEST_PICTURE).expect("a wall beside it");
+    put(&mut design, PartKind::Picture, PLAYTEST_PICTURE, hung);
+    put(
+        &mut design,
+        PartKind::SmallPlant,
+        PLAYTEST_PLANT,
         Rotation::R0,
     );
 

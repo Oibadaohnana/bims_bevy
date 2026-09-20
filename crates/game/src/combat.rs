@@ -127,7 +127,7 @@ use crate::math::{Rect, Vec2};
 use crate::nav::Nav;
 use crate::rng::Rng;
 use crate::room::TILE;
-use crate::sight::Sight;
+use crate::sight::{LAMP_RADIUS, Sight};
 
 /// How near a bolt has to pass a body's middle to hit it, in room units:
 /// the body's own half-width, near enough.
@@ -144,9 +144,9 @@ pub use crate::balance::{
 };
 
 /// How long a pistol's bolt is drawn, in room units, and how thick.
-const BOLT_LENGTH: f32 = 42.0;
-const BOLT_CORE: f32 = 3.5;
-const BOLT_GLOW: f32 = 11.0;
+const BOLT_LENGTH: f32 = 24.0;
+const BOLT_CORE: f32 = 2.0;
+const BOLT_GLOW: f32 = 6.0;
 /// The shotgun's pellets: five short ones fanned about the flight.
 const PELLETS: usize = 5;
 const PELLET_LENGTH: f32 = 14.0;
@@ -567,20 +567,65 @@ pub enum Item {
 }
 
 impl Item {
-    /// How many rows of the pack it takes: two for a key, one for anything
-    /// else. Every item is one cell wide.
+    /// How many cells of a pack it covers, rows by columns, unturned: the
+    /// footprint the world lays it on the lockers' grid by
+    /// (`economy::footprint`), said again here by resource code since this
+    /// crate does not know `physics` — a pistol a row of two, a sniper
+    /// rifle a row of ten, a vest four by four, a key two tall — and
+    /// pinned against that table by the world's tests.
+    pub fn footprint(&self) -> (u8, u8) {
+        let code = match self {
+            Item::Armour(piece) => piece.kind.resource(),
+            Item::Weapon(weapon) => weapon.kind.resource(),
+            Item::Stack(code) => *code,
+            Item::Key(_) => return (2, 1),
+        };
+        match code {
+            // The suit, the vest.
+            7 | 9 => (3, 3),
+            // The pistol.
+            8 => (1, 2),
+            // A medkit.
+            10 => (2, 2),
+            // The helm, the kevlar, the leg guards.
+            14 => (2, 4),
+            15 => (4, 4),
+            16 => (3, 2),
+            // The shotgun, the auto rifle, the sniper rifle, the schword.
+            17 => (2, 5),
+            18 => (1, 7),
+            19 => (1, 10),
+            20 => (1, 5),
+            // A crate of vegetables, a block of tofu.
+            3 => (1, 2),
+            4 => (4, 4),
+            _ => (1, 1),
+        }
+    }
+
+    /// How many rows it takes unturned — what a desk's slot asks of a key.
     pub fn rows(&self) -> usize {
-        match self {
-            Item::Key(_) => 2,
-            _ => 1,
+        self.footprint().0 as usize
+    }
+
+    /// Its footprint as laid, turned a quarter or not.
+    pub fn laid(&self, turned: bool) -> (usize, usize) {
+        let (rows, cols) = self.footprint();
+        if turned {
+            (cols as usize, rows as usize)
+        } else {
+            (rows as usize, cols as usize)
         }
     }
 }
 
-/// How many cells a Bim's pack has: three by three.
-pub const PACK_CELLS: usize = 9;
-/// How many across, which is what a tall item's tail is offset by.
-pub const PACK_COLS: usize = 3;
+/// How many cells a Bim's pack has: seven by seven, laid out the way the
+/// lockers are — a thing over its footprint, turned if it is turned —
+/// and addressed by the cell its top-left corner is in.
+pub const PACK_CELLS: usize = PACK_COLS * PACK_ROWS;
+/// How many across, which is what a row down is offset by.
+pub const PACK_COLS: usize = 7;
+pub const PACK_ROWS: usize = 7;
 
 /// How many cells a body shows when it is looted: the pack's nine, then
 /// the three worn pieces and the weapon in hand — see [`LootCell`].
@@ -623,15 +668,34 @@ impl LootCell {
 }
 
 /// What one Bim has on it: three armour slots, top to bottom, the weapon
-/// in its hand, and the pack on its back — nine cells, one item each,
-/// indexed the way the app lays the grid out (row by row).
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
+/// in its hand, and the pack on its back — seven by seven cells, indexed
+/// row by row, each thing kept in the cell its top-left corner is in and
+/// reaching over the rest of its footprint ([`Item::footprint`]), turned
+/// a quarter round if `turned` says so for that cell.
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Gear {
     pub head: Option<Piece>,
     pub body: Option<Piece>,
     pub legs: Option<Piece>,
     pub weapon: Option<Weapon>,
     pub pack: [Option<Item>; PACK_CELLS],
+    /// Which way round the thing kept in each cell lies; `false` where
+    /// nothing is kept.
+    pub turned: [bool; PACK_CELLS],
+}
+
+// By hand: an array past thirty-two has no `Default` of its own.
+impl Default for Gear {
+    fn default() -> Gear {
+        Gear {
+            head: None,
+            body: None,
+            legs: None,
+            weapon: None,
+            pack: [None; PACK_CELLS],
+            turned: [false; PACK_CELLS],
+        }
+    }
 }
 
 impl Gear {
@@ -753,8 +817,8 @@ impl Gear {
         Part::ALL.iter().map(|&p| self.part_bonus(p)).sum()
     }
 
-    /// Whether a cell has something in it — its own, or the tail of a tall
-    /// item kept in the cell above it.
+    /// Whether a cell has something in it — its own, or a cell of a
+    /// thing kept in another cell that reaches over it.
     pub fn occupied(&self, cell: usize) -> bool {
         if cell >= PACK_CELLS {
             return true;
@@ -762,26 +826,72 @@ impl Gear {
         self.pack[cell].is_some() || self.head_of(cell) != cell
     }
 
-    /// The cell a thing in `cell` is kept in: `cell` itself, or the cell
-    /// above it when `cell` is the tail of a tall item kept there.
+    /// The cell a thing over `cell` is kept in: `cell` itself, or the
+    /// top-left cell of the thing that reaches over it.
     pub fn head_of(&self, cell: usize) -> usize {
-        if cell >= PACK_COLS
-            && cell < PACK_CELLS
-            && let Some(above) = self.pack[cell - PACK_COLS]
-            && above.rows() > 1
-        {
-            return cell - PACK_COLS;
+        if cell >= PACK_CELLS || self.pack[cell].is_some() {
+            return cell;
         }
-        cell
+        (0..PACK_CELLS)
+            .find(|&head| {
+                self.pack[head].is_some_and(|item| covers(head, item.laid(self.turned[head]), cell))
+            })
+            .unwrap_or(cell)
     }
 
-    /// Whether `item` would go into `cell`: the cell free, and for a tall
-    /// item the cell under it free too and not off the bottom.
+    /// Whether `item` would lie with its top-left corner in `cell`, turned
+    /// or not: every cell of it on the grid — a footprint does not wrap
+    /// round the edge onto the next row — and free, bar the cells of the
+    /// thing kept in `ignoring`, which is the one being moved.
+    pub fn fits_turned(
+        &self,
+        cell: usize,
+        item: Item,
+        turned: bool,
+        ignoring: Option<usize>,
+    ) -> bool {
+        let (rows, cols) = item.laid(turned);
+        let (x, y) = (cell % PACK_COLS, cell / PACK_COLS);
+        if x + cols > PACK_COLS || y + rows > PACK_ROWS {
+            return false;
+        }
+        for r in y..y + rows {
+            for c in x..x + cols {
+                let at = r * PACK_COLS + c;
+                let head = self.head_of(at);
+                if (self.pack[at].is_some() || head != at) && Some(head) != ignoring {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Whether `item` would go into `cell` as it is, unturned.
     pub fn fits(&self, cell: usize, item: Item) -> bool {
-        (0..item.rows()).all(|row| {
-            let c = cell + row * PACK_COLS;
-            c < PACK_CELLS && !self.occupied(c)
-        })
+        self.fits_turned(cell, item, false, None)
+    }
+
+    /// The way round `item` would lie at `cell`, if either: unturned first.
+    pub fn fit_at(&self, cell: usize, item: Item) -> Option<bool> {
+        [false, true]
+            .into_iter()
+            .find(|&turned| self.fits_turned(cell, item, turned, None))
+    }
+
+    /// The first place `item` fits — row by row from the top left, the
+    /// whole pack unturned before any of it turned, the way the lockers
+    /// are laid — and which way round.
+    pub fn first_fit(&self, item: Item) -> Option<(usize, bool)> {
+        for turned in [false, true] {
+            if turned && item.footprint().0 == item.footprint().1 {
+                break;
+            }
+            if let Some(cell) = (0..PACK_CELLS).find(|&c| self.fits_turned(c, item, turned, None)) {
+                return Some((cell, turned));
+            }
+        }
+        None
     }
 
     /// The first empty pack cell — for a one-cell item.
@@ -789,10 +899,56 @@ impl Gear {
         (0..PACK_CELLS).find(|&c| !self.occupied(c))
     }
 
-    /// The first cell `item` would go into, its tail included.
+    /// The first cell `item` would go into, the whole of it.
     pub fn free_cell_for(&self, item: Item) -> Option<usize> {
-        (0..PACK_CELLS).find(|&c| self.fits(c, item))
+        self.first_fit(item).map(|(cell, _)| cell)
     }
+
+    /// Lay `item` with its corner in `cell`, the way round it fits —
+    /// unturned if it can. `false`, and nothing changed, when it would
+    /// not lie there.
+    pub fn put(&mut self, cell: usize, item: Item) -> bool {
+        let Some(turned) = self.fit_at(cell, item) else {
+            return false;
+        };
+        self.pack[cell] = Some(item);
+        self.turned[cell] = turned;
+        true
+    }
+
+    /// Take the thing kept in `cell`, or reaching over it, out of the pack.
+    pub fn take_out(&mut self, cell: usize) -> Option<Item> {
+        let head = self.head_of(cell);
+        let item = self.pack.get_mut(head)?.take()?;
+        self.turned[head] = false;
+        Some(item)
+    }
+
+    /// Move the thing kept in `cell` so its corner is in `to`, turned or
+    /// not — a drag across the pack. `false`, and nothing moved, when it
+    /// would not lie there or there is nothing in `cell`.
+    pub fn rearrange(&mut self, cell: usize, to: usize, turned: bool) -> bool {
+        let head = self.head_of(cell);
+        let Some(item) = self.pack.get(head).copied().flatten() else {
+            return false;
+        };
+        if to >= PACK_CELLS || !self.fits_turned(to, item, turned, Some(head)) {
+            return false;
+        }
+        self.pack[head] = None;
+        self.turned[head] = false;
+        self.pack[to] = Some(item);
+        self.turned[to] = turned;
+        true
+    }
+}
+
+/// Whether a thing kept in `head`, covering `laid` (rows, columns), reaches
+/// over `cell`.
+fn covers(head: usize, (rows, cols): (usize, usize), cell: usize) -> bool {
+    let (hx, hy) = (head % PACK_COLS, head / PACK_COLS);
+    let (x, y) = (cell % PACK_COLS, cell / PACK_COLS);
+    x >= hx && x < hx + cols && y >= hy && y < hy + rows
 }
 
 /// What a resident is issued, by the odds: the shares add to one, and
@@ -943,10 +1099,20 @@ pub struct Combat {
     /// recorded here rather than flown, for the world to fire in the
     /// crew's room. See the module note.
     pub shots: Vec<Shot>,
+    /// Every bolt that landed on a lamp since the game last asked: which
+    /// lamp (`Sight::lamps`) and how hard, at the distance it had flown.
+    /// Either side's — a lamp does not care whose bolt it was. The game
+    /// takes it off the lamp (`Sight::damage_lamp`).
+    lamp_hits: Vec<(usize, f32)>,
     /// What was heard: every bolt fired here, every one that landed, and
     /// every blow that did. See `crate::cue`. A hostile room's recorded
     /// `shots` say nothing — they are heard where they are flown.
     pub cues: Vec<Cued>,
+    /// How long since anything was fired or landed here, in seconds at
+    /// 1x, either side's: a bolt flown or recorded, a blow swung or
+    /// carried in. What the room asks before anybody goes to doctor a
+    /// crewmate (`Game::calm`). Aged by [`Combat::age`], every step.
+    lull: f32,
     rng: Rng,
 }
 
@@ -959,7 +1125,10 @@ impl Combat {
             hits: Vec::new(),
             wounds_taken: Vec::new(),
             shots: Vec::new(),
+            lamp_hits: Vec::new(),
             cues: Vec::new(),
+            // A fresh room has been quiet for ever.
+            lull: f32::MAX,
             // Its own stream: a fight must not re-roll the room.
             rng: Rng::new(seed ^ 0xC0B_A7),
         }
@@ -1031,11 +1200,30 @@ impl Combat {
         std::mem::take(&mut self.shots)
     }
 
+    /// The bolts that landed on a lamp since last asked: the lamp and
+    /// the damage. See `lamp_hits`.
+    pub fn take_lamp_hits(&mut self) -> Vec<(usize, f32)> {
+        std::mem::take(&mut self.lamp_hits)
+    }
+
+    /// How long since the last shot or blow here, either side's, in
+    /// seconds at 1x.
+    pub fn lull(&self) -> f32 {
+        self.lull
+    }
+
+    /// A step of the lull. Apart from [`Combat::step`], which only runs
+    /// while something is in the air or somebody is a target.
+    pub fn age(&mut self, dt: f32) {
+        self.lull = (self.lull + dt).min(f32::MAX);
+    }
+
     /// A shot taken but not flown: what a hostile room's people do
     /// instead of firing, so the bolt flies where the crew are. `moving`
     /// while the shooter walks, for the odds where it is fired.
     pub fn shoot(&mut self, from: Vec2, at: Vec2, weapon: Weapon, moving: bool) {
         let stats = weapon.stats();
+        self.lull = 0.0;
         self.shots.push(Shot {
             from,
             at,
@@ -1126,6 +1314,7 @@ impl Combat {
     /// the distance the bolt has flown when it lands.
     pub fn fire(&mut self, from: Vec2, at: Vec2, weapon: Weapon, hostile: bool, moving: bool) {
         let stats = weapon.stats();
+        self.lull = 0.0;
         let to = at - from;
         let tiles = to.len() / TILE;
         let hits = self
@@ -1177,6 +1366,7 @@ impl Combat {
         let Some(at) = self.targets.get(target).copied().flatten().map(|t| t.at) else {
             return;
         };
+        self.lull = 0.0;
         if as_shot {
             self.shots.push(Shot {
                 from,
@@ -1215,6 +1405,7 @@ impl Combat {
     /// enemy's melee [`Shot`], carried across — as the hit it is, on a
     /// part rolled now from the combat stream. The game applies it.
     pub fn struck(&mut self, who: usize, damage: f32, cut: bool) -> Hit {
+        self.lull = 0.0;
         Hit {
             who,
             part: Part::hit_by(self.rng.unit()),
@@ -1249,6 +1440,7 @@ impl Combat {
         let mut taken: Vec<Hit> = Vec::new();
         let mut sparks: Vec<Spark> = Vec::new();
         let mut heard: Vec<Cued> = Vec::new();
+        let mut broken: Vec<(usize, f32)> = Vec::new();
         self.bolts.retain_mut(|bolt| {
             let mut flight = bolt.vel * dt;
             let mut span = flight.len();
@@ -1263,6 +1455,21 @@ impl Combat {
             let mut stop: Option<(f32, Option<usize>)> = None;
             if let Some(wall) = sight.first_opaque_along(from, to) {
                 stop = Some(((wall - from).len() / span.max(1e-6), None));
+            }
+            // A lamp on the way, if the bolt passes close enough: it
+            // stops there like at a wall, and the lamp takes the
+            // damage. One already out is glass nobody misses.
+            let mut lamp: Option<usize> = None;
+            for (i, l) in sight.lamps().iter().enumerate() {
+                if l.is_out() {
+                    continue;
+                }
+                if let Some(t) = along(from, to, l.at, LAMP_RADIUS)
+                    && stop.is_none_or(|(s, _)| t < s)
+                {
+                    stop = Some((t, None));
+                    lamp = Some(i);
+                }
             }
             let looking_for: &[Option<(Vec2, bool, f32)>] =
                 if bolt.hostile { bodies } else { &targets };
@@ -1312,6 +1519,10 @@ impl Combat {
                         } else {
                             landed.push(hit);
                         }
+                    } else if let Some(lamp) = lamp {
+                        // Nothing nearer than the lamp: the lamp took it.
+                        let flown = (at - bolt.fired_from).len() / TILE;
+                        broken.push((lamp, bolt.weapon.stats().damage_at(flown)));
                     }
                     heard.push(Cued {
                         cue: match who {
@@ -1342,6 +1553,7 @@ impl Combat {
         });
         self.hits.extend(landed);
         self.wounds_taken.extend(taken);
+        self.lamp_hits.extend(broken);
         self.sparks.extend(sparks);
         self.cues.extend(heard);
     }
@@ -1400,7 +1612,7 @@ impl Combat {
                 WeaponKind::LaserPistol | WeaponKind::Schword => {
                     let tail = head - dir * BOLT_LENGTH;
                     list.line(tail, head, BOLT_GLOW, side.alpha(0.30));
-                    list.line(tail, head, BOLT_CORE + 2.0, side.alpha(0.85));
+                    list.line(tail, head, BOLT_CORE + 1.5, side.alpha(0.85));
                     list.line(
                         tail + dir * (BOLT_LENGTH * 0.35),
                         head,
@@ -1768,38 +1980,78 @@ mod tests {
         (body, peek)
     }
 
-    /// A research key is the one thing that takes two cells: it is kept in
-    /// the upper one, the cell under it is its tail — taken, and answering
-    /// to the head — and it will not go in the bottom row or over anything.
+    /// The pack is a grid things lie on over their footprint, kept by
+    /// their top-left cell: a key stands two tall, a rifle lies seven
+    /// along — or stands, turned, when only that fits — a cell reached
+    /// over answers to the thing's corner, and nothing lies off the edge
+    /// or over anything else.
     #[test]
-    fn a_key_takes_two_cells_one_over_the_other() {
+    fn a_thing_lies_over_its_footprint_and_turns_to_fit() {
         let mut gear = Gear::issued();
         let key = Item::Key(1);
+        let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
+        let bandage = Item::Stack(13);
         assert_eq!(key.rows(), 2);
-        assert_eq!(Item::Stack(14).rows(), 1);
+        assert_eq!(key.footprint(), (2, 1));
+        assert_eq!(rifle.footprint(), (1, 7));
+        assert_eq!(rifle.laid(true), (7, 1));
+        assert_eq!(bandage.footprint(), (1, 1));
         assert!(gear.fits(0, key));
-        assert!(!gear.fits(6, key), "the bottom row has nothing under it");
-        assert!(!gear.fits(8, key));
+        assert!(
+            !gear.fits(6 * PACK_COLS, key),
+            "the bottom row has nothing under it"
+        );
+        assert!(gear.fits(0, rifle), "the whole top row");
+        assert!(
+            !gear.fits(1, rifle),
+            "a footprint does not wrap onto the next row"
+        );
         assert_eq!(gear.free_cell_for(key), Some(0));
-        gear.pack[0] = Some(key);
+        assert!(gear.put(0, key));
         assert!(gear.occupied(0));
-        assert!(gear.occupied(3), "the tail");
-        assert!(!gear.occupied(6));
-        assert_eq!(gear.head_of(3), 0);
-        assert_eq!(gear.head_of(6), 6);
+        assert!(gear.occupied(PACK_COLS), "the cell under it");
+        assert!(!gear.occupied(2 * PACK_COLS));
+        assert_eq!(gear.head_of(PACK_COLS), 0);
+        assert_eq!(gear.head_of(2 * PACK_COLS), 2 * PACK_COLS);
         assert_eq!(gear.free_cell(), Some(1));
-        // A second key goes beside it, not under it.
-        assert_eq!(gear.free_cell_for(key), Some(1));
-        assert!(!gear.fits(3, Item::Stack(14)), "nothing goes in a tail");
-        gear.pack[1] = Some(Item::Stack(14));
-        assert!(!gear.fits(1, key));
-        assert_eq!(gear.free_cell_for(key), Some(2));
-        // With the middle row full there is nowhere a key fits at all.
-        gear.pack[4] = Some(Item::Stack(14));
-        gear.pack[5] = Some(Item::Stack(14));
-        assert_eq!(gear.free_cell_for(key), None);
-        assert_eq!(gear.free_cell(), Some(2));
-        assert_eq!(PACK_COLS * PACK_COLS, PACK_CELLS);
+        assert!(
+            !gear.fits(PACK_COLS, bandage),
+            "nothing goes where a thing reaches"
+        );
+        // The rifle no longer lies along the top row; it lies along the
+        // third, and put at the corner it would have to stand — which it
+        // does, turned, down the last column.
+        assert_eq!(gear.first_fit(rifle), Some((2 * PACK_COLS, false)));
+        assert_eq!(gear.fit_at(6, rifle), Some(true));
+        assert!(gear.put(6, rifle));
+        assert!(gear.turned[6]);
+        assert!(gear.occupied(6 + 6 * PACK_COLS), "down to the bottom");
+        assert_eq!(gear.head_of(6 + 3 * PACK_COLS), 6);
+        // Moved back to lie along a row, unturned; and refused over the key.
+        assert!(gear.rearrange(6 + 3 * PACK_COLS, 2 * PACK_COLS, false));
+        assert!(!gear.turned[2 * PACK_COLS]);
+        assert!(gear.pack[6].is_none() && !gear.occupied(6 + 6 * PACK_COLS));
+        assert!(!gear.rearrange(2 * PACK_COLS, 0, false));
+        assert!(
+            !gear.rearrange(2 * PACK_COLS, PACK_COLS + 1, true),
+            "off the bottom"
+        );
+        assert!(
+            gear.rearrange(2 * PACK_COLS, 2 * PACK_COLS, false),
+            "where it is"
+        );
+        assert_eq!(
+            gear.take_out(2 * PACK_COLS + 4),
+            Some(rifle),
+            "by any of its cells"
+        );
+        assert!(!gear.occupied(2 * PACK_COLS));
+        // A square thing is never turned to fit.
+        let suit = Item::Stack(7);
+        assert_eq!(suit.footprint(), (3, 3));
+        assert_eq!(gear.first_fit(suit), Some((1, false)));
+        assert_eq!(PACK_COLS * PACK_ROWS, PACK_CELLS);
+        assert_eq!(PACK_CELLS, 49);
     }
 
     #[test]

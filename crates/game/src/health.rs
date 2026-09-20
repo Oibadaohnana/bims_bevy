@@ -516,6 +516,15 @@ impl Health {
         self.traumas.iter().any(|t| t.is_some())
     }
 
+    /// Hurt enough to keep out of a fight: an open wound on it, its blood
+    /// under [`SLOWED_AT`], or dying. What a crew member runs from the
+    /// enemy in (`Game::is_fleeing`) until a bandage closes the wound —
+    /// a body bleeding, or walking at half pace, has no business
+    /// advancing on a gun.
+    pub fn is_hurt(&self) -> bool {
+        self.dying() || self.bleeding() > 0 || self.blood < MAX_BLOOD * SLOWED_AT
+    }
+
     /// What treated traumas have left behind, each with the game minutes
     /// it has left to run.
     pub fn lasting(&self) -> &[Lasting] {

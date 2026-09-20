@@ -14,10 +14,15 @@
 //! quarter of the tile, so a trail thins fast and dies out rather than
 //! working its way across the ship.
 //!
-//! The cleanliness *need* is not a clock like hunger. It follows two things at
-//! once: the average of the tiles within [`REACH`] of where the Bim is standing,
-//! and how filthy the Bim itself is. Standing in a clean room with clean hands
-//! it recovers; anything else and it falls, faster the worse the mess.
+//! The surroundings *need* is not a clock like hunger. It follows two things
+//! at once: the average of the tiles within [`REACH`] of where the Bim is
+//! standing, lifted by whatever **comforts** stand about it — a plant, a
+//! picture, `shipdesign::comfort` — and how filthy the Bim itself is.
+//! Standing in a clean room with clean hands it recovers; anything else and
+//! it falls, faster the worse the mess. The lift is [`Filth::set_comforts`]:
+//! a layer of its own over the tiles, laid once from the layout and never
+//! swept or spattered, so a plant beside a spill makes the spill bearable
+//! and a fouled tile stays fouled underneath it.
 //!
 //! Everything a mess *does* to the Bim is on a clock rather than a level, the
 //! same as malnutrition in `health.rs`: reaching nothing is the start of it,
@@ -49,7 +54,7 @@ const RUINED: f32 = BASELINE - FOULED;
 /// beside it — see [`SPOILS_FOOD`] — and a Bim standing still with a wound
 /// open fouls the tile under it in a few drops, which is what a pool of
 /// blood on the deck is. It is filth like the rest: the broom takes it up,
-/// `dirty_tiles` counts it and the cleanliness need follows it.
+/// `dirty_tiles` counts it and the surroundings need follows it.
 pub const BLOOD_COST: f32 = 60.0;
 /// How many tiles a cut splashes blood over, the one under the body
 /// included: three to five.
@@ -64,8 +69,24 @@ pub const SPLASH_TILES: (u32, u32) = (3, 5);
 /// than one accident for the room itself to start telling on the Bim.
 pub const REACH: i32 = 3;
 
-/// Cleanliness lost per game minute with the surroundings at exactly nothing:
-/// a full bar gone in an hour. Worse than nothing multiplies it — see
+/// The most the comforts can lift a tile by, whatever stands round it: a
+/// clean tile's worth, so a corner full of plants is at best twice as
+/// good as a clean deck and never good enough to stand a fouled tile in.
+/// Two big plants reach it; a small one and a picture do not.
+pub const LIFT_CAP: f32 = BASELINE;
+
+/// A comfort as the room lays it: where it stands, what it lifts the
+/// tiles round it by, and how many tiles out that reaches — a square
+/// block like [`REACH`]. `aboard.rs` makes these off `shipdesign::comfort`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Comfort {
+    pub at: Vec2,
+    pub lift: f32,
+    pub tiles: i32,
+}
+
+/// Surroundings lost per game minute with the deck round the Bim at exactly
+/// nothing: a full bar gone in an hour. Worse than nothing multiplies it — see
 /// [`Filth::grinding`] — so standing in a fouled tile is eleven times that.
 const GRIND: f32 = 1.0 / 60.0;
 /// What the Bim's own state is worth on top, at maximum filth.
@@ -94,7 +115,7 @@ const SPOILS_FOOD: f32 = BASELINE - WET_COST;
 ///
 /// Well short of an accident: a single spatter reads as a stain rather than a
 /// ruined tile, and it takes a good many of them in one place before the
-/// cleanliness need takes any notice. It is comfortably past
+/// surroundings need takes any notice. It is comfortably past
 /// [`WORTH_SWEEPING`], though, so the broom has something to come out for —
 /// the galley and the bay go grubby on their own now, which is the first
 /// mess aboard that nobody had an accident to make.
@@ -157,7 +178,7 @@ const MESS_ALPHA: f32 = 0.72;
 
 /// How far gone the Bim is for want of a clean place to stand.
 ///
-/// Reached by the clock, not the level: the cleanliness need hitting nothing
+/// Reached by the clock, not the level: the surroundings need hitting nothing
 /// starts it, and each stage is an hour further into that.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Discomfort {
@@ -258,7 +279,7 @@ pub struct Mishap {
 /// Nobody ever had an accident, and nobody was ever sick.
 pub struct Ordeal {
     /// Game minutes the restroom need has been at nothing, and the same for
-    /// the cleanliness need. Both start the clock the moment they empty.
+    /// the surroundings need. Both start the clock the moment they empty.
     bursting_for: f32,
     filthy_for: f32,
     /// Game minutes since the last bout of sickness.
@@ -276,14 +297,14 @@ impl Ordeal {
 
     /// Run the clocks and say what, if anything, happened.
     ///
-    /// `restroom` and `cleanliness` are this Bim's two levels as they stand.
+    /// `restroom` and `surroundings` are this Bim's two levels as they stand.
     /// Both clocks are held at nothing while their need is not empty, so
     /// seeing to either one puts the Bim back to the beginning of it.
     pub fn update(
         &mut self,
         minutes: f32,
         restroom: f32,
-        cleanliness: f32,
+        surroundings: f32,
         urge_extreme: bool,
         urge_medium: bool,
         purging: bool,
@@ -313,7 +334,7 @@ impl Ordeal {
 
         // Standing in it. The three stages are an hour apart, and the clock
         // only runs while the need is at nothing.
-        if cleanliness <= 0.0 {
+        if surroundings <= 0.0 {
             self.filthy_for += minutes;
         } else {
             self.filthy_for = 0.0;
@@ -360,6 +381,10 @@ pub struct Filth {
     /// The worst thing that has landed on each tile, beside its score. Nothing
     /// in the simulation reads this — see [`Mess`].
     kinds: Vec<Mess>,
+    /// What the comforts add to each tile, [`LIFT_CAP`] at most: laid by
+    /// [`Filth::set_comforts`] and read by [`Filth::around`], and never
+    /// touched by a mess or a broom.
+    lift: Vec<f32>,
 }
 
 impl Filth {
@@ -372,7 +397,34 @@ impl Filth {
             origin: interior.min,
             tiles: vec![BASELINE; cols * rows],
             kinds: vec![Mess::None; cols * rows],
+            lift: vec![0.0; cols * rows],
         }
+    }
+
+    /// Lay the comforts: every tile within each one's reach gains its
+    /// lift, summed where they overlap and capped at [`LIFT_CAP`]. The
+    /// whole layer is laid afresh from the list, so a plant taken away is
+    /// a lift gone, and the same list twice is the same layer.
+    pub fn set_comforts(&mut self, comforts: &[Comfort]) {
+        self.lift.iter_mut().for_each(|l| *l = 0.0);
+        for comfort in comforts {
+            let (c, r) = self.cell(comfort.at);
+            for dr in -comfort.tiles..=comfort.tiles {
+                for dc in -comfort.tiles..=comfort.tiles {
+                    if let Some(i) = self.index(c + dc, r + dr) {
+                        self.lift[i] = (self.lift[i] + comfort.lift).min(LIFT_CAP);
+                    }
+                }
+            }
+        }
+    }
+
+    /// What the comforts lift the tile under `at` by. For the probes and
+    /// the tests; the need reads it through [`Filth::around`].
+    #[allow(dead_code)]
+    pub fn lift_at(&self, at: Vec2) -> f32 {
+        let (c, r) = self.cell(at);
+        self.index(c, r).map_or(0.0, |i| self.lift[i])
     }
 
     /// The same deck over a different interior — one that grew a tile when
@@ -390,6 +442,7 @@ impl Filth {
                 {
                     next.tiles[to] = self.tiles[from];
                     next.kinds[to] = self.kinds[from];
+                    next.lift[to] = self.lift[from];
                 }
             }
         }
@@ -605,7 +658,8 @@ impl Filth {
     }
 
     /// The average score of the tiles within `REACH` of `at`, the block clipped
-    /// to the deck. This is what the cleanliness need actually follows.
+    /// to the deck, plus what the comforts lift the tile under `at` by. This
+    /// is what the surroundings need actually follows.
     pub fn around(&self, at: Vec2) -> f32 {
         let (c, r) = self.cell(at);
         let mut total = 0.0;
@@ -618,10 +672,11 @@ impl Filth {
                 }
             }
         }
+        let lift = self.index(c, r).map_or(0.0, |i| self.lift[i]);
         if count == 0.0 {
-            BASELINE
+            BASELINE + lift
         } else {
-            total / count
+            total / count + lift
         }
     }
 
@@ -666,7 +721,7 @@ impl Filth {
         found
     }
 
-    /// How fast the cleanliness need is moving, per game minute: negative
+    /// How fast the surroundings need is moving, per game minute: negative
     /// while there is mess about, positive once everything is clean again.
     ///
     /// `own` is how filthy the Bim itself is, 0 to 1. The room's share doubles

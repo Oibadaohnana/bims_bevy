@@ -1,20 +1,82 @@
 //! The smooth fog: the room's light map, drawn as a picture over the deck.
 //!
-//! `bims::sight::LightMap` is one byte a pixel of darkness — the fog over
-//! what the crew do not see of their own deck, the shade over what they
-//! see of it that no light reaches — worked out by the room when the mask
-//! moves. The shape buffer cannot carry it (it holds rectangles and
-//! ellipses), so it comes over as a texture: uploaded when its version
-//! changes, drawn as one textured quad on the canvas layer over the shapes
-//! and under the words, filtered so a pixel eight to a tile reads as a
-//! soft edge rather than as a step. The quad's corners are the map's four
-//! corners through whatever the screen did to the room — the room's own
-//! scale and offset on the room screen, the ship's camera and heading on
-//! the game's — so the fog lands on the deck it was traced over at any
-//! zoom and heading.
+//! `bims::sight::LightMap` is two bytes a pixel — the darkness: the fog
+//! over what the crew do not see of their own deck, the grey and the black
+//! over a stranger's, the shade over what they see that no light reaches;
+//! and the glow: how much lamplight falls there — worked out by the room
+//! as the crew move. The shape buffer cannot carry it (it holds rectangles
+//! and ellipses), so it comes over as a texture: uploaded when its version
+//! changes — only the box the map says changed, when this holds the
+//! version before it, else the whole of it — the two bytes composed into
+//! one premultiplied pixel (black under lamplight), drawn as one textured
+//! quad on the canvas layer over the shapes and under the words.
+//! The quad's corners are the map's four corners through whatever the
+//! screen did to the room — the room's own scale and offset on the room
+//! screen, the ship's camera and heading on the game's — so the fog lands
+//! on the deck it was traced over at any zoom and heading.
+//!
+//! The map's edges are **blurred on the way in**. The room marches its
+//! rays pixel by pixel, so the edge of what is seen — the line a wall's
+//! corner throws — is a stair of one-pixel steps, and eight pixels to a
+//! tile is six or seven screen pixels a step at a close zoom, which the
+//! texture's own linear filter turns into a ramp a step wide and no
+//! softer. So each channel is run through a five-tap binomial each way
+//! ([`TAPS`]) as the texture is composed, which turns the stair into a
+//! ramp half a tile wide: a penumbra, the way a shadow's edge is. The
+//! blur is the picture's alone — the room's map, which the fight reads,
+//! is untouched — and a partial upload is widened by the blur's reach
+//! ([`REACH`]) either way, since a pixel just outside the box the room
+//! says changed has neighbours inside it.
 
 use bevy_egui::egui;
 use bims::sight::LightMap;
+
+/// The colour a lamp washes the deck with, as the map's glow: the
+/// fittings' lamplight, warm.
+const LAMPLIGHT: [f32; 3] = [1.0, 0.92, 0.70];
+
+/// The blur over the map's edges: a binomial, one pass across and one
+/// down, the weights summing to sixteen a pass.
+const TAPS: [u32; 5] = [1, 4, 6, 4, 1];
+/// How far the blur reads either side of a pixel, in map pixels.
+const REACH: usize = TAPS.len() / 2;
+
+/// The map's two channels — darkness, glow — over the box `(x, y, w, h)`
+/// of it, blurred by [`TAPS`] each way, row by row. Reads past the box
+/// for the blur's reach and clamps at the map's edge.
+fn blurred(map: &LightMap, (x, y, w, h): (usize, usize, usize, usize)) -> Vec<(u8, u8)> {
+    let (mw, mh) = (map.width, map.height);
+    // Across first, over every row the pass down will read.
+    let ry0 = y.saturating_sub(REACH);
+    let ry1 = (y + h + REACH).min(mh);
+    let mut across = vec![(0u32, 0u32); (ry1 - ry0) * w];
+    for (r, row) in (ry0..ry1).enumerate() {
+        for i in 0..w {
+            let (mut a, mut g) = (0, 0);
+            for (k, &t) in TAPS.iter().enumerate() {
+                let col = (x + i + k).saturating_sub(REACH).min(mw - 1);
+                let j = row * mw + col;
+                a += map.alpha[j] as u32 * t;
+                g += map.glow[j] as u32 * t;
+            }
+            across[r * w + i] = (a, g);
+        }
+    }
+    let mut out = Vec::with_capacity(w * h);
+    for row in y..y + h {
+        for i in 0..w {
+            let (mut a, mut g) = (0, 0);
+            for (k, &t) in TAPS.iter().enumerate() {
+                let r = (row + k).saturating_sub(REACH).clamp(ry0, ry1 - 1) - ry0;
+                let (pa, pg) = across[r * w + i];
+                a += pa * t;
+                g += pg * t;
+            }
+            out.push(((a / 256) as u8, (g / 256) as u8));
+        }
+    }
+    out
+}
 
 /// One room's fog texture, kept between frames.
 #[derive(Default)]
@@ -37,18 +99,48 @@ impl FogTexture {
             return;
         }
         if self.handle.is_none() || self.version != map.version {
-            let pixels: Vec<egui::Color32> = map
-                .alpha
-                .iter()
-                .map(|&a| egui::Color32::from_black_alpha(a))
+            // What the room composed again since the version this holds,
+            // if that is the one before: the box it says, else the lot.
+            let follows = self.version + 1 == map.version;
+            let region = match (follows, map.changed, &self.handle) {
+                (true, Some(r), Some(_)) => r,
+                _ => (0, 0, map.width, map.height),
+            };
+            // The box, widened by the blur's reach: what changed inside it
+            // shows for that far outside it.
+            let (x, y, w, h) = {
+                let (x, y, w, h) = region;
+                let (x0, y0) = (x.saturating_sub(REACH), y.saturating_sub(REACH));
+                let x1 = (x + w + REACH).min(map.width);
+                let y1 = (y + h + REACH).min(map.height);
+                (x0, y0, x1 - x0, y1 - y0)
+            };
+            // Two layers in one pixel: the darkness, black at the map's
+            // alpha, and the lamplight over it at the map's glow —
+            // composed premultiplied, which is what egui's textures are.
+            let pixels: Vec<egui::Color32> = blurred(map, (x, y, w, h))
+                .into_iter()
+                .map(|(a, g)| {
+                    let (a, g) = (a as f32 / 255.0, g as f32 / 255.0);
+                    let over = g + a * (1.0 - g);
+                    egui::Color32::from_rgba_premultiplied(
+                        (LAMPLIGHT[0] * g * 255.0) as u8,
+                        (LAMPLIGHT[1] * g * 255.0) as u8,
+                        (LAMPLIGHT[2] * g * 255.0) as u8,
+                        (over * 255.0) as u8,
+                    )
+                })
                 .collect();
             let image = egui::ColorImage {
-                size: [map.width, map.height],
-                source_size: egui::vec2(map.width as f32, map.height as f32),
+                size: [w, h],
+                source_size: egui::vec2(w as f32, h as f32),
                 pixels,
             };
             match &mut self.handle {
-                Some(handle) => handle.set(image, egui::TextureOptions::LINEAR),
+                Some(handle) if (w, h) == (map.width, map.height) => {
+                    handle.set(image, egui::TextureOptions::LINEAR)
+                }
+                Some(handle) => handle.set_partial([x, y], image, egui::TextureOptions::LINEAR),
                 None => {
                     self.handle =
                         Some(ctx.load_texture("fog", image, egui::TextureOptions::LINEAR));
@@ -76,5 +168,44 @@ impl FogTexture {
         mesh.add_triangle(0, 1, 2);
         mesh.add_triangle(0, 2, 3);
         painter.add(egui::Shape::mesh(mesh));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(width: usize, height: usize, alpha: Vec<u8>) -> LightMap {
+        LightMap {
+            width,
+            height,
+            glow: vec![0; alpha.len()],
+            alpha,
+            ..Default::default()
+        }
+    }
+
+    /// A flat map blurs to itself: the taps sum to one.
+    #[test]
+    fn a_flat_map_is_unchanged() {
+        let m = map(9, 9, vec![200; 81]);
+        assert!(blurred(&m, (0, 0, 9, 9)).iter().all(|&(a, _)| a == 200));
+        assert!(blurred(&m, (3, 3, 2, 2)).iter().all(|&(a, _)| a == 200));
+    }
+
+    /// A step along a row comes out a ramp the blur's reach either side
+    /// of it and flat beyond — and the same whether the box asked for is
+    /// the whole row or a part of it.
+    #[test]
+    fn a_step_becomes_a_ramp() {
+        let mut alpha = vec![0u8; 12];
+        alpha[6..].fill(255);
+        let m = map(12, 1, alpha);
+        let whole: Vec<u8> = blurred(&m, (0, 0, 12, 1)).iter().map(|p| p.0).collect();
+        assert_eq!(&whole[..4], &[0, 0, 0, 0]);
+        assert_eq!(&whole[8..], &[255, 255, 255, 255]);
+        assert!(whole[4] < whole[5] && whole[5] < whole[6] && whole[6] < whole[7]);
+        let part: Vec<u8> = blurred(&m, (5, 0, 3, 1)).iter().map(|p| p.0).collect();
+        assert_eq!(part, whole[5..8]);
     }
 }

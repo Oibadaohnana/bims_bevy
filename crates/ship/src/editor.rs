@@ -20,7 +20,8 @@ use shipdesign::design::{Edit, EditError};
 use shipdesign::parts::{Layer, PartKind, Rotation, footprint, is_diagonal};
 use shipdesign::validate::{ExposureMap, Issue};
 use shipdesign::{
-    Budget, Money, ShipDesign, apply, design_hash, exposure, starting_pool, validate,
+    Budget, Money, ShipDesign, apply, design_hash, exposure, starting_pool, validate, wall_at_back,
+    wall_light_rotation,
 };
 
 use crate::view::View;
@@ -345,6 +346,30 @@ impl Editor {
         self.hover = None;
     }
 
+    /// The turn the tool goes down at on `tile`: the ghost's — except a
+    /// wall light — or a picture, `shipdesign::hangs_on_wall` — which
+    /// hangs from a wall, is turned to the wall beside the tile when the
+    /// ghost's own side has none (`shipdesign::wall_light_rotation`), so a
+    /// lamp dropped along a bulkhead hangs from it without a press of `R`.
+    /// The rule stays the design's: a lamp with no wall on any side is
+    /// refused there.
+    pub fn turn_at(&self, tile: (u32, u32)) -> Rotation {
+        if shipdesign::hangs_on_wall(self.tool) && !wall_at_back(&self.design, tile, self.ghost) {
+            wall_light_rotation(&self.design, tile).unwrap_or(self.ghost)
+        } else {
+            self.ghost
+        }
+    }
+
+    /// The ghost's turn where the pointer is — [`Editor::turn_at`] at the
+    /// hover, or the ghost's own off the grid.
+    pub fn ghost_turn(&self) -> Rotation {
+        match self.hover {
+            Some((x, y)) if x >= 0 && y >= 0 => self.turn_at((x as u32, y as u32)),
+            _ => self.ghost,
+        }
+    }
+
     /// Whether the tool would go down where the pointer is. What the ghost's
     /// colour is, and nothing else — the actual placement asks again, because
     /// between a ghost and a click somebody else may have built there.
@@ -358,7 +383,11 @@ impl Editor {
         apply(
             &self.design,
             &self.budget,
-            placing(self.tool, (x as u32, y as u32), self.ghost),
+            placing(
+                self.tool,
+                (x as u32, y as u32),
+                self.turn_at((x as u32, y as u32)),
+            ),
         )
         .is_ok()
     }

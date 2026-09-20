@@ -39,8 +39,8 @@
 
 use physics::{Facing, ResourceId};
 
-use crate::design::{Grid, PlacedPart, ShipDesign};
-use crate::parts::{Layer, PartKind, Rotation, any_side_will_do};
+use crate::design::{Grid, PlacedPart, ShipDesign, wall_at_back};
+use crate::parts::{Layer, PartKind, Rotation, any_side_will_do, hangs_on_wall};
 
 /// Whether an issue stops the design being accepted.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -142,10 +142,12 @@ pub enum IssueCode {
     /// their footprints. A warning: the ship still flies, and simply cannot
     /// jump.
     HyperdriveUnconnected = 36,
-    /// A wall light with no wall at its back: nothing standing on any of
-    /// the four tiles round it — see [`lights`]. The parts are the loose
-    /// lights and the tiles their footprints. A warning: it still shines.
-    LightOffTheWall = 37,
+    /// A wall light or a picture (`parts::hangs_on_wall`) with no wall at
+    /// its back: nothing standing on the tile its rotation names, the wall
+    /// having been taken down since it was hung — see [`hung`]. The parts
+    /// are the loose ones and the tiles their footprints. A warning: the
+    /// lamp still shines and the picture still cheers.
+    OffTheWall = 37,
 }
 
 impl IssueCode {
@@ -239,7 +241,7 @@ pub fn validate(design: &ShipDesign, crew_count: u32) -> Vec<Issue> {
     exhausts(design, &grid, &mut issues);
     comforts(design, &mut issues);
     power(design, &mut issues);
-    lights(design, &mut issues);
+    hung(design, &mut issues);
 
     issues
 }
@@ -801,26 +803,17 @@ fn power(design: &ShipDesign, issues: &mut Vec<Issue>) {
     }
 }
 
-/// A wall light hangs from a wall: one of the four tiles round it holds
-/// something that blocks — a bulkhead, the hull, a tall part — or it is
-/// a lamp on a bracket to nothing, and `IssueCode::LightOffTheWall` says
-/// so, once for all of them. A standing light stands anywhere.
-fn lights(design: &ShipDesign, issues: &mut Vec<Issue>) {
-    let grid = design.grid();
-    let backed = |(x, y): (u32, u32)| {
-        [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| {
-            let at = (x as i32 + dx, y as i32 + dy);
-            let id = grid.get(Layer::Object, at);
-            id != 0
-                && design
-                    .part(id)
-                    .is_some_and(|p| p.kind.def().blocks_movement)
-        })
-    };
+/// A wall light or a picture hangs from a wall (`parts::hangs_on_wall`):
+/// the tile its rotation names (`parts::wall_light_back`) holds something
+/// that blocks — a bulkhead, the hull, a tall part — or it is a bracket
+/// to nothing, and `IssueCode::OffTheWall` says so, once for all of them.
+/// Placing one so is refused (`EditError::NoWallAtBack`); this is the
+/// wall taken down after. A standing light and a plant stand anywhere.
+fn hung(design: &ShipDesign, issues: &mut Vec<Issue>) {
     let mut loose: Vec<u32> = design
         .parts
         .iter()
-        .filter(|p| p.kind == PartKind::WallLight && !backed(p.origin))
+        .filter(|p| hangs_on_wall(p.kind) && !wall_at_back(design, p.origin, p.rotation))
         .map(|p| p.id)
         .collect();
     if loose.is_empty() {
@@ -835,7 +828,7 @@ fn lights(design: &ShipDesign, issues: &mut Vec<Issue>) {
     }
     issues.push(Issue {
         severity: Severity::Warning,
-        code: IssueCode::LightOffTheWall.code(),
+        code: IssueCode::OffTheWall.code(),
         parts: loose,
         tiles,
     });

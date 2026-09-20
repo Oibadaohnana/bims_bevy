@@ -133,7 +133,7 @@ the food need and the cook job is on offer on the next frame.
 
 ## The solitude clock has to be pinned, not waited for
 
-`social.rs` runs to ten game days, and the interesting part is all at the far
+`social.rs` runs to a fortnight of game days, and the interesting part is all at the far
 end. `scratchpad/social.rs` pins it with `leave_alone_for_probe` **every
 frame** — once is not enough, because the other Bim comes over for a word and
 `Solitude::talked()` puts it straight back to nothing.

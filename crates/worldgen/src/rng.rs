@@ -52,6 +52,11 @@ pub enum Purpose {
     /// The asteroids about a belt: how many, their shapes, and which of
     /// them carry galvum. Its own stream, like the yield.
     MiningSite = 9,
+    /// What stands on a planet's surface and whose it is: the settlement
+    /// the ship lands at — its map seed, its side and its shelf. The
+    /// world's (`world::surface`), like the mining site; the generator
+    /// draws nothing from it, so the galaxy checksum never sees it.
+    Settlement = 10,
 }
 
 /// SplitMix64's finalizer. Takes a counter-ish input to a well-spread output,

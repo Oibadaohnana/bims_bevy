@@ -35,10 +35,13 @@
 //! fog looks like over an unseen tile follows from that. A friendly
 //! structure is under a **semi** fog — the deck stays readable, since the
 //! crew know their own ship — while a neutral or hostile one is **black**
-//! where nobody has looked, and **grey** in a ring [`RING`] tiles wide
-//! round what is seen, where the structure shows but no body does. The
-//! grey stays once earned: what has been looked at is known, and only
-//! who is standing there is forgotten.
+//! where no line of sight has ever reached, and **grey** where one has
+//! and none does now: the structure shows there and no body does. The
+//! grey is what has been looked at, and only that — a wall is seen from
+//! the room it walls, the way the trace works, so a room's outline comes
+//! in as its inside is looked at and nothing behind a bulkhead shows
+//! until somebody has seen past it. The grey stays once earned: what has
+//! been looked at is known, and only who is standing there is forgotten.
 
 use crate::draw::{Color, DrawList};
 use crate::math::{Rect, Vec2, vec2};
@@ -47,8 +50,9 @@ use crate::math::{Rect, Vec2, vec2};
 /// it stays readable, since the ship is the crew's own and they know where
 /// the walls are, but whatever is standing there is not drawn.
 const FOG: Color = Color::rgba(0.02, 0.04, 0.03, 0.62);
-/// The ring round what is seen of somebody else's structure: the walls
-/// and the fixtures show through, and nobody standing among them does.
+/// What has been looked at of somebody else's structure and is not in
+/// view now: the walls and the fixtures show through, and nobody standing
+/// among them does.
 const FOG_GREY: Color = Color::rgba(0.06, 0.07, 0.08, 0.80);
 /// The rest of somebody else's structure: nothing.
 const FOG_BLACK: Color = Color::rgba(0.0, 0.0, 0.0, 1.0);
@@ -62,17 +66,84 @@ pub const DARK_RANGE: f32 = 10.0;
 /// A tile is **lit** when the straight line from some light to its middle
 /// crosses nothing opaque (the walls and the tall parts — never a door,
 /// which is not there to a light the way it is to an eye) and is within the
-/// light's reach. Lights are always on. A room never handed any lights is
-/// lit throughout — the classic room, which has no lighting to speak of —
-/// and a designed deck handed none is dark everywhere.
+/// light's reach. Lights are always on until they are shot out — see
+/// [`Lamp`]. A room never handed any lights is lit throughout — the
+/// classic room, which has no lighting to speak of — and a designed deck
+/// handed none is dark everywhere.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Light {
     pub at: Vec2,
     pub reach: f32,
 }
 
-/// How far the grey ring reaches past what is seen, in tiles.
-pub const RING: i32 = 3;
+/// What a lamp takes before it goes out: two pistol bolts leave it
+/// failing, a third puts it out, and a shotgun's or a sniper's one does
+/// on its own.
+pub const LAMP_HEALTH: f32 = 16.0;
+/// Below this share of its health a lamp is **failing**: it flickers now
+/// and then, on its own.
+pub const LAMP_FAILING: f32 = 0.2;
+/// How near a bolt has to pass a lamp to hit it, in room units: the
+/// glass, near enough. A bolt aimed down the middle of a gangway misses
+/// the lamps on its walls; one that goes wide may not.
+pub const LAMP_RADIUS: f32 = 10.0;
+/// How long a lamp flickers for after a hit, and for one of its failing
+/// flickers, in seconds at 1x.
+const LAMP_HIT_FLICKER: f32 = 0.6;
+const LAMP_FAIL_FLICKER: f32 = 0.35;
+/// How many times a second a flickering lamp picks a new brightness, and
+/// how often a failing one starts a flicker: the odds per second.
+const FLICKER_RATE: f32 = 24.0;
+const FAIL_FLICKER_ODDS: f32 = 0.3;
+
+/// One lamp of the room, as the fight sees it: where it is, what it has
+/// left, and how bright it is shown. A bolt that passes within
+/// [`LAMP_RADIUS`] of it stops there and takes its damage off the lamp
+/// ([`Sight::damage_lamp`]); at nought it is **out** — its light gone
+/// from the tile mask and the picture alike, so the deck round it goes
+/// dark and a Bim sees only its ten tiles there. A hit sets it
+/// flickering for a moment, and one below [`LAMP_FAILING`] flickers now
+/// and then for good. The flicker is the **picture's** alone: the tile
+/// mask and the eyes read the lamp as on until it is out, so nothing
+/// the fight decides depends on a frame's brightness, and it is worked
+/// out from the clock and the lamp's index rather than rolled, so it
+/// draws nothing off any stream.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Lamp {
+    pub at: Vec2,
+    /// What it has left of [`LAMP_HEALTH`]; nought or under is out.
+    pub health: f32,
+    /// How bright it is shown, nought to one: one steady, nought out,
+    /// between while it flickers.
+    pub level: f32,
+    /// Seconds of flicker left.
+    flicker: f32,
+    /// The last second-long window a failing flicker was rolled for.
+    window: u32,
+}
+
+impl Lamp {
+    pub fn is_out(&self) -> bool {
+        self.health <= 0.0
+    }
+
+    pub fn is_failing(&self) -> bool {
+        !self.is_out() && self.health <= LAMP_HEALTH * LAMP_FAILING
+    }
+}
+
+/// A pseudo-random unit number from a lamp's index and a slot of time:
+/// the flicker's dice, which are the same every time for the same lamp
+/// and the same instant. SplitMix64's mixer, which is plenty for a
+/// picture.
+fn noise(lamp: usize, slot: u32) -> f32 {
+    let mut z = ((lamp as u64) << 32 ^ slot as u64).wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    (z >> 40) as f32 / (1u64 << 24) as f32
+}
+
 /// How close behind low cover a body has to stand to be covered by it,
 /// in tiles from the body to the sandbags' middle: the tile beside it,
 /// diagonals included, and no further.
@@ -115,6 +186,10 @@ struct Cell {
     /// Low cover: sandbags, seen and walked over, that a body close
     /// behind ducks under — see `Sight::covered`.
     cover: bool,
+    /// Opaque, but furniture rather than wall: a shelf, a cabinet, a
+    /// table. A line of sight stops here like at a wall; the light
+    /// picture shades behind it softly — see `Sight::set_tall`.
+    soft: bool,
 }
 
 /// One place a body looks from: where, and — for a peek — what it may
@@ -171,18 +246,47 @@ pub struct Sight {
     /// themselves, for the picture. With no lights, every tile is lit.
     lit: Vec<bool>,
     lights: Vec<Light>,
+    /// The lamps, one a light: what each has left and how bright it is
+    /// shown. See [`Lamp`].
+    lamps: Vec<Lamp>,
+    /// Which lamps' health changed since a host last asked
+    /// (`take_lamp_changes`).
+    lamp_changes: Vec<usize>,
+    /// The lamps' own clock, for the flicker's dice.
+    lamp_seconds: f32,
     /// Never handed lights at all: lit throughout. See [`Light`].
     lit_everywhere: bool,
     /// The smooth picture — see [`LightMap`] — and the light field it is
     /// built on, worked out once per layout.
     map: LightMap,
+    /// Whether the picture wants composing again though no eye moved:
+    /// a stance changed, or the layout.
     map_stale: bool,
+    /// The light over the deck as the eyes read it — every lamp that is
+    /// not out at full — and as it is shown, with the flicker in. The
+    /// sum of the lamps' own fields, each cached over its reach so a
+    /// lamp going out or flickering is a box summed again and not every
+    /// lamp marched again. See [`Sight::light_field`].
     light_field: Vec<u8>,
+    shown_field: Vec<u8>,
+    lamp_fields: Vec<LampField>,
     light_field_stale: bool,
-    /// Whether each tile is within [`RING`] of one that is seen, or ever
-    /// was: what has been looked at stays known — the grey is the fog of
-    /// war's "explored", and only the bodies in it are forgotten.
-    near: Vec<bool>,
+    /// Where the shown field changed since the picture was composed: a
+    /// lamp that flickered or went out.
+    field_dirty: Option<Box>,
+    /// What each body's eyes reach, pixel by pixel, as last marched —
+    /// see [`Sight::light_map`] — so a body that has not moved is not
+    /// marched again. `views_stale` throws them all away: the cells the
+    /// rays stop at changed.
+    views: Vec<View>,
+    views_stale: bool,
+    /// Every pixel a line of sight has ever reached: the picture's grey
+    /// over a stranger's structure.
+    explored_px: Vec<bool>,
+    /// Whether each tile was ever seen: what has been looked at stays
+    /// known — the grey is the fog of war's "explored", and only the
+    /// bodies in it are forgotten.
+    explored: Vec<bool>,
     /// What the mask was last worked out from: the eyes' tiles and the
     /// shut doors. When these have not moved, neither has the mask.
     eyes_at: Vec<(i32, i32)>,
@@ -215,12 +319,21 @@ impl Sight {
             seen: vec![false; (columns * rows) as usize],
             lit: vec![true; (columns * rows) as usize],
             lights: Vec::new(),
+            lamps: Vec::new(),
+            lamp_changes: Vec::new(),
+            lamp_seconds: 0.0,
             lit_everywhere: true,
             map: LightMap::default(),
             map_stale: true,
             light_field: Vec::new(),
+            shown_field: Vec::new(),
+            lamp_fields: Vec::new(),
             light_field_stale: true,
-            near: vec![false; (columns * rows) as usize],
+            field_dirty: None,
+            views: Vec::new(),
+            views_stale: true,
+            explored_px: Vec::new(),
+            explored: vec![false; (columns * rows) as usize],
             eyes_at: Vec::new(),
             shut: Vec::new(),
             stale: false,
@@ -234,6 +347,7 @@ impl Sight {
                 fogged: fogged.is_empty(),
                 foreign: false,
                 cover: false,
+                soft: false,
             };
             (columns * rows) as usize
         ];
@@ -261,12 +375,14 @@ impl Sight {
     /// station is; the ship's is the crew's.
     pub fn set_stance(&mut self, stance: Stance) {
         self.own = stance;
+        self.map_stale = true;
     }
 
     /// Which tiles are somebody else's — a station's on a joined deck,
     /// by its box — and whose. `None` makes every tile the room's own.
     pub fn set_foreign(&mut self, rect: Option<Rect>, stance: Stance) {
         self.foreign = stance;
+        self.map_stale = true;
         for c in &mut self.fixed {
             c.foreign = false;
         }
@@ -404,6 +520,7 @@ impl Sight {
         }
         self.shut = shut.to_vec();
         self.stale = true;
+        self.views_stale = true;
         let mut cells = self.fixed.clone();
         for door in shut {
             self.mark(&mut cells, door, &mut |c| c.opaque = true);
@@ -417,16 +534,39 @@ impl Sight {
     /// the walls and the tall parts, and no door, since the leaves of a
     /// door are not a thing a light waits for. Handed none, the deck is
     /// dark throughout; never handed any, it is lit (`new`). Once per
-    /// layout; the lights do not move.
+    /// layout; the lights do not move. Every lamp starts whole: what a
+    /// fight did to one is the world's to remember across a relayout
+    /// (`set_lamp_health`).
     pub fn set_lights(&mut self, lights: &[Light]) {
         self.lights = lights.to_vec();
+        self.lamps = lights
+            .iter()
+            .map(|l| Lamp {
+                at: l.at,
+                health: LAMP_HEALTH,
+                level: 1.0,
+                flicker: 0.0,
+                window: 0,
+            })
+            .collect();
+        self.lamp_changes.clear();
         self.lit_everywhere = false;
         self.light_field_stale = true;
+        self.relight();
+    }
+
+    /// The tile mask of the lamps that are not out, worked out again:
+    /// what `set_lights` does, and what a lamp going out does over.
+    fn relight(&mut self) {
         self.stale = true;
+        self.views_stale = true;
         for l in self.lit.iter_mut() {
             *l = false;
         }
-        for light in lights {
+        for (light, lamp) in self.lights.iter().zip(&self.lamps) {
+            if lamp.is_out() {
+                continue;
+            }
             let (lx, ly) = self.tile_of(light.at);
             let span = (light.reach / self.tile).ceil() as i32 + 1;
             for y in (ly - span).max(0)..=(ly + span).min(self.rows - 1) {
@@ -446,6 +586,125 @@ impl Sight {
     /// The lights, as put in.
     pub fn lights(&self) -> &[Light] {
         &self.lights
+    }
+
+    /// The lamps, one a light, index for index. See [`Lamp`].
+    pub fn lamps(&self) -> &[Lamp] {
+        &self.lamps
+    }
+
+    /// The lamp on the tile a point is in, if there is one — a light
+    /// part's tile, say — with its index.
+    pub fn lamp_at(&self, p: Vec2) -> Option<(usize, &Lamp)> {
+        let tile = self.tile_of(p);
+        self.lamps
+            .iter()
+            .enumerate()
+            .find(|(_, l)| self.tile_of(l.at) == tile)
+    }
+
+    /// A bolt landed on lamp `i` for `damage`: what it has left comes
+    /// down, it flickers for a moment, and at nought it goes out. True
+    /// when this is the hit that put it out.
+    pub fn damage_lamp(&mut self, i: usize, damage: f32) -> bool {
+        let Some(lamp) = self.lamps.get_mut(i) else {
+            return false;
+        };
+        if lamp.is_out() {
+            return false;
+        }
+        lamp.health = (lamp.health - damage).max(0.0);
+        lamp.flicker = LAMP_HIT_FLICKER;
+        self.lamp_changes.push(i);
+        if self.lamps[i].is_out() {
+            self.lamp_switched(i);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Lamp `i` as the world remembers it: what it has left, set outright
+    /// — at the room's building, or from the other room a fight is
+    /// mirrored in. Out at nought or under, no flicker.
+    pub fn set_lamp_health(&mut self, i: usize, health: f32) {
+        let Some(lamp) = self.lamps.get_mut(i) else {
+            return;
+        };
+        if lamp.health == health {
+            return;
+        }
+        let was_out = lamp.is_out();
+        lamp.health = health.max(0.0);
+        if lamp.is_out() != was_out {
+            self.lamp_switched(i);
+        }
+    }
+
+    /// Which lamps' health changed since this was last asked, oldest
+    /// first: the world's cue to remember it, and to carry it across.
+    pub fn take_lamp_changes(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.lamp_changes)
+    }
+
+    /// Lamp `i` went out, or came back: nothing shown or all of it, its
+    /// light off the tile mask or on it, its share of the field taken
+    /// out or put back over its reach, and every eye marched again,
+    /// since what a lamp lit is what was seen by it.
+    fn lamp_switched(&mut self, i: usize) {
+        self.lamps[i].level = if self.lamps[i].is_out() { 0.0 } else { 1.0 };
+        self.lamps[i].flicker = 0.0;
+        self.relight();
+        if let Some(field) = self.lamp_fields.get(i) {
+            let over = field.over();
+            self.sum_fields(over, true);
+            self.field_dirty = Box::join(self.field_dirty, Some(over));
+        }
+    }
+
+    /// The lamps' clock: a flickering lamp picks a new brightness
+    /// [`FLICKER_RATE`] times a second until its flicker runs out, and a
+    /// failing one starts a flicker at [`FAIL_FLICKER_ODDS`] a second.
+    /// Every change of brightness is the shown field summed again over
+    /// the lamp's reach, for the picture to take up.
+    pub fn tick_lamps(&mut self, dt: f32) {
+        if self.lamps.is_empty() {
+            return;
+        }
+        self.lamp_seconds += dt;
+        let t = self.lamp_seconds;
+        for i in 0..self.lamps.len() {
+            let lamp = &mut self.lamps[i];
+            if lamp.is_out() {
+                continue;
+            }
+            if lamp.flicker <= 0.0 && lamp.is_failing() {
+                let window = t as u32;
+                if window != lamp.window {
+                    lamp.window = window;
+                    if noise(i ^ 0x5EED, window) < FAIL_FLICKER_ODDS {
+                        lamp.flicker = LAMP_FAIL_FLICKER;
+                    }
+                }
+            }
+            let level = if lamp.flicker > 0.0 {
+                lamp.flicker -= dt;
+                let n = noise(i, (t * FLICKER_RATE) as u32);
+                // Off, or nearly, half the time; else on.
+                if n < 0.5 { 0.1 + n * 0.5 } else { 1.0 }
+            } else {
+                1.0
+            };
+            if (level - lamp.level).abs() < 1.0 / 255.0 {
+                continue;
+            }
+            lamp.level = level;
+            if let Some(field) = self.lamp_fields.get(i) {
+                let over = field.over();
+                self.sum_fields(over, false);
+                self.field_dirty = Box::join(self.field_dirty, Some(over));
+            }
+        }
     }
 
     /// Whether a light reaches the tile a point is in.
@@ -478,6 +737,29 @@ impl Sight {
             c.cover = f.cover;
         }
         self.fixed = fixed;
+    }
+
+    /// Mark these rectangles as furniture among the opaque cells — the
+    /// tall parts, as against the walls — for the picture: a light's
+    /// direct fall stops at them like at a wall, and a softer fill goes
+    /// past them, so a shelf casts a shade and a bulkhead casts the dark.
+    /// Nothing to the rule, which reads `opaque` alone. Part of the fixed
+    /// picture, so it survives every `set_shut`; before it is called,
+    /// every opaque cell is a wall.
+    pub fn set_tall(&mut self, tall: &[Rect]) {
+        let mut fixed = std::mem::take(&mut self.fixed);
+        for c in fixed.iter_mut() {
+            c.soft = false;
+        }
+        for rect in tall {
+            self.mark(&mut fixed, rect, &mut |c| c.soft = c.opaque);
+        }
+        for (c, f) in self.cells.iter_mut().zip(&fixed) {
+            c.soft = f.soft;
+        }
+        self.fixed = fixed;
+        self.light_field_stale = true;
+        self.views_stale = true;
     }
 
     /// Whether a tile is low cover.
@@ -548,7 +830,6 @@ impl Sight {
         }
         self.eyes_at = eyes_at;
         self.stale = false;
-        self.map_stale = true;
         self.traced = true;
 
         for s in self.seen.iter_mut() {
@@ -573,31 +854,11 @@ impl Sight {
                 }
             }
         }
-        self.widen();
+        // What has been seen stays known.
+        for (e, &s) in self.explored.iter_mut().zip(&self.seen) {
+            *e |= s;
+        }
         true
-    }
-
-    /// The ring: every tile within [`RING`] of a seen one, in two passes
-    /// — along the rows, then down the columns of that.
-    fn widen(&mut self) {
-        let (w, h) = (self.columns, self.rows);
-        let mut rows = vec![false; (w * h) as usize];
-        for y in 0..h {
-            for x in 0..w {
-                let lo = (x - RING).max(0);
-                let hi = (x + RING).min(w - 1);
-                rows[self.index(x, y)] = (lo..=hi).any(|k| self.seen[self.index(k, y)]);
-            }
-        }
-        for y in 0..h {
-            for x in 0..w {
-                let lo = (y - RING).max(0);
-                let hi = (y + RING).min(h - 1);
-                let near = (lo..=hi).any(|k| rows[self.index(x, k)]);
-                let i = self.index(x, y);
-                self.near[i] |= near;
-            }
-        }
     }
 
     /// Whether the straight line from `from` to the middle of tile `to`
@@ -734,8 +995,8 @@ impl Sight {
     }
 
     /// How the fog over a tile is drawn, if it is: by whose the tile is,
-    /// and — for somebody else's — whether it is within the ring of what
-    /// is seen. With `all`, nothing is seen and there is no ring.
+    /// and — for somebody else's — whether it has ever been seen. With
+    /// `all`, nothing is seen and nothing has been.
     fn veil(&self, i: usize, all: bool) -> Option<Veil> {
         let c = &self.cells[i];
         if !c.fogged || (!all && self.seen[i]) {
@@ -744,34 +1005,24 @@ impl Sight {
         let stance = if c.foreign { self.foreign } else { self.own };
         Some(match stance {
             Stance::Friendly => Veil::Semi,
-            _ if !all && self.near[i] => Veil::Grey,
+            _ if !all && self.explored[i] => Veil::Grey,
             _ => Veil::Black,
         })
     }
 
-    /// The fog, over every fogged tile nobody sees — or, with `all`, over
-    /// every fogged tile, for a room nobody is looking into. Each kind of
-    /// veil is one pass: neighbouring tiles are drawn as one rectangle
-    /// wherever they can be, so the fog is a few shapes rather than a
-    /// thousand, and a run that matches the run under it is one shape
-    /// taller.
+    /// The fog on the tile grid, over every fogged tile nobody sees — or,
+    /// with `all`, over every fogged tile, for a room nobody is looking
+    /// into. Through the crew's own eyes the picture is the [`LightMap`]'s
+    /// and this is not drawn. Each kind of veil is one pass: neighbouring
+    /// tiles are drawn as one rectangle wherever they can be, so the fog
+    /// is a few shapes rather than a thousand, and a run that matches the
+    /// run under it is one shape taller.
     pub fn draw(&self, list: &mut DrawList, all: bool) {
-        self.draw_veils(list, all, true);
-    }
-
-    /// The same, with the semi fog over the crew's own tiles left to the
-    /// [`LightMap`] when `semi` is false: the tile passes then draw only a
-    /// stranger's grey and black, which stay on the tile grid — they are
-    /// what the crew remember, and memory is by the tile.
-    pub fn draw_veils(&self, list: &mut DrawList, all: bool, semi: bool) {
         for (veil, colour) in [
             (Veil::Semi, FOG),
             (Veil::Grey, FOG_GREY),
             (Veil::Black, FOG_BLACK),
         ] {
-            if veil == Veil::Semi && !semi {
-                continue;
-            }
             self.draw_runs(list, colour, |i| self.veil(i, all) == Some(veil));
         }
     }
@@ -834,27 +1085,47 @@ impl Sight {
 /// million pixels to march.
 pub const MAP_PX_PER_TILE: i32 = 8;
 /// How many rays an eye or a light is marched along. Two thousand: a ray
-/// and its neighbour are under two pixels apart at the far side of a
-/// joined deck, so nothing between them is missed.
+/// and its neighbour are a pixel apart forty tiles out and under two at
+/// the far side of a joined deck, so nothing between them is missed.
 const RAYS: u32 = 2048;
-/// The fog over what the crew do not see of their own deck, and the dark
-/// over what they see of it that no light reaches — light, so a shadow
-/// is a shade and not a wall.
+/// The fog over what the crew do not see of their own deck.
 const MAP_FOG: f32 = 0.62;
-const MAP_DARK: f32 = 0.34;
-/// How much of a light's reach is full brightness before it fades.
-const LIGHT_CORE: f32 = 0.55;
+/// The fog over what they have looked at of a stranger's deck and do not
+/// see now: the structure shows through it, and no body does.
+const MAP_GREY: f32 = 0.80;
+/// The dark over what they see of it that no light reaches — deep enough
+/// that a lamp's pool reads against it, short of the fog so the deck
+/// stays readable.
+const MAP_DARK: f32 = 0.50;
+/// How much of a light's reach is full brightness before it fades, and
+/// how the rest falls off — steeply at first, so a pool has a bright
+/// heart and a soft rim, the way a lamp's does.
+const LIGHT_CORE: f32 = 0.35;
+const LIGHT_FALL: f32 = 1.6;
+/// How much of a lamp's light gets past furniture — a shelf, a cabinet,
+/// a table — into the shade behind it: the shadow, and it is a light one.
+/// Nothing gets past a wall.
+const SHADOW_FILL: f32 = 0.55;
+/// The lamplight over a lit pixel at full brightness: the warm wash the
+/// host tints the deck with, nought to one, faded with the light — and
+/// how much of it shows through the fog over what the crew know, since
+/// the lamps are always on and the crew know where they hang.
+const GLOW: f32 = 0.24;
+const GLOW_UNDER_FOG: f32 = 0.5;
 
-/// The smooth picture of the crew's sight: one byte a pixel, the darkness
-/// to draw over the room — nought where the crew see a lit tile, the
-/// dark's where they see an unlit one, the fog's where they see nothing —
-/// over the room's own fogged tiles, and nought everywhere else (a
-/// stranger's tiles are the tile veil's). Marched, not traced: from every
-/// eye and every light a fan of [`RAYS`] rays is walked pixel by pixel
-/// until it meets an opaque cell, so what is lit and what is seen have
-/// the straight edges of the walls that stop them and not the tile grid's
-/// steps. The tile mask stays the **rule** — the fight and the world read
-/// it — and this is the picture of it.
+/// The smooth picture of the crew's sight and the lamps: two bytes a
+/// pixel — the darkness to draw over the room, nought where the crew see
+/// a lit tile, the dark's where they see an unlit one, the fog's where
+/// they see nothing of their own deck, the grey's where they see nothing
+/// of a stranger's they have looked at, black where they have never
+/// looked; and the lamplight, the warm wash where a light falls. Marched,
+/// not traced: from every eye and every light a fan of [`RAYS`] rays is
+/// walked pixel by pixel until it meets an opaque cell, so what is lit
+/// and what is seen have the straight edges of the walls that stop them
+/// and not the tile grid's steps, and a lamp throws a cone past a
+/// doorway and a shade behind a cabinet. The tile mask stays the
+/// **rule** — the fight and the world read it — and this is the picture
+/// of it, by the same lines.
 #[derive(Clone, Debug, Default)]
 pub struct LightMap {
     /// The grid's corner, in room units, and a pixel's side.
@@ -864,9 +1135,16 @@ pub struct LightMap {
     pub height: usize,
     /// Darkness, nought to 255, row by row.
     pub alpha: Vec<u8>,
+    /// Lamplight, nought to 255, row by row: how strongly the host tints
+    /// the pixel with its lamplight colour.
+    pub glow: Vec<u8>,
     /// Bumped every time the map is worked out again, so a host can tell a
     /// new picture from the one it has already uploaded.
     pub version: u64,
+    /// Where this version differs from the one before it, as `(x, y,
+    /// width, height)` in pixels — what a host holding the previous
+    /// version has to take again — or `None` for the whole picture.
+    pub changed: Option<(usize, usize, usize, usize)>,
 }
 
 impl LightMap {
@@ -876,40 +1154,197 @@ impl LightMap {
     }
 }
 
-impl Sight {
-    /// Whether the map wants working out again: the mask was, since.
-    pub fn take_map_stale(&mut self) -> bool {
-        std::mem::take(&mut self.map_stale)
+/// What one body's eyes reach, as last marched: the eyes it was marched
+/// from, a flag a pixel — seen from this body or not — and the box the
+/// seen pixels lie in. Kept so that a body standing still is not marched
+/// again while another walks, and so that the picture is composed again
+/// only where a view changed.
+#[derive(Clone, Debug)]
+struct View {
+    eyes: Vec<Eye>,
+    seen: Vec<bool>,
+    reached: Option<Box>,
+}
+
+/// A box of map pixels, both ends in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Box {
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+}
+
+impl Box {
+    fn with(self, x: usize, y: usize) -> Box {
+        Box {
+            x0: self.x0.min(x),
+            y0: self.y0.min(y),
+            x1: self.x1.max(x),
+            y1: self.y1.max(y),
+        }
     }
 
+    fn join(a: Option<Box>, b: Option<Box>) -> Option<Box> {
+        match (a, b) {
+            (Some(a), Some(b)) => Some(a.with(b.x0, b.y0).with(b.x1, b.y1)),
+            (a, None) => a,
+            (None, b) => b,
+        }
+    }
+}
+
+/// One lamp's light over its reach, cached: the box of map pixels it
+/// can fall on and a byte a pixel of it, so a lamp that flickers or goes
+/// out is its box summed again and not every lamp marched again.
+#[derive(Clone, Debug, Default)]
+struct LampField {
+    x0: usize,
+    y0: usize,
+    w: usize,
+    h: usize,
+    pixels: Vec<u8>,
+}
+
+impl LampField {
+    /// The box it covers, both ends in.
+    fn over(&self) -> Box {
+        Box {
+            x0: self.x0,
+            y0: self.y0,
+            x1: (self.x0 + self.w).saturating_sub(1),
+            y1: (self.y0 + self.h).saturating_sub(1),
+        }
+    }
+}
+
+impl Sight {
     /// The light over the fixed picture, one byte a pixel, nought dark to
-    /// 255 lit — worked out once per layout and per change of the doors
-    /// the lights are not stopped by, which is to say once. Kept on the
-    /// sight and read by [`Sight::light_map`].
-    fn light_field(&self) -> Vec<u8> {
+    /// 255 lit — worked out once per layout, since the lights do not move
+    /// and no door stops one. Every lamp is marched twice: its direct
+    /// fall, which every opaque cell stops, and a fill of [`SHADOW_FILL`]
+    /// of it, which the furniture (`Cell::soft`) lets past and the walls
+    /// do not — so behind a shelf is a shade and behind a bulkhead the
+    /// dark. Full brightness to [`LIGHT_CORE`] of the reach, fading to
+    /// the edge. Each lamp's fall is kept on its own ([`LampField`]) and
+    /// the field is their **sum**, saturating — light adds, so the deck
+    /// between four lamps is lit by all four, where the brightest alone
+    /// left a dark star between them — read by [`Sight::light_map`].
+    fn build_light_fields(&mut self) {
         let (w, h) = self.map_dims();
-        let mut field = vec![0u8; w * h];
+        self.light_field = vec![0u8; w * h];
+        self.shown_field = vec![0u8; w * h];
+        self.lamp_fields.clear();
         if self.lit_everywhere {
-            for v in field.iter_mut() {
+            for v in self.light_field.iter_mut() {
                 *v = 255;
             }
-            return field;
+            self.shown_field.clone_from(&self.light_field);
+            return;
         }
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        let mut fields: Vec<LampField> = Vec::with_capacity(self.lights.len());
         for light in &self.lights {
-            self.march(light.at, Some(light.reach), &self.fixed, &mut |i, d| {
-                let t = d / light.reach;
-                let bright = if t <= LIGHT_CORE {
-                    1.0
-                } else {
-                    ((1.0 - t) / (1.0 - LIGHT_CORE)).clamp(0.0, 1.0)
-                };
-                let v = (bright * 255.0) as u8;
-                if field[i] < v {
-                    field[i] = v;
-                }
-            });
+            // The box its reach can fall in, clipped to the map.
+            let ox = ((light.at.x - self.origin.x) / px).floor() as i64;
+            let oy = ((light.at.y - self.origin.y) / px).floor() as i64;
+            let r = (light.reach / px).ceil() as i64 + 1;
+            let x0 = (ox - r).clamp(0, w as i64) as usize;
+            let y0 = (oy - r).clamp(0, h as i64) as usize;
+            let x1 = (ox + r + 1).clamp(0, w as i64) as usize;
+            let y1 = (oy + r + 1).clamp(0, h as i64) as usize;
+            let mut field = LampField {
+                x0,
+                y0,
+                w: x1 - x0,
+                h: y1 - y0,
+                pixels: vec![0u8; (x1 - x0) * (y1 - y0)],
+            };
+            for (through_soft, share) in [(false, 1.0), (true, SHADOW_FILL)] {
+                self.march(
+                    light.at,
+                    Some(light.reach),
+                    &self.fixed,
+                    through_soft,
+                    &mut |i, _, d| {
+                        let (x, y) = (i % w, i / w);
+                        if x < x0 || x >= x1 || y < y0 || y >= y1 {
+                            return;
+                        }
+                        let t = d / light.reach;
+                        let bright = if t <= LIGHT_CORE {
+                            1.0
+                        } else {
+                            ((1.0 - t) / (1.0 - LIGHT_CORE))
+                                .clamp(0.0, 1.0)
+                                .powf(LIGHT_FALL)
+                        };
+                        let v = (bright * share * 255.0) as u8;
+                        let j = (y - y0) * field.w + (x - x0);
+                        if field.pixels[j] < v {
+                            field.pixels[j] = v;
+                        }
+                    },
+                );
+            }
+            fields.push(field);
         }
-        field
+        self.lamp_fields = fields;
+        let whole = Box {
+            x0: 0,
+            y0: 0,
+            x1: w.saturating_sub(1),
+            y1: h.saturating_sub(1),
+        };
+        self.sum_fields(whole, true);
+    }
+
+    /// The lamps' fields summed again over `over`: the shown field with
+    /// each lamp at its level, and — `eyes` — the one the eyes read, with
+    /// each lamp that is not out at full. Saturating at 255.
+    fn sum_fields(&mut self, over: Box, eyes: bool) {
+        let w = self.map_dims().0;
+        if self.lit_everywhere || self.light_field.is_empty() {
+            return;
+        }
+        let (x0, y0, x1, y1) = (over.x0, over.y0, over.x1, over.y1);
+        let width = x1 + 1 - x0;
+        let mut shown = vec![0u32; width * (y1 + 1 - y0)];
+        let mut nominal = vec![0u32; if eyes { shown.len() } else { 0 }];
+        for (field, lamp) in self.lamp_fields.iter().zip(&self.lamps) {
+            if lamp.is_out() {
+                continue;
+            }
+            let level = (lamp.level.clamp(0.0, 1.0) * 256.0) as u32;
+            let fx0 = field.x0.max(x0);
+            let fy0 = field.y0.max(y0);
+            let fx1 = (field.x0 + field.w).min(x1 + 1);
+            let fy1 = (field.y0 + field.h).min(y1 + 1);
+            if fx1 <= fx0 || fy1 <= fy0 {
+                continue;
+            }
+            for y in fy0..fy1 {
+                let from = (y - field.y0) * field.w + (fx0 - field.x0);
+                let row = &field.pixels[from..from + (fx1 - fx0)];
+                let to = (y - y0) * width + (fx0 - x0);
+                for (k, &v) in row.iter().enumerate() {
+                    shown[to + k] += (v as u32 * level) >> 8;
+                    if eyes {
+                        nominal[to + k] += v as u32;
+                    }
+                }
+            }
+        }
+        for y in y0..=y1 {
+            let from = (y - y0) * width;
+            let to = y * w + x0;
+            for k in 0..width {
+                self.shown_field[to + k] = shown[from + k].min(255) as u8;
+                if eyes {
+                    self.light_field[to + k] = nominal[from + k].min(255) as u8;
+                }
+            }
+        }
     }
 
     /// The map's pixels across and down.
@@ -920,119 +1355,283 @@ impl Sight {
         )
     }
 
-    /// The pixel a room point is in.
-    fn map_index(&self, p: Vec2) -> Option<usize> {
+    /// Walk [`RAYS`] rays out from `from`, calling `f` with each pixel
+    /// reached — its index, its tile, and how far along the ray it is in
+    /// room units — until the ray meets an opaque cell of `cells` (one
+    /// that is furniture, `soft`, too, unless `through_soft`), leaves the
+    /// grid, or has gone `reach`. Each ray is the grid traversal, in
+    /// pixels: it steps to whichever pixel edge comes next, so every
+    /// pixel the line passes through is visited once and none is skipped
+    /// — the same walk as [`Sight::clear_line`] at eight times the
+    /// resolution, and integer arithmetic bar one add a step.
+    fn march(
+        &self,
+        from: Vec2,
+        reach: Option<f32>,
+        cells: &[Cell],
+        through_soft: bool,
+        f: &mut dyn FnMut(usize, (i32, i32), f32),
+    ) {
         let (w, h) = self.map_dims();
+        let (w, h) = (w as i32, h as i32);
         let px = self.tile / MAP_PX_PER_TILE as f32;
-        let x = ((p.x - self.origin.x) / px).floor();
-        let y = ((p.y - self.origin.y) / px).floor();
-        if x < 0.0 || y < 0.0 || x >= w as f32 || y >= h as f32 {
-            return None;
-        }
-        Some(y as usize * w + x as usize)
-    }
-
-    /// Walk [`RAYS`] rays out from `from`, a pixel at a time, calling `f`
-    /// with each pixel reached and how far it is, until the ray meets an
-    /// opaque cell of `cells`, leaves the grid, or has gone `reach`.
-    fn march(&self, from: Vec2, reach: Option<f32>, cells: &[Cell], f: &mut dyn FnMut(usize, f32)) {
-        let px = self.tile / MAP_PX_PER_TILE as f32;
-        let (w, h) = self.map_dims();
-        let far = reach.unwrap_or((w.max(h) as f32) * px * 1.5);
-        let steps = (far / (px * 0.5)).ceil() as u32;
+        // The eye in pixel units.
+        let ox = (from.x - self.origin.x) / px;
+        let oy = (from.y - self.origin.y) / px;
+        let far = reach.map(|r| r / px).unwrap_or((w.max(h) as f32) * 1.5);
         let (fx, fy) = self.tile_of(from);
-        let from_opaque = self.inside(fx, fy) && cells[self.index(fx, fy)].opaque;
+        let stops = |c: &Cell| c.opaque && !(through_soft && c.soft);
+        let from_opaque = self.inside(fx, fy) && stops(&cells[self.index(fx, fy)]);
+        let shift = MAP_PX_PER_TILE.trailing_zeros();
         for r in 0..RAYS {
             let a = r as f32 / RAYS as f32 * core::f32::consts::TAU;
-            let dir = vec2(a.cos(), a.sin());
-            let mut last: Option<usize> = None;
-            for s in 1..=steps {
-                let d = s as f32 * px * 0.5;
-                let p = from + dir * d;
-                let Some(i) = self.map_index(p) else {
-                    break;
-                };
-                let (tx, ty) = self.tile_of(p);
-                if !self.inside(tx, ty) {
+            let (dx, dy) = (a.cos(), a.sin());
+            let mut x = ox.floor() as i32;
+            let mut y = oy.floor() as i32;
+            let step_x: i32 = if dx > 0.0 { 1 } else { -1 };
+            let step_y: i32 = if dy > 0.0 { 1 } else { -1 };
+            // How far along the ray (in pixels) the next vertical and
+            // horizontal pixel edges are, and how much further each one
+            // after that is.
+            let (mut t_x, delta_x) = if dx.abs() > 1e-6 {
+                let next = if dx > 0.0 { x + 1 } else { x } as f32;
+                ((next - ox) / dx, 1.0 / dx.abs())
+            } else {
+                (f32::INFINITY, f32::INFINITY)
+            };
+            let (mut t_y, delta_y) = if dy.abs() > 1e-6 {
+                let next = if dy > 0.0 { y + 1 } else { y } as f32;
+                ((next - oy) / dy, 1.0 / dy.abs())
+            } else {
+                (f32::INFINITY, f32::INFINITY)
+            };
+            // The pixel the eye is in, then every one the ray crosses into.
+            let mut t = 0.0;
+            loop {
+                if x < 0 || y < 0 || x >= w || y >= h || t > far {
                     break;
                 }
-                let opaque = cells[self.index(tx, ty)].opaque;
+                let (tx, ty) = (x >> shift, y >> shift);
+                let i = (y * w + x) as usize;
+                let opaque = stops(&cells[self.index(tx, ty)]);
                 // A ray reaches into the wall that stops it — the wall is
                 // seen, and lit, from the room — and no further; one that
                 // starts inside a wall (an eye pressed to it) gets out.
                 if opaque && !(from_opaque && (tx, ty) == (fx, fy)) {
-                    if last != Some(i) {
-                        f(i, d);
-                    }
+                    f(i, (tx, ty), t * px);
                     break;
                 }
-                if last != Some(i) {
-                    f(i, d);
-                    last = Some(i);
+                f(i, (tx, ty), t * px);
+                if t_x < t_y {
+                    t = t_x;
+                    x += step_x;
+                    t_x += delta_x;
+                } else {
+                    t = t_y;
+                    y += step_y;
+                    t_y += delta_y;
                 }
             }
         }
     }
 
-    /// The picture of the mask, from these eyes — the ones `observe` was
-    /// last given — for the room's own fogged tiles. Works the light field
-    /// out first if the layout changed. See [`LightMap`].
-    pub fn light_map(&mut self, eyes: &[Vec2]) -> &LightMap {
+    /// Whether a body's eyes are where they were last marched from: the
+    /// same eyes, each within half a pixel of where it was.
+    fn view_holds(&self, view: &View, eyes: &[Eye]) -> bool {
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        view.eyes.len() == eyes.len()
+            && view
+                .eyes
+                .iter()
+                .zip(eyes)
+                .all(|(a, b)| a.beyond == b.beyond && (a.at - b.at).len() < px * 0.5)
+    }
+
+    /// March one body's eyes over the cells as they are, into `seen`,
+    /// and say which pixels it reached as a box.
+    fn view_of(&self, body: Vec2, eyes: &[Eye], seen: &mut [bool]) -> Option<Box> {
+        for s in seen.iter_mut() {
+            *s = false;
+        }
+        let range = DARK_RANGE * self.tile;
+        let w = self.map_dims().0;
+        let mut reached: Option<Box> = None;
+        for eye in eyes {
+            // A peek adds only what lies past its wall; the body's own eyes
+            // everything. The dark rule is measured from the body, as the
+            // trace measures it.
+            self.march(eye.at, None, &self.cells, false, &mut |i, tile, _| {
+                if !seen[i]
+                    && eye.admits(tile)
+                    && (self.light_field[i] > 0
+                        || (self.middle(tile.0, tile.1) - body).len() <= range)
+                {
+                    seen[i] = true;
+                    let (x, y) = (i % w, i / w);
+                    reached = Some(match reached {
+                        None => Box {
+                            x0: x,
+                            y0: y,
+                            x1: x,
+                            y1: y,
+                        },
+                        Some(b) => b.with(x, y),
+                    });
+                }
+            });
+        }
+        reached
+    }
+
+    /// The picture of the mask from these bodies' eyes, worked out again
+    /// only where it has to be: a body that has not moved since it was
+    /// last marched keeps its view, one that has is marched afresh, and
+    /// every one is when the cells changed — a door, the layout — and the
+    /// picture is composed again over the box the changed views cover
+    /// and nowhere else. True when the map changed, which is when its
+    /// `version` moved. See [`LightMap`].
+    pub fn light_map(&mut self, bodies: &[Vec2]) -> bool {
         if self.light_field.is_empty() || self.light_field_stale {
-            self.light_field = self.light_field();
+            self.build_light_fields();
             self.light_field_stale = false;
+            self.field_dirty = None;
+            self.map_stale = true;
         }
         let (w, h) = self.map_dims();
-        let px = self.tile / MAP_PX_PER_TILE as f32;
-        // Seen: from every eye, a pixel a ray reaches that is lit or within
-        // the dark range of that eye.
-        let mut seen = vec![false; w * h];
-        let range = DARK_RANGE * self.tile;
-        for &body in eyes {
-            for eye in self.eyes_from(body) {
-                let admits = |i: usize| {
-                    let (x, y) = (
-                        (i % w) as i32 / MAP_PX_PER_TILE,
-                        (i / w) as i32 / MAP_PX_PER_TILE,
-                    );
-                    eye.admits((x, y))
-                };
-                self.march(eye.at, None, &self.cells, &mut |i, d| {
-                    if !seen[i] && admits(i) && (self.light_field[i] > 0 || d <= range) {
-                        seen[i] = true;
-                    }
-                });
+        if self.explored_px.len() != w * h {
+            self.explored_px = vec![false; w * h];
+            self.map_stale = true;
+        }
+        if self.views_stale {
+            self.views.clear();
+            self.views_stale = false;
+            self.map_stale = true;
+        }
+        // Where the picture changed: nowhere yet, a box, or everywhere.
+        // A lamp that flickered or went out is a box of it already.
+        let mut dirty: Option<Box> = self.field_dirty.take();
+        let mut changed = self.map_stale || dirty.is_some();
+        if self.views.len() > bodies.len() {
+            for view in self.views.drain(bodies.len()..) {
+                dirty = Box::join(dirty, view.reached);
+                changed = true;
             }
         }
-        let mut alpha = vec![0u8; w * h];
-        for y in 0..h {
-            for x in 0..w {
-                let i = y * w + x;
-                let cell = self.index(x as i32 / MAP_PX_PER_TILE, y as i32 / MAP_PX_PER_TILE);
-                let c = &self.cells[cell];
-                // Only the room's own fogged tiles: a stranger's are the
-                // tile veil's, black or grey, and the unfogged outside is
-                // nobody's.
-                if !c.fogged
-                    || (if c.foreign { self.foreign } else { self.own }) != Stance::Friendly
-                {
-                    continue;
+        for (b, &body) in bodies.iter().enumerate() {
+            let eyes = self.eyes_from(body);
+            if self.views.get(b).is_some_and(|v| self.view_holds(v, &eyes)) {
+                continue;
+            }
+            let (mut seen, was) = match self.views.get_mut(b) {
+                Some(v) => (std::mem::take(&mut v.seen), v.reached),
+                None => (vec![false; w * h], None),
+            };
+            let reached = self.view_of(body, &eyes, &mut seen);
+            dirty = Box::join(Box::join(dirty, was), reached);
+            let view = View {
+                eyes,
+                seen,
+                reached,
+            };
+            if b < self.views.len() {
+                self.views[b] = view;
+            } else {
+                self.views.push(view);
+            }
+            changed = true;
+        }
+        if !changed {
+            return false;
+        }
+        let over = if self.map_stale {
+            Box {
+                x0: 0,
+                y0: 0,
+                x1: w - 1,
+                y1: h - 1,
+            }
+        } else {
+            match dirty {
+                Some(b) => b,
+                None => return false,
+            }
+        };
+        self.map_stale = false;
+        self.compose(over);
+        true
+    }
+
+    /// Put the views, the memory and the light field together into the
+    /// picture over the tiles `over` touches. Tile by tile so the cell is
+    /// looked up once a tile rather than once a pixel.
+    fn compose(&mut self, over: Box) {
+        let (w, h) = self.map_dims();
+        let px = self.tile / MAP_PX_PER_TILE as f32;
+        let n = MAP_PX_PER_TILE as usize;
+        let whole = self.map.width != w || self.map.height != h;
+        if whole {
+            self.map.alpha = vec![0u8; w * h];
+            self.map.glow = vec![0u8; w * h];
+        }
+        // No lamps at all — the classic room — is lit and has no lamplight
+        // to wash the deck with.
+        let wash = if self.lit_everywhere { 0.0 } else { GLOW };
+        let fog = (MAP_FOG * 255.0) as u8;
+        let grey = (MAP_GREY * 255.0) as u8;
+        let (alpha, glow) = (&mut self.map.alpha, &mut self.map.glow);
+        for ty in over.y0 / n..=over.y1 / n {
+            for tx in over.x0 / n..=over.x1 / n {
+                let c = &self.cells[ty * self.columns as usize + tx];
+                let friendly =
+                    (if c.foreign { self.foreign } else { self.own }) == Stance::Friendly;
+                for py in ty * n..(ty + 1) * n {
+                    for i in py * w + tx * n..py * w + (tx + 1) * n {
+                        // The unfogged outside is nobody's: nothing drawn.
+                        if !c.fogged {
+                            alpha[i] = 0;
+                            glow[i] = 0;
+                            continue;
+                        }
+                        let seen = self.views.iter().any(|v| v.seen[i]);
+                        // As shown, flicker and all: the eyes read the
+                        // other field, and only for what they reach.
+                        let light = self.shown_field[i] as f32 / 255.0;
+                        if seen {
+                            self.explored_px[i] = true;
+                            alpha[i] = (MAP_DARK * (1.0 - light) * 255.0) as u8;
+                            glow[i] = (wash * light * 255.0) as u8;
+                        } else if friendly {
+                            alpha[i] = fog;
+                            glow[i] = (wash * GLOW_UNDER_FOG * light * 255.0) as u8;
+                        } else if self.explored_px[i] {
+                            alpha[i] = grey;
+                            glow[i] = (wash * GLOW_UNDER_FOG * light * 255.0) as u8;
+                        } else {
+                            alpha[i] = 255;
+                            glow[i] = 0;
+                        }
+                    }
                 }
-                let a = if !seen[i] {
-                    MAP_FOG
-                } else {
-                    MAP_DARK * (1.0 - self.light_field[i] as f32 / 255.0)
-                };
-                alpha[i] = (a * 255.0) as u8;
             }
         }
         self.map.origin = self.origin;
         self.map.px = px;
         self.map.width = w;
         self.map.height = h;
-        self.map.alpha = alpha;
         self.map.version += 1;
-        &self.map
+        // What a host holding the previous version has to take again:
+        // whole tiles, since that is what was composed.
+        self.map.changed =
+            if whole || (over.x0 == 0 && over.y0 == 0 && over.x1 + 1 >= w && over.y1 + 1 >= h) {
+                None
+            } else {
+                let (x0, y0) = (over.x0 / n * n, over.y0 / n * n);
+                let (x1, y1) = (
+                    ((over.x1 / n + 1) * n).min(w),
+                    ((over.y1 / n + 1) * n).min(h),
+                );
+                Some((x0, y0, x1 - x0, y1 - y0))
+            };
     }
 
     /// The map as last worked out.

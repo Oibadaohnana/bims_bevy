@@ -92,6 +92,16 @@ pub const BATTERY_CHARGE: f64 = 30.0 * REACTOR_OUTPUT;
 /// for. Placeholder like the rest.
 pub const FUSION_OUTPUT: f64 = 4.0 * REACTOR_OUTPUT;
 
+/// How many cells across a storage class's grid is. Each class but the
+/// research desk is one grid for the whole ship — every shelf, cold
+/// store, suit locker, armoury and drug lab aboard adds its capacity in
+/// cells, which is so many rows of this: a shelf ten by ten, a cold store
+/// the same — and what is kept there is laid out on it by
+/// `economy::footprint`, a stack a footprint: a sniper rifle, at ten, lies
+/// the whole width. Every capacity is a multiple of it, so no grid has a
+/// ragged row.
+pub const GRID_COLS: u32 = 10;
+
 /// Which of a tile's four slots a part sits in.
 ///
 /// A tile holds at most one of each. Walls are `Object` rather than a layer
@@ -241,22 +251,42 @@ pub enum PartKind {
     /// the empty space it lands in — is `world`'s.
     Hyperdrive = 39,
     /// A wall light: a lamp on a bracket against a bulkhead or the hull —
-    /// a one-tile part on the deck beside the wall it hangs from
-    /// ([`is_light`]; `validate` warns about one with no wall at its
-    /// back), walked under and seen past, lighting [`WALL_LIGHT_TILES`]
-    /// round it. Always on, and draws nothing — it has its own cell. What
+    /// a one-tile part on the deck beside the wall it hangs from, and its
+    /// **rotation says which wall**: the tile [`wall_light_back`] names
+    /// has to hold something that blocks, or the placement is refused
+    /// (`EditError::NoWallAtBack`), and `validate` warns about one whose
+    /// wall was taken down after ([`is_light`]). Walked under and seen
+    /// past, lighting [`WALL_LIGHT_TILES`] round it. Always on, and draws nothing — it has its own cell. What
     /// light *does* — the dark, and how far a Bim sees in it — is the
     /// room's, `bims::sight`.
     WallLight = 40,
     /// A standing light: a lamp on a pole, one tile, anywhere on the
     /// deck, seen over and walked round, lighting [`STANDING_LIGHT_TILES`].
     StandingLight = 41,
+    /// A small plant in a pot: the first of the three **comforts** — parts
+    /// that do nothing but make a deck nicer to stand on. One tile,
+    /// walked past and seen over, and it **lifts the surroundings** of
+    /// every tile within [`SMALL_PLANT_TILES`] of it by
+    /// [`SMALL_PLANT_LIFT`] — [`comfort`] is the table, and what the lift
+    /// does to a Bim is the room's, `bims::filth`. Does nothing else:
+    /// no draw, nothing to work.
+    SmallPlant = 42,
+    /// A big plant in a tub: a comfort like the small one, walked round
+    /// rather than past, and seen over, lifting the surroundings further
+    /// and wider ([`BIG_PLANT_LIFT`], [`BIG_PLANT_TILES`]).
+    BigPlant = 43,
+    /// A framed picture on a wall: the third comfort. **Hung** like a wall
+    /// light — its rotation names its wall, [`wall_light_back`], and
+    /// placing one on nothing is refused ([`hangs_on_wall`]) — walked under
+    /// and seen past, lifting the surroundings of every tile within
+    /// [`PICTURE_TILES`] by [`PICTURE_LIFT`].
+    Picture = 44,
 }
 
 impl PartKind {
     /// Every kind, in discriminant order. `ALL[k as usize] == k`, which
     /// [`PartKind::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [PartKind; 42] = [
+    pub const ALL: [PartKind; 45] = [
         PartKind::Floor,
         PartKind::Wall,
         PartKind::Door,
@@ -299,6 +329,9 @@ impl PartKind {
         PartKind::Hyperdrive,
         PartKind::WallLight,
         PartKind::StandingLight,
+        PartKind::SmallPlant,
+        PartKind::BigPlant,
+        PartKind::Picture,
     ];
 
     /// The number that crosses the wasm boundary. No strings do.
@@ -405,7 +438,11 @@ pub struct PartDef {
     /// plain internal wall does not, and neither does a door.
     pub shields: bool,
     /// What this part holds, if it holds anything: a class of storage and how
-    /// many units of it. `None` for everything that is not a container.
+    /// much of it — units on a shelf, in a cold store or on a desk, and
+    /// **cells of the lockers' grid** for the locker class, which is laid
+    /// out `economy::footprint` by footprint (a locker is `GRID_COLS`
+    /// across, so a capacity is best a multiple of it). `None` for
+    /// everything that is not a container.
     pub capacity: Option<(Storage, u32)>,
     /// What the part is **made of**: units of each material, and nothing
     /// else. Never empty, and only [`ResourceId::Metal`],
@@ -522,7 +559,8 @@ impl PartDef {
             | PartKind::TradingDesk
             | PartKind::ResearchDesk
             | PartKind::Battery
-            | PartKind::StandingLight => false,
+            | PartKind::StandingLight
+            | PartKind::BigPlant => false,
             _ => self.blocks_movement,
         }
     }
@@ -534,7 +572,7 @@ impl PartDef {
 /// told about how a part is approached — [`crate::validate`] already insists
 /// every one of them is floor a body can stand on and that they can all reach
 /// each other, so a design that passes here is one the crew can work.
-pub static PARTS: [PartDef; 42] = [
+pub static PARTS: [PartDef; 45] = [
     PartDef {
         kind: PartKind::Floor,
         footprint: (1, 1),
@@ -642,7 +680,9 @@ pub static PARTS: [PartDef; 42] = [
         use_spots: &[(0, 1)],
         price: 1_500,
         shields: false,
-        capacity: Some((Storage::ColdStore, 100)),
+        // Ten rows of the cold store's grid: crates of vegetables and
+        // blocks of tofu, ten to a stack.
+        capacity: Some((Storage::ColdStore, 10 * GRID_COLS)),
         recipe: &[(ResourceId::Metal, 6), (ResourceId::Components, 6)],
         thrust: 0.0,
         torque_thrust: 0.0,
@@ -990,7 +1030,9 @@ pub static PARTS: [PartDef; 42] = [
         use_spots: &[(0, 1)],
         price: 300,
         shields: false,
-        capacity: Some((Storage::Shelf, 100)),
+        // Ten by ten: what a shelf holds is stacks — ten ore to a cell,
+        // twenty components — and what the workbench makes to wear.
+        capacity: Some((Storage::Shelf, 10 * GRID_COLS)),
         recipe: &[(ResourceId::Metal, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
@@ -1154,7 +1196,8 @@ pub static PARTS: [PartDef; 42] = [
         use_spots: &[(0, 1)],
         price: 1_500,
         shields: false,
-        capacity: Some((Storage::Locker, 2)),
+        // Two rows of the lockers' grid: a suit folded, and room beside it.
+        capacity: Some((Storage::Locker, 2 * GRID_COLS)),
         recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 2)],
         thrust: 0.0,
         torque_thrust: 0.0,
@@ -1171,9 +1214,10 @@ pub static PARTS: [PartDef; 42] = [
         use_spots: &[(0, 1)],
         price: 6_000,
         shields: false,
-        // Eight: a rack for the handgun and the four weapons after it, and
-        // room beside them for what the workbench makes to wear.
-        capacity: Some((Storage::Locker, 8)),
+        // Eight rows: a rack for the handgun and the four weapons after it
+        // — the sniper rifle lies the whole width of one — and room under
+        // them for what the workbench makes to wear.
+        capacity: Some((Storage::Locker, 8 * GRID_COLS)),
         recipe: &[(ResourceId::Metal, 10), (ResourceId::Components, 8)],
         thrust: 0.0,
         torque_thrust: 0.0,
@@ -1195,7 +1239,7 @@ pub static PARTS: [PartDef; 42] = [
         use_spots: &[(0, 1)],
         price: 4_000,
         shields: false,
-        capacity: Some((Storage::Locker, 6)),
+        capacity: Some((Storage::Locker, 6 * GRID_COLS)),
         recipe: &[(ResourceId::Metal, 5), (ResourceId::Components, 6)],
         thrust: 0.0,
         torque_thrust: 0.0,
@@ -1346,7 +1390,122 @@ pub static PARTS: [PartDef; 42] = [
         power: 0.0,
         charge: 0.0,
     },
+    PartDef {
+        kind: PartKind::SmallPlant,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // A pot on the deck: stepped past.
+        blocks_movement: false,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 150,
+        shields: false,
+        capacity: None,
+        // The pot. The plant weighs nothing worth the metal's while.
+        recipe: &[(ResourceId::Metal, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::BigPlant,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // A tub: walked round, and seen over like the standing light.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 450,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 2)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Picture,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // On the wall over the deck: walked under, like the wall light.
+        blocks_movement: false,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 250,
+        shields: false,
+        capacity: None,
+        // The frame.
+        recipe: &[(ResourceId::Metal, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
 ];
+
+/// What a comfort does: how much it **lifts the surroundings** — the
+/// room's score of the deck round a Bim, on the scale a clean tile reads
+/// 10 on and a fouled one −100 (`bims::filth::BASELINE`) — and how many
+/// tiles out from its own the lift reaches, a square block like the
+/// room's own reach. The room adds the lift of every comfort in reach to
+/// what a tile scores, capped there, so a plant makes a spill or two
+/// beside it bearable and a fouled deck no less foul.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Comfort {
+    pub lift: f64,
+    pub tiles: u32,
+}
+
+/// The three comforts' numbers, in order of price: a small plant is a
+/// fifth of a clean tile over a five-by-five, a picture a little more
+/// over seven-by-seven, and a big plant half a clean tile over the same.
+pub const SMALL_PLANT_LIFT: f64 = 2.0;
+pub const SMALL_PLANT_TILES: u32 = 2;
+pub const PICTURE_LIFT: f64 = 3.0;
+pub const PICTURE_TILES: u32 = 3;
+pub const BIG_PLANT_LIFT: f64 = 5.0;
+pub const BIG_PLANT_TILES: u32 = 3;
+
+/// Whether a part is a comfort, and what it lifts if it is. The three
+/// comforts and nothing else; the room reads this the way it reads
+/// [`light_tiles`], so a fourth is one arm here.
+pub fn comfort(kind: PartKind) -> Option<Comfort> {
+    match kind {
+        PartKind::SmallPlant => Some(Comfort {
+            lift: SMALL_PLANT_LIFT,
+            tiles: SMALL_PLANT_TILES,
+        }),
+        PartKind::BigPlant => Some(Comfort {
+            lift: BIG_PLANT_LIFT,
+            tiles: BIG_PLANT_TILES,
+        }),
+        PartKind::Picture => Some(Comfort {
+            lift: PICTURE_LIFT,
+            tiles: PICTURE_TILES,
+        }),
+        _ => None,
+    }
+}
+
+pub fn is_comfort(kind: PartKind) -> bool {
+    comfort(kind).is_some()
+}
+
+/// Whether a part **hangs on a wall**: the wall light and the picture.
+/// Its rotation names the wall ([`wall_light_back`]), `design::place`
+/// refuses one with nothing there (`EditError::NoWallAtBack`), and
+/// `validate` warns about one whose wall came down after
+/// (`IssueCode::OffTheWall`). What the fixtures, a station's layout and
+/// the designer's ghost ask before turning a part to its wall
+/// (`design::wall_light_rotation`).
+pub fn hangs_on_wall(kind: PartKind) -> bool {
+    matches!(kind, PartKind::WallLight | PartKind::Picture)
+}
 
 /// Whether a part is a light, and how far it reaches in tiles if it is.
 /// The two lights and nothing else; the room lays a light at the middle
@@ -1363,6 +1522,20 @@ pub fn light_tiles(kind: PartKind) -> Option<f64> {
 pub fn is_light(kind: PartKind) -> bool {
     light_tiles(kind).is_some()
 }
+/// Which way a wall light's wall lies from its tile, by its rotation: the
+/// side its bracket is on. [`Rotation::R0`] hangs from the wall **above**
+/// (grid up, `y - 1`), and each turn goes clockwise with the part —
+/// `R90` from the right, `R180` from below, `R270` from the left — which
+/// is `turn`'s arithmetic for a spot beyond the top edge of a one-tile
+/// part, and what the painter draws the bracket against.
+pub fn wall_light_back(rotation: Rotation) -> (i32, i32) {
+    match rotation {
+        Rotation::R0 => (0, -1),
+        Rotation::R90 => (1, 0),
+        Rotation::R180 => (0, 1),
+        Rotation::R270 => (-1, 0),
+    }
+}
 
 /// Whether a part is **low cover**: sandbags. Half a body's height, so it
 /// stops neither a walk nor a line of sight, but a body standing close
@@ -1376,6 +1549,18 @@ pub fn is_cover(kind: PartKind) -> bool {
 /// and the drag vocabulary ask, so a third kind of corner is one row here.
 pub fn is_diagonal(kind: PartKind) -> bool {
     matches!(kind, PartKind::DiagonalWall | PartKind::DiagonalOutsideWall)
+}
+/// Whether a part is a wall — a bulkhead, the hull, a corner piece: what
+/// a light stops at dead. Everything else opaque is furniture, which the
+/// light picture shades behind rather than blacks out.
+pub fn is_wall(kind: PartKind) -> bool {
+    matches!(
+        kind,
+        PartKind::Wall
+            | PartKind::OutsideWall
+            | PartKind::DiagonalWall
+            | PartKind::DiagonalOutsideWall
+    )
 }
 
 /// Which corner of its tile a diagonal wall's right angle is in, as a step

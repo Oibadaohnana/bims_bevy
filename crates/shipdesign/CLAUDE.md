@@ -41,7 +41,28 @@ leaving them at the default:
   safe; defaulting to `true` on something that is not hull puts a hole in
   every exposure check that will never be noticed.
 - **`capacity`.** A class of storage and how much, or `None`. A container
-  with no capacity holds nothing and refuses every purchase.
+  with no capacity holds nothing and refuses every purchase. "How much"
+  is **cells of the class's grid** for every class but the research
+  desk, which is a count of one (feature 38.13 made the lockers a grid,
+  September 2026, and the shelves and the cold store followed): a grid
+  is `GRID_COLS` (10) across and a part is so many rows of it — a shelf
+  ten, a cold store ten, the suit locker two, the armoury eight, the
+  drug lab six — and a thing kept there covers `economy::footprint` of
+  them, a pistol one by two, a sniper rifle one by ten, a vest four by
+  four, a crate of vegetables one by two, a block of tofu four by four.
+  **Goods that stack cover a footprint a stack** (`economy::stack_size`:
+  ten ore, twenty components, ten vegetables, one of anything worn or
+  held), so what a shelf holds is its cells times the stacks — a
+  hundred cells are a thousand ore. `ShipDesign::stored` is cells over
+  the stacks (`stacks_of`, the last part full), `has_room(resource,
+  units)` the area rule every buy asks (`Edit::Buy` and the deconstruct
+  refund go through it; a unit that tops up a part-full stack takes no
+  cell), `spare` what is left, `room_for(resource)` how many more units
+  the area takes, and `most_of(resource)` what the class would hold of
+  one thing alone — the craft-target clamp. **Area, not fit**: whether a
+  stack can actually be laid on the grid is the world's (`World::grids`,
+  `crates/world/CLAUDE.md`), since the grids are state and this crate
+  has none.
 - **`thrust` and `torque_thrust`.** What it pushes with and what it turns
   with, and `defs_are_sound` insists they are **exclusive**: thrust on
   `Engine` and nowhere else, turning force on `Thruster` and nowhere else. A
@@ -539,10 +560,13 @@ first minute, **one helm, one kevlar and one pair of leg guards** so
 the armoury's grid opens with something in it to equip, and **one of
 each of the four weapons** — a shotgun, an auto rifle, a sniper rifle
 and a schword — so each can be put in a hand and looked at. The locker
-class is what those had to fit in — the suit locker's two, the drug
-lab's six and the armoury's **eight** are sixteen, with a suit, five
-bandages, three pieces and four weapons in them, which is the "13 of 16
-in the lockers" the armoury's window says. The armoury's cabinet was
+class is what those had to fit in — the suit locker's two rows, the
+drug lab's six and the armoury's **eight** are sixteen rows of ten
+cells, with a suit (nine), five bandages, two medkits (four each), three
+pieces (eight, sixteen and six) and four weapons (ten, seven, ten and
+five) in them, which is the "84 of 160 cells in the lockers" the
+armoury's window says. Before the grid those were sixteen *slots*, a
+thing each, and "13 of 16". The armoury's cabinet was
 four until the weapons came: twelve slots with nine used would have had
 one weapon quietly refused by `apply` rather than fail anything, and
 the armoury is the cabinet weapons live in, so it grew rather than the
@@ -774,3 +798,63 @@ it. What a jump is — the charge, the empty space — is
 `crates/world/CLAUDE.md`. The app's part groups (`PART_GROUPS`,
 `BUILD_GROUPS`) are written as `PartKind::X as u32` now rather than
 numbers, after the fuel tank's retirement renumbered half of them.
+
+## A wall light hangs from the wall its rotation names
+
+`PartKind::WallLight = 40` and `StandingLight = 41` (September 2026):
+one tile each, `power: 0` — always on, nothing to wire — and
+`light_tiles(kind)` says how far each reaches (`WALL_LIGHT_TILES` 7,
+`STANDING_LIGHT_TILES` 9); what light *does* is the room's,
+`crates/game/CLAUDE.md` "The dark". The wall light is walked under and
+**hangs from a wall**: `parts::wall_light_back(rotation)` is the tile it
+hangs from — `R0` the one above, then clockwise with the part, `turn`'s
+arithmetic for a spot beyond the top edge — and `design::wall_at_back`
+asks whether that tile holds something that blocks (a door does not).
+`place` **refuses** a lamp with none there, `EditError::NoWallAtBack =
+18` (a sentence in `edit_line`), and `validate` warns
+`IssueCode::OffTheWall = 37` (`LightOffTheWall` until the picture came) about a lamp whose wall was taken down
+after — the refusal is the rule, the issue is the wall removed later.
+`wall_light_rotation(design, tile)` is the one way a lamp is turned to
+its wall — the first of `Rotation::ALL` whose back is a wall — and the
+fixtures, `world::station::build_layout` and the designer's ghost
+(`ship::Editor::turn_at`) all lay a lamp through it, so a station's inner
+corner where two blocks open into each other gets no lamp rather than one
+floating in the gangway. `is_wall(kind)` is the four wall kinds, for the
+room's picture. Turning the fixtures' lamps to their walls moved both
+`REFERENCE_HASH`es, `PLAYTEST_HASH` and `world::REFERENCE_CHECKSUM`.
+`a_wall_light_wants_a_wall_at_its_back` pins the refusal, the turn and
+the warning.
+
+## The comforts lift the surroundings, and the picture hangs like a lamp
+
+`PartKind::SmallPlant = 42`, `BigPlant = 43` and `Picture = 44`
+(September 2026): the three **comforts**, parts that do nothing but make
+a deck nicer. `parts::comfort(kind)` is the table — a `Comfort { lift,
+tiles }`: the small plant 2 over two tiles out, the picture 3 over three,
+the big plant 5 over three (`SMALL_PLANT_LIFT` … `BIG_PLANT_TILES`),
+priced 150, 250 and 450 so dearer is better — and `is_comfort` the
+question. What the lift *does* is the room's: `bims::filth` lays every
+comfort over its tile grid (`Filth::set_comforts`, capped at
+`LIFT_CAP` = a clean tile's 10) and `Filth::around` — the average the
+**surroundings** need follows, which `Need::Cleanliness` was renamed to
+— adds the lift of the tile the Bim stands on. `aboard.rs` reads the
+table the way it reads `light_tiles`, so a fourth comfort is one arm
+there and a picture in `ship::fittings`. None draws, none is worked,
+every one is seen over (the big plant is in `blocks_sight`'s low list;
+the other two are walked past or under).
+
+The picture **hangs on a wall**: `parts::hangs_on_wall(kind)` is the
+wall light and the picture, and it is what `design::place` asks before
+`EditError::NoWallAtBack`, what `validate` asks for
+`IssueCode::OffTheWall = 37` (was `LightOffTheWall`; one issue for both,
+one line in `ISSUE_LINES`) and what `ship::Editor::turn_at` asks before
+turning a ghost to its wall — so nothing names `WallLight` for the rule
+any more. `wall_light_rotation` keeps its name and serves both. The
+playtest ship carries a picture on the bridge bulkhead beside the
+doorway (`PLAYTEST_PICTURE`, (8, 7)) and a small plant at the foot of
+the bunk (`PLAYTEST_PLANT`, (16, 10)), which moved `PLAYTEST_HASH` and
+`PLAYTEST_PARTS` (656) and the combat ship with them; the reference has
+none, so `REFERENCE_HASH` and `world::REFERENCE_CHECKSUM` stayed. The
+stations lay a few (`crates/world/CLAUDE.md`).
+`a_comfort_lifts_the_surroundings_and_a_picture_hangs_from_a_wall` pins
+the table, the order and the hanging.

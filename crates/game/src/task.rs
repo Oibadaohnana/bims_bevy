@@ -93,6 +93,10 @@ pub const BANDAGE_MINUTES: f32 = 10.0;
 /// How long treating a trauma with a medkit takes, the same way: twice a
 /// dressing.
 pub const TREAT_MINUTES: f32 = 20.0;
+/// How far a patient may move, in tiles, from where it stood when the
+/// walk over to it was planned before the helper plans the walk again
+/// from where it is now. See `Task::patient_at`.
+pub const FOLLOW_SLACK: f32 = 1.5;
 /// How long finishing a body off takes, in seconds: three pulls of a
 /// pistol's trigger, or two swings of a blade, give or take.
 pub const EXECUTE_SECONDS: f32 = 3.0;
@@ -1641,6 +1645,13 @@ pub struct Task {
     /// `WalkToRock` is entered. Not on `Saved`: a walk put down out there
     /// chooses its rock afresh when it goes out again.
     rock: Option<Vec2>,
+    /// Where the patient stood when the walk over to it was planned
+    /// (`GoToPatient`). A patient that has since moved more than
+    /// [`FOLLOW_SLACK`] from there — running from a fight, say — has the
+    /// walk planned again from where it is now (`Task::update`), so the
+    /// helper arrives beside the patient and not at an empty spot. Not on
+    /// `Saved`: a walk picked up again plans afresh anyway.
+    patient_at: Option<Vec2>,
     /// What the Bim lifted out of a tray and has not put away yet.
     ///
     /// The hands carry it and this remembers what it is, because `Held` knows
@@ -1727,6 +1738,7 @@ impl Task {
             target,
             swept: 0,
             rock: None,
+            patient_at: None,
             lifted: None,
             started_inside: false,
             blocked: false,
@@ -2493,6 +2505,7 @@ impl Task {
             target: saved.target,
             swept: saved.swept,
             rock: None,
+            patient_at: None,
             lifted: saved.lifted,
             started_inside: saved.started_inside,
             blocked: false,
@@ -2634,6 +2647,7 @@ impl Task {
                     unreachable!("GoToPatient is a Bandage's or a Treat's step")
                 };
                 self.target = patient_stand(room, maps, self.who, patient, ch.pos);
+                self.patient_at = room.crew.get(patient).copied().flatten();
                 if self.target.is_none() {
                     self.blocked = true;
                     return;
@@ -3406,6 +3420,23 @@ impl Task {
         }
 
         self.elapsed += dt;
+
+        // A patient that has walked off since the walk over to it was
+        // planned — more than `FOLLOW_SLACK` from where it stood then —
+        // is followed: the walk is planned again from where it is now,
+        // and nowhere to reach it is the errand given up like any other.
+        // The Bim's own spot is where it already is, so only somebody
+        // else's moves.
+        if self.step == Step::GoToPatient
+            && let Some(patient) = self.kind.patient()
+            && patient != self.who
+            && let Some(was) = self.patient_at
+            && let Some(Some(now)) = room.crew.get(patient).copied()
+            && (now - was).len() > FOLLOW_SLACK * crate::filth::TILE
+        {
+            self.enter(ch, room, maps, taken);
+            return;
+        }
 
         let finished = if self.step.is_walk() {
             ch.arrived()

@@ -64,7 +64,7 @@ fn main() {
     let mut n = 0;
     loop {
         if sulking {
-            game.leave_alone_for_probe(bim::PLAYER, 6.0);
+            game.leave_alone_for_probe(bim::PLAYER, 9.0);
         }
         game.update(1.0 / 60.0);
         n += 1;

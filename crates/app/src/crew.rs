@@ -50,7 +50,7 @@
 //! lies is the world's to say.
 
 use bevy_egui::egui;
-use bims::combat::{Item as PackItem, LOOT_CELLS, PACK_CELLS, Piece};
+use bims::combat::{Item as PackItem, LOOT_CELLS, PACK_CELLS, PACK_COLS, PACK_ROWS, Piece};
 use bims::game::{Container, Game};
 use bims::manager::Stock;
 use bims::room::*;
@@ -60,11 +60,12 @@ use ship::game::Overlay;
 use shipdesign::parts::PartKind;
 use shipdesign::research::{KEY_CELLS, NODES, Node};
 use shipdesign::{CARGO_SLOTS, Storage};
-use world::{FetchKind, LootSource};
+use world::{FetchKind, Grid, Kept, LootSource};
 
 use crate::format::{clock_text, date_text, span_text};
 use crate::grid::{self, Cell};
 use crate::icons;
+use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::theme;
 
@@ -76,26 +77,26 @@ pub const CLICK_SLOP: f32 = 4.0;
 /// smaller, by how many there are across — see [`container_cell`].
 const PACK_CELL: f32 = 34.0;
 
-/// The side of a container window's cells: small enough that the biggest
-/// grid, the shelves' twenty by twenty, fits a short window.
+/// The side of a container window's cells: the grids' ten across by
+/// however many rows the ship has, big enough for the picture of a rifle
+/// lying across seven of them and a count in a stack's corner.
 fn container_cell(class: Storage) -> f32 {
     match class {
-        Storage::Shelf => 20.0,
-        Storage::Locker => 26.0,
-        Storage::ColdStore => 30.0,
+        Storage::Shelf | Storage::Locker | Storage::ColdStore => 24.0,
         // The desk's slot is the key's size: a pack cell, two down.
         Storage::Research => PACK_CELL,
     }
 }
 
-/// How many cells a container window has across and down, by the class it
-/// is a view of: the armoury fifteen by fifteen, a storage twenty by
-/// twenty, the cold store ten by ten.
+/// How many cells a container window has across and down, for a class
+/// that is no grid: the research desk's one slot. The grids are the
+/// ship's, `GRID_COLS` across by as many rows as the parts aboard add up
+/// to, and their windows lay the hold out on them (`grid_things`).
 fn container_dims(class: Storage) -> (usize, usize) {
     match class {
-        Storage::Locker => (15, 15),
-        Storage::Shelf => (20, 20),
-        Storage::ColdStore => (10, 10),
+        Storage::Shelf | Storage::ColdStore | Storage::Locker => {
+            (shipdesign::GRID_COLS as usize, 0)
+        }
         Storage::Research => (KEY_CELLS.0 as usize, KEY_CELLS.1 as usize),
     }
 }
@@ -117,6 +118,12 @@ pub struct Hold {
     pub pieces: Vec<Piece>,
     /// Every weapon in the hold with its tier — `World::guns`.
     pub guns: Vec<bims::combat::Weapon>,
+    /// The grids — `World::grids`, the shelves', the cold stores' and the
+    /// lockers' in `World::GRID_CLASSES` order — where every stack, piece
+    /// and gun lies and which way round, and each grid's size in cells;
+    /// what the container windows are pictures of.
+    pub grids: [Grid; 3],
+    pub grid_capacity: [u32; 3],
     pub used: [u32; 4],
     pub capacity: [u32; 4],
     /// Whether the Bim whose inventory is shown stands within reach of a
@@ -127,6 +134,17 @@ pub struct Hold {
     /// desk's row reads both.
     pub station_desk: Option<usize>,
     pub station_key: bool,
+}
+
+impl Hold {
+    /// A class's grid and its size in cells, if the class is one: the
+    /// research desk is not.
+    pub fn grid(&self, class: Storage) -> Option<(&Grid, u32)> {
+        world::World::GRID_CLASSES
+            .iter()
+            .position(|&c| c == class)
+            .map(|i| (&self.grids[i], self.grid_capacity[i]))
+    }
 }
 
 /// A mercenary's terms, as the panels see them: a snapshot the screen
@@ -150,6 +168,9 @@ pub struct Terms {
 #[derive(Clone)]
 pub struct Body {
     pub cells: [Option<PackItem>; LOOT_CELLS],
+    /// Which way round the thing kept in each pack cell lies — the
+    /// body's `Gear::turned`.
+    pub turned: [bool; PACK_CELLS],
     /// Still dead or out cold. A crewmate that came round is no longer a
     /// body, and the window shuts on it.
     pub down: bool,
@@ -173,6 +194,23 @@ pub enum GearOrder {
     Unequip { who: u32, part: health::Part },
     /// Throw away what is in a pack cell.
     Discard { who: u32, cell: u32 },
+    /// Move the thing kept in `cell` of `who`'s pack so its corner is in
+    /// `to`, turned or not — a drag across the pack, `Command::Repack`.
+    Repack {
+        who: u32,
+        cell: u32,
+        to: u32,
+        turned: bool,
+    },
+    /// Move a slot of a class's grid to a cell, turned or not — a drag in
+    /// a container window, or `R` over a thing there — `Command::Arrange`.
+    Arrange {
+        class: Storage,
+        id: u32,
+        x: u32,
+        y: u32,
+        turned: bool,
+    },
     /// Take one cell off a body — `cell` a `bims::combat::LootCell` code
     /// — into the pack.
     Loot {
@@ -190,6 +228,14 @@ pub enum GearOrder {
     /// `Command::TakeKey`. Sent by the screen once `who` is within reach
     /// of the desk, after the desk's row walked them there.
     TakeKey { who: u32 },
+}
+
+/// Something within reach of the Bim shown, for the nearby strip: the
+/// window it opens and what to call it.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Near {
+    pub open: Open,
+    pub label: String,
 }
 
 /// What is up in the window beside the inventory: a container's grid, a
@@ -237,12 +283,12 @@ enum Source {
     Loot(u32),
 }
 
-/// A cell of a container window: one piece of armour by its id, the guns
-/// of a kind at one tier, or the stack of a resource.
+/// A cell of a container window: one slot of a class's grid by its id —
+/// a piece of armour, a gun at its tier, or a stack of anything else kept
+/// there — or, on the research desk, which is no grid, the key.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum HoldCell {
-    Piece(u32),
-    Gun(bims::combat::WeaponKind, bims::combat::Tier),
+    Slot(Storage, u32),
     Stack(ResourceId),
 }
 
@@ -567,6 +613,17 @@ pub struct CrewPanels {
     pub key_requested: Option<u32>,
     /// A cell's pop-up, if one is up.
     cell_menu: Option<CellMenu>,
+    /// What is within reach of the Bim shown, nearest first — a container
+    /// or a body down, with a name for the strip — as the screen last
+    /// handed it over (`Near`). Fresh every frame: the Bim is walking.
+    pub nearby: Vec<Near>,
+    /// A thing being carried across the armoury window, between frames,
+    /// and one across the pack.
+    locker_drag: Option<grid::Drag>,
+    pack_drag: Option<grid::Drag>,
+    /// The player's keys, as the screen last handed them over: what turns
+    /// a thing in the armoury is the Turn binding.
+    pub keys: Keys,
     /// What the rows and the ctrl-clicks asked for this frame, for the
     /// screen to send. Drained by it.
     pub orders: Vec<GearOrder>,
@@ -602,6 +659,10 @@ impl CrewPanels {
             trade_requested: false,
             key_requested: None,
             cell_menu: None,
+            nearby: Vec::new(),
+            locker_drag: None,
+            pack_drag: None,
+            keys: Keys::default(),
             orders: Vec::new(),
         }
     }
@@ -706,6 +767,27 @@ impl CrewPanels {
         self.inventory_open = true;
         self.menu = None;
         self.cell_menu = None;
+    }
+
+    /// Open a container's window by name, the way a click on it would:
+    /// `BIMS_ARMOURY=1` (or `armoury`) the first bench aboard whose part
+    /// is an armoury, `storage` the first shelf, `fridge` the first cold
+    /// store. Nothing, on a ship without one.
+    pub fn open_named(&mut self, game: &mut Game, what: &str) {
+        let container = match what {
+            "storage" => game
+                .container_frame(Container::Shelf(0))
+                .map(|_| Container::Shelf(0)),
+            "fridge" => game
+                .container_frame(Container::Fridge(0))
+                .map(|_| Container::Fridge(0)),
+            _ => (0..game.benches().len())
+                .find(|&i| game.bench_part(i) == PartKind::Armoury.code())
+                .map(Container::Bench),
+        };
+        if let Some(container) = container {
+            self.open_container(game, container);
+        }
     }
 
     /// Open the Loot window on a body, and the inventory pop-up beside it,
@@ -2211,13 +2293,31 @@ impl CrewPanels {
                     &weapon_line,
                 );
                 ui.label(egui::RichText::new("Pack").small().color(theme::MUTED));
-                let cells: Vec<Option<Cell>> = gear
-                    .pack
-                    .iter()
-                    .map(|slot| slot.map(|item| cell_of(item, 1)))
-                    .collect();
-                let picked = grid::grid(ui, 3, 3, PACK_CELL, &cells);
-                self.pack_picked(who, &gear.pack, picked);
+                // Seven by seven, laid out like the lockers: a drag moves a
+                // thing, Turn turns it, through the seam as a repack.
+                let (things, heads) = pack_things(&gear);
+                let mut drag = self.pack_drag;
+                let fits = |i: usize, x: usize, y: usize, turned: bool| -> bool {
+                    heads.get(i).is_some_and(|&head| {
+                        gear.pack[head].is_some_and(|item| {
+                            gear.fits_turned(y * PACK_COLS + x, item, turned, Some(head))
+                        })
+                    })
+                };
+                let moved = grid::lockers(
+                    ui,
+                    PACK_COLS,
+                    PACK_ROWS,
+                    0,
+                    PACK_CELL,
+                    &things,
+                    &mut drag,
+                    &fits,
+                    self.keys.key(Action::Turn),
+                    true,
+                );
+                self.pack_drag = drag;
+                self.pack_moved(who, &gear, &heads, moved);
             });
             ui.add_space(8.0);
             if let Some(stats) = game.weapon_stats(who) {
@@ -2290,29 +2390,57 @@ impl CrewPanels {
         }
     }
 
-    /// What the pointer did to a pack grid: a right-click on a full cell
-    /// is its pop-up; a ctrl-click is the quick move into a container
-    /// within reach — and one that cannot go opens the pop-up instead,
-    /// whose Store row says why.
-    fn pack_picked(
+    /// What the pointer did to the pack: a thing dropped or turned is a
+    /// repack through the seam; a right-click on a thing is its pop-up; a
+    /// ctrl-click is the quick move into a container within reach — and
+    /// one that cannot go opens the pop-up instead, whose Store row says
+    /// why. `heads` is the cell each thing in the grid is kept in.
+    fn pack_moved(
         &mut self,
         who: usize,
-        pack: &[Option<PackItem>; PACK_CELLS],
-        picked: grid::Picked,
+        gear: &bims::combat::Gear,
+        heads: &[usize],
+        moved: grid::Moved,
     ) {
-        if let Some((i, at)) = picked.right_clicked
-            && pack[i].is_some()
+        let pack = &gear.pack;
+        if let Some((i, x, y, turned)) = moved.dropped
+            && let Some(&cell) = heads.get(i)
+        {
+            self.orders.push(GearOrder::Repack {
+                who: who as u32,
+                cell: cell as u32,
+                to: (y * PACK_COLS + x) as u32,
+                turned,
+            });
+        }
+        if let Some(i) = moved.turn
+            && let Some(&cell) = heads.get(i)
+            && let Some(item) = pack[cell]
+            && gear.fits_turned(cell, item, !gear.turned[cell], Some(cell))
+        {
+            self.orders.push(GearOrder::Repack {
+                who: who as u32,
+                cell: cell as u32,
+                to: cell as u32,
+                turned: !gear.turned[cell],
+            });
+        }
+        if let Some((i, at)) = moved.right_clicked
+            && let Some(&cell) = heads.get(i)
+            && pack[cell].is_some()
         {
             self.cell_menu = Some(CellMenu {
                 at,
-                from: Source::Pack(i),
+                from: Source::Pack(cell),
                 who,
                 fresh: true,
             });
         }
-        if let Some((i, at)) = picked.ctrl_clicked
-            && let Some(item) = pack[i]
+        if let Some((i, at)) = moved.ctrl_clicked
+            && let Some(&cell) = heads.get(i)
+            && let Some(item) = pack[cell]
         {
+            let i = cell;
             if self.can_stow(item).is_ok() {
                 self.orders.push(GearOrder::Stow {
                     who: who as u32,
@@ -2373,10 +2501,47 @@ impl CrewPanels {
         Ok(())
     }
 
+    /// Open the inventory pop-up, or shut it — the Inventory key (Tab).
+    /// Opening it opens the nearest thing within reach as well — a
+    /// container, or a body down — the way a survival game shows what is
+    /// to hand, with the rest of what is near a click away on the strip
+    /// over the window (`nearby`); shutting it shuts that window too.
+    pub fn toggle_inventory(&mut self) {
+        self.cell_menu = None;
+        if self.inventory_open {
+            self.inventory_open = false;
+            self.open = None;
+            return;
+        }
+        self.inventory_open = true;
+        if self.open.is_none()
+            && let Some(near) = self.nearby.first()
+        {
+            self.show(near.open);
+        }
+    }
+
+    /// Put up the window for a thing already within reach — off the
+    /// nearby strip, or the Inventory key — without the walk over.
+    fn show(&mut self, open: Open) {
+        self.open = Some(open);
+        self.body = None;
+        self.inventory_open = true;
+        self.menu = None;
+        self.cell_menu = None;
+    }
+
+    /// Whatever the nearby strip was clicked on this frame, put up.
+    fn follow_strip(&mut self, pick: Option<Open>) {
+        if let Some(open) = pick {
+            self.show(open);
+        }
+    }
+
     /// The pop-up that opens the moment the crew member the player steers
-    /// is recruited, or a container window opens: the inventory of the
-    /// Bim shown, in a window of its own, until it is shut or the Bim is
-    /// let go. Beside the container window while one is up, else at the
+    /// is recruited, or a container window opens, or the Inventory key is
+    /// pressed: the inventory of the Bim shown, in a window of its own,
+    /// until it is shut or the Bim is let go. Beside the container window while one is up, else at the
     /// top of the screen. Call once a frame after the tray and after
     /// [`CrewPanels::container_window`].
     pub fn inventory_window(
@@ -2410,19 +2575,31 @@ impl CrewPanels {
             Some(rect) => window.fixed_pos(egui::pos2(rect.max.x + 10.0, rect.min.y)),
             None => window.anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 60.0)),
         };
+        let mut strip = None;
         window.show(ctx, |ui| {
+            // With nothing else up, what is near is a click away from here.
+            if self.open.is_none() {
+                strip = nearby_strip(ui, &self.nearby.clone(), None);
+            }
             self.inventory(ui, game, who, name);
         });
         self.inventory_open = open;
+        self.follow_strip(strip);
     }
 
     // --- the containers -------------------------------------------------------
 
     /// The open container's window, if one is: the hold's class the
-    /// container keeps, as a grid — each piece of armour a cell of its
-    /// own with its health under it, everything else a stack with its
-    /// count — with how full the class is over it and what a click does
-    /// under it. Ctrl-click a cell to take one into the pack of the Bim
+    /// container keeps. The shelves and the cold store are a grid of
+    /// stacks, a resource a cell with its count. The lockers are the
+    /// ship's grid itself, `GRID_COLS` across: every thing in the
+    /// class laid over its footprint where the world has it, a piece of
+    /// armour with its health under it, turned if it is turned — and
+    /// the pointer moves them: a drag carries a thing, `R` on the way
+    /// turns it, and letting go where it would lie sends
+    /// `GearOrder::Arrange`; `R` over a thing at rest turns it where it
+    /// is. Over the grid, how full the class is; under it, what a click
+    /// does. Ctrl-click a thing to take it into the pack of the Bim
     /// shown; right-click for the row. Shut by its cross, by Escape, or
     /// by the container going away under it. Call once a frame after
     /// the tray and before [`CrewPanels::inventory_window`], which sits
@@ -2435,10 +2612,12 @@ impl CrewPanels {
     ) {
         self.container_rect = None;
         let Some(Open::Container(container)) = self.open else {
+            self.locker_drag = None;
             return;
         };
         let (Some(hold), Some(class)) = (self.hold.as_ref(), class_of(game, container)) else {
             self.open = None;
+            self.locker_drag = None;
             return;
         };
         let who = self.inventory_who(game);
@@ -2451,8 +2630,33 @@ impl CrewPanels {
             Container::Fridge(_) => COLD_STORE_WINDOW.to_string(),
             Container::Desk(_) => RESEARCH_WINDOW.to_string(),
         };
-        let (cols, rows) = container_dims(class);
-        let (cells, what): (Vec<Option<Cell>>, Vec<HoldCell>) = container_cells(class, hold);
+        // A class with a grid is drawn as one; the desk, which is a count of
+        // one, as a cell.
+        let laid = hold.grid(class);
+        let lockers = laid.is_some();
+        let (cols, rows) = match laid {
+            Some((_, capacity)) => (
+                shipdesign::GRID_COLS as usize,
+                Grid::rows(capacity) as usize,
+            ),
+            None => container_dims(class),
+        };
+        let (cells, mut what): (Vec<Option<Cell>>, Vec<HoldCell>) = if lockers {
+            (Vec::new(), Vec::new())
+        } else {
+            container_cells(class, hold)
+        };
+        let things: Vec<grid::Laid> = match laid {
+            Some((grid, _)) => {
+                let (things, slots) = grid_things(grid, hold);
+                what = slots
+                    .into_iter()
+                    .map(|id| HoldCell::Slot(class, id))
+                    .collect();
+                things
+            }
+            None => Vec::new(),
+        };
         let near = ResourceId::ALL
             .iter()
             .any(|&id| economy::storage(id) == class && hold.reach[id as usize]);
@@ -2460,6 +2664,20 @@ impl CrewPanels {
         let capacity = hold.capacity[class as usize];
         let mut open = true;
         let mut picked = grid::Picked::default();
+        let mut moved = grid::Moved::default();
+        let mut drag = self.locker_drag;
+        let mut strip = None;
+        let (nearby, showing) = (self.nearby.clone(), self.open);
+        let fits = |i: usize, x: usize, y: usize, turned: bool| -> bool {
+            what.get(i).is_some_and(|&cell| match cell {
+                HoldCell::Slot(class, id) => hold.grid(class).is_some_and(|(grid, capacity)| {
+                    grid.slot(id).is_some_and(|s| {
+                        grid.fits(capacity, s.foot, x as u32, y as u32, turned, Some(id))
+                    })
+                }),
+                HoldCell::Stack(_) => false,
+            })
+        };
         let response = egui::Window::new(title)
             .id(egui::Id::new("container-window"))
             .open(&mut open)
@@ -2468,41 +2686,101 @@ impl CrewPanels {
             .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
             .frame(crate::screens::room::panel_frame())
             .show(ctx, |ui| {
+                strip = nearby_strip(ui, &nearby, showing);
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(format!(
-                            "{used} of {capacity} in the {}",
-                            STORAGE_NAMES[class as usize].to_lowercase()
-                        ))
+                        egui::RichText::new(if lockers {
+                            format!(
+                                "{used} of {capacity} cells in the {}",
+                                STORAGE_NAMES[class as usize].to_lowercase()
+                            )
+                        } else {
+                            format!(
+                                "{used} of {capacity} in the {}",
+                                STORAGE_NAMES[class as usize].to_lowercase()
+                            )
+                        })
                         .small()
                         .color(theme::MUTED),
                     );
                     theme::question_mark(ui, CONTAINER_TIP);
                 });
-                picked = grid::grid(ui, cols, rows, container_cell(class), &cells);
-                let hint = if near {
+                if let Some((_, capacity)) = laid {
+                    let blocked = rows * cols - capacity as usize;
+                    moved = grid::lockers(
+                        ui,
+                        cols,
+                        rows,
+                        blocked,
+                        container_cell(class),
+                        &things,
+                        &mut drag,
+                        &fits,
+                        self.keys.key(Action::Turn),
+                        true,
+                    );
+                } else {
+                    picked = grid::grid(ui, cols, rows, container_cell(class), &cells);
+                }
+                let hint = if !near {
                     format!(
-                        "Ctrl-click takes one into {}'s pack · right-click for the rows",
+                        "{} is not within reach — walk over first; clicking the container sends the Bim",
+                        name(who as u32)
+                    )
+                } else if lockers {
+                    format!(
+                        "Drag a thing to move it, {} turns it · Ctrl-click takes it into {}'s pack · right-click for the rows",
+                        self.keys.key(Action::Turn).symbol_or_name(),
                         name(who as u32)
                     )
                 } else {
                     format!(
-                        "{} is not within reach — walk over first; clicking the container sends the Bim",
+                        "Ctrl-click takes one into {}'s pack · right-click for the rows",
                         name(who as u32)
                     )
                 };
                 ui.add(egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap());
             });
+        self.locker_drag = drag;
         if let Some(response) = response {
             self.container_rect = Some(response.response.rect);
         }
         if !open {
             self.open = None;
+            self.locker_drag = None;
+        }
+        // A thing moved or turned on the lockers' grid: through the seam,
+        // since the grid is the world's.
+        if let Some((i, x, y, turned)) = moved.dropped
+            && let Some(&HoldCell::Slot(class, id)) = what.get(i)
+        {
+            self.orders.push(GearOrder::Arrange {
+                class,
+                id,
+                x: x as u32,
+                y: y as u32,
+                turned,
+            });
+        }
+        if let Some(i) = moved.turn
+            && let Some(&HoldCell::Slot(class, id)) = what.get(i)
+            && let Some(slot) = hold.grid(class).and_then(|(g, _)| g.slot(id))
+            && fits(i, slot.x as usize, slot.y as usize, !slot.turned)
+        {
+            self.orders.push(GearOrder::Arrange {
+                class,
+                id,
+                x: slot.x as u32,
+                y: slot.y as u32,
+                turned: !slot.turned,
+            });
         }
         // The pointer on the grid: a right-click is the row, a ctrl-click
         // the quick take — or the row, when the take cannot go, so the
         // reason is read rather than guessed at.
-        if let Some((i, at)) = picked.right_clicked
+        let right = picked.right_clicked.or(moved.right_clicked);
+        let quick = picked.ctrl_clicked.or(moved.ctrl_clicked);
+        if let Some((i, at)) = right
             && let Some(&cell) = what.get(i)
         {
             self.cell_menu = Some(CellMenu {
@@ -2512,16 +2790,14 @@ impl CrewPanels {
                 fresh: true,
             });
         }
-        if let Some((i, at)) = picked.ctrl_clicked
+        if let Some((i, at)) = quick
             && let Some(&cell) = what.get(i)
         {
             let resource = match cell {
-                HoldCell::Piece(id) => hold
-                    .pieces
-                    .iter()
-                    .find(|p| p.id == id)
-                    .map(|p| ResourceId::ALL[p.kind.resource() as usize]),
-                HoldCell::Gun(kind, _) => Some(world::armour::weapon_resource(kind)),
+                HoldCell::Slot(class, id) => hold
+                    .grid(class)
+                    .and_then(|(g, _)| g.slot(id))
+                    .and_then(|s| kept_resource(s.kept, hold)),
                 HoldCell::Stack(id) => Some(id),
             };
             match resource.map(|r| self.can_fetch(game, who, r)) {
@@ -2539,6 +2815,7 @@ impl CrewPanels {
                 }
             }
         }
+        self.follow_strip(strip);
     }
 
     /// The Hire window, if a mercenary is open: whose, what it carries —
@@ -2649,16 +2926,20 @@ impl CrewPanels {
             LootSource::Crew(body) => name(body),
             LootSource::Resident(body) => name(self.crew_count + body),
         };
-        let cells: Vec<Option<Cell>> = body
-            .cells
+        let cells: Vec<Option<Cell>> = body.cells[PACK_CELLS..]
             .iter()
             .map(|slot| slot.map(|item| cell_of(item, 1)))
             .collect();
-        let (pack_cells, worn_cells) = cells.split_at(PACK_CELLS);
+        let worn_cells = cells.as_slice();
+        let (things, heads) = laid_things(&body.cells[..PACK_CELLS], &body.turned);
         let reach = body.reach;
         let mut open = true;
-        let mut pack = grid::Picked::default();
+        let mut pack = grid::Moved::default();
         let mut worn = grid::Picked::default();
+        let mut no_drag = None;
+        let mut strip = None;
+        let (nearby, showing) = (self.nearby.clone(), self.open);
+        let never = |_: usize, _: usize, _: usize, _: bool| false;
         let response = egui::Window::new(format!("{LOOT_WINDOW} — {whose}"))
             .id(egui::Id::new("loot-window"))
             .open(&mut open)
@@ -2667,11 +2948,23 @@ impl CrewPanels {
             .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
             .frame(crate::screens::room::panel_frame())
             .show(ctx, |ui| {
+                strip = nearby_strip(ui, &nearby, showing);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Pack").small().color(theme::MUTED));
                     theme::question_mark(ui, LOOT_TIP);
                 });
-                pack = grid::grid(ui, 3, 3, PACK_CELL, pack_cells);
+                pack = grid::lockers(
+                    ui,
+                    PACK_COLS,
+                    PACK_ROWS,
+                    0,
+                    PACK_CELL,
+                    &things,
+                    &mut no_drag,
+                    &never,
+                    self.keys.key(Action::Turn),
+                    false,
+                );
                 ui.add_space(6.0);
                 ui.label(
                     egui::RichText::new("Worn, and in hand")
@@ -2713,13 +3006,17 @@ impl CrewPanels {
         if !open {
             self.open = None;
         }
-        // The two grids as one list of cells, in `LootCell` order: the
-        // pack's index is its code, the row's is its code less nine.
+        self.follow_strip(strip);
+        // The two grids as one list of cells, in `LootCell` order: a thing
+        // in the pack is the cell it is kept in, the row's is its code less
+        // the pack's cells.
         let right_clicked = pack
             .right_clicked
+            .and_then(|(i, at)| heads.get(i).map(|&c| (c, at)))
             .or(worn.right_clicked.map(|(i, at)| (i + PACK_CELLS, at)));
         let ctrl_clicked = pack
             .ctrl_clicked
+            .and_then(|(i, at)| heads.get(i).map(|&c| (c, at)))
             .or(worn.ctrl_clicked.map(|(i, at)| (i + PACK_CELLS, at)));
         // The pointer on a cell: a right-click is the row, a ctrl-click
         // the quick take — or the row, when the take cannot go, so the
@@ -2868,17 +3165,14 @@ impl CrewPanels {
                     return rows;
                 };
                 let (label, resource) = match cell {
-                    HoldCell::Piece(id) => {
-                        let Some(piece) = hold.pieces.iter().find(|p| p.id == id) else {
+                    HoldCell::Slot(class, id) => {
+                        let Some(slot) = hold.grid(class).and_then(|(g, _)| g.slot(id)) else {
                             return rows;
                         };
-                        ("Take", ResourceId::ALL[piece.kind.resource() as usize])
-                    }
-                    HoldCell::Gun(kind, tier) => {
-                        if !hold.guns.iter().any(|g| g.kind == kind && g.tier == tier) {
+                        let Some(resource) = kept_resource(slot.kept, hold) else {
                             return rows;
-                        }
-                        ("Take", world::armour::weapon_resource(kind))
+                        };
+                        (if slot.count > 1 { "Take one" } else { "Take" }, resource)
                     }
                     HoldCell::Stack(id) => {
                         if hold.counts[id as usize] == 0 {
@@ -2898,6 +3192,44 @@ impl CrewPanels {
                         kind: fetch_kind(cell),
                     },
                 ));
+                // A thing on the lockers' grid turns where it lies, if it
+                // can: the same as R over it.
+                if let HoldCell::Slot(class, id) = cell
+                    && let Some((grid, capacity)) = hold.grid(class)
+                    && let Some(slot) = grid.slot(id)
+                    && slot.foot.rows != slot.foot.cols
+                {
+                    let room = grid.fits(
+                        capacity,
+                        slot.foot,
+                        slot.x as u32,
+                        slot.y as u32,
+                        !slot.turned,
+                        Some(id),
+                    );
+                    rows.push((
+                        theme::Row::new(
+                            "Turn",
+                            if room {
+                                format!(
+                                    "a quarter round, where it lies — or drag it and press {}",
+                                    self.keys.key(Action::Turn).symbol_or_name()
+                                )
+                            } else {
+                                "no room to turn it where it lies — drag it somewhere with more"
+                                    .to_string()
+                            },
+                            !room,
+                        ),
+                        GearOrder::Arrange {
+                            class,
+                            id,
+                            x: slot.x as u32,
+                            y: slot.y as u32,
+                            turned: !slot.turned,
+                        },
+                    ));
+                }
             }
             Source::Worn(part) => {
                 if game.worn(who, part).is_none() {
@@ -3041,26 +3373,17 @@ impl CrewPanels {
                 if needle.is_empty() {
                     match self.open_group {
                         None => {
-                            // The categories, a button each, with a line
-                            // under it saying what is inside.
+                            // The categories, a button each; what is
+                            // inside is the button's tooltip, so the list
+                            // reads as a list rather than a page of notes.
                             for (i, (name, hint, _)) in BUILD_GROUPS.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    if ui
-                                        .add(
-                                            egui::Button::new(*name)
-                                                .min_size(egui::vec2(120.0, 0.0)),
-                                        )
-                                        .clicked()
-                                    {
-                                        self.open_group = Some(i);
-                                    }
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(*hint).small().color(theme::MUTED),
-                                        )
-                                        .wrap(),
-                                    );
-                                });
+                                if ui
+                                    .add(egui::Button::new(*name).min_size(egui::vec2(120.0, 0.0)))
+                                    .on_hover_text(*hint)
+                                    .clicked()
+                                {
+                                    self.open_group = Some(i);
+                                }
                             }
                             return;
                         }
@@ -3119,8 +3442,9 @@ impl CrewPanels {
         }
         let hint = match self.tool {
             Some(Tool::Build(kind)) => format!(
-                "{} in hand: click the deck — or the space beside it — to lay it out; R turns it; right-click or Esc puts it down.",
-                part_name(kind)
+                "{} in hand: click the deck — or the space beside it — to lay it out; {} turns it; right-click or Esc puts it down.",
+                part_name(kind),
+                self.keys.key(Action::Turn).symbol_or_name()
             ),
             _ => "Pick a part and click where it is to go. The crew carry what it is made of from the shelves and build it; a site beyond the hull is built in a suit.".to_string(),
         };
@@ -3518,7 +3842,7 @@ impl CrewPanels {
                 self.tool = if on { None } else { Some(Tool::Mine) };
             }
             ui.label(
-                egui::RichText::new("Mark rocks outside to be mined.")
+                egui::RichText::new("Click or drag over rocks outside to mark them to be mined.")
                     .small()
                     .color(theme::MUTED),
             );
@@ -3527,7 +3851,7 @@ impl CrewPanels {
         let hint = if !actions.at_site {
             "Hold station at an asteroid belt to mine its rocks."
         } else if on {
-            "Click a rock outside to mark it to be mined; click it again to unmark it. A Bim with mining on its work list takes a suit out and digs the marked rocks, nearest first."
+            "Click a rock outside to mark it to be mined, or drag across the rocks to mark a whole face; click or drag over marked rocks to unmark them. A Bim with mining on its work list takes a suit out and digs the marked rocks, nearest first."
         } else {
             "An asteroid is rock on the outside; the ore is three tiles in. Silver is iron ore, purple is galvum."
         };
@@ -4224,6 +4548,10 @@ fn tip_of(item: PackItem, count: u32) -> String {
 /// is its part's, if it keeps one (the armoury's lockers), a shelf's the
 /// shelves, a cold store's the cold; `None` for a container the room no
 /// longer has.
+pub fn container_class(game: &Game, container: Container) -> Option<Storage> {
+    class_of(game, container)
+}
+
 fn class_of(game: &Game, container: Container) -> Option<Storage> {
     match container {
         Container::Bench(i) => PartKind::from_code(game.bench_part(i))?
@@ -4236,38 +4564,13 @@ fn class_of(game: &Game, container: Container) -> Option<Storage> {
     }
 }
 
-/// The cells of a container window over one class of the hold, and what
-/// each is: the lockers' pieces of armour first, one cell each, then the
-/// weapons, a stack per kind **and tier** — a tier-two pistol is not a
-/// tier-one one, and a cell that took either would hand over whichever
-/// — then a stack a resource of the class with anything in it. Armour is
-/// never a stack — every piece is an instance — so the armour and weapon
-/// resources are skipped where the plain stacks are built.
+/// The cells of a container window over a class of the hold that is no
+/// grid — the research desk — and what each is: a stack a resource of
+/// the class with anything in it. Everything else lies on its class's
+/// grid ([`grid_things`]).
 fn container_cells(class: Storage, hold: &Hold) -> (Vec<Option<Cell>>, Vec<HoldCell>) {
     let mut cells = Vec::new();
     let mut what = Vec::new();
-    if class == Storage::Locker {
-        let mut pieces = hold.pieces.clone();
-        pieces.sort_by_key(|p| p.id);
-        for piece in pieces {
-            cells.push(Some(cell_of(PackItem::Armour(piece), 1)));
-            what.push(HoldCell::Piece(piece.id));
-        }
-        for kind in bims::combat::WeaponKind::ALL {
-            for tier in bims::combat::Tier::ALL {
-                let count = hold
-                    .guns
-                    .iter()
-                    .filter(|g| g.kind == kind && g.tier == tier)
-                    .count() as u32;
-                if count == 0 {
-                    continue;
-                }
-                cells.push(Some(cell_of(PackItem::Weapon(kind.at(tier)), count)));
-                what.push(HoldCell::Gun(kind, tier));
-            }
-        }
-    }
     for &id in ResourceId::ALL.iter() {
         if economy::storage(id) != class || world::armour::is_gear(id) {
             continue;
@@ -4282,16 +4585,112 @@ fn container_cells(class: Storage, hold: &Hold) -> (Vec<Option<Cell>>, Vec<HoldC
     (cells, what)
 }
 
-/// What a fetch of a container cell asks the world for.
+/// The things on a class's grid as the widget draws them — every slot
+/// over its footprint, a piece with its health, a gun at its tier, a
+/// stack of anything else with its count — and the slot each is, in the
+/// same order.
+fn grid_things(grid: &Grid, hold: &Hold) -> (Vec<grid::Laid>, Vec<u32>) {
+    let mut things = Vec::new();
+    let mut slots = Vec::new();
+    for slot in &grid.slots {
+        let item = match slot.kept {
+            Kept::Piece(id) => match hold.pieces.iter().find(|p| p.id == id) {
+                Some(&piece) => PackItem::Armour(piece),
+                None => continue,
+            },
+            Kept::Gun(kind, tier) => PackItem::Weapon(kind.at(tier)),
+            Kept::Stack(id) => world::armour::item_of(id),
+        };
+        let laid = slot.laid();
+        things.push(grid::Laid {
+            x: slot.x as usize,
+            y: slot.y as usize,
+            cols: laid.cols as usize,
+            rows: laid.rows as usize,
+            turned: slot.turned,
+            cell: cell_of(item, slot.count),
+        });
+        slots.push(slot.id);
+    }
+    (things, slots)
+}
+
+/// The things in a pack as the grid draws them — every thing over its
+/// footprint, turned if it is — and the cell each is kept in, in the
+/// same order. The same for a body's pack in the Loot window, off the
+/// body's cells and which of them are turned.
+fn pack_things(gear: &bims::combat::Gear) -> (Vec<grid::Laid>, Vec<usize>) {
+    laid_things(&gear.pack, &gear.turned)
+}
+
+fn laid_things(pack: &[Option<PackItem>], turned: &[bool]) -> (Vec<grid::Laid>, Vec<usize>) {
+    let mut things = Vec::new();
+    let mut heads = Vec::new();
+    for (cell, item) in pack.iter().enumerate().take(PACK_CELLS) {
+        let Some(item) = *item else {
+            continue;
+        };
+        let turned = turned.get(cell).copied().unwrap_or(false);
+        let (rows, cols) = item.laid(turned);
+        things.push(grid::Laid {
+            x: cell % PACK_COLS,
+            y: cell / PACK_COLS,
+            cols,
+            rows,
+            turned,
+            cell: cell_of(item, 1),
+        });
+        heads.push(cell);
+    }
+    (things, heads)
+}
+
+/// What a slot of the lockers holds, as the resource it counts as: the
+/// piece's kind looked up, the gun's, or the unit itself.
+fn kept_resource(kept: Kept, hold: &Hold) -> Option<ResourceId> {
+    match kept {
+        Kept::Piece(id) => hold
+            .pieces
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| ResourceId::ALL[p.kind.resource() as usize]),
+        Kept::Gun(kind, _) => Some(world::armour::weapon_resource(kind)),
+        Kept::Stack(id) => Some(id),
+    }
+}
+
+/// What a fetch of a container cell asks the world for: the slot itself,
+/// so the thing clicked is the thing that goes.
 fn fetch_kind(cell: HoldCell) -> FetchKind {
     match cell {
-        HoldCell::Piece(id) => FetchKind::Piece(id),
-        HoldCell::Gun(kind, tier) => FetchKind::Tiered {
-            resource: kind.resource(),
-            tier: tier.code(),
+        HoldCell::Slot(class, id) => FetchKind::Slot {
+            class: class.code(),
+            id,
         },
         HoldCell::Stack(id) => FetchKind::Resource(id as u32),
     }
+}
+
+/// The strip of what is within reach of the Bim shown — every container,
+/// every body down — a button each, the open one lit, so the rest are a
+/// click away. Over the container and Loot windows, and over the
+/// inventory when nothing else is up. What was clicked, for
+/// `CrewPanels::follow_strip` once the window is laid out.
+fn nearby_strip(ui: &mut egui::Ui, nearby: &[Near], open: Option<Open>) -> Option<Open> {
+    if nearby.is_empty() {
+        return None;
+    }
+    let mut pick = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Nearby").small().color(theme::MUTED));
+        for near in nearby {
+            let lit = open == Some(near.open);
+            if ui.selectable_label(lit, &near.label).clicked() && !lit {
+                pick = Some(near.open);
+            }
+        }
+    });
+    pick
 }
 
 /// Whose hands a treatment of `patient` would be: the player's own Bim

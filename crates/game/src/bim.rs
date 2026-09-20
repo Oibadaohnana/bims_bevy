@@ -245,7 +245,7 @@ impl Bim {
     /// scattered a little about the body so a Bim standing still leaves a
     /// pool rather than a dot, and each drop is **filth**: the tile it
     /// lands on is soiled with `Mess::Blood`, which the broom takes up like
-    /// any stain and the cleanliness need follows like any other. There is
+    /// any stain and the surroundings need follows like any other. There is
     /// no picture of a drop of its own any more; the deck draws the tile.
     /// The scatter is rolled off the room's stream: a Bim only bleeds after
     /// a fight, and no seed-pinned probe has one, so nothing they pin is

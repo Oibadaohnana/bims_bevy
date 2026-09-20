@@ -24,16 +24,19 @@ pub enum Speed {
     Real = 1,
     Triple = 2,
     Ten = 3,
-    Top = 4,
+    /// A day a minute, what everything above was tuned against.
+    Day = 4,
+    Top = 5,
 }
 
 impl Speed {
     /// Every speed, in the order the buttons are drawn.
-    pub const ALL: [Speed; 5] = [
+    pub const ALL: [Speed; 6] = [
         Speed::Paused,
         Speed::Real,
         Speed::Triple,
         Speed::Ten,
+        Speed::Day,
         Speed::Top,
     ];
 
@@ -44,6 +47,7 @@ impl Speed {
             Speed::Real => 1,
             Speed::Triple => 3,
             Speed::Ten => 10,
+            Speed::Day => crate::data::DAY_SPEED,
             Speed::Top => crate::data::TOP_SPEED,
         }
     }
@@ -95,7 +99,8 @@ mod tests {
             assert!(pair[0] < pair[1]);
             assert!(pair[0].multiplier() < pair[1].multiplier());
         }
+        assert_eq!(Speed::Day.multiplier(), crate::data::DAY_SPEED);
         assert_eq!(Speed::Top.multiplier(), crate::data::TOP_SPEED);
-        assert_eq!(Speed::from_code(5), None);
+        assert_eq!(Speed::from_code(6), None);
     }
 }

@@ -248,6 +248,17 @@ spends everything on plating has nothing to load it with — or **the ship**.
 Goods are stowed: food in a cold store, gear in a locker, everything else on
 a shelf. The readout under the rows is how full each class is, and a ship
 with no cold store cannot take food at all however much money there is.
+Each of those is not a count but a **grid**, ten cells across and as many
+rows as the parts aboard add up to — a shelf or a cold store is ten by
+ten — and every thing kept there covers its footprint of it: a pistol a
+row of two, a rifle seven, a sniper rifle the whole width; a vest four
+by four, a helm two by four; a crate of vegetables one by two, a block
+of tofu four by four. Goods that stack take one footprint a stack — ten
+ore to a cell, twenty components — so what a shelf holds is its cells
+times the stacks. A container's window lays its grid out as it is: drag
+a thing to move it, press `R` on the way to turn it, and a thing goes in
+only where there is a run of cells for it — so a full hold is tidied,
+not counted.
 
 What is bought is aboard from the moment it is bought. It is in the design
 hash, so a purchase clears everybody's Accept the way a wall does; it is in
@@ -520,6 +531,17 @@ see it, the fog where they do not. The default ship and every station
 come lit; a ship of your own wants lamps, or its corridors are ten tiles
 long to whoever walks them.
 
+### Comforts
+
+Three parts do nothing but make a deck nicer to stand on — a **small
+plant**, a **big plant** and a **picture**, under *Comforts* in the
+designer and *Furniture* on the Build tab — and what they do is lift the
+crew's **Surroundings** bar: every tile within reach of one scores higher
+to a Bim standing on it, by 2, 5 and 3, so a spill beside a plant is
+bearable where the same spill on a bare deck is not. The picture hangs
+from a wall the way a wall light does. The numbers, the cap and where a
+station puts its own are under [Surroundings](#surroundings).
+
 ### Locking doors, and what the enemy do about it
 
 Every airlock is a door now: right-click one for the same four words a
@@ -791,19 +813,31 @@ quotes the trip; Confirm sends the ship. A planet you are alongside is
 drawn under the hull in the ship view, as the ground.
 
 A **station is a place**, not an icon: every one in the system is a hull on
-a grid of its own — forty-eight to sixty-four tiles across by kind, laid
-out from the blueprint's seed with the same parts and the same rules as a
-ship. It is a **hub and four arms**: a square hub of open deck in the
-middle, a corridor five tiles wide running out of each side of it to a
-docking lobby with an airlock in its far wall — the west one is the port
-you dock at, and its lobby is the reactor room too, with the trading desk
-by the door — and the rooms hung off the north and south arms two deep a
-side: the mess and the crew's quarters, the heads and the laboratory
-with its bays, the rec room and the research room, the storage and the
-cargo shelves, each behind a bulkhead with a two-tile doorway, the outer
-rooms opening through the inner. A barricade of **sandbags** stands
+a grid of its own — thirty-four to seventy-two tiles across, laid out
+from the blueprint's seed with the same parts and the same rules as a
+ship. The one you start at is a **hub and four arms**: a square hub of
+open deck in the middle, a corridor five tiles wide running out of each
+side of it to a docking lobby with an airlock in its far wall — the west
+one is the port you dock at, and its lobby is the reactor room too, with
+the trading desk by the door — and the rooms hung off the north and south
+arms two deep a side: the mess and the crew's quarters, the heads and the
+laboratory with its bays, the rec room and the research room, the storage
+and the cargo shelves, each behind a bulkhead with a two-tile doorway, the
+outer rooms opening through the inner. A barricade of **sandbags** stands
 across three of each corridor's five tiles a few tiles out from the hub —
-cover to crouch behind, and low enough to walk and shoot over. The seed decides
+cover to crouch behind, and low enough to walk and shoot over. **Every
+other station is one of six plans**, rolled off its seed so the same dock
+is the same building every visit and the next dock is likely another: the
+hub; the **pod**, the smallest, a squat bar with one corridor two wide
+and a single resident; the **cross**, two fat bands meeting in a hall,
+narrow corridors up the arms, three living there; the **spine**, long and
+thin with a corridor three wide the length of it and four aboard; the
+**ring**, a square ring of corridor round a void with the rooms outside it
+and six aboard; and the **comb**, three arms off a spine to a docking bay
+each, five aboard. They differ in size, in how narrow the corridors are
+— a barricade fits only in a corridor three wide or more — and in how
+many people live there; they all have the same rooms, the reactor room
+with the trading desk by the port, and a research desk. The seed decides
 how many bays, shelves, tables and batteries; a bigger station gets more
 of each. Bulkheads and doors, the helm, the shelves and the shower
 are drawn as themselves rather than as coloured blocks, in the room's
@@ -861,7 +895,7 @@ one — so a start is rarely far from somewhere to go.
 
 ### Speed, and who decides
 
-Pause, 1×, 3×, 10× and 24×, beside the day and the clock at the top left.
+Pause, 1×, 3×, 10×, 24× and 48×, beside the day and the clock at the top left.
 **Every player has a request and the slowest one wins**; a pause by anybody
 is a pause. That is not a compromise, it is the point: the player who needs
 it slow is the player something is going wrong for, and nobody is ever
@@ -1938,7 +1972,7 @@ own account. Three days of that leaves it hovering just under the level it would
 have acted on, clawing back a few minutes at a time from nodding off where it
 stands.
 
-Restroom and Cleanliness have no threshold on the page. The first is not something
+Restroom and Surroundings have no threshold on the page. The first is not something
 a player should be able to talk the Bim out of; the second has no errand behind
 it to start.
 
@@ -2211,7 +2245,15 @@ the middle of wherever they all are, and it runs the other way, round a
 wall if it has to, and neither aims nor shoots while it does. Your own
 does it too, whatever you told it, and so does one of the station's
 people you shot to that state; with the enemy gone it stops where it is
-and waits for the medkit. And a body **out cold is nobody's target**:
+and waits for the medkit. **A crewmate that is merely hurt runs too** —
+bleeding from a wound, or down to half its blood — rather than walking
+up to the guns for a firing spot the way a whole one does: it gets out
+of the enemy's sight, binds its own wound there if there is a bandage
+to hand, and comes back into the fight dressed. It stops for anybody
+you send over with a bandage or a kit, once they are nearly at it. Your
+own Bim goes where you send it, hurt or not, and the station's people
+fight on wounded: only dying makes those two run. And a body **out cold
+is nobody's target**:
 nobody aims at one, and a bolt already flying passes over it.
 
 Every hit, wherever it lands, opens a **wound**, and a wound bleeds until
@@ -2310,7 +2352,7 @@ crewmate comes before any wound on the Medical row.
 
 Four levels run a Bim's day, shown down the right-hand side of the deck for
 whichever of the crew is selected: **Rest**, **Food**, **Restroom** and
-**Cleanliness**. Kate's are worth going and looking at precisely because you
+**Surroundings**. Kate's are worth going and looking at precisely because you
 cannot order her about — her bars are the only warning you get. Each sits
 at 1 when the Bim is comfortable and falls as the day goes on. One dropping past
 its **threshold** — a tenth, until you move it — is what sends the Bim to bed,
@@ -2322,7 +2364,7 @@ The restroom need covers both ends of the business deliberately, rather than
 being two numbers. They come up together, they are dealt with in one trip, and
 splitting them would only mean two bars that always move as one.
 
-Cleanliness is the odd one out and is described under [Mess](#mess): it has no
+Surroundings is the odd one out and is described under [Mess](#mess): it has no
 clock of its own and no errand behind it, and follows the state of the deck the
 Bim is standing on.
 
@@ -2497,21 +2539,36 @@ tile under it in a few drops and leaves a trail as it walks. It is drawn in its
 own dark red where the rest are brown, and it stays blood wherever a boot
 carries it, whatever else is on the tile it lands on: a pool of it is what you
 are looking for after a fight. Otherwise it is filth like the rest — the broom
-takes it up, the cleaning row comes round for it, and the crew's cleanliness
+takes it up, the cleaning row comes round for it, and the crew's surroundings
 follows it.
 
-### Cleanliness
+### Surroundings
 
 The fourth bar has no clock of its own. It follows the average of the tiles
-within three of where the Bim is standing — a seven by seven block — and how
-filthy the Bim itself is:
+within three of where the Bim is standing — a seven by seven block — lifted
+by whatever **comforts** are in reach, and how filthy the Bim itself is:
 
 ```
-average of 49 tiles ≤ 0   →  falls, a full bar in an hour at exactly 0
-                             and 11× that on a fouled tile (1 + |average|/10)
-the Bim itself filthy     →  falls, up to 5× the base rate at fully covered
-both clean                →  fills, four hours to full
+average of 49 tiles + lift ≤ 0   →  falls, a full bar in an hour at exactly 0
+                                    and 11× that on a fouled tile (1 + |average|/10)
+the Bim itself filthy            →  falls, up to 5× the base rate at fully covered
+both clean                       →  fills, four hours to full
 ```
+
+The **comforts** are the three parts that do nothing but make a deck nicer:
+a **small plant** (€150) lifts every tile within two of it by 2, a
+**picture** on a wall (€250) every tile within three by 3, and a **big
+plant** (€450) every tile within three by 5. The default ship comes with a
+picture beside the bridge door and a small plant by the bunk. The lifts add up where they
+overlap and stop at 10 — a clean tile's worth, so a corner full of plants
+is at best twice as good as a clean deck. The lift sits *on top of* the
+mess rather than in its place: a plant beside a spill makes the spill
+bearable, and a fouled tile is a fouled tile whatever stands next to it.
+The picture hangs from a wall exactly as a wall light does — turned to
+the wall beside it, refused with none, and warned about if the wall comes
+down later. Every station lays a few of its own: a big plant in the middle
+of the hub, a small one in the mess and the rec room, a picture in the
+quarters and the rec room.
 
 The radius cuts both ways, and it is worth being clear about which. A wider
 block reaches further — a mess three tiles off now counts for something — but it
@@ -2607,15 +2664,19 @@ hypothetical.
 ### Going without
 
 The bar is the comfortable end of it. What matters is a second clock, in days,
-that only a conversation resets — the same shape as malnutrition and as
-standing in the mess, where reaching nothing is the start of it and not the end.
+that **starts once the bar is empty** and that only a conversation resets —
+the same shape as malnutrition and as standing in the mess, where reaching
+nothing is the start of it and not the end. The clock stands while there is
+anything on the bar, and the first stage is six days of nothing, so a crew
+parted for a few days — one outside in a suit, one left on a station — does
+not come back brooding.
 
-| alone for | stage | what it does |
+| bar empty for | stage | what it does |
 | --- | --- | --- |
-| 3 days | **desocialized** | writes low entries in its diary every four hours, and everything it does takes **a tenth longer** |
-| 5 days | **badly desocialized** | that, and **sits down on the deck for ten minutes**, roughly every five hours, wherever it happens to be |
-| 7 days | **isolated** | that, and **hurts itself every four hours** — ten points of health a time |
-| 10 days | — | **3% an hour of giving up altogether**, and three points more for every further day |
+| 6 days | **desocialized** | writes low entries in its diary every four hours, and everything it does takes **a tenth longer** |
+| 8 days | **badly desocialized** | that, and **sits down on the deck for ten minutes**, roughly every five hours, wherever it happens to be |
+| 10 days | **isolated** | that, and **hurts itself every four hours** — ten points of health a time |
+| 13 days | — | **3% an hour of giving up altogether**, and three points more for every further day |
 
 The stages do not replace each other: an isolated Bim is still brooding and
 still sitting down, because each one is the one before it and worse.
@@ -2624,7 +2685,7 @@ The self-harm rate is set against the mending, not picked by eye. A well-fed Bim
 recovers half its health a day, so six bouts of ten is ten points a day of *net*
 damage — the three days between the isolated stage and the despair that follows
 it leave it worn down and alive, which is the shape the escalation wants. Make
-it much faster and nothing ever reaches the tenth day to give up on it.
+it much faster and nothing ever reaches the thirteenth day to give up on it.
 
 Two things that are easy to get wrong here and were:
 

@@ -4,7 +4,10 @@
 //! an icon a cell rather than a word, and this is where the icons are:
 //! one per `ResourceId`, drawn with egui's own shapes into whatever rect
 //! the cell has, small and flat with one accent colour each, so a row of
-//! them reads at a glance. A piece of armour is its resource's icon with a
+//! them reads at a glance. The lists show the same picture beside the
+//! word — the trade window's rows and the Inventory tab's, through
+//! [`resource_cell`] — so a thing looks the same wherever it is met. A
+//! piece of armour is its resource's icon with a
 //! crack across it when it is broken; the weapon in hand is its resource's.
 //!
 //! Nothing here is text: an icon that needed a glyph would need the font
@@ -53,6 +56,11 @@ const BLADE_GLOW: Color32 = Color32::from_rgba_premultiplied(0x1c, 0x3d, 0x40, 0
 const KEY: Color32 = Color32::from_rgb(0x2a, 0x2e, 0x38);
 const KEY_EDGE: Color32 = Color32::from_rgb(0xcc, 0xa8, 0x4c);
 const KEY_TRACE: Color32 = Color32::from_rgb(0xff, 0xdb, 0x66);
+/// The galley's own things, which are no resource: a bowl of stew and a
+/// plate, for the Inventory tab's last rows.
+const BOWL: Color32 = Color32::from_rgb(0x9c, 0x6a, 0x48);
+const STEW: Color32 = Color32::from_rgb(0xc8, 0x78, 0x3c);
+const PLATE: Color32 = Color32::from_rgb(0xe8, 0xec, 0xf0);
 /// The crack across a broken piece: the same light stroke the deck draws.
 const CRACK: Color32 = Color32::from_rgb(0xe8, 0xf0, 0xf4);
 /// A darker edge on a light shape, so it does not vanish on a pale cell.
@@ -95,13 +103,19 @@ pub fn armour(painter: &egui::Painter, rect: Rect, kind: ArmourKind, broken: boo
     }
 }
 
-/// One resource's icon, into `rect`.
+/// One resource's icon, into `rect`: square, in the middle of it.
 pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
-    let b = Box_::new(rect);
+    let mut s = Sketch::default();
+    draw_resource(&mut s, &Box_::new(rect), id);
+    painter.extend(s.shapes);
+}
+
+/// One resource's icon, drawn in fractions of a box.
+fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
     match id {
         ResourceId::Ore => {
             // A lump, and a fleck of the iron in it.
-            painter.add(egui::Shape::convex_polygon(
+            s.add(egui::Shape::convex_polygon(
                 b.poly(&[
                     (0.18, 0.62),
                     (0.30, 0.30),
@@ -113,23 +127,23 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
                 ORE,
                 Stroke::new(b.px(0.04), SHADE),
             ));
-            painter.circle_filled(b.at(0.58, 0.48), b.px(0.10), METAL);
+            s.circle_filled(b.at(0.58, 0.48), b.px(0.10), METAL);
         }
         ResourceId::Metal => {
             // A bar, with the light along its top edge.
-            painter.rect_filled(b.rect(0.12, 0.34, 0.88, 0.66), b.px(0.06), METAL);
-            painter.rect_filled(b.rect(0.16, 0.37, 0.84, 0.44), b.px(0.03), SHINE);
+            s.rect_filled(b.rect(0.12, 0.34, 0.88, 0.66), b.px(0.06), METAL);
+            s.rect_filled(b.rect(0.16, 0.37, 0.84, 0.44), b.px(0.03), SHINE);
         }
         ResourceId::Components => {
             // Three chips.
             for (x, y) in [(0.22, 0.22), (0.54, 0.22), (0.38, 0.54)] {
-                painter.rect_filled(b.rect(x, y, x + 0.26, y + 0.26), b.px(0.03), COMPONENTS);
-                painter.circle_filled(b.at(x + 0.13, y + 0.13), b.px(0.04), SHADE);
+                s.rect_filled(b.rect(x, y, x + 0.26, y + 0.26), b.px(0.03), COMPONENTS);
+                s.circle_filled(b.at(x + 0.13, y + 0.13), b.px(0.04), SHADE);
             }
         }
         ResourceId::Vegetable => {
             // A leaf on a stem.
-            painter.add(egui::Shape::convex_polygon(
+            s.add(egui::Shape::convex_polygon(
                 b.poly(&[
                     (0.50, 0.14),
                     (0.84, 0.40),
@@ -140,16 +154,16 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
                 VEG,
                 Stroke::NONE,
             ));
-            painter.line_segment(
+            s.line_segment(
                 [b.at(0.50, 0.30), b.at(0.44, 0.88)],
                 Stroke::new(b.px(0.06), SHADE),
             );
         }
         ResourceId::Tofu => {
             // A block, its top face lit.
-            painter.rect_filled(b.rect(0.20, 0.30, 0.80, 0.82), b.px(0.04), TOFU);
-            painter.rect_filled(b.rect(0.20, 0.30, 0.80, 0.44), b.px(0.04), SHINE);
-            painter.rect_stroke(
+            s.rect_filled(b.rect(0.20, 0.30, 0.80, 0.82), b.px(0.04), TOFU);
+            s.rect_filled(b.rect(0.20, 0.30, 0.80, 0.44), b.px(0.04), SHINE);
+            s.rect_stroke(
                 b.rect(0.20, 0.30, 0.80, 0.82),
                 b.px(0.04),
                 Stroke::new(b.px(0.03), SHADE),
@@ -158,7 +172,7 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
         }
         ResourceId::Galvum => {
             // A crystal, one facet lit.
-            painter.add(egui::Shape::convex_polygon(
+            s.add(egui::Shape::convex_polygon(
                 b.poly(&[
                     (0.50, 0.10),
                     (0.80, 0.42),
@@ -169,7 +183,7 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
                 GALVUM,
                 Stroke::NONE,
             ));
-            painter.add(egui::Shape::convex_polygon(
+            s.add(egui::Shape::convex_polygon(
                 b.poly(&[(0.50, 0.10), (0.62, 0.42), (0.50, 0.90), (0.38, 0.42)]),
                 SHINE,
                 Stroke::NONE,
@@ -177,33 +191,33 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
         }
         ResourceId::Emitter => {
             // A lens: a ring, and the point of light in it.
-            painter.circle_stroke(b.at(0.5, 0.5), b.px(0.30), Stroke::new(b.px(0.08), EMITTER));
-            painter.circle_filled(b.at(0.5, 0.5), b.px(0.10), EMITTER);
+            s.circle_stroke(b.at(0.5, 0.5), b.px(0.30), Stroke::new(b.px(0.08), EMITTER));
+            s.circle_filled(b.at(0.5, 0.5), b.px(0.10), EMITTER);
         }
         ResourceId::Suit => {
             // A helmet over a body.
-            painter.circle_filled(b.at(0.5, 0.30), b.px(0.18), SUIT);
-            painter.circle_filled(b.at(0.5, 0.30), b.px(0.10), SHADE);
-            painter.rect_filled(b.rect(0.28, 0.48, 0.72, 0.88), b.px(0.08), SUIT);
+            s.circle_filled(b.at(0.5, 0.30), b.px(0.18), SUIT);
+            s.circle_filled(b.at(0.5, 0.30), b.px(0.10), SHADE);
+            s.rect_filled(b.rect(0.28, 0.48, 0.72, 0.88), b.px(0.08), SUIT);
         }
         ResourceId::Handgun => {
             // A pistol: the barrel, the grip, and the emitter at the
             // muzzle.
-            painter.rect_filled(b.rect(0.14, 0.34, 0.86, 0.52), b.px(0.04), GUN);
-            painter.rect_filled(b.rect(0.30, 0.50, 0.50, 0.84), b.px(0.04), GUN);
-            painter.circle_filled(b.at(0.82, 0.43), b.px(0.07), GUN_LIGHT);
+            s.rect_filled(b.rect(0.14, 0.34, 0.86, 0.52), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.30, 0.50, 0.50, 0.84), b.px(0.04), GUN);
+            s.circle_filled(b.at(0.82, 0.43), b.px(0.07), GUN_LIGHT);
         }
         ResourceId::Vest => {
-            vest(painter, &b, VEST, SHADE);
+            vest(s, b, VEST, SHADE);
         }
         ResourceId::Medkit => {
             // A case with a cross on it.
-            painter.rect_filled(b.rect(0.14, 0.26, 0.86, 0.82), b.px(0.06), MEDKIT);
-            painter.rect_filled(b.rect(0.42, 0.36, 0.58, 0.72), b.px(0.02), CROSS);
-            painter.rect_filled(b.rect(0.24, 0.46, 0.76, 0.62), b.px(0.02), CROSS);
+            s.rect_filled(b.rect(0.14, 0.26, 0.86, 0.82), b.px(0.06), MEDKIT);
+            s.rect_filled(b.rect(0.42, 0.36, 0.58, 0.72), b.px(0.02), CROSS);
+            s.rect_filled(b.rect(0.24, 0.46, 0.76, 0.62), b.px(0.02), CROSS);
         }
         ResourceId::Rock => {
-            painter.add(egui::Shape::convex_polygon(
+            s.add(egui::Shape::convex_polygon(
                 b.poly(&[
                     (0.16, 0.66),
                     (0.26, 0.34),
@@ -219,22 +233,22 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
         ResourceId::Fibre => {
             // A bundle of stalks, tied.
             for x in [0.34, 0.44, 0.54, 0.64] {
-                painter.line_segment(
+                s.line_segment(
                     [b.at(x, 0.14), b.at(x, 0.86)],
                     Stroke::new(b.px(0.06), FIBRE),
                 );
             }
-            painter.rect_filled(b.rect(0.26, 0.44, 0.74, 0.56), b.px(0.02), SHADE);
+            s.rect_filled(b.rect(0.26, 0.44, 0.74, 0.56), b.px(0.02), SHADE);
         }
         ResourceId::Bandage => {
             // A roll, seen end on beside its tail.
-            painter.rect_filled(b.rect(0.16, 0.40, 0.84, 0.60), b.px(0.10), BANDAGE);
-            painter.circle_filled(b.at(0.30, 0.50), b.px(0.16), BANDAGE);
-            painter.circle_stroke(b.at(0.30, 0.50), b.px(0.08), Stroke::new(b.px(0.03), SHADE));
+            s.rect_filled(b.rect(0.16, 0.40, 0.84, 0.60), b.px(0.10), BANDAGE);
+            s.circle_filled(b.at(0.30, 0.50), b.px(0.16), BANDAGE);
+            s.circle_stroke(b.at(0.30, 0.50), b.px(0.08), Stroke::new(b.px(0.03), SHADE));
         }
         ResourceId::Helm => {
             // A cap: the dome and the brim.
-            painter.add(egui::Shape::convex_polygon(
+            s.add(egui::Shape::convex_polygon(
                 b.poly(&[
                     (0.18, 0.62),
                     (0.22, 0.40),
@@ -246,17 +260,17 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
                 HELM,
                 Stroke::NONE,
             ));
-            painter.rect_filled(b.rect(0.12, 0.60, 0.88, 0.70), b.px(0.03), HELM);
-            painter.rect_filled(b.rect(0.12, 0.60, 0.88, 0.70), b.px(0.03), SHADE);
+            s.rect_filled(b.rect(0.12, 0.60, 0.88, 0.70), b.px(0.03), HELM);
+            s.rect_filled(b.rect(0.12, 0.60, 0.88, 0.70), b.px(0.03), SHADE);
         }
         ResourceId::Kevlar => {
-            vest(painter, &b, KEVLAR, KEVLAR_YOKE);
+            vest(s, b, KEVLAR, KEVLAR_YOKE);
         }
         ResourceId::LegGuard => {
             // Two guards, a band across each shin.
             for x in [0.22, 0.56] {
-                painter.rect_filled(b.rect(x, 0.16, x + 0.22, 0.86), b.px(0.06), LEGS);
-                painter.rect_filled(b.rect(x, 0.42, x + 0.22, 0.52), b.px(0.02), LEGS_BAND);
+                s.rect_filled(b.rect(x, 0.16, x + 0.22, 0.86), b.px(0.06), LEGS);
+                s.rect_filled(b.rect(x, 0.42, x + 0.22, 0.52), b.px(0.02), LEGS_BAND);
             }
         }
         // The three long guns all face right like the handgun, the muzzle
@@ -265,26 +279,26 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
         // stock and fore-end, the rifle's magazine under a short barrel,
         // the sniper's length and the scope block on top.
         ResourceId::Shotgun => {
-            painter.rect_filled(b.rect(0.06, 0.48, 0.30, 0.66), b.px(0.04), STOCK);
-            painter.rect_filled(b.rect(0.24, 0.38, 0.92, 0.54), b.px(0.03), GUN);
-            painter.rect_filled(b.rect(0.44, 0.52, 0.66, 0.62), b.px(0.03), STOCK);
-            painter.rect_filled(b.rect(0.32, 0.52, 0.42, 0.72), b.px(0.03), GUN);
-            painter.circle_filled(b.at(0.90, 0.46), b.px(0.07), GUN_LIGHT);
+            s.rect_filled(b.rect(0.06, 0.48, 0.30, 0.66), b.px(0.04), STOCK);
+            s.rect_filled(b.rect(0.24, 0.38, 0.92, 0.54), b.px(0.03), GUN);
+            s.rect_filled(b.rect(0.44, 0.52, 0.66, 0.62), b.px(0.03), STOCK);
+            s.rect_filled(b.rect(0.32, 0.52, 0.42, 0.72), b.px(0.03), GUN);
+            s.circle_filled(b.at(0.90, 0.46), b.px(0.07), GUN_LIGHT);
         }
         ResourceId::AutoRifle => {
-            painter.rect_filled(b.rect(0.08, 0.46, 0.26, 0.62), b.px(0.03), GUN);
-            painter.rect_filled(b.rect(0.20, 0.40, 0.88, 0.52), b.px(0.03), GUN);
-            painter.rect_filled(b.rect(0.30, 0.50, 0.40, 0.70), b.px(0.03), GUN);
-            painter.rect_filled(b.rect(0.50, 0.50, 0.62, 0.78), b.px(0.03), SCOPE);
-            painter.circle_filled(b.at(0.88, 0.46), b.px(0.06), GUN_LIGHT);
+            s.rect_filled(b.rect(0.08, 0.46, 0.26, 0.62), b.px(0.03), GUN);
+            s.rect_filled(b.rect(0.20, 0.40, 0.88, 0.52), b.px(0.03), GUN);
+            s.rect_filled(b.rect(0.30, 0.50, 0.40, 0.70), b.px(0.03), GUN);
+            s.rect_filled(b.rect(0.50, 0.50, 0.62, 0.78), b.px(0.03), SCOPE);
+            s.circle_filled(b.at(0.88, 0.46), b.px(0.06), GUN_LIGHT);
         }
         ResourceId::SniperRifle => {
-            painter.rect_filled(b.rect(0.04, 0.50, 0.24, 0.66), b.px(0.04), STOCK);
-            painter.rect_filled(b.rect(0.18, 0.44, 0.96, 0.54), b.px(0.02), GUN);
-            painter.rect_filled(b.rect(0.34, 0.30, 0.62, 0.42), b.px(0.03), SCOPE);
-            painter.circle_filled(b.at(0.36, 0.36), b.px(0.05), GUN_LIGHT);
-            painter.rect_filled(b.rect(0.28, 0.52, 0.38, 0.72), b.px(0.03), GUN);
-            painter.circle_filled(b.at(0.94, 0.49), b.px(0.05), GUN_LIGHT);
+            s.rect_filled(b.rect(0.04, 0.50, 0.24, 0.66), b.px(0.04), STOCK);
+            s.rect_filled(b.rect(0.18, 0.44, 0.96, 0.54), b.px(0.02), GUN);
+            s.rect_filled(b.rect(0.34, 0.30, 0.62, 0.42), b.px(0.03), SCOPE);
+            s.circle_filled(b.at(0.36, 0.36), b.px(0.05), GUN_LIGHT);
+            s.rect_filled(b.rect(0.28, 0.52, 0.38, 0.72), b.px(0.03), GUN);
+            s.circle_filled(b.at(0.94, 0.49), b.px(0.05), GUN_LIGHT);
         }
         // The schword: a hilt at the bottom left and the blade up to the
         // right, a white core between two cyan strokes — the wide faint
@@ -292,14 +306,14 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
         // gets to the deck's glow.
         ResourceId::Schword => {
             let (foot, tip) = (b.at(0.32, 0.66), b.at(0.84, 0.14));
-            painter.line_segment([foot, tip], Stroke::new(b.px(0.22), BLADE_GLOW));
-            painter.line_segment([foot, tip], Stroke::new(b.px(0.11), BLADE_EDGE));
-            painter.line_segment([foot, tip], Stroke::new(b.px(0.05), BLADE_CORE));
-            painter.line_segment(
+            s.line_segment([foot, tip], Stroke::new(b.px(0.22), BLADE_GLOW));
+            s.line_segment([foot, tip], Stroke::new(b.px(0.11), BLADE_EDGE));
+            s.line_segment([foot, tip], Stroke::new(b.px(0.05), BLADE_CORE));
+            s.line_segment(
                 [b.at(0.18, 0.60), b.at(0.40, 0.82)],
                 Stroke::new(b.px(0.07), HILT),
             );
-            painter.line_segment(
+            s.line_segment(
                 [b.at(0.30, 0.68), b.at(0.14, 0.86)],
                 Stroke::new(b.px(0.12), HILT),
             );
@@ -309,9 +323,9 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
         // to the cell's height, so in a two-cell slot it is a tall key
         // and in a one-cell one a short one.
         ResourceId::ResearchKey => {
-            painter.rect_filled(b.rect(0.28, 0.08, 0.72, 0.92), b.px(0.04), KEY_EDGE);
-            painter.rect_filled(b.rect(0.33, 0.13, 0.67, 0.87), b.px(0.03), KEY);
-            painter.rect_filled(b.rect(0.44, 0.08, 0.56, 0.18), 0.0, KEY);
+            s.rect_filled(b.rect(0.28, 0.08, 0.72, 0.92), b.px(0.04), KEY_EDGE);
+            s.rect_filled(b.rect(0.33, 0.13, 0.67, 0.87), b.px(0.03), KEY);
+            s.rect_filled(b.rect(0.44, 0.08, 0.56, 0.18), 0.0, KEY);
             let trace = [
                 b.at(0.50, 0.24),
                 b.at(0.40, 0.38),
@@ -320,17 +334,17 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
                 b.at(0.50, 0.80),
             ];
             for pair in trace.windows(2) {
-                painter.line_segment([pair[0], pair[1]], Stroke::new(b.px(0.05), KEY_TRACE));
+                s.line_segment([pair[0], pair[1]], Stroke::new(b.px(0.05), KEY_TRACE));
             }
-            painter.circle_filled(b.at(0.50, 0.80), b.px(0.05), KEY_TRACE);
+            s.circle_filled(b.at(0.50, 0.80), b.px(0.05), KEY_TRACE);
         }
     }
 }
 
 /// A vest: the body of it with the neck cut out, and the yoke across the
 /// shoulders in the second colour.
-fn vest(painter: &egui::Painter, b: &Box_, body: Color32, yoke: Color32) {
-    painter.add(egui::Shape::convex_polygon(
+fn vest(s: &mut Sketch, b: &Box_, body: Color32, yoke: Color32) {
+    s.add(egui::Shape::convex_polygon(
         b.poly(&[
             (0.20, 0.20),
             (0.36, 0.20),
@@ -343,8 +357,60 @@ fn vest(painter: &egui::Painter, b: &Box_, body: Color32, yoke: Color32) {
         body,
         Stroke::NONE,
     ));
-    painter.rect_filled(b.rect(0.20, 0.20, 0.36, 0.40), b.px(0.02), yoke);
-    painter.rect_filled(b.rect(0.64, 0.20, 0.80, 0.40), b.px(0.02), yoke);
+    s.rect_filled(b.rect(0.20, 0.20, 0.36, 0.40), b.px(0.02), yoke);
+    s.rect_filled(b.rect(0.64, 0.20, 0.80, 0.40), b.px(0.02), yoke);
+}
+
+/// The side of an icon drawn inline in a row of text, in points: a little
+/// over a line of the default type, so it sits level with the word beside
+/// it rather than pushing the row taller.
+pub const INLINE: f32 = 16.0;
+
+/// A resource's icon as one cell of a row: allocated inline, `INLINE`
+/// square, drawn where it lands. For the lists — a row is the icon, then
+/// the word — so a resource is met with the same picture in a list as in
+/// a grid.
+pub fn resource_cell(ui: &mut egui::Ui, id: ResourceId) -> egui::Response {
+    cell(ui, |painter, rect| resource(painter, rect, id))
+}
+
+/// Any picture as one cell of a row.
+pub fn cell(ui: &mut egui::Ui, paint: impl FnOnce(&egui::Painter, Rect)) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(INLINE, INLINE), egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        paint(ui.painter(), rect);
+    }
+    response
+}
+
+/// A bowl of stew: the bowl, seen a little from above, and the stew in it
+/// with a piece of each thing it is made of.
+pub fn stew(painter: &egui::Painter, rect: Rect) {
+    let b = Box_::new(rect);
+    painter.add(egui::Shape::convex_polygon(
+        b.poly(&[(0.12, 0.46), (0.88, 0.46), (0.74, 0.84), (0.26, 0.84)]),
+        BOWL,
+        Stroke::new(b.px(0.04), SHADE),
+    ));
+    painter.add(egui::Shape::ellipse_filled(
+        b.at(0.50, 0.46),
+        vec2(b.px(0.38), b.px(0.13)),
+        STEW,
+    ));
+    painter.circle_filled(b.at(0.40, 0.44), b.px(0.05), VEG);
+    painter.circle_filled(b.at(0.60, 0.48), b.px(0.05), TOFU);
+}
+
+/// A plate: a disc with the rim marked.
+pub fn plate(painter: &egui::Painter, rect: Rect) {
+    let b = Box_::new(rect);
+    painter.circle(
+        b.at(0.50, 0.50),
+        b.px(0.38),
+        PLATE,
+        Stroke::new(b.px(0.04), SHADE),
+    );
+    painter.circle_stroke(b.at(0.50, 0.50), b.px(0.24), Stroke::new(b.px(0.03), SHADE));
 }
 
 /// A thing the app has no picture of: a resource code from a newer rules
@@ -357,6 +423,211 @@ fn unknown(painter: &egui::Painter, rect: Rect) {
         Stroke::new(b.px(0.06), theme::MUTED),
         egui::StrokeKind::Inside,
     );
+}
+
+// --- a thing laid on the lockers' grid ------------------------------------------
+
+/// A thing drawn over its footprint in the armoury: `rect` is the cells
+/// it covers, as laid. A gun lies along its footprint — the long guns
+/// have a drawing of their own for it, [`draw_wide`], since the square
+/// one stretched seven times over is a smear — and everything else sits
+/// square in the middle of its footprint the way it sits in a cell.
+/// `turned` draws the thing a quarter round: the picture is made for the
+/// footprint the other way up and turned with it, so a rifle stood on
+/// end is a rifle standing, muzzle up.
+pub fn laid(painter: &egui::Painter, rect: Rect, item: Item, turned: bool) {
+    let upright = if turned {
+        Rect::from_center_size(rect.center(), vec2(rect.height(), rect.width()))
+    } else {
+        rect
+    };
+    let mut s = Sketch::default();
+    let id = match item {
+        Item::Armour(piece) => ResourceId::ALL.get(piece.kind.resource() as usize).copied(),
+        Item::Weapon(weapon) => ResourceId::ALL
+            .get(weapon.kind.resource() as usize)
+            .copied(),
+        Item::Stack(code) => ResourceId::ALL.get(code as usize).copied(),
+        Item::Key(1) => Some(ResourceId::ResearchKey),
+        Item::Key(_) => None,
+    };
+    match id {
+        Some(id) if upright.width() >= 1.5 * upright.height() && is_long(id) => {
+            draw_wide(&mut s, &Box_::stretched(upright), id);
+        }
+        Some(id) => draw_resource(&mut s, &Box_::new(upright), id),
+        None => {
+            let b = Box_::new(upright);
+            s.rect_stroke(
+                b.rect(0.2, 0.2, 0.8, 0.8),
+                b.px(0.05),
+                Stroke::new(b.px(0.06), theme::MUTED),
+                egui::StrokeKind::Inside,
+            );
+        }
+    }
+    if let Item::Armour(piece) = item
+        && piece.broken()
+    {
+        let b = Box_::new(upright);
+        s.line_segment(
+            [b.at(0.22, 0.78), b.at(0.78, 0.22)],
+            Stroke::new(b.px(0.08), CRACK),
+        );
+    }
+    if turned {
+        s.turn(rect.center());
+    }
+    painter.extend(s.shapes);
+}
+
+/// The things with a drawing made for a footprint wider than it is tall.
+fn is_long(id: ResourceId) -> bool {
+    matches!(
+        id,
+        ResourceId::Handgun
+            | ResourceId::Shotgun
+            | ResourceId::AutoRifle
+            | ResourceId::SniperRifle
+            | ResourceId::Schword
+    )
+}
+
+/// A long gun lying along its footprint: the muzzle to the right, lit,
+/// the way the square icons face, and the parts the deck tells them
+/// apart by laid out along the length rather than crowded into a square.
+/// `b` is the whole footprint, so `x` runs the length and `y` the height;
+/// widths of strokes are in `px`, which is the short side.
+fn draw_wide(s: &mut Sketch, b: &Box_, id: ResourceId) {
+    match id {
+        ResourceId::Handgun => {
+            s.rect_filled(b.rect(0.10, 0.28, 0.90, 0.50), b.px(0.06), GUN);
+            s.rect_filled(b.rect(0.22, 0.46, 0.40, 0.86), b.px(0.06), GUN);
+            s.circle_filled(b.at(0.88, 0.39), b.px(0.09), GUN_LIGHT);
+        }
+        ResourceId::Shotgun => {
+            s.rect_filled(b.rect(0.03, 0.40, 0.26, 0.70), b.px(0.06), STOCK);
+            s.rect_filled(b.rect(0.20, 0.30, 0.95, 0.52), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.44, 0.50, 0.68, 0.64), b.px(0.04), STOCK);
+            s.rect_filled(b.rect(0.28, 0.50, 0.38, 0.84), b.px(0.04), GUN);
+            s.circle_filled(b.at(0.94, 0.41), b.px(0.09), GUN_LIGHT);
+        }
+        // The one-row guns are a cell tall, so their parts take a good
+        // half of the height each or they are a hair.
+        ResourceId::AutoRifle => {
+            s.rect_filled(b.rect(0.02, 0.22, 0.20, 0.72), b.px(0.08), GUN);
+            s.rect_filled(b.rect(0.16, 0.28, 0.96, 0.58), b.px(0.06), GUN);
+            s.rect_filled(b.rect(0.26, 0.56, 0.35, 0.94), b.px(0.05), GUN);
+            s.rect_filled(b.rect(0.42, 0.56, 0.53, 0.98), b.px(0.05), SCOPE);
+            s.circle_filled(b.at(0.95, 0.43), b.px(0.10), GUN_LIGHT);
+        }
+        ResourceId::SniperRifle => {
+            s.rect_filled(b.rect(0.01, 0.30, 0.18, 0.78), b.px(0.08), STOCK);
+            s.rect_filled(b.rect(0.14, 0.36, 0.97, 0.62), b.px(0.05), GUN);
+            s.rect_filled(b.rect(0.30, 0.04, 0.52, 0.34), b.px(0.05), SCOPE);
+            s.circle_filled(b.at(0.32, 0.19), b.px(0.09), GUN_LIGHT);
+            s.rect_filled(b.rect(0.22, 0.60, 0.30, 0.96), b.px(0.05), GUN);
+            s.circle_filled(b.at(0.96, 0.49), b.px(0.09), GUN_LIGHT);
+        }
+        ResourceId::Schword => {
+            let (foot, tip) = (b.at(0.26, 0.50), b.at(0.96, 0.50));
+            s.line_segment([foot, tip], Stroke::new(b.px(0.62), BLADE_GLOW));
+            s.line_segment([foot, tip], Stroke::new(b.px(0.32), BLADE_EDGE));
+            s.line_segment([foot, tip], Stroke::new(b.px(0.14), BLADE_CORE));
+            s.line_segment(
+                [b.at(0.24, 0.12), b.at(0.24, 0.88)],
+                Stroke::new(b.px(0.16), HILT),
+            );
+            s.line_segment(
+                [b.at(0.04, 0.50), b.at(0.22, 0.50)],
+                Stroke::new(b.px(0.30), HILT),
+            );
+        }
+        _ => draw_resource(s, b, id),
+    }
+}
+
+/// The shapes of an icon, gathered before they go to the painter, so a
+/// picture can be turned a quarter round on the way — the painter takes
+/// shapes and cannot turn one. The methods are the painter's, so a
+/// drawing reads the same whichever it is given.
+#[derive(Default)]
+struct Sketch {
+    shapes: Vec<egui::Shape>,
+}
+
+impl Sketch {
+    fn add(&mut self, shape: egui::Shape) {
+        self.shapes.push(shape);
+    }
+
+    fn rect_filled(&mut self, rect: Rect, rounding: f32, fill: Color32) {
+        self.add(egui::Shape::rect_filled(rect, rounding, fill));
+    }
+
+    fn rect_stroke(&mut self, rect: Rect, rounding: f32, stroke: Stroke, kind: egui::StrokeKind) {
+        self.add(egui::Shape::rect_stroke(rect, rounding, stroke, kind));
+    }
+
+    fn circle_filled(&mut self, center: Pos2, radius: f32, fill: Color32) {
+        self.add(egui::Shape::circle_filled(center, radius, fill));
+    }
+
+    fn circle_stroke(&mut self, center: Pos2, radius: f32, stroke: Stroke) {
+        self.add(egui::Shape::circle_stroke(center, radius, stroke));
+    }
+
+    fn line_segment(&mut self, points: [Pos2; 2], stroke: Stroke) {
+        self.add(egui::Shape::line_segment(points, stroke));
+    }
+
+    /// Every shape a quarter turn clockwise about `origin`. A rect turned
+    /// a quarter is still a rect, so its rounding is kept; the icons use
+    /// nothing else that has a direction of its own.
+    fn turn(&mut self, origin: Pos2) {
+        for shape in &mut self.shapes {
+            turn_shape(shape, origin);
+        }
+    }
+}
+
+/// A point a quarter turn clockwise about `origin`.
+fn turn_point(p: Pos2, origin: Pos2) -> Pos2 {
+    let d = p - origin;
+    pos2(origin.x - d.y, origin.y + d.x)
+}
+
+fn turn_shape(shape: &mut egui::Shape, origin: Pos2) {
+    use egui::Shape;
+    match shape {
+        Shape::Rect(r) => {
+            r.rect = Rect::from_two_pos(
+                turn_point(r.rect.min, origin),
+                turn_point(r.rect.max, origin),
+            );
+        }
+        Shape::Circle(c) => c.center = turn_point(c.center, origin),
+        Shape::LineSegment { points, .. } => {
+            for p in points.iter_mut() {
+                *p = turn_point(*p, origin);
+            }
+        }
+        Shape::Path(path) => {
+            for p in path.points.iter_mut() {
+                *p = turn_point(*p, origin);
+            }
+        }
+        Shape::Ellipse(e) => {
+            e.center = turn_point(e.center, origin);
+            e.radius = vec2(e.radius.y, e.radius.x);
+        }
+        Shape::Vec(shapes) => {
+            for shape in shapes.iter_mut() {
+                turn_shape(shape, origin);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// The cell's rect as a unit square, so every icon is drawn in fractions
@@ -374,6 +645,12 @@ impl Box_ {
         }
     }
 
+    /// The whole rect, whatever its shape: `x` in fractions of its width
+    /// and `y` of its height, for a drawing made for that shape.
+    fn stretched(rect: Rect) -> Box_ {
+        Box_ { rect }
+    }
+
     fn at(&self, x: f32, y: f32) -> Pos2 {
         pos2(
             self.rect.min.x + self.rect.width() * x,
@@ -385,8 +662,10 @@ impl Box_ {
         Rect::from_min_max(self.at(x0, y0), self.at(x1, y1))
     }
 
+    /// A length in fractions of the short side, so a stroke is as thick
+    /// in a long box as in a square one.
     fn px(&self, fraction: f32) -> f32 {
-        self.rect.width() * fraction
+        self.rect.width().min(self.rect.height()) * fraction
     }
 
     fn poly(&self, points: &[(f32, f32)]) -> Vec<Pos2> {
@@ -427,5 +706,22 @@ mod tests {
         icon(&painter, rect, Item::Stack(u32::MAX));
         icon(&painter, rect, Item::Key(1));
         icon(&painter, rect, Item::Key(9));
+        stew(&painter, rect);
+        plate(&painter, rect);
+        // And laid over a footprint, either way round: the long guns on
+        // their own drawings, the rest square in the middle.
+        let long = Rect::from_min_size(pos2(10.0, 10.0), vec2(240.0, 24.0));
+        let tall = Rect::from_min_size(pos2(10.0, 10.0), vec2(24.0, 240.0));
+        for &id in ResourceId::ALL.iter() {
+            laid(&painter, long, Item::Stack(id as u32), false);
+            laid(&painter, tall, Item::Stack(id as u32), true);
+            laid(&painter, rect, Item::Stack(id as u32), false);
+        }
+        for &kind in ArmourKind::ALL.iter() {
+            let mut piece = Piece::new(1, kind, bims::combat::Tier::One);
+            piece.health = 0.0;
+            laid(&painter, long, Item::Armour(piece), true);
+        }
+        laid(&painter, long, Item::Key(9), true);
     }
 }

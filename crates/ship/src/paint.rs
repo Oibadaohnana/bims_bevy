@@ -44,7 +44,7 @@ const FLAME: Color = Color::rgb(0.30, 0.66, 1.0);
 /// Index 0 is the deck and index 15 is the frame; both are drawn as tiles
 /// rather than as objects, and both are in the table anyway so the palette
 /// buttons for them have swatches.
-pub static PART_COLORS: [Color; 42] = [
+pub static PART_COLORS: [Color; 45] = [
     Color::rgb(0.13, 0.15, 0.18), // Floor
     Color::rgb(0.30, 0.34, 0.40), // Wall
     Color::rgb(0.38, 0.86, 0.95), // Door
@@ -85,8 +85,11 @@ pub static PART_COLORS: [Color; 42] = [
     Color::rgb(0.30, 0.52, 0.62), // ResearchDesk — a console's blue-grey
     Color::rgb(0.55, 0.78, 0.92), // FusionReactor — the plasma's blue-white
     Color::rgb(0.62, 0.42, 0.86), // Hyperdrive — a violet, the far end of the exhaust
-    Color::rgb(1.0, 0.92, 0.70),  // WallLight — lamplight
+    Color::rgb(0.74, 0.88, 1.0),  // WallLight — a tube's blue-white
     Color::rgb(0.96, 0.90, 0.72), // StandingLight — lamplight, a shade cooler
+    Color::rgb(0.42, 0.66, 0.36), // SmallPlant — leaf
+    Color::rgb(0.30, 0.56, 0.30), // BigPlant — leaf, deeper
+    Color::rgb(0.72, 0.58, 0.32), // Picture — the frame's brass
 ];
 
 /// The frame, drawn as the tile under everything. Dimmer than the deck and
@@ -574,11 +577,30 @@ fn ghost(editor: &Editor, list: &mut DrawList) {
     // Which way it is turned, and where whoever uses it will stand. A part
     // used from any side marks only the ring tiles a body could stand on,
     // or an engine against the hull would be ringed with spots in the wall.
+    let turn = editor.ghost_turn();
     if ok {
-        facing_bar(editor.tool, editor.ghost, (x0, y0, x1, y1), list);
+        facing_bar(editor.tool, turn, (x0, y0, x1, y1), list);
+        // A hung part's ghost says which wall it would hang from: a bar of
+        // lamplight along that edge for a wall light, of the frame's brass
+        // for a picture, at the turn it will really go down at.
+        if shipdesign::hangs_on_wall(editor.tool) {
+            let thick = 6.0;
+            let (ax, ay, bx, by) = match shipdesign::wall_light_back(turn) {
+                (1, _) => (x1 - thick, y0, x1, y1),
+                (-1, _) => (x0, y0, x0 + thick, y1),
+                (_, 1) => (x0, y1 - thick, x1, y1),
+                _ => (x0, y0, x1, y0 + thick),
+            };
+            let bar = if editor.tool == PartKind::WallLight {
+                crate::fittings::WALL_LAMP
+            } else {
+                crate::fittings::FRAME_BRASS
+            };
+            list.box_between(ax, ay, bx, by, 0.0, bar);
+        }
         let grid = editor.design.grid();
         let any = shipdesign::parts::any_side_will_do(editor.tool);
-        for (dx, dy) in use_spots(editor.tool, editor.ghost) {
+        for (dx, dy) in use_spots(editor.tool, turn) {
             let tile = (hover.0 + dx, hover.1 + dy);
             if any && (grid.get(Layer::Floor, tile) == 0 || grid.get(Layer::Object, tile) != 0) {
                 continue;

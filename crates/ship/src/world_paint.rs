@@ -273,7 +273,7 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     starfield(game, list);
     local_node(game, list);
     list.turn_from(out_there, game.camera_turn() as f32);
-    stations(game, list);
+    let visitors = stations(game, list);
 
     // The ship, drawn in its own frame — design units about the design's
     // origin, the grid it was laid out in — and turned with it at the end.
@@ -311,6 +311,7 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     sites(game, &grid, &mut ship);
     blueprint(game, &grid, &mut ship);
     hull::lights(&mut ship, design, &grid, game.frame);
+    lamp_faces(&mut ship, game, design, None);
     // The reactors' glow over their pictures: brighter the harder they
     // work, which under a burn is the engines drawing on them.
     let load = game.world.power().load() as f32;
@@ -360,6 +361,10 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     let offset = game.world.aboard.offset;
     let room_centre = (centre.0 + offset.x as f32, centre.1 + offset.y as f32);
     list.append_turned(game.world.aboard.room.shapes(), room_centre, turn);
+    // The station's people, over the ship's picture: one that has come
+    // through the passage is standing on this deck, and one that has not
+    // is on the station's, where nothing of the ship's is drawn.
+    list.append(visitors.shapes());
     // The electricity overlay, over the lot — the room's fixtures included,
     // since a galley that draws power is rung as much as a reactor is — in
     // the ship's frame and turned with it like the hull.
@@ -506,6 +511,24 @@ fn faded_part(
     }
     let _ = design;
     list.append_faded(picture.shapes(), alpha);
+}
+
+/// The lamps' glass as the fight left it, over the hull's picture: every
+/// light part of `design` asked of the world (`World::lamp_look`) — the
+/// ship's own at `station` `None`, a station's by its id — and drawn
+/// dark, cracked or veiled where it is out or flickering
+/// (`fittings::lamp_face`). A lamp whole and steady draws nothing here.
+fn lamp_faces(list: &mut DrawList, game: &Game, design: &ShipDesign, station: Option<u32>) {
+    for part in &design.parts {
+        if !shipdesign::is_light(part.kind) {
+            continue;
+        }
+        let (share, level) = game.world.lamp_look(station, part.origin);
+        if share > 0.0 && level >= 1.0 {
+            continue;
+        }
+        crate::fittings::lamp_face(list, part, share, level);
+    }
 }
 
 /// The box round a part's tiles, in design units: `(x0, y0, x1, y1)`.
@@ -790,7 +813,11 @@ fn electricity(list: &mut DrawList, design: &ShipDesign, grid: &Grid) {
 /// A station does not turn, so its picture is turned by the camera alone;
 /// the ship's own airlock is mated to the station's while docked, and both
 /// are drawn open.
-fn stations(game: &Game, list: &mut DrawList) {
+///
+/// Returns the residents' bodies, placed and turned like the rest but not
+/// drawn: the caller paints them over the ship, since they can be on it.
+fn stations(game: &Game, list: &mut DrawList) -> DrawList {
+    let mut lifted = DrawList::default();
     let here = game.world.ship.position();
     let turn = game.camera_turn() as f32;
     let docked = game.world.ship.state.alongside();
@@ -877,6 +904,7 @@ fn stations(game: &Game, list: &mut DrawList) {
             open,
         );
         hull::lights(&mut picture, &station.design, &grid, game.frame);
+        lamp_faces(&mut picture, game, &station.design, Some(station.id));
         // The key on its research desk, lit so the crew can find it: a
         // ring of lights round the desk while the key is there.
         if game.world.station_has_key(station.id) {
@@ -889,9 +917,17 @@ fn stations(game: &Game, list: &mut DrawList) {
             // station's middle where that middle is in the room.
             let shift = residents.aboard.offset;
             let pivot = (middle.0 + shift.x as f32, middle.1 + shift.y as f32);
-            list.append_turned_at(residents.aboard.room.shapes(), pivot, turn, at);
+            let (deck, bodies) = residents.aboard.room.shapes_split();
+            list.append_turned_at(deck, pivot, turn, at);
+            // Their people go to the caller, to be drawn over the ship:
+            // the ship's hull and its room aboard are painted after the
+            // stations, and one of them who has followed the crew through
+            // the passage would otherwise be under the ship's deck — a
+            // name over an empty tile.
+            lifted.append_turned_at(bodies, pivot, turn, at);
         }
     }
+    lifted
 }
 
 /// Where one of a station's residents lands in the camera's units, for the
@@ -1525,7 +1561,14 @@ fn here_reticle(list: &mut DrawList, scale: f32, frame: u32) {
     // Four ticks, outside the ring at the compass points of the window.
     let (from, to) = (d / 2.0 + 2.0 * px, d / 2.0 + 2.0 * px + HERE_TICK * px);
     for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
-        list.line(dx * from, dy * from, dx * to, dy * to, 2.0 * px, GLOW.alpha(0.95));
+        list.line(
+            dx * from,
+            dy * from,
+            dx * to,
+            dy * to,
+            2.0 * px,
+            GLOW.alpha(0.95),
+        );
     }
 }
 

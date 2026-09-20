@@ -127,6 +127,9 @@ pub fn part(list: &mut DrawList, part: &PlacedPart) -> bool {
         PartKind::Hyperdrive => hyperdrive(list, part),
         PartKind::WallLight => wall_light(list, part),
         PartKind::StandingLight => standing_light(list, part),
+        PartKind::SmallPlant => small_plant(list, part),
+        PartKind::BigPlant => big_plant(list, part),
+        PartKind::Picture => picture(list, part),
         _ => return false,
     }
     true
@@ -1868,67 +1871,71 @@ fn hyperdrive(list: &mut DrawList, part: &PlacedPart) {
 // --- the lights --------------------------------------------------------------------
 
 /// Lamplight, and the fitting it comes out of.
-const LAMPLIGHT: Color = Color::rgb(1.0, 0.92, 0.70);
+pub(crate) const LAMPLIGHT: Color = Color::rgb(1.0, 0.92, 0.70);
 const FITTING: Color = Color::rgb(0.30, 0.32, 0.36);
+/// The wall lamp's own light: cooler than the rest of the lamplight, a
+/// tube's blue-white rather than a bulb's. Its hot middle is nearly
+/// white.
+pub(crate) const WALL_LAMP: Color = Color::rgb(0.74, 0.88, 1.0);
+const WALL_LAMP_CORE: Color = Color::rgb(0.92, 0.97, 1.0);
+/// How far off the wall the wall lamp's casing stands, and its glass's
+/// height, in points. The whole fitting is flat against the wall.
+const WALL_LAMP_CASE: f32 = 9.0;
+const WALL_LAMP_GLASS: f32 = 4.0;
 
-/// A wall light: a bracket along the top of its tile with the lamp on it
-/// and a warm halo over the deck below. It hangs from whatever wall is at
-/// its back; the picture is the same whichever side that is, since the
-/// part has no rotation worth reading.
+/// A wall light: a flat strip lamp flush against the wall its rotation
+/// names — the top edge of its tile unturned, `wall_light_back` — a dark
+/// casing hugging the wall with a bar of glass along its face, the way a
+/// tube light sits on a wall rather than hanging off it into the
+/// gangway. No halo: what the light does to the deck is the room's light
+/// map, which the host draws over this.
 fn wall_light(list: &mut DrawList, part: &PlacedPart) {
     let (local, across, along) = Local::of(part);
     let (w, h) = (across, along);
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        w * 1.6,
-        h * 1.6,
-        0.0,
-        0.0,
-        LAMPLIGHT.alpha(0.10),
-    );
+    // The casing, flat along the wall's face.
     local.push(
         list,
         KIND_RECT,
         0.0,
-        -h * 0.32,
-        w * 0.6,
-        6.0,
-        2.0,
+        -h * 0.5 + WALL_LAMP_CASE * 0.5,
+        w * 0.56,
+        WALL_LAMP_CASE,
+        1.5,
         0.0,
         FITTING,
     );
+    // The glass along it, and its hot middle.
+    let (u, v, gw, gh) = wall_lamp_glass(w, h);
+    local.push(list, KIND_RECT, u, v, gw, gh, 1.0, 0.0, WALL_LAMP);
     local.push(
         list,
-        KIND_ELLIPSE,
+        KIND_RECT,
+        u,
+        v,
+        gw * 0.7,
+        gh * 0.4,
+        0.5,
         0.0,
-        -h * 0.2,
-        w * 0.42,
-        h * 0.22,
-        0.0,
-        0.0,
-        LAMPLIGHT,
+        WALL_LAMP_CORE,
     );
 }
 
-/// A standing light: a pole on a round base with the lamp head over it,
-/// and the halo of it on the deck.
+/// Where a wall lamp's glass is in its tile's frame, and how big: the
+/// bar set into the casing's face, `(u, v, w, h)`.
+fn wall_lamp_glass(w: f32, h: f32) -> (f32, f32, f32, f32) {
+    (
+        0.0,
+        -h * 0.5 + WALL_LAMP_CASE * 0.5 + 1.0,
+        w * 0.44,
+        WALL_LAMP_GLASS,
+    )
+}
+
+/// A standing light: a pole on a round base with the lamp head over it.
+/// No halo, for the wall light's reason.
 fn standing_light(list: &mut DrawList, part: &PlacedPart) {
     let (local, across, along) = Local::of(part);
     let (w, h) = (across, along);
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        0.0,
-        w * 1.8,
-        h * 1.8,
-        0.0,
-        0.0,
-        LAMPLIGHT.alpha(0.12),
-    );
     local.push(
         list,
         KIND_ELLIPSE,
@@ -1962,6 +1969,215 @@ fn standing_light(list: &mut DrawList, part: &PlacedPart) {
         0.0,
         1.5,
         FITTING,
+    );
+}
+
+/// The glass of a lamp that is out, and the crack across it.
+const GLASS_OUT: Color = Color::rgb(0.22, 0.23, 0.25);
+const CRACK: Color = Color::rgba(0.06, 0.06, 0.07, 0.9);
+
+/// A lamp's glass as the fight left it, drawn over its picture: nothing
+/// while it is whole and steady; a veil the darker the dimmer it is
+/// shown while it flickers (`level` nought to one); and, out (`share`
+/// of its health nought), the glass gone dark with a crack across it.
+/// What the light does to the deck is the room's light map, as ever;
+/// this is the fitting alone. See `bims::sight::Lamp`.
+pub fn lamp_face(list: &mut DrawList, part: &PlacedPart, share: f32, level: f32) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    // Where the glass is, and how big — and its shape: the wall light's
+    // bar flat on its wall, the standing light's round head.
+    let (kind, (u, v, gw, gh)) = match part.kind {
+        PartKind::WallLight => (KIND_RECT, wall_lamp_glass(w, h)),
+        PartKind::StandingLight => (KIND_ELLIPSE, (0.0, -h * 0.3, w * 0.44, w * 0.44)),
+        _ => return,
+    };
+    if share <= 0.0 {
+        local.push(list, kind, u, v, gw, gh, 0.0, 0.0, GLASS_OUT);
+        let (x0, y0) = local.at(u - gw * 0.3, v - gh * 0.25);
+        let (x1, y1) = local.at(u + gw * 0.1, v + gh * 0.3);
+        let (x2, y2) = local.at(u + gw * 0.35, v - gh * 0.1);
+        list.line(x0, y0, x1, y1, 1.5, CRACK);
+        list.line(x1, y1, x2, y2, 1.5, CRACK);
+        return;
+    }
+    let dim = 1.0 - level.clamp(0.0, 1.0);
+    if dim > 0.01 {
+        local.push(
+            list,
+            kind,
+            u,
+            v,
+            gw,
+            gh,
+            0.0,
+            0.0,
+            GLASS_OUT.alpha(0.85 * dim),
+        );
+    }
+}
+
+// --- the comforts ------------------------------------------------------------------
+
+/// A pot's terracotta and the soil in it, and the plants' two greens —
+/// the palette swatches for the leaf, so the design phase's block and the
+/// deck's plant read as one thing.
+const POT: Color = Color::rgb(0.62, 0.40, 0.28);
+const POT_RIM: Color = Color::rgb(0.74, 0.50, 0.36);
+const SOIL: Color = Color::rgb(0.24, 0.17, 0.11);
+const LEAF: Color = Color::rgb(0.42, 0.66, 0.36);
+const LEAF_DARK: Color = Color::rgb(0.30, 0.56, 0.30);
+const LEAF_LIGHT: Color = Color::rgb(0.58, 0.78, 0.44);
+/// A picture's frame, and what is in it: a sky over a hill, which is
+/// what anybody on a ship hangs on the wall.
+pub(crate) const FRAME_BRASS: Color = Color::rgb(0.72, 0.58, 0.32);
+const CANVAS_SKY: Color = Color::rgb(0.52, 0.70, 0.86);
+const CANVAS_HILL: Color = Color::rgb(0.34, 0.52, 0.30);
+
+/// Foliage seen from above: a cluster of round leaves round `(u, v)`,
+/// the dark ones under, the light ones on top, `spread` out from the
+/// middle. Both plants are this at a size.
+fn foliage(list: &mut DrawList, local: &Local, u: f32, v: f32, spread: f32, leaf: f32) {
+    const RING: [(f32, f32); 5] = [
+        (0.0, -1.0),
+        (0.95, -0.31),
+        (0.59, 0.81),
+        (-0.59, 0.81),
+        (-0.95, -0.31),
+    ];
+    for (dx, dy) in RING {
+        local.push(
+            list,
+            KIND_ELLIPSE,
+            u + dx * spread,
+            v + dy * spread,
+            leaf,
+            leaf,
+            0.0,
+            0.0,
+            LEAF_DARK,
+        );
+    }
+    for (dx, dy) in RING {
+        local.push(
+            list,
+            KIND_ELLIPSE,
+            u + dx * spread * 0.55,
+            v + dy * spread * 0.55,
+            leaf * 0.85,
+            leaf * 0.85,
+            0.0,
+            0.0,
+            LEAF,
+        );
+    }
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        u - spread * 0.15,
+        v - spread * 0.2,
+        leaf * 0.6,
+        leaf * 0.6,
+        0.0,
+        0.0,
+        LEAF_LIGHT,
+    );
+}
+
+/// A small plant: a pot half the tile across, its rim and the soil in it,
+/// and a modest head of leaves over it.
+fn small_plant(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    let pot = w * 0.46;
+    local.push(list, KIND_ELLIPSE, 0.0, 0.0, pot, pot, 0.0, 0.0, POT_RIM);
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        pot * 0.78,
+        pot * 0.78,
+        0.0,
+        0.0,
+        SOIL,
+    );
+    foliage(list, &local, 0.0, 0.0, w * 0.13, h * 0.18);
+}
+
+/// A big plant: a tub most of the tile across, and a head of leaves that
+/// reaches its rim.
+fn big_plant(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    let tub = w * 0.82;
+    local.push(list, KIND_ELLIPSE, 0.0, 0.0, tub, tub, 0.0, 0.0, POT);
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        tub * 0.86,
+        tub * 0.86,
+        0.0,
+        0.0,
+        POT_RIM,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        tub * 0.72,
+        tub * 0.72,
+        0.0,
+        0.0,
+        SOIL,
+    );
+    foliage(list, &local, 0.0, 0.0, w * 0.22, h * 0.28);
+}
+
+/// A picture: a framed canvas flush against the wall its rotation names —
+/// the top edge of its tile unturned, like the wall light's bracket — the
+/// frame's brass round a sky over a hill. Seen from above it is a strip
+/// along the wall, which is what a picture on a wall is from above.
+fn picture(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    let depth = 9.0;
+    let v = -h * 0.5 + depth * 0.5 + 1.0;
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        v,
+        w * 0.72,
+        depth,
+        1.0,
+        0.0,
+        FRAME_BRASS,
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        v,
+        w * 0.62,
+        depth - 4.0,
+        0.0,
+        0.0,
+        CANVAS_SKY,
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        v + (depth - 4.0) * 0.25,
+        w * 0.62,
+        (depth - 4.0) * 0.5,
+        0.0,
+        0.0,
+        CANVAS_HILL,
     );
 }
 

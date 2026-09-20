@@ -6,7 +6,7 @@
 // and are never lonely. That runs itself: start a game, leave it a week, and check
 // nobody ever reaches the first stage.
 //
-// The **other** half takes ten game days to reach and is the part nobody will
+// The **other** half takes a fortnight of game days to reach and is the part nobody will
 // ever see by accident. Waiting for it is not an option — so the solitude
 // clock is pinned forward with `leave_alone_for_probe`, re-pinned every frame
 // so that the other Bim striking up a conversation cannot quietly reset it,
@@ -48,12 +48,12 @@ fn main() {
     check!("and works at its usual rate", alone.stage().works_at() == 1.0);
 
     for (days, want) in [
-        (2.9, Loneliness::None),
-        (3.0, Loneliness::Desocialized),
-        (4.9, Loneliness::Desocialized),
-        (5.0, Loneliness::Severe),
-        (6.9, Loneliness::Severe),
-        (7.0, Loneliness::Isolated),
+        (5.9, Loneliness::None),
+        (6.0, Loneliness::Desocialized),
+        (7.9, Loneliness::Desocialized),
+        (8.0, Loneliness::Severe),
+        (9.9, Loneliness::Severe),
+        (10.0, Loneliness::Isolated),
         (30.0, Loneliness::Isolated),
     ] {
         alone.set_alone_for(days * DAY);
@@ -64,7 +64,7 @@ fn main() {
         );
     }
 
-    alone.set_alone_for(4.0 * DAY);
+    alone.set_alone_for(7.0 * DAY);
     check!("a Bim gone without drags", alone.stage().works_at() < 1.0);
     check!(
         "by a tenth, and no more",
@@ -75,9 +75,26 @@ fn main() {
     check!("and a word puts it all back", alone.stage() == Loneliness::None);
     check!("right back to nothing", alone.alone_for() == 0.0, alone.alone_for());
 
-    // Giving up: nothing at all before the tenth day, then three per cent an
+    // The clock runs only while the company bar is empty: a day of frames
+    // with something on the bar leaves it where it was, and a day with
+    // nothing on it is a day on the clock.
+    for _ in 0..FRAMES_PER_DAY {
+        alone.update(STEP * clock::MINUTES_PER_SECOND, false, true, &mut rng);
+    }
+    check!("the clock stands while the bar has anything on it", alone.alone_for() == 0.0, alone.alone_for());
+    for _ in 0..FRAMES_PER_DAY {
+        alone.update(STEP * clock::MINUTES_PER_SECOND, true, true, &mut rng);
+    }
+    check!(
+        "and runs once it is empty",
+        (alone.alone_for() - DAY).abs() < 5.0,
+        alone.alone_for()
+    );
+    alone.talked();
+
+    // Giving up: nothing at all before the thirteenth day, then three per cent an
     // hour and three more for every day after.
-    for (days, want) in [(9.9, 0.0), (10.0, 0.03), (10.9, 0.03), (11.0, 0.06), (12.0, 0.09)] {
+    for (days, want) in [(12.9, 0.0), (13.0, 0.03), (13.9, 0.03), (14.0, 0.06), (15.0, 0.09)] {
         alone.set_alone_for(days * DAY);
         check!(
             format!("at {days} days the chance of giving up is {want} an hour"),
@@ -95,7 +112,7 @@ fn main() {
         let (mut brooded, mut broke, mut hurt, mut gave_up) = (0, 0, 0, 0);
         for _ in 0..FRAMES_PER_DAY {
             alone.set_alone_for(days * DAY);
-            let out = alone.update(STEP * clock::MINUTES_PER_SECOND, sitting_allowed, rng);
+            let out = alone.update(STEP * clock::MINUTES_PER_SECOND, true, sitting_allowed, rng);
             brooded += out.brooded as u32;
             broke += out.broke_down as u32;
             hurt += out.hurt_itself as u32;
@@ -110,36 +127,36 @@ fn main() {
     // Six a day at four hours apart, give or take the one that falls exactly
     // on the boundary of the count: a day of frames is 1440 minutes and the
     // sixth brood is due at minute 1440, which is the frame after the last one.
-    let low = a_day(3.5, true, &mut rng);
+    let low = a_day(6.5, true, &mut rng);
     check!(
         "desocialized: broods every four hours and nothing worse",
         (5..=6).contains(&low.0) && low.1 == 0 && low.2 == 0 && low.3 == 0,
         format!("{low:?}")
     );
 
-    let severe = a_day(5.5, true, &mut rng);
+    let severe = a_day(8.5, true, &mut rng);
     check!(
         "severe: still broods, and now sits down roughly every five hours",
         (5..=6).contains(&severe.0) && (2..=9).contains(&severe.1) && severe.2 == 0,
         format!("{severe:?}")
     );
-    let seated = a_day(5.5, false, &mut rng);
+    let seated = a_day(8.5, false, &mut rng);
     check!(
         "and never sits down when there is nowhere to sit down",
         seated.1 == 0,
         format!("{seated:?}")
     );
 
-    let isolated = a_day(7.5, true, &mut rng);
+    let isolated = a_day(10.5, true, &mut rng);
     check!(
         "isolated: hurts itself every four hours",
         (5..=6).contains(&isolated.2) && isolated.3 == 0,
         format!("{isolated:?}")
     );
 
-    let despairing = a_day(10.5, true, &mut rng);
+    let despairing = a_day(13.5, true, &mut rng);
     check!(
-        "and past ten days it may stop altogether",
+        "and past thirteen days it may stop altogether",
         despairing.3 > 0,
         format!("{despairing:?}")
     );
@@ -182,7 +199,7 @@ fn main() {
             );
             check!(
                 format!("seed {seed}, crew {w}: and is never lonely for it"),
-                worst[w] < 3.0 && game.loneliness(w) == 0,
+                worst[w] < 6.0 && game.loneliness(w) == 0,
                 format!("{:.2} days at worst", worst[w])
             );
             // The bar sits around its trigger rather than swinging the whole
@@ -216,7 +233,7 @@ fn main() {
 
     // --- one of them left out of it ------------------------------------------
 
-    for (days, name) in [(3.5, "desocialized"), (5.5, "severe"), (7.5, "isolated")] {
+    for (days, name) in [(6.5, "desocialized"), (8.5, "severe"), (10.5, "isolated")] {
         let mut game = Game::new(11, 960.0, 640.0);
         let mut sat = false;
         for _ in 0..(2 * FRAMES_PER_DAY) {
@@ -240,16 +257,16 @@ fn main() {
             diary(What::FeltLow)
         );
         check!(
-            format!("{name}: sits down on the deck only past five days"),
-            sat == (days >= 5.0),
+            format!("{name}: sits down on the deck only past eight days"),
+            sat == (days >= 8.0),
             format!("sat: {sat}")
         );
         check!(
-            format!("{name}: hurts itself only past seven"),
-            (diary(What::HurtSelf) > 0) == (days >= 7.0),
+            format!("{name}: hurts itself only past ten"),
+            (diary(What::HurtSelf) > 0) == (days >= 10.0),
             diary(What::HurtSelf)
         );
-        if days >= 7.0 {
+        if days >= 10.0 {
             check!(
                 format!("{name}: and it costs health"),
                 game.health(PLAYER) < 100.0,
@@ -271,7 +288,7 @@ fn main() {
     for seed in [3, 13, 23] {
         let mut game = Game::new(seed, 960.0, 640.0);
         for _ in 0..(3 * FRAMES_PER_DAY) {
-            game.leave_alone_for_probe(PLAYER, 10.5);
+            game.leave_alone_for_probe(PLAYER, 13.5);
             game.update(STEP);
             if !game.is_alive(PLAYER) {
                 died += 1;
@@ -282,7 +299,7 @@ fn main() {
     // Three per cent an hour is a median of about a day, so surviving three of
     // them is a one-in-a-thousand run: all three lasting would mean the roll
     // is not happening at all.
-    check!("past ten days alone, a Bim gives up", died >= 2, format!("{died} of 3"));
+    check!("past thirteen days alone, a Bim gives up", died >= 2, format!("{died} of 3"));
 
     // --- and the tenth longer ------------------------------------------------
     //
@@ -290,7 +307,7 @@ fn main() {
     // read off a frame count without anything else in the way.
 
     let clear = timed_walk(0.0);
-    let dragging = timed_walk(4.0);
+    let dragging = timed_walk(7.0);
     let ratio = dragging as f32 / clear as f32;
     check!(
         "a Bim with nobody to talk to walks a tenth slower",

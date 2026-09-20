@@ -25,24 +25,28 @@ use shipdesign::parts::Rotation;
 use world::{ShipState, Speed, Where, WorldEvent};
 use worldgen::Node;
 
-use super::designer::{Net, Order, ShipSession, trade_rows};
+use super::designer::{Cart, Net, Order, ShipSession, trade_rows};
 use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui, zoom_factor};
 use crate::crew::{
-    Actions, Body, CLICK_SLOP, Craft, CrewPanels, GearOrder, Hold, ResearchView, Tool, UpgradeView,
+    Actions, Body, CLICK_SLOP, Craft, CrewPanels, GearOrder, Hold, Near, Open, ResearchView, Tool,
+    UpgradeView,
 };
 use crate::format::{euros, grouped, roman, spell};
+use crate::keys::{Action, Keys};
 use crate::names::*;
-use crate::screens::room::panel_frame;
+use crate::screens::room::{panel_frame, tray_frame};
 use crate::settings::{Sheet, settings_sheet};
 use crate::shapes::View;
 use crate::sound::{Bed, Sounds};
-use crate::{Launch, Screen, theme};
+use crate::{Launch, Screen, icons, theme};
+use bims::game::Container;
+use shipdesign::parts::PartKind;
 
 /// Ceiling on world steps per frame. It has to be at least `TOP_SPEED * 60
 /// / 30`, or the top of the speed range stops being reachable on a display
 /// that is keeping up at 30fps and the world quietly runs slower than the
-/// button says.
-const MAX_STEPS_PER_FRAME: u32 = 64;
+/// button says. 48x at 30fps is 96 a frame.
+const MAX_STEPS_PER_FRAME: u32 = 128;
 
 /// How many lines of what-just-happened stay on screen.
 const LOG_LINES: usize = 4;
@@ -63,6 +67,45 @@ const MAP_PICK_SLOP: f32 = 14.0;
 enum Aim {
     Node(Node),
     Point(f64, f64),
+}
+
+/// A drag with the Mine tool: a press on a rock marks it — or unmarks a
+/// marked one — and the drag that follows does the same to every rock the
+/// pointer is pulled over, so a whole face is marked in one stroke.
+///
+/// The press decides which way the stroke goes, from the first rock: a
+/// stroke that began on a bare rock marks and skips the marked, one that
+/// began on a marked rock unmarks and skips the bare. `touched` is every
+/// tile the stroke has already sent an order for, kept here because the
+/// order lands on a step and a paused world would otherwise be asked to
+/// toggle the same rock every frame the pointer rests on it.
+struct MarkDrag {
+    marking: bool,
+    /// The tile the pointer was over last frame, to walk the tiles between
+    /// it and this one: a fast pull skips tiles between frames.
+    last: (i32, i32),
+    touched: Vec<(i32, i32)>,
+}
+
+/// The tiles a straight pull of the pointer from `from` to `to` crosses,
+/// both ends included: one a step along the longer axis, the other axis
+/// rounded to keep beside the line. What a stroke marks, so a rock
+/// between two frames' positions is not skipped.
+fn tiles_between(from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let steps = dx.abs().max(dy.abs());
+    (0..=steps)
+        .map(|i| {
+            if steps == 0 {
+                return from;
+            }
+            let t = i as f32 / steps as f32;
+            (
+                from.0 + (dx as f32 * t).round() as i32,
+                from.1 + (dy as f32 * t).round() as i32,
+            )
+        })
+        .collect()
 }
 
 impl Aim {
@@ -104,6 +147,14 @@ pub struct GameScreen {
     relieve: bool,
     /// Whether the station's trade window is up.
     trading: bool,
+    /// `BIMS_ARMOURY=1`: the armoury window is to be opened on the first
+    /// frame there is a room to open it in.
+    armoury_wanted: Option<String>,
+    /// Tab went down last frame with the keys ours: the focus egui gave a
+    /// widget for it is to be surrendered (`keys::release_tab_focus`).
+    tab_took_focus: bool,
+    /// What is in the trade window's cart, not yet bought or sold.
+    cart: Cart,
     backlog: f64,
     log: Vec<String>,
     /// Where the pointer is over the canvas, for the readout.
@@ -114,6 +165,9 @@ pub struct GameScreen {
     /// making — a line for the selected crew, or a point if it never moves
     /// further than a click.
     order_from: Option<Vec2>,
+    /// A drag with the Mine tool in hand: the rocks are marked, or
+    /// unmarked, as the pointer is dragged over them.
+    mark_drag: Option<MarkDrag>,
     pan_from: Option<Vec2>,
     /// The Esc sheet, if it is up, and which page.
     sheet: Option<Sheet>,
@@ -191,6 +245,9 @@ fn open(
             if crate::dev::fight() {
                 session.stage_fight_for_probe();
             }
+            if let Some(n) = crate::dev::lamps_out() {
+                session.shoot_lamps_for_probe(n);
+            }
             // A weapon asked for by name goes into the hand in place of
             // whatever was issued, the rest of the gear kept: the crew
             // member's, or every resident's; and armour asked for goes on
@@ -248,12 +305,16 @@ fn open(
         aimed: None,
         pending: None,
         relieve: false,
-        trading: false,
+        trading: crate::dev::trade(),
+        armoury_wanted: crate::dev::armoury(),
+        tab_took_focus: false,
+        cart: Cart::new(),
         backlog: 0.0,
         log: Vec::new(),
         hover_at: None,
         marquee_from: None,
         order_from: None,
+        mark_drag: None,
         pan_from: None,
         sheet: None,
         size: Vec2::ZERO,
@@ -295,11 +356,13 @@ fn frame(
     mut session: ResMut<ShipSession>,
     time: Res<Time>,
     mut sounds: ResMut<Sounds>,
+    mut bindings: ResMut<Keys>,
     mut commands: Commands,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
     let session = &mut session.0;
+    let keys_now = *bindings;
     let now = ctx.input(|i| i.time);
     let dt = time.delta_secs().min(super::designer::MAX_FRAME_DT) as f64;
     let mut root = root_ui(&ctx);
@@ -406,6 +469,7 @@ fn frame(
     if let Some(panels) = &mut screen.panels {
         let who = session.room_ref().map(|r| panels.inventory_who(r));
         panels.hold = who.map(|who| hold_of(session, who));
+        panels.keys = keys_now;
     }
     let crew_count = session
         .game
@@ -422,6 +486,12 @@ fn frame(
             resident_name(resident_station.unwrap_or(0), who - crew_count)
         }
     };
+    // And what is within reach of the Bim shown, for the nearby strip
+    // and the Inventory key.
+    if let Some(panels) = &mut screen.panels {
+        let who = session.room_ref().map(|r| panels.inventory_who(r));
+        panels.nearby = who.map_or_else(Vec::new, |who| nearby_of(session, who, &name));
+    }
     let local = screen.net.slot;
 
     // --- an order on its way to the helm ---------------------------------------
@@ -467,6 +537,11 @@ fn frame(
     let pointer = Pointer::read(&ctx);
     let on_canvas = pointer.on(canvas);
     let here = pointer.pos.map(|p| p - canvas.min);
+    crate::keys::release_tab_focus(
+        &ctx,
+        &mut screen.tab_took_focus,
+        !ctx.egui_wants_keyboard_input() && screen.sheet.is_none(),
+    );
     let keys = !ctx.egui_wants_keyboard_input() && screen.sheet.is_none();
     let map_up = session
         .game
@@ -499,6 +574,9 @@ fn frame(
     let marking = panels.tool == Some(Tool::Mine) && !map_up;
     if let Some(game) = &mut session.game {
         game.marking = marking;
+    }
+    if !marking {
+        screen.mark_drag = None;
     }
     // The blueprint in hand — the Build tab's tool — is the ship view's:
     // the painter draws it under the pointer there, and on the map a tile
@@ -665,23 +743,44 @@ fn frame(
             }
         } else if marking {
             // With the Mine tool in hand the pointer is about the rocks and
-            // nothing else: a click on one marks it, or unmarks it, through
-            // the seam like any order; a right-click puts the tool down.
-            // The system's cursor goes and a pick is drawn in its place,
-            // below.
+            // nothing else: a press on one marks it, or unmarks it, through
+            // the seam like any order, and dragging on from there does
+            // the same to every rock the pointer crosses (`MarkDrag`); a
+            // right-click puts the tool down. The system's cursor goes
+            // and a pick is drawn in its place, below.
             if let Some(p) = on_canvas {
                 ctx.set_cursor_icon(egui::CursorIcon::None);
-                if pointer.primary_pressed
-                    && let Some(game) = &session.game
+                if let Some(game) = &session.game
+                    && let Some(site) = game.world.site_here()
                 {
-                    let (x, y) = game.tile_at(p.x, p.y);
-                    if game.world.site_here().is_some_and(|s| s.at(x, y).is_some()) {
-                        orders.push(Order::Mark { x, y });
+                    let here = game.tile_at(p.x, p.y);
+                    if pointer.primary_pressed && site.at(here.0, here.1).is_some() {
+                        screen.mark_drag = Some(MarkDrag {
+                            marking: !site.is_marked(here.0, here.1),
+                            last: here,
+                            touched: Vec::new(),
+                        });
+                    }
+                    if let Some(drag) = &mut screen.mark_drag
+                        && pointer.primary_down
+                    {
+                        for (x, y) in tiles_between(drag.last, here) {
+                            let rock = site.at(x, y).is_some();
+                            let wants = site.is_marked(x, y) != drag.marking;
+                            if rock && wants && !drag.touched.contains(&(x, y)) {
+                                drag.touched.push((x, y));
+                                orders.push(Order::Mark { x, y });
+                            }
+                        }
+                        drag.last = here;
                     }
                 }
                 if pointer.secondary_pressed {
                     panels.tool = None;
                 }
+            }
+            if !pointer.primary_down {
+                screen.mark_drag = None;
             }
         } else if let Some(p) = on_canvas {
             let (rx, ry) = session.room_point(p.x, p.y);
@@ -796,17 +895,17 @@ fn frame(
         let mut d = Vec2::ZERO;
         ctx.input(|i| {
             if let Some(game) = &mut session.game {
-                if i.key_pressed(egui::Key::M) {
+                if keys_now.pressed(i, Action::Map) {
                     game.set_mode(if game.mode == ViewMode::Map {
                         ViewMode::Ship
                     } else {
                         ViewMode::Map
                     });
                 }
-                if i.key_pressed(egui::Key::N) {
+                if keys_now.pressed(i, Action::NorthUp) {
                     game.head_up = !game.head_up;
                 }
-                if i.key_pressed(egui::Key::F) {
+                if keys_now.pressed(i, Action::Follow) {
                     let on = !game.follow;
                     game.set_follow(on);
                 }
@@ -814,7 +913,7 @@ fn frame(
             if !i.modifiers.any() {
                 // The speed keys: Space pauses and goes back to what it paused
                 // from, the digits pick a speed. Orders, like the buttons.
-                if i.key_pressed(egui::Key::Space)
+                if keys_now.pressed(i, Action::Pause)
                     && let Some(game) = &session.game
                 {
                     let mine = game.requested(screen.net.slot);
@@ -825,18 +924,19 @@ fn frame(
                         orders.push(Order::Speed(Speed::Paused));
                     }
                 }
-                for (key, speed) in [
-                    (egui::Key::Num1, Speed::Real),
-                    (egui::Key::Num2, Speed::Triple),
-                    (egui::Key::Num3, Speed::Ten),
-                    (egui::Key::Num4, Speed::Top),
+                for (action, speed) in [
+                    (Action::Speed1, Speed::Real),
+                    (Action::Speed3, Speed::Triple),
+                    (Action::Speed10, Speed::Ten),
+                    (Action::Speed24, Speed::Day),
+                    (Action::SpeedTop, Speed::Top),
                 ] {
-                    if i.key_pressed(key) {
+                    if keys_now.pressed(i, action) {
                         orders.push(Order::Speed(speed));
                     }
                 }
-                // C: the crew member you steer, selected and in the middle.
-                if i.key_pressed(egui::Key::C) {
+                // Select: the crew member you steer, selected and in the middle.
+                if keys_now.pressed(i, Action::Select) {
                     if let Some(room) = session.room() {
                         room.select_group(1);
                     }
@@ -844,15 +944,22 @@ fn frame(
                         game.centre_on_player();
                     }
                 }
-                // R turns the blueprint in hand; with none, it recruits.
-                if i.key_pressed(egui::Key::R) {
-                    if building.is_some() {
-                        if let Some(game) = &mut session.game {
-                            game.rotate_placing();
-                        }
-                    } else if let Some(room) = session.room() {
-                        room.toggle_recruited();
+                // Turn turns the blueprint in hand; with none, Recruit recruits —
+                // the two are one key by default, told apart by the hand.
+                if building.is_some() {
+                    if keys_now.pressed(i, Action::Turn)
+                        && let Some(game) = &mut session.game
+                    {
+                        game.rotate_placing();
                     }
+                } else if keys_now.pressed(i, Action::Recruit)
+                    && let Some(room) = session.room()
+                {
+                    room.toggle_recruited();
+                }
+                // Tab: the inventory of the crew member you steer.
+                if keys_now.pressed(i, Action::Inventory) {
+                    panels.toggle_inventory();
                 }
             }
             if i.key_pressed(egui::Key::Escape) {
@@ -871,23 +978,27 @@ fn frame(
                 }
             }
             let step = super::designer::PAN_SPEED * dt as f32;
-            if i.key_down(egui::Key::A) {
+            if keys_now.down(i, Action::PanLeft) {
                 d.x += step;
             }
-            if i.key_down(egui::Key::D) {
+            if keys_now.down(i, Action::PanRight) {
                 d.x -= step;
             }
-            if i.key_down(egui::Key::W) {
+            if keys_now.down(i, Action::PanUp) {
                 d.y += step;
             }
-            if i.key_down(egui::Key::S) {
+            if keys_now.down(i, Action::PanDown) {
                 d.y -= step;
             }
         });
         if d != Vec2::ZERO {
             session.pan(d.x, d.y);
         }
-    } else if screen.sheet.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+    } else if screen.sheet.is_some()
+        && keys_now.listening.is_none()
+        && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+    {
+        // Esc while the controls page waits on a key is that page's.
         screen.sheet = None;
     }
     if screen.aimed.is_none() {
@@ -1130,7 +1241,7 @@ fn frame(
         )
         .order(egui::Order::Middle)
         .show(&ctx, |ui| {
-            panel_frame().show(ui, |ui| {
+            tray_frame().show(ui, |ui| {
                 let ship_tab = match session.room() {
                     Some(room) => panels.tray(ui, room, Some(&mut actions), &name),
                     None => false,
@@ -1160,7 +1271,20 @@ fn frame(
         screen.trading = false;
     }
     if screen.trading {
-        trade_window(&ctx, session, local, &mut screen.trading, &mut orders);
+        trade_window(
+            &ctx,
+            session,
+            local,
+            &mut screen.trading,
+            &mut screen.cart,
+            &mut orders,
+        );
+    }
+    // A cart is this window's, at this berth: shutting the window, or
+    // casting off with it up, is walking away from the desk with nothing
+    // agreed.
+    if !screen.trading {
+        screen.cart.clear();
     }
     if actions.clear {
         orders.push(Order::ClearMarks);
@@ -1225,6 +1349,9 @@ fn frame(
     }
 
     if let Some(room) = session.room() {
+        if let Some(what) = screen.armoury_wanted.take() {
+            panels.open_named(room, &what);
+        }
         panels.menu(&ctx, room, &name);
         panels.container_window(&ctx, room, &name);
     }
@@ -1294,7 +1421,7 @@ fn frame(
     for order in orders.drain(..) {
         screen.net.order(session, order);
     }
-    settings_sheet(&ctx, &mut screen.sheet, &mut sounds.mix);
+    settings_sheet(&ctx, &mut screen.sheet, &mut sounds.mix, &mut bindings);
 
     // --- painting ------------------------------------------------------------------
     let view = View {
@@ -1952,14 +2079,17 @@ fn clock_panel(ui: &mut egui::Ui, session: &Session, net: &Net, orders: &mut Vec
 }
 
 /// The station's shelf, in a window in the middle of the screen: what it
-/// trades, a row a resource, the ones it does not stock dimmed, and the
-/// hold's room under. Only while docked — the button that opens it is
+/// trades, a row a resource with its icon, the ones it does not stock
+/// dimmed, and under them the cart — what the lot would cost or fetch, the
+/// hold's room after it, and Confirm, which is when anything is bought or
+/// sold at all. Only while docked — the button that opens it is
 /// only there then — and shut by its own cross, by Escape, or by leaving.
 fn trade_window(
     ctx: &egui::Context,
     session: &mut Session,
     local: u32,
     open: &mut bool,
+    cart: &mut Cart,
     orders: &mut Vec<Order>,
 ) {
     let Some(station) = session.docked_at() else {
@@ -1967,9 +2097,10 @@ fn trade_window(
         return;
     };
     let title = node_name(session, Node::Station(station));
-    // The station is traded with across its desk: the rows are live only
-    // while the crew member steered stands at it, and the button walks
-    // it over. The world refuses a deal from across the room either way.
+    // The station is traded with across its desk: the cart is filled from
+    // anywhere, but Confirm goes only while the crew member steered stands
+    // at it, and the button walks it over. The world refuses a deal from
+    // across the room either way.
     let at_desk = session.at_the_desk(local);
     let mut walk = false;
     egui::Window::new(title)
@@ -2000,9 +2131,11 @@ fn trade_window(
                 });
             }
             ui.add_space(4.0);
-            if let Some((resource, units, buying)) =
-                trade_rows(ui, session, at_desk, |s, id| s.cargo(id))
-            {
+            // What is aboard to sell is what no construction site has
+            // claimed, which is the rule `Sell` is judged by.
+            let free =
+                |s: &Session, id: ResourceId| s.game.as_ref().map_or(0, |g| g.world.free(id));
+            for (resource, units, buying) in trade_rows(ui, session, cart, true, at_desk, free) {
                 orders.push(Order::Deal {
                     resource: ResourceId::ALL[resource as usize],
                     units,
@@ -2144,11 +2277,13 @@ fn items_panel(ui: &mut egui::Ui, session: &Session, panels: &mut CrewPanels) {
     });
     let room = session.room_ref();
     egui::Grid::new("items")
-        .num_columns(2)
+        .num_columns(3)
+        .min_col_width(icons::INLINE)
         .spacing([8.0, 1.0])
         .show(ui, |ui| {
             // The crew's money first: it is what everything under it was
             // bought with, and what the rest of it sells for.
+            ui.label("");
             ui.label("Money");
             ui.label(egui::RichText::new(euros(session.remaining())).color(theme::ACCENT));
             ui.end_row();
@@ -2164,6 +2299,7 @@ fn items_panel(ui: &mut egui::Ui, session: &Session, panels: &mut CrewPanels) {
                         _ => session.cargo(id),
                     };
                     if first {
+                        ui.label("");
                         ui.label(
                             egui::RichText::new(
                                 STORAGE_NAMES.get(class as usize).copied().unwrap_or(""),
@@ -2174,6 +2310,7 @@ fn items_panel(ui: &mut egui::Ui, session: &Session, panels: &mut CrewPanels) {
                         ui.end_row();
                         first = false;
                     }
+                    icons::resource_cell(ui, id);
                     let row = ui.label(egui::RichText::new(resource_name(id)).color(if held > 0 {
                         theme::INK
                     } else {
@@ -2197,6 +2334,7 @@ fn items_panel(ui: &mut egui::Ui, session: &Session, panels: &mut CrewPanels) {
                     && let Some(r) = room
                 {
                     let held = r.store_stew();
+                    icons::cell(ui, icons::stew);
                     let row = ui.label(egui::RichText::new("Stew, ready").color(if held > 0 {
                         theme::INK
                     } else {
@@ -2217,9 +2355,11 @@ fn items_panel(ui: &mut egui::Ui, session: &Session, panels: &mut CrewPanels) {
             // clean and in the chopping board's drawer, out of the most it
             // holds. The rest are on the table or in the rack.
             if let Some(r) = room {
+                ui.label("");
                 ui.label(egui::RichText::new("Drawer").small().color(theme::MUTED));
                 ui.end_row();
                 let held = r.plates();
+                icons::cell(ui, icons::plate);
                 let row = ui.label(egui::RichText::new("Plates").color(if held > 0 {
                     theme::INK
                 } else {
@@ -2257,6 +2397,10 @@ fn hold_of(session: &Session, who: usize) -> Hold {
         hold.reach[id as usize] = world.in_reach(who as u32, id);
     }
     hold.guns = world.guns.clone();
+    hold.grids = world.grids.clone();
+    for (i, &class) in world::World::GRID_CLASSES.iter().enumerate() {
+        hold.grid_capacity[i] = world.grid_capacity(class);
+    }
     for piece in world.pieces.iter().filter(|p| p.at == Where::Hold) {
         if let bims::combat::Item::Armour(piece) = piece.item() {
             hold.pieces.push(piece);
@@ -2315,6 +2459,79 @@ fn research_view(session: &Session) -> ResearchView {
     view
 }
 
+/// What is within reach of crew member `who`, nearest first, for the
+/// panels' nearby strip and the Inventory key: every container that
+/// keeps something — the armoury and the drug lab, the shelves, the cold
+/// stores, the desks — by the room's own reach (`Game::within_reach`,
+/// `data::REACH`), and every body down within reach — a crewmate, or one
+/// of the station's people while the rooms are joined — by the world's
+/// (`in_reach_of_body`). Named the way their windows are titled.
+fn nearby_of(session: &Session, who: usize, name: &dyn Fn(u32) -> String) -> Vec<Near> {
+    let Some(game) = session.game.as_ref() else {
+        return Vec::new();
+    };
+    let world = &game.world;
+    let room = &world.aboard.room;
+    let at = room.bim_pos(who);
+    let reach = world::data::REACH;
+    let mut found: Vec<(f32, Near)> = Vec::new();
+    for container in world.aboard.containers() {
+        if crate::crew::container_class(room, container).is_none()
+            || !room.within_reach(who, container, reach)
+        {
+            continue;
+        }
+        let Some(frame) = room.container_frame(container) else {
+            continue;
+        };
+        let label = match container {
+            Container::Bench(i) => PartKind::from_code(room.bench_part(i))
+                .map(part_name)
+                .unwrap_or("Container")
+                .to_string(),
+            Container::Shelf(_) => STORAGE_WINDOW.to_string(),
+            Container::Fridge(_) => COLD_STORE_WINDOW.to_string(),
+            Container::Desk(_) => RESEARCH_WINDOW.to_string(),
+        };
+        found.push((
+            (at - frame.center()).len(),
+            Near {
+                open: Open::Container(container),
+                label,
+            },
+        ));
+    }
+    let crew = world.aboard.crew_count();
+    let residents = world.residents.as_ref().map_or(0, |r| r.aboard.count());
+    let bodies = (0..crew)
+        .map(world::LootSource::Crew)
+        .chain((0..residents).map(world::LootSource::Resident));
+    for source in bodies {
+        if source == world::LootSource::Crew(who as u32)
+            || !world.is_down(source)
+            || !world.in_reach_of_body(who as u32, source)
+        {
+            continue;
+        }
+        let Some(lies) = world.body_position(source) else {
+            continue;
+        };
+        let whose = match source {
+            world::LootSource::Crew(body) => name(body),
+            world::LootSource::Resident(body) => name(crew + body),
+        };
+        found.push((
+            (at - lies).len(),
+            Near {
+                open: Open::Loot(source),
+                label: format!("{LOOT_WINDOW} — {whose}"),
+            },
+        ));
+    }
+    found.sort_by(|a, b| a.0.total_cmp(&b.0));
+    found.into_iter().map(|(_, near)| near).collect()
+}
+
 /// A body as the Loot window wants it: what it has on it, whether it is
 /// still down, and whether crew member `who` stands within reach of it —
 /// the world's own `in_reach_of_body`, so the window can say "walk over
@@ -2323,6 +2540,7 @@ fn research_view(session: &Session) -> ResearchView {
 fn body_of(world: &world::World, who: usize, source: world::LootSource) -> Option<Body> {
     Some(Body {
         cells: world.loot_cells(source)?,
+        turned: world.loot_turned(source)?,
         down: world.is_down(source),
         reach: world.in_reach_of_body(who as u32, source),
     })
@@ -2345,7 +2563,7 @@ fn crafts(session: &Session) -> Vec<Craft> {
                 resource: id,
                 held: session.cargo(id),
                 target: game.world.craft_target(id),
-                most: game.world.ship.design.capacity(class),
+                most: game.world.ship.design.most_of(id),
                 kept_in: STORAGE_NAMES.get(class as usize).copied().unwrap_or(""),
                 recipe: recipe_lines(id),
                 // The first recipe for it that is not researched, if none

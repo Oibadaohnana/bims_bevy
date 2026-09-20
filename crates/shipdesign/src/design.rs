@@ -15,11 +15,11 @@
 //! phase is handed one thing and not two. Buying is bounded by the ship —
 //! goods are stowed, and a ship with nowhere to put a thing cannot buy it.
 
-use economy::{Storage, storage, trade_value};
+use economy::{Storage, cells, stack_size, stacks_of, storage, trade_value};
 use physics::ResourceId;
 
 use crate::budget::Budget;
-use crate::parts::{Layer, PartKind, Rotation, covered, footprint};
+use crate::parts::{Layer, PartKind, Rotation, covered, footprint, hangs_on_wall, wall_light_back};
 
 /// How many resources there are, which is how long [`ShipDesign::cargo`] is.
 /// `physics::ResourceId::ALL.len()`, written out because it sizes an array
@@ -99,7 +99,8 @@ impl ShipDesign {
     }
 
     /// How much of a storage class the ship has, over every part that
-    /// provides it. Saturating: a design that arrived from somewhere the
+    /// provides it: units of the class, or cells of the lockers' grid for
+    /// the locker class (see `economy::footprint`). Saturating: a design that arrived from somewhere the
     /// rules were not applied should read as "a great deal of room" rather
     /// than wrap round into none.
     pub fn capacity(&self, class: Storage) -> u32 {
@@ -110,12 +111,63 @@ impl ShipDesign {
             .fold(0u32, |sum, (_, units)| sum.saturating_add(units))
     }
 
-    /// How much of that class is taken up by what is aboard.
+    /// How much of that class is taken up by what is aboard: every
+    /// resource in stacks (`economy::stack_size`, the last stack part
+    /// full), each stack at the cells its footprint covers. Area, not
+    /// fit: whether a stack can actually be laid on the class's grid is
+    /// the world's to say, since the world keeps the grids.
     pub fn stored(&self, class: Storage) -> u32 {
         ResourceId::ALL
             .iter()
             .filter(|&&id| storage(id) == class)
-            .fold(0u32, |sum, &id| sum.saturating_add(self.carrying(id)))
+            .fold(0u32, |sum, &id| {
+                sum.saturating_add(self.cells_of(id, self.carrying(id)))
+            })
+    }
+
+    /// The cells `units` of a resource take: so many stacks, a footprint
+    /// each.
+    fn cells_of(&self, resource: ResourceId, units: u32) -> u32 {
+        stacks_of(resource, units).saturating_mul(cells(resource))
+    }
+
+    /// What is left of a class: its capacity less what is stored.
+    pub fn spare(&self, class: Storage) -> u32 {
+        self.capacity(class).saturating_sub(self.stored(class))
+    }
+
+    /// Whether `units` more of a resource would fit its class by area:
+    /// the stacks it would then be in, less the stacks it is in, against
+    /// what is spare — a unit that tops up a part-full stack takes no
+    /// cell. The rule every purchase, craft and stow asks first; the
+    /// grid may still say no to a stack the area would take.
+    pub fn has_room(&self, resource: ResourceId, units: u32) -> bool {
+        let Some(after) = self.carrying(resource).checked_add(units) else {
+            return false;
+        };
+        let more = self
+            .cells_of(resource, after)
+            .saturating_sub(self.cells_of(resource, self.carrying(resource)));
+        more <= self.spare(storage(resource))
+    }
+
+    /// How many more units of a resource the class has area for: what
+    /// tops up the last stack, and a stack for every footprint spare.
+    pub fn room_for(&self, resource: ResourceId) -> u32 {
+        let have = self.carrying(resource);
+        let size = stack_size(resource).max(1);
+        let topping = stacks_of(resource, have)
+            .saturating_mul(size)
+            .saturating_sub(have);
+        let stacks = self.spare(storage(resource)) / cells(resource).max(1);
+        topping.saturating_add(stacks.saturating_mul(size))
+    }
+
+    /// The most units of a resource the ship could hold with nothing else
+    /// in its class: what a target or an order is clamped to.
+    pub fn most_of(&self, resource: ResourceId) -> u32 {
+        (self.capacity(storage(resource)) / cells(resource).max(1))
+            .saturating_mul(stack_size(resource))
     }
 
     /// The cargo as `physics` wants it, for [`crate::mass`].
@@ -342,6 +394,11 @@ pub enum EditError {
     /// layer asks it before it asks `apply`. Here with the others for the
     /// one-table reason.
     NotSoldHere = 17,
+    /// A wall light or a picture (`parts::hangs_on_wall`) with nothing to
+    /// hang from: the tile its rotation names (`parts::wall_light_back`)
+    /// holds nothing that blocks — no bulkhead, hull or tall part. Turn it
+    /// to a wall, or put it beside one.
+    NoWallAtBack = 18,
 }
 
 impl EditError {
@@ -432,6 +489,10 @@ fn place(
         }
     }
 
+    if hangs_on_wall(kind) && !wall_at_back(design, origin, rotation) {
+        return Err(EditError::NoWallAtBack);
+    }
+
     if !budget.affords(design, def.price) {
         return Err(EditError::Unaffordable);
     }
@@ -445,6 +506,32 @@ fn place(
     });
     next.next_id += 1;
     Ok(next)
+}
+
+/// Whether a part hung at `origin` turned `rotation` — a wall light, a
+/// picture (`parts::hangs_on_wall`) — has its wall: the
+/// tile [`wall_light_back`] names holds a part that blocks movement — a
+/// bulkhead, the hull, a tall part. A door does not count: its leaves
+/// are not a wall to hang a bracket on. Off the grid is no wall.
+pub fn wall_at_back(design: &ShipDesign, origin: (u32, u32), rotation: Rotation) -> bool {
+    let (dx, dy) = wall_light_back(rotation);
+    let at = (origin.0 as i32 + dx, origin.1 as i32 + dy);
+    let id = design.grid().get(Layer::Object, at);
+    id != 0
+        && design
+            .part(id)
+            .is_some_and(|p| p.kind.def().blocks_movement && p.kind != PartKind::Door)
+}
+
+/// The rotation a wall light — or anything else hung, a picture — at
+/// `tile` would hang from a wall at, if any side has one: the first of
+/// [`Rotation::ALL`] whose back is a wall, so the answer is the same
+/// wherever it is asked — the fixtures, a station's layout and the
+/// designer's ghost all lay a lamp this way.
+pub fn wall_light_rotation(design: &ShipDesign, tile: (u32, u32)) -> Option<Rotation> {
+    Rotation::ALL
+        .into_iter()
+        .find(|&r| wall_at_back(design, tile, r))
 }
 
 /// Frame first if the tile has none, then deck — two placements, one edit,
@@ -526,12 +613,7 @@ fn buy(
         return Err(EditError::CargoUnaffordable);
     }
 
-    let class = storage(resource);
-    let wanted = design
-        .stored(class)
-        .checked_add(units)
-        .ok_or(EditError::NoRoomAboard)?;
-    if wanted > design.capacity(class) {
+    if !design.has_room(resource, units) {
         return Err(EditError::NoRoomAboard);
     }
 

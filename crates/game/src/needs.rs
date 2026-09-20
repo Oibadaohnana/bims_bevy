@@ -5,9 +5,10 @@
 //! fills it back up. Everything else about the Bim's day follows from these
 //! numbers.
 //!
-//! Four of them run on the clock. The odd one out, cleanliness, has no clock
+//! Four of them run on the clock. The odd one out, surroundings, has no clock
 //! and no errand behind it: it follows the state of the deck the Bim is
-//! standing on and of the Bim itself, and what it does when it runs out is in
+//! standing on — the mess about it, and what is there to cheer it — and of the
+//! Bim itself, and what it does when it runs out is in
 //! `filth.rs`. Company is the newest and the only one that needs *another Bim*
 //! rather than a fixture — what going without it does is in `social.rs`.
 //!
@@ -91,7 +92,7 @@ const SHOWER_COST: f32 = 6.0 + SHOWER_MINUTES;
 const REST_DRAIN: f32 = SPAN / (BODY_WAKING / SLEEPS_PER_DAY - TO_BED_COST);
 const FOOD_DRAIN: f32 = SPAN / (WAKING / MEALS_PER_DAY - MEAL_COST);
 /// A day's ordinary grime: sweat and dust, on the waking day like food. What
-/// the deck adds on top of it is `Need::Cleanliness`'s, and separate — see
+/// the deck adds on top of it is `Need::Surroundings`'s, and separate — see
 /// the note on [`Need::Hygiene`].
 const HYGIENE_DRAIN: f32 = SPAN / (WAKING / SHOWERS_PER_DAY - SHOWER_COST);
 /// The restroom need is the exception, and its slot is the *whole* day rather
@@ -224,13 +225,13 @@ pub enum Need {
     Restroom,
     /// Not a clock like the others: this one follows the state of the room the
     /// Bim is standing in and of the Bim itself. See `filth.rs`.
-    Cleanliness,
+    Surroundings,
     /// Somebody to talk to. Back on the clock, and filled by the one thing
     /// aboard that needs two Bims — see `social.rs` for what going without it
     /// does, which is a good deal worse than what this bar shows.
     Company,
     /// A day's grime on the Bim itself, on the clock like food, and put right
-    /// by a shower. Kept apart from [`Need::Cleanliness`] on purpose: that one
+    /// by a shower. Kept apart from [`Need::Surroundings`] on purpose: that one
     /// is the *deck* — it follows the mess about the Bim and empties nobody's
     /// stomach by itself — and the stages of being sick hang off it, so a
     /// clock draining it would have a crew with nowhere to wash falling ill
@@ -247,7 +248,7 @@ impl Need {
         Need::Rest,
         Need::Food,
         Need::Restroom,
-        Need::Cleanliness,
+        Need::Surroundings,
         Need::Company,
         Need::Hygiene,
     ];
@@ -262,7 +263,7 @@ impl Need {
             Need::Food => FOOD_DRAIN,
             Need::Restroom => RESTROOM_DRAIN,
             // Time alone does not make a Bim dirty; filth does.
-            Need::Cleanliness => 0.0,
+            Need::Surroundings => 0.0,
             Need::Company => COMPANY_DRAIN,
             Need::Hygiene => HYGIENE_DRAIN,
         }
@@ -288,7 +289,7 @@ impl Need {
             Need::Rest => REST_RECOVER,
             Need::Food => FOOD_RECOVER,
             Need::Restroom => RESTROOM_RECOVER,
-            Need::Cleanliness => 0.0,
+            Need::Surroundings => 0.0,
             Need::Company => COMPANY_RECOVER,
             Need::Hygiene => HYGIENE_RECOVER,
         }
@@ -375,6 +376,17 @@ impl Needs {
         self.levels[need as usize] = to.clamp(0.0, FULL);
     }
 
+    /// Covered in something is wanting a wash. `on_bim` is how much of the
+    /// Bim the mess left covered, nought to one, and the washing need
+    /// drops to whatever share of it is still clean — an accident empties
+    /// the bar, a wetting takes it to just over half — and never rises for
+    /// it. That is what sends a Bim that has soiled itself to the shower,
+    /// where a day's grime would have kept it waiting till evening.
+    pub fn soiled(&mut self, on_bim: f32) {
+        let level = &mut self.levels[Need::Hygiene as usize];
+        *level = level.min((FULL - on_bim).clamp(0.0, FULL));
+    }
+
     /// Bring a need down by a flat amount, stopping at nothing. Being sick
     /// empties the stomach whatever was in it.
     pub fn spend(&mut self, need: Need, amount: f32) {
@@ -382,10 +394,10 @@ impl Needs {
         *level = (*level - amount).max(0.0);
     }
 
-    /// Cleanliness moving, in level per game minute: positive freshens, and
+    /// Surroundings moving, in level per game minute: positive freshens, and
     /// negative is the room and the Bim's own state working on it.
     pub fn scrub(&mut self, minutes: f32, rate: f32) {
-        let level = &mut self.levels[Need::Cleanliness as usize];
+        let level = &mut self.levels[Need::Surroundings as usize];
         *level = (*level + rate * minutes).clamp(0.0, FULL);
     }
 

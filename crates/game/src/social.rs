@@ -4,16 +4,22 @@
 //! thing that fills the fifth need, and the only thing that stops the clock in
 //! [`Solitude`] — which is not the same clock. The **need** empties in a day
 //! and is what sends a Bim looking for the other one; the **solitude clock**
-//! runs in days and is what going without actually costs, on the same pattern
-//! as malnutrition in `health.rs` and standing in the mess in `filth.rs`:
-//! reaching nothing is the start of it, not the end.
+//! starts when that bar has run dry and runs in days from there, and is what
+//! going without actually costs, on the same pattern as malnutrition in
+//! `health.rs` and standing in the mess in `filth.rs`: reaching nothing is
+//! the start of it, not the end.
 //!
-//! | alone for | stage | what it does |
+//! | bar empty for | stage | what it does |
 //! | --- | --- | --- |
-//! | 3 days | desocialized | broods — a low entry in the diary — and everything it does takes a tenth longer |
-//! | 5 days | severe | breaks off about every five hours and sits on the deck for ten minutes |
-//! | 7 days | isolated | hurts itself every four hours, ten points of health each time |
-//! | 10 days | — | 3% an hour of giving up altogether, and three points more for every further day |
+//! | 6 days | desocialized | broods — a low entry in the diary — and everything it does takes a tenth longer |
+//! | 8 days | severe | breaks off about every five hours and sits on the deck for ten minutes |
+//! | 10 days | isolated | hurts itself every four hours, ten points of health each time |
+//! | 13 days | — | 3% an hour of giving up altogether, and three points more for every further day |
+//!
+//! Six days of nothing on the bar before the first stage, because the bar
+//! empties in under a day of waking and a crew parted for a few days —
+//! one in a suit outside, one left on a station — should not come back
+//! brooding. The clock does not run while the bar has anything on it.
 //!
 //! The stages do not replace each other: an isolated Bim is still brooding and
 //! still breaking down, because each stage is the one before it and worse.
@@ -26,12 +32,14 @@
 use crate::clock::{DAY, HOUR};
 use crate::rng::Rng;
 
-/// How long alone before each stage sets in.
-const DESOCIALIZED_AT: f32 = 3.0 * DAY;
-const SEVERE_AT: f32 = 5.0 * DAY;
-const ISOLATED_AT: f32 = 7.0 * DAY;
+/// How long with the company bar empty before each stage sets in. Six
+/// days of nothing before the first, and the rest two, two and three days
+/// apart, as they always were.
+const DESOCIALIZED_AT: f32 = 6.0 * DAY;
+const SEVERE_AT: f32 = 8.0 * DAY;
+const ISOLATED_AT: f32 = 10.0 * DAY;
 /// And how long before it stops wanting to go on at all.
-const DESPAIRS_AT: f32 = 10.0 * DAY;
+const DESPAIRS_AT: f32 = 13.0 * DAY;
 
 /// Game minutes between one low moment and the next. Often enough that a day
 /// of it leaves a legible run of entries in the diary, rare enough that the
@@ -53,7 +61,7 @@ pub const SITS_FOR: f32 = 10.0;
 /// ten points a day of net damage: three days from the isolated stage to the
 /// despair that follows it leaves it worn down and still alive, which is the
 /// shape the escalation wants. Make it much faster and nothing ever reaches
-/// day ten.
+/// the despair.
 const HURTS_EVERY: f32 = 4.0 * HOUR;
 pub const SELF_HARM: f32 = 10.0;
 
@@ -75,7 +83,7 @@ pub enum Loneliness {
     Desocialized,
     /// Breaking off and sitting down.
     Severe,
-    /// Hurting itself, and past ten days, worse.
+    /// Hurting itself, and past the thirteenth day, worse.
     Isolated,
 }
 
@@ -128,7 +136,8 @@ pub struct Fallout {
 /// How long *this Bim* has been without company, and what that is about to
 /// cost it.
 pub struct Solitude {
-    /// Game minutes since it last talked to anybody.
+    /// Game minutes the company bar has been empty since it last talked to
+    /// anybody: the clock stands while there is anything on the bar.
     alone_for: f32,
     /// Sub-clocks, so each thing happens at its own interval rather than all
     /// of them landing on the same frame.
@@ -154,15 +163,15 @@ impl Solitude {
         self.since_hurt = 0.0;
     }
 
-    /// Game minutes it has been on its own. For the host's readout and for
+    /// Game minutes it has been without a word on an empty bar. For the host's readout and for
     /// the probes, which need to see the clock running rather than infer it
-    /// from a stage that is three days off.
+    /// from a stage that is six days off.
     pub fn alone_for(&self) -> f32 {
         self.alone_for
     }
 
     /// Wind the clock forward by hand. For the probes: watching a Bim reach
-    /// the last of this in real time is ten game days of frames, and the
+    /// the last of this in real time is a fortnight of frames, and the
     /// interesting part is what happens once it is there.
     #[allow(dead_code)]
     pub fn set_alone_for(&mut self, minutes: f32) {
@@ -181,9 +190,9 @@ impl Solitude {
         }
     }
 
-    /// The chance per game hour that it gives up, or zero before the tenth
-    /// day. Three per cent to begin with and three more for every day past
-    /// it, so the tenth day is survivable and the fortnight is not.
+    /// The chance per game hour that it gives up, or zero before the despair
+    /// sets in. Three per cent to begin with and three more for every day past
+    /// it, so the first day of it is survivable and a week of it is not.
     pub fn despair_per_hour(&self) -> f32 {
         if self.alone_for < DESPAIRS_AT {
             return 0.0;
@@ -194,11 +203,25 @@ impl Solitude {
 
     /// Run the clocks and say what, if anything, happened.
     ///
-    /// `can_break_down` is the game's veto: a Bim already sitting at the
-    /// table or asleep in its bunk cannot sink to the deck, and asking it to
-    /// would put it through the furniture.
-    pub fn update(&mut self, minutes: f32, can_break_down: bool, rng: &mut Rng) -> Fallout {
-        self.alone_for += minutes;
+    /// `starved` is whether the company bar is empty: the clock runs only
+    /// while it is, so the stages are measured from the bar running dry
+    /// and not from the last word. What has already run stays, and so
+    /// does the stage it reached — a bar that fills again is a
+    /// conversation, and [`Solitude::talked`] is what clears it — which is
+    /// also what lets a probe pin the clock and watch the fallout without
+    /// starving the bar first. `can_break_down` is the game's veto: a Bim
+    /// already sitting at the table or asleep in its bunk cannot sink to
+    /// the deck, and asking it to would put it through the furniture.
+    pub fn update(
+        &mut self,
+        minutes: f32,
+        starved: bool,
+        can_break_down: bool,
+        rng: &mut Rng,
+    ) -> Fallout {
+        if starved {
+            self.alone_for += minutes;
+        }
         let mut out = Fallout::default();
         let stage = self.stage();
 

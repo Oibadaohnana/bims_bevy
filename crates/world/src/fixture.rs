@@ -32,7 +32,7 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// Pinned rather than computed, for the same reason `REFERENCE_HASH` is: a
 /// test comparing two computed values would pass happily while both were
 /// wrong. Update it only when the scenario below is meant to change.
-pub const REFERENCE_CHECKSUM: u64 = 0x_3938_4fa3_c88f_231b;
+pub const REFERENCE_CHECKSUM: u64 = 0x_9188_b528_7c70_3160;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -99,17 +99,19 @@ pub fn reference_run() -> u64 {
     let target = reference_target(&world);
 
     // The second player at the helm, since the ship is flown from there;
-    // both ask for the top speed, so the effective speed is a decision that
-    // was actually taken rather than the default.
+    // both ask for a day a minute, so the effective speed is a decision that
+    // was actually taken rather than the default. `Day` rather than `Top`:
+    // the request's code is in the checksum, and code 4 is what the
+    // reference was pinned with before 48x went in above it.
     world.man_the_helm_for_probe(1);
     world.step(&[
         Command::SetSpeed {
             slot: 0,
-            speed: Speed::Top,
+            speed: Speed::Day,
         },
         Command::SetSpeed {
             slot: 1,
-            speed: Speed::Top,
+            speed: Speed::Day,
         },
         Command::Confirm { slot: 1, target },
     ]);

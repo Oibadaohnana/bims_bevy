@@ -24,6 +24,10 @@
 //! `pistol`, `shotgun`, `rifle`, `sniper`) puts that in the crew member's
 //! hand instead of the pistol, and `BIMS_ENEMY_WEAPON=…` the same in every
 //! resident's — how a swing, a burst or a long shot is looked at.
+//! `BIMS_TRADE=1` opens the simulation with the station's trade window
+//! up, which is how the cart is looked at. `BIMS_ARMOURY=1` opens it with
+//! the armoury window up, which is how the lockers' grid is looked at;
+//! `=storage` and `=fridge` the shelves' and the cold store's.
 //!
 //! `BIMS_SOUND_LOG=1` prints every clip as it is played and every bed as
 //! it starts or stops — how a sound is *heard* from a terminal, where a
@@ -49,6 +53,28 @@ pub fn at_belt() -> bool {
 /// at without walking the station for one.
 pub fn fight() -> bool {
     std::env::var("BIMS_FIGHT").as_deref() == Ok("1")
+}
+
+/// `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member out at
+/// open and leaves the next one failing — how a lamp out, the dark round
+/// it and a failing lamp's flicker are looked at without a fight that
+/// happens to hit one.
+pub fn lamps_out() -> Option<usize> {
+    std::env::var("BIMS_LAMPS_OUT").ok()?.parse().ok()
+}
+
+/// `BIMS_TRADE=1` opens the simulation with the station's trade window up
+/// — how the cart is looked at without finding the Station button.
+pub fn trade() -> bool {
+    std::env::var("BIMS_TRADE").as_deref() == Ok("1")
+}
+
+/// `BIMS_ARMOURY=1` opens the simulation with the armoury window up — how
+/// the lockers' grid is looked at without finding the armoury on deck;
+/// `BIMS_ARMOURY=storage` the first shelf's window, `=fridge` the first
+/// cold store's. What to open, if anything.
+pub fn armoury() -> Option<String> {
+    std::env::var("BIMS_ARMOURY").ok().filter(|s| !s.is_empty())
 }
 
 /// `BIMS_WEAPON=schword` puts a schword in the crew member's hand for the
@@ -208,6 +234,8 @@ fn scripted_input(
         let (key_code, logical) = match name.as_str() {
             "Escape" | "Esc" => (KeyCode::Escape, Key::Escape),
             "Enter" => (KeyCode::Enter, Key::Enter),
+            "Tab" => (KeyCode::Tab, Key::Tab),
+            "Space" => (KeyCode::Space, Key::Space),
             "1" => (KeyCode::Digit1, Key::Character("1".into())),
             "2" => (KeyCode::Digit2, Key::Character("2".into())),
             "3" => (KeyCode::Digit3, Key::Character("3".into())),

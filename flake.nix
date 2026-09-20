@@ -89,10 +89,17 @@
               name,
               what,
               about,
+              # Lines run before the exec: the station builder points its
+              # sketches at the working directory, since a store path is
+              # nowhere to save.
+              before ? "",
             }:
             pkgs.writeShellApplication {
               inherit name;
-              text = ''exec ${nixpkgs.lib.getExe bims} ${what} "$@"'';
+              text = ''
+                ${before}
+                exec ${nixpkgs.lib.getExe bims} ${what} "$@"
+              '';
               meta.description = about;
             };
         in
@@ -123,6 +130,12 @@
             what = "test";
             about = "Docked at a random station in a random galaxy, on the playtest ship";
           };
+          bims-stationbuilder = runFor {
+            name = "bims-stationbuilder";
+            what = "stationbuilder";
+            before = ''export BIMS_STATIONS_DIR="''${BIMS_STATIONS_DIR:-$PWD/stations}"'';
+            about = "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
+          };
           bims-combat = runFor {
             name = "bims-combat";
             what = "combat";
@@ -145,6 +158,7 @@
             bims-room
             bims-test
             bims-combat
+            bims-stationbuilder
             ;
           default = built.bims;
         }
@@ -155,7 +169,8 @@
       # to the world on a prebuilt ship; `.#design` skips to the yard with
       # that ship given; `.#room` is the behaviour test room; `.#test` is the
       # simulation somewhere else each time; `.#combat` is the simulation at
-      # a hostile station.
+      # a hostile station; `.#stationbuilder` is the sketching grid, which
+      # saves beside the working tree rather than inside the store.
       apps = eachSystem (
         pkgs:
         let
@@ -173,6 +188,7 @@
           room = app built.bims-room "The behaviour test room — Bims on a deck";
           test = app built.bims-test "Docked at a random station in a random galaxy, on the playtest ship";
           combat = app built.bims-combat "The simulation docked at a hostile station, the people living there enemies";
+          stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           default = game;
         }
       );

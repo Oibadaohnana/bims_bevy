@@ -167,6 +167,19 @@ puff into the hull or a flame over the deck is obvious. The map marker is
 `the_map_is_north_up_whatever_the_ship_is_doing`, which knows the marker is
 the only thing on the map that turns.
 
+**A station's people are drawn over the ship, since they can be on it.**
+`stations` is painted before the ship — the residents' room with it —
+and their room's deck holds the ship (`crates/world/CLAUDE.md`, "The
+residents' room holds the ship"), so one who has followed the crew
+through the passage stood *under* the hull and the room aboard: a name
+walking about over an empty tile. The room hands its frame over in two
+pieces (`bims::game::Game::shapes_split`: the deck, then the bodies and
+everything drawn over them — the dropped weapons, the Bims, the bedding,
+the shots), `stations` paints the first and returns the second placed
+and turned, and `paint_ship` appends it after the room aboard.
+`a_resident_on_the_ship_s_deck_is_drawn_over_it` pins it, and fails with
+the bodies painted in `stations`.
+
 ## The map says whose a station is, and the rule is the world's
 
 `World::stance` is the one answer — home is friendly, the world's
@@ -559,11 +572,49 @@ is the container window's to show.
 ## Two lights, and the fog is a texture now
 
 `fittings::wall_light` and `fittings::standing_light` (September 2026):
-a bracket lamp with a warm halo, and a lamp on a pole; the halo is a
-picture, and what the light *does* is `bims::sight` (`crates/game/CLAUDE.md`,
-"The dark"). The crew's own semi fog is no longer in the shape buffer:
-`Game::light_map` is a byte-a-pixel picture the app draws as a texture
-(`crates/app/src/fogmap.rs`), and `world_paint::light_map_on_screen` /
-`Session::light_map` hand over its four corners through the ship's camera
-and heading — the `on_screen` the crew's names use — so it lands on the
-deck at any zoom and heading.
+a bracket lamp drawn **flush against the wall it hangs from** — the top
+edge of its tile unturned, which is `shipdesign::wall_light_back` of its
+rotation (`crates/shipdesign/CLAUDE.md`) — and a lamp on a pole. Neither
+draws a halo: what the light *does*, and what it looks like on the deck,
+is `bims::sight`'s light map (`crates/game/CLAUDE.md`, "The dark"). The
+crew's own semi fog is no longer in the shape buffer: `Game::light_map`
+is a two-bytes-a-pixel picture (darkness and lamplight) the app draws as
+one texture (`crates/app/src/fogmap.rs`), and
+`world_paint::light_map_on_screen` / `Session::light_map` hand over its
+four corners through the ship's camera and heading — the `on_screen` the
+crew's names use — so it lands on the deck at any zoom and heading.
+
+**A lamp's glass shows what the fight did to it.** `fittings::lamp_face`
+is drawn over each light part after the hull (`world_paint::lamp_faces`,
+in `paint_ship` for the ship's and in `stations` for a station's) from
+`World::lamp_look(station, tile)` — the share of its health and how
+bright it is shown this frame: nothing while whole and steady, a veil
+the darker the dimmer while it flickers, and out (`bims::sight::Lamp`,
+`crates/game/CLAUDE.md`) the glass dark with a crack across it. The
+designer's lamps are always whole.
+
+**The designer turns a wall light to its wall.** `Editor::turn_at(tile)`
+is the turn the tool goes down at: the ghost's, except a wall light whose
+ghost side has no wall is turned by `shipdesign::wall_light_rotation` to
+one beside the tile, so a lamp dropped along a bulkhead hangs from it
+without a press of `R`; `ghost_turn()` is the same at the hover, and
+`ghost_ok`, the ghost painter (a bar of lamplight along the edge it would
+hang from) and the designer's drag (`screens/designer.rs`, each tile's
+own turn) all read it. The refusal stays the design's
+(`EditError::NoWallAtBack`): a lamp with no wall on any side is red.
+
+## The comforts have pictures, and the picture's ghost turns to its wall
+
+`fittings::small_plant`, `big_plant` and `picture` (September 2026): the
+two plants seen from above — a pot or a tub as concentric discs, the
+soil, and `foliage`, a ring of round leaves in the two greens with a
+light one on top, at a size each — and a framed canvas (brass round a
+sky over a hill) as a strip flush against the wall its rotation names,
+the wall light's top edge unturned. Three rows in `PART_COLORS` (45).
+Nothing in this crate reads what a comfort *does*; that is the room's
+(`crates/game/CLAUDE.md`, "Surroundings").
+
+`Editor::turn_at` asks `shipdesign::hangs_on_wall` rather than naming the
+wall light, so a picture dropped along a bulkhead hangs from it like a
+lamp, and the ghost painter's edge bar is lamplight for the lamp and the
+frame's brass (`fittings::FRAME_BRASS`) for the picture.

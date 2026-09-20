@@ -230,6 +230,126 @@ pub fn storage(resource: ResourceId) -> Storage {
     }
 }
 
+/// How much of a locker a thing takes up: so many rows by so many
+/// columns of the lockers' grid, the way an inventory in a survival game
+/// lays gear out — a rifle lies along a row, a vest is a square. Either
+/// way round: a thing can be turned in its locker, and its footprint
+/// turned with it (`turned()`). Nothing here is a float or a `usize`, for
+/// the reason the module note gives; the number that goes in a hash is
+/// [`Footprint::cells`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Footprint {
+    pub rows: u8,
+    pub cols: u8,
+}
+
+impl Footprint {
+    pub const fn new(rows: u8, cols: u8) -> Footprint {
+        Footprint { rows, cols }
+    }
+
+    /// The same thing turned a quarter round.
+    pub fn turned(self) -> Footprint {
+        Footprint {
+            rows: self.cols,
+            cols: self.rows,
+        }
+    }
+
+    /// How many cells it covers, whichever way round.
+    pub fn cells(self) -> u32 {
+        self.rows as u32 * self.cols as u32
+    }
+}
+
+/// The room one stack of a resource takes in its class. **Every class but
+/// the research desk is a grid**: a shelf, a cold store, a suit locker,
+/// an armoury or a drug lab is so many cells (`shipdesign::PartDef::capacity`),
+/// and each thing kept there covers its footprint of them — a pistol a
+/// row of two, a sniper rifle a row of ten, a vest four by four, a crate
+/// of vegetables one by two, a block of tofu four by four. Goods that
+/// stack ([`stack_size`]) cover one footprint a stack, however full the
+/// stack is, so what a shelf holds is its cells times the stacks. The
+/// desk's one slot is one cell.
+///
+/// A `match` rather than a table, like [`storage`], so that a new
+/// [`ResourceId`] is a compile error here rather than a thing that
+/// quietly takes no room.
+pub fn footprint(resource: ResourceId) -> Footprint {
+    match resource {
+        ResourceId::Ore
+        | ResourceId::Metal
+        | ResourceId::Components
+        | ResourceId::Galvum
+        | ResourceId::Emitter
+        | ResourceId::Rock
+        | ResourceId::Fibre
+        | ResourceId::ResearchKey => Footprint::new(1, 1),
+        // The guns lie along a row: the pistol short, the shotgun broad,
+        // the sniper rifle the whole width of a locker.
+        ResourceId::Handgun => Footprint::new(1, 2),
+        ResourceId::Shotgun => Footprint::new(2, 5),
+        ResourceId::AutoRifle => Footprint::new(1, 7),
+        ResourceId::SniperRifle => Footprint::new(1, 10),
+        ResourceId::Schword => Footprint::new(1, 5),
+        // The armour: a vest is a square, a helm lies on its side, the
+        // leg guards stand.
+        ResourceId::Kevlar => Footprint::new(4, 4),
+        ResourceId::Helm => Footprint::new(2, 4),
+        ResourceId::LegGuard => Footprint::new(3, 2),
+        ResourceId::Vest => Footprint::new(3, 3),
+        // The suit folded, a medkit's case, a bandage rolled.
+        ResourceId::Suit => Footprint::new(3, 3),
+        ResourceId::Medkit => Footprint::new(2, 2),
+        ResourceId::Bandage => Footprint::new(1, 1),
+        // The food: a crate of vegetables, a block of tofu.
+        ResourceId::Vegetable => Footprint::new(1, 2),
+        ResourceId::Tofu => Footprint::new(4, 4),
+    }
+}
+
+/// How many units of a resource go in one stack — one footprint of its
+/// class's grid. What bounds a shelf: a hundred cells hold a thousand ore
+/// in stacks of ten, or a hundred medkits, or one thing each of what does
+/// not stack. A `match`, so a new resource is a compile error rather
+/// than a stack of nought.
+pub fn stack_size(resource: ResourceId) -> u32 {
+    match resource {
+        // The materials, by the sack: ore, metal, rock and fibre ten, the
+        // small components twenty, the precious galvum and emitters five.
+        ResourceId::Ore | ResourceId::Metal | ResourceId::Rock | ResourceId::Fibre => 10,
+        ResourceId::Components => 20,
+        ResourceId::Galvum | ResourceId::Emitter => 5,
+        // The food, by the crate.
+        ResourceId::Vegetable | ResourceId::Tofu => 10,
+        // Everything worn, held or dressed with is one to a footprint.
+        ResourceId::Suit
+        | ResourceId::Handgun
+        | ResourceId::Vest
+        | ResourceId::Medkit
+        | ResourceId::Bandage
+        | ResourceId::Helm
+        | ResourceId::Kevlar
+        | ResourceId::LegGuard
+        | ResourceId::Shotgun
+        | ResourceId::AutoRifle
+        | ResourceId::SniperRifle
+        | ResourceId::Schword
+        | ResourceId::ResearchKey => 1,
+    }
+}
+
+/// How many stacks `units` of a resource are: the last one part full.
+pub fn stacks_of(resource: ResourceId, units: u32) -> u32 {
+    units.div_ceil(stack_size(resource).max(1))
+}
+
+/// How many cells of its class one stack of a resource takes: the
+/// footprint's area.
+pub fn cells(resource: ResourceId) -> u32 {
+    footprint(resource).cells()
+}
+
 /// Everything in `amounts`, added up, or a refusal if it does not fit.
 pub fn total(amounts: impl IntoIterator<Item = Money>) -> Result<Money, EconomyError> {
     amounts.into_iter().try_fold(0, add)
@@ -333,6 +453,45 @@ mod tests {
         assert_eq!(storage(ResourceId::AutoRifle), Storage::Locker);
         assert_eq!(storage(ResourceId::SniperRifle), Storage::Locker);
         assert_eq!(storage(ResourceId::Schword), Storage::Locker);
+    }
+
+    /// The footprints, as they were asked for: a pistol one by two, a
+    /// rifle one by seven, a shotgun two by five, a sniper rifle one by
+    /// ten; a vest four by four, a helm two by four, leg guards three by
+    /// two. Everything outside the lockers is one cell, so those classes
+    /// count as they always did; and turning a thing keeps its area.
+    #[test]
+    fn a_thing_takes_its_footprint_in_a_locker_and_one_cell_elsewhere() {
+        assert_eq!(footprint(ResourceId::Handgun), Footprint::new(1, 2));
+        assert_eq!(footprint(ResourceId::AutoRifle), Footprint::new(1, 7));
+        assert_eq!(footprint(ResourceId::Shotgun), Footprint::new(2, 5));
+        assert_eq!(footprint(ResourceId::SniperRifle), Footprint::new(1, 10));
+        assert_eq!(footprint(ResourceId::Kevlar), Footprint::new(4, 4));
+        assert_eq!(footprint(ResourceId::Helm), Footprint::new(2, 4));
+        assert_eq!(footprint(ResourceId::LegGuard), Footprint::new(3, 2));
+        assert_eq!(cells(ResourceId::SniperRifle), 10);
+        assert_eq!(cells(ResourceId::Kevlar), 16);
+        assert_eq!(
+            footprint(ResourceId::Shotgun).turned(),
+            Footprint::new(5, 2)
+        );
+        assert_eq!(footprint(ResourceId::Vegetable), Footprint::new(1, 2));
+        assert_eq!(footprint(ResourceId::Tofu), Footprint::new(4, 4));
+        for &id in ResourceId::ALL.iter() {
+            let f = footprint(id);
+            assert!(f.rows >= 1 && f.cols >= 1, "{id:?}");
+            assert_eq!(f.turned().cells(), f.cells(), "{id:?}");
+            assert!(stack_size(id) >= 1, "{id:?}");
+            if storage(id) == Storage::Research {
+                assert_eq!(f, Footprint::new(1, 1), "{id:?}: the desk's one slot");
+            }
+        }
+        // Stacks: ten ore to a cell, one gun; forty-one ore is five stacks.
+        assert_eq!(stack_size(ResourceId::Ore), 10);
+        assert_eq!(stack_size(ResourceId::SniperRifle), 1);
+        assert_eq!(stacks_of(ResourceId::Ore, 41), 5);
+        assert_eq!(stacks_of(ResourceId::Ore, 40), 4);
+        assert_eq!(stacks_of(ResourceId::Ore, 0), 0);
     }
 
     #[test]
