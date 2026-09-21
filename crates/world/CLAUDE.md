@@ -469,13 +469,24 @@ The painter asks it too: a stranger's station is its far plate
 nothing at fifty tiles, and the map rings every station by it
 (`world_paint::paint_map`: enemy red, home green, neutral nothing).
 
-**How many enemies a station puts up is the crew's worth.** A room is
+**How many enemies a station puts up is the crew's worth, and the
+calendar.** A room is
 opened with `World::people_of(station)`, never `residents()` straight:
 the residents at a friendly or neutral station, nobody on a derelict,
-and at a hostile one `station::enemies_of(crew, worth, start_worth)` —
-`data::ENEMIES_BASE` (one) plus one a crewmate, doubled for every half
-of `World::start_worth` that `World::worth()` has grown by since, capped
-at `data::ENEMIES_MAX` (sixteen). Worth is `shipdesign::Budget::spent`
+and at a hostile one `station::enemies_of(crew, worth, start_worth,
+days)` — `station::base_by_day(days)` plus one a crewmate, doubled for
+every half of `World::start_worth` that `World::worth()` has grown by
+since, capped at `data::ENEMIES_MAX` (sixteen). The base is
+`data::ENEMIES_BASE` (one) **and one more every `data::ENEMIES_DAYS`
+(thirty) whole days the game has run** (feature 58): nothing more for
+the first month, one more from day thirty, two from day sixty, so an
+enemy gets stronger with time as well as with the crew's worth, and the
+worth's doublings sit on top of the bigger base. `days` is
+`World::days_gone()` — `clock_minutes`, elapsed time since the world
+opened, floored to whole minutes and then to whole days, *not* the
+crew's calendar `World::day()`, which opened at the waking hour — so
+two clients that have stepped the same number of times count the same
+day. Worth is `shipdesign::Budget::spent`
 of the ship's design — every part at its price and every unit in the
 hold at its trade value, the money in hand *not* counted — and
 `start_worth` is that sum at step nought, fixed for the game and left
@@ -487,8 +498,16 @@ with until the ship has left and come back; `set_hostile` is the one
 exception — it reopens the residents' room at the new stance's count
 if that differs, because `combat` turns the dock hostile with its two
 residents' room already open, and two residents are not a garrison.
-`enemies_of_grows_with_the_crew_s_worth_and_caps` pins the formula and
-`a_hostile_dock_opens_with_a_garrison_not_its_residents` the reopen.
+`enemies_of_grows_with_the_crew_s_worth_and_caps` pins the formula
+(the calendar's steps with it), `the_days_gone_are_the_world_s_clock_in_whole_days`
+the day count, `a_hostile_dock_opens_with_a_garrison_not_its_residents`
+the reopen, and `a_month_in_the_garrison_is_one_bigger` the same dock
+turned hostile again at day thirty arming one more — all one `#[test]`
+in `tests.rs`. The `combat` command's arena is unmoved by it: its
+`reinforcements` are worked out at open, day nought, to make the
+garrison up to `ARENA_GARRISON`, and the room opens then and there.
+A rule that must not come out of a save: nothing new is stored — the
+day is read off `clock_minutes`, which was already saved.
 **A station's room is cut to its bunks, and the cut is
 `Residents::open`'s** (since September 2026): a garrison bigger than the
 station's bunks — an orbital has four — is four, the mercenaries cut
@@ -1365,9 +1384,19 @@ against now.
 ## The ship is flown from the helm, and a post is not an order
 
 `World::can_command(slot)` is true only while that player's crew member is
-within `HELM_REACH` (a tile) of the first helm's use spot — `helm_spot()`,
-`at_the_helm(slot)` — and Confirm, Brake and Abort ask it; speed and
-trading do not. **Brake and Abort are one command** (`Command::Abort`,
+**alive, awake, aboard** and within `HELM_REACH` (a tile) of the first
+helm's use spot — `helm_spot()`, `at_the_helm(slot)` — and Confirm,
+Brake, Abort, Jump and Land ask it; speed and trading do not. The first
+three are `World::fit_to_act(slot)`, the same gate `at_the_desk` stands
+behind (alive, not `is_unconscious`, not `Game::is_asleep` — a doze in
+a bunk or a nap on its feet, `Action::Sleep` either way — and not
+`is_outside`); before b-next (September 2026) the helm asked only the
+distance, and a body that died beside the seat could still fly the ship.
+It is asked when a command lands and not again: a crew member who walks
+off the helm under way is refused the *next* order, and the trip carries
+on. `only_a_living_waking_crew_member_is_at_the_helm` pins the three —
+`kill_for_probe`, `nod_off_for_probe`, and a walk away mid-trip.
+**Brake and Abort are one command** (`Command::Abort`,
 `net.stop()`) behind two buttons that are never both live: Brake for a
 ship `Travelling` and not already stopping (`Plan::aborting`), Abort
 for one `CastingOff` or `Undocking`. **Change target** is host-only — it
@@ -2258,3 +2287,216 @@ how the plain is looked at; `a_landed_picture_as_svg` (ignored, in
 town — past the margin, past one window — and back, with its errands
 off, and asks the fog what it saw. `SAVE_VERSION` went to 3 for
 `Room::plane`.
+
+## Raiders: a hostile ship that docks to you
+
+`crates/world/src/raid.rs` (September 2026). Everything a hostile dock
+does — enemies in the residents' room, the two rooms joined through the
+mated airlocks, the fight crossing between them, a body looted where it
+fell — happens to a crew that *chose* to dock there. A raid is the same
+thing arriving. A **raider** is a `Station` the world builds when the raid
+is due: id `raider_id(n)` (`RAIDER_BASE | n`, bit 29 — clear of the
+generator's ids and of `SURFACE_BASE`, bit 30; `raider_index` reads it
+back and refuses a surface's), kind `RAIDER_KIND` (an orbital's, for its
+shelf), `Plan::Raider` for a hull, `hostile: true`, on the `hostile` list
+from the moment it exists; and on arrival the ship's state becomes
+`Docked { station: raider }` and `dock_at` → `join_rooms` runs exactly as
+at any berth. `World::station(id)` finds it through `Raids::station`
+after the stations and the surfaces; `people_of` answers its population
+(the boarders it was rolled with) rather than `enemies_of`;
+`frame_candidate` keeps the frame the ship held when the raid came,
+since a raider is not a place in the system. Downstream nothing knows
+the difference, which is the point.
+
+**The hull** is `Plan::Raider` — `RAIDER_SIDE` (20) tiles, laid by hand
+in `station::furnish_raider` rather than by `furnish`: one block of hull
+three-quarters as tall as wide, the port in the west skin at the middle,
+the array in the north, the reactor and life support along the north
+wall with one or two shelves beside them, `BOARDERS_MAX` (6) bunks in two
+columns down the east side laid as a station's quarters lay theirs
+(R180, every three rows), two sandbags down the middle, wall lights in
+the corners and along the long walls. No galley, no heads, no desk
+(`market_kind` answers `None`): it is boarded from, not lived in, and
+`validate` reports the missing fixtures as it would for any ship —
+`a_raider_is_a_place_the_room_can_live_in_and_can_be_walked` filters
+codes 2–10 out and wants nothing else wrong, then walks it from the
+port. Not on `Plan::ALL`, never rolled; `layout_raider(seed)` is the one
+way to one, not cached since one is built a raid. The room stands up
+without the fixtures (`aboard::layout_of` falls back to the first deck
+tile), and a boarder's meal is a walk to that tile.
+
+**When.** `Raids` on the world (`World::raids`): `next`, the number of the
+next raid; `due`, the whole minute it falls due; `left_home`; and the
+`state`. Off a stream of its own — `Purpose::Raids` (11), from the galaxy
+seed with star 0, since a raid follows the ship rather than a system;
+`Raids::stream(seed, n)` mixes the number in so one raid's rolls move no
+other's — each raid is a gap after the last (`Raids::gap`: `RAID_GAP_MIN`
+a day, plus a roll below `RAID_GAP_SPREAD` two days, branch "GAP"), a
+bearing in whole degrees ("BEAR"), a hull seed ("HULL") and a shelf
+("STOC"). `run_raid`, stage 3 of the step after the jump: `left_home`
+goes up at the first step the ship is neither `Docked` nor `CastingOff`;
+a `Quiet` raid whose minute has come fires at the first step the ship is
+`Holding` after it (`World::holding`) — docked, travelling, casting off,
+undocking, docking and charging are never raided, and one that falls due
+under way waits for the next hold — and the next is scheduled a gap from
+*that* minute, so the schedule depends on when the ship held, which is
+deterministic in the command stream and hashed. At contact the raider is
+`Closing` from `from`, `detection_range()` out along the bearing, to
+`at`, where the ship holds, arriving `ceil(range / RAIDER_SPEED)` whole
+minutes on (50 000 units a minute: a minute with `VISION_RANGE`, half an
+hour with one array, two hours at `RADAR_RANGE_MAX`); `Raids::contact`
+is where it is on that line for the painter. **Every player's speed
+request is set to `Real`**, once — `speed::effective` untouched, and
+nobody can be paused at that moment since a paused world does not step.
+`WorldEvent::RaidContact { boarders, minutes }` = 59. Arrived, the ship
+holding within a tile of `at` — a hold is a stop, so anywhere else is a
+ship that left — `Raids::build_raider` lays the raider so that its berth
+for this ship *is* the ship's position (the berth is the anchor plus a
+constant, so the anchor is the ship less the berth at nought), the ship
+turns onto the berth's heading where it stands, `leave_site`, `dock_at`,
+`RaidBoarded { boarders }` = 60; otherwise `RaidCancelled` = 61 and
+`Quiet`. `jump` cancels a closing raid outright — the ship is holding
+after a jump, but not where it was — and a raid that arrives to a
+travelling ship is cancelled at arrival.
+
+**How many.** `raid::boarders_of(crew, worth, start_worth, days)` is
+`station::scaled` — `enemies_of`'s arithmetic with the baseline and the
+cap as arguments — at `base_by_day(days) + crew` (`ENEMIES_BASE`, one
+more a month gone — feature 58, below) capped at `BOARDERS_MAX` (6),
+rolled at contact with `World::days_gone()` and kept as the raider's
+population, so a crew that gets richer while it closes meets the
+number it was warned of.
+`boarders_are_counted_like_a_garrison_to_a_lower_cap` — its tail is a
+raid rolled thirty days in, four against two.
+
+**The boarders come for the ship.** A station's people go about their
+day and fight what they see, and a raider's would sit at their bunks:
+`Residents::post_boarders(ship)` posts every one of them alive and
+without a post at the ship's **gangway** — `ASHORE_TILES` inside the
+ship's port, through the mirror's `station_frame` into their room — with
+`Game::post_at`, which keeps the post whether or not there is a route
+yet. `join_rooms` calls it for a raider after `post_guard`, and
+`settle_raid` (stage 5, after the fight) calls it every step the raider
+is tied up, since a fight drops every post (`muster`) and one that went
+back to its bunk after it is sent again. Walking there they see the
+crew and the war starts; a locked airlock in the way is smashed
+(`Game::breach` off war for a post — `crates/game/CLAUDE.md`, "the
+hunter and the post"). `settle_raid` also says `RaidRepelled` = 62 once,
+the step every boarder is `is_down`, and sets `Raid::Docked::repelled`:
+the raider is a derelict tied to the ship, its bodies `LootSource::Resident`
+as at any hostile dock. **Casting off removes it**: `cast_off`'s
+transition to `Undocking` sets `Quiet` and takes the id off `hostile`
+(after `unjoin_rooms`, which still needs `station(raider)` to put its
+people ashore); `settle_residents` then drops the room since the nearest
+station is somebody else, and the painter, which chains
+`Raids::station` onto the stations only while one is there, stops
+drawing it. No persistent derelicts.
+
+**The end.** `check_lost`, after `settle_raid`: no crew member alive and
+awake — `is_alive && !is_unconscious`, whatever put them down, a raid or
+a dock — and `World::lost` goes up with `CrewLost` = 63, said once and
+kept; the app's game screen hands over to `Screen::Over` on the flag
+(`screens/game.rs::over`: the title, the day and the hour, and the way
+back to the menu). `a_lost_fight_reaches_the_end_screen`.
+
+**In `world_checksum`** after the cold store: `next`, `due`, `left_home`,
+the state with a tag — a closing raid's number, boarders, both ends of
+its line and both clock readings; a docked raider's id, seed, anchor,
+boarders and whether it is repelled — and `lost`. `REFERENCE_CHECKSUM`
+moved with it, since the schedule is hashed from the first step; a save
+is `SAVE_VERSION` 6. The tests are `tests_raid.rs`: the hull, the
+count, the wait for a hold and for leaving home, the arrival with the
+warning and the reset and a boarder on the deck, the two cancellations,
+the warning at nought, one and two arrays (1, 30 and 60 minutes), two
+worlds on one seed raided alike to the checksum through the boarding,
+the derelict and its removal, and the end. `raid_now_for_probe` brings
+the next raid to now (`raid_due_for_probe(minutes)` to that many
+minutes on); `raid_for_probe(dock)` is `BIMS_RAID`, and
+`raid_coming_for_probe(minutes)` — off the berth, holding a little way
+out, the raid due that many minutes on and nothing yet on the radar —
+is the app's `raid` command, ten minutes so that at 1× the contact is
+ten seconds in
+(`a_raid_staged_to_come_in_ten_minutes_makes_contact_on_the_tenth`).
+
+**What a raid rests on** is the retreat: the crew back aboard with the
+airlock locked, the enemy following and forcing it —
+`enemies_follow_a_crew_that_retreats_aboard_and_force_the_ship_s_locked_airlock`
+in `tests.rs`, for a blade and a pistol. A gunner did not follow before
+the hunter's rule went into the room: it took a stand with a view of
+the door at the far end of its range and waited there.
+
+## An enemy's shelf is loot, and it is taken from where it stands
+
+`crates/world/src/plunder.rs` (September 2026). A raider is built with
+a shelf and a rolled `Stock`, and so is every station — but `Stock` is
+the bits the *desk* sells by, and a raider keeps no desk, so the only
+loot a repelled raid left was the boarders' bodies. Now **an enemy's
+shelf is a grid of its own**: the moment the rooms are joined at a
+station whose people are enemies (`World::stance` hostile — a raider is
+on the list from the moment it exists, and `set_hostile(.., true)` at a
+berth counts, which is how the `combat` command and `stage_fight_for_probe`
+get one), `lay_plunder` lays it out **once** — `plunder::lay_out`: for
+every good the station's kind stocks, in `ResourceId` order, one to
+`data::PLUNDER_STACKS_MAX` (3) full stacks off branch "LOOT" of
+`Station::map_seed`, drawn for every good whether stocked or not so a
+good coming into stock moves nothing after it; the capacity is the
+station's shelves' (`ShipDesign::capacity(Shelf)`) and what would not
+fit is left off — and keeps it on `World::plunder: Vec<Plunder>` by the
+station's id. Stacks only: nobody's shelf stocks armour or guns
+(`StationKind::sells`). A shelf plundered **stays plundered**: away and
+back, it is as it was left (`dock_for_probe` after `undock_for_probe` in
+the test). Casting off from a raider drops its entry with the raider, a
+jump clears the lot with the system, and `set_hostile(.., false)` drops
+the station's — peace is the world as it was, which
+`the_checksum_notices_every_kind_of_change` insists on.
+
+**The station's shelves are told from the ship's** the way its research
+desk is: `World::station_shelves()` is every `Container::Shelf(i)` on
+the joined deck whose frame stands in `station_box`. They are **not
+containers of the hold** — `container_takes(Shelf(i), _)` is `false` for
+them now, so a crew member beside an enemy's (or a friend's) shelf
+reaches nothing of the ship's, and nothing of the crew's is stowed onto
+a station's shelf. Before this a station's shelf on the joined deck was
+a window onto the ship's own storage.
+
+**`Command::Plunder { slot, who, id }`** takes slot `id` off the shelf
+of the station alongside, refusals in this order: `NotDocked` (not
+docked with the rooms joined), `NotHostile` (26 — a friend's or a
+stranger's shelf is bought from across the desk; the refusal's note
+says so now), `NotAboard` (no such slot), `OutOfReach`
+(`shelf_ashore_in_reach(who)`: alive, awake, within `data::REACH` of
+one of the station's shelves), `PackFull`. Then **the stack comes, one
+to a cell, as far as the pack goes** — `Grid::remove(resource, 1,
+Some(id))` a unit at a time against `Gear::free_cell_for` — and
+`WorldEvent::Plundered { who, units }` (64, `who + 100 * units`) says
+how many. A fetch from the ship's own hold is still one unit a command;
+loot is a stack a click because thirty clicks for thirty ore is not a
+raid anybody would run. `World::plunder_alongside()` is the grid the
+app draws (`None` at a friend's or away from a berth, which shuts the
+window), `plunder_spot(who)` the nearest station shelf's use spot for
+the walk over.
+
+In `world_checksum` after `lost`: the count, then each entry's station
+id, capacity and grid through `eat_grid` — the hold's three grids go
+through the same function now. `REFERENCE_CHECKSUM` moved (the count is
+hashed from the first step); `SAVE_VERSION` is 7. The tests are
+`tests_plunder.rs` — the friendly refusal, the layout against the stock
+and the cap, the ship's shelves still containers and the station's not,
+the reach, the take and what the shelf gave up, the pack filling before
+the shelf empties, the shelf remembered across an undock; and two
+worlds on one seed laid out alike — and the derelict test in
+`tests_raid.rs`, which reads the raider's shelf and sees it go with the
+cast-off.
+
+The app's side is `crates/app/src/crew.rs`: `Open::Plunder(shelf)`,
+`CrewPanels::shelf` (a `Shelf` snapshot the game screen sets every
+frame off `plunder_alongside` and `shelf_ashore_in_reach`),
+`plunder_window` — the lockers' grid with `movable` off, like the Loot
+window's pack; Ctrl-click a stack takes it (`GearOrder::Plunder` →
+`Command::Plunder`), right-click is the Take row — and
+`Hold::station_shelves`, which is what a click on a station's shelf
+reads: an enemy's opens the window and walks the Bim over, a friend's
+gets the one-row note that the desk is the way. The nearby strip lists
+an enemy's shelf within reach as "Enemy's shelf" (`PLUNDER_WINDOW`) and
+a friend's not at all. `BIMS_ARMOURY=plunder` opens the window for a
+screenshot; with `BIMS_RAID=1` that is the raider's shelf.

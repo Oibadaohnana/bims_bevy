@@ -28,8 +28,11 @@ use crate::game::Game;
 /// the room grew whose bunk is whose (`sleeps_in`) and a Bim the deck's
 /// clocks (`ground_left`, `ground_window`, `sore`, `bed`). 5: the
 /// workbench grew its slots (`World::bench` for `upgrade`) and the room
-/// the carries to it (`ferries` and their three reports).
-pub const SAVE_VERSION: u32 = 5;
+/// the carries to it (`ferries` and their three reports). 6: the world
+/// grew the raids (`World::raids`, `lost`) and a Bim whether it hunts.
+/// 7: the world grew the enemies' shelves laid out as loot
+/// (`World::plunder`).
+pub const SAVE_VERSION: u32 = 7;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

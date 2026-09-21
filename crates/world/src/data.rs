@@ -92,10 +92,20 @@ pub const RESIDENT_MEDKITS: u32 = 1;
 /// How many people an enemy station puts up against the crew, before the
 /// crew themselves are counted: a hostile station's room is opened with
 /// [`crate::station::enemies_of`] rather than `residents_of` — this many,
-/// one more a crewmate, and doubled for every half of the crew's starting
-/// worth their worth has grown by since, up to [`ENEMIES_MAX`]. So a rich
-/// crew finds every enemy's dock harder than a poor one does.
+/// one more every [`ENEMIES_DAYS`] the game has run, one more a crewmate,
+/// and doubled for every half of the crew's starting worth their worth
+/// has grown by since, up to [`ENEMIES_MAX`]. So a rich crew finds every
+/// enemy's dock harder than a poor one does, and an old crew harder than
+/// a new one.
 pub const ENEMIES_BASE: u32 = 1;
+/// How many whole game days go by before the base grows by one, and by
+/// one again every time as many more have: thirty, so the first month
+/// is met at [`ENEMIES_BASE`] however long the crew dawdle, and every
+/// month after it the enemy is one stronger before the worth is looked
+/// at ([`crate::station::base_by_day`]). Days since the world opened
+/// (`World::days_gone`), not the crew's calendar, and the same on a
+/// raider's bunks ([`crate::raid::boarders_of`]).
+pub const ENEMIES_DAYS: u32 = 30;
 /// The most an enemy station ever arms. The room sleeps at most as many
 /// as it has bunks — a station's quarters hold a handful, the arena's a
 /// garrison — and past this it is a crowd, and every step of it is paid
@@ -274,3 +284,43 @@ pub const SPOIL_STEPS: u64 = (time::HOUR / STEP_MINUTES) as u64;
 /// rather than keeping it for ever. An eighth an hour is a larder gone
 /// in a day — a brownout is expensive, never fatal.
 pub const SPOIL_DIVISOR: u32 = 8;
+
+/// Raiders — `crate::raid`. How many boarders a raider carries at most:
+/// the raider has a bunk for each, and a ship's deck is not an arena.
+/// The count itself is [`crate::raid::boarders_of`]: one, one a month
+/// gone by and one a crewmate, doubled with the crew's worth the way a
+/// station's garrison is, and never more than this.
+pub const BOARDERS_MAX: u32 = 6;
+
+/// How long between raids, in whole game minutes: a gap of at least the
+/// first and less than the first plus the second, rolled off the raid's
+/// own stream (`crate::raid::Raids::gap`). A day to three days, so a
+/// crew holding at a belt for a week is raided two or three times and a
+/// crew that keeps moving seldom is — a raid comes only while the ship
+/// is holding, and one that falls due under way waits for the next hold.
+pub const RAID_GAP_MIN: u64 = (time::DAY as u64) / (time::MINUTE as u64);
+pub const RAID_GAP_SPREAD: u64 = 2 * RAID_GAP_MIN;
+
+/// How fast a raider closes on the ship, in world units a game minute,
+/// once it is on the radar: it appears at the edge of the ship's range
+/// (`World::detection_range`) and comes straight in, so the warning a
+/// crew gets is that range over this — a minute with nobody's eyes but
+/// their own ([`VISION_RANGE`]), half an hour with one sensor array
+/// ([`RADAR_RANGE_PER_SENSOR`]), two hours with the most
+/// ([`RADAR_RANGE_MAX`]). Far faster than any ship the crew can fly: a
+/// raider is a fast hull, and a raid is not something to outrun.
+pub const RAIDER_SPEED: f64 = 50_000.0;
+
+/// How many tiles across a raider's hull is — `crate::station::Plan::Raider`:
+/// the playtest ship's size, a port in its west skin, a bunk a boarder,
+/// a reactor and a shelf. Small, since it is boarded from rather than
+/// walked.
+pub const RAIDER_SIDE: u32 = 20;
+
+/// How many stacks of each good an enemy's shelf is found holding, at the
+/// most — `crate::plunder`: one to this many, rolled a good at a time off
+/// the station's own seed, each a full `economy::stack_size` of the good.
+/// So a raider's or an enemy station's shelf holds ten to thirty ore, one
+/// to three medkits, and so on for everything its kind stocks — a haul
+/// worth the fight, and nothing a friendly desk would not sell.
+pub const PLUNDER_STACKS_MAX: u32 = 3;

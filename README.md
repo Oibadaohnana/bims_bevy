@@ -24,7 +24,7 @@ as in the room, living the same life on the ship you designed.
 nix run .
 ```
 
-That builds the game and opens it. There are five things to run, and each is
+That builds the game and opens it. There are nine things to run, and each is
 a name rather than a flag:
 
 | command | `cargo run` | opens |
@@ -36,6 +36,7 @@ a name rather than a flag:
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock and bunks to spare for one |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
 | `nix run .#combat` | `cargo run -- combat` | the fight: the combat ship — fourteen crew, a gun in every hand — docked at the spawn rebuilt as the arena and made hostile, its people enemies, fifteen of them; a recruited crew member shoots at any it can see |
+| `nix run .#raid` | `cargo run -- raid` | the simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in — the warning, the raider on the map and closing at its own pace, then the boarding |
 
 The `cargo run` forms build from the working tree, which is what you want
 while editing — `cargo run --release -- test` is the same thing on the
@@ -463,7 +464,11 @@ space, and the strip quotes the trip before anybody commits to it: how
 long, what the engines will draw off the reactor and at what throttle, and
 whether it ends docked or holding alongside.
 Aiming is only looking, from anywhere. **Confirm** is the order, and an
-order wants somebody at the seat: the crew member you steer walks to the
+order wants somebody at the seat: **a living, waking crew member at the
+helm** — a body that fell beside it, or one asleep in it, flies nothing,
+and the order is refused *not at the helm* (the check is made when the
+order lands, so one who walks off under way is refused the *next* order
+and the trip carries on). The crew member you steer walks to the
 helm — the strip says so, with a Cancel beside it — and the order goes
 through the moment they get there; then they are let go, to eat and sleep
 as the day demands, and under way the helm is a job the crew hand round
@@ -579,6 +584,43 @@ crew never smash a door and never seal themselves in — they are yours to
 send. Docked, the station's doors are the same doors on both sides of the
 passage: a lock you set stops the station's people, and a lock they set
 you can lift from the panel.
+
+### Raiders
+
+Hostile ships come to you. Every day to three days, while the ship is
+**holding** — stopped, tied to nothing, charging nothing — a **raider**
+appears at the edge of the radar and closes on the ship in a straight
+line; the log says so, the map draws it ringed in red on its line in,
+and **everybody's speed goes back to 1×** once — a reset, not a veto:
+raise it again if you like. Nothing comes while the ship is docked,
+under way, casting off, pushing off, coming alongside or charging a
+jump, and nothing comes before the crew have left their start station
+for the first time; a raid that falls due under way waits for the next
+hold. The warning is the sensors': the raider comes in at a fixed speed
+from however far the ship can see, so a ship with nobody's eyes but its
+own gets a minute, one sensor array half an hour, and the most a hull
+can carry two hours. Leave before it arrives — a trip, or a jump that
+completes — and the raid is off; the raider turns up where the ship was
+and gives up.
+
+Stay, and it **docks to you**: a small hull with a port, a bunk a
+boarder, a reactor and a shelf, tied airlock to airlock exactly as the
+ship ties up at a station, and from then on it is a hostile station
+docked to the ship. Its **boarders** — one and one for every crew
+member, doubled with the crew's worth the way a station's garrison is,
+six at most — are posted at the ship's gangway, the deck just inside
+its airlock, and come through the passage after it: an enemy that has
+seen a crew member hunts to where it last saw them and, once it has
+hunted, holds or closes and never gives ground again; one that finds
+the airlock locked against it smashes it, thirty seconds, as at any
+door. Every boarder down and the raider is a **derelict** tied to the
+ship: loot the bodies as at any hostile dock, and cast off to be rid of
+it — it is gone the moment the ship pushes off, and never seen again.
+
+**No crew member standing** — dead or out cold, every one, whatever
+put them down — and the run is over: a screen says so, with the day and
+the hour, and the way back is the menu. A save made before the fight is
+still there to load.
 
 ### The hyperdrive, and the galaxy behind the map
 
@@ -1065,6 +1107,33 @@ generator rolls it a local bias like any other, and the world sets it to
 nothing (`World::start`, and the yard's Station panel with it), so an
 opening pool buys the same at a kind of station whatever the seed
 rolled, and what the crew set out with is worth its book value.
+
+**A made thing is worth what went into it and the hours, and nothing
+else.** The roots — ore, galvum, rock, the crops, the suit, a research
+key — have placeholder book values, and so does metal, which is exempt
+on purpose: a staple on every shelf, and the market already holds the
+smelter near break-even. Everything the benches make is priced by one
+rule off the recipe table, in whole euros and rounding down at each
+division in this order:
+
+    cost   = Σ book(input) × units
+    labour = LABOUR_BP_PER_HOUR × minutes / 60          (basis points)
+    book   = max(1, cost × (10 000 + labour) / 10 000 / units out)
+
+`LABOUR_BP_PER_HOUR` (`shipdesign::recipes`) is 2 000 — a fifth an hour
+at the bench — and it is the one knob on every made thing's book at
+once. So four components are a metal and twenty minutes, an emitter is
+a metal, two components and a galvum with an hour on top, and a sniper
+rifle is its four metal, two components and two emitters with an hour
+and a quarter. The numbers are written into `economy::trade_price` by
+hand, since that crate knows no recipes, and a test in `shipdesign`
+recomputes them. Before the rule the made goods were priced for feel,
+and a bench turned one metal into four components worth ten of it — a
+printer, at every lived-in station; now no recipe clears more than a
+couple of hundred euros a bench-hour at any single desk, buying its
+inputs at the ask and selling its output at the bid. The other side of
+that is that **looting pays less**: a weapon or a piece of armour off a
+body sells for about half what it did.
 
 The shelf is a window — **Station** on the tray, docked, opens it in the
 middle of the screen and the cross, Escape or casting off shuts it — and

@@ -1537,7 +1537,10 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
         .filter(|&id| world::surface_body(id).is_some())
         .and_then(|id| game.world.station(id));
     let on_the_ground = settlement.is_some();
-    for station in game.world.stations.iter().chain(settlement) {
+    // And the raider tied to the ship, if one is: not among the system's
+    // stations either, and gone the moment the ship pushes off.
+    let raider = game.world.raids.station();
+    for station in game.world.stations.iter().chain(settlement).chain(raider) {
         // From the ground nothing in orbit is in the picture.
         if on_the_ground && station.plan != world::Plan::Surface {
             continue;
@@ -1657,6 +1660,38 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
             // name over an empty tile.
             lifted.append_turned_at(bodies, pivot, turn, at);
         }
+    }
+    // A raider closing on the ship: on the radar and nothing more, so a
+    // plate the size of its hull, washed in the enemy red, wherever it
+    // has got to along its line — the shape getting nearer that a
+    // stranger's station is from afar (`crate::raid`).
+    if let Some(contact) = game.world.raid_contact() {
+        let offset = contact.sub(here);
+        let at = crate::game::turned(offset.x as f32, -offset.y as f32, turn);
+        let hull = (world::data::RAIDER_SIDE as f32 - 2.0) * TILE as f32;
+        list.push(
+            crate::draw::KIND_RECT,
+            at.0,
+            at.1,
+            hull,
+            hull,
+            turn,
+            8.0,
+            0.0,
+            hull::HULL_UNKNOWN,
+        );
+        list.push(
+            crate::draw::KIND_RECT,
+            at.0,
+            at.1,
+            hull,
+            hull,
+            turn,
+            8.0,
+            0.0,
+            ENEMY.alpha(ENEMY_TINT),
+        );
+        paint_station(list, at.0, at.1, hull * 0.8, world::raid::RAIDER_KIND, 6.0);
     }
     lifted
 }
@@ -2310,6 +2345,35 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         };
         let d = size * STANCE_RING;
         ring(list, x, y, d, d, 0.0, thin * 1.5, colour.alpha(0.9));
+    }
+
+    // The raider, if one is about: closing, at wherever it has got to on
+    // its line, or tied to the ship; an enemy's icon ringed in the enemy
+    // red — the map says what is coming, and from where.
+    let raider_at = game.world.raid_contact().or_else(|| {
+        game.world
+            .raids
+            .station()
+            .filter(|_| game.world.raided())
+            .map(|station| station.centre())
+    });
+    if let Some(at) = raider_at {
+        let (x, y) = place(at);
+        paint_station(
+            list,
+            x,
+            y,
+            size * 0.75,
+            world::raid::RAIDER_KIND,
+            thin * 1.5,
+        );
+        let d = size * STANCE_RING;
+        ring(list, x, y, d, d, 0.0, thin * 1.5, ENEMY.alpha(0.9));
+        // And its line in, from where it was first seen.
+        if let world::Raid::Closing { from, .. } = game.world.raid() {
+            let (fx, fy) = place(*from);
+            list.line(fx, fy, x, y, thin * 1.5, ENEMY.alpha(0.6));
+        }
     }
 
     // What the helm is aimed at, ringed, so a click has visibly landed on

@@ -146,6 +146,11 @@
             what = "combat";
             about = "The simulation docked at a hostile station, the people living there enemies";
           };
+          bims-raid = runFor {
+            name = "bims-raid";
+            what = "raid";
+            about = "The simulation holding in open space with a raid on its way, contact ten seconds in";
+          };
         };
     in
     {
@@ -164,6 +169,7 @@
             bims-test
             bims-test-planet
             bims-combat
+            bims-raid
             bims-stationbuilder
             ;
           default = built.bims;
@@ -176,6 +182,8 @@
       # that ship given; `.#room` is the behaviour test room; `.#test` is the
       # simulation somewhere else each time; `.#test_planet` is that set down
       # on a planet; `.#combat` is the simulation at a hostile station;
+      # `.#raid` is the simulation holding in open space with a raid on its
+      # way, contact ten seconds in;
       # `.#stationbuilder` is the sketching grid, which
       # saves beside the working tree rather than inside the store.
       apps = eachSystem (
@@ -196,6 +204,7 @@
           test = app built.bims-test "Docked at a random station in a random galaxy, on the playtest ship";
           test_planet = app built.bims-test-planet "Set down on a planet in a random galaxy, on the playtest ship";
           combat = app built.bims-combat "The simulation docked at a hostile station, the people living there enemies";
+          raid = app built.bims-raid "The simulation holding in open space with a raid on its way, contact ten seconds in";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           default = game;
         }

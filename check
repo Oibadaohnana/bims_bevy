@@ -64,7 +64,7 @@ test      cargo test --workspace: the rules crates' pinned arithmetic, the
           designer's and lobby's geometry, and the app's tables against them
 clippy    cargo clippy on the app crate, with warnings as errors
 smoke     `bims game`, `simulation`, `design`, `room`, `test`, `test_planet`,
-          `combat` and `stationbuilder` (its sketches pointed at target/check/)
+          `combat`, `raid` and `stationbuilder` (its sketches pointed at target/check/)
           each run sixty frames in a hidden window and exit; the room, the
           simulation, the yard, the combat dock (with its fight staged,
           BIMS_FIGHT=1), the simulation landed on a planet (BIMS_LANDED=1)
@@ -130,9 +130,9 @@ step_smoke() {
   if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null 2>&1; then
     hyprctl eval "hl.window_rule({ name = \"bims-smoke\", match = { class = \"^bims-smoke\$\" }, workspace = \"$SMOKE_WORKSPACE silent\" })" >/dev/null 2>&1 || true
   fi
-  for what in game simulation design room test test_planet combat stationbuilder landed; do
+  for what in game simulation design room test test_planet combat raid stationbuilder landed raided; do
     shot=""
-    case "$what" in room | simulation | design | test_planet | combat | landed) shot="$LOGS/smoke-$what.png" ;; esac
+    case "$what" in room | simulation | design | test_planet | combat | landed | raided) shot="$LOGS/smoke-$what.png" ;; esac
     rm -f "$shot"
     # The combat dock is screenshotted with the fight staged (the crew
     # member inside the station's door, one of its people down the
@@ -144,6 +144,10 @@ step_smoke() {
     # ground and the settlement beside it — `BIMS_LANDED=1` being
     # `World::land_for_probe`.
     [ "$what" = landed ] && { staged="BIMS_LANDED=1 "; run=simulation; }
+    # `raided` is the simulation off its berth with a raider tied to it
+    # and the boarders coming through the airlock — `BIMS_RAID=1` being
+    # `World::raid_for_probe`.
+    [ "$what" = raided ] && { staged="BIMS_RAID=1 "; run=simulation; }
     # The builder reads and writes stations/; a smoke run gets a scratch
     # directory so it cannot touch a sketch somebody is drawing.
     [ "$what" = stationbuilder ] && staged="BIMS_STATIONS_DIR=$LOGS/stations "

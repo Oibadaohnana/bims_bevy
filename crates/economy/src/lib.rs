@@ -157,7 +157,30 @@ impl Storage {
 /// only** — `Budget::spent` and `World::worth` are what it is for, and
 /// nothing is bought or sold at it: every transaction goes through
 /// [`market::quote`], which leans on this and splits it. The same
-/// everywhere, which is what makes it a valuation. Placeholder numbers.
+/// everywhere, which is what makes it a valuation.
+///
+/// The roots — ore, galvum, rock, the crops, the suit, the key — are
+/// placeholder numbers, and so is metal, which is exempt from the rule
+/// below on purpose: a staple on every shelf, and the market already
+/// holds the smelter near break-even. **Everything made is its inputs
+/// plus labour** and nothing else: for a recipe, in `shipdesign::RECIPES`
+/// order (an input is always an earlier output),
+///
+/// ```text
+/// cost   = Σ book(input) × units
+/// labour = LABOUR_BP_PER_HOUR × minutes / 60          // basis points
+/// book   = max(1, cost × (10_000 + labour) / 10_000 / units out)
+/// ```
+///
+/// integer, rounding down at each division in that order, with
+/// `shipdesign::recipes::LABOUR_BP_PER_HOUR` the one constant. This crate
+/// knows no recipes, so the numbers are written in here by hand, and
+/// `every_made_book_is_its_inputs_and_labour` in `shipdesign` — which
+/// knows both the table and the market — recomputes them: a retyped
+/// number, or a recipe changed without its price, fails there. Before
+/// the rule the made goods were priced for feel, and a bench turned one
+/// metal into four components worth ten of it: a printer, at every
+/// lived-in station.
 ///
 /// A `match` rather than a table so that a new [`ResourceId`] is a compile
 /// error here rather than a resource that is quietly worth nothing.
@@ -165,18 +188,20 @@ pub fn trade_price(resource: ResourceId) -> Money {
     match resource {
         ResourceId::Ore => 20,
         ResourceId::Metal => 60,
-        ResourceId::Components => 150,
+        // A metal and twenty minutes, over four.
+        ResourceId::Components => 15,
         ResourceId::Vegetable => 8,
         ResourceId::Tofu => 12,
         ResourceId::Galvum => 400,
         // Nobody sells one — `worldgen::StationKind::sells` — but a station
-        // will buy one, and a price is what it pays.
-        ResourceId::Emitter => 900,
+        // will buy one, and a price is what it pays. The galvum is most of
+        // it.
+        ResourceId::Emitter => 588,
         ResourceId::Suit => 2_500,
         // Made, never sold, like the emitter; a station buys them.
-        ResourceId::Handgun => 1_500,
-        ResourceId::Vest => 800,
-        ResourceId::Medkit => 120,
+        ResourceId::Handgun => 710,
+        ResourceId::Vest => 305,
+        ResourceId::Medkit => 32,
         // What an asteroid is skinned in. Nobody sells it and a station pays
         // next to nothing for it; it is what a pick brings back on the way to
         // the ore.
@@ -184,19 +209,19 @@ pub fn trade_price(resource: ResourceId) -> Money {
         // A crop, cheaper than the vegetables it grows beside; and what the
         // drug lab rolls two of into a dressing for a wound.
         ResourceId::Fibre => 6,
-        ResourceId::Bandage => 40,
+        ResourceId::Bandage => 12,
         // Armour, made at the workbench and never sold; a station buys a
-        // piece, and pays for the metal in it rather than the fit.
-        ResourceId::Helm => 300,
-        ResourceId::Kevlar => 900,
-        ResourceId::LegGuard => 150,
+        // piece, and pays for the metal in it and the hours, not the fit.
+        ResourceId::Helm => 132,
+        ResourceId::Kevlar => 667,
+        ResourceId::LegGuard => 63,
         // The four weapons after the handgun, made at the armoury and never
-        // sold, priced as it is: what went into each, and something for the
-        // making. The emitters are most of it.
-        ResourceId::Shotgun => 1_000,
-        ResourceId::AutoRifle => 2_000,
-        ResourceId::SniperRifle => 3_000,
-        ResourceId::Schword => 2_500,
+        // sold, priced as it is: what went into each, and the hours. The
+        // emitters are most of it.
+        ResourceId::Shotgun => 310,
+        ResourceId::AutoRifle => 975,
+        ResourceId::SniperRifle => 1_807,
+        ResourceId::Schword => 1_501,
         // Found, never made and never sold; a station pays for one as a
         // curiosity, which is a great deal less than what it opens.
         ResourceId::ResearchKey => 5_000,
@@ -424,25 +449,25 @@ mod tests {
         }
         assert_eq!(trade_price(ResourceId::Ore), 20);
         assert_eq!(trade_price(ResourceId::Metal), 60);
-        assert_eq!(trade_price(ResourceId::Components), 150);
+        assert_eq!(trade_price(ResourceId::Components), 15);
         assert_eq!(trade_price(ResourceId::Vegetable), 8);
         assert_eq!(trade_price(ResourceId::Tofu), 12);
         assert_eq!(trade_price(ResourceId::Galvum), 400);
-        assert_eq!(trade_price(ResourceId::Emitter), 900);
+        assert_eq!(trade_price(ResourceId::Emitter), 588);
         assert_eq!(trade_price(ResourceId::Suit), 2_500);
-        assert_eq!(trade_price(ResourceId::Handgun), 1_500);
-        assert_eq!(trade_price(ResourceId::Vest), 800);
-        assert_eq!(trade_price(ResourceId::Medkit), 120);
+        assert_eq!(trade_price(ResourceId::Handgun), 710);
+        assert_eq!(trade_price(ResourceId::Vest), 305);
+        assert_eq!(trade_price(ResourceId::Medkit), 32);
         assert_eq!(trade_price(ResourceId::Rock), 2);
         assert_eq!(trade_price(ResourceId::Fibre), 6);
-        assert_eq!(trade_price(ResourceId::Bandage), 40);
-        assert_eq!(trade_price(ResourceId::Helm), 300);
-        assert_eq!(trade_price(ResourceId::Kevlar), 900);
-        assert_eq!(trade_price(ResourceId::LegGuard), 150);
-        assert_eq!(trade_price(ResourceId::Shotgun), 1_000);
-        assert_eq!(trade_price(ResourceId::AutoRifle), 2_000);
-        assert_eq!(trade_price(ResourceId::SniperRifle), 3_000);
-        assert_eq!(trade_price(ResourceId::Schword), 2_500);
+        assert_eq!(trade_price(ResourceId::Bandage), 12);
+        assert_eq!(trade_price(ResourceId::Helm), 132);
+        assert_eq!(trade_price(ResourceId::Kevlar), 667);
+        assert_eq!(trade_price(ResourceId::LegGuard), 63);
+        assert_eq!(trade_price(ResourceId::Shotgun), 310);
+        assert_eq!(trade_price(ResourceId::AutoRifle), 975);
+        assert_eq!(trade_price(ResourceId::SniperRifle), 1_807);
+        assert_eq!(trade_price(ResourceId::Schword), 1_501);
 
         assert_eq!(storage(ResourceId::Ore), Storage::Shelf);
         assert_eq!(storage(ResourceId::Metal), Storage::Shelf);
@@ -516,7 +541,7 @@ mod tests {
         // and the one that does not fit has to be a refusal.
         assert_eq!(
             trade_value(ResourceId::Components, u32::MAX),
-            Ok(150 * u32::MAX as Money),
+            Ok(15 * u32::MAX as Money),
         );
         assert!(Storage::from_code(4).is_none());
         assert_eq!(Storage::from_code(1), Some(Storage::ColdStore));

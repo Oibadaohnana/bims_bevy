@@ -1846,7 +1846,7 @@ impl Tactics {
         stats: &WeaponStats,
         doors: &[Rect],
     ) -> Option<Vec2> {
-        Tactics::stand_with_cover(sight, nav, from, targets, stats, doors, &[]).map(|s| s.at)
+        Tactics::stand_with_cover(sight, nav, from, targets, stats, doors, &[], false).map(|s| s.at)
     }
 
     /// [`Tactics::stand`], and whether the stand it picked is cover — the
@@ -1856,6 +1856,16 @@ impl Tactics {
     /// cell within a tile of one being a stand, so a squad does not pick
     /// the one best tile and pile onto it. A blade's charge is never
     /// cover.
+    ///
+    /// `closing` is a hunter's rule (September 2026): no stand farther
+    /// from the nearest target it can see than the body is now, a tile's
+    /// slack allowed — it holds or closes, never gives ground. A hostile
+    /// gunner on the hunt is scored so (`Bim::hunting`, `Game::plan_stand`);
+    /// without it one that had hunted its quarry through a passage stepped
+    /// back to cover at the far end of its range, lost sight of it there,
+    /// hunted again, and walked that loop for ever without ever coming
+    /// through the door. Everybody else is scored as they were: a rifle
+    /// with its target in sight walks off to its range.
     pub fn stand_with_cover(
         sight: &Sight,
         nav: &Nav,
@@ -1864,12 +1874,31 @@ impl Tactics {
         stats: &WeaponStats,
         doors: &[Rect],
         taken: &[Vec2],
+        closing: bool,
     ) -> Option<Stand> {
         if stats.melee {
             return Tactics::charge(nav, from, targets).map(|at| Stand { at, cover: false });
         }
         let reach = stats.reach();
         let here = nav.nearest_free(from);
+        // How near the body is to the nearest target it can see, for the
+        // hunter's rule; nothing in sight, and every stand is allowed.
+        let nearest_seen = targets
+            .iter()
+            .flatten()
+            .filter(|t| !t.stale)
+            .map(|t| (t.at - from).len())
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let gives_ground = |c: Vec2| {
+            closing
+                && nearest_seen.is_some_and(|near| {
+                    targets
+                        .iter()
+                        .flatten()
+                        .filter(|t| !t.stale)
+                        .all(|t| (t.at - c).len() > near + TILE)
+                })
+        };
         let in_a_doorway = |c: Vec2| doors.iter().any(|d| d.expand(door::REACH).contains(c));
         let mut lattice: Vec<Vec2> = targets
             .iter()
@@ -1888,11 +1917,9 @@ impl Tactics {
         lattice.dedup_by(|a, b| (*a - *b).len() <= 1e-3);
         let is_taken = |c: Vec2| taken.iter().any(|&t| (t - c).len() < TILE);
         let mut candidates: Vec<Vec2> = vec![here];
-        candidates.extend(
-            lattice
-                .into_iter()
-                .filter(|&c| (c - here).len() > 1e-3 && !is_taken(c) && nav.can_reach(from, c)),
-        );
+        candidates.extend(lattice.into_iter().filter(|&c| {
+            (c - here).len() > 1e-3 && !is_taken(c) && !gives_ground(c) && nav.can_reach(from, c)
+        }));
         let mut best: Option<(f32, Stand)> = None;
         for (i, &c) in candidates.iter().enumerate() {
             let Some((view, cover)) = Tactics::view_from(sight, c, targets, stats) else {
@@ -2529,6 +2556,7 @@ mod tests {
                     &stats,
                     &[],
                     taken,
+                    false,
                 )
                 .expect("somewhere to shoot from")
             };

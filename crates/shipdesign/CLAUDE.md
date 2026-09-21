@@ -185,8 +185,10 @@ recipes; see "Armour is three recipes" below — and Helm (15), Kevlar
 (16) and LegGuard (17) before them
 are the worked example: locker class like the medkit, at 16, 28 and 8 a
 unit — two metal, three metal and a galvum, one metal, so the three
-workbench recipes conserve mass — priced 300, 900 and 150 (the metal in
-each, since a station only ever buys one), and **sold nowhere**. That
+workbench recipes conserve mass — priced 132, 667 and 63 since the
+labour rule went in (the metal in each and the hours at the bench; see
+"A made thing is worth its inputs and labour" below), and **sold
+nowhere**. That
 last is the edit that is easy to miss: `sells` falls through to `_ =>
 true`, so a resource left out of its "made, never sold" arm is on every
 lived-in station's shelf and every galaxy checksum moves. The arm and
@@ -771,8 +773,40 @@ still 647) and `world::fixture::REFERENCE_CHECKSUM`; expect that of the
 next resource too, and re-pin by running rather than assuming the
 reference ship is untouched. `worldgen`'s `REFERENCE_CHECKSUMS` did not
 move for the weapons, since a resource in the "made, never sold" arm is
-never rolled onto a shelf — and the weapons are priced (1 000, 2 000,
-3 000, 2 500) only so a station can buy them off the crew.
+never rolled onto a shelf — and the weapons are priced (310, 975,
+1 807, 1 501 by the labour rule; 1 000, 2 000, 3 000, 2 500 when they
+went in) only so a station can buy them off the crew.
+
+## A made thing is worth its inputs and labour
+
+Since September 2026 (b-next). The made goods' book values were typed
+for feel, and one metal (63 at a plain desk) into four components (143
+each at the bid) was +509 € a twenty-minute cycle at every lived-in
+station — ten times the best trade route. Now `recipes::made_book(r)`
+is the rule — `cost = Σ book(input) × units`, `labour =
+LABOUR_BP_PER_HOUR × minutes / 60` in basis points, `book = max(1, cost
+× (10 000 + labour) / 10 000 / units out)`, integer, floored at each
+division in that order — and `LABOUR_BP_PER_HOUR` (2 000, a fifth an
+hour) is its one constant. `economy` knows no recipes, so
+`trade_price` is still a hand-written `match` and the numbers in it
+are what the rule says; the **roots** (ore, galvum, rock, the crops,
+the suit, the key) keep their placeholders, and **metal is exempt** —
+a staple on every shelf, and the market already holds the smelter
+near break-even. Four tests here, since this is the one crate that
+knows both the table and the market:
+`every_made_book_is_its_inputs_and_labour` (the rule against
+`trade_price` for every output but metal — a retyped number, a changed
+recipe or a turned constant fails it), `quote_is_monotone_in_the_bias`
+(a lean of one more never lowers an ask or a bid, so the extremes are
+enough), `no_recipe_prints_at_a_plain_desk` (inputs at the ask, output
+at the bid, at most 200 € a bench-hour at `Market::PLAIN`) and
+`no_recipe_prints_at_any_single_desk` (every kind, every resource in
+the recipe at `±MAX_BIAS` independently, at most 700 € a bench-hour).
+What moved with it: `World::worth()` for a crew carrying made gear —
+so enemies and mercenaries scale later — `start_worth` where a
+fixture's design phase bought components, and a looted weapon or piece
+sells for about half what it did. Nothing saved carries a price, so
+`SAVE_VERSION` did not move.
 
 ## Research is a tree in `research.rs`, and a key opens one node
 

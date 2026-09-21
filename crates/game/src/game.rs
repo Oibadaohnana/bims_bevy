@@ -1711,6 +1711,8 @@ impl Game {
                 self.bims[who].character.set_post(None);
                 self.bims[who].plan_wait = 0.0;
             }
+            // A hunt ends with the war.
+            self.bims[who].hunting = false;
         }
     }
 
@@ -1831,6 +1833,7 @@ impl Game {
         let targets = self.combat.targets().to_vec();
         let nobody_in_sight = targets.iter().flatten().all(|t| t.stale);
         if self.hostile_bodies && !stats.melee && nobody_in_sight {
+            bim.hunting = true;
             let Some(to) = Tactics::charge(nav, from, &targets) else {
                 return;
             };
@@ -1844,6 +1847,13 @@ impl Game {
             }
             return;
         }
+        // And a hunter holds or closes for the rest of the war, never gives
+        // ground — the other half of the hunt: a stand back at the far end
+        // of its range lost it the quarry it had just found, and it hunted
+        // and stepped back by turns in the doorway for ever. A rifle that
+        // has its target in sight from the start was never hunting, and
+        // walks off to its range as it always did.
+        let closing = self.hostile_bodies && bim.hunting;
         // Every doorway, open or shut: none is a stand, since a door opens
         // for whoever comes to stand in it. See `Tactics::stand`.
         let doorways: Vec<Rect> = self
@@ -1872,6 +1882,7 @@ impl Game {
             stats,
             &doorways,
             &taken,
+            closing,
         ) else {
             return;
         };
@@ -3744,6 +3755,24 @@ impl Game {
     /// Whether the Bim has dropped off on its feet this instant.
     pub fn is_napping(&self, who: usize) -> bool {
         self.bims[who].character.is_napping()
+    }
+
+    /// Whether the Bim is asleep, in a bed or on its feet: the hands are
+    /// on [`Action::Sleep`], which a doze in a bunk and a nap where it
+    /// stands both set. What the world asks before letting one fly the
+    /// ship (`World::at_the_helm`) — out cold is `is_unconscious`, and a
+    /// different thing.
+    pub fn is_asleep(&self, who: usize) -> bool {
+        self.bims[who].character.action() == Action::Sleep
+    }
+
+    /// Drop the Bim off where it stands for `minutes`, for a probe: the
+    /// nap the drowsiness rolls, given rather than rolled, and over when
+    /// the minutes are.
+    #[allow(dead_code)]
+    pub fn nod_off_for_probe(&mut self, who: usize, minutes: f32) {
+        self.bims[who].nap_left = minutes;
+        self.bims[who].character.nod_off(true);
     }
 
     /// Whether it is standing there having lost the thread of what it was on.

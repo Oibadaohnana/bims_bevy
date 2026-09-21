@@ -177,6 +177,10 @@ pub struct Bim {
     pub breach_wait: f32,
     /// The door it is heaving at, while it is.
     pub smashing: Option<usize>,
+    /// Whether a hostile gunner has hunted this war: it went for where it
+    /// last saw its quarry, and from then until the war ends it holds or
+    /// closes — never gives ground. See `Game::plan_stand`.
+    pub hunting: bool,
     /// A door its run takes it through, and which side of it the run
     /// began on: locked behind it once it is through. See `Game::flee`.
     pub seal: Option<(usize, f32)>,
@@ -235,6 +239,7 @@ impl Bim {
             plan_wait: 0.0,
             breach_wait: 0.0,
             smashing: None,
+            hunting: false,
             seal: None,
             sealed_in: None,
             bind_timer: 0.0,

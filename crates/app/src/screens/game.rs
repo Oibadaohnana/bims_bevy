@@ -59,6 +59,11 @@ const LOG_LINES: usize = 4;
 const BLACKOUT_HOLD: f32 = 1.4;
 const BLACKOUT_FADE: f32 = 0.6;
 
+/// How far into the `raid` command the raid makes contact, in minutes of
+/// the world's clock — ten seconds at 1×, since a minute of the clock is
+/// a real second (`time::MINUTES_PER_SECOND`).
+const RAID_IN_MINUTES: u64 = 10;
+
 /// What the map writes over the ship, before where it is.
 const HERE_TAG: &str = "You";
 /// How far above the ship's mark on the map its words sit: clear of the
@@ -217,8 +222,49 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(Screen::Game), open)
-            .add_systems(EguiPrimaryContextPass, frame.run_if(in_state(Screen::Game)));
+            .add_systems(EguiPrimaryContextPass, frame.run_if(in_state(Screen::Game)))
+            .add_systems(EguiPrimaryContextPass, over.run_if(in_state(Screen::Over)));
     }
+}
+
+/// The end of the run: nobody of the crew standing — `World::lost`, said
+/// by `WorldEvent::CrewLost` — and the game screen hands over to this,
+/// a screen that says so and a way back to the menu. The world is left
+/// as it was, so a save made before the fight is still there to load.
+fn over(
+    mut contexts: EguiContexts,
+    session: Res<ShipSession>,
+    mut next: ResMut<NextState<Screen>>,
+) -> Result {
+    let ctx = contexts.ctx_mut()?.clone();
+    let mut root = root_ui(&ctx);
+    let when = session
+        .0
+        .game
+        .as_ref()
+        .map(|game| {
+            let minutes = game.world.minutes_into_day();
+            format!(
+                "Day {}, {:02}:{:02}.",
+                game.world.day(),
+                (minutes / 60.0).floor() as u32,
+                (minutes % 60.0).floor() as u32
+            )
+        })
+        .unwrap_or_default();
+    egui::CentralPanel::default().show(&mut root, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space(ui.available_height() * 0.3);
+            ui.label(egui::RichText::new(OVER_TITLE).size(28.0).strong());
+            ui.label(egui::RichText::new(OVER_LINE).color(theme::MUTED));
+            ui.label(egui::RichText::new(when).color(theme::MUTED));
+            ui.add_space(12.0);
+            if ui.link(OVER_BACK).clicked() {
+                next.set(Screen::Menu);
+            }
+        });
+    });
+    Ok(())
 }
 
 fn open(
@@ -263,6 +309,11 @@ fn open(
             // `BIMS_LANDED=1` sets the simulation down — the mercenary asked
             // for first, since the ask holds for every friendly room opened
             // after it, the settlement's included.
+            // The `raid` command is the simulation off its berth, holding
+            // in open space with a raid on its way: contact `RAID_IN_MINUTES`
+            // of the clock in — ten seconds at 1× — and the raider then
+            // closing at its own pace, so the warning, the map and the
+            // boarding are watched from the start rather than staged.
             let mut session = match *launch {
                 Launch::Combat => Session::combat(seed, size.x, size.y),
                 Launch::Test | Launch::TestPlanet => {
@@ -273,6 +324,11 @@ fn open(
                     if *launch == Launch::TestPlanet {
                         session.land_for_probe();
                     }
+                    session
+                }
+                Launch::Raid => {
+                    let mut session = Session::simulate(seed, 0, spawn, size.x, size.y);
+                    session.raid_coming_for_probe(RAID_IN_MINUTES);
                     session
                 }
                 _ => Session::simulate(seed, 0, spawn, size.x, size.y),
@@ -291,6 +347,12 @@ fn open(
             }
             if crate::dev::fight() {
                 session.stage_fight_for_probe();
+            }
+            if let Some(dock) = crate::dev::raid() {
+                session.raid_for_probe(dock);
+            }
+            if crate::dev::lost() {
+                session.lose_for_probe();
             }
             if let Some(n) = crate::dev::lamps_out() {
                 session.shoot_lamps_for_probe(n);
@@ -395,6 +457,12 @@ fn node_name(session: &Session, node: Node) -> String {
     {
         return format!("{} settlement", node_name(session, Node::Body(body)));
     }
+    // A raider is nobody's station: the one tied to the ship.
+    if let Node::Station(id) = node
+        && world::raider_index(id).is_some()
+    {
+        return "Raider".into();
+    }
     let kind = session.map_type(node);
     match node {
         Node::Station(id) => format!(
@@ -414,6 +482,7 @@ fn node_name(session: &Session, node: Node) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn frame(
     mut contexts: EguiContexts,
     mut screen: ResMut<GameScreen>,
@@ -422,6 +491,7 @@ fn frame(
     mut sounds: ResMut<Sounds>,
     mut bindings: ResMut<Keys>,
     mut commands: Commands,
+    mut next: ResMut<NextState<Screen>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -488,6 +558,11 @@ fn frame(
         }
         while screen.log.len() > LOG_LINES {
             screen.log.remove(0);
+        }
+        // Nobody standing: the run is over, and the screen that says so
+        // takes over from this one on the next frame.
+        if game.world.lost {
+            next.set(Screen::Over);
         }
         // What the steps sounded like: the crew's room, and the station's
         // beside it while the decks are joined — its doors and its galley
@@ -1452,6 +1527,16 @@ fn frame(
         panels.body = panels
             .loot_source()
             .and_then(|source| body_of(world, who, source));
+        // And the enemy's shelf under the Plunder window — and under a
+        // click on one of the station's shelves, which is what tells the
+        // panels a station shelf is loot rather than a friend's: laid out
+        // by the world, read back every frame with whether the Bim shown
+        // is within reach of one.
+        panels.shelf = world.plunder_alongside().map(|p| crate::crew::Shelf {
+            grid: p.grid.clone(),
+            capacity: p.capacity,
+            reach: world.shelf_ashore_in_reach(who as u32),
+        });
         // And the mercenary under the Hire window, the same way: for hire
         // still, and what it asks, read off the world every frame.
         panels.terms = panels.hire_source().and_then(|resident| {
@@ -1483,6 +1568,7 @@ fn frame(
         }
         let room = &mut world.aboard.room;
         panels.loot_window(&ctx, room, &name);
+        panels.plunder_window(&ctx, room, &name);
         panels.hire_window(&ctx, room, &name);
         panels.inventory_window(&ctx, room, &name);
         panels.cell_menu(&ctx, room, &name);
@@ -2607,6 +2693,7 @@ fn hold_of(session: &Session, who: usize) -> Hold {
     }
     hold.station_desk = world.station_desk();
     hold.station_key = world.key_at_the_dock();
+    hold.station_shelves = world.station_shelves();
     hold.bench = world.workbench().map(|index| crate::crew::BenchView {
         index,
         bench: world.bench,
@@ -2693,7 +2780,28 @@ fn nearby_of(session: &Session, who: usize, name: &dyn Fn(u32) -> String) -> Vec
     let reach = world::data::REACH;
     let mut found: Vec<(f32, Near)> = Vec::new();
     let workbench = world.workbench().map(Container::Bench);
+    let ashore = world.station_shelves();
+    let plunder = world.plunder_alongside().is_some();
     for container in world.aboard.containers() {
+        // The station's shelves are not the hold's: an enemy's is the
+        // Plunder window, a friend's nothing at all.
+        if let Container::Shelf(i) = container
+            && ashore.contains(&i)
+        {
+            if plunder
+                && room.within_reach(who, container, reach)
+                && let Some(frame) = room.container_frame(container)
+            {
+                found.push((
+                    (at - frame.center()).len(),
+                    Near {
+                        open: Open::Plunder(i),
+                        label: PLUNDER_WINDOW.to_string(),
+                    },
+                ));
+            }
+            continue;
+        }
         // The workbench keeps no class of goods, but it has its slots.
         let keeps =
             crate::crew::container_class(room, container).is_some() || Some(container) == workbench;

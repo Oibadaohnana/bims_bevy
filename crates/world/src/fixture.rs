@@ -31,8 +31,12 @@ pub const REFERENCE_STEPS: u32 = 600;
 ///
 /// Pinned rather than computed, for the same reason `REFERENCE_HASH` is: a
 /// test comparing two computed values would pass happily while both were
-/// wrong. Update it only when the scenario below is meant to change.
-pub const REFERENCE_CHECKSUM: u64 = 0x_5f20_fff4_eb01_4d7b;
+/// wrong. Update it only when the scenario below is meant to change — or
+/// the checksum's shape does: it moved when the raids went in (September
+/// 2026), since the schedule is hashed from the first step, and again
+/// when an enemy's shelf became loot (`crate::plunder`), since the list
+/// of them is hashed whole.
+pub const REFERENCE_CHECKSUM: u64 = 0x_9937_b08f_c1b9_0777;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

@@ -3422,6 +3422,153 @@ fn every_recipe_holds_together() {
     }
 }
 
+// --- the price of a made thing --------------------------------------------
+
+/// What a recipe earns at one desk, in whole euros and possibly below
+/// nought: every input bought at that desk's ask, the output sold at its
+/// bid, with the desk's lean on each resource given by `lean`. The
+/// "printer" sum — one desk, one bench, round and round.
+fn margin_at(
+    recipe: &crate::recipes::Recipe,
+    kind: market::MarketKind,
+    lean: impl Fn(ResourceId) -> i32,
+) -> i64 {
+    let cost: i64 = recipe
+        .inputs
+        .iter()
+        .map(|&(id, units)| market::quote(kind, lean(id), id).ask as i64 * units as i64)
+        .sum();
+    let (out, units) = recipe.output;
+    market::quote(kind, lean(out), out).bid as i64 * units as i64 - cost
+}
+
+/// Whether `margin` a cycle of `minutes` is at most `cap` a bench-hour:
+/// `margin × 60 ≤ cap × minutes`, in integers, so no rounding of the
+/// rate can hide a euro.
+fn under_per_hour(margin: i64, minutes: u32, cap: i64) -> bool {
+    margin * 60 <= cap * minutes as i64
+}
+
+/// The rule for a made thing's book value — its inputs at theirs plus a
+/// fifth an hour at the bench, `recipes::made_book` — and the numbers
+/// `economy::trade_price` carries, written in by hand, agree for every
+/// output but metal, which is exempt. A retyped price, a changed recipe
+/// or a turned labour constant fails here; the smelter's row is checked
+/// to be the one exception rather than skipped.
+#[test]
+fn every_made_book_is_its_inputs_and_labour() {
+    use crate::recipes::{LABOUR_BP_PER_HOUR, RECIPES, made_book};
+    assert_eq!(LABOUR_BP_PER_HOUR, 2_000);
+    for (i, r) in RECIPES.iter().enumerate() {
+        let (out, _) = r.output;
+        if out == ResourceId::Metal {
+            assert!(
+                made_book(r) != trade_price(out),
+                "metal is exempt from the rule, and priced as a root"
+            );
+            continue;
+        }
+        assert_eq!(
+            trade_price(out),
+            made_book(r),
+            "recipe {i} makes {out:?}: the book is not its inputs and labour"
+        );
+    }
+    // The sum, worked by hand for the first two rows past the roots: a
+    // metal (60) and twenty minutes (666 bp) over four is 15, and a
+    // metal, two of those and a galvum (490) with an hour (2_000 bp) is
+    // 588.
+    assert_eq!(made_book(&RECIPES[1]), 15);
+    assert_eq!(made_book(&RECIPES[2]), 588);
+}
+
+/// Leaning a desk one more per cent in a resource's favour never lowers
+/// either side of its quote: the mid rounds down but rises with the
+/// lean, and the half rises no faster than the mid. It is what lets the
+/// desk tests below look at the two ends of the roll and nowhere in
+/// between.
+#[test]
+fn quote_is_monotone_in_the_bias() {
+    use market::MAX_BIAS;
+    for kind in market::MarketKind::ALL {
+        for &resource in ResourceId::ALL.iter() {
+            for bias in (-MAX_BIAS as i32)..(MAX_BIAS as i32) {
+                let (low, high) = (
+                    market::quote(kind, bias, resource),
+                    market::quote(kind, bias + 1, resource),
+                );
+                assert!(
+                    high.ask >= low.ask && high.bid >= low.bid,
+                    "{kind:?} {resource:?}: {low:?} at {bias} then {high:?} at {}",
+                    bias + 1
+                );
+            }
+        }
+    }
+}
+
+/// At the plain desk — an orbital's, with no lean of its own, which is
+/// what every design phase buys at — no recipe earns more than two
+/// hundred euros a bench-hour buying its inputs at the ask and selling
+/// its output at the bid, the smelter included. What closed the printer:
+/// before the rule the components row alone cleared five hundred a
+/// cycle.
+#[test]
+fn no_recipe_prints_at_a_plain_desk() {
+    use crate::recipes::RECIPES;
+    let plain = market::Market::PLAIN;
+    for (i, r) in RECIPES.iter().enumerate() {
+        let margin = margin_at(r, plain.kind, |id| plain.bias.of(id));
+        assert!(
+            under_per_hour(margin, r.minutes, 200),
+            "recipe {i} ({:?}) earns {margin} a cycle of {} minutes at the plain desk",
+            r.output.0,
+            r.minutes
+        );
+    }
+}
+
+/// Nor at any single desk the generator can roll: for every kind of
+/// station and every way of leaning each resource in the recipe to
+/// either end of its roll on its own — the worst case for the crew is
+/// every input cheap and the output dear, but each is tried both ways so
+/// nothing is assumed about which — the same sum stays under seven
+/// hundred euros a bench-hour. The extremes are enough by
+/// `quote_is_monotone_in_the_bias`: a lean in between is a quote in
+/// between.
+#[test]
+fn no_recipe_prints_at_any_single_desk() {
+    use crate::recipes::RECIPES;
+    use market::MAX_BIAS;
+    for kind in market::MarketKind::ALL {
+        for (i, r) in RECIPES.iter().enumerate() {
+            let resources: Vec<ResourceId> = r
+                .inputs
+                .iter()
+                .map(|&(id, _)| id)
+                .chain(std::iter::once(r.output.0))
+                .collect();
+            for combination in 0u32..(1 << resources.len()) {
+                let lean = |id: ResourceId| {
+                    let at = resources.iter().position(|&x| x == id).unwrap();
+                    if combination & (1 << at) != 0 {
+                        MAX_BIAS as i32
+                    } else {
+                        -(MAX_BIAS as i32)
+                    }
+                };
+                let margin = margin_at(r, kind, lean);
+                assert!(
+                    under_per_hour(margin, r.minutes, 700),
+                    "recipe {i} ({:?}) earns {margin} a cycle of {} minutes at a {kind:?} leaning {combination:b}",
+                    r.output.0,
+                    r.minutes
+                );
+            }
+        }
+    }
+}
+
 // --- research ----------------------------------------------------------------
 
 /// The tree holds together, and the crew set out knowing what a crew

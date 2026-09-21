@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-eight things to run, and each is a name rather than a flag:
+nine things to run, and each is a name rather than a flag:
 
 | command | `cargo run` | opens |
 | --- | --- | --- |
@@ -19,6 +19,7 @@ eight things to run, and each is a name rather than a flag:
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member (four bunks to spare) and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement the way `BIMS_LANDED=1` lands the simulation (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
 | `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **fourteen crew** (`COMBAT_CREW`: five at the bunks, nine standing on the deck), a gun in every hand — the five kinds dealt round — docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — `ARENA_GARRISON`, fifteen, whatever the crew's worth — and a recruited crew member draws its weapon and shoots at any it can see. `Session::combat` is all of it; `--combat` is taken too |
+| `nix run .#raid` | `cargo run -- raid` | the simulation **off its berth, holding in open space, with a raid on its way**: the next raid brought forward to ten minutes of the clock — ten seconds at 1× — so contact comes as you watch, the raider closing at its own pace after it (`Session::raid_coming_for_probe`, `World::raid_coming_for_probe`; `RAID_IN_MINUTES` in `screens/game.rs`). Where `BIMS_RAID=contact` opens with the raider already on the radar, this is the warning arriving |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -53,7 +54,12 @@ the landing run seven tenths of the way down, for looking at the descent
 (feature 52, `crates/world/CLAUDE.md`); `BIMS_FIGHT=1` opens `combat` with the
 crew member recruited inside the station's door and one of its people a
 few tiles down the corridor, for looking at a fight without walking the
-station for one. `BIMS_AFIELD=1` opens the simulation landed with the
+station for one. `BIMS_RAID=1` opens the simulation off its berth in
+open space with a raider tied to it and its boarders coming through the
+airlock, and `BIMS_RAID=contact` with the raider on the radar and
+closing, for the map; `BIMS_LOST=1` opens it with every crew member
+shot where they stand, so the end screen is what the next frame is
+(`./check` runs `raided`). `BIMS_AFIELD=1` opens the simulation landed with the
 crew member walked out onto the plain west of the ship and a minute gone
 by, and `BIMS_ZOOM=0.3` zooms the game view out by that factor once it
 is fitted (a scripted wheel does not reach it): the two together are how
@@ -280,7 +286,11 @@ Things about that which are easy to get wrong:
   green is `Grid::fits` asked of the `Hold` snapshot, never worked out
   here, and the drop goes through the seam as `Command::Arrange` like
   every other change to the hold. `BIMS_ARMOURY=storage` and `=fridge`
-  open those windows for a screenshot, and `=workbench` the one
+  open those windows for a screenshot, `=plunder` the enemy's shelf
+  (`CrewPanels::plunder_window`, the same grid with nothing movable,
+  over `World::plunder_alongside` — `crates/world/CLAUDE.md`, "An
+  enemy's shelf is loot"; with `BIMS_RAID=1` it is the raider's), and
+  `=workbench` the one
   container that is not a class of the hold: the workbench's three
   slots (`CrewPanels::bench_window`, `Hold::bench`), two `grid::grid`s
   with the Upgrade button between them — greyed with the world's own

@@ -1784,6 +1784,92 @@ fn the_ship_is_flown_from_the_helm() {
     assert!(world.at_the_helm(1), "wandered off the helm");
 }
 
+/// Only a living, waking crew member flies the ship. A body that died
+/// beside the seat is within reach of it and at the helm for nothing; so
+/// is one that dropped off there, until it comes round. And the check is
+/// made when a command lands, not on the way: one who walks off the helm
+/// under way is refused the *next* order, and the trip carries on.
+#[test]
+fn only_a_living_waking_crew_member_is_at_the_helm() {
+    // --- a_dead_body_at_the_seat_is_not_at_the_helm ---
+    {
+        let mut world = basic();
+        let seat = world.helm_spot().expect("the flyer has a helm");
+        world.man_the_helm_for_probe(1);
+        assert!(world.at_the_helm(1));
+        world.aboard.room.kill_for_probe(1);
+        world.step(&[]);
+        assert!(!world.aboard.room.is_alive(1), "dead on the next tick");
+        assert!(
+            world.aboard.position(1).distance(seat) <= data::HELM_REACH,
+            "the body lies where it stood"
+        );
+        assert!(!world.at_the_helm(1), "a body is not at the helm");
+        assert!(!world.can_command(1));
+        let target = nearby(&world, 12_000.0);
+        let events = world.step(&[Command::Confirm { slot: 1, target }]);
+        assert!(refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
+        assert!(matches!(world.ship.state, ShipState::Docked { .. }));
+    }
+    // --- a_sleeping_one_is_not_either_until_it_wakes ---
+    {
+        let mut world = basic();
+        world.man_the_helm_for_probe(0);
+        assert!(world.can_command(0));
+        world.aboard.room.nod_off_for_probe(0, 15.0);
+        assert!(world.aboard.room.is_asleep(0));
+        assert!(!world.at_the_helm(0), "asleep at the seat");
+        let target = nearby(&world, 12_000.0);
+        let events = world.step(&[Command::Confirm { slot: 0, target }]);
+        assert!(refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
+        assert!(matches!(world.ship.state, ShipState::Docked { .. }));
+        // A quarter of an hour on it has come round, still posted there.
+        let mut awake = false;
+        for _ in 0..(16.0 / data::STEP_MINUTES) as usize {
+            world.step(&[]);
+            if !world.aboard.room.is_asleep(0) {
+                awake = true;
+                break;
+            }
+        }
+        assert!(awake, "never came round");
+        assert!(world.can_command(0), "awake at the seat again");
+    }
+    // --- one_who_walks_away_is_refused_the_next_order_not_mid_trip ---
+    {
+        let mut world = basic();
+        let target = nearby(&world, 12_000.0);
+        set_off(&mut world, 0, target);
+        assert!(matches!(world.ship.state, ShipState::Travelling { .. }));
+        assert!(world.at_the_helm(0));
+        // Off the seat: stood down and put at the other crew member's
+        // bunk, which is nowhere near the helm.
+        world.stand_down(0);
+        let away = world.aboard.room.bed_station_for_probe(1);
+        world.aboard.room.put_for_probe(0, away);
+        assert!(!world.at_the_helm(0), "put clear of the helm");
+        // The trip is not the helm's to keep: it carries on.
+        for _ in 0..60 {
+            world.step(&[]);
+        }
+        assert!(
+            matches!(world.ship.state, ShipState::Travelling { .. }),
+            "the trip went on without anybody at the helm: {:?}",
+            world.ship.state
+        );
+        // But the next order from that player is refused — put there again
+        // first, since a Bim under way walks back to the seat on its own.
+        world.aboard.room.put_for_probe(0, away);
+        let events = world.step(&[Command::Abort { slot: 0 }]);
+        assert!(refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
+        assert!(matches!(world.ship.state, ShipState::Travelling { .. }));
+        // And back at the seat it goes through.
+        world.man_the_helm_for_probe(0);
+        let events = world.step(&[Command::Abort { slot: 0 }]);
+        assert!(!refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
+    }
+}
+
 /// Walk one of the crew off the ship — out through the airlocks to the
 /// corridor just inside the station's door — so there is somebody to
 /// call back aboard. Who it was: the second crew member, since the first
@@ -5075,11 +5161,13 @@ fn marked_rocks_are_mined_on_foot_and_what_they_yield_lands_on_the_shelf() {
 
 /// A mark is a command: it toggles, it refuses a tile that is not a rock,
 /// `ClearMarks` takes them all off, and leaving the site takes them off
-/// too and brings whoever is out there in.
+/// too and brings whoever is out there in. Two crew, since the one out
+/// on the rocks is not aboard and cannot cast off: the other takes the
+/// helm.
 #[test]
 fn a_mark_is_a_command_and_the_marks_come_off_with_the_ship() {
     use shipdesign::fixture::playtest_ship;
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 2);
     let Some(_) = at_a_belt(&mut world) else {
         return;
     };
@@ -5128,23 +5216,24 @@ fn a_mark_is_a_command_and_the_marks_come_off_with_the_ship() {
         x: nearest.x,
         y: nearest.y,
     }]);
-    let mut out = false;
+    let mut out = None;
     for _ in 0..(3 * 60 * 60) {
         world.step(&[]);
-        if world.aboard.room.is_outside(0) {
-            out = true;
+        if let Some(who) = (0..2).find(|&who| world.aboard.room.is_outside(who)) {
+            out = Some(who);
             break;
         }
     }
-    assert!(out, "nobody went out");
+    let out = out.expect("nobody went out");
+    let inside = 1 - out as u32;
     let target = nearby(&world, 200_000.0);
-    let events = set_off(&mut world, 0, target);
+    let events = set_off(&mut world, inside, target);
     assert!(
         events
             .iter()
             .any(|e| matches!(e, WorldEvent::Departed { .. }))
     );
-    assert!(!world.aboard.room.is_outside(0), "left outside");
+    assert!(!world.aboard.room.is_outside(out), "left outside");
     let belt_site = world.sites.iter().find(|s| s.belt == site.belt).unwrap();
     assert!(belt_site.marked.is_empty(), "marks survived the departure");
     assert!(world.site_here().is_none());
@@ -7226,23 +7315,60 @@ fn enemies_of_grows_with_the_crew_s_worth_and_a_hostile_dock_opens_with_a_garris
         use crate::station::enemies_of;
         let (base, max) = (data::ENEMIES_BASE, data::ENEMIES_MAX);
         // The baseline: one more an enemy for one more a crewmate.
-        assert_eq!(enemies_of(1, 1_000, 1_000), base + 1);
-        assert_eq!(enemies_of(2, 1_000, 1_000), base + 2);
+        assert_eq!(enemies_of(1, 1_000, 1_000, 0), base + 1);
+        assert_eq!(enemies_of(2, 1_000, 1_000, 0), base + 2);
         // Poorer than at the start is still the baseline, never fewer.
-        assert_eq!(enemies_of(2, 10, 1_000), base + 2);
+        assert_eq!(enemies_of(2, 10, 1_000, 0), base + 2);
         // Half the starting worth on top doubles it; a euro short does not.
-        assert_eq!(enemies_of(2, 1_499, 1_000), base + 2);
-        assert_eq!(enemies_of(2, 1_500, 1_000), (base + 2) * 2);
+        assert_eq!(enemies_of(2, 1_499, 1_000, 0), base + 2);
+        assert_eq!(enemies_of(2, 1_500, 1_000, 0), (base + 2) * 2);
         // Every further half doubles again.
-        assert_eq!(enemies_of(2, 2_000, 1_000), (base + 2) * 4);
-        assert_eq!(enemies_of(1, 2_499, 1_000), (base + 1) * 4);
+        assert_eq!(enemies_of(2, 2_000, 1_000, 0), (base + 2) * 4);
+        assert_eq!(enemies_of(1, 2_499, 1_000, 0), (base + 1) * 4);
         // And it stops at the cap however rich the crew.
-        assert_eq!(enemies_of(2, 10_000, 1_000), max);
-        assert_eq!(enemies_of(2, Money::MAX, 1_000), max);
-        assert_eq!(enemies_of(max + 5, 1_000, 1_000), max);
+        assert_eq!(enemies_of(2, 10_000, 1_000, 0), max);
+        assert_eq!(enemies_of(2, Money::MAX, 1_000, 0), max);
+        assert_eq!(enemies_of(max + 5, 1_000, 1_000, 0), max);
         // A ship worth nothing at the start has no half to grow by.
-        assert_eq!(enemies_of(2, 1_000_000, 0), base + 2);
-        assert_eq!(enemies_of(2, 1_000_000, 1), base + 2);
+        assert_eq!(enemies_of(2, 1_000_000, 0, 0), base + 2);
+        assert_eq!(enemies_of(2, 1_000_000, 1, 0), base + 2);
+        // The calendar: nothing more for the first month, one more an
+        // enemy every thirty days from then on — a day short is not a
+        // month — under the worth's doublings and the cap alike.
+        let month = data::ENEMIES_DAYS;
+        assert_eq!(month, 30);
+        assert_eq!(enemies_of(2, 1_000, 1_000, month - 1), base + 2);
+        assert_eq!(enemies_of(2, 1_000, 1_000, month), base + 3);
+        assert_eq!(enemies_of(2, 1_000, 1_000, 2 * month - 1), base + 3);
+        assert_eq!(enemies_of(2, 1_000, 1_000, 2 * month), base + 4);
+        assert_eq!(enemies_of(2, 1_500, 1_000, month), (base + 3) * 2);
+        assert_eq!(enemies_of(1, 2_000, 1_000, month), (base + 2) * 4);
+        assert_eq!(
+            enemies_of(2, 1_000_000, 0, 3 * month),
+            base + 5,
+            "no worth to grow by, and a season gone"
+        );
+        assert_eq!(enemies_of(2, 1_000, 1_000, 100 * month), max);
+        assert_eq!(enemies_of(2, 1_000, 1_000, u32::MAX), max);
+        assert_eq!(crate::station::base_by_day(0), base);
+        assert_eq!(crate::station::base_by_day(month), base + 1);
+        assert_eq!(crate::station::base_by_day(u32::MAX), base + u32::MAX / month);
+    }
+
+    // --- the_days_gone_are_the_world_s_clock_in_whole_days ---
+    {
+        let mut world = basic();
+        assert_eq!(world.days_gone(), 0);
+        world.clock_minutes = time::minutes(1.0) - data::STEP_MINUTES;
+        assert_eq!(world.days_gone(), 0, "a step short of a day");
+        world.clock_minutes = time::minutes(1.0);
+        assert_eq!(world.days_gone(), 1);
+        world.clock_minutes = time::minutes(30.0) - 1.0;
+        assert_eq!(world.days_gone(), 29);
+        world.clock_minutes = time::minutes(30.0);
+        assert_eq!(world.days_gone(), 30);
+        world.clock_minutes = time::minutes(75.5);
+        assert_eq!(world.days_gone(), 75);
     }
 
     // --- a_hostile_dock_opens_with_a_garrison_not_its_residents ---
@@ -7262,7 +7388,7 @@ fn enemies_of_grows_with_the_crew_s_worth_and_a_hostile_dock_opens_with_a_garris
         assert_eq!(world.worth(), world.start_worth, "nothing bought yet");
 
         world.set_hostile(station_id, true);
-        let garrison = enemies_of(world.aboard.crew_count(), world.worth(), world.start_worth);
+        let garrison = enemies_of(world.aboard.crew_count(), world.worth(), world.start_worth, 0);
         assert_eq!(garrison, data::ENEMIES_BASE + 2, "two crew: the baseline");
         assert_ne!(garrison, residents);
         assert_eq!(world.people_of(&station), garrison);
@@ -7287,6 +7413,30 @@ fn enemies_of_grows_with_the_crew_s_worth_and_a_hostile_dock_opens_with_a_garris
             at_peace,
             "peace: the residents again"
         );
+
+        // --- a_month_in_the_garrison_is_one_bigger ---
+        // Thirty days on the world's clock, nothing bought: the same dock
+        // turned hostile again arms one more, and a day short of it does
+        // not. The people are asked as the room opens, so the count is
+        // the clock's at that moment.
+        world.clock_minutes = time::minutes(30.0) - 1.0;
+        world.set_hostile(station_id, true);
+        assert_eq!(world.people_of(&station), garrison, "a day short: no bigger");
+        world.set_hostile(station_id, false);
+        world.clock_minutes = time::minutes(30.0);
+        world.set_hostile(station_id, true);
+        let older = enemies_of(2, world.worth(), world.start_worth, 30);
+        assert_eq!(older, garrison + 1, "a month gone: one more");
+        assert_eq!(world.people_of(&station), older);
+        assert_eq!(
+            world.residents.as_ref().unwrap().aboard.count(),
+            older,
+            "reopened at the bigger garrison"
+        );
+        world.clock_minutes = time::minutes(90.0);
+        world.set_hostile(station_id, false);
+        world.set_hostile(station_id, true);
+        assert_eq!(world.people_of(&station), garrison + 3, "a season: three more");
     }
 }
 
@@ -7556,7 +7706,7 @@ fn the_arena_is_the_combat_dock_and_it_and_the_combat_ship_can_be_walked() {
         }
         world.set_hostile(station, true);
         let garrison =
-            enemies_of(COMBAT_CREW, world.worth(), world.start_worth) + world.reinforcements;
+            enemies_of(COMBAT_CREW, world.worth(), world.start_worth, 0) + world.reinforcements;
         assert_eq!(garrison, data::ARENA_GARRISON);
         assert_eq!(garrison, 15);
         assert!(garrison <= data::ENEMIES_MAX);

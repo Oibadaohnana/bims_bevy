@@ -59,6 +59,8 @@ pub mod grid;
 pub mod jump;
 pub mod mercenary;
 pub mod mining;
+pub mod plunder;
+pub mod raid;
 pub mod speed;
 pub mod station;
 pub mod surface;
@@ -71,6 +73,8 @@ pub use event::{Refusal, WorldEvent};
 pub use frame::Frame;
 pub use grid::{Grid, Kept, Slot, Wanted};
 pub use mining::{MiningSite, Rock, RockTile};
+pub use plunder::Plunder;
+pub use raid::{Raid, Raids, boarders_of, raider_id, raider_index};
 pub use speed::Speed;
 pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};
@@ -87,5 +91,9 @@ pub use flight::{Phase, PlanError, Target};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_plunder;
+#[cfg(test)]
+mod tests_raid;
 #[cfg(test)]
 mod tests_surface;

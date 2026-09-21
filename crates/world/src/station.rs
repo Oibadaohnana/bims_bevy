@@ -95,6 +95,10 @@ pub fn market_kind(kind: StationKind, plan: Plan) -> Option<MarketKind> {
     if plan == Plan::Surface {
         return Some(MarketKind::Settlement);
     }
+    // A raider keeps no desk either: nobody aboard sells anything.
+    if plan == Plan::Raider {
+        return None;
+    }
     match kind {
         StationKind::Orbital => Some(MarketKind::Orbital),
         StationKind::Refinery => Some(MarketKind::Refinery),
@@ -117,28 +121,51 @@ pub fn key_rolled(map_seed: u64) -> bool {
 
 /// How many enemies a hostile station holds against a crew of `crew`,
 /// whose ship and hold are worth `worth` now and were worth `start_worth`
-/// when the world opened: [`data::ENEMIES_BASE`] and one a crewmate,
-/// doubled every time the worth has risen by another half of what it
-/// started at, and never more than [`data::ENEMIES_MAX`]. Whole euros in
-/// and a whole number out, so a server counts the same crowd.
+/// when the world opened, `days` whole days ago: [`base_by_day`] — one,
+/// and one a month gone — and one a crewmate, doubled every time the
+/// worth has risen by another half of what it started at, and never more
+/// than [`data::ENEMIES_MAX`]. Whole euros and whole days in and a whole
+/// number out, so a server counts the same crowd.
 ///
 /// A crew that has not got richer meets the baseline; a ship worth nothing
-/// at the start has no half to grow by, and its crew meet it for good.
-pub fn enemies_of(crew: u32, worth: Money, start_worth: Money) -> u32 {
-    let baseline = data::ENEMIES_BASE.saturating_add(crew);
+/// at the start has no half to grow by, and its crew meet it for good —
+/// the calendar climbs under them all the same.
+pub fn enemies_of(crew: u32, worth: Money, start_worth: Money, days: u32) -> u32 {
+    scaled(
+        base_by_day(days).saturating_add(crew),
+        worth,
+        start_worth,
+        data::ENEMIES_MAX,
+    )
+}
+
+/// The enemy's base before the crew and their worth are counted, `days`
+/// whole days into the game: [`data::ENEMIES_BASE`], and one more for
+/// every [`data::ENEMIES_DAYS`] gone by — nothing more for the first
+/// month, one more from its last day on, two from the sixtieth. It only
+/// ever climbs; the worth's doublings and the cap are laid over it.
+pub fn base_by_day(days: u32) -> u32 {
+    data::ENEMIES_BASE.saturating_add(days / data::ENEMIES_DAYS)
+}
+
+/// The arithmetic of [`enemies_of`] with the baseline and the cap given:
+/// `baseline`, doubled every half of `start_worth` that `worth` has
+/// grown by, never more than `most`. A raider's boarders are counted
+/// the same way to a lower cap (`crate::raid::boarders_of`).
+pub fn scaled(baseline: u32, worth: Money, start_worth: Money, most: u32) -> u32 {
     let step = start_worth / 2;
     if step == 0 || worth <= start_worth {
-        return baseline.min(data::ENEMIES_MAX);
+        return baseline.min(most);
     }
     let doublings = (worth - start_worth) / step;
     let mut count = baseline;
     for _ in 0..doublings {
-        if count >= data::ENEMIES_MAX {
+        if count >= most {
             break;
         }
-        count *= 2;
+        count = count.saturating_mul(2);
     }
-    count.min(data::ENEMIES_MAX)
+    count.min(most)
 }
 
 /// Where a ship goes to be docked at a station: its centre of mass and its
@@ -172,7 +199,8 @@ pub struct Station {
     pub anchor: DVec2,
     /// The seed the residents' room is opened with.
     pub map_seed: u64,
-    /// What is on its shelves; `World::buy` asks it and nothing else does.
+    /// What is on its shelves: what the desk sells, and — at an enemy's —
+    /// what is laid out as loot (`crate::plunder::lay_out`).
     pub stock: Stock,
     /// Its desk's own lean on every price, as the generator rolled it —
     /// except the spawn's, which `World::start` sets to nothing, so an
@@ -404,6 +432,14 @@ pub enum Plan {
     /// ([`Station::population`]), and [`Plan::residents`] answers the most
     /// a town holds, since only `layout` and the tests ask it.
     Surface,
+    /// A raider's: not a station's either but a hostile ship's, the one
+    /// that comes to the crew (`crate::raid`). One deck [`data::RAIDER_SIDE`]
+    /// tiles across with the port in its west skin and the array in the
+    /// north, a bunk a boarder ([`data::BOARDERS_MAX`]), a reactor, life
+    /// support, a shelf or two and a little cover — no galley, no desk,
+    /// no rooms: it is boarded from, not lived in. Never rolled, and not
+    /// on [`Plan::ALL`]; `layout_raider` is the one way to one.
+    Raider,
 }
 
 /// The salt the plan is rolled with: a stream of its own off the seed, so
@@ -446,6 +482,7 @@ impl Plan {
             Plan::Ring => 48 + grown,
             Plan::Comb => 52 + grown,
             Plan::Surface => data::SURFACE_SIDE,
+            Plan::Raider => data::RAIDER_SIDE,
         }
     }
 
@@ -465,6 +502,7 @@ impl Plan {
             Plan::Ring => 6,
             Plan::Comb => 5,
             Plan::Surface => return data::SURFACE_POPULATION.1,
+            Plan::Raider => return data::BOARDERS_MAX,
         };
         residents_of(kind).min(of_plan)
     }
@@ -480,6 +518,8 @@ impl Plan {
             Plan::Spine => 3,
             // Open ground: the whole of it is corridor.
             Plan::Surface => data::SURFACE_SIDE,
+            // One open deck, the bunks down its east side.
+            Plan::Raider => 4,
         }
     }
 }
@@ -522,6 +562,13 @@ pub fn layout_surface(map_seed: u64, biome: crate::surface::Biome, population: u
     let side = data::SURFACE_SIDE;
     let floor = crate::surface::floor(side, biome, population, map_seed);
     furnish(crate::surface::SURFACE_KIND, side, floor, map_seed)
+}
+
+/// A raider's hull, from its seed: [`Plan::Raider`] on [`data::RAIDER_SIDE`]
+/// tiles, through the placer like every station ([`furnish_raider`]).
+/// Not cached — one is built a raid, and no two raids share a seed.
+pub fn layout_raider(map_seed: u64) -> ShipDesign {
+    furnish_raider(data::RAIDER_SIDE, map_seed).design
 }
 
 /// The arena: the hub plan, the same kind and seed, laid out
@@ -1442,6 +1489,8 @@ pub(crate) fn build_placer(
             data::SURFACE_POPULATION.1,
             map_seed,
         ),
+        // A raider has no rooms to furnish: its deck is laid by hand.
+        Plan::Raider => return furnish_raider(side, map_seed),
     };
     furnish_placer(kind, side, floor, map_seed)
 }
@@ -2005,5 +2054,105 @@ pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_see
         crate::surface::wild(&mut placer, &floor, biome, &mut rng);
     }
 
+    placer
+}
+
+/// A raider's deck, laid by hand rather than by [`furnish`]: one block of
+/// hull [`data::RAIDER_SIDE`] tiles across and three-quarters as tall,
+/// its skin all round, the port in the west skin at the middle and the
+/// array in the north; inside, the reactor and life support along the
+/// north wall by the port with the shelves east of them, the boarders'
+/// bunks in two columns down the east side the way a station's quarters
+/// lay them ([`data::BOARDERS_MAX`] of them), two sandbags on the deck
+/// between the port and the bunks for the boarders to duck behind, and
+/// wall lights in the corners and along the long walls. The seed decides
+/// how many shelves, and nothing else: every raider is the same hull.
+/// Every doorway is the port, and every use spot has deck beyond it, so
+/// the walkability contract holds by construction — the tests walk it
+/// all the same (`a_raider_is_a_place_the_room_can_live_in`).
+pub(crate) fn furnish_raider(side: u32, map_seed: u64) -> Placer {
+    let mut placer = Placer::new(side);
+    let mut rng = Rng::new(map_seed);
+    let mid = side / 2;
+    let last = side - 2;
+    // Three-quarters as tall as it is wide, about the middle row.
+    let hull = Block::new(1, mid - 7, last, mid + 6);
+    let inner = hull.inner();
+    for y in hull.y0..=hull.y1 {
+        for x in hull.x0..=hull.x1 {
+            placer.put(PartKind::Structure, (x, y), Rotation::R0);
+            let skin = x == hull.x0 || x == hull.x1 || y == hull.y0 || y == hull.y1;
+            if skin {
+                placer.put(PartKind::OutsideWall, (x, y), Rotation::R0);
+            } else {
+                placer.put(PartKind::Floor, (x, y), Rotation::R0);
+            }
+        }
+    }
+    // The port: two tiles of the west skin decked, the airlock on them.
+    for tile in [(hull.x0, mid - 1), (hull.x0, mid)] {
+        placer.take(tile);
+        placer.put(PartKind::Floor, tile, Rotation::R0);
+    }
+    placer.put(PartKind::Airlock, (hull.x0, mid - 1), Rotation::R0);
+    // The array in the north skin.
+    placer.take((mid, hull.y0));
+    placer.put(PartKind::SensorArray, (mid, hull.y0), Rotation::R0);
+    // The reactor and life support along the north wall, then the
+    // shelves — one or two — two tiles apart along the same wall, worked
+    // from the row below like a store's, short of the bunks' column.
+    placer.put(PartKind::Reactor, (inner.x0 + 1, inner.y0), Rotation::R0);
+    placer.put(
+        PartKind::LifeSupport,
+        (inner.x0 + 4, inner.y0),
+        Rotation::R0,
+    );
+    let shelves = 1 + rng.below(2);
+    for i in 0..shelves {
+        placer.put(
+            PartKind::Shelf,
+            (inner.x0 + 7 + 2 * i, inner.y0),
+            Rotation::R0,
+        );
+    }
+    // The bunks: two columns three tiles apart down the east side — the
+    // bunk, its use tile and a tile of gangway before the next — a row
+    // every three tiles from a tile under the north wall.
+    let mut bunks = 0;
+    for column in 0..2 {
+        let x = inner.x1 - 4 + 3 * column;
+        let mut bunk_y = inner.y0 + 1;
+        while bunk_y + 1 <= inner.y1 - 1 && bunks < data::BOARDERS_MAX {
+            if placer.put(PartKind::Bunk, (x, bunk_y), Rotation::R180) {
+                bunks += 1;
+            }
+            bunk_y += 3;
+        }
+    }
+    // Cover: two sandbags down the middle, a gap of three between them,
+    // between the port and the bunks.
+    for y in [mid - 3, mid + 1] {
+        placer.put(PartKind::Sandbags, (mid - 2, y), Rotation::R0);
+    }
+    // Light, last, on whatever tile is still free: the four inner corners
+    // and one every six tiles along the long walls, each turned to the
+    // wall at its back.
+    let mut lamps = vec![
+        (inner.x0, inner.y0),
+        (inner.x1, inner.y0),
+        (inner.x0, inner.y1),
+        (inner.x1, inner.y1),
+    ];
+    let mut x = inner.x0 + 6;
+    while x < inner.x1 {
+        lamps.push((x, inner.y0));
+        lamps.push((x, inner.y1));
+        x += 6;
+    }
+    for at in lamps {
+        if let Some(hung) = placer.hung(at) {
+            placer.put(PartKind::WallLight, at, hung);
+        }
+    }
     placer
 }

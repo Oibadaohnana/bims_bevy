@@ -450,6 +450,7 @@ fn frame(
             | GearOrder::Hire { .. }
             | GearOrder::Execute { .. }
             | GearOrder::TakeKey { .. }
+            | GearOrder::Plunder { .. }
             | GearOrder::Loot {
                 source: LootSource::Resident(_),
                 ..

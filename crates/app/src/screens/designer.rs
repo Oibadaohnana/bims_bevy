@@ -354,6 +354,9 @@ impl Net {
                             resident,
                         },
                         Order::Gear(GearOrder::TakeKey { who }) => Command::TakeKey { slot, who },
+                        Order::Gear(GearOrder::Plunder { who, id }) => {
+                            Command::Plunder { slot, who, id }
+                        }
                         Order::Research(ResearchOrder::Begin(node)) => {
                             Command::Research { slot, node }
                         }

@@ -806,6 +806,22 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::FoodSpoiled { units } => {
             format!("{units} of the food in the cold store spoiled for want of power.")
         }
+        WorldEvent::RaidContact { boarders, minutes } => format!(
+            "Raiders. A hostile ship is on the radar, {minutes} minutes out and closing, with {boarders} aboard. Everybody back to 1×."
+        ),
+        WorldEvent::RaidBoarded { boarders } => {
+            format!("The raider is alongside: {boarders} boarders are coming through the airlock.")
+        }
+        WorldEvent::RaidCancelled => "The raider lost the ship, and gave up.".into(),
+        WorldEvent::RaidRepelled => {
+            "The boarders are all down. The raider is a derelict tied to the ship: loot it, and cast off to be rid of it."
+                .into()
+        }
+        WorldEvent::CrewLost => "Nobody of the crew is standing. The run is over.".into(),
+        WorldEvent::Plundered { who: w, units } => match units {
+            1 => format!("{} took a thing off the enemy's shelf.", who(w)),
+            n => format!("{} took {n} off the enemy's shelf.", who(w)),
+        },
     })
 }
 
@@ -1049,6 +1065,12 @@ pub const FIBRE_TIP: &str = "Fibre is the one crop nobody eats: a day in a tray,
 
 pub const AUTONOMY_TIP: &str = "Off, the Bim starts nothing by itself — no meals, no sleep, no trips to the toilet — but still does everything it is told. The levels carry on moving either way.";
 /// The Management tab's other tick box: the workbench's upgrade.
+/// The end of the run (`screens::game::over`): the title, the line under
+/// it, and the way back.
+pub const OVER_TITLE: &str = "The crew are down";
+pub const OVER_LINE: &str = "Nobody of the crew is standing. The run is over.";
+pub const OVER_BACK: &str = "Back to the menu";
+
 pub const UPGRADE_LABEL: &str = "Combine matching gear";
 pub const UPGRADE_TIP: &str = "Ticked, whoever is free carries two of a kind at the same tier — two pistols, two helms — from the lockers to the workbench's two slots one at a time, presses Upgrade for you, and a day of work later carries the one that comes off a tier up back to the lockers: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. Unticked, the bench is yours: put a pair on it from the pack and press the button in its window. The hours done are kept whoever is at the bench.";
 
@@ -1574,6 +1596,16 @@ pub const RESEARCH_LOCKED: &str = "needs research";
 pub const STORAGE_WINDOW: &str = "Storage";
 pub const COLD_STORE_WINDOW: &str = "Cold store";
 
+/// The Plunder window's title — an enemy's shelf, a raider's or a hostile
+/// station's, laid out as loot — and its `?`; and the one row a friend's
+/// shelf on the joined deck gets under a click, since that one is the
+/// desk's to sell from.
+pub const PLUNDER_WINDOW: &str = "Enemy's shelf";
+pub const PLUNDER_TIP: &str = "Everything on the shelf of the station the ship is tied to, an enemy's: whatever its kind stocks, a stack to three of each, as the crew found it and have left it — a stack taken stays taken. Ctrl-click a stack to take it into the pack of the Bim shown, one to a cell, as far as the pack goes; right-click for the row. Taking wants the Bim within two tiles of one of the station's shelves — clicking the shelf walks it over. Nothing is put onto the shelf. A friend's shelf is bought from across its desk instead.";
+pub const SHELF_ASHORE_ROW: &str = "The station's shelf";
+pub const SHELF_ASHORE_HINT: &str =
+    "bought from across the desk — only an enemy's shelf is taken from";
+
 /// The Loot window's title, with the body's name after it, and the menu
 /// row on a body — a dead crew member, one out cold, or one of a hostile
 /// station's people lying in its own room — that opens it.
@@ -1810,6 +1842,12 @@ mod tests {
                 assert!(!refusal(why).is_empty());
             }
             assert!(!LOOT_WINDOW.is_empty() && !LOOT_ROW.is_empty() && !LOOT_TIP.is_empty());
+            assert!(!PLUNDER_WINDOW.is_empty() && !PLUNDER_TIP.is_empty());
+            // A plunder of one reads differently from a plunder of many.
+            let one = event_line(WorldEvent::Plundered { who: 0, units: 1 });
+            let many = event_line(WorldEvent::Plundered { who: 0, units: 7 });
+            assert!(one.is_some() && many.is_some());
+            assert_ne!(one, many);
         }
 
         // --- every_part_of_a_body_has_a_name ---

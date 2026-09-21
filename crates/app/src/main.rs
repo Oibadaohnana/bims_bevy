@@ -7,7 +7,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Seven things to run, and each is a name rather than a flag:
+//! Nine things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -24,6 +24,9 @@
 //!                    and made hostile, its people enemies, fifteen of
 //!                    them; a recruited crew member shoots at any it can
 //!                    see
+//! bims raid          the simulation off its berth, holding in open space,
+//!                    with a raid on its way: contact ten seconds in, the
+//!                    raider then closing at its own pace
 //! bims stationbuilder [name]
 //!                    a grid to sketch a station's rough shape on, saved as
 //!                    text to `stations/<name>.txt` for a plan to be
@@ -51,7 +54,7 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy_egui::EguiPlugin;
 
-/// Which of the eight things this process is.
+/// Which of the nine things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -63,6 +66,9 @@ pub enum Launch {
     /// friendly ground, and the ship landed at the settlement.
     TestPlanet,
     Combat,
+    /// The simulation with a raid on its way: off the berth and holding,
+    /// contact ten seconds in.
+    Raid,
     StationBuilder,
 }
 
@@ -82,13 +88,16 @@ pub enum Screen {
     Lost,
     Design,
     Game,
+    /// The run is over: nobody of the crew standing. A screen that says
+    /// so and a way back to the menu (`screens::game::over`).
+    Over,
     Room,
     StationBuilder,
 }
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|room|test|test_planet|combat|stationbuilder [name]|--self-check]"
+        "usage: bims [game|simulation|design|room|test|test_planet|combat|raid|stationbuilder [name]|--self-check]"
     );
     std::process::exit(2)
 }
@@ -103,6 +112,7 @@ fn main() {
         Some("test_planet") => Launch::TestPlanet,
         // Accepted as a flag too, since that is how it was first asked for.
         Some("combat") | Some("--combat") => Launch::Combat,
+        Some("raid") => Launch::Raid,
         Some("stationbuilder") => Launch::StationBuilder,
         Some("--self-check") => {
             let bits = ship::session::self_check();
@@ -174,9 +184,11 @@ fn main() {
 fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<Screen>>) {
     match *launch {
         Launch::Game => {}
-        Launch::Simulation | Launch::Test | Launch::TestPlanet | Launch::Combat => {
-            next.set(Screen::Game)
-        }
+        Launch::Simulation
+        | Launch::Test
+        | Launch::TestPlanet
+        | Launch::Combat
+        | Launch::Raid => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();
             settings.seed = world::data::DEFAULT_SEED;

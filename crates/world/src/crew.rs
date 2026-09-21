@@ -912,6 +912,43 @@ impl Residents {
         self.aboard.room.send_to(crate::surface::GUARD as usize, at)
     }
 
+    /// A raider's boarders to the ship: every one of them alive and without
+    /// a post is posted at the ship's **gangway** — the deck a few tiles
+    /// inside the ship's airlock, [`data::ASHORE_TILES`] in the way the
+    /// door opens, in this room's units through the mirror's frame — so
+    /// they walk the passage onto the ship and hold its door, and force
+    /// the airlock if it is locked against them (`Game::post_at`,
+    /// `Game::breach`). A post, so a fight drops it (`Game::muster`) and
+    /// the world asks again every step the raider is tied up: one that
+    /// went back to its bunk after a fight is sent again. Nothing unless
+    /// the ship is on this room's deck. How many were sent.
+    pub fn post_boarders(&mut self, ship: &ShipDesign) -> u32 {
+        let Some((origin, ex, ey)) = self.aboard.station_frame else {
+            return 0;
+        };
+        let Some(port) = dock::port(ship) else {
+            return 0;
+        };
+        let reach = crate::data::ASHORE_TILES * TILE as f64;
+        let inside = dvec2(
+            port.centre.0 - port.outward.0 as f64 * reach,
+            port.centre.1 - port.outward.1 as f64 * reach,
+        );
+        let at = origin.add(ex.scale(inside.x)).add(ey.scale(inside.y));
+        let at = vec2(at.x as f32, at.y as f32);
+        let mut sent = 0;
+        for who in 0..self.aboard.count() as usize {
+            let room = &mut self.aboard.room;
+            if !room.is_alive(who) || room.has_post(who) {
+                continue;
+            }
+            if room.post_at(who, at) {
+                sent += 1;
+            }
+        }
+        sent
+    }
+
     /// Which of them may be spoken to — a mercenary for hire, alive and on
     /// its feet — index for index, for the joined deck's
     /// `Game::set_visitors_hailable`.

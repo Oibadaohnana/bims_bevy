@@ -245,19 +245,7 @@ pub fn world_checksum(world: &World) -> u64 {
     // different places have different armouries, and the fit that
     // refuses a stow depends on it.
     for grid in &world.grids {
-        hash.eat(grid.next as u64);
-        hash.eat(grid.slots.len() as u64);
-        for slot in &grid.slots {
-            hash.eat(slot.id as u64);
-            let (kind, a, b) = slot.kept.codes();
-            hash.eat(kind);
-            hash.eat(a);
-            hash.eat(b);
-            hash.eat(slot.count as u64);
-            hash.eat(slot.x as u64);
-            hash.eat(slot.y as u64);
-            hash.eat(u64::from(slot.turned));
-        }
+        eat_grid(&mut hash, grid);
     }
     hash.eat(u64::from(world.auto_upgrade));
     // The workbench: its three slots and the thing in somebody's arms —
@@ -388,5 +376,78 @@ pub fn world_checksum(world: &World) -> u64 {
     // step apart on it lose the next crate on different steps.
     hash.eat(world.cold_store_out);
 
+    // The raids: the schedule and the one under way — two clients are
+    // raided together, by the same boarders from the same bearing, or not
+    // at all. The raider tied up is its id and its seed: its hull is a
+    // function of the seed, like a station's.
+    hash.eat(world.raids.next as u64);
+    hash.eat(world.raids.due);
+    hash.eat(u64::from(world.raids.left_home));
+    match &world.raids.state {
+        crate::raid::Raid::Quiet => hash.eat(0),
+        crate::raid::Raid::Closing {
+            n,
+            boarders,
+            from,
+            at,
+            began,
+            arrives,
+        } => {
+            hash.eat(1);
+            hash.eat(*n as u64);
+            hash.eat(*boarders as u64);
+            hash.eat_rounded(from.x, POSITION_GRID);
+            hash.eat_rounded(from.y, POSITION_GRID);
+            hash.eat_rounded(at.x, POSITION_GRID);
+            hash.eat_rounded(at.y, POSITION_GRID);
+            hash.eat_rounded(*began, FINE_GRID);
+            hash.eat_rounded(*arrives, FINE_GRID);
+        }
+        crate::raid::Raid::Docked {
+            station,
+            boarders,
+            repelled,
+        } => {
+            hash.eat(2);
+            hash.eat(station.id as u64);
+            hash.eat(station.map_seed);
+            hash.eat_rounded(station.anchor.x, POSITION_GRID);
+            hash.eat_rounded(station.anchor.y, POSITION_GRID);
+            hash.eat(*boarders as u64);
+            hash.eat(u64::from(*repelled));
+        }
+    }
+    // And whether the run is over.
+    hash.eat(u64::from(world.lost));
+
+    // Every enemy's shelf the crew have been alongside, as they have left
+    // it: whose, its size, and its grid the way the hold's grids go in —
+    // two crews who plundered a raider differently have different worlds.
+    hash.eat(world.plunder.len() as u64);
+    for plunder in &world.plunder {
+        hash.eat(plunder.station as u64);
+        hash.eat(plunder.capacity as u64);
+        eat_grid(&mut hash, &plunder.grid);
+    }
+
     hash.0
+}
+
+/// A grid — one of the hold's, or an enemy's shelf — whole: every slot,
+/// what it holds and how many, where it lies and which way round, and
+/// the next id — integers throughout.
+fn eat_grid(hash: &mut Fnv, grid: &crate::grid::Grid) {
+    hash.eat(grid.next as u64);
+    hash.eat(grid.slots.len() as u64);
+    for slot in &grid.slots {
+        hash.eat(slot.id as u64);
+        let (kind, a, b) = slot.kept.codes();
+        hash.eat(kind);
+        hash.eat(a);
+        hash.eat(b);
+        hash.eat(slot.count as u64);
+        hash.eat(slot.x as u64);
+        hash.eat(slot.y as u64);
+        hash.eat(u64::from(slot.turned));
+    }
 }

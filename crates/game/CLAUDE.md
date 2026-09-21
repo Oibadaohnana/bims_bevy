@@ -2276,6 +2276,14 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   — which is how most of a fight's dead die now, and why
   `one_on_one` in the world tests uses `Game::kill_for_probe` (health
   `give_up`) rather than a head shot.
+- **Asleep is `Action::Sleep`, and it is a different thing from out
+  cold.** `Game::is_asleep(who)` reads the hands — a doze in a bunk and a
+  nap on the feet both set it — and is what the world asks, beside
+  `is_unconscious`, before a crew member may fly or trade
+  (`World::fit_to_act`, b-next, September 2026: a body dead beside the
+  helm used to fly the ship). `nod_off_for_probe(who, minutes)` is the
+  nap given rather than rolled, for a test that wants one asleep on the
+  spot.
 - **A body going out cold drops its gun.** `drop_weapon` in the
   knock-out: the weapon out of the hand onto `Room::weapons_down` as a
   `room::Dropped { id, at, weapon, owner }`, numbered from
@@ -2360,6 +2368,45 @@ it can reach, its own locks first, and it walks there; at the panel it
 unlocks its own lock or sets `Bim::smashing` and heaves every frame until
 the door gives or it moves off (`drop_smash`). The crew's bots never do
 — the crew are the player's to send.
+
+**The hunter and the post** (September 2026, for the raiders in
+`crates/world/CLAUDE.md`). Two things the raid found wanting, both in
+`plan_stand` and `breach`:
+
+- **A hostile gunner with nobody in sight hunts.** With every target
+  stale — believed, seen by nobody on its side — `plan_stand` sends it
+  to where it last saw the nearest of them as a blade charges
+  (`Tactics::charge` on the beliefs) and sets `Bim::hunting`; the moment
+  one is in sight it picks a stand again. Before this a stand scored
+  against a belief was a spot with a view of the doorway the quarry went
+  through at the far end of the weapon's range (`DISTANCE_WORTH` sends a
+  pistol to twenty-two tiles), and a gunner that stood there never
+  followed anybody through a passage — nine boarders in ten are gunners
+  (`ISSUE_ODDS`). **And a hunter never gives ground again**: for the
+  rest of the war `stand_with_cover`'s `closing` drops every candidate
+  farther from the nearest target it can see than the body is now, a
+  tile's slack allowed — it holds or closes. Without that half the
+  hunter stepped back to the far cover the moment it had its quarry in
+  sight again, lost it there, hunted, stepped back, in the doorway for
+  ever. `hunting` is cleared by `muster` when the war ends, so a body
+  that had its target in sight from the start is never hunting and a
+  rifle walks off to its range as it always did
+  (`a_sniper_rifle_reaches_from_twenty_tiles…` in the world's tests
+  still holds). The crew's bots take the list as it comes and never
+  hunt.
+- **A post behind a locked door is forced.** `breach` reads *goals*:
+  at war the targets, believed or seen; off war the body's post, if it
+  has one — and `tick_combat` calls it for a hostile body off war with
+  a post, before the weapon is asked for (off war nobody is under arms),
+  so a raider's boarders posted at the ship's gangway with the airlock
+  locked against them smash it and walk on. `Game::post_at(who, to)` is
+  `send_to` that keeps the post when there is no route yet —
+  `return_to_post` plans the walk again as the way opens (a `path` with
+  no route is a region check, not a search) — and `has_post` is what the
+  world re-posts by after a fight, since `muster` drops every post.
+
+`enemies_follow_a_crew_that_retreats_aboard_and_force_the_ship_s_locked_airlock`
+(world, a blade and a pistol) pins the whole of it across the two rooms.
 
 **Sealing in.** In `flee` a hostile body's run notes the first unlocked
 door its route passes and which side it set out from (`Bim::seal`);

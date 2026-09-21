@@ -375,6 +375,41 @@ impl Session {
             .is_some_and(|g| g.world.stage_fight_for_probe())
     }
 
+    /// A raid: contact made, and with `dock` the raider tied to the ship
+    /// and its boarders on their way — see `World::raid_for_probe`; what
+    /// it said goes into the log.
+    pub fn raid_for_probe(&mut self, dock: bool) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        match game.world.raid_for_probe(dock) {
+            Some(events) => {
+                game.events.extend(events);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// A raid on its way: the ship off its berth holding in open space
+    /// and the next raid due `minutes` of the clock from now — see
+    /// `World::raid_coming_for_probe`. The `raid` command.
+    pub fn raid_coming_for_probe(&mut self, minutes: u64) -> bool {
+        self.game
+            .as_mut()
+            .is_some_and(|g| g.world.raid_coming_for_probe(minutes))
+    }
+
+    /// Everybody of the crew shot where they stand — the end of the run,
+    /// for looking at the screen that says so (`BIMS_LOST=1`).
+    pub fn lose_for_probe(&mut self) {
+        if let Some(game) = self.game.as_mut() {
+            for who in 0..game.world.aboard.crew_count() as usize {
+                game.world.aboard.room.kill_for_probe(who);
+            }
+        }
+    }
+
     /// Shoot the `n` lamps nearest the crew member out, and leave the
     /// next failing — see `World::shoot_lamps_for_probe`.
     pub fn shoot_lamps_for_probe(&mut self, n: usize) {

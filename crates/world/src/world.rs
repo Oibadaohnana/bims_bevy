@@ -61,6 +61,8 @@ use crate::frame::{self, Frame};
 use crate::grid::{Grid, Kept, Wanted};
 use crate::mercenary::{self, Hired, Offer};
 use crate::mining::{self, MiningSite};
+use crate::plunder::{self, Plunder};
+use crate::raid::{self, Raid, Raids};
 use crate::speed::{self, Speed};
 use crate::station::{Berth, Station, enemies_of};
 use crate::surface::{self, Surface};
@@ -233,6 +235,23 @@ pub enum Command {
         slot: u32,
         who: u32,
         resident: u32,
+    },
+    /// Take a stack off the shelf of the enemy's station the ship is tied
+    /// to — slot `id` of its grid ([`World::plunder_alongside`]) — into
+    /// crew member `who`'s pack: the ship docked with the rooms joined,
+    /// else `NotDocked`; the station's people enemies (`World::stance`
+    /// hostile — a raider's are; a friend's or a stranger's shelf is
+    /// bought from across the desk), else `NotHostile`; such a slot, else
+    /// `NotAboard`; `who` alive, awake, aboard and within [`data::REACH`]
+    /// of one of the *station's* shelves on the joined deck, else
+    /// `OutOfReach`; a free cell in the pack, else `PackFull`. As many
+    /// of the stack come as the pack has cells for, one to a cell the
+    /// way a fetch lands one, and the shelf keeps the rest. See
+    /// [`crate::plunder`].
+    Plunder {
+        slot: u32,
+        who: u32,
+        id: u32,
     },
     /// Take the research key off the research desk of the station the
     /// ship is tied to, into crew member `who`'s pack: the ship docked,
@@ -683,6 +702,22 @@ pub struct World {
     /// (`throttle_reactors_for_probe`), kept across `on_ship_changed`.
     /// Never set by the game.
     probe_supply: Option<f64>,
+    /// The raids: when the next falls due, and the one under way — a
+    /// raider closing on the ship, or tied to it. See [`crate::raid`]. In
+    /// `world_checksum` whole: two clients are raided together or not at
+    /// all.
+    pub raids: Raids,
+    /// Whether the run is over: no crew member standing — dead or out
+    /// cold, every one — said once as [`WorldEvent::CrewLost`] and kept,
+    /// since the app ends the run on it. In `world_checksum`.
+    pub lost: bool,
+    /// Every enemy's shelf the crew have been alongside, by the station's
+    /// id, as they have left it — laid out once, the first time the rooms
+    /// are joined at a station whose people are enemies, and kept: a
+    /// shelf plundered stays plundered. A raider's goes with the raider
+    /// at the cast-off, and a jump leaves them all behind with the
+    /// system. See [`crate::plunder`]. In `world_checksum` whole.
+    pub plunder: Vec<Plunder>,
 }
 
 /// A lamp a fight has damaged, remembered by where it hangs: which
@@ -979,6 +1014,9 @@ impl World {
             browned_out: false,
             cold_store_out: 0,
             probe_supply: None,
+            raids: Raids::new(seed),
+            lost: false,
+            plunder: Vec::new(),
         };
 
         // Whatever armour the design was accepted carrying is so many
@@ -1052,6 +1090,10 @@ impl World {
         //    from where the ship landed.
         let jumped = self.charge_jump(&mut events);
         let was = if jumped { self.ship.position() } else { was };
+        //    And the raiders, who come to the ship while it holds: contact
+        //    at the edge of the radar, and a docking when they arrive —
+        //    `dock_at` again, as at any berth. See `crate::raid`.
+        self.run_raid(&mut events);
         let now = self.ship.position();
 
         // 4. What that brought into range.
@@ -1108,6 +1150,11 @@ impl World {
         self.sync_lamps();
         self.casualties(&mut events);
         self.melee_locks(&mut events);
+        //    What the fight did to the raid: the boarders re-posted at the
+        //    gangway after it, or all down and the raider a derelict; and
+        //    the run over with nobody standing.
+        self.settle_raid(&mut events);
+        self.check_lost(&mut events);
         //    And what the fight did to the armour: the pieces in packs and
         //    on bodies are the room's, and the world's copies are read
         //    back after the step so the checksum sees them as they are.
@@ -1197,6 +1244,7 @@ impl World {
             | Command::Hire { slot, .. }
             | Command::Execute { slot, .. }
             | Command::TakeKey { slot, .. }
+            | Command::Plunder { slot, .. }
             | Command::Unlock { slot, .. }
             | Command::Research { slot, .. }
             | Command::CancelResearch { slot }
@@ -1269,6 +1317,7 @@ impl World {
             Command::Hire { who, resident, .. } => self.hire(slot, who, resident, events),
             Command::Execute { who, resident, .. } => self.execute(slot, who, resident, events),
             Command::TakeKey { who, .. } => self.take_key(slot, who, events),
+            Command::Plunder { who, id, .. } => self.plunder(slot, who, id, events),
             Command::Unlock { node, .. } => self.unlock(slot, node, events),
             Command::Research { node, .. } => self.research(slot, node, events),
             Command::CancelResearch { .. } => self.research.cancel(),
@@ -1479,9 +1528,15 @@ impl World {
         hostile.sort_unstable();
         self.hostile = hostile;
         self.station_keys = self.stations.iter().map(|s| s.key).collect();
+        // A raider closing on the ship is left behind with the system.
+        if matches!(self.raids.state, Raid::Closing { .. }) {
+            self.raids.state = Raid::Quiet;
+            events.push(WorldEvent::RaidCancelled);
+        }
         self.residents = None;
         self.reinforcements = 0;
         self.sites.clear();
+        self.plunder.clear();
         self.site_version += 1;
         self.discovered.clear();
         self.ship.state = ShipState::Holding;
@@ -1531,6 +1586,13 @@ impl World {
                     along,
                     began: self.clock_minutes,
                 };
+                // Pushing off a raider is the end of it: the derelict is
+                // gone from the world, and its people with it.
+                if raid::raider_index(station).is_some() {
+                    self.raids.state = Raid::Quiet;
+                    self.hostile.retain(|&id| id != station);
+                    self.plunder.retain(|p| p.station != station);
+                }
                 let slot = self.ship.pending.map(|(slot, _)| slot).unwrap_or(0);
                 events.push(match surface {
                     Some(body) => WorldEvent::LiftedOff { body },
@@ -1800,6 +1862,7 @@ impl World {
             .iter()
             .find(|s| s.id == id)
             .or_else(|| self.surface_of(id).map(Surface::station))
+            .or_else(|| self.raids.station().filter(|s| s.id == id))
     }
 
     /// The settlement whose station id that is, if it is one's.
@@ -1896,6 +1959,244 @@ impl World {
         events.push(WorldEvent::Landing { body });
     }
 
+    // --- raids ------------------------------------------------------------
+
+    /// Whether the ship is holding where a raid could find it: at rest,
+    /// tied to nothing, charging nothing.
+    fn holding(&self) -> bool {
+        matches!(self.ship.state, ShipState::Holding)
+    }
+
+    /// The raiders, once a step — see [`crate::raid`]. A raid falls due
+    /// on the schedule and comes at the first hold on or after it, once
+    /// the crew have left home: contact at the edge of the radar, every
+    /// player's speed put back to 1×. A raider that has closed finds the
+    /// ship holding where it was and docks to it — or finds it gone and
+    /// the raid is off.
+    fn run_raid(&mut self, events: &mut Vec<WorldEvent>) {
+        // Leaving home is any state that is not tied up: the first push
+        // off the start station's berth.
+        if !matches!(
+            self.ship.state,
+            ShipState::Docked { .. } | ShipState::CastingOff { .. }
+        ) {
+            self.raids.left_home = true;
+        }
+        match self.raids.state.clone() {
+            Raid::Quiet => {
+                let minute = self.clock_minutes.floor() as u64;
+                if !self.raids.left_home || minute < self.raids.due || !self.holding() {
+                    return;
+                }
+                // A ship with no port has nothing a raider can dock by: no
+                // raid, and the schedule waits.
+                if shipdesign::port(&self.ship.design).is_none() {
+                    return;
+                }
+                let n = self.raids.next;
+                let boarders = raid::boarders_of(
+                    self.aboard.crew_count(),
+                    self.worth(),
+                    self.start_worth,
+                    self.days_gone(),
+                );
+                let range = self.detection_range();
+                let at = self.ship.position();
+                let from = at.add(Raids::bearing(self.galaxy_seed, n).scale(range));
+                // Whole minutes out, rounded up, so the arrival is a
+                // minute of the clock like the due date.
+                let minutes = (range / data::RAIDER_SPEED).ceil().max(1.0);
+                self.raids.state = Raid::Closing {
+                    n,
+                    boarders,
+                    from,
+                    at,
+                    began: self.clock_minutes,
+                    arrives: self.clock_minutes + minutes,
+                };
+                self.raids.next = n + 1;
+                self.raids.due = minute + Raids::gap(self.galaxy_seed, n + 1);
+                // The reset: everybody back to real time, once. Not a
+                // veto — anybody may raise it again.
+                for request in &mut self.speed_requests {
+                    *request = Speed::Real;
+                }
+                events.push(WorldEvent::RaidContact {
+                    boarders,
+                    minutes: minutes as u32,
+                });
+            }
+            Raid::Closing {
+                n,
+                boarders,
+                at,
+                arrives,
+                ..
+            } => {
+                if self.clock_minutes < arrives {
+                    return;
+                }
+                // Arrived. The ship holding where it was — a hold is a
+                // stop, so anywhere else is a ship that left — or the raid
+                // is off.
+                let moved = self.ship.position().distance(at) > shipdesign::TILE as f64;
+                if !self.holding() || moved {
+                    self.raids.state = Raid::Quiet;
+                    events.push(WorldEvent::RaidCancelled);
+                    return;
+                }
+                let station = Raids::build_raider(
+                    self.galaxy_seed,
+                    n,
+                    boarders,
+                    &self.ship.design,
+                    self.ship.dynamics.centre_of_mass,
+                    self.ship.position(),
+                );
+                let id = station.id;
+                self.raids.state = Raid::Docked {
+                    station,
+                    boarders,
+                    repelled: false,
+                };
+                // Its people are enemies from the first step it is there.
+                if let Err(i) = self.hostile.binary_search(&id) {
+                    self.hostile.insert(i, id);
+                }
+                self.leave_site(events);
+                self.ship.state = ShipState::Docked { station: id };
+                self.ship.destination_set_by = None;
+                self.ship.pending = None;
+                self.dock_at(id);
+                self.on_ship_changed();
+                events.push(WorldEvent::RaidBoarded { boarders });
+            }
+            Raid::Docked { .. } => {}
+        }
+    }
+
+    /// The raid after the fight, while the raider is tied up: the boarders
+    /// posted at the gangway again — a fight drops every post — and,
+    /// every one of them down, the raider a derelict, said once.
+    fn settle_raid(&mut self, events: &mut Vec<WorldEvent>) {
+        let Raid::Docked { repelled, .. } = &mut self.raids.state else {
+            return;
+        };
+        let Some(residents) = &mut self.residents else {
+            return;
+        };
+        // Tied up, not casting off: then the boarders are being sent
+        // ashore, and a post at the gangway would send them back.
+        if !matches!(self.ship.state, ShipState::Docked { .. }) || *repelled {
+            return;
+        }
+        let all_down =
+            (0..residents.aboard.count() as usize).all(|who| residents.aboard.room.is_down(who));
+        if all_down {
+            *repelled = true;
+            events.push(WorldEvent::RaidRepelled);
+            return;
+        }
+        residents.post_boarders(&self.ship.design);
+    }
+
+    /// The end: nobody of the crew standing — alive and awake — and the
+    /// run is over, said once and kept.
+    fn check_lost(&mut self, events: &mut Vec<WorldEvent>) {
+        if self.lost {
+            return;
+        }
+        let room = &self.aboard.room;
+        let standing = (0..self.aboard.crew_count() as usize)
+            .any(|who| room.is_alive(who) && !room.is_unconscious(who));
+        if !standing {
+            self.lost = true;
+            events.push(WorldEvent::CrewLost);
+        }
+    }
+
+    /// A raid this instant, for looking at: off the berth and holding a
+    /// little way out, the next raid brought forward to now and contact
+    /// made — and, with `dock`, the raider arrived without the closing,
+    /// tied to the ship with the boarders posted and on their way.
+    /// `BIMS_RAID=1` and `BIMS_RAID=contact` in the app. `None`, and
+    /// nothing moved, when the ship has no port for a raider to dock by.
+    pub fn raid_for_probe(&mut self, dock: bool) -> Option<Vec<WorldEvent>> {
+        self.hold_off_for_probe()?;
+        self.raid_now_for_probe();
+        let mut events = Vec::new();
+        self.run_raid(&mut events);
+        if !dock {
+            return matches!(self.raids.state, Raid::Closing { .. }).then_some(events);
+        }
+        if let Raid::Closing { arrives, .. } = &mut self.raids.state {
+            *arrives = self.clock_minutes;
+        }
+        self.run_raid(&mut events);
+        self.raided().then_some(events)
+    }
+
+    /// The raid under way, if one is: for the painter and the tests.
+    pub fn raid(&self) -> &Raid {
+        &self.raids.state
+    }
+
+    /// Where the raider is while it closes — for the map and the window.
+    pub fn raid_contact(&self) -> Option<DVec2> {
+        self.raids.contact(self.clock_minutes)
+    }
+
+    /// Whether the ship is tied to a raider.
+    pub fn raided(&self) -> bool {
+        self.ship
+            .state
+            .station()
+            .is_some_and(|id| raid::raider_index(id).is_some())
+    }
+
+    /// Off the berth and holding a little way out in open space, where a
+    /// raider can find the ship: what every staged raid starts from.
+    /// `None`, and nothing moved, when the ship has no port for a raider
+    /// to dock by.
+    fn hold_off_for_probe(&mut self) -> Option<()> {
+        shipdesign::port(&self.ship.design)?;
+        self.undock_for_probe();
+        // Clear of the berth it was at, so the raider is not laid across
+        // the station's hull: a little way out into open space.
+        let out = self.ship.position().add(dvec2(0.0, -30_000.0));
+        self.put_for_probe(out);
+        Some(())
+    }
+
+    /// A raid on its way, for watching it come: off the berth and holding
+    /// a little way out, and the next raid brought forward to `minutes`
+    /// of the clock from now — contact at the first step on or after that
+    /// minute, and the raider then closing at its own pace. The `raid`
+    /// command in the app. False, and nothing moved, when the ship has
+    /// no port for a raider to dock by.
+    pub fn raid_coming_for_probe(&mut self, minutes: u64) -> bool {
+        if self.hold_off_for_probe().is_none() {
+            return false;
+        }
+        self.raid_due_for_probe(minutes);
+        true
+    }
+
+    /// Bring the next raid forward to now: the schedule's next minute is
+    /// this one, so the next holding step is contact. For the probes and
+    /// the tests, which cannot wait a day.
+    pub fn raid_now_for_probe(&mut self) {
+        self.raid_due_for_probe(0);
+    }
+
+    /// Bring the next raid forward to `minutes` of the clock from now —
+    /// this minute and that many on — the crew counted as having left
+    /// home. The first holding step on or after it is contact.
+    pub fn raid_due_for_probe(&mut self, minutes: u64) {
+        self.raids.left_home = true;
+        self.raids.due = self.clock_minutes.floor() as u64 + minutes;
+    }
+
     /// What the ship and everything in its hold are worth now, in whole
     /// euros: every part's price and every unit of cargo at its **book
     /// value** — `shipdesign::Budget::spent`, `economy::trade_price` a
@@ -1906,19 +2207,42 @@ impl World {
         shipdesign::Budget::spent(&self.ship.design)
     }
 
+    /// How many whole days the game has run: `clock_minutes` — elapsed
+    /// time since the world opened, not the crew's calendar
+    /// ([`World::day`]) — over a day, floored, and read in whole minutes
+    /// first the way the raids' schedule is, so a server catching up
+    /// counts the same day. The enemies' base grows by one every
+    /// [`data::ENEMIES_DAYS`] of it (`station::base_by_day`).
+    pub fn days_gone(&self) -> u32 {
+        let minutes = self.clock_minutes.floor() as u64;
+        (minutes / (time::DAY as u64)) as u32
+    }
+
     /// How many people a station's room is opened with: the people who
     /// live there, or, at an enemy's, the enemies — [`enemies_of`] the
-    /// crew's number and worth against [`World::start_worth`]. Nobody on a
-    /// derelict either way. Asked when the room opens, so a station keeps
-    /// the crowd it was reached with until the ship has gone and come back.
+    /// crew's number and worth against [`World::start_worth`], and the
+    /// days gone by ([`World::days_gone`]). Nobody on a derelict either
+    /// way. Asked when the room opens, so a station keeps the crowd it
+    /// was reached with until the ship has gone and come back.
     pub fn people_of(&self, station: &Station) -> u32 {
         if station.residents() == 0 {
             return 0;
         }
+        // A raider carries the boarders it was rolled with — `boarders_of`
+        // at contact, kept as its population — whatever the crew are
+        // worth by the time it arrives.
+        if raid::raider_index(station.id).is_some() {
+            return station.residents();
+        }
         match self.stance(station.id) {
-            Stance::Hostile => enemies_of(self.aboard.crew_count(), self.worth(), self.start_worth)
-                .saturating_add(self.reinforcements)
-                .min(data::ENEMIES_MAX),
+            Stance::Hostile => enemies_of(
+                self.aboard.crew_count(),
+                self.worth(),
+                self.start_worth,
+                self.days_gone(),
+            )
+            .saturating_add(self.reinforcements)
+            .min(data::ENEMIES_MAX),
             Stance::Friendly | Stance::Neutral => station.residents(),
         }
     }
@@ -2063,10 +2387,16 @@ impl World {
             );
             // A settlement's guard takes up its post on the ground.
             residents.post_guard(station);
+            // And a raider's boarders come for the ship: posted at the
+            // gangway, they walk the passage onto its deck.
+            if raid::raider_index(id).is_some() {
+                residents.post_boarders(&self.ship.design);
+            }
         }
         self.residents = Some(residents);
         self.apply_stances();
         self.restore_lamps();
+        self.lay_plunder();
         if banked {
             self.on_ship_changed();
         }
@@ -2095,6 +2425,9 @@ impl World {
             (Err(i), true) => self.hostile.insert(i, station),
             (Ok(i), false) => {
                 self.hostile.remove(i);
+                // Its shelf is the desk's again, and what was on it as
+                // loot is forgotten: peace is the world as it was.
+                self.plunder.retain(|p| p.station != station);
             }
             _ => {}
         }
@@ -2131,6 +2464,7 @@ impl World {
             self.residents = Some(residents);
         }
         self.apply_stances();
+        self.lay_plunder();
     }
 
     /// Tell every room open on a station whose it is: the residents' room
@@ -3733,33 +4067,52 @@ impl World {
         })
     }
 
-    /// Whether that player's crew member is at the helm: within
-    /// [`data::HELM_REACH`] of the seat. Slot *i* is Bim *i*, the same
-    /// pairing as the bunks.
+    /// Whether that player's crew member is at the helm: alive, awake,
+    /// aboard, and within [`data::HELM_REACH`] of the seat. Slot *i* is
+    /// Bim *i*, the same pairing as the bunks. The first three are
+    /// [`World::fit_to_act`]'s, the same as the desk's: a body that fell
+    /// beside the seat, or a crew member dozing in it, is at the helm
+    /// for the picture and for nothing else, and a Confirm from their
+    /// player is `Refusal::NotAtTheHelm`. Asked when a command arrives
+    /// and not again: one who walks away under way is refused the *next*
+    /// order, and the trip carries on.
     pub fn at_the_helm(&self, slot: u32) -> bool {
-        if slot >= self.aboard.crew_count() {
+        if !self.fit_to_act(slot) {
             return false;
         }
         self.helm_spot()
             .is_some_and(|seat| self.aboard.position(slot).distance(seat) <= data::HELM_REACH)
     }
 
-    /// Whether that player's crew member is at a trading desk: alive,
-    /// awake, aboard, and within [`data::REACH`] tiles of a desk's
-    /// footprint on the deck it walks — the station's, on the joined
-    /// deck. What a buy or a sell wants beside the berth
-    /// (`Refusal::NotAtTheDesk`): the station is traded with across its
-    /// desk, and the goods still go straight into the hold. A ship has
-    /// no desk of its own, so away from a berth this is never true.
-    pub fn at_the_desk(&self, slot: u32) -> bool {
+    /// Whether that player's crew member is in a state to do anything at
+    /// all for them: a slot with a Bim in it, alive, awake — neither out
+    /// cold nor asleep — and aboard rather than out on the hull. What the
+    /// helm and the desk ask before where the body is standing.
+    fn fit_to_act(&self, slot: u32) -> bool {
         if slot >= self.aboard.crew_count() {
             return false;
         }
         let room = &self.aboard.room;
         let who = slot as usize;
-        if !room.is_alive(who) || room.is_unconscious(who) || room.is_outside(who) {
+        room.is_alive(who)
+            && !room.is_unconscious(who)
+            && !room.is_asleep(who)
+            && !room.is_outside(who)
+    }
+
+    /// Whether that player's crew member is at a trading desk: alive,
+    /// awake, aboard ([`World::fit_to_act`]), and within [`data::REACH`]
+    /// tiles of a desk's footprint on the deck it walks — the station's,
+    /// on the joined deck. What a buy or a sell wants beside the berth
+    /// (`Refusal::NotAtTheDesk`): the station is traded with across its
+    /// desk, and the goods still go straight into the hold. A ship has
+    /// no desk of its own, so away from a berth this is never true.
+    pub fn at_the_desk(&self, slot: u32) -> bool {
+        if !self.fit_to_act(slot) {
             return false;
         }
+        let room = &self.aboard.room;
+        let who = slot as usize;
         let here = room.bim_pos(who);
         let reach = data::REACH * shipdesign::TILE as f32;
         room.desks().iter().any(|(frame, _)| {
@@ -4649,7 +5002,13 @@ impl World {
             Container::Bench(i) => PartKind::from_code(self.aboard.room.bench_part(i))
                 .and_then(|kind| kind.def().capacity)
                 .is_some_and(|(held, _)| held == class),
-            Container::Shelf(_) => class == Storage::Shelf || armour::is_gear(resource),
+            // The ship's own shelves only: the station's, on the joined
+            // deck, are an enemy's to plunder or a friend's to leave alone,
+            // never the hold's.
+            Container::Shelf(i) => {
+                (class == Storage::Shelf || armour::is_gear(resource))
+                    && !self.station_shelves().contains(&i)
+            }
             Container::Fridge(_) => class == Storage::ColdStore,
             // The crew's own desks only: a key put on a station's desk
             // would be the station's, and the hold would count it.
@@ -5113,6 +5472,166 @@ impl World {
             who,
             source_kind: source.code(),
         });
+    }
+
+    // --- an enemy's shelf ------------------------------------------------------
+
+    /// Which of the shelves on the deck are the station's, while the
+    /// rooms are joined: the ones standing in the station's box, told
+    /// apart from the ship's the way its research desk is
+    /// ([`World::station_desk`]). Empty on a ship of its own. These are
+    /// not containers of the hold — [`World::container_takes`] says no
+    /// for them — but the shelf an enemy's is plundered from.
+    pub fn station_shelves(&self) -> Vec<usize> {
+        let Some((lo, hi)) = self.aboard.station_box else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let mut i = 0;
+        while let Some(frame) = self.aboard.room.container_frame(Container::Shelf(i)) {
+            let m = frame.center();
+            if (m.x as f64) >= lo.x
+                && (m.x as f64) <= hi.x
+                && (m.y as f64) >= lo.y
+                && (m.y as f64) <= hi.y
+            {
+                out.push(i);
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// The enemy's shelf the ship is tied up beside, if it is: docked
+    /// with the rooms joined at a station whose people are enemies —
+    /// a raider, or a hostile station — and its shelf laid out. What the
+    /// app's window draws and [`Command::Plunder`] takes from. `None` at
+    /// a friend's or a stranger's, whose shelf is the desk's to sell
+    /// from, and away from a berth.
+    pub fn plunder_alongside(&self) -> Option<&Plunder> {
+        let station = self.ship.state.station()?;
+        if !self.aboard.is_joined() || self.stance(station) != Stance::Hostile {
+            return None;
+        }
+        self.plunder.iter().find(|p| p.station == station)
+    }
+
+    /// Whether crew member `who` stands within [`data::REACH`] of one of
+    /// the station's shelves on the joined deck — alive, awake and
+    /// aboard. What a plunder asks after the shelf, and what the window
+    /// reads to say "walk over first".
+    pub fn shelf_ashore_in_reach(&self, who: u32) -> bool {
+        if who >= self.aboard.crew_count() {
+            return false;
+        }
+        let room = &self.aboard.room;
+        if room.is_unconscious(who as usize) {
+            return false;
+        }
+        self.station_shelves()
+            .into_iter()
+            .any(|i| room.within_reach(who as usize, Container::Shelf(i), data::REACH))
+    }
+
+    /// Where crew member `who` would stand at the nearest of the
+    /// station's shelves, in the room's units, for the app to `send_to`.
+    /// `None` with none on the deck.
+    pub fn plunder_spot(&self, who: u32) -> Option<bims::math::Vec2> {
+        if who >= self.aboard.crew_count() {
+            return None;
+        }
+        let room = &self.aboard.room;
+        let at = room.bim_pos(who as usize);
+        self.station_shelves()
+            .into_iter()
+            .filter_map(|i| room.container_spot(Container::Shelf(i)))
+            .min_by(|a, b| (*a - at).len().total_cmp(&(*b - at).len()))
+    }
+
+    /// Lay the shelf of the station alongside out as loot, if the ship is
+    /// tied to an enemy's with the rooms joined and it has not been laid
+    /// out before. Asked at every join and at every change of stance, so
+    /// a dock turned hostile under the crew (`set_hostile`, the `combat`
+    /// command) has a shelf to plunder too.
+    fn lay_plunder(&mut self) {
+        let Some(id) = self.ship.state.station() else {
+            return;
+        };
+        if !self.aboard.is_joined() || self.stance(id) != Stance::Hostile {
+            return;
+        }
+        if self.plunder.iter().any(|p| p.station == id) {
+            return;
+        }
+        if let Some(station) = self.station(id) {
+            let laid = plunder::lay_out(station);
+            self.plunder.push(laid);
+        }
+    }
+
+    /// A plunder: a stack off the enemy's shelf into the pack, as far as
+    /// the pack takes it. See [`Command::Plunder`] for what is checked,
+    /// and in what order.
+    fn plunder(&mut self, slot: u32, who: u32, id: u32, events: &mut Vec<WorldEvent>) {
+        let Some(station) = self
+            .ship
+            .state
+            .station()
+            .filter(|_| self.aboard.is_joined())
+        else {
+            events.push(refused(slot, Refusal::NotDocked));
+            return;
+        };
+        if self.stance(station) != Stance::Hostile {
+            events.push(refused(slot, Refusal::NotHostile));
+            return;
+        }
+        let kept = self
+            .plunder
+            .iter()
+            .find(|p| p.station == station)
+            .and_then(|p| p.grid.slot(id))
+            .map(|s| s.kept);
+        // Nobody's shelf stocks armour or guns, so a slot is a stack or
+        // nothing.
+        let Some(Kept::Stack(resource)) = kept else {
+            events.push(refused(slot, Refusal::NotAboard));
+            return;
+        };
+        if !self.shelf_ashore_in_reach(who) {
+            events.push(refused(slot, Refusal::OutOfReach));
+            return;
+        }
+        let item = armour::item_of(resource);
+        if self
+            .aboard
+            .room
+            .gear(who as usize)
+            .free_cell_for(item)
+            .is_none()
+        {
+            events.push(refused(slot, Refusal::PackFull));
+            return;
+        }
+        // One to a cell until the pack is full or the stack is gone; the
+        // shelf gives up exactly what the pack took.
+        let mut taken = 0;
+        while let Some(cell) = self.aboard.room.gear(who as usize).free_cell_for(item) {
+            let on_shelf = self
+                .plunder
+                .iter()
+                .find(|p| p.station == station)
+                .and_then(|p| p.grid.slot(id))
+                .map_or(0, |s| s.count);
+            if on_shelf == 0 || !self.aboard.room.give(who as usize, Some(cell), item) {
+                break;
+            }
+            if let Some(p) = self.plunder.iter_mut().find(|p| p.station == station) {
+                p.grid.remove(resource, 1, Some(id));
+            }
+            taken += 1;
+        }
+        events.push(WorldEvent::Plundered { who, units: taken });
     }
 
     // --- mercenaries ---------------------------------------------------------
@@ -5604,6 +6123,19 @@ impl World {
     /// Which node the view is about, if it is about one at all.
     fn frame_candidate(&self) -> Option<(Node, f64, f64)> {
         let node = match &self.ship.state {
+            // Tied to a raider, or pushing off one, the view is about
+            // whatever it was about when the raid came: a raider is not a
+            // place in the system.
+            ShipState::Docked { station }
+            | ShipState::CastingOff { station, .. }
+            | ShipState::Undocking { station, .. }
+                if raid::raider_index(*station).is_some() =>
+            {
+                match self.ship.frame {
+                    Frame::Local(node) if self.within_exit_radius(node) => node,
+                    _ => self.nearest_discovered()?,
+                }
+            }
             // At a settlement, the view is about the planet it is on.
             ShipState::Docked { station }
             | ShipState::CastingOff { station, .. }
@@ -6002,6 +6534,7 @@ impl World {
             self.aboard.crew_count(),
             self.worth(),
             self.start_worth,
+            self.days_gone(),
         ));
         // Docked again from the start: the berth moved with the hull, the
         // joined deck is the new one, and the residents' room — opened on

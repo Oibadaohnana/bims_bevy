@@ -48,6 +48,16 @@
 //! an order like the rest, `GearOrder::Loot`, and the walk over to the
 //! body is the screen's too (`walk`), for the same reason: where a resident
 //! lies is the world's to say.
+//!
+//! An enemy's shelf is the third: a raider's, or a hostile station's,
+//! laid out by the world as loot the moment the rooms join
+//! (`world::plunder`), and drawn here as a lockers' grid nothing can be
+//! moved on — a [`Shelf`] snapshot the screen sets every frame, `None`
+//! at a friend's or away from a berth, which shuts the window. The
+//! station's shelves are told from the ship's by `Hold::station_shelves`:
+//! a click on one at an enemy's opens this window, at a friend's a note
+//! that the desk is the way. Taking is `GearOrder::Plunder`, a stack at
+//! a time as far as the pack goes.
 
 use bevy_egui::egui;
 use bims::combat::{Item as PackItem, LOOT_CELLS, PACK_CELLS, PACK_COLS, PACK_ROWS, Piece};
@@ -134,6 +144,10 @@ pub struct Hold {
     /// desk's row reads both.
     pub station_desk: Option<usize>,
     pub station_key: bool,
+    /// Which shelves on the deck are the station's, while docked —
+    /// `World::station_shelves`: not the hold's, and an enemy's to
+    /// plunder.
+    pub station_shelves: Vec<usize>,
     /// The workbench with the slots, if one is aboard — `World::bench` —
     /// as its window draws it.
     pub bench: Option<BenchView>,
@@ -195,6 +209,21 @@ pub struct Body {
     pub reach: bool,
 }
 
+/// An enemy's shelf, as the Plunder window sees it: a snapshot the
+/// screen hands over every frame while the ship is tied to an enemy's —
+/// `World::plunder_alongside` — and `None` otherwise, which shuts the
+/// window. Stacks only: nobody's shelf stocks armour or guns.
+#[derive(Clone)]
+pub struct Shelf {
+    pub grid: Grid,
+    /// Its size in cells, the station's shelves' capacity.
+    pub capacity: u32,
+    /// Whether the Bim whose inventory is shown stands within reach of
+    /// one of the station's shelves, alive and awake —
+    /// `World::shelf_ashore_in_reach`.
+    pub reach: bool,
+}
+
 /// What a row or a ctrl-click asked for, about somebody's gear. The
 /// screen sends it: on the ship as the matching `world::Command`, in the
 /// room straight to the `Game`.
@@ -247,6 +276,9 @@ pub enum GearOrder {
     /// `Command::TakeKey`. Sent by the screen once `who` is within reach
     /// of the desk, after the desk's row walked them there.
     TakeKey { who: u32 },
+    /// Take the stack that is slot `id` of the enemy's shelf into `who`'s
+    /// pack, as far as it goes — `Command::Plunder`.
+    Plunder { who: u32, id: u32 },
 }
 
 /// Something within reach of the Bim shown, for the nearby strip: the
@@ -277,6 +309,10 @@ pub enum Open {
     /// the Bim shown to it and asks the screen for the key
     /// (`CrewPanels::key_requested`).
     Key(usize),
+    /// The Plunder window over the enemy's shelf: the station's shelf that
+    /// is that index among the deck's (`Container::Shelf`), for the walk
+    /// over; the grid is the one shelf whichever was clicked.
+    Plunder(usize),
 }
 
 /// A cell's pop-up: where it was asked for, which cell, whose gear, and
@@ -300,6 +336,8 @@ enum Source {
     /// A cell of the open Loot window, by its `LootCell` code; whose body
     /// is the window's.
     Loot(u32),
+    /// A slot of the enemy's shelf in the Plunder window, by its id.
+    Plunder(u32),
     /// One of the workbench's three slots.
     Bench(u32),
 }
@@ -624,6 +662,10 @@ pub struct CrewPanels {
     /// handed them; `None` while none is open, or once the body is no
     /// longer for hire — hired, or the rooms parted — which shuts it.
     pub terms: Option<Terms>,
+    /// The enemy's shelf the Plunder window is over, as the screen last
+    /// handed it; `None` at a friend's or away from a berth, which shuts
+    /// it. See the module note.
+    pub shelf: Option<Shelf>,
     /// The Trade row was picked: the screen opens the trade window and
     /// takes this.
     pub trade_requested: bool,
@@ -677,6 +719,7 @@ impl CrewPanels {
             enemies_alongside: false,
             walk: None,
             terms: None,
+            shelf: None,
             trade_requested: false,
             upgrade_requested: false,
             key_requested: None,
@@ -753,7 +796,24 @@ impl CrewPanels {
                     // its three slots, and a window for them.
                     .or((workbench == Some(bench)).then_some(Container::Bench(bench)))
             }
-            HIT_SHELF if self.hold.is_some() => Some(Container::Shelf(game.hit_shelf())),
+            // The ship's own shelves are the hold's; the station's are an
+            // enemy's to plunder, or a friend's to buy from across the desk,
+            // which the menu says.
+            HIT_SHELF if self.hold.is_some() => {
+                let shelf = game.hit_shelf();
+                let ashore = self
+                    .hold
+                    .as_ref()
+                    .is_some_and(|h| h.station_shelves.contains(&shelf));
+                if !ashore {
+                    Some(Container::Shelf(shelf))
+                } else if self.shelf.is_some() {
+                    self.open_plunder(game, shelf);
+                    return;
+                } else {
+                    None
+                }
+            }
             // The ship's own research desk is a container — the key's slot;
             // the station's has a row instead.
             HIT_RESEARCH
@@ -798,9 +858,21 @@ impl CrewPanels {
     /// Open a container's window by name, the way a click on it would:
     /// `BIMS_ARMOURY=1` (or `armoury`) the first bench aboard whose part
     /// is an armoury, `storage` the first shelf, `fridge` the first cold
-    /// store, `workbench` the workbench with the slots. Nothing, on a ship
-    /// without one.
+    /// store, `workbench` the workbench with the slots, `plunder` the
+    /// enemy's shelf — the first of the station's shelves on the joined
+    /// deck, and the window shuts itself at a friend's. Nothing, on a
+    /// ship without one.
     pub fn open_named(&mut self, game: &mut Game, what: &str) {
+        if what == "plunder" {
+            if let Some(&shelf) = self
+                .hold
+                .as_ref()
+                .and_then(|h| h.station_shelves.first())
+            {
+                self.open_plunder(game, shelf);
+            }
+            return;
+        }
         let container = match what {
             "storage" => game
                 .container_frame(Container::Shelf(0))
@@ -820,6 +892,23 @@ impl CrewPanels {
         if let Some(container) = container {
             self.open_container(game, container);
         }
+    }
+
+    /// Open the Plunder window on the enemy's shelf — `shelf` the one
+    /// clicked, among the deck's — and the inventory pop-up beside it,
+    /// and walk the Bim shown to that shelf's use spot, the way a
+    /// container's window opens.
+    fn open_plunder(&mut self, game: &mut Game, shelf: usize) {
+        let who = self.inventory_who(game);
+        if let Some(spot) = game.container_spot(Container::Shelf(shelf))
+            && game.is_alive(who)
+        {
+            game.send_to(who, spot);
+        }
+        self.open = Some(Open::Plunder(shelf));
+        self.inventory_open = true;
+        self.menu = None;
+        self.cell_menu = None;
     }
 
     /// Open the Loot window on a body, and the inventory pop-up beside it,
@@ -1509,6 +1598,11 @@ impl CrewPanels {
             // Bim shown, and the gun under the pointer is ringed on the deck
             // (`Game::set_hover_dropped`).
             HIT_DROPPED => {}
+            // A friend's shelf on the joined deck — an enemy's opens the
+            // Plunder window instead of a menu: the desk is the way.
+            HIT_SHELF => {
+                items.push(Item::note(SHELF_ASHORE_ROW, SHELF_ASHORE_HINT.into()));
+            }
             HIT_DESK => {
                 // A station's trading desk: the one row walks the Bim shown
                 // over and puts the trade window up.
@@ -1632,6 +1726,7 @@ impl CrewPanels {
                     }
                     self.key_requested = Some(who as u32);
                 }
+                Some(Open::Plunder(shelf)) => self.open_plunder(game, shelf),
                 None => {
                     if let Some(run) = item.run {
                         run(game);
@@ -3360,6 +3455,141 @@ impl CrewPanels {
         }
     }
 
+    /// The Plunder window: the enemy's shelf as a lockers' grid nothing
+    /// can be moved on — looked at and taken from, not tidied. Ctrl-click
+    /// a stack to take it into the pack of the Bim shown, as far as the
+    /// pack goes; right-click for the row. Shuts when the shelf is gone:
+    /// the rooms parted, or the station no longer an enemy's. Call once
+    /// a frame after the menu, like the Loot window.
+    pub fn plunder_window(
+        &mut self,
+        ctx: &egui::Context,
+        game: &Game,
+        name: &dyn Fn(u32) -> String,
+    ) {
+        let Some(Open::Plunder(_)) = self.open else {
+            return;
+        };
+        let Some(shelf) = self.shelf.as_ref() else {
+            self.open = None;
+            return;
+        };
+        let who = self.inventory_who(game);
+        let cols = shipdesign::GRID_COLS as usize;
+        let rows = Grid::rows(shelf.capacity) as usize;
+        let blocked = rows * cols - shelf.capacity as usize;
+        let (things, slots) = grid_things(&shelf.grid, &Hold::default());
+        let reach = shelf.reach;
+        let mut open = true;
+        let mut moved = grid::Moved::default();
+        let mut no_drag = None;
+        let mut strip = None;
+        let (nearby, showing) = (self.nearby.clone(), self.open);
+        let never = |_: usize, _: usize, _: usize, _: bool| false;
+        let response = egui::Window::new(PLUNDER_WINDOW)
+            .id(egui::Id::new("plunder-window"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
+            .frame(crate::screens::room::panel_frame())
+            .show(ctx, |ui| {
+                strip = nearby_strip(ui, &nearby, showing);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(if things.is_empty() {
+                            "Bare — everything is off it".to_string()
+                        } else {
+                            format!("{} on the enemy's shelf", stacks_text(things.len()))
+                        })
+                        .small()
+                        .color(theme::MUTED),
+                    );
+                    theme::question_mark(ui, PLUNDER_TIP);
+                });
+                moved = grid::lockers(
+                    ui,
+                    cols,
+                    rows,
+                    blocked,
+                    container_cell(Storage::Shelf),
+                    &things,
+                    &mut no_drag,
+                    &never,
+                    self.keys.key(Action::Turn),
+                    false,
+                );
+                let hint = if reach {
+                    format!(
+                        "Ctrl-click takes the stack into {}'s pack, as far as it goes · right-click for the row",
+                        name(who as u32)
+                    )
+                } else {
+                    format!(
+                        "{} is not within reach — walk over first; clicking the shelf sends the Bim",
+                        name(who as u32)
+                    )
+                };
+                ui.add(
+                    egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap(),
+                );
+            });
+        if let Some(response) = response {
+            self.container_rect = Some(response.response.rect);
+        }
+        if !open {
+            self.open = None;
+        }
+        self.follow_strip(strip);
+        // The pointer on a stack: a right-click is the row, a ctrl-click
+        // the quick take — or the row, when the take cannot go, so the
+        // reason is read rather than guessed at.
+        if let Some((i, at)) = moved.right_clicked
+            && let Some(&id) = slots.get(i)
+        {
+            self.cell_menu = Some(CellMenu {
+                at,
+                from: Source::Plunder(id),
+                who,
+                fresh: true,
+            });
+        }
+        if let Some((i, at)) = moved.ctrl_clicked
+            && let Some(&id) = slots.get(i)
+        {
+            if self.can_plunder(game, who).is_ok() {
+                self.orders.push(GearOrder::Plunder {
+                    who: who as u32,
+                    id,
+                });
+            } else {
+                self.cell_menu = Some(CellMenu {
+                    at,
+                    from: Source::Plunder(id),
+                    who,
+                    fresh: true,
+                });
+            }
+        }
+    }
+
+    /// Whether a stack on the enemy's shelf can come into `who`'s pack
+    /// now, or why not: the shelf still there, reach, and a free cell.
+    /// The world checks the same things again when the command lands;
+    /// this is so the row can say so first.
+    fn can_plunder(&self, game: &Game, who: usize) -> Result<(), String> {
+        let Some(shelf) = &self.shelf else {
+            return Err("the shelf is gone".into());
+        };
+        if !shelf.reach {
+            return Err(REACH_HINT.into());
+        }
+        if game.gear(who).free_cell().is_none() {
+            return Err("the pack is full".into());
+        }
+        Ok(())
+    }
+
     /// Whether a thing on the open body can come into `who`'s pack now, or
     /// why not: the body still down, reach, and a free cell. The world
     /// checks the same things again when the command lands; this is so
@@ -3597,6 +3827,32 @@ impl CrewPanels {
                         who: who as u32,
                         source,
                         cell,
+                    },
+                ));
+            }
+            Source::Plunder(id) => {
+                let Some(slot) = self.shelf.as_ref().and_then(|s| s.grid.slot(id)) else {
+                    return rows;
+                };
+                let (hint, disabled) = match self.can_plunder(game, who) {
+                    Ok(()) => (
+                        format!(
+                            "{} into {}'s pack, one to a cell, as far as it goes",
+                            match slot.count {
+                                1 => "it".to_string(),
+                                n => format!("the stack of {n}"),
+                            },
+                            name(who as u32)
+                        ),
+                        false,
+                    ),
+                    Err(why) => (why, true),
+                };
+                rows.push((
+                    theme::Row::new("Take", hint, disabled),
+                    GearOrder::Plunder {
+                        who: who as u32,
+                        id,
                     },
                 ));
             }
@@ -5047,6 +5303,15 @@ fn nearby_strip(ui: &mut egui::Ui, nearby: &[Near], open: Option<Open>) -> Optio
         }
     });
     pick
+}
+
+/// So many stacks, in words.
+fn stacks_text(n: usize) -> String {
+    if n == 1 {
+        "1 stack".to_string()
+    } else {
+        format!("{n} stacks")
+    }
 }
 
 /// Whose hands a treatment of `patient` would be: the player's own Bim

@@ -98,6 +98,26 @@ pub fn fight() -> bool {
     std::env::var("BIMS_FIGHT").as_deref() == Ok("1")
 }
 
+/// `BIMS_RAID=1` opens the simulation off its berth with a raider tied to
+/// the ship and its boarders on their way through the airlock — how a
+/// raid is looked at without holding a day for one; `BIMS_RAID=contact`
+/// opens it with the raider on the radar and closing, for the map.
+/// Whether one was asked for, and whether it is to dock.
+pub fn raid() -> Option<bool> {
+    match std::env::var("BIMS_RAID").as_deref() {
+        Ok("1") => Some(true),
+        Ok("contact") => Some(false),
+        _ => None,
+    }
+}
+
+/// `BIMS_LOST=1` opens the simulation with every crew member shot where
+/// they stand: the run over on the first step, and the screen that says
+/// so on the next frame.
+pub fn lost() -> bool {
+    std::env::var("BIMS_LOST").as_deref() == Ok("1")
+}
+
 /// `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member out at
 /// open and leaves the next one failing — how a lamp out, the dark round
 /// it and a failing lamp's flicker are looked at without a fight that
@@ -115,7 +135,8 @@ pub fn trade() -> bool {
 /// `BIMS_ARMOURY=1` opens the simulation with the armoury window up — how
 /// the lockers' grid is looked at without finding the armoury on deck;
 /// `BIMS_ARMOURY=storage` the first shelf's window, `=fridge` the first
-/// cold store's, `=workbench` the workbench's slots. What to open, if
+/// cold store's, `=workbench` the workbench's slots, `=plunder` the
+/// enemy's shelf (with `BIMS_RAID=1`, the raider's). What to open, if
 /// anything.
 pub fn armoury() -> Option<String> {
     std::env::var("BIMS_ARMOURY").ok().filter(|s| !s.is_empty())

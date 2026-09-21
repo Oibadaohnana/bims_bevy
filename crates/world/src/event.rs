@@ -198,6 +198,25 @@ pub enum WorldEvent {
     /// An hour of the cold store without power took `units` off the
     /// shelf — vegetables, tofu and stew together, a share of each.
     FoodSpoiled { units: u32 },
+    /// A raider is on the radar, closing on the ship with `boarders`
+    /// aboard, `minutes` out — see `crate::raid`. Every player's speed
+    /// request was put back to 1× with it, once.
+    RaidContact { boarders: u32, minutes: u32 },
+    /// The raider is tied to the ship and its `boarders` are coming
+    /// through the airlock.
+    RaidBoarded { boarders: u32 },
+    /// The raider arrived to find the ship gone — under way, or in
+    /// another system — and the raid is off.
+    RaidCancelled,
+    /// Every boarder is down: the raider is a derelict tied to the ship,
+    /// to be looted and cast off from.
+    RaidRepelled,
+    /// No crew member is standing — dead or out cold, every one — and
+    /// the run is over. Said once.
+    CrewLost,
+    /// Crew member `who` took `units` of a stack off an enemy's shelf into
+    /// the pack — a raider's or a hostile station's; see `crate::plunder`.
+    Plundered { who: u32, units: u32 },
 }
 
 /// Why a command did nothing.
@@ -293,6 +312,8 @@ pub enum Refusal {
     NotResearched = 25,
     /// An execution at a station that is not an enemy's: a downed
     /// crewmate, a friend's or a stranger's people are never finished off.
+    /// And a take off the shelf of one: a friend's or a stranger's shelf is
+    /// bought from across the desk, never plundered (`crate::plunder`).
     NotHostile = 26,
     /// An execution by a crew member with nothing in its hand.
     Unarmed = 27,
@@ -392,6 +413,12 @@ impl WorldEvent {
             WorldEvent::Brownout => 56,
             WorldEvent::PowerRestored => 57,
             WorldEvent::FoodSpoiled { .. } => 58,
+            WorldEvent::RaidContact { .. } => 59,
+            WorldEvent::RaidBoarded { .. } => 60,
+            WorldEvent::RaidCancelled => 61,
+            WorldEvent::RaidRepelled => 62,
+            WorldEvent::CrewLost => 63,
+            WorldEvent::Plundered { .. } => 64,
         }
     }
 
@@ -465,6 +492,15 @@ impl WorldEvent {
             | WorldEvent::LiftedOff { body } => body as i64,
             WorldEvent::Brownout | WorldEvent::PowerRestored => 0,
             WorldEvent::FoodSpoiled { units } => units as i64,
+            // The minutes out in the hundreds: boarders are never a hundred.
+            WorldEvent::RaidContact { boarders, minutes } => {
+                (boarders as i64) + 100 * (minutes as i64)
+            }
+            WorldEvent::RaidBoarded { boarders } => boarders as i64,
+            WorldEvent::RaidCancelled | WorldEvent::RaidRepelled | WorldEvent::CrewLost => 0,
+            // The units in the hundreds: a crew is never a hundred, and a
+            // pack has fifty cells.
+            WorldEvent::Plundered { who, units } => (who as i64) + 100 * (units as i64),
         }
     }
 }

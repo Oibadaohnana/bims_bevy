@@ -28,10 +28,51 @@
 //! what turns a row into an errand: a recipe is on offer while the hold has
 //! fewer of its output than the target, the inputs for one, room for the
 //! output, a bench of its station aboard, and that station powered.
+//!
+//! # What a made thing is worth
+//!
+//! Its inputs and the hours, and nothing else — [`made_book`] is the
+//! rule, [`LABOUR_BP_PER_HOUR`] its one constant, and
+//! `economy::trade_price` carries the numbers it comes to, written in by
+//! hand since that crate knows no recipes. The test
+//! `every_made_book_is_its_inputs_and_labour` holds the two together.
+//! Metal alone is exempt: a staple on every shelf, priced with the roots.
 
+use economy::{Money, trade_price};
 use physics::ResourceId;
 
 use crate::parts::PartKind;
+
+/// What an hour at a bench adds to what went in, in basis points of it:
+/// a fifth. A placeholder like every other number in the game, and the
+/// one knob on every made thing's book value at once; turn it and
+/// `economy::trade_price` has to be rewritten to what [`made_book`] then
+/// says.
+pub const LABOUR_BP_PER_HOUR: Money = 2_000;
+
+/// What one unit of a recipe's output is **worth** at the book, from its
+/// inputs at theirs and the minutes at the bench:
+///
+/// ```text
+/// cost   = Σ book(input) × units
+/// labour = LABOUR_BP_PER_HOUR × minutes / 60          // basis points
+/// book   = max(1, cost × (10_000 + labour) / 10_000 / units out)
+/// ```
+///
+/// integer, rounding down at each division in that order. The inputs are
+/// priced at `economy::trade_price`, so the sum is the same whichever
+/// row is asked about first; an input is always an earlier row's
+/// output, so it is the rule applied to itself all the way down to the
+/// roots.
+pub fn made_book(recipe: &Recipe) -> Money {
+    let cost: Money = recipe
+        .inputs
+        .iter()
+        .map(|&(id, units)| trade_price(id) * units as Money)
+        .sum();
+    let labour = LABOUR_BP_PER_HOUR * recipe.minutes as Money / 60;
+    (cost * (10_000 + labour) / 10_000 / recipe.output.1 as Money).max(1)
+}
 
 /// One thing the crew can make.
 #[derive(Clone, Copy, Debug)]

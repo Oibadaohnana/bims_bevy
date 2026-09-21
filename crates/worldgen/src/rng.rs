@@ -58,6 +58,12 @@ pub enum Purpose {
     /// world's (`world::surface`), like the mining site; the generator
     /// draws nothing from it, so the galaxy checksum never sees it.
     Settlement = 10,
+    /// When raiders come for the ship, and what they bring: the schedule
+    /// of raids on the world's clock, each raider's bearing, its seed and
+    /// its shelf. The world's (`world::raid`), off the galaxy seed alone,
+    /// since a raid follows the ship rather than a system; the generator
+    /// draws nothing from it and the galaxy checksum never sees it.
+    Raids = 11,
 }
 
 /// SplitMix64's finalizer. Takes a counter-ish input to a well-spread output,
