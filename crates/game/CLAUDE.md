@@ -182,9 +182,58 @@ Three rules that keep it honest:
   per frame** in `Game::update` and the answer is handed to each of the crew.
   Ask it inside the per-Bim loop and only the first one ever gets a night.
   `set_need_trigger` likewise writes to every Bim.
-- **A berth and a seat belong to a Bim.** `Task` and `Saved` carry `who` for
-  exactly this: `destination` needs it to pick a bed and a chair, and a chain
-  put down and resumed has to come back to the same ones.
+- **A seat belongs to a Bim, and a berth is given to one.** `Task` and
+  `Saved` carry `who` for exactly this: `destination` needs it to pick a
+  chair, and — through `Room::sleeps_in`, whose bed is whose — a bed, and
+  a chain put down and resumed has to come back to the same ones. See
+  "A bunk is one Bim's, and the deck is everybody's" below.
+
+## A bunk is one Bim's, and the deck is everybody's
+
+A Bim's index used to be its berth, clamped: a crew past the bunks all
+slept in the last one, stacked. Now **`Room::sleeps_in[who]` says which
+bunk is whose** — `Room::bed_of(who)`, `bed_owner(bed)` — and every
+`Room::bed_*(bed)` accessor takes a *bed*, not a `who`; `task.rs` looks
+the bed up first. The table lives on the room because a chain is handed
+the room and nothing else, and it is the game's to keep: `with_room`
+deals bunk `i` to Bim `i` as far as the bunks go (`Room::bunks()`, the
+stand-in a layout with none gets not counted — `stand_in_bed`);
+`take_crew` writes each Bim's entry onto `Bim::bed` for the journey and
+`adopt` reads it back — kept when it names one of this room's own bunks
+nobody here has, else the first spare, else none — so the ship's crew
+keep their bunks across a dock and a hire takes what is spare; `die`
+frees it; `Room::relayout` follows the bed by its *frame*, since a bunk
+taken out of the design ahead of somebody's shifts the rest down. **The
+player gives them**: `Game::assign_bed(who, Some(bed) | None)`,
+`bed_assignable` (a real bunk, and not a docked station's — by the
+`foreign` box `set_foreign` named, `bed_is_foreign`), and a bed that
+changes hands stands up whoever is asleep in it first (`Task::abandon`
+before the table moves, so `out_of_bed` makes the right blanket). The
+app's bunk menu (`HIT_BED`, `Game::hit_bed()`) is a note saying whose,
+**Assign to <the Bim shown>** or **Give up this bunk**, and Nap/Sleep on
+the player's own bunk only.
+
+**A Bim with no bunk sleeps on the deck.** The same `Kind::Rest` chain:
+`enter(GoToBed)` puts the nearest free cell under its feet on `target`
+(and clears it for a Bim with a bunk, so `Task::sleeps_on_ground` reads
+off it), `Doze` lies it there facing as it stood, `out_of_bed` stands it
+where it lay. Three hours in six — `bim::GROUND_SLEEP` out of every
+`GROUND_WINDOW`, the window opened by the first minute of a lie-down and
+the allowance refilled when it closes, so an interrupted lie-down keeps
+what it did not use — and **sore** for `SORE_LASTS` (12 h) after the last
+minute of it, rest draining `needs::SORE_TIRING` (1.5×) faster,
+multiplied into `tiring` beside malnutrition. All of it is in `tick_bim`
+off `sleeps_on_ground() && restoring() == Some(Rest)`: `ground_left`
+runs down and `task.wake()` cuts the doze at nothing. `Game::rest` caps
+the minutes at the allowance and refuses under `GROUND_SLEEP_MIN`;
+`queue_ready` holds a queued sleep for the window like one held for a
+door, so the rest trigger and the timetable get a three-hour night when
+the window allows and nothing when it does not — and past its trigger
+the Bim nods off standing like any other. `job_code` calls anything
+longer than the menu's nap a sleep, so the three hours read as one.
+`a_bunk_is_one_bim_s_and_a_bim_with_none_sleeps_on_the_deck_three_hours_in_six`
+and `a_bunk_goes_with_its_bim_from_one_room_to_the_next…` pin it all.
+Adding a field to `Bim` or `Room` is a `SAVE_VERSION` bump (4).
 
 ## Borrowing one Bim and the room at once
 
@@ -1389,7 +1438,17 @@ prints the curves itself.
   Bim, like a nap, until the blood comes back (`OUT_AT` is **0.4**
   now). Out cold
   it is drawn by `draw_lying`: the fallen figure in the **live** colours
-  with a slow breath and no Zs. `Bim::tick_drips` drips **blood on the
+  with a slow breath and no Zs. The fallen figure (`draw_flat`, shared
+  with the dead one's `draw_fallen`) is a body **stretched out along its
+  heading**, head forward: legs and boots trailing behind the hips, one
+  arm flung past the head, the other along the side, the head turned
+  onto its cheek — drawn at `FLAT_SCALE` (half) of the standing
+  figure since the user asked, about a tile long and inside two
+  whichever way it lies; it is the shape that says "down" at a
+  glance. A click on a body down is tested against that line
+  (`Character::picked_at`), boots to head at the same scale, not the
+  standing circle. `scratchpad/layout.rs dead` puts both
+  figures side by side. `Bim::tick_drips` drips **blood on the
   deck** every `DRIP_EVERY / wounds` seconds while it bleeds and lives,
   scattered ±10 off the body from the room's stream (a bleeding Bim is a
   fight, and no seed-pinned probe has one) — and a drop is **filth**:
@@ -1406,10 +1465,24 @@ prints the curves itself.
   `health::tests` pins the units.
 - **The crew's alarm is the other side of the war switch.** A room whose
   bodies are not hostile is **alarmed** (`Game::alarm`, `is_alarmed`)
-  while any target the world named is within `ALARM_RANGE` (100 tiles)
-  of any living crew member, or a crew member was hit within
-  `ALARM_HOLD` (30 s) — `attacked_for` is re-armed by a hostile bolt
-  landing in `tick_combat` and by `enemy_strike`. Going up, `muster_crew`
+  while any target the world named is within `ALARM_RANGE` (30 tiles)
+  of any living crew member, or was in any waking crew member's sight
+  within `ALARM_HOLD` (30 s, `enemy_unseen_for`), or a crew member was
+  hit within as long — `attacked_for` is re-armed by a hostile bolt
+  landing in `tick_combat` and by `enemy_strike`. **The alarm is a
+  fight, not a berth**: the range was a hundred tiles — any enemy on
+  the station — and a crew docked at an enemy's stood under arms for as
+  long as they were tied up there, whoever was left alive at the far
+  end of it, and under arms nobody eats or sleeps (`consider_errand` and
+  `pump_queue` both bow out for `is_recruited()`). Thirty is half again
+  `CALM_RANGE`, so between the two a crewmate is under arms *and*
+  doctors, which three tests lean on with an enemy twenty-five tiles
+  off beyond the classic room's walls;
+  `after_a_fight_at_a_hostile_dock_the_alarm_comes_down_and_the_crew_sleep`
+  in the world's tests is the dock. The other thing that keeps a crew
+  from bed after a fight is not the alarm at all: a body that bled past
+  the line is **out cold** on the deck until somebody bandages it — for
+  days, if everybody is — and that is the medical system, not sleep. Going up, `muster_crew`
   puts every living crew member **but `PLAYER`** under arms the way
   `muster` does an enemy's people — errand interrupted, post dropped,
   `plan_wait` zeroed — and first takes a weapon out of the pack into an
@@ -1443,7 +1516,14 @@ prints the curves itself.
   ring, the following, the order and its post. The header says
   `ALARM_STATUS` while it is up. Mind that James wanders in the classic
   room under `set_autonomous(false)` — the chat walks him — so a test
-  reads `bim_pos(0)` rather than where it put him.
+  reads `bim_pos(0)` rather than where it put him. **Both musters are
+  on an edge, and a room is thrown away at every dock and undock**, so
+  `take_crew` stands the war and the alarm down first: a body carried
+  into a fresh room — which starts at peace — still recruited had
+  nothing to let it go, and the crew flew home from a hostile dock in
+  combat mode. The new room musters them again the step an enemy is in
+  range. `casting_off_from_a_hostile_station_stands_the_crew_down` in
+  the world's tests.
 - **Sandbags are low cover.** `PartKind::Sandbags` is half a body's
   height since September 2026: `blocks_movement: false`, so the nav grid
   walks over it and (`blocks_sight` following) a line of sight goes over
@@ -1641,8 +1721,9 @@ room only ever holds instances — on a body, or in its pack.
   applied by the room itself and the world never sees the outcome.
   `armour_health(who)` is the unbroken worn pieces summed — the blue bar
   on the end of the green one — and `part_bonus(who, part)` one part's.
-- **The pack is `Gear::pack`, `[Option<Item>; PACK_CELLS]`** (seven by
-  seven since feature 49, September 2026, row by row), an `Item` being
+- **The pack is `Gear::pack`, `[Option<Item>; PACK_CELLS]`** (ten across by
+  five down — seven by seven at feature 49, September 2026, widened the
+  same month — row by row), an `Item` being
   `Armour(Piece)`, `Weapon(Weapon)`, `Stack(resource code)` or `Key(tier)`
   — **each thing kept in the cell its top-left corner is in and reaching
   over its `Item::footprint()`**, turned a quarter round where
@@ -1765,13 +1846,45 @@ still takes the kind — and the app tints the cell and the slot instead.
 how two of a tier become one of the next is the world's
 (`crates/world/CLAUDE.md`, "Two of a kind go onto the workbench").
 
+## A carry between benches is a haul with a bench at each end
+
+Feature 56 (September 2026): the world wants a gun or a piece of armour
+walked from the lockers to the workbench's slots and the upgraded one
+walked back, and the room's half is `Kind::Ferry { from, to }` — both
+indices into `Room::benches` — modelled on `Kind::Haul`: `GoToStore`
+(bench `from`'s use spot) → `TakeGear` (1.2 s, reaching in) →
+`CarryGear` (to bench `to`, `Held::Crate` in the arms — put there on
+the walk's *entry* too, so a chain picked back up off the queue carries
+it) → `PutGear` (1.2 s). **The room never knows what the thing is.**
+The world posts `Room::ferries: Vec<game::Ferry>` every step
+(`Game::set_ferries`, at most one), and the chain reports on three
+lists the world drains: `ferry_picked` as `TakeGear` ends,
+`ferry_dropped` as `PutGear` ends — which also takes the order off the
+room's own list, since that copy is a step behind the world and the
+same carry would be offered again — and `ferry_returned` from
+`let_go(for_good)` past `TakeGear`, the hands emptied, the way a haul's
+load goes back on the shelf. There is no new `Job`: the carry is
+offered under `Job::Haul` ("Carrying things" already) — `consider_errand`
+pushes `Haul` when `haul_on_offer` *or* `ferry_on_offer` has something,
+and `do_some_work` tries `haul` then `ferry` — with its own readout code
+`JOB_FERRY = 26`. `ferry_on_offer` wants both benches in the room, a
+route from the Bim to the first, and `can_begin`, which holds
+`Exclusive::Bench(to)`: two Bims carrying to the workbench at once would
+be two hands in one slot, and one at work on it (the `UPGRADE_ORDER`
+craft holds the same) is at it already. The world keeps an order posted
+until its drop lands, so a chain on its way never finds its target
+gone; what the drop *is* — into a slot, into the hold — is decided at
+the world's end. `world::tests`'
+`two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day` is
+the chain run for real, twice over and back.
+
 ## A body is looted, and down is dead or out cold
 
 `Game::is_down(who)` is `!is_alive || is_unconscious`: what a Bim has to
 be to be looted, and what the world hands the other room as
 `set_visitors_down`. `Game::loot_cells(who)` is the body laid out as
-`[Option<Item>; LOOT_CELLS]` (13) in `combat::LootCell` order — `Pack(0..8)`,
-then `Head = 9`, `Body = 10`, `Legs = 11`, `Weapon = 12`, `code()` /
+`[Option<Item>; LOOT_CELLS]` (54) in `combat::LootCell` order — `Pack(0..49)`,
+then `Head = 50`, `Body = 51`, `Legs = 52`, `Weapon = 53`, `code()` /
 `from_code()` — a worn piece as `Item::Armour` with its health, the
 weapon as `Item::Weapon`, which is what the Loot window draws.
 `Game::take_from_body(who, cell)` strips one cell — a pack cell emptied,
@@ -1849,8 +1962,9 @@ things beside it for the same feature: `Uniform::Mercenary` (olive
 `MERCENARY_ODDS` for the gun, `MERCENARY_ARMOUR_ODDS` a piece — with
 fresh pieces numbered from `piece_ids`, the way `issued_for` rolls a
 resident's, both through one `roll_weapon`. `Game::bed_count()` is the
-bunks: what a hire asks before `adopt`, since a Bim's index is its
-berth and `with_layout` caps the crew at the beds.
+bunks: what a hire asks before `adopt`, which gives the hire the first
+bunk nobody has (`Bim::bed` cleared by the world's `hire` first, since
+the one it arrives with is the station's).
 
 **A station's trading desk is a fixture the room only points at.**
 `Layout::desks`/`Room::desks` (`PartKind::TradingDesk`, footprint and
@@ -2126,21 +2240,22 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   Bim like a recruited one; the enemy gone, it stops where it is and the
   queue picks up. `a_dying_bim_runs_from_where_the_enemy_are_and_does_not_shoot`
   pins both Bims.
-  **And a crew member merely hurt runs too** (since September 2026):
-  `Health::is_hurt` — an open wound, blood under `SLOWED_AT`, or dying
-  — makes `is_fleeing` true for a crew member that is **not the
-  player's own** and not a hostile room's; the player's Bim walks where
-  it is sent unless it is dying, and a garrison that ran at every
-  scratch would be a chase and not a fight. Before that a wounded bot
-  ran `plan_stand` like a whole one and walked *towards* the enemy for
-  its stand. Two things keep the run from being a bleed-out:
+  **Dying, and nothing short of it** (since September 2026): a crew
+  member merely hurt — `Health::is_hurt`: an open wound, blood under
+  `SLOWED_AT` — stands its ground and shoots on, whoever it is. For a
+  fortnight a crew member that was not the player's own ran at any
+  wound, and a fight was a crew that scattered at the first hit; the
+  run is the dying-state penalty's and no earlier. `is_hurt` is still
+  what the medical row looks at. Two things keep the run from being a
+  bleed-out, and the first also dresses a wound that is not a run:
   - **It binds its own wound where it stands once out of sight.** The
     medical row's own-wound case (`medical_on_offer`, off `tick_bim`'s
     `HIGHEST` interruption) is not gated on fleeing, and `tick_combat`
     leaves a fleeing Bim's doctoring chain (`dressing`) alone while
     `sees_any` is false — the run waits for the hands to come off —
     and interrupts it and runs on the moment an enemy comes into view.
-    Dressed, it is not hurt, not fleeing, and back on `plan_stand`.
+    Dressed, a dying Bim runs on until a kit is put to it; a wounded
+    one that was not running is back on `plan_stand`.
   - **It holds still for a crewmate nearly at it.** `is_fleeing` is
     false while `helper_near`: somebody's `Bandage`/`Treat` names it
     and that somebody is within `HELPER_NEAR` (3) tiles or already in
@@ -2148,7 +2263,7 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
     a helper can catch a runner at all. Without it a bandage ordered on
     a running Bim was ten minutes at an empty spot and nothing else,
     which is what "the bandage did nothing" looked like.
-  `a_hurt_crew_member_runs_from_the_enemy_and_the_player_s_own_and_an_enemy_s_people_do_not`,
+  `a_crew_member_merely_hurt_fights_on_and_runs_only_dying`,
   `a_hurt_crew_member_out_of_the_enemy_s_sight_binds_its_own_wound_and_comes_back`
   and `a_helper_follows_a_patient_that_moved_and_a_runner_holds_still_for_it`
   pin the three.
@@ -2286,8 +2401,12 @@ laid over it. Two things:
   `Sight::set_lights` marks a tile **lit** when a straight line from some
   light reaches its middle within the reach over the **fixed** cells —
   the walls and the tall parts, never a door: a door's leaves are not
-  what a light waits for. Lights are always on and draw nothing (`power:
-  0`), so nothing wires them and no brownout puts them out. A room *never
+  what a light waits for. A lamp **draws** (`shipdesign::WALL_LIGHT_POWER`
+  25, `STANDING_LIGHT_POWER` 40, since September 2026) and the world puts
+  one out for want of it — `Lamp::powered`, `Sight::set_lamp_powered`,
+  below under "A lamp has health" — but the room itself decides nothing
+  about power: every lamp starts `powered`, and a room the world never
+  tells (the test room) keeps them so. A room *never
   handed* lights is lit throughout (`Room::new`, the classic room); a
   designed deck handed none is dark everywhere. **In the dark a Bim sees
   `DARK_RANGE` (10) tiles**: `in_the_light(eye, tile)` — lit, or within
@@ -2324,7 +2443,7 @@ laid over it. Two things:
   stranger's never seen is black, no glow — so the station's fog has the
   same straight edges as the ship's and no tile pass is drawn under
   `Fog::Crew`. The lamplight shows through the fog and the grey at
-  `GLOW_UNDER_FOG` (half), since the lamps are always on and the crew
+  `GLOW_UNDER_FOG` (half), since a lamp does not move and the crew
   know where they hang. The **light field** is cached per layout
   (`build_light_fields`): every lamp is marched **twice**, its direct
   fall, which every opaque cell stops, and a fill of `SHADOW_FILL`
@@ -2369,7 +2488,19 @@ laid over it. Two things:
   ship painter's (`fittings::lamp_face`: dark and cracked out, veiled
   while dim). `a_lamp_shot_out_goes_dark_and_flickers_on_the_way` in
   `game::tests` pins the lot; `Game::damage_lamp_for_probe` lands a hit
-  with nothing fired.
+  with nothing fired. **A lamp without power is dark the same way and
+  whole**: `Lamp::powered` is the second reason a lamp gives no light,
+  `is_dark()` is `is_out() || !powered` and is what `relight`,
+  `sum_fields` and `tick_lamps` read, while `is_out()` stays the
+  fight's question (`Combat::step` shoots an unpowered lamp like a lit
+  one) and `set_lamp_health`'s. `Sight::set_lamp_powered` /
+  `Game::set_lamp_powered` flips it through `lamp_switched` — the mask,
+  the fields and the eyes redone, level nought, no flicker — and the
+  world sets it every step for the ship's lamps off the wiring and the
+  brownout (`World::sync_lamp_power`, `crates/world/CLAUDE.md` "A
+  brownout is dark, asleep and spoiling"). The bay has the same switch:
+  `hydro::Bay::powered` / `Game::set_hydro_powered`, and unpowered it
+  hibernates whatever the store or a standing order says.
 - **It is worked out per body, and only for a body that moved.**
   `Sight::light_map(bodies)` is asked every frame from `Game::render`
   under `Fog::Crew`; it keeps a `View` per body — the eyes it was marched
@@ -2395,3 +2526,87 @@ laid over it. Two things:
   game's. The lamps' own pictures (`fittings::wall_light`, flush to its
   wall; `standing_light`) draw no halo: the map is the light. `Fog::All`
   is unchanged: tiles, black.
+
+## A field is a bay at half pace, outdoors
+
+Feature 54, `hydro.rs`. A town on a planet eats off **fields**:
+`PartKind::Field` is six tiles long with use spots along its north like
+the hydro bay, and the room makes one a `Bay` — `Bay::field(frame, side)`,
+`Bay::at` with `pace: FIELD_PACE` (0.5) and `outdoor: true`, both
+serialised — so every errand, menu and standing order that works a bay
+works a strip unchanged. Three things differ:
+
+- **The pace.** `update` grows a tray by `minutes * pace`: a field takes
+  two days to a bay's one, so a town needs twice the strips a ship needs
+  bays, which is why a town is big. `is_field()` says which it is;
+  `Game::hydro_is_field(bay)` hands it to the app for the menu's title.
+- **The plug.** `set_powered` is a **no-op** on an outdoor bay — there is
+  nothing to plug in — so `powered()` stays true through a brownout and
+  `Game::set_hydro_powered`, which switches every bay aboard at once,
+  needs no change; `Game::hydro_powered` reads true for a field.
+- **The picture.** `draw` hands an outdoor bay to `draw_field`: turned
+  earth (`EARTH`) the frame's size with a darker edge, a furrow along
+  each tray (`FURROW`), and the crop through the same `draw_plant` at
+  full light — no panel, no grow lights, no glow, the stir ring as
+  before. The indoor picture is byte for byte what it was.
+
+The layout carries them as `More::fields` (a frame and the side it is
+worked from, `aboard::layout_of` off the part's first use spot like a
+bay's); `Room::from_layout` and `relayout` chain them after `more.bays`
+into `Room::bays`, and `relayout` keeps a strip's trays by frame **and
+kind** — a field on a bay's old frame starts bare. None is ever the
+layout's own bay (`Field` is not in `MAPPED`), and every one is a solid
+through `others` and `Room::solids`. `drawn_by_room` lists them so the
+ship painter leaves them to the room.
+
+**Daylight** is `Sight::set_daylight(over: Option<Rect>)` /
+`Game::set_daylight`: every tile whose middle lies in `over` is lit
+whatever the lamps say — `relight` marks it after the lamps' pass, and
+`sum_fields` puts 255 in both fields under it, so the mask and the
+picture agree and a lamp going out under the sky changes nothing there.
+It is the **world's** word for a settlement's ground (the residents'
+room over its bounds, a joined deck over the station box —
+`crates/world/CLAUDE.md`), not the layout's, so `Room::relayout` reads
+it off the old `Sight` and sets it on the new one after `set_lights`,
+the way the world puts a lamp's health back. `lit_everywhere` is
+untouched: a room never handed lights is lit throughout already, and
+the sky changes nothing there.
+
+## On a planet the box has a margin, and beyond it a body is afield
+
+`crates/game/src/terrain.rs` (feature 55): the plain a landed town
+stands on, and how the room walks and sees it. The rule and the room's
+side of it are one module — `Terrain` the ground at a station tile,
+integer noise only; `Plane` the same read in the room's tiles through
+the join's frame, with a chunk cache and the fog — and the room's own
+dense structures never grow past `Room::interior`, which on a plain is
+the deck's floor box and `DECK_MARGIN` tiles of ground
+(`aboard::layout_of_on`). What a probe or a test has to know:
+
+- **`arrived()` is false while `Character::far` is set**, path or no
+  path. A walk beyond the box is legs on a window (`Game::plan_route`,
+  `continue_far_walk`, `crates/world/CLAUDE.md`), and the chain waits
+  on the whole of it. `path_done()` is the leg alone. `follow_path`
+  clears `far`: any fresh route is a fresh walk, which is what lets a
+  need's chain take a body home from the plain.
+- **Two things replan a walk, and both must use the body's grid.**
+  `unstick` and `return_to_post` used the deck's grid, which clamps a
+  point on the plain to the box's edge; a body walked to the edge and
+  stood there, or walked back out to a post that was the clamp. They go
+  through `Game::nav_for` and `plan_route` now.
+- **A body bound beyond the box is held to its window, not the box.**
+  `move_body` clamps a body into `interior.expand(-BODY_MARGIN)`, and
+  a body on the deck with a route out of the box could never leave it:
+  `afield || far.is_some()` picks the window's interior and solids.
+- **A leg that ends where the body stands ends the walk.** The nearest
+  free cell to a target in a cliff is the tile the body is on; without
+  this `continue_far_walk` planned the same empty leg every step, for
+  ever, never arriving.
+- The classic room and a ship on its own have `plane: None` and none of
+  this runs: `refresh_afield` returns at once, `plan_route` is the
+  deck's grid, `walk_to(.., false)` is `nearest_free` and `path` as
+  `dispatch` always was, planned before the interrupt so the seeded
+  probes see the same routes.
+- `Maps::afield` and `Game::afield_blockers` are `serde(skip)`: a load
+  rebuilds them on the first step. `Plane::chunks` and `seen` likewise;
+  `explored` is saved.

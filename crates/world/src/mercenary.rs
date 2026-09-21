@@ -72,6 +72,7 @@ pub const ARMOUR_FEE: [(ArmourKind, Money); 3] = [
 /// A hired mercenary, as the world keeps it: which crew member it is,
 /// what a month costs, and the clock minute the next month falls due.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Hired {
     pub who: u32,
     pub fee: Money,
@@ -84,6 +85,7 @@ pub struct Hired {
 /// What a hire would come to, for a window to show before the command
 /// is sent — `World::hire_offer`.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Offer {
     /// A month, in euros.
     pub fee: Money,

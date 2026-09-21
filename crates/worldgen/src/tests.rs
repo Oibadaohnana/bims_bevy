@@ -24,29 +24,83 @@ fn the_reference_galaxy_comes_out_at_the_numbers_it_is_pinned_to() {
 
 /// A checksum that did not notice anything would pass the test above with
 /// the wrong numbers written down.
-#[test]
-fn the_checksum_notices_a_different_galaxy() {
-    let a = reference(GalaxyType::Round).checksum();
-    let b = crate::Galaxy::new(REFERENCE_SEED + 1, GalaxyType::Round).checksum();
-    let c = reference(GalaxyType::Spiral).checksum();
-    assert_ne!(a, b, "a different seed should show");
-    assert_ne!(a, c, "a different type should show");
-}
-
 /// The side a station is on is in the number: the same galaxy with one
 /// station turned is a different checksum.
+/// The desk's lean is in the number too: the same galaxy with one
+/// station's ore a point dearer is a different checksum.
 #[test]
-fn the_checksum_notices_a_station_changing_sides() {
-    let galaxy = reference(GalaxyType::Round);
-    let mut systems = galaxy.every_system();
-    let pinned = crate::galaxy_checksum(&galaxy, &systems);
-    let station = systems
-        .iter_mut()
-        .flat_map(|s| s.stations.iter_mut())
-        .find(|s| s.kind != crate::StationKind::Derelict)
-        .expect("a station somebody lives on");
-    station.hostile = !station.hostile;
-    assert_ne!(pinned, crate::galaxy_checksum(&galaxy, &systems));
+fn the_checksum_notices_a_different_galaxy_a_side_change_and_a_lean() {
+    // --- the_checksum_notices_a_different_galaxy ---
+    {
+        let a = reference(GalaxyType::Round).checksum();
+        let b = crate::Galaxy::new(REFERENCE_SEED + 1, GalaxyType::Round).checksum();
+        let c = reference(GalaxyType::Spiral).checksum();
+        assert_ne!(a, b, "a different seed should show");
+        assert_ne!(a, c, "a different type should show");
+    }
+
+    // --- the_checksum_notices_a_station_changing_sides ---
+    {
+        let galaxy = reference(GalaxyType::Round);
+        let mut systems = galaxy.every_system();
+        let pinned = crate::galaxy_checksum(&galaxy, &systems);
+        let station = systems
+            .iter_mut()
+            .flat_map(|s| s.stations.iter_mut())
+            .find(|s| s.kind != crate::StationKind::Derelict)
+            .expect("a station somebody lives on");
+        station.hostile = !station.hostile;
+        assert_ne!(pinned, crate::galaxy_checksum(&galaxy, &systems));
+    }
+
+    // --- the_checksum_notices_a_station_leaning_on_a_price ---
+    {
+        let galaxy = reference(GalaxyType::Round);
+        let mut systems = galaxy.every_system();
+        let pinned = crate::galaxy_checksum(&galaxy, &systems);
+        let station = systems
+            .iter_mut()
+            .flat_map(|s| s.stations.iter_mut())
+            .find(|s| s.kind != crate::StationKind::Derelict)
+            .expect("a station somebody lives on");
+        station.bias.0[0] = station.bias.0[0].wrapping_add(1);
+        assert_ne!(pinned, crate::galaxy_checksum(&galaxy, &systems));
+    }
+}
+
+/// Every station's lean is inside the range the generator rolls, a
+/// derelict's is nothing, and across the reference galaxy the roll is
+/// reaching the desk: two stations lean different ways on something,
+/// and every entry of the range turns up somewhere. The same seed twice
+/// is the same lean.
+#[test]
+fn a_station_leans_on_every_price_inside_the_range() {
+    use economy::market::{Bias, MAX_BIAS};
+    let mut seen = std::collections::HashSet::new();
+    let mut leaned = std::collections::HashSet::new();
+    for &t in &GalaxyType::ALL {
+        for system in reference(t).every_system() {
+            for station in &system.stations {
+                assert!(station.bias.in_range(), "{:?}", station.bias);
+                if station.kind == crate::StationKind::Derelict {
+                    assert_eq!(station.bias, Bias::NONE, "a derelict with a desk");
+                } else {
+                    seen.extend(station.bias.0.iter().copied());
+                    leaned.insert(station.bias);
+                }
+            }
+        }
+    }
+    assert_eq!(seen.len(), (2 * MAX_BIAS + 1) as usize, "{seen:?}");
+    assert!(leaned.len() > 1, "every desk leans the same way");
+    let twice = |t| {
+        reference(t)
+            .every_system()
+            .iter()
+            .flat_map(|s| s.stations.iter().map(|st| st.bias))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(twice(GalaxyType::Round), twice(GalaxyType::Round));
 }
 
 /// The four pinned numbers are four *different* numbers, or a type is not

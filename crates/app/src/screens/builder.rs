@@ -214,6 +214,11 @@ pub struct BuilderScreen {
     preview_size: Vec2,
     system_list: lobby::draw::DrawList,
     galaxy_list: lobby::draw::DrawList,
+    /// The Load window over the menu, if it is up, and its page's state —
+    /// `crate::save`. A saved game is picked up from here without the
+    /// setup: the session is stood up round it and the game screen opens.
+    loading: bool,
+    saves: crate::save::Saves,
 }
 
 pub struct BuilderPlugin;
@@ -256,9 +261,12 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         preview_size: Vec2::new(560.0, 400.0),
         system_list: lobby::draw::DrawList::new(),
         galaxy_list: lobby::draw::DrawList::new(),
+        loading: false,
+        saves: crate::save::Saves::default(),
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn frame(
     mut contexts: EguiContexts,
     mut screen: ResMut<BuilderScreen>,
@@ -267,6 +275,7 @@ fn frame(
     mut next: ResMut<NextState<Screen>>,
     mut commands: Commands,
     time: Res<Time>,
+    window: Single<&Window>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -289,7 +298,7 @@ fn frame(
                     );
                     ui.add_space(20.0);
                     ui.horizontal(|ui| {
-                        ui.add_space((ui.available_width() - 260.0).max(0.0) / 2.0);
+                        ui.add_space((ui.available_width() - 390.0).max(0.0) / 2.0);
                         if theme::big(ui, "Play", true).clicked() {
                             go = Some(Screen::Setup);
                         }
@@ -298,6 +307,14 @@ fn frame(
                                 Ok(_) => go = Some(Screen::Lobby),
                                 Err(why) => screen.join_note = Remark::say(why, true, now),
                             }
+                        }
+                        // A saved game, picked up where it was left: the
+                        // window lists what is on disk, read afresh each
+                        // time it opens.
+                        if theme::big(ui, "Load", true).clicked() {
+                            screen.saves.note = None;
+                            screen.saves.refresh();
+                            screen.loading = true;
                         }
                     });
                     ui.add_space(20.0);
@@ -322,6 +339,36 @@ fn frame(
                     Remark::show(&mut screen.join_note, ui, now, "");
                 });
             });
+            if screen.loading {
+                let mut open = true;
+                let mut asked = None;
+                egui::Window::new("Load")
+                    .collapsible(false)
+                    .resizable(false)
+                    .open(&mut open)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(&ctx, |ui| {
+                        asked = crate::save::load_page(ui, &mut screen.saves);
+                    });
+                if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    screen.loading = false;
+                }
+                if let Some(crate::save::Request::Load(path)) = asked {
+                    let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
+                    let read = crate::save::read(&path).and_then(|text| {
+                        ship::Session::restore(&text, size.x, size.y)
+                            .map_err(crate::save::load_error)
+                    });
+                    match read {
+                        Ok(loaded) => {
+                            commands.insert_resource(crate::screens::designer::ShipSession(loaded));
+                            screen.loading = false;
+                            go = Some(Screen::Game);
+                        }
+                        Err(why) => screen.saves.failed(why),
+                    }
+                }
+            }
         }
         Screen::Setup => {
             egui::Panel::top("setup-head").show(&mut root, |ui| {
@@ -1044,20 +1091,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_seed_is_digits_and_nothing_else() {
-        assert_eq!(parse_seed("42"), Some(42));
-        assert_eq!(parse_seed(" 1 000 "), Some(1000));
-        assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
-        assert_eq!(parse_seed("18446744073709551616"), None);
-        assert_eq!(parse_seed("abc"), None);
-        assert_eq!(parse_seed(""), None);
-    }
+    fn a_seed_is_digits_and_a_room_code_is_six_readable_letters() {
+        // --- a_seed_is_digits_and_nothing_else ---
+        {
+            assert_eq!(parse_seed("42"), Some(42));
+            assert_eq!(parse_seed(" 1 000 "), Some(1000));
+            assert_eq!(parse_seed("18446744073709551615"), Some(u64::MAX));
+            assert_eq!(parse_seed("18446744073709551616"), None);
+            assert_eq!(parse_seed("abc"), None);
+            assert_eq!(parse_seed(""), None);
+        }
 
-    #[test]
-    fn a_room_code_is_six_of_the_readable_letters() {
-        let code = make_code();
-        assert!(is_code(&code), "{code}");
-        assert!(!is_code("O0I1AB"));
-        assert!(!is_code("ABCDE"));
+        // --- a_room_code_is_six_of_the_readable_letters ---
+        {
+            let code = make_code();
+            assert!(is_code(&code), "{code}");
+            assert!(!is_code("O0I1AB"));
+            assert!(!is_code("ABCDE"));
+        }
     }
 }

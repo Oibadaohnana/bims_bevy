@@ -39,6 +39,7 @@ use crate::data;
 /// One variant, and it is `physics`'s: a ship that weighs nothing accelerates
 /// infinitely, and everything below divides by the mass.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DynamicsError {
     /// The design does not describe a ship that can exist. See
     /// [`physics::MassError`].
@@ -52,6 +53,7 @@ pub enum DynamicsError {
 /// shelf on halfway does not move the ship's arrival, it changes what the
 /// *next* trip will be like.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Dynamics {
     /// Hull, cargo and crew. `physics::ship_mass`'s answer and no other.
     pub mass: Mass,

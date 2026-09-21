@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-seven things to run, and each is a name rather than a flag:
+eight things to run, and each is a name rather than a flag:
 
 | command | `cargo run` | opens |
 | --- | --- | --- |
@@ -17,7 +17,8 @@ seven things to run, and each is a name rather than a flag:
 | `nix run .#design` | `cargo run -- design` | straight into the yard, the playtest ship given, docked where the simulation docks — how a change to the designer is looked at |
 | `nix run .#room` | `cargo run -- room` | the behaviour test room — Bims on a deck |
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member (four bunks to spare) and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
-| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with five crew, a different gun in each hand, docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — the garrison plus `ARENA_REINFORCEMENTS`, twelve for five — and a recruited crew member draws its weapon and shoots at any it can see. `Session::combat` is all of it; `--combat` is taken too |
+| `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement the way `BIMS_LANDED=1` lands the simulation (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
+| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **fourteen crew** (`COMBAT_CREW`: five at the bunks, nine standing on the deck), a gun in every hand — the five kinds dealt round — docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — `ARENA_GARRISON`, fifteen, whatever the crew's worth — and a recruited crew member draws its weapon and shoots at any it can see. `Session::combat` is all of it; `--combat` is taken too |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -45,10 +46,18 @@ alone (`cargo test -p bims`, `-p world`) build anywhere.
 in logical points from the window's top left. `wheel` and `wheelup` at
 a point are a notch of the wheel, which zooms. `BIMS_AT_BELT=1` opens the
 simulation holding at a belt with its mining site laid out, for looking at
-the outside without flying there; `BIMS_FIGHT=1` opens `combat` with the
+the outside without flying there; `BIMS_LANDED=1` opens it set down on
+the spawn system's first planet with ground — the pad, the ground and
+the settlement beside it — and `BIMS_LANDING=0.7` over that planet with
+the landing run seven tenths of the way down, for looking at the descent
+(feature 52, `crates/world/CLAUDE.md`); `BIMS_FIGHT=1` opens `combat` with the
 crew member recruited inside the station's door and one of its people a
 few tiles down the corridor, for looking at a fight without walking the
-station for one. `BIMS_TRADE=1` opens the simulation with the station's
+station for one. `BIMS_AFIELD=1` opens the simulation landed with the
+crew member walked out onto the plain west of the ship and a minute gone
+by, and `BIMS_ZOOM=0.3` zooms the game view out by that factor once it
+is fitted (a scripted wheel does not reach it): the two together are how
+the plain and its fog are looked at. `BIMS_TRADE=1` opens the simulation with the station's
 trade window up, for looking at the cart; `BIMS_ARMOURY=1` opens it
 with the armoury window up, for looking at the lockers' grid — a
 `press`, `move`s and a `release` in `BIMS_POINTER` drag a thing across
@@ -65,7 +74,25 @@ terminal: run it, read the PNG. Two things about it: on Wayland the
 compositor decides a hidden window's size and it can be small, so read the
 picture for what is drawn rather than where; and a scripted click goes out
 as a `WindowEvent` as well as a typed message, because bevy_egui reads the
-former and Bevy's own input the latter.
+former and Bevy's own input the latter. A smoke run's window is
+`bims-smoke` to the window system (`dev::window_name`; the game's is
+`bims`) — a Wayland window cannot be hidden, and `BIMS_FULLSCREEN=1`
+makes it the whole screen — and `./check` gives Hyprland a live rule that
+parks that class on workspace `SMOKE_WORKSPACE` (2) without switching to
+it, so the nine runs go by unseen. `BIMS_SAVES_DIR` moves the saves,
+and `./check` points a smoke run's at `target/check/saves`.
+
+## `AGENTS` is how many of you there are — read it first
+
+`AGENTS` at the root is a plain text file holding **one number**: how many
+agents are working on this tree right now. Before doing anything else,
+read it, add one, write the new number back, and remember it as yours:
+`1` means you are alone, `2` means you are the second alongside one that
+is already at work. The agent with the **highest number runs the final
+checks** — `./check`, the smoke runs — when its work is done, and puts
+the file back to `0` afterwards; every other agent finishes its code,
+runs the tests of the crates it touched, and leaves `./check` to the
+one above it.
 
 ## It is a workspace, and the app is one crate of eleven
 
@@ -154,13 +181,43 @@ Things about that which are easy to get wrong:
   is `painter.pixels_per_point()`, so it stays one device pixel under any
   UI scale. A new kind of shape has to go through `fill` or `stroke` there,
   or it comes out jagged beside everything else.
-- **The Esc sheet is `settings.rs`**: three pages in one window — the
-  menu (the UI scale, and a button each for Audio and Controls), the
-  audio page (`sound::Mix`: master, effects, ambience, mute) and the
-  controls page (every key, rebindable). A screen holds it as
-  `Option<Sheet>`, opens it on Esc at the menu, and Esc closes it from
-  any page — except while the controls page is waiting on a key
-  (`Keys::listening`), when Esc is that page's to cancel with.
+- **The Esc sheet is `settings.rs`**: five pages in one window — the
+  menu (the UI scale, a button each for Audio and Controls, and Save
+  and Load), the audio page (`sound::Mix`: master, effects, ambience,
+  mute), the controls page (every key, rebindable), and the save and
+  load pages (`save.rs`). A screen holds it as `Option<Sheet>`, opens it
+  on Esc at the menu, and Esc closes it from any page — except while
+  the controls page is waiting on a key (`Keys::listening`), when Esc is
+  that page's to cancel with.
+- **A save is the world as RON text, and the rules crates derive serde
+  for it behind a feature.** `ship::save` (feature 53) writes
+  `Session`'s world with the four numbers round it — players, the local
+  slot, the galaxy type's code, the spawn — and reads one back into a
+  session stood up the way `simulate_on` stands one up (`Game::resume`:
+  the cameras fitted, nothing aimed). Every type in `game`, `world`,
+  `flight`, `shipdesign`, `economy`, `health`, `worldgen` and `physics`
+  carries `#[cfg_attr(feature = "serde", derive(...))]`, and each crate's
+  `serde` feature switches on its dependencies' — a *feature*, off by
+  default, because the probes compile the room's modules with no crates
+  at all. `ship` turns `world/serde` on and depends on `serde` and `ron`
+  outright (both were in the lock already, under Bevy). Two things are
+  left out of a save with `serde(skip)`: the room's draw buffer and a
+  surface's lazily built settlement, both functions of what is saved.
+  A change to a saved type's shape is a bump of `SAVE_VERSION`, and an
+  old file is refused by that rather than read wrong;
+  `a_game_saved_and_read_back_is_the_same_game` in `crates/ship` is the
+  round trip — checksum, crew positions and the picture, as read back
+  and six hundred steps on. The app's side is `crates/app/src/save.rs`:
+  the directory (`$XDG_DATA_HOME/bims/saves`, or `BIMS_SAVES_DIR`,
+  which `./check` points at `target/check/saves`), one `<name>.ron`
+  each, names by the sketches' rule, and the two pages — the Esc
+  sheet's, and the menu's Load window. A page hands back a
+  `save::Request` and the screen does it: the game screen writes
+  `session.save()`, and a load anywhere replaces the `ShipSession`
+  resource and stands a fresh `GameScreen` up (`GameScreen::fresh`, what
+  `open` builds too) so the panels, the log and the aim start over and
+  the first frame fits the loaded world to the canvas. Save is greyed
+  out in the design phase: there is no world yet.
 - **Every hotkey is an `Action` in `keys.rs`, never a key in a screen.**
   `Keys` is a Bevy resource the screens read (`keys.pressed(i,
   Action::Map)`), the crew panels get a copy each frame for the armoury's
@@ -182,7 +239,7 @@ Things about that which are easy to get wrong:
   been egui's: `keys::release_tab_focus` at the top of a screen's frame
   surrenders the focus Tab gave (`tab_took_focus` on the screen). A
   text field that has focus keeps it.
-- **The pack is the lockers' grid again, seven by seven** — the same
+- **The pack is the lockers' grid again, ten across by five down** — the same
   `grid::lockers` widget, `CrewPanels::pack_drag`, and a drop is
   `GearOrder::Repack` → `Command::Repack`. The Loot window draws a body's
   pack on it too, with `movable` off: looked at, not tidied.
@@ -223,7 +280,14 @@ Things about that which are easy to get wrong:
   green is `Grid::fits` asked of the `Hold` snapshot, never worked out
   here, and the drop goes through the seam as `Command::Arrange` like
   every other change to the hold. `BIMS_ARMOURY=storage` and `=fridge`
-  open those windows for a screenshot. A
+  open those windows for a screenshot, and `=workbench` the one
+  container that is not a class of the hold: the workbench's three
+  slots (`CrewPanels::bench_window`, `Hold::bench`), two `grid::grid`s
+  with the Upgrade button between them — greyed with the world's own
+  refusal (`World::can_upgrade`) — and a thing goes onto it from the
+  pack by Ctrl-click or its Bench row (`GearOrder::StowOnBench`) and
+  off it by Ctrl-click or Take (`FetchKind::Bench`); see
+  `crates/world/CLAUDE.md`, "Two of a kind go onto the workbench". A
   thing's picture over a long footprint is `icons::laid`: the long guns
   have a wide drawing (`draw_wide`), everything else sits square in the
   middle, and a turned thing is drawn upright into a `Sketch` — the
@@ -270,9 +334,10 @@ layer — none of that is a type error.
 
 **`./check` runs all of it.** The quick tier — `./check` — is the git-tree
 check, `cargo fmt`, the workspace build, `cargo test --workspace`, clippy on
-the app, and a smoke run of each of the seven windows (sixty frames, hidden,
-with a screenshot of the room, the simulation, the yard and the combat
-dock left in `target/check/`); `./check full` adds the native probes (compiled fresh into `target/probes/`,
+the app, and a smoke run of each of the eight windows (sixty frames, hidden,
+with a screenshot of the room, the simulation, the yard, the combat
+dock, the simulation landed on a planet and `test_planet` left in
+`target/check/`); `./check full` adds the native probes (compiled fresh into `target/probes/`,
 never the stale binaries in `scratchpad/`) and `nix flake check`.
 `./check <step>...` runs a subset, `./check --list` explains each. Full
 output is under `target/check/`; only the failing lines are printed. "Done"

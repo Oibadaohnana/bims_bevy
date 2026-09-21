@@ -7,16 +7,18 @@
 //! renders nothing, it knows no parts, and its only dependency is `physics`,
 //! for [`ResourceId`].
 //!
-//! # What a station will sell, and where it goes
+//! # What a thing is worth, and what a desk charges for it
 //!
-//! [`trade_price`] is what a unit of a resource costs, and it is **the same
-//! at every station**. That is deliberate and it is temporary: prices that
-//! differ by where you are is a trading game, and a trading game wants a
-//! market, a reason to fly and somewhere to sell — none of which exists. One
-//! price list is the honest placeholder, and the shape of the call is what a
-//! per-station one would need anyway. *Whether* a station sells a thing is
-//! a different question and is the station's — `worldgen::StationKind::sells`
-//! — since this crate knows no stations; every station buys anything.
+//! Two numbers, and they are kept apart on purpose. [`trade_price`] is the
+//! **book value** of a unit — what a resource is *worth*, the same
+//! everywhere, and the one number a hold is valued at (`Budget::spent`,
+//! `World::worth`). Nothing is bought or sold at it. What a station's desk
+//! charges is the [`market`]: the book leaned on by the kind of station
+//! and by the station's own roll, then split into an ask and a bid, so
+//! that the same ore is cheap at the outpost that digs it and dear at
+//! the relay that has to have it shipped in. *Whether* a station sells a
+//! thing is a different question again and is the station's —
+//! `worldgen::StationKind::sells` — since this crate knows no stations.
 //!
 //! Supply is unlimited. What bounds a purchase is **the ship**: goods are
 //! stowed, and [`storage`] says in what — food in a cold store, fuel in a
@@ -37,6 +39,8 @@
 //!   There is no `usize`, no float and no hashing in here for exactly that
 //!   reason. The wasm half of the check is `ship_self_check` in
 //!   `crates/ship`; the native half is the tests below.
+
+pub mod market;
 
 use physics::ResourceId;
 
@@ -61,6 +65,7 @@ pub const SOLO_BONUS: Money = 20_000;
 /// wrong", which is the shape every other code in this workspace has.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EconomyError {
     /// A game with nobody in it. There is no pool to build one.
     NoPlayers = 1,
@@ -115,6 +120,7 @@ pub fn add(a: Money, b: Money) -> Result<Money, EconomyError> {
 /// part provides which class and how much of it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Storage {
     /// Racking. Ore, metal, components — anything that keeps.
     Shelf = 0,
@@ -147,11 +153,14 @@ impl Storage {
     }
 }
 
-/// What one unit costs, in whole euros. **Placeholder**, and the same at
-/// every station — see the module note.
+/// What one unit is **worth**, in whole euros: the book value. **Valuation
+/// only** — `Budget::spent` and `World::worth` are what it is for, and
+/// nothing is bought or sold at it: every transaction goes through
+/// [`market::quote`], which leans on this and splits it. The same
+/// everywhere, which is what makes it a valuation. Placeholder numbers.
 ///
 /// A `match` rather than a table so that a new [`ResourceId`] is a compile
-/// error here rather than a resource that is quietly free.
+/// error here rather than a resource that is quietly worth nothing.
 pub fn trade_price(resource: ResourceId) -> Money {
     match resource {
         ResourceId::Ore => 20,
@@ -194,13 +203,12 @@ pub fn trade_price(resource: ResourceId) -> Money {
     }
 }
 
-/// What `units` of it cost, or a refusal. Checked like every other sum here:
-/// a hand-typed order for four billion vegetables is a refusal, not a wrap
-/// into somebody being paid to take them.
+/// What `units` of it are worth at the book, or a refusal. Checked like
+/// every other sum here: a hold of four billion vegetables is a refusal,
+/// not a wrap into a hold worth nothing. Valuation, like [`trade_price`];
+/// what an order *costs* is [`market::Quote::cost`].
 pub fn trade_value(resource: ResourceId, units: u32) -> Result<Money, EconomyError> {
-    trade_price(resource)
-        .checked_mul(units as Money)
-        .ok_or(EconomyError::Overflow)
+    market::value(trade_price(resource), units)
 }
 
 /// Where a resource is stowed. Same reason for the `match` as above.
@@ -238,6 +246,7 @@ pub fn storage(resource: ResourceId) -> Storage {
 /// the reason the module note gives; the number that goes in a hash is
 /// [`Footprint::cells`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Footprint {
     pub rows: u8,
     pub cols: u8,
@@ -359,45 +368,48 @@ pub fn total(amounts: impl IntoIterator<Item = Money>) -> Result<Money, EconomyE
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_lone_player_gets_the_bonus_and_a_crew_does_not() {
-        assert_eq!(starting_pool(100_000, 1), Ok(120_000));
-        assert_eq!(starting_pool(100_000, 2), Ok(200_000));
-        assert_eq!(starting_pool(100_000, 3), Ok(300_000));
-        assert_eq!(starting_pool(100_000, 4), Ok(400_000));
-    }
-
     /// The three the lobby offers, at each crew size it can have.
-    #[test]
-    fn the_lobby_presets_all_add_up() {
-        for &each in &[50_000, 100_000, 200_000] {
-            assert_eq!(starting_pool(each, 1), Ok(each + SOLO_BONUS));
-            for players in 2..=4 {
-                assert_eq!(starting_pool(each, players), Ok(each * players as Money));
-            }
-        }
-    }
-
-    #[test]
-    fn a_game_with_nobody_in_it_is_refused() {
-        assert_eq!(starting_pool(100_000, 0), Err(EconomyError::NoPlayers));
-        assert_eq!(starting_pool(0, 0), Err(EconomyError::NoPlayers));
-    }
-
     /// Never a wrap and never a saturation: both would be a lobby quietly
     /// disagreeing with the one next to it about what there is to spend.
     #[test]
-    fn overflow_is_an_error_rather_than_a_fortune() {
-        assert_eq!(starting_pool(Money::MAX, 2), Err(EconomyError::Overflow));
-        // The multiply fits and the bonus is what tips it over.
-        assert_eq!(starting_pool(Money::MAX, 1), Err(EconomyError::Overflow));
-        assert_eq!(
-            starting_pool(Money::MAX - SOLO_BONUS, 1),
-            Ok(Money::MAX),
-            "the largest pool there is still has to be reachable",
-        );
-        assert_eq!(add(Money::MAX, 1), Err(EconomyError::Overflow));
-        assert_eq!(total([Money::MAX, 1]), Err(EconomyError::Overflow));
+    fn the_pool_adds_up_refuses_nobody_and_never_wraps() {
+        // --- the_lobby_presets_all_add_up ---
+        {
+            for &each in &[50_000, 100_000, 200_000] {
+                assert_eq!(starting_pool(each, 1), Ok(each + SOLO_BONUS));
+                for players in 2..=4 {
+                    assert_eq!(starting_pool(each, players), Ok(each * players as Money));
+                }
+            }
+        }
+
+        // --- a_game_with_nobody_in_it_is_refused ---
+        {
+            assert_eq!(starting_pool(100_000, 0), Err(EconomyError::NoPlayers));
+            assert_eq!(starting_pool(0, 0), Err(EconomyError::NoPlayers));
+        }
+
+        // --- overflow_is_an_error_rather_than_a_fortune ---
+        {
+            assert_eq!(starting_pool(Money::MAX, 2), Err(EconomyError::Overflow));
+            // The multiply fits and the bonus is what tips it over.
+            assert_eq!(starting_pool(Money::MAX, 1), Err(EconomyError::Overflow));
+            assert_eq!(
+                starting_pool(Money::MAX - SOLO_BONUS, 1),
+                Ok(Money::MAX),
+                "the largest pool there is still has to be reachable",
+            );
+            assert_eq!(add(Money::MAX, 1), Err(EconomyError::Overflow));
+            assert_eq!(total([Money::MAX, 1]), Err(EconomyError::Overflow));
+        }
+
+        // --- nothing_is_nothing ---
+        {
+            assert_eq!(starting_pool(0, 4), Ok(0));
+            assert_eq!(starting_pool(0, 1), Ok(SOLO_BONUS));
+            assert_eq!(total([]), Ok(0));
+            assert_eq!(total([1, 2, 3]), Ok(6));
+        }
     }
 
     /// Every resource has a price and somewhere to put it. A `match` makes
@@ -511,13 +523,5 @@ mod tests {
         assert_eq!(Storage::from_code(2), Some(Storage::Locker));
         assert_eq!(Storage::from_code(3), Some(Storage::Research));
         assert_eq!(storage(ResourceId::ResearchKey), Storage::Research);
-    }
-
-    #[test]
-    fn nothing_is_nothing() {
-        assert_eq!(starting_pool(0, 4), Ok(0));
-        assert_eq!(starting_pool(0, 1), Ok(SOLO_BONUS));
-        assert_eq!(total([]), Ok(0));
-        assert_eq!(total([1, 2, 3]), Ok(6));
     }
 }

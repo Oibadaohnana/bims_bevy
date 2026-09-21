@@ -16,3 +16,11 @@ physics = { path = "../physics" }
 shipdesign = { path = "../shipdesign" }
 time = { path = "../time" }
 worldgen = { path = "../worldgen" }
+# Optional and off by default: the `serde` feature derives `Serialize` and
+# `Deserialize` on every type here, which is how a save file holds one
+# (`ship::save`), and turns the same feature on in the crates this one's
+# types are made of.
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde", "physics/serde", "shipdesign/serde", "worldgen/serde"]

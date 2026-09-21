@@ -30,10 +30,20 @@ const WAYPOINT_RADIUS: f32 = 11.0;
 const SLOWDOWN_RADIUS: f32 = 70.0;
 /// How long it stands still on arrival before wandering off again.
 const ARRIVE_SETTLE: f32 = 0.9;
+/// How far short of where it is bound a leg of a walk on a window may end
+/// and count as arrived: a tile. A route on a window ends on a tile's
+/// middle, so a spot on the deck reached from the plain is reached
+/// exactly, and a click on the ground is reached to within the tile.
+const FAR_LEG: f32 = crate::filth::TILE;
 /// How much bigger the Bim is drawn than the original sprite. Everything about
 /// the body — parts, arm reach, where held items sit — goes through this, so the
 /// proportions against the pot and the table stay as designed.
 pub const BODY_SCALE: f32 = 1.45;
+/// How much smaller than that a body lying on the deck is drawn — dead or
+/// out cold. At the standing scale the sprawl ran a little over two tiles
+/// from boots to flung hand and lay across most of two more; at half it
+/// is about a tile long and fits inside two whichever way it lies.
+const FLAT_SCALE: f32 = 0.5;
 /// How far the body centre is kept clear of walls and furniture.
 pub const BODY_MARGIN: f32 = 23.0;
 /// How close a click or marquee has to come to count as touching the Bim.
@@ -163,6 +173,7 @@ const CRACK: Color = Color::rgba(0.85, 0.88, 0.92, 0.75);
 /// when it casts off. Nothing but `draw` reads it; a resident is simulated
 /// exactly as a crew member is.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Uniform {
     Crew,
     Station,
@@ -204,6 +215,7 @@ impl Uniform {
 /// simulation is the index, and the only thing that distinguishes them on the
 /// deck is this. The coverall itself is the [`Uniform`]'s.
 #[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Look {
     /// Pale yoke, cropped hair.
     First,
@@ -248,6 +260,7 @@ impl Look {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Activity {
     Walking,
     Pausing,
@@ -257,6 +270,7 @@ enum Activity {
 
 /// Something in the Bim's hands.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Held {
     Nothing,
     Vegetable,
@@ -291,6 +305,7 @@ pub enum Held {
 
 /// What the hands are busy doing. Each one drives its own arm animation.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Action {
     None,
     /// Arms out in front: opening a door, setting something down, reaching in.
@@ -342,6 +357,7 @@ const WRAP_PERIOD: f32 = 0.7;
 /// How long one breath takes while asleep, in seconds.
 const BREATH_PERIOD: f32 = 5.4;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Character {
     pub pos: Vec2,
     /// Which of the crew this is to look at. Read by `draw` and nothing else.
@@ -406,6 +422,15 @@ pub struct Character {
     /// dose the body; see `Game::is_outside`.
     outside: bool,
     worn: Uniform,
+    /// Out on a planet's plain, past the deck's grids: walking a window of
+    /// its own (`Game::refresh_afield`), and told so every step from where
+    /// it stands. Nothing to do with the suit.
+    afield: bool,
+    /// Where a walk beyond the window is really going: the route on it
+    /// ends at the window's edge, and the game plans the next leg from
+    /// there when it does (`Game::continue_far_walk`). Not arrived until
+    /// this is `None`.
+    far: Option<Vec2>,
     /// How filthy the Bim itself is, 0 clean to 1 covered. Kept here rather
     /// than with the deck's own mess because this is the share that walks
     /// away with it.
@@ -442,6 +467,7 @@ pub struct Character {
 /// A piece of armour as the picture needs it: what it is, and whether it
 /// is drawn cracked.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Worn {
     pub kind: ArmourKind,
     pub broken: bool,
@@ -479,6 +505,8 @@ impl Character {
             uniform: Uniform::Crew,
             outside: false,
             worn: Uniform::Crew,
+            afield: false,
+            far: None,
             filth: 0.0,
             antic: 0.0,
             armed: None,
@@ -501,8 +529,31 @@ impl Character {
         PICK_RADIUS
     }
 
+    /// Whether a click at `p` lands on the figure. Standing, within
+    /// [`PICK_RADIUS`] of where it is; down, the figure is stretched along
+    /// its heading (`draw_flat`), so the test is the same radius about the
+    /// line from the boots to the head — a click on either end is a click
+    /// on the body, not on the deck under it.
+    pub fn picked_at(&self, p: Vec2) -> bool {
+        if !(self.dead || self.unconscious) {
+            return (self.pos - p).len() <= PICK_RADIUS;
+        }
+        let along = Vec2::from_angle(self.heading);
+        let (feet, head) = (
+            -30.0 * BODY_SCALE * FLAT_SCALE,
+            32.0 * BODY_SCALE * FLAT_SCALE,
+        );
+        let t = clamp((p - self.pos).dot(along), feet, head);
+        (self.pos + along * t - p).len() <= PICK_RADIUS
+    }
+
     /// True once an ordered walk has finished, so a task can move on.
     pub fn arrived(&self) -> bool {
+        self.path.is_empty() && self.far.is_none()
+    }
+
+    /// Whether the route in hand has been walked, whatever `far` says.
+    pub fn path_done(&self) -> bool {
         self.path.is_empty()
     }
 
@@ -513,6 +564,9 @@ impl Character {
     pub fn shift_route(&mut self, shift: Vec2) {
         for p in &mut self.path {
             *p += shift;
+        }
+        if let Some(far) = self.far.as_mut() {
+            *far += shift;
         }
     }
 
@@ -540,6 +594,7 @@ impl Character {
     /// `arrived` would otherwise wait forever.
     pub fn follow_path(&mut self, route: Vec<Vec2>) {
         self.path = route;
+        self.far = None;
         self.timer = 0.0;
         self.face_target = None;
         if !self.path.is_empty() {
@@ -552,6 +607,7 @@ impl Character {
         self.scripted = on;
         if on {
             self.path.clear();
+            self.far = None;
             self.activity = Activity::Pausing;
             self.timer = 0.0;
         } else {
@@ -604,6 +660,7 @@ impl Character {
     /// does while a crewmate walks over to it.
     pub fn halt(&mut self) {
         self.path.clear();
+        self.far = None;
         self.speed = 0.0;
         self.target_speed = 0.0;
         if self.activity == Activity::Marching {
@@ -649,6 +706,45 @@ impl Character {
 
     pub fn is_outside(&self) -> bool {
         self.outside
+    }
+
+    /// Out on the plain. See `afield`.
+    pub fn is_afield(&self) -> bool {
+        self.afield
+    }
+
+    pub fn set_afield(&mut self, afield: bool) {
+        self.afield = afield;
+    }
+
+    /// Off the deck's grids either way: outside the hull, or out on the
+    /// plain. What picks a body's grid.
+    pub fn off_deck(&self) -> bool {
+        self.outside || self.afield
+    }
+
+    /// Where a walk on a window is really bound, if beyond it. See `far`.
+    pub fn far(&self) -> Option<Vec2> {
+        self.far
+    }
+
+    /// Walk to `to` on `nav`: the route to the free cell nearest it, or
+    /// nearest where the grid clamps it to. On a `window` — a grid carried
+    /// about the body, which `to` may lie beyond — a route that ends more
+    /// than a tile short of `to` is one leg of a longer walk, and `far`
+    /// keeps the rest. True when there is a route at all; an empty one
+    /// leaves the body arrived, as `follow_path` does.
+    pub fn walk_to(&mut self, nav: &crate::nav::Nav, to: Vec2, window: bool) -> bool {
+        let goal = nav.nearest_free(to);
+        let route = nav.path(self.pos, goal);
+        let ok = !route.is_empty();
+        self.follow_path(route);
+        // A leg that ends where the body stands is the walk over: the
+        // nearest the ground lets it get to where it was bound.
+        if window && ok && (goal - to).len() > FAR_LEG && (goal - self.pos).len() > FAR_LEG {
+            self.far = Some(to);
+        }
+        ok
     }
 
     /// Get up and end up standing at `at`, which is how you leave a bed: the
@@ -1544,67 +1640,111 @@ impl Character {
         );
     }
 
-    /// The figure lying flat, in the given shirt, sleeve, skin and hair,
-    /// with the blood on whichever parts bleed.
+    /// The figure stretched out on the deck, in the given shirt, sleeve,
+    /// skin and hair, with the blood on whichever parts bleed. Seen from
+    /// above a body lying down is long rather than round: the legs trail
+    /// out behind the hips to the boots, the torso is longer than it is
+    /// wide, one arm is flung out past the head and the other lies along
+    /// the side, and the head at the far end is turned onto its cheek.
+    /// Head forward, the way it was facing when it went down, so it reads
+    /// as having fallen where it stood. Drawn at [`FLAT_SCALE`] of the
+    /// standing figure: about a tile long, and it is the shape that says
+    /// "down" at a glance, not the size.
     fn draw_flat(&self, list: &mut DrawList, scale: f32, colours: (Color, Color, Color, Color)) {
         let (shirt, sleeve, skin, hair) = colours;
+        let scale = scale * FLAT_SCALE;
         list.ellipse(
-            self.pos + vec2(3.0, 5.0),
-            vec2(34.0, 40.0) * BODY_SCALE,
+            self.pos + vec2(3.0, 5.0) * FLAT_SCALE,
+            vec2(74.0, 36.0) * BODY_SCALE * FLAT_SCALE,
             self.heading,
             SHADOW,
         );
         let mut b = list.brush(self.pos, self.heading, scale);
-        b.ellipse(Vec2::ZERO, vec2(26.0, 34.0), 0.0, OUTLINE);
-        b.ellipse(Vec2::ZERO, vec2(22.0, 30.0), 0.0, shirt);
-        // The armour stays on a body that is down, the vest over the
-        // torso and the guards where the boots trail.
-        if let Some(vest) = self.armour[1] {
-            b.ellipse(vec2(1.0, 0.0), vec2(16.0, 24.0), 0.0, KEVLAR);
-            if vest.broken {
-                b.rect(vec2(1.0, 0.0), vec2(20.0, 1.4), 0.9, 0.0, CRACK);
-            }
-        }
-        if self.wounds[1] {
-            b.ellipse(vec2(-1.0, -2.0), vec2(11.0, 9.0), 0.3, BLOOD);
-        }
+
+        // Legs, under the torso: from the hips back to the boots, a little
+        // apart, each with a boot at its end and the guard over the shin.
         for side in [-1.0f32, 1.0] {
-            b.ellipse(vec2(-4.0, 14.0 * side), vec2(10.0, 10.0), 0.0, sleeve);
-            // The boots trail behind the body, and a wounded leg bleeds
-            // onto them.
+            let splay = 0.09 * side;
+            b.ellipse(vec2(-21.0, 6.5 * side), vec2(32.0, 10.5), splay, OUTLINE);
+            b.ellipse(vec2(-21.0, 6.5 * side), vec2(30.0, 8.5), splay, shirt);
+            b.ellipse(vec2(-35.0, 8.0 * side), vec2(11.0, 8.5), splay, BOOT);
             if let Some(guard) = self.armour[2] {
-                b.ellipse(vec2(-13.0, 7.0 * side), vec2(11.0, 7.5), 0.0, GUARD);
+                b.ellipse(vec2(-28.0, 7.5 * side), vec2(13.0, 8.0), splay, GUARD);
                 b.rect(
-                    vec2(-15.0, 7.0 * side),
-                    vec2(2.5, 7.5),
-                    0.0,
+                    vec2(-24.0, 7.0 * side),
+                    vec2(2.5, 8.0),
+                    splay,
                     0.0,
                     GUARD_BAND,
                 );
                 if guard.broken {
-                    b.rect(vec2(-13.0, 7.0 * side), vec2(8.0, 1.2), 0.7, 0.0, CRACK);
+                    b.rect(vec2(-28.0, 7.5 * side), vec2(9.0, 1.2), 0.7, 0.0, CRACK);
                 }
             }
+            // A wounded leg bleeds onto the thigh.
             if self.wounds[2] {
-                b.ellipse(vec2(-13.0, 7.0 * side), vec2(8.0, 6.0), 0.0, BLOOD);
+                b.ellipse(vec2(-17.0, 6.5 * side), vec2(9.0, 6.5), splay, BLOOD);
             }
         }
-        // Head turned aside, face down.
-        b.ellipse(vec2(3.0, 4.0), vec2(15.5, 15.5), 0.0, OUTLINE);
-        b.ellipse(vec2(3.0, 4.0), vec2(13.0, 13.0), 0.0, skin);
-        b.ellipse(vec2(1.0, 4.0), vec2(11.0, 12.5), 0.4, hair);
+
+        // The torso, shoulders forward, with the yoke across them.
+        b.ellipse(vec2(-1.0, 0.0), vec2(38.0, 27.0), 0.0, OUTLINE);
+        b.ellipse(vec2(-1.0, 0.0), vec2(34.0, 23.0), 0.0, shirt);
+        b.ellipse(vec2(11.0, 0.0), vec2(8.0, 20.0), 0.0, self.look.trim());
+        // The armour stays on a body that is down, the vest over the chest.
+        if let Some(vest) = self.armour[1] {
+            b.ellipse(vec2(2.0, 0.0), vec2(24.0, 17.0), 0.0, KEVLAR);
+            if vest.broken {
+                b.rect(vec2(2.0, 0.0), vec2(20.0, 1.4), 0.5, 0.0, CRACK);
+            }
+        }
+        if self.wounds[1] {
+            b.ellipse(vec2(0.0, -1.0), vec2(11.0, 9.0), 0.3, BLOOD);
+        }
+
+        // The arms: the left flung out past the head, the right along the
+        // side with the hand by the hip — a sprawl, not a pose.
+        let arm = |b: &mut Brush, from: Vec2, to: Vec2| {
+            let mid = (from + to) * 0.5;
+            let along = to - from;
+            let rot = along.y.atan2(along.x);
+            b.rect(mid, vec2(along.len(), 10.0), rot, 5.0, OUTLINE);
+            b.rect(mid, vec2(along.len(), 8.0), rot, 4.0, sleeve);
+            b.ellipse(to, vec2(11.0, 11.0), 0.0, OUTLINE);
+            b.ellipse(to, vec2(9.0, 9.0), 0.0, sleeve);
+        };
+        arm(&mut b, vec2(10.0, -11.0), vec2(28.0, -22.0));
+        arm(&mut b, vec2(8.0, 12.0), vec2(-10.0, 16.0));
+
+        // The head, out past the shoulders, turned onto its right cheek:
+        // the hair over the crown and the near side, the face showing to
+        // the right. Long hair fans out on the deck behind it.
+        let head = vec2(25.0, 1.0);
+        let mane = self.look.mane();
+        if mane > 0.0 {
+            b.ellipse(head + vec2(-5.0, -6.0), vec2(20.0, 17.0) * mane, -0.5, hair);
+        }
+        b.ellipse(head, vec2(15.5, 15.5), 0.0, OUTLINE);
+        b.ellipse(head, vec2(13.0, 13.0), 0.0, skin);
+        b.ellipse(head + vec2(-1.0, -3.0), vec2(12.0, 10.0), 0.35, hair);
+        b.ellipse(head + vec2(3.0, 5.5), vec2(4.0, 3.0), 1.2, NOSE);
         if let Some(helm) = self.armour[0] {
-            b.ellipse(vec2(0.5, 4.0), vec2(12.0, 14.0), 0.4, HELM_RIM);
-            b.ellipse(vec2(0.5, 4.0), vec2(10.0, 12.0), 0.4, HELM);
+            b.ellipse(head + vec2(-1.5, -3.0), vec2(13.5, 11.5), 0.35, HELM_RIM);
+            b.ellipse(head + vec2(-1.5, -3.0), vec2(11.5, 9.5), 0.35, HELM);
             if helm.broken {
-                b.rect(vec2(0.5, 4.0), vec2(10.0, 1.2), 1.2, 0.0, CRACK);
+                b.rect(head + vec2(-1.5, -3.0), vec2(10.0, 1.2), 1.2, 0.0, CRACK);
             }
         }
         if self.wounds[0] {
-            b.ellipse(vec2(2.0, 5.0), vec2(7.0, 6.0), 0.4, BLOOD);
+            b.ellipse(head + vec2(-1.0, -2.0), vec2(7.0, 6.0), 0.4, BLOOD);
+        }
+        // The visor, in the suit: the helmet is a bigger circle than the
+        // head, lying where the head does.
+        if self.uniform == Uniform::Suit {
+            b.ellipse(head, vec2(18.0, 18.0), 0.0, OUTLINE);
+            b.ellipse(head, vec2(16.5, 16.5), 0.0, VISOR.alpha(0.55));
         }
     }
-
     /// Whatever is in the hands, placed in front of the body.
     fn draw_held(&self, list: &mut DrawList, pose: Pose) {
         let pos = self.drawn_at();
@@ -1979,6 +2119,7 @@ fn draw_z(list: &mut DrawList, at: Vec2, size: f32, c: Color) {
 
 /// Arm and tool placement for one frame of an action.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Pose {
     /// Forward offset of the left arm, in local pixels.
     left: f32,

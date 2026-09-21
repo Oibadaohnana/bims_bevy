@@ -178,11 +178,22 @@ impl Editor {
     /// Start the design phase on `design` rather than on an empty grid, as
     /// a gift: the crew's pool is what they brought, and what is already
     /// there cost them nothing — see [`Budget::with_gift`]. Everything is
-    /// still theirs to change.
+    /// still theirs to change. At the budget's desk, so set that first
+    /// ([`Editor::dock_at`]): the gift's cargo is given at the ask it
+    /// would be put back at.
     pub fn give(&mut self, design: ShipDesign) {
-        self.budget = Budget::with_gift(self.budget.pool, &design);
+        self.budget = Budget::with_gift(self.budget.pool, self.budget.market, &design);
         self.design = design;
         self.refresh();
+    }
+
+    /// Dock the design phase at a station: its shelf is what the goods
+    /// panel will sell, and its desk is what the pool buys at
+    /// (`Budget::market`). Before [`Editor::give`], since the gift is
+    /// valued at the desk.
+    pub fn dock_at(&mut self, stock: worldgen::Stock, market: shipdesign::market::Market) {
+        self.market = Some(stock);
+        self.budget.market = market;
     }
 
     pub fn hash(&self) -> u64 {

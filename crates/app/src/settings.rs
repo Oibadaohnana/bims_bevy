@@ -1,9 +1,12 @@
 //! The Esc sheet: settings and the keys.
 //!
-//! One window in the middle of the screen, three pages. The first is the
-//! menu — the UI scale, and a button each for the audio and the controls —
-//! and the other two are those, with a way back. The controls page is
-//! where every key is rebound (`crate::keys`). Esc opens it from any
+//! One window in the middle of the screen, five pages. The first is the
+//! menu — the UI scale, a button each for the audio and the controls, and
+//! one each for saving and loading — and the other four are those, with a
+//! way back. The controls page is where every key is rebound
+//! (`crate::keys`); the save and load pages are `crate::save`'s, and what
+//! they ask for comes back out of [`settings_sheet`] as a `Request` for
+//! the screen to carry out. Esc opens it from any
 //! screen that has one and closes it again from any page; the screens
 //! own whether it is up and which page, as a [`Sheet`], and lay it out
 //! with [`settings_sheet`] after their panels so it sits over them.
@@ -11,6 +14,7 @@
 use bevy_egui::egui;
 
 use crate::keys::{Action, Keys};
+use crate::save::{self, Request, Saves};
 use crate::sound::Mix;
 use crate::theme;
 
@@ -21,6 +25,9 @@ pub enum Sheet {
     Menu,
     Audio,
     Controls,
+    /// The game written out, and read back: `crate::save`'s pages.
+    Save,
+    Load,
 }
 
 /// The sheet, on `page`. `None` afterwards means it was closed. While the
@@ -31,27 +38,47 @@ pub fn settings_sheet(
     sheet: &mut Option<Sheet>,
     mix: &mut Mix,
     keys: &mut Keys,
-) {
-    let Some(page) = *sheet else {
-        return;
-    };
+    saves: &mut Saves,
+    can_save: bool,
+) -> Option<Request> {
+    let page = (*sheet)?;
     let title = match page {
         Sheet::Menu => "Settings",
         Sheet::Audio => "Audio",
         Sheet::Controls => "Controls",
+        Sheet::Save => "Save",
+        Sheet::Load => "Load",
     };
+    let mut request = None;
     egui::Window::new(title)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| match page {
-            Sheet::Menu => menu(ui, sheet),
+            Sheet::Menu => menu(ui, sheet, saves, can_save),
             Sheet::Audio => audio(ui, sheet, mix),
             Sheet::Controls => controls(ui, sheet, keys),
+            Sheet::Save => {
+                request = save::save_page(ui, saves, can_save);
+                back(ui, sheet);
+            }
+            Sheet::Load => {
+                request = save::load_page(ui, saves);
+                back(ui, sheet);
+            }
         });
+    request
 }
 
-fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>) {
+/// The way back to the menu, under a page.
+fn back(ui: &mut egui::Ui, sheet: &mut Option<Sheet>) {
+    ui.add_space(8.0);
+    if ui.button("< Back").clicked() {
+        *sheet = Some(Sheet::Menu);
+    }
+}
+
+fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, can_save: bool) {
     theme::heading(ui, "UI scale");
     theme::ui_scale_row(ui);
     ui.add_space(8.0);
@@ -61,6 +88,26 @@ fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>) {
         }
         if ui.button("Controls").clicked() {
             *sheet = Some(Sheet::Controls);
+        }
+    });
+    ui.add_space(8.0);
+    // The game, written out and read back. The directory is read again as
+    // a page opens, so a file from another run is there.
+    ui.horizontal(|ui| {
+        let save = ui
+            .add_enabled(can_save, egui::Button::new("Save"))
+            .on_disabled_hover_text(
+                "Nothing to save yet: the game starts when the ship is accepted.",
+            );
+        if save.clicked() {
+            saves.note = None;
+            saves.refresh();
+            *sheet = Some(Sheet::Save);
+        }
+        if ui.button("Load").clicked() {
+            saves.note = None;
+            saves.refresh();
+            *sheet = Some(Sheet::Load);
         }
     });
     ui.add_space(8.0);

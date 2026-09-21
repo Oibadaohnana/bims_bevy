@@ -79,6 +79,7 @@ pub const LIFT_CAP: f32 = BASELINE;
 /// tiles round it by, and how many tiles out that reaches — a square
 /// block like [`REACH`]. `aboard.rs` makes these off `shipdesign::comfort`.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Comfort {
     pub at: Vec2,
     pub lift: f32,
@@ -181,6 +182,7 @@ const MESS_ALPHA: f32 = 0.72;
 /// Reached by the clock, not the level: the surroundings need hitting nothing
 /// starts it, and each stage is an hour further into that.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Discomfort {
     None,
     Mild,
@@ -238,6 +240,7 @@ impl Discomfort {
 /// because a pool of it is what the player is looking for after a fight,
 /// and a print off a bloody tile is a bloody print rather than grime.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Mess {
     None,
     Grime,
@@ -257,6 +260,7 @@ impl Mess {
 /// What a mess did this frame. The game applies these — it is the only thing
 /// that knows where the Bim is standing and what its needs are.
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Mishap {
     /// Did not quite make it: wet itself where it stands.
     pub wet: bool,
@@ -277,6 +281,7 @@ pub struct Mishap {
 /// member per frame on the same object, so whichever Bim was comfortable
 /// zeroed the other's clock on the way past and the hour was never reached.
 /// Nobody ever had an accident, and nobody was ever sick.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Ordeal {
     /// Game minutes the restroom need has been at nothing, and the same for
     /// the surroundings need. Both start the clock the moment they empty.
@@ -372,6 +377,7 @@ impl Ordeal {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Filth {
     cols: usize,
     rows: usize,

@@ -27,6 +27,7 @@ pub const PROTRUSION: f64 = TILE as f64 / 2.0;
 
 /// A design's docking port.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Port {
     pub part_id: u32,
     /// The middle of the airlock, in design world units about the design's

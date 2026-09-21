@@ -58,6 +58,7 @@ pub use data::{PLAYER_MASS, RESOURCES, ResourceDef, ResourceId};
 /// that lost its parts, a manifest that came back empty — into a ship that
 /// flies suspiciously well and says nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum MassError {
     /// The hull and structure came in under [`data::MIN_HULL_MASS`].
     HullTooLight,
@@ -74,6 +75,7 @@ pub enum MassError {
 /// a zero is a stronger promise than a comment asking callers not to pass
 /// one.
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Mass(f64);
 
 impl Mass {
@@ -131,6 +133,7 @@ pub fn ship_mass(
 /// round it is bolted.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Facing {
     Forward = 0,
     Backward = 1,
@@ -149,6 +152,7 @@ impl Facing {
 
 /// One engine: how hard it pushes and which way.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EngineSpec {
     /// Force, not acceleration. Never negative — an engine that pushes the
     /// other way is a different `facing`, not a negative thrust.
@@ -158,6 +162,7 @@ pub struct EngineSpec {
 
 /// What is wrong with an engine.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EngineError {
     /// Negative, infinite or not a number.
     BadThrust,
@@ -271,22 +276,25 @@ mod tests {
     }
 
     #[test]
-    fn cargo_is_units_times_unit_mass() {
-        let hold = [(ResourceId::Ore, 3), (ResourceId::Components, 10)];
-        assert!(close(cargo_mass(&hold), 3.0 * 10.0 + 10.0 * 2.0));
-        assert_eq!(cargo_mass(&[]), 0.0);
-    }
+    fn mass_is_hull_plus_cargo_plus_crew_and_a_bare_hull_is_still_its_hull() {
+        // --- cargo_is_units_times_unit_mass ---
+        {
+            let hold = [(ResourceId::Ore, 3), (ResourceId::Components, 10)];
+            assert!(close(cargo_mass(&hold), 3.0 * 10.0 + 10.0 * 2.0));
+            assert_eq!(cargo_mass(&[]), 0.0);
+        }
 
-    #[test]
-    fn mass_is_hull_plus_cargo_plus_crew() {
-        let m = ship_mass(1000.0, &[(ResourceId::Metal, 100)], 2).unwrap();
-        assert!(close(m.get(), 1000.0 + 800.0 + 2.0 * PLAYER_MASS));
-    }
+        // --- mass_is_hull_plus_cargo_plus_crew ---
+        {
+            let m = ship_mass(1000.0, &[(ResourceId::Metal, 100)], 2).unwrap();
+            assert!(close(m.get(), 1000.0 + 800.0 + 2.0 * PLAYER_MASS));
+        }
 
-    #[test]
-    fn an_empty_ship_with_no_crew_still_weighs_its_hull() {
-        let m = ship_mass(data::MIN_HULL_MASS, &[], 0).unwrap();
-        assert!(close(m.get(), data::MIN_HULL_MASS));
+        // --- an_empty_ship_with_no_crew_still_weighs_its_hull ---
+        {
+            let m = ship_mass(data::MIN_HULL_MASS, &[], 0).unwrap();
+            assert!(close(m.get(), data::MIN_HULL_MASS));
+        }
     }
 
     /// The guard is an error, not a clamp. A hull under the floor comes back
@@ -367,16 +375,23 @@ mod tests {
         assert!(close(travel_days(518_400.0, a, a).unwrap(), 1.0));
     }
 
+    /// Distance and time are the way round they look: four times the distance
+    /// is twice the time, because the whole trip is under acceleration.
     #[test]
-    fn a_slower_brake_makes_a_longer_trip() {
-        let fast = travel_days(1e6, 1.0, 1.0).unwrap();
-        let slow = travel_days(1e6, 1.0, 0.25).unwrap();
-        assert!(slow > fast, "{slow} should be longer than {fast}");
-    }
+    fn a_slower_brake_is_longer_and_four_times_the_distance_is_twice_the_time() {
+        // --- a_slower_brake_makes_a_longer_trip ---
+        {
+            let fast = travel_days(1e6, 1.0, 1.0).unwrap();
+            let slow = travel_days(1e6, 1.0, 0.25).unwrap();
+            assert!(slow > fast, "{slow} should be longer than {fast}");
+        }
 
-    #[test]
-    fn no_distance_is_no_time() {
-        assert_eq!(travel_days(0.0, 1.0, 1.0), Some(0.0));
+        // --- four_times_the_distance_is_twice_the_time ---
+        {
+            let one = travel_days(1e6, 1.0, 1.0).unwrap();
+            let four = travel_days(4e6, 1.0, 1.0).unwrap();
+            assert!(close(four, 2.0 * one));
+        }
     }
 
     /// A ship that cannot start, or cannot stop, gets no quote at all.
@@ -410,14 +425,5 @@ mod tests {
         }
         assert_eq!(travel_distance(1.0, 0.0, 1.0), None);
         assert_eq!(travel_distance(-1.0, 1.0, 1.0), None);
-    }
-
-    /// Distance and time are the way round they look: four times the distance
-    /// is twice the time, because the whole trip is under acceleration.
-    #[test]
-    fn four_times_the_distance_is_twice_the_time() {
-        let one = travel_days(1e6, 1.0, 1.0).unwrap();
-        let four = travel_days(4e6, 1.0, 1.0).unwrap();
-        assert!(close(four, 2.0 * one));
     }
 }

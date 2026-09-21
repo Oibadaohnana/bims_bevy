@@ -61,78 +61,97 @@ fn on_canvas(game: &Game, tile: (u32, u32)) -> (f32, f32) {
 
 /// At rest the ship is drawn exactly as it was laid out: the grid's up is up,
 /// and its right is right.
-#[test]
-fn at_a_heading_of_nothing_the_design_is_the_way_it_was_built() {
-    let game = game();
-    assert_eq!(game.world.ship.heading, 0.0);
-
-    let middle = game.world.ship.design.build_area / 2;
-    let here = on_canvas(&game, (middle, middle));
-    let above = on_canvas(&game, (middle, middle - 1));
-    let right = on_canvas(&game, (middle + 1, middle));
-
-    assert!(above.1 < here.1, "the grid's up should be up the screen");
-    assert!((above.0 - here.0).abs() < 1e-3, "and straight up");
-    assert!(right.0 > here.0, "the grid's right should be right");
-    assert!((right.1 - here.1).abs() < 1e-3, "and straight across");
-}
-
 /// Turned a quarter, the nose points at the right-hand edge. That is the whole
 /// of what "Forward is the grid's up" means once the ship is moving.
 #[test]
-fn at_a_quarter_turn_the_nose_points_to_the_right() {
-    let mut game = game();
-    game.world.ship.heading = std::f64::consts::FRAC_PI_2;
+fn the_design_is_drawn_as_built_and_turns_with_the_heading() {
+    // --- at_a_heading_of_nothing_the_design_is_the_way_it_was_built ---
+    {
+        let game = game();
+        assert_eq!(game.world.ship.heading, 0.0);
 
-    let middle = game.world.ship.design.build_area / 2;
-    let here = on_canvas(&game, (middle, middle));
-    let forward = on_canvas(&game, (middle, middle - 1));
+        let middle = game.world.ship.design.build_area / 2;
+        let here = on_canvas(&game, (middle, middle));
+        let above = on_canvas(&game, (middle, middle - 1));
+        let right = on_canvas(&game, (middle + 1, middle));
 
-    assert!(forward.0 > here.0, "Forward should be to the right");
-    assert!(
-        (forward.1 - here.1).abs() < 1e-3,
-        "and level with where it started",
-    );
+        assert!(above.1 < here.1, "the grid's up should be up the screen");
+        assert!((above.0 - here.0).abs() < 1e-3, "and straight up");
+        assert!(right.0 > here.0, "the grid's right should be right");
+        assert!((right.1 - here.1).abs() < 1e-3, "and straight across");
+    }
 
-    // And the other three quarters, so the sense of the turn is pinned as
-    // clockwise rather than merely as "a turn". `here` is recomputed each
-    // time: the tile being measured from is not the centre of mass, so it
-    // swings round with everything else.
-    game.world.ship.heading = std::f64::consts::PI;
-    let here = on_canvas(&game, (middle, middle));
-    let forward = on_canvas(&game, (middle, middle - 1));
-    assert!(
-        forward.1 > here.1,
-        "half a turn puts the nose down the screen"
-    );
+    // --- at_a_quarter_turn_the_nose_points_to_the_right ---
+    {
+        let mut game = game();
+        game.world.ship.heading = std::f64::consts::FRAC_PI_2;
 
-    game.world.ship.heading = 3.0 * std::f64::consts::FRAC_PI_2;
-    let here = on_canvas(&game, (middle, middle));
-    let forward = on_canvas(&game, (middle, middle - 1));
-    assert!(forward.0 < here.0, "three quarters puts it to the left");
+        let middle = game.world.ship.design.build_area / 2;
+        let here = on_canvas(&game, (middle, middle));
+        let forward = on_canvas(&game, (middle, middle - 1));
+
+        assert!(forward.0 > here.0, "Forward should be to the right");
+        assert!(
+            (forward.1 - here.1).abs() < 1e-3,
+            "and level with where it started",
+        );
+
+        // And the other three quarters, so the sense of the turn is pinned as
+        // clockwise rather than merely as "a turn". `here` is recomputed each
+        // time: the tile being measured from is not the centre of mass, so it
+        // swings round with everything else.
+        game.world.ship.heading = std::f64::consts::PI;
+        let here = on_canvas(&game, (middle, middle));
+        let forward = on_canvas(&game, (middle, middle - 1));
+        assert!(
+            forward.1 > here.1,
+            "half a turn puts the nose down the screen"
+        );
+
+        game.world.ship.heading = 3.0 * std::f64::consts::FRAC_PI_2;
+        let here = on_canvas(&game, (middle, middle));
+        let forward = on_canvas(&game, (middle, middle - 1));
+        assert!(forward.0 < here.0, "three quarters puts it to the left");
+    }
 }
 
 /// A point on the canvas over a known tile has to come back as that tile, at
 /// every heading, north up and head up. This is the one that a wrong sign in
 /// the inverse turn breaks — and it breaks it silently, as a ship you cannot
 /// click on once it has turned.
+/// The inverse is the forward turn read backwards and nothing else, which is
+/// what stops the two drifting apart.
 #[test]
-fn a_screen_point_maps_back_to_the_tile_it_is_over() {
-    let mut game = game();
-    let quarter = std::f64::consts::FRAC_PI_2;
-    for head_up in [false, true] {
-        game.head_up = head_up;
-        for &heading in &[0.0, quarter, std::f64::consts::PI, 3.0 * quarter, 0.7] {
-            game.world.ship.heading = heading;
-            for tile in [(2u32, 2u32), (9, 3), (17, 17), (10, 10)] {
-                let (x, y) = on_canvas(&game, tile);
-                let back = game.tile_at(x, y);
-                assert_eq!(
-                    back,
-                    (tile.0 as i32, tile.1 as i32),
-                    "head up {head_up}, heading {heading}, tile {tile:?} came back as {back:?}",
-                );
+fn a_screen_point_maps_back_to_its_tile_by_the_painters_arithmetic_backwards() {
+    // --- a_screen_point_maps_back_to_the_tile_it_is_over ---
+    {
+        let mut game = game();
+        let quarter = std::f64::consts::FRAC_PI_2;
+        for head_up in [false, true] {
+            game.head_up = head_up;
+            for &heading in &[0.0, quarter, std::f64::consts::PI, 3.0 * quarter, 0.7] {
+                game.world.ship.heading = heading;
+                for tile in [(2u32, 2u32), (9, 3), (17, 17), (10, 10)] {
+                    let (x, y) = on_canvas(&game, tile);
+                    let back = game.tile_at(x, y);
+                    assert_eq!(
+                        back,
+                        (tile.0 as i32, tile.1 as i32),
+                        "head up {head_up}, heading {heading}, tile {tile:?} came back as {back:?}",
+                    );
+                }
             }
+        }
+    }
+
+    // --- the_pointer_arithmetic_is_the_painters_arithmetic_backwards ---
+    {
+        for &heading in &[0.3, 1.9, -2.6] {
+            let offset = dvec2(120.0, -75.0);
+            let there = angle::rotate_design(offset, heading);
+            let back = angle::unrotate_design(there, heading);
+            assert!((back.x - offset.x).abs() < 1e-9);
+            assert!((back.y - offset.y).abs() < 1e-9);
         }
     }
 }
@@ -140,222 +159,215 @@ fn a_screen_point_maps_back_to_the_tile_it_is_over() {
 /// Head up, the ship is drawn the way it was laid out whatever its heading,
 /// and it is the sky that turns — by the heading undone — so a tile is where
 /// it was at rest and a speck has moved.
-#[test]
-fn head_up_holds_the_ship_square_and_turns_the_sky() {
-    let mut game = game();
-    game.head_up = true;
-    game.world.ship.heading = 1.1;
-    let mut list = crate::draw::DrawList::new();
-    world_paint::paint(&game, &mut list);
-    let angles = shape_rotations(&list);
-
-    assert!(
-        !angles.iter().any(|a| (a - 1.1).abs() < 1e-6),
-        "nothing should be turned to the heading when the view is head up",
-    );
-    assert!(
-        angles.iter().any(|a| (a + 1.1).abs() < 1e-6),
-        "the sky should be turned by the heading undone",
-    );
-    // The tiles land exactly where they do at rest — the same picture the
-    // designer drew, in the middle of the window.
-    for tile in [(2u32, 2u32), (17, 17)] {
-        let turned = on_canvas(&game, tile);
-        game.world.ship.heading = 0.0;
-        let at_rest = on_canvas(&game, tile);
-        game.world.ship.heading = 1.1;
-        assert!((turned.0 - at_rest.0).abs() < 1e-3 && (turned.1 - at_rest.1).abs() < 1e-3);
-    }
-    // And a name over a Bim's head follows the same arithmetic, so it stays
-    // over the Bim rather than turning off to where the sky went.
-    let (cx, cy) = world_paint::crew_on_screen(&game, 0);
-    game.world.ship.heading = 0.0;
-    let (rx, ry) = world_paint::crew_on_screen(&game, 0);
-    assert!((cx - rx).abs() < 1e-3 && (cy - ry).abs() < 1e-3);
-}
-
 /// Head up, the map turns round the ship by the heading undone and the marker
 /// for the ship stands straight up — and a click still lands on what it looks
 /// like it landed on, which is the half that would fail quietly.
 #[test]
-fn head_up_turns_the_map_and_the_pointer_follows() {
-    let mut game = game();
-    game.set_mode(ViewMode::Map);
-    game.head_up = true;
-    game.world.ship.heading = 2.4;
+fn head_up_holds_the_ship_square_and_turns_the_sky_the_map_and_the_pointer() {
+    // --- head_up_holds_the_ship_square_and_turns_the_sky ---
+    {
+        let mut game = game();
+        game.head_up = true;
+        game.world.ship.heading = 1.1;
+        let mut list = crate::draw::DrawList::new();
+        world_paint::paint(&game, &mut list);
+        let angles = shape_rotations(&list);
 
-    let mut list = crate::draw::DrawList::new();
-    world_paint::paint(&game, &mut list);
-    let angles: Vec<f32> = shape_rotations(&list)
-        .into_iter()
-        .filter(|a| a.abs() > 1e-6)
-        .collect();
-    assert!(
-        !angles.iter().any(|a| (a - 2.4).abs() < 1e-6),
-        "the marker should stand straight up rather than to the heading",
-    );
-    assert!(
-        angles.iter().any(|a| (a + 2.4).abs() < 1e-6),
-        "the system should be turned by the heading undone",
-    );
+        assert!(
+            !angles.iter().any(|a| (a - 1.1).abs() < 1e-6),
+            "nothing should be turned to the heading when the view is head up",
+        );
+        assert!(
+            angles.iter().any(|a| (a + 1.1).abs() < 1e-6),
+            "the sky should be turned by the heading undone",
+        );
+        // The tiles land exactly where they do at rest — the same picture the
+        // designer drew, in the middle of the window.
+        for tile in [(2u32, 2u32), (17, 17)] {
+            let turned = on_canvas(&game, tile);
+            game.world.ship.heading = 0.0;
+            let at_rest = on_canvas(&game, tile);
+            game.world.ship.heading = 1.1;
+            assert!((turned.0 - at_rest.0).abs() < 1e-3 && (turned.1 - at_rest.1).abs() < 1e-3);
+        }
+        // And a name over a Bim's head follows the same arithmetic, so it stays
+        // over the Bim rather than turning off to where the sky went.
+        let (cx, cy) = world_paint::crew_on_screen(&game, 0);
+        game.world.ship.heading = 0.0;
+        let (rx, ry) = world_paint::crew_on_screen(&game, 0);
+        assert!((cx - rx).abs() < 1e-3 && (cy - ry).abs() < 1e-3);
+    }
 
-    // Somewhere out on the map. Where the painter puts it is the offset from
-    // the ship with the y flipped and then the camera's turn applied, and a
-    // click there has to pick it and a point read there has to be it.
-    let here = game.world.ship.position();
-    let camera = &game.map_view;
-    let (node, at) = game
-        .world
-        .discovered
-        .iter()
-        .filter_map(|&n| game.world.system.absolute_position(n).map(|p| (n, p)))
-        .find(|(_, p)| p.distance(here) > 0.0)
-        .expect("the spawn system is charted, so there is something out there");
-    let offset = at.sub(here);
-    let (ox, oy) = crate::game::turned(offset.x as f32, -offset.y as f32, -2.4);
-    let (sx, sy) = (
-        camera.offset_x() + ox * camera.scale(),
-        camera.offset_y() + oy * camera.scale(),
-    );
-    assert_eq!(game.pick(sx, sy, 4.0), Some(node));
-    let read = game.point_at(sx, sy);
-    let tolerance = 1.0 / camera.scale() as f64;
-    assert!(
-        read.distance(at) < tolerance,
-        "the point under the pointer came back {} away from where it was drawn",
-        read.distance(at),
-    );
-}
+    // --- head_up_turns_the_map_and_the_pointer_follows ---
+    {
+        let mut game = game();
+        game.set_mode(ViewMode::Map);
+        game.head_up = true;
+        game.world.ship.heading = 2.4;
 
-/// The inverse is the forward turn read backwards and nothing else, which is
-/// what stops the two drifting apart.
-#[test]
-fn the_pointer_arithmetic_is_the_painters_arithmetic_backwards() {
-    for &heading in &[0.3, 1.9, -2.6] {
-        let offset = dvec2(120.0, -75.0);
-        let there = angle::rotate_design(offset, heading);
-        let back = angle::unrotate_design(there, heading);
-        assert!((back.x - offset.x).abs() < 1e-9);
-        assert!((back.y - offset.y).abs() < 1e-9);
+        let mut list = crate::draw::DrawList::new();
+        world_paint::paint(&game, &mut list);
+        let angles: Vec<f32> = shape_rotations(&list)
+            .into_iter()
+            .filter(|a| a.abs() > 1e-6)
+            .collect();
+        assert!(
+            !angles.iter().any(|a| (a - 2.4).abs() < 1e-6),
+            "the marker should stand straight up rather than to the heading",
+        );
+        assert!(
+            angles.iter().any(|a| (a + 2.4).abs() < 1e-6),
+            "the system should be turned by the heading undone",
+        );
+
+        // Somewhere out on the map. Where the painter puts it is the offset from
+        // the ship with the y flipped and then the camera's turn applied, and a
+        // click there has to pick it and a point read there has to be it.
+        let here = game.world.ship.position();
+        let camera = &game.map_view;
+        let (node, at) = game
+            .world
+            .discovered
+            .iter()
+            .filter_map(|&n| game.world.system.absolute_position(n).map(|p| (n, p)))
+            .find(|(_, p)| p.distance(here) > 0.0)
+            .expect("the spawn system is charted, so there is something out there");
+        let offset = at.sub(here);
+        let (ox, oy) = crate::game::turned(offset.x as f32, -offset.y as f32, -2.4);
+        let (sx, sy) = (
+            camera.offset_x() + ox * camera.scale(),
+            camera.offset_y() + oy * camera.scale(),
+        );
+        assert_eq!(game.pick(sx, sy, 4.0), Some(node));
+        let read = game.point_at(sx, sy);
+        let tolerance = 1.0 / camera.scale() as f64;
+        assert!(
+            read.distance(at) < tolerance,
+            "the point under the pointer came back {} away from where it was drawn",
+            read.distance(at),
+        );
     }
 }
 
 /// The starfield and anything drawn because it is out there are **never**
 /// turned. Nothing in the shape buffer for them carries a rotation, however
 /// the ship is pointing.
-#[test]
-fn the_sky_and_what_is_alongside_do_not_turn_with_the_ship() {
-    let mut game = game();
-    let mut list = crate::draw::DrawList::new();
-
-    // Every shape is either where it was at rest — the sky, the station
-    // alongside and the void behind them are never turned, and neither
-    // are the turns of their own their pictures carry — or turned by
-    // exactly the heading on top of what it was at rest: the hull, the
-    // fittings (a lamp hung `R270` from the side wall is drawn at its own
-    // turn plus the heading), the room aboard's own turned things — a
-    // Bim's body, a pot's handle. The same frame at rest is the reference,
-    // shape for shape.
-    game.world.ship.heading = 1.1;
-    world_paint::paint(&game, &mut list);
-    let angles = shape_rotations(&list);
-    game.world.ship.heading = 0.0;
-    let mut at_rest = crate::draw::DrawList::new();
-    world_paint::paint(&game, &mut at_rest);
-    let fixed = shape_rotations(&at_rest);
-    assert_eq!(
-        angles.len(),
-        fixed.len(),
-        "the same frame turned should draw the same shapes"
-    );
-    let (mut square, mut turned) = (0, 0);
-    for (angle, rest) in angles.iter().zip(&fixed) {
-        if (angle - rest).abs() < 1e-6 {
-            square += 1;
-        } else if (angle - rest - 1.1).abs() < 1e-5 {
-            turned += 1;
-        } else {
-            panic!(
-                "a shape at {rest} at rest was drawn at {angle}, which is neither still nor turned with the ship"
-            );
-        }
-    }
-    assert!(square > 0, "the starfield should be square to the window");
-    assert!(turned > 0, "the ship should be turned to its heading");
-}
-
 /// The sky streams past a ship under way and stands still otherwise. It is
 /// a picture clock on the *world's* clock: a step with the ship at rest
 /// moves nothing, a frame with no step in it moves nothing however fast
 /// the ship is going — a pause holds the stars — and the near layer streams
 /// further than the far one, opposite the way the ship is going.
 #[test]
-fn the_sky_streams_on_the_world_s_clock_and_only_under_way() {
-    use crate::starfield::Starfield;
-    use worldgen::math::dvec2;
+fn the_sky_does_not_turn_with_the_ship_and_streams_on_the_clock_under_way() {
+    // --- the_sky_and_what_is_alongside_do_not_turn_with_the_ship ---
+    {
+        let mut game = game();
+        let mut list = crate::draw::DrawList::new();
 
-    let mut game = game();
-    // Docked and still: frames and steps go by and the sky does not move.
-    game.stream_sky();
-    for _ in 0..10 {
-        game.world.step(&[]);
-        game.stream_sky();
+        // Every shape is either where it was at rest — the sky, the station
+        // alongside and the void behind them are never turned, and neither
+        // are the turns of their own their pictures carry — or turned by
+        // exactly the heading on top of what it was at rest: the hull, the
+        // fittings (a lamp hung `R270` from the side wall is drawn at its own
+        // turn plus the heading), the room aboard's own turned things — a
+        // Bim's body, a pot's handle. The same frame at rest is the reference,
+        // shape for shape.
+        game.world.ship.heading = 1.1;
+        world_paint::paint(&game, &mut list);
+        let angles = shape_rotations(&list);
+        game.world.ship.heading = 0.0;
+        let mut at_rest = crate::draw::DrawList::new();
+        world_paint::paint(&game, &mut at_rest);
+        let fixed = shape_rotations(&at_rest);
+        assert_eq!(
+            angles.len(),
+            fixed.len(),
+            "the same frame turned should draw the same shapes"
+        );
+        let (mut square, mut turned) = (0, 0);
+        for (angle, rest) in angles.iter().zip(&fixed) {
+            if (angle - rest).abs() < 1e-6 {
+                square += 1;
+            } else if (angle - rest - 1.1).abs() < 1e-5 {
+                turned += 1;
+            } else {
+                panic!(
+                    "a shape at {rest} at rest was drawn at {angle}, which is neither still nor turned with the ship"
+                );
+            }
+        }
+        assert!(square > 0, "the starfield should be square to the window");
+        assert!(turned > 0, "the ship should be turned to its heading");
     }
-    assert!(
-        game.stars.slid.iter().all(|s| s.x == 0.0 && s.y == 0.0),
-        "the sky moved with the ship at rest: {:?}",
-        game.stars.slid.map(|s| (s.x, s.y))
-    );
 
-    // Under way, to the east, on a clock that moved a minute: the near layer
-    // streams west, and further than the far one.
-    let mut stars = Starfield::new(1);
-    let east = dvec2(3_000.0, 0.0);
-    stars.advance(east, 100.0);
-    assert!(
-        stars.slid.iter().all(|s| s.x == 0.0 && s.y == 0.0),
-        "the first frame is a reading, not a stream"
-    );
-    stars.advance(east, 101.0);
-    let near = stars.slid[0];
-    let far = stars.slid[2];
-    assert!(near.x > 0.0 && near.y == 0.0, "near layer {near:?}");
-    // Wrapped to the tile, so "west" reads as a large positive `x`.
-    let west_by = |s: worldgen::math::DVec2| crate::starfield::FIELD - s.x;
-    assert!(
-        west_by(near) > 0.0 && west_by(near) < 100.0,
-        "{}",
-        west_by(near)
-    );
-    assert!(
-        west_by(far) < west_by(near),
-        "the far layer should stream less: {far:?} against {near:?}"
-    );
-    // The same velocity on a clock that has not moved: a pause.
-    let held = stars.slid;
-    stars.advance(east, 101.0);
-    assert!(
-        stars
-            .slid
-            .iter()
-            .zip(held.iter())
-            .all(|(a, b)| a.x == b.x && a.y == b.y)
-    );
-    // Faster is further, and the mapping is monotonic even past the clamp.
-    let mut slow = Starfield::new(1);
-    slow.advance(dvec2(30.0, 0.0), 0.0);
-    slow.advance(dvec2(30.0, 0.0), 1.0);
-    assert!(west_by(slow.slid[0]) > 0.0 && west_by(slow.slid[0]) < west_by(near));
-    // North on the system's axes is up the screen, so a ship going north
-    // has the stars going down: positive `y`, unwrapped.
-    let mut north = Starfield::new(1);
-    north.advance(dvec2(0.0, 3_000.0), 0.0);
-    north.advance(dvec2(0.0, 3_000.0), 1.0);
-    assert!(
-        north.slid[0].y > 0.0 && north.slid[0].y < 100.0,
-        "{:?}",
-        (north.slid[0].x, north.slid[0].y)
-    );
+    // --- the_sky_streams_on_the_world_s_clock_and_only_under_way ---
+    {
+        use crate::starfield::Starfield;
+        use worldgen::math::dvec2;
+
+        let mut game = game();
+        // Docked and still: frames and steps go by and the sky does not move.
+        game.stream_sky();
+        for _ in 0..10 {
+            game.world.step(&[]);
+            game.stream_sky();
+        }
+        assert!(
+            game.stars.slid.iter().all(|s| s.x == 0.0 && s.y == 0.0),
+            "the sky moved with the ship at rest: {:?}",
+            game.stars.slid.map(|s| (s.x, s.y))
+        );
+
+        // Under way, to the east, on a clock that moved a minute: the near layer
+        // streams west, and further than the far one.
+        let mut stars = Starfield::new(1);
+        let east = dvec2(3_000.0, 0.0);
+        stars.advance(east, 100.0);
+        assert!(
+            stars.slid.iter().all(|s| s.x == 0.0 && s.y == 0.0),
+            "the first frame is a reading, not a stream"
+        );
+        stars.advance(east, 101.0);
+        let near = stars.slid[0];
+        let far = stars.slid[2];
+        assert!(near.x > 0.0 && near.y == 0.0, "near layer {near:?}");
+        // Wrapped to the tile, so "west" reads as a large positive `x`.
+        let west_by = |s: worldgen::math::DVec2| crate::starfield::FIELD - s.x;
+        assert!(
+            west_by(near) > 0.0 && west_by(near) < 100.0,
+            "{}",
+            west_by(near)
+        );
+        assert!(
+            west_by(far) < west_by(near),
+            "the far layer should stream less: {far:?} against {near:?}"
+        );
+        // The same velocity on a clock that has not moved: a pause.
+        let held = stars.slid;
+        stars.advance(east, 101.0);
+        assert!(
+            stars
+                .slid
+                .iter()
+                .zip(held.iter())
+                .all(|(a, b)| a.x == b.x && a.y == b.y)
+        );
+        // Faster is further, and the mapping is monotonic even past the clamp.
+        let mut slow = Starfield::new(1);
+        slow.advance(dvec2(30.0, 0.0), 0.0);
+        slow.advance(dvec2(30.0, 0.0), 1.0);
+        assert!(west_by(slow.slid[0]) > 0.0 && west_by(slow.slid[0]) < west_by(near));
+        // North on the system's axes is up the screen, so a ship going north
+        // has the stars going down: positive `y`, unwrapped.
+        let mut north = Starfield::new(1);
+        north.advance(dvec2(0.0, 3_000.0), 0.0);
+        north.advance(dvec2(0.0, 3_000.0), 1.0);
+        assert!(
+            north.slid[0].y > 0.0 && north.slid[0].y < 100.0,
+            "{:?}",
+            (north.slid[0].x, north.slid[0].y)
+        );
+    }
 }
 
 /// The `rot` field of every shape in the buffer.
@@ -369,69 +381,72 @@ fn shape_rotations(list: &crate::draw::DrawList) -> Vec<f32> {
 /// The map never turns at all: north is up on it whatever the ship is doing,
 /// and the only thing on it that carries a rotation is the marker saying which
 /// way the ship is pointing.
-#[test]
-fn the_map_is_north_up_whatever_the_ship_is_doing() {
-    let mut game = game();
-    game.set_mode(ViewMode::Map);
-
-    // The pictures of planets and stations carry turns of their own — a gas
-    // giant's ring, a belt's rocks — and those are fixed: exactly the same
-    // whichever way the ship points. What turns with the ship is the marker
-    // for the ship, and nothing else.
-    let rotations_at = |game: &mut Game, heading: f64| -> Vec<f32> {
-        game.world.ship.heading = heading;
-        let mut list = crate::draw::DrawList::new();
-        world_paint::paint(game, &mut list);
-        shape_rotations(&list)
-            .into_iter()
-            .filter(|a| a.abs() > 1e-6)
-            .collect()
-    };
-    let at_rest = rotations_at(&mut game, 0.0);
-    let turned = rotations_at(&mut game, 2.4);
-    let mut moved: Vec<f32> = turned
-        .iter()
-        .copied()
-        .filter(|a| !at_rest.iter().any(|r| (a - r).abs() < 1e-6))
-        .collect();
-    // The marker is a hull and two fins: three rectangles, at the heading
-    // and leaning out either side of it. Nothing else moved.
-    moved.sort_by(|a, b| a.total_cmp(b));
-    let marker = [
-        2.4 - crate::hull::FIN_LEAN,
-        2.4,
-        2.4 + crate::hull::FIN_LEAN,
-    ];
-    assert_eq!(
-        moved.len(),
-        3,
-        "only the ship marker should have turned: {moved:?}"
-    );
-    for (a, b) in moved.iter().zip(marker) {
-        assert!(
-            (a - b).abs() < 1e-5,
-            "the marker turned to {moved:?}, not {marker:?}"
-        );
-    }
-}
-
 /// The camera is centred on the ship, in both views, with or without a pan.
 #[test]
-fn the_ship_is_in_the_middle_of_both_views() {
-    let mut game = game();
-    for mode in [ViewMode::Ship, ViewMode::Map] {
-        game.set_mode(mode);
-        assert!((game.camera().offset_x() - CANVAS.0 / 2.0).abs() < 1e-3);
-        assert!((game.camera().offset_y() - CANVAS.1 / 2.0).abs() < 1e-3);
+fn the_map_is_north_up_and_the_ship_is_in_the_middle_of_both_views() {
+    // --- the_map_is_north_up_whatever_the_ship_is_doing ---
+    {
+        let mut game = game();
+        game.set_mode(ViewMode::Map);
+
+        // The pictures of planets and stations carry turns of their own — a gas
+        // giant's ring, a belt's rocks — and those are fixed: exactly the same
+        // whichever way the ship points. What turns with the ship is the marker
+        // for the ship, and nothing else.
+        let rotations_at = |game: &mut Game, heading: f64| -> Vec<f32> {
+            game.world.ship.heading = heading;
+            let mut list = crate::draw::DrawList::new();
+            world_paint::paint(game, &mut list);
+            shape_rotations(&list)
+                .into_iter()
+                .filter(|a| a.abs() > 1e-6)
+                .collect()
+        };
+        let at_rest = rotations_at(&mut game, 0.0);
+        let turned = rotations_at(&mut game, 2.4);
+        let mut moved: Vec<f32> = turned
+            .iter()
+            .copied()
+            .filter(|a| !at_rest.iter().any(|r| (a - r).abs() < 1e-6))
+            .collect();
+        // The marker is a hull and two fins: three rectangles, at the heading
+        // and leaning out either side of it. Nothing else moved.
+        moved.sort_by(|a, b| a.total_cmp(b));
+        let marker = [
+            2.4 - crate::hull::FIN_LEAN,
+            2.4,
+            2.4 + crate::hull::FIN_LEAN,
+        ];
+        assert_eq!(
+            moved.len(),
+            3,
+            "only the ship marker should have turned: {moved:?}"
+        );
+        for (a, b) in moved.iter().zip(marker) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "the marker turned to {moved:?}, not {marker:?}"
+            );
+        }
     }
 
-    // And a pan cannot shove it off the edge, however hard it is shoved —
-    // once the view is tethered; it opens free, and free goes anywhere.
-    game.set_mode(ViewMode::Ship);
-    game.set_follow(true);
-    game.camera_mut().pan(100_000.0, -100_000.0);
-    assert!(game.camera().offset_x() < CANVAS.0);
-    assert!(game.camera().offset_y() > 0.0);
+    // --- the_ship_is_in_the_middle_of_both_views ---
+    {
+        let mut game = game();
+        for mode in [ViewMode::Ship, ViewMode::Map] {
+            game.set_mode(mode);
+            assert!((game.camera().offset_x() - CANVAS.0 / 2.0).abs() < 1e-3);
+            assert!((game.camera().offset_y() - CANVAS.1 / 2.0).abs() < 1e-3);
+        }
+
+        // And a pan cannot shove it off the edge, however hard it is shoved —
+        // once the view is tethered; it opens free, and free goes anywhere.
+        game.set_mode(ViewMode::Ship);
+        game.set_follow(true);
+        game.camera_mut().pan(100_000.0, -100_000.0);
+        assert!(game.camera().offset_x() < CANVAS.0);
+        assert!(game.camera().offset_y() > 0.0);
+    }
 }
 
 /// A map click on empty space is a place to fly to; a map click on something
@@ -715,6 +730,106 @@ fn the_camera_follows_the_crew_member_the_player_steers() {
     );
 }
 
+/// The map let go is a map: a zoom in on a planet lands on the planet,
+/// not on the ship, a pan takes it anywhere, and the place it is looking
+/// at holds still while the ship flies — its camera is measured from the
+/// ship, so that is not for free. Following, it is about the ship again.
+#[test]
+fn the_map_let_go_holds_a_place_in_the_system_still() {
+    let mut game = game();
+    game.set_mode(ViewMode::Map);
+    let middle = (CANVAS.0 / 2.0, CANVAS.1 / 2.0);
+    let pixel_of = |game: &Game, at: worldgen::math::DVec2| {
+        let offset = at.sub(game.world.ship.position());
+        let cam = &game.map_view;
+        (
+            cam.offset_x() + offset.x as f32 * cam.scale(),
+            cam.offset_y() - offset.y as f32 * cam.scale(),
+        )
+    };
+    let near =
+        |a: (f32, f32), b: (f32, f32), tol: f32| (a.0 - b.0).abs() < tol && (a.1 - b.1).abs() < tol;
+    // The map opens free, about the ship.
+    assert!(!game.follow);
+    game.follow_player();
+    let ship = game.world.ship.position();
+    assert!(near(pixel_of(&game, ship), middle, 1e-2));
+
+    // A place off to one side, zoomed in on about the pointer, twice: it
+    // stays under the pointer, and the ship leaves the canvas.
+    let corner = (middle.0 + 300.0, middle.1 - 200.0);
+    let place = game.point_at(corner.0, corner.1);
+    for _ in 0..12 {
+        game.zoom(corner.0, corner.1, 4.0);
+        game.follow_player();
+    }
+    assert!(
+        near(pixel_of(&game, place), corner, 1.0),
+        "{:?}",
+        pixel_of(&game, place)
+    );
+    let at = pixel_of(&game, ship);
+    assert!(
+        at.0 < 0.0 || at.1 > CANVAS.1,
+        "the ship is still on: {at:?}"
+    );
+    // Panned into the middle, it is the middle, and it stays the middle
+    // as the ship flies off: the map is held on the place, not the ship.
+    game.pan(middle.0 - corner.0, middle.1 - corner.1);
+    game.follow_player();
+    assert!(near(pixel_of(&game, place), middle, 1.0));
+    let flown = ship.add(worldgen::math::dvec2(5_000_000.0, -3_000_000.0));
+    game.world.ship.anchor = game.world.ship.anchor.add(flown.sub(ship));
+    game.follow_player();
+    assert!(
+        near(pixel_of(&game, place), middle, 1.0),
+        "the place flew with the ship: {:?}",
+        pixel_of(&game, place)
+    );
+    // The scale is kept across a visit to the ship view.
+    let scale = game.map_view.scale();
+    game.set_mode(ViewMode::Ship);
+    game.follow_player();
+    game.set_mode(ViewMode::Map);
+    game.follow_player();
+    assert_eq!(game.map_view.scale(), scale);
+    assert!(near(pixel_of(&game, place), middle, 1.0));
+
+    // Following, the ship is the middle whatever it does; let go again,
+    // nothing moves for the flip of the switch, and Select brings the
+    // map back to the ship.
+    game.set_follow(true);
+    game.follow_player();
+    assert!(near(
+        pixel_of(&game, game.world.ship.position()),
+        middle,
+        1e-2
+    ));
+    game.pan(-50.0, 40.0);
+    game.follow_player();
+    let held = pixel_of(&game, game.world.ship.position());
+    game.set_follow(false);
+    game.follow_player();
+    assert!(near(
+        pixel_of(&game, game.world.ship.position()),
+        held,
+        1e-2
+    ));
+    game.pan(-100_000.0, 0.0);
+    game.follow_player();
+    assert!(
+        pixel_of(&game, game.world.ship.position()).0 < 0.0,
+        "a free pan was clamped"
+    );
+    game.centre_on_player();
+    game.follow_player();
+    assert!(near(
+        pixel_of(&game, game.world.ship.position()),
+        middle,
+        1e-2
+    ));
+}
+
 /// The blueprint in hand is the world's answer about the tile under the
 /// pointer, asked once per tile and kept: the same tile again is the same
 /// answer without the ship being validated again, a different tile or a
@@ -887,5 +1002,199 @@ fn a_resident_on_the_ship_s_deck_is_drawn_over_it() {
     assert!(
         body > deck,
         "the resident (shape {body}) is under the deck (shape {deck})"
+    );
+}
+
+/// A game written out and read back is the same game: the world's
+/// checksum, the room aboard, and the picture both draw; and it stays the
+/// same game stepped on — what a save left out would show up there as a
+/// crew member walking somewhere else. A file from another build is
+/// refused for its version, and something that is not a save for what
+/// it is.
+#[test]
+fn a_game_saved_and_read_back_is_the_same_game() {
+    use crate::Session;
+    use crate::save::LoadError;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    for _ in 0..300 {
+        session.world_step();
+    }
+    let text = session.save().expect("a world to save");
+    let mut back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    assert_eq!(back.editor.players, 1);
+    assert_eq!(back.seed, session.seed);
+    assert_eq!(back.spawn, session.spawn);
+    let same = |a: &Session, b: &Session, when: &str| {
+        let (a, b) = (a.game.as_ref().unwrap(), b.game.as_ref().unwrap());
+        assert_eq!(a.world.steps, b.world.steps, "steps, {when}");
+        assert_eq!(a.world.checksum(), b.world.checksum(), "checksum, {when}");
+        let room = |g: &Game| {
+            let room = &g.world.aboard.room;
+            (0..room.crew_count() as usize)
+                .map(|who| room.bim_pos(who))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(room(a), room(b), "the crew's places, {when}");
+    };
+    same(&session, &back, "as read back");
+    assert_eq!(
+        session.render().to_vec(),
+        back.render().to_vec(),
+        "the picture, as read back"
+    );
+    for _ in 0..600 {
+        session.world_step();
+        back.world_step();
+    }
+    same(&session, &back, "six hundred steps on");
+    assert_eq!(
+        session.render().to_vec(),
+        back.render().to_vec(),
+        "the picture, six hundred steps on"
+    );
+    assert!(session.save().is_some());
+
+    let now = format!("version:{}", crate::save::SAVE_VERSION);
+    let old = text.replacen(&now, "version:0", 1);
+    assert_ne!(old, text, "the version is written first");
+    assert_eq!(
+        Session::restore(&old, CANVAS.0, CANVAS.1).err(),
+        Some(LoadError::Version(0))
+    );
+    assert!(matches!(
+        Session::restore("(not a save", CANVAS.0, CANVAS.1),
+        Err(LoadError::Syntax(_))
+    ));
+    // Nothing to save before there is a world.
+    let design = Session::design(
+        20,
+        10_000,
+        1,
+        0,
+        world::data::DEFAULT_SEED,
+        0,
+        session.spawn,
+        crate::Preset::Playtest,
+        CANVAS.0,
+        CANVAS.1,
+    );
+    assert!(design.save().is_none());
+}
+
+/// The landed picture as an SVG, for looking at the plain without a
+/// window: `cargo test -p ship a_landed_picture -- --ignored --nocapture
+/// > target/plain.svg`. Crew member 0 is walked out onto the ground west
+/// of the ship first, so the fog lifts round it. The view box is the
+/// camera's units about the ship, `BIMS_SVG_REACH` tiles each way
+/// (default 70).
+#[test]
+#[ignore]
+fn a_landed_picture_as_svg() {
+    use crate::Session;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    assert!(session.land_for_probe());
+    assert!(session.walk_afield_for_probe());
+    session.game.as_mut().unwrap().world.aboard.room.observe();
+    let reach: f32 = std::env::var("BIMS_SVG_REACH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(70.0)
+        * TILE as f32;
+    let shapes: Vec<f32> = session.render().to_vec();
+    let stride = crate::draw::STRIDE;
+    println!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{} {} {} {}\" width=\"1400\" height=\"1400\">",
+        -reach,
+        -reach,
+        2.0 * reach,
+        2.0 * reach
+    );
+    for s in shapes.chunks(stride) {
+        let (kind, x, y, w, h, rot, radius, line) =
+            (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]);
+        if x.abs() > reach * 1.5 || y.abs() > reach * 1.5 {
+            continue;
+        }
+        let (r, g, b, a) = (
+            (s[8] * 255.0).round(),
+            (s[9] * 255.0).round(),
+            (s[10] * 255.0).round(),
+            s[11],
+        );
+        let paint = if line > 0.0 {
+            format!(
+                "fill=\"none\" stroke=\"rgb({r},{g},{b})\" stroke-opacity=\"{a}\" stroke-width=\"{line}\""
+            )
+        } else {
+            format!("fill=\"rgb({r},{g},{b})\" fill-opacity=\"{a}\"")
+        };
+        let turn = rot.to_degrees();
+        if kind == crate::draw::KIND_ELLIPSE {
+            println!(
+                "<ellipse cx=\"0\" cy=\"0\" rx=\"{}\" ry=\"{}\" {paint} transform=\"translate({x} {y}) rotate({turn})\"/>",
+                w.abs() / 2.0,
+                h.abs() / 2.0
+            );
+        } else if kind == crate::draw::KIND_TRIANGLE {
+            println!(
+                "<polygon points=\"{},{} {},{} {},{}\" {paint} transform=\"translate({x} {y}) rotate({turn})\"/>",
+                -w / 2.0,
+                -h / 2.0,
+                w / 2.0,
+                -h / 2.0,
+                -w / 2.0,
+                h / 2.0
+            );
+        } else {
+            println!(
+                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"{radius}\" {paint} transform=\"translate({x} {y}) rotate({turn})\"/>",
+                -w / 2.0,
+                -h / 2.0,
+                w.abs(),
+                h.abs()
+            );
+        }
+    }
+    println!("</svg>");
+}
+
+/// On a planet the view is held to the ground that is loaded: zoomed
+/// out as far as the wheel goes, the canvas's far corner is still within
+/// `bims::terrain::VIEW` tiles of its middle; and nothing holds it
+/// docked in space.
+#[test]
+fn a_landed_view_reaches_no_further_than_the_ground_is_loaded() {
+    use crate::Session;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    session.fit(CANVAS.0, CANVAS.1);
+    session.zoom(CANVAS.0 / 2.0, CANVAS.1 / 2.0, 0.01);
+    session.render();
+    let scale_in_space = session.game.as_ref().unwrap().ship_view.scale();
+    let reach = bims::terrain::VIEW as f32 * TILE as f32;
+    let corner = |scale: f32| CANVAS.0.hypot(CANVAS.1) / 2.0 / scale;
+    assert!(corner(scale_in_space) > reach, "docked, the view goes wide");
+    assert!(session.land_for_probe());
+    session.zoom(CANVAS.0 / 2.0, CANVAS.1 / 2.0, 0.01);
+    session.render();
+    let scale = session.game.as_ref().unwrap().ship_view.scale();
+    let edge = |scale: f32| CANVAS.0.min(CANVAS.1) / 2.0 / scale;
+    assert!(
+        edge(scale) <= reach + 1.0,
+        "landed, the nearer edge is {} units out of {reach}",
+        edge(scale)
+    );
+    // And a notch of the wheel past the floor moves nothing.
+    let before = session.game.as_ref().unwrap().ship_view.focus();
+    let (px, py) = (
+        session.game.as_ref().unwrap().ship_view.offset_x(),
+        session.game.as_ref().unwrap().ship_view.offset_y(),
+    );
+    session.zoom(CANVAS.0 * 0.8, CANVAS.1 * 0.3, 0.5);
+    let view = &session.game.as_ref().unwrap().ship_view;
+    assert_eq!(view.focus(), before);
+    assert_eq!(
+        (view.offset_x(), view.offset_y()),
+        (px, py),
+        "the view walked off"
     );
 }

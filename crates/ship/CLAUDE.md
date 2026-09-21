@@ -83,9 +83,16 @@ he could not be zoomed in on across the station. Everything is still
 **drawn** about the ship — the painter, `stations`, the pointer — and only
 `offset_x`/`offset_y` know about the focus, so nothing else had to change;
 `Camera::zoom` is written in terms of `to_view` for the same reason. The
-map's focus stays nought, the ship.
-`the_camera_follows_the_crew_member_the_player_steers` pins it, including
-a zoom about a corner and a pan to the limit.
+map's focus is nought, the ship, while it follows; let go, it is
+`Game::map_anchor` — a **place in the system**, put back into the focus
+every frame and read out of it after every pan and zoom (`Game::pan`,
+`Game::zoom`, `hold_map`) — because the map's camera is measured from
+the ship, and a focus left alone would have flown with it: a planet
+zoomed in on slid off as the ship set out, and before that the clamp kept
+the ship on the canvas so a planet could not be zoomed in on at all.
+`the_camera_follows_the_crew_member_the_player_steers` pins the ship view,
+including a zoom about a corner and a pan to the limit, and
+`the_map_let_go_holds_a_place_in_the_system_still` the map.
 
 **`Game::follow` is the player's exception, and `Camera::set_loose` is
 how.** The game *opens* free — the whole ship in the middle, dragged
@@ -618,3 +625,154 @@ Nothing in this crate reads what a comfort *does*; that is the room's
 wall light, so a picture dropped along a bulkhead hangs from it like a
 lamp, and the ghost painter's edge bar is lamplight for the lamp and the
 frame's brass (`fittings::FRAME_BRASS`) for the picture.
+
+## On a planet there is no space, and the planet grows under a landing
+
+`world_paint` (September 2026, feature 52; the rules are
+`crates/world/CLAUDE.md`, "A planet's surface is a settlement"). While
+`World::landed()` says the ship is down, `paint_ship`'s backdrop is the
+**ground** — `ground_color` by the planet's kind, `GROUND_ROCKY` or
+`GROUND_ICE`, darker than the map's disc so the deck and the hull read on
+it — with `ground` scattering darker patches over it at fixed places in
+the camera's units (the ship does not move on the ground, so they need no
+world position); no starfield and no `local_node`; a paved **pad** under
+the hull's whole box in the ship's frame (`pad`, before the rocks and the
+rim, `PAD_MARGIN` past the hull); and `stations` draws the settlement
+alone — chained onto `World::stations`, since it is not in it, through
+`World::station(id)` — and nothing in orbit, because from the ground
+nothing in orbit is in the picture. The settlement is a station to every
+other line of `stations`: its residents' room, its mated gate, its fog by
+stance.
+
+**The descent is the planet's disc growing under the ship.** During a
+landing (`World::landing()`, the body and nought to one) `local_node`
+draws the planet `LANDING_GROWTH` (40) to the power of the progress
+bigger than it draws it held beside — geometric, so the growth reads the
+same all the way down — and during a lift-off (`World::lifting()`) the
+same shrinking; the ship's own position does the rest, since the world
+slides it over the planet and down. `blackout` fades the window to black
+over the last `LANDING_BLACK` of a landing and from black over the first
+`LIFT_BLACK` of a lift-off, a rect over the whole list; the app holds the
+black a beat after `Landed` while the ground is laid out
+(`screens/game.rs`, `BLACKOUT_HOLD`). `BIMS_LANDED=1 bims simulation` is the
+ground; `BIMS_LANDING=0.5` and `=0.85` are the planet come up under the
+ship and the black beginning.
+
+**A town is drawn as ground, not as a hull** (feature 54; the town
+itself is `crates/world/CLAUDE.md`, "A planet's surface is a
+settlement"). In `stations`, a `Plan::Surface` station gets a
+`Terrain` — its biome off `World::surface(surface_body(id)).biome`,
+and which of its tiles are **out of doors**: a four-neighbour flood
+from the tile inside the port (`port.centre` in tiles, one step back
+along `port.outward`, as `world::crew` finds it) over tiles whose
+object layer is empty or holds only the wild — tree, shrub, boulder,
+water, field — a standing light, sandbags or a plant
+(`passable_outdoors`); a door, a wall or anything else stops it, so a
+house's floor is inside and the street outside its door is not. It is
+rebuilt every frame, a walk of the parts and the tiles. `hull_tiles`
+takes it as `Option<&Terrain>` (`None` for the ship and every station
+in orbit) and with it **skips the structure layer** — there is no frame
+under a town — and draws no `hull::shadow`, since the ground goes on
+past the deck's edge. The floor is `ground_floor`: **one rect a run**
+of floor tiles along each row, the outdoor runs in the biome's ground
+colour and the indoor runs in `FLOORBOARD`, rather than a rect a tile
+(a 96-tile town is nine thousand tiles, and most of them are ground);
+then a decoration on roughly one outdoor tile in `DECORATED_ONE_IN`
+(6) with nothing standing on it, chosen by `tile_hash(x, y)` so it
+holds still — a tuft of two or three darker strokes and now and then
+a flower, a ripple in the sand or a pebble, a drift of snow. The
+objects go through `hull::part`, then **`fittings::part_in(..,
+Some(biome))`**, then the block, as ever.
+
+**The backdrop is the town's floor colour.** `ground_color` takes the
+biome now, not the body's kind (`SAND`, `GRASS`, `SNOW`), and returns
+the very colour the outdoor floor runs are drawn in, so where the
+settlement's deck ends is invisible and the wild ring is what marks
+the ground's edge; `ground`'s scattered patches are the biome's darker
+tone (`ground_dark`). All three are dark enough that a landed ship's
+deck and the bodies read on them.
+
+**`fittings::part_in` is biome-aware, and `part` is it with `None`.**
+With a biome a `Wall` is the ground's — temperate: two courses of
+stone blocks let into a mortar seam; desert: adobe with a lighter
+face; arctic: timber with a plank line — and the ship's bulkhead stays
+for `None`. The five wild parts have pictures in the part's own frame
+through `hull::Local`, each with a shadow to its south-east: `Tree` a
+round canopy of three ellipses in the two greens, a palm (a trunk disc
+and six fronds) in a desert, a fir (three tiers stacked up the tile,
+snow on the top one) in the arctic — the tiers are the format's
+right-angled triangle turned three-eighths so its right angle is the
+apex, and `turn_of` reads the part's turn back off the `Local` for
+that one shape; `Shrub` a small bush, a cactus with an arm each side,
+or a tussock of dry blades; `Boulder` as `world_paint::list_rock` — the
+biome's rock, a seam, a lit edge — with a second smaller lump against
+it; `Water` the whole tile in the biome's water so a lake is one sheet,
+with two wavelets on one tile in three, or, arctic, ice with a crack;
+`Field` the soil with an edge and three furrows, the far view of what
+the room draws live. With `None` the temperate look. `salt` (a hash of
+the origin) varies size and lean so a row of trees is not one tree,
+and picks which water tiles carry a mark. `SAVE_VERSION` is 2: the
+feature grew `Surface`, `Station`, the bay, the layout and the sight.
+
+**On the map a landable planet says so three ways.** Its icon is ringed by
+its settlement's stance like a station's (`World::surface`,
+`World::stance`); a **landing pad** stands at its top-right shoulder
+(`paint_pad`: a plate in the side's colour with an arrow coming down onto
+it, `PAD_SHOULDER` out — past the stance ring *and* the reticle round a
+ship docked at the planet's own station, which sits on the planet at map
+scale), where a belt has its pickaxe, so a planet with ground is told
+from a gas giant at a glance; and the app writes its name and `· land`
+**under** the icon (`screens/game.rs`, `LAND_TAG`, `LAND_DROP`; the
+ship's own `You · …` goes over, and a ship docked at the planet's station
+would otherwise have the two on top of each other) in `theme::LAND` —
+`FRIEND` by value — or `theme::BAD` for a hostile one. The words come off
+`Session::landing_sites`, which reads `World::surface` and `World::stance`
+and places each with `Game::map_spot` — the map's arithmetic read back,
+shared with `pick`, so a name lands where the icon was drawn at any
+heading and head-up. `BIMS_KEYS=40:M bims simulation` with a screenshot
+is the picture; the simulation docks at a station in orbit of a landable
+ice world, so the docked case is the first one seen.
+
+## A save is the world as text, and the session is stood up again round it
+
+`save.rs` (September 2026, feature 53). `encode(&session)` is the game's
+`World` written as RON — compact, one value — behind four numbers: the
+players, the local slot, the galaxy type's code and the spawn, which is
+everything `Session` holds that a world does not. `decode` reads it back,
+and `Session::restore` stands a session up round it the way `simulate_on`
+does: `Editor::settled` on the ship's design, `Game::resume` round the
+world — the cameras fitted, nothing aimed, no tool in hand, the sky rolled
+off the world's own seed. Nothing of the window is saved; a load opens on
+the whole ship like a new game.
+
+Three things about it that are easy to get wrong:
+
+- **The version is read off the front of the text by hand**, not through
+  a struct that ignores the rest. `encode` writes `(version:N,` first, and
+  `version_of` reads the digits. The obvious way — deserialize a `Head {
+  version }` and let serde ignore `world` — took *fourteen minutes* on a
+  save: RON tells a struct from a tuple by scanning ahead to the matching
+  bracket, so ignoring a value is linear in its size and ignoring a nested
+  one is quadratic. Two ship test binaries sat at 99% on it before it was
+  found. Keep the version first in `Written`, and keep the read by hand.
+- **What is left out is what is worked out again.** `serde(skip)` on the
+  room's draw buffer, the sight's pixel caches (the light map, the light
+  fields, the lamps' boxes, the views) and a surface's lazily built
+  settlement, all of which `render`, `light_map` and `Surface::station`
+  rebuild from what *is* saved. Those pictures were 25 MB of a 39 MB
+  file. The two big flag grids that are state — the nav's blocked cells
+  and the sight's explored pixels — go as a string of noughts and ones
+  (`bims::math::bools`), a fifth of `true,false,`. A save is ~7 MB now
+  and reads back in a quarter of a second.
+- **`a_game_saved_and_read_back_is_the_same_game`** is the test, and it
+  compares three things: `world.checksum()`, every crew member's position
+  in the room, and the *picture* both sessions draw — as read back, and
+  six hundred steps on. A cache skipped that was not rebuilt, or a field
+  that should have been saved and was not, shows up there as a pixel or a
+  Bim somewhere else. A new field in the world is in the save by
+  deriving, so the test is what says whether it round-trips.
+
+`SAVE_VERSION` is bumped when a saved type changes shape; an old file is
+refused as `LoadError::Version` rather than read wrong, and one that is
+not a save at all as `LoadError::Syntax` with the parser's words. Where
+the file goes is the app's (`crates/app/src/save.rs`).

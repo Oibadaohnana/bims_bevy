@@ -29,7 +29,8 @@
 //! the player steers, set every frame (`Game::follow_player`), so the view
 //! follows them off the ship and through a station's airlock and can never
 //! be dragged until they are off the edge. On the map it is nought — the
-//! ship.
+//! ship — while it follows, and a place in the system held still under a
+//! moving ship when it is let go (`Game::map_anchor`).
 //!
 //! That is the camera **tethered**, and it can also be let [`loose`]
 //! (`Game::follow` off): then nobody sets the focus, a pan moves the focus
@@ -64,6 +65,10 @@ pub struct Camera {
     loose: bool,
     min_scale: f32,
     max_scale: f32,
+    /// A floor under the scale for the moment — on a planet, where the
+    /// view reaches no further than the ground is loaded — set every
+    /// frame by whoever knows, and nought otherwise.
+    floor: f32,
 }
 
 /// How much of the canvas the pan may take the middle out to, as a fraction
@@ -84,6 +89,7 @@ impl Camera {
             loose: false,
             min_scale,
             max_scale,
+            floor: 0.0,
         };
         camera.settle();
         camera
@@ -180,7 +186,14 @@ impl Camera {
         // What is under the pointer, in the camera's units, before the
         // change; it has to be under the pointer after it too.
         let (ux, uy) = self.to_view(at_x, at_y);
-        self.scale = clamp(before * factor, self.min_scale, self.max_scale);
+        // The floor here as well as in `settle`: a pan worked out from a
+        // scale the floor then lifts is a shove, and every notch of the
+        // wheel past the floor walked the view off sideways.
+        self.scale = clamp(
+            before * factor,
+            self.min_scale.max(self.floor),
+            self.max_scale,
+        );
         if self.scale == before {
             return;
         }
@@ -198,10 +211,30 @@ impl Camera {
 
     /// Put the camera back where it is allowed to be.
     pub fn settle(&mut self) {
-        self.scale = clamp(self.scale, self.min_scale, self.max_scale);
+        self.scale = clamp(self.scale, self.min_scale.max(self.floor), self.max_scale);
         let (x, y) = (self.width / 2.0 * PAN_LIMIT, self.height / 2.0 * PAN_LIMIT);
         self.pan_x = clamp(self.pan_x, -x, x);
         self.pan_y = clamp(self.pan_y, -y, y);
+    }
+
+    /// Hold the scale at or above `floor` from now on — nought lifts it.
+    /// What keeps a landed view within the ground that is loaded: the
+    /// canvas's far corner is never more than the plain's reach from
+    /// its middle. Applied at once.
+    pub fn set_floor(&mut self, floor: f32) {
+        self.floor = floor.max(0.0);
+        self.settle();
+    }
+
+    /// The scale at which the canvas's nearer edge is `reach` units from
+    /// its middle: the floor for a view that may see no further than that
+    /// — its corners see a little past it, which is what the ground is
+    /// drawn to.
+    pub fn scale_for_reach(&self, reach: f32) -> f32 {
+        if reach <= 0.0 {
+            return 0.0;
+        }
+        self.width.min(self.height) / 2.0 / reach
     }
 
     /// Set the scale without moving what is in the middle. What a view does

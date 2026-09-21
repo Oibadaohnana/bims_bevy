@@ -12,11 +12,13 @@
 //! length in the `time` crate, the travel-time formula itself, and the
 //! desolation mapping below.
 //!
-//! The station shares, the salvage and the hazards are *not* on that list on
-//! purpose: they change what is in a system without changing whether a layout
-//! passes validation, so they can be tuned while the world stays the shape it
-//! was.
+//! The station shares, the salvage, the hazards, the shelves and the price
+//! biases are *not* on that list on purpose: they change what is in a
+//! system without changing whether a layout passes validation, so they can
+//! be tuned while the world stays the shape it was — the checksum moves,
+//! the version does not.
 
+use economy::market::{Bias, MAX_BIAS};
 use physics::{EngineSpec, Facing, Mass, ResourceId};
 
 /// How far apart things in a system are allowed to be, **in days for the
@@ -25,6 +27,7 @@ use physics::{EngineSpec, Facing, Mass, ResourceId};
 /// actually about — a system you can cross in an afternoon has no geography,
 /// and one that takes a month to cross has too much.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TravelBand {
     pub min_days: f64,
     pub max_days: f64,
@@ -48,6 +51,7 @@ pub const TRAVEL_BAND: TravelBand = TravelBand {
 /// units, which is a number that can be held in the head while reading a
 /// layout dump.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ReferenceShip {
     pub engine_count: u32,
     pub engine_thrust: f64,
@@ -197,6 +201,7 @@ pub const RELAY_DESOLATION: f64 = 0.6;
 /// exactly as `SPOT_NAMES` and `JOB_NAMES` are.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum StationKind {
     /// In orbit of somewhere people live. The ordinary case.
     Orbital = 0,
@@ -272,6 +277,7 @@ impl StationKind {
 /// What a body is.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BodyKind {
     RockyPlanet = 0,
     GasGiant = 1,
@@ -351,6 +357,7 @@ pub fn salvage_sites(kind: StationKind, u: f64) -> u32 {
 /// off the star map before setting out is not exploring.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum HazardKind {
     Radiation = 0,
     /// A hull that is open to space.
@@ -411,38 +418,41 @@ mod tests {
     }
 
     #[test]
-    fn the_travel_band_makes_sense() {
-        assert!(TRAVEL_BAND.min_days > 0.0);
-        assert!(TRAVEL_BAND.max_days > TRAVEL_BAND.min_days);
-    }
-
-    #[test]
-    fn desolation_maps_onto_the_whole_band() {
-        assert!((target_hop_days(0.0) - TRAVEL_BAND.min_days).abs() < 1e-12);
-        assert!((target_hop_days(1.0) - TRAVEL_BAND.max_days).abs() < 1e-12);
-        // And never out of it, whatever it is handed.
-        for &d in &[-1.0, 0.0, 0.3, 1.0, 2.0] {
-            let t = target_hop_days(d);
-            assert!(
-                t >= TRAVEL_BAND.min_days && t <= TRAVEL_BAND.max_days,
-                "{t}"
-            );
+    fn the_travel_band_makes_sense_and_desolation_maps_onto_the_whole_of_it() {
+        // --- the_travel_band_makes_sense ---
+        {
+            assert!(TRAVEL_BAND.min_days > 0.0);
+            assert!(TRAVEL_BAND.max_days > TRAVEL_BAND.min_days);
         }
-    }
 
-    #[test]
-    fn desolation_stays_in_its_range_and_leans_low() {
-        let mut rng = crate::rng::Rng::new(1);
-        let mut high = 0;
-        for _ in 0..10_000 {
-            let d = desolation(rng.unit());
-            assert!((0.0..=1.0).contains(&d));
-            if d > 0.5 {
-                high += 1;
+        // --- desolation_maps_onto_the_whole_band ---
+        {
+            assert!((target_hop_days(0.0) - TRAVEL_BAND.min_days).abs() < 1e-12);
+            assert!((target_hop_days(1.0) - TRAVEL_BAND.max_days).abs() < 1e-12);
+            // And never out of it, whatever it is handed.
+            for &d in &[-1.0, 0.0, 0.3, 1.0, 2.0] {
+                let t = target_hop_days(d);
+                assert!(
+                    t >= TRAVEL_BAND.min_days && t <= TRAVEL_BAND.max_days,
+                    "{t}"
+                );
             }
         }
-        // A uniform draw would put half of them above a half.
-        assert!(high < 4_000, "{high} systems in ten thousand were desolate");
+
+        // --- desolation_stays_in_its_range_and_leans_low ---
+        {
+            let mut rng = crate::rng::Rng::new(1);
+            let mut high = 0;
+            for _ in 0..10_000 {
+                let d = desolation(rng.unit());
+                assert!((0.0..=1.0).contains(&d));
+                if d > 0.5 {
+                    high += 1;
+                }
+            }
+            // A uniform draw would put half of them above a half.
+            assert!(high < 4_000, "{high} systems in ten thousand were desolate");
+        }
     }
 
     /// What is on the shelf where: galvum only at an outpost, an emitter
@@ -557,6 +567,7 @@ mod tests {
 /// and there is a reason to fly to the other one. A theme — what a
 /// station is *for* — would replace the roll, not the ceiling.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Stock(pub u32);
 
 /// On every shelf the kind allows: what the crew build with and eat.
@@ -606,4 +617,22 @@ impl Stock {
     pub fn sells(self, resource: ResourceId) -> bool {
         self.0 & (1 << resource as u32) != 0
     }
+}
+
+/// Roll one station's lean on every price: a whole number per cent in
+/// `-MAX_BIAS..=MAX_BIAS` a resource, off `roll`, which is the station's
+/// own branch of its stream. Drawn for **every** resource whether the
+/// station stocks it or not, in [`ResourceId::ALL`] order, so a resource
+/// added later is drawn after the rest and moves none of them; and by
+/// [`crate::rng::Rng::below`] alone — no `unit`, nothing off the
+/// desolation — so it is the same integer on every target. The world's
+/// settlements roll theirs the same way (`world::surface`). It is in the
+/// galaxy checksum beside the shelf.
+pub fn price_bias(roll: &mut crate::rng::Rng) -> Bias {
+    let span = 2 * MAX_BIAS as u32 + 1;
+    let mut bias = Bias::NONE;
+    for &resource in ResourceId::ALL.iter() {
+        bias.0[resource as usize] = roll.below(span) as i8 - MAX_BIAS;
+    }
+    bias
 }

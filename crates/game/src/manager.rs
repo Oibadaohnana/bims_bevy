@@ -37,6 +37,7 @@ const FIBRE_AT_DAWN: u32 = 0;
 /// `Game::target(kind)` and `Game::set_target(kind, n)` — so they are
 /// fixed, and appended to rather than reordered.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Stock {
     Veg = 0,
     Tofu = 1,
@@ -56,6 +57,7 @@ impl Stock {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Manager {
     veg: u32,
     tofu: u32,

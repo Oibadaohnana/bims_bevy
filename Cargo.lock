@@ -1585,6 +1585,7 @@ name = "bims"
 version = "0.1.0"
 dependencies = [
  "physics",
+ "serde",
  "shipdesign",
  "time",
 ]
@@ -2188,6 +2189,7 @@ name = "economy"
 version = "0.1.0"
 dependencies = [
  "physics",
+ "serde",
 ]
 
 [[package]]
@@ -2404,6 +2406,7 @@ name = "flight"
 version = "0.1.0"
 dependencies = [
  "physics",
+ "serde",
  "shipdesign",
  "time",
  "worldgen",
@@ -2758,6 +2761,7 @@ dependencies = [
 name = "health"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "time",
 ]
 
@@ -3965,6 +3969,7 @@ dependencies = [
 name = "physics"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "time",
 ]
 
@@ -4488,6 +4493,8 @@ dependencies = [
  "economy",
  "flight",
  "physics",
+ "ron",
+ "serde",
  "shipdesign",
  "time",
  "world",
@@ -4500,6 +4507,7 @@ version = "0.1.0"
 dependencies = [
  "economy",
  "physics",
+ "serde",
 ]
 
 [[package]]
@@ -5995,6 +6003,7 @@ dependencies = [
  "flight",
  "health",
  "physics",
+ "serde",
  "shipdesign",
  "time",
  "worldgen",
@@ -6004,7 +6013,9 @@ dependencies = [
 name = "worldgen"
 version = "0.1.0"
 dependencies = [
+ "economy",
  "physics",
+ "serde",
  "time",
 ]
 

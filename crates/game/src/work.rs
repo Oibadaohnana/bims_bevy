@@ -25,6 +25,7 @@
 /// The code is the whole identity across the boundary — the host indexes its
 /// name table with it — so variants are appended rather than inserted.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Job {
     /// Sweeping the deck.
     Clean,
@@ -120,6 +121,7 @@ pub const DEFAULT: u32 = 3;
 /// One number per job. The player's standing instruction to the ship rather
 /// than to a Bim: there is one list and both crew work to it, the same as the
 /// timetable and the action thresholds.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Priorities {
     level: [u32; Job::ALL.len()],
 }

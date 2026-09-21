@@ -47,6 +47,8 @@ FULL=("${QUICK[@]}" probes flake)
 
 LOGS=target/check
 mkdir -p "$LOGS" target/probes
+# Where a smoke run's window goes under Hyprland (step_smoke).
+SMOKE_WORKSPACE=${SMOKE_WORKSPACE:-2}
 
 # ---------------------------------------------------------------------------
 # the steps
@@ -61,10 +63,12 @@ build     cargo build --workspace: the app, and every crate it stands on
 test      cargo test --workspace: the rules crates' pinned arithmetic, the
           designer's and lobby's geometry, and the app's tables against them
 clippy    cargo clippy on the app crate, with warnings as errors
-smoke     `bims game`, `simulation`, `design`, `room`, `test`, `combat` and
-          `stationbuilder` (its sketches pointed at target/check/) each run
-          sixty frames in a hidden window and exit; the room, the simulation, the yard
-          and the combat dock (with its fight staged, BIMS_FIGHT=1) leave a
+smoke     `bims game`, `simulation`, `design`, `room`, `test`, `test_planet`,
+          `combat` and `stationbuilder` (its sketches pointed at target/check/)
+          each run sixty frames in a hidden window and exit; the room, the
+          simulation, the yard, the combat dock (with its fight staged,
+          BIMS_FIGHT=1), the simulation landed on a planet (BIMS_LANDED=1)
+          and `test_planet` leave a
           screenshot in target/check/ — a black picture is a bug no test sees
 probes    every scratchpad/*.rs probe compiled fresh into target/probes/ and
           run; a compile failure is a failure
@@ -118,20 +122,34 @@ step_smoke() {
   else
     exec_in_shell=0
   fi
-  for what in game simulation design room test combat stationbuilder; do
+  # A smoke run's window is `bims-smoke` to the window system, and under
+  # Hyprland it is parked on workspace SMOKE_WORKSPACE without the desktop
+  # switching to it — the window cannot be hidden on Wayland, and nine
+  # fullscreen windows in a row on the workspace you are working on is
+  # the alternative. A live rule, gone at the compositor's next reload.
+  if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null 2>&1; then
+    hyprctl eval "hl.window_rule({ name = \"bims-smoke\", match = { class = \"^bims-smoke\$\" }, workspace = \"$SMOKE_WORKSPACE silent\" })" >/dev/null 2>&1 || true
+  fi
+  for what in game simulation design room test test_planet combat stationbuilder landed; do
     shot=""
-    case "$what" in room | simulation | design | combat) shot="$LOGS/smoke-$what.png" ;; esac
+    case "$what" in room | simulation | design | test_planet | combat | landed) shot="$LOGS/smoke-$what.png" ;; esac
     rm -f "$shot"
     # The combat dock is screenshotted with the fight staged (the crew
     # member inside the station's door, one of its people down the
     # corridor), so the picture shows enemies and a bolt rather than a
     # quiet berth — `BIMS_FIGHT=1` is `World::stage_fight_for_probe`.
-    local staged=""
+    local staged="" run="$what"
     [ "$what" = combat ] && staged="BIMS_FIGHT=1 "
+    # `landed` is the simulation set down on a planet — the pad, the
+    # ground and the settlement beside it — `BIMS_LANDED=1` being
+    # `World::land_for_probe`.
+    [ "$what" = landed ] && { staged="BIMS_LANDED=1 "; run=simulation; }
     # The builder reads and writes stations/; a smoke run gets a scratch
     # directory so it cannot touch a sketch somebody is drawing.
     [ "$what" = stationbuilder ] && staged="BIMS_STATIONS_DIR=$LOGS/stations "
-    local cmd="${staged}BIMS_SMOKE_FRAMES=60 BIMS_FULLSCREEN=1 ${shot:+BIMS_SCREENSHOT=$shot} target/debug/bims $what"
+    # And the saves: a scratch directory, so a smoke run cannot touch a game.
+    staged="${staged}BIMS_SAVES_DIR=$LOGS/saves "
+    local cmd="${staged}BIMS_SMOKE_FRAMES=60 BIMS_FULLSCREEN=1 ${shot:+BIMS_SCREENSHOT=$shot} target/debug/bims $run"
     if [ $exec_in_shell = 1 ]; then
       cmd="nix-shell shell.nix --run '$cmd'"
     fi

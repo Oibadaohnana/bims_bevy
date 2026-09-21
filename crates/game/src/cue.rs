@@ -21,6 +21,7 @@ use crate::math::Vec2;
 
 /// One thing worth hearing.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Cue {
     /// A door's leaves started drawing back — a ship's sliding door, or
     /// the heads' — from shut or from part way there.
@@ -50,6 +51,7 @@ pub enum Cue {
 /// A cue and where in the room it happened, in room units — the door's
 /// middle, the board, the gun's muzzle, the body.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Cued {
     pub cue: Cue,
     pub at: Vec2,

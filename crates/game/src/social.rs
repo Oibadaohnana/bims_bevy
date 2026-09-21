@@ -77,6 +77,7 @@ const DRAGS_AT: f32 = 0.90;
 
 /// How far gone a Bim is for want of anybody to talk to.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Loneliness {
     None,
     /// Low, and slow with it.
@@ -122,6 +123,7 @@ impl Loneliness {
 /// where the Bim is standing, what it is in the middle of, and whether there
 /// is anything it can do about any of it.
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Fallout {
     /// A low moment worth remembering.
     pub brooded: bool,
@@ -135,6 +137,7 @@ pub struct Fallout {
 
 /// How long *this Bim* has been without company, and what that is about to
 /// cost it.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Solitude {
     /// Game minutes the company bar has been empty since it last talked to
     /// anybody: the clock stands while there is anything on the bar.

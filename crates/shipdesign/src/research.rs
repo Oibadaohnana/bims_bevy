@@ -56,6 +56,7 @@ pub const KEY_CELLS: (u32, u32) = (1, 2);
 /// never renumbered; a node is appended.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Node {
     /// Everything a crew needs to live and to fly: the hull, the galley,
     /// the heads, the bunks, the bay, the fission reactor, the helm and
@@ -237,6 +238,7 @@ pub fn node_of_recipe(index: usize) -> Node {
 /// The crew's progress through the tree: what is researched, which locked
 /// nodes have had their key, what the AI is on and how far it has got.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Research {
     /// By `Node` code.
     pub done: [bool; NODES],

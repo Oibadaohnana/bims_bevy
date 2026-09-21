@@ -24,6 +24,7 @@ pub const KIND_TRIANGLE: f32 = 2.0;
 const FILLED: f32 = 0.0;
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Color {
     pub r: f32,
     pub g: f32,
@@ -58,6 +59,7 @@ impl Color {
 }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DrawList {
     data: Vec<f32>,
 }

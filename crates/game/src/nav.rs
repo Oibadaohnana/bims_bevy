@@ -36,6 +36,7 @@ const DIAGONAL: u32 = 14;
 pub const OUTSIDE_RADIUS: i32 = 100;
 pub const OUTSIDE_RECENTRE: f32 = 25.0;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Nav {
     cols: usize,
     rows: usize,
@@ -44,6 +45,7 @@ pub struct Nav {
     /// The cell's side: [`CELL`] in the classic room, a fifth of a tile
     /// aboard.
     cell: f32,
+    #[cfg_attr(feature = "serde", serde(with = "crate::math::bools"))]
     blocked: Vec<bool>,
     /// Which connected patch of free cells each cell is in — the same
     /// number for every cell a body could walk between, by the same steps
@@ -490,6 +492,7 @@ impl Nav {
 /// in the same step, so a rebuild anywhere in the frame loop is always one
 /// frame late and the route comes back empty. Two grids built once, and the
 /// choice made at the moment a path is asked for, cannot be late.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Maps {
     open: Nav,
     shut: Nav,
@@ -497,6 +500,13 @@ pub struct Maps {
     /// about whoever is out there by `Game::refresh_outside`, and `None` in
     /// a room with nothing outside it. See [`Nav::outside`].
     outside: Option<Nav>,
+    /// On a planet's plain, a window a body: [`Nav::outside`] built about
+    /// whoever is out past the deck's grids — or bound there — by
+    /// `Game::refresh_afield`, over the ground and whatever of the deck
+    /// falls in it, and `None` for a body on the deck. Not saved: built
+    /// again on the first step.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    afield: Vec<Option<Nav>>,
 }
 
 impl Maps {
@@ -521,6 +531,7 @@ impl Maps {
             open: grid(solids),
             shut: grid(&with_door),
             outside: None,
+            afield: Vec::new(),
         }
     }
 
@@ -537,6 +548,31 @@ impl Maps {
             (true, Some(nav)) => nav,
             _ => self.pick(door_open),
         }
+    }
+
+    /// The grid body `who` is on: its window while it is afield and has
+    /// one, else [`Maps::for_body`].
+    pub fn for_who(&self, who: usize, outside: bool, afield: bool, door_open: bool) -> &Nav {
+        match (afield, self.afield.get(who)) {
+            (true, Some(Some(nav))) => nav,
+            _ => self.for_body(outside, door_open),
+        }
+    }
+
+    /// A body's window, if it has one.
+    pub fn afield(&self, who: usize) -> Option<&Nav> {
+        self.afield.get(who).and_then(|w| w.as_ref())
+    }
+
+    pub fn set_afield(&mut self, who: usize, nav: Option<Nav>) {
+        if self.afield.len() <= who {
+            self.afield.resize_with(who + 1, || None);
+        }
+        self.afield[who] = nav;
+    }
+
+    pub fn clear_afield(&mut self) {
+        self.afield.clear();
     }
 
     pub fn outside(&self) -> Option<&Nav> {

@@ -44,7 +44,7 @@ const FLAME: Color = Color::rgb(0.30, 0.66, 1.0);
 /// Index 0 is the deck and index 15 is the frame; both are drawn as tiles
 /// rather than as objects, and both are in the table anyway so the palette
 /// buttons for them have swatches.
-pub static PART_COLORS: [Color; 45] = [
+pub static PART_COLORS: [Color; 50] = [
     Color::rgb(0.13, 0.15, 0.18), // Floor
     Color::rgb(0.30, 0.34, 0.40), // Wall
     Color::rgb(0.38, 0.86, 0.95), // Door
@@ -90,6 +90,11 @@ pub static PART_COLORS: [Color; 45] = [
     Color::rgb(0.42, 0.66, 0.36), // SmallPlant — leaf
     Color::rgb(0.30, 0.56, 0.30), // BigPlant — leaf, deeper
     Color::rgb(0.72, 0.58, 0.32), // Picture — the frame's brass
+    Color::rgb(0.42, 0.30, 0.18), // Field — soil, a furrowed brown
+    Color::rgb(0.22, 0.44, 0.24), // Tree — a deep leaf green
+    Color::rgb(0.50, 0.62, 0.42), // Shrub — sage
+    Color::rgb(0.56, 0.52, 0.46), // Boulder — a warm grey
+    Color::rgb(0.26, 0.46, 0.66), // Water — a lake
 ];
 
 /// The frame, drawn as the tile under everything. Dimmer than the deck and

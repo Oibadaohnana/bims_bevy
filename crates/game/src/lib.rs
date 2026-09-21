@@ -40,6 +40,7 @@ pub mod schedule;
 pub mod sight;
 pub mod social;
 pub mod task;
+pub mod terrain;
 pub mod work;
 
 /// The shared `time` crate, pulled into the crate root so every module reaches

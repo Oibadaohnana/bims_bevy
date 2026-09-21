@@ -30,6 +30,7 @@
 /// here is a `generator_version` bump.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u64)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Purpose {
     /// Where the stars are, and what they are. Galaxy-wide, drawn once.
     StarField = 1,
@@ -81,6 +82,7 @@ pub fn seed_for(galaxy_seed: u64, star_id: u32, generator_version: u32, purpose:
 /// no state to get wrong, and it never repeats inside any run this generator
 /// will ever make.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rng {
     state: u64,
 }
@@ -162,82 +164,88 @@ impl Rng {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_stream_is_the_same_every_time() {
-        let draw = || {
-            let mut r = Rng::stream(12345, 7, 1, Purpose::Bodies);
-            (0..8).map(|_| r.next_u64()).collect::<Vec<_>>()
-        };
-        assert_eq!(draw(), draw());
-    }
-
     /// The point of `Purpose`. Same galaxy, same star, different question —
     /// and the answers must not be the same numbers.
     #[test]
-    fn purposes_do_not_share_a_stream() {
-        let mut a = Rng::stream(1, 1, 1, Purpose::Bodies);
-        let mut b = Rng::stream(1, 1, 1, Purpose::Stations);
-        assert_ne!(a.next_u64(), b.next_u64());
-    }
-
-    #[test]
-    fn the_parts_of_a_seed_do_not_commute() {
-        assert_ne!(
-            seed_for(1, 2, 3, Purpose::Bodies),
-            seed_for(2, 1, 3, Purpose::Bodies)
-        );
-        assert_ne!(
-            seed_for(1, 2, 3, Purpose::Bodies),
-            seed_for(1, 2, 4, Purpose::Bodies)
-        );
-    }
-
-    #[test]
-    fn neighbouring_stars_are_not_neighbouring_streams() {
-        let first = |id| Rng::stream(99, id, 1, Purpose::Bodies).next_u64();
-        let a = first(41);
-        let b = first(42);
-        // A weak hash would leave these close together; a good one leaves
-        // them unrelated. Anything sharing a whole top byte would be a smell.
-        assert_ne!(a >> 56, b >> 56);
-    }
-
-    #[test]
-    fn branching_does_not_move_the_parent() {
-        let r = Rng::new(7);
-        let mut parent = r.clone();
-        let _ = r.branch(3);
-        let mut again = r.clone();
-        assert_eq!(parent.next_u64(), again.next_u64());
-        assert_ne!(r.branch(3).next_u64(), r.branch(4).next_u64());
-    }
-
-    #[test]
-    fn unit_stays_inside_its_range() {
-        let mut r = Rng::new(3);
-        let (mut lo, mut hi) = (1.0f64, 0.0f64);
-        for _ in 0..100_000 {
-            let u = r.unit();
-            assert!((0.0..1.0).contains(&u));
-            lo = lo.min(u);
-            hi = hi.max(u);
+    fn a_stream_is_the_same_every_time_and_no_two_seeds_purposes_or_stars_share_one() {
+        // --- a_stream_is_the_same_every_time ---
+        {
+            let draw = || {
+                let mut r = Rng::stream(12345, 7, 1, Purpose::Bodies);
+                (0..8).map(|_| r.next_u64()).collect::<Vec<_>>()
+            };
+            assert_eq!(draw(), draw());
         }
-        // It should actually cover the range rather than hugging the middle.
-        assert!(lo < 0.001 && hi > 0.999, "{lo}..{hi}");
+
+        // --- purposes_do_not_share_a_stream ---
+        {
+            let mut a = Rng::stream(1, 1, 1, Purpose::Bodies);
+            let mut b = Rng::stream(1, 1, 1, Purpose::Stations);
+            assert_ne!(a.next_u64(), b.next_u64());
+        }
+
+        // --- the_parts_of_a_seed_do_not_commute ---
+        {
+            assert_ne!(
+                seed_for(1, 2, 3, Purpose::Bodies),
+                seed_for(2, 1, 3, Purpose::Bodies)
+            );
+            assert_ne!(
+                seed_for(1, 2, 3, Purpose::Bodies),
+                seed_for(1, 2, 4, Purpose::Bodies)
+            );
+        }
+
+        // --- neighbouring_stars_are_not_neighbouring_streams ---
+        {
+            let first = |id| Rng::stream(99, id, 1, Purpose::Bodies).next_u64();
+            let a = first(41);
+            let b = first(42);
+            // A weak hash would leave these close together; a good one leaves
+            // them unrelated. Anything sharing a whole top byte would be a smell.
+            assert_ne!(a >> 56, b >> 56);
+        }
+
+        // --- branching_does_not_move_the_parent ---
+        {
+            let r = Rng::new(7);
+            let mut parent = r.clone();
+            let _ = r.branch(3);
+            let mut again = r.clone();
+            assert_eq!(parent.next_u64(), again.next_u64());
+            assert_ne!(r.branch(3).next_u64(), r.branch(4).next_u64());
+        }
     }
 
     #[test]
-    fn below_is_bounded_and_covers_its_range() {
-        let mut r = Rng::new(5);
-        let mut seen = [0u32; 6];
-        for _ in 0..60_000 {
-            let n = r.below(6);
-            assert!(n < 6);
-            seen[n as usize] += 1;
+    fn unit_and_below_stay_inside_their_ranges_and_cover_them() {
+        // --- unit_stays_inside_its_range ---
+        {
+            let mut r = Rng::new(3);
+            let (mut lo, mut hi) = (1.0f64, 0.0f64);
+            for _ in 0..100_000 {
+                let u = r.unit();
+                assert!((0.0..1.0).contains(&u));
+                lo = lo.min(u);
+                hi = hi.max(u);
+            }
+            // It should actually cover the range rather than hugging the middle.
+            assert!(lo < 0.001 && hi > 0.999, "{lo}..{hi}");
         }
-        assert_eq!(r.below(0), 0);
-        // Ten thousand expected in each bucket; a badly biased draw shows up
-        // long before this is tight.
-        assert!(seen.iter().all(|&c| c > 8_000 && c < 12_000), "{seen:?}");
+
+        // --- below_is_bounded_and_covers_its_range ---
+        {
+            let mut r = Rng::new(5);
+            let mut seen = [0u32; 6];
+            for _ in 0..60_000 {
+                let n = r.below(6);
+                assert!(n < 6);
+                seen[n as usize] += 1;
+            }
+            assert_eq!(r.below(0), 0);
+            // Ten thousand expected in each bucket; a badly biased draw shows up
+            // long before this is tight.
+            assert!(seen.iter().all(|&c| c > 8_000 && c < 12_000), "{seen:?}");
+        }
     }
 }

@@ -19,11 +19,11 @@
 //! bims room          the behaviour test room — Bims on a deck
 //! bims test          the simulation somewhere else each time — docked at a
 //!                    random station somebody lives on, in a random galaxy
-//! bims combat        the fight: the combat ship — five crew, a different
-//!                    gun in each hand — docked at the spawn rebuilt as the
-//!                    arena and made hostile, its people enemies and more
-//!                    of them than a station puts up; a recruited crew
-//!                    member shoots at any it can see
+//! bims combat        the fight: the combat ship — fourteen crew, a gun in
+//!                    every hand — docked at the spawn rebuilt as the arena
+//!                    and made hostile, its people enemies, fifteen of
+//!                    them; a recruited crew member shoots at any it can
+//!                    see
 //! bims stationbuilder [name]
 //!                    a grid to sketch a station's rough shape on, saved as
 //!                    text to `stations/<name>.txt` for a plan to be
@@ -40,6 +40,7 @@ mod grid;
 mod icons;
 mod keys;
 mod names;
+mod save;
 mod screens;
 mod settings;
 mod shapes;
@@ -50,7 +51,7 @@ use bevy::prelude::*;
 use bevy::window::PresentMode;
 use bevy_egui::EguiPlugin;
 
-/// Which of the seven things this process is.
+/// Which of the eight things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -58,6 +59,9 @@ pub enum Launch {
     Design,
     Room,
     Test,
+    /// `Test` set down on a planet: the same roll, made in a system with
+    /// friendly ground, and the ship landed at the settlement.
+    TestPlanet,
     Combat,
     StationBuilder,
 }
@@ -84,7 +88,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|room|test|combat|stationbuilder [name]|--self-check]"
+        "usage: bims [game|simulation|design|room|test|test_planet|combat|stationbuilder [name]|--self-check]"
     );
     std::process::exit(2)
 }
@@ -96,6 +100,7 @@ fn main() {
         Some("design") => Launch::Design,
         Some("room") => Launch::Room,
         Some("test") => Launch::Test,
+        Some("test_planet") => Launch::TestPlanet,
         // Accepted as a flag too, since that is how it was first asked for.
         Some("combat") | Some("--combat") => Launch::Combat,
         Some("stationbuilder") => Launch::StationBuilder,
@@ -124,6 +129,7 @@ fn main() {
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "Bims".into(),
+            name: Some(dev::window_name()),
             present_mode: PresentMode::AutoVsync,
             resolution: dev::window_resolution(),
             mode: dev::window_mode(),
@@ -168,7 +174,9 @@ fn main() {
 fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<Screen>>) {
     match *launch {
         Launch::Game => {}
-        Launch::Simulation | Launch::Test | Launch::Combat => next.set(Screen::Game),
+        Launch::Simulation | Launch::Test | Launch::TestPlanet | Launch::Combat => {
+            next.set(Screen::Game)
+        }
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();
             settings.seed = world::data::DEFAULT_SEED;

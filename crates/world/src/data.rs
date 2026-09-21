@@ -109,10 +109,12 @@ pub const ENEMIES_MAX: u32 = 16;
 /// each and the room opens with every one of them in it.
 pub const ARENA_SIDE: u32 = 72;
 pub const ARENA_BUNK_COLUMNS: u32 = 4;
-/// How many more enemies the arena arms over [`crate::station::enemies_of`]:
-/// what `World::reinforcements` is set to by the `combat` command, so a
-/// crew of five meets twelve.
-pub const ARENA_REINFORCEMENTS: u32 = 6;
+/// The garrison the arena arms whenever it is hostile, whatever the crew's
+/// number and worth: `World::reinforcements` is set by the `combat`
+/// command to make [`crate::station::enemies_of`] up to this, so a crew
+/// of fourteen (`shipdesign::fixture::COMBAT_CREW`) meets fifteen. Under
+/// [`ENEMIES_MAX`], so every one of them has a bunk.
+pub const ARENA_GARRISON: u32 = 15;
 
 /// How many mercenaries the `test` command's dock has for hire at the
 /// least, whatever the roll said (`World::mercenary_for_probe`): one, so
@@ -223,18 +225,26 @@ pub const UPGRADE_SESSION_MINUTES: f64 = time::HOUR;
 pub const UPGRADE_SESSIONS: u32 = 24;
 
 /// A planet's surface — a rocky planet's or an ice world's — is a place
-/// the ship lands at: a settlement laid out on the ground as a station is
+/// the ship lands at: a **town** laid out on the ground as a station is
 /// laid out in a hull (`crate::surface`, `crate::station::Plan::Surface`).
-/// This many tiles across, a landing pad at its west edge and two
-/// buildings on the ground beside it — the trading house, where the
-/// settlement's people live and trade, and the watch house, where its
-/// guard stands looking out — with the ground between them lit by
-/// standing lights. Bigger than any station: the ground is open, and it
-/// is the beginning of a town.
-pub const SURFACE_SIDE: u32 = 56;
+/// This many tiles across — bigger than any station, and than the arena —
+/// with a landing pad at its west edge, the watch house and the trading
+/// house beside it, a gathering hall, houses along its streets, fields or
+/// greenhouses to feed it, and the wild round the whole of it out to the
+/// edge, where the world ends. Sized for the biggest town
+/// ([`SURFACE_POPULATION`]): fifty people want twenty-six strips of
+/// field and a hall with twenty-seven tables in it, and the wild wants
+/// room round that.
+pub const SURFACE_SIDE: u32 = 96;
 
-/// How many people live at a settlement: the trader and the guard.
-pub const SURFACE_RESIDENTS: u32 = 2;
+/// How many people live in a town, at the least and at the most,
+/// inclusive, rolled off the surface's own stream
+/// (`crate::surface::Surface::all_of`). A town is sized by it: a bunk
+/// each and two over for mercenaries, a chair each in the hall, a strip
+/// of field for every two of them or a bay under glass for every four, a
+/// bathhouse for every twelve. Ten is a hamlet round a pad; fifty fills
+/// the ground.
+pub const SURFACE_POPULATION: (u32, u32) = (10, 50);
 
 /// How high over a planet a landing begins its descent and a lift-off
 /// ends, in world units: where a trip to the body ends, so a ship that
@@ -249,3 +259,18 @@ pub const LANDING_HEIGHT: f64 = flight::data::ARRIVAL_RADIUS_BODY;
 /// Longer than a docking: the planet has to grow under the ship.
 pub const LAND_MINUTES: f64 = 8.0;
 pub const LIFT_MINUTES: f64 = 6.0;
+
+/// How long the cold store goes without power before the food in it
+/// loses a share, in steps: a game hour — sixty minutes over
+/// [`STEP_MINUTES`] — counted on `World::cold_store_out`, an integer clock
+/// in the checksum, so two clients spoil the same hour on the same step.
+/// A cold store with power is not on the clock: a battery that covers an
+/// overdraw costs the larder nothing.
+pub const SPOIL_STEPS: u64 = (time::HOUR / STEP_MINUTES) as u64;
+
+/// What share of the food goes each hour the cold store is unpowered:
+/// one part in this many of the vegetables, the tofu and the stew,
+/// rounded **up**, so a shelf with one thing on it loses it in an hour
+/// rather than keeping it for ever. An eighth an hour is a larder gone
+/// in a day — a brownout is expensive, never fatal.
+pub const SPOIL_DIVISOR: u32 = 8;

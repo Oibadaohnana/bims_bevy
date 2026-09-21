@@ -38,7 +38,7 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// hashing differently, and a test that compares two computed values would
 /// pass happily while both were wrong. Update them only when the reference
 /// design itself is meant to change.
-pub const REFERENCE_HASH: [u64; 2] = [0xa0d8_6162_e2bd_b6e2, 0xbd64_a74a_e209_9439];
+pub const REFERENCE_HASH: [u64; 2] = [0xb92b_bb68_93eb_1a6d, 0xa761_1d84_abf5_a356];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -54,7 +54,7 @@ pub const REFERENCE_CARGO: [(ResourceId, u32); 2] =
 /// [`reference`] skips an edit that does not take rather than panicking — a
 /// panic in a cdylib is an abort and tells nobody anything. This is what
 /// notices the skip instead.
-pub const REFERENCE_PARTS: [u32; 2] = [690, 696];
+pub const REFERENCE_PARTS: [u32; 2] = [717, 723];
 
 /// The two columns of the stern row the reference's engine stands in, its
 /// bell in the skin. Two, because the engine is two across.
@@ -67,7 +67,7 @@ const REFERENCE_LIGHTS: [(u32, u32); 4] = [(2, 5), (17, 5), (2, 14), (17, 14)];
 const REFERENCE_LAMP: (u32, u32) = (10, 9);
 
 /// Where the reference's conduit runs. See [`reference`].
-const REFERENCE_CONDUIT: [(u32, u32); 23] = [
+const REFERENCE_CONDUIT: [(u32, u32); 50] = [
     (3, 3),
     (4, 3),
     (5, 3),
@@ -91,6 +91,37 @@ const REFERENCE_CONDUIT: [(u32, u32); 23] = [
     (8, 14),
     (8, 15),
     (8, 16),
+    // The lamps, which draw like anything else: the forward pair off the
+    // galley's run and along row 5, the aft pair along row 14 from the
+    // spine and from the reactor's second tile, and the standing light
+    // off the spine.
+    (3, 4),
+    (3, 5),
+    (2, 5),
+    (9, 5),
+    (10, 5),
+    (11, 5),
+    (12, 5),
+    (13, 5),
+    (14, 5),
+    (15, 5),
+    (16, 5),
+    (17, 5),
+    (7, 14),
+    (6, 14),
+    (5, 14),
+    (4, 14),
+    (3, 14),
+    (2, 14),
+    (11, 14),
+    (12, 14),
+    (13, 14),
+    (14, 14),
+    (15, 14),
+    (16, 14),
+    (17, 14),
+    (9, 9),
+    (10, 9),
 ];
 
 /// The reference ship: a framed, floored, hull-plated compartment with a
@@ -318,12 +349,12 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// target that hashed the simulation's ship differently would start a
 /// different simulation. Update it only when the ship below is meant to
 /// change.
-pub const PLAYTEST_HASH: u64 = 0xb478_b13c_822a_a230;
+pub const PLAYTEST_HASH: u64 = 0x8a02_8ecd_515c_80fc;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
 /// reason [`REFERENCE_PARTS`] gives.
-pub const PLAYTEST_PARTS: u32 = 656;
+pub const PLAYTEST_PARTS: u32 = 668;
 
 /// The playtest hull, as columns of the grid: the west skin and the east,
 /// the bow row and the stern row. Sixteen tiles across and eighteen long,
@@ -375,7 +406,7 @@ const PLAYTEST_PLANT: (u32, u32) = (16, 10);
 
 /// Where the playtest ship's conduit leaves its spine, column 8. See
 /// [`playtest_ship`].
-const PLAYTEST_BRANCHES: [(u32, u32); 42] = [
+const PLAYTEST_BRANCHES: [(u32, u32); 54] = [
     // the reactor, along row 16 to the spine
     (4, 16),
     (5, 16),
@@ -427,6 +458,22 @@ const PLAYTEST_BRANCHES: [(u32, u32); 42] = [
     (14, 6),
     (14, 7),
     (13, 12),
+    // the lamps, which draw like anything else: the bridge's pair a tile
+    // up from row 4, the main deck's three down the port hull from the
+    // galley's run, engineering's off the aft door's run, and the
+    // standing light off the spine
+    (5, 3),
+    (14, 3),
+    (3, 8),
+    (3, 9),
+    (3, 10),
+    (3, 11),
+    (4, 15),
+    (3, 15),
+    (15, 14),
+    (15, 15),
+    (16, 15),
+    (7, 9),
 ];
 
 /// What the playtest ship carries: enough metal and
@@ -738,9 +785,18 @@ pub fn playtest_ship() -> ShipDesign {
     design
 }
 
-/// How many crew the combat ship sleeps: one for each kind of weapon, so
-/// every gun is in a hand at once.
-pub const COMBAT_CREW: u32 = 5;
+/// How many berths the combat ship has — a bunk and a chair each — one for
+/// each kind of weapon, so every gun is in a hand at once. The ship
+/// validates clean for a crew of this many, and the `test` command's one
+/// crew member has four of them to spare.
+pub const COMBAT_BERTHS: u32 = 5;
+
+/// How many crew the `combat` command puts aboard it: the first
+/// [`COMBAT_BERTHS`] at their bunks, the other nine standing on the deck
+/// (`bims::aboard::starts`) — a squad rather than a handful, for a fight
+/// with a garrison of `world::data::ARENA_GARRISON`. More than the ship
+/// sleeps, which the validator would say and the command does not ask it.
+pub const COMBAT_CREW: u32 = 14;
 
 /// Where [`combat_ship`] puts its four extra bunks: on the bridge, the one
 /// compartment with room for them — the main deck's aft rows are two deep
@@ -762,11 +818,11 @@ pub const COMBAT_BUNKS: [((u32, u32), Rotation); 4] = [
 /// seat and blocks nothing, so the mess is where the seats are.
 pub const COMBAT_CHAIRS: [(u32, u32); 4] = [(5, 11), (6, 12), (7, 12), (8, 12)];
 
-/// [`playtest_ship`] with a bunk and a chair for each of a crew of
-/// [`COMBAT_CREW`]: the same ship, the same cargo, four more bunks at
-/// [`COMBAT_BUNKS`] and four more chairs at [`COMBAT_CHAIRS`]. It is what
-/// the `combat` command opens on — five crew, a different gun in each
-/// hand — and nothing else, so its hash is not pinned: it is the
+/// [`playtest_ship`] with a bunk and a chair for each of [`COMBAT_BERTHS`]:
+/// the same ship, the same cargo, four more bunks at [`COMBAT_BUNKS`] and
+/// four more chairs at [`COMBAT_CHAIRS`]. It is what the `combat` command
+/// opens on — [`COMBAT_CREW`] aboard, a gun in every hand — and the `test`
+/// command, and nothing else, so its hash is not pinned: it is the
 /// playtest ship with eight parts added, and
 /// `the_combat_ship_sleeps_a_crew_of_five` in the tests counts them.
 pub fn combat_ship() -> ShipDesign {

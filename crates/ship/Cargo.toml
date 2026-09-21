@@ -18,5 +18,9 @@ flight = { path = "../flight" }
 physics = { path = "../physics" }
 shipdesign = { path = "../shipdesign" }
 time = { path = "../time" }
-world = { path = "../world" }
+world = { path = "../world", features = ["serde"] }
 worldgen = { path = "../worldgen" }
+# The save file: `save.rs` writes a world out as RON text and reads one
+# back. Both are in the lock already, under Bevy.
+ron = "0.12"
+serde = { version = "1", features = ["derive"] }

@@ -49,11 +49,26 @@ pub const DRIP_EVERY: f32 = 1.2;
 /// How far from the body's middle a drop lands, in room units, either way.
 const DRIP_SCATTER: f32 = 10.0;
 
+/// How long a Bim with no bunk may sleep on the deck, in game minutes,
+/// out of every [`GROUND_WINDOW`]: three hours in six. The window opens
+/// the minute a lie-down on the deck begins and the allowance comes back
+/// whole when it closes, so an interrupted lie-down keeps what it did
+/// not use. See `Game::tick_bim` and `Game::can_sleep_on_ground`.
+pub const GROUND_SLEEP: f32 = 3.0 * clock::HOUR;
+pub const GROUND_WINDOW: f32 = 6.0 * clock::HOUR;
+/// How long a Bim is **sore** from a lie-down on the deck, in game minutes
+/// from the moment it gets up: half a day of rest draining
+/// [`crate::needs::SORE_TIRING`] times as fast. Re-armed every minute of
+/// the lie-down, so it runs from the end of it.
+pub const SORE_LASTS: f32 = 12.0 * clock::HOUR;
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Footprint {
     pub pos: Vec2,
     pub age: f32,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bim {
     pub character: Character,
     /// The errand running now, and everything put down to make way for it.
@@ -112,6 +127,21 @@ pub struct Bim {
     /// Game minutes of food poisoning left, nothing when well. Its own clock,
     /// like the ordeal's: it is this body that is ill. See `Game::poison`.
     pub poisoned_for: f32,
+    /// Sleeping on the deck, for a Bim with no bunk of its own: how many
+    /// game minutes of it are left in the window that is open, and how
+    /// many minutes the window has left — nought for no window open, when
+    /// the allowance is whole. See [`GROUND_SLEEP`].
+    pub ground_left: f32,
+    pub ground_window: f32,
+    /// Game minutes left of being sore from the deck, nothing when not.
+    /// See [`SORE_LASTS`].
+    pub sore: f32,
+    /// Its bunk, carried between rooms and read nowhere else: `Game::take_crew`
+    /// writes the room's [`crate::room::Room::sleeps_in`] entry here and
+    /// `Game::adopt` reads it back, since the crew leave one room for
+    /// another with the deck. While the Bim is in a room the room's table
+    /// is the truth and this is stale.
+    pub bed: Option<usize>,
 
     /// What it wears and what it shoots with. See `crate::combat`.
     pub gear: Gear,
@@ -188,6 +218,10 @@ impl Bim {
             worst_hunger: 0,
             worst_weariness: 0,
             poisoned_for: 0.0,
+            ground_left: GROUND_SLEEP,
+            ground_window: 0.0,
+            sore: 0.0,
+            bed: None,
             gear: Gear::issued(),
             reload: 0.0,
             burst_left: 0,
@@ -209,6 +243,11 @@ impl Bim {
 
     pub fn is_poisoned(&self) -> bool {
         self.poisoned_for > 0.0
+    }
+
+    /// Whether it is sore from sleeping on the deck. See [`SORE_LASTS`].
+    pub fn is_sore(&self) -> bool {
+        self.sore > 0.0
     }
 
     /// How old it is on the given date, in whole years. A birthday that has

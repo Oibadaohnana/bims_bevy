@@ -46,6 +46,7 @@ pub const MIN_HULL_MASS: f64 = 1.0;
 /// leaving a hole in every table indexed by this.)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ResourceId {
     Ore = 0,
     Metal = 1,
@@ -163,6 +164,7 @@ impl ResourceId {
 /// strings cross the wasm boundary — the host holds the words), no recipe, no
 /// stack size.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResourceDef {
     pub id: ResourceId,
     /// Strictly greater than zero. A resource that weighs nothing would let a

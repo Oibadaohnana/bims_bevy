@@ -136,6 +136,14 @@ pub const SHOWER_MINUTES: f32 = 8.0;
 pub const COMPANY_TRIGGER: f32 = 0.50;
 const CHAT_FILLS: f32 = 0.30;
 
+/// How much faster rest runs out for a Bim **sore** from a night on the
+/// deck — a lie-down with no bunk of its own, which is all a Bim without
+/// one gets (`crate::bim::GROUND_SLEEP`). Half as fast again for
+/// `crate::bim::SORE_LASTS` after it gets up, multiplied into `tiring`
+/// the way malnutrition is: the slot that tiles the day is the bunk's,
+/// and a Bim on the deck does not get the day the arithmetic above says.
+pub const SORE_TIRING: f32 = 1.5;
+
 /// Sleeping still covers exactly the span over exactly the six hours; it is
 /// only the run-down that drifts, not the night itself.
 const REST_RECOVER: f32 = SPAN / SLEEP_MINUTES;
@@ -171,6 +179,7 @@ const HYGIENE_AT_DAWN: f32 = 1.0;
 /// off. That is the whole point of them: they are what going without looks
 /// like when the errand is not available.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Urge {
     None,
     Mild,
@@ -219,6 +228,7 @@ impl Urge {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Need {
     Rest,
     Food,
@@ -311,6 +321,7 @@ impl Need {
 /// bites; all that stops is the Bim going and doing something about it on its
 /// own account.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Trigger {
     pub on: bool,
     pub at: f32,
@@ -331,6 +342,7 @@ impl Trigger {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Needs {
     levels: [f32; Need::ALL.len()],
     triggers: [Trigger; Need::ALL.len()],
@@ -408,7 +420,8 @@ impl Needs {
     /// `restoring` is whichever need the Bim is actually seeing to this
     /// instant — mid-doze, mid-mouthful, sat on the pan — or none.
     /// `tiring` multiplies how fast the Bim runs out of rest — malnutrition
-    /// doubles it and then trebles it, so a starving Bim needs more sleep.
+    /// doubles it and then trebles it, so a starving Bim needs more sleep,
+    /// and a night on the deck is [`SORE_TIRING`] on top of that.
     /// `purging` does the same to the restroom need: food poisoning trebles
     /// it.
     pub fn update(&mut self, dt: f32, restoring: Option<Need>, tiring: f32, purging: f32) {

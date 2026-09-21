@@ -43,6 +43,7 @@ use crate::event::HealthEvent;
 /// for good, which is what makes a day in the open a decision rather than an
 /// inconvenience.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CancerState {
     pub minutes_since_onset: f64,
 }
@@ -54,6 +55,7 @@ pub struct CancerState {
 /// the only thing that keeps `points` inside `0..=MAX_HEALTH`, `dose` at or
 /// above nothing, and `dead` in step with `points`.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct HealthState {
     /// `0..=MAX_HEALTH`.
     pub points: f64,
@@ -112,6 +114,7 @@ impl Default for HealthState {
 /// `shipdesign::ExposureMap` and where the Bim is standing; this crate never
 /// asks where anybody is.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Exposure {
     /// Under cover. The dose comes off.
     Shielded,

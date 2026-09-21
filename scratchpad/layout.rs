@@ -54,6 +54,16 @@ fn main() {
             game.wound(1, health::Part::Body, 1.0);
         }
     }
+    // Both figures down side by side: James dead and Kate out cold, for
+    // looking at the two lying figures against each other.
+    let dead = want == "dead";
+    if dead {
+        game.set_autonomous(false);
+        game.put_for_probe(0, math::vec2(380.0, 330.0));
+        game.put_for_probe(1, math::vec2(560.0, 330.0));
+        game.kill_for_probe(0);
+        game.knock_out_for_probe(1);
+    }
     let target: u32 = match want.as_str() {
         "bed" => 4,
         "table" => 1,
@@ -74,6 +84,10 @@ fn main() {
             }
         } else if down {
             if game.is_unconscious(1) {
+                break;
+            }
+        } else if dead {
+            if game.is_unconscious(1) && n >= 30 {
                 break;
             }
         } else if board {

@@ -24,6 +24,8 @@
 //! the system it is joining, so the whole thing is connected before anybody
 //! checks.
 
+use economy::market::Bias;
+
 use crate::data::{self, BodyKind, HazardKind, StationKind, Stock};
 use crate::galaxy::Galaxy;
 use crate::layout;
@@ -44,6 +46,7 @@ use crate::rng::{Purpose, Rng};
 // world rather than a starting condition.
 
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Body {
     pub id: u32,
     pub kind: BodyKind,
@@ -54,6 +57,7 @@ pub struct Body {
 
 /// Everything a map generator will need to build a station, and nothing else.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StationBlueprint {
     pub id: u32,
     pub kind: StationKind,
@@ -74,6 +78,13 @@ pub struct StationBlueprint {
     /// What is on its shelves. Its own branch of the contents stream, so
     /// the shelf does not change when the hazards do.
     pub stock: Stock,
+    /// Its own lean on every price, per cent a resource — what
+    /// `economy::market::quote` adds to the kind's before splitting the
+    /// book into an ask and a bid. Its own branch too
+    /// (`data::price_bias`), rolled for every resource whether the shelf
+    /// carries it or not, and in the checksum beside the shelf. Nothing
+    /// for a derelict, which has no desk to lean.
+    pub bias: Bias,
     /// Whose side the people aboard are on. Docked at a hostile station the
     /// crew are the enemy: the world's stance machinery draws its people in
     /// the enemy colours and they shoot. How many of a system's are is
@@ -91,12 +102,14 @@ pub struct StationBlueprint {
 /// between the star and its own innermost planet for no reason anybody could
 /// name.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Node {
     Body(u32),
     Station(u32),
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StarSystem {
     pub star_id: u32,
     /// How abandoned it is, in `[0, 1]`. **Stored, never displayed** — it is
@@ -695,6 +708,13 @@ fn furnish(
         salvage_sites,
         hazard_sites,
         stock: Stock::roll(kind, &mut base.branch(0x_5354_4f43_4b00_0000 ^ id as u64)),
+        // The desk's lean, off its own branch ("BIAS") like the shelf's;
+        // a derelict keeps no desk, so it has none.
+        bias: if kind == StationKind::Derelict {
+            Bias::NONE
+        } else {
+            data::price_bias(&mut base.branch(0x_4249_4153_0000_0000 ^ id as u64))
+        },
         hostile,
         // Its own stream, so an interior does not change when anything about
         // the station outside it does.
@@ -726,30 +746,8 @@ mod tests {
         (g, systems)
     }
 
-    #[test]
-    fn a_system_is_the_same_however_often_it_is_asked_for() {
-        let g = Galaxy::new(808, GalaxyType::Spiral);
-        for id in [0, 1, 17, 500, 999] {
-            let a = g.system(id).unwrap();
-            let b = g.system(id).unwrap();
-            assert_eq!(a, b);
-        }
-        assert!(g.system(STAR_COUNT).is_none());
-    }
-
     /// The reason there is no shared stream. Looking at one system must not
     /// change the next, in any order, on either side of the wire.
-    #[test]
-    fn the_order_systems_are_asked_for_in_does_not_matter() {
-        let g = Galaxy::new(1234, GalaxyType::Elliptical);
-        let forwards: Vec<_> = (0..40).map(|id| g.system(id).unwrap()).collect();
-        let mut backwards: Vec<_> = (0..40).rev().map(|id| g.system(id).unwrap()).collect();
-        backwards.reverse();
-        assert_eq!(forwards, backwards);
-        // And asking for one in the middle on its own gives the same answer.
-        assert_eq!(g.system(21).unwrap(), forwards[21]);
-    }
-
     /// A system is a seed, a star and a version, and **nothing a lobby can
     /// pick**. There used to be one setting that reached this far — a
     /// multiplier on a station's stores — and it went with the stores
@@ -757,25 +755,39 @@ mod tests {
     /// numbers `Galaxy` was built with. Two galaxies of the same seed and
     /// type are the same galaxy, whatever the lobbies around them said.
     #[test]
-    fn a_seed_and_a_type_are_the_whole_of_the_input() {
-        let one = Galaxy::new(55, GalaxyType::SpiralTwoArm);
-        let two = Galaxy::new(55, GalaxyType::SpiralTwoArm);
-        for id in 0..120 {
-            assert_eq!(
-                one.system(id).unwrap(),
-                two.system(id).unwrap(),
-                "star {id}"
-            );
+    fn a_system_is_the_same_however_and_in_whatever_order_it_is_asked_for() {
+        // --- a_system_is_the_same_however_often_it_is_asked_for ---
+        {
+            let g = Galaxy::new(808, GalaxyType::Spiral);
+            for id in [0, 1, 17, 500, 999] {
+                let a = g.system(id).unwrap();
+                let b = g.system(id).unwrap();
+                assert_eq!(a, b);
+            }
+            assert!(g.system(STAR_COUNT).is_none());
         }
-    }
 
-    #[test]
-    fn every_system_in_a_galaxy_is_laid_out_legally() {
-        for &t in &GalaxyType::ALL {
-            let (_, systems) = every_system(2024, t);
-            for s in &systems {
-                let faults = layout::faults(s);
-                assert!(faults.is_empty(), "{t:?} star {}: {faults:?}", s.star_id);
+        // --- the_order_systems_are_asked_for_in_does_not_matter ---
+        {
+            let g = Galaxy::new(1234, GalaxyType::Elliptical);
+            let forwards: Vec<_> = (0..40).map(|id| g.system(id).unwrap()).collect();
+            let mut backwards: Vec<_> = (0..40).rev().map(|id| g.system(id).unwrap()).collect();
+            backwards.reverse();
+            assert_eq!(forwards, backwards);
+            // And asking for one in the middle on its own gives the same answer.
+            assert_eq!(g.system(21).unwrap(), forwards[21]);
+        }
+
+        // --- a_seed_and_a_type_are_the_whole_of_the_input ---
+        {
+            let one = Galaxy::new(55, GalaxyType::SpiralTwoArm);
+            let two = Galaxy::new(55, GalaxyType::SpiralTwoArm);
+            for id in 0..120 {
+                assert_eq!(
+                    one.system(id).unwrap(),
+                    two.system(id).unwrap(),
+                    "star {id}"
+                );
             }
         }
     }
@@ -783,15 +795,29 @@ mod tests {
     /// Several seeds, because a layout rule that holds for one galaxy and not
     /// the next is not holding at all.
     #[test]
-    fn layouts_are_legal_across_seeds() {
-        for seed in [0u64, 1, 7, 42, 99, 1000, u64::MAX] {
-            let (_, systems) = every_system(seed, GalaxyType::Spiral);
-            let bad: Vec<_> = systems
-                .iter()
-                .filter(|s| !layout::is_legal(s))
-                .map(|s| (s.star_id, layout::faults(s)))
-                .collect();
-            assert!(bad.is_empty(), "seed {seed}: {bad:?}");
+    fn every_system_is_laid_out_legally_across_seeds() {
+        // --- every_system_in_a_galaxy_is_laid_out_legally ---
+        {
+            for &t in &GalaxyType::ALL {
+                let (_, systems) = every_system(2024, t);
+                for s in &systems {
+                    let faults = layout::faults(s);
+                    assert!(faults.is_empty(), "{t:?} star {}: {faults:?}", s.star_id);
+                }
+            }
+        }
+
+        // --- layouts_are_legal_across_seeds ---
+        {
+            for seed in [0u64, 1, 7, 42, 99, 1000, u64::MAX] {
+                let (_, systems) = every_system(seed, GalaxyType::Spiral);
+                let bad: Vec<_> = systems
+                    .iter()
+                    .filter(|s| !layout::is_legal(s))
+                    .map(|s| (s.star_id, layout::faults(s)))
+                    .collect();
+                assert!(bad.is_empty(), "seed {seed}: {bad:?}");
+            }
         }
     }
 
@@ -1048,30 +1074,33 @@ mod tests {
     }
 
     #[test]
-    fn a_station_is_only_ever_on_something_it_belongs_on() {
-        for &t in &GalaxyType::ALL {
-            let (_, systems) = every_system(404, t);
-            for s in &systems {
-                for st in &s.stations {
-                    let parent = st.parent_body.and_then(|id| s.body(id)).map(|b| b.kind);
-                    assert!(
-                        data::parent_suits(st.kind, parent),
-                        "{:?} on {parent:?} at star {}",
-                        st.kind,
-                        s.star_id
-                    );
+    fn a_station_is_only_on_something_it_belongs_on_and_no_two_share_a_body() {
+        // --- a_station_is_only_ever_on_something_it_belongs_on ---
+        {
+            for &t in &GalaxyType::ALL {
+                let (_, systems) = every_system(404, t);
+                for s in &systems {
+                    for st in &s.stations {
+                        let parent = st.parent_body.and_then(|id| s.body(id)).map(|b| b.kind);
+                        assert!(
+                            data::parent_suits(st.kind, parent),
+                            "{:?} on {parent:?} at star {}",
+                            st.kind,
+                            s.star_id
+                        );
+                    }
                 }
             }
         }
-    }
 
-    #[test]
-    fn no_two_stations_share_a_body() {
-        let (_, systems) = every_system(2, GalaxyType::Spiral);
-        for s in &systems {
-            let parents: Vec<u32> = s.stations.iter().filter_map(|st| st.parent_body).collect();
-            let unique: HashSet<_> = parents.iter().collect();
-            assert_eq!(unique.len(), parents.len(), "star {}", s.star_id);
+        // --- no_two_stations_share_a_body ---
+        {
+            let (_, systems) = every_system(2, GalaxyType::Spiral);
+            for s in &systems {
+                let parents: Vec<u32> = s.stations.iter().filter_map(|st| st.parent_body).collect();
+                let unique: HashSet<_> = parents.iter().collect();
+                assert_eq!(unique.len(), parents.len(), "star {}", s.star_id);
+            }
         }
     }
 

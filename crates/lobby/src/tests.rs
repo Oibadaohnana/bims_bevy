@@ -22,52 +22,55 @@ fn lobby(t: GalaxyType) -> Lobby {
 
 /// The acceptance criterion, natively: a star reported as having a station
 /// has one when its system is generated, and one reported without has none.
-#[test]
-fn has_station_is_what_generating_the_system_says() {
-    for &t in &GalaxyType::ALL {
-        let lobby = lobby(t);
-        let galaxy = reference(t);
-        assert_eq!(lobby.has_station.len(), galaxy.stars.len());
-        let mut with = 0;
-        for star in &galaxy.stars {
-            let generated = !galaxy.system(star.id).unwrap().stations.is_empty();
-            assert_eq!(
-                lobby.has_station[star.id as usize], generated,
-                "{t:?} star {}",
-                star.id
-            );
-            with += usize::from(generated);
-        }
-        assert!(with > 100, "{t:?}: only {with} stars with a station");
-    }
-}
-
 /// `can_start` is `has_station` less the stars whose every station is
 /// hostile: a subset, a real one, and what generating the system says.
 #[test]
-fn can_start_is_has_station_less_the_hostile_ones() {
-    for &t in &GalaxyType::ALL {
-        let lobby = lobby(t);
-        let galaxy = reference(t);
-        assert_eq!(lobby.can_start.len(), galaxy.stars.len());
-        let mut only_hostile = 0;
-        for star in &galaxy.stars {
-            let system = galaxy.system(star.id).unwrap();
-            let open = system.stations.iter().any(|s| !s.hostile);
-            assert_eq!(
-                lobby.can_start[star.id as usize], open,
-                "{t:?} star {}",
-                star.id
-            );
-            if lobby.can_start[star.id as usize] {
-                assert!(lobby.has_station[star.id as usize]);
+fn has_station_and_can_start_are_what_generating_the_system_says() {
+    // --- has_station_is_what_generating_the_system_says ---
+    {
+        for &t in &GalaxyType::ALL {
+            let lobby = lobby(t);
+            let galaxy = reference(t);
+            assert_eq!(lobby.has_station.len(), galaxy.stars.len());
+            let mut with = 0;
+            for star in &galaxy.stars {
+                let generated = !galaxy.system(star.id).unwrap().stations.is_empty();
+                assert_eq!(
+                    lobby.has_station[star.id as usize], generated,
+                    "{t:?} star {}",
+                    star.id
+                );
+                with += usize::from(generated);
             }
-            only_hostile += usize::from(!open && !system.stations.is_empty());
+            assert!(with > 100, "{t:?}: only {with} stars with a station");
         }
-        assert!(
-            only_hostile > 0,
-            "{t:?}: no star held entirely by the enemy"
-        );
+    }
+
+    // --- can_start_is_has_station_less_the_hostile_ones ---
+    {
+        for &t in &GalaxyType::ALL {
+            let lobby = lobby(t);
+            let galaxy = reference(t);
+            assert_eq!(lobby.can_start.len(), galaxy.stars.len());
+            let mut only_hostile = 0;
+            for star in &galaxy.stars {
+                let system = galaxy.system(star.id).unwrap();
+                let open = system.stations.iter().any(|s| !s.hostile);
+                assert_eq!(
+                    lobby.can_start[star.id as usize], open,
+                    "{t:?} star {}",
+                    star.id
+                );
+                if lobby.can_start[star.id as usize] {
+                    assert!(lobby.has_station[star.id as usize]);
+                }
+                only_hostile += usize::from(!open && !system.stations.is_empty());
+            }
+            assert!(
+                only_hostile > 0,
+                "{t:?}: no star held entirely by the enemy"
+            );
+        }
     }
 }
 
@@ -156,32 +159,48 @@ fn the_checksum_is_the_fixture_s() {
 }
 
 /// Every star lands on the canvas at the fit, and comes back to itself.
-#[test]
-fn a_point_on_the_canvas_maps_back_to_the_galaxy_position_it_is_over() {
-    let lobby = lobby(GalaxyType::Round);
-    for star in &lobby.galaxy.stars {
-        let (sx, sy) = lobby.preview.to_screen(star.position.x, star.position.y);
-        assert!(
-            sx >= 0.0 && sx <= CANVAS.0 && sy >= 0.0 && sy <= CANVAS.1,
-            "star {} at ({sx}, {sy})",
-            star.id
-        );
-        let (gx, gy) = lobby.preview.to_galaxy(sx, sy);
-        // A pixel is a good many light years at the fit; the round trip is
-        // exact to well under one.
-        let tolerance = 1.0 / lobby.preview.scale() as f64;
-        assert!((gx - star.position.x).abs() < tolerance, "star {}", star.id);
-        assert!((gy - star.position.y).abs() < tolerance, "star {}", star.id);
-    }
-}
-
 /// North is up: a star with a bigger `y` is higher on the canvas.
+/// Zooming about a point keeps that point where it was.
 #[test]
-fn north_is_up() {
-    let lobby = lobby(GalaxyType::Round);
-    let (_, top) = lobby.preview.to_screen(0.0, 1000.0);
-    let (_, bottom) = lobby.preview.to_screen(0.0, -1000.0);
-    assert!(top < bottom);
+fn the_camera_maps_a_point_back_north_is_up_and_a_zoom_holds_the_pointer_still() {
+    // --- a_point_on_the_canvas_maps_back_to_the_galaxy_position_it_is_over ---
+    {
+        let lobby = lobby(GalaxyType::Round);
+        for star in &lobby.galaxy.stars {
+            let (sx, sy) = lobby.preview.to_screen(star.position.x, star.position.y);
+            assert!(
+                sx >= 0.0 && sx <= CANVAS.0 && sy >= 0.0 && sy <= CANVAS.1,
+                "star {} at ({sx}, {sy})",
+                star.id
+            );
+            let (gx, gy) = lobby.preview.to_galaxy(sx, sy);
+            // A pixel is a good many light years at the fit; the round trip is
+            // exact to well under one.
+            let tolerance = 1.0 / lobby.preview.scale() as f64;
+            assert!((gx - star.position.x).abs() < tolerance, "star {}", star.id);
+            assert!((gy - star.position.y).abs() < tolerance, "star {}", star.id);
+        }
+    }
+
+    // --- north_is_up ---
+    {
+        let lobby = lobby(GalaxyType::Round);
+        let (_, top) = lobby.preview.to_screen(0.0, 1000.0);
+        let (_, bottom) = lobby.preview.to_screen(0.0, -1000.0);
+        assert!(top < bottom);
+    }
+
+    // --- zooming_holds_the_point_under_the_pointer_still ---
+    {
+        let mut lobby = lobby(GalaxyType::Elliptical);
+        let at = (300.0, 200.0);
+        let before = lobby.preview.to_galaxy(at.0, at.1);
+        lobby.preview.zoom(at.0, at.1, 4.0);
+        let after = lobby.preview.to_galaxy(at.0, at.1);
+        assert!((before.0 - after.0).abs() < 1.0, "{before:?} vs {after:?}");
+        assert!((before.1 - after.1).abs() < 1.0, "{before:?} vs {after:?}");
+        assert!(lobby.preview.zoom_level() > 0.0);
+    }
 }
 
 /// Hovering exactly on a star picks it, and hovering just beside it still
@@ -219,58 +238,48 @@ fn the_pick_is_the_nearest_star_within_reach() {
     assert_eq!(far, None);
 }
 
-/// Zooming about a point keeps that point where it was.
-#[test]
-fn zooming_holds_the_point_under_the_pointer_still() {
-    let mut lobby = lobby(GalaxyType::Elliptical);
-    let at = (300.0, 200.0);
-    let before = lobby.preview.to_galaxy(at.0, at.1);
-    lobby.preview.zoom(at.0, at.1, 4.0);
-    let after = lobby.preview.to_galaxy(at.0, at.1);
-    assert!((before.0 - after.0).abs() < 1.0, "{before:?} vs {after:?}");
-    assert!((before.1 - after.1).abs() < 1.0, "{before:?} vs {after:?}");
-    assert!(lobby.preview.zoom_level() > 0.0);
-}
-
 /// Changing the seed forgets the spawn and the inspection; leaving it alone
 /// forgets nothing.
-#[test]
-fn a_new_galaxy_forgets_what_was_chosen_in_the_old_one() {
-    let mut lobby = lobby(GalaxyType::Round);
-    lobby.spawn = Some((3, 0));
-    lobby.inspect(3);
-    assert!(!lobby.set_world(REFERENCE_SEED, GalaxyType::Round));
-    assert_eq!(lobby.spawn, Some((3, 0)));
-    assert!(lobby.set_world(REFERENCE_SEED + 1, GalaxyType::Round));
-    assert_eq!(lobby.spawn, None);
-    assert!(lobby.inspected.is_none());
-    assert_ne!(lobby.checksum, worldgen::fixture::REFERENCE_CHECKSUMS[3]);
-}
-
 /// The diagram fits the panel: everything drawn is inside it.
 #[test]
-fn the_diagram_stays_inside_the_panel() {
-    let mut lobby = lobby(GalaxyType::Spiral);
-    let mut list = crate::draw::DrawList::new();
-    let (w, h) = (280.0, 240.0);
-    let mut looked = 0;
-    for star in lobby
-        .galaxy
-        .stars
-        .iter()
-        .step_by(23)
-        .map(|s| s.id)
-        .collect::<Vec<_>>()
+fn a_new_galaxy_forgets_what_was_chosen_and_the_diagram_stays_inside_the_panel() {
+    // --- a_new_galaxy_forgets_what_was_chosen_in_the_old_one ---
     {
-        lobby.inspect(star);
-        lobby.paint_system(w, h, &mut list);
-        for &(x, y) in lobby.placed.bodies.iter().chain(&lobby.placed.stations) {
-            assert!(
-                x >= 0.0 && x <= w && y >= 0.0 && y <= h,
-                "star {star}: ({x}, {y})"
-            );
-            looked += 1;
-        }
+        let mut lobby = lobby(GalaxyType::Round);
+        lobby.spawn = Some((3, 0));
+        lobby.inspect(3);
+        assert!(!lobby.set_world(REFERENCE_SEED, GalaxyType::Round));
+        assert_eq!(lobby.spawn, Some((3, 0)));
+        assert!(lobby.set_world(REFERENCE_SEED + 1, GalaxyType::Round));
+        assert_eq!(lobby.spawn, None);
+        assert!(lobby.inspected.is_none());
+        assert_ne!(lobby.checksum, worldgen::fixture::REFERENCE_CHECKSUMS[3]);
     }
-    assert!(looked > 40);
+
+    // --- the_diagram_stays_inside_the_panel ---
+    {
+        let mut lobby = lobby(GalaxyType::Spiral);
+        let mut list = crate::draw::DrawList::new();
+        let (w, h) = (280.0, 240.0);
+        let mut looked = 0;
+        for star in lobby
+            .galaxy
+            .stars
+            .iter()
+            .step_by(23)
+            .map(|s| s.id)
+            .collect::<Vec<_>>()
+        {
+            lobby.inspect(star);
+            lobby.paint_system(w, h, &mut list);
+            for &(x, y) in lobby.placed.bodies.iter().chain(&lobby.placed.stations) {
+                assert!(
+                    x >= 0.0 && x <= w && y >= 0.0 && y <= h,
+                    "star {star}: ({x}, {y})"
+                );
+                looked += 1;
+            }
+        }
+        assert!(looked > 40);
+    }
 }

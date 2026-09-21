@@ -47,6 +47,7 @@ use shipdesign::GRID_COLS;
 
 /// What one slot of a grid holds.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Kept {
     /// A piece of armour, by its id — one of `World::pieces`.
     Piece(u32),
@@ -72,6 +73,7 @@ impl Kept {
 
 /// One thing on a grid: what, how many, where, and which way round.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Slot {
     /// Only ever climbs — `Grid::next` — so a slot is the same slot
     /// across steps and two clients name the next one alike.
@@ -121,6 +123,7 @@ fn covers_cell(sx: u32, sy: u32, laid: Footprint, x: u32, y: u32) -> bool {
 
 /// One class's grid: every slot, and the next id.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Grid {
     /// In id order — a slot is pushed with `next` and never reordered —
     /// so two worlds that laid the same things hash the same list.
@@ -140,6 +143,7 @@ impl Default for Grid {
 /// What a class holds, for a settle: a piece, a gun, or so many units
 /// of a resource to be kept in stacks.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Wanted {
     Piece(u32, Footprint),
     Gun(WeaponKind, Tier, Footprint),

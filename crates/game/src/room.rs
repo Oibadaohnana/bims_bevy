@@ -122,6 +122,7 @@ pub const GRIP: Color = Color::rgb(0.12, 0.14, 0.17);
 /// the pot. They are drawn from the same shapes in different colours, which is
 /// as much difference as a plate seen from above can carry.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Dish {
     Stew,
     Bowl,
@@ -159,6 +160,7 @@ pub const MEDKITS_AT_DAWN: u32 = 2;
 /// for it when it comes round (`Game::fetch`), and the player can send
 /// anybody. `id` is the number a chain names it by.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Dropped {
     pub id: u32,
     pub at: Vec2,
@@ -172,6 +174,7 @@ pub struct Dropped {
 /// errand that walks the Bim over, and the state only changes at the moment
 /// its hand arrives. That is why each one is a place as well as an effect.
 #[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Switch {
     /// By index into `Room::hobs`, `Room::fridges` and
     /// `Room::dishwashers`: the one the click landed on.
@@ -307,6 +310,7 @@ pub const SEATS: usize = 2;
 ///
 /// A berth belongs to exactly one Bim. Nothing shares one: two Bims and two
 /// beds, and the pairing never moves.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Berth {
     pub frame: Rect,
     side: f32,
@@ -330,6 +334,12 @@ impl Berth {
             blanket: 0.0,
             blanket_target: 0.0,
         }
+    }
+
+    /// Whether the blanket is over a sleeper, or on its way there. For the
+    /// tests.
+    pub fn occupied(&self) -> bool {
+        self.blanket_target > 0.5
     }
 
     /// The bed's own frame to the room's: `across` from the bed's centre
@@ -433,6 +443,7 @@ const SWING_RATE: f32 = 3.0;
 /// `game::Order`s every step. `kind` is the part's code, so the world can
 /// say which bench a recipe wants without the room knowing a `PartKind`.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bench {
     pub kind: u32,
     /// Its footprint, for ringing.
@@ -460,6 +471,7 @@ impl Bench {
 /// `REQUIRED` in `shipdesign::validate` is this list — so a missing one is a
 /// caller's mistake, and the room puts the fixture on the worktop rather
 /// than panicking about it.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Layout {
     /// The whole build area.
     pub bounds: Rect,
@@ -569,6 +581,9 @@ pub struct Layout {
     /// What is in the cold store to begin with.
     pub veg: u32,
     pub tofu: u32,
+    /// The planet's plain the deck stands on, if it is on one — see
+    /// `crate::terrain` and `aboard::layout_of_on`. `None` everywhere else.
+    pub plane: Option<crate::terrain::Plane>,
 }
 
 /// Which side a Bim gets into a bunk from: whichever faces the middle of
@@ -619,6 +634,7 @@ fn galley_faces(counter: Rect, dishwasher: Rect) -> (Rect, Rect, Rect) {
 /// is still whole, and how many pieces it has been cut into. Tofu is a
 /// block and chops into cubes; a vegetable is a lump and chops into rounds.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Cut {
     pub tofu: bool,
     pub whole: f32,
@@ -638,6 +654,7 @@ impl Cut {
 /// each is the layout's own field, since a layout always has one, if only
 /// a stand-in.
 #[derive(Clone, Default, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct More {
     pub worktops: Vec<Rect>,
     pub hobs: Vec<Rect>,
@@ -646,6 +663,11 @@ pub struct More {
     pub lockers: Vec<Rect>,
     pub showers: Vec<(Rect, Vec2)>,
     pub bays: Vec<(Rect, Vec2)>,
+    /// The fields, every one: a strip of open ground worked like a bay
+    /// from the side given, at half a bay's pace (`hydro::Bay::field`).
+    /// None is ever the layout's own bay — a ship has no fields — so
+    /// they all come here, chained after the bays into `Room::bays`.
+    pub fields: Vec<(Rect, Vec2)>,
     /// A heads apiece: the toilet, and the basin nearest it. A basin may
     /// be two heads'.
     pub heads: Vec<(Rect, Rect)>,
@@ -657,6 +679,7 @@ pub struct More {
 /// room draws as themselves, standing still. See `Layout::extras` and
 /// [`Stills`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Still {
     Table,
     Basin,
@@ -665,6 +688,7 @@ pub enum Still {
 /// The extras, ready to draw. A basin is drawn by a `Bath` given the basin
 /// for both fittings and asked for the one; a table is a rect.
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Stills {
     pub tables: Vec<Rect>,
     pub basins: Vec<Bath>,
@@ -692,6 +716,7 @@ impl Stills {
 /// tile; so the designer says which are really there and gets a picture of
 /// those. The game's room is always whole and draws everything.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Fixtures {
     pub counter: bool,
     pub stove: bool,
@@ -707,6 +732,7 @@ pub struct Fixtures {
     pub doors: bool,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Room {
     /// The whole of the room, bulkheads included: what the view fits and
     /// what `spot` calls bulkhead rather than nothing. The classic room's
@@ -751,10 +777,21 @@ pub struct Room {
     /// out from a design has as many as the design has chairs, and a Bim
     /// past the last one shares it.
     pub chairs: Vec<Vec2>,
-    /// The bunks, one per Bim. See [`Berth`]. [`BERTHS`] in the classic
-    /// room; a layout brings its own number, and a docked ship's room has
-    /// the station's as well as its own.
+    /// The bunks. See [`Berth`]. [`BERTHS`] in the classic room; a layout
+    /// brings its own number, and a docked ship's room has the station's
+    /// as well as its own. Never empty: a layout without one gets a
+    /// stand-in on the worktop (`stand_in_bed`), which nobody is given.
     pub beds: Vec<Berth>,
+    /// Whether the one bed in `beds` is the stand-in for a layout with
+    /// none. See [`Room::bunks`].
+    pub stand_in_bed: bool,
+    /// Whose bed is which: `sleeps_in[who]` is the index into `beds` of the
+    /// bunk Bim `who` sleeps in, or `None` for a Bim with no bed, which
+    /// sleeps on the deck. A bed is one Bim's — `Game::assign_bed` keeps
+    /// it so — and the table is the game's to keep in step with its crew
+    /// (`Game::with_layout`, `adopt`, `take_crew`); it lives here because
+    /// the chains in `task.rs` are handed the room and nothing else.
+    pub sleeps_in: Vec<Option<usize>>,
     /// The heads, which owns its own walls, door and fittings.
     pub bath: Bath,
     /// Every other toilet aboard, each a bare heads of its own with the
@@ -815,6 +852,17 @@ pub struct Room {
     pub dropped: Vec<u32>,
     pub returned: Vec<u32>,
     pub built: Vec<u32>,
+    /// What the world wants carried between two benches this step — a
+    /// gun or a piece of armour to the workbench, or the upgraded one
+    /// back — at most one; set by `Game::set_ferries`, empty in the
+    /// classic room. See `crate::game::Ferry`.
+    pub ferries: Vec<crate::game::Ferry>,
+    /// What the carrying chains did since the world last asked, drained
+    /// every step like `picked` and the rest: the thing was taken at the
+    /// first bench, put down at the second, or given up between them.
+    pub ferry_picked: Vec<crate::game::Ferry>,
+    pub ferry_dropped: Vec<crate::game::Ferry>,
+    pub ferry_returned: Vec<crate::game::Ferry>,
     /// The outside, as the world says it is this step: every rock tile as
     /// a solid, the marked ones as where a walk goes, and a version that
     /// moves when the rocks do. Set by `Game::set_eva`; empty in the
@@ -822,6 +870,11 @@ pub struct Room {
     pub rocks: Vec<Rect>,
     pub rock_targets: Vec<Vec2>,
     pub rocks_version: u64,
+    /// The planet's plain the deck stands on, while it is landed on one:
+    /// the ground beyond the room's box, what the crew see of it, and
+    /// the frame it is read through. See `crate::terrain`. `None`
+    /// everywhere else, and in the classic room.
+    pub plane: Option<crate::terrain::Plane>,
     /// Who may be out there, by crew index: a Bim past the dose limit is
     /// sent home from the next rock. Set with the rocks.
     pub eva_allowed: Vec<bool>,
@@ -1008,6 +1061,8 @@ impl Room {
             table,
             chairs: chairs.to_vec(),
             beds: beds.into(),
+            stand_in_bed: false,
+            sleeps_in: Vec::new(),
             lockers: vec![Locker::new(locker)],
             showers: Vec::new(),
             benches: Vec::new(),
@@ -1024,6 +1079,10 @@ impl Room {
             dropped: Vec::new(),
             returned: Vec::new(),
             built: Vec::new(),
+            ferries: Vec::new(),
+            ferry_picked: Vec::new(),
+            ferry_dropped: Vec::new(),
+            ferry_returned: Vec::new(),
             rocks: Vec::new(),
             rock_targets: Vec::new(),
             rocks_version: 0,
@@ -1064,6 +1123,7 @@ impl Room {
             plate_on_table: vec![None; SEATS],
             time: 0.0,
             cues: Vec::new(),
+            plane: None,
         }
     }
 
@@ -1085,7 +1145,8 @@ impl Room {
             .iter()
             .map(|&frame| Berth::new(frame, bed_side(frame, interior)))
             .collect();
-        if beds.is_empty() {
+        let stand_in_bed = beds.is_empty();
+        if stand_in_bed {
             beds.push(Berth::new(counter, bed_side(counter, interior)));
         }
         let chairs = layout_chairs(&layout);
@@ -1093,7 +1154,20 @@ impl Room {
         let (board, drawer, dish_face) = galley_faces(counter, layout.dishwasher);
         let mut dishwasher = Dishwasher::at(dish_face);
         dishwasher.body = Some(layout.dishwasher);
-        let mut sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &layout.hull);
+        // On a plain the fog is drawn over the whole box, the ground round
+        // the deck included; elsewhere over the hull, and the void is
+        // nobody's.
+        let fogged: Vec<Rect> = if layout.plane.is_some() {
+            vec![interior]
+        } else {
+            layout.hull.clone()
+        };
+        let mut sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &fogged);
+        // On a plain the eye reaches the plain's sight range and no further,
+        // indoors and out.
+        if layout.plane.is_some() {
+            sight.set_range(Some(crate::terrain::VIEW as f32 * TILE));
+        }
         sight.set_cover(&layout.cover);
         sight.set_tall(&layout.tall);
         sight.set_lights(&layout.lights);
@@ -1130,6 +1204,8 @@ impl Room {
             table: layout.table,
             chairs,
             beds,
+            stand_in_bed,
+            sleeps_in: Vec::new(),
             lockers: core::iter::once(layout.locker)
                 .chain(layout.more.lockers.iter().copied())
                 .map(Locker::new)
@@ -1154,6 +1230,10 @@ impl Room {
             dropped: Vec::new(),
             returned: Vec::new(),
             built: Vec::new(),
+            ferries: Vec::new(),
+            ferry_picked: Vec::new(),
+            ferry_dropped: Vec::new(),
+            ferry_returned: Vec::new(),
             rocks: Vec::new(),
             rock_targets: Vec::new(),
             rocks_version: 0,
@@ -1182,6 +1262,13 @@ impl Room {
             bays: core::iter::once((layout.bay, layout.bay_side))
                 .chain(layout.more.bays.iter().copied())
                 .map(|(frame, side)| Bay::at(frame, side))
+                .chain(
+                    layout
+                        .more
+                        .fields
+                        .iter()
+                        .map(|&(frame, side)| Bay::field(frame, side)),
+                )
                 .collect(),
             dish: Dish::Stew,
             veg: layout.veg,
@@ -1208,6 +1295,7 @@ impl Room {
             plate_on_table: seats_free,
             time: 0.0,
             cues: Vec::new(),
+            plane: layout.plane,
         }
     }
 
@@ -1238,11 +1326,28 @@ impl Room {
         let chairs = layout_chairs(&layout);
         self.others = layout.others;
         // The walls moved: the mask is traced again from the new ones the
-        // first time anybody looks.
-        self.sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &layout.hull);
+        // first time anybody looks. The daylight is the world's word, not
+        // the layout's — a settlement's ground is under a sky whatever is
+        // built on it — so it is carried across, where a lamp's health is
+        // put back by the world (`Game::set_lamp_health`).
+        let daylight = self.sight.daylight();
+        // The plain is the room's own — what the crew have seen of it stays
+        // seen — with its box moved to the new layout's.
+        if let (Some(mine), Some(theirs)) = (self.plane.as_mut(), layout.plane.as_ref()) {
+            mine.set_deck(theirs.deck());
+        }
+        let fogged: Vec<Rect> = if self.plane.is_some() {
+            vec![interior]
+        } else {
+            layout.hull.clone()
+        };
+        let range = self.sight.range();
+        self.sight = Sight::new(layout.bounds, interior, TILE, &layout.opaque, &fogged);
+        self.sight.set_range(range);
         self.sight.set_cover(&layout.cover);
         self.sight.set_tall(&layout.tall);
         self.sight.set_lights(&layout.lights);
+        self.sight.set_daylight(daylight);
         // The doors, by opening: one that was there keeps its state, one
         // that is new starts shut.
         let mut doors: Vec<Door> = Vec::with_capacity(layout.doors.len());
@@ -1324,6 +1429,7 @@ impl Room {
         self.chairs = chairs;
         self.plate_on_table.resize(self.chairs.len(), None);
         let mut beds: Vec<Berth> = Vec::with_capacity(layout.beds.len());
+        let old_frames: Vec<Rect> = self.beds.iter().map(|b| b.frame).collect();
         let mut old_beds = core::mem::take(&mut self.beds);
         for frame in &layout.beds {
             match old_beds.iter().position(|b| b.frame == *frame) {
@@ -1331,8 +1437,20 @@ impl Room {
                 None => beds.push(Berth::new(*frame, bed_side(*frame, interior))),
             }
         }
-        if beds.is_empty() {
+        // Whose bed is which follows the bed by its frame: a bunk taken
+        // out of the design ahead of somebody's shifts the rest down, and
+        // that somebody's number would otherwise name a stranger's bunk —
+        // or none. A bunk gone is a Bim with no bed.
+        let was_stand_in = self.stand_in_bed;
+        self.stand_in_bed = beds.is_empty();
+        if self.stand_in_bed {
             beds.push(Berth::new(counter, bed_side(counter, interior)));
+        }
+        for bed in &mut self.sleeps_in {
+            *bed = bed
+                .filter(|_| !was_stand_in)
+                .and_then(|b| old_frames.get(b).copied())
+                .and_then(|frame| beds.iter().position(|b| b.frame == frame));
         }
         self.beds = beds;
         self.helm = layout.helm;
@@ -1347,15 +1465,31 @@ impl Room {
         // A bay keeps its trays unless it moved: a bay somewhere else is a
         // different bay, with nothing planted in it yet. By frame, like the
         // beds, so a bay built while another is growing leaves that one be.
+        // The fields the same, after the bays: a field on a bay's old
+        // frame is a different thing and starts bare.
         let mut old_bays = core::mem::take(&mut self.bays);
-        self.bays = core::iter::once((layout.bay, layout.bay_side))
+        let fresh: Vec<Bay> = core::iter::once((layout.bay, layout.bay_side))
             .chain(layout.more.bays.iter().copied())
-            .map(
-                |(frame, side)| match old_bays.iter().position(|b| b.frame == frame) {
-                    Some(i) => old_bays.swap_remove(i),
-                    None => Bay::at(frame, side),
-                },
+            .map(|(frame, side)| Bay::at(frame, side))
+            .chain(
+                layout
+                    .more
+                    .fields
+                    .iter()
+                    .map(|&(frame, side)| Bay::field(frame, side)),
             )
+            .collect();
+        self.bays = fresh
+            .into_iter()
+            .map(|fresh| {
+                match old_bays
+                    .iter()
+                    .position(|b| b.frame == fresh.frame && b.is_field() == fresh.is_field())
+                {
+                    Some(i) => old_bays.swap_remove(i),
+                    None => fresh,
+                }
+            })
             .collect();
         // The heads aboard are a pan and a basin with nothing to remember
         // but a tap running and a flush; laid out again if either moved.
@@ -1715,10 +1849,30 @@ impl Room {
         self.hob(i).serving_pos()
     }
 
-    /// Berth `who`, clamped, so an index that has wandered cannot panic in the
+    /// Berth `bed`, clamped, so an index that has wandered cannot panic in the
     /// middle of a frame.
-    fn berth(&self, who: usize) -> &Berth {
-        &self.beds[who.min(self.beds.len() - 1)]
+    fn berth(&self, bed: usize) -> &Berth {
+        &self.beds[bed.min(self.beds.len() - 1)]
+    }
+
+    /// How many bunks there are to sleep in: `beds` less the stand-in.
+    pub fn bunks(&self) -> usize {
+        if self.stand_in_bed {
+            0
+        } else {
+            self.beds.len()
+        }
+    }
+
+    /// Which bunk Bim `who` sleeps in, or `None` for one that sleeps on
+    /// the deck. See [`Room::sleeps_in`].
+    pub fn bed_of(&self, who: usize) -> Option<usize> {
+        self.sleeps_in.get(who).copied().flatten()
+    }
+
+    /// Whose bunk `bed` is, or `None` for one nobody has.
+    pub fn bed_owner(&self, bed: usize) -> Option<usize> {
+        self.sleeps_in.iter().position(|&b| b == Some(bed))
     }
 
     /// Seat `seat`, clamped the same way.
@@ -1737,25 +1891,37 @@ impl Room {
         self.plate_on_table[seat] = plate;
     }
 
-    /// Where Bim `who` stands to climb into its own bed.
-    pub fn bed_station(&self, who: usize) -> Vec2 {
-        self.berth(who).station()
+    /// Where a Bim stands to climb into bunk `bed` — its own, by
+    /// [`Room::sleeps_in`].
+    pub fn bed_station(&self, bed: usize) -> Vec2 {
+        self.berth(bed).station()
     }
 
     /// Which way it turns to do it.
-    pub fn bed_facing(&self, who: usize) -> f32 {
-        self.berth(who).facing()
+    pub fn bed_facing(&self, bed: usize) -> f32 {
+        self.berth(bed).facing()
     }
 
     /// Where it lies once it is up there.
-    pub fn bed_lie_pos(&self, who: usize) -> Vec2 {
-        self.berth(who).lie_pos()
+    pub fn bed_lie_pos(&self, bed: usize) -> Vec2 {
+        self.berth(bed).lie_pos()
     }
 
     /// Which way the sleeper faces: towards the head of the bed, whichever
     /// way the bed lies.
-    pub fn bed_lie_facing(&self, who: usize) -> f32 {
-        self.berth(who).lie_facing()
+    pub fn bed_lie_facing(&self, bed: usize) -> f32 {
+        self.berth(bed).lie_facing()
+    }
+
+    /// Which bunk is under a click, its frame a little expanded like the
+    /// rest of [`Room::hit`]'s. Never the stand-in, which is the worktop.
+    pub fn bed_at(&self, p: Vec2) -> Option<usize> {
+        if self.stand_in_bed {
+            return None;
+        }
+        self.beds
+            .iter()
+            .position(|b| b.frame.expand(4.0).contains(p))
     }
 
     /// Bim `who`'s seat at the table, and which way it faces once it is in it
@@ -1821,7 +1987,7 @@ impl Room {
             HIT_FRIDGE
         } else if self.dishwasher_at(p).is_some() {
             HIT_DISHWASHER
-        } else if self.beds.iter().any(|b| b.frame.expand(4.0).contains(p)) {
+        } else if self.bed_at(p).is_some() {
             HIT_BED
         } else if self.bay_at(p).is_some() {
             HIT_HYDRO
@@ -2052,8 +2218,8 @@ impl Room {
     }
 
     /// Pull one bed's blanket up over a sleeper, or make it again.
-    pub fn set_bed_occupied(&mut self, who: usize, occupied: bool) {
-        let bed = who.min(self.beds.len() - 1);
+    pub fn set_bed_occupied(&mut self, bed: usize, occupied: bool) {
+        let bed = bed.min(self.beds.len() - 1);
         self.beds[bed].blanket_target = if occupied { 1.0 } else { 0.0 };
     }
 

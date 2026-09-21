@@ -10,16 +10,19 @@ list, and are the place to start.
 
 `galaxy_checksum` (`checksum.rs`) eats every star and then every system —
 each body, then each station's id, kind, parent, position, name, **shelf**
-(`stock.0`) and **side** (`hostile`). The last two are in it because they
+(`stock.0`), **price bias** (`bias`, one entry a resource, sign-extended)
+and **side** (`hostile`). The last three are in it because they
 are what a player meets the moment they dock: two builds whose stations
-stood in the same places and disagreed about which of them shoot would be
-two galaxies. `fixture::REFERENCE_CHECKSUMS` pins it per galaxy type for
+stood in the same places and disagreed about which of them shoot, or
+what the ore costs, would be two galaxies. `fixture::REFERENCE_CHECKSUMS` pins it per galaxy type for
 `REFERENCE_SEED`; `the_reference_galaxy_comes_out_at_the_numbers_it_is_pinned_to`
 is the native end, `Lobby::checksum` the other, and
 `crates/lobby/src/tests.rs` parses the constants out of `fixture.rs` rather
 than carrying a copy — so re-pinning here is enough for both.
 `the_checksum_notices_a_station_changing_sides` flips one station's
-`hostile` and asks for a different number.
+`hostile` and asks for a different number;
+`the_checksum_notices_a_station_leaning_on_a_price` moves one entry of a
+bias and asks the same.
 
 Anything on `data.rs`'s bump list moves `GENERATOR_VERSION` (6 now: 4 was
 the body count going from one-to-seven to two-to-ten so a system could
@@ -35,6 +38,30 @@ and the side each come off their **own branch** of the station's stream
 is drawn *after* the existing ones in `Stock::roll` (it walks
 `ResourceId::ALL` in order), so a shelf already rolled keeps what it had.
 The checksum still moves, because the shelf is in it.
+
+## A station's desk leans on every price, and the roll is an integer
+
+`StationBlueprint::bias` is an `economy::market::Bias` — one small whole
+number per cent a resource, `-MAX_BIAS..=MAX_BIAS` (15), in
+`ResourceId::ALL` order — rolled by `data::price_bias` in `furnish` off
+`base.branch(0x_4249_4153_0000_0000 ^ id)` ("BIAS"), its own branch like
+the shelf's, and **never for a `Derelict`**, which keeps no desk
+(`Bias::NONE`). It is drawn for **every** resource whether the station
+stocks it or not, so a resource added later is drawn after the rest and
+moves none of them; and by `Rng::below` alone — no `unit()`, no
+`range()`, nothing off the desolation, which is a `powf` — so it is the
+same integer on every target, which is why it can go into the checksum
+without a grid. `economy::market::quote` is what reads it: the book
+price leaned on by the kind and by this, split into an ask and a bid
+(`crates/economy`). The world's settlements roll theirs the same way
+(`world::surface`, off the settlement stream) and the world sets the
+**spawn's** to nothing (`World::start`). Adding the bias to the checksum
+re-pinned the four `fixture::REFERENCE_CHECKSUMS`; it is not a
+`GENERATOR_VERSION` bump, since no layout moved.
+`a_station_leans_on_every_price_inside_the_range` pins the range, the
+derelict, that every entry of the range turns up somewhere, and that
+the same seed twice is the same lean. This crate depends on `economy`
+for the type alone.
 
 ## A system has up to nine stations, and two of a kind is allowed
 

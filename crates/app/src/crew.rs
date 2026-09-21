@@ -134,6 +134,22 @@ pub struct Hold {
     /// desk's row reads both.
     pub station_desk: Option<usize>,
     pub station_key: bool,
+    /// The workbench with the slots, if one is aboard — `World::bench` —
+    /// as its window draws it.
+    pub bench: Option<BenchView>,
+}
+
+/// The workbench as the panels see it: which bench it is, its three slots
+/// and the work on them (`world::Workbench`, whose `takes` is the rule a
+/// pack row is greyed by), whether the Bim shown stands within reach of
+/// it, and whether the button could be pressed — `World::can_upgrade`,
+/// so the window says why not before the command is sent.
+#[derive(Clone, Copy)]
+pub struct BenchView {
+    pub index: usize,
+    pub bench: world::Workbench,
+    pub reach: bool,
+    pub upgrade: Result<(), world::Refusal>,
 }
 
 impl Hold {
@@ -186,6 +202,9 @@ pub struct Body {
 pub enum GearOrder {
     /// Put what is in a pack cell into a container.
     Stow { who: u32, cell: u32 },
+    /// Put what is in a pack cell onto the workbench's first free input
+    /// slot — `Command::StowOnBench`.
+    StowOnBench { who: u32, cell: u32 },
     /// Take a piece by its id, or one unit of a resource, into the pack.
     Fetch { who: u32, kind: FetchKind },
     /// Put on what is in a pack cell.
@@ -281,6 +300,8 @@ enum Source {
     /// A cell of the open Loot window, by its `LootCell` code; whose body
     /// is the window's.
     Loot(u32),
+    /// One of the workbench's three slots.
+    Bench(u32),
 }
 
 /// A cell of a container window: one slot of a class's grid by its id —
@@ -576,12 +597,10 @@ pub struct CrewPanels {
     open_group: Option<usize>,
     /// The Research tab: the node picked, whose details are under the tree.
     research_pick: Option<Node>,
-    /// The inventory pop-up: up from the moment the player's crew member
-    /// is recruited, or a container is opened, until it is shut or they
-    /// are let go; and whether they were recruited last frame, which is
-    /// how the moment is noticed.
+    /// The inventory pop-up: up from the Inventory key or a container
+    /// being opened, until it is shut. A recruit does not open it — a
+    /// fight is not the moment for a window over the deck.
     inventory_open: bool,
-    was_recruited: bool,
     /// The hold, as the ship's screen last handed it over; `None` in the
     /// room. See the module note.
     pub hold: Option<Hold>,
@@ -608,6 +627,9 @@ pub struct CrewPanels {
     /// The Trade row was picked: the screen opens the trade window and
     /// takes this.
     pub trade_requested: bool,
+    /// The workbench window's button was pressed: the screen sends
+    /// `Order::Upgrade` and takes this.
+    pub upgrade_requested: bool,
     /// The station desk's Take row was picked for this Bim: the screen
     /// sends the take once they are within reach, and takes this.
     pub key_requested: Option<u32>,
@@ -648,7 +670,6 @@ impl CrewPanels {
             open_group: None,
             research_pick: None,
             inventory_open: false,
-            was_recruited: false,
             hold: None,
             open: None,
             container_rect: None,
@@ -657,6 +678,7 @@ impl CrewPanels {
             walk: None,
             terms: None,
             trade_requested: false,
+            upgrade_requested: false,
             key_requested: None,
             cell_menu: None,
             nearby: Vec::new(),
@@ -723,9 +745,13 @@ impl CrewPanels {
         let container = match fixture {
             HIT_BENCH if self.hold.is_some() => {
                 let bench = game.hit_bench();
+                let workbench = self.hold.as_ref().and_then(|h| h.bench).map(|b| b.index);
                 PartKind::from_code(game.bench_part(bench))
                     .and_then(|kind| kind.def().capacity)
                     .map(|_| Container::Bench(bench))
+                    // The workbench keeps no class of goods, but it has
+                    // its three slots, and a window for them.
+                    .or((workbench == Some(bench)).then_some(Container::Bench(bench)))
             }
             HIT_SHELF if self.hold.is_some() => Some(Container::Shelf(game.hit_shelf())),
             // The ship's own research desk is a container — the key's slot;
@@ -772,7 +798,8 @@ impl CrewPanels {
     /// Open a container's window by name, the way a click on it would:
     /// `BIMS_ARMOURY=1` (or `armoury`) the first bench aboard whose part
     /// is an armoury, `storage` the first shelf, `fridge` the first cold
-    /// store. Nothing, on a ship without one.
+    /// store, `workbench` the workbench with the slots. Nothing, on a ship
+    /// without one.
     pub fn open_named(&mut self, game: &mut Game, what: &str) {
         let container = match what {
             "storage" => game
@@ -781,6 +808,11 @@ impl CrewPanels {
             "fridge" => game
                 .container_frame(Container::Fridge(0))
                 .map(|_| Container::Fridge(0)),
+            "workbench" => self
+                .hold
+                .as_ref()
+                .and_then(|h| h.bench)
+                .map(|b| Container::Bench(b.index)),
             _ => (0..game.benches().len())
                 .find(|&i| game.bench_part(i) == PartKind::Armoury.code())
                 .map(Container::Bench),
@@ -1232,6 +1264,11 @@ impl CrewPanels {
                 let spots = game.hydro_spots();
                 let automated = game.hydro_automated(bay);
                 let asleep = game.hydro_hibernating(bay);
+                // A field in a town's soil has nothing to plug in, so a
+                // brownout is never its trouble: the menu is headed Field
+                // and the power line is left out.
+                let field = game.hydro_is_field(bay);
+                let unpowered = !field && !game.hydro_powered(bay);
                 let forced = game.hydro_forced(bay);
                 let ripe = game.hydro_ripe(bay);
                 let mut growing = 0;
@@ -1249,7 +1286,7 @@ impl CrewPanels {
                     format!(", furthest {}% grown", (furthest * 100.0).round())
                 };
                 items.push(Item::note(
-                    "Trays",
+                    if field { "Field" } else { "Trays" },
                     format!(
                         "{growing} of {spots} planted{}",
                         if ripe > 0 {
@@ -1277,7 +1314,9 @@ impl CrewPanels {
                     } else {
                         "Automate"
                     },
-                    if automated {
+                    if unpowered {
+                        "no power — holding what is planted"
+                    } else if automated {
                         if asleep {
                             "at target — holding what is planted"
                         } else {
@@ -1491,20 +1530,57 @@ impl CrewPanels {
                     items.push(Item::note(KEY_ROW, NO_KEY_ROW_HINT.into()));
                 }
             }
+            // A bunk is one crew member's. The Bim shown — the selected one,
+            // else the player's own — may be given it, or give it up; Nap
+            // and Sleep are offered to the player's own on its own bunk,
+            // since that is the only bunk it would go to.
             HIT_BED => {
-                let now = game.clock_minutes();
-                for (minutes, label) in [(task::NAP_MINUTES, "Nap"), (task::SLEEP_MINUTES, "Sleep")]
-                {
+                let bed = game.hit_bed();
+                let shown = self.inventory_who(game);
+                let owner = game.bed_owner(bed);
+                let whose = match owner {
+                    Some(o) if o == shown => BED_OWN_HINT.to_string(),
+                    Some(o) => format!("{}'s", name(o as u32)),
+                    None => BED_NOBODY_S.to_string(),
+                };
+                items.push(Item::note("Bunk", whose));
+                if !game.bed_assignable(bed) {
+                    items.push(Item::note(BED_ASSIGN_ROW, BED_FOREIGN_HINT.to_string()));
+                } else if owner == Some(shown) {
                     items.push(Item::run(
-                        format!("{label} — {}", span_text(minutes)),
-                        takes_over
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("up around {}", clock_text(now + minutes))),
+                        BED_UNASSIGN_ROW,
+                        BED_UNASSIGN_HINT,
                         false,
                         move |g| {
-                            g.rest(who, minutes);
+                            g.assign_bed(shown, None);
                         },
                     ));
+                } else {
+                    items.push(Item::run(
+                        format!("{BED_ASSIGN_ROW} {}", name(shown as u32)),
+                        BED_ASSIGN_HINT,
+                        false,
+                        move |g| {
+                            g.assign_bed(shown, Some(bed));
+                        },
+                    ));
+                }
+                if owner == Some(who) {
+                    let now = game.clock_minutes();
+                    for (minutes, label) in
+                        [(task::NAP_MINUTES, "Nap"), (task::SLEEP_MINUTES, "Sleep")]
+                    {
+                        items.push(Item::run(
+                            format!("{label} — {}", span_text(minutes)),
+                            takes_over.map(|s| s.to_string()).unwrap_or_else(|| {
+                                format!("up around {}", clock_text(now + minutes))
+                            }),
+                            false,
+                            move |g| {
+                                g.rest(who, minutes);
+                            },
+                        ));
+                    }
                 }
             }
             _ => {}
@@ -1853,6 +1929,30 @@ impl CrewPanels {
                 String::new()
             },
             ill > 0.0,
+            false,
+        );
+        // No bunk, and sore from the deck: both the bunk's business — click
+        // one to give it — so the tip hangs off a `?` beside the line.
+        let no_bed = alive && game.bed_of(w).is_none();
+        if no_bed {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(NO_BED_LINE)
+                        .small()
+                        .color(theme::CAUTION),
+                );
+                theme::question_mark(ui, SORE_TIP);
+            });
+        }
+        let sore = if alive { game.soreness(w) } else { 0.0 };
+        line(
+            ui,
+            if sore > 0.0 {
+                format!("{SORE_LINE} · {} hours to go", sore.ceil())
+            } else {
+                String::new()
+            },
+            sore > 0.0,
             false,
         );
         let alone = if alive { game.loneliness(w) } else { 0 };
@@ -2293,7 +2393,7 @@ impl CrewPanels {
                     &weapon_line,
                 );
                 ui.label(egui::RichText::new("Pack").small().color(theme::MUTED));
-                // Seven by seven, laid out like the lockers: a drag moves a
+                // Ten by five, laid out like the lockers: a drag moves a
                 // thing, Turn turns it, through the seam as a repack.
                 let (things, heads) = pack_things(&gear);
                 let mut drag = self.pack_drag;
@@ -2441,7 +2541,14 @@ impl CrewPanels {
             && let Some(item) = pack[cell]
         {
             let i = cell;
-            if self.can_stow(item).is_ok() {
+            // With the workbench's window up the quick move is onto the
+            // bench; else into the hold.
+            if self.bench_window_open() && self.can_put_on_bench(item).is_ok() {
+                self.orders.push(GearOrder::StowOnBench {
+                    who: who as u32,
+                    cell: i as u32,
+                });
+            } else if !self.bench_window_open() && self.can_stow(item).is_ok() {
                 self.orders.push(GearOrder::Stow {
                     who: who as u32,
                     cell: i as u32,
@@ -2538,10 +2645,9 @@ impl CrewPanels {
         }
     }
 
-    /// The pop-up that opens the moment the crew member the player steers
-    /// is recruited, or a container window opens, or the Inventory key is
-    /// pressed: the inventory of the Bim shown, in a window of its own,
-    /// until it is shut or the Bim is let go. Beside the container window while one is up, else at the
+    /// The pop-up the Inventory key or a container window opens: the
+    /// inventory of the Bim shown, in a window of its own, until it is
+    /// shut. Beside the container window while one is up, else at the
     /// top of the screen. Call once a frame after the tray and after
     /// [`CrewPanels::container_window`].
     pub fn inventory_window(
@@ -2550,16 +2656,6 @@ impl CrewPanels {
         game: &mut Game,
         name: &dyn Fn(u32) -> String,
     ) {
-        let recruited = game.is_recruited() && game.is_alive(self.player);
-        if recruited && !self.was_recruited {
-            self.inventory_open = true;
-        }
-        // Being let go shuts it — unless a container is open, in which
-        // case the pack is still what the container is being used with.
-        if !recruited && self.was_recruited && self.open.is_none() {
-            self.inventory_open = false;
-        }
-        self.was_recruited = recruited;
         if !self.inventory_open {
             return;
         }
@@ -2615,6 +2711,16 @@ impl CrewPanels {
             self.locker_drag = None;
             return;
         };
+        // The workbench is a container of its own kind: three slots, not
+        // a class of the hold.
+        if let Container::Bench(i) = container
+            && let Some(view) = self.hold.as_ref().and_then(|h| h.bench)
+            && view.index == i
+        {
+            self.locker_drag = None;
+            self.bench_window(ctx, game, view, name);
+            return;
+        }
         let (Some(hold), Some(class)) = (self.hold.as_ref(), class_of(game, container)) else {
             self.open = None;
             self.locker_drag = None;
@@ -2816,6 +2922,213 @@ impl CrewPanels {
             }
         }
         self.follow_strip(strip);
+    }
+
+    /// The workbench's window: its two input slots, the button — or the
+    /// hours done while the day's work is on — and the output slot, each
+    /// slot a cell drawn the way a pack's are, a tier-two thing on blue and
+    /// a tier-three on gold. Ctrl-click a slot to take what is in it into
+    /// the pack of the Bim shown; right-click for the row. What goes *on*
+    /// is the pack's side: Ctrl-click a thing there while this window is
+    /// up, or its Bench row. The button asks the world (`can_upgrade`)
+    /// and is greyed with the reason. Shut by its cross, by Escape, or by
+    /// the container going away under it.
+    fn bench_window(
+        &mut self,
+        ctx: &egui::Context,
+        game: &Game,
+        view: BenchView,
+        name: &dyn Fn(u32) -> String,
+    ) {
+        let who = self.inventory_who(game);
+        let cells: Vec<Option<Cell>> = view
+            .bench
+            .slots
+            .iter()
+            .map(|slot| slot.map(|item| cell_of(item, 1)))
+            .collect();
+        let inputs: Vec<Option<Cell>> = cells
+            .iter()
+            .take(world::Workbench::OUT)
+            .map(|c| {
+                c.as_ref()
+                    .map(|c| Cell::new(c.item, c.count, c.tip.clone()))
+            })
+            .collect();
+        let output: Vec<Option<Cell>> = cells
+            .iter()
+            .skip(world::Workbench::OUT)
+            .map(|c| {
+                c.as_ref()
+                    .map(|c| Cell::new(c.item, c.count, c.tip.clone()))
+            })
+            .collect();
+        let mut open = true;
+        let mut picked_in = grid::Picked::default();
+        let mut picked_out = grid::Picked::default();
+        let mut pressed = false;
+        let mut strip = None;
+        let (nearby, showing) = (self.nearby.clone(), self.open);
+        let work = view.bench.work;
+        let response = egui::Window::new(BENCH_WINDOW)
+            .id(egui::Id::new("container-window"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
+            .frame(crate::screens::room::panel_frame())
+            .show(ctx, |ui| {
+                // Wide enough for the hint's line: with nothing wider than
+                // the three cells the window would wrap it to nothing.
+                ui.set_min_width(300.0);
+                strip = nearby_strip(ui, &nearby, showing);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Two of a kind in, one out a tier up")
+                            .small()
+                            .color(theme::MUTED),
+                    );
+                    theme::question_mark(ui, BENCH_TIP);
+                });
+                ui.horizontal(|ui| {
+                    picked_in = grid::grid(ui, 2, 1, PACK_CELL, &inputs);
+                    ui.add_space(6.0);
+                    ui.vertical(|ui| {
+                        ui.set_min_width(96.0);
+                        match work {
+                            Some(upgrade) => {
+                                let done = upgrade.done.min(world::data::UPGRADE_SESSIONS);
+                                let of = world::data::UPGRADE_SESSIONS;
+                                ui.label(
+                                    egui::RichText::new(bench_work_line(done, of)).small(),
+                                );
+                                theme::bar(ui, 90.0, done as f32 / of.max(1) as f32, theme::ACCENT);
+                            }
+                            None => {
+                                let (ok, why) = match view.upgrade {
+                                    Ok(()) => (true, String::new()),
+                                    Err(why) => (false, refusal(why).to_string()),
+                                };
+                                let button = ui.add_enabled(ok, egui::Button::new(UPGRADE_BUTTON));
+                                if ok && button.clicked() {
+                                    pressed = true;
+                                }
+                                if !ok && !why.is_empty() {
+                                    button.on_disabled_hover_text(why);
+                                }
+                            }
+                        }
+                    });
+                    ui.add_space(6.0);
+                    picked_out = grid::grid(ui, 1, 1, PACK_CELL, &output);
+                });
+                let hint = if !view.reach {
+                    format!(
+                        "{} is not within reach — walk over first; clicking the bench sends the Bim",
+                        name(who as u32)
+                    )
+                } else {
+                    format!(
+                        "Ctrl-click a thing in the pack to put it on the bench · Ctrl-click a slot to take it into {}'s pack · right-click for the rows",
+                        name(who as u32)
+                    )
+                };
+                ui.add(egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap());
+            });
+        if let Some(response) = response {
+            self.container_rect = Some(response.response.rect);
+        }
+        if !open {
+            self.open = None;
+        }
+        if pressed {
+            self.upgrade_requested = true;
+        }
+        // The pointer on a slot: a right-click is the row, a ctrl-click the
+        // quick take — or the row, when the take cannot go.
+        let out = world::Workbench::OUT;
+        let right = picked_in
+            .right_clicked
+            .or(picked_out.right_clicked.map(|(i, at)| (i + out, at)));
+        let quick = picked_in
+            .ctrl_clicked
+            .or(picked_out.ctrl_clicked.map(|(i, at)| (i + out, at)));
+        if let Some((i, at)) = right {
+            self.cell_menu = Some(CellMenu {
+                at,
+                from: Source::Bench(i as u32),
+                who,
+                fresh: true,
+            });
+        }
+        if let Some((i, at)) = quick {
+            if self.can_take_off_bench(game, who, i).is_ok() {
+                self.orders.push(GearOrder::Fetch {
+                    who: who as u32,
+                    kind: FetchKind::Bench { slot: i as u32 },
+                });
+            } else {
+                self.cell_menu = Some(CellMenu {
+                    at,
+                    from: Source::Bench(i as u32),
+                    who,
+                    fresh: true,
+                });
+            }
+        }
+        self.follow_strip(strip);
+    }
+
+    /// Whether what is in a workbench slot can come into `who`'s pack now,
+    /// or why not: something there, the bench not at work on it, reach,
+    /// and a free cell. The world checks the same again when the command
+    /// lands.
+    fn can_take_off_bench(&self, game: &Game, who: usize, slot: usize) -> Result<(), String> {
+        let Some(view) = self.hold.as_ref().and_then(|h| h.bench) else {
+            return Err("there is no workbench".into());
+        };
+        if view.bench.slots.get(slot).copied().flatten().is_none() {
+            return Err("nothing there".into());
+        }
+        if view.bench.work.is_some() && slot != world::Workbench::OUT {
+            return Err(refusal(world::Refusal::BenchBusy).into());
+        }
+        if !view.reach {
+            return Err(REACH_HINT.into());
+        }
+        if game.gear(who).free_cell().is_none() {
+            return Err("the pack is full".into());
+        }
+        Ok(())
+    }
+
+    /// Whether a thing in the pack can go onto the workbench now, or why
+    /// not, in the words the Bench row shows: the window up, the bench
+    /// taking it (`Workbench::takes`, the world's rule), and reach.
+    fn can_put_on_bench(&self, item: PackItem) -> Result<(), String> {
+        let Some(view) = self.hold.as_ref().and_then(|h| h.bench) else {
+            return Err("there is no workbench".into());
+        };
+        if let PackItem::Armour(piece) = item
+            && piece.broken()
+        {
+            return Err("broken — the bench makes nothing of it; discard it".into());
+        }
+        if let Err(why) = view.bench.takes(item) {
+            return Err(refusal(why).into());
+        }
+        if !view.reach {
+            return Err(REACH_HINT.into());
+        }
+        Ok(())
+    }
+
+    /// Whether the workbench's window is the one up.
+    fn bench_window_open(&self) -> bool {
+        match (self.open, self.hold.as_ref().and_then(|h| h.bench)) {
+            (Some(Open::Container(Container::Bench(i))), Some(view)) => view.index == i,
+            _ => false,
+        }
     }
 
     /// The Hire window, if a mercenary is open: whose, what it carries —
@@ -3152,6 +3465,23 @@ impl CrewPanels {
                         },
                     ));
                 }
+                // And onto the workbench, for a gun or a piece, while the
+                // ship has one.
+                if self.hold.as_ref().is_some_and(|h| h.bench.is_some())
+                    && matches!(item, PackItem::Armour(_) | PackItem::Weapon(_))
+                {
+                    let (hint, disabled) = match self.can_put_on_bench(item) {
+                        Ok(()) => ("into a slot on the workbench".to_string(), false),
+                        Err(why) => (why, true),
+                    };
+                    rows.push((
+                        theme::Row::new("Bench", hint, disabled),
+                        GearOrder::StowOnBench {
+                            who: who32,
+                            cell: cell32,
+                        },
+                    ));
+                }
                 rows.push((
                     theme::Row::new("Discard", "thrown out, for good", false),
                     GearOrder::Discard {
@@ -3267,6 +3597,32 @@ impl CrewPanels {
                         who: who as u32,
                         source,
                         cell,
+                    },
+                ));
+            }
+            Source::Bench(slot) => {
+                let Some(view) = self.hold.as_ref().and_then(|h| h.bench) else {
+                    return rows;
+                };
+                if view
+                    .bench
+                    .slots
+                    .get(slot as usize)
+                    .copied()
+                    .flatten()
+                    .is_none()
+                {
+                    return rows;
+                }
+                let (hint, disabled) = match self.can_take_off_bench(game, who, slot as usize) {
+                    Ok(()) => (format!("into {}'s pack", name(who as u32)), false),
+                    Err(why) => (why, true),
+                };
+                rows.push((
+                    theme::Row::new("Take", hint, disabled),
+                    GearOrder::Fetch {
+                        who: who as u32,
+                        kind: FetchKind::Bench { slot },
                     },
                 ));
             }

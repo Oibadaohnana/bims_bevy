@@ -22,6 +22,7 @@
 /// every other code in this workspace has.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum HealthEvent {
     /// A dose where there was none. The meter appears here and stays until
     /// [`HealthEvent::DoseCleared`].

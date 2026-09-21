@@ -47,6 +47,7 @@ use crate::parts::{Layer, PartKind};
 
 /// One connected run of conduit and everything wired to it.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Network {
     /// The conduit tiles, in row order.
     pub tiles: Vec<(u32, u32)>,
@@ -88,6 +89,7 @@ impl Network {
 /// per-network question — is *this* run short — is the validator's, and it
 /// asks [`networks`] directly.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Budget {
     pub supply: f64,
     pub draw: f64,
@@ -227,7 +229,14 @@ pub fn networks(design: &ShipDesign) -> Vec<Network> {
 }
 
 /// Every part on a live network, by id, ascending. The one list the
-/// questions below share.
+/// questions below share, and what the world keeps a copy of between
+/// changes to the ship (`World::on_ship_changed`): it is a union-find
+/// over the grid, and `is_powered` asked of every lamp every step would
+/// be that once a lamp.
+pub fn powered_parts(design: &ShipDesign) -> Vec<u32> {
+    live_parts(design)
+}
+
 fn live_parts(design: &ShipDesign) -> Vec<u32> {
     let mut out: Vec<u32> = networks(design)
         .into_iter()
@@ -288,6 +297,7 @@ pub fn budget(design: &ShipDesign) -> Budget {
 /// draw, capped at one, and its power is what it then draws a minute. An
 /// engine on no live network is not in any set.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Thrust {
     /// Fraction of full thrust the wired engines facing forward can be
     /// fed, `0.0` to `1.0`. One with nothing to throttle.

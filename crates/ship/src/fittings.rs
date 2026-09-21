@@ -6,7 +6,10 @@
 //! fires. What is left is what a body walks past between them: the helm,
 //! the shelves, the shower, the bulkheads and the doors in them, the conduit
 //! under the deck (which is [`conduit`], apart from [`part`], because it
-//! needs the grid to know which way it runs). Those used to be a coloured block a tile, which is what
+//! needs the grid to know which way it runs). On a planet the same parts
+//! are asked of [`part_in`] with the ground's biome, and the wall and the
+//! wild parts — tree, shrub, boulder, water, field — are drawn as that
+//! biome has them. Those used to be a coloured block a tile, which is what
 //! the design phase still shows and is fine at eight pixels a tile; at the
 //! game's scale a block is a hole in the picture, and a station with rooms
 //! in it is mostly bulkhead.
@@ -20,6 +23,7 @@
 
 use shipdesign::parts::{Layer, PartKind, TILE, solid_corner};
 use shipdesign::{Grid, PlacedPart, ShipDesign};
+use world::Biome;
 
 use crate::draw::{Color, DrawList, KIND_ELLIPSE, KIND_RECT};
 use crate::hull::{Corner, Local, corner, middle};
@@ -99,14 +103,32 @@ const TINCTURES: [Color; 3] = [
 
 /// The picture for an interior part, if it has one. `false` means the
 /// caller draws its block — the same contract as [`hull::part`], which is
-/// asked first.
+/// asked first. The ship's look: [`part_in`] with no biome.
 pub fn part(list: &mut DrawList, part: &PlacedPart) -> bool {
+    part_in(list, part, None)
+}
+
+/// The picture for a part where it stands: aboard a ship or a station
+/// (`None`), or on a planet's ground in a biome (`Some`), where a wall is
+/// stone, adobe or timber rather than a bulkhead and the wild parts —
+/// the tree, the shrub, the boulder, the water, the field — are drawn as
+/// that biome grows them. With `None` the wild parts are the temperate
+/// look, which is what the designer's ghost and a station show.
+pub fn part_in(list: &mut DrawList, part: &PlacedPart, biome: Option<Biome>) -> bool {
     match part.kind {
         PartKind::Wall => {
             for tile in part.tiles() {
-                wall(list, tile);
+                match biome {
+                    Some(biome) => stone_wall(list, tile, biome),
+                    None => wall(list, tile),
+                }
             }
         }
+        PartKind::Field => field(list, part),
+        PartKind::Tree => tree(list, part, biome.unwrap_or(Biome::Temperate)),
+        PartKind::Shrub => shrub(list, part, biome.unwrap_or(Biome::Temperate)),
+        PartKind::Boulder => boulder(list, part, biome.unwrap_or(Biome::Temperate)),
+        PartKind::Water => water(list, part, biome.unwrap_or(Biome::Temperate)),
         PartKind::DiagonalWall => diagonal_wall(list, part),
         PartKind::Door => door(list, part),
         PartKind::Helm => helm(list, part),
@@ -2225,4 +2247,496 @@ fn sandbags(list: &mut DrawList, part: &PlacedPart) {
         0.0,
         SACK_DARK,
     );
+}
+
+// --- the ground's walls ---------------------------------------------------------------
+
+/// A wall on a planet is what the ground gives: dressed stone in a
+/// temperate town, the mortar (`STONE`, the tile under the blocks)
+/// showing between them; adobe in a desert one, warm and smooth; timber
+/// in an arctic one, a plank line across it.
+const STONE: Color = Color::rgb(0.40, 0.37, 0.32);
+const STONE_BLOCK: Color = Color::rgb(0.56, 0.53, 0.47);
+const ADOBE: Color = Color::rgb(0.70, 0.54, 0.36);
+const ADOBE_LIT: Color = Color::rgb(0.80, 0.64, 0.44);
+const TIMBER: Color = Color::rgb(0.44, 0.30, 0.19);
+const PLANK: Color = Color::rgba(0.14, 0.08, 0.04, 0.6);
+
+/// One tile of a town's wall, by the biome: stone blocks in a mortar
+/// seam, a slab of adobe with a lighter face, or timber with the plank
+/// line along it. The bulkhead ([`wall`]) is a ship's; this is what
+/// [`part_in`] draws for a `Wall` with a biome.
+fn stone_wall(list: &mut DrawList, tile: (u32, u32), biome: Biome) {
+    let (cx, cy) = middle(tile.0, tile.1);
+    match biome {
+        Biome::Temperate => {
+            // The mortar is the tile; two courses of blocks are let into
+            // it, the lower course staggered half a block — one block a
+            // course a tile, the lower one pushed left or right by the
+            // tile's parity, so the stagger runs across the neighbours
+            // rather than costing a shape.
+            list.rect(cx, cy, T, T, 0.0, STONE);
+            let course = T / 2.0;
+            let top = cy - course / 2.0;
+            let bottom = cy + course / 2.0;
+            let shove = if (tile.0 + tile.1) % 2 == 0 {
+                -1.0
+            } else {
+                1.0
+            };
+            list.rect(cx, top, T - 3.0, course - 3.0, 1.5, STONE_BLOCK);
+            list.rect(
+                cx + shove * T * 0.16,
+                bottom,
+                T * 0.68 - 3.0,
+                course - 3.0,
+                1.5,
+                STONE_BLOCK,
+            );
+        }
+        Biome::Desert => {
+            list.rect(cx, cy, T, T, 0.0, ADOBE);
+            list.rect(cx, cy, T - 8.0, T - 8.0, 5.0, ADOBE_LIT);
+        }
+        Biome::Arctic => {
+            list.rect(cx, cy, T, T, 0.0, TIMBER);
+            list.rect(cx, cy, T, 1.5, 0.0, PLANK);
+        }
+    }
+}
+
+// --- the wild ------------------------------------------------------------------------
+
+/// What a tree, a shrub or a rock throws on the ground to its south-east.
+const SHADE: Color = Color::rgba(0.0, 0.0, 0.0, 0.22);
+/// The palm's trunk and its fronds; the cactus and the light on it; the
+/// fir's two greens and the snow on its top tier; the tussock's dry grass.
+const TRUNK: Color = Color::rgb(0.46, 0.32, 0.20);
+const FROND: Color = Color::rgb(0.34, 0.56, 0.30);
+const FROND_LIGHT: Color = Color::rgb(0.52, 0.72, 0.38);
+const CACTUS: Color = Color::rgb(0.30, 0.54, 0.34);
+const CACTUS_LIT: Color = Color::rgb(0.42, 0.66, 0.42);
+const FIR: Color = Color::rgb(0.13, 0.32, 0.21);
+const FIR_LIT: Color = Color::rgb(0.19, 0.42, 0.27);
+const SNOW: Color = Color::rgb(0.92, 0.95, 0.98);
+const TUSSOCK: Color = Color::rgb(0.68, 0.62, 0.42);
+const TUSSOCK_DARK: Color = Color::rgb(0.48, 0.42, 0.26);
+/// Rock by biome — a temperate grey, a desert's sandstone, an arctic
+/// blue-grey — with the seam round each lump and the light on its edge,
+/// as `world_paint::list_rock` draws an asteroid's.
+const ROCK_TEMPERATE: Color = Color::rgb(0.52, 0.50, 0.46);
+const ROCK_DESERT: Color = Color::rgb(0.64, 0.44, 0.30);
+const ROCK_ARCTIC: Color = Color::rgb(0.56, 0.60, 0.64);
+const ROCK_EDGE: Color = Color::rgba(0.0, 0.0, 0.0, 0.35);
+const ROCK_GLINT: Color = Color::rgba(1.0, 1.0, 1.0, 0.12);
+/// Water by biome — a lake, an oasis pool, and ice — the wavelets on the
+/// two that are wet and the crack across the one that is frozen.
+const WATER_TEMPERATE: Color = Color::rgb(0.24, 0.44, 0.64);
+const WATER_DESERT: Color = Color::rgb(0.22, 0.54, 0.62);
+const ICE: Color = Color::rgb(0.70, 0.82, 0.90);
+const WAVELET: Color = Color::rgba(1.0, 1.0, 1.0, 0.30);
+const ICE_CRACK: Color = Color::rgba(0.30, 0.44, 0.58, 0.7);
+/// A field from afar: the soil, its edge, and the furrows along it.
+const FIELD_SOIL: Color = Color::rgb(0.42, 0.30, 0.18);
+const FIELD_EDGE: Color = Color::rgba(0.20, 0.13, 0.07, 0.6);
+const FURROW: Color = Color::rgba(0.16, 0.10, 0.05, 0.5);
+
+/// A number nought to one that is the part's own — off its origin, so
+/// two trees in a row are not the same tree and the picture holds still
+/// from frame to frame. A hash rather than the RNG, for the flame's
+/// reason (`hull::flicker`).
+fn salt(part: &PlacedPart) -> f32 {
+    let mut h = part.origin.0.wrapping_mul(0x9E37_79B9) ^ part.origin.1.wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    (h & 0xFFFF) as f32 / 65535.0
+}
+
+/// The angle a part's frame is turned by, read back off [`Local`] for
+/// the one shape that has to be turned *within* it: the fir's tiers.
+fn turn_of(local: &Local) -> f32 {
+    let (ox, oy) = local.at(0.0, 0.0);
+    let (rx, ry) = local.at(1.0, 0.0);
+    (ry - oy).atan2(rx - ox)
+}
+
+/// A tier of a fir: an isosceles triangle `base` wide pointing up the
+/// part (`-v`), its base at `v`, its apex half the base above it. The
+/// format's triangle is a right-angled half box; turned three-eighths
+/// round its right angle is the apex, at the top.
+fn tier(list: &mut DrawList, local: &Local, u: f32, v: f32, base: f32, color: Color) {
+    let side = base / core::f32::consts::SQRT_2;
+    let (x, y) = local.at(u, v);
+    let up = 3.0 * core::f32::consts::FRAC_PI_4;
+    list.triangle(x, y, side, side, turn_of(local) + up, color);
+}
+
+/// A tree, as the biome grows it: a round canopy — two overlapping
+/// ellipses in the two greens, the lighter one off-centre to the north —
+/// over its shadow; a palm, a trunk disc with six fronds radiating; or a
+/// fir, three tiers stacked up the tile with snow on the top one. Three
+/// shapes for the canopy, since a forest ring is a thousand of them.
+fn tree(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    let size = 0.86 + salt(part) * 0.14;
+    // A canopy throws a shadow; a fir's tiers are their own shading.
+    if biome != Biome::Arctic {
+        local.push(
+            list,
+            KIND_ELLIPSE,
+            w * 0.08,
+            h * 0.1,
+            w * 0.78 * size,
+            h * 0.72 * size,
+            0.0,
+            0.0,
+            SHADE,
+        );
+    }
+    match biome {
+        Biome::Temperate => {
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                -w * 0.06,
+                h * 0.04,
+                w * 0.74 * size,
+                h * 0.70 * size,
+                0.0,
+                0.0,
+                LEAF_DARK,
+            );
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                w * 0.08,
+                -h * 0.1,
+                w * 0.58 * size,
+                h * 0.56 * size,
+                0.0,
+                0.0,
+                LEAF,
+            );
+        }
+        Biome::Desert => {
+            let reach = w * 0.42 * size;
+            for i in 0..6 {
+                let a = i as f32 * core::f32::consts::FRAC_PI_3 + salt(part) * 0.5;
+                let (x0, y0) = local.at(0.0, 0.0);
+                let (x1, y1) = local.at(a.cos() * reach, a.sin() * reach);
+                let color = if i % 2 == 0 { FROND } else { FROND_LIGHT };
+                list.line(x0, y0, x1, y1, 3.0, color);
+            }
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                0.0,
+                0.0,
+                w * 0.2,
+                w * 0.2,
+                0.0,
+                0.0,
+                TRUNK,
+            );
+        }
+        Biome::Arctic => {
+            let base = w * 0.8 * size;
+            tier(list, &local, 0.0, h * 0.42, base, FIR);
+            tier(list, &local, 0.0, h * 0.16, base * 0.78, FIR_LIT);
+            tier(list, &local, 0.0, -h * 0.08, base * 0.56, FIR);
+            tier(
+                list,
+                &local,
+                0.0,
+                -h * 0.08 - base * 0.14,
+                base * 0.28,
+                SNOW,
+            );
+        }
+    }
+}
+
+/// A shrub: a small bush of two leaves and a light one; a cactus, a
+/// rounded body with an arm out each side; or a tussock, dry grass
+/// fanned out of one root.
+fn shrub(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    let lean = (salt(part) - 0.5) * w * 0.2;
+    match biome {
+        Biome::Temperate => {
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                lean + w * 0.06,
+                h * 0.08,
+                w * 0.5,
+                h * 0.42,
+                0.0,
+                0.0,
+                SHADE,
+            );
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                lean - w * 0.04,
+                0.0,
+                w * 0.46,
+                h * 0.40,
+                0.0,
+                0.0,
+                LEAF_DARK,
+            );
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                lean + w * 0.06,
+                -h * 0.06,
+                w * 0.32,
+                h * 0.28,
+                0.0,
+                0.0,
+                LEAF,
+            );
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                lean - w * 0.02,
+                -h * 0.1,
+                w * 0.14,
+                h * 0.12,
+                0.0,
+                0.0,
+                LEAF_LIGHT,
+            );
+        }
+        Biome::Desert => {
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                lean + w * 0.08,
+                h * 0.1,
+                w * 0.44,
+                h * 0.3,
+                0.0,
+                0.0,
+                SHADE,
+            );
+            // The body, and an arm out each side that turns up.
+            local.push(
+                list,
+                KIND_RECT,
+                lean,
+                0.0,
+                w * 0.22,
+                h * 0.64,
+                w * 0.11,
+                0.0,
+                CACTUS,
+            );
+            local.push(
+                list,
+                KIND_RECT,
+                lean - w * 0.2,
+                h * 0.02,
+                w * 0.24,
+                w * 0.12,
+                w * 0.06,
+                0.0,
+                CACTUS,
+            );
+            local.push(
+                list,
+                KIND_RECT,
+                lean - w * 0.28,
+                -h * 0.1,
+                w * 0.12,
+                h * 0.28,
+                w * 0.06,
+                0.0,
+                CACTUS,
+            );
+            local.push(
+                list,
+                KIND_RECT,
+                lean + w * 0.2,
+                h * 0.12,
+                w * 0.24,
+                w * 0.12,
+                w * 0.06,
+                0.0,
+                CACTUS,
+            );
+            local.push(
+                list,
+                KIND_RECT,
+                lean + w * 0.28,
+                0.0,
+                w * 0.12,
+                h * 0.28,
+                w * 0.06,
+                0.0,
+                CACTUS,
+            );
+            local.push(
+                list,
+                KIND_RECT,
+                lean - w * 0.03,
+                -h * 0.04,
+                w * 0.06,
+                h * 0.5,
+                w * 0.03,
+                0.0,
+                CACTUS_LIT,
+            );
+        }
+        Biome::Arctic => {
+            let (x0, y0) = local.at(lean, h * 0.16);
+            const BLADES: [(f32, f32); 5] = [
+                (-0.30, -0.22),
+                (-0.14, -0.34),
+                (0.02, -0.38),
+                (0.18, -0.32),
+                (0.30, -0.18),
+            ];
+            for (i, (du, dv)) in BLADES.into_iter().enumerate() {
+                let (x1, y1) = local.at(lean + du * w, h * 0.16 + dv * h);
+                let color = if i % 2 == 0 { TUSSOCK } else { TUSSOCK_DARK };
+                list.line(x0, y0, x1, y1, 2.0, color);
+            }
+            local.push(
+                list,
+                KIND_ELLIPSE,
+                lean,
+                h * 0.16,
+                w * 0.2,
+                h * 0.1,
+                0.0,
+                0.0,
+                TUSSOCK_DARK,
+            );
+        }
+    }
+}
+
+/// The rock a biome's ground is made of.
+fn rock_color(biome: Biome) -> Color {
+    match biome {
+        Biome::Temperate => ROCK_TEMPERATE,
+        Biome::Desert => ROCK_DESERT,
+        Biome::Arctic => ROCK_ARCTIC,
+    }
+}
+
+/// A boulder: the seam is the tile, the rock is inset into it with the
+/// light along its top-left edge, and a second, smaller lump lies against
+/// it to the south-east.
+fn boulder(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    let color = rock_color(biome);
+    let lean = (salt(part) - 0.5) * w * 0.16;
+    // The second lump first, under the rock: what pokes out past the
+    // rock's seam is the lump, and it costs one shape.
+    local.push(
+        list,
+        KIND_RECT,
+        lean + w * 0.26,
+        h * 0.26,
+        w * 0.36,
+        h * 0.32,
+        w * 0.1,
+        0.0,
+        color,
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        lean - w * 0.06,
+        -h * 0.06,
+        w * 0.78,
+        h * 0.72,
+        w * 0.2,
+        0.0,
+        ROCK_EDGE,
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        lean - w * 0.06,
+        -h * 0.06,
+        w * 0.72,
+        h * 0.66,
+        w * 0.18,
+        0.0,
+        color,
+    );
+    local.push(
+        list,
+        KIND_RECT,
+        lean - w * 0.18,
+        -h * 0.18,
+        w * 0.32,
+        h * 0.28,
+        w * 0.1,
+        0.0,
+        ROCK_GLINT,
+    );
+}
+
+/// A tile of water: the whole tile in the biome's water, so a lake of
+/// them reads as one sheet, and on some of them two short wavelets — or,
+/// frozen, a crack across the ice.
+fn water(list: &mut DrawList, part: &PlacedPart, biome: Biome) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    let color = match biome {
+        Biome::Temperate => WATER_TEMPERATE,
+        Biome::Desert => WATER_DESERT,
+        Biome::Arctic => ICE,
+    };
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 0.0, 0.0, color);
+    // A mark on one tile in three, so the sheet is not a pattern.
+    let roll = salt(part);
+    if roll > 0.34 {
+        return;
+    }
+    let du = (roll * 3.0 - 0.5) * w * 0.3;
+    if biome == Biome::Arctic {
+        let (x0, y0) = local.at(du - w * 0.3, h * 0.2);
+        let (x1, y1) = local.at(du + w * 0.02, -h * 0.05);
+        let (x2, y2) = local.at(du + w * 0.28, -h * 0.3);
+        list.line(x0, y0, x1, y1, 1.5, ICE_CRACK);
+        list.line(x1, y1, x2, y2, 1.5, ICE_CRACK);
+    } else {
+        for (v, len) in [(-h * 0.14, w * 0.3), (h * 0.14, w * 0.22)] {
+            local.push(list, KIND_RECT, du, v, len, 1.5, 0.0, 0.0, WAVELET);
+        }
+    }
+}
+
+/// A field from afar: the soil the strip's whole size with a darker
+/// edge, and three furrows along it. The room draws a live field over
+/// this while it is open (`bims::aboard::drawn_by_room`); this is the far
+/// view of a town whose room is not.
+fn field(list: &mut DrawList, part: &PlacedPart) {
+    let (local, across, along) = Local::of(part);
+    let (w, h) = (across, along);
+    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 0.0, 0.0, FIELD_SOIL);
+    local.push(
+        list,
+        KIND_RECT,
+        0.0,
+        0.0,
+        w - 2.0,
+        h - 2.0,
+        0.0,
+        1.5,
+        FIELD_EDGE,
+    );
+    for v in [-h * 0.28, 0.0, h * 0.28] {
+        local.push(list, KIND_RECT, 0.0, v, w - 8.0, 1.5, 0.0, 0.0, FURROW);
+    }
 }

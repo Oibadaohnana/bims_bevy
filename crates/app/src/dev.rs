@@ -18,7 +18,11 @@
 //! `BIMS_KEYS="60:Escape,90:M"` presses keys.
 //!
 //! `BIMS_AT_BELT=1` opens the simulation holding at a belt, its mining site
-//! laid out, instead of docked. `BIMS_FIGHT=1` opens it with a fight staged
+//! laid out, instead of docked. `BIMS_LANDED=1` opens it landed on the
+//! spawn system's first planet with ground, the settlement beside the pad.
+//! `BIMS_LANDING=1` opens it over that planet with the landing just begun,
+//! `=0.7` seven tenths of the way down.
+//! `BIMS_FIGHT=1` opens it with a fight staged
 //! at the dock: the station hostile, the crew member recruited inside its
 //! door and one of its people down the corridor. `BIMS_WEAPON=schword` (or
 //! `pistol`, `shotgun`, `rifle`, `sniper`) puts that in the crew member's
@@ -47,6 +51,45 @@ pub fn at_belt() -> bool {
     std::env::var("BIMS_AT_BELT").as_deref() == Ok("1")
 }
 
+/// `BIMS_LANDED=1` opens the simulation set down on the spawn system's
+/// first planet with ground, tied up at its settlement — how the ground,
+/// the pad and the two buildings are looked at without the descent.
+pub fn landed() -> bool {
+    std::env::var("BIMS_LANDED").as_deref() == Ok("1")
+}
+
+/// `BIMS_LANDING=1` opens the simulation holding over that planet with the
+/// landing just begun, and `BIMS_LANDING=0.7` with it run seven tenths of
+/// the way down — how the descent is looked at at any point of it: the
+/// planet growing under the ship, and the black at the end.
+pub fn landing() -> Option<f64> {
+    let value = std::env::var("BIMS_LANDING").ok()?;
+    if value == "1" {
+        return Some(0.0);
+    }
+    value.parse::<f64>().ok().map(|done| done.clamp(0.0, 0.999))
+}
+
+/// `BIMS_ZOOM=0.3` zooms the game view by that factor about the middle of
+/// the canvas once it has been fitted: under one is out, over one in.
+/// How a whole town, or the plain round it, is looked at from a
+/// terminal, since a scripted wheel does not reach the game view.
+pub fn zoom() -> Option<f32> {
+    std::env::var("BIMS_ZOOM")
+        .ok()?
+        .parse::<f32>()
+        .ok()
+        .filter(|z| *z > 0.0 && z.is_finite())
+}
+
+/// `BIMS_AFIELD=1` opens the simulation landed (as `BIMS_LANDED=1`) with
+/// the crew member walked out onto the ground west of the ship and a
+/// minute gone by, so the plain and the fog lifting from it are looked
+/// at — with `BIMS_ZOOM` out, the whole of what is seen.
+pub fn afield() -> bool {
+    std::env::var("BIMS_AFIELD").as_deref() == Ok("1")
+}
+
 /// `BIMS_FIGHT=1` opens the simulation with the dock made hostile, the
 /// crew member recruited just inside the station's door and one of the
 /// station's people a few tiles down the corridor — how a fight is looked
@@ -72,7 +115,8 @@ pub fn trade() -> bool {
 /// `BIMS_ARMOURY=1` opens the simulation with the armoury window up — how
 /// the lockers' grid is looked at without finding the armoury on deck;
 /// `BIMS_ARMOURY=storage` the first shelf's window, `=fridge` the first
-/// cold store's. What to open, if anything.
+/// cold store's, `=workbench` the workbench's slots. What to open, if
+/// anything.
 pub fn armoury() -> Option<String> {
     std::env::var("BIMS_ARMOURY").ok().filter(|s| !s.is_empty())
 }
@@ -128,6 +172,19 @@ pub fn smoke_frames() -> Option<u32> {
     std::env::var("BIMS_SMOKE_FRAMES")
         .ok()
         .and_then(|v| v.parse().ok())
+}
+
+/// What the window is called to the window system — its Wayland app id and
+/// its X11 class: `bims`, and `bims-smoke` for a run with nobody at the
+/// keyboard, so a desktop can be told where to put those and leave the
+/// game alone. `./check` gives Hyprland a rule that parks them on
+/// workspace 2 without switching to it.
+pub fn window_name() -> String {
+    if smoke_frames().is_some() {
+        "bims-smoke".to_string()
+    } else {
+        "bims".to_string()
+    }
 }
 
 /// `BIMS_FULLSCREEN=1` asks for the whole screen. A tiling desktop gives a

@@ -30,6 +30,7 @@ use physics::ResourceId;
 
 /// Where a piece of armour is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Where {
     /// In the hold, counted there as its resource.
     Hold,
@@ -54,6 +55,7 @@ impl Where {
 /// same three numbers without the `at`, and [`Piece::item`] is the one
 /// turned into the other.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Piece {
     /// Only ever climbs — `World::next_piece` — so a piece is the same
     /// piece in the hold, in a pack and on a body, and two clients name
@@ -108,13 +110,18 @@ impl Piece {
 /// highest tier of it; one weapon of exactly that tier; or whatever
 /// lies in one slot of a class's grid (`crate::grid`), by the class's code
 /// and the slot's id — one off a stack — which is what a container
-/// window asks, so the thing that was clicked is the thing that goes.
+/// window asks, so the thing that was clicked is the thing that goes; or
+/// whatever is in one of the workbench's three slots (`World::bench`),
+/// which is not the hold at all: nothing is counted, the thing goes from
+/// the bench to the pack.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FetchKind {
     Piece(u32),
     Resource(u32),
     Tiered { resource: u32, tier: u32 },
     Slot { class: u32, id: u32 },
+    Bench { slot: u32 },
 }
 
 /// The tiers a resource's units in the hold can differ by: a weapon by its
@@ -129,6 +136,7 @@ pub fn weapon_at(resource: ResourceId, tier: Tier) -> Option<Weapon> {
 /// to be looted is *down*, dead or out cold (`Game::is_down`), and that
 /// is asked when the command lands, not when the window opened.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum LootSource {
     Crew(u32),
     Resident(u32),

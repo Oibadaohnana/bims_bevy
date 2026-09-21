@@ -65,6 +65,16 @@ pub const TILE: u32 = 52;
 pub const WALL_LIGHT_TILES: f64 = 7.0;
 pub const STANDING_LIGHT_TILES: f64 = 9.0;
 
+/// What a light draws, in units a minute: the wall light's bracket lamp,
+/// and the standing light's taller one. A lamp is a consumer like the
+/// cold store — wired, or dark — so a lit ship is a line on the power
+/// bill, and the world reads it: a lamp on no live network and every lamp
+/// in a brownout is **out** (`World::sync_lamp_power`). Placeholders,
+/// sized so the playtest ship's seven lamps draw about what its four
+/// benches do between them.
+pub const WALL_LIGHT_POWER: f64 = 25.0;
+pub const STANDING_LIGHT_POWER: f64 = 40.0;
+
 /// What one basic fusion reactor makes, in units a minute. Placeholder,
 /// pinned to one outcome: a main engine flat out draws [`ENGINE_POWER`],
 /// so one reactor feeds **two** engines and has five hundred over for the
@@ -112,6 +122,7 @@ pub const GRID_COLS: u32 = 10;
 /// were the whole of the enum before there was structure under the deck.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Layer {
     /// The deck plating. Only [`PartKind::Floor`].
     Floor = 0,
@@ -151,6 +162,7 @@ impl Layer {
 /// order is also the order of [`PARTS`] and of the palette the host draws.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PartKind {
     Floor = 0,
     Wall = 1,
@@ -281,12 +293,33 @@ pub enum PartKind {
     /// and seen past, lifting the surroundings of every tile within
     /// [`PICTURE_TILES`] by [`PICTURE_LIFT`].
     Picture = 44,
+    /// A strip of open ground under crop: a hydroponic bay's footprint —
+    /// six trays, worked from the row beside them — grown in the soil
+    /// of a planet's settlement (`world::surface`) at half a bay's pace
+    /// and on no power at all, since there is nothing to plug in. The
+    /// room's, like the bay (`bims::hydro::Bay::field`). Not a tool:
+    /// nothing grows on a deck.
+    Field = 45,
+    /// A tree on a planet's ground: one tile, walked round and **not**
+    /// seen past — a band of them is a forest a Bim cannot go through —
+    /// and a comfort like the big plant, so the ground under one is a
+    /// nicer place to stand. What a settlement's wild is made of.
+    Tree = 46,
+    /// A shrub — or a cactus, or a tussock, by the planet: one tile,
+    /// walked round and seen over, a comfort like the small plant.
+    Shrub = 47,
+    /// A boulder: one tile of rock, walked round and not seen past. A
+    /// line of them is a cliff.
+    Boulder = 48,
+    /// A tile of water — a lake, a river, a pool, or ice: walked round
+    /// and seen over.
+    Water = 49,
 }
 
 impl PartKind {
     /// Every kind, in discriminant order. `ALL[k as usize] == k`, which
     /// [`PartKind::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [PartKind; 45] = [
+    pub const ALL: [PartKind; 50] = [
         PartKind::Floor,
         PartKind::Wall,
         PartKind::Door,
@@ -332,6 +365,11 @@ impl PartKind {
         PartKind::SmallPlant,
         PartKind::BigPlant,
         PartKind::Picture,
+        PartKind::Field,
+        PartKind::Tree,
+        PartKind::Shrub,
+        PartKind::Boulder,
+        PartKind::Water,
     ];
 
     /// The number that crosses the wasm boundary. No strings do.
@@ -354,6 +392,7 @@ impl PartKind {
 /// clockwise is what that makes of "the next one round".
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Rotation {
     R0 = 0,
     R90 = 1,
@@ -560,7 +599,12 @@ impl PartDef {
             | PartKind::ResearchDesk
             | PartKind::Battery
             | PartKind::StandingLight
-            | PartKind::BigPlant => false,
+            | PartKind::BigPlant
+            // On the ground a strip of crop, a shrub and a pool are seen
+            // over; a tree and a boulder are not.
+            | PartKind::Field
+            | PartKind::Shrub
+            | PartKind::Water => false,
             _ => self.blocks_movement,
         }
     }
@@ -572,7 +616,7 @@ impl PartDef {
 /// told about how a part is approached — [`crate::validate`] already insists
 /// every one of them is floor a body can stand on and that they can all reach
 /// each other, so a design that passes here is one the crew can work.
-pub static PARTS: [PartDef; 45] = [
+pub static PARTS: [PartDef; 50] = [
     PartDef {
         kind: PartKind::Floor,
         footprint: (1, 1),
@@ -1367,10 +1411,10 @@ pub static PARTS: [PartDef; 45] = [
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
-        // No draw: a light is always on, wired or not — the lamp has its
-        // own cell — so a ship's lights are not a thing to run conduit to
-        // or to lose in a brownout.
-        power: 0.0,
+        // A lamp draws, so it wants conduit under it like the cold store:
+        // one on no live network is dark, and every lamp goes out in a
+        // brownout — which is what a brownout looks like.
+        power: -WALL_LIGHT_POWER,
         charge: 0.0,
     },
     PartDef {
@@ -1387,7 +1431,7 @@ pub static PARTS: [PartDef; 45] = [
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
-        power: 0.0,
+        power: -STANDING_LIGHT_POWER,
         charge: 0.0,
     },
     PartDef {
@@ -1446,6 +1490,103 @@ pub static PARTS: [PartDef; 45] = [
         power: 0.0,
         charge: 0.0,
     },
+    // The ground of a planet's settlement (`world::surface`): a field, and
+    // the four kinds of wild. None is a tool — the designer never offers
+    // them (`names::NOT_A_TOOL` in the app) — and each is a unit of metal,
+    // the placeholder mass everything carries.
+    PartDef {
+        kind: PartKind::Field,
+        // A bay's run of six trays, worked from the row beside them, in
+        // the soil: the room grows it at half a bay's pace.
+        footprint: (6, 1),
+        layer: Layer::Object,
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[(0, -1), (1, -1), (2, -1), (3, -1), (4, -1), (5, -1)],
+        price: 600,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        // Nothing to plug in.
+        power: 0.0,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Tree,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round, and a line of sight stops at it: a forest is a
+        // wall.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 200,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Shrub,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round and seen over.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 100,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Boulder,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round, and a line of sight stops at it: a cliff.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 300,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
+    PartDef {
+        kind: PartKind::Water,
+        footprint: (1, 1),
+        layer: Layer::Object,
+        // Walked round and seen over.
+        blocks_movement: true,
+        requires: Some(Layer::Floor),
+        use_spots: &[],
+        price: 100,
+        shields: false,
+        capacity: None,
+        recipe: &[(ResourceId::Metal, 1)],
+        thrust: 0.0,
+        torque_thrust: 0.0,
+        thrust_power: 0.0,
+        power: 0.0,
+        charge: 0.0,
+    },
 ];
 
 /// What a comfort does: how much it **lifts the surroundings** — the
@@ -1456,6 +1597,7 @@ pub static PARTS: [PartDef; 45] = [
 /// what a tile scores, capped there, so a plant makes a spill or two
 /// beside it bearable and a fouled deck no less foul.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Comfort {
     pub lift: f64,
     pub tiles: u32,
@@ -1487,6 +1629,16 @@ pub fn comfort(kind: PartKind) -> Option<Comfort> {
         PartKind::Picture => Some(Comfort {
             lift: PICTURE_LIFT,
             tiles: PICTURE_TILES,
+        }),
+        // On a planet's ground a tree is the big plant's worth of comfort
+        // and a shrub the small one's.
+        PartKind::Tree => Some(Comfort {
+            lift: BIG_PLANT_LIFT,
+            tiles: BIG_PLANT_TILES,
+        }),
+        PartKind::Shrub => Some(Comfort {
+            lift: SMALL_PLANT_LIFT,
+            tiles: SMALL_PLANT_TILES,
         }),
         _ => None,
     }

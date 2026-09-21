@@ -27,6 +27,7 @@ const DOOR_TRAVEL: f32 = 26.0;
 const CAVITY: Color = Color::rgb(0.09, 0.11, 0.13);
 const RACK: Color = Color::rgb(0.42, 0.48, 0.54);
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Dishwasher {
     /// The door, as a face on the front of the counter run.
     pub face: Rect,

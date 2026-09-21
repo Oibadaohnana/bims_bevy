@@ -17,6 +17,7 @@ use worldgen::Node;
 
 /// Where the view is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Frame {
     /// Between things. What the ship is in for almost all of a trip.
     Space,

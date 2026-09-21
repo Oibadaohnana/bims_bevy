@@ -21,6 +21,7 @@ const NIGHT_FROM: u32 = 22;
 
 /// What an hour is set aside for.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Slot {
     /// Whatever the Bim decides; the ordinary run of the day.
     Anything,
@@ -34,6 +35,7 @@ pub const WAKE_AT: f32 = 1.0;
 
 pub const HOURS: usize = 24;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Schedule {
     hours: [Slot; HOURS],
     /// False once this block of sleep has been acted on, so a six-hour block

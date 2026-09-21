@@ -19,8 +19,15 @@ use crate::room::{GLOW, GLOW_DIM, PANEL, PANEL_EDGE, PANEL_LIT, STEEL};
 /// Trays in the bay. One plant apiece.
 pub const SPOTS: usize = 6;
 
+/// How fast a field grows against a bay: half. Open ground under a sky
+/// has no grow lights and no nutrient feed, so a town that eats off its
+/// fields needs twice the strips a ship needs bays — which is why a town
+/// is big. See [`Bay::field`].
+pub const FIELD_PACE: f32 = 0.5;
+
 /// What a tray can be growing.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Crop {
     /// Greens: the two that go into a stew, and the salad beside a bowl.
     Veg,
@@ -66,6 +73,7 @@ impl Crop {
 
 /// What the bay would like doing next, at a tray.
 #[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Job {
     /// Lift a ripe plant and put it in the store.
     Harvest(usize),
@@ -82,6 +90,7 @@ impl Job {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Plant {
     crop: Crop,
     /// Game minutes in the tray so far.
@@ -99,6 +108,7 @@ impl Plant {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bay {
     /// The frame itself, which is furniture and gets walked round.
     pub frame: Rect,
@@ -116,8 +126,16 @@ pub struct Bay {
     /// no target. It overrides the demand and hibernation both — "plant this,
     /// no matter what".
     forced: Option<Crop>,
-    /// Set while the store is at or over target and there is nothing to do.
+    /// Set while the store is at or over target and there is nothing to do
+    /// — or while the bay has no power, which is the same state reached
+    /// another way: the trays hold what they hold and nothing is planted
+    /// or lifted.
     hibernating: bool,
+    /// Whether the bay is running at all. The world's to set
+    /// (`Game::set_hydro_powered`): off in a brownout, and for a bay on no
+    /// live network. On to start with, since a room never told is the
+    /// classic room, which has no reactor to lose.
+    powered: bool,
     /// What the manager asked for, in vegetables, blocks of tofu and fibre.
     /// Pushed in rather than read out, so everything the bay needs to
     /// decide with is in the bay and a tray can be worked without the
@@ -126,6 +144,13 @@ pub struct Bay {
     /// Seconds of glow left after the Bim works a tray, so the bay reads as
     /// having been touched.
     stir: f32,
+    /// How much of a minute a minute grows: 1 for a bay, [`FIELD_PACE`]
+    /// for a field. A multiplier on the clock rather than a second clock,
+    /// so a crop's `ripens_in` stays one number.
+    pace: f32,
+    /// A field: open ground rather than a fixture with a plug. Drawn as
+    /// soil and furrows, and deaf to the power (`set_powered`).
+    outdoor: bool,
 }
 
 impl Bay {
@@ -173,9 +198,27 @@ impl Bay {
             automated: true,
             forced: None,
             hibernating: false,
+            powered: true,
             want: (0, 0, 0),
             stir: 0.0,
+            pace: 1.0,
+            outdoor: false,
         }
+    }
+
+    /// A field: a bay's trays laid on open ground, worked from `side` like
+    /// a bay and growing at [`FIELD_PACE`]. It has nothing to plug in, so
+    /// the world's power never reaches it; a town's food is the sun's.
+    pub fn field(frame: Rect, side: Vec2) -> Bay {
+        let mut bay = Bay::at(frame, side);
+        bay.pace = FIELD_PACE;
+        bay.outdoor = true;
+        bay
+    }
+
+    /// Whether this is a field rather than a bay.
+    pub fn is_field(&self) -> bool {
+        self.outdoor
     }
 
     /// Where the Bim stands to reach the trays: on the deck side, in front of
@@ -219,6 +262,22 @@ impl Bay {
         self.hibernating
     }
 
+    pub fn powered(&self) -> bool {
+        self.powered
+    }
+
+    /// Power, or none. Off, the bay hibernates whatever the store holds
+    /// and whatever was ordered: nothing grows, nothing is planted or
+    /// lifted, and the trays keep what is in them for when it comes back.
+    /// A field has nothing to plug in, so a brownout never stops one: the
+    /// word is dropped and `powered` stays true.
+    pub fn set_powered(&mut self, on: bool) {
+        if self.outdoor {
+            return;
+        }
+        self.powered = on;
+    }
+
     // --- what is in it ----------------------------------------------------
 
     /// What is growing in a tray: 0 empty, else the crop's code.
@@ -248,8 +307,8 @@ impl Bay {
 
     /// Grow what is planted, and work out whether the bay has anything left to
     /// do. Hibernation is exactly "automated, nothing forced, and the store is
-    /// at or over all three marks": the trays hold what they hold and the
-    /// clock stops for them.
+    /// at or over all three marks" — or no power: the trays hold what they
+    /// hold and the clock stops for them.
     pub fn update(
         &mut self,
         dt: f32,
@@ -261,23 +320,28 @@ impl Bay {
     ) {
         self.want = want;
         self.stir = (self.stir - dt).max(0.0);
-        self.hibernating = self.automated
-            && self.forced.is_none()
-            && veg >= want.0
-            && tofu >= want.1
-            && fibre >= want.2;
+        self.hibernating = !self.powered
+            || (self.automated
+                && self.forced.is_none()
+                && veg >= want.0
+                && tofu >= want.1
+                && fibre >= want.2);
         if self.hibernating {
             return;
         }
         for spot in self.spots.iter_mut().flatten() {
             if !spot.ripe() {
-                spot.grown += minutes;
+                spot.grown += minutes * self.pace;
             }
         }
     }
 
-    /// Whether the bay is asking for anything at all.
+    /// Whether the bay is asking for anything at all. Never without power:
+    /// a standing order waits for it like the target does.
     fn running(&self, veg: u32, tofu: u32, fibre: u32) -> bool {
+        if !self.powered {
+            return false;
+        }
         if self.forced.is_some() {
             return true;
         }
@@ -376,6 +440,10 @@ impl Bay {
     // --- drawing ----------------------------------------------------------
 
     pub fn draw(&self, list: &mut DrawList) {
+        if self.outdoor {
+            self.draw_field(list);
+            return;
+        }
         // The frame, and the water channel down the middle of it.
         list.rect(self.frame.center(), self.frame.size(), 0.0, 0.0, PANEL);
         list.stroke_rect(
@@ -426,8 +494,59 @@ impl Bay {
     }
 }
 
+impl Bay {
+    /// A field's picture: turned earth the frame's size with a darker
+    /// edge, a furrow down each tray, and the crop growing out of it —
+    /// the same plants as a bay's, since they are the same crops. No
+    /// panel, no grow lights and no glow: the light on a field is the
+    /// day's, and a hibernating field is not dimmed, only left alone.
+    /// The stir ring is the bay's, so a hand on a strip reads the same.
+    fn draw_field(&self, list: &mut DrawList) {
+        list.rect(self.frame.center(), self.frame.size(), 0.0, 0.0, EARTH);
+        list.stroke_rect(
+            self.frame.center(),
+            self.frame.size(),
+            0.0,
+            0.0,
+            1.5,
+            EARTH_EDGE,
+        );
+        let across = self.side.x.abs() > self.side.y.abs();
+        for (i, tray) in self.trays.iter().enumerate() {
+            // The furrow runs the tray's long way: the plough went along
+            // the strip, and the Bim walks its edge.
+            let furrow = if across {
+                vec2(tray.width() - 4.0, 1.5)
+            } else {
+                vec2(1.5, tray.height() - 4.0)
+            };
+            list.rect(tray.center(), furrow, 0.0, 0.0, FURROW);
+            let Some(plant) = self.spots[i] else { continue };
+            draw_plant(list, *tray, plant.crop, plant.share(), 1.0);
+        }
+        if self.stir > 0.0 {
+            let fade = (self.stir / STIR_TIME).clamp(0.0, 1.0);
+            list.stroke_rect(
+                self.frame.center(),
+                self.frame.size() + vec2(6.0, 6.0),
+                0.0,
+                0.0,
+                2.0,
+                GLOW.alpha(0.5 * fade),
+            );
+        }
+    }
+}
+
 /// How long the bay glows after a tray is worked.
 const STIR_TIME: f32 = 1.2;
+
+/// A field's ground: turned earth, warmer than the tray soil so a strip
+/// reads as a strip and not a bay with its lights out, and darker again
+/// at the edge and along the furrows.
+const EARTH: Color = Color::rgb(0.36, 0.27, 0.18);
+const EARTH_EDGE: Color = Color::rgb(0.24, 0.17, 0.11);
+const FURROW: Color = Color::rgb(0.27, 0.20, 0.13);
 
 const SOIL: Color = Color::rgb(0.16, 0.14, 0.11);
 const LEAF: Color = Color::rgb(0.44, 0.68, 0.24);

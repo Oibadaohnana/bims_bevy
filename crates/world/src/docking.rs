@@ -42,6 +42,7 @@ use crate::station::{Berth, Station};
 /// first, the station turned in; [`join_mirror`] fills the same fields
 /// with the roles swapped, the station first and the ship turned in.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Joined {
     pub design: ShipDesign,
     /// Where the first design's tile (0, 0) sits in the joined grid, in

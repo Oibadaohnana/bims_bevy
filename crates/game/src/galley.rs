@@ -17,6 +17,7 @@ use crate::room::Cut;
 
 /// A run of worktop with a chopping board and a drawer on it.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Worktop {
     pub frame: Rect,
     pub board: Rect,
@@ -52,6 +53,7 @@ impl Worktop {
 
 /// A hob with its one pot.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Hob {
     pub frame: Rect,
     pub on: bool,
@@ -105,6 +107,7 @@ impl Hob {
 /// A cold store's door. What is *in* the cold store is the room's: one
 /// count, whichever box it is taken from.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Fridge {
     pub frame: Rect,
     /// 0 shut, 1 wide open. Animated towards `target`.
@@ -124,6 +127,7 @@ impl Fridge {
 
 /// A broom locker, with a broom in it or not.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Locker {
     pub frame: Rect,
     /// Whether the broom is out of it. Drawn, and nothing else: a broom in

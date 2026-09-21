@@ -40,7 +40,7 @@ use bims::sight::Stance;
 use flight::Phase;
 use shipdesign::parts::{Layer, PartKind, Rotation, TILE};
 use shipdesign::{Grid, ShipDesign};
-use world::ShipState;
+use world::{Biome, ShipState};
 use worldgen::math::{DVec2, dvec2};
 use worldgen::{BodyKind, Node, StationKind};
 
@@ -108,6 +108,46 @@ const KEY_LIGHT: Color = Color::rgb(1.0, 0.86, 0.40);
 const KEY_WASH: Color = Color::rgba(1.0, 0.86, 0.40, 0.22);
 /// How many frames one pulse of them takes.
 const KEY_PULSE: f32 = 90.0;
+/// The ground, when the ship is on a planet (`World::landed`), by the
+/// settlement's biome (`world::Biome`): desert sand, a warm ochre;
+/// temperate grass, a muted green; arctic snow, a cold blue-grey — each
+/// dark enough that the ship's deck and the bodies on the ground read on
+/// it, and each **the same colour the town's outdoor floor is drawn in**
+/// (`ground_floor`), so where the settlement's deck ends is invisible
+/// and the wild ring is what marks the edge of the ground. Beside each
+/// its darker tone: the patches `ground` scatters over the backdrop, so
+/// it is ground and not a colour. The pad under the ship: paving, with
+/// a lighter border.
+const SAND: Color = Color::rgb(0.58, 0.46, 0.30);
+const SAND_DARK: Color = Color::rgb(0.50, 0.39, 0.25);
+const GRASS: Color = Color::rgb(0.36, 0.46, 0.28);
+const GRASS_DARK: Color = Color::rgb(0.29, 0.38, 0.22);
+const SNOW: Color = Color::rgb(0.64, 0.70, 0.76);
+const SNOW_DARK: Color = Color::rgb(0.55, 0.62, 0.69);
+/// The floor inside a town's buildings: boards, warmer than a deck.
+const FLOORBOARD: Color = Color::rgb(0.36, 0.28, 0.20);
+/// What is scattered over the ground between the wild: a tuft of grass
+/// and, rarely, a flower on it; a ripple in the sand or a pebble; a
+/// drift of snow.
+const TUFT: Color = Color::rgba(0.16, 0.26, 0.12, 0.7);
+const FLOWER: Color = Color::rgb(0.94, 0.82, 0.70);
+const RIPPLE: Color = Color::rgba(1.0, 0.94, 0.80, 0.30);
+const PEBBLE: Color = Color::rgb(0.46, 0.36, 0.24);
+const DRIFT: Color = Color::rgba(0.80, 0.88, 0.96, 0.55);
+/// Roughly one outdoor tile in this many carries a decoration.
+const DECORATED_ONE_IN: u32 = 6;
+const PAD: Color = Color::rgb(0.24, 0.25, 0.27);
+const PAD_EDGE: Color = Color::rgba(1.0, 1.0, 1.0, 0.22);
+/// How far past the hull the pad reaches, in tiles.
+const PAD_MARGIN: f32 = 1.5;
+/// How much bigger the planet is drawn at the end of a landing than at
+/// the top of it, as a factor the ship's frame grows through — the planet
+/// coming up under the ship — and how much of the landing's end and the
+/// lift-off's beginning is black: the world loading, and the screen
+/// saying so.
+const LANDING_GROWTH: f32 = 40.0;
+const LANDING_BLACK: f64 = 0.25;
+const LIFT_BLACK: f64 = 0.2;
 
 /// One colour per lobby slot. The route line is drawn in the colour of
 /// whoever set the destination, which is the whole of what
@@ -260,19 +300,38 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     let camera = &game.ship_view;
     let scale = camera.scale().max(1e-9);
 
-    // The void first, big enough to cover the canvas at any pan.
+    // The void first, big enough to cover the canvas at any pan — or, on
+    // a planet, the ground: there is no space down there, and the planet
+    // is the whole of the surroundings.
     let half_w = camera.width / scale;
     let half_h = camera.height / scale;
-    list.rect(0.0, 0.0, half_w * 3.0, half_h * 3.0, 0.0, VOID);
+    let landed = game
+        .world
+        .landed()
+        .and_then(|body| game.world.surface(body))
+        .map(|surface| surface.biome);
+    let backdrop = match landed {
+        Some(biome) => ground_color(biome),
+        None => VOID,
+    };
+    list.rect(0.0, 0.0, half_w * 3.0, half_h * 3.0, 0.0, backdrop);
 
     // Everything out there, drawn square to the window and then turned with
     // the camera — which is not at all unless the view is head up. The
     // planet the ship is at is the ground under it; the stations are drawn
-    // where they are, already turned, by `stations`.
+    // where they are, already turned, by `stations`. On the ground there
+    // are no stars and no planet in the sky: the ground itself, patched.
     let out_there = list.len();
-    starfield(game, list);
-    local_node(game, list);
+    if let Some(biome) = landed {
+        ground(game, list, biome);
+    } else {
+        starfield(game, list);
+        local_node(game, list);
+    }
     list.turn_from(out_there, game.camera_turn() as f32);
+    // The plain the town stands on, under it and the ship: the ground
+    // beyond the deck, and the fog over what the crew have not seen of it.
+    plain(game, list);
     let visitors = stations(game, list);
 
     // The ship, drawn in its own frame — design units about the design's
@@ -286,6 +345,11 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     let centre = (centre.x as f32, centre.y as f32);
     let mut ship = DrawList::default();
 
+    // The pad the ship stands on, on a planet: paving under the whole
+    // hull, in the ship's frame like the rocks, and under everything.
+    if landed.is_some() {
+        pad(design, &mut ship);
+    }
     // The rocks of the mining site, if the ship is at one. In the ship's
     // frame — they were laid out on its tile grid — so they go through the
     // same turn the hull does; and under it, since they are outside it.
@@ -303,7 +367,7 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     // it is mated to the station's and a way through.
     let rooms = bims::aboard::drawn_by_room(design);
     let mated = game.mated_airlock().map(|id| (id, game.airlock_ajar));
-    hull_tiles(&mut ship, design, &grid, firing, &rooms, mated);
+    hull_tiles(&mut ship, design, &grid, firing, &rooms, mated, None);
     // What is laid out to be built, over the deck it will stand on: each
     // site as the part's own picture, shown through, in the blueprint's
     // blue, with how much of it has arrived along the bottom. And the
@@ -373,6 +437,131 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
         electricity(&mut over, design, &grid);
         list.append_turned(over.shapes(), centre, turn);
     }
+    // The black at the end of a landing and the start of a lift-off: the
+    // planet has filled the window and the world is being laid out on
+    // it — or taken apart again. Over the lot, square to the window.
+    if let Some(black) = blackout(game) {
+        list.rect(
+            0.0,
+            0.0,
+            half_w * 3.0,
+            half_h * 3.0,
+            0.0,
+            Color::rgba(0.0, 0.0, 0.0, black),
+        );
+    }
+}
+
+/// The ground under a landed ship, by the settlement's biome: the very
+/// colour the town's outdoor floor is drawn in, so the two meet without
+/// a line.
+fn ground_color(biome: Biome) -> Color {
+    match biome {
+        Biome::Desert => SAND,
+        Biome::Temperate => GRASS,
+        Biome::Arctic => SNOW,
+    }
+}
+
+/// The darker tone of the same ground: the patches on the backdrop.
+fn ground_dark(biome: Biome) -> Color {
+    match biome {
+        Biome::Desert => SAND_DARK,
+        Biome::Temperate => GRASS_DARK,
+        Biome::Arctic => SNOW_DARK,
+    }
+}
+
+/// How black the window is: the last [`LANDING_BLACK`] of a landing fades
+/// to black, and the first [`LIFT_BLACK`] of a lift-off fades from it.
+/// `None` the rest of the time, which is to say nearly always.
+fn blackout(game: &Game) -> Option<f32> {
+    if let Some((_, done)) = game.world.landing() {
+        let from = 1.0 - LANDING_BLACK;
+        return (done > from).then(|| ((done - from) / LANDING_BLACK) as f32);
+    }
+    if let Some((_, done)) = game.world.lifting() {
+        return (done < LIFT_BLACK).then(|| (1.0 - done / LIFT_BLACK) as f32);
+    }
+    None
+}
+
+/// The ground about a landed ship: patches in the biome's darker tone —
+/// bare earth, drifts — scattered at fixed places in the camera's units
+/// about the ship, so they zoom and pan with the view and hold still
+/// between frames. The ship does not move on the ground, so the patches
+/// need no world position; a hash puts each where it is.
+fn ground(game: &Game, list: &mut DrawList, biome: Biome) {
+    let patch = ground_dark(biome);
+    let camera = &game.ship_view;
+    let scale = camera.scale().max(1e-9);
+    let reach = (camera.width.max(camera.height) / scale) * 1.5;
+    let tile = TILE as f32;
+    let mut h: u32 = 0x9E37_79B9;
+    let mut next = || {
+        h ^= h << 13;
+        h ^= h >> 17;
+        h ^= h << 5;
+        (h & 0xFFFF) as f32 / 65535.0
+    };
+    for _ in 0..140 {
+        let x = (next() * 2.0 - 1.0) * reach;
+        let y = (next() * 2.0 - 1.0) * reach;
+        let w = tile * (1.5 + next() * 6.0);
+        let hgt = w * (0.4 + next() * 0.5);
+        let rot = next() * core::f32::consts::PI;
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            w,
+            hgt,
+            rot,
+            0.0,
+            0.0,
+            patch,
+        );
+    }
+}
+
+/// The landing pad: paving under the hull's whole box and a margin past
+/// it, with a lighter border, in the ship's own frame.
+fn pad(design: &ShipDesign, ship: &mut DrawList) {
+    let mut span: Option<(u32, u32, u32, u32)> = None;
+    for part in &design.parts {
+        for (x, y) in part.tiles() {
+            span = Some(match span {
+                None => (x, y, x, y),
+                Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+            });
+        }
+    }
+    let Some((x0, y0, x1, y1)) = span else {
+        return;
+    };
+    let tile = TILE as f32;
+    let (x0, y0) = (
+        x0 as f32 * tile - PAD_MARGIN * tile,
+        y0 as f32 * tile - PAD_MARGIN * tile,
+    );
+    let (x1, y1) = (
+        (x1 + 1) as f32 * tile + PAD_MARGIN * tile,
+        (y1 + 1) as f32 * tile + PAD_MARGIN * tile,
+    );
+    let (w, hgt) = (x1 - x0, y1 - y0);
+    let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    ship.rect(cx, cy, w, hgt, 0.0, PAD);
+    ship.push(
+        crate::draw::KIND_RECT,
+        cx,
+        cy,
+        w - tile * 0.5,
+        hgt - tile * 0.5,
+        0.0,
+        0.0,
+        4.0,
+        PAD_EDGE,
+    );
 }
 
 /// The middle of a tile that may be off the hull, in design world units.
@@ -694,11 +883,523 @@ fn blueprint(game: &Game, grid: &Grid, ship: &mut DrawList) {
     }
 }
 
+/// The ground a settlement stands on, as [`hull_tiles`] draws it: the
+/// biome, and which of its tiles are **out of doors** — reached from the
+/// tile inside the port by a four-neighbour flood over tiles with nothing
+/// standing on them but the wild (a tree, a shrub, a boulder, water, a
+/// field), a lamp, sandbags or a plant. A door, a wall or any other part
+/// stops the flood, so a house's floor is inside and the street outside
+/// its door is not. Built afresh each frame in `stations`, which is a walk
+/// of the parts and the tiles and nothing more.
+struct Terrain {
+    biome: Biome,
+    side: u32,
+    outdoors: Vec<bool>,
+}
+
+impl Terrain {
+    /// The flood, from the port's inside tile — the tile one step in from
+    /// the airlock's middle, the way `world::crew` finds it.
+    fn of(design: &ShipDesign, biome: Biome) -> Terrain {
+        let side = design.build_area;
+        let n = (side * side) as usize;
+        let mut open = vec![true; n];
+        for part in &design.parts {
+            if part.layer() != Layer::Object || passable_outdoors(part.kind) {
+                continue;
+            }
+            for (x, y) in part.tiles() {
+                if x < side && y < side {
+                    open[(y * side + x) as usize] = false;
+                }
+            }
+        }
+        let mut outdoors = vec![false; n];
+        let Some(port) = shipdesign::port(design) else {
+            return Terrain {
+                biome,
+                side,
+                outdoors,
+            };
+        };
+        let t = TILE as f64;
+        let start = (
+            (port.centre.0 / t) as i32 - port.outward.0,
+            (port.centre.1 / t) as i32 - port.outward.1,
+        );
+        let at = |(x, y): (i32, i32)| -> Option<usize> {
+            (x >= 0 && y >= 0 && (x as u32) < side && (y as u32) < side)
+                .then(|| (y as u32 * side + x as u32) as usize)
+        };
+        let mut stack = Vec::new();
+        if let Some(i) = at(start)
+            && open[i]
+        {
+            outdoors[i] = true;
+            stack.push(start);
+        }
+        while let Some((x, y)) = stack.pop() {
+            for next in [(x, y - 1), (x + 1, y), (x, y + 1), (x - 1, y)] {
+                if let Some(i) = at(next)
+                    && open[i]
+                    && !outdoors[i]
+                {
+                    outdoors[i] = true;
+                    stack.push(next);
+                }
+            }
+        }
+        Terrain {
+            biome,
+            side,
+            outdoors,
+        }
+    }
+
+    fn outdoor(&self, x: u32, y: u32) -> bool {
+        x < self.side && y < self.side && self.outdoors[(y * self.side + x) as usize]
+    }
+}
+
+/// What the outdoors flood passes over: the wild, and the few parts
+/// that stand out of doors without closing the ground off.
+fn passable_outdoors(kind: PartKind) -> bool {
+    matches!(
+        kind,
+        PartKind::Tree
+            | PartKind::Shrub
+            | PartKind::Boulder
+            | PartKind::Water
+            | PartKind::Field
+            | PartKind::StandingLight
+            | PartKind::Sandbags
+            | PartKind::BigPlant
+            | PartKind::SmallPlant
+    )
+}
+
+/// A number off a tile's place, for which tiles carry a decoration and
+/// which one: fixed, so the ground holds still from frame to frame.
+fn tile_hash(x: u32, y: u32) -> u32 {
+    let mut h = x.wrapping_mul(0x9E37_79B9) ^ y.wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    h
+}
+
+/// A settlement's floor: one rect a **run** of floor tiles along each
+/// row — the outdoor runs in the biome's ground colour, the indoor runs
+/// in boards — rather than a rect a tile, since a town is nine thousand
+/// tiles and most of them are ground. Then, on roughly one outdoor tile
+/// in [`DECORATED_ONE_IN`] with nothing standing on it, the ground's
+/// decoration: a tuft of grass and now and then a flower, a ripple in
+/// the sand or a pebble, a drift of snow.
+fn ground_floor(list: &mut DrawList, grid: &Grid, terrain: &Terrain) {
+    let tile = TILE as f32;
+    let side = terrain.side;
+    for y in 0..side {
+        let mut run: Option<(u32, bool)> = None;
+        for x in 0..=side {
+            let here =
+                (x < side && grid.has_floor((x as i32, y as i32))).then(|| terrain.outdoor(x, y));
+            if let Some((x0, outdoor)) = run
+                && here != Some(outdoor)
+            {
+                let color = if outdoor {
+                    ground_color(terrain.biome)
+                } else {
+                    FLOORBOARD
+                };
+                list.box_between(
+                    x0 as f32 * tile,
+                    y as f32 * tile,
+                    x as f32 * tile,
+                    (y + 1) as f32 * tile,
+                    0.0,
+                    color,
+                );
+                run = None;
+            }
+            if run.is_none()
+                && let Some(outdoor) = here
+            {
+                run = Some((x, outdoor));
+            }
+        }
+    }
+    for y in 0..side {
+        for x in 0..side {
+            let h = tile_hash(x, y);
+            if h % DECORATED_ONE_IN != 0
+                || !terrain.outdoor(x, y)
+                || !grid.has_floor((x as i32, y as i32))
+                || grid.get(Layer::Object, (x as i32, y as i32)) != 0
+            {
+                continue;
+            }
+            let m = tile_middle(x, y);
+            decoration(list, terrain.biome, m.x as f32, m.y as f32, h);
+        }
+    }
+}
+
+/// One tile's decoration — see [`ground_floor`] — about `(cx, cy)`, off
+/// the tile's hash `h`.
+fn decoration(list: &mut DrawList, biome: Biome, cx: f32, cy: f32, h: u32) {
+    let tile = TILE as f32;
+    {
+        {
+            // Where in the tile, and which way: off the hash's upper bits.
+            let roll = h / DECORATED_ONE_IN;
+            let dx = ((roll & 0xF) as f32 / 15.0 - 0.5) * tile * 0.5;
+            let dy = (((roll >> 4) & 0xF) as f32 / 15.0 - 0.5) * tile * 0.5;
+            let rot = ((roll >> 8) & 0xF) as f32 / 15.0 * core::f32::consts::PI;
+            let (x, y) = (cx + dx, cy + dy);
+            match biome {
+                Biome::Temperate => {
+                    for i in 0..2 {
+                        let a = rot + i as f32 * 0.9 - 0.6;
+                        let reach = tile * 0.16;
+                        list.line(
+                            x,
+                            y + tile * 0.06,
+                            x + a.cos() * reach,
+                            y - a.sin().abs() * reach,
+                            1.5,
+                            TUFT,
+                        );
+                    }
+                    if (roll >> 13) % 7 == 0 {
+                        list.ellipse(x + tile * 0.1, y - tile * 0.04, 4.0, 4.0, FLOWER);
+                    }
+                }
+                Biome::Desert => {
+                    if roll & 0x1000 == 0 {
+                        list.push(
+                            crate::draw::KIND_RECT,
+                            x,
+                            y,
+                            tile * 0.55,
+                            1.5,
+                            rot * 0.25 - 0.4,
+                            0.0,
+                            0.0,
+                            RIPPLE,
+                        );
+                    } else {
+                        list.ellipse(x, y, 5.0, 4.0, PEBBLE);
+                    }
+                }
+                Biome::Arctic => {
+                    list.push(
+                        crate::draw::KIND_ELLIPSE,
+                        x,
+                        y,
+                        tile * 0.7,
+                        tile * 0.32,
+                        rot * 0.3 - 0.4,
+                        0.0,
+                        0.0,
+                        DRIFT,
+                    );
+                }
+            }
+        }
+    }
+}
+
+// --- the plain ----------------------------------------------------------------------
+
+/// The plain's features, by biome: a cliff's rock face and the lighter
+/// lip along its top; water and its wavelets; a forest's canopy, dark,
+/// with lighter crowns on it.
+const CLIFF_TEMPERATE: Color = Color::rgb(0.40, 0.38, 0.34);
+const CLIFF_DESERT: Color = Color::rgb(0.52, 0.34, 0.22);
+const CLIFF_ARCTIC: Color = Color::rgb(0.46, 0.50, 0.56);
+const CLIFF_LIP: Color = Color::rgba(1.0, 1.0, 1.0, 0.16);
+const CLIFF_FOOT: Color = Color::rgba(0.0, 0.0, 0.0, 0.30);
+const WATER_TEMPERATE: Color = Color::rgb(0.24, 0.44, 0.64);
+const WATER_DESERT: Color = Color::rgb(0.22, 0.54, 0.62);
+const ICE: Color = Color::rgb(0.70, 0.82, 0.90);
+const FOREST_TEMPERATE: Color = Color::rgb(0.14, 0.26, 0.12);
+const FOREST_ARCTIC: Color = Color::rgb(0.10, 0.22, 0.16);
+const CROWN_TEMPERATE: Color = Color::rgb(0.20, 0.36, 0.16);
+const CROWN_ARCTIC: Color = Color::rgb(0.16, 0.32, 0.22);
+/// The fog over the plain: never seen, and seen once and not now.
+const PLAIN_BLACK: Color = Color::rgb(0.0, 0.0, 0.0);
+const PLAIN_GREY: Color = Color::rgba(0.06, 0.07, 0.08, 0.80);
+/// A shift that puts every tile of the plain the camera can reach at a
+/// non-negative tile, so the wild's painters — which take a placed part,
+/// whose origin is unsigned — can draw it; the picture is placed back by
+/// the same shift.
+const PLAIN_SHIFT: i32 = 8192;
+/// How far from the camera's middle the plain is drawn at most, in tiles:
+/// the corners of a view held to `bims::terrain::VIEW` along its nearer
+/// edge (`Camera::scale_for_reach`), with a tile over.
+const PLAIN_DRAWN: i32 = bims::terrain::VIEW * 2;
+/// How far a run of the plain's fog or ground reaches past its tiles, in
+/// room units, so two runs meet under the feathering rather than beside it.
+const RUN_LAP: f32 = 3.0;
+/// The same for the fog, which is opaque and may lap by half a tile: at the
+/// floor a tile is a few pixels and the feathering a pixel of it.
+const VEIL_LAP: f32 = 26.0;
+
+/// The ground beyond the deck, while the ship is on a planet: the plain
+/// (`bims::terrain`) as the crew's room reads it, drawn a tile at a time
+/// in the room's frame over the window the camera can see — never more
+/// than [`PLAIN_DRAWN`] tiles from the camera's middle, which is as far
+/// as the world is loaded — and then the fog over what the crew
+/// do not see of it, black where nobody has looked and grey where
+/// somebody has. The deck's own tiles are the station's and the ship's
+/// to draw, and the fog over the room's box is the room's light map.
+/// Water, cliff and forest are runs along a row; a tree, a shrub and a
+/// rock are the biome's, as `fittings` draws the town's.
+fn plain(game: &Game, list: &mut DrawList) {
+    let room = &game.world.aboard.room;
+    let Some(plane) = room.plane() else {
+        return;
+    };
+    let biome = Biome::from_code(plane.biome() as u32).unwrap_or(Biome::Temperate);
+    let tile = TILE as f32;
+    let camera = &game.ship_view;
+    let scale = camera.scale().max(1e-9);
+    let offset = game.world.aboard.offset;
+    // The camera's middle, in the room's units, and how far from it the
+    // canvas reaches at its corners.
+    let mid = game
+        .design_point_at(camera.width / 2.0, camera.height / 2.0)
+        .add(offset);
+    let (cx, cy) =
+        bims::terrain::Plane::tile_of(bims::math::vec2(mid.x as f32, mid.y as f32), tile);
+    let half_diag = camera.width.hypot(camera.height) / 2.0 / scale / tile;
+    let reach = (half_diag.ceil() as i32 + 1).min(PLAIN_DRAWN);
+    let grid = game.world.aboard.design.grid();
+    let interior = room.interior();
+    let s = PLAIN_SHIFT;
+    let side = 2 * reach + 1;
+    let mut veils = vec![bims::terrain::VEIL_NONE; (side * side) as usize];
+    let mut picture = DrawList::default();
+    let (cliff, water, forest, crown) = match biome {
+        Biome::Temperate => (
+            CLIFF_TEMPERATE,
+            WATER_TEMPERATE,
+            FOREST_TEMPERATE,
+            CROWN_TEMPERATE,
+        ),
+        Biome::Desert => (
+            CLIFF_DESERT,
+            WATER_DESERT,
+            FOREST_TEMPERATE,
+            CROWN_TEMPERATE,
+        ),
+        Biome::Arctic => (CLIFF_ARCTIC, ICE, FOREST_ARCTIC, CROWN_ARCTIC),
+    };
+    use bims::terrain::Ground;
+    let deck = |rx: i32, ry: i32| grid.has_floor((rx, ry));
+    // A run overlaps its neighbours by a hair, or the feathering of every
+    // edge shows the ground between two rows of fog as a seam.
+    let box_run = |picture: &mut DrawList, x0: i32, x1: i32, ry: i32, color: Color| {
+        picture.box_between(
+            (x0 + s) as f32 * tile - RUN_LAP,
+            (ry + s) as f32 * tile - RUN_LAP,
+            (x1 + s) as f32 * tile + RUN_LAP,
+            (ry + s + 1) as f32 * tile + RUN_LAP,
+            0.0,
+            color,
+        );
+    };
+    for ry in cy - reach..=cy + reach {
+        // The runs first: one rect a stretch of the same ground.
+        let mut run: Option<(i32, Ground)> = None;
+        for rx in cx - reach..=cx + reach + 1 {
+            let here = (rx <= cx + reach && !deck(rx, ry))
+                .then(|| plane.at_room(rx, ry))
+                .filter(|g| matches!(g, Ground::Water | Ground::Cliff | Ground::Forest));
+            if let Some((x0, kind)) = run
+                && here != Some(kind)
+            {
+                let color = match kind {
+                    Ground::Water => water,
+                    Ground::Cliff => cliff,
+                    _ => forest,
+                };
+                box_run(&mut picture, x0, rx, ry, color);
+                if kind == Ground::Cliff {
+                    // The lip along the top where the ground above is not
+                    // cliff, and the shadow at its foot.
+                    for x in x0..rx {
+                        if plane.at_room(x, ry - 1) != Ground::Cliff {
+                            picture.box_between(
+                                (x + s) as f32 * tile,
+                                (ry + s) as f32 * tile,
+                                (x + s + 1) as f32 * tile,
+                                (ry + s) as f32 * tile + tile * 0.18,
+                                0.0,
+                                CLIFF_LIP,
+                            );
+                        }
+                        if plane.at_room(x, ry + 1) != Ground::Cliff {
+                            picture.box_between(
+                                (x + s) as f32 * tile,
+                                (ry + s + 1) as f32 * tile - tile * 0.22,
+                                (x + s + 1) as f32 * tile,
+                                (ry + s + 1) as f32 * tile,
+                                0.0,
+                                CLIFF_FOOT,
+                            );
+                        }
+                    }
+                }
+                run = None;
+            }
+            if run.is_none()
+                && let Some(kind) = here
+            {
+                run = Some((rx, kind));
+            }
+        }
+        // Then what stands a tile at a time, and the decoration.
+        for rx in cx - reach..=cx + reach {
+            if deck(rx, ry) {
+                continue;
+            }
+            let h = tile_hash((rx + s) as u32, (ry + s) as u32);
+            let origin = ((rx + s) as u32, (ry + s) as u32);
+            match plane.at_room(rx, ry) {
+                Ground::Open => {
+                    if h % DECORATED_ONE_IN == 0 {
+                        let m = tile_middle(origin.0, origin.1);
+                        decoration(&mut picture, biome, m.x as f32, m.y as f32, h);
+                    }
+                }
+                Ground::Forest => {
+                    // A crown on one tile in three, off its own hash.
+                    if h % 3 == 0 {
+                        let m = tile_middle(origin.0, origin.1);
+                        let dx = ((h >> 8) & 0xF) as f32 / 15.0 - 0.5;
+                        let dy = ((h >> 12) & 0xF) as f32 / 15.0 - 0.5;
+                        picture.ellipse(
+                            m.x as f32 + dx * tile * 0.6,
+                            m.y as f32 + dy * tile * 0.6,
+                            tile * 0.9,
+                            tile * 0.8,
+                            crown,
+                        );
+                    }
+                }
+                Ground::Water | Ground::Cliff => {}
+                kind => {
+                    let part = shipdesign::PlacedPart {
+                        id: 0,
+                        kind: match kind {
+                            Ground::Tree => PartKind::Tree,
+                            Ground::Shrub => PartKind::Shrub,
+                            _ => PartKind::Boulder,
+                        },
+                        origin,
+                        rotation: Rotation::R0,
+                    };
+                    crate::fittings::part_in(&mut picture, &part, Some(biome));
+                }
+            }
+        }
+        // The fog, over everything off the room's box: what each tile
+        // wants, kept for the merge below.
+        for rx in cx - reach..=cx + reach {
+            let m = bims::math::vec2((rx as f32 + 0.5) * tile, (ry as f32 + 0.5) * tile);
+            let code = if interior.contains(m) {
+                bims::terrain::VEIL_NONE
+            } else {
+                plane.veil_at_room(rx, ry)
+            };
+            veils[((ry - cy + reach) * side + (rx - cx + reach)) as usize] = code;
+        }
+    }
+    // The fog as rectangles: a run along a row, and a run the same as the
+    // one under it joined to it — a stepped edge is still a rect a row,
+    // but the body of it is a few big ones, and there are no seams for
+    // the feathering to show at the zoom the floor allows. Opaque, both
+    // of them, so that lapping them costs nothing: the grey is the fog's
+    // grey over the ground's colour, worked out once.
+    let ground = ground_color(biome);
+    let grey = Color::rgb(
+        ground.r * (1.0 - PLAIN_GREY.a) + PLAIN_GREY.r * PLAIN_GREY.a,
+        ground.g * (1.0 - PLAIN_GREY.a) + PLAIN_GREY.g * PLAIN_GREY.a,
+        ground.b * (1.0 - PLAIN_GREY.a) + PLAIN_GREY.b * PLAIN_GREY.a,
+    );
+    let mut open: Vec<(i32, i32, u8, i32)> = Vec::new();
+    let emit = |picture: &mut DrawList, x0: i32, x1: i32, kind: u8, y0: i32, y1: i32| {
+        let color = if kind == bims::terrain::VEIL_BLACK {
+            PLAIN_BLACK
+        } else {
+            grey
+        };
+        picture.box_between(
+            (x0 + s) as f32 * tile - VEIL_LAP,
+            (y0 + s) as f32 * tile - VEIL_LAP,
+            (x1 + s) as f32 * tile + VEIL_LAP,
+            (y1 + s) as f32 * tile + VEIL_LAP,
+            0.0,
+            color,
+        );
+    };
+    for ry in cy - reach..=cy + reach + 1 {
+        let mut runs: Vec<(i32, i32, u8)> = Vec::new();
+        if ry <= cy + reach {
+            let mut run: Option<(i32, u8)> = None;
+            for rx in cx - reach..=cx + reach + 1 {
+                let here = (rx <= cx + reach)
+                    .then(|| veils[((ry - cy + reach) * side + (rx - cx + reach)) as usize])
+                    .filter(|&v| v != bims::terrain::VEIL_NONE);
+                if let Some((x0, kind)) = run
+                    && here != Some(kind)
+                {
+                    runs.push((x0, rx, kind));
+                    run = None;
+                }
+                if run.is_none()
+                    && let Some(kind) = here
+                {
+                    run = Some((rx, kind));
+                }
+            }
+        }
+        // What was open and is not in this row is done; what is carries on.
+        let mut next: Vec<(i32, i32, u8, i32)> = Vec::new();
+        for &(x0, x1, kind, y0) in &open {
+            if runs.contains(&(x0, x1, kind)) {
+                next.push((x0, x1, kind, y0));
+            } else {
+                emit(&mut picture, x0, x1, kind, y0, ry);
+            }
+        }
+        for &(x0, x1, kind) in &runs {
+            if !next.iter().any(|&(a, b, k, _)| (a, b, k) == (x0, x1, kind)) {
+                next.push((x0, x1, kind, ry));
+            }
+        }
+        open = next;
+    }
+    let centre = game.world.ship.dynamics.centre_of_mass;
+    let shift = s as f32 * tile;
+    let pivot = (
+        centre.x as f32 + offset.x as f32 + shift,
+        centre.y as f32 + offset.y as f32 + shift,
+    );
+    list.append_turned(picture.shapes(), pivot, game.ship_turn() as f32);
+}
+
 /// Frame, then deck, then what is standing on them — the same order the
 /// design phase paints in, so the two views read as one ship. `skip` is
 /// what somebody else draws: the parts the room has pictures for. The
 /// hull's own working parts have pictures in `hull`; everything else is its
 /// colour, a tile at a time.
+///
+/// On a planet — `terrain` given — there is no frame to draw and the deck
+/// is the ground: the structure layer is skipped, the floor is
+/// [`ground_floor`], and the objects are asked of `fittings::part_in`
+/// with the biome, so the walls are stone and the trees are the biome's.
 fn hull_tiles(
     list: &mut DrawList,
     design: &ShipDesign,
@@ -706,11 +1407,19 @@ fn hull_tiles(
     firing: hull::Firing,
     skip: &[u32],
     open_airlock: Option<(u32, f32)>,
+    terrain: Option<&Terrain>,
 ) {
     let tile = TILE as f32;
+    if let Some(terrain) = terrain {
+        ground_floor(list, grid, terrain);
+    }
+    let biome = terrain.map(|t| t.biome);
     // Not the utility layer: the conduit under the deck is the electricity
     // overlay's to draw, and only while that is up — see `electricity`.
     for layer in [Layer::Structure, Layer::Floor, Layer::Object] {
+        if terrain.is_some() && layer != Layer::Object {
+            continue;
+        }
         for part in &design.parts {
             if part.layer() != layer || skip.contains(&part.id) {
                 continue;
@@ -718,7 +1427,7 @@ fn hull_tiles(
             if layer == Layer::Object && hull::part(list, part, grid, firing, open_airlock) {
                 continue;
             }
-            if crate::fittings::part(list, part) {
+            if crate::fittings::part_in(list, part, biome) {
                 continue;
             }
             let color = match layer {
@@ -821,7 +1530,18 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
     let here = game.world.ship.position();
     let turn = game.camera_turn() as f32;
     let docked = game.world.ship.state.alongside();
-    for station in &game.world.stations {
+    // The system's stations — and, on a planet, the settlement the ship
+    // is tied up at, which is not among them and is not out there: it is
+    // the ground the ship stands on, drawn only while the ship is on it.
+    let settlement = docked
+        .filter(|&id| world::surface_body(id).is_some())
+        .and_then(|id| game.world.station(id));
+    let on_the_ground = settlement.is_some();
+    for station in game.world.stations.iter().chain(settlement) {
+        // From the ground nothing in orbit is in the picture.
+        if on_the_ground && station.plan != world::Plan::Surface {
+            continue;
+        }
         let clearance = station.clearance(here);
         if clearance > world::data::STATION_VISIBLE {
             continue;
@@ -893,8 +1613,18 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
             Some(_) => bims::aboard::drawn_by_room(&station.design),
             None => Vec::new(),
         };
+        // On a planet the settlement's deck is the ground: no rim round
+        // it — the ground goes on past its edge — and its floor and its
+        // walls drawn as the biome has them (`Terrain`).
+        let terrain = (station.plan == world::Plan::Surface)
+            .then(|| world::surface_body(station.id))
+            .flatten()
+            .and_then(|body| game.world.surface(body))
+            .map(|surface| Terrain::of(&station.design, surface.biome));
         let mut picture = DrawList::default();
-        hull::shadow(&mut picture, &station.design, &grid);
+        if terrain.is_none() {
+            hull::shadow(&mut picture, &station.design, &grid);
+        }
         hull_tiles(
             &mut picture,
             &station.design,
@@ -902,6 +1632,7 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
             hull::Firing::NONE,
             &skip,
             open,
+            terrain.as_ref(),
         );
         hull::lights(&mut picture, &station.design, &grid, game.frame);
         lamp_faces(&mut picture, game, &station.design, Some(station.id));
@@ -1044,8 +1775,17 @@ fn local_node(game: &Game, list: &mut DrawList) {
             if game.world.site_here().is_some() {
                 return;
             }
+            // Coming down onto it, the planet grows under the ship until
+            // it is the whole window; lifting off, it shrinks back to the
+            // size it is held beside at. Geometric, so the growth reads
+            // the same all the way down.
+            let growth = match (game.world.landing(), game.world.lifting()) {
+                (Some((_, done)), _) => LANDING_GROWTH.powf(done as f32),
+                (_, Some((_, done))) => LANDING_GROWTH.powf(1.0 - done as f32),
+                _ => 1.0,
+            };
             if let Some(body) = game.world.system.body(id) {
-                paint_body(list, x, y, hull * 4.0, body.kind, 6.0);
+                paint_body(list, x, y, hull * 4.0 * growth, body.kind, 6.0 * growth);
             }
         }
     }
@@ -1171,6 +1911,65 @@ pub fn paint_body(list: &mut DrawList, x: f32, y: f32, size: f32, kind: BodyKind
 /// The pickaxe's two parts: a wooden haft and a steel head.
 const HAFT: Color = Color::rgb(0.66, 0.44, 0.24);
 const HEAD: Color = Color::rgb(0.90, 0.90, 0.86);
+
+/// Where a landable planet's pad sits, as a share of the icon size out
+/// from its middle: past the stance ring's edge (`STANCE_RING / 2`, 0.65)
+/// and the reticle round a ship docked at the planet's own station
+/// (`HERE_RING`, 44 pixels across on a 26-pixel icon), so the glyph stands
+/// clear of both rather than under one.
+const PAD_SHOULDER: f32 = 0.95;
+/// The slab under a landing pad's plate on the map: the void's own dark,
+/// so the plate has an edge against whatever is behind it.
+const PAD_SHADE: Color = Color::rgba(0.0, 0.0, 0.0, 0.55);
+
+/// A landing pad, `size` across its box, centred on `(x, y)`: a plate
+/// across the foot of the box in `colour` — the side's, so the pad says
+/// whose ground it is like the ring does — and an arrow coming straight
+/// down onto it in the pickaxe's light, a shaft and the two arms of its
+/// head. The mark of a planet that can be landed on, at its shoulder on
+/// the map, as the pickaxe is a belt's. Rectangles alone, as that is.
+pub fn paint_pad(list: &mut DrawList, x: f32, y: f32, size: f32, colour: Color) {
+    use core::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+    let r = size / 2.0;
+    // The plate: wide and flat along the foot, rounded at the ends, with
+    // a dark slab under it so it reads as a thing with an edge.
+    let plate = 0.24 * size;
+    let py = y + r - plate / 2.0;
+    list.rect(x, py + 0.07 * size, size, plate, plate / 2.0, PAD_SHADE);
+    list.rect(x, py, size, plate, plate / 2.0, colour);
+    // The arrow: a shaft down from the top of the box to just over the
+    // plate, and the head's two arms leaning up and out from its tip.
+    let width = 0.16 * size;
+    let (top, tip) = (y - r, py - plate / 2.0 - 0.08 * size);
+    let shaft = tip - top;
+    list.push(
+        crate::draw::KIND_RECT,
+        x,
+        top + shaft / 2.0,
+        width,
+        shaft,
+        0.0,
+        width / 2.0,
+        0.0,
+        HEAD,
+    );
+    let arm = 0.5 * size;
+    for side in [1.0f32, -1.0] {
+        let a = -FRAC_PI_2 + side * FRAC_PI_4;
+        let (ax, ay) = (a.cos(), a.sin());
+        list.push(
+            crate::draw::KIND_RECT,
+            x + 0.5 * arm * ax,
+            tip + 0.5 * arm * ay,
+            arm,
+            width,
+            a,
+            width / 2.0,
+            0.0,
+            HEAD,
+        );
+    }
+}
 
 /// A pickaxe, `size` across its box, centred on `(x, y)`: the haft up from
 /// bottom left to top right, and the head across its top end, the two
@@ -1461,6 +2260,28 @@ fn paint_map(game: &Game, list: &mut DrawList) {
             // — and the map says so with a pickaxe at its shoulder.
             if body.kind == BodyKind::AsteroidBelt {
                 paint_pickaxe(list, x + 0.62 * size, y - 0.62 * size, size * 0.6);
+            }
+            // A planet with ground has a settlement on it the ship can
+            // land at, and the map says so twice: a landing pad at its
+            // shoulder, where a belt has its pickaxe — the one mark that
+            // says *this one can be set down on* and a gas giant cannot —
+            // and a ring by its side the way it rings a station, since
+            // whose it is is the other thing worth knowing before coming
+            // down. The pad is in the side's colour too, so the two agree.
+            if let Some(surface) = game.world.surface(id) {
+                let colour = match game.world.stance(surface.id) {
+                    Stance::Hostile => ENEMY,
+                    Stance::Friendly | Stance::Neutral => FRIEND,
+                };
+                let d = size * STANCE_RING;
+                ring(list, x, y, d, d, 0.0, thin * 1.5, colour.alpha(0.9));
+                paint_pad(
+                    list,
+                    x + PAD_SHOULDER * size,
+                    y - PAD_SHOULDER * size,
+                    size * 0.8,
+                    colour,
+                );
             }
         }
     }

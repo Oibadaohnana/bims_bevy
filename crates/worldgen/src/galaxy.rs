@@ -59,6 +59,7 @@ const ARM_SWEEP: f64 = 2.5;
 /// different galaxy, not a rearranged one.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GalaxyType {
     /// Two arms, well separated. The one that looks most like a picture of a
     /// galaxy, and the easiest to navigate by eye.
@@ -97,6 +98,7 @@ impl GalaxyType {
 /// for a later step to hang a temperature or a solar yield off.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum StarClass {
     O = 0,
     B = 1,
@@ -145,6 +147,7 @@ impl StarClass {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Star {
     pub id: u32,
     /// Relative to the galaxy's origin, which is its centre.
@@ -160,6 +163,7 @@ pub struct Star {
 /// small enough to hand about freely and a client that has looked at four
 /// stars is in exactly the same state as one that has looked at none.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Galaxy {
     pub seed: u64,
     pub generator_version: u32,
@@ -314,6 +318,7 @@ fn rotate(p: DVec2, angle: f64) -> DVec2 {
 /// look at nine cells rather than a walk down a thousand stars. At this size
 /// the difference is not felt; at ten thousand stars it would be, and the
 /// grid is easier to write now than to retrofit.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Grid {
     cells: std::collections::HashMap<(i64, i64), Vec<usize>>,
 }
@@ -361,21 +366,24 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn a_seed_gives_the_same_galaxy_twice() {
-        for &t in &GalaxyType::ALL {
-            let a = Galaxy::new(4242, t);
-            let b = Galaxy::new(4242, t);
-            assert_eq!(a.stars, b.stars);
+    fn a_seed_gives_the_same_galaxy_twice_and_another_seed_or_type_a_different_one() {
+        // --- a_seed_gives_the_same_galaxy_twice ---
+        {
+            for &t in &GalaxyType::ALL {
+                let a = Galaxy::new(4242, t);
+                let b = Galaxy::new(4242, t);
+                assert_eq!(a.stars, b.stars);
+            }
         }
-    }
 
-    #[test]
-    fn different_seeds_and_types_give_different_galaxies() {
-        let a = Galaxy::new(1, GalaxyType::Spiral);
-        let b = Galaxy::new(2, GalaxyType::Spiral);
-        let c = Galaxy::new(1, GalaxyType::Round);
-        assert_ne!(a.stars, b.stars);
-        assert_ne!(a.stars, c.stars);
+        // --- different_seeds_and_types_give_different_galaxies ---
+        {
+            let a = Galaxy::new(1, GalaxyType::Spiral);
+            let b = Galaxy::new(2, GalaxyType::Spiral);
+            let c = Galaxy::new(1, GalaxyType::Round);
+            assert_ne!(a.stars, b.stars);
+            assert_ne!(a.stars, c.stars);
+        }
     }
 
     #[test]

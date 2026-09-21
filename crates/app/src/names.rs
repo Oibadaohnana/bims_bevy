@@ -24,12 +24,18 @@ pub fn crew_name(who: u32) -> String {
 
 /// What the people living on a station are called. The world knows a
 /// resident as a station and a seat and nothing else, so the names are
-/// dealt out here, by station and seat, off one list: enough that the two
-/// on one station never share a name, and the same pair every time the ship
-/// comes back.
-pub const RESIDENT_NAMES: [&str; 16] = [
+/// dealt out here, by station and seat, off one list: enough that no two
+/// on one station share a name, and the same ones every time the ship
+/// comes back. Sixty-four because a town on a planet holds up to fifty
+/// (`world::data::SURFACE_POPULATION`), and the formula below walks the
+/// list seat by seat from where the station starts.
+pub const RESIDENT_NAMES: [&str; 64] = [
     "Ada", "Tomas", "Priya", "Yusuf", "Mei", "Olu", "Sanne", "Ravi", "Ines", "Kofi", "Hana",
-    "Bram", "Leila", "Jonas", "Nour", "Emil",
+    "Bram", "Leila", "Jonas", "Nour", "Emil", "Amara", "Sofia", "Kenji", "Zara", "Mateo", "Aiko",
+    "Femi", "Lena", "Arjun", "Nadia", "Piet", "Yara", "Tariq", "Ingrid", "Diego", "Chioma", "Luca",
+    "Maya", "Omar", "Elif", "Sven", "Rosa", "Kwame", "Anya", "Hiro", "Farah", "Niall", "Sita",
+    "Bao", "Maren", "Idris", "Lucia", "Teo", "Zanele", "Juno", "Mika", "Esme", "Jamal", "Freya",
+    "Andrei", "Suki", "Dara", "Ren", "Amina", "Otto", "Thandi", "Karim", "Wren",
 ];
 
 pub fn resident_name(station: u32, who: u32) -> String {
@@ -38,7 +44,7 @@ pub fn resident_name(station: u32, who: u32) -> String {
 
 /// What each part is called. Indexed by the `PartKind` discriminant in
 /// `crates/shipdesign/src/parts.rs`.
-pub const PART_NAMES: [&str; 45] = [
+pub const PART_NAMES: [&str; 50] = [
     "Deck plating",
     "Wall",
     "Door",
@@ -84,6 +90,11 @@ pub const PART_NAMES: [&str; 45] = [
     "Small plant",
     "Big plant",
     "Picture",
+    "Field",
+    "Tree",
+    "Shrub",
+    "Boulder",
+    "Water",
 ];
 
 pub fn part_name(kind: PartKind) -> &'static str {
@@ -288,10 +299,18 @@ pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
 ];
 
 /// Kinds the palette does not offer, though the ship knows them. Structure
-/// is the one: deck plating lays its own frame, so to a player the frame and
+/// is one: deck plating lays its own frame, so to a player the frame and
 /// the deck are one thing and a second button for the half underneath would
-/// be a trap.
-pub const NOT_A_TOOL: &[u32] = &[PartKind::Structure as u32];
+/// be a trap. The other five are a planet's — a field in the soil and the
+/// wild round a town — and no ship carries them.
+pub const NOT_A_TOOL: &[u32] = &[
+    PartKind::Structure as u32,
+    PartKind::Field as u32,
+    PartKind::Tree as u32,
+    PartKind::Shrub as u32,
+    PartKind::Boulder as u32,
+    PartKind::Water as u32,
+];
 
 /// What a station sells, indexed by `physics::ResourceId`.
 pub const RESOURCE_NAMES: [&str; 22] = [
@@ -485,9 +504,18 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoHyperdrive => {
             "there is no working hyperdrive — one bolted to an engine, on a live cable"
         }
-        Refusal::NotHolding => "a jump wants the ship holding on its own, away from any berth",
+        Refusal::NotHolding => "the ship has to be holding on its own, away from any berth",
         Refusal::NoSuchStar => "there is no such star",
         Refusal::SameStar => "the ship is at that star already",
+        Refusal::NoPlanetHere => {
+            "a landing wants the ship holding over a rocky planet or an ice world"
+        }
+        Refusal::NoMarket => "there is nobody here to sell to",
+        Refusal::NoWorkbench => "there is no workbench aboard to put it on",
+        Refusal::NoPair => {
+            "the bench takes two of a kind at one tier — the same weapon or piece, below tier three"
+        }
+        Refusal::BenchBusy => "the bench is at work on what is on it — wait for the day to finish",
     }
 }
 
@@ -767,6 +795,17 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         }
         WorldEvent::Jumped { star } => format!("Jumped. The ship is in the system of star {star}."),
         WorldEvent::JumpFailed => "The hyperdrive did not fire: nothing working to fire.".into(),
+        WorldEvent::Landing { .. } => "Coming down onto the planet.".into(),
+        WorldEvent::Landed { .. } => "Landed. The settlement is beside the pad.".into(),
+        WorldEvent::LiftedOff { .. } => "Lifting off.".into(),
+        WorldEvent::Brownout => {
+            "Brownout: the batteries are flat and the ship draws more than it makes. The lamps are out, the bay and the benches have stopped, and the cold store is warming."
+                .into()
+        }
+        WorldEvent::PowerRestored => "Power restored.".into(),
+        WorldEvent::FoodSpoiled { units } => {
+            format!("{units} of the food in the cold store spoiled for want of power.")
+        }
     })
 }
 
@@ -1011,17 +1050,14 @@ pub const FIBRE_TIP: &str = "Fibre is the one crop nobody eats: a day in a tray,
 pub const AUTONOMY_TIP: &str = "Off, the Bim starts nothing by itself — no meals, no sleep, no trips to the toilet — but still does everything it is told. The levels carry on moving either way.";
 /// The Management tab's other tick box: the workbench's upgrade.
 pub const UPGRADE_LABEL: &str = "Combine matching gear";
-pub const UPGRADE_TIP: &str = "Ticked, two of a kind at the same tier in the hold — two pistols, two helms — go onto the workbench the moment there is a pair, and a day of work later one comes off a tier up: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. The two are out of the hold from the start; the hours done are kept whoever is at the bench.";
+pub const UPGRADE_TIP: &str = "Ticked, whoever is free carries two of a kind at the same tier — two pistols, two helms — from the lockers to the workbench's two slots one at a time, presses Upgrade for you, and a day of work later carries the one that comes off a tier up back to the lockers: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. Unticked, the bench is yours: put a pair on it from the pack and press the button in its window. The hours done are kept whoever is at the bench.";
 
 /// The line under it while something is on the bench: what, to which
-/// tier, and how far — or that it is done and waiting for room.
+/// tier, and how far — or that it is done and waiting in the output slot.
 pub fn upgrade_line(resource: ResourceId, tier: u32, done: u32, of: u32, waiting: bool) -> String {
     let name = resource_name(resource);
     if waiting {
-        format!(
-            "{name} at {} is ready — no room in the lockers",
-            tier_name(tier)
-        )
+        format!("{name} at {} is ready on the workbench", tier_name(tier))
     } else {
         format!(
             "Upgrading {} to {} — {done} of {of} hours",
@@ -1029,6 +1065,15 @@ pub fn upgrade_line(resource: ResourceId, tier: u32, done: u32, of: u32, waiting
             tier_name(tier)
         )
     }
+}
+
+/// The workbench's window: its title, the button, and the tip on the `?`.
+pub const BENCH_WINDOW: &str = "Workbench";
+pub const UPGRADE_BUTTON: &str = "Upgrade";
+pub const BENCH_TIP: &str = "Two of a kind at the same tier go in the two slots on the left — two pistols, two helms, below tier three — and Upgrade starts a day of work on them; the one that comes out, a tier up, appears in the slot on the right. Ctrl-click a thing in the pack to put it on the bench while this window is up, and Ctrl-click a slot to take what is in it back. Tier two is drawn on blue, tier three on gold, wherever a thing lies. With Combine matching gear ticked on the Management tab the crew carry the pairs over and press the button themselves.";
+/// The words between the slots while the day's work is on.
+pub fn bench_work_line(done: u32, of: u32) -> String {
+    format!("{done} of {of} h")
 }
 
 pub const TARGET_TIP: &str = "A target is a standing order: keep at least this many in the cold store. Whenever the count falls below it, the work goes on the crew's list by itself and whoever is free does it — for vegetables and tofu, planting a tray in the hydroponic bay (greens, or soy for tofu) and carrying the harvest to the store; for stew, cooking a pot on the hob out of one vegetable and one block of tofu and putting it on the shelf. Once the count is back at the target the job comes off the list, and above it nothing is grown or cooked. 0 means never. How soon it gets done is the Planting and Cooking priorities on the Work tab.";
@@ -1260,6 +1305,7 @@ pub fn job_name(code: u32) -> &'static str {
         23 => "Treating a trauma",
         24 => "Picking a weapon up",
         25 => "Finishing off",
+        26 => "Carrying gear to the workbench",
         _ => "Busy",
     }
 }
@@ -1286,6 +1332,7 @@ pub fn activity_line(code: u32) -> Option<&'static str> {
         23 => "Treating with a medkit…",
         24 => "Going for the weapon on the deck…",
         25 => "Finishing off a body…",
+        26 => "Carrying gear to the workbench…",
         _ => return None,
     })
 }
@@ -1580,14 +1627,35 @@ pub const CONFIRM_TRADE: &str = "Confirm trade";
 pub const CLEAR_CART: &str = "Clear";
 pub const SHORT_BY: &str = "Short by";
 pub const NO_ROOM_FOR: &str = "No room for";
-/// The trade rows' column headings.
-pub const PRICE_HEAD: &str = "Price";
+/// The trade rows' column headings: what one costs bought here (the
+/// desk's ask), what the desk pays for one (its bid), and the rest.
+pub const ASK_HEAD: &str = "Costs";
+pub const BID_HEAD: &str = "Pays";
+/// A price where nobody quotes one: a derelict's desk, or nowhere.
+pub const NO_QUOTE: &str = "—";
 pub const ABOARD_HEAD: &str = "Aboard";
 pub const CART_HEAD: &str = "Cart";
 
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
-pub const ALARM_TIP: &str = "An enemy within a hundred tiles of anybody, or a crew member hit in the last half minute: every crew member but the one you steer draws a weapon — out of the pack if the hand is empty — and fights, walking to wherever it can shoot from, until nobody is near and nobody has been hit for a while. The one you steer is yours: recruit it yourself, or leave it to its errands.";
+pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws a weapon — out of the pack if the hand is empty — and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
+
+/// The rows on a bunk. A bunk is one crew member's: the one shown may be
+/// given it — whoever had it loses it — or give it up. Nap and Sleep are
+/// offered on the Bim's own bunk alone.
+pub const BED_ASSIGN_ROW: &str = "Assign to";
+pub const BED_ASSIGN_HINT: &str = "makes this bunk theirs — whoever had it sleeps on the deck";
+pub const BED_UNASSIGN_ROW: &str = "Give up this bunk";
+pub const BED_UNASSIGN_HINT: &str =
+    "nobody's, until it is given to somebody — they sleep on the deck meanwhile";
+pub const BED_OWN_HINT: &str = "their own";
+pub const BED_NOBODY_S: &str = "nobody's";
+/// A station's bunk on the joined deck: not the ship's to give.
+pub const BED_FOREIGN_HINT: &str = "the station's — not yours to give";
+/// The status lines: a Bim with no bunk, and one sore from the deck.
+pub const NO_BED_LINE: &str = "No bunk — sleeps on the deck, three hours in every six";
+pub const SORE_LINE: &str = "Slept on the deck";
+pub const SORE_TIP: &str = "A crew member with no bunk of its own lies down on the deck where it stands, three hours out of every six at most, and is sore for half a day after: rest runs out half as fast again. Click a bunk to give it one — a bunk is one crew member's, and whoever had it loses it.";
 
 pub const INVENTORY_TIP: &str = "What the Bim has on it: head, body and leg protection down the left, the weapon in hand, and the pack on its back — nine cells, one thing each. Recruited, a Bim is in combat mode — it draws the weapon and shoots at any enemy it can see and reach, leaning out from cover to do it, where half the shots at it miss. A blade within reach locks it in melee: the gun goes quiet and it fights with its fists until one of them is out of reach. Right-click a thing in the pack to put it on, put it away or throw it out; right-click a worn piece to take it off. Ctrl-click moves a thing straight into the open container, or out of one into the pack. Beside each slot is the bleeding on that part of the body, and a Bandage button that sends the crew member you steer to dress it.";
 
@@ -1604,270 +1672,280 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_part_has_a_name_and_every_name_a_part() {
-        assert_eq!(PART_NAMES.len(), PartKind::ALL.len());
-        for &kind in PartKind::ALL.iter() {
-            assert!(!part_name(kind).is_empty());
-        }
-    }
-
-    #[test]
-    fn every_resource_and_storage_class_has_a_name() {
-        assert_eq!(RESOURCE_NAMES.len(), ResourceId::ALL.len());
-        assert_eq!(STORAGE_NAMES.len(), shipdesign::Storage::ALL.len());
-    }
-
-    #[test]
-    fn every_research_node_has_a_name_and_a_line() {
-        assert_eq!(NODE_NAMES.len(), shipdesign::research::Node::ALL.len());
-        assert_eq!(NODE_LINES.len(), shipdesign::research::Node::ALL.len());
-        assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
-        assert_eq!(
-            SPOT_NAMES.len(),
-            bims::room::SPOT_RESEARCH as usize + 1,
-            "the research desk is the last spot"
-        );
-    }
-
-    #[test]
-    fn the_word_tables_are_as_long_as_the_generator_expects() {
-        assert_eq!(STAR_WORDS.len(), worldgen::name::STAR_WORDS as usize);
-        assert_eq!(STATION_WORDS.len(), worldgen::name::STATION_WORDS as usize);
-    }
-
-    #[test]
-    fn every_issue_the_validator_can_raise_has_a_line() {
-        // The codes are written out in `IssueCode` and never renumbered:
-        // 1 to 12 and 20 to 37, with the gap on purpose — and 30, the fuel
-        // warning, retired with the fuel and left a hole.
-        for code in (1..=12).chain(20..=37).filter(|&c| c != 30) {
-            assert!(issue_line(code).is_some(), "issue {code} has no line");
-        }
-        assert!(issue_line(30).is_none(), "30 was retired");
-    }
-
-    #[test]
-    fn the_work_list_names_every_job() {
-        assert_eq!(WORK_NAMES.len(), bims::work::Job::ALL.len());
-    }
-
-    #[test]
-    fn the_readout_names_every_mess() {
-        // Blood is the last kind; the table is indexed by the code.
-        assert_eq!(
-            MESS_NAMES.len(),
-            bims::filth::Mess::Blood.code() as usize + 1
-        );
-    }
-
-    #[test]
-    fn every_weapon_has_a_name_and_the_empty_slot_is_first() {
-        // Slot 0 is empty; every kind's code indexes its name.
-        assert_eq!(WEAPON_NAMES.len(), bims::combat::WeaponKind::ALL.len() + 1);
-        for &kind in bims::combat::WeaponKind::ALL.iter() {
-            assert!(!weapon_name(Some(kind)).is_empty());
-            assert_ne!(weapon_name(Some(kind)), WEAPON_NAMES[0]);
-        }
-        // The same for the armour: slot 0 empty, then one name a kind.
-        assert_eq!(ARMOUR_NAMES.len(), bims::combat::ArmourKind::ALL.len() + 1);
-        assert_eq!(armour_name(None), ARMOUR_NAMES[0]);
-        for &kind in bims::combat::ArmourKind::ALL.iter() {
-            assert!(!armour_name(Some(kind)).is_empty());
-            assert_ne!(armour_name(Some(kind)), ARMOUR_NAMES[0]);
-        }
-    }
-
-    #[test]
-    fn the_weapon_lines_say_the_curves_the_user_asked_for() {
-        // The four sentences the Inventory was rewritten for, off the
-        // real tables: a two-point curve, a flat one, a burst, a blade.
-        use bims::combat::WeaponKind;
-        let shotgun = WeaponKind::Shotgun.stats();
-        assert_eq!(accuracy_text(&shotgun), "81% to 4 tiles, 54% at 10");
-        assert_eq!(damage_text(&shotgun), "60 to 4 tiles, 36 at 10");
-        let pistol = WeaponKind::LaserPistol.stats();
-        assert_eq!(accuracy_text(&pistol), "86% up close, 58% at 22 tiles");
-        assert_eq!(damage_text(&pistol), "7.2 a shot");
-        assert_eq!(fire_rate_text(&pistol), "1.5 a second");
-        let rifle = WeaponKind::AutoRifle.stats();
-        assert_eq!(fire_rate_text(&rifle), "8 in 2 s, then 2 s");
-        let schword = WeaponKind::Schword.stats();
-        assert_eq!(melee_text(&schword), "Melee — 42 a swing every 2 s");
-        assert!(!locked_tip().is_empty());
-    }
-
-    #[test]
-    fn every_thing_in_a_cell_has_a_tip() {
-        // A cell's tooltip is the resource's line; a blank one is an icon
-        // nobody can ask about.
-        assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
-        for &id in ResourceId::ALL.iter() {
-            assert!(!item_tip(id).is_empty(), "{id:?} has no tip");
-        }
-    }
-
-    #[test]
-    fn every_event_has_a_line() {
-        // A code with no sentence is a row that never appears; the newest
-        // event is the one most likely to have been forgotten.
-        use bims::combat::ArmourKind;
-        assert!(event_line(WorldEvent::EnemyDown { station: 3, who: 1 }).is_some());
-        assert!(event_line(WorldEvent::CrewHit { who: 0, part: 2 }).is_some());
-        assert!(event_line(WorldEvent::CrewDown { who: 0 }).is_some());
-        assert!(
-            event_line(WorldEvent::Equipped {
-                who: 0,
-                kind: ArmourKind::BasicHelm
-            })
-            .is_some()
-        );
-        assert!(event_line(WorldEvent::Stowed { who: 0 }).is_some());
-        assert!(
-            event_line(WorldEvent::PieceBroke {
-                who: 0,
-                kind: ArmourKind::BasicKevlar
-            })
-            .is_some()
-        );
-        assert!(event_line(WorldEvent::Locked { who: 0 }).is_some());
-        let begun = event_line(WorldEvent::UpgradeBegun {
-            resource: 8,
-            tier: 2,
-        })
-        .unwrap();
-        assert!(
-            begun.contains("tier 2") && begun.contains(resource_name(ResourceId::Handgun)),
-            "{begun}"
-        );
-        assert!(
-            event_line(WorldEvent::Upgraded {
-                resource: 14,
-                tier: 3
-            })
-            .is_some()
-        );
-        // A loot names whose body it was by the kind code, and both kinds
-        // read differently.
-        let off_crew = event_line(WorldEvent::Looted {
-            who: 0,
-            source_kind: 0,
-        });
-        let off_resident = event_line(WorldEvent::Looted {
-            who: 0,
-            source_kind: 1,
-        });
-        assert!(off_crew.is_some() && off_resident.is_some());
-        assert_ne!(off_crew, off_resident);
-        // And the refusals a gear command can come back with each say
-        // something other than the fallback.
-        for why in [
-            Refusal::OutOfReach,
-            Refusal::PackFull,
-            Refusal::NoRoom,
-            Refusal::Broken,
-            Refusal::NotDown,
-        ] {
-            assert!(!refusal(why).is_empty());
-        }
-        assert!(!LOOT_WINDOW.is_empty() && !LOOT_ROW.is_empty() && !LOOT_TIP.is_empty());
-    }
-
-    #[test]
-    fn the_loot_window_has_a_label_for_every_cell() {
-        // The Loot window is the pack's nine cells and a row of four under
-        // them labelled off `SLOT_NAMES`, which is how the row's length is
-        // tied to what a body shows.
-        assert_eq!(
-            bims::combat::PACK_CELLS + SLOT_NAMES.len(),
-            bims::combat::LOOT_CELLS
-        );
-        for (i, code) in [
-            bims::combat::LootCell::Head,
-            bims::combat::LootCell::Body,
-            bims::combat::LootCell::Legs,
-            bims::combat::LootCell::Weapon,
-        ]
-        .into_iter()
-        .enumerate()
+    fn every_table_of_the_rules_is_as_long_as_its_enum() {
+        // --- every_part_has_a_name_and_every_name_a_part ---
         {
-            assert_eq!(code.code() as usize, bims::combat::PACK_CELLS + i);
+            assert_eq!(PART_NAMES.len(), PartKind::ALL.len());
+            for &kind in PartKind::ALL.iter() {
+                assert!(!part_name(kind).is_empty());
+            }
         }
-    }
 
-    #[test]
-    fn every_part_of_a_body_has_a_name() {
-        // `CrewHit` carries the part as a code, and the hit line runs it
-        // into a sentence; the bandage menu names the same three.
-        assert_eq!(BODY_PART_NAMES.len(), bims::health::Part::ALL.len());
-        for part in bims::health::Part::ALL {
-            assert!(!body_part_name(part.code()).is_empty());
+        // --- every_resource_and_storage_class_has_a_name ---
+        {
+            assert_eq!(RESOURCE_NAMES.len(), ResourceId::ALL.len());
+            assert_eq!(STORAGE_NAMES.len(), shipdesign::Storage::ALL.len());
         }
-    }
 
-    #[test]
-    fn the_bandage_job_has_a_name_and_a_line() {
-        // The newest job code, the one most likely to have been forgotten:
-        // `bims::game::JOB_BANDAGE` on the agenda and the status line.
-        for code in [
-            bims::game::JOB_BANDAGE,
-            bims::game::JOB_TREAT,
-            bims::game::JOB_FETCH,
-            bims::game::JOB_EXECUTE,
-        ] {
-            assert_ne!(job_name(code), job_name(u32::MAX));
-            assert!(activity_line(code).is_some());
-        }
-    }
-
-    #[test]
-    fn every_trauma_has_a_name_and_a_line_and_the_events_say_them() {
-        use bims::health::Trauma;
-        assert_eq!(TRAUMA_NAMES.len(), Trauma::ALL.len());
-        assert_eq!(TRAUMA_LINES.len(), Trauma::ALL.len());
-        assert_eq!(TRAUMA_AFTER.len(), Trauma::ALL.len());
-        assert_eq!(TRAUMA_LASTING.len(), Trauma::ALL.len());
-        for t in Trauma::ALL {
-            assert!(!trauma_name(t.code()).is_empty());
-            assert!(!trauma_line(t.code()).is_empty());
-            // What is said to linger is what the rules say lingers: a leg
-            // lost for ever, or a lasting penalty.
+        // --- every_research_node_has_a_name_and_a_line ---
+        {
+            assert_eq!(NODE_NAMES.len(), shipdesign::research::Node::ALL.len());
+            assert_eq!(NODE_LINES.len(), shipdesign::research::Node::ALL.len());
+            assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
             assert_eq!(
-                trauma_after(t.code()).is_empty(),
-                t.after().is_none() && !t.loses_leg(),
-                "{t:?}"
+                SPOT_NAMES.len(),
+                bims::room::SPOT_RESEARCH as usize + 1,
+                "the research desk is the last spot"
             );
+        }
+
+        // --- the_word_tables_are_as_long_as_the_generator_expects ---
+        {
+            assert_eq!(STAR_WORDS.len(), worldgen::name::STAR_WORDS as usize);
+            assert_eq!(STATION_WORDS.len(), worldgen::name::STATION_WORDS as usize);
+        }
+
+        // --- every_issue_the_validator_can_raise_has_a_line ---
+        {
+            // The codes are written out in `IssueCode` and never renumbered:
+            // 1 to 12 and 20 to 37, with the gap on purpose — and 30, the fuel
+            // warning, retired with the fuel and left a hole.
+            for code in (1..=12).chain(20..=37).filter(|&c| c != 30) {
+                assert!(issue_line(code).is_some(), "issue {code} has no line");
+            }
+            assert!(issue_line(30).is_none(), "30 was retired");
+        }
+
+        // --- every_buildable_part_is_in_one_build_group ---
+        {
+            for &kind in PartKind::ALL.iter() {
+                let code = kind as u32;
+                let groups = BUILD_GROUPS
+                    .iter()
+                    .filter(|(_, _, kinds)| kinds.contains(&code))
+                    .count();
+                let expected = if NOT_A_TOOL.contains(&code) { 0 } else { 1 };
+                assert_eq!(groups, expected, "{kind:?} is in {groups} build groups");
+            }
+        }
+    }
+
+    #[test]
+    fn every_table_of_the_room_is_as_long_as_its_enum() {
+        // --- the_work_list_names_every_job ---
+        {
+            assert_eq!(WORK_NAMES.len(), bims::work::Job::ALL.len());
+        }
+
+        // --- the_readout_names_every_mess ---
+        {
+            // Blood is the last kind; the table is indexed by the code.
             assert_eq!(
-                trauma_lasting(t.code()).is_empty(),
-                t.after().is_none(),
-                "{t:?}"
+                MESS_NAMES.len(),
+                bims::filth::Mess::Blood.code() as usize + 1
             );
+        }
+
+        // --- every_event_has_a_line ---
+        {
+            // A code with no sentence is a row that never appears; the newest
+            // event is the one most likely to have been forgotten.
+            use bims::combat::ArmourKind;
+            assert!(event_line(WorldEvent::EnemyDown { station: 3, who: 1 }).is_some());
+            assert!(event_line(WorldEvent::CrewHit { who: 0, part: 2 }).is_some());
+            assert!(event_line(WorldEvent::CrewDown { who: 0 }).is_some());
             assert!(
-                event_line(WorldEvent::CrewDying {
+                event_line(WorldEvent::Equipped {
                     who: 0,
-                    trauma: t.code()
+                    kind: ArmourKind::BasicHelm
                 })
                 .is_some()
             );
+            assert!(event_line(WorldEvent::Stowed { who: 0 }).is_some());
             assert!(
-                event_line(WorldEvent::CrewTreated {
+                event_line(WorldEvent::PieceBroke {
                     who: 0,
-                    trauma: t.code()
+                    kind: ArmourKind::BasicKevlar
                 })
                 .is_some()
             );
+            assert!(event_line(WorldEvent::Locked { who: 0 }).is_some());
+            let begun = event_line(WorldEvent::UpgradeBegun {
+                resource: 8,
+                tier: 2,
+            })
+            .unwrap();
+            assert!(
+                begun.contains("tier 2") && begun.contains(resource_name(ResourceId::Handgun)),
+                "{begun}"
+            );
+            assert!(
+                event_line(WorldEvent::Upgraded {
+                    resource: 14,
+                    tier: 3
+                })
+                .is_some()
+            );
+            // A loot names whose body it was by the kind code, and both kinds
+            // read differently.
+            let off_crew = event_line(WorldEvent::Looted {
+                who: 0,
+                source_kind: 0,
+            });
+            let off_resident = event_line(WorldEvent::Looted {
+                who: 0,
+                source_kind: 1,
+            });
+            assert!(off_crew.is_some() && off_resident.is_some());
+            assert_ne!(off_crew, off_resident);
+            // And the refusals a gear command can come back with each say
+            // something other than the fallback.
+            for why in [
+                Refusal::OutOfReach,
+                Refusal::PackFull,
+                Refusal::NoRoom,
+                Refusal::Broken,
+                Refusal::NotDown,
+            ] {
+                assert!(!refusal(why).is_empty());
+            }
+            assert!(!LOOT_WINDOW.is_empty() && !LOOT_ROW.is_empty() && !LOOT_TIP.is_empty());
+        }
+
+        // --- every_part_of_a_body_has_a_name ---
+        {
+            // `CrewHit` carries the part as a code, and the hit line runs it
+            // into a sentence; the bandage menu names the same three.
+            assert_eq!(BODY_PART_NAMES.len(), bims::health::Part::ALL.len());
+            for part in bims::health::Part::ALL {
+                assert!(!body_part_name(part.code()).is_empty());
+            }
+        }
+
+        // --- the_bandage_job_has_a_name_and_a_line ---
+        {
+            // The newest job code, the one most likely to have been forgotten:
+            // `bims::game::JOB_BANDAGE` on the agenda and the status line.
+            for code in [
+                bims::game::JOB_BANDAGE,
+                bims::game::JOB_TREAT,
+                bims::game::JOB_FETCH,
+                bims::game::JOB_EXECUTE,
+                bims::game::JOB_FERRY,
+            ] {
+                assert_ne!(job_name(code), job_name(u32::MAX));
+                assert!(activity_line(code).is_some());
+            }
+        }
+
+        // --- every_trauma_has_a_name_and_a_line_and_the_events_say_them ---
+        {
+            use bims::health::Trauma;
+            assert_eq!(TRAUMA_NAMES.len(), Trauma::ALL.len());
+            assert_eq!(TRAUMA_LINES.len(), Trauma::ALL.len());
+            assert_eq!(TRAUMA_AFTER.len(), Trauma::ALL.len());
+            assert_eq!(TRAUMA_LASTING.len(), Trauma::ALL.len());
+            for t in Trauma::ALL {
+                assert!(!trauma_name(t.code()).is_empty());
+                assert!(!trauma_line(t.code()).is_empty());
+                // What is said to linger is what the rules say lingers: a leg
+                // lost for ever, or a lasting penalty.
+                assert_eq!(
+                    trauma_after(t.code()).is_empty(),
+                    t.after().is_none() && !t.loses_leg(),
+                    "{t:?}"
+                );
+                assert_eq!(
+                    trauma_lasting(t.code()).is_empty(),
+                    t.after().is_none(),
+                    "{t:?}"
+                );
+                assert!(
+                    event_line(WorldEvent::CrewDying {
+                        who: 0,
+                        trauma: t.code()
+                    })
+                    .is_some()
+                );
+                assert!(
+                    event_line(WorldEvent::CrewTreated {
+                        who: 0,
+                        trauma: t.code()
+                    })
+                    .is_some()
+                );
+            }
         }
     }
 
     #[test]
-    fn every_buildable_part_is_in_one_build_group() {
-        for &kind in PartKind::ALL.iter() {
-            let code = kind as u32;
-            let groups = BUILD_GROUPS
-                .iter()
-                .filter(|(_, _, kinds)| kinds.contains(&code))
-                .count();
-            let expected = if NOT_A_TOOL.contains(&code) { 0 } else { 1 };
-            assert_eq!(groups, expected, "{kind:?} is in {groups} build groups");
+    fn every_table_of_the_fight_is_as_long_as_its_enum() {
+        // --- every_weapon_has_a_name_and_the_empty_slot_is_first ---
+        {
+            // Slot 0 is empty; every kind's code indexes its name.
+            assert_eq!(WEAPON_NAMES.len(), bims::combat::WeaponKind::ALL.len() + 1);
+            for &kind in bims::combat::WeaponKind::ALL.iter() {
+                assert!(!weapon_name(Some(kind)).is_empty());
+                assert_ne!(weapon_name(Some(kind)), WEAPON_NAMES[0]);
+            }
+            // The same for the armour: slot 0 empty, then one name a kind.
+            assert_eq!(ARMOUR_NAMES.len(), bims::combat::ArmourKind::ALL.len() + 1);
+            assert_eq!(armour_name(None), ARMOUR_NAMES[0]);
+            for &kind in bims::combat::ArmourKind::ALL.iter() {
+                assert!(!armour_name(Some(kind)).is_empty());
+                assert_ne!(armour_name(Some(kind)), ARMOUR_NAMES[0]);
+            }
+        }
+
+        // --- the_weapon_lines_say_the_curves_the_user_asked_for ---
+        {
+            // The four sentences the Inventory was rewritten for, off the
+            // real tables: a two-point curve, a flat one, a burst, a blade.
+            use bims::combat::WeaponKind;
+            let shotgun = WeaponKind::Shotgun.stats();
+            assert_eq!(accuracy_text(&shotgun), "81% to 4 tiles, 54% at 10");
+            assert_eq!(damage_text(&shotgun), "60 to 4 tiles, 36 at 10");
+            let pistol = WeaponKind::LaserPistol.stats();
+            assert_eq!(accuracy_text(&pistol), "86% up close, 58% at 22 tiles");
+            assert_eq!(damage_text(&pistol), "7.2 a shot");
+            assert_eq!(fire_rate_text(&pistol), "1.5 a second");
+            let rifle = WeaponKind::AutoRifle.stats();
+            assert_eq!(fire_rate_text(&rifle), "8 in 2 s, then 2 s");
+            let schword = WeaponKind::Schword.stats();
+            assert_eq!(melee_text(&schword), "Melee — 42 a swing every 2 s");
+            assert!(!locked_tip().is_empty());
+        }
+
+        // --- every_thing_in_a_cell_has_a_tip ---
+        {
+            // A cell's tooltip is the resource's line; a blank one is an icon
+            // nobody can ask about.
+            assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
+            for &id in ResourceId::ALL.iter() {
+                assert!(!item_tip(id).is_empty(), "{id:?} has no tip");
+            }
+        }
+
+        // --- the_loot_window_has_a_label_for_every_cell ---
+        {
+            // The Loot window is the pack's nine cells and a row of four under
+            // them labelled off `SLOT_NAMES`, which is how the row's length is
+            // tied to what a body shows.
+            assert_eq!(
+                bims::combat::PACK_CELLS + SLOT_NAMES.len(),
+                bims::combat::LOOT_CELLS
+            );
+            for (i, code) in [
+                bims::combat::LootCell::Head,
+                bims::combat::LootCell::Body,
+                bims::combat::LootCell::Legs,
+                bims::combat::LootCell::Weapon,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                assert_eq!(code.code() as usize, bims::combat::PACK_CELLS + i);
+            }
         }
     }
 }

@@ -32,6 +32,7 @@ pub fn max_hop() -> f64 {
 
 /// What is wrong with a system.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Fault {
     /// Two nodes a player could not tell apart from a day's flying.
     TooClose { a: Node, b: Node, days: f64 },

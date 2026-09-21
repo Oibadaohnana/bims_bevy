@@ -71,6 +71,7 @@ pub const DARK_RANGE: f32 = 10.0;
 /// classic room, which has no lighting to speak of — and a designed deck
 /// handed none is dark everywhere.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Light {
     pub at: Vec2,
     pub reach: f32,
@@ -109,11 +110,19 @@ const FAIL_FLICKER_ODDS: f32 = 0.3;
 /// out from the clock and the lamp's index rather than rolled, so it
 /// draws nothing off any stream.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Lamp {
     pub at: Vec2,
     /// What it has left of [`LAMP_HEALTH`]; nought or under is out.
     pub health: f32,
-    /// How bright it is shown, nought to one: one steady, nought out,
+    /// Whether it has power: off, it is as dark as one shot out — its
+    /// light off the tile mask and the picture — but whole, and comes
+    /// back the moment the power does. The world's to set
+    /// (`Sight::set_lamp_powered`): a lamp on no live network, or any
+    /// lamp in a brownout. On to start with, since a room never told is
+    /// the classic room, which has no reactor to lose.
+    pub powered: bool,
+    /// How bright it is shown, nought to one: one steady, nought dark,
     /// between while it flickers.
     pub level: f32,
     /// Seconds of flicker left.
@@ -123,8 +132,16 @@ pub struct Lamp {
 }
 
 impl Lamp {
+    /// Whether it is broken: shot to nothing. Never true of a lamp that
+    /// is merely unpowered.
     pub fn is_out(&self) -> bool {
         self.health <= 0.0
+    }
+
+    /// Whether it gives no light: out, or unpowered. What the tile mask,
+    /// the field and the picture read.
+    pub fn is_dark(&self) -> bool {
+        self.is_out() || !self.powered
     }
 
     pub fn is_failing(&self) -> bool {
@@ -156,6 +173,7 @@ const OVERLAP: f32 = 2.0;
 /// Whose a structure is, to the crew. What the fog over it looks like.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Stance {
     /// The crew's own ship, and anywhere else they are welcome.
     #[default]
@@ -173,6 +191,7 @@ impl Stance {
 
 /// One tile, as the grid sees it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Cell {
     /// A line of sight stops here: a wall, the hull, a tall part, a shut
     /// door, or the outside.
@@ -196,6 +215,7 @@ struct Cell {
 /// add, as the direction of the wall it is peeking past from the body's
 /// own tile.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Eye {
     pub at: Vec2,
     /// The body's own tile and the wall's direction from it, for a peek;
@@ -222,6 +242,7 @@ impl Eye {
 
 /// How a fogged tile is drawn.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Veil {
     Semi,
     Grey,
@@ -230,6 +251,7 @@ enum Veil {
 
 /// What everybody aboard can see, put together. See the module note.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Sight {
     /// The grid's corner and its tile, in room units.
     origin: Vec2,
@@ -256,8 +278,22 @@ pub struct Sight {
     lamp_seconds: f32,
     /// Never handed lights at all: lit throughout. See [`Light`].
     lit_everywhere: bool,
+    /// The sky: every tile whose middle lies in here is lit whatever the
+    /// lamps say, on the mask and in the picture. The world's word, for a
+    /// settlement's ground (`set_daylight`); `None` aboard and on a
+    /// station, where every light is a lamp.
+    daylight: Option<Rect>,
+    /// How far an eye sees at all, in room units, lit or not: `None`
+    /// aboard and on a station, where a lit tile is seen as far as the
+    /// line is clear; a plain's sight range on a planet (`set_range`),
+    /// for the mask and the picture alike.
+    range: Option<f32>,
     /// The smooth picture — see [`LightMap`] — and the light field it is
-    /// built on, worked out once per layout.
+    /// built on, worked out once per layout. Left out of a save with the
+    /// fields, the lamps' boxes and the views under it: all of them are
+    /// pictures of what is saved, and an empty light field is what makes
+    /// `light_map` draw the lot again.
+    #[cfg_attr(feature = "serde", serde(skip))]
     map: LightMap,
     /// Whether the picture wants composing again though no eye moved:
     /// a stance changed, or the layout.
@@ -267,21 +303,28 @@ pub struct Sight {
     /// sum of the lamps' own fields, each cached over its reach so a
     /// lamp going out or flickering is a box summed again and not every
     /// lamp marched again. See [`Sight::light_field`].
+    #[cfg_attr(feature = "serde", serde(skip))]
     light_field: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     shown_field: Vec<u8>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     lamp_fields: Vec<LampField>,
     light_field_stale: bool,
     /// Where the shown field changed since the picture was composed: a
     /// lamp that flickered or went out.
+    #[cfg_attr(feature = "serde", serde(skip))]
     field_dirty: Option<Box>,
     /// What each body's eyes reach, pixel by pixel, as last marched —
     /// see [`Sight::light_map`] — so a body that has not moved is not
     /// marched again. `views_stale` throws them all away: the cells the
     /// rays stop at changed.
+    #[cfg_attr(feature = "serde", serde(skip))]
     views: Vec<View>,
     views_stale: bool,
     /// Every pixel a line of sight has ever reached: the picture's grey
-    /// over a stranger's structure.
+    /// over a stranger's structure. A flag a pixel, so it goes into a
+    /// save as a string of noughts and ones (`math::bools`).
+    #[cfg_attr(feature = "serde", serde(with = "crate::math::bools"))]
     explored_px: Vec<bool>,
     /// Whether each tile was ever seen: what has been looked at stays
     /// known — the grey is the fog of war's "explored", and only the
@@ -323,6 +366,8 @@ impl Sight {
             lamp_changes: Vec::new(),
             lamp_seconds: 0.0,
             lit_everywhere: true,
+            daylight: None,
+            range: None,
             map: LightMap::default(),
             map_stale: true,
             light_field: Vec::new(),
@@ -381,6 +426,15 @@ impl Sight {
     /// Which tiles are somebody else's — a station's on a joined deck,
     /// by its box — and whose. `None` makes every tile the room's own.
     pub fn set_foreign(&mut self, rect: Option<Rect>, stance: Stance) {
+        self.mark_foreign(rect, stance, false);
+    }
+
+    /// The other way about: every tile outside `rect` is somebody else's.
+    pub fn set_foreign_outside(&mut self, rect: Rect, stance: Stance) {
+        self.mark_foreign(Some(rect), stance, true);
+    }
+
+    fn mark_foreign(&mut self, rect: Option<Rect>, stance: Stance, outside: bool) {
         self.foreign = stance;
         self.map_stale = true;
         for c in &mut self.fixed {
@@ -389,7 +443,7 @@ impl Sight {
         if let Some(rect) = rect {
             for y in 0..self.rows {
                 for x in 0..self.columns {
-                    if rect.contains(self.middle(x, y)) {
+                    if rect.contains(self.middle(x, y)) != outside {
                         let i = self.index(x, y);
                         self.fixed[i].foreign = true;
                     }
@@ -428,6 +482,14 @@ impl Sight {
     /// off the grid counts as stopped.
     fn opaque_at(&self, x: i32, y: i32) -> bool {
         !self.inside(x, y) || self.cells[self.index(x, y)].opaque
+    }
+
+    /// The same of a tile of the room's grid — `(0, 0)` the tile at the
+    /// room's origin, whatever corner this grid starts from.
+    pub fn opaque_room_tile(&self, rx: i32, ry: i32) -> bool {
+        let ox = (self.origin.x / self.tile).round() as i32;
+        let oy = (self.origin.y / self.tile).round() as i32;
+        self.opaque_at(rx - ox, ry - oy)
     }
 
     /// Every tile a rectangle covers a real share of: the part of the tile
@@ -544,6 +606,7 @@ impl Sight {
             .map(|l| Lamp {
                 at: l.at,
                 health: LAMP_HEALTH,
+                powered: true,
                 level: 1.0,
                 flicker: 0.0,
                 window: 0,
@@ -555,8 +618,9 @@ impl Sight {
         self.relight();
     }
 
-    /// The tile mask of the lamps that are not out, worked out again:
-    /// what `set_lights` does, and what a lamp going out does over.
+    /// The tile mask of the lamps that give light, worked out again:
+    /// what `set_lights` does, and what a lamp going out — or losing its
+    /// power — does over.
     fn relight(&mut self) {
         self.stale = true;
         self.views_stale = true;
@@ -564,7 +628,7 @@ impl Sight {
             *l = false;
         }
         for (light, lamp) in self.lights.iter().zip(&self.lamps) {
-            if lamp.is_out() {
+            if lamp.is_dark() {
                 continue;
             }
             let (lx, ly) = self.tile_of(light.at);
@@ -581,6 +645,58 @@ impl Sight {
                 }
             }
         }
+        // The sky, after the lamps: a tile under it is lit whether a
+        // lamp reaches it or not, and a wall shades nothing from it.
+        if let Some(over) = self.daylight {
+            for y in 0..self.rows {
+                for x in 0..self.columns {
+                    if over.contains(self.middle(x, y)) {
+                        let i = self.index(x, y);
+                        self.lit[i] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Daylight over `over`, or none: every tile whose middle lies in it
+    /// is lit whatever the lamps say — the mask and the picture both —
+    /// and the lamps still light the rest. The world's to set, for a
+    /// settlement's ground: a town is under a sky, and its lamps are for
+    /// the houses. Kept across `set_lights` and a relayout
+    /// (`Room::relayout` carries it), since it is not the layout's to
+    /// know. A room never handed lights is lit throughout already
+    /// (`lit_everywhere`), and the sky changes nothing there.
+    pub fn set_daylight(&mut self, over: Option<Rect>) {
+        if self.daylight == over {
+            return;
+        }
+        self.daylight = over;
+        if self.lit_everywhere {
+            return;
+        }
+        self.relight();
+        // The fields are summed again with the sky in, whole: the
+        // picture takes it up the next time it is asked for.
+        self.light_field_stale = true;
+    }
+
+    /// The daylight, as set.
+    /// How far an eye sees at all, or `None` for as far as the line is
+    /// clear. See `range`. The mask is traced again on the next look.
+    pub fn set_range(&mut self, range: Option<f32>) {
+        self.range = range;
+        self.stale = true;
+        self.views_stale = true;
+        self.map_stale = true;
+    }
+
+    pub fn range(&self) -> Option<f32> {
+        self.range
+    }
+
+    pub fn daylight(&self) -> Option<Rect> {
+        self.daylight
     }
 
     /// The lights, as put in.
@@ -647,12 +763,31 @@ impl Sight {
         std::mem::take(&mut self.lamp_changes)
     }
 
-    /// Lamp `i` went out, or came back: nothing shown or all of it, its
+    /// Lamp `i` has power, or has not: unpowered it is dark — off the
+    /// tile mask and the picture like one shot out — and whole, so it
+    /// comes straight back when the power does. The world's, every step,
+    /// off the ship's wiring and its brownout; nothing here decides it.
+    /// No flicker either way: a reactor does not gutter.
+    pub fn set_lamp_powered(&mut self, i: usize, powered: bool) {
+        let Some(lamp) = self.lamps.get_mut(i) else {
+            return;
+        };
+        if lamp.powered == powered {
+            return;
+        }
+        let was_dark = lamp.is_dark();
+        lamp.powered = powered;
+        if lamp.is_dark() != was_dark {
+            self.lamp_switched(i);
+        }
+    }
+
+    /// Lamp `i` went dark, or came back: nothing shown or all of it, its
     /// light off the tile mask or on it, its share of the field taken
     /// out or put back over its reach, and every eye marched again,
     /// since what a lamp lit is what was seen by it.
     fn lamp_switched(&mut self, i: usize) {
-        self.lamps[i].level = if self.lamps[i].is_out() { 0.0 } else { 1.0 };
+        self.lamps[i].level = if self.lamps[i].is_dark() { 0.0 } else { 1.0 };
         self.lamps[i].flicker = 0.0;
         self.relight();
         if let Some(field) = self.lamp_fields.get(i) {
@@ -675,7 +810,7 @@ impl Sight {
         let t = self.lamp_seconds;
         for i in 0..self.lamps.len() {
             let lamp = &mut self.lamps[i];
-            if lamp.is_out() {
+            if lamp.is_dark() {
                 continue;
             }
             if lamp.flicker <= 0.0 && lamp.is_failing() {
@@ -717,8 +852,11 @@ impl Sight {
     /// within [`DARK_RANGE`] of the eye. The dark rule, on top of the
     /// line being clear.
     fn in_the_light(&self, from: Vec2, tile: (i32, i32)) -> bool {
-        self.lit[self.index(tile.0, tile.1)]
-            || (self.middle(tile.0, tile.1) - from).len() <= DARK_RANGE * self.tile
+        let away = (self.middle(tile.0, tile.1) - from).len();
+        if self.range.is_some_and(|r| away > r) {
+            return false;
+        }
+        self.lit[self.index(tile.0, tile.1)] || away <= DARK_RANGE * self.tile
     }
 
     /// Mark these rectangles as low cover — sandbags: nothing to sight or
@@ -1084,10 +1222,11 @@ impl Sight {
 /// and not as steps, and coarse enough that a joined deck is under half a
 /// million pixels to march.
 pub const MAP_PX_PER_TILE: i32 = 8;
-/// How many rays an eye or a light is marched along. Two thousand: a ray
-/// and its neighbour are a pixel apart forty tiles out and under two at
-/// the far side of a joined deck, so nothing between them is missed.
-const RAYS: u32 = 2048;
+/// How many rays an eye or a light is marched along. Four thousand: a ray
+/// and its neighbour are a pixel apart eighty tiles out, past a plain's
+/// sight range with room to spare, so nothing between them is missed —
+/// two thousand streaked at the far side of a landed room's box.
+const RAYS: u32 = 4096;
 /// The fog over what the crew do not see of their own deck.
 const MAP_FOG: f32 = 0.62;
 /// The fog over what they have looked at of a stranger's deck and do not
@@ -1127,6 +1266,7 @@ const GLOW_UNDER_FOG: f32 = 0.5;
 /// **rule** — the fight and the world read it — and this is the picture
 /// of it, by the same lines.
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LightMap {
     /// The grid's corner, in room units, and a pixel's side.
     pub origin: Vec2,
@@ -1312,7 +1452,7 @@ impl Sight {
         let mut shown = vec![0u32; width * (y1 + 1 - y0)];
         let mut nominal = vec![0u32; if eyes { shown.len() } else { 0 }];
         for (field, lamp) in self.lamp_fields.iter().zip(&self.lamps) {
-            if lamp.is_out() {
+            if lamp.is_dark() {
                 continue;
             }
             let level = (lamp.level.clamp(0.0, 1.0) * 256.0) as u32;
@@ -1342,6 +1482,29 @@ impl Sight {
                 self.shown_field[to + k] = shown[from + k].min(255) as u8;
                 if eyes {
                     self.light_field[to + k] = nominal[from + k].min(255) as u8;
+                }
+            }
+        }
+        // The sky over the lot: full in both fields wherever the daylight
+        // falls, so the picture agrees with the mask (`relight`) and a
+        // lamp going out under it changes nothing there.
+        if let Some(sky) = self.daylight {
+            let px = self.tile / MAP_PX_PER_TILE as f32;
+            let sx0 = (((sky.min.x - self.origin.x) / px).floor().max(0.0) as usize).max(x0);
+            let sy0 = (((sky.min.y - self.origin.y) / px).floor().max(0.0) as usize).max(y0);
+            let sx1 = (((sky.max.x - self.origin.x) / px).ceil().max(0.0) as usize).min(x1 + 1);
+            let sy1 = (((sky.max.y - self.origin.y) / px).ceil().max(0.0) as usize).min(y1 + 1);
+            for y in sy0..sy1 {
+                let at_y = self.origin.y + (y as f32 + 0.5) * px;
+                for x in sx0..sx1 {
+                    let at_x = self.origin.x + (x as f32 + 0.5) * px;
+                    if !sky.contains(vec2(at_x, at_y)) {
+                        continue;
+                    }
+                    self.shown_field[y * w + x] = 255;
+                    if eyes {
+                        self.light_field[y * w + x] = 255;
+                    }
                 }
             }
         }
@@ -1460,7 +1623,7 @@ impl Sight {
             // A peek adds only what lies past its wall; the body's own eyes
             // everything. The dark rule is measured from the body, as the
             // trace measures it.
-            self.march(eye.at, None, &self.cells, false, &mut |i, tile, _| {
+            self.march(eye.at, self.range, &self.cells, false, &mut |i, tile, _| {
                 if !seen[i]
                     && eye.admits(tile)
                     && (self.light_field[i] > 0
@@ -1643,6 +1806,7 @@ impl Sight {
 /// What a room draws of the fog, and whether its bodies are drawn: whose
 /// eyes the picture is through.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Fog {
     /// The crew's own: what they see is lit, the rest is fogged, and every
     /// body is the crew's, so every body is drawn.

@@ -53,6 +53,8 @@ mod schedule;
 mod sight;
 #[path = "../crates/game/src/task.rs"]
 mod task;
+#[path = "../crates/game/src/terrain.rs"]
+mod terrain;
 #[path = "../crates/game/src/work.rs"]
 mod work;
 #[path = "../crates/game/src/social.rs"]

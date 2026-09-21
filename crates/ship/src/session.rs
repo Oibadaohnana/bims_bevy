@@ -13,8 +13,9 @@
 
 use flight::Target;
 use physics::{Facing, ResourceId};
+use shipdesign::market::{Bias, Market, Quote};
 use shipdesign::parts::{Layer, PartKind, footprint};
-use shipdesign::{Money, ShipDesign, TILE, storage, trade_price};
+use shipdesign::{Money, ShipDesign, TILE, storage};
 use worldgen::{GalaxyType, Node};
 
 use crate::draw::{Color, DrawList};
@@ -60,6 +61,13 @@ pub fn spawn_from(star: u32, station: u32) -> Option<(u32, u32)> {
 /// the same place on every machine.
 pub fn pick_dock(seed: u64, galaxy: u32, roll: u64) -> Option<(u32, u32)> {
     world::spawn_anywhere(&worldgen::Galaxy::new(seed, galaxy_type(galaxy)), roll)
+}
+
+/// [`pick_dock`] in a system with a planet to set down on whose people are
+/// not enemies — `world::spawn_with_ground`. For the `test_planet` command,
+/// which is `test` landed on that planet (`Session::land_for_probe`).
+pub fn pick_ground(seed: u64, galaxy: u32, roll: u64) -> Option<(u32, u32)> {
+    world::spawn_with_ground(&worldgen::Galaxy::new(seed, galaxy_type(galaxy)), roll)
 }
 
 pub struct Session {
@@ -110,16 +118,28 @@ impl Session {
             width,
             height,
         );
+        // The spawn's shelf and its desk, before the gift: the gift is
+        // valued at the desk. The desk is the kind's with **no local
+        // lean** — the start station's roll is forced to nothing, here and
+        // in `World::start`, so an opening pool buys the same at a kind of
+        // station whatever the seed rolled. The spawn is laid out as a hub
+        // there, which is what `market_kind` is asked with.
+        let docked = spawn.and_then(|(star, station)| {
+            worldgen::Galaxy::new(seed, galaxy_type(galaxy))
+                .system(star)
+                .and_then(|system| system.station(station).map(|s| (s.stock, s.kind)))
+        });
+        if let Some((stock, kind)) = docked {
+            let desk = world::station::market_kind(kind, world::station::Plan::Hub)
+                .map(|kind| Market::new(kind, Bias::NONE))
+                .unwrap_or(Market::PLAIN);
+            editor.dock_at(stock, desk);
+        }
         if preset == Preset::Playtest
             && let Some(given) = shipdesign::fixture::playtest_ship_on(build_area)
         {
             editor.give(given);
         }
-        editor.market = spawn.and_then(|(star, station)| {
-            worldgen::Galaxy::new(seed, galaxy_type(galaxy))
-                .system(star)
-                .and_then(|system| system.station(station).map(|s| s.stock))
-        });
         Session {
             editor,
             game: None,
@@ -193,13 +213,14 @@ impl Session {
     }
 
     /// The `combat` command's session: the simulation's spawn for `seed`,
-    /// on the combat ship (`shipdesign::fixture::combat_ship`) with its
-    /// crew of five — the first the player, the rest crew nobody steers —
-    /// a different gun in each hand, in `WeaponKind::ALL`'s order (pistol,
-    /// shotgun, auto rifle, sniper rifle, schword), docked at the spawn
-    /// rebuilt as the arena (`World::arena_dock_for_probe`) and that made
-    /// hostile: its people enemies, and more of them than a station puts
-    /// up. Nothing is recruited: whom to send in is the player's.
+    /// on the combat ship (`shipdesign::fixture::combat_ship`) with a crew
+    /// of `COMBAT_CREW` (fourteen: five at the bunks, nine on the deck) —
+    /// the first the player, the rest crew nobody steers — a gun in every
+    /// hand, `WeaponKind::ALL`'s order (pistol, shotgun, auto rifle, sniper
+    /// rifle, schword) dealt down the crew and round again, docked at the
+    /// spawn rebuilt as the arena (`World::arena_dock_for_probe`) and that
+    /// made hostile: its people enemies, `ARENA_GARRISON` (fifteen) of
+    /// them. Nothing is recruited: whom to send in is the player's.
     pub fn combat(seed: u64, width: f32, height: f32) -> Session {
         use bims::combat::WeaponKind;
         use shipdesign::fixture::{COMBAT_CREW, combat_ship};
@@ -223,10 +244,8 @@ impl Session {
             )?;
             game.world.arena_dock_for_probe();
             let room = &mut game.world.aboard.room;
-            for (who, kind) in WeaponKind::ALL.into_iter().enumerate() {
-                if who >= room.crew_count() as usize {
-                    break;
-                }
+            let kinds = WeaponKind::ALL.iter().copied().cycle();
+            for (who, kind) in kinds.take(room.crew_count() as usize).enumerate() {
                 let gear = room.gear(who);
                 room.issue(
                     who,
@@ -248,6 +267,24 @@ impl Session {
         };
         session.make_dock_hostile();
         session
+    }
+
+    /// A session round a game read back from a save — see `crate::save`.
+    pub(crate) fn resumed(
+        editor: Editor,
+        game: Game,
+        seed: u64,
+        galaxy: u32,
+        spawn: Option<(u32, u32)>,
+    ) -> Session {
+        Session {
+            editor,
+            game: Some(game),
+            seed,
+            galaxy,
+            spawn,
+            list: DrawList::new(),
+        }
     }
 
     /// Whether the spawn the session was given is a station this galaxy
@@ -273,12 +310,62 @@ impl Session {
             .is_some_and(|g| g.world.hold_at_belt_for_probe())
     }
 
+    /// The ship set down on the system's first planet with ground, without
+    /// the descent — see `World::land_for_probe`. What `BIMS_LANDED=1` does.
+    pub fn land_for_probe(&mut self) -> bool {
+        self.game.as_mut().is_some_and(|g| g.world.land_for_probe())
+    }
+
+    /// The ship over the system's first planet with ground, its landing
+    /// just begun — see `World::landing_for_probe`. What `BIMS_LANDING=1` does.
+    pub fn landing_for_probe(&mut self, done: f64) -> bool {
+        self.game
+            .as_mut()
+            .is_some_and(|g| g.world.landing_for_probe(done))
+    }
+
     /// A mercenary for hire at the dock whatever the roll said — see
     /// `World::mercenary_for_probe`. What the `test` command does.
     pub fn mercenary_for_probe(&mut self) -> bool {
         self.game
             .as_mut()
             .is_some_and(|g| g.world.mercenary_for_probe())
+    }
+
+    /// Landed, walk the crew member out onto the plain thirty tiles west
+    /// of the ship and give it a minute to get there, with its errands
+    /// off so nothing calls it back. What `BIMS_AFIELD=1` does; false
+    /// with no world, or no plain under it.
+    pub fn walk_afield_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if game.world.aboard.room.plane().is_none() {
+            return false;
+        }
+        let ship = &game.world.ship.design;
+        let west = ship
+            .parts
+            .iter()
+            .flat_map(|p| p.tiles())
+            .map(|(x, _)| x)
+            .min()
+            .unwrap_or(0) as f32;
+        let mid = ship.build_area as f32 / 2.0;
+        let t = TILE as f32;
+        let offset = game.world.aboard.offset;
+        let to = bims::math::vec2(
+            (west - 30.0) * t + offset.x as f32,
+            (mid - 20.0) * t + offset.y as f32,
+        );
+        game.world.aboard.room.set_autonomous(false);
+        if !game.world.aboard.room.walk_to(0, to) {
+            return false;
+        }
+        for _ in 0..3600 {
+            game.world.step(&[]);
+        }
+        true
     }
 
     /// Stage a fight at the dock — see `World::stage_fight_for_probe`.
@@ -399,6 +486,7 @@ impl Session {
                 game.tick_airlock();
                 game.stream_sky();
                 game.follow_player();
+                game.hold_view_to_the_ground();
                 // Whether the blueprint in hand would go where the pointer
                 // is, asked before the painter colours it.
                 game.ghost_check();
@@ -434,7 +522,7 @@ impl Session {
     /// come through here.
     pub fn pan(&mut self, dx: f32, dy: f32) {
         match &mut self.game {
-            Some(game) => game.camera_mut().pan(dx, dy),
+            Some(game) => game.pan(dx, dy),
             None => self.editor.view.pan(dx, dy),
         }
     }
@@ -442,7 +530,7 @@ impl Session {
     /// Zoom about a point on the canvas by a multiplier.
     pub fn zoom(&mut self, at_x: f32, at_y: f32, factor: f32) {
         match &mut self.game {
-            Some(game) => game.camera_mut().zoom(at_x, at_y, factor),
+            Some(game) => game.zoom(at_x, at_y, factor),
             None => self.editor.view.zoom(at_x, at_y, factor),
         }
     }
@@ -514,8 +602,26 @@ impl Session {
         }
     }
 
-    pub fn trade_price(resource: ResourceId) -> Money {
-        trade_price(resource)
+    /// What the desk here quotes for one unit of `resource` — what one
+    /// costs bought and what one fetches sold — at the design phase's
+    /// spawn station, or the station the ship is docked at. `None`
+    /// anywhere else, and at a derelict, which keeps no desk: the panels
+    /// show a dash. The rule is `economy::market`; this only asks.
+    pub fn quote(&self, resource: ResourceId) -> Option<Quote> {
+        match &self.game {
+            Some(g) => match g.world.ship.state {
+                world::ShipState::Docked { station } => g
+                    .world
+                    .station(station)
+                    .and_then(|s| s.market())
+                    .map(|desk| desk.quote(resource)),
+                _ => None,
+            },
+            None => self
+                .editor
+                .market
+                .map(|_| self.editor.budget.market.quote(resource)),
+        }
     }
 
     /// Units of it aboard the **live** ship.
@@ -749,6 +855,29 @@ impl Session {
         }
     }
 
+    /// Every discovered planet the ship can land on, with whether its
+    /// settlement is an enemy's and where the map draws it (the camera's
+    /// units about the ship, `Game::map_spot`) — what the app writes a
+    /// name and *land* over, so a landable planet is told from the rest
+    /// of the map in words as well as by its pad. The rule for which
+    /// planets is the world's (`World::surface`); the stance is
+    /// `World::stance` of the settlement.
+    pub fn landing_sites(&self) -> Vec<(Node, bool, (f32, f32))> {
+        let Some(game) = &self.game else {
+            return Vec::new();
+        };
+        game.world
+            .discovered
+            .iter()
+            .filter_map(|&node| {
+                let Node::Body(body) = node else { return None };
+                let surface = game.world.surface(body)?;
+                let hostile = game.world.stance(surface.id) == bims::sight::Stance::Hostile;
+                Some((node, hostile, game.map_spot(node)?))
+            })
+            .collect()
+    }
+
     /// Where a node sits in the discovered list, if it is there.
     pub fn map_index_of(&self, node: Node) -> Option<usize> {
         self.game
@@ -871,7 +1000,13 @@ pub fn self_check() -> u32 {
     let solo = economy::starting_pool(100_000, 1) == Ok(120_000);
     let crew = economy::starting_pool(100_000, 4) == Ok(400_000);
     let none = economy::starting_pool(100_000, 0).is_err();
-    if crate::draw::STRIDE == 12 && solo && crew && none {
+    // And a desk's quote: metal is worth 60 at the book, and a plain
+    // orbital's desk asks 63 for one and bids 57 — the book, half the
+    // spread either side, rounded down. The same sum the market tests
+    // pin, so a machine whose integer division went its own way says so.
+    let quoted = economy::market::quote(economy::market::MarketKind::Orbital, 0, ResourceId::Metal)
+        == economy::market::Quote { ask: 63, bid: 57 };
+    if crate::draw::STRIDE == 12 && solo && crew && none && quoted {
         bits |= 1 << 4;
     }
     // The reference is carrying what it is meant to carry, and the sealed

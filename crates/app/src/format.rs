@@ -97,20 +97,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn money_is_grouped_in_threes() {
-        assert_eq!(euros(100_000), "€100\u{a0}000");
-        assert_eq!(euros(999), "€999");
-        assert_eq!(grouped(1_234_567), "1\u{a0}234\u{a0}567");
-    }
+    fn money_is_grouped_in_threes_and_a_clock_wraps() {
+        // --- money_is_grouped_in_threes ---
+        {
+            assert_eq!(euros(100_000), "€100\u{a0}000");
+            assert_eq!(euros(999), "€999");
+            assert_eq!(grouped(1_234_567), "1\u{a0}234\u{a0}567");
+        }
 
-    #[test]
-    fn a_clock_wraps_and_a_span_reads() {
-        assert_eq!(clock_text(1441.0), "00:01");
-        assert_eq!(clock_text(-1.0), "23:59");
-        assert_eq!(span_text(45.0), "45 min");
-        assert_eq!(span_text(60.0), "1 hour");
-        assert_eq!(span_text(150.0), "2h 30m");
-        assert_eq!(spell(3000.0), "2d 2h");
-        assert_eq!(roman(9), "IX");
+        // --- a_clock_wraps_and_a_span_reads ---
+        {
+            assert_eq!(clock_text(1441.0), "00:01");
+            assert_eq!(clock_text(-1.0), "23:59");
+            assert_eq!(span_text(45.0), "45 min");
+            assert_eq!(span_text(60.0), "1 hour");
+            assert_eq!(span_text(150.0), "2h 30m");
+            assert_eq!(spell(3000.0), "2d 2h");
+            assert_eq!(roman(9), "IX");
+        }
     }
 }

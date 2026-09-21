@@ -34,7 +34,8 @@ a name rather than a flag:
 | `nix run .#design` | `cargo run -- design` | straight into the ship design, the playtest ship given, docked where the simulation docks |
 | `nix run .#room` | `cargo run -- room` | the behaviour test room — the Bims on a deck |
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock and bunks to spare for one |
-| `nix run .#combat` | `cargo run -- combat` | the fight: the combat ship — five crew, a different gun in each hand — docked at the spawn rebuilt as the arena and made hostile, its people enemies and more of them than a station puts up; a recruited crew member shoots at any it can see |
+| `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
+| `nix run .#combat` | `cargo run -- combat` | the fight: the combat ship — fourteen crew, a gun in every hand — docked at the spawn rebuilt as the arena and made hostile, its people enemies, fifteen of them; a recruited crew member shoots at any it can see |
 
 The `cargo run` forms build from the working tree, which is what you want
 while editing — `cargo run --release -- test` is the same thing on the
@@ -237,12 +238,16 @@ pool the same way, in whole euros, with overflow an error rather than a wrap.
 ### Buying what the ship will live on
 
 Under **Station** on the right is what there is to buy: ore, metal,
-components, vegetables and tofu, at a price a unit. Buttons move one, ten or a
-hundred, and selling hands back the whole price — nothing has left the dock,
-so there is nothing to lose on the deal.
+components, vegetables and tofu, at the spawn station's own two prices a
+unit — what one *costs* here and what the desk *pays* for one, the
+station's ask and bid (*Trading*, under the game, has the sum). Buttons
+move one, ten or a hundred, and putting a thing back hands back what it
+cost — nothing has left the dock, so there is nothing to lose on the
+deal; the bid is shown, and is what a sale will fetch once the game has
+started, but nothing is sold in the yard, only put back.
 
-Two things bound a purchase, and the station is neither of them. Supply is
-unlimited and every station charges the same; what refuses an order is **the
+Two things bound a purchase, and the station's shelf is neither of them.
+Supply is unlimited; what refuses an order is **the
 pool** — goods come out of the same money the hull does, so a player who
 spends everything on plating has nothing to load it with — or **the ship**.
 Goods are stowed: food in a cold store, gear in a locker, everything else on
@@ -353,21 +358,31 @@ a design. If the chains change, the list changes with them, and
 ### Power
 
 The reactor makes it, the battery holds it, and everything that draws — life
-support, the helm, the sensor array, the cold store, the bay, and every
-door — has to be **wired**: a tile of it carries conduit, and that conduit
-runs to a reactor. Conduit is on its own layer and runs *through* a tile,
-under whatever is standing in it, so there is no adjacency rule to learn:
-drag a run of it under the things that need it, as you would drag deck,
-and end the run under the reactor. A conduit run is a **network**; two runs
-that both end under the same reactor are one.
+support, the helm, the sensor array, the cold store, the bay, every
+door, every bench, and **every lamp** — has to be **wired**: a tile of it
+carries conduit, and that conduit runs to a reactor. Conduit is on its own
+layer and runs *through* a tile, under whatever is standing in it, so there
+is no adjacency rule to learn: drag a run of it under the things that need
+it, as you would drag deck, and end the run under the reactor. A conduit
+run is a **network**; two runs that both end under the same reactor are
+one.
 
 Two warnings come of it, and neither blocks Accept, for the same reason the
 flight warnings do not — a ship that cannot run its cold store is still a
 ship you can live on, for a while. **Nothing powers this** rings every
-consumer with no live conduit under it. **This run draws more than its
-reactor makes** rings the run: one reactor is a hundred a minute, and the
-playtest ship's six consumers draw fifty-seven, so there is room for a
-workshop and not for two.
+consumer with no live conduit under it — a lamp among them, and a lamp
+with nothing powering it is a lamp that gives no light. **This run draws
+more than its reactor makes** rings the run: a reactor is two and a half
+thousand a minute, an engine burning flat out takes a thousand of that,
+and the lamps are the biggest of the day-long draws — a wall light 25, a
+standing light 40, so the playtest ship's six wall lights and standing
+light are 190 of the 327 it draws all day, more than its four benches
+together. What the reactor has over after that is what the engines get, so
+a ship lit from end to end on one reactor pushes a little less hard; and a
+ship whose day-long draw goes over what its reactors make — a reactor
+taken off for a rebuild, a run cut, or a big hull hung with lamps and
+benches on one basic reactor — runs on its batteries until they are
+flat, and then it is *the brownout*, below.
 
 ### Accepting
 
@@ -522,7 +537,13 @@ A deck no light reaches is **dark**, and in the dark the crew see ten
 tiles. Two lights are built like any part: a **wall light** hangs from a
 bulkhead or the hull (the designer says so if it has no wall at its back)
 and reaches seven tiles, a **standing light** stands anywhere and reaches
-nine; both are always on and draw nothing. A wall stops light the way it
+nine; both **draw power** — 25 and 40 a minute — and want conduit under
+them like the cold store does. A lamp on no live network is dark, and every
+lamp on the ship goes out in a brownout (*The reactor, the batteries and
+the brownout*), which is how a brownout is noticed: the deck goes dark
+round the crew and they see their ten tiles. The lamp is whole — it comes
+straight back with the power — where one shot out is glass. A station's
+lamps are its own and stay lit whatever the ship is doing. A wall stops light the way it
 stops the eye, so a room behind a bulkhead is dark for all the lamps on
 the other side, and the shadow a lamp casts round a table is a shade —
 light, but there. What the crew see is drawn as it is: a smooth cone from
@@ -577,6 +598,65 @@ the chart. Nothing of the old system comes along — its stations, its
 people, its mining site — and everything of the ship's does. Abort during
 the charge leaves the ship where it was. **System view** puts the map back.
 
+### Landing on a planet
+
+A **rocky planet** or an **ice world** can be landed on; a gas giant and
+a belt cannot. Fly to it as to anything, and once the ship is holding in
+its frame the strip offers **Land** (from the helm, like a trip): the
+ship slides to the point straight over the planet and comes down from
+there — the planet growing under it until it fills the window, then
+black for a moment while the ground is laid out — and is set down on a
+**landing pad**. There is no space any more: the planet is the whole of
+the surroundings. Beside the pad stands a **town** of ten to fifty
+people, on one of three **biomes** — **desert**, **temperate** or
+**arctic** (an ice world is always arctic; a rocky planet is one of the
+other two) — and no two towns are laid out the same. Its **houses**
+stand along two or three streets, a few bunks each with a door onto the
+street; the **gathering hall** is its mess, a galley along the north
+wall and tables with a chair for everyone; a **bathhouse** holds a
+toilet, a basin and a shower for every twelve people; the **trading
+house** is where trade is done across the desk as at any station — the
+ship's airlock opens onto the ground through the town's gate, and the
+Station button is the same — and the **watch house** by the pad is
+where the town's **guard** stands at its post behind two sandbags,
+looking out towards the pad. A town feeds itself. A desert or temperate
+town has **fields** in a belt beyond the houses: strips of soil that
+work like hydroponic bays — planted, tended and lifted the same way, and
+a field under the pointer opens the same menu, headed Field — but grow
+at **half the pace** under the sky and have nothing to plug in, so a
+brownout never touches them and a town has twice the trays a ship
+would. An arctic town grows nothing in its ground and has
+**greenhouses** instead, buildings full of hydroponic bays. Standing
+lights line the streets, and by day the whole ground is lit. Round the
+town is the **wild**, and it is what stops a Bim rather than an edge:
+dense forest, a lake or a river and a few boulders in temperate country;
+cliffs of rock, cactus scrub and one oasis in a desert; outcrops, a
+frozen lake and firs in the arctic. A Bim off the ship can walk any way
+it likes until a tree, a cliff, the water or a wall is in the way —
+there is always a way from the pad to every door and every field, and
+never a pocket it cannot get to.
+
+The town is not the whole of the ground. It stands on a **plain** ten
+thousand tiles across, and the ship is set down on open ground with the
+plain on every side of it: walk round the hull, out through the gaps in
+the wild ring, and keep going. What is out there is the planet's —
+cliffs, water, forest too dense to push through, the odd tree and rock —
+and it is what confines a crew member, not any edge; the plain's own
+edge is a rim of cliff further off than anybody will walk. The ground is
+made as it is walked and seen, never all at once, and the view reaches
+**sixty tiles**: the camera cannot be pulled out further than that on a
+planet, the ground is drawn that far from the middle of the window and
+no further, and a crew member sees that far over open country. What the
+crew have not seen of the plain is black; what they have seen and do not
+see now is grey; and a walk out into it is a walk like any other — right-
+click the ground, however far, and the crew member goes leg by leg, and
+comes back the same way when it is hungry. A town is
+**hostile or friendly** like a station — the map rings its planet in red
+or blue — and at a hostile one its people are enemies and the guard is
+the first of them. A Confirm from the pad is the cast-off, then the ship
+lifts straight off to where a trip to the planet would have ended, and
+flies from there.
+
 ### The reactor, the batteries and the brownout
 
 Every step, what the wired reactors made less what the wired consumers drew
@@ -586,14 +666,40 @@ so much to the engines, of so much made, and what the batteries have of
 what they hold. A battery on the run arrives empty and fills at the surplus; one
 taken off takes what was in it. A ship drawing more than it makes drains
 its batteries at the difference, and when they are flat it **browns out**:
-everything optional stops — the bay, the cold store, and the workshops
-when there are workshops — and the essentials, life support and the doors,
+everything optional stops, and the essentials, life support and the doors,
 run on off the reactor's own output. The world opens with the batteries
-full, since the ship has been sitting at a dock.
+full, since the ship has been sitting at a dock. The log says *Brownout*
+the step it starts and *Power restored* the step it ends, and the ship
+panel's Power line carries *— brownout* in between.
 
-Nothing aboard reads the brownout yet — the crew go on cooking in a galley
-that has no power, for now. The smelter and the workbench will be the first
-things to stop, and they arrive next.
+What stops, all of it recoverable and none of it lethal:
+
+- **The lamps go out.** Every lamp on the ship, at once, and the deck is
+  dark round the crew: they see ten tiles, and so does anybody looking for
+  them. That is the alarm — nothing is drawn for a brownout but the dark.
+  The lamps are whole, and light again the moment the power is back.
+- **The hydroponic bay stops**, in the same state as one whose target is
+  met: nothing grows, nothing is planted or lifted, the trays hold what
+  they hold, and the bay's menu says *no power*. Growth picks up where it
+  stopped.
+- **The cold store stops and the food spoils.** Every hour the cold store
+  is without power — browned out, or on no conduit at all — an eighth of
+  the vegetables, the tofu and the stew goes, rounded up, off the shelf
+  and out of the hold, and the log says how much. The hour is a clock on
+  the world that only runs while the cold store is unpowered and goes back
+  to nought when it is powered again, so an overdraw the batteries cover
+  costs nothing, and what is left when the power comes back stays. That
+  is what a battery is for.
+- **The benches, the research desk and the hyperdrive stop**, as before:
+  no order is placed, the AI thinks about nothing, a charge with no drive
+  to fire fails.
+
+Nothing about the air: life support is essential and runs on, and nobody
+dies of a brownout. At forty-eight times, a game day is thirty real seconds
+and an hour is one and a quarter, so a brownout left alone while you looked
+away is a dark ship, a stopped bay and a larder mostly gone — a day to work
+back from, not a game over. There is no brake on the speed for it; the cost
+is the brake.
 
 ### Making things
 
@@ -916,8 +1022,49 @@ the bottom right.
 
 **Money only works while docked**, because a station is where there is somebody
 to buy from. Holding station beside one is not docked — that wants an airlock —
-and out between them the pool buys nothing at all. Supply is unlimited and every
-station charges the same; what bounds a purchase is the money and the hold.
+and out between them the pool buys nothing at all. Supply is unlimited; what
+bounds a purchase is the money and the hold.
+
+**Every station charges its own prices, and two numbers a thing.** There
+are two ideas of what a unit is worth, and they are kept apart on
+purpose. The **book value** (`economy::trade_price`) is what a thing *is
+worth* — the same everywhere, and used only to value a hold: what the
+crew set out with, what the ship is worth now, what an enemy's garrison
+is scaled against. Nothing is ever bought or sold at it. What a station's
+desk actually charges is its **market price** (`economy::market`): a
+**quote** of two numbers, the **ask** — what one costs bought here, the
+*Costs* column — and the **bid** — what the desk pays for one, the
+*Pays* column. The bid is always under the ask, so a thing bought and
+sold straight back at one desk always loses money, and the whole of the
+trading game so far is that two desks lean different ways.
+
+The sum, in whole euros and rounding down at every division:
+
+    mid  = book * (100 + kind_bias + local_bias) / 100
+    half = max(1, mid * SPREAD_BP / 20 000)
+    ask  = mid + half
+    bid  = max(1, mid - half)
+
+`kind_bias` is what the *kind* of station does to the price, per cent —
+a hand-written table, starting values to be tuned: a mining outpost sells
+ore and galvum cheap and pays well for food, metal and components; a
+refinery sells metal cheap and pays well for ore; an orbital sells food
+and fibre cheap; a relay is dear on everything and pays well for food and
+bandages; a planet's settlement sells food cheap and pays well for metal;
+a derelict has no market at all — nothing to buy, and nobody to sell to.
+`local_bias` is the station's own lean, one small whole number per cent
+a resource in `−15..=15`, rolled by the generator off the station's seed
+for every resource whether it stocks the thing or not, and in the galaxy
+checksum beside its shelf — so two outposts in one system are two
+different outposts, and two players on one seed see the same numbers.
+`SPREAD_BP` is the desk's cut, a thousand basis points: five per cent
+either side of the mid, and never less than a euro.
+
+**The station you start at leans only the way its kind does**: the
+generator rolls it a local bias like any other, and the world sets it to
+nothing (`World::start`, and the yard's Station panel with it), so an
+opening pool buys the same at a kind of station whatever the seed
+rolled, and what the crew set out with is worth its book value.
 
 The shelf is a window — **Station** on the tray, docked, opens it in the
 middle of the screen and the cross, Escape or casting off shuts it — and
@@ -931,9 +1078,10 @@ medkits, an outpost's galvum, an orbital's fibre, a bandage at an orbital
 or a refinery — is there or not, so two refineries stock
 different things and there is a reason to fly to the other one. A row the
 station does not sell is greyed with its buy buttons off, and stays,
-because what is aboard can still be sold there. Every station buys
-anything. A station is not yet *for* anything — a theme would replace the
-roll, not the ceiling.
+because what is aboard can still be sold there, at the bid. Every station
+somebody lives on buys anything; a derelict buys nothing, since there is
+nobody at its desk. A station is not yet *for* anything beyond the way
+its kind leans — a theme would replace the roll, not the ceiling.
 
 ### Mercenaries
 
@@ -1032,6 +1180,28 @@ only so far before he would be off the edge. **Free camera** (the View
 tab, or `F`) lets it go — the view stays where it is and a drag or the
 keys take it anywhere, for looking at the far end of a station while the
 crew are busy at this one — and **Follow** snaps it back to him.
+
+### Saving, and picking it up again
+
+Esc opens the settings, and **Save** and **Load** are on it. A save is the
+whole game as it stands — the clock, the ship and where it is, the room
+aboard with everybody in it mid-errand, the stations and what is on their
+shelves, the hold, the money — written as text to
+`~/.local/share/bims/saves/<name>.ron` (`$XDG_DATA_HOME`, or wherever
+`BIMS_SAVES_DIR` points). A name is letters, digits, `-` and `_`; a name
+already used is written over, and the page lists what is there to pick
+from. Load lists the same files, newest first, and puts the game back
+exactly where it was: the crew carry on from the step they were at, and
+the checksum of the world read back is the checksum of the world written.
+What is *not* saved is the window's — which panel is open, where the
+camera is, what you were aiming at — so a loaded game opens on the whole
+ship the way a new one does.
+
+The menu at the start has a **Load** button too, beside Play, so a game is
+picked up without walking through the setup and the yard. There is nothing
+to save in the yard: the game starts when the ship is accepted, and the
+button says so until then. A file written by another version of the game
+is refused by its version rather than read wrong.
 
 ### The two crates behind that
 
@@ -1139,6 +1309,20 @@ stowed or sold at all, only discarded. Equipping wants no container. What
 a worn piece does to a hit is [Getting hurt](#getting-hurt): the
 protection comes off the damage first, what is left drains the piece, and
 only what the piece could not take reaches the body.
+
+**Every weapon and every piece has a tier**, one to three, and the
+workbench is where a tier is made: two of a kind at the same tier go into
+its two slots, **Upgrade** in its window starts a day of work on them,
+and one of the next tier comes out in the third slot — a quarter more
+damage and accuracy for a weapon, half again the health and protection
+for armour, and at tier three a little more range or a chance to dodge.
+A tier-two thing lies on a blue cell wherever it is drawn — a locker, a
+pack, a body being looted, the bench — and a tier-three on gold, so an
+inventory says at a glance what is worth taking. A crew member carries
+a thing to the bench by hand (Ctrl-click it in the pack with the bench's
+window up) and takes the result off the same way; with **Combine
+matching gear** ticked on the Management tab the crew do it themselves,
+one thing in the arms at a time, from the lockers to the bench and back.
 
 ### The fight
 
@@ -1292,6 +1476,21 @@ top-right corner, mirrored so it is got into from the room — and two chairs, o
 each side of the table, with a place laid in front of each. A Bim goes to its
 own bed and sits in its own chair; neither is ever contested.
 
+**A bunk is one crew member's, and you say whose.** Each starts with the
+bunk of its own number, as far as the bunks go; click any bunk for a menu
+that says whose it is and offers **Assign to** the crew member shown (the
+one you have selected, else your own) — whoever had it loses it — or **Give
+up this bunk**. Aboard a ship a hire takes the first spare bunk, a dead
+crew member's comes free, and a station's bunks are not yours to give. A
+crew member **with no bunk sleeps on the deck** where it stands — the
+`combat` command's fourteen on a ship with five bunks, or anybody you took
+one from — and only **three hours in every six**: the six-hour window opens
+the minute it lies down, and until it closes there is no more sleep to be
+had on the deck, though a tired enough Bim nods off on its feet as ever.
+It gets up **sore** — *Slept on the deck* on its panel, for twelve hours —
+and its rest runs out half as fast again the while. The panel says **No
+bunk** under its bars until you give it one.
+
 Everything else is shared, and two of the shared things are one pair of hands'
 worth:
 
@@ -1341,7 +1540,7 @@ foot of a bed should cost nothing.
 | --- | --- |
 | Click the fridge | Menu: what is left, **Make a stew**, **Make a bowl**, the door |
 | Click the stove | Menu: turn on/off — James walks over and flips it |
-| Click either bunk | Menu: **Nap** (30 min) or **Sleep** (6 hours) — James goes to his own |
+| Click a bunk | Menu: whose it is, **Assign to** the Bim shown or **Give up this bunk**, and on James's own bunk **Nap** (30 min) or **Sleep** (6 hours) |
 | Click the dishwasher | Menu: what is stowed, and **Run now** |
 | Click the hydroponic bay | Menu: the trays, **Automate**, and what to plant |
 | Click the broom locker | Menu: **Sweep up** — and they get round to it themselves |
@@ -1693,7 +1892,11 @@ was asked for, which is the point of a food unit having two halves.
 **Hibernation** is what happens when both marks are met: nothing grows, nothing
 is planted, nothing is lifted, and the trays hold exactly what they hold. The
 lights over them go out, which is how it reads across the room. Drop below the
-mark again and it picks up where it stopped, part-grown plants and all.
+mark again and it picks up where it stopped, part-grown plants and all. A bay
+**without power** — on no conduit, or aboard a ship that has browned out —
+is in the same state, whatever the store holds and whatever was ordered,
+and its menu says *no power* rather than *at target*; see *The reactor, the
+batteries and the brownout*.
 
 **Plant greens / soy / fibre in every tray** is the override: a standing
 order that ignores both the target and hibernation, for when you want a bay
@@ -2035,8 +2238,9 @@ nothing else and drawn whether or not the Bim happens to be selected.
 ### Combat mode, and the inventory
 
 **The rest of the crew take arms on their own.** Whenever an enemy is
-within a hundred tiles of anybody — any enemy on the station you are
-docked at — or a crew member has been hit in the last half minute, the
+within thirty tiles of anybody or in anybody's sight — a compartment or
+two away, not merely somewhere on the station you are docked at — or a
+crew member has been hit in the last half minute, the
 header says **To arms — an enemy is near** and every crew member but the
 one you steer is in combat mode of their own accord: they take a weapon
 out of their pack if their hand is empty, draw it, and **gather round
@@ -2049,8 +2253,12 @@ log knows about. **And while the alarm is up you can order them**: click
 a crewmate to select it and right-click the deck, the way you send your
 own; it goes and holds that spot, shooting from it, until the alarm is
 over. In peace a crewmate takes no orders, as before. The alarm lasts
-until nobody is near and nobody has been hit for a while, when they go
-back to their errands. A hired mercenary does the same. The Bim you
+until nobody is near, nobody has seen an enemy and nobody has been hit
+for half a minute, when they go back to their errands — and to bed —
+however many of the station's people are still alive somewhere on it.
+(A crew member that bled past the line in the fight is not asleep but
+**out cold** on the deck until somebody bandages it; see the medical
+notes.) A hired mercenary does the same. The Bim you
 steer is yours alone: recruit it yourself or leave it to its work; the
 alarm never touches it.
 
@@ -2139,7 +2347,8 @@ enemy's people bleed and die the same way — one shot to a dying state
 runs from you — and nobody dresses theirs until the fight is over, when
 the station's own bandages and its one medkit come out.
 
-The moment a Bim is recruited its **inventory** pops up, and the tray's
+Tab opens a Bim's **inventory** in a window of its own (a recruit does
+not — a fight is not the moment for a window over the deck), and the tray's
 **Inventory** tab shows the same for whoever is selected, recruited or not:
 three armour slots down the left — head, body, legs — each with the icon
 of the piece worn there, a bar of the health it has left and its numbers

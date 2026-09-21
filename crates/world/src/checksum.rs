@@ -35,6 +35,7 @@ use crate::world::{ShipState, World, node_key};
 /// Not a `Hash` derive and not `DefaultHasher`, for the reason `design_hash`
 /// gives at more length: those are explicitly allowed to differ between
 /// builds, and this number crosses between machines.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Fnv(u64);
 
 const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -259,7 +260,43 @@ pub fn world_checksum(world: &World) -> u64 {
         }
     }
     hash.eat(u64::from(world.auto_upgrade));
-    match world.upgrade {
+    // The workbench: its three slots and the thing in somebody's arms —
+    // each a gun by kind and tier, or a piece by id, kind, tier and health
+    // to the hundredth, the way a piece anywhere else goes in — and the
+    // work under way on the pair.
+    for item in world
+        .bench
+        .slots
+        .iter()
+        .chain(core::iter::once(&world.bench.carrying))
+    {
+        match item {
+            None => hash.eat(u64::MAX),
+            Some(bims::combat::Item::Weapon(gun)) => {
+                hash.eat(1);
+                hash.eat(gun.kind.code() as u64);
+                hash.eat(gun.tier.code() as u64);
+            }
+            Some(bims::combat::Item::Armour(piece)) => {
+                hash.eat(2);
+                hash.eat(piece.id as u64);
+                hash.eat(piece.kind.code() as u64);
+                hash.eat(piece.tier.code() as u64);
+                hash.eat_rounded(piece.health as f64, HEALTH_GRID);
+            }
+            // Never on the bench; hashed all the same rather than skipped.
+            Some(bims::combat::Item::Stack(resource)) => {
+                hash.eat(3);
+                hash.eat(*resource as u64);
+            }
+            Some(bims::combat::Item::Key(tier)) => {
+                hash.eat(4);
+                hash.eat(*tier as u64);
+            }
+        }
+    }
+    hash.eat(u64::from(world.bench.back));
+    match world.bench.work {
         None => hash.eat(u64::MAX),
         Some(upgrade) => {
             hash.eat(upgrade.resource as u64);
@@ -345,6 +382,11 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(lamp.tile.1 as u64);
         hash.eat_rounded(lamp.health as f64, HEALTH_GRID);
     }
+
+    // How long the cold store has been without power, in steps: the clock
+    // the food spoils by. An integer, so it goes in whole — two worlds a
+    // step apart on it lose the next crate on different steps.
+    hash.eat(world.cold_store_out);
 
     hash.0
 }

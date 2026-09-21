@@ -118,6 +118,7 @@ const FACE_TRAY: f32 = PI * 0.5;
 const FACE_LOCKER: f32 = PI;
 
 #[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Step {
     GoToFridge,
     OpenFridge,
@@ -339,6 +340,18 @@ pub enum Step {
     GoToVictim,
     Execute,
 
+    // Carrying a thing between two benches — `Kind::Ferry`: over to the
+    // first, a moment reaching into it, over to the second with the thing
+    // in the arms, and a moment putting it down. The room never knows what
+    // the thing is: `TakeGear` says it was taken and `PutGear` that it
+    // arrived, on `Room::ferry_picked` and `Room::ferry_dropped`, and the
+    // world moves it — out of the hold and onto the workbench, or off the
+    // workbench and back.
+    GoToStore,
+    TakeGear,
+    CarryGear,
+    PutGear,
+
     Done,
 }
 
@@ -445,9 +458,12 @@ impl Step {
             GoToPatient => Dress,
             GoToDropped => PickUp,
             GoToVictim => Execute,
+            GoToStore => TakeGear,
+            TakeGear => CarryGear,
+            CarryGear => PutGear,
             StartDishwasher | FlipSwitch | ClimbOutOfBed | ShutDoorBehind | PutBroomBack | Talk
             | ShutStoreOnStew | Shower | Work | PutSuitBack | DropMaterials | Construct | Dress
-            | PickUp | Execute | Done => Done,
+            | PickUp | Execute | PutGear | Done => Done,
         }
     }
 
@@ -485,7 +501,7 @@ impl Step {
             Shower => clock::seconds(crate::needs::SHOWER_MINUTES),
             TakeSuit | PutSuitBack => 1.5,
             StepOut | StepIn => 1.0,
-            TakeMaterials | DropMaterials => 1.2,
+            TakeMaterials | DropMaterials | TakeGear | PutGear => 1.2,
             StowCrop => 0.7,
             OpenDoor | ShutDoor | UnlockDoor | ShutDoorBehind => 0.7,
             SitOnToilet | RiseFromToilet => 0.7,
@@ -548,6 +564,8 @@ impl Step {
                 | GoToPatient
                 | GoToDropped
                 | GoToVictim
+                | GoToStore
+                | CarryGear
         )
     }
 
@@ -581,6 +599,7 @@ impl Step {
 /// Which errand is running. The host labels its status line off this, so a
 /// trip to the heads does not announce itself as cooking.
 #[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Kind {
     /// A meal, of one recipe or the other. Both start the same way — fridge,
     /// board, knife — and part company once the chopping is done.
@@ -688,6 +707,17 @@ pub enum Kind {
         visitor: usize,
         blade: bool,
     },
+    /// Carrying one thing from bench `from` to bench `to` — both indices
+    /// into `Room::benches` — the way the world asked on
+    /// `Room::ferries`: a gun or a piece of armour out of the lockers and
+    /// onto the workbench for an upgrade, or the upgraded one back. What
+    /// the thing is stays the world's: the room says it was taken and
+    /// that it arrived (`Room::ferry_picked`, `ferry_dropped`), or that
+    /// the walk was given up with it in the arms (`ferry_returned`).
+    Ferry {
+        from: usize,
+        to: usize,
+    },
 }
 
 impl Kind {
@@ -713,6 +743,7 @@ impl Kind {
             Kind::Treat { .. } => Step::GoToKit,
             Kind::Fetch { .. } => Step::GoToDropped,
             Kind::Execute { .. } => Step::GoToVictim,
+            Kind::Ferry { .. } => Step::GoToStore,
         }
     }
 
@@ -815,6 +846,7 @@ impl Kind {
 /// pot is still on its hob. `None` is not yet chosen; a room always has at
 /// least one of each, so `unwrap_or(0)` is never wrong, only early.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Picks {
     pub worktop: Option<usize>,
     pub hob: Option<usize>,
@@ -843,6 +875,7 @@ impl Picks {
 /// Every fixture the *other* Bims are using — their errands' picks and
 /// their queued chains' — so a pick can go to the next one along.
 #[derive(Clone, Default, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Taken {
     pub worktops: Vec<usize>,
     pub hobs: Vec<usize>,
@@ -874,6 +907,7 @@ impl Taken {
 
 /// Which kind of fixture a step walks to, if any.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Fixture {
     Worktop,
     Hob,
@@ -1021,6 +1055,7 @@ pub fn can_pick_all(kind: Kind, room: &Room, from: Vec2, taken: &Taken) -> bool 
 /// of things that live on the Bim and are thrown away when a task lets go of
 /// it: which step it had reached and how far into it, and what it was holding
 /// or sitting on.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Saved {
     /// Which Bim this chain belongs to. A chain is never handed over — it goes
     /// back on the queue of the Bim that put it down — but the bed and the
@@ -1194,7 +1229,10 @@ fn destination(
         // itself walking has no end, because a route is planned once here and
         // never replanned.
         GoToMeet => target,
-        GoToBed => Some(room.bed_station(who)),
+        // Its own bunk, or — a Bim with none — the spot on the deck the
+        // chain chose as it set out (`enter`, on `target`), which is nowhere
+        // until then: a walk of no length, and the chain can always begin.
+        GoToBed => room.bed_of(who).map(|bed| room.bed_station(bed)).or(target),
         GoToDoor | StepOutside => Some(room.bath_at(b).outside_station()),
         StepInside | BackToDoor => Some(room.bath_at(b).inside_station()),
         GoToToilet => Some(room.bath_at(b).toilet_station()),
@@ -1223,6 +1261,16 @@ fn destination(
         GoToKit | GoToPatient => target,
         // And beside the weapon on the deck, likewise; and the body.
         GoToDropped | GoToVictim => target,
+        // The two benches a carry runs between: the first from anywhere, the
+        // second with the thing in the arms.
+        GoToStore => match kind {
+            Kind::Ferry { from, .. } => room.benches.get(from).map(|b| b.at),
+            _ => None,
+        },
+        CarryGear => match kind {
+            Kind::Ferry { to, .. } => room.benches.get(to).map(|b| b.at),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -1609,6 +1657,7 @@ fn progress_of(kind: Kind, step: Step, elapsed: f32, rest_minutes: f32, laps_don
     ((before + within * here) / total).clamp(0.0, 1.0)
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Task {
     /// Which Bim is doing this. Everything shared in the room is reached
     /// without it; a bed, a chair and a place at the table are not.
@@ -2002,6 +2051,20 @@ impl Task {
         taken: &Taken,
     ) -> Task {
         let kind = Kind::Haul { site, outside };
+        Task::starting_at(who, kind, kind.first_step(), 0.0, ch, room, maps, taken)
+    }
+
+    /// One thing from bench `from` to bench `to`, the way the world asked.
+    pub fn ferry(
+        who: usize,
+        from: usize,
+        to: usize,
+        ch: &mut Character,
+        room: &mut Room,
+        maps: &Maps,
+        taken: &Taken,
+    ) -> Task {
+        let kind = Kind::Ferry { from, to };
         Task::starting_at(who, kind, kind.first_step(), 0.0, ch, room, maps, taken)
     }
 
@@ -2456,6 +2519,15 @@ impl Task {
             room.returned.push(site);
             ch.hold_main(Held::Nothing);
         }
+        // A thing carried between benches the same: given up for good once
+        // it is in the arms, the room says so and the world puts it back.
+        if for_good
+            && let Kind::Ferry { from, to } = kind
+            && !matches!(step, GoToStore | TakeGear)
+        {
+            room.ferry_returned.push(crate::game::Ferry { from, to });
+            ch.hold_main(Held::Nothing);
+        }
         // A walk outside given up brings the body back in through the door,
         // whatever it was doing out there: a suspended one resumes from the
         // gangway and goes out again, and an abandoned one is simply back.
@@ -2465,10 +2537,7 @@ impl Task {
             ch.come_inside(gangway);
         }
         match step {
-            Doze | WakeUp => {
-                room.set_bed_occupied(who, false);
-                ch.stand_at(room.bed_station(who));
-            }
+            Doze | WakeUp => Task::out_of_bed(who, ch, room),
             SitOnToilet | UseToilet | RiseFromToilet => {
                 ch.stand_at(room.bath_at(bath).toilet_station());
             }
@@ -2529,6 +2598,26 @@ impl Task {
 
     pub fn step(&self) -> Step {
         self.step
+    }
+
+    /// Whether this is a lie-down on the deck: a rest begun by a Bim with
+    /// no bunk of its own. Read off the spot `enter` chose for it, which a
+    /// rest in a bed never has. See `Game::assign_bed`.
+    pub fn sleeps_on_ground(&self) -> bool {
+        self.kind == Kind::Rest && self.target.is_some()
+    }
+
+    /// Back on its feet out of bed: the blanket made, and the body stood
+    /// where it climbs in — or, off the deck, where it lay, which is the
+    /// only place it can stand.
+    fn out_of_bed(who: usize, ch: &mut Character, room: &mut Room) {
+        match room.bed_of(who) {
+            Some(bed) => {
+                room.set_bed_occupied(bed, false);
+                ch.stand_at(room.bed_station(bed));
+            }
+            None => ch.stand_at(ch.pos),
+        }
     }
 
     /// Whether the hands are on a bandage this instant: the dressing
@@ -2604,6 +2693,24 @@ impl Task {
         if self.step == Step::CarryBroomTo {
             self.target = next_dirty(room, maps, ch.pos);
         }
+        // Where a Bim with no bed lies down: the deck under its feet, or the
+        // nearest cell a body fits in. Chosen afresh every time the walk
+        // begins — a sleep picked back up off the queue lies down where the
+        // Bim is now, not where it was — and cleared for a Bim that has a
+        // bunk, so `sleeps_on_ground` reads off it.
+        if self.step == Step::GoToBed {
+            self.target = if room.bed_of(self.who).is_some() {
+                None
+            } else {
+                let nav = maps.for_who(
+                    self.who,
+                    ch.is_outside(),
+                    ch.is_afield(),
+                    room.bath.is_open(),
+                );
+                Some(nav.nearest_free(ch.pos))
+            };
+        }
         // Which rock, likewise: the nearest marked one it can get to now,
         // and the tile beside it to stand on.
         if self.step == Step::WalkToRock {
@@ -2626,6 +2733,9 @@ impl Task {
                     return;
                 }
             }
+            // The thing is in the arms on the walk to the second bench,
+            // whatever the hands were doing before it, for the same reason.
+            Step::CarryGear => ch.hold_main(Held::Crate),
             Step::CarryToSite | Step::GoToSite => {
                 if self.step == Step::CarryToSite {
                     ch.hold_main(Held::Crate);
@@ -2705,9 +2815,13 @@ impl Task {
             // chosen here rather than by the caller because the step before
             // this one may have just opened the door — or stepped out of the
             // airlock, which puts the body on the outside's grid.
-            let nav = maps.for_body(ch.is_outside(), room.bath.is_open());
-            let route = nav.path(ch.pos, nav.nearest_free(to));
-            if route.is_empty() {
+            let nav = maps.for_who(
+                self.who,
+                ch.is_outside(),
+                ch.is_afield(),
+                room.bath.is_open(),
+            );
+            if !ch.walk_to(nav, to, ch.is_afield()) {
                 // Nowhere to walk — a door has been shut across the way. The
                 // chain gives up here rather than carrying on: an empty route
                 // leaves `arrived` true straight away, and a chain that takes
@@ -2717,7 +2831,6 @@ impl Task {
                 self.blocked = true;
                 return;
             }
-            ch.follow_path(route);
             ch.set_action(Action::None);
             return;
         }
@@ -2871,6 +2984,19 @@ impl Task {
                     }
                 }
             }
+            // Reaching into the first bench, and putting the thing down on
+            // the second: turned into each.
+            TakeGear | PutGear => {
+                let bench = match (self.kind, self.step) {
+                    (Kind::Ferry { from, .. }, TakeGear) => room.benches.get(from),
+                    (Kind::Ferry { to, .. }, _) => room.benches.get(to),
+                    _ => None,
+                };
+                if let Some(bench) = bench {
+                    ch.face(bench.facing());
+                }
+                ch.set_action(Action::Reach);
+            }
             // Bending for the weapon where it lies.
             PickUp => {
                 if let Kind::Fetch { item } = self.kind
@@ -2911,13 +3037,20 @@ impl Task {
                 ch.face(FACE_DOOR);
                 ch.set_action(Action::Wash);
             }
-            // Up and down the ladder, facing the bed from the room side.
+            // Up and down the ladder, facing the bed from the room side. On
+            // the deck there is no ladder: the Bim gets down where it stands.
             ClimbIntoBed | ClimbOutOfBed => {
-                ch.face(room.bed_facing(self.who));
+                if let Some(bed) = room.bed_of(self.who) {
+                    ch.face(room.bed_facing(bed));
+                }
                 ch.set_action(Action::Reach);
             }
             Doze => {
-                ch.lie(room.bed_lie_pos(self.who), room.bed_lie_facing(self.who));
+                match room.bed_of(self.who) {
+                    Some(bed) => ch.lie(room.bed_lie_pos(bed), room.bed_lie_facing(bed)),
+                    // On the deck, where the walk ended, facing as it stood.
+                    None => ch.lie(self.target.unwrap_or(ch.pos), ch.heading),
+                }
                 ch.set_action(Action::Sleep);
             }
             // A stretch, still lying down, before getting up.
@@ -2955,7 +3088,11 @@ impl Task {
             CloseFridge | ShutStoreOnStew => room.set_fridge_open(self.fridge(), false),
             GoToDrawerForKnife | GoToDrawerForPlate => {}
             TakeKnife | TakePlateAndSpoon | TakeBowl => room.set_drawer_open(self.worktop(), true),
-            Doze => room.set_bed_occupied(self.who, true),
+            Doze => {
+                if let Some(bed) = room.bed_of(self.who) {
+                    room.set_bed_occupied(bed, true);
+                }
+            }
             OpenDishwasher => room.dishwashers[self.dishwasher()].set_open(true),
             ShutDishwasher => room.dishwashers[self.dishwasher()].set_open(false),
             // The door slides as the Bim touches the panel, so the walk that
@@ -3084,6 +3221,25 @@ impl Task {
             TakeKit => {
                 room.medkits = room.medkits.saturating_sub(1);
                 ch.hold_main(Held::Medkit);
+            }
+            // The thing off the first bench, in the arms: the room says so,
+            // and the world takes it out of the hold or off the workbench.
+            TakeGear => {
+                if let Kind::Ferry { from, to } = self.kind {
+                    room.ferry_picked.push(crate::game::Ferry { from, to });
+                }
+                ch.hold_main(Held::Crate);
+            }
+            // Put down on the second: the world moves it there. The room's
+            // copy of the order is a step behind the world, so it comes off
+            // the list here as well, or the same carry is offered again
+            // before the world has spoken.
+            PutGear => {
+                ch.hold_main(Held::Nothing);
+                if let Kind::Ferry { from, to } = self.kind {
+                    room.ferry_dropped.push(crate::game::Ferry { from, to });
+                    room.ferries.retain(|f| f.from != from || f.to != to);
+                }
             }
             // Done with the body: the room says whose, and the world kills
             // it in its own room, if it still lies there.
@@ -3295,10 +3451,7 @@ impl Task {
             FlushToilet => room.bath_at_mut(self.bath()).flush(),
             // Back down the ladder: the Bim was lying in the middle of the
             // bed, and the floor beside it is the only place it can stand.
-            WakeUp => {
-                ch.stand_at(room.bed_station(self.who));
-                room.set_bed_occupied(self.who, false);
-            }
+            WakeUp => Task::out_of_bed(self.who, ch, room),
             _ => {}
         }
     }

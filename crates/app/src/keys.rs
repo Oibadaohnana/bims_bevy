@@ -126,7 +126,9 @@ impl Action {
         match self {
             Action::Map => "Switch between the ship and the map.",
             Action::NorthUp => "Turn the view head up or north up.",
-            Action::Follow => "Follow the crew member you steer, or let the camera go free.",
+            Action::Follow => {
+                "Follow the crew member you steer, and the ship on the map, or let the camera go free."
+            }
             Action::Pause => "Pause the world, or set it going again.",
             Action::Speed1 => "Run the world at 1×.",
             Action::Speed3 => "Run the world at 3×.",

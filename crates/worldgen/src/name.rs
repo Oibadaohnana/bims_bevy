@@ -42,6 +42,7 @@ pub const NO_NUMBER: u16 = u16::MAX;
 /// A name, in three numbers. See the table above for how each kind of thing
 /// is read out of them.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Name {
     /// Index into whichever of the host's word tables suits the thing named.
     /// [`NO_NUMBER`] when the thing borrows its star's word, as a body does.
@@ -145,26 +146,33 @@ mod tests {
 
     /// Different galaxies name the same star differently, or the seed is not
     /// reaching the naming at all.
-    #[test]
-    fn a_different_galaxy_names_its_stars_differently() {
-        let a: Vec<_> = (0..64)
-            .map(|id| star_name(1, id, crate::GENERATOR_VERSION))
-            .collect();
-        let b: Vec<_> = (0..64)
-            .map(|id| star_name(2, id, crate::GENERATOR_VERSION))
-            .collect();
-        assert_ne!(a, b);
-    }
-
     /// The whole point of naming from the star field's stream and not from
     /// the system's: what is in a system must not touch what its star is
     /// called, or every rename would move every planet.
     #[test]
-    fn a_name_is_the_same_whatever_else_is_asked_for() {
-        let before = star_name(3, 11, crate::GENERATOR_VERSION);
-        let _ =
-            crate::rng::Rng::stream(3, 11, crate::GENERATOR_VERSION, crate::rng::Purpose::Bodies)
-                .next_u64();
-        assert_eq!(before, star_name(3, 11, crate::GENERATOR_VERSION));
+    fn a_name_is_the_same_whatever_else_is_asked_for_and_another_galaxy_names_differently() {
+        // --- a_different_galaxy_names_its_stars_differently ---
+        {
+            let a: Vec<_> = (0..64)
+                .map(|id| star_name(1, id, crate::GENERATOR_VERSION))
+                .collect();
+            let b: Vec<_> = (0..64)
+                .map(|id| star_name(2, id, crate::GENERATOR_VERSION))
+                .collect();
+            assert_ne!(a, b);
+        }
+
+        // --- a_name_is_the_same_whatever_else_is_asked_for ---
+        {
+            let before = star_name(3, 11, crate::GENERATOR_VERSION);
+            let _ = crate::rng::Rng::stream(
+                3,
+                11,
+                crate::GENERATOR_VERSION,
+                crate::rng::Purpose::Bodies,
+            )
+            .next_u64();
+            assert_eq!(before, star_name(3, 11, crate::GENERATOR_VERSION));
+        }
     }
 }

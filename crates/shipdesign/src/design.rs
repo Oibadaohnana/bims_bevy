@@ -15,7 +15,7 @@
 //! phase is handed one thing and not two. Buying is bounded by the ship —
 //! goods are stowed, and a ship with nowhere to put a thing cannot buy it.
 
-use economy::{Storage, cells, stack_size, stacks_of, storage, trade_value};
+use economy::{Storage, cells, stack_size, stacks_of, storage};
 use physics::ResourceId;
 
 use crate::budget::Budget;
@@ -31,6 +31,7 @@ pub const CARGO_SLOTS: usize = 22;
 /// footprint, so a part's origin is where you clicked whichever way round it
 /// is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PlacedPart {
     pub id: u32,
     pub kind: PartKind,
@@ -70,6 +71,7 @@ impl PlacedPart {
 /// so an Edit in flight that names it is refused rather than landing on
 /// something else. Ids are deliberately **not** hashed — see [`design_hash`].
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ShipDesign {
     pub build_area: u32,
     pub parts: Vec<PlacedPart>,
@@ -225,6 +227,7 @@ impl ShipDesign {
 /// may depend on iteration order, and a design has to hash the same on two
 /// machines. Indexed by `Layer as usize`, which is why `Layer::ALL` is in
 /// discriminant order.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Grid {
     side: u32,
     layers: [Vec<u32>; Layer::ALL.len()],
@@ -292,6 +295,7 @@ impl Grid {
 /// [`design_hash`], and an Accept given before a purchase is an Accept for a
 /// ship that is now heavier.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Edit {
     Place {
         kind: PartKind,
@@ -330,6 +334,7 @@ pub enum Edit {
 /// variant: it is "no error", which is what the export returns on success.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EditError {
     /// Some of the footprint falls outside the build area.
     OutOfBounds = 1,
@@ -606,9 +611,14 @@ fn buy(
     resource: ResourceId,
     units: u32,
 ) -> Result<ShipDesign, EditError> {
-    // An order too large to price is an order too large to afford. No wrap
-    // here and no saturation either: `trade_value` refuses.
-    let value = trade_value(resource, units).map_err(|_| EditError::CargoUnaffordable)?;
+    // At the desk's ask, never the book: `economy::market`. An order too
+    // large to price is an order too large to afford. No wrap here and no
+    // saturation either: `Quote::cost` refuses.
+    let value = budget
+        .market
+        .quote(resource)
+        .cost(units)
+        .map_err(|_| EditError::CargoUnaffordable)?;
     if !budget.affords(design, value) {
         return Err(EditError::CargoUnaffordable);
     }

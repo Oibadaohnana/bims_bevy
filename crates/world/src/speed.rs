@@ -19,6 +19,7 @@
 /// pause is a speed of nothing, not a missing speed.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Speed {
     Paused = 0,
     Real = 1,

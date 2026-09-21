@@ -14,6 +14,7 @@
 //! the ship centred; they do not.
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DVec2 {
     pub x: f64,
     pub y: f64,

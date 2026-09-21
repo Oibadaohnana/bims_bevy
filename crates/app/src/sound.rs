@@ -347,8 +347,8 @@ impl Sounds {
             return;
         }
         match cue {
-            Cue::DoorOpens => self.one_shot(commands, Clip::DoorOpen, 0.2),
-            Cue::DoorShuts => self.one_shot(commands, Clip::DoorClose, 0.2),
+            Cue::DoorOpens => self.one_shot(commands, Clip::DoorOpen, 0.08),
+            Cue::DoorShuts => self.one_shot(commands, Clip::DoorClose, 0.08),
             // The forcing: the recording of a door being forced, a heave
             // at a time, and louder the once it gives.
             Cue::DoorSmash => self.one_shot(commands, Clip::DoorForce, 0.55),

@@ -33,6 +33,7 @@ pub const KEEP: usize = 320;
 /// the codes are the contract across the boundary — reusing them would make an
 /// old saved diary say something new.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum What {
     /// Did not make it to the heads. `detail` 0 wet itself, 1 worse.
     Accident = 20,
@@ -72,6 +73,7 @@ impl What {
 
 /// One line of the diary.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Moment {
     pub day: u32,
     /// Minutes since midnight, when it happened.
@@ -80,6 +82,7 @@ pub struct Moment {
     pub detail: u32,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Memory {
     kept: Vec<Moment>,
 }

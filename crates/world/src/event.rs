@@ -26,6 +26,7 @@ use crate::frame::Frame;
 
 /// One thing that happened, in the order it happened.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WorldEvent {
     /// A trip began. Undocking, if it began from a station.
     Departed { slot: u32 },
@@ -176,6 +177,27 @@ pub enum WorldEvent {
     /// The charge ran out with no drive to fire: it was taken off or
     /// browned out in the meantime. The ship is where it was, holding.
     JumpFailed,
+    /// The ship is coming down onto `body`, on the helm's Land — see
+    /// `crate::surface`: over the planet first, then down onto the pad.
+    Landing { body: u32 },
+    /// And down: tied up at the settlement on `body`, the rooms joined,
+    /// the planet the new surroundings.
+    Landed { body: u32 },
+    /// Off the pad on `body` and climbing, on the way to where a trip to
+    /// the planet would have ended; the trip is planned from there.
+    LiftedOff { body: u32 },
+    /// The batteries went flat under an overdraw and the ship is browned
+    /// out — see `World::run_brownout`: the lamps are dark, the bay and
+    /// the benches have stopped, and the cold store's food is spoiling.
+    /// Said once, the step it starts.
+    Brownout,
+    /// The brownout is over: the reactors cover the draw again, or a
+    /// battery has something in it. What stopped is running again and
+    /// what is left in the cold store stays.
+    PowerRestored,
+    /// An hour of the cold store without power took `units` off the
+    /// shelf — vegetables, tofu and stew together, a share of each.
+    FoodSpoiled { units: u32 },
 }
 
 /// Why a command did nothing.
@@ -186,6 +208,7 @@ pub enum WorldEvent {
 /// "you are not at the helm" will go and build one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Refusal {
     /// Trading anywhere but at a station. Money only works at a dock — see
     /// `shipdesign::materials` for the rule and why.
@@ -283,6 +306,26 @@ pub enum Refusal {
     NoSuchStar = 30,
     /// A jump to the star the ship is already at.
     SameStar = 31,
+    /// A Land from anywhere but a hold in the frame of a planet with
+    /// ground on it — a rocky planet's or an ice world's (`crate::surface`).
+    NoPlanetHere = 32,
+    /// A sale at a station with nobody to buy: a derelict keeps no desk
+    /// (`crate::station::market_kind`). A buy there is
+    /// [`Refusal::NotSoldHere`] first, since it stocks nothing either.
+    NoMarket = 33,
+    /// A thing put on the workbench, taken off it or an upgrade begun
+    /// with no workbench aboard, or with the crew member further than
+    /// [`crate::data::REACH`] from it — see `World::workbench`.
+    NoWorkbench = 34,
+    /// An upgrade begun with the bench's two input slots not holding two
+    /// of a kind at the same tier below three — or a thing put on the
+    /// bench that would not pair with what is there: a different kind, a
+    /// different tier, or a tier-three thing, which has nowhere to go.
+    NoPair = 35,
+    /// A thing put on the workbench or an input taken off it while the
+    /// day's work is under way on the pair; the output waits in its slot
+    /// and can be taken any time.
+    BenchBusy = 36,
 }
 
 impl Refusal {
@@ -343,6 +386,12 @@ impl WorldEvent {
             WorldEvent::Charging { .. } => 50,
             WorldEvent::Jumped { .. } => 51,
             WorldEvent::JumpFailed => 52,
+            WorldEvent::Landing { .. } => 53,
+            WorldEvent::Landed { .. } => 54,
+            WorldEvent::LiftedOff { .. } => 55,
+            WorldEvent::Brownout => 56,
+            WorldEvent::PowerRestored => 57,
+            WorldEvent::FoodSpoiled { .. } => 58,
         }
     }
 
@@ -410,6 +459,12 @@ impl WorldEvent {
             // The star: a galaxy has a thousand, and a slot is never that.
             WorldEvent::Charging { star, .. } | WorldEvent::Jumped { star } => star as i64,
             WorldEvent::JumpFailed => 0,
+            // The planet: a body id.
+            WorldEvent::Landing { body }
+            | WorldEvent::Landed { body }
+            | WorldEvent::LiftedOff { body } => body as i64,
+            WorldEvent::Brownout | WorldEvent::PowerRestored => 0,
+            WorldEvent::FoodSpoiled { units } => units as i64,
         }
     }
 }

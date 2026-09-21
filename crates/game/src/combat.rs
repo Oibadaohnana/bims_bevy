@@ -173,6 +173,7 @@ const STREAK: Color = Color::rgb(0.80, 0.92, 1.0);
 /// "nothing in the slot", as everywhere else.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WeaponKind {
     /// The hand laser everybody starts with.
     LaserPistol = 1,
@@ -255,6 +256,7 @@ impl WeaponKind {
 /// app names — a tier is never nought.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Tier {
     One = 1,
     Two = 2,
@@ -311,6 +313,7 @@ impl Tier {
 /// has no wear and no id — two pistols of a tier are the same pistol —
 /// which is why it is a value and a piece of armour is an instance.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Weapon {
     pub kind: WeaponKind,
     pub tier: Tier,
@@ -338,6 +341,7 @@ impl Weapon {
 
 /// What a weapon does, in the units the app prints them in.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WeaponStats {
     /// How far it reaches, in tiles. Nothing beyond is shot at, and a bolt
     /// dies there.
@@ -417,6 +421,7 @@ impl WeaponStats {
 /// slot. Each is cut for one part — see [`ArmourKind::slot`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ArmourKind {
     /// A steel cap: the head.
     BasicHelm = 1,
@@ -475,6 +480,7 @@ impl ArmourKind {
 
 /// What a piece of armour does, in health points.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArmourStats {
     /// What the piece can take before it is broken, and what it adds to
     /// the part's health while it is whole.
@@ -487,6 +493,7 @@ pub struct ArmourStats {
 /// climbing, so a piece is the same piece in the hold and on a body), what
 /// it is, and what it has left. See the module note.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Piece {
     pub id: u32,
     pub kind: ArmourKind,
@@ -556,6 +563,7 @@ impl Piece {
 /// knows what the number is; the room only carries it), or a research
 /// key of a tier, which is the one thing that takes more than a cell.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Item {
     Armour(Piece),
     Weapon(Weapon),
@@ -619,23 +627,24 @@ impl Item {
     }
 }
 
-/// How many cells a Bim's pack has: seven by seven, laid out the way the
+/// How many cells a Bim's pack has: ten across by five down, laid out the way the
 /// lockers are — a thing over its footprint, turned if it is turned —
 /// and addressed by the cell its top-left corner is in.
 pub const PACK_CELLS: usize = PACK_COLS * PACK_ROWS;
 /// How many across, which is what a row down is offset by.
-pub const PACK_COLS: usize = 7;
-pub const PACK_ROWS: usize = 7;
+pub const PACK_COLS: usize = 10;
+pub const PACK_ROWS: usize = 5;
 
-/// How many cells a body shows when it is looted: the pack's nine, then
+/// How many cells a body shows when it is looted: the pack's fifty, then
 /// the three worn pieces and the weapon in hand — see [`LootCell`].
 pub const LOOT_CELLS: usize = PACK_CELLS + 4;
 
 /// One cell of what a body shows when it is looted, in the order the Loot
-/// window lays them out: the nine of its pack, then the head, the body,
-/// the legs and the weapon in hand. `code()` is that order — 0..8 the
-/// pack, then 9, 10, 11, 12 — which is what a `Command::Loot` names.
+/// window lays them out: the fifty of its pack, then the head, the body,
+/// the legs and the weapon in hand. `code()` is that order — 0..49 the
+/// pack, then 50, 51, 52, 53 — which is what a `Command::Loot` names.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum LootCell {
     Pack(u8),
     Head,
@@ -668,20 +677,53 @@ impl LootCell {
 }
 
 /// What one Bim has on it: three armour slots, top to bottom, the weapon
-/// in its hand, and the pack on its back — seven by seven cells, indexed
+/// in its hand, and the pack on its back — ten by five cells, indexed
 /// row by row, each thing kept in the cell its top-left corner is in and
 /// reaching over the rest of its footprint ([`Item::footprint`]), turned
 /// a quarter round if `turned` says so for that cell.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Gear {
     pub head: Option<Piece>,
     pub body: Option<Piece>,
     pub legs: Option<Piece>,
     pub weapon: Option<Weapon>,
+    #[cfg_attr(feature = "serde", serde(with = "pack_cells"))]
     pub pack: [Option<Item>; PACK_CELLS],
     /// Which way round the thing kept in each cell lies; `false` where
     /// nothing is kept.
+    #[cfg_attr(feature = "serde", serde(with = "pack_cells"))]
     pub turned: [bool; PACK_CELLS],
+}
+
+/// The pack's two arrays in a save: serde derives nothing for an array
+/// past thirty-two, so they go as a list and come back checked for length.
+#[cfg(feature = "serde")]
+mod pack_cells {
+    use serde::de::Error;
+    use serde::{Deserialize, Serialize};
+
+    pub fn serialize<T: serde::Serialize, S: serde::Serializer, const N: usize>(
+        cells: &[T; N],
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        cells[..].serialize(s)
+    }
+
+    pub fn deserialize<
+        'de,
+        T: serde::Deserialize<'de>,
+        D: serde::Deserializer<'de>,
+        const N: usize,
+    >(
+        d: D,
+    ) -> Result<[T; N], D::Error> {
+        let cells: Vec<T> = Vec::deserialize(d)?;
+        let len = cells.len();
+        cells
+            .try_into()
+            .map_err(|_| D::Error::custom(format!("a pack of {len} cells, not {N}")))
+    }
 }
 
 // By hand: an array past thirty-two has no `Default` of its own.
@@ -992,6 +1034,7 @@ fn roll_weapon(rng: &mut Rng, odds: &[(WeaponKind, f32)]) -> WeaponKind {
 /// while it peeks — what it carries, and whether it is peeking from
 /// cover, which is what a bolt reaching it is dodged for.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Target {
     pub at: Vec2,
     pub weapon: Weapon,
@@ -1008,6 +1051,7 @@ pub struct Target {
 
 /// One shot in the air.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bolt {
     pub pos: Vec2,
     /// Room units a second.
@@ -1032,6 +1076,7 @@ pub struct Bolt {
 /// hostile one — where on it, how hard, and whether it is a cut, which
 /// bleeds three times what a shot does.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Hit {
     pub who: usize,
     pub part: Part,
@@ -1046,6 +1091,7 @@ pub struct Hit {
 /// within reach then ([`Combat::within_reach`]): a body that stepped back
 /// during the swing is missed. `Game::tick_combat` keeps one on the Bim.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Blow {
     pub target: usize,
     pub left: f32,
@@ -1060,6 +1106,7 @@ pub struct Blow {
 /// the body (`Game::enemy_strike`) with the damage and whether it cuts
 /// carried here, since a fist's damage is not the gun's in the hand.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Shot {
     pub from: Vec2,
     pub at: Vec2,
@@ -1073,6 +1120,7 @@ pub struct Shot {
 
 /// Where a bolt ended, briefly lit.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Spark {
     pos: Vec2,
     age: f32,
@@ -1081,6 +1129,7 @@ struct Spark {
 
 /// The fight, as the room keeps it: the enemies the world named, the bolts
 /// flying, and the hits that landed since the world last asked.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Combat {
     /// Where the enemies stand and what they carry, index for index with
     /// whoever the world says they are; `None` for one that is down.
@@ -1688,12 +1737,14 @@ const FLEE_LOOK: f32 = 10.0;
 /// Where the tactics say to stand, and whether it is cover: a peek beside
 /// a wall, or close behind sandbags.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Stand {
     pub at: Vec2,
     pub cover: bool,
 }
 
 /// The enemy's choice of where to stand. See the module note.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Tactics;
 
 impl Tactics {
@@ -1982,243 +2033,263 @@ mod tests {
 
     /// The pack is a grid things lie on over their footprint, kept by
     /// their top-left cell: a key stands two tall, a rifle lies seven
-    /// along — or stands, turned, when only that fits — a cell reached
-    /// over answers to the thing's corner, and nothing lies off the edge
-    /// or over anything else.
+    /// along — and cannot stand, seven tall in five rows — a schword
+    /// stands, turned, when only that fits, a cell reached over answers
+    /// to the thing's corner, and nothing lies off the edge or over
+    /// anything else.
     #[test]
-    fn a_thing_lies_over_its_footprint_and_turns_to_fit() {
-        let mut gear = Gear::issued();
-        let key = Item::Key(1);
-        let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
-        let bandage = Item::Stack(13);
-        assert_eq!(key.rows(), 2);
-        assert_eq!(key.footprint(), (2, 1));
-        assert_eq!(rifle.footprint(), (1, 7));
-        assert_eq!(rifle.laid(true), (7, 1));
-        assert_eq!(bandage.footprint(), (1, 1));
-        assert!(gear.fits(0, key));
-        assert!(
-            !gear.fits(6 * PACK_COLS, key),
-            "the bottom row has nothing under it"
-        );
-        assert!(gear.fits(0, rifle), "the whole top row");
-        assert!(
-            !gear.fits(1, rifle),
-            "a footprint does not wrap onto the next row"
-        );
-        assert_eq!(gear.free_cell_for(key), Some(0));
-        assert!(gear.put(0, key));
-        assert!(gear.occupied(0));
-        assert!(gear.occupied(PACK_COLS), "the cell under it");
-        assert!(!gear.occupied(2 * PACK_COLS));
-        assert_eq!(gear.head_of(PACK_COLS), 0);
-        assert_eq!(gear.head_of(2 * PACK_COLS), 2 * PACK_COLS);
-        assert_eq!(gear.free_cell(), Some(1));
-        assert!(
-            !gear.fits(PACK_COLS, bandage),
-            "nothing goes where a thing reaches"
-        );
-        // The rifle no longer lies along the top row; it lies along the
-        // third, and put at the corner it would have to stand — which it
-        // does, turned, down the last column.
-        assert_eq!(gear.first_fit(rifle), Some((2 * PACK_COLS, false)));
-        assert_eq!(gear.fit_at(6, rifle), Some(true));
-        assert!(gear.put(6, rifle));
-        assert!(gear.turned[6]);
-        assert!(gear.occupied(6 + 6 * PACK_COLS), "down to the bottom");
-        assert_eq!(gear.head_of(6 + 3 * PACK_COLS), 6);
-        // Moved back to lie along a row, unturned; and refused over the key.
-        assert!(gear.rearrange(6 + 3 * PACK_COLS, 2 * PACK_COLS, false));
-        assert!(!gear.turned[2 * PACK_COLS]);
-        assert!(gear.pack[6].is_none() && !gear.occupied(6 + 6 * PACK_COLS));
-        assert!(!gear.rearrange(2 * PACK_COLS, 0, false));
-        assert!(
-            !gear.rearrange(2 * PACK_COLS, PACK_COLS + 1, true),
-            "off the bottom"
-        );
-        assert!(
-            gear.rearrange(2 * PACK_COLS, 2 * PACK_COLS, false),
-            "where it is"
-        );
-        assert_eq!(
-            gear.take_out(2 * PACK_COLS + 4),
-            Some(rifle),
-            "by any of its cells"
-        );
-        assert!(!gear.occupied(2 * PACK_COLS));
-        // A square thing is never turned to fit.
-        let suit = Item::Stack(7);
-        assert_eq!(suit.footprint(), (3, 3));
-        assert_eq!(gear.first_fit(suit), Some((1, false)));
-        assert_eq!(PACK_COLS * PACK_ROWS, PACK_CELLS);
-        assert_eq!(PACK_CELLS, 49);
-    }
-
-    #[test]
-    fn a_piece_is_cut_for_one_part_and_does_nothing_once_broken() {
-        for kind in ArmourKind::ALL {
-            assert_eq!(ArmourKind::from_code(kind.code()), Some(kind));
-            assert!(kind.stats().health > 0.0 && kind.stats().protection > 0.0);
+    fn a_thing_lies_over_its_footprint_and_a_piece_is_cut_for_one_part() {
+        // --- a_thing_lies_over_its_footprint_and_turns_to_fit ---
+        {
+            let mut gear = Gear::issued();
+            let key = Item::Key(1);
+            let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
+            let schword = Item::Weapon(WeaponKind::Schword.basic());
+            let bandage = Item::Stack(13);
+            let bottom = (PACK_ROWS - 1) * PACK_COLS;
+            assert_eq!(key.rows(), 2);
+            assert_eq!(key.footprint(), (2, 1));
+            assert_eq!(rifle.footprint(), (1, 7));
+            assert_eq!(rifle.laid(true), (7, 1));
+            assert_eq!(schword.footprint(), (1, 5));
+            assert_eq!(bandage.footprint(), (1, 1));
+            assert!(gear.fits(0, key));
+            assert!(
+                !gear.fits(bottom, key),
+                "the bottom row has nothing under it"
+            );
+            assert!(gear.fits(0, rifle), "along the top row");
+            assert!(
+                !gear.fits(4, rifle),
+                "a footprint does not wrap onto the next row"
+            );
+            assert_eq!(
+                gear.fit_at(PACK_COLS - 1, rifle),
+                None,
+                "nor stands: seven tall in five rows"
+            );
+            assert_eq!(gear.free_cell_for(key), Some(0));
+            assert!(gear.put(0, key));
+            assert!(gear.occupied(0));
+            assert!(gear.occupied(PACK_COLS), "the cell under it");
+            assert!(!gear.occupied(2 * PACK_COLS));
+            assert_eq!(gear.head_of(PACK_COLS), 0);
+            assert_eq!(gear.head_of(2 * PACK_COLS), 2 * PACK_COLS);
+            assert_eq!(gear.free_cell(), Some(1));
+            assert!(
+                !gear.fits(PACK_COLS, bandage),
+                "nothing goes where a thing reaches"
+            );
+            // The rifle lies along the top row beside the key; the schword,
+            // put at the last column where it cannot lie, stands — turned,
+            // down to the bottom.
+            assert_eq!(gear.first_fit(rifle), Some((1, false)));
+            assert!(gear.put(1, rifle));
+            assert!(gear.occupied(7));
+            assert_eq!(gear.head_of(7), 1);
+            let last = PACK_COLS - 1;
+            assert_eq!(gear.fit_at(last, schword), Some(true));
+            assert!(gear.put(last, schword));
+            assert!(gear.turned[last]);
+            assert!(gear.occupied(last + bottom), "down to the bottom");
+            assert_eq!(gear.head_of(last + 2 * PACK_COLS), last);
+            // Moved back to lie along a row, unturned; and refused over the key.
+            assert!(gear.rearrange(last + 2 * PACK_COLS, 2 * PACK_COLS, false));
+            assert!(!gear.turned[2 * PACK_COLS]);
+            assert!(gear.pack[last].is_none() && !gear.occupied(last + bottom));
+            assert!(!gear.rearrange(2 * PACK_COLS, 0, false));
+            assert!(
+                !gear.rearrange(2 * PACK_COLS, PACK_COLS + 1, true),
+                "off the bottom"
+            );
+            assert!(
+                gear.rearrange(2 * PACK_COLS, 2 * PACK_COLS, false),
+                "where it is"
+            );
+            assert_eq!(
+                gear.take_out(2 * PACK_COLS + 4),
+                Some(schword),
+                "by any of its cells"
+            );
+            assert!(!gear.occupied(2 * PACK_COLS));
+            // A square thing is never turned to fit: the two cells past the
+            // rifle are too few, so it goes on the second row beside the key.
+            let suit = Item::Stack(7);
+            assert_eq!(suit.footprint(), (3, 3));
+            assert_eq!(gear.first_fit(suit), Some((PACK_COLS + 1, false)));
+            assert_eq!(PACK_COLS * PACK_ROWS, PACK_CELLS);
+            assert_eq!(PACK_CELLS, 50);
         }
-        assert_eq!(ArmourKind::from_code(0), None);
-        assert_eq!(ArmourKind::BasicHelm.slot(), Part::Head);
-        assert_eq!(ArmourKind::BasicKevlar.slot(), Part::Body);
-        assert_eq!(ArmourKind::BasicLegs.slot(), Part::Legs);
 
-        let mut gear = Gear::issued();
-        assert_eq!(gear.armour_health(), 0.0);
-        assert_eq!(gear.free_cell(), Some(0));
-        let vest = Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
-        *gear.worn_mut(Part::Body) = Some(vest);
-        assert_eq!(gear.worn(Part::Body), Some(vest));
-        assert_eq!(gear.part_bonus(Part::Body), 20.0);
-        assert_eq!(gear.armour_health(), 20.0);
-        assert_eq!(vest.effective_protection(), 2.0);
-        // Worn down to nothing: still worn, worth nothing.
-        gear.worn_mut(Part::Body).as_mut().unwrap().health = 0.0;
-        let worn = gear.worn(Part::Body).unwrap();
-        assert!(worn.broken());
-        assert_eq!(worn.effective_protection(), 0.0);
-        assert_eq!(gear.part_bonus(Part::Body), 0.0);
-        assert_eq!(gear.armour_health(), 0.0);
+        // --- a_piece_is_cut_for_one_part_and_does_nothing_once_broken ---
+        {
+            for kind in ArmourKind::ALL {
+                assert_eq!(ArmourKind::from_code(kind.code()), Some(kind));
+                assert!(kind.stats().health > 0.0 && kind.stats().protection > 0.0);
+            }
+            assert_eq!(ArmourKind::from_code(0), None);
+            assert_eq!(ArmourKind::BasicHelm.slot(), Part::Head);
+            assert_eq!(ArmourKind::BasicKevlar.slot(), Part::Body);
+            assert_eq!(ArmourKind::BasicLegs.slot(), Part::Legs);
+
+            let mut gear = Gear::issued();
+            assert_eq!(gear.armour_health(), 0.0);
+            assert_eq!(gear.free_cell(), Some(0));
+            let vest = Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
+            *gear.worn_mut(Part::Body) = Some(vest);
+            assert_eq!(gear.worn(Part::Body), Some(vest));
+            assert_eq!(gear.part_bonus(Part::Body), 20.0);
+            assert_eq!(gear.armour_health(), 20.0);
+            assert_eq!(vest.effective_protection(), 2.0);
+            // Worn down to nothing: still worn, worth nothing.
+            gear.worn_mut(Part::Body).as_mut().unwrap().health = 0.0;
+            let worn = gear.worn(Part::Body).unwrap();
+            assert!(worn.broken());
+            assert_eq!(worn.effective_protection(), 0.0);
+            assert_eq!(gear.part_bonus(Part::Body), 0.0);
+            assert_eq!(gear.armour_health(), 0.0);
+        }
     }
 
     #[test]
-    fn the_enemy_takes_cover_where_there_is_some_and_the_open_at_range_where_there_is_none() {
-        let (sight, nav) = walled_room();
-        let stats = WeaponKind::LaserPistol.stats();
-        // The target on the right of the wall, the enemy on the left.
-        let target = middle(14.0, 8.0);
-        let from = middle(3.0, 2.0);
-        let stand = Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[])
-            .expect("somewhere in reach can be shot from");
-        let (body, peek) = views(&sight, stand, target);
-        assert!(
-            !body && peek,
-            "cover: the body's eye blind to the target and a peek seeing it, at {stand:?}"
-        );
-        assert!((stand - target).len() <= stats.reach());
-        // The spot is against the wall — a tile beside it.
-        let (x, _) = sight.tile_of(stand);
-        assert!(x == 9 || x == 11, "against the wall, not {x}");
+    fn the_enemy_stands_in_cover_where_its_weapon_beats_the_target_s_and_never_in_a_doorway() {
+        // --- the_enemy_takes_cover_where_there_is_some_and_the_open_at_range_where_there_is_none ---
+        {
+            let (sight, nav) = walled_room();
+            let stats = WeaponKind::LaserPistol.stats();
+            // The target on the right of the wall, the enemy on the left.
+            let target = middle(14.0, 8.0);
+            let from = middle(3.0, 2.0);
+            let stand = Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[])
+                .expect("somewhere in reach can be shot from");
+            let (body, peek) = views(&sight, stand, target);
+            assert!(
+                !body && peek,
+                "cover: the body's eye blind to the target and a peek seeing it, at {stand:?}"
+            );
+            assert!((stand - target).len() <= stats.reach());
+            // The spot is against the wall — a tile beside it.
+            let (x, _) = sight.tile_of(stand);
+            assert!(x == 9 || x == 11, "against the wall, not {x}");
 
-        // A room with nothing in it: nowhere to take cover, so the open at
-        // the greatest distance there is — the pistol reaches twenty-two
-        // tiles, further than this room goes, so that is its far corner.
-        let (sight, nav) = room_with(&[]);
-        let target = middle(15.0, 8.5);
-        let from = middle(17.0, 9.0);
-        let stand =
-            Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[]).unwrap();
-        let (body, _) = views(&sight, stand, target);
-        assert!(body, "the open");
-        let d = (stand - target).len();
-        assert!(d <= stats.reach() && d > 14.0 * TILE, "{d}");
+            // A room with nothing in it: nowhere to take cover, so the open at
+            // the greatest distance there is — the pistol reaches twenty-two
+            // tiles, further than this room goes, so that is its far corner.
+            let (sight, nav) = room_with(&[]);
+            let target = middle(15.0, 8.5);
+            let from = middle(17.0, 9.0);
+            let stand = Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[])
+                .unwrap();
+            let (body, _) = views(&sight, stand, target);
+            assert!(body, "the open");
+            let d = (stand - target).len();
+            assert!(d <= stats.reach() && d > 14.0 * TILE, "{d}");
 
-        // Nothing named: nowhere to stand.
-        assert!(Tactics::stand(&sight, &nav, from, &[None], &stats, &[]).is_none());
-    }
+            // Nothing named: nowhere to stand.
+            assert!(Tactics::stand(&sight, &nav, from, &[None], &stats, &[]).is_none());
+        }
 
-    #[test]
-    fn an_enemy_stands_where_its_weapon_beats_the_target_s() {
-        // A long hall with nothing in it — nowhere to take cover, so the
-        // distance is all the weapon has to play with — the target at one
-        // end with a pistol, the enemy starting a few tiles from it.
-        let interior = Rect::from_min_size(Vec2::ZERO, vec2(40.0 * TILE, 6.0 * TILE));
-        let sight = Sight::new(interior, interior, TILE, &[], &[]);
-        let nav = Nav::tiled(interior, &[], BODY_MARGIN, TILE);
-        let target = pistol_at(middle(1.0, 3.0));
-        let from = middle(5.0, 3.0);
-        let tiles_off = |stand: Vec2| (stand - target.at).len() / TILE;
+        // --- an_enemy_stands_where_its_weapon_beats_the_target_s ---
+        {
+            // A long hall with nothing in it — nowhere to take cover, so the
+            // distance is all the weapon has to play with — the target at one
+            // end with a pistol, the enemy starting a few tiles from it.
+            let interior = Rect::from_min_size(Vec2::ZERO, vec2(40.0 * TILE, 6.0 * TILE));
+            let sight = Sight::new(interior, interior, TILE, &[], &[]);
+            let nav = Nav::tiled(interior, &[], BODY_MARGIN, TILE);
+            let target = pistol_at(middle(1.0, 3.0));
+            let from = middle(5.0, 3.0);
+            let tiles_off = |stand: Vec2| (stand - target.at).len() / TILE;
 
-        // A sniper rifle is full out to twenty tiles, where the pistol
-        // has long run out: it hangs back there, and not at its own
-        // thirty-five, where its curve has fallen off.
-        let sniper = WeaponKind::SniperRifle.stats();
-        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &sniper, &[]).unwrap();
-        let d = tiles_off(stand);
-        assert!((19.0..=24.0).contains(&d), "the sniper at {d} tiles");
+            // A sniper rifle is full out to twenty tiles, where the pistol
+            // has long run out: it hangs back there, and not at its own
+            // thirty-five, where its curve has fallen off.
+            let sniper = WeaponKind::SniperRifle.stats();
+            let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &sniper, &[]).unwrap();
+            let d = tiles_off(stand);
+            assert!((19.0..=24.0).contains(&d), "the sniper at {d} tiles");
 
-        // A shotgun is at its best inside four tiles and a pistol is not
-        // much worse there than anywhere: it closes.
-        let shotgun = WeaponKind::Shotgun.stats();
-        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &shotgun, &[]).unwrap();
-        let d = tiles_off(stand);
-        assert!(d <= 4.5, "the shotgun at {d} tiles");
+            // A shotgun is at its best inside four tiles and a pistol is not
+            // much worse there than anywhere: it closes.
+            let shotgun = WeaponKind::Shotgun.stats();
+            let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &shotgun, &[]).unwrap();
+            let d = tiles_off(stand);
+            assert!(d <= 4.5, "the shotgun at {d} tiles");
 
-        // An auto rifle reaches twenty-six tiles to the pistol's twenty-two:
-        // it stands where it can shoot and cannot be shot back at.
-        let rifle = WeaponKind::AutoRifle.stats();
-        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &rifle, &[]).unwrap();
-        let d = tiles_off(stand);
-        assert!(d > 22.0 && d <= 26.0, "the rifle at {d} tiles");
+            // An auto rifle reaches twenty-six tiles to the pistol's twenty-two:
+            // it stands where it can shoot and cannot be shot back at.
+            let rifle = WeaponKind::AutoRifle.stats();
+            let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &rifle, &[]).unwrap();
+            let d = tiles_off(stand);
+            assert!(d > 22.0 && d <= 26.0, "the rifle at {d} tiles");
 
-        // Pistol against pistol is a match, and keeping away is what is
-        // left: the far end of its own reach.
-        let pistol = WeaponKind::LaserPistol.stats();
-        let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &pistol, &[]).unwrap();
-        let d = tiles_off(stand);
-        assert!(d > 20.0 && d <= 22.0, "the pistol at {d} tiles");
+            // Pistol against pistol is a match, and keeping away is what is
+            // left: the far end of its own reach.
+            let pistol = WeaponKind::LaserPistol.stats();
+            let stand = Tactics::stand(&sight, &nav, from, &[Some(target)], &pistol, &[]).unwrap();
+            let d = tiles_off(stand);
+            assert!(d > 20.0 && d <= 22.0, "the pistol at {d} tiles");
 
-        // And against a blade a gun keeps out of arm's reach, where the
-        // fit is the worst there is, and otherwise stands where it is
-        // strongest — the shotgun at its four tiles.
-        let blade = Target {
-            weapon: WeaponKind::Schword.basic(),
-            ..target
-        };
-        let stand = Tactics::stand(&sight, &nav, from, &[Some(blade)], &shotgun, &[]).unwrap();
-        let d = tiles_off(stand);
-        assert!(
-            d > MELEE_RANGE + 0.5 && d <= 4.5,
-            "the shotgun off a blade at {d}"
-        );
-        assert!(Tactics::fit(&shotgun, &blade.weapon.stats(), 1.0) < 0.0);
-        // Past the pistol's twenty-two tiles the sniper has it all its own
-        // way; inside them the pistol answers, a little.
-        assert!(Tactics::fit(&sniper, &target.weapon.stats(), 24.0) > 0.7);
-        assert!(Tactics::fit(&sniper, &target.weapon.stats(), 20.0) > 0.2);
-    }
+            // And against a blade a gun keeps out of arm's reach, where the
+            // fit is the worst there is, and otherwise stands where it is
+            // strongest — the shotgun at its four tiles.
+            let blade = Target {
+                weapon: WeaponKind::Schword.basic(),
+                ..target
+            };
+            let stand = Tactics::stand(&sight, &nav, from, &[Some(blade)], &shotgun, &[]).unwrap();
+            let d = tiles_off(stand);
+            assert!(
+                d > MELEE_RANGE + 0.5 && d <= 4.5,
+                "the shotgun off a blade at {d}"
+            );
+            assert!(Tactics::fit(&shotgun, &blade.weapon.stats(), 1.0) < 0.0);
+            // Past the pistol's twenty-two tiles the sniper has it all its own
+            // way; inside them the pistol answers, a little.
+            assert!(Tactics::fit(&sniper, &target.weapon.stats(), 24.0) > 0.7);
+            assert!(Tactics::fit(&sniper, &target.weapon.stats(), 20.0) > 0.2);
+        }
 
-    #[test]
-    fn a_doorway_is_never_a_stand_since_it_opens_for_whoever_comes() {
-        // The walled room again, but the bottom two tiles of the wall are
-        // a shut door: opaque to the eye, open to the walk.
-        let interior = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 10.0 * TILE));
-        let wall = Rect::from_min_size(vec2(10.0 * TILE, 0.0), vec2(TILE, 5.0 * TILE));
-        let door = Rect::from_min_size(vec2(10.0 * TILE, 5.0 * TILE), vec2(TILE, 2.0 * TILE));
-        let mut sight = Sight::new(interior, interior, TILE, &[wall], &[]);
-        sight.set_shut(&[door]);
-        let nav = Nav::tiled(interior, &[wall], BODY_MARGIN, TILE);
-        let stats = WeaponKind::LaserPistol.stats();
-        let target = middle(14.0, 8.0);
-        let from = middle(3.0, 2.0);
-        // Told of no door, the tactics take the shut leaf for a wall and
-        // stand beside it to peek — a spot the body's own arrival opens.
-        let naive =
-            Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[]).unwrap();
-        assert!(
-            door.expand(door::REACH).contains(naive),
-            "beside the door leaf, at {naive:?}"
-        );
-        // Told of it, nowhere within the door's reach is a stand, and
-        // with no other wall to peek round the open at range it is.
-        let stand = Tactics::stand(
-            &sight,
-            &nav,
-            from,
-            &[Some(pistol_at(target))],
-            &stats,
-            &[door],
-        )
-        .unwrap();
-        assert!(
-            !door.expand(door::REACH).contains(stand),
-            "clear of the doorway, not {stand:?}"
-        );
-        let (body, _) = views(&sight, stand, target);
-        assert!(body, "the open");
-        assert!((stand - target).len() <= stats.reach());
+        // --- a_doorway_is_never_a_stand_since_it_opens_for_whoever_comes ---
+        {
+            // The walled room again, but the bottom two tiles of the wall are
+            // a shut door: opaque to the eye, open to the walk.
+            let interior = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 10.0 * TILE));
+            let wall = Rect::from_min_size(vec2(10.0 * TILE, 0.0), vec2(TILE, 5.0 * TILE));
+            let door = Rect::from_min_size(vec2(10.0 * TILE, 5.0 * TILE), vec2(TILE, 2.0 * TILE));
+            let mut sight = Sight::new(interior, interior, TILE, &[wall], &[]);
+            sight.set_shut(&[door]);
+            let nav = Nav::tiled(interior, &[wall], BODY_MARGIN, TILE);
+            let stats = WeaponKind::LaserPistol.stats();
+            let target = middle(14.0, 8.0);
+            let from = middle(3.0, 2.0);
+            // Told of no door, the tactics take the shut leaf for a wall and
+            // stand beside it to peek — a spot the body's own arrival opens.
+            let naive = Tactics::stand(&sight, &nav, from, &[Some(pistol_at(target))], &stats, &[])
+                .unwrap();
+            assert!(
+                door.expand(door::REACH).contains(naive),
+                "beside the door leaf, at {naive:?}"
+            );
+            // Told of it, nowhere within the door's reach is a stand, and
+            // with no other wall to peek round the open at range it is.
+            let stand = Tactics::stand(
+                &sight,
+                &nav,
+                from,
+                &[Some(pistol_at(target))],
+                &stats,
+                &[door],
+            )
+            .unwrap();
+            assert!(
+                !door.expand(door::REACH).contains(stand),
+                "clear of the doorway, not {stand:?}"
+            );
+            let (body, _) = views(&sight, stand, target);
+            assert!(body, "the open");
+            assert!((stand - target).len() <= stats.reach());
+        }
     }
 
     #[test]
@@ -2350,157 +2421,160 @@ mod tests {
         assert!(!pistol.melee && !shotgun.melee && !sniper.melee && !rifle.melee);
     }
 
-    #[test]
-    fn damage_falls_off_with_the_distance_the_bolt_flew() {
-        let (sight, _) = room_with(&[]);
-        let mut combat = Combat::new(11);
-        // A shotgun from two tiles, and one from nine: every hit from
-        // close by is the full hundred, every one from far off is less.
-        let theirs = middle(10.0, 5.0);
-        combat.set_targets(vec![Some((theirs, WeaponKind::LaserPistol.basic()))]);
-        for (from, near) in [(middle(8.0, 5.0), true), (middle(1.0, 5.0), false)] {
-            let mut hits = Vec::new();
-            for _ in 0..40 {
-                combat.fire(from, theirs, WeaponKind::Shotgun.basic(), false, false);
-                for _ in 0..60 {
-                    combat.step(0.05, &sight, &[]);
-                }
-                hits.extend(combat.take_hits());
-            }
-            assert!(!hits.is_empty());
-            assert!(hits.iter().all(|h| !h.cut), "a shot is not a cut");
-            if near {
-                assert!(
-                    hits.iter().all(|h| (h.damage - 60.0).abs() < 1e-3),
-                    "{hits:?}"
-                );
-            } else {
-                assert!(
-                    hits.iter().all(|h| h.damage < 45.0 && h.damage > 36.0),
-                    "nine tiles, less the body's edge: {hits:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn a_body_peeking_from_cover_dodges_half_the_bolts() {
-        let (sight, _) = room_with(&[]);
-        let mut combat = Combat::new(5);
-        let ours = middle(10.0, 5.0);
-        let from = middle(8.0, 5.0);
-        // Straight at it from two tiles, where the pistol lands nine in
-        // ten: standing in the open near enough all of them land, and
-        // peeking about half.
-        let landed = |combat: &mut Combat, peeking: bool| {
-            let mut own = 0;
-            for _ in 0..400 {
-                combat.fire(from, ours, WeaponKind::LaserPistol.basic(), true, false);
-                for _ in 0..40 {
-                    combat.step(0.05, &sight, &[Some((ours, peeking, 0.0))]);
-                }
-                own += combat.wounds_taken.len();
-                combat.wounds_taken.clear();
-            }
-            own
-        };
-        let open = landed(&mut combat, false);
-        let cover = landed(&mut combat, true);
-        assert!(open > 330 && open <= 400, "{open} of 400 in the open");
-        assert!(cover > 140 && cover < 220, "{cover} of 400 in cover");
-
-        // The same for a target peeking at us.
-        combat.set_targets(vec![Some((ours, WeaponKind::LaserPistol.basic()))]);
-        combat.set_peeking(&[true]);
-        assert!(combat.targets()[0].unwrap().peeking);
-        let mut hits = 0;
-        for _ in 0..400 {
-            combat.fire(from, ours, WeaponKind::LaserPistol.basic(), false, false);
-            for _ in 0..40 {
-                combat.step(0.05, &sight, &[]);
-            }
-            hits += combat.take_hits().len();
-        }
-        assert!(
-            hits > 140 && hits < 220,
-            "{hits} of 400 on a peeking target"
-        );
-        // Named again, nobody is peeking until said.
-        combat.set_targets(vec![Some((ours, WeaponKind::LaserPistol.basic()))]);
-        assert!(!combat.targets()[0].unwrap().peeking);
-    }
-
     /// A line of sandbags across the room is no wall — walked over, seen
     /// over — but the tactics stand a body close behind it, and a bolt
     /// coming over it at that body is dodged half the time, like a peek's.
     #[test]
-    fn sandbags_are_a_stand_the_tactics_take_and_half_the_bolts_over_them_are_dodged() {
-        let interior = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 10.0 * TILE));
-        // Bags down column 10, the top seven tiles, nothing solid at all.
-        let bags = Rect::from_min_size(vec2(10.0 * TILE, 0.0), vec2(TILE, 7.0 * TILE));
-        let mut sight = Sight::new(interior, interior, TILE, &[], &[]);
-        sight.set_cover(&[bags]);
-        let nav = Nav::tiled(interior, &[], BODY_MARGIN, TILE);
-        let stats = WeaponKind::LaserPistol.stats();
-        let target = middle(14.0, 3.0);
-        let from = middle(3.0, 3.0);
-        // Walkable: a route from one side to the other runs straight
-        // through the bags.
-        assert!(nav.can_reach(from, target));
-        let plan = |taken: &[Vec2]| {
-            Tactics::stand_with_cover(
-                &sight,
-                &nav,
-                from,
-                &[Some(pistol_at(target))],
-                &stats,
-                &[],
-                taken,
-            )
-            .expect("somewhere to shoot from")
-        };
-        let stand = plan(&[]);
-        assert!(stand.cover, "the bags are cover: {:?}", stand.at);
-        let (x, y) = sight.tile_of(stand.at);
-        assert_eq!(x, 9, "just this side of the bags, at ({x}, {y})");
-        // A squadmate already on that tile: the next one picks another,
-        // still behind the bags.
-        let second = plan(&[stand.at]);
-        assert!((second.at - stand.at).len() >= TILE, "not the same tile");
-        assert!(
-            second.cover,
-            "the next tile of the barricade: {:?}",
-            second.at
-        );
-        assert_eq!(sight.tile_of(second.at).0, 9);
-        assert!(sight.covered(stand.at, target));
-        // And the body sees the target from there — no peek needed.
-        let (body, _) = views(&sight, stand.at, target);
-        assert!(body, "seen over the bags");
-
-        // Bolts over the bags: a body at the stand is dodged about half of
-        // them; one standing on the bags' own tile takes them all.
-        let landed = |sight: &Sight, at: Vec2| {
-            let mut combat = Combat::new(7);
-            let shooter = middle(14.0, 3.0);
-            let mut own = 0;
-            for _ in 0..400 {
-                combat.fire(shooter, at, WeaponKind::LaserPistol.basic(), true, false);
-                for _ in 0..80 {
-                    combat.step(0.05, sight, &[Some((at, false, 0.0))]);
+    fn damage_falls_off_with_distance_and_a_body_peeking_or_behind_sandbags_dodges_half() {
+        // --- damage_falls_off_with_the_distance_the_bolt_flew ---
+        {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(11);
+            // A shotgun from two tiles, and one from nine: every hit from
+            // close by is the full hundred, every one from far off is less.
+            let theirs = middle(10.0, 5.0);
+            combat.set_targets(vec![Some((theirs, WeaponKind::LaserPistol.basic()))]);
+            for (from, near) in [(middle(8.0, 5.0), true), (middle(1.0, 5.0), false)] {
+                let mut hits = Vec::new();
+                for _ in 0..40 {
+                    combat.fire(from, theirs, WeaponKind::Shotgun.basic(), false, false);
+                    for _ in 0..60 {
+                        combat.step(0.05, &sight, &[]);
+                    }
+                    hits.extend(combat.take_hits());
                 }
-                own += combat.wounds_taken.len();
-                combat.wounds_taken.clear();
+                assert!(!hits.is_empty());
+                assert!(hits.iter().all(|h| !h.cut), "a shot is not a cut");
+                if near {
+                    assert!(
+                        hits.iter().all(|h| (h.damage - 60.0).abs() < 1e-3),
+                        "{hits:?}"
+                    );
+                } else {
+                    assert!(
+                        hits.iter().all(|h| h.damage < 45.0 && h.damage > 36.0),
+                        "nine tiles, less the body's edge: {hits:?}"
+                    );
+                }
             }
-            own
-        };
-        let behind = landed(&sight, middle(9.0, 3.0));
-        let on_top = landed(&sight, middle(10.0, 3.0));
-        assert!(on_top > 300, "{on_top} of 400 on the bags");
-        assert!(
-            behind > on_top / 2 - 40 && behind < on_top / 2 + 40,
-            "{behind} of 400 behind them, {on_top} on them"
-        );
+        }
+
+        // --- a_body_peeking_from_cover_dodges_half_the_bolts ---
+        {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(5);
+            let ours = middle(10.0, 5.0);
+            let from = middle(8.0, 5.0);
+            // Straight at it from two tiles, where the pistol lands nine in
+            // ten: standing in the open near enough all of them land, and
+            // peeking about half.
+            let landed = |combat: &mut Combat, peeking: bool| {
+                let mut own = 0;
+                for _ in 0..400 {
+                    combat.fire(from, ours, WeaponKind::LaserPistol.basic(), true, false);
+                    for _ in 0..40 {
+                        combat.step(0.05, &sight, &[Some((ours, peeking, 0.0))]);
+                    }
+                    own += combat.wounds_taken.len();
+                    combat.wounds_taken.clear();
+                }
+                own
+            };
+            let open = landed(&mut combat, false);
+            let cover = landed(&mut combat, true);
+            assert!(open > 330 && open <= 400, "{open} of 400 in the open");
+            assert!(cover > 140 && cover < 220, "{cover} of 400 in cover");
+
+            // The same for a target peeking at us.
+            combat.set_targets(vec![Some((ours, WeaponKind::LaserPistol.basic()))]);
+            combat.set_peeking(&[true]);
+            assert!(combat.targets()[0].unwrap().peeking);
+            let mut hits = 0;
+            for _ in 0..400 {
+                combat.fire(from, ours, WeaponKind::LaserPistol.basic(), false, false);
+                for _ in 0..40 {
+                    combat.step(0.05, &sight, &[]);
+                }
+                hits += combat.take_hits().len();
+            }
+            assert!(
+                hits > 140 && hits < 220,
+                "{hits} of 400 on a peeking target"
+            );
+            // Named again, nobody is peeking until said.
+            combat.set_targets(vec![Some((ours, WeaponKind::LaserPistol.basic()))]);
+            assert!(!combat.targets()[0].unwrap().peeking);
+        }
+
+        // --- sandbags_are_a_stand_the_tactics_take_and_half_the_bolts_over_them_are_dodged ---
+        {
+            let interior = Rect::from_min_size(Vec2::ZERO, vec2(20.0 * TILE, 10.0 * TILE));
+            // Bags down column 10, the top seven tiles, nothing solid at all.
+            let bags = Rect::from_min_size(vec2(10.0 * TILE, 0.0), vec2(TILE, 7.0 * TILE));
+            let mut sight = Sight::new(interior, interior, TILE, &[], &[]);
+            sight.set_cover(&[bags]);
+            let nav = Nav::tiled(interior, &[], BODY_MARGIN, TILE);
+            let stats = WeaponKind::LaserPistol.stats();
+            let target = middle(14.0, 3.0);
+            let from = middle(3.0, 3.0);
+            // Walkable: a route from one side to the other runs straight
+            // through the bags.
+            assert!(nav.can_reach(from, target));
+            let plan = |taken: &[Vec2]| {
+                Tactics::stand_with_cover(
+                    &sight,
+                    &nav,
+                    from,
+                    &[Some(pistol_at(target))],
+                    &stats,
+                    &[],
+                    taken,
+                )
+                .expect("somewhere to shoot from")
+            };
+            let stand = plan(&[]);
+            assert!(stand.cover, "the bags are cover: {:?}", stand.at);
+            let (x, y) = sight.tile_of(stand.at);
+            assert_eq!(x, 9, "just this side of the bags, at ({x}, {y})");
+            // A squadmate already on that tile: the next one picks another,
+            // still behind the bags.
+            let second = plan(&[stand.at]);
+            assert!((second.at - stand.at).len() >= TILE, "not the same tile");
+            assert!(
+                second.cover,
+                "the next tile of the barricade: {:?}",
+                second.at
+            );
+            assert_eq!(sight.tile_of(second.at).0, 9);
+            assert!(sight.covered(stand.at, target));
+            // And the body sees the target from there — no peek needed.
+            let (body, _) = views(&sight, stand.at, target);
+            assert!(body, "seen over the bags");
+
+            // Bolts over the bags: a body at the stand is dodged about half of
+            // them; one standing on the bags' own tile takes them all.
+            let landed = |sight: &Sight, at: Vec2| {
+                let mut combat = Combat::new(7);
+                let shooter = middle(14.0, 3.0);
+                let mut own = 0;
+                for _ in 0..400 {
+                    combat.fire(shooter, at, WeaponKind::LaserPistol.basic(), true, false);
+                    for _ in 0..80 {
+                        combat.step(0.05, sight, &[Some((at, false, 0.0))]);
+                    }
+                    own += combat.wounds_taken.len();
+                    combat.wounds_taken.clear();
+                }
+                own
+            };
+            let behind = landed(&sight, middle(9.0, 3.0));
+            let on_top = landed(&sight, middle(10.0, 3.0));
+            assert!(on_top > 300, "{on_top} of 400 on the bags");
+            assert!(
+                behind > on_top / 2 - 40 && behind < on_top / 2 + 40,
+                "{behind} of 400 behind them, {on_top} on them"
+            );
+        }
     }
 
     #[test]

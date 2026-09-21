@@ -27,6 +27,7 @@ pub mod fittings;
 pub mod game;
 pub mod hull;
 pub mod paint;
+pub mod save;
 pub mod session;
 pub mod starfield;
 pub mod view;

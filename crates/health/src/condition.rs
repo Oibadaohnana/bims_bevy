@@ -37,6 +37,7 @@ use crate::data::{
 /// keeps the meter on screen and the warning honest: a Bim that has been out
 /// there is carrying something, and the player can watch it come off.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RadiationStage {
     None,
     Elevated,
@@ -108,6 +109,7 @@ impl RadiationStage {
 /// either has it or does not, which is what [`Option`] on the state says —
 /// and there is no way back from any of them.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CancerStage {
     Early,
     Advanced,
@@ -151,6 +153,7 @@ impl CancerStage {
 /// stage — a body has at most one radiation stage and at most one cancer
 /// stage, so the list is short and fixed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Condition {
     Radiation(RadiationStage),
     Cancer(CancerStage),
@@ -210,6 +213,7 @@ impl Condition {
 /// negative — a condition that *mended* would be a treatment, and there is
 /// no treatment in this step.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Effect {
     pub damage: f64,
     /// Whether the body's own mending stops while this is in force. Anything
@@ -223,6 +227,7 @@ pub struct Effect {
 /// What a body's conditions do to it, all multiplied together. 1.0 is
 /// normal, and a healthy body gets exactly 1.0 for both.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Effects {
     pub work_speed: f64,
     pub move_speed: f64,
@@ -234,6 +239,7 @@ pub struct Effects {
 /// Bim of every frame, and a body can have at most one of each kind — so the
 /// allocation would buy nothing. Growing it is one number here.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Conditions {
     items: [Option<Condition>; Conditions::ROOM],
     len: u32,

@@ -117,18 +117,32 @@ run); neither is an error, for the flight warnings' reason.
 clamped to the wired batteries' storage, closed form — `engines` being what
 the lit set draws this step, off the plan's effort (see "There is no fuel"). `Power::brownout()`
 is `draw > supply && charge == 0`, and `World::powered(kind)` is what a
-chain will ask: some part of that kind wired, and not browned out unless
-the kind is essential. **Nothing aboard reads it yet** — the smelter will.
-`Ship::charge` opens full, is clamped in `on_ship_changed` (a battery taken
-off takes its charge), and is in `world_checksum`.
+chain asks: some part of that kind wired, and not browned out unless
+the kind is essential. The benches, the research desk and the hyperdrive
+read it, and what the brownout does to the rest — the lamps, the bay, the
+cold store's food — is `World::run_brownout`, `crates/world/CLAUDE.md`
+"A brownout is dark, asleep and spoiling". **The lamps draw** (September
+2026): `WALL_LIGHT_POWER` 25 and `STANDING_LIGHT_POWER` 40 on the two
+light rows, so a lamp is a consumer like the cold store — `Unpowered`
+warns about one on no live run, and the world darkens it. `power::powered_parts`
+is `live_parts` made public, for the world to keep between changes to the
+ship rather than ask once a lamp a step. `Ship::charge` opens full, is
+clamped in `on_ship_changed` (a battery taken off takes its charge), and
+is in `world_checksum`.
 
 Both fixtures are wired — `REFERENCE_CONDUIT`, `PLAYTEST_BRANCHES` off the
 spine in column 8 — which moved `REFERENCE_HASH`, `REFERENCE_PARTS`,
 `PLAYTEST_HASH`, `PLAYTEST_PARTS` and `REFERENCE_CHECKSUM`;
 `the_fixtures_are_wired` pins that neither warns and the playtest ship
-draws **137 of 5 000** — six systems, the smelter, the workbench, the drug
-lab, the armoury and the research desk — off **two reactors**, plus its
-engine's 1 000 while it burns. The two reactors are from when one made
+draws **327 of 5 000** — six systems, the smelter, the workbench, the drug
+lab, the armoury and the research desk, 137, and its six wall lights and
+standing light, 190 — off **two reactors**, plus its engine's 1 000 while
+it burns. The lamps' runs are the last twelve tiles of `PLAYTEST_BRANCHES`
+(54) and the last twenty-seven of `REFERENCE_CONDUIT` (50); wiring them
+moved `REFERENCE_HASH`, `REFERENCE_PARTS` (717/723), `PLAYTEST_HASH`,
+`PLAYTEST_PARTS` (668) and `world::REFERENCE_CHECKSUM`, and the world's
+`a_consumer_off_the_run_is_not_running` moved its unwired life support
+off row 14, which is a run now. The two reactors are from when one made
 120: the first made 120 and had 3
 to spare with the drug lab drawing 5 rather than the workbench's 15;
 this note used to say a fourth bench aboard it was a second reactor or
@@ -144,8 +158,11 @@ errors, so its reactors and batteries are still furniture.
 ## A new resource needs six edits, and the compiler catches three
 
 `ResourceId` in `crates/physics/src/data.rs` — appended, `ALL` and
-`RESOURCES` grown with it — then `trade_price` and `storage` in `economy`
-(both `match`es, so a missing arm is a compile error), `CARGO_SLOTS` in
+`RESOURCES` grown with it — then `trade_price`, `storage` and
+`market::kind_bias` in `economy` (all `match`es, so a missing arm is a
+compile error; the last is a row of five, one a `MarketKind`, and the
+station biases already rolled keep their entries since the new one is
+drawn after them), `CARGO_SLOTS` in
 `crates/shipdesign/src/design.rs` (an array length; `cargo_is_the_right_length`
 pins it, and **every design hash moves** because the cargo is hashed at
 fixed length — re-pin `REFERENCE_HASH`, `PLAYTEST_HASH` and
@@ -317,8 +334,12 @@ like any other edit. Four things hang off that and all four are load-bearing:
 - **It is in `design_hash`**, after the parts. Two players accepting are
   accepting the same ship *and* the same manifest, so a Buy clears every
   Accept exactly as a wall does.
-- **It is in `Budget::spent`.** Parts and goods come out of one pool, which is
-  the whole of the decision the design phase asks anybody to make.
+- **It is in `Budget::outlay`, at the desk's ask.** Parts and goods come out
+  of one pool, which is the whole of the decision the design phase asks
+  anybody to make. `Budget::spent` is the same sum with the goods at the
+  **book** (`economy::trade_price`) — a valuation, what `World::worth` and
+  `start_worth` read — and `remaining` is taken from `outlay`, never from
+  `spent`; see "Money is one pool" below.
 - **It is in `Session::mass`.** A ship with full tanks is heavier and the
   acceleration on the handoff screen says so before Accept, not after.
 - **It is bounded by the ship, never by the station.** Supply is unlimited;
@@ -343,10 +364,10 @@ Three rules the crate is built around:
   only way a design ever changes.** It hands back a new design, so a refused
   edit cannot leave a half-changed one behind. Nothing in the UI mutates
   `parts` directly, and neither should anything else.
-- **Remaining money is derived, never decremented.** `Budget` holds the pool
-  and nothing else; what is left is worked out from the design every time it
-  is asked. A counter kept alongside would drift from the ship the first time
-  an edit was refused or replayed.
+- **Remaining money is derived, never decremented.** `Budget` holds the pool,
+  the desk it is spent at, and nothing that moves; what is left is worked
+  out from the design every time it is asked. A counter kept alongside would
+  drift from the ship the first time an edit was refused or replayed.
 - **The occupancy grid is rebuilt from `parts` on demand.** A cached one is a
   second source of truth about what is where.
 
@@ -376,6 +397,26 @@ Four things that are load-bearing rather than tidy:
   goes *in* is what one Bim brings, and wasm does the multiplying, so the pool
   is worked out in exactly one place for the browser and for a native server
   both.
+- **Goods are bought at a desk, and the budget carries it** (September
+  2026). `Budget::market` is an `economy::market::Market` — a kind of
+  desk and a per-resource lean — and `Edit::Buy` charges its **ask**
+  (`Market::quote(resource).cost(units)`, checked), never
+  `economy::trade_price`, which is the book value and a valuation only.
+  Because remaining is derived, the goods aboard are valued at that same
+  ask throughout (`Budget::outlay`; `Budget::spent` is the book sum and
+  is not what `remaining` reads), so a purchase and the putting-back of
+  it are one number — `Edit::Sell` in the yard is a put-back, not a
+  sale; the bid never enters the design phase. `Budget::new(pool)` is
+  `Market::PLAIN` (an orbital's desk, no lean: the fixtures', the tests',
+  the world's free construction budget's, which buys no goods),
+  `Budget::at(pool, market)` names one, and `with_gift(pool, market,
+  preset)` gives the preset at that desk — so `Editor::dock_at` runs
+  before `Editor::give`. The yard's desk is the spawn's kind with **no
+  local lean**, the same as `World::start` forces on the spawn.
+  `buying_fills_the_right_hold_and_costs_the_price` pins the ask over
+  the book and a refinery's metal under an orbital's;
+  `what_cannot_be_paid_for_or_stowed_is_refused`'s thin pool is five at
+  the plain ask.
 
 ## An Accept is for a hash, not for "the design"
 
@@ -584,11 +625,16 @@ the middle that will come off rather than the one exactly there, because
 which tile is exactly in the middle moves every time the ship does, and
 one build it was a frame tile with something standing on it.
 
-**The combat ship is the playtest ship with a crew of five aboard.**
-`fixture::combat_ship()` is `playtest_ship()` plus four bunks at
-`COMBAT_BUNKS` and four chairs at `COMBAT_CHAIRS`, put down through
-`apply` after the cargo; `COMBAT_CREW` is 5 and it validates clean for
-that many (`the_combat_ship_sleeps_a_crew_of_five`). The bunks are on
+**The combat ship is the playtest ship with berths for five, and the
+`combat` command puts fourteen aboard.** `fixture::combat_ship()` is
+`playtest_ship()` plus four bunks at `COMBAT_BUNKS` and four chairs at
+`COMBAT_CHAIRS`, put down through `apply` after the cargo;
+`COMBAT_BERTHS` is 5 and it validates clean for that many, and
+`COMBAT_CREW` is 14 — what the command puts aboard, nine more than the
+ship sleeps, which the validator says (`TooFewBunks`) and the command
+does not ask it; the nine stand on the deck (`bims::aboard::starts`)
+and share the last bunk at night (`the_combat_ship_sleeps_a_crew_of_five`
+pins both numbers). The bunks are on
 the **bridge** — one lying along the bow to port at `(6, 2)` `R270`,
 two standing against the life support at `(13, 2)` and `(13, 4)`, one
 beside the battery at `(5, 4)` `R180` — because the main deck's aft
@@ -802,7 +848,9 @@ numbers, after the fuel tank's retirement renumbered half of them.
 ## A wall light hangs from the wall its rotation names
 
 `PartKind::WallLight = 40` and `StandingLight = 41` (September 2026):
-one tile each, `power: 0` — always on, nothing to wire — and
+one tile each, drawing `WALL_LIGHT_POWER` (25) and `STANDING_LIGHT_POWER`
+(40) — they were `power: 0` and always on until the brownout got its
+consequences; see "Power is a column" — and
 `light_tiles(kind)` says how far each reaches (`WALL_LIGHT_TILES` 7,
 `STANDING_LIGHT_TILES` 9); what light *does* is the room's,
 `crates/game/CLAUDE.md` "The dark". The wall light is walked under and
@@ -858,3 +906,28 @@ none, so `REFERENCE_HASH` and `world::REFERENCE_CHECKSUM` stayed. The
 stations lay a few (`crates/world/CLAUDE.md`).
 `a_comfort_lifts_the_surroundings_and_a_picture_hangs_from_a_wall` pins
 the table, the order and the hanging.
+
+## The ground is five parts nobody can build
+
+`PartKind::Field = 45`, `Tree = 46`, `Shrub = 47`, `Boulder = 48` and
+`Water = 49` (September 2026, feature 54) are what a planet's settlement
+stands among — `world::surface` lays them, `crates/world/CLAUDE.md` "A
+planet's surface is a settlement". None is a tool: the designer never
+offers them (`names::NOT_A_TOOL` in the app names all five with the frame)
+and the Build tab has no group for them, which is what
+`every_buildable_part_is_in_one_build_group` expects of a `NOT_A_TOOL`
+kind. Each is a unit of metal, the placeholder mass everything carries.
+
+The **field** is the hydroponic bay's row — `(6, 1)`, worked from the
+six tiles on its north side, blocks movement, seen over — with **no
+draw**: there is nothing to plug in, so a brownout never stops it, and
+the room grows it at half a bay's pace (`bims::hydro::Bay::field`,
+`FIELD_PACE`). The four kinds of wild are a tile each, walked round: a
+**tree** and a **boulder** stop a line of sight (a band of trees is a
+forest, a line of boulders a cliff), a **shrub** and a tile of **water**
+are seen over. `blocks_sight` names the three that are seen over beside
+the bay and the big plant. A tree is a comfort worth the big plant's
+lift and a shrub the small plant's (`comfort`), so the ground under
+them is a nicer place to stand; the comfort test excepts the tree from
+"every comfort is seen over" for exactly that reason. What each looks
+like — by biome — is the painter's (`ship::fittings::part_in`).

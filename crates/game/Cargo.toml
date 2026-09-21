@@ -15,3 +15,12 @@ description = "Bims — the room: the Bims' simulation, and the shapes it draws 
 physics = { path = "../physics" }
 shipdesign = { path = "../shipdesign" }
 time = { path = "../time" }
+# Optional and off by default: the `serde` feature derives `Serialize` and
+# `Deserialize` on every type here, which is how a save file holds one
+# (`ship::save`), and turns the same feature on in the crates this one's
+# types are made of. A feature rather than a dependency because the
+# probes compile these modules with no crates at all (`scratchpad/modules.rs`).
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde", "physics/serde", "shipdesign/serde"]

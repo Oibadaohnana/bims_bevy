@@ -63,63 +63,66 @@ fn northward(dynamics: &Dynamics, distance: f64, heading: f64) -> Plan {
 
 // --- which way round everything is ---------------------------------------
 
-#[test]
-fn a_heading_of_nought_is_north_and_it_grows_clockwise() {
-    let north = angle::facing(0.0);
-    assert!(close(north.x, 0.0) && close(north.y, 1.0));
-    let east = angle::facing(std::f64::consts::FRAC_PI_2);
-    assert!(close(east.x, 1.0) && close(east.y, 0.0));
-    let south = angle::facing(std::f64::consts::PI);
-    assert!(close(south.x, 0.0) && close(south.y, -1.0));
-
-    assert!(close(angle::bearing(dvec2(0.0, 5.0)), 0.0));
-    assert!(close(
-        angle::bearing(dvec2(5.0, 0.0)),
-        std::f64::consts::FRAC_PI_2
-    ));
-}
-
 /// The design grid's up is the ship's Forward, and the grid's `y` grows down.
 /// Both halves of that are in one function, so both are checked at once.
-#[test]
-fn the_design_grid_is_turned_the_way_the_ship_is_pointing() {
-    let up = dvec2(0.0, -1.0);
-    let right = dvec2(1.0, 0.0);
-
-    let at_rest = angle::rotate_design(up, 0.0);
-    assert!(
-        close(at_rest.x, 0.0) && close(at_rest.y, 1.0),
-        "up is north"
-    );
-    let starboard = angle::rotate_design(right, 0.0);
-    assert!(
-        close(starboard.x, 1.0) && close(starboard.y, 0.0),
-        "the grid's right is east",
-    );
-
-    let turned = angle::rotate_design(up, std::f64::consts::FRAC_PI_2);
-    assert!(
-        close(turned.x, 1.0) && close(turned.y, 0.0),
-        "at a heading of a quarter turn the nose points east",
-    );
-}
-
 /// It is its own inverse, which is what the pointer arithmetic leans on.
 #[test]
-fn turning_a_point_twice_puts_it_back() {
-    for &heading in &[0.0, 0.7, std::f64::consts::FRAC_PI_2, 3.9, -2.1] {
-        let there = angle::rotate_design(dvec2(37.0, -14.0), heading);
-        let back = angle::unrotate_design(there, heading);
-        assert!(close(back.x, 37.0) && close(back.y, -14.0), "{heading}");
-    }
-}
+fn north_is_nought_the_grid_turns_with_the_ship_and_a_turn_undoes_itself() {
+    // --- a_heading_of_nought_is_north_and_it_grows_clockwise ---
+    {
+        let north = angle::facing(0.0);
+        assert!(close(north.x, 0.0) && close(north.y, 1.0));
+        let east = angle::facing(std::f64::consts::FRAC_PI_2);
+        assert!(close(east.x, 1.0) && close(east.y, 0.0));
+        let south = angle::facing(std::f64::consts::PI);
+        assert!(close(south.x, 0.0) && close(south.y, -1.0));
 
-#[test]
-fn the_shortest_way_round_is_the_short_way() {
-    let turn = std::f64::consts::TAU;
-    assert!(close(angle::shortest(0.1, turn - 0.1), -0.2));
-    assert!(close(angle::shortest(turn - 0.1, 0.1), 0.2));
-    assert!(close(angle::wrap(turn + 1.0), 1.0));
+        assert!(close(angle::bearing(dvec2(0.0, 5.0)), 0.0));
+        assert!(close(
+            angle::bearing(dvec2(5.0, 0.0)),
+            std::f64::consts::FRAC_PI_2
+        ));
+    }
+
+    // --- the_design_grid_is_turned_the_way_the_ship_is_pointing ---
+    {
+        let up = dvec2(0.0, -1.0);
+        let right = dvec2(1.0, 0.0);
+
+        let at_rest = angle::rotate_design(up, 0.0);
+        assert!(
+            close(at_rest.x, 0.0) && close(at_rest.y, 1.0),
+            "up is north"
+        );
+        let starboard = angle::rotate_design(right, 0.0);
+        assert!(
+            close(starboard.x, 1.0) && close(starboard.y, 0.0),
+            "the grid's right is east",
+        );
+
+        let turned = angle::rotate_design(up, std::f64::consts::FRAC_PI_2);
+        assert!(
+            close(turned.x, 1.0) && close(turned.y, 0.0),
+            "at a heading of a quarter turn the nose points east",
+        );
+    }
+
+    // --- turning_a_point_twice_puts_it_back ---
+    {
+        for &heading in &[0.0, 0.7, std::f64::consts::FRAC_PI_2, 3.9, -2.1] {
+            let there = angle::rotate_design(dvec2(37.0, -14.0), heading);
+            let back = angle::unrotate_design(there, heading);
+            assert!(close(back.x, 37.0) && close(back.y, -14.0), "{heading}");
+        }
+    }
+
+    // --- the_shortest_way_round_is_the_short_way ---
+    {
+        let turn = std::f64::consts::TAU;
+        assert!(close(angle::shortest(0.1, turn - 0.1), -0.2));
+        assert!(close(angle::shortest(turn - 0.1, 0.1), 0.2));
+        assert!(close(angle::wrap(turn + 1.0), 1.0));
+    }
 }
 
 // --- what a design does when you push it ----------------------------------
@@ -127,55 +130,58 @@ fn the_shortest_way_round_is_the_short_way() {
 /// A four-tile square of frame, so the centre of mass and the inertia can be
 /// worked out by hand and compared. Every tile weighs the same, so the centre
 /// is the middle of the square.
-#[test]
-fn a_symmetric_design_has_its_weight_in_the_middle() {
-    use shipdesign::parts::TILE;
-    use shipdesign::{Budget, Edit, PartKind, Rotation, ShipDesign, apply};
-
-    let budget = Budget::new(1_000_000);
-    let mut design = ShipDesign::new(8);
-    for (x, y) in [(2, 2), (3, 2), (2, 3), (3, 3)] {
-        design = apply(
-            &design,
-            &budget,
-            Edit::Place {
-                kind: PartKind::Structure,
-                origin: (x, y),
-                rotation: Rotation::R0,
-            },
-        )
-        .unwrap();
-    }
-
-    let d = dynamics(&design, 0).expect("four tiles of frame is a ship");
-    let middle = 3.0 * TILE as f64;
-    assert!(close(d.centre_of_mass.x, middle), "{:?}", d.centre_of_mass);
-    assert!(close(d.centre_of_mass.y, middle));
-
-    // Every tile centre is half a tile from the middle on each axis, so the
-    // square of the distance is half a tile squared, twice.
-    let m = shipdesign::part_mass(PartKind::Structure);
-    let arm2 = 2.0 * (TILE as f64 / 2.0).powi(2);
-    assert!(
-        close(d.inertia, 4.0 * m * arm2 + data::INERTIA_FLOOR),
-        "{}",
-        d.inertia,
-    );
-    assert!(close(d.alpha, 0.0), "no thrusters, no turning");
-    assert!(close(d.a_forward, 0.0), "no engines, no pushing");
-}
-
 /// The mass is `shipdesign`'s and not a second opinion about it.
 #[test]
-fn a_ships_mass_is_the_one_shipdesign_says_it_is() {
-    for crew in [1u32, 4] {
-        let design = flyer(crew);
-        let d = dynamics(&design, crew).unwrap();
-        assert_eq!(d.mass, shipdesign::ship_mass(&design, crew).unwrap());
-        assert!(d.a_forward > 0.0, "the flyer has a forward engine");
-        assert_eq!(d.a_backward, 0.0, "and deliberately no backward one");
-        assert!(d.alpha > 0.0, "and four thrusters");
-        assert!(d.has_helm && d.has_airlock);
+fn a_symmetric_design_has_its_weight_in_the_middle_and_the_mass_shipdesign_s() {
+    // --- a_symmetric_design_has_its_weight_in_the_middle ---
+    {
+        use shipdesign::parts::TILE;
+        use shipdesign::{Budget, Edit, PartKind, Rotation, ShipDesign, apply};
+
+        let budget = Budget::new(1_000_000);
+        let mut design = ShipDesign::new(8);
+        for (x, y) in [(2, 2), (3, 2), (2, 3), (3, 3)] {
+            design = apply(
+                &design,
+                &budget,
+                Edit::Place {
+                    kind: PartKind::Structure,
+                    origin: (x, y),
+                    rotation: Rotation::R0,
+                },
+            )
+            .unwrap();
+        }
+
+        let d = dynamics(&design, 0).expect("four tiles of frame is a ship");
+        let middle = 3.0 * TILE as f64;
+        assert!(close(d.centre_of_mass.x, middle), "{:?}", d.centre_of_mass);
+        assert!(close(d.centre_of_mass.y, middle));
+
+        // Every tile centre is half a tile from the middle on each axis, so the
+        // square of the distance is half a tile squared, twice.
+        let m = shipdesign::part_mass(PartKind::Structure);
+        let arm2 = 2.0 * (TILE as f64 / 2.0).powi(2);
+        assert!(
+            close(d.inertia, 4.0 * m * arm2 + data::INERTIA_FLOOR),
+            "{}",
+            d.inertia,
+        );
+        assert!(close(d.alpha, 0.0), "no thrusters, no turning");
+        assert!(close(d.a_forward, 0.0), "no engines, no pushing");
+    }
+
+    // --- a_ships_mass_is_the_one_shipdesign_says_it_is ---
+    {
+        for crew in [1u32, 4] {
+            let design = flyer(crew);
+            let d = dynamics(&design, crew).unwrap();
+            assert_eq!(d.mass, shipdesign::ship_mass(&design, crew).unwrap());
+            assert!(d.a_forward > 0.0, "the flyer has a forward engine");
+            assert_eq!(d.a_backward, 0.0, "and deliberately no backward one");
+            assert!(d.alpha > 0.0, "and four thrusters");
+            assert!(d.has_helm && d.has_airlock);
+        }
     }
 }
 
@@ -195,83 +201,9 @@ fn a_ship_with_no_thrusters_cannot_turn() {
 /// The whole of the flip plan, checked end to end: it starts at rest, it
 /// finishes at rest on the arrival point, nothing jumps at a phase boundary,
 /// and the total is exactly what the four phases add up to.
-#[test]
-fn a_flip_trip_starts_and_ends_at_rest_on_the_arrival_point() {
-    let d = made_up(0.05, 0.0, 1e-3);
-    let plan = northward(&d, 400_000.0, 2.0);
-    let total = plan.duration();
-
-    let start = state_at(&plan, 0.0);
-    assert!(close(start.speed, 0.0));
-    assert_eq!(start.phase, Phase::Align);
-
-    let end = state_at(&plan, total);
-    assert!(close(end.speed, 0.0), "ended at {}", end.speed);
-    assert!(
-        end.position.distance(plan.arrival) < 1e-6,
-        "{:?} against {:?}",
-        end.position,
-        plan.arrival,
-    );
-    assert_eq!(end.phase, Phase::Arrived);
-
-    // Every phase happens, in order, and each is entered where the last one
-    // left off. A jump in position, velocity or heading at a boundary is the
-    // one failure a closed-form plan can have that a single end-to-end
-    // assertion would not see.
-    let mut at = 0.0;
-    let mut seen = Vec::new();
-    for segment in &plan.segments {
-        seen.push(segment.phase);
-        let before = state_at(&plan, at + segment.duration - 1e-7);
-        let after = state_at(&plan, at + segment.duration + 1e-7);
-        assert!(
-            before.position.distance(after.position) < 1e-3,
-            "{:?} jumped in position",
-            segment.phase,
-        );
-        assert!(
-            (before.speed - after.speed).abs() < 1e-3,
-            "{:?} jumped in speed",
-            segment.phase,
-        );
-        assert!(
-            angle::shortest(before.heading, after.heading).abs() < 1e-3,
-            "{:?} jumped in heading",
-            segment.phase,
-        );
-        at += segment.duration;
-    }
-    assert_eq!(
-        seen,
-        vec![Phase::Align, Phase::Burn, Phase::Flip, Phase::Brake]
-    );
-    assert!(close(at, total));
-}
-
 /// With no turn to make and no flip to pay for, the trip is exactly the one
 /// `physics` quotes — which is the formula the world generator laid every
 /// system out against.
-#[test]
-fn without_a_flip_the_time_is_the_one_physics_quotes() {
-    // Equal accelerations both ways, so no flip is wanted and the backward
-    // engines brake straight away.
-    let d = made_up(0.05, 0.05, 1e-3);
-    let distance = 400_000.0;
-    let plan = northward(&d, distance, 0.0);
-    let want = time::minutes(physics::travel_days(distance, 0.05, 0.05).unwrap());
-    assert!(
-        close(plan.duration(), want),
-        "{} against {want}",
-        plan.duration()
-    );
-    assert_eq!(
-        plan.segments.len(),
-        2,
-        "no align and no flip leaves a burn and a brake",
-    );
-}
-
 /// The same identity from the other side: a ship whose thrusters are so quick
 /// that the flip costs no time at all takes exactly as long as `physics`
 /// quotes for equal accelerations both ways.
@@ -281,26 +213,103 @@ fn without_a_flip_the_time_is_the_one_physics_quotes() {
 /// one solves the quadratic with the coast in it and watches the coast go to
 /// nothing.
 #[test]
-fn a_flip_of_no_length_costs_no_time() {
-    let a = 0.05;
-    let distance = 400_000.0;
-    let want = time::minutes(physics::travel_days(distance, a, a).unwrap());
+fn a_flip_trip_ends_at_rest_and_without_a_flip_the_time_is_physics_s() {
+    // --- a_flip_trip_starts_and_ends_at_rest_on_the_arrival_point ---
+    {
+        let d = made_up(0.05, 0.0, 1e-3);
+        let plan = northward(&d, 400_000.0, 2.0);
+        let total = plan.duration();
 
-    // No backward engine, so the flip is the only way to stop, and an alpha
-    // large enough that half a turn is over before it began.
-    let d = made_up(a, 0.0, 1e9);
-    let plan = northward(&d, distance, 0.0);
-    let flip = plan
-        .segments
-        .iter()
-        .find(|s| s.phase == Phase::Flip)
-        .expect("it had to turn round to stop");
-    assert!(flip.duration < 1e-3, "the flip took {}", flip.duration);
-    assert!(
-        close(plan.duration(), want),
-        "{} against {want}",
-        plan.duration(),
-    );
+        let start = state_at(&plan, 0.0);
+        assert!(close(start.speed, 0.0));
+        assert_eq!(start.phase, Phase::Align);
+
+        let end = state_at(&plan, total);
+        assert!(close(end.speed, 0.0), "ended at {}", end.speed);
+        assert!(
+            end.position.distance(plan.arrival) < 1e-6,
+            "{:?} against {:?}",
+            end.position,
+            plan.arrival,
+        );
+        assert_eq!(end.phase, Phase::Arrived);
+
+        // Every phase happens, in order, and each is entered where the last one
+        // left off. A jump in position, velocity or heading at a boundary is the
+        // one failure a closed-form plan can have that a single end-to-end
+        // assertion would not see.
+        let mut at = 0.0;
+        let mut seen = Vec::new();
+        for segment in &plan.segments {
+            seen.push(segment.phase);
+            let before = state_at(&plan, at + segment.duration - 1e-7);
+            let after = state_at(&plan, at + segment.duration + 1e-7);
+            assert!(
+                before.position.distance(after.position) < 1e-3,
+                "{:?} jumped in position",
+                segment.phase,
+            );
+            assert!(
+                (before.speed - after.speed).abs() < 1e-3,
+                "{:?} jumped in speed",
+                segment.phase,
+            );
+            assert!(
+                angle::shortest(before.heading, after.heading).abs() < 1e-3,
+                "{:?} jumped in heading",
+                segment.phase,
+            );
+            at += segment.duration;
+        }
+        assert_eq!(
+            seen,
+            vec![Phase::Align, Phase::Burn, Phase::Flip, Phase::Brake]
+        );
+        assert!(close(at, total));
+    }
+
+    // --- without_a_flip_the_time_is_the_one_physics_quotes ---
+    {
+        // Equal accelerations both ways, so no flip is wanted and the backward
+        // engines brake straight away.
+        let d = made_up(0.05, 0.05, 1e-3);
+        let distance = 400_000.0;
+        let plan = northward(&d, distance, 0.0);
+        let want = time::minutes(physics::travel_days(distance, 0.05, 0.05).unwrap());
+        assert!(
+            close(plan.duration(), want),
+            "{} against {want}",
+            plan.duration()
+        );
+        assert_eq!(
+            plan.segments.len(),
+            2,
+            "no align and no flip leaves a burn and a brake",
+        );
+    }
+
+    // --- a_flip_of_no_length_costs_no_time ---
+    {
+        let a = 0.05;
+        let distance = 400_000.0;
+        let want = time::minutes(physics::travel_days(distance, a, a).unwrap());
+
+        // No backward engine, so the flip is the only way to stop, and an alpha
+        // large enough that half a turn is over before it began.
+        let d = made_up(a, 0.0, 1e9);
+        let plan = northward(&d, distance, 0.0);
+        let flip = plan
+            .segments
+            .iter()
+            .find(|s| s.phase == Phase::Flip)
+            .expect("it had to turn round to stop");
+        assert!(flip.duration < 1e-3, "the flip took {}", flip.duration);
+        assert!(
+            close(plan.duration(), want),
+            "{} against {want}",
+            plan.duration(),
+        );
+    }
 }
 
 /// The align turns the short way round and finishes pointing at the target.
@@ -492,82 +501,85 @@ fn docking_wants_an_airlock_as_well_as_a_station() {
 /// An abort during the burn and an abort mid-flip both end at rest, further
 /// along the line than they started and never behind it. Reversing would be
 /// the one thing "come to rest along the current line" must not do.
-#[test]
-fn an_abort_ends_at_rest_without_going_backwards() {
-    let d = made_up(0.05, 0.0, 1e-3);
-    let plan = northward(&d, 400_000.0, 0.0);
-    let flip_starts: f64 = plan.segments[0].duration;
-
-    for (when, what) in [
-        (flip_starts / 2.0, "during the burn"),
-        (flip_starts + plan.segments[1].duration / 2.0, "mid-flip"),
-    ] {
-        let was = state_at(&plan, when);
-        let stop = abort(&plan, when);
-        assert!(stop.aborting);
-        let end = state_at(&stop, stop.duration());
-        assert!(close(end.speed, 0.0), "{what}: ended at {}", end.speed);
-
-        // Still on the line, and further along it.
-        let moved = end.position.sub(was.position);
-        let along = moved.x * plan.direction.x + moved.y * plan.direction.y;
-        assert!(along >= -1e-6, "{what}: went backwards by {along}");
-        assert!(
-            close(moved.length(), along.abs()),
-            "{what}: came off the line",
-        );
-        assert!(
-            end.position.distance(stop.arrival) < 1e-6,
-            "{what}: the plan and the walk disagree about where it stopped",
-        );
-    }
-}
-
 /// Aborting while still turning to face the target is the one case with
 /// nothing to brake. It takes the spin out and holds.
-#[test]
-fn aborting_an_align_stops_the_turn_and_nothing_else() {
-    let d = made_up(0.05, 0.0, 1e-3);
-    let plan = northward(&d, 400_000.0, 2.5);
-    let when = plan.segments[0].duration / 3.0;
-    let was = state_at(&plan, when);
-    let stop = abort(&plan, when);
-
-    assert!(stop.duration() > 0.0, "there was a spin to take out");
-    let end = state_at(&stop, stop.duration());
-    assert!(close(end.speed, 0.0));
-    assert!(
-        end.position.distance(was.position) < 1e-6,
-        "an align does not move the ship, and neither does stopping one",
-    );
-    assert!(
-        close(end.heading, stop.final_heading()),
-        "the plan and the walk disagree about where it finished pointing",
-    );
-    assert!(
-        stop.segments
-            .iter()
-            .all(|s| s.power == 0.0 && s.engines == 0)
-    );
-}
-
 /// An abort's brake is a burn like any other: it draws the set's power
 /// while the engines are lit and nothing through the turn before it.
 #[test]
-fn an_abort_s_brake_draws_what_the_engines_draw() {
-    let d = made_up(0.05, 0.0, 1e-3);
-    let plan = northward(&d, 400_000.0, 0.0);
-    let when = plan.segments[0].duration * 0.8;
-    let stop = abort(&plan, when);
-    let brake = stop
-        .segments
-        .iter()
-        .find(|s| s.phase == Phase::Brake)
-        .expect("a brake");
-    assert_eq!(brake.power, d.forward_power);
-    assert_eq!(brake.engines, d.forward_engines);
-    for turn in stop.segments.iter().filter(|s| s.phase == Phase::Flip) {
-        assert_eq!(turn.power, 0.0);
+fn an_abort_ends_at_rest_stops_an_align_and_its_brake_draws_the_engines_draw() {
+    // --- an_abort_ends_at_rest_without_going_backwards ---
+    {
+        let d = made_up(0.05, 0.0, 1e-3);
+        let plan = northward(&d, 400_000.0, 0.0);
+        let flip_starts: f64 = plan.segments[0].duration;
+
+        for (when, what) in [
+            (flip_starts / 2.0, "during the burn"),
+            (flip_starts + plan.segments[1].duration / 2.0, "mid-flip"),
+        ] {
+            let was = state_at(&plan, when);
+            let stop = abort(&plan, when);
+            assert!(stop.aborting);
+            let end = state_at(&stop, stop.duration());
+            assert!(close(end.speed, 0.0), "{what}: ended at {}", end.speed);
+
+            // Still on the line, and further along it.
+            let moved = end.position.sub(was.position);
+            let along = moved.x * plan.direction.x + moved.y * plan.direction.y;
+            assert!(along >= -1e-6, "{what}: went backwards by {along}");
+            assert!(
+                close(moved.length(), along.abs()),
+                "{what}: came off the line",
+            );
+            assert!(
+                end.position.distance(stop.arrival) < 1e-6,
+                "{what}: the plan and the walk disagree about where it stopped",
+            );
+        }
+    }
+
+    // --- aborting_an_align_stops_the_turn_and_nothing_else ---
+    {
+        let d = made_up(0.05, 0.0, 1e-3);
+        let plan = northward(&d, 400_000.0, 2.5);
+        let when = plan.segments[0].duration / 3.0;
+        let was = state_at(&plan, when);
+        let stop = abort(&plan, when);
+
+        assert!(stop.duration() > 0.0, "there was a spin to take out");
+        let end = state_at(&stop, stop.duration());
+        assert!(close(end.speed, 0.0));
+        assert!(
+            end.position.distance(was.position) < 1e-6,
+            "an align does not move the ship, and neither does stopping one",
+        );
+        assert!(
+            close(end.heading, stop.final_heading()),
+            "the plan and the walk disagree about where it finished pointing",
+        );
+        assert!(
+            stop.segments
+                .iter()
+                .all(|s| s.power == 0.0 && s.engines == 0)
+        );
+    }
+
+    // --- an_abort_s_brake_draws_what_the_engines_draw ---
+    {
+        let d = made_up(0.05, 0.0, 1e-3);
+        let plan = northward(&d, 400_000.0, 0.0);
+        let when = plan.segments[0].duration * 0.8;
+        let stop = abort(&plan, when);
+        let brake = stop
+            .segments
+            .iter()
+            .find(|s| s.phase == Phase::Brake)
+            .expect("a brake");
+        assert_eq!(brake.power, d.forward_power);
+        assert_eq!(brake.engines, d.forward_engines);
+        for turn in stop.segments.iter().filter(|s| s.phase == Phase::Flip) {
+            assert_eq!(turn.power, 0.0);
+        }
     }
 }
 
@@ -687,43 +699,46 @@ fn the_heavy_engine_is_faster_and_dearer_over_the_same_hop() {
 /// real ship used it standing still. A trip planned from a heading the ship
 /// was left on, to somewhere off to the side, is the whole of what the world
 /// will ever ask for.
-#[test]
-fn the_flyer_can_actually_be_flown_somewhere() {
-    let d = dynamics(&flyer(2), 2).unwrap();
-    let there = dvec2(3_000_000.0, -1_500_000.0);
-    let plan = plan_trip(&d, dvec2(120.0, -40.0), 2.9, Target::Body(2), there)
-        .expect("a trip across a system");
-
-    let end = state_at(&plan, plan.duration());
-    assert!(close(end.speed, 0.0));
-    assert!(end.position.distance(plan.arrival) < 1e-3);
-    assert!(close(
-        end.position.distance(there),
-        data::ARRIVAL_RADIUS_BODY
-    ));
-    assert!(!plan.docks, "a body is not somewhere to dock");
-}
-
 /// Not an assertion — a readout, for whoever next has to move one of the
 /// placeholder numbers. Run with `--nocapture`.
 #[test]
-fn what_the_fixture_actually_flies_like() {
-    let d = dynamics(&flyer(4), 4).unwrap();
-    let hop = worldgen::data::reference_distance(worldgen::data::TRAVEL_BAND.max_days).unwrap();
-    let there = dvec2(0.0, hop);
-    let plan = plan_trip(&d, DVec2::ZERO, 0.0, Target::Station(0), there).unwrap();
-    println!(
-        "mass {:.0}  a_forward {:.5}  inertia {:.3e}  alpha {:.3e}\n\
-         flip {:.1} min  longest hop {:.1} days, throttle {:.2}, {:.0} a minute under way",
-        d.mass.get(),
-        d.a_forward,
-        d.inertia,
-        d.alpha,
-        Spin::swing(std::f64::consts::PI, d.alpha).duration(),
-        time::days(plan.duration()),
-        d.forward_throttle,
-        d.forward_power,
-    );
+fn the_flyer_can_be_flown_somewhere_and_this_is_what_it_flies_like() {
+    // --- the_flyer_can_actually_be_flown_somewhere ---
+    {
+        let d = dynamics(&flyer(2), 2).unwrap();
+        let there = dvec2(3_000_000.0, -1_500_000.0);
+        let plan = plan_trip(&d, dvec2(120.0, -40.0), 2.9, Target::Body(2), there)
+            .expect("a trip across a system");
+
+        let end = state_at(&plan, plan.duration());
+        assert!(close(end.speed, 0.0));
+        assert!(end.position.distance(plan.arrival) < 1e-3);
+        assert!(close(
+            end.position.distance(there),
+            data::ARRIVAL_RADIUS_BODY
+        ));
+        assert!(!plan.docks, "a body is not somewhere to dock");
+    }
+
+    // --- what_the_fixture_actually_flies_like ---
+    {
+        let d = dynamics(&flyer(4), 4).unwrap();
+        let hop = worldgen::data::reference_distance(worldgen::data::TRAVEL_BAND.max_days).unwrap();
+        let there = dvec2(0.0, hop);
+        let plan = plan_trip(&d, DVec2::ZERO, 0.0, Target::Station(0), there).unwrap();
+        println!(
+            "mass {:.0}  a_forward {:.5}  inertia {:.3e}  alpha {:.3e}\n\
+             flip {:.1} min  longest hop {:.1} days, throttle {:.2}, {:.0} a minute under way",
+            d.mass.get(),
+            d.a_forward,
+            d.inertia,
+            d.alpha,
+            Spin::swing(std::f64::consts::PI, d.alpha).duration(),
+            time::days(plan.duration()),
+            d.forward_throttle,
+            d.forward_power,
+        );
+    }
 }
 
 // --- what the ship is doing to itself --------------------------------------

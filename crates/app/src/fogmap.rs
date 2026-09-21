@@ -186,26 +186,29 @@ mod tests {
     }
 
     /// A flat map blurs to itself: the taps sum to one.
-    #[test]
-    fn a_flat_map_is_unchanged() {
-        let m = map(9, 9, vec![200; 81]);
-        assert!(blurred(&m, (0, 0, 9, 9)).iter().all(|&(a, _)| a == 200));
-        assert!(blurred(&m, (3, 3, 2, 2)).iter().all(|&(a, _)| a == 200));
-    }
-
     /// A step along a row comes out a ramp the blur's reach either side
     /// of it and flat beyond — and the same whether the box asked for is
     /// the whole row or a part of it.
     #[test]
-    fn a_step_becomes_a_ramp() {
-        let mut alpha = vec![0u8; 12];
-        alpha[6..].fill(255);
-        let m = map(12, 1, alpha);
-        let whole: Vec<u8> = blurred(&m, (0, 0, 12, 1)).iter().map(|p| p.0).collect();
-        assert_eq!(&whole[..4], &[0, 0, 0, 0]);
-        assert_eq!(&whole[8..], &[255, 255, 255, 255]);
-        assert!(whole[4] < whole[5] && whole[5] < whole[6] && whole[6] < whole[7]);
-        let part: Vec<u8> = blurred(&m, (5, 0, 3, 1)).iter().map(|p| p.0).collect();
-        assert_eq!(part, whole[5..8]);
+    fn a_flat_map_is_unchanged_and_a_step_becomes_a_ramp() {
+        // --- a_flat_map_is_unchanged ---
+        {
+            let m = map(9, 9, vec![200; 81]);
+            assert!(blurred(&m, (0, 0, 9, 9)).iter().all(|&(a, _)| a == 200));
+            assert!(blurred(&m, (3, 3, 2, 2)).iter().all(|&(a, _)| a == 200));
+        }
+
+        // --- a_step_becomes_a_ramp ---
+        {
+            let mut alpha = vec![0u8; 12];
+            alpha[6..].fill(255);
+            let m = map(12, 1, alpha);
+            let whole: Vec<u8> = blurred(&m, (0, 0, 12, 1)).iter().map(|p| p.0).collect();
+            assert_eq!(&whole[..4], &[0, 0, 0, 0]);
+            assert_eq!(&whole[8..], &[255, 255, 255, 255]);
+            assert!(whole[4] < whole[5] && whole[5] < whole[6] && whole[6] < whole[7]);
+            let part: Vec<u8> = blurred(&m, (5, 0, 3, 1)).iter().map(|p| p.0).collect();
+            assert_eq!(part, whole[5..8]);
+        }
     }
 }

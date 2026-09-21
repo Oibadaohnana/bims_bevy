@@ -1,6 +1,6 @@
 //! A grid of cells: how an inventory is looked at.
 //!
-//! The pack on a Bim's back is three by three, a storage twenty by
+//! The pack on a Bim's back is ten by five, a storage twenty by
 //! twenty, the cold store ten by ten, and they are all one widget,
 //! [`grid`]: square cells row by row, an icon in each that has something
 //! in it, a count in the corner of a stack and a sliver of health under a

@@ -37,6 +37,7 @@ use shipdesign::{CARGO_SLOTS, Edit, ShipDesign, recipe_for};
 
 /// One part waiting to be built.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BuildSite {
     /// Its identity. Ids only ever climb and are never reissued, so a
     /// command naming a site that has since been built or cancelled is
@@ -137,6 +138,7 @@ pub fn build_minutes(recipe: &[(ResourceId, u32)]) -> f64 {
 /// red before anything is sent; the command itself comes back as a
 /// [`crate::Refusal`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SiteRefusal {
     /// The ship is not at rest.
     UnderWay,

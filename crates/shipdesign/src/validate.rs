@@ -45,6 +45,7 @@ use crate::parts::{Layer, PartKind, Rotation, any_side_will_do, hangs_on_wall};
 /// Whether an issue stops the design being accepted.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Severity {
     Error = 0,
     Warning = 1,
@@ -59,6 +60,7 @@ pub enum Severity {
 /// range.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IssueCode {
     /// The ship is in more than one piece.
     Disconnected = 1,
@@ -162,6 +164,7 @@ impl IssueCode {
 /// Neither carries words — `ISSUE_LINES` in `crates/app/src/names.rs` is where the
 /// sentences live, the same way `MEMORY_LINES` holds the diary's.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Issue {
     pub severity: Severity,
     pub code: u32,
@@ -386,6 +389,7 @@ pub fn exposure(design: &ShipDesign) -> ExposureMap {
 /// these is in the open, whatever the deck under it looks like. Nothing
 /// consumes it that way yet; the design phase draws it and warns about it.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExposureMap {
     side: u32,
     exposed: Vec<bool>,

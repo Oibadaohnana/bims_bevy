@@ -36,6 +36,11 @@ pub const DRAW: egui::Color32 = egui::Color32::from_rgb(0xff, 0xe0, 0x3c);
 /// The hyperdrive's violet: the star picked on the galaxy chart, and the
 /// charge bar.
 pub const HYPER: egui::Color32 = egui::Color32::from_rgb(0x9e, 0x6b, 0xdb);
+/// A landable planet's name on the map: the friendly blue the map rings
+/// a station in (`ship::world_paint::FRIEND`, the same three numbers),
+/// so the words and the ring say the same thing; a hostile one's is
+/// `BAD`.
+pub const LAND: egui::Color32 = egui::Color32::from_rgb(0x5c, 0x8c, 0xff);
 pub const NAME_STROKE: egui::Color32 = egui::Color32::from_rgba_premultiplied(6, 10, 9, 217);
 
 /// The name over a Bim's head: how big, and how far above the body it

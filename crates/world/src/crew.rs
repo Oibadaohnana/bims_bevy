@@ -35,7 +35,7 @@ use bims::character::Uniform;
 use bims::combat::Gear;
 use bims::game::{Container, Game as Room};
 use bims::manager::Stock;
-use bims::math::vec2;
+use bims::math::{Rect, vec2};
 use bims::sight::Fog;
 use economy::Money;
 use shipdesign::parts::{Layer, TILE};
@@ -58,6 +58,7 @@ const STEP_SECONDS: f32 = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32
 /// **ship's** frame, whichever room it is; only the painter and the pointer
 /// need the offset, to put the room's picture and the room's coordinates
 /// where the ship is.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Aboard {
     pub room: Room,
     /// Where the ship's design origin sits in the room's grid, in design
@@ -114,6 +115,10 @@ impl Aboard {
     /// a chain aimed at a fixture in a room that no longer exists is not a
     /// chain worth keeping. The station's residents are not moved: they
     /// stay in their own room, with their own fixtures.
+    /// On a planet, `terrain` is the plain the town stands on, and the
+    /// room is laid out on it — the ground round the deck walked and seen
+    /// (`bims::aboard::layout_of_on`) — with the station's frame in the
+    /// room, in whole tiles, as the plane's.
     pub fn joined(
         joined: Joined,
         ship: &ShipDesign,
@@ -121,8 +126,21 @@ impl Aboard {
         crew: Vec<Bim>,
         seed: u64,
         minutes: f64,
+        terrain: Option<bims::terrain::Terrain>,
     ) -> Aboard {
-        let mut layout = bims::aboard::layout_of(&joined.design);
+        let plane = terrain.map(|terrain| {
+            let t = TILE as f64;
+            let tiles = |v: DVec2| ((v.x / t).round() as i32, (v.y / t).round() as i32);
+            let unit = |v: DVec2| (v.x.round() as i32, v.y.round() as i32);
+            bims::terrain::Plane::new(
+                terrain,
+                tiles(joined.station_origin),
+                unit(joined.station_ex),
+                unit(joined.station_ey),
+                (0, 0, 0, 0),
+            )
+        });
+        let mut layout = bims::aboard::layout_of_on(&joined.design, plane.as_ref());
         // The station's box on the joined deck: its four corners through
         // the join, since a station docked side on is turned.
         let side = station.build_area as f64 * TILE as f64;
@@ -245,7 +263,30 @@ impl Aboard {
         more.lockers.retain(|r| !on_station(r));
         more.showers.retain(|(r, _)| !on_station(r));
         more.bays.retain(|(r, _)| !on_station(r));
+        more.fields.retain(|(r, _)| !on_station(r));
         more.heads.retain(|(r, _)| !on_station(r));
+    }
+
+    /// The sky over the other hull: daylight over the station's box on
+    /// this deck, so a town's ground is lit whatever its lamps say
+    /// (`Game::set_daylight`). Asked at a landing, of the crew's joined
+    /// room; nothing for a ship on its own, and a station's deck is
+    /// under a roof.
+    pub fn daylight_over_station(&mut self) {
+        // On the plain the whole box is under the sky, the ground round
+        // the ship included.
+        if self.room.plane().is_some() {
+            let over = self.room.interior();
+            self.room.set_daylight(Some(over));
+            return;
+        }
+        let over = self.station_box.map(|(lo, hi)| {
+            Rect::from_corners(
+                vec2(lo.x as f32, lo.y as f32),
+                vec2(hi.x as f32, hi.y as f32),
+            )
+        });
+        self.room.set_daylight(over);
     }
 
     /// Where the station's people are, in the station's own units, put on
@@ -436,7 +477,7 @@ impl Aboard {
     /// not move — a join's shift is the station's corners against the
     /// ship's build area, and neither changes when a part goes on.
     pub fn relayout(&mut self, design: ShipDesign) {
-        let mut layout = bims::aboard::layout_of(&design);
+        let mut layout = bims::aboard::layout_of_on(&design, self.room.plane());
         Self::leave_the_station_s(self.station_box, &mut layout);
         self.room.relayout(layout);
         self.design = design;
@@ -646,6 +687,7 @@ impl core::fmt::Debug for Aboard {
 /// afresh at their bunks. What they were doing an hour ago is not state the
 /// world carries — it is the honest limit of this step, and it is why a
 /// derelict, with nobody aboard, never gets a room at all.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Residents {
     pub station: u32,
     pub aboard: Aboard,
@@ -670,6 +712,13 @@ impl Residents {
     /// hired hands live among them (`crate::mercenary::how_many`): the
     /// last that many bodies, in the mercenary's coverall and kit and
     /// priced, as many as the bunks will take after the residents.
+    ///
+    /// **A station's room holds no more than it has bunks** — a garrison
+    /// bigger than an orbital's four is four, which is what the arena's
+    /// twenty are for — the cut made here, since the room itself takes
+    /// whatever it is given (`Game::with_layout`): the ship's crew is the
+    /// world's count and may run past the ship's bunks. A design with no
+    /// bunk at all still has the room's one stand-in berth.
     pub fn open(
         station: u32,
         design: &ShipDesign,
@@ -678,6 +727,9 @@ impl Residents {
         seed: u64,
         minutes: f64,
     ) -> Residents {
+        let bunks = design.count(shipdesign::PartKind::Bunk).max(1);
+        let count = count.min(bunks);
+        let mercenaries = mercenaries.min(bunks - count);
         let mut aboard = Aboard::new(design, count + mercenaries, seed);
         aboard.room.wind_clock(minutes as f32);
         // Looked at from outside: the crew see none of it, and nobody in
@@ -727,6 +779,11 @@ impl Residents {
         aboard.room.set_bandages(data::RESIDENT_BANDAGES);
         aboard.room.set_medkits(data::RESIDENT_MEDKITS);
         aboard.room.render();
+        // A town is under a sky: its whole ground is lit by day, whatever
+        // its lamps reach, and the lamps are for the houses.
+        if crate::surface::surface_body(station).is_some() {
+            aboard.room.set_daylight(Some(ground_of(design)));
+        }
         let down = vec![false; aboard.count() as usize];
         Residents {
             station,
@@ -771,6 +828,13 @@ impl Residents {
         let mut fresh = Aboard::mirrored(joined, ship, everybody, seed, minutes);
         let watched = inside.map(|p| fresh.to_room(p));
         fresh.room.set_watched(watched);
+        // A town's ground under the sky again: the station's own area,
+        // shifted to where the mirror laid it. Not `station_box`, which
+        // is the ship's here, and the ship has a roof.
+        if crate::surface::surface_body(self.station).is_some() {
+            let ground = ground_at(&station.design, fresh.offset);
+            fresh.room.set_daylight(Some(ground));
+        }
         self.replace_room(fresh);
     }
 
@@ -791,6 +855,10 @@ impl Residents {
         room.adopt(everybody, vec2(-offset.x as f32, -offset.y as f32));
         room.wind_clock(minutes as f32);
         room.render();
+        // A town's own ground under the sky again, as at the open.
+        if crate::surface::surface_body(self.station).is_some() {
+            room.set_daylight(Some(ground_of(&station.design)));
+        }
         let fresh = Aboard {
             room,
             offset: DVec2::ZERO,
@@ -827,6 +895,23 @@ impl Residents {
         self.aboard = fresh;
     }
 
+    /// A settlement's guard to its post: the first of its people, sent to
+    /// stand at [`crate::surface::GUARD_POST`] outside the watch house —
+    /// a post, so it goes off to eat and sleep and comes back to it
+    /// (`Game::send_to`). Nothing at a station, which has no watch.
+    /// Called whenever the room is built afresh — opened, joined,
+    /// unjoined — since a fresh room drops every post; and false when
+    /// there is nobody to post or no way there.
+    pub fn post_guard(&mut self, station: &Station) -> bool {
+        if station.plan != crate::station::Plan::Surface
+            || self.aboard.count() <= crate::surface::GUARD
+        {
+            return false;
+        }
+        let at = self.aboard.to_room(crate::surface::guard_post());
+        self.aboard.room.send_to(crate::surface::GUARD as usize, at)
+    }
+
     /// Which of them may be spoken to — a mercenary for hire, alive and on
     /// its feet — index for index, for the joined deck's
     /// `Game::set_visitors_hailable`.
@@ -841,4 +926,17 @@ impl core::fmt::Debug for Residents {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Residents(station {}, {:?})", self.station, self.aboard)
     }
+}
+
+/// A design's whole area as a rect in the room's units, from its origin:
+/// what the daylight covers on a town's own room, whose ground is the
+/// whole of the design (`Game::set_daylight`).
+fn ground_of(design: &ShipDesign) -> Rect {
+    ground_at(design, DVec2::ZERO)
+}
+
+/// The same, laid at `at` — where a mirror put the station's origin.
+fn ground_at(design: &ShipDesign, at: DVec2) -> Rect {
+    let side = design.build_area as f32 * TILE as f32;
+    Rect::from_min_size(vec2(at.x as f32, at.y as f32), vec2(side, side))
 }

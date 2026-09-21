@@ -61,6 +61,7 @@ pub mod mercenary;
 pub mod mining;
 pub mod speed;
 pub mod station;
+pub mod surface;
 pub mod world;
 
 pub use armour::{FetchKind, LootSource, Piece, Where};
@@ -71,10 +72,11 @@ pub use frame::Frame;
 pub use grid::{Grid, Kept, Slot, Wanted};
 pub use mining::{MiningSite, Rock, RockTile};
 pub use speed::Speed;
-pub use station::{Berth, Plan, Station};
+pub use station::{Berth, Plan, Station, layout_surface};
+pub use surface::{Biome, Surface, landable, surface_body, surface_id};
 pub use world::{
-    Command, Power, Preview, Ship, ShipState, StartError, UPGRADE_ORDER, Upgrade, World, spawn,
-    spawn_anywhere,
+    Command, Power, Preview, Ship, ShipState, StartError, UPGRADE_ORDER, Upgrade, Workbench, World,
+    spawn, spawn_anywhere, spawn_with_ground,
 };
 
 // The three things a caller of this crate wants from the ones underneath it,
@@ -85,3 +87,5 @@ pub use flight::{Phase, PlanError, Target};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_surface;

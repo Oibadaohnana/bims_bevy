@@ -444,6 +444,7 @@ fn frame(
                 }
             }
             GearOrder::Stow { .. }
+            | GearOrder::StowOnBench { .. }
             | GearOrder::Fetch { .. }
             | GearOrder::Arrange { .. }
             | GearOrder::Hire { .. }

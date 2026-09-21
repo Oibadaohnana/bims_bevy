@@ -34,6 +34,7 @@ use crate::crew::{
 use crate::format::{euros, grouped, roman, spell};
 use crate::keys::{Action, Keys};
 use crate::names::*;
+use crate::save::Request;
 use crate::screens::room::{panel_frame, tray_frame};
 use crate::settings::{Sheet, settings_sheet};
 use crate::shapes::View;
@@ -51,11 +52,26 @@ const MAX_STEPS_PER_FRAME: u32 = 128;
 /// How many lines of what-just-happened stay on screen.
 const LOG_LINES: usize = 4;
 
+/// How long the window stays black once the ship is down, in seconds,
+/// and how much of that is the fade back in. The landing fades to black
+/// on the way down (`ship::world_paint`); this is the world loading —
+/// the settlement laid out, the rooms joined — and a beat on it.
+const BLACKOUT_HOLD: f32 = 1.4;
+const BLACKOUT_FADE: f32 = 0.6;
+
 /// What the map writes over the ship, before where it is.
 const HERE_TAG: &str = "You";
 /// How far above the ship's mark on the map its words sit: clear of the
 /// reticle `ship::world_paint` draws round it, ring and ticks.
 const HERE_LIFT: f32 = 36.0;
+/// What the map writes after a landable planet's name, and how far
+/// **below** its icon the words' baseline sits: under it rather than
+/// over, because the ship's own words go over, and a ship docked at a
+/// planet's station is drawn on the planet. Clear of the stance ring
+/// (`26 * 1.3 / 2`, about 17) and the reticle's south tick when the ship is
+/// docked at the planet's station, with a line of type to spare.
+const LAND_TAG: &str = "land";
+const LAND_DROP: f32 = 38.0;
 
 /// How near a click has to come to a map icon to count as picking it, in
 /// points. Measured on screen rather than in world units: the thing being
@@ -128,6 +144,8 @@ enum HelmOrder {
     Stop,
     /// Charge the hyperdrive for the star picked on the galaxy chart.
     Jump(u32),
+    /// Come down onto the planet the ship is holding over.
+    Land,
 }
 
 #[derive(Resource)]
@@ -171,6 +189,8 @@ pub struct GameScreen {
     pan_from: Option<Vec2>,
     /// The Esc sheet, if it is up, and which page.
     sheet: Option<Sheet>,
+    /// The sheet's save and load pages' state — `crate::save`.
+    saves: crate::save::Saves,
     size: Vec2,
     /// The speed Space pauses from, for Space to go back to.
     resume: Speed,
@@ -186,6 +206,10 @@ pub struct GameScreen {
     /// The star picked on the chart: what its system holds is in the
     /// strip, and it is where Jump goes.
     picked_star: Option<u32>,
+    /// Seconds of black left over the canvas: a landing ends in it — the
+    /// planet has filled the window and the settlement is being laid out —
+    /// and it lifts once the ground is there. Nought nearly always.
+    blackout: f32,
 }
 
 pub struct GamePlugin;
@@ -211,36 +235,59 @@ fn open(
             // playtest ship. The `test` command is the same somewhere else
             // each time — a random seed, and a dock somebody lives on picked
             // at random across that galaxy.
+            // `test_planet` is the same roll made among the systems with
+            // friendly ground, since the ship is then set down on it.
             let (seed, spawn) = match *launch {
-                Launch::Test => {
+                Launch::Test | Launch::TestPlanet => {
                     let seed = super::room::rand_seed();
                     let roll = super::room::rand_seed();
-                    (seed, ship::session::pick_dock(seed, 0, roll))
+                    let pick = match *launch {
+                        Launch::TestPlanet => ship::session::pick_ground,
+                        _ => ship::session::pick_dock,
+                    };
+                    (seed, pick(seed, 0, roll))
                 }
                 _ => (world::data::DEFAULT_SEED, None),
             };
-            // The `combat` command is the fight: the combat ship's five crew,
-            // a different gun in each hand, docked at the spawn rebuilt as
-            // the arena and turned against them — its people enemies, and
-            // more of them — so a recruited crew member has somebody to
+            // The `combat` command is the fight: the combat ship's fourteen
+            // crew, a gun in every hand, docked at the spawn rebuilt as the
+            // arena and turned against them — its people enemies, fifteen
+            // of them — so a recruited crew member has somebody to
             // shoot at and somewhere to do it. `Session::combat` is all of
             // that; `BIMS_FIGHT` stages the two a few tiles apart on top.
             // The `test` command is on the combat ship too, with one crew
             // member — four bunks to spare — and a mercenary for hire at
             // the dock whatever the roll said, so a hire can be looked at.
+            // The `test_planet` command is that landed: the ship set down
+            // on the system's first planet with ground, the way
+            // `BIMS_LANDED=1` sets the simulation down — the mercenary asked
+            // for first, since the ask holds for every friendly room opened
+            // after it, the settlement's included.
             let mut session = match *launch {
                 Launch::Combat => Session::combat(seed, size.x, size.y),
-                Launch::Test => {
+                Launch::Test | Launch::TestPlanet => {
                     let design = shipdesign::fixture::combat_ship();
                     let mut session =
                         Session::simulate_on(design, 1, seed, 0, spawn, size.x, size.y);
                     session.mercenary_for_probe();
+                    if *launch == Launch::TestPlanet {
+                        session.land_for_probe();
+                    }
                     session
                 }
                 _ => Session::simulate(seed, 0, spawn, size.x, size.y),
             };
             if crate::dev::at_belt() {
                 session.hold_at_belt_for_probe();
+            }
+            if crate::dev::landed() || crate::dev::afield() {
+                session.land_for_probe();
+            }
+            if crate::dev::afield() {
+                session.walk_afield_for_probe();
+            }
+            if let Some(done) = crate::dev::landing() {
+                session.landing_for_probe(done);
             }
             if crate::dev::fight() {
                 session.stage_fight_for_probe();
@@ -299,38 +346,55 @@ fn open(
             out
         }
     };
-    commands.insert_resource(GameScreen {
-        net: Net { slot, players },
-        panels: None,
-        aimed: None,
-        pending: None,
-        relieve: false,
-        trading: crate::dev::trade(),
-        armoury_wanted: crate::dev::armoury(),
-        tab_took_focus: false,
-        cart: Cart::new(),
-        backlog: 0.0,
-        log: Vec::new(),
-        hover_at: None,
-        marquee_from: None,
-        order_from: None,
-        mark_drag: None,
-        pan_from: None,
-        sheet: None,
-        size: Vec2::ZERO,
-        resume: Speed::Real,
-        fog: crate::fogmap::FogTexture::default(),
-        galaxy_up: false,
-        galaxy: None,
-        galaxy_list: lobby::draw::DrawList::new(),
-        galaxy_size: Vec2::ZERO,
-        picked_star: None,
-    });
+    commands.insert_resource(GameScreen::fresh(slot, players));
+}
+
+impl GameScreen {
+    /// The screen as it is at an open, and again round a loaded game:
+    /// nothing aimed, no panels yet, the canvas unmeasured so the first
+    /// frame fits the world to it.
+    fn fresh(slot: u32, players: u32) -> GameScreen {
+        GameScreen {
+            net: Net { slot, players },
+            panels: None,
+            aimed: None,
+            pending: None,
+            relieve: false,
+            trading: crate::dev::trade(),
+            armoury_wanted: crate::dev::armoury(),
+            tab_took_focus: false,
+            cart: Cart::new(),
+            backlog: 0.0,
+            log: Vec::new(),
+            hover_at: None,
+            marquee_from: None,
+            order_from: None,
+            mark_drag: None,
+            pan_from: None,
+            sheet: None,
+            saves: crate::save::Saves::default(),
+            size: Vec2::ZERO,
+            resume: Speed::Real,
+            fog: crate::fogmap::FogTexture::default(),
+            galaxy_up: false,
+            galaxy: None,
+            galaxy_list: lobby::draw::DrawList::new(),
+            galaxy_size: Vec2::ZERO,
+            picked_star: None,
+            blackout: 0.0,
+        }
+    }
 }
 
 /// What a thing on the map is called. A kind and a number, because a kind
 /// is a fixed table and an identity is a number.
 fn node_name(session: &Session, node: Node) -> String {
+    // A settlement is named for the planet it stands on.
+    if let Node::Station(id) = node
+        && let Some(body) = world::surface_body(id)
+    {
+        return format!("{} settlement", node_name(session, Node::Body(body)));
+    }
     let kind = session.map_type(node);
     match node {
         Node::Station(id) => format!(
@@ -410,9 +474,16 @@ fn frame(
             // the undocking and the departure that follows it.
             if matches!(
                 event,
-                WorldEvent::Undocking { .. } | WorldEvent::Departed { .. }
+                WorldEvent::Undocking { .. }
+                    | WorldEvent::LiftedOff { .. }
+                    | WorldEvent::Departed { .. }
             ) {
                 sounds.engine_start(&mut commands);
+            }
+            // Down: the window stays black a moment while the settlement
+            // is laid out, then the ground is there.
+            if matches!(event, WorldEvent::Landed { .. }) {
+                screen.blackout = BLACKOUT_HOLD;
             }
         }
         while screen.log.len() > LOG_LINES {
@@ -512,6 +583,7 @@ fn frame(
                 HelmOrder::Fly(aim) => Order::Fly(aim.target()),
                 HelmOrder::Stop => Order::Stop,
                 HelmOrder::Jump(star) => Order::Jump(star),
+                HelmOrder::Land => Order::Land,
             });
             if matches!(order, HelmOrder::Fly(_)) {
                 screen.aimed = None;
@@ -529,6 +601,9 @@ fn frame(
         // world should have opened on: the whole hull, in view.
         if screen.size == Vec2::ZERO {
             session.fit(size.x, size.y);
+            if let Some(factor) = crate::dev::zoom() {
+                session.zoom(size.x / 2.0, size.y / 2.0, factor);
+            }
         } else {
             session.resize(size.x, size.y);
         }
@@ -1028,11 +1103,7 @@ fn frame(
                 .to_string()
         }
     } else {
-        STATE_NAMES
-            .get(state as usize)
-            .copied()
-            .unwrap_or("Holding")
-            .to_string()
+        state_name(game)
     };
     let speed = game.world.trip_state().map(|s| s.speed).unwrap_or(0.0);
     let degrees = (game.world.ship.heading.to_degrees() + 360.0) % 360.0;
@@ -1298,6 +1369,10 @@ fn frame(
     if let Some(on) = actions.set_auto_upgrade.take() {
         orders.push(Order::AutoUpgrade(on));
     }
+    // The workbench window's button.
+    if std::mem::take(&mut panels.upgrade_requested) {
+        orders.push(Order::Upgrade);
+    }
     for order in actions.research_orders.drain(..) {
         orders.push(Order::Research(order));
     }
@@ -1421,7 +1496,43 @@ fn frame(
     for order in orders.drain(..) {
         screen.net.order(session, order);
     }
-    settings_sheet(&ctx, &mut screen.sheet, &mut sounds.mix, &mut bindings);
+    let asked = settings_sheet(
+        &ctx,
+        &mut screen.sheet,
+        &mut sounds.mix,
+        &mut bindings,
+        &mut screen.saves,
+        session.playing(),
+    );
+    match asked {
+        Some(Request::Save(name)) => match session.save() {
+            Some(text) => match crate::save::write(&name, &text) {
+                Ok(_) => screen.saves.saved(&name),
+                Err(why) => screen.saves.failed(why),
+            },
+            None => screen.saves.failed("Nothing to save.".to_string()),
+        },
+        // A loaded game is a new session and a new screen round it —
+        // the panels, the log, the aim and the sheet all start over, and
+        // the first frame fits the canvas to the world as an open does.
+        // Both land after this frame, which has already drawn the old
+        // one; the world under the pointer next frame is the loaded one.
+        Some(Request::Load(path)) => {
+            let read = crate::save::read(&path).and_then(|text| {
+                Session::restore(&text, screen.size.x, screen.size.y)
+                    .map_err(crate::save::load_error)
+            });
+            match read {
+                Ok(loaded) => {
+                    let (slot, players) = (loaded.editor.local, loaded.editor.players);
+                    commands.insert_resource(ShipSession(loaded));
+                    commands.insert_resource(GameScreen::fresh(slot, players));
+                }
+                Err(why) => screen.saves.failed(why),
+            }
+        }
+        None => {}
+    }
 
     // --- painting ------------------------------------------------------------------
     let view = View {
@@ -1461,6 +1572,22 @@ fn frame(
         // is at. The ship is the map's origin, wherever it has been panned
         // to; off the canvas the words go with it and the strip still says.
         if map_up && session.game.is_some() {
+            // Every planet the ship can land on, named and tagged over
+            // its icon — `Rocky planet 1 · land` — in the side's colour,
+            // so that it can be landed on is said in words as well as by
+            // the pad the map draws at its shoulder. Under the icon, where
+            // the ship's own words — over it — cannot land on them.
+            for (node, hostile, (x, y)) in session.landing_sites() {
+                let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                let at = egui::pos2(at.x, at.y + LAND_DROP);
+                let colour = if hostile { theme::BAD } else { theme::LAND };
+                theme::name_over(
+                    &painter,
+                    at,
+                    &format!("{} · {LAND_TAG}", node_name(session, node)),
+                    colour,
+                );
+            }
             let at = view.to_canvas(Vec2::ZERO) + canvas.min;
             let at = egui::pos2(at.x, at.y - HERE_LIFT);
             theme::name_over(
@@ -1554,6 +1681,18 @@ fn frame(
             theme::name_over(&painter, at, &words, color);
         }
     }
+    // The black after a landing, over everything on the canvas: held
+    // while the ground is laid out, then lifted. Real seconds, not the
+    // world's: a pause is not a longer night.
+    if screen.blackout > 0.0 {
+        screen.blackout -= dt as f32;
+        let alpha = (screen.blackout / BLACKOUT_FADE).clamp(0.0, 1.0);
+        painter.rect_filled(
+            crate::canvas::egui_rect(canvas),
+            0.0,
+            egui::Color32::from_black_alpha((alpha * 255.0) as u8),
+        );
+    }
     let _ = now;
     Ok(())
 }
@@ -1574,11 +1713,37 @@ fn pick_cursor(painter: &egui::Painter, at: egui::Pos2) {
     painter.circle_filled(at, 1.5, theme::ACCENT);
 }
 
+/// What the ship is doing, in a word: `STATE_NAMES` by the state's code —
+/// except at a planet, where a docking is a landing, a push-off a
+/// lift-off and a berth the ground, since the picture says so too.
+fn state_name(game: &ship::game::Game) -> String {
+    let state = game.world.ship.state.code();
+    let on_a_planet = game
+        .world
+        .ship
+        .state
+        .station()
+        .is_some_and(|id| world::surface_body(id).is_some());
+    let word = match (state, on_a_planet) {
+        (0, true) => "Landed",
+        (4, true) => "Lifting off",
+        (5, true) => "Landing",
+        _ => STATE_NAMES
+            .get(state as usize)
+            .copied()
+            .unwrap_or("Holding"),
+    };
+    word.to_string()
+}
+
 /// Where the ship is, in words: the berth it is tied up at, the place it is
 /// alongside, or open space. The trip strip's first words, and what the
 /// map writes over the ship.
 fn whereabouts(session: &Session) -> String {
     match session.docked_at() {
+        Some(station) if world::surface_body(station).is_some() => {
+            format!("Landed · {}", node_name(session, Node::Station(station)))
+        }
         Some(station) => format!("Docked · {}", node_name(session, Node::Station(station))),
         None => match session.game.as_ref().unwrap().world.ship.frame.node() {
             Some(node) => format!("Alongside {}", node_name(session, node)),
@@ -1730,6 +1895,7 @@ fn trip_panel(
             {
                 *aimed = None;
             }
+            land_button(ui, game, walking, &mut press);
             brake_buttons(ui, state, aborting, walking, &mut press);
         });
     } else {
@@ -1758,19 +1924,16 @@ fn trip_panel(
             }
             None => {
                 let phase = if (3..=5).contains(&state) {
-                    STATE_NAMES
-                        .get(state as usize)
-                        .copied()
-                        .unwrap_or("Under way")
-                        .to_string()
+                    state_name(game)
                 } else {
                     whereabouts.clone()
                 };
                 ui.label(egui::RichText::new(phase).strong());
             }
         }
-        if state >= 2 {
+        if state >= 2 || over_a_planet(game) {
             ui.horizontal(|ui| {
+                land_button(ui, game, walking, &mut press);
                 brake_buttons(ui, state, aborting, walking, &mut press);
             });
         }
@@ -1956,6 +2119,38 @@ fn chart_panel(
         }
     }
     press
+}
+
+/// Whether the ship is in the frame of a planet it could come down onto —
+/// one with a settlement (`World::surface`) — holding or not.
+fn over_a_planet(game: &ship::game::Game) -> bool {
+    match game.world.ship.frame {
+        world::Frame::Local(Node::Body(body)) => game.world.surface(body).is_some(),
+        _ => false,
+    }
+}
+
+/// Land, shown while the ship is in a landable planet's frame and pressed
+/// from a hold: the descent onto the settlement's pad. Greyed with why
+/// when the ship is docked, under way or built on (`World::can_land`).
+fn land_button(
+    ui: &mut egui::Ui,
+    game: &ship::game::Game,
+    walking: bool,
+    press: &mut Option<HelmOrder>,
+) {
+    if !over_a_planet(game) {
+        return;
+    }
+    let why = game.world.can_land().err();
+    let button = ui.add_enabled(why.is_none() && !walking, egui::Button::new("Land"));
+    let button = match why {
+        Some(why) => button.on_disabled_hover_text(format!("Not now: {}.", refusal(why))),
+        None => button.on_hover_text("Come down onto the planet: the settlement's landing pad."),
+    };
+    if button.clicked() {
+        *press = Some(HelmOrder::Land);
+    }
 }
 
 /// Brake stops a ship under way — once. Abort calls off a departure while
@@ -2412,19 +2607,41 @@ fn hold_of(session: &Session, who: usize) -> Hold {
     }
     hold.station_desk = world.station_desk();
     hold.station_key = world.key_at_the_dock();
+    hold.bench = world.workbench().map(|index| crate::crew::BenchView {
+        index,
+        bench: world.bench,
+        reach: world.in_reach_of_bench(who as u32),
+        upgrade: world.can_upgrade(),
+    });
     hold
 }
 
 /// What is on the workbench being upgraded, for the Management tab's line
-/// under its tick box, off `World::upgrade`.
+/// under its tick box, off `World::bench`: the work under way, or the
+/// output waiting in its slot.
 fn upgrade_view(session: &Session) -> Option<UpgradeView> {
-    let upgrade = session.game.as_ref()?.world.upgrade?;
+    let bench = session.game.as_ref()?.world.bench;
+    if let Some(upgrade) = bench.work {
+        return Some(UpgradeView {
+            resource: upgrade.resource,
+            tier: upgrade.to.code(),
+            done: upgrade.done.min(world::data::UPGRADE_SESSIONS),
+            of: world::data::UPGRADE_SESSIONS,
+            waiting: false,
+        });
+    }
+    let out = bench.slots[world::Workbench::OUT]?;
+    let tier = match out {
+        bims::combat::Item::Weapon(w) => w.tier,
+        bims::combat::Item::Armour(p) => p.tier,
+        _ => return None,
+    };
     Some(UpgradeView {
-        resource: upgrade.resource,
-        tier: upgrade.to.code(),
-        done: upgrade.done.min(world::data::UPGRADE_SESSIONS),
+        resource: world::armour::resource_of_item(out)?,
+        tier: tier.code(),
+        done: world::data::UPGRADE_SESSIONS,
         of: world::data::UPGRADE_SESSIONS,
-        waiting: upgrade.complete(),
+        waiting: true,
     })
 }
 
@@ -2475,10 +2692,12 @@ fn nearby_of(session: &Session, who: usize, name: &dyn Fn(u32) -> String) -> Vec
     let at = room.bim_pos(who);
     let reach = world::data::REACH;
     let mut found: Vec<(f32, Near)> = Vec::new();
+    let workbench = world.workbench().map(Container::Bench);
     for container in world.aboard.containers() {
-        if crate::crew::container_class(room, container).is_none()
-            || !room.within_reach(who, container, reach)
-        {
+        // The workbench keeps no class of goods, but it has its slots.
+        let keeps =
+            crate::crew::container_class(room, container).is_some() || Some(container) == workbench;
+        if !keeps || !room.within_reach(who, container, reach) {
             continue;
         }
         let Some(frame) = room.container_frame(container) else {

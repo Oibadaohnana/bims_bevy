@@ -126,9 +126,15 @@ pub enum Order {
     /// The Management tab's tick box: combine matching gear at the
     /// workbench, or stop. The hold is the world's, so it is a command.
     AutoUpgrade(bool),
+    /// The workbench window's button: the day's work begun on the pair in
+    /// its slots — `Command::Upgrade`.
+    Upgrade,
     /// Charge the hyperdrive for a jump to a star picked on the galaxy
     /// chart. From the helm, like a trip.
     Jump(u32),
+    /// Land on the planet the ship is holding over. From the helm, like a
+    /// trip.
+    Land,
 }
 
 /// What the other end said about a message.
@@ -250,6 +256,7 @@ impl Net {
                         Order::Fly(target) => Command::Confirm { slot, target },
                         Order::Stop => Command::Abort { slot },
                         Order::Jump(star) => Command::Jump { slot, star },
+                        Order::Land => Command::Land { slot },
                         Order::Speed(speed) => Command::SetSpeed { slot, speed },
                         Order::Deal {
                             resource,
@@ -355,6 +362,10 @@ impl Net {
                             Command::Unlock { slot, node }
                         }
                         Order::AutoUpgrade(on) => Command::SetAutoUpgrade { slot, on },
+                        Order::Upgrade => Command::Upgrade { slot },
+                        Order::Gear(GearOrder::StowOnBench { who, cell }) => {
+                            Command::StowOnBench { slot, who, cell }
+                        }
                     });
                 }
                 0
@@ -377,6 +388,9 @@ pub struct DesignerScreen {
     pan_from: Option<Vec2>,
     /// The Esc sheet, if it is up, and which page.
     pub sheet: Option<Sheet>,
+    /// The sheet's save and load pages' state — `crate::save`. Nothing
+    /// is saved from here — there is no game yet — but a game is loaded.
+    saves: crate::save::Saves,
     size: Vec2,
     /// Why there is nowhere to start, on the lost screen.
     lost: String,
@@ -412,6 +426,7 @@ fn open(
             cart: Cart::new(),
             pan_from: None,
             sheet: None,
+            saves: crate::save::Saves::default(),
             size: Vec2::ZERO,
             lost: "The lobby did not say which station to start at.".into(),
         });
@@ -448,6 +463,7 @@ fn open(
         cart: Cart::new(),
         pan_from: None,
         sheet: None,
+        saves: crate::save::Saves::default(),
         size: Vec2::ZERO,
         lost,
     });
@@ -482,6 +498,7 @@ fn lost(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn frame(
     mut contexts: EguiContexts,
     mut screen: ResMut<DesignerScreen>,
@@ -490,6 +507,7 @@ fn frame(
     time: Res<Time>,
     mut sounds: ResMut<Sounds>,
     mut bindings: ResMut<Keys>,
+    mut commands: Commands,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -841,7 +859,31 @@ fn frame(
                 .color(theme::MUTED),
             );
         });
-    settings_sheet(&ctx, &mut screen.sheet, &mut sounds.mix, &mut bindings);
+    // Save is greyed out here — a design phase is not a game — and a load
+    // is the way out of one: the loaded session takes this one's place
+    // and the game screen opens round it, as it does after an Accept.
+    let asked = settings_sheet(
+        &ctx,
+        &mut screen.sheet,
+        &mut sounds.mix,
+        &mut bindings,
+        &mut screen.saves,
+        false,
+    );
+    if let Some(crate::save::Request::Load(path)) = asked {
+        let read = crate::save::read(&path).and_then(|text| {
+            Session::restore(&text, screen.size.x.max(64.0), screen.size.y.max(64.0))
+                .map_err(crate::save::load_error)
+        });
+        match read {
+            Ok(loaded) => {
+                commands.insert_resource(ShipSession(loaded));
+                screen.sheet = None;
+                next.set(Screen::Game);
+            }
+            Err(why) => screen.saves.failed(why),
+        }
+    }
 
     // --- painting --------------------------------------------------------------
     let view = View {
@@ -981,21 +1023,25 @@ impl Cart {
     }
 
     /// Units bought and sold, and what they come to: `(bought, cost,
-    /// sold, earned)`. Saturated rather than refused — a sum too big to
-    /// hold is one the world refuses when it is sent, and the window only
-    /// has to show it.
-    fn totals(&self) -> (u32, Money, u32, Money) {
+    /// sold, earned)` — the buys at the desk's ask and the sells at its
+    /// bid, the desk being the station's (`Session::quote`); a line with
+    /// no desk to quote it comes to nothing. Saturated rather than
+    /// refused — a sum too big to hold is one the world refuses when it
+    /// is sent, and the window only has to show it.
+    fn totals(&self, session: &Session) -> (u32, Money, u32, Money) {
         let mut out = (0u32, 0 as Money, 0u32, 0 as Money);
         for &id in ResourceId::ALL.iter() {
             let line = self.line(id);
             let units = line.unsigned_abs();
-            let value = Session::trade_price(id).saturating_mul(units as Money);
+            let quote = session.quote(id);
             if line > 0 {
+                let ask = quote.map_or(0, |q| q.ask);
                 out.0 = out.0.saturating_add(units);
-                out.1 = out.1.saturating_add(value);
+                out.1 = out.1.saturating_add(ask.saturating_mul(units as Money));
             } else if line < 0 {
+                let bid = quote.map_or(0, |q| q.bid);
                 out.2 = out.2.saturating_add(units);
-                out.3 = out.3.saturating_add(value);
+                out.3 = out.3.saturating_add(bid.saturating_mul(units as Money));
             }
         }
         out
@@ -1026,7 +1072,7 @@ impl Cart {
     /// much. The sells are counted first, as they are sent first, so a
     /// cart that sells the ore off a shelf to make room for metal fits.
     fn short(&self, session: &Session) -> Option<Short> {
-        let (_, cost, _, earned) = self.totals();
+        let (_, cost, _, earned) = self.totals(session);
         let have = session.remaining().saturating_add(earned);
         if cost > have {
             return Some(Short::Money(cost - have));
@@ -1062,10 +1108,12 @@ impl Cart {
 }
 
 /// The station's goods and the ship's holds: one row per resource — its
-/// icon, what one of it costs, how much is aboard, the buttons that put
-/// it in the cart or take it out, the cart's line as a number to type
-/// over (bought above zero, sold below), and what that line comes to —
-/// then what the cart comes to, how full each hold would be, and Confirm.
+/// icon, what one of it costs here and what the desk pays for one (the
+/// station's ask and bid, `Session::quote`: every station quotes its own
+/// numbers), how much is aboard, the buttons that put it in the cart or
+/// take it out, the cart's line as a number to type over (bought above
+/// zero, sold below), and what that line comes to — then what the cart
+/// comes to, how full each hold would be, and Confirm.
 /// `aboard` says where the count comes from. Rows are edited while
 /// `editable`; Confirm goes while `confirm` too. Returns the deals the
 /// player confirmed, sells first, and empties the cart — or nothing.
@@ -1113,19 +1161,27 @@ pub fn trade_rows(
         }
         lo as i32
     };
+    // What one of a thing costs bought here and fetches sold here, as
+    // words: the desk's ask and bid, or a dash where nobody quotes.
+    let priced = |session: &Session, id: ResourceId| -> (String, String) {
+        match session.quote(id) {
+            Some(q) => (euros(q.ask), euros(q.bid)),
+            None => (NO_QUOTE.into(), NO_QUOTE.into()),
+        }
+    };
     egui::Grid::new(("goods", editable))
-        .num_columns(7)
+        .num_columns(8)
         .min_col_width(icons::INLINE)
         .spacing([8.0, 2.0])
         .show(ui, |ui| {
-            for word in ["", "", PRICE_HEAD, ABOARD_HEAD, "", CART_HEAD, ""] {
+            for word in ["", "", ASK_HEAD, BID_HEAD, ABOARD_HEAD, "", CART_HEAD, ""] {
                 ui.label(egui::RichText::new(word).small().color(theme::MUTED));
             }
             ui.end_row();
             for &id in ResourceId::ALL.iter() {
                 let sold = session.sold_here(id);
                 let held = aboard(session, id);
-                let price = Session::trade_price(id);
+                let quote = session.quote(id);
                 let line = cart.line(id);
                 let color = if sold || held > 0 {
                     theme::INK
@@ -1134,10 +1190,18 @@ pub fn trade_rows(
                 };
                 icons::resource_cell(ui, id);
                 ui.label(egui::RichText::new(resource_name(id)).color(color));
-                // What one of it costs here, bought or sold: the station's
-                // price list, every line of it, whether it stocks the
-                // thing or only takes it.
-                ui.label(egui::RichText::new(euros(price)).color(color));
+                // What one of it costs here, and what the desk pays for
+                // one: the station's own two numbers, every line of them,
+                // whether it stocks the thing or only takes it. The ask is
+                // dimmed where the thing is not on the shelf, since nobody
+                // can buy at it.
+                let (ask, bid) = priced(session, id);
+                ui.label(egui::RichText::new(ask).color(if sold {
+                    theme::INK
+                } else {
+                    theme::MUTED
+                }));
+                ui.label(egui::RichText::new(bid).color(color));
                 ui.label(egui::RichText::new(held.to_string()).color(if held > 0 {
                     theme::ACCENT
                 } else {
@@ -1205,14 +1269,16 @@ pub fn trade_rows(
                 if field.changed() && typed != line {
                     cart.set(id, held_to(cart, id, line, typed));
                 }
-                // And what that line comes to.
+                // And what that line comes to: at the ask bought, at the
+                // bid sold.
                 let line = cart.line(id);
                 if line == 0 {
                     ui.label("");
                 } else {
+                    let each = quote.map_or(0, |q| if line > 0 { q.ask } else { q.bid });
                     ui.label(
                         egui::RichText::new(euros(
-                            price.saturating_mul(line.unsigned_abs() as Money),
+                            each.saturating_mul(line.unsigned_abs() as Money),
                         ))
                         .small()
                         .color(if line > 0 {
@@ -1228,7 +1294,7 @@ pub fn trade_rows(
     ui.add_space(6.0);
 
     // --- what the cart comes to --------------------------------------------
-    let (bought, cost, sold, earned) = cart.totals();
+    let (bought, cost, sold, earned) = cart.totals(session);
     let short = cart.short(session);
     if bought > 0 {
         ui.label(
@@ -1392,9 +1458,10 @@ fn issue_rows(ui: &mut egui::Ui, session: &Session) -> Option<usize> {
 mod tests {
     use super::*;
 
-    /// A cart is a list of what to buy and sell, priced off the same table
-    /// the world charges from, and it goes sells first: the money and the
-    /// shelf room a sale frees are there for the buys behind it.
+    /// A cart is a list of what to buy and sell, priced off the desk the
+    /// world charges at — the buys at its ask, the sells at its bid — and
+    /// it goes sells first: the money and the shelf room a sale frees are
+    /// there for the buys behind it.
     #[test]
     fn a_cart_prices_its_lines_and_sells_before_it_buys() {
         let mut cart = Cart::new();
@@ -1405,16 +1472,41 @@ mod tests {
         cart.add(ResourceId::Tofu, 3);
         cart.add(ResourceId::Tofu, -3);
         assert!(!cart.is_empty());
-        let (bought, cost, sold, earned) = cart.totals();
+        // Docked at the default seed's first dock, so there is a desk to
+        // quote; a session with no spawn quotes nothing and the cart
+        // comes to nothing.
+        let nowhere = Session::design(12, 10_000, 1, 0, 1, 0, None, Preset::Playtest, 800.0, 600.0);
+        assert!(nowhere.quote(ResourceId::Ore).is_none());
+        assert_eq!(cart.totals(&nowhere), (10, 0, 10, 0));
+        let spawn = world::spawn(&worldgen::Galaxy::new(
+            1,
+            worldgen::GalaxyType::SpiralTwoArm,
+        ));
+        let session = Session::design(
+            12,
+            10_000,
+            1,
+            0,
+            1,
+            0,
+            spawn,
+            Preset::Playtest,
+            800.0,
+            600.0,
+        );
+        let (bought, cost, sold, earned) = cart.totals(&session);
         assert_eq!((bought, sold), (10, 10));
-        assert_eq!(cost, 10 * Session::trade_price(ResourceId::Ore));
-        assert_eq!(earned, 10 * Session::trade_price(ResourceId::Metal));
+        let ore = session.quote(ResourceId::Ore).unwrap();
+        let metal = session.quote(ResourceId::Metal).unwrap();
+        assert!(ore.bid < ore.ask);
+        assert_eq!(cost, 10 * ore.ask);
+        assert_eq!(earned, 10 * metal.bid);
         // Ore and metal share a class, and the change to it is in cells,
         // a stack a footprint: on an empty hold ten ore bought is a stack
         // laid and ten metal sold is nothing gone, so the class is one
         // cell up; three tofu bought and three sold is nought; three tofu
         // on their own would be a block of four by four.
-        let session = Session::design(12, 10_000, 1, 0, 1, 0, None, Preset::Playtest, 800.0, 600.0);
+        let session = nowhere;
         assert_eq!(session.cargo(ResourceId::Ore), 0, "an empty hold");
         assert_eq!(
             cart.change(&session, Session::storage_of(ResourceId::Ore)),

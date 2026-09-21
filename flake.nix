@@ -130,6 +130,11 @@
             what = "test";
             about = "Docked at a random station in a random galaxy, on the playtest ship";
           };
+          bims-test-planet = runFor {
+            name = "bims-test-planet";
+            what = "test_planet";
+            about = "Set down on a planet in a random galaxy, on the playtest ship";
+          };
           bims-stationbuilder = runFor {
             name = "bims-stationbuilder";
             what = "stationbuilder";
@@ -157,6 +162,7 @@
             bims-design
             bims-room
             bims-test
+            bims-test-planet
             bims-combat
             bims-stationbuilder
             ;
@@ -168,8 +174,9 @@
       # the order a player meets it and is the default; `.#simulation` skips
       # to the world on a prebuilt ship; `.#design` skips to the yard with
       # that ship given; `.#room` is the behaviour test room; `.#test` is the
-      # simulation somewhere else each time; `.#combat` is the simulation at
-      # a hostile station; `.#stationbuilder` is the sketching grid, which
+      # simulation somewhere else each time; `.#test_planet` is that set down
+      # on a planet; `.#combat` is the simulation at a hostile station;
+      # `.#stationbuilder` is the sketching grid, which
       # saves beside the working tree rather than inside the store.
       apps = eachSystem (
         pkgs:
@@ -187,6 +194,7 @@
           design = app built.bims-design "Straight into the yard, the playtest ship given, docked where the simulation docks";
           room = app built.bims-room "The behaviour test room — Bims on a deck";
           test = app built.bims-test "Docked at a random station in a random galaxy, on the playtest ship";
+          test_planet = app built.bims-test-planet "Set down on a planet in a random galaxy, on the playtest ship";
           combat = app built.bims-combat "The simulation docked at a hostile station, the people living there enemies";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           default = game;

@@ -25,6 +25,7 @@
 //! | bunks | berths, in id order — Bim *i* sleeps in bunk *i* |
 //! | broom locker | locker |
 //! | hydroponic bay | bay, six trays along it, worked from its use spots' side |
+//! | field | a bay on open ground, every one: half the pace, no plug (`More::fields`) |
 //! | toilet, basin | the heads, with no bulkheads of their own |
 //! | shower | the shower, used from its use spot; a solid the ship draws |
 //! | smelter, workbench | a bench each, used from its use spot; solids the ship draws |
@@ -57,6 +58,7 @@ use shipdesign::{PartKind, PlacedPart, ShipDesign, is_wall};
 use crate::game::Game;
 use crate::math::{Rect, Vec2, vec2};
 use crate::room::{Bench, Layout, More, Still};
+use crate::terrain::Plane;
 
 /// How far inside the port the gangway is, in tiles — the same distance the
 /// world sends the crew back to before casting off — and how far beyond the
@@ -113,6 +115,17 @@ fn of_kind(design: &ShipDesign, kind: PartKind) -> Vec<&PlacedPart> {
 /// is put on the worktop, and the worktop, if *that* is missing, on the
 /// first deck tile, so the room stands up rather than panicking in a cdylib.
 pub fn layout_of(design: &ShipDesign) -> Layout {
+    layout_of_on(design, None)
+}
+
+/// The same, on a planet's plain: the room's box is the deck's and
+/// [`crate::terrain::DECK_MARGIN`] tiles of ground round it — the ground
+/// beside the ship and the town's outskirts, walked on the same grid as
+/// the deck — with what the ground blocks and stops sight at in that
+/// margin among the solids and the opaque, and a tile with nothing on
+/// it ground to walk rather than void to keep off. The plane's deck box
+/// is set to the room's box as it goes in.
+pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
     let t = TILE as f32;
     let bounds = Rect::from_min_size(
         Vec2::ZERO,
@@ -153,12 +166,35 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
     let (x1, y1) = ((interior.max.x / t) as i32, (interior.max.y / t) as i32);
     for y in y0..y1 {
         for x in x0..x1 {
-            if grid.get(Layer::Floor, (x, y)) == 0 {
+            // On the plain a tile with nothing on it is ground, walked and
+            // seen over; a tile of the hull's skin is still the hull's.
+            let void = grid.get(Layer::Floor, (x, y)) == 0
+                && (plane.is_none() || grid.get(Layer::Structure, (x, y)) != 0);
+            if void {
                 others.push(tile_rect(x, y));
                 opaque.push(tile_rect(x, y));
             }
         }
     }
+    // The plain: the room's box grows by the margin, and what the ground
+    // blocks in it — off the deck's own tiles — is furniture to walk
+    // round and a wall to the eye.
+    let (bounds, interior, plane) = match plane {
+        None => (bounds, interior, None),
+        Some(plane) => {
+            let m = crate::terrain::DECK_MARGIN;
+            let (bx0, by0, bx1, by1) = (x0 - m, y0 - m, x1 + m, y1 + m);
+            let deck = |x: i32, y: i32| {
+                grid.get(Layer::Floor, (x, y)) != 0 || grid.get(Layer::Structure, (x, y)) != 0
+            };
+            others.extend(plane.solids_in(bx0, by0, bx1 - 1, by1 - 1, t, &deck));
+            opaque.extend(plane.opaque_in(bx0, by0, bx1 - 1, by1 - 1, t, &deck));
+            let wide = Rect::from_corners(tile_rect(bx0, by0).min, tile_rect(bx1 - 1, by1 - 1).max);
+            let mut plane = plane.clone();
+            plane.set_deck((bx0, by0, bx1, by1));
+            (wide, wide, Some(plane))
+        }
+    };
 
     let first = |kind: PartKind| of_kind(design, kind).first().map(|p| part_rect(p));
     let fallback = first(PartKind::Worktop).unwrap_or_else(|| tile_rect(x0, y0));
@@ -288,6 +324,13 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
             PartKind::HydroBay => {
                 let side = side_of(part).unwrap_or(vec2(0.0, -1.0));
                 more.bays.push((frame, side));
+            }
+            // A field is a bay on open ground, at half the pace and with
+            // no plug: every one goes to the room, since a ship never has
+            // one to be the first of.
+            PartKind::Field => {
+                let side = side_of(part).unwrap_or(vec2(0.0, -1.0));
+                more.fields.push((frame, side));
             }
             PartKind::Toilet => {
                 let nearest = of_kind(design, PartKind::Basin)
@@ -467,6 +510,7 @@ pub fn layout_of(design: &ShipDesign) -> Layout {
             .collect(),
         veg: design.carrying(ResourceId::Vegetable),
         tofu: design.carrying(ResourceId::Tofu),
+        plane,
     }
 }
 
@@ -487,6 +531,7 @@ pub fn drawn_by_room(design: &ShipDesign) -> Vec<u32> {
         PartKind::Bunk,
         PartKind::BroomLocker,
         PartKind::HydroBay,
+        PartKind::Field,
         PartKind::Toilet,
         PartKind::Basin,
     ]
@@ -501,24 +546,36 @@ pub fn drawn_by_room(design: &ShipDesign) -> Vec<u32> {
 }
 
 /// Where each of the crew starts: on their own bunk's use spot, Bim *i* at
-/// bunk *i* in id order. A Bim past the last bunk starts on the first deck
-/// tile, which cannot happen to a design the designer accepted.
+/// bunk *i* in id order. A Bim past the last bunk — which cannot happen
+/// to a design the designer accepted, and does to the `combat` command's
+/// crew of fourteen on a ship with bunks for five — stands on a clear deck
+/// tile of its own, the deck taken in id order and no tile given twice,
+/// so a crew past the bunks is a crowd on the deck and not a stack on one
+/// tile. Only with no deck at all is everybody at the origin.
 pub fn starts(design: &ShipDesign, crew: usize) -> Vec<Vec2> {
     let bunks = of_kind(design, PartKind::Bunk);
-    let fallback = of_kind(design, PartKind::Floor)
-        .first()
-        .map(|p| tile_middle(p.origin.0 as i32, p.origin.1 as i32))
-        .unwrap_or(Vec2::ZERO);
-    (0..crew)
-        .map(|who| match bunks.get(who) {
-            Some(bunk) => bunk
-                .use_spots()
-                .first()
-                .map(|&(x, y)| tile_middle(x, y))
-                .unwrap_or_else(|| part_rect(bunk).center()),
-            None => fallback,
-        })
-        .collect()
+    let grid = design.grid();
+    let mut taken: Vec<(i32, i32)> = Vec::new();
+    let mut at_bunks: Vec<Vec2> = Vec::new();
+    for bunk in bunks.iter().take(crew) {
+        match bunk.use_spots().first() {
+            Some(&(x, y)) => {
+                taken.push((x, y));
+                at_bunks.push(tile_middle(x, y));
+            }
+            None => at_bunks.push(part_rect(bunk).center()),
+        }
+    }
+    let mut deck = of_kind(design, PartKind::Floor)
+        .into_iter()
+        .map(|p| (p.origin.0 as i32, p.origin.1 as i32))
+        .filter(|&tile| grid.get(Layer::Object, tile) == 0 && !taken.contains(&tile))
+        .map(|(x, y)| tile_middle(x, y));
+    let mut starts = at_bunks;
+    while starts.len() < crew {
+        starts.push(deck.next().unwrap_or(Vec2::ZERO));
+    }
+    starts
 }
 
 /// The room's game, aboard this ship, with `crew` Bims at their bunks.

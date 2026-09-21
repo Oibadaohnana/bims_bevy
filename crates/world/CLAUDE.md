@@ -342,9 +342,15 @@ What that rests on, and what will bite:
   the station's own room draws none while docked — and a resident walking
   through a shut-looking door would be a door lying.
 - **The room's berths and seats are `Vec`s now**, as many as the layout has
-  bunks and chairs, ship's first, so everybody has their own bed;
-  `BERTHS`/`SEATS` are the classic room's two. `Game::with_layout` caps the
-  crew at the beds there are, and a room may have **none** (a derelict's).
+  bunks and chairs, ship's first — and a bunk is *given* to a Bim
+  (`Room::sleeps_in`, the player's to change; a crew past the bunks
+  sleeps on the deck, see the room's notes), which `take_crew` carries
+  on `Bim::bed` and `adopt` reads back, so the ship's crew keep their
+  bunks across a dock; a hire's is cleared first, its old berth being
+  the station's, and it takes the first spare. `BERTHS`/`SEATS` are the
+  classic room's two. A station's room is cut to
+  its bunks by `Residents::open` (the room itself takes what it is given;
+  see the arena, below), and a room may have **none** (a derelict's).
   `plate_on_table` goes through `plate_at`/`set_plate_at`, clamped, and
   `solids()` lists the beds where the classic room always did — between
   the table and the bay — because the push-out walks solids in order and
@@ -481,14 +487,19 @@ with until the ship has left and come back; `set_hostile` is the one
 exception — it reopens the residents' room at the new stance's count
 if that differs, because `combat` turns the dock hostile with its two
 residents' room already open, and two residents are not a garrison.
-`starts` in the room puts anyone past the last bunk on the first deck
-tile, so a garrison bigger than the bunks stands stacked there until
-its first errand. `enemies_of_grows_with_the_crew_s_worth_and_caps` pins
-the formula and `a_hostile_dock_opens_with_a_garrison_not_its_residents`
-the reopen. **Mind that "stands stacked there" is not what happens**:
-`Game::with_layout` caps the crew at the beds there are, so a garrison
-bigger than the station's bunks — an orbital has four — is cut to the
-bunks. That is what the arena is for.
+`enemies_of_grows_with_the_crew_s_worth_and_caps` pins the formula and
+`a_hostile_dock_opens_with_a_garrison_not_its_residents` the reopen.
+**A station's room is cut to its bunks, and the cut is
+`Residents::open`'s** (since September 2026): a garrison bigger than the
+station's bunks — an orbital has four — is four, the mercenaries cut
+first. The room itself no longer caps — `Game::with_layout` and
+`Game::adopt` take every Bim they are given, since the ship's crew is
+the world's count (`health`, `crew_down`, `Ship::crew_count` are all
+sized by it) and a room that quietly held fewer was a world at odds with
+itself; `berth` and `seat` clamp, so a crew past the bunks shares the
+last, and `bims::aboard::starts` stands them on clear deck tiles of
+their own to begin with. That is what lets the `combat` command put
+fourteen on a ship with five bunks. That is also what the arena is for.
 
 **The `combat` command's dock is the arena.** `station::arena(kind,
 seed)` is `build_layout` at `data::ARENA_SIDE` (72) with the quarters'
@@ -496,20 +507,23 @@ bunks in `ARENA_BUNK_COLUMNS` (4) columns three tiles apart — twenty
 bunks, more than `ENEMIES_MAX` — and `World::arena_dock_for_probe`
 rebuilds the docked station as that, standing where it stood (the
 anchor recomputed from the old centre, since the build area grew),
-sets `World::reinforcements` to `ARENA_REINFORCEMENTS` (6) and docks
-again from scratch — `undock_for_probe`, the residents' room dropped,
-`dock_at` — so the joined deck and the residents' room are laid out on
-the new design. `reinforcements` is added to `enemies_of` in `people_of`
-(capped at `ENEMIES_MAX`) and is **in `world_checksum`** after the
-hostile list: it is the size of the fight. The crew are five on the
-combat ship through `World::start_with_crew(design, money, players,
-crew, ..)` — `start` is that with `crew = players` — which sizes the
-room, `health`, `crew_down`, `crew_locked` and `Ship::crew_count` by
-`crew` and `speed_requests` by `players`, so four crew nobody steers do
-not hold the speed at 1x (`speed::effective` is the *slowest* request).
+sets `World::reinforcements` to whatever makes `enemies_of` up to
+`ARENA_GARRISON` (15) — nought for the fourteen, since `ENEMIES_BASE`
+and one a crewmate is fifteen already — and docks again from scratch —
+`undock_for_probe`, the residents' room dropped, `dock_at` — so the
+joined deck and the residents' room are laid out on the new design.
+`reinforcements` is added to `enemies_of` in `people_of` (capped at
+`ENEMIES_MAX`) and is **in `world_checksum`** after the hostile list: it
+is the size of the fight. The crew are fourteen
+(`shipdesign::fixture::COMBAT_CREW`) on the combat ship through
+`World::start_with_crew(design, money, players, crew, ..)` — `start` is
+that with `crew = players` — which sizes the room, `health`,
+`crew_down`, `crew_locked` and `Ship::crew_count` by `crew` and
+`speed_requests` by `players`, so the crew nobody steers do not hold
+the speed at 1x (`speed::effective` is the *slowest* request).
 `Session::combat` in `crates/ship` does the whole thing and issues
-`WeaponKind::ALL` down the crew, one each.
-`the_combat_dock_is_the_arena_with_five_crew_and_a_garrison_of_twelve`
+`WeaponKind::ALL` down the crew and round again, one each.
+`the_combat_dock_is_the_arena_with_fourteen_crew_and_a_garrison_of_fifteen`
 and `the_arena_and_the_combat_ship_can_be_walked` (the walkability
 contract again, by `Nav::can_reach` rather than a search per tile)
 are the tests.
@@ -820,64 +834,104 @@ tier. `guns_agree_with_the_hold` pins the invariant, the two fetches, the
 stow and the sell rule; `the_checksum_notices_a_tier` that the list and
 the tick box are hashed (pieces hash their tier too).
 
-**The upgrade is the world's, begun at once and worked by the hour.**
-`Command::SetAutoUpgrade { on }` sets `World::auto_upgrade` (the
-Management tab's "Combine matching gear", never refused). Three
-functions, in the step:
+**The workbench has three slots, and the pair is carried to it** (feature
+56, September 2026 — the user's 55, but 55 is the plain below). The
+first cut began an upgrade out of the hold the step there was a pair;
+the user then asked for the bench to be a thing: two slots the Bim
+*carries* the pair to, a button once both are in, and a third slot the
+upgraded one appears in. `World::bench: Workbench { slots: [Option<Item>;
+3], carrying, back, work: Option<Upgrade> }` — `Workbench::IN` are 0
+and 1, `OUT` is 2, and a slot holds the room's `bims::combat::Item`
+(`Weapon` or `Armour`, never a stack) whole: **a piece on the bench is
+not in `World::pieces`**, the way one in a pack is not in the hold, and
+`fetch_from_bench` pushes it back with the health it had. The bench with
+the slots is `World::workbench()`, the first workbench in bench order; a
+second workbench is a bench to make things at and nothing more. The
+workbench is *not* a hold container — `container_takes` still says no,
+so `in_reach` and a plain `Stow` never land on it — and has its own
+three seams:
 
-- `begin_upgrade` — stage 5, before `craft_orders`: box on, nothing on
-  the bench, a workbench aboard (`benches()` has one, powered or not),
-  and `upgrade_pair` finds the first pair — armour kinds in
-  `ArmourKind::ALL` order then weapons in `WeaponKind::ALL` order, the
-  lowest tier first within a kind, tier three never. The two leave the
-  hold **now**, the way the user asked: for armour the two *most damaged*
-  pieces of the kind and tier (the good ones stay in circulation, and the
-  piece that comes out is fresh whatever went in), for a weapon two off
-  the list; instances first, `cargo -= 2`, `on_ship_changed`, then
-  `World::upgrade = Some(Upgrade { resource, to, done: 0 })` and
-  `UpgradeBegun { resource, tier: to }` (48). A pair with no workbench
-  aboard waits, untouched.
-- `craft_orders` adds, after the recipes' orders, one `Order { recipe:
-  UPGRADE_ORDER, bench, minutes: UPGRADE_SESSION_MINUTES }` for the
-  **first** workbench in bench order while an upgrade is under way and
-  not `complete()`, the workbench is `powered`, and
-  `crafts_under_way(UPGRADE_ORDER) == 0` — one pair of hands a day,
-  however many benches. `UPGRADE_ORDER` is 1 000, past every row of
-  `RECIPES` (pinned), and the room runs it as a `Kind::Craft` like any
-  recipe, since it has no table. `finish_craft(UPGRADE_ORDER)` is
-  `done += 1` and no `Crafted`. **Progress is whole hours and the
-  world's** (`data::UPGRADE_SESSIONS` = 24 of `UPGRADE_SESSION_MINUTES`
-  = 60, pinned as a day), so a Bim that goes to eat or sleep between
-  sessions loses nothing, and a chain abandoned mid-hour loses that hour
-  at most. The Bim takes the order the same step it is posted — the
-  orders go in before the room moves — which is why the test asks
-  `crafts_under_way` rather than counting orders.
-- `deliver_upgrade` — every step after `take_crafted`: `complete()` and
-  room in the locker class, the item goes in — `Piece::new(next_piece,
-  kind, to)` at `Hold`, or `kind.at(to)` onto the list — instance first,
-  `cargo += 1`, `on_ship_changed`, `upgrade = None`, `Upgraded {
-  resource, tier }` (49). **No room: it waits, complete, and is tried
-  again next step.** Nothing is ever lost; the Management line says it is
-  ready and why it has not landed. Begin runs before deliver in a step,
-  so the next pair goes on the step *after* a delivery.
+- `Command::StowOnBench { who, cell }` — the thing out of the pack into
+  the first free input slot, checked by `Workbench::takes`: `BenchBusy`
+  (36) while work is under way, `NoPair` (35) for a stack, a tier-three
+  thing (nowhere to go) or one that would not pair with what is in the
+  other slot (kind and tier alike), `NoRoom` with both inputs full,
+  `Broken`, `NoWorkbench` (34) with none aboard, and `OutOfReach` by
+  `in_reach_of_bench` — `REACH` of the workbench's frame.
+- `FetchKind::Bench { slot }` — a slot's thing into the pack: an input
+  any time the work is not on it (`BenchBusy`), the output any time;
+  `NotAboard` for an empty slot, `PackFull`. Nothing in the hold moves
+  either way.
+- `Command::Upgrade` — the button: `can_upgrade()` is `NoWorkbench`,
+  `BenchBusy` (work under way, or the output slot still full) or
+  `Workbench::pair()`'s `NoPair`, and the world reads the same function
+  for the window, so the button is greyed with the reason before
+  anything is sent. `begin_upgrade` sets `work = Upgrade { resource, to,
+  done: 0 }` and says `UpgradeBegun` (48); **the pair stays in its slots
+  being worked on** until `finish_upgrade`, every step after the crafts,
+  clears the two and puts one of the next tier in `OUT` — `Piece::new`
+  with a fresh `next_piece` id, or `kind.at(to)` — and says `Upgraded`
+  (49). No room check any more: it is on the bench, not in the hold.
 
-The events' `value()` is `resource + 100 × tier`. The checksum eats
-`piece.tier`, the list (length, then kind and tier each), the box and
-the upgrade as `(resource, to, done)` or `u64::MAX`; `REFERENCE_CHECKSUM`
-moved. Not gated by research, on purpose: the workbench is the gate.
-`two_pistols_are_combined_at_the_workbench_over_a_day` runs the whole of
-it undocked (a fetch hands over the tier-two pistol at the end);
-`two_helms_are_combined_and_the_worse_two_go_in` has armour go first,
-the dented helm chosen, the complete piece **wait for room** in lockers
-the test poked past their capacity and land the step room is made, and
-the pistols follow the step after; `upgrade_sessions_make_a_day` pins the
-constants and the codes. Setting a test up: poking `cargo[]` past the
-class's capacity is how the wait path is reached, and the playtest hold
-has no pistol — the crew's is in the hand — so a pistol pair is `+= 2`.
-Since the lockers became a grid the poke that fills them is **bandages**
-— `cargo[Bandage] += design.spare(Locker)` — because a bandage is one
-cell and the count fills the grid to the cell; a medkit is four and
-would overshoot by area while leaving holes.
+`craft_orders` is as it was — one `UPGRADE_ORDER` session at the first
+workbench while `bench.work` is under way and not `complete()`, powered,
+nobody at it — and `finish_craft(UPGRADE_ORDER)` is `done += 1`.
+
+**With the tick box on the crew do all of it, one thing in the arms at
+a time.** `tend_bench`, stage 5 before the craft orders, is the whole of
+the automatic path, and what it hands the room is a `Vec<bims::game::Ferry
+{ from, to }>` (`Game::set_ferries`, at most one long), bench indices
+both: `from` the cabinet, `to` the workbench, or the other way round.
+The cabinet is `World::store_bench()`, the first bench whose part keeps
+the locker class — the armoury, the drug lab — because the hold is one
+pool and any cabinet of the class is where a gun is; **a ship with no
+such bench has nowhere for a Bim to walk to, and the crew carry nothing
+of their own accord** (the suit locker is not a bench). In order:
+nothing while work is under way; a carry under way keeps its order
+posted whichever way it was going (`bench.back` remembers, since the
+order cannot once the thing is off its slot) — the room is a step
+behind, and a chain whose order vanished gives the thing up; then, box
+on: the output in `OUT` is carried back once `has_room` for it (else it
+waits there, and the Management line says so); a pair in the inputs has
+the button pressed for it; an input free has the next thing carried
+over, `bench_wants()` — a match for the other slot, else the first of
+`upgrade_pair()` (armour kinds in `ArmourKind::ALL` order then weapons
+in `WeaponKind::ALL`, the lowest tier first, tier three never), and for
+armour the **most damaged** piece of the kind and tier, so the good
+ones stay in circulation and the piece that comes out is fresh whatever
+went in. Stage 7 drains the room's three reports: `finish_ferry_pick` —
+from the cabinet, `bench_wants()` asked *now* and `hold_gives` moves it
+(instance, grid slot, count, `on_ship_changed`) into `carrying`;
+nothing there any more (sold since) and the Bim carries nothing; from
+the workbench, `OUT` into the arms — `finish_ferry_drop` — into the
+first input slot the bench `takes` it in, into the hold if the slots
+filled meanwhile; at the cabinet, `hold_takes` — and
+`finish_ferry_return` (given up between the two), `hold_takes` either
+way. `hold_takes` never asks `has_room`: it was in the hold a moment
+ago, and the grid keeps what it cannot lay unplaced rather than losing
+it. `drop_loads` (dock, undock) puts a carried thing back the same way.
+The room's half — `Kind::Ferry`, `GoToStore → TakeGear → CarryGear →
+PutGear`, offered under `Job::Haul` — is `crates/game/CLAUDE.md`.
+
+The checksum eats the three slots and the carried thing (a gun by kind
+and tier, a piece by id, kind, tier and health to the hundredth, `u64::MAX`
+for none), `back`, and the work as `(resource, to, done)` or `u64::MAX`;
+`REFERENCE_CHECKSUM` moved. `two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day`
+runs the automatic path undocked — the carry seen in `carrying` with the
+hold one lighter, both on the bench and the work begun, the day, the
+output in `OUT`, the carry back, a fetch handing the tier-two pistol over;
+the helms with the dented one chosen, the two whole on the bench with
+their health, the fresh piece **waiting on the bench** while the lockers
+are full of bandages and carried back once they are not, and the pistols
+following — and pins the refusal codes;
+`a_pair_is_put_on_the_bench_by_hand_and_the_button_pressed` is the
+manual path with every refusal, the piece leaving and rejoining
+`pieces` with a dent, the button, `BenchBusy`, and the output taken into
+the pack with the box off. The Bim is no longer at the bench the step the
+work begins — its hands are on the second pistol — so the test waits an
+hour for `crafts_under_way`. The app's window is `crates/app/src/crew.rs`
+`bench_window` (`BIMS_ARMOURY=workbench`); the Management tab's line
+reads `bench.work`, or the thing waiting in `OUT`.
 
 ## Every hold but the desk is a grid, and a thing lies on it where it fits
 
@@ -922,8 +976,9 @@ invariant of the lockers.
 **The gate is `World::has_room(resource, units)`**, asked *before* a
 count moves — by `buy`, `can_make` (the output onto the grid as it
 stands; what the inputs would free is not counted, so a bench whose
-shelf is full waits a step for the ore to be spent), `deliver_upgrade`
-and `stow` — and it is the area rule (`ShipDesign::has_room`) **and** a
+shelf is full waits a step for the ore to be spent), `tend_bench` (the
+upgraded thing carried back from the workbench) and `stow` — and it is
+the area rule (`ShipDesign::has_room`) **and** a
 place on the grid as it stands (`Grid::can_take`, a trial `add` on a
 clone: part-full stacks topped up, then new stacks laid). So a stow can
 be refused `NoRoom` with cells to spare — the lockers full but for seven
@@ -960,7 +1015,7 @@ refusals), the fetch-and-stow one, the shelves-and-stacks one, and
 `the_grid_turns_a_thing_to_fit_and_keeps_an_overflow_unplaced` on a bare
 `Grid` — stacks topping up and emptying included.
 
-**The pack is a grid too** (feature 49): seven by seven, the room's
+**The pack is a grid too** (feature 49): ten across by five down, the room's
 (`crates/game/CLAUDE.md`, "The pack is `Gear::pack`"), every thing over
 the same footprints — `Item::footprint` is `economy::footprint` said
 again by code, and `the_pack_lays_things_by_the_same_footprints_as_the_lockers`
@@ -974,8 +1029,8 @@ an empty cell, and `mirror_pieces` after it, since a piece's cell is in
 the checksum. A fetch lands in the first place the thing fits
 (`Gear::free_cell_for`), so a test that reads `pack(0)[n]` after a
 fetch has to know the footprints of what went before — a pistol lies
-along two cells, so the next thing is at 2, not 1. `LOOT_CELLS` is 53
-now: the pack's 49, then head, body, legs, weapon.
+along two cells, so the next thing is at 2, not 1. `LOOT_CELLS` is 54
+now: the pack's 50, then head, body, legs, weapon.
 
 ## A loot is a command across two rooms, and a resident's piece is new to the world
 
@@ -1176,6 +1231,29 @@ are easy to lose:
   of the contents stream. A test that buys something at the spawn buys a
   staple, or reads the shelf first the way
   `a_station_only_sells_what_its_kind_sells` reads the kind.
+- **What a thing costs is the station's desk's, and it is two numbers.**
+  Nothing is bought or sold at `economy::trade_price` — that is the
+  **book value**, a valuation, and the world reads it only through
+  `shipdesign::Budget::spent` (`start_worth`, `World::worth`). `buy`
+  and `sell` quote `Station::market()` — an `economy::market::Market`,
+  the desk's kind with the station's own `bias` — and pay its **ask**
+  for a buy and its **bid** for a sale, checked sums both, the bid always
+  under the ask. `station::market_kind(kind, plan)` is the one map from
+  the generator's kinds to the market's: `Plan::Surface` is a
+  `MarketKind::Settlement` whatever kind it is laid out as, a derelict
+  is `None`, and `ship::Session::design` asks it for the yard's desk
+  too. **A derelict keeps no desk**: a sale there is
+  `Refusal::NoMarket` (33), a buy `NotSoldHere` as before, since it
+  stocks nothing. `Station::bias` is the blueprint's roll carried across
+  — bar the **spawn's, which `World::start` sets to `Bias::NONE`** so an
+  opening pool buys the same at a kind of station whatever the seed
+  rolled and the yard's desk (kind, no lean) and the world's agree; a
+  settlement's is rolled beside its shelf in `Surface::all_of`. The bias
+  is not in `world_checksum` — it is a function of the galaxy seed, in
+  the galaxy checksum, like the shelf.
+  `buying_costs_money_and_makes_the_ship_heavier` pins a buy at the ask
+  and the sale back at the bid losing the spread;
+  `a_derelict_has_no_market_and_every_other_station_quotes` the rest.
 - **There is no fuel (September 2026).** A trip runs on the reactor:
   `Ship::reserved_fuel`, `fuel_aboard`, `PlanError::NoFuelAboard` and
   `Preview::fuel` are gone, and nothing comes out of the hold at a plan's
@@ -1574,6 +1652,11 @@ tests.
   `run_power` and `power()` read it. It used to be
   `shipdesign::power_budget(&design)` every step — a union-find over
   every tile of the grid — and was two thirds of a docked step.
+  `World::powered_parts` (`shipdesign::powered_parts`, the live parts by
+  id) is kept beside it for the same reason since the lamps went on the
+  bill: `powered(kind)` used to ask `is_powered` — the union-find again —
+  once a part of the kind per call, and `sync_lamp_power` asks it of
+  every lamp every step.
 - **`ShipDesign::part(id)` is a binary search**, because `parts` is in
   ascending id order (`parts_are_in_id_order` in the shipdesign tests).
   The painters ask it per tile per hull per frame (`hull::diagonal_at`,
@@ -1661,6 +1744,78 @@ and is what they smash, `crates/game/CLAUDE.md` — a lock an enemy set
 sealing itself in stops the crew on the deck (and the panel can lift it),
 and the bar the crew watch is the smash in the room where it happens.
 `a_lock_on_a_station_door_is_the_same_lock_in_both_rooms` pins it.
+
+## A brownout is dark, asleep and spoiling, and none of it is lethal
+
+`World::run_brownout` (September 2026) is the second half of stage 6,
+right after `run_power`: what `Power::brownout()` — draw over supply with
+the batteries flat — does to the ship, now that the lamps draw
+(`shipdesign::WALL_LIGHT_POWER` 25, `STANDING_LIGHT_POWER` 40;
+`crates/shipdesign/CLAUDE.md` "Power is a column") and a brownout is a
+thing a design can reach. Three consequences, every one recoverable:
+
+- **The lamps go dark.** `bims::sight::Lamp::powered` is a second way
+  for a lamp to give no light beside its health — `is_dark()` is out *or*
+  unpowered, and it is `is_dark` the tile mask, the fields and the
+  flicker read, while `is_out` stays what a bolt asks (an unpowered lamp
+  is still glass to shoot) — and `Sight::set_lamp_powered` /
+  `Game::set_lamp_powered` flips it, relighting through `lamp_switched`
+  like a hit that puts one out, with no flicker. `sync_lamp_power` sets
+  it for **the ship's lamps only**: every light part of the design, on
+  the crew's deck (`lamp_index(&aboard, false, tile)`) and on the
+  residents' mirror of the ship (`foreign = true`), to *on a live network
+  and not browned out*. A station's lamps are furniture — nothing reads a
+  station's power, its layout is not wired — and stay lit. It runs at the
+  end of `restore_lamps`, so every step and every rebuilt room, and again
+  the step the brownout turns so the dark lands with the event. The
+  painter needs nothing new: `lamp_look` hands back a full health share
+  and a level of nought, which `fittings::lamp_face` draws as dark glass,
+  uncracked. **This is the alarm** — nothing else is drawn for a brownout.
+- **The bay hibernates.** `hydro::Bay::powered`, `set_powered`, and
+  `Game::set_hydro_powered(on)` for every bay of the room at once —
+  `powered(kind)` is by kind. Unpowered, `update` sets `hibernating`
+  whatever the store holds and `running` answers no whatever was forced,
+  so nothing grows, is planted or lifted and the trays keep what is in
+  them. The panel says *no power* rather than *at target*
+  (`Game::hydro_powered`). `sync_bay_power` leaves a ship with **no** bay
+  alone: the room stands in a bay of its own then, and that is its
+  business.
+- **The cold store stops and the food spoils.** `World::cold_store_out`
+  is an integer clock of steps the cold store has been without power —
+  `!powered(ColdStore)`, so browned out *or* on no run — nought whenever
+  it has power, in `world_checksum` after the lamps. At
+  `data::SPOIL_STEPS` (a game hour, 3 600) it resets and `spoil` takes
+  one part in `data::SPOIL_DIVISOR` (8), **rounded up**, off the room's
+  `veg`, `tofu` and `stew` (`set_stock`) and off the hold's `Vegetable`
+  and `Tofu` (`cargo[..]`, then `on_ship_changed`, which is what shrinks
+  the cold store's grid) — the shelf is what the crew cook from, the
+  hold is what the grid lays out, the desk sells and a room built afresh
+  at the next dock stocks the shelf from, and the two are already only
+  loosely one number (eating comes off the shelf alone). Fibre is not
+  spoiled. `WorldEvent::FoodSpoiled { units }` (58) says what the shelf
+  lost. Because the clock only runs unpowered and resets on power, **an
+  overdraw a battery covers costs nothing** and what is left when the
+  power comes back stays — which is what gives a battery a job.
+
+`WorldEvent::Brownout` (56) and `PowerRestored` (57) are said once each
+way off `World::browned_out`, the last step's answer, which is derived
+and not hashed. Life support and the doors are `essential` and run on;
+nothing here kills anybody, and there is deliberately **no veto on the
+speed** for a brownout: at 48× an hour is a real second and a quarter,
+and the answer is that a brownout is expensive, not fatal.
+`throttle_reactors_for_probe` now **sticks** across `on_ship_changed`
+(`probe_supply`), since a spoil runs `on_ship_changed` and the old
+one-shot throttle came off with the first crate. Four tests:
+`a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power_is_back`
+(the playtest ship, all three consequences, the benches, the doors and
+life support, then the power back and the food staying put),
+`a_short_overdraw_a_battery_covers_costs_nothing`, `an_unwired_lamp_is_dark`
+(a standing light on bare deck at `(12, 9)`) and
+`two_runs_on_one_seed_spoil_the_same_amount`; `ship_lamps(&world)` beside
+them reads the ship's lamps off the room by tile. Adding the clock to
+the checksum and wiring the fixtures' lamps moved `REFERENCE_CHECKSUM`.
+Out of scope, and next: reactor and conduit damage, which is what makes
+a brownout happen *to* a crew rather than by their own design.
 
 ## A lamp shot out is remembered by where it hangs, and is out in both rooms
 
@@ -1751,3 +1906,355 @@ past or under, so `a_station_is_a_place_the_room_can_live_in` and the
 walkability test cover them without a change. The layout is not in
 `world_checksum`, so `REFERENCE_CHECKSUM` did not move. What a comfort
 does is `crates/game/CLAUDE.md`, "Surroundings".
+
+## A planet's surface is a settlement, and landing is a docking
+
+`crates/world/src/surface.rs` (September 2026, feature 52). A rocky
+planet or an ice world (`surface::landable`) has a **settlement** on it,
+and the settlement is a `Station` like any other — `Plan::Surface`, laid
+out through the same `furnish` on a `Floor` of its own — found through
+`World::station` by `surface_id(body)` (`SURFACE_BASE | body`, well
+clear of the generator's ids; `surface_body` reads it back). That is the
+whole trick: `dock_at`, `join_rooms`, `Residents::open`, trade at the
+desk, `people_of` at a hostile one, `hire`, `loot`, `apply_stances` — all
+of it works on the surface untouched because to the world the surface
+*is* a station. `World::surfaces` holds one `Surface` a landable body,
+in body order — the roll only: seed, side, shelf, off a stream of its own
+(`Purpose::Settlement`, from the galaxy seed, the star and the body; the
+generator draws nothing from it and the galaxy checksum is what it was).
+The **layout is built the first time it is asked for** (`Surface::station`,
+a `OnceLock`): a surface is `SURFACE_SIDE` (96) tiles of deck and twenty
+thousand parts on it, and a world opens every station of its system at
+once, so the towns wait until somebody lands. Since feature 54 the roll
+also carries a **biome** (`Biome`: `Desert = 0`, `Temperate = 1`,
+`Arctic = 2` — an ice world is arctic, a rocky planet rolls desert or
+temperate evenly off branch "BIOME") and a **population**
+(`SURFACE_POPULATION`, 10 to 50 inclusive, off branch "POPL"), both
+serialised on `Surface`; `Station::population` carries the number —
+the plan's for a station, the roll for a surface — and
+`Station::residents()` answers it. `Plan::residents(Surface)` is the
+*most* a town holds, which only `layout` and the tests ask. `a_landable_body_has_a_settlement_…`
+pins that a world opens with none built.
+
+Its side goes on the world's `hostile` list with the stations' (`start`
+and `jump`), so `stance` reads it, `world_checksum` eats it and the map
+rings the planet by it (`world_paint::paint_map`, red or blue like a
+station) — "planets, like stations, can be hostile or friendly". The
+share is `worldgen::data::HOSTILE_SHARE`, pinned at `0.18..0.42` over the
+reference galaxy. `REFERENCE_CHECKSUM` did not move: the spawn system's
+settlements all rolled friendly.
+
+**The plan is a town** (`surface::floor(side, biome, population, seed)`,
+feature 54): the whole build area bar its rim is ground — `Floor::open`,
+**no skin**: every tile deck — and since feature 55 the deck's edge is
+not the world's, see "The town stands on a plain" below — with the port at the
+middle of the west edge, where the **pad** is (the ship docks airlock to
+gate exactly as at a station, so `berth`, `join` and `join_mirror` are
+what they were). By the pad, the same in every town: the **watch house**
+south of it, a small square with the sensor dish on its roof
+(`Floor::array`), its door towards the pad, two sandbags before it and
+the **guard's post** (`GUARD_POST`, `(5, SURFACE_SIDE / 2 + 8)`) between
+them; the **trading house** north of it — the trading hall (the reactor
+room: desk, generator, life support, batteries) with its door onto the
+yard, the research room (the research desk and **one** run of trays; it
+is eight rows inside so `furnish` fits no second) onto the west cross
+street, the store onto the main street. Three streets run east from the
+pad — the **main street** eight wide on the pad's rows, a north and a
+south street six wide — crossed by two more, the east one three tiles
+past the hall wherever the hall ends; the streets are what a Bim walks
+out along, and they run to the edge of the deck. Between them the lots:
+the **gathering hall** on the main street in the middle (the mess, with
+the galley along its north wall and tables in `Floor::mess_columns`
+columns four tiles apart, three rows deep, a chair for everybody — the
+`TooFewChairs` error is asked at the population); **bathhouses** (a
+toilet, a basin and a shower; one for every twelve) and **houses** (two,
+three, four or — in a big town — six bunks, the quarters' pattern: a
+column of bunks at `R180` every three rows, the door two tiles in from
+the corner, a picture or a plant in some) poured along the streets'
+frontages nearest the middle first with a rolled gap and setback each,
+until there is a bunk each and two over for mercenaries; and **food**
+beyond the east cross street and along the south — blocks of four
+`PartKind::Field` strips (six wide, a row every three so the worked row
+and the row behind are clear; a strip for every two people, since a
+field grows at half a bay's pace) or, on an arctic world,
+**greenhouses** of three hydroponic runs each with an aisle down the
+east side, a bay for every four counting the research room's. What
+each lot leaves is a frontage for more houses. Twenty standing lights
+along the streets and in the yard, a big plant on the main street
+before the hall, and a wall light in every building (`Floor::lit`).
+Everything the standard rooms do not lay — the extra bunks, fittings,
+bays and fields — goes through `Floor::extra`, placed **after the
+comforts and before the standing lights**, so it is laid clear of the
+lamps' tiles (the inner corners and every sixth tile along a wall): an
+extra on a lamp's tile is dropped, which is why a house's inner height
+is `3 × bunks + 1` (the corner under the last bunk stays free).
+
+**The wild** (`surface::wild`, `Floor::wild`, run last of all) is
+everything the town is not, out to the edge: a ring `RING` (6) deep at
+the edge of the deck in thirty-two stretches each a gap at
+`GAP_CHANCE`, and a scatter thinning towards the town by a breadth-first
+distance from the buildings and fields (`rates`) — temperate: `Tree`
+forest, clumps of trees, `Shrub`s, a lake of `Water`, a few `Boulder`s;
+desert: `Boulder` lines for cliffs and outcrops, `Shrub`s the painter
+draws as cacti, one oasis pool with palms; arctic: rock outcrops, a
+frozen lake, firs, hardly a shrub. Nothing grows within one tile
+(eight-neighbour) of a use spot, a door's tiles or the two beyond either
+face, the post or a standing light, nor in a building, a street, the
+yard or a field lot (`Floor::clear`). Then a **four-way flood from the
+pad's inside tile** over every tile nothing blocks (a door is open)
+finds what can be reached, and every free tile it did not reach is
+filled with the nearest wild kind, so there are no pockets: a one-tile
+straight gap is walked by the room's navigation and a diagonal-only gap
+is not, and a four-way flood says exactly that. Every roll is an
+integer or a `Rng` draw in tile order — no floats decide anything — so
+a town is the same town on every machine. Building one is
+`station::Placer` (below), and `layout_surface(seed, biome, population)`
+takes about four milliseconds; `layout(kind, Plan::Surface, seed)` is
+the biggest temperate town, for the map and the tests.
+`Plan::Surface` is **not on `Plan::ALL`**: it is a planet's, never
+rolled, so the tests that walk every plan never see it;
+`a_town_is_a_place_the_room_can_live_in_and_can_be_walked_in_every_biome`
+(`tests_surface.rs`) runs the checks — `validate`, the port, the desks,
+the bunks, the chairs, the food, the wild's keep-outs, and the
+walkability contract from the pad to every use spot, the post and every
+walkable tile, by `Nav::can_reach` since a route per tile over nine
+thousand tiles is minutes — on every biome at populations 10, 27 and 50
+on two seeds. `BIMS_NAV_MAP=Surface` prints the plan.
+
+**`station::Placer`** is what `furnish` builds through now: the design
+with the occupancy of its four layers kept beside it, `put` refusing
+exactly what `shipdesign::design::place` refuses (bounds, the layer
+taken, what it requires missing, no wall at a hung part's back) and
+`take` removing an object-layer part, ids and order as `apply` gives
+them — a town is twenty thousand parts, and `apply` rebuilding the grid
+per edit was the better part of a minute. It must answer **identically**
+to a run of `apply`s so no station's `design_hash` moves;
+`furnish_through_the_placer_is_furnish_through_apply` replays a hub, a
+pod and the arena through `apply` (`Placer::replay`, off the log of
+attempts it keeps under `cfg(test)`) and asks for equality part for
+part. The lamps' `wall_light_rotation` is `Placer::hung`, the same rule
+on the occupancy. `REFERENCE_CHECKSUM` did not move for any of this.
+
+**Daylight.** A town is under a sky: `Residents::open` on a surface sets
+`Game::set_daylight` over the whole design, `Residents::join` over the
+station's area at the mirror's shift (not `station_box`, which is the
+ship's there and the ship has a roof), `Residents::unjoin` over the
+design again, and `join_rooms` over `Aboard::station_box` on the crew's
+joined deck (`Aboard::daylight_over_station`); `unjoin_rooms` sets
+`None` on the crew's fresh room. `Aboard::leave_the_station_s` drops
+`more.fields` in the station's box as it drops the bays, so the crew
+never tend a town's fields. `a_settlement_s_ground_is_lit_by_day` lands,
+stands James on the pad and asks `seen_at` of a tile of the main street
+beyond every lamp's reach and beyond `DARK_RANGE`, with the sky and
+without — after `Game::observe`, since a step alone does not look.
+
+**The guard.** The town's people are its population and the first of
+them (`surface::GUARD`) is the guard: `Residents::post_guard`, called
+after every open, join and unjoin of a surface's room (each builds the
+room afresh and drops every post), `send_to`s it to the post — a post,
+so it goes off to eat and sleep and comes back (`Game::return_to_post`)
+— and that is the whole of "stands and looks out": at a hostile
+settlement it is the first enemy the crew meet, standing in the open
+behind its sandbags. `send_everybody_home` at a cast-off sends it ashore
+with the rest; the unjoin posts it again. `Residents::open` cuts the
+room at the bunks, and a town has its population's and two over.
+
+**The landing** is `Command::Land { slot }` — from the helm, the ship
+`Holding` in the frame of a body with a surface (`World::can_land`:
+`Refusal::NotHolding` = 29 elsewhere, `NoPlanetHere` = 32 over anything
+else, `UnderConstruction`) — and it is **the docking state**:
+`ShipState::Docking { station: surface_id, hold: above(body), .. }`,
+where `above` is `LANDING_HEIGHT` (`ARRIVAL_RADIUS_BODY`) straight north
+of the planet, so `come_alongside` slides the ship over the planet first
+and then straight down onto the pad, over `LAND_MINUTES` (8) rather than
+`DOCK_MINUTES`, and `dock_at` at the end of it ties the ship up and joins
+the rooms as at any berth. `WorldEvent::Landing { body }` = 53 at the
+start and `Landed { body }` = 54 in place of `Arrived`; `frame_candidate`
+maps a surface's station id to `Node::Body`, so the view is the
+**planet's** throughout (`Frame::Local(Body)`), and `World::landed()`,
+`landing()` and `lifting()` — the body, and how far along — are what the
+painter reads. A Confirm from the pad is the cast-off as at a station,
+then `Undocking` **up** — `along` from the pad to `above`, which is
+nearly north (the pad is a few tiles west of the planet's middle), over
+`LIFT_MINUTES` (6), `LiftedOff { body }` = 55 in place of `Undocking` —
+so a ship that has just lifted off is exactly where one that has just
+arrived at the planet is, and the trip is planned from there.
+`hold_point` of a surface is `above` too. `settle_residents` never opens
+a surface's room from range (`nearest_station` walks `stations` alone)
+and drops it on the first step of the lift; `unjoin_rooms` finds the
+residents' station through `station()` now, so a surface's room is
+unjoined like a station's. `a_ship_holding_over_a_planet_lands_on_the_pad_and_lifts_off_straight_up`
+runs the lot from the east of the planet — the slide, the descent, the
+join, the guard reaching its post, a buy at the desk, the climb; and
+`a_land_wants_a_hold_over_a_planet_with_ground` the refusals.
+`land_for_probe` (`BIMS_LANDED=1`) sets the ship down without the
+descent; `landing_for_probe(done)` (`BIMS_LANDING=0.7`) begins one and
+runs it that far. `spawn_with_ground` is `spawn_anywhere` kept to the
+systems whose **first** landable body rolled friendly — the one
+`land_for_probe` picks — so `nix run .#test_planet` (`test` landed:
+`ship::session::pick_ground`) never opens under the guard's fire;
+`a_roll_picks_a_dock_in_a_system_with_friendly_ground` pins it, reading
+both dock lists off `every_system()` once because a roll generates the
+galaxy every call.
+
+**From a station in the planet's orbit, the trip to the planet is a
+hop to the point over it** (September 2026). A station orbits its
+parent `STATION_ORBIT` out — about 10 000 — which is *inside*
+`ARRIVAL_RADIUS_BODY`, so from its berth the planet was
+`PlanError::AlreadyThere`, and since Land wants `Frame::Local(Body)`
+and a dock is the station's frame, a ship docked at a derelict round a
+planet could never land on it — "I can't land at planets". Two rules
+fixed it, both in the rules crates: `flight::plan_trip` aims a trip to
+a body from inside its arrival circle at the top of the circle,
+`ARRIVAL_RADIUS_BODY` straight over the body (`World::above`, where a
+landing starts and a lift-off ends), with no arrival radius, so only a
+ship standing on that point is already there; and `frame_candidate`
+keeps a **holding** ship in the frame it is in while it is within the
+exit radius (`within_exit_radius`), rather than handing it to whatever
+discovered node is nearest — the orbital is nearer than the planet's
+centre from most of its orbit, and a ship that had just flown to the
+planet flipped to the station's frame on arrival two times in five.
+`undock_for_probe` sets `Frame::Space` for that reason (a probe that
+puts the ship somewhere else next wants it to start from nowhere; the
+hysteresis test sets `Holding` by hand and keeps its frame), and
+`landing_for_probe` sets the planet's frame outright. The fixture's
+`reference_target` skips the dock's parent body by name now rather than
+by `AlreadyThere`, so `REFERENCE_CHECKSUM` did not move.
+`from_a_dock_in_a_planet_s_orbit_a_trip_to_the_planet_ends_over_it_in_its_frame`
+pins the hop, the frame six hundred steps on, and Land on offer.
+
+**The picture** is `ship::world_paint`: landed, the backdrop is the
+planet's ground (`GROUND_ROCKY`/`GROUND_ICE`, patched by `ground`) in
+place of the void, no stars, no planet in the sky, a paved **pad** under
+the hull's box (`pad`), and `stations` draws the settlement — chained
+onto the list, since it is not in `World::stations` — and nothing in
+orbit. Landing and lifting, `local_node` grows the planet's disc by
+`LANDING_GROWTH` (40×) geometrically over the descent and shrinks it
+over the climb, and `blackout` fades the window to black over the last
+quarter of a landing and from it over the first fifth of a lift-off; the
+app holds the black `BLACKOUT_HOLD` seconds after `Landed` while the
+ground is laid out, then lifts it (`screens/game.rs`). The strip's
+**Land** button shows in a landable planet's frame, greyed with why; the
+readout says Landing, Landed and Lifting off (`state_name`); a
+settlement is named for its planet ("Ice world 1 settlement", `node_name`).
+
+## The town stands on a plain, and the plain is walked on windows
+
+Feature 55 (September 2026). The settlement's deck is no longer the
+edge of the ground: a landed ship stands on a **plain**
+`bims::terrain::EXTENT` (10 000) tiles a side, centred on the deck's
+middle, and the deck is a patch of it. What is beyond the deck is
+**terrain** — `bims::terrain::Terrain`, a function of the planet's seed
+(`Surface::terrain`: the map seed salted, the biome and
+`SURFACE_SIDE`), read at any tile in the *station's* tile frame and
+never stored whole: integer value noise (three octaves off a hash, a
+smoothstep in fixed point, no floats anywhere) thresholded per biome
+into `Ground` — `Open`, `Tree`, `Shrub`, `Boulder`, `Water`, `Cliff`,
+`Forest`. Everything but open blocks a body; a cliff and a forest stop a
+line of sight, and nothing smaller does — a lone tree throwing a
+sixty-tile shadow was a picture of stripes. A `CLEARING` (48) tiles about the deck is
+open ground with singles on an even lattice (never two touching, so the
+scatter can wall nothing off); the outer `RIM` (48) tiles are cliff with
+scree before it, and past the extent everything is cliff. The tests in
+`terrain.rs` pin the clearing, the rim, the determinism and that a
+four-way flood from the deck reaches most of a thousand-tile square in
+every biome, with every kind of ground in it. The thresholds are the
+`Rules` tables there; `calibrate::histogram` (ignored) prints the
+noise's percentiles for tuning them.
+
+**The room on a plain.** `World::join_rooms` hands `Aboard::joined` the
+terrain when the station is a surface, and the layout is
+`bims::aboard::layout_of_on(design, Some(plane))`: the room's box is the
+joined deck's floor box plus `DECK_MARGIN` (12) tiles of ground every
+way — `Room::interior` and `bounds` alike, so the sight mask, the light
+map and the filth cover that and no more — a tile in it with nothing
+on it is ground to walk rather than void to keep off (the hull's skin,
+a structure tile with no floor, is still solid), and what the ground
+blocks or stops sight at in the margin goes into `others` and `opaque`
+as row runs (`Plane::solids_in`, `opaque_in`). The room keeps the plane
+on `Room::plane` — a `bims::terrain::Plane`: the terrain, the station's
+frame in the room's tiles (`Joined::station_origin/ex/ey` in whole
+tiles, so a room tile is the station's by two projections), a cache of
+the chunks looked at (32 tiles square, not saved), and the fog. On a
+relayout the room keeps its own plane and takes the new deck box
+(`Room::relayout`). The whole box is under daylight
+(`Aboard::daylight_over_station`) and everything outside the hull's own
+box is foreign (`Game::set_foreign_outside`, `Sight::set_foreign_outside`),
+so the ground beside the ship is black until looked at like the town.
+
+**Beyond the box a body is afield**, and walks a window of its own:
+`Game::refresh_afield`, at the top of every step, sets
+`Character::afield` from where each body stands (outside the room's
+box) and keeps a [`Nav::outside`] — `OUTSIDE_RADIUS` (100) tiles every
+way, a cell a tile — for every body that is afield *or bound beyond the
+box* (`Character::far`), over the ground's runs and whatever of the
+deck's solids and locked doors fall in it, built again once the body is
+`OUTSIDE_RECENTRE` tiles from its middle (`Maps::afield`, one a body;
+`Game::afield_blockers` for the push-out; neither saved). A route is
+`Game::plan_route`: on the deck's grid when both ends are in the box,
+else on the window, through `Character::walk_to` — the route to the
+free cell nearest the target *as the grid clamps it*, and when that
+ends more than a tile short of the target, `far` keeps the rest: the
+body is not `arrived()` until `far` is `None`, and
+`Game::continue_far_walk` (top of `tick_bim`) plans the next leg from
+wherever the last ended, on the window that has by then been built
+again about the body. A leg that ends where the body already stands is
+the walk over — as near as the ground allows. A leg with no route
+gives the walk up and puts the chain down, as `unstick` does; `unstick`
+and `return_to_post` plan on the body's grid (`Game::nav_for`), and a
+post beyond the window is the point itself, found when the walk gets
+there (`nearest_stand`). `move_body` holds a body on a window walk to
+the window and its solids rather than the box, or the box's edge would
+hold it in. A player order onto the plain has no door to work
+(`order_move_for`); `Task::enter` plans a need's walk the same way, so
+a hungry body a thousand tiles out walks home leg by leg. `is_outside`
+is still the suit and the airlock, and nothing else;
+`Character::off_deck` is either.
+
+**Seeing the plain** is `Plane::observe`, from the same eyes as the
+mask and right after it (`Game::observe_from`): every tile off the
+room's box within `VIEW` (60) of an eye whose line from the eye's tile
+crosses nothing opaque — the plain's own, and on the deck the mask's
+cells (`Sight::opaque_room_tile`), doors and all, so a body indoors
+sees nothing of the plain through the walls and the ship's hull throws
+a shadow over the ground behind it — and every tile beside one of
+those, which fills the pinholes and softens the stepped edge a trace
+to tile middles leaves. Traced tile by tile over a window of flags,
+only when an eye has crossed a tile. Inside the box the mask and the
+light map have the same range on a plain (`Sight::set_range`, set by
+`Room::from_layout` and carried over a relayout): a lit tile further
+than `VIEW` is not seen, and the picture's rays stop there too — which
+is also what keeps them from streaking, with `RAYS` at 4096, across a
+box that is bigger than any deck was. Seen is a bitset a chunk
+(not saved), explored the same (saved); `veil_at_room` is what the
+painter draws — nothing, grey or black.
+
+**The picture** is `world_paint::plain`, drawn after the backdrop and
+before the town: every tile without floor within `VIEW` of the camera's
+middle and within the canvas (the window is the world that is loaded),
+in the room's frame turned with the ship — water, cliff and forest as
+runs along a row (a cliff with a lip along its top and a shadow at its
+foot, a forest with crowns on one tile in three), a tree, a shrub and a
+rock as the town's are (`fittings::part_in`, through a placed part at a
+`PLAIN_SHIFT` so the tile is unsigned), the ground's decoration on the
+rest — and then the fog over what is off the room's box, black and
+grey rectangles — a run along a row joined to the same run under it,
+both opaque (the grey is the fog's grey over the ground's colour) and
+lapped by `VEIL_LAP`, since at the zoom the floor allows a tile is a few
+pixels and the feathering of every edge showed as stripes. The fog
+over the box is the room's light map as before. The camera on a planet
+is held at or above the scale where the canvas's *nearer* edge is `VIEW`
+tiles from its middle (`Game::hold_view_to_the_ground`, once a frame;
+`Camera::set_floor` — applied in `zoom` as well as `settle`, or a
+notch of the wheel past the floor shoved the view sideways every time),
+and the plain is drawn out to `PLAIN_DRAWN` (twice `VIEW`) to cover the
+corners. `BIMS_ZOOM=0.3` zooms the game view about its middle once it is
+fitted, and `BIMS_AFIELD=1` lands the simulation with the crew member
+walked out west of the ship and a minute gone by — the two together are
+how the plain is looked at; `a_landed_picture_as_svg` (ignored, in
+`crates/ship`) dumps the same picture as an SVG.
+`the_ground_beyond_the_town_is_a_plain_the_crew_walk_out_on_and_back`
+(`tests_surface.rs`) walks a crew member two hundred tiles north of the
+town — past the margin, past one window — and back, with its errands
+off, and asks the fog what it saw. `SAVE_VERSION` went to 3 for
+`Room::plane`.

@@ -32,7 +32,7 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// Pinned rather than computed, for the same reason `REFERENCE_HASH` is: a
 /// test comparing two computed values would pass happily while both were
 /// wrong. Update it only when the scenario below is meant to change.
-pub const REFERENCE_CHECKSUM: u64 = 0x_9188_b528_7c70_3160;
+pub const REFERENCE_CHECKSUM: u64 = 0x_5f20_fff4_eb01_4d7b;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -66,18 +66,22 @@ pub fn simulation_world(
 
 /// Somewhere in the spawn system that is not where the ship is standing.
 ///
-/// The lowest-numbered node that is not the dock and is not already
-/// there — the dock's own parent body is inside its arrival radius, and
-/// which body that is depends on the generator — so the scenario does not
-/// depend on which of them the generator happened to put nearest.
+/// The lowest-numbered node that is not the dock, not the dock's own
+/// parent body — which body that is depends on the generator, and a trip
+/// to it from its orbit is a hop to the point over it rather than the
+/// burn the checksum was pinned on — and not already there, so the
+/// scenario does not depend on which of them the generator happened to
+/// put nearest.
 pub fn reference_target(world: &World) -> Target {
     let docked = match &world.ship.state {
         crate::ShipState::Docked { station } => Some(*station),
         _ => None,
     };
+    let parent = docked.and_then(|id| world.system.station(id)?.parent_body);
     for node in world.system.nodes() {
         let target = match node {
             worldgen::Node::Station(id) if Some(id) == docked => continue,
+            worldgen::Node::Body(id) if Some(id) == parent => continue,
             worldgen::Node::Body(id) => Target::Body(id),
             worldgen::Node::Station(id) => Target::Station(id),
         };

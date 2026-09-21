@@ -129,21 +129,21 @@ pub use dock::{Port, port};
 // re-exported here rather than leaving every caller to depend on `economy`
 // for the sake of a type and two lookups.
 pub use economy::{
-    Footprint, Money, Storage, cells, footprint as resource_footprint, stack_size, stacks_of,
-    starting_pool, storage, trade_price, trade_value,
+    Footprint, Money, Storage, cells, footprint as resource_footprint, market, stack_size,
+    stacks_of, starting_pool, storage, trade_price, trade_value,
 };
 pub use mass::{acceleration, hull_mass, ship_mass};
 pub use materials::{bound_materials, build_from_cargo, deconstruct_to_cargo, recipe_for};
 pub use parts::{
     BATTERY_CHARGE, BIG_PLANT_LIFT, BIG_PLANT_TILES, Comfort, ENGINE_POWER, FUSION_OUTPUT,
     GRID_COLS, Layer, PICTURE_LIFT, PICTURE_TILES, PartDef, PartKind, REACTOR_OUTPUT, Rotation,
-    SMALL_PLANT_LIFT, SMALL_PLANT_TILES, STANDING_LIGHT_TILES, TILE, WALL_LIGHT_TILES, comfort,
-    essential, hangs_on_wall, is_comfort, is_cover, is_diagonal, is_light, is_wall, light_tiles,
-    part_mass, solid_corner, wall_light_back,
+    SMALL_PLANT_LIFT, SMALL_PLANT_TILES, STANDING_LIGHT_POWER, STANDING_LIGHT_TILES, TILE,
+    WALL_LIGHT_POWER, WALL_LIGHT_TILES, comfort, essential, hangs_on_wall, is_comfort, is_cover,
+    is_diagonal, is_light, is_wall, light_tiles, part_mass, solid_corner, wall_light_back,
 };
 pub use power::{
-    Budget as PowerBudget, Network, Thrust, budget as power_budget, is_powered, networks, thrust,
-    unpowered,
+    Budget as PowerBudget, Network, Thrust, budget as power_budget, is_powered, networks,
+    powered_parts, thrust, unpowered,
 };
 pub use recipes::{RECIPES, Recipe, recipes_are_sound};
 pub use research::{

@@ -527,126 +527,129 @@ mod tests {
     }
 
     #[test]
-    fn a_stroke_is_a_band_that_leaves_the_middle_empty() {
-        let clip = Rect::new(Vec2::ZERO, Vec2::new(100.0, 100.0));
-        let mut buf = ShapeBuf::new(clip, 1.0);
-        let ring = [
-            KIND_ELLIPSE,
-            50.0,
-            50.0,
-            40.0,
-            40.0,
-            0.0,
-            0.0,
-            2.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-        ];
-        buf.replay(&ring, View::PIXELS);
-        // Every vertex sits on the stroke's two edges or half a pixel
-        // either side of them, never at the centre; the ones furthest in
-        // and out are the clear ends of the ramps.
-        for v in &buf.mesh.vertices {
-            let d = ((v.pos.x - 50.0).powi(2) + (v.pos.y - 50.0).powi(2)).sqrt();
-            let r = [18.5f32, 19.5, 20.5, 21.5]
-                .into_iter()
-                .find(|r| (d - r).abs() < 0.1)
-                .unwrap_or_else(|| panic!("{d} is on no ring"));
-            let clear = r == 18.5 || r == 21.5;
-            assert_eq!(v.color == egui::Color32::TRANSPARENT, clear, "{d}");
+    fn a_stroke_is_a_band_a_hairline_is_fainter_and_a_mitre_moves_every_edge_alike() {
+        // --- a_stroke_is_a_band_that_leaves_the_middle_empty ---
+        {
+            let clip = Rect::new(Vec2::ZERO, Vec2::new(100.0, 100.0));
+            let mut buf = ShapeBuf::new(clip, 1.0);
+            let ring = [
+                KIND_ELLIPSE,
+                50.0,
+                50.0,
+                40.0,
+                40.0,
+                0.0,
+                0.0,
+                2.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+            ];
+            buf.replay(&ring, View::PIXELS);
+            // Every vertex sits on the stroke's two edges or half a pixel
+            // either side of them, never at the centre; the ones furthest in
+            // and out are the clear ends of the ramps.
+            for v in &buf.mesh.vertices {
+                let d = ((v.pos.x - 50.0).powi(2) + (v.pos.y - 50.0).powi(2)).sqrt();
+                let r = [18.5f32, 19.5, 20.5, 21.5]
+                    .into_iter()
+                    .find(|r| (d - r).abs() < 0.1)
+                    .unwrap_or_else(|| panic!("{d} is on no ring"));
+                let clear = r == 18.5 || r == 21.5;
+                assert_eq!(v.color == egui::Color32::TRANSPARENT, clear, "{d}");
+            }
         }
-    }
 
-    #[test]
-    fn a_hairline_is_drawn_a_pixel_wide_and_fainter() {
-        let clip = Rect::new(Vec2::ZERO, Vec2::new(100.0, 100.0));
-        let mut buf = ShapeBuf::new(clip, 1.0);
-        let hair = [
-            KIND_RECT, 50.0, 50.0, 40.0, 40.0, 0.0, 0.0, 0.25, 1.0, 1.0, 1.0, 1.0,
-        ];
-        buf.replay(&hair, View::PIXELS);
-        let solid = buf.mesh.vertices.iter().map(|v| v.color.a()).max().unwrap();
-        assert!(solid > 0 && solid < 128, "{solid}");
-        // A pixel wide about the path at 30: the ramps meet on it, solid,
-        // and reach nothing half a pixel either side.
-        let at = |x: f32| {
-            buf.mesh
-                .vertices
-                .iter()
-                .find(|v| (v.pos.x - x).abs() < 0.01)
-                .map(|v| v.color.a())
-        };
-        assert_eq!(at(30.0), Some(solid));
-        assert_eq!(at(29.0), Some(0));
-        assert_eq!(at(31.0), Some(0));
-    }
-
-    #[test]
-    fn a_stroked_triangle_is_hollow() {
-        let clip = Rect::new(Vec2::ZERO, Vec2::new(100.0, 100.0));
-        let mut buf = ShapeBuf::new(clip, 1.0);
-        let outline = [
-            KIND_TRIANGLE,
-            50.0,
-            50.0,
-            40.0,
-            40.0,
-            0.0,
-            0.0,
-            2.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-        ];
-        buf.replay(&outline, View::PIXELS);
-        // Nothing lands deep inside the triangle: its middle, the centroid
-        // of (30,30) (30,70) (70,70), is well off every edge.
-        let (cx, cy) = (130.0 / 3.0, 170.0 / 3.0);
-        for v in &buf.mesh.vertices {
-            let d = ((v.pos.x - cx).powi(2) + (v.pos.y - cy).powi(2)).sqrt();
-            assert!(d > 6.0, "{:?}", v.pos);
+        // --- a_hairline_is_drawn_a_pixel_wide_and_fainter ---
+        {
+            let clip = Rect::new(Vec2::ZERO, Vec2::new(100.0, 100.0));
+            let mut buf = ShapeBuf::new(clip, 1.0);
+            let hair = [
+                KIND_RECT, 50.0, 50.0, 40.0, 40.0, 0.0, 0.0, 0.25, 1.0, 1.0, 1.0, 1.0,
+            ];
+            buf.replay(&hair, View::PIXELS);
+            let solid = buf.mesh.vertices.iter().map(|v| v.color.a()).max().unwrap();
+            assert!(solid > 0 && solid < 128, "{solid}");
+            // A pixel wide about the path at 30: the ramps meet on it, solid,
+            // and reach nothing half a pixel either side.
+            let at = |x: f32| {
+                buf.mesh
+                    .vertices
+                    .iter()
+                    .find(|v| (v.pos.x - x).abs() < 0.01)
+                    .map(|v| v.color.a())
+            };
+            assert_eq!(at(30.0), Some(solid));
+            assert_eq!(at(29.0), Some(0));
+            assert_eq!(at(31.0), Some(0));
         }
-        assert!(!buf.is_empty());
-    }
 
-    #[test]
-    fn the_mitre_moves_every_edge_the_same_distance() {
-        let square = [
-            Vec2::new(0.0, 0.0),
-            Vec2::new(10.0, 0.0),
-            Vec2::new(10.0, 10.0),
-            Vec2::new(0.0, 10.0),
-        ];
-        for n in normals(&square) {
-            // Out along the diagonal, by root two: one unit along each axis.
-            assert!(
-                (n.x.abs() - 1.0).abs() < 1e-5 && (n.y.abs() - 1.0).abs() < 1e-5,
-                "{n}"
-            );
+        // --- a_stroked_triangle_is_hollow ---
+        {
+            let clip = Rect::new(Vec2::ZERO, Vec2::new(100.0, 100.0));
+            let mut buf = ShapeBuf::new(clip, 1.0);
+            let outline = [
+                KIND_TRIANGLE,
+                50.0,
+                50.0,
+                40.0,
+                40.0,
+                0.0,
+                0.0,
+                2.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+            ];
+            buf.replay(&outline, View::PIXELS);
+            // Nothing lands deep inside the triangle: its middle, the centroid
+            // of (30,30) (30,70) (70,70), is well off every edge.
+            let (cx, cy) = (130.0 / 3.0, 170.0 / 3.0);
+            for v in &buf.mesh.vertices {
+                let d = ((v.pos.x - cx).powi(2) + (v.pos.y - cy).powi(2)).sqrt();
+                assert!(d > 6.0, "{:?}", v.pos);
+            }
+            assert!(!buf.is_empty());
         }
-        // The first corner is pushed towards negative x and y, and the
-        // same square the other way round comes out the same way out.
-        let first = normals(&square)[0];
-        assert!(first.x < 0.0 && first.y < 0.0);
-        let reversed: Vec<Vec2> = square.iter().rev().copied().collect();
-        let last = normals(&reversed)[3];
-        assert!(last.x < 0.0 && last.y < 0.0);
-        // A corner given three times over is still that corner's mitre.
-        let repeated = [
-            Vec2::new(0.0, 0.0),
-            Vec2::new(0.0, 0.0),
-            Vec2::new(0.0, 0.0),
-            Vec2::new(10.0, 0.0),
-            Vec2::new(10.0, 10.0),
-            Vec2::new(0.0, 10.0),
-        ];
-        let ns = normals(&repeated);
-        assert_eq!(ns[0], ns[1]);
-        assert_eq!(ns[1], ns[2]);
-        assert!(ns[0].x < 0.0 && ns[0].y < 0.0);
+
+        // --- the_mitre_moves_every_edge_the_same_distance ---
+        {
+            let square = [
+                Vec2::new(0.0, 0.0),
+                Vec2::new(10.0, 0.0),
+                Vec2::new(10.0, 10.0),
+                Vec2::new(0.0, 10.0),
+            ];
+            for n in normals(&square) {
+                // Out along the diagonal, by root two: one unit along each axis.
+                assert!(
+                    (n.x.abs() - 1.0).abs() < 1e-5 && (n.y.abs() - 1.0).abs() < 1e-5,
+                    "{n}"
+                );
+            }
+            // The first corner is pushed towards negative x and y, and the
+            // same square the other way round comes out the same way out.
+            let first = normals(&square)[0];
+            assert!(first.x < 0.0 && first.y < 0.0);
+            let reversed: Vec<Vec2> = square.iter().rev().copied().collect();
+            let last = normals(&reversed)[3];
+            assert!(last.x < 0.0 && last.y < 0.0);
+            // A corner given three times over is still that corner's mitre.
+            let repeated = [
+                Vec2::new(0.0, 0.0),
+                Vec2::new(0.0, 0.0),
+                Vec2::new(0.0, 0.0),
+                Vec2::new(10.0, 0.0),
+                Vec2::new(10.0, 10.0),
+                Vec2::new(0.0, 10.0),
+            ];
+            let ns = normals(&repeated);
+            assert_eq!(ns[0], ns[1]);
+            assert_eq!(ns[1], ns[2]);
+            assert!(ns[0].x < 0.0 && ns[0].y < 0.0);
+        }
     }
 
     #[test]

@@ -15,7 +15,8 @@
 //! name, and — because "does this star have a station" has to be answered by
 //! **generating the system** rather than by looking at the designations —
 //! every system's bodies and stations, with their kinds, parents, positions
-//! and names, what each station stocks and whose side it is on. A galaxy
+//! and names, what each station stocks, how its desk leans on every price,
+//! and whose side it is on. A galaxy
 //! whose stars all matched and whose stations did not would put two
 //! players' spawn pickers on different stations — or one player's crew
 //! ashore at a station the other's is shooting its way out of.
@@ -35,6 +36,7 @@ use crate::system::StarSystem;
 /// FNV-1a, written out by hand. Not a `Hash` derive and not `DefaultHasher`:
 /// those are explicitly allowed to differ between builds, and this number
 /// crosses between machines.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Fnv(u64);
 
 const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -116,6 +118,14 @@ pub fn galaxy_checksum(galaxy: &Galaxy, systems: &[StarSystem]) -> u64 {
             // dock: two builds whose stations stood in the same places and
             // disagreed about which of them shoot would be two galaxies.
             hash.eat(station.stock.0 as u64);
+            // And the desk's lean on every price, one entry a resource,
+            // for the same reason: a station that quoted two crews two
+            // prices for the same ore would be two stations. Sign
+            // extended, so a negative lean is not the same byte as a
+            // positive one.
+            for &lean in station.bias.0.iter() {
+                hash.eat(lean as i64 as u64);
+            }
             hash.eat(u64::from(station.hostile));
         }
     }

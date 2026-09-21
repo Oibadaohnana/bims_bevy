@@ -33,6 +33,7 @@ const BASIN: Color = Color::rgb(0.74, 0.79, 0.82);
 /// separate room even where the hull provides two of its walls.
 const BATH_DECK: Color = Color::rgb(0.17, 0.20, 0.24);
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bath {
     /// The whole compartment, bulkheads included.
     pub shell: Rect,

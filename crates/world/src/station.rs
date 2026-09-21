@@ -15,9 +15,11 @@
 //! # Deterministic, and the same on both targets
 //!
 //! Everything here is drawn from the blueprint's `map_seed` through
-//! `worldgen::rng`, in integers, and placed through `apply` — so a station
-//! is the same station on a native server and in a browser, and the ship
-//! docks in the same place on both to the unit.
+//! `worldgen::rng`, in integers, and placed through [`Placer`] — which
+//! answers exactly what `apply` would, part for part, without rebuilding
+//! the grid for every one of a town's twenty thousand parts — so a
+//! station is the same station on a native server and in a browser, and
+//! the ship docks in the same place on both to the unit.
 //!
 //! # A station does not turn
 //!
@@ -35,10 +37,11 @@
 //! and this is the shape it will need: a hull with a real extent, at a real
 //! position.
 
+use economy::market::{Bias, Market, MarketKind};
 use flight::angle;
 use shipdesign::dock::{self, Port};
 use shipdesign::parts::TILE;
-use shipdesign::{Budget, Edit, Money, PartKind, Rotation, ShipDesign, apply};
+use shipdesign::{Layer, Money, PartKind, PlacedPart, Rotation, ShipDesign};
 use worldgen::math::{DVec2, dvec2};
 use worldgen::rng::Rng;
 use worldgen::system::StationBlueprint;
@@ -47,9 +50,9 @@ use worldgen::{Node, StarSystem, StationKind, Stock};
 use crate::data;
 
 /// Layouts already built, by kind, plan and seed. A layout is a pure
-/// function of the three, and building one is two thousand edits through
-/// `apply`, each of which rebuilds the grid — cheap enough once, and a
-/// world opens every station of its system at once. Looked up only, never
+/// function of the three, and building one is thousands of parts through
+/// the [`Placer`] — cheap, but a world opens every station of its system
+/// at once and the painter and the tests ask again. Looked up only, never
 /// walked, so the order in it decides nothing.
 static BUILT: std::sync::Mutex<Vec<((StationKind, Plan, u64), ShipDesign)>> =
     std::sync::Mutex::new(Vec::new());
@@ -78,6 +81,26 @@ pub fn residents_of(kind: StationKind) -> u32 {
         StationKind::Derelict => 0,
         StationKind::Relay => 1,
         _ => bims::room::BERTHS as u32,
+    }
+}
+
+/// Which desk a station keeps, for `economy::market` to quote: the
+/// station's kind, bar the settlement on a planet's surface — a
+/// [`Plan::Surface`] is a market of its own kind whatever `StationKind`
+/// it is laid out as ([`crate::surface::SURFACE_KIND`]) — and none at a
+/// derelict, which stocks nothing and buys nothing. The one place the
+/// generator's kinds and the market's are mapped; `ship::Session` asks
+/// it for the design phase's desk too.
+pub fn market_kind(kind: StationKind, plan: Plan) -> Option<MarketKind> {
+    if plan == Plan::Surface {
+        return Some(MarketKind::Settlement);
+    }
+    match kind {
+        StationKind::Orbital => Some(MarketKind::Orbital),
+        StationKind::Refinery => Some(MarketKind::Refinery),
+        StationKind::MiningOutpost => Some(MarketKind::MiningOutpost),
+        StationKind::Relay => Some(MarketKind::Relay),
+        StationKind::Derelict => None,
     }
 }
 
@@ -121,6 +144,7 @@ pub fn enemies_of(crew: u32, worth: Money, start_worth: Money) -> u32 {
 /// Where a ship goes to be docked at a station: its centre of mass and its
 /// heading, with the two airlocks' outer faces touching.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Berth {
     pub position: DVec2,
     pub heading: f64,
@@ -128,6 +152,7 @@ pub struct Berth {
 
 /// One station of the system, as a place.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Station {
     pub id: u32,
     pub kind: StationKind,
@@ -137,6 +162,11 @@ pub struct Station {
     /// The layout: what the painter draws, what the room lays out, and what
     /// the port is found in.
     pub design: ShipDesign,
+    /// How many people live here: the plan's number for a station
+    /// ([`Plan::residents`]), and a town's own roll for a planet's surface
+    /// (`crate::surface::Surface::population`, ten to fifty). What
+    /// [`Station::residents`] answers, and what the layout was sized to.
+    pub population: u32,
     /// Where design tile (0, 0) sits in the system. The grid's centre is on
     /// the blueprint's position.
     pub anchor: DVec2,
@@ -144,6 +174,11 @@ pub struct Station {
     pub map_seed: u64,
     /// What is on its shelves; `World::buy` asks it and nothing else does.
     pub stock: Stock,
+    /// Its desk's own lean on every price, as the generator rolled it —
+    /// except the spawn's, which `World::start` sets to nothing, so an
+    /// opening pool buys the same at a kind of station whatever the seed
+    /// rolled. What [`Station::market`] quotes through.
+    pub bias: Bias,
     /// Whether the people aboard are enemies, as the generator rolled it —
     /// the blueprint's word, carried here for the painter and for
     /// `World::start`. The rule a caller wants is `World::stance`: the
@@ -175,8 +210,10 @@ impl Station {
             plan,
             anchor: at.sub(angle::rotate_design(dvec2(half, half), 0.0)),
             design,
+            population: plan.residents(blueprint.kind),
             map_seed: blueprint.map_seed,
             stock: blueprint.stock,
+            bias: blueprint.bias,
             hostile: blueprint.hostile,
             key: !blueprint.hostile
                 && blueprint.kind != StationKind::Derelict
@@ -204,13 +241,23 @@ impl Station {
         let centre = self.centre();
         self.plan = plan;
         self.design = layout(self.kind, plan, self.map_seed);
+        self.population = plan.residents(self.kind);
         let half = self.design.build_area as f64 * TILE as f64 / 2.0;
         self.anchor = centre.sub(angle::rotate_design(dvec2(half, half), 0.0));
     }
 
-    /// How many people live here: the plan's number, [`Plan::residents`].
+    /// How many people live here: [`Station::population`] — the plan's
+    /// number for a station, a town's roll for a surface.
     pub fn residents(&self) -> u32 {
-        self.plan.residents(self.kind)
+        self.population
+    }
+
+    /// Its desk, to quote from: the kind's ([`market_kind`]) with this
+    /// station's own lean. `None` at a derelict, which has nobody to
+    /// keep one — `World::sell` refuses there, and `World::buy` never
+    /// gets that far since it stocks nothing.
+    pub fn market(&self) -> Option<Market> {
+        market_kind(self.kind, self.plan).map(|kind| Market::new(kind, self.bias))
     }
 
     /// A design point — world units about the grid's origin, `y` down — in
@@ -318,6 +365,7 @@ impl Station {
 /// the bays, the shelves — so the room's people live in any of them the
 /// way they live in the hub. What differs is how the rooms hang together.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Plan {
     /// A hub and four arms, a docking lobby at the end of each, rooms hung
     /// two deep off the north and south arms; corridors five wide with a
@@ -346,13 +394,15 @@ pub enum Plan {
     /// ending in a docking bay — with the rooms between the arms. 52 and
     /// up. Five.
     Comb,
-    /// Not a station's at all but a planet's: the settlement the ship lands
-    /// at, laid out on the ground — open, no skin — with the pad at its
-    /// west edge, the trading house and the watch house beside it and
-    /// standing lights between (`crate::surface`). Never rolled: a body's
-    /// surface is this whatever its seed says, and no station is. Sized
-    /// [`data::SURFACE_SIDE`] whatever its kind; [`data::SURFACE_RESIDENTS`]
-    /// live there.
+    /// Not a station's at all but a planet's: the town the ship lands at,
+    /// laid out on the ground — open, no skin — with the pad at its west
+    /// edge, the watch house and the trading house beside it, a hall,
+    /// houses along its streets, fields and the wild out to the edge
+    /// (`crate::surface`). Never rolled: a body's surface is this whatever
+    /// its seed says, and no station is. Sized [`data::SURFACE_SIDE`]
+    /// whatever its kind; how many live there is the surface's own roll
+    /// ([`Station::population`]), and [`Plan::residents`] answers the most
+    /// a town holds, since only `layout` and the tests ask it.
     Surface,
 }
 
@@ -402,6 +452,10 @@ impl Plan {
     /// How many people live aboard: nobody on a derelict, one on a relay
     /// whatever the plan, else the plan's number — always short of the
     /// bunks by two or more, so there is a bed for a mercenary for hire.
+    /// A surface's is the **most** a town holds
+    /// ([`data::SURFACE_POPULATION`]): the town's own number is rolled
+    /// and kept on [`Station::population`], and this is what `layout`
+    /// builds the biggest town to.
     pub fn residents(self, kind: StationKind) -> u32 {
         let of_plan = match self {
             Plan::Hub => bims::room::BERTHS as u32,
@@ -410,7 +464,7 @@ impl Plan {
             Plan::Spine => 4,
             Plan::Ring => 6,
             Plan::Comb => 5,
-            Plan::Surface => data::SURFACE_RESIDENTS,
+            Plan::Surface => return data::SURFACE_POPULATION.1,
         };
         residents_of(kind).min(of_plan)
     }
@@ -456,6 +510,18 @@ pub fn layout(kind: StationKind, plan: Plan, map_seed: u64) -> ShipDesign {
         built.push(((kind, plan, map_seed), design.clone()));
     }
     design
+}
+
+/// A planet's town, from its seed, its biome and how many live there:
+/// `crate::surface::floor` furnished, and the wild laid round it. Not
+/// cached here — `crate::surface::Surface::station` keeps the one it
+/// built, and a town is built when somebody lands, not when the world
+/// opens. [`layout`] of [`Plan::Surface`] is the biggest temperate town
+/// on the same seed, for the map and the tests.
+pub fn layout_surface(map_seed: u64, biome: crate::surface::Biome, population: u32) -> ShipDesign {
+    let side = data::SURFACE_SIDE;
+    let floor = crate::surface::floor(side, biome, population, map_seed);
+    furnish(crate::surface::SURFACE_KIND, side, floor, map_seed)
 }
 
 /// The arena: the hub plan, the same kind and seed, laid out
@@ -509,15 +575,16 @@ const RING_SIDE: u32 = 14;
 /// A block of hull, tile ranges inclusive: the plan is a union of these.
 /// A room is one too, its ring the walls and its [`Block::inner`] the deck.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct Block {
-    x0: u32,
-    y0: u32,
-    x1: u32,
-    y1: u32,
+    pub(crate) x0: u32,
+    pub(crate) y0: u32,
+    pub(crate) x1: u32,
+    pub(crate) y1: u32,
 }
 
 impl Block {
-    pub(crate) fn new(x0: u32, y0: u32, x1: u32, y1: u32) -> Block {
+    pub(crate) const fn new(x0: u32, y0: u32, x1: u32, y1: u32) -> Block {
         Block { x0, y0, x1, y1 }
     }
 
@@ -534,6 +601,7 @@ impl Block {
 /// A floor plan: where the hull is and what each room is for. What a
 /// plan's function draws and [`furnish`] fills. The rooms are blocks with
 /// their walls on (`inner` is the deck); the lobby is deck only.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct Floor {
     /// The hull, as the union of these.
     pub(crate) hull: Vec<Block>,
@@ -568,9 +636,31 @@ pub(crate) struct Floor {
     /// tile of the hull is deck then, the airlocks' included.
     pub(crate) open: bool,
     /// Where standing lights are planted on the deck, after everything
-    /// else: a surface's ground is lit by these, since nothing there has
-    /// a wall to hang a lamp from. A tile already taken is skipped.
+    /// but the wild: a surface's ground is lit by these, since nothing
+    /// there has a wall to hang a lamp from. A tile already taken is
+    /// skipped.
     pub(crate) standing_lights: Vec<(u32, u32)>,
+    /// Whatever else the plan wants placed, in this order, after the
+    /// comforts and before the standing lights: a town's houses' bunks,
+    /// its bathhouses' fittings, its greenhouses' bays and its fields
+    /// (`crate::surface`). One that is refused — a tile taken by a lamp,
+    /// say — is skipped, so a plan lays these clear of where the lamps
+    /// hang.
+    pub(crate) extra: Vec<(PartKind, (u32, u32), Rotation)>,
+    /// How many columns of tables the mess holds, four tiles apart, each
+    /// with a chair a side under it and as many rows as the room is deep
+    /// for. One on every station; a town's hall seats its whole
+    /// population.
+    pub(crate) mess_columns: u32,
+    /// The wild round a town, laid last of all — after the standing
+    /// lights — by `crate::surface::wild` in this biome, out to the edge
+    /// of the deck. `None` on a station, which has nothing outside its
+    /// skin.
+    pub(crate) wild: Option<crate::surface::Biome>,
+    /// Ground the wild keeps off: a town's streets, the yard before its
+    /// pad and its field lots — the ways a Bim walks, which nothing may
+    /// grow across. Empty on a station.
+    pub(crate) clear: Vec<Block>,
 }
 
 /// A wall round `room` — every tile of its ring that is deck; the skin
@@ -736,6 +826,10 @@ fn hub(side: u32, bunk_columns: u32) -> Floor {
         hall: (mid, mid),
         open: false,
         standing_lights: Vec::new(),
+        extra: Vec::new(),
+        mess_columns: 1,
+        wild: None,
+        clear: Vec::new(),
     }
 }
 
@@ -824,6 +918,10 @@ fn pod(side: u32) -> Floor {
         hall: (lobby.x0 + 4, mid - 3),
         open: false,
         standing_lights: Vec::new(),
+        extra: Vec::new(),
+        mess_columns: 1,
+        wild: None,
+        clear: Vec::new(),
     }
 }
 
@@ -936,6 +1034,10 @@ fn cross(side: u32) -> Floor {
         hall: (mid, mid),
         open: false,
         standing_lights: Vec::new(),
+        extra: Vec::new(),
+        mess_columns: 1,
+        wild: None,
+        clear: Vec::new(),
     }
 }
 
@@ -1053,6 +1155,10 @@ fn spine(side: u32) -> Floor {
         hall: (lobby.x0 + 4, mid - 3),
         open: false,
         standing_lights: Vec::new(),
+        extra: Vec::new(),
+        mess_columns: 1,
+        wild: None,
+        clear: Vec::new(),
     }
 }
 
@@ -1183,6 +1289,10 @@ fn ring(side: u32) -> Floor {
         hall: (bay.x0 + 5, mid),
         open: false,
         standing_lights: Vec::new(),
+        extra: Vec::new(),
+        mess_columns: 1,
+        wild: None,
+        clear: Vec::new(),
     }
 }
 
@@ -1290,6 +1400,10 @@ fn comb(side: u32) -> Floor {
         hall: (lobby.x0 + 4, mid - 3),
         open: false,
         standing_lights: Vec::new(),
+        extra: Vec::new(),
+        mess_columns: 1,
+        wild: None,
+        clear: Vec::new(),
     }
 }
 
@@ -1301,6 +1415,18 @@ fn build_layout(
     bunk_columns: u32,
     map_seed: u64,
 ) -> ShipDesign {
+    build_placer(kind, plan, side, bunk_columns, map_seed).design
+}
+
+/// [`build_layout`], handing back the placer it furnished through — for
+/// the test that replays a furnishing through `apply`.
+pub(crate) fn build_placer(
+    kind: StationKind,
+    plan: Plan,
+    side: u32,
+    bunk_columns: u32,
+    map_seed: u64,
+) -> Placer {
     let floor = match plan {
         Plan::Hub => hub(side, bunk_columns),
         Plan::Pod => pod(side),
@@ -1308,9 +1434,248 @@ fn build_layout(
         Plan::Spine => spine(side),
         Plan::Ring => ring(side),
         Plan::Comb => comb(side),
-        Plan::Surface => crate::surface::floor(side),
+        // The biggest temperate town: what `BIMS_NAV_MAP=Surface` prints
+        // and the tests walk. A planet's own is `layout_surface`.
+        Plan::Surface => crate::surface::floor(
+            side,
+            crate::surface::Biome::Temperate,
+            data::SURFACE_POPULATION.1,
+            map_seed,
+        ),
     };
-    furnish(kind, side, floor, map_seed)
+    furnish_placer(kind, side, floor, map_seed)
+}
+
+/// A design being furnished, with the occupancy of its four layers kept
+/// beside it: the grid [`shipdesign::apply`] builds afresh from every part
+/// for every edit, kept up to date a part at a time instead. A town is
+/// twenty thousand parts, and `apply` walking every one of them for every
+/// one of them was the better part of a minute; this is linear in the
+/// parts. It answers **exactly** what a run of `apply`s would have — the
+/// same refusals, tile for tile, the same ids in the same order — so every
+/// station's `design_hash` is what it was before the placer went in;
+/// `furnish_through_the_placer_is_furnish_through_apply` replays a
+/// furnishing through `apply` and asks for equality, part for part. What
+/// it does not do is keep a second source of truth *out* of here: the
+/// occupancy is private, the design is what comes out, and nothing reads
+/// the layers after `furnish` returns.
+pub(crate) struct Placer {
+    pub(crate) design: ShipDesign,
+    side: u32,
+    /// The part in each tile of each layer, in [`Layer::ALL`] order, `0`
+    /// for empty — `shipdesign::Grid` again, kept rather than rebuilt.
+    layers: [Vec<u32>; Layer::ALL.len()],
+    /// Every put and take asked of it, in order, for the test that
+    /// replays them through `apply`.
+    #[cfg(test)]
+    pub(crate) attempts: Vec<Attempt>,
+}
+
+/// One thing asked of a [`Placer`], for the replay.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Attempt {
+    Put(PartKind, (u32, u32), Rotation),
+    Take((u32, u32)),
+}
+
+impl Placer {
+    /// An empty design `side` tiles square, nothing on any layer.
+    pub(crate) fn new(side: u32) -> Placer {
+        let cells = (side as usize) * (side as usize);
+        Placer {
+            design: ShipDesign::new(side),
+            side,
+            layers: [
+                vec![0; cells],
+                vec![0; cells],
+                vec![0; cells],
+                vec![0; cells],
+            ],
+            #[cfg(test)]
+            attempts: Vec::new(),
+        }
+    }
+
+    fn index(&self, (x, y): (u32, u32)) -> usize {
+        (y as usize) * (self.side as usize) + (x as usize)
+    }
+
+    /// Whether a tile is on the design at all.
+    pub(crate) fn inside(&self, (x, y): (i32, i32)) -> bool {
+        x >= 0 && y >= 0 && (x as u32) < self.side && (y as u32) < self.side
+    }
+
+    /// The part in `tile` on `layer`, or `0` — off the design too, as
+    /// `Grid::get` answers.
+    pub(crate) fn get(&self, layer: Layer, tile: (i32, i32)) -> u32 {
+        if !self.inside(tile) {
+            return 0;
+        }
+        let i = self.index((tile.0 as u32, tile.1 as u32));
+        self.layers[layer as usize][i]
+    }
+
+    /// The kind of the part on the object layer of `tile`, if any.
+    pub(crate) fn object_at(&self, tile: (i32, i32)) -> Option<PartKind> {
+        let id = self.get(Layer::Object, tile);
+        (id != 0)
+            .then(|| self.design.part(id).map(|p| p.kind))
+            .flatten()
+    }
+
+    /// Whether a body cannot stand on `tile`: off the design, no deck
+    /// under it, or something on the object layer that blocks movement.
+    /// `shipdesign::validate::walkable` asked of the occupancy; the
+    /// wild's flood is walked over the complement.
+    pub(crate) fn blocked(&self, tile: (i32, i32)) -> bool {
+        if self.get(Layer::Floor, tile) == 0 {
+            return true;
+        }
+        let object = self.get(Layer::Object, tile);
+        object != 0
+            && self
+                .design
+                .part(object)
+                .is_some_and(|p| p.kind.def().blocks_movement)
+    }
+
+    /// Place a part, or refuse it the way `shipdesign::design::place`
+    /// would: off the build area, its own layer taken on any tile of the
+    /// footprint, what it requires missing under any of them, or — for
+    /// something hung — no wall at its back. The budget every furnishing
+    /// runs on is `Money::MAX`, which affords anything, so that refusal
+    /// is not asked. Accepted, it gets `next_id` and goes on the end, as
+    /// `apply` appends it.
+    pub(crate) fn put(&mut self, kind: PartKind, origin: (u32, u32), rotation: Rotation) -> bool {
+        #[cfg(test)]
+        self.attempts.push(Attempt::Put(kind, origin, rotation));
+        let def = kind.def();
+        let (w, h) = shipdesign::parts::footprint(kind, rotation);
+        // In bounds, in u64 like `place`, so a wild origin cannot wrap.
+        let far_x = origin.0 as u64 + w as u64;
+        let far_y = origin.1 as u64 + h as u64;
+        if far_x > self.side as u64 || far_y > self.side as u64 {
+            return false;
+        }
+        let tiles: Vec<(u32, u32)> = shipdesign::parts::covered(kind, rotation)
+            .into_iter()
+            .map(|(dx, dy)| (origin.0 + dx, origin.1 + dy))
+            .collect();
+        for &(x, y) in &tiles {
+            let tile = (x as i32, y as i32);
+            if self.get(def.layer, tile) != 0 {
+                return false;
+            }
+            if let Some(under) = def.requires
+                && self.get(under, tile) == 0
+            {
+                return false;
+            }
+        }
+        if shipdesign::hangs_on_wall(kind) && !self.wall_at_back(origin, rotation) {
+            return false;
+        }
+        let id = self.design.next_id;
+        self.design.parts.push(PlacedPart {
+            id,
+            kind,
+            origin,
+            rotation,
+        });
+        self.design.next_id += 1;
+        for tile in tiles {
+            let i = self.index(tile);
+            self.layers[def.layer as usize][i] = id;
+        }
+        true
+    }
+
+    /// Take the part on the object layer of `tile` off, if there is one.
+    /// `shipdesign::design::remove`'s two refusals cannot arise for an
+    /// object: nothing requires the object layer under it, and no hold
+    /// in a furnishing has anything in it. Removal keeps the id order,
+    /// as `apply`'s does.
+    pub(crate) fn take(&mut self, tile: (u32, u32)) -> bool {
+        #[cfg(test)]
+        self.attempts.push(Attempt::Take(tile));
+        let id = self.get(Layer::Object, (tile.0 as i32, tile.1 as i32));
+        if id == 0 {
+            return false;
+        }
+        let Some(part) = self.design.part(id).copied() else {
+            return false;
+        };
+        for t in part.tiles() {
+            let i = self.index(t);
+            self.layers[Layer::Object as usize][i] = 0;
+        }
+        self.design.parts.retain(|p| p.id != id);
+        true
+    }
+
+    /// Whether something hung at `origin` turned `rotation` has its wall:
+    /// [`shipdesign::wall_at_back`] asked of the occupancy rather than of
+    /// a grid rebuilt for it — the tile behind holds a part that blocks
+    /// movement and is not a door.
+    pub(crate) fn wall_at_back(&self, origin: (u32, u32), rotation: Rotation) -> bool {
+        let (dx, dy) = shipdesign::wall_light_back(rotation);
+        let at = (origin.0 as i32 + dx, origin.1 as i32 + dy);
+        let id = self.get(Layer::Object, at);
+        id != 0
+            && self
+                .design
+                .part(id)
+                .is_some_and(|p| p.kind.def().blocks_movement && p.kind != PartKind::Door)
+    }
+
+    /// The rotation a lamp or a picture at `tile` hangs at, if any side
+    /// has a wall: [`shipdesign::wall_light_rotation`]'s rule — the first
+    /// of `Rotation::ALL` whose back is a wall — on the occupancy.
+    pub(crate) fn hung(&self, tile: (u32, u32)) -> Option<Rotation> {
+        Rotation::ALL
+            .into_iter()
+            .find(|&r| self.wall_at_back(tile, r))
+    }
+
+    /// The same furnishing again, every put and take through `apply` on a
+    /// fresh design, refusals skipped as `furnish` skips them. What the
+    /// placer's design is pinned against.
+    #[cfg(test)]
+    pub(crate) fn replay(&self) -> ShipDesign {
+        use shipdesign::{Budget, Edit, Money, apply};
+        let budget = Budget::new(Money::MAX);
+        let mut design = ShipDesign::new(self.side);
+        for &attempt in &self.attempts {
+            match attempt {
+                Attempt::Put(kind, origin, rotation) => {
+                    if let Ok(next) = apply(
+                        &design,
+                        &budget,
+                        Edit::Place {
+                            kind,
+                            origin,
+                            rotation,
+                        },
+                    ) {
+                        design = next;
+                    }
+                }
+                Attempt::Take(tile) => {
+                    let standing = design
+                        .grid()
+                        .get(Layer::Object, (tile.0 as i32, tile.1 as i32));
+                    if standing != 0
+                        && let Ok(next) =
+                            apply(&design, &budget, Edit::Remove { part_id: standing })
+                    {
+                        design = next;
+                    }
+                }
+            }
+        }
+        design
+    }
 }
 
 /// The hull over the floor's blocks and every fixture in its rooms, in
@@ -1320,38 +1685,20 @@ fn build_layout(
 /// against the research room's; runs of six trays in the laboratory and
 /// the research room, as many as the seed likes and the rooms hold;
 /// tables down the rec room; shelves along the stores' north walls; a
-/// wall light in every lit block's corners and along its walls; and the
-/// comforts. Every fixture stands so that its use spot has deck beyond
-/// it, because the room's navigation will not walk a spot between two
-/// solids.
+/// wall light in every lit block's corners and along its walls; the
+/// comforts; whatever else the plan asks for; the standing lights; and
+/// the wild, on a planet. Every fixture stands so that its use spot has
+/// deck beyond it, because the room's navigation will not walk a spot
+/// between two solids.
 fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDesign {
-    let budget = Budget::new(Money::MAX);
-    let mut design = ShipDesign::new(side);
-    let mut rng = Rng::new(map_seed);
+    furnish_placer(kind, side, floor, map_seed).design
+}
 
-    let put = |design: &mut ShipDesign, kind: PartKind, origin: (u32, u32), rotation| {
-        if let Ok(next) = apply(
-            design,
-            &budget,
-            Edit::Place {
-                kind,
-                origin,
-                rotation,
-            },
-        ) {
-            *design = next;
-        }
-    };
-    let take = |design: &mut ShipDesign, tile: (u32, u32)| {
-        let standing = design
-            .grid()
-            .get(shipdesign::Layer::Object, (tile.0 as i32, tile.1 as i32));
-        if standing != 0
-            && let Ok(next) = apply(design, &budget, Edit::Remove { part_id: standing })
-        {
-            *design = next;
-        }
-    };
+/// [`furnish`], handing back the placer it furnished through — for the
+/// test that replays it.
+pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> Placer {
+    let mut placer = Placer::new(side);
+    let mut rng = Rng::new(map_seed);
 
     let last = side - 2;
     let inside = |x: i32, y: i32| floor.hull.iter().any(|b| b.contains(x, y));
@@ -1367,12 +1714,12 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
             if !inside(x as i32, y as i32) {
                 continue;
             }
-            put(&mut design, PartKind::Structure, (x, y), Rotation::R0);
+            placer.put(PartKind::Structure, (x, y), Rotation::R0);
             if !floor.open && skin(x as i32, y as i32) {
-                put(&mut design, PartKind::OutsideWall, (x, y), Rotation::R0);
+                placer.put(PartKind::OutsideWall, (x, y), Rotation::R0);
                 skins.push((x, y));
             } else {
-                put(&mut design, PartKind::Floor, (x, y), Rotation::R0);
+                placer.put(PartKind::Floor, (x, y), Rotation::R0);
             }
         }
     }
@@ -1388,19 +1735,14 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
             [(x, y), (x + 1, y)]
         };
         for tile in tiles {
-            take(&mut design, tile);
-            put(&mut design, PartKind::Floor, tile, Rotation::R0);
+            placer.take(tile);
+            placer.put(PartKind::Floor, tile, Rotation::R0);
             kept.push(tile);
         }
-        put(&mut design, PartKind::Airlock, (x, y), rotation);
+        placer.put(PartKind::Airlock, (x, y), rotation);
     }
-    take(&mut design, floor.array);
-    put(
-        &mut design,
-        PartKind::SensorArray,
-        floor.array,
-        Rotation::R0,
-    );
+    placer.take(floor.array);
+    placer.put(PartKind::SensorArray, floor.array, Rotation::R0);
 
     // The reactor room: the trading desk against its north wall by the
     // port, worked from the row below — the first thing a crew coming
@@ -1409,28 +1751,20 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
     // gangway between, and life support, the batteries and the tank along
     // the south wall; the corridor runs through the middle.
     let lobby = floor.lobby;
-    put(
-        &mut design,
+    placer.put(
         PartKind::TradingDesk,
         (lobby.x0 + 1, lobby.y0),
         Rotation::R0,
     );
-    put(
-        &mut design,
-        PartKind::Reactor,
-        (lobby.x0 + 5, lobby.y0),
-        Rotation::R0,
-    );
-    put(
-        &mut design,
+    placer.put(PartKind::Reactor, (lobby.x0 + 5, lobby.y0), Rotation::R0);
+    placer.put(
         PartKind::LifeSupport,
         (lobby.x0 + 6, lobby.y1 - 1),
         Rotation::R0,
     );
     let batteries = rng.below(3);
     for i in 0..batteries {
-        put(
-            &mut design,
+        placer.put(
             PartKind::Battery,
             (lobby.x0 + 4, lobby.y1 - i),
             Rotation::R0,
@@ -1439,20 +1773,22 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
 
     // The partitions and their doors.
     for &(x, y) in &floor.walls {
-        put(&mut design, PartKind::Wall, (x, y), Rotation::R0);
+        placer.put(PartKind::Wall, (x, y), Rotation::R0);
     }
     for &(origin, rotation) in &floor.doors {
-        put(&mut design, PartKind::Door, origin, rotation);
+        placer.put(PartKind::Door, origin, rotation);
     }
 
     // Cover: low, walked and seen over, ducked behind (`bims::sight`).
     for &at in &floor.cover {
-        put(&mut design, PartKind::Sandbags, at, Rotation::R0);
+        placer.put(PartKind::Sandbags, at, Rotation::R0);
     }
 
     // The mess: the galley along the north wall from the corner, worked
-    // from the row below, and tables with a chair a side under it, as
-    // many as the room is deep for.
+    // from the row below, and tables with a chair a side under it, in
+    // `mess_columns` columns four tiles apart, as many rows as the room
+    // is deep for. One column on every station; a town's hall seats the
+    // whole town.
     let m = floor.mess.inner();
     for (kind, x) in [
         (PartKind::ColdStore, m.x0 + 1),
@@ -1460,29 +1796,17 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
         (PartKind::Hob, m.x0 + 4),
         (PartKind::Dishwasher, m.x0 + 5),
     ] {
-        put(&mut design, kind, (x, m.y0), Rotation::R0);
+        placer.put(kind, (x, m.y0), Rotation::R0);
     }
-    let mut table_y = m.y0 + 3;
-    while table_y + 1 <= m.y1 - 1 {
-        put(
-            &mut design,
-            PartKind::Table,
-            (m.x0 + 2, table_y),
-            Rotation::R0,
-        );
-        put(
-            &mut design,
-            PartKind::Chair,
-            (m.x0 + 2, table_y + 1),
-            Rotation::R0,
-        );
-        put(
-            &mut design,
-            PartKind::Chair,
-            (m.x0 + 3, table_y + 1),
-            Rotation::R0,
-        );
-        table_y += 4;
+    for column in 0..floor.mess_columns {
+        let x = m.x0 + 2 + 4 * column;
+        let mut table_y = m.y0 + 3;
+        while table_y + 1 <= m.y1 - 1 {
+            placer.put(PartKind::Table, (x, table_y), Rotation::R0);
+            placer.put(PartKind::Chair, (x, table_y + 1), Rotation::R0);
+            placer.put(PartKind::Chair, (x + 1, table_y + 1), Rotation::R0);
+            table_y += 4;
+        }
     }
 
     // The crew's quarters: bunks down the west wall, a column every three
@@ -1499,7 +1823,7 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
         }
         let mut bunk_y = q.y0 + 1;
         while bunk_y + 1 <= q.y1 - 1 {
-            put(&mut design, PartKind::Bunk, (x, bunk_y), Rotation::R180);
+            placer.put(PartKind::Bunk, (x, bunk_y), Rotation::R180);
             bunk_y += 3;
         }
     }
@@ -1512,7 +1836,7 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
         (PartKind::Basin, h.x1 - 2),
         (PartKind::Shower, h.x1 - 1),
     ] {
-        put(&mut design, kind, (x, h.y0), Rotation::R0);
+        placer.put(kind, (x, h.y0), Rotation::R0);
     }
 
     // The research room: the research desk against its north wall from
@@ -1522,12 +1846,7 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
     // its far side (the room's navigation will not walk a spot between
     // two solids).
     let rr = floor.research.inner();
-    put(
-        &mut design,
-        PartKind::ResearchDesk,
-        (rr.x0 + 1, rr.y0),
-        Rotation::R0,
-    );
+    placer.put(PartKind::ResearchDesk, (rr.x0 + 1, rr.y0), Rotation::R0);
 
     // The laboratory and the research room: runs of six trays, one every
     // three rows from two below the north wall so the row a run is worked
@@ -1551,18 +1870,13 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
             if at.1 + 2 > room.y1 || at.0 + 5 > room.x1 {
                 break;
             }
-            put(&mut design, PartKind::HydroBay, at, Rotation::R0);
+            placer.put(PartKind::HydroBay, at, Rotation::R0);
             placed += 1;
             i += 1;
         }
     }
     let locker = floor.lab.map(|lab| lab.inner()).unwrap_or(rr);
-    put(
-        &mut design,
-        PartKind::BroomLocker,
-        (locker.x0, locker.y0),
-        Rotation::R0,
-    );
+    placer.put(PartKind::BroomLocker, (locker.x0, locker.y0), Rotation::R0);
 
     // The rec room: a table with a chair a side, as many as the room is
     // deep for, down its west side.
@@ -1570,24 +1884,9 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
         let r = rec.inner();
         let mut table_y = r.y0 + 1;
         while table_y + 1 <= r.y1 - 1 {
-            put(
-                &mut design,
-                PartKind::Table,
-                (r.x0 + 1, table_y),
-                Rotation::R0,
-            );
-            put(
-                &mut design,
-                PartKind::Chair,
-                (r.x0 + 1, table_y + 1),
-                Rotation::R0,
-            );
-            put(
-                &mut design,
-                PartKind::Chair,
-                (r.x0 + 2, table_y + 1),
-                Rotation::R0,
-            );
+            placer.put(PartKind::Table, (r.x0 + 1, table_y), Rotation::R0);
+            placer.put(PartKind::Chair, (r.x0 + 1, table_y + 1), Rotation::R0);
+            placer.put(PartKind::Chair, (r.x0 + 2, table_y + 1), Rotation::R0);
             table_y += 4;
         }
     }
@@ -1601,12 +1900,7 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
         while placed < shelves && shelf_y + 2 <= room.y1 {
             let mut shelf_x = room.x0 + 2;
             while placed < shelves && shelf_x + 1 <= room.x1 - 1 {
-                put(
-                    &mut design,
-                    PartKind::Shelf,
-                    (shelf_x, shelf_y),
-                    Rotation::R0,
-                );
+                placer.put(PartKind::Shelf, (shelf_x, shelf_y), Rotation::R0);
                 placed += 1;
                 shelf_x += 2;
             }
@@ -1617,7 +1911,7 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
     // Light: a wall light in every lit block's inner corners and one
     // every six tiles along its long walls, on whatever tile is still
     // free — last, so a lamp never takes a fixture's tile — each turned
-    // to the wall at its back (`wall_light_rotation`), and none where two
+    // to the wall at its back (`Placer::hung`), and none where two
     // blocks open into each other and there is no wall to hang from. A
     // tile no light reaches is dark, and a dark deck is one the crew see
     // ten tiles across (`bims::sight`).
@@ -1638,8 +1932,8 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
             y += 6;
         }
         for at in lamps {
-            if let Some(hung) = shipdesign::wall_light_rotation(&design, at) {
-                put(&mut design, PartKind::WallLight, at, hung);
+            if let Some(hung) = placer.hung(at) {
+                placer.put(PartKind::WallLight, at, hung);
             }
         }
     }
@@ -1647,12 +1941,12 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
     // Comforts, since people live here: a big plant in the hall, a small
     // one in the mess and the rec room a tile in from their far corners,
     // and a picture on the north wall of the quarters and the rec room,
-    // hung like a lamp (`wall_light_rotation`). After the lamps, so a
-    // comfort never takes a lamp's tile — one whose tile is taken is left
-    // out, and the lamp stays. Every tile within reach of one scores
-    // higher to a Bim standing on it (`shipdesign::comfort`,
-    // `bims::filth`), which is what makes a station somewhere to live
-    // rather than a corridor with bunks off it.
+    // hung like a lamp. After the lamps, so a comfort never takes a
+    // lamp's tile — one whose tile is taken is left out, and the lamp
+    // stays. Every tile within reach of one scores higher to a Bim
+    // standing on it (`shipdesign::comfort`, `bims::filth`), which is
+    // what makes a station somewhere to live rather than a corridor with
+    // bunks off it.
     let r = floor.rec.map(|rec| rec.inner());
     let mut comforts = vec![
         (PartKind::BigPlant, floor.hall),
@@ -1667,20 +1961,27 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
     }
     for (kind, at) in comforts {
         let turn = if shipdesign::hangs_on_wall(kind) {
-            shipdesign::wall_light_rotation(&design, at)
+            placer.hung(at)
         } else {
             Some(Rotation::R0)
         };
         if let Some(turn) = turn {
-            put(&mut design, kind, at, turn);
+            placer.put(kind, at, turn);
         }
+    }
+
+    // Whatever else the plan wants: a town's houses, bathhouses,
+    // greenhouses and fields, laid clear of the lamps by the plan since a
+    // refusal here is skipped.
+    for &(kind, at, rotation) in &floor.extra {
+        placer.put(kind, at, rotation);
     }
 
     // Standing lights, where the plan plants them: a surface's open
     // ground, which has no wall to hang a lamp from. After everything
-    // else, so a light never takes a fixture's tile.
+    // else but the wild, so a light never takes a fixture's tile.
     for &at in &floor.standing_lights {
-        put(&mut design, PartKind::StandingLight, at, Rotation::R0);
+        placer.put(PartKind::StandingLight, at, Rotation::R0);
     }
 
     // A derelict has lost some of its skin — not the port, not the other
@@ -1694,9 +1995,15 @@ fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDes
             if kept.contains(&tile) {
                 continue;
             }
-            take(&mut design, tile);
+            placer.take(tile);
         }
     }
 
-    design
+    // And the wild round a town, last of all: everything the town is not,
+    // out to the edge of the ground.
+    if let Some(biome) = floor.wild {
+        crate::surface::wild(&mut placer, &floor, biome, &mut rng);
+    }
+
+    placer
 }

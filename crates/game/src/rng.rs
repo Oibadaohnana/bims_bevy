@@ -1,6 +1,7 @@
 //! PCG32 — a small, well-behaved PRNG. Seeded from the host so every run of
 //! Bims wanders differently.
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rng {
     state: u64,
     inc: u64,

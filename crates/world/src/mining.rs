@@ -34,6 +34,7 @@ use worldgen::rng::{Purpose, Rng, mix, seed_for};
 /// painter and the readout are indexed by.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Rock {
     /// The skin: bare rock, worth next to nothing.
     Stone = 0,
@@ -53,6 +54,7 @@ impl Rock {
 /// where design tile `(x, y)` would be, and a rock is off the hull so the
 /// coordinates run negative and past the build area both.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RockTile {
     pub x: i32,
     pub y: i32,
@@ -62,6 +64,7 @@ pub struct RockTile {
 /// The asteroids about one belt, and what the crew have been told to do
 /// about them.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MiningSite {
     /// The belt's body id.
     pub belt: u32,

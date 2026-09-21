@@ -40,7 +40,7 @@
 //! `physics::travel_days` quotes and the same one the world generator laid its
 //! systems out against.
 
-use worldgen::math::DVec2;
+use worldgen::math::{DVec2, dvec2};
 
 use crate::angle;
 use crate::data;
@@ -51,6 +51,7 @@ use crate::dynamics::Dynamics;
 /// A point is a place rather than a thing: it has no arrival radius, because
 /// there is nothing there to keep clear of.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Target {
     Station(u32),
     Body(u32),
@@ -92,6 +93,7 @@ impl Target {
 /// `crates/app/src/names.rs`, so they are written out and not renumbered.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Phase {
     /// Turning to face the arrival point. Not moving.
     Align = 0,
@@ -125,6 +127,7 @@ impl Phase {
 /// refusals, retired with the fuel in September 2026 and left as holes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PlanError {
     /// No engine pushing the ship along its own nose. Nothing to set off with.
     NoForwardEngine = 1,
@@ -155,6 +158,7 @@ impl PlanError {
 /// nothing needs one, and the two here are the only ones whose sweep can be
 /// written down without integrating.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Spin {
     /// Not turning.
     Still,
@@ -296,6 +300,7 @@ impl Spin {
 /// [`state_at`] reads the position, so a picture of the exhaust agrees with
 /// the ship it is behind at any speed and after any catch-up.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Effort {
     /// Acceleration along the plan's line, signed. Nothing while coasting or
     /// turning.
@@ -343,6 +348,7 @@ pub fn effort_at(plan: &Plan, minutes: f64) -> Effort {
 
 /// One stretch of a trip during which nothing changes rate.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Segment {
     pub phase: Phase,
     pub duration: f64,
@@ -362,6 +368,7 @@ pub struct Segment {
 
 /// Where the ship is, and what it is doing, at one moment of a plan.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct State {
     pub position: DVec2,
     /// The velocity vector. Always along the plan's line — during a flip
@@ -375,6 +382,7 @@ pub struct State {
 
 /// A trip: a line, a list of segments, and what it will cost.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Plan {
     /// **The dynamics it was planned with**, kept rather than looked up. A
     /// design change mid-flight does not move an arrival that has already been
@@ -471,9 +479,21 @@ pub fn plan_trip(
         return Err(PlanError::NoForwardEngine);
     }
 
+    // Inside a body's arrival circle already — docked at a station in
+    // its orbit, say, which sits nearer than the circle — the trip is
+    // out to the top of the circle, [`data::ARRIVAL_RADIUS_BODY`] straight
+    // over the body, where a trip in from outside would end and a landing
+    // starts from. Only a ship standing on that point is already there.
+    let (target_position, arrival_radius) = match target {
+        Target::Body(_) if target_position.distance(start) <= target.arrival_radius() => (
+            target_position.add(dvec2(0.0, data::ARRIVAL_RADIUS_BODY)),
+            0.0,
+        ),
+        _ => (target_position, target.arrival_radius()),
+    };
     let to_target = target_position.sub(start);
     let straight = to_target.length();
-    let distance = straight - target.arrival_radius();
+    let distance = straight - arrival_radius;
     if !distance.is_finite() || distance <= data::STILL {
         return Err(PlanError::AlreadyThere);
     }
@@ -524,6 +544,7 @@ pub fn plan_trip(
 
 /// The burn and the brake, as segments, for whichever of the two ways of
 /// stopping is quicker.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Braking {
     segments: Vec<Segment>,
 }

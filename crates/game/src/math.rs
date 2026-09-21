@@ -7,6 +7,7 @@ pub const PI: f32 = core::f32::consts::PI;
 pub const TAU: f32 = core::f32::consts::TAU;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -141,6 +142,7 @@ pub fn approach(rate: f32, dt: f32) -> f32 {
 /// An axis-aligned box. Used for furniture footprints, marquee selection and
 /// the collision push-out.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rect {
     pub min: Vec2,
     pub max: Vec2,
@@ -235,5 +237,32 @@ impl Rect {
         } else {
             vec2(0.0, down)
         })
+    }
+}
+
+/// A `Vec<bool>` in a save, as a string of noughts and ones — the room's
+/// flag-a-cell grids (the nav's blocked cells, the sight's explored
+/// pixels) are hundreds of thousands long, and a byte a flag is a fifth
+/// of what a list of `true`s and `false`s comes to. Named on the field:
+/// `#[serde(with = "crate::math::bools")]`.
+#[cfg(feature = "serde")]
+pub mod bools {
+    use serde::de::Error;
+    use serde::{Deserialize, Serialize};
+
+    pub fn serialize<S: serde::Serializer>(flags: &[bool], s: S) -> Result<S::Ok, S::Error> {
+        let text: String = flags.iter().map(|&b| if b { '1' } else { '0' }).collect();
+        text.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<bool>, D::Error> {
+        let text = String::deserialize(d)?;
+        text.chars()
+            .map(|c| match c {
+                '0' => Ok(false),
+                '1' => Ok(true),
+                other => Err(D::Error::custom(format!("a flag is 0 or 1, not {other:?}"))),
+            })
+            .collect()
     }
 }

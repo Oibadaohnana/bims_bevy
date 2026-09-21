@@ -50,6 +50,7 @@ const IN_THE_WAY: f32 = 22.0;
 /// off the door when the hand arrives, for the reason the bathroom door's
 /// orders are.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Order {
     /// Hold it open: it stops shutting itself until told otherwise.
     Open,
@@ -76,6 +77,7 @@ impl Order {
 /// Who locked a door: the crew, from the panel, or one of the room's own
 /// bodies — an enemy sealing itself in — who unlocks it again itself.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Locker {
     Crew,
     Body(usize),
@@ -84,6 +86,7 @@ pub enum Locker {
 /// A body forcing the door: who, and how many seconds of it are done.
 /// One at a time — a second body at the same door waits.
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Smash {
     pub by: usize,
     pub done: f32,
@@ -91,6 +94,7 @@ pub struct Smash {
     pub since_heave: f32,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Door {
     /// The opening: the two tiles the design put the door in, a run along
     /// the bulkhead one tile deep.
