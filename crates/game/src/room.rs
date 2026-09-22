@@ -851,7 +851,14 @@ pub struct Room {
     pub picked: Vec<(u32, u32, u32)>,
     pub dropped: Vec<u32>,
     pub returned: Vec<u32>,
-    pub built: Vec<u32>,
+    /// The sites put together, each with who put it together — for the
+    /// world to give the engineers about the builder their due (feature
+    /// 74). `(site, who)`.
+    pub built: Vec<(u32, usize)>,
+    /// Every kit laid since the world last asked: who laid it, the middle
+    /// of the tile in room units, and whether it was a sentry. The world
+    /// puts the deployable down. See `crate::task::Kind::Deploy`.
+    pub deployed: Vec<(usize, Vec2, bool)>,
     /// What the world wants carried between two benches this step — a
     /// gun or a piece of armour to the workbench, or the upgraded one
     /// back — at most one; set by `Game::set_ferries`, empty in the
@@ -1079,6 +1086,7 @@ impl Room {
             dropped: Vec::new(),
             returned: Vec::new(),
             built: Vec::new(),
+            deployed: Vec::new(),
             ferries: Vec::new(),
             ferry_picked: Vec::new(),
             ferry_dropped: Vec::new(),
@@ -1230,6 +1238,7 @@ impl Room {
             dropped: Vec::new(),
             returned: Vec::new(),
             built: Vec::new(),
+            deployed: Vec::new(),
             ferries: Vec::new(),
             ferry_picked: Vec::new(),
             ferry_dropped: Vec::new(),
@@ -1335,6 +1344,8 @@ impl Room {
         // seen — with its box moved to the new layout's.
         if let (Some(mine), Some(theirs)) = (self.plane.as_mut(), layout.plane.as_ref()) {
             mine.set_deck(theirs.deck());
+            // Its picture was marched over the old deck's walls.
+            mine.forget_views();
         }
         let fogged: Vec<Rect> = if self.plane.is_some() {
             vec![interior]

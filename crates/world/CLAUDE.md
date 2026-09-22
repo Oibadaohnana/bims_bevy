@@ -263,8 +263,11 @@ Five things that hang off that:
   what has the pictures of the fixtures — without it a station is coloured
   blocks. `Game::with_layout` therefore allows an **empty** crew now; the
   ship's room never is (players are `max(1)`), and `Game::simulate` guards
-  its tie-break remainder. Dropped means *forgotten*: come back and they
-  start at their bunks. It is in `world_checksum` after the crew.
+  its tie-break remainder. Dropped means the *room* is forgotten: come
+  back and they start at their bunks — the living ones; the dead are
+  counted as the room closes and stay dead (`World::close_residents`,
+  `World::losses`; "A system has a memory" below). It is in
+  `world_checksum` after the crew.
 - **The spawn is the first friendly orbital in a system with a belt**,
   not the first station: `World::spawn` skips derelicts, because a crew
   that opens docked at a wreck sees nobody and blocks, and skips a system
@@ -545,7 +548,18 @@ the speed at 1x (`speed::effective` is the *slowest* request).
 `the_combat_dock_is_the_arena_with_fourteen_crew_and_a_garrison_of_fifteen`
 and `the_arena_and_the_combat_ship_can_be_walked` (the walkability
 contract again, by `Nav::can_reach` rather than a search per tile)
-are the tests.
+are the tests. **`tier2_test` and `tier3_test` are that fight with
+everybody's kit at one tier** (feature 70): `World::outfit_for_probe(tier)`
+puts every crew member's gun at the tier (its kind kept) and a fresh
+helm, kevlar and leg guards at it on — pieces of the world's, `next_piece`
+ids at `Where::Worn`, so `mirror_pieces` and a loot find them — and does
+the same to every body in the residents' room, those pieces the room's
+own (`1_000 * (who + 1) + 100` and up, past a mercenary's kit) until a
+loot renumbers one. Asked *after* `set_hostile`, since that reopens the
+room with the garrison; `Session::combat_at_tier` does it in that order,
+and `stage_fight_for_probe` keeps the resident's pistol at the tier its
+hand had. `the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier`
+in `crates/ship` pins it.
 
 `World::visit` is where the fight crosses. While the station is hostile
 the residents' positions go to the joined room as **targets**
@@ -882,6 +896,8 @@ three seams:
   `NotAboard` for an empty slot, `PackFull`. Nothing in the hold moves
   either way.
 - `Command::Upgrade` — the button: `can_upgrade()` is `NoWorkbench`,
+  `NoUpgrades` (the upgrades node not yet researched — see "The
+  upgrades node gates the bench" under research),
   `BenchBusy` (work under way, or the output slot still full) or
   `Workbench::pair()`'s `NoPair`, and the world reads the same function
   for the window, so the button is greyed with the reason before
@@ -1430,6 +1446,17 @@ already — and crosses no seam. Slot *i* is Bim *i*, the same pairing as the bu
   off the post counts as on it. `adopt` shifts a post and **the route in
   progress** with the body: before it shifted the route, a Bim carried
   between rooms mid-walk marched off to where its old waypoint used to be.
+- **An order to the room is `Command::Crew { slot, order }`, and one
+  given with Shift is `Command::CrewLater`** (feature 69): the same
+  `bims::order::CrewOrder`, handed to `Game::order_later` instead of
+  `Game::order`, so it waits its turn on the crew member's queue rather
+  than displacing what it is on — see "An order given with Shift waits
+  its turn" in `crates/game/CLAUDE.md`. The walk refusals come back the
+  same way (`walk_refusal`); everything else a queued order cannot do
+  when its turn comes is dropped in the room without an event. The helm
+  and the desk (`ToHelm`, `ToDesk`) have no later form: they are the
+  world's walks, given now. `a_shift_order_is_a_command_that_waits_its_turn`
+  in `tests_orders.rs` pins the seam.
 
 ## Leaving a station is three states, and arriving is one
 
@@ -1698,17 +1725,34 @@ tests.
 ## Research is the world's state, and a key is a resource that is found
 
 `World::research` is a `shipdesign::research::Research` — what the crew
-know, which locked nodes have had their key, what the AI is on and how far — and it is in
-`world_checksum` whole after the construction sites, with
-`World::station_keys` (a bool a station, by index into `stations`) after
-it. Four commands, all slot-stamped like the rest: `TakeKey { who }`,
-`Unlock { node }` (one key, one node), `Research { node }`, `CancelResearch`.
-Events 44–47: `KeyTaken { who }`, `Unlocked { node }`, `ResearchBegun { node }`,
-`Researched { node }`. Refusals 22–25: `NoKey`, `NoResearchDesk`,
-`NotResearchable`, `NotResearched`. The AI's step is `run_research`, the
-second half of stage 6 — it runs on the desk's power
-(`research_desk_powered`: a `ResearchDesk` aboard and `powered`) — and it
-says `Researched` the step a node is done.
+know, which locked nodes have had their key, what the AI is on and how
+far, and the queue it goes onto next — and it is in `world_checksum`
+whole after the construction sites (the queue as its length and then
+each code, after `progress`; that moved `REFERENCE_CHECKSUM` when it
+went in, feature 64), with `World::station_keys` (a `u8` a station, by
+index into `stations`: the tier of key still on its desk, nought for none)
+after it. Five commands, all slot-stamped like
+the rest: `TakeKey { who }`, `Unlock { node }` (one key, one node, of
+the node's own tier),
+`Research { node }` (queue it — `Research::enqueue`, so what it needs
+goes in ahead of it; a `ResearchQueued` for each), `CancelResearch`
+(the AI off what it is on, and off the queue what needed it) and
+`Dequeue { node }` (a node off the queue, and what needed it with it).
+Events 44–47: `KeyTaken { who }`, `Unlocked { node }`, `ResearchBegun
+{ node }`, `Researched { node }`; 65–66: `ResearchQueued { node }`,
+`ResearchDropped { node }` (off the queue without being begun, by a
+`Dequeue` or in the wake of one, or of a cancel). Refusals 22–25:
+`NoKey`, `NoResearchDesk`, `NotResearchable` (cannot be queued: planned
+already, or a key wanting somewhere in its chain), `NotResearched`; 39:
+`NotQueued`; 40: `NoUpgrades` (the workbench asked to take two of a
+kind up a tier before `Node::Upgrades` is known). The AI's step is `run_research`, the second half of stage
+6 — it runs on the desk's power (`research_desk_powered`: a
+`ResearchDesk` aboard and `powered`): `Research::next` first, so an
+idle AI goes onto the head of the queue and says `ResearchBegun` — the
+step the queueing command landed in, since commands apply before the
+stages — then `advance`, `Researched` the step a node is done, and
+`next` again that step, so the next queued node begins with no idle
+step between.
 
 What research gates, and where: `craft_orders` skips a recipe
 `!research.recipe_allowed(i)` however the bench came aboard, so the
@@ -1720,11 +1764,25 @@ asks `apply`, `place_site` refusing `NotResearched`. The design phase is
 not gated here (the yard built the ship); the app's palette leaves the
 unknown parts out off `Research::new()`.
 
-**Where the keys are.** `station::key_rolled(map_seed)` is `KEY_CHANCE`
-(80) in a hundred off a stream of its own — the layout's rolls are what
-they were — and `Station::key` is that for a station neither hostile nor a
-derelict; `World::start` copies it to `station_keys` with the spawn forced
-true, so the first key is always at home. Every station's layout has a
+**Where the keys are.** `Station::key` is a **tier**, nought for none,
+and `station::key_tier(kind, hostile, map_seed)` is the rule: a derelict
+holds nothing; every hostile station holds the **tier-two key**
+(`ResourceId::ResearchKeyTwo`, appended at 22 — b-next, "Tier two, on
+the enemy's desk"), no roll; a friendly one holds the tier-one key at
+`station::key_rolled(map_seed)`'s odds — `KEY_CHANCE` (80) in a hundred
+off a stream of its own, the layout's rolls what they were, and the
+tier-two keys going in moved no tier-one key: which friendly desks hold
+one is pinned over a seed set across every galaxy type in
+`keys_are_on_four_friendly_desks_in_five_and_always_at_the_spawn` (a
+count and a hash captured before the change). `World::start` copies it
+to `station_keys` with the spawn forced to tier one, so the first key
+is always at home — the `combat` arena included, since `set_hostile`
+never touches the keys; a raider's and a settlement's desk are bare
+(`raid.rs`, `surface.rs` build with `key: 0`). `station_key(id)` is the
+tier, `station_has_key(id)` whether it is above nought, `key_at_the_dock()`
+the tier at the berth, and the ring of lights (`world_paint::key_lights`)
+shows for either tier. `tier_two_keys_lie_only_on_hostile_desks` pins
+the rule over the same seed set. Every station's layout has a
 `ResearchDesk` against the research room's north wall from the corner,
 worked from the row below, and that room's trays start a row lower than
 the laboratory's (`first_row` 3 against 2) so the desk's spot has deck on
@@ -1735,28 +1793,62 @@ playtest ship one); the walkability contract covers it.
 **A take is a command across the joined deck.** `station_desk()` is the
 index into `research_desks()` of the desk standing in `station_box`;
 `key_in_reach(who)` is `within_reach` of `Container::Desk(that)`; `take_key`
-wants docked, a key there, reach, and `free_cell_for(Item::Key(1))` — two
-cells one over the other — and then `give`s the key and clears the
-station's flag. `key_desk_spot()` is the walk for the app, which sends the
+wants docked, a key there, reach, and `free_cell_for(Item::Key(tier))` —
+two cells one over the other, either tier — and then `give`s
+`Item::Key(tier)` for whatever lies on the desk and sets the station's
+tier to nought. **No new check**: a key is taken at a hostile dock while
+its people stand, in the middle of the fight
+(`a_key_is_taken_at_a_hostile_dock_while_they_stand`). `key_desk_spot()` is the walk for the app, which sends the
 take the frame the Bim is in reach (`CrewPanels::key_requested`). Home,
 the key is stowed like anything else: `container_takes(Desk(i))` is the
 `Research` class **on the crew's own desks only** (`Some(i) !=
 station_desk()`), `armour::item_of` makes a `ResearchKey` an `Item::Key(1)`
+and a `ResearchKeyTwo` an `Item::Key(2)` (`key_tier_of`, `key_resource`)
 and `resource_of_item` the way back, `fetch` finds the cell with
 `free_cell_for`, and `pack_item` reads a tail cell as its key, so a stow by
-either cell is the same stow. `unlock` wants a powered desk, `free(ResearchKey)
-> 0`, and `Research::unlock(node)` to take (a node open already, or one with
-no lock, is `NotResearchable`, and no key is spent), and takes one off the cargo
-through `on_ship_changed`. `research` wants a desk aboard and
-`Research::begin`.
+either cell is the same stow. Both keys are the `Research` class and one
+cell of it, so the desk's capacity of one holds one key of either tier,
+never two. `unlock` wants a powered desk, then a node with a lock
+(`Research::key_wanted`, else `NotResearchable` before the desk is looked
+at), then **a key of that tier** free in the desk (`keys_in_desk(tier)`,
+which takes a tier now — the other tier's key there is `NoKey`, and it
+stays), then `Research::unlock(node)` to take (a node open already is
+`NotResearchable`, and no key is spent), and takes one of that resource
+off the cargo through `on_ship_changed`
+(`unlock_wants_the_nodes_tier`). `research` wants a desk aboard and
+`Research::enqueue`; `dequeue` wants the node on the queue.
+
+**The upgrades node gates the bench.** `shipdesign::research::Node::Upgrades
+= 9` — tier 2, locked, after the armoury, 1 440 minutes — is
+`Research::upgrades_allowed()`, and `can_upgrade` is `NoUpgrades` (40)
+without it, before the bench is looked at, so `begin_upgrade` and the
+button both refuse; `upgrade_pair()` and `bench_wants()` answer `None`
+without it, so Combine matching gear carries nothing to a bench that
+would refuse it. The node covers both steps, one to two and two to
+three; there is no tier-three node. `no_upgrade_before_the_node` pins
+it, and the tests that upgrade gear mark the node known with
+`upgrades_known` first.
 
 `a_key_is_taken_ashore_put_in_the_desk_and_consumed_to_open_a_node` runs
 the whole loop on the playtest ship at its spawn (two desks on the joined
 deck, the station's second);
 `the_benches_and_the_build_tab_wait_on_research`,
-`the_checksum_notices_research_and_a_key_taken` and
-`keys_are_on_four_friendly_desks_in_five_and_always_at_the_spawn` are the
-rest.
+`the_checksum_notices_research_and_a_key_taken`,
+`keys_are_on_four_friendly_desks_in_five_and_always_at_the_spawn`,
+`tier_two_keys_lie_only_on_hostile_desks`,
+`a_key_is_taken_at_a_hostile_dock_while_they_stand`,
+`unlock_wants_the_nodes_tier` and `no_upgrade_before_the_node` are the
+rest; `save_round_trip_keeps_key_tiers` in `crates/ship` is the save
+(`SAVE_VERSION` 14). `tier_two_probe` (`#[ignore]`, `--nocapture`) is a
+probe rather than a test: how many tier-one keys a start system holds
+and how often an enemy's desk is in it (66% of start systems on the
+first fifty seeds, 61% of station-bearing systems, whatever the galaxy
+type — the systems are the seed's, not the type's), the walk from a
+port to the research desk plan by plan (24 tiles on a pod, 27–31 on a
+cross or a spine, 33–37 on a ring or a comb, 42–58 on a hub), and that a
+crew member left down at an enemy's desk is carried home at the cast
+off with the key still in the pack (`unjoin_rooms` takes every crew Bim,
+`adopt` puts one off the deck at its bunk).
 
 ## The station's doors are in two rooms, and a lock is carried between them
 
@@ -1903,7 +1995,9 @@ and `discovered` (cleared; the step's own `discover_along` from the landing
 fills in what the sensors reach — the comment on `start` about "the
 systems beyond this one, when there is a way there" is this), and leaves
 the ship, the crew, the hold, the sites on the deck, the research, the
-money and the hired hands alone. The ship lands **holding** at
+money and the hired hands alone — **for a system never visited.** Since
+feature 71 the system left is filed first and one visited before is put
+back as it was left ("A system has a memory" below). The ship lands **holding** at
 `jump::landing_point(&system)` — rings of sixteen bearings out from the
 origin, the first point `data::JUMP_CLEARANCE` (four body radii) from every
 node, deterministic off the system — pointing the way it was, `Frame::Space`.
@@ -1920,6 +2014,69 @@ side, wired through `(6, 16)` and `(7, 16)`.
 `Galaxy view`), with `here` and `target` marks the lobby draws for the
 game — the lobby is the one thing that lists a system before the crew
 have been there.
+
+## A system has a memory, and a station's dead stay dead
+
+`crates/world/src/memory.rs` (September 2026, feature 71). Two things
+were forgotten before it: a station's room, dropped fifty tiles out
+(`settle_residents`), was opened again on the way back with every one
+of its people at their bunks, the dead included, so a garrison shot to
+the last stood up again the moment the ship had gone a little way off;
+and `World::jump` replaced everything of the world that was the
+system's, so a jump away and back was the system as the generator
+rolled it — the key back on the desk, the rocks back in the belt, the
+enemy a stranger again. Both are kept now, as **counts and lists**,
+never as rooms.
+
+**`World::losses: Vec<Losses>`**, sorted by station id, is what each
+station has lost to the crew: `dead` of its own people (residents or
+garrison) and `mercenaries` gone — hired onto the crew, or dead. It is
+added to at **one door**, `World::close_residents`, which every
+residents' room goes out by bar a probe's: `settle_residents` out of
+range, `join_rooms` when another station's room was open, `set_hostile`'s
+reopen (the old crowd's dead counted before the new stands, and the new
+`people_of` is the fewer for them) and `jump`. A body is counted once
+it is not `is_alive` — dead, not out cold, since one out cold wakes —
+told from a mercenary by `Residents::fee`. A hire adds one to
+`mercenaries` and a dismissal back ashore takes one off
+(`memory::amend_losses`; an entry with nothing lost is dropped, so two
+worlds that lost the same read the same whichever rooms opened on the
+way). A raider's are never counted — the raid's people go with the
+raider at the cast-off, as its plunder does. **`people_of` and
+`mercenaries_of` subtract them**, so a station opens again with its
+survivors and an emptied one opens empty (`Residents::open` with nought
+is a derelict's room, and `dock_for_probe` there docks at nobody). The
+count is the *number* the room opens with, so the survivors are the
+first `n` off the seed with their own kit again, not the same bodies —
+nothing about where they stood or what they carried is kept, and the
+bodies on the deck with their packs are gone with the room.
+
+**`World::memories: Vec<SystemMemory>`**, sorted by star, is every
+system the ship has jumped out of as it was left — the per-system fields
+lifted out as one struct: `hostile`, `reinforcements`, `station_keys`,
+`sites`, `plunder`, the **stations'** `lamps` (`station.is_some()`; the
+ship's own stay with the ship, which also fixed a lamp shot out at one
+system's station 3 landing on the next system's station 3), `discovered`
+and `losses`. `jump` calls `close_residents` (so the dead at a station
+within fifty tiles are counted), then `remember_system` (filed under
+`star_id`, replacing), then rebuilds `stations` and `surfaces` and asks
+`recall_system(star)`: found, the fields are put back — `discovered`
+grows again by what the landing's `discover_along` reaches, never
+shrinks; not found, the fields are reset the way they always were.
+`station_keys` is by index into `stations`, and `Station::all_of` on the
+same system gives the same list, so the indices hold.
+
+**Both are in `world_checksum`**, after the plunder — the losses whole,
+then every memory whole, its sites and shelves the way the live ones go
+in (`eat_site`, `eat_losses`, `eat_grid`) — which moved
+`REFERENCE_CHECKSUM` to `0x_28ce_5772_6470_76ab`; **`SAVE_VERSION` 15**,
+`wire::PROTOCOL` 8. Nothing in the app changed: a memory has no words and
+no picture, it is only what the next room opens with. `tests_memory.rs`
+is the rule: `a_station_s_dead_stay_dead_when_its_room_is_closed_and_opened_again`
+(two dead, then all, then docked at an empty station),
+`a_jump_away_and_back_finds_the_system_as_it_was_left` (every field, on
+the jumper, and the checksum), `a_mercenary_hired_is_not_there_to_hire_twice`
+(on the combat ship, as the hire test is).
 
 ## A station lays a few comforts, after its lamps
 
@@ -1958,7 +2115,8 @@ once, so the towns wait until somebody lands. Since feature 54 the roll
 also carries a **biome** (`Biome`: `Desert = 0`, `Temperate = 1`,
 `Arctic = 2` — an ice world is arctic, a rocky planet rolls desert or
 temperate evenly off branch "BIOME") and a **population**
-(`SURFACE_POPULATION`, 10 to 50 inclusive, off branch "POPL"), both
+(`SURFACE_POPULATION`, 5 to 30 inclusive since feature 66 — 10 to 50
+before — off branch "POPL"), both
 serialised on `Surface`; `Station::population` carries the number —
 the plan's for a station, the roll for a surface — and
 `Station::residents()` answers it. `Plan::residents(Surface)` is the
@@ -1976,10 +2134,20 @@ settlements all rolled friendly.
 **The plan is a town** (`surface::floor(side, biome, population, seed)`,
 feature 54): the whole build area bar its rim is ground — `Floor::open`,
 **no skin**: every tile deck — and since feature 55 the deck's edge is
-not the world's, see "The town stands on a plain" below — with the port at the
-middle of the west edge, where the **pad** is (the ship docks airlock to
-gate exactly as at a station, so `berth`, `join` and `join_mirror` are
-what they were). By the pad, the same in every town: the **watch house**
+not the world's, see "The town stands on a plain" below — and since
+feature 66 **built like a fort**: a `Wall` on every outermost tile of
+the deck (`FIRST` and `LAST`, through `Floor::walls` like a partition —
+not `OutsideWall`, which the test pins at none), the port at the middle
+of the west wall, where the **pad** is (the ship docks airlock to gate
+exactly as at a station, so `berth`, `join` and `join_mirror` are what
+they were; the airlock's two tiles are left out of the wall), and two
+**gates** — the west cross street's six columns (`GATE_X0`,
+`GATE_WIDTH`) left open in the north wall and in the south, a pier of
+wall `GATE_PIER` (2) deep standing inside either side of each and a
+standing light beyond each pier — so the cross street runs out through
+both onto the plain and nothing else does: every other street ends at
+the wall. The gates are openings, not doors; what closes them is later.
+By the pad, the same in every town: the **watch house**
 south of it, a small square with the sensor dish on its roof
 (`Floor::array`), its door towards the pad, two sandbags before it and
 the **guard's post** (`GUARD_POST`, `(5, SURFACE_SIDE / 2 + 8)`) between
@@ -1991,10 +2159,11 @@ street, the store onto the main street. Three streets run east from the
 pad — the **main street** eight wide on the pad's rows, a north and a
 south street six wide — crossed by two more, the east one three tiles
 past the hall wherever the hall ends; the streets are what a Bim walks
-out along, and they run to the edge of the deck. Between them the lots:
+out along, and they run to the wall. Between them the lots:
 the **gathering hall** on the main street in the middle (the mess, with
 the galley along its north wall and tables in `Floor::mess_columns`
-columns four tiles apart, three rows deep, a chair for everybody — the
+columns four tiles apart — two at the least, since the galley is six
+tiles of fittings — three rows deep, a chair for everybody — the
 `TooFewChairs` error is asked at the population); **bathhouses** (a
 toilet, a basin and a shower; one for every twelve) and **houses** (two,
 three, four or — in a big town — six bunks, the quarters' pattern: a
@@ -2019,11 +2188,11 @@ extra on a lamp's tile is dropped, which is why a house's inner height
 is `3 × bunks + 1` (the corner under the last bunk stays free).
 
 **The wild** (`surface::wild`, `Floor::wild`, run last of all) is
-everything the town is not, out to the edge: a ring `RING` (6) deep at
-the edge of the deck in thirty-two stretches each a gap at
-`GAP_CHANCE`, and a scatter thinning towards the town by a breadth-first
-distance from the buildings and fields (`rates`) — temperate: `Tree`
-forest, clumps of trees, `Shrub`s, a lake of `Water`, a few `Boulder`s;
+everything the town is not, up to the wall: a scatter thinning towards
+the town by a breadth-first distance from the buildings and fields
+(`rates`; the forest ring at the deck's edge with gaps in it went with
+the wall, feature 66) — temperate: clumps of `Tree`s, `Shrub`s, a lake
+of `Water`, a few `Boulder`s;
 desert: `Boulder` lines for cliffs and outcrops, `Shrub`s the painter
 draws as cacti, one oasis pool with palms; arctic: rock outcrops, a
 frozen lake, firs, hardly a shrub. Nothing grows within one tile
@@ -2047,8 +2216,9 @@ rolled, so the tests that walk every plan never see it;
 the bunks, the chairs, the food, the wild's keep-outs, and the
 walkability contract from the pad to every use spot, the post and every
 walkable tile, by `Nav::can_reach` since a route per tile over nine
-thousand tiles is minutes — on every biome at populations 10, 27 and 50
-on two seeds. `BIMS_NAV_MAP=Surface` prints the plan.
+thousand tiles is minutes, and the fort: a `Wall` on every outermost
+tile of the deck but the pad's two and the gates', which are walkable —
+on every biome at populations 5, 17 and 30 on two seeds. `BIMS_NAV_MAP=Surface` prints the plan.
 
 **`station::Placer`** is what `furnish` builds through now: the design
 with the occupancy of its four layers kept beside it, `put` refusing
@@ -2259,18 +2429,43 @@ box that is bigger than any deck was. Seen is a bitset a chunk
 painter draws — nothing, grey or black.
 
 **The picture** is `world_paint::plain`, drawn after the backdrop and
-before the town: every tile without floor within `VIEW` of the camera's
-middle and within the canvas (the window is the world that is loaded),
-in the room's frame turned with the ship — water, cliff and forest as
+before the town: every tile without floor over `world_paint::plain_window`
+— within `VIEW` of the camera's middle and within the canvas (the
+window is the world that is loaded) — in the room's frame turned with
+the ship — water, cliff and forest as
 runs along a row (a cliff with a lip along its top and a shadow at its
 foot, a forest with crowns on one tile in three), a tree, a shrub and a
 rock as the town's are (`fittings::part_in`, through a placed part at a
 `PLAIN_SHIFT` so the tile is unsigned), the ground's decoration on the
-rest — and then the fog over what is off the room's box, black and
-grey rectangles — a run along a row joined to the same run under it,
-both opaque (the grey is the fog's grey over the ground's colour) and
-lapped by `VEIL_LAP`, since at the zoom the floor allows a tile is a few
-pixels and the feathering of every edge showed as stripes. The fog
+rest. **The fog over it is not in the shapes** (feature 67, September
+2026): it is the plain's **picture**, `bims::terrain::Plane::picture`
+— the same ray march as the deck's light map (`sight::march_rays`,
+eight pixels a tile), a chunk of the room at a time (32 tiles, in the
+room's frame, not the station's chunks the ground is cached by), so a
+cliff's shadow has the cliff's edge and not the tile grid's steps —
+where it used to be black and grey rectangles a run of tiles at a
+time, the "old pixelated" look beside the smooth deck. `ship::Game::
+picture_the_plain` asks for it once a frame in `Session::render`, after
+`hold_view_to_the_ground` and before the paint, over the same window
+the plain is drawn on (the room does not know the camera, which is why
+it is not in `Game::render`); a chunk the window touches is composed —
+wholly if it has no map, else over the box the marches moved under it
+— and one the window leaves lets its map go and keeps its memory. The
+app draws each as its own `fogmap::FogTexture`, cut into the pieces of
+the chunk that lie off the room's box (`world_paint::plain_fog_on_screen`,
+`FogPiece`: at most four rectangles), so it never lies over the light
+map; every picture carries a `PICTURE_APRON` of the next chunk's
+pixels that is composed and never drawn, so the app's blur reads
+across the seam and a shadow does not kink there. A body's view holds
+until its eye has moved half a pixel or the deck's cells have
+(`Sight::cells_version`: doors, tall parts, lights). Every pixel a ray
+has reached is remembered, a bit a pixel per chunk, and none of it is
+saved: a plane read back starts its pictures from the tile rule's
+memory as it stood then (`Plane::seed`, whole tiles), and from nothing
+otherwise — the tile rule reaches half a tile past the rays with a
+stepped rim, and a picture must not take that on.
+`the_picture_is_marched_a_chunk_at_a_time_and_its_aprons_agree` in
+`terrain.rs` pins the lot. The fog
 over the box is the room's light map as before. The camera on a planet
 is held at or above the scale where the canvas's *nearer* edge is `VIEW`
 tiles from its middle (`Game::hold_view_to_the_ground`, once a frame;
@@ -2280,8 +2475,10 @@ and the plain is drawn out to `PLAIN_DRAWN` (twice `VIEW`) to cover the
 corners. `BIMS_ZOOM=0.3` zooms the game view about its middle once it is
 fitted, and `BIMS_AFIELD=1` lands the simulation with the crew member
 walked out west of the ship and a minute gone by — the two together are
-how the plain is looked at; `a_landed_picture_as_svg` (ignored, in
-`crates/ship`) dumps the same picture as an SVG.
+how the plain is looked at (`BIMS_AFIELD=1 BIMS_ZOOM=0.3 ./hidden
+target/debug/bims test_planet` is that on a planet chosen at random);
+`a_landed_picture_as_svg` (ignored, in `crates/ship`) dumps the same
+picture as an SVG, without the fog.
 `the_ground_beyond_the_town_is_a_plain_the_crew_walk_out_on_and_back`
 (`tests_surface.rs`) walks a crew member two hundred tiles north of the
 town — past the margin, past one window — and back, with its errands
@@ -2354,8 +2551,18 @@ ship that left — `Raids::build_raider` lays the raider so that its berth
 for this ship *is* the ship's position (the berth is the anchor plus a
 constant, so the anchor is the ship less the berth at nought), the ship
 turns onto the berth's heading where it stands, `leave_site`, `dock_at`,
+**`seal_against_raid`** — the ship's airlock (`World::ship_airlock_door`:
+the port's centre through the ship's shift, `door_index_at`) locked with
+`Order::Lock`, the crew's lock, unless it is locked already — then
 `RaidBoarded { boarders }` = 60; otherwise `RaidCancelled` = 61 and
-`Quiet`. `jump` cancels a closing raid outright — the ship is holding
+`Quiet`. The lock is the seal a raid has to break (feature 68): the
+boarders find their post behind it and `breach` it — thirty seconds at
+an airlock — and `settle_raid` sets `Raid::Docked::breached` and says
+**`RaidBreached { boarders }` = 67** once, the first step the door is
+not locked, whoever opened it; `raid_forcing()` is the smash bar's
+progress while somebody heaves at it and `raid_airlock_holds()` whether
+it still stands, both for the app's red warning; `raid_minutes_left()`
+is the closing raid's countdown. `breached` is hashed with `repelled`. `jump` cancels a closing raid outright — the ship is holding
 after a jump, but not where it was — and a raid that arrives to a
 travelling ship is cancelled at arrival.
 
@@ -2402,16 +2609,17 @@ back to the menu). `a_lost_fight_reaches_the_end_screen`.
 **In `world_checksum`** after the cold store: `next`, `due`, `left_home`,
 the state with a tag — a closing raid's number, boarders, both ends of
 its line and both clock readings; a docked raider's id, seed, anchor,
-boarders and whether it is repelled — and `lost`. `REFERENCE_CHECKSUM`
-moved with it, since the schedule is hashed from the first step; a save
-is `SAVE_VERSION` 6. The tests are `tests_raid.rs`: the hull, the
-count, the wait for a hold and for leaving home, the arrival with the
-warning and the reset and a boarder on the deck, the two cancellations,
+boarders, whether its airlock has given and whether it is repelled — and
+`lost`. `REFERENCE_CHECKSUM` moved with it, since the schedule is hashed
+from the first step; a save is `SAVE_VERSION` 6 (12 with `breached`).
+The tests are `tests_raid.rs`: the hull, the count, the wait for a hold
+and for leaving home, the arrival with the warning and the reset and a boarder on the deck, the two cancellations,
 the warning at nought, one and two arrays (1, 30 and 60 minutes), two
 worlds on one seed raided alike to the checksum through the boarding,
-the derelict and its removal, and the end. `raid_now_for_probe` brings
-the next raid to now (`raid_due_for_probe(minutes)` to that many
-minutes on); `raid_for_probe(dock)` is `BIMS_RAID`, and
+the derelict and its removal, and the end — and, in the arrival, the
+airlock locked in the boarders' face, heaved at, and given once
+(feature 68). `raid_now_for_probe` brings the next raid to now
+(`raid_due_for_probe(minutes)` to that many minutes on); `raid_for_probe(dock)` is `BIMS_RAID`, and
 `raid_coming_for_probe(minutes)` — off the berth, holding a little way
 out, the raid due that many minutes on and nothing yet on the radar —
 is the app's `raid` command, ten minutes so that at 1× the contact is

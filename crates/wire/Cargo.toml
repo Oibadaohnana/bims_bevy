@@ -1,0 +1,18 @@
+# The wire: what a client says to the relay and the relay says back, and
+# nothing about the game.
+#
+# Deliberately no Bevy, no world, no room: the relay server links this crate
+# and nothing else of the workspace, so a change to a weapon or a part never
+# means redeploying the server. What the players say to *each other* — the
+# lobby's settings, an edit to the ship, a command to the world — crosses as
+# opaque bytes the relay passes along, and is `crates/app/src/net.rs`'s.
+[package]
+name = "wire"
+version = "0.1.0"
+edition = "2024"
+description = "The wire between a Bims client and the relay: rooms, codes, and bytes passed along"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# Postcard both ways, so the two ends can never disagree about the format.
+postcard = { version = "1", features = ["alloc"] }

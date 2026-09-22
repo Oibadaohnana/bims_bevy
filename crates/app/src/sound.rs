@@ -10,8 +10,8 @@
 //!
 //! Two kinds of thing are played. A **one-shot** is spawned, plays once
 //! and despawns itself; a **bed** — the ship's hum, a station's, the
-//! engines — is a loop that runs the whole time at whatever level the
-//! screen asks for, faded rather than switched. A screen asks every
+//! engines, a planet's air — is a loop that runs the whole time at
+//! whatever level the screen asks for, faded rather than switched. A screen asks every
 //! frame, and a bed nobody asks for fades out, so a screen that closes
 //! takes its sound with it without having to say so.
 //!
@@ -58,12 +58,17 @@ pub enum Clip {
     Engine,
     Ship,
     Station,
+    Draw,
+    Holster,
+    Temperate,
+    Desert,
+    Arctic,
 }
 
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 22] = [
+const CLIPS: [&[u8]; 27] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -86,6 +91,11 @@ const CLIPS: [&[u8]; 22] = [
     include_bytes!("../sounds/engine.ogg"),
     include_bytes!("../sounds/ship.ogg"),
     include_bytes!("../sounds/station.ogg"),
+    include_bytes!("../sounds/draw.ogg"),
+    include_bytes!("../sounds/holster.ogg"),
+    include_bytes!("../sounds/temperate.ogg"),
+    include_bytes!("../sounds/desert.ogg"),
+    include_bytes!("../sounds/arctic.ogg"),
 ];
 
 /// The loops that run the whole time. The order is the order of the
@@ -99,36 +109,64 @@ pub enum Bed {
     Station,
     /// The engines burning.
     Engine,
+    /// A planet's air, set down at its settlement with the ground on the
+    /// joined deck: one a biome — birds and leaves, a dry wind, a cold one.
+    Temperate,
+    Desert,
+    Arctic,
 }
 
 impl Bed {
-    const ALL: [Bed; 3] = [Bed::Ship, Bed::Station, Bed::Engine];
+    const ALL: [Bed; 6] = [
+        Bed::Ship,
+        Bed::Station,
+        Bed::Engine,
+        Bed::Temperate,
+        Bed::Desert,
+        Bed::Arctic,
+    ];
+
+    /// The bed a planet's ground is heard as.
+    pub fn of_biome(biome: world::Biome) -> Bed {
+        match biome {
+            world::Biome::Temperate => Bed::Temperate,
+            world::Biome::Desert => Bed::Desert,
+            world::Biome::Arctic => Bed::Arctic,
+        }
+    }
 
     fn clip(self) -> Clip {
         match self {
             Bed::Ship => Clip::Ship,
             Bed::Station => Clip::Station,
             Bed::Engine => Clip::Engine,
+            Bed::Temperate => Clip::Temperate,
+            Bed::Desert => Clip::Desert,
+            Bed::Arctic => Clip::Arctic,
         }
     }
 
     /// The level the bed plays at when fully up. The ambiences are
     /// already fifteen dB under the recordings in the file; this is on
-    /// top, so they sit under a door two rooms away.
+    /// top, so they sit under a door two rooms away. A planet's air is
+    /// levelled the same in the file and played the same.
     fn level(self) -> f32 {
         match self {
             Bed::Ship | Bed::Station => 0.7,
             Bed::Engine => 0.45,
+            Bed::Temperate | Bed::Desert | Bed::Arctic => 0.7,
         }
     }
 
     /// How fast it fades, in fractions of full a second. A station's hum
     /// comes up over a couple of seconds as the airlocks mate; the engines
-    /// are quicker, since the burn is.
+    /// are quicker, since the burn is; a planet's air comes in with the
+    /// ground, at the station's pace.
     fn rate(self) -> f32 {
         match self {
             Bed::Ship | Bed::Station => 0.5,
             Bed::Engine => 1.2,
+            Bed::Temperate | Bed::Desert | Bed::Arctic => 0.5,
         }
     }
 }
@@ -144,6 +182,8 @@ enum Kind {
     Impact,
     Ricochet,
     Blow,
+    /// A weapon out of its holster, or back into it.
+    Holster,
     /// Not a room cue: the engines catching, off the world's events.
     EngineStart,
 }
@@ -166,6 +206,7 @@ impl Kind {
             Cue::Impact { .. } => Kind::Impact,
             Cue::Ricochet => Kind::Ricochet,
             Cue::Blow { .. } => Kind::Blow,
+            Cue::Holster { .. } => Kind::Holster,
         }
     }
 
@@ -185,6 +226,8 @@ impl Kind {
             Kind::Impact => 0.06,
             Kind::Ricochet => 0.1,
             Kind::Blow => 0.1,
+            // A hand changes once a step at most; the clip is half a second.
+            Kind::Holster => 0.3,
             // Undocking is said, and then departing; one ignition for both.
             Kind::EngineStart => 15.0,
         }
@@ -343,12 +386,20 @@ impl Sounds {
     /// A room's cue, played — or dropped, inside its kind's cool-down.
     pub fn play(&mut self, commands: &mut Commands, cued: Cued) {
         let Cued { cue, at } = cued;
+        // A bot's hand, or an enemy's, is not heard changing: the room
+        // says every one, and only a player's own is played — before the
+        // cool-down, so a silent one does not hold a heard one off.
+        if let Cue::Holster { player: false, .. } = cue {
+            return;
+        }
         if !self.admit(Kind::of(cue), at) {
             return;
         }
         match cue {
-            Cue::DoorOpens => self.one_shot(commands, Clip::DoorOpen, 0.08),
-            Cue::DoorShuts => self.one_shot(commands, Clip::DoorClose, 0.08),
+            Cue::Holster { drawn: true, .. } => self.one_shot(commands, Clip::Draw, 0.5),
+            Cue::Holster { drawn: false, .. } => self.one_shot(commands, Clip::Holster, 0.45),
+            Cue::DoorOpens => self.one_shot(commands, Clip::DoorOpen, 0.04),
+            Cue::DoorShuts => self.one_shot(commands, Clip::DoorClose, 0.04),
             // The forcing: the recording of a door being forced, a heave
             // at a time, and louder the once it gives.
             Cue::DoorSmash => self.one_shot(commands, Clip::DoorForce, 0.55),
@@ -465,6 +516,6 @@ mod tests {
             assert!(clip.starts_with(b"OggS"), "clip {i} is not an Ogg stream");
             assert!(clip.len() > 1_000, "clip {i} is only {} bytes", clip.len());
         }
-        assert_eq!(CLIPS.len(), Clip::Station as usize + 1);
+        assert_eq!(CLIPS.len(), Clip::Arctic as usize + 1);
     }
 }

@@ -181,6 +181,18 @@ fn on_screen(design: DVec2, centre: DVec2, heading: f64) -> (f32, f32) {
     ((d.x * c - d.y * s) as f32, (d.x * s + d.y * c) as f32)
 }
 
+/// Any design point in the camera's units — another player's pointer,
+/// which arrives as a point on the ship's grid (`Session::design_point`)
+/// and is drawn where that tile is on this screen. `Game::design_point_at`
+/// read forwards.
+pub fn design_on_screen(game: &Game, x: f32, y: f32) -> (f32, f32) {
+    on_screen(
+        dvec2(x as f64, y as f64),
+        game.world.ship.dynamics.centre_of_mass,
+        game.ship_turn(),
+    )
+}
+
 /// Where one of the crew lands in the camera's units, for the host's name
 /// over their head. The same arithmetic the room's picture is turned with.
 pub fn crew_on_screen(game: &Game, who: u32) -> (f32, f32) {
@@ -189,6 +201,38 @@ pub fn crew_on_screen(game: &Game, who: u32) -> (f32, f32) {
         game.world.ship.dynamics.centre_of_mass,
         game.ship_turn(),
     )
+}
+
+/// One of the ship's bunks in the camera's units, for the name the host
+/// writes on it: where its middle lands — the same turn the room's picture
+/// goes through — and whose it is, `None` for one nobody has.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct BunkLabel {
+    pub x: f32,
+    pub y: f32,
+    pub owner: Option<u32>,
+}
+
+/// Every bunk of the ship's and whose it is — `Game::bunk_tags`, the
+/// room's point taken to the design and turned like a Bim's. A station's
+/// bunks on a joined deck are not in it.
+pub fn bunk_labels(game: &Game) -> Vec<BunkLabel> {
+    let aboard = &game.world.aboard;
+    let centre = game.world.ship.dynamics.centre_of_mass;
+    let turn = game.ship_turn();
+    aboard
+        .room
+        .bunk_tags()
+        .into_iter()
+        .map(|tag| {
+            let (x, y) = on_screen(aboard.to_design(tag.at), centre, turn);
+            BunkLabel {
+                x,
+                y,
+                owner: tag.owner.map(|o| o as u32),
+            }
+        })
+        .collect()
 }
 
 /// The four corners of the room's light map — its origin, then clockwise
@@ -207,6 +251,83 @@ pub fn light_map_on_screen(game: &Game) -> Option<[(f32, f32); 4]> {
         on_screen(o.add(dvec2(w, h)), centre, turn),
         on_screen(o.add(dvec2(0.0, h)), centre, turn),
     ])
+}
+
+/// A piece of a fog picture for the host to draw: the part of the
+/// texture between `uv0` and `uv1` (nought to one across the map), at
+/// `corners` in the camera's units — the piece's origin, then clockwise,
+/// the way `light_map_on_screen` orders them.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct FogPiece {
+    pub uv0: (f32, f32),
+    pub uv1: (f32, f32),
+    pub corners: [(f32, f32); 4],
+}
+
+/// The plain's fog: every chunk picture the room composed for this
+/// frame's window (`bims::terrain::Plane::pictures`), by its chunk, with
+/// the pieces of it to draw — the chunk less the room's box, which the
+/// light map covers, cut into at most four rectangles so no fog is ever
+/// laid twice; the picture's apron is never drawn. Empty off a planet.
+pub fn plain_fog_on_screen(
+    game: &Game,
+) -> Vec<((i32, i32), &bims::sight::LightMap, Vec<FogPiece>)> {
+    let room = &game.world.aboard.room;
+    let Some(plane) = room.plane() else {
+        return Vec::new();
+    };
+    let tile = TILE as f64;
+    let offset = game.world.aboard.offset;
+    let centre = game.world.ship.dynamics.centre_of_mass;
+    let turn = game.ship_turn();
+    let (dx0, dy0, dx1, dy1) = plane.deck();
+    room.plain_pictures()
+        .into_iter()
+        .map(|(key, map)| {
+            let (cx0, cy0, cx1, cy1) = bims::terrain::Plane::picture_tiles(key);
+            // The chunk less the deck's box: the strips either side of
+            // it at full height, and what is left above and below it.
+            let mut rects: Vec<(i32, i32, i32, i32)> = Vec::new();
+            let (mx0, mx1) = (cx0.max(dx0), cx1.min(dx1));
+            if mx0 >= mx1 || cy0.max(dy0) >= cy1.min(dy1) {
+                rects.push((cx0, cy0, cx1, cy1));
+            } else {
+                if cx0 < mx0 {
+                    rects.push((cx0, cy0, mx0, cy1));
+                }
+                if mx1 < cx1 {
+                    rects.push((mx1, cy0, cx1, cy1));
+                }
+                if cy0 < dy0 {
+                    rects.push((mx0, cy0, mx1, dy0));
+                }
+                if dy1 < cy1 {
+                    rects.push((mx0, dy1, mx1, cy1));
+                }
+            }
+            let origin = dvec2(map.origin.x as f64, map.origin.y as f64);
+            let size = map.size();
+            let (sw, sh) = (size.x as f64, size.y as f64);
+            let pieces = rects
+                .into_iter()
+                .map(|(x0, y0, x1, y1)| {
+                    let lo = dvec2(x0 as f64 * tile, y0 as f64 * tile);
+                    let hi = dvec2(x1 as f64 * tile, y1 as f64 * tile);
+                    let uv = |p: DVec2| {
+                        let d = p.sub(origin);
+                        ((d.x / sw) as f32, (d.y / sh) as f32)
+                    };
+                    let at = |p: DVec2| on_screen(p.sub(offset), centre, turn);
+                    FogPiece {
+                        uv0: uv(lo),
+                        uv1: uv(hi),
+                        corners: [at(lo), at(dvec2(hi.x, lo.y)), at(hi), at(dvec2(lo.x, hi.y))],
+                    }
+                })
+                .collect();
+            (key, map, pieces)
+        })
+        .collect()
 }
 
 /// One number over a part in the electricity view: where it lands in the
@@ -1126,9 +1247,6 @@ const FOREST_TEMPERATE: Color = Color::rgb(0.14, 0.26, 0.12);
 const FOREST_ARCTIC: Color = Color::rgb(0.10, 0.22, 0.16);
 const CROWN_TEMPERATE: Color = Color::rgb(0.20, 0.36, 0.16);
 const CROWN_ARCTIC: Color = Color::rgb(0.16, 0.32, 0.22);
-/// The fog over the plain: never seen, and seen once and not now.
-const PLAIN_BLACK: Color = Color::rgb(0.0, 0.0, 0.0);
-const PLAIN_GREY: Color = Color::rgba(0.06, 0.07, 0.08, 0.80);
 /// A shift that puts every tile of the plain the camera can reach at a
 /// non-negative tile, so the wild's painters — which take a placed part,
 /// whose origin is unsigned — can draw it; the picture is placed back by
@@ -1138,29 +1256,17 @@ const PLAIN_SHIFT: i32 = 8192;
 /// the corners of a view held to `bims::terrain::VIEW` along its nearer
 /// edge (`Camera::scale_for_reach`), with a tile over.
 const PLAIN_DRAWN: i32 = bims::terrain::VIEW * 2;
-/// How far a run of the plain's fog or ground reaches past its tiles, in
-/// room units, so two runs meet under the feathering rather than beside it.
+/// How far a run of the plain's ground reaches past its tiles, in room
+/// units, so two runs meet under the feathering rather than beside it.
 const RUN_LAP: f32 = 3.0;
-/// The same for the fog, which is opaque and may lap by half a tile: at the
-/// floor a tile is a few pixels and the feathering a pixel of it.
-const VEIL_LAP: f32 = 26.0;
 
-/// The ground beyond the deck, while the ship is on a planet: the plain
-/// (`bims::terrain`) as the crew's room reads it, drawn a tile at a time
-/// in the room's frame over the window the camera can see — never more
-/// than [`PLAIN_DRAWN`] tiles from the camera's middle, which is as far
-/// as the world is loaded — and then the fog over what the crew
-/// do not see of it, black where nobody has looked and grey where
-/// somebody has. The deck's own tiles are the station's and the ship's
-/// to draw, and the fog over the room's box is the room's light map.
-/// Water, cliff and forest are runs along a row; a tree, a shrub and a
-/// rock are the biome's, as `fittings` draws the town's.
-fn plain(game: &Game, list: &mut DrawList) {
-    let room = &game.world.aboard.room;
-    let Some(plane) = room.plane() else {
-        return;
-    };
-    let biome = Biome::from_code(plane.biome() as u32).unwrap_or(Biome::Temperate);
+/// The room tiles the plain is drawn over this frame, both ends in —
+/// the window the camera can see, never more than [`PLAIN_DRAWN`] tiles
+/// from its middle, which is as far as the world is loaded — or `None`
+/// off a planet. What `plain` draws and what the plain's picture is
+/// asked for (`bims::Game::picture_plain`), so the two agree.
+pub fn plain_window(game: &Game) -> Option<(i32, i32, i32, i32)> {
+    game.world.aboard.room.plane()?;
     let tile = TILE as f32;
     let camera = &game.ship_view;
     let scale = camera.scale().max(1e-9);
@@ -1174,11 +1280,31 @@ fn plain(game: &Game, list: &mut DrawList) {
         bims::terrain::Plane::tile_of(bims::math::vec2(mid.x as f32, mid.y as f32), tile);
     let half_diag = camera.width.hypot(camera.height) / 2.0 / scale / tile;
     let reach = (half_diag.ceil() as i32 + 1).min(PLAIN_DRAWN);
+    Some((cx - reach, cy - reach, cx + reach, cy + reach))
+}
+
+/// The ground beyond the deck, while the ship is on a planet: the plain
+/// (`bims::terrain`) as the crew's room reads it, drawn a tile at a time
+/// in the room's frame over [`plain_window`]. The deck's own tiles are
+/// the station's and the ship's to draw. Water, cliff and forest are
+/// runs along a row; a tree, a shrub and a rock are the biome's, as
+/// `fittings` draws the town's. The fog over it — black where nobody
+/// has looked and grey where somebody has — is not drawn here: it is
+/// the plain's picture, marched like the room's light map and drawn by
+/// the host over everything, a chunk a texture (`plain_fog_on_screen`).
+fn plain(game: &Game, list: &mut DrawList) {
+    let room = &game.world.aboard.room;
+    let Some(plane) = room.plane() else {
+        return;
+    };
+    let Some((wx0, wy0, wx1, wy1)) = plain_window(game) else {
+        return;
+    };
+    let biome = Biome::from_code(plane.biome() as u32).unwrap_or(Biome::Temperate);
+    let tile = TILE as f32;
+    let offset = game.world.aboard.offset;
     let grid = game.world.aboard.design.grid();
-    let interior = room.interior();
     let s = PLAIN_SHIFT;
-    let side = 2 * reach + 1;
-    let mut veils = vec![bims::terrain::VEIL_NONE; (side * side) as usize];
     let mut picture = DrawList::default();
     let (cliff, water, forest, crown) = match biome {
         Biome::Temperate => (
@@ -1209,11 +1335,11 @@ fn plain(game: &Game, list: &mut DrawList) {
             color,
         );
     };
-    for ry in cy - reach..=cy + reach {
+    for ry in wy0..=wy1 {
         // The runs first: one rect a stretch of the same ground.
         let mut run: Option<(i32, Ground)> = None;
-        for rx in cx - reach..=cx + reach + 1 {
-            let here = (rx <= cx + reach && !deck(rx, ry))
+        for rx in wx0..=wx1 + 1 {
+            let here = (rx <= wx1 && !deck(rx, ry))
                 .then(|| plane.at_room(rx, ry))
                 .filter(|g| matches!(g, Ground::Water | Ground::Cliff | Ground::Forest));
             if let Some((x0, kind)) = run
@@ -1260,7 +1386,7 @@ fn plain(game: &Game, list: &mut DrawList) {
             }
         }
         // Then what stands a tile at a time, and the decoration.
-        for rx in cx - reach..=cx + reach {
+        for rx in wx0..=wx1 {
             if deck(rx, ry) {
                 continue;
             }
@@ -1304,82 +1430,6 @@ fn plain(game: &Game, list: &mut DrawList) {
                 }
             }
         }
-        // The fog, over everything off the room's box: what each tile
-        // wants, kept for the merge below.
-        for rx in cx - reach..=cx + reach {
-            let m = bims::math::vec2((rx as f32 + 0.5) * tile, (ry as f32 + 0.5) * tile);
-            let code = if interior.contains(m) {
-                bims::terrain::VEIL_NONE
-            } else {
-                plane.veil_at_room(rx, ry)
-            };
-            veils[((ry - cy + reach) * side + (rx - cx + reach)) as usize] = code;
-        }
-    }
-    // The fog as rectangles: a run along a row, and a run the same as the
-    // one under it joined to it — a stepped edge is still a rect a row,
-    // but the body of it is a few big ones, and there are no seams for
-    // the feathering to show at the zoom the floor allows. Opaque, both
-    // of them, so that lapping them costs nothing: the grey is the fog's
-    // grey over the ground's colour, worked out once.
-    let ground = ground_color(biome);
-    let grey = Color::rgb(
-        ground.r * (1.0 - PLAIN_GREY.a) + PLAIN_GREY.r * PLAIN_GREY.a,
-        ground.g * (1.0 - PLAIN_GREY.a) + PLAIN_GREY.g * PLAIN_GREY.a,
-        ground.b * (1.0 - PLAIN_GREY.a) + PLAIN_GREY.b * PLAIN_GREY.a,
-    );
-    let mut open: Vec<(i32, i32, u8, i32)> = Vec::new();
-    let emit = |picture: &mut DrawList, x0: i32, x1: i32, kind: u8, y0: i32, y1: i32| {
-        let color = if kind == bims::terrain::VEIL_BLACK {
-            PLAIN_BLACK
-        } else {
-            grey
-        };
-        picture.box_between(
-            (x0 + s) as f32 * tile - VEIL_LAP,
-            (y0 + s) as f32 * tile - VEIL_LAP,
-            (x1 + s) as f32 * tile + VEIL_LAP,
-            (y1 + s) as f32 * tile + VEIL_LAP,
-            0.0,
-            color,
-        );
-    };
-    for ry in cy - reach..=cy + reach + 1 {
-        let mut runs: Vec<(i32, i32, u8)> = Vec::new();
-        if ry <= cy + reach {
-            let mut run: Option<(i32, u8)> = None;
-            for rx in cx - reach..=cx + reach + 1 {
-                let here = (rx <= cx + reach)
-                    .then(|| veils[((ry - cy + reach) * side + (rx - cx + reach)) as usize])
-                    .filter(|&v| v != bims::terrain::VEIL_NONE);
-                if let Some((x0, kind)) = run
-                    && here != Some(kind)
-                {
-                    runs.push((x0, rx, kind));
-                    run = None;
-                }
-                if run.is_none()
-                    && let Some(kind) = here
-                {
-                    run = Some((rx, kind));
-                }
-            }
-        }
-        // What was open and is not in this row is done; what is carries on.
-        let mut next: Vec<(i32, i32, u8, i32)> = Vec::new();
-        for &(x0, x1, kind, y0) in &open {
-            if runs.contains(&(x0, x1, kind)) {
-                next.push((x0, x1, kind, y0));
-            } else {
-                emit(&mut picture, x0, x1, kind, y0, ry);
-            }
-        }
-        for &(x0, x1, kind) in &runs {
-            if !next.iter().any(|&(a, b, k, _)| (a, b, k) == (x0, x1, kind)) {
-                next.push((x0, x1, kind, ry));
-            }
-        }
-        open = next;
     }
     let centre = game.world.ship.dynamics.centre_of_mass;
     let shift = s as f32 * tile;

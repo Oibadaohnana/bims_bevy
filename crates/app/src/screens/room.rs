@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bims::combat::LootCell;
 use bims::game::Game;
+use bims::order::CrewOrder;
 use bims::room::{HIT_DOOR, HIT_DROPPED, HIT_SHIP_DOOR, TILE};
 use world::LootSource;
 
@@ -98,7 +99,7 @@ fn open(mut commands: Commands, window: Single<&Window>) {
     };
     // Somebody has to be picked to begin with, or the game opens with a
     // blank right-hand side and no hint that clicking a Bim is what fills it.
-    screen.game.select_group(1);
+    screen.game.select_group(0, 1);
     commands.insert_resource(screen);
 }
 
@@ -164,7 +165,7 @@ fn frame(
                 screen.game.clock_day(),
                 clock_text(minutes)
             ));
-            if screen.game.is_recruited() {
+            if screen.game.is_recruited(0) {
                 ui.label(egui::RichText::new("◆ Recruited — orders only").color(theme::ACCENT));
             }
             ui.separator();
@@ -232,7 +233,24 @@ fn frame(
                 // — no menu — into the pack of the Bim shown.
                 let id = screen.game.hit_dropped();
                 let who = screen.panels.inventory_who(&screen.game);
-                if !screen.game.fetch(who, id) {
+                // With Shift it waits its turn, as on the ship.
+                let refused = if pointer.shift {
+                    if screen.game.can_fetch(who, id) {
+                        screen.game.order_later(
+                            0,
+                            CrewOrder::PickUp {
+                                who: who as u32,
+                                item: id,
+                            },
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                } else {
+                    !screen.game.fetch(who, id)
+                };
+                if refused {
                     screen.refusal = Some((PICK_UP_REFUSED.into(), now + REFUSAL_SECONDS));
                 }
             } else if fixture != 0 {
@@ -266,7 +284,7 @@ fn frame(
             screen.game.drag_update(p.x, p.y);
             if pointer.primary_released {
                 let from = screen.drag_from.take().unwrap();
-                let fixture = screen.game.drag_end(p.x, p.y);
+                let fixture = screen.game.drag_end(0, p.x, p.y);
                 let here = pointer.pos.unwrap();
                 let moved = (egui::pos2(here.x, here.y) - from).length() > CLICK_SLOP;
                 // A click that landed on a fixture opens its menu instead of
@@ -295,7 +313,25 @@ fn frame(
                 let from = screen.order_from.take().unwrap();
                 let here = pointer.pos.unwrap();
                 let dragged = (egui::pos2(here.x, here.y) - from).length() > CLICK_SLOP;
-                let code = screen.game.order_drag_end(p.x, p.y, dragged);
+                // The same order the ship's screen sends, given plain or
+                // — with Shift held — to wait its turn (feature 69).
+                screen.game.order_drag_cancel();
+                let f = view.to_world(Vec2::new(from.x, from.y) - canvas.min);
+                let walk = if dragged {
+                    CrewOrder::Line {
+                        x0: f.x,
+                        y0: f.y,
+                        x1: p.x,
+                        y1: p.y,
+                    }
+                } else {
+                    CrewOrder::Move { x: p.x, y: p.y }
+                };
+                let code = if pointer.shift {
+                    screen.game.order_later(0, walk)
+                } else {
+                    screen.game.order(0, walk)
+                };
                 if let Some(refused) = order_refused(code) {
                     screen.refusal = Some((refused.into(), now + REFUSAL_SECONDS));
                 }
@@ -309,16 +345,16 @@ fn frame(
     if keys {
         ctx.input(|i| {
             if keys_now.pressed(i, Action::Select) {
-                screen.game.select_group(1);
+                screen.game.select_group(0, 1);
             }
             if keys_now.pressed(i, Action::Recruit) {
-                screen.game.toggle_recruited();
+                screen.game.toggle_recruited(0);
             }
             if keys_now.pressed(i, Action::Inventory) {
                 screen.panels.toggle_inventory();
             }
             if i.key_pressed(egui::Key::Escape) && !screen.panels.escape() {
-                screen.game.clear_selection();
+                screen.game.clear_selection(0);
             }
         });
     }
@@ -403,8 +439,16 @@ fn frame(
         .inventory_window(&ctx, &mut screen.game, &name);
     screen.panels.cell_menu(&ctx, &screen.game, &name);
     screen.panels.end_frame(&mut screen.game);
-    // No hold and no seam here: what the pack's rows asked for goes
-    // straight to the room. Nothing is put away or fetched, since there
+    // No hold and no seam here: what the menus and the Management tab
+    // asked of the room goes straight to it, as the one player's, and so
+    // does what the pack's rows asked for.
+    for order in screen.panels.crew_orders.drain(..) {
+        screen.game.order(0, order);
+    }
+    for order in screen.panels.later_orders.drain(..) {
+        screen.game.order_later(0, order);
+    }
+    // Nothing is put away or fetched, since there
     // is nowhere to put it or take it from; a loot is the room's two
     // halves back to back, under the checks the world would make.
     for order in screen.panels.orders.drain(..) {
@@ -478,6 +522,19 @@ fn frame(
             egui::pos2(at.x, at.y)
         });
         screen.fog.paint(&ctx, &painter, map, corners);
+    }
+
+    // The bunks' tags, across the middle of each: whose it is, or that it
+    // is nobody's (feature 61). Under the names, so a sleeper's own stays
+    // on top.
+    for tag in screen.game.bunk_tags() {
+        let at = view.to_canvas(Vec2::new(tag.at.x, tag.at.y)) + canvas.min;
+        let (words, color) = match tag.owner {
+            Some(o) if o == player => (name(o as u32), theme::YOURS),
+            Some(o) => (name(o as u32), theme::THEIRS),
+            None => (BED_TAG_UNASSIGNED.to_string(), theme::MUTED),
+        };
+        theme::bunk_tag(&painter, egui::pos2(at.x, at.y), &words, color);
     }
 
     // The names and the bubbles, over the deck and under the panels. Text
@@ -581,7 +638,7 @@ fn status_line(screen: &RoomScreen, now: f64, minutes: f32) -> String {
     if let Some(doing) = activity_line(game.activity(player)) {
         return doing.into();
     }
-    if game.selected_count() != 0 {
+    if game.selected_count(0) != 0 {
         return format!("{me} selected — right-click the floor to send him there");
     }
     IDLE_HINT.into()

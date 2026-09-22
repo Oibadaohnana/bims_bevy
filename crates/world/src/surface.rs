@@ -11,8 +11,9 @@
 //! [`World::station`](crate::World::station) by an id of its own:
 //! [`surface_id`] of the body, well clear of any station the generator
 //! numbers. What is different is the ground: the hull is **open** — no
-//! skin, every tile deck, the edge of the deck the edge of the world — and
-//! the painter draws the planet under it instead of the stars.
+//! skin, every tile deck, a wall round the edge of the deck and the plain
+//! beyond it — and the painter draws the planet under it instead of the
+//! stars.
 //!
 //! # Rolled here, not in the generator
 //!
@@ -34,17 +35,22 @@
 //! time somebody asks for it — [`Surface::station`], through a `OnceLock`
 //! — which is at a landing, or when the map asks.
 //!
-//! # A town, and the wild round it
+//! # A fort, and the wild inside it
 //!
 //! What is built is a **town** sized by its population and shaped by its
-//! biome ([`floor`]): the pad, the watch house and the trading house by
-//! it, a gathering hall, houses along three streets, bathhouses, fields
-//! or greenhouses, and then the wild ([`wild`]) — forest, rock, water —
-//! over every tile of ground the town does not use, out to the edge of
-//! the deck. A Bim leaving the ship can walk any way; what stops it is a
-//! tree, a boulder, a house wall or the water, never a line drawn on the
-//! ground, and the streets run out through the wild to the edge of the
-//! world so there is always a way out. The rules are the station plans'
+//! biome ([`floor`]), and it is built like a fort: a **wall** round the
+//! whole of the deck on its outermost tiles, the pad in the west wall
+//! (the ship docks into the wall as it docks into a station's skin) and
+//! two **gates** — an opening the width of a street, with a pier of wall
+//! either side — where the west cross street meets the north wall and
+//! the south. Inside: the watch house and the trading house by the pad,
+//! a gathering hall, houses along three streets, bathhouses, fields or
+//! greenhouses, and then the wild ([`wild`]) — forest, rock, water —
+//! over every tile of ground the town does not use, up to the wall. A
+//! Bim leaving the ship can walk any way; what stops it is a tree, a
+//! boulder, a house wall or the water, never a line drawn on the ground,
+//! and the cross street runs out through both gates onto the plain so
+//! there is always a way out. The rules are the station plans'
 //! (`crates/world/CLAUDE.md`, the walkability contract): every door two
 //! tiles, every use spot with deck beyond it, and nothing left that the
 //! room's navigation cannot reach from the pad.
@@ -254,7 +260,7 @@ impl Surface {
                 stock: self.stock,
                 bias: self.bias,
                 hostile: self.hostile,
-                key: false,
+                key: 0,
             }
         })
     }
@@ -320,12 +326,13 @@ const STORE: Block = Block::new(TOWN_X0 + 10, 39, CROSS_A_X0 - 1, MAIN_Y0 - 1);
 /// its tables want and this many rows of them deep.
 const HALL_X0: u32 = CROSS_A_X0 + STREET;
 const HALL_ROWS: u32 = 3;
-/// The forest, the rock or the ice at the edge of the world is this many
-/// tiles deep, in [`SECTORS`] stretches round the perimeter, each of
-/// which is a gap — thin enough to walk through — at [`GAP_CHANCE`].
-const RING: u32 = 6;
-const SECTORS: usize = 32;
-const GAP_CHANCE: f64 = 0.3;
+/// The two gates in the perimeter wall: an opening the west cross
+/// street's width where it meets the north wall and the south, so the
+/// street runs out through both onto the plain, a pier of wall this many
+/// tiles deep either side of each, and a standing light beyond each pier.
+pub(crate) const GATE_X0: u32 = CROSS_A_X0;
+pub(crate) const GATE_WIDTH: u32 = STREET;
+const GATE_PIER: u32 = 2;
 /// The town's own rolls — where a house stands, what stands in it, the
 /// shape of the wild — come off the seed salted, so the furnisher's rolls
 /// (the batteries, the shelves) are what the station plans' are.
@@ -496,9 +503,9 @@ impl Town {
     /// bunks a tile of street buys, since the streets are what runs out.
     fn pick_house(&self, population: u32, rng: &mut Rng) -> Building {
         let roll = rng.below(100);
-        let (six, three, four) = if population >= 40 {
+        let (six, three, four) = if population >= 24 {
             (45, 75, 92)
-        } else if population >= 30 {
+        } else if population >= 16 {
             (0, 55, 85)
         } else {
             (0, 40, 60)
@@ -635,8 +642,13 @@ impl Town {
 /// biome, deterministic in the four.
 ///
 /// The whole build area bar its rim is ground — `Floor::open`, no skin,
-/// deck to the edge — with the port at the middle of the west edge,
-/// where the **pad** is. The **watch house** stands south of the pad
+/// deck to the edge — and a **wall** stands round it on the outermost
+/// tiles of the deck, the plain beyond, with the port at the middle of
+/// the west wall, where the **pad** is, and two **gates** in it: an
+/// opening the west cross street's width where the street meets the
+/// north wall and where it meets the south, a pier of wall
+/// [`GATE_PIER`] deep either side and a standing light beyond each
+/// pier. The **watch house** stands south of the pad
 /// with the sensor dish on its roof, its door towards the pad, two
 /// sandbags before it and the guard's post ([`GUARD_POST`]) between
 /// them; the **trading house** north of it — the trading hall with the
@@ -668,6 +680,32 @@ pub(crate) fn floor(side: u32, biome: Biome, population: u32, seed: u64) -> Floo
     let mut rng = Rng::new(seed ^ TOWN_SALT);
     let mut town = Town::default();
 
+    // The wall round the whole of it, on the deck's outermost tiles —
+    // less the pad's two tiles in the west wall, which the airlock
+    // takes, and the two gates: the cross street's columns in the north
+    // wall and the south. The piers stand inside the wall either side
+    // of each gate, the street between them.
+    let pad = [(FIRST, mid - 1), (FIRST, mid)];
+    let gate = |x: u32| (GATE_X0..GATE_X0 + GATE_WIDTH).contains(&x);
+    for x in FIRST..=last {
+        if !gate(x) {
+            town.walls.push((x, FIRST));
+            town.walls.push((x, last));
+        }
+    }
+    for y in FIRST + 1..last {
+        if !pad.contains(&(FIRST, y)) {
+            town.walls.push((FIRST, y));
+        }
+        town.walls.push((last, y));
+    }
+    for x in [GATE_X0 - 1, GATE_X0 + GATE_WIDTH] {
+        for d in 1..=GATE_PIER {
+            town.walls.push((x, FIRST + d));
+            town.walls.push((x, last - d));
+        }
+    }
+
     // What stands by the pad, the same in every town.
     let watch = Block::new(
         WATCH_X0,
@@ -681,9 +719,11 @@ pub(crate) fn floor(side: u32, biome: Biome, population: u32, seed: u64) -> Floo
     town.room(watch, ((watch.x0, watch.y0 + 4), Rotation::R0));
 
     // The hall, as wide as its tables: a chair each, two a table, three
-    // rows of tables four tiles apart, and the columns to make the number.
+    // rows of tables four tiles apart, and the columns to make the number
+    // — two at the least, since the galley along the north wall is six
+    // tiles of fittings and one column's hall is four inside.
     let tables = population.div_ceil(2);
-    let columns = tables.div_ceil(HALL_ROWS).max(1);
+    let columns = tables.div_ceil(HALL_ROWS).max(2);
     let (hall_w, hall_h) = (4 * columns + 2, 4 * HALL_ROWS + 4);
     let hall = Block::new(HALL_X0, MAIN_Y0 - hall_h, HALL_X0 + hall_w - 1, MAIN_Y0 - 1);
     town.room(hall, ((hall.x0 + hall_w / 2 - 1, hall.y1), Rotation::R90));
@@ -700,12 +740,13 @@ pub(crate) fn floor(side: u32, biome: Biome, population: u32, seed: u64) -> Floo
     let heads = Block::new(HALL_X0, LOT_S.0, HALL_X0 + 7, LOT_S.0 + 5);
     town.room(heads, ((heads.x0 + 1, heads.y0), Rotation::R90));
 
-    // The streets and the yard: nothing grows on them.
+    // The streets and the yard: nothing grows on them. The west cross
+    // street is cleared through both gates.
     town.clear.extend([
         Block::new(FIRST + 1, MAIN_Y0, last, MAIN_Y1),
         Block::new(TOWN_X0, NORTH_Y0, last, NORTH_Y0 + STREET - 1),
         Block::new(TOWN_X0, SOUTH_Y0, last, SOUTH_Y0 + STREET - 1),
-        Block::new(CROSS_A_X0, FIRST + 1, CROSS_A_X0 + STREET - 1, last),
+        Block::new(CROSS_A_X0, FIRST, CROSS_A_X0 + STREET - 1, last),
         Block::new(xb, FIRST + 1, xb + STREET - 1, last),
         Block::new(FIRST + 1, YARD_Y0, TOWN_X0 - 1, YARD_Y1),
     ]);
@@ -812,10 +853,15 @@ pub(crate) fn floor(side: u32, biome: Biome, population: u32, seed: u64) -> Floo
         town.fill(frontage, &mut baths, bunks_wanted, population, &mut rng);
     }
 
-    // Standing lights along every street and two in the yard, none within
-    // two tiles of a door's approach or the post; the big plant on the
-    // main street before the hall.
+    // Standing lights along every street, two in the yard and one either
+    // side of each gate beyond its piers, none within two tiles of a
+    // door's approach or the post; the big plant on the main street
+    // before the hall.
     let standing_lights = vec![
+        (GATE_X0 - 3, FIRST + GATE_PIER),
+        (GATE_X0 + GATE_WIDTH + 2, FIRST + GATE_PIER),
+        (GATE_X0 - 3, last - GATE_PIER),
+        (GATE_X0 + GATE_WIDTH + 2, last - GATE_PIER),
         (12, MAIN_Y0 + 2),
         (24, MAIN_Y1 - 2),
         (38, MAIN_Y0 + 2),
@@ -872,37 +918,29 @@ pub(crate) fn floor(side: u32, biome: Biome, population: u32, seed: u64) -> Floo
 
 // --- the wild ---------------------------------------------------------------
 
-/// How thick the scatter is, by where a tile lies: in the ring at the
-/// edge of the world, in a gap of that ring, and then by how far it is
-/// from the nearest building or field — far out, in between, or in the
-/// town.
+/// How thick the scatter is, by where a tile lies: by how far it is from
+/// the nearest building or field — far out by the wall, in between, or
+/// in the town. (The forest ring at the edge of the deck went with
+/// feature 66: the edge is the fort's wall now, and the plain's own
+/// growth is beyond it.)
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Zone {
-    Ring,
-    Gap,
     Far,
     Mid,
     Near,
 }
 
 /// The chance a tile of a zone grows a tree, a shrub or a boulder, in a
-/// biome — a forest at the edge of a temperate world with clearings in
-/// it, rock at a desert's, ice and firs at an arctic one; sparse in the
-/// town, thicker outside it.
+/// biome — trees on a temperate world, rock on a desert, ice and firs on
+/// an arctic one; sparse in the town, thicker towards the wall.
 fn rates(biome: Biome, zone: Zone) -> (f64, f64, f64) {
     match (biome, zone) {
-        (Biome::Temperate, Zone::Ring) => (0.70, 0.05, 0.006),
-        (Biome::Temperate, Zone::Gap) => (0.10, 0.04, 0.004),
         (Biome::Temperate, Zone::Far) => (0.20, 0.05, 0.006),
         (Biome::Temperate, Zone::Mid) => (0.06, 0.045, 0.003),
         (Biome::Temperate, Zone::Near) => (0.012, 0.02, 0.001),
-        (Biome::Desert, Zone::Ring) => (0.0, 0.10, 0.10),
-        (Biome::Desert, Zone::Gap) => (0.0, 0.06, 0.02),
         (Biome::Desert, Zone::Far) => (0.0, 0.05, 0.015),
         (Biome::Desert, Zone::Mid) => (0.0, 0.03, 0.006),
         (Biome::Desert, Zone::Near) => (0.0, 0.012, 0.002),
-        (Biome::Arctic, Zone::Ring) => (0.30, 0.005, 0.30),
-        (Biome::Arctic, Zone::Gap) => (0.06, 0.005, 0.06),
         (Biome::Arctic, Zone::Far) => (0.09, 0.01, 0.06),
         (Biome::Arctic, Zone::Mid) => (0.03, 0.005, 0.02),
         (Biome::Arctic, Zone::Near) => (0.008, 0.003, 0.005),
@@ -943,31 +981,10 @@ impl Lake {
     }
 }
 
-/// How far a tile is from the edge of the deck.
+/// How far a tile is from the edge of the deck — the wall's tiles.
 fn rim(x: i32, y: i32) -> i32 {
     let (first, last) = (FIRST as i32, LAST as i32);
     (x - first).min(last - x).min(y - first).min(last - y)
-}
-
-/// Which stretch of the perimeter a tile of the ring is on: the tiles
-/// along the edge it is nearest, counted clockwise from the north-west
-/// corner in [`SECTORS`] stretches. Integers throughout, since a town
-/// has to come out the same on every machine.
-fn sector(x: i32, y: i32) -> usize {
-    let (first, last) = (FIRST as i32, LAST as i32);
-    let (n, e, s, w) = (y - first, last - x, last - y, x - first);
-    let m = n.min(e).min(s).min(w);
-    let along = if m == n {
-        x - first
-    } else if m == e {
-        (last - first) + (y - first)
-    } else if m == s {
-        2 * (last - first) + (last - x)
-    } else {
-        3 * (last - first) + (last - y)
-    };
-    let span = 4 * (last - first) + 4;
-    (along.max(0) * SECTORS as i32 / span) as usize % SECTORS
 }
 
 /// A breadth-first distance over the grid from every tile `source` says,
@@ -1010,19 +1027,19 @@ fn distances(
     (dist, mark)
 }
 
-/// The wild: everything the town is not, out to the edge of the deck, so
-/// that a Bim can walk any way from the ship and what stops it is the
-/// ground — a forest, a cliff, the water — never the edge of a map.
+/// The wild: everything the town is not, up to the wall round the deck,
+/// so that a Bim can walk any way from the ship and what stops it is the
+/// ground — a copse, a cliff, the water, the wall — never the edge of a
+/// map.
 ///
-/// By biome: a temperate world has a forest of `Tree`s round the edge
-/// with gaps in it, clumps of trees further in, a scatter of `Shrub`s,
-/// a lake and a few `Boulder`s; a desert has lines of `Boulder`s for
-/// cliffs and outcrops of them, `Shrub`s the painter draws as cacti, and
-/// one oasis — a pool with a few palms about it; an arctic world has
-/// outcrops of rock, a frozen lake, a few firs and hardly a shrub. The
-/// scatter is thicker at the edge and thinner in the town
-/// ([`rates`]), and the streets run out through it, so there is always a
-/// way to the edge of the world.
+/// By biome: a temperate world has clumps of `Tree`s, a scatter of
+/// `Shrub`s, a lake and a few `Boulder`s; a desert has lines of
+/// `Boulder`s for cliffs and outcrops of them, `Shrub`s the painter
+/// draws as cacti, and one oasis — a pool with a few palms about it; an
+/// arctic world has outcrops of rock, a frozen lake, a few firs and
+/// hardly a shrub. The scatter is thicker towards the wall and thinner
+/// in the town ([`rates`]), and the west cross street runs out through
+/// the gates, so there is always a way onto the plain.
 ///
 /// Nothing grows where a Bim has to stand or pass: on a use spot, a
 /// door's tiles or the two beyond either face of it, the guard's post
@@ -1120,22 +1137,10 @@ pub(crate) fn wild(placer: &mut Placer, floor: &Floor, biome: Biome, rng: &mut R
     };
     let (dist, _) = distances(side, |x, y| built[index(x, y)].then_some(PartKind::Wall));
 
-    // The ring's gaps, a roll a stretch.
-    let gaps: Vec<bool> = (0..SECTORS).map(|_| rng.chance(GAP_CHANCE)).collect();
-    let zone = |x: i32, y: i32| {
-        if rim(x, y) < RING as i32 {
-            if gaps[sector(x, y)] {
-                Zone::Gap
-            } else {
-                Zone::Ring
-            }
-        } else {
-            match dist[index(x, y)] {
-                d if d >= 12 => Zone::Far,
-                d if d >= 6 => Zone::Mid,
-                _ => Zone::Near,
-            }
-        }
+    let zone = |x: i32, y: i32| match dist[index(x, y)] {
+        d if d >= 12 => Zone::Far,
+        d if d >= 6 => Zone::Mid,
+        _ => Zone::Near,
     };
 
     // The features, rolled before the scatter: clumps, cliffs, water.

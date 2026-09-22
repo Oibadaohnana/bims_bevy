@@ -416,6 +416,101 @@ impl WeaponStats {
         self.speed * TILE
     }
 }
+
+/// The trigger of anything that fires: how long until it can be pulled
+/// again, and the burst a pull started — shots left of it and the
+/// seconds until the next. **One of these for a Bim and one for a
+/// sentry** (feature 74), so there is exactly one rule for when a shot
+/// goes out: a pull is the first of the weapon's `burst` shots now, the
+/// rest `burst_gap` apart, and then `1 / fire_rate` to wait out. What a
+/// shot *does* — the roll against the distance, the dodge, the damage
+/// where it lands — is [`Combat::fire`] and [`Combat::step`], shared the
+/// same way; a shooter is a position, a weapon and one of these.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Trigger {
+    /// Seconds until the weapon can fire again.
+    pub reload: f32,
+    /// Shots left of the burst a trigger pull started, and seconds until
+    /// the next of them.
+    pub burst_left: u32,
+    pub burst_timer: f32,
+}
+
+impl Trigger {
+    /// The clock: the reload runs down every step, aimed or not.
+    pub fn tick(&mut self, dt: f32) {
+        self.reload = (self.reload - dt).max(0.0);
+    }
+
+    /// Nothing to shoot at, or nothing to shoot with: whatever burst was
+    /// under way is over. The reload keeps running.
+    pub fn hold(&mut self) {
+        self.burst_left = 0;
+    }
+
+    /// One shot a pull and no burst, at the trigger rate: finishing a
+    /// body off, where the picture is the point and a rifle's eight
+    /// into a body on the deck would not be.
+    pub fn pull_single(&mut self, stats: &WeaponStats) -> bool {
+        if self.reload > 0.0 {
+            return false;
+        }
+        self.reload = 1.0 / stats.fire_rate.max(1e-3);
+        self.burst_left = 0;
+        true
+    }
+
+    /// Aimed at something this step: whether a shot goes out now — the
+    /// trigger pulled if the weapon is ready, else the next of the burst
+    /// when its gap has run out.
+    pub fn pull(&mut self, dt: f32, stats: &WeaponStats) -> bool {
+        if self.reload <= 0.0 {
+            self.reload = 1.0 / stats.fire_rate.max(1e-3);
+            self.burst_left = stats.burst.saturating_sub(1);
+            self.burst_timer = stats.burst_gap;
+            true
+        } else if self.burst_left > 0 {
+            self.burst_timer -= dt;
+            if self.burst_timer <= 0.0 {
+                self.burst_left -= 1;
+                self.burst_timer = stats.burst_gap;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+}
+
+/// An engineer's sentry as the room keeps it (feature 74): a shooter
+/// that is not a body — a position on the deck, a weapon, a trigger and
+/// how many pulls of it are left. The world owns the sentry — its
+/// health, its shots, whose it is — and hands the room the list every
+/// step (`Game::set_sentries`); the room fires each at the nearest
+/// visible enemy in range through the same [`Combat::aim`] and
+/// [`Combat::fire`] a Bim uses, hands the pulls back (`Game::take_sentry_shots`),
+/// and puts every sentry after the crew on the list of bodies a hostile
+/// bolt looks for, so a hit on one comes back as a hit on that index
+/// (`Game::take_sentry_hits`). A sentry with no shots left stands there.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Sentry {
+    /// The world's id for it.
+    pub id: u32,
+    pub at: Vec2,
+    pub weapon: Weapon,
+    /// Trigger pulls left; nought and it is silent.
+    pub shots: u32,
+    /// Whether sandbags between it and a shooter count as cover for it
+    /// at any distance — the engineer's *dug in* talent — where a body
+    /// has to stand close behind them (`Sight::covered`).
+    pub dug_in: bool,
+    /// Its trigger, kept between steps the way a Bim's is.
+    pub trigger: Trigger,
+}
 /// What a Bim can wear. The discriminants are the codes the app names
 /// (`ARMOUR_NAMES`), written out like the weapons'; `0` is the empty
 /// slot. Each is cut for one part — see [`ArmourKind::slot`].
@@ -607,6 +702,9 @@ impl Item {
             // A crate of vegetables, a block of tofu.
             3 => (1, 2),
             4 => (4, 4),
+            // An engineer's sandbag kit, and its sentry's crate.
+            23 => (2, 2),
+            24 => (2, 3),
             _ => (1, 1),
         }
     }
@@ -1153,6 +1251,13 @@ pub struct Combat {
     /// Either side's — a lamp does not care whose bolt it was. The game
     /// takes it off the lamp (`Sight::damage_lamp`).
     lamp_hits: Vec<(usize, f32)>,
+    /// Every bolt the sandbags stopped since the game last asked: the
+    /// tile of low cover a body ducked behind (`Sight::cover_between`)
+    /// and the damage the bolt carried there. Either side's. A bolt a
+    /// body in cover dodges does not vanish — it is in the bags — and
+    /// the world takes it off a laid deployable's health
+    /// (`Game::take_cover_hits`); a sandbag *part* shrugs it off.
+    cover_hits: Vec<((i32, i32), f32)>,
     /// What was heard: every bolt fired here, every one that landed, and
     /// every blow that did. See `crate::cue`. A hostile room's recorded
     /// `shots` say nothing — they are heard where they are flown.
@@ -1175,6 +1280,7 @@ impl Combat {
             wounds_taken: Vec::new(),
             shots: Vec::new(),
             lamp_hits: Vec::new(),
+            cover_hits: Vec::new(),
             cues: Vec::new(),
             // A fresh room has been quiet for ever.
             lull: f32::MAX,
@@ -1255,6 +1361,18 @@ impl Combat {
         std::mem::take(&mut self.lamp_hits)
     }
 
+    /// The bolts the sandbags stopped since last asked: the tile of cover
+    /// and the damage. See `cover_hits`.
+    pub fn take_cover_hits(&mut self) -> Vec<((i32, i32), f32)> {
+        std::mem::take(&mut self.cover_hits)
+    }
+
+    /// A bolt stopped by the bags on `tile`, for the tests.
+    #[allow(dead_code)]
+    pub fn cover_hit_for_probe(&mut self, tile: (i32, i32), damage: f32) {
+        self.cover_hits.push((tile, damage));
+    }
+
     /// How long since the last shot or blow here, either side's, in
     /// seconds at 1x.
     pub fn lull(&self) -> f32 {
@@ -1265,6 +1383,12 @@ impl Combat {
     /// while something is in the air or somebody is a target.
     pub fn age(&mut self, dt: f32) {
         self.lull = (self.lull + dt).min(f32::MAX);
+    }
+
+    /// Something landed here that went through none of the methods
+    /// above — a blow the world carried onto a sentry: the lull is over.
+    pub fn lull_break(&mut self) {
+        self.lull = 0.0;
     }
 
     /// A shot taken but not flown: what a hostile room's people do
@@ -1490,6 +1614,7 @@ impl Combat {
         let mut sparks: Vec<Spark> = Vec::new();
         let mut heard: Vec<Cued> = Vec::new();
         let mut broken: Vec<(usize, f32)> = Vec::new();
+        let mut bagged: Vec<((i32, i32), f32)> = Vec::new();
         self.bolts.retain_mut(|bolt| {
             let mut flight = bolt.vel * dt;
             let mut span = flight.len();
@@ -1536,9 +1661,17 @@ impl Combat {
                     // behind the sandbags between it and the shooter — the
                     // bolt flies on past, and is not rolled for this body
                     // again.
-                    let covered = peeking || sight.covered(body, bolt.fired_from);
+                    let bags = sight.cover_between(body, bolt.fired_from);
+                    let covered = peeking || bags.is_some();
                     if covered && rng.chance(DODGE_IN_COVER) {
                         bolt.dodged = Some(i);
+                        // Ducked behind sandbags rather than back in from
+                        // a peek: the bags took it, at the distance flown
+                        // to the body.
+                        if !peeking && let Some(tile) = bags {
+                            let flown = (body - bolt.fired_from).len() / TILE;
+                            bagged.push((tile, bolt.weapon.stats().damage_at(flown)));
+                        }
                         continue;
                     }
                     // And its armour: a tier-three piece gives its wearer
@@ -1603,6 +1736,7 @@ impl Combat {
         self.hits.extend(landed);
         self.wounds_taken.extend(taken);
         self.lamp_hits.extend(broken);
+        self.cover_hits.extend(bagged);
         self.sparks.extend(sparks);
         self.cues.extend(heard);
     }

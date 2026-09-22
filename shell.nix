@@ -24,6 +24,9 @@ pkgs.mkShell {
     pkg-config
     # The sounds are cut from the recordings by crates/app/sounds/prepare.sh.
     ffmpeg
+    # The headless compositor `./hidden` opens a smoke run's window on, so
+    # a run with nobody at the keyboard shows up on nobody's desktop.
+    weston
   ];
 
   # ALSA is the one thing the sound *links*: cpal, under Bevy's audio,

@@ -34,6 +34,7 @@ pub mod math;
 pub mod memory;
 pub mod nav;
 pub mod needs;
+pub mod order;
 pub mod rng;
 pub mod room;
 pub mod schedule;

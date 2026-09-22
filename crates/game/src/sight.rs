@@ -321,6 +321,12 @@ pub struct Sight {
     #[cfg_attr(feature = "serde", serde(skip))]
     views: Vec<View>,
     views_stale: bool,
+    /// Moved with `views_stale`: which cells the views were marched
+    /// over, for a picture kept elsewhere — the plain's,
+    /// `terrain::Plane::picture` — to tell that the walls, the doors or
+    /// the lights have moved under its own views.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    cells_version: u64,
     /// Every pixel a line of sight has ever reached: the picture's grey
     /// over a stranger's structure. A flag a pixel, so it goes into a
     /// save as a string of noughts and ones (`math::bools`).
@@ -335,6 +341,12 @@ pub struct Sight {
     eyes_at: Vec<(i32, i32)>,
     /// The shut doors `cells` carries now — see `set_shut`.
     shut: Vec<Rect>,
+    /// The low cover as the layout laid it (`set_cover`) and as the
+    /// world has laid it since (`set_laid_cover`) — an engineer's
+    /// sandbags, feature 74 — kept apart so either can be set again
+    /// without losing the other. Both are marked into `fixed` together.
+    layout_cover: Vec<Rect>,
+    laid_cover: Vec<Rect>,
     /// Whether the doors have moved since the mask was traced.
     stale: bool,
     /// Whether anything has been traced yet. Until it has, nothing is
@@ -377,10 +389,13 @@ impl Sight {
             field_dirty: None,
             views: Vec::new(),
             views_stale: true,
+            cells_version: 0,
             explored_px: Vec::new(),
             explored: vec![false; (columns * rows) as usize],
             eyes_at: Vec::new(),
             shut: Vec::new(),
+            layout_cover: Vec::new(),
+            laid_cover: Vec::new(),
             stale: false,
             traced: false,
             own: Stance::Friendly,
@@ -583,6 +598,7 @@ impl Sight {
         self.shut = shut.to_vec();
         self.stale = true;
         self.views_stale = true;
+        self.cells_version += 1;
         let mut cells = self.fixed.clone();
         for door in shut {
             self.mark(&mut cells, door, &mut |c| c.opaque = true);
@@ -624,6 +640,7 @@ impl Sight {
     fn relight(&mut self) {
         self.stale = true;
         self.views_stale = true;
+        self.cells_version += 1;
         for l in self.lit.iter_mut() {
             *l = false;
         }
@@ -688,11 +705,19 @@ impl Sight {
         self.range = range;
         self.stale = true;
         self.views_stale = true;
+        self.cells_version += 1;
         self.map_stale = true;
     }
 
     pub fn range(&self) -> Option<f32> {
         self.range
+    }
+
+    /// Which cells a line of sight is read over now: a number that moves
+    /// whenever the walls, the tall parts, the lights or the shut doors
+    /// do, so a picture marched over them can tell it is stale.
+    pub fn cells_version(&self) -> u64 {
+        self.cells_version
     }
 
     pub fn daylight(&self) -> Option<Rect> {
@@ -862,13 +887,43 @@ impl Sight {
     /// Mark these rectangles as low cover — sandbags: nothing to sight or
     /// to a walk, but a body within [`COVER_REACH`] behind one, on the
     /// side a bolt comes from, ducks under it. Part of the fixed picture,
-    /// so it survives every `set_shut`.
+    /// so it survives every `set_shut`. The layout's; whatever the world
+    /// has laid since (`set_laid_cover`) stays marked beside it.
     pub fn set_cover(&mut self, cover: &[Rect]) {
+        self.layout_cover = cover.to_vec();
+        self.mark_cover();
+    }
+
+    /// The low cover laid at run time — an engineer's deployed sandbags
+    /// (feature 74) — over and above the layout's, the whole list every
+    /// time: what is not on it any more is unmarked. A fresh `Sight` has
+    /// none, so the world says it again after every relayout, join and
+    /// unjoin. Nothing to do when the list is what it was.
+    pub fn set_laid_cover(&mut self, laid: &[Rect]) {
+        if self.laid_cover == laid {
+            return;
+        }
+        self.laid_cover = laid.to_vec();
+        self.mark_cover();
+    }
+
+    /// The cover laid at run time, as last set.
+    pub fn laid_cover(&self) -> &[Rect] {
+        &self.laid_cover
+    }
+
+    fn mark_cover(&mut self) {
         let mut fixed = std::mem::take(&mut self.fixed);
         for c in fixed.iter_mut() {
             c.cover = false;
         }
-        for rect in cover {
+        let rects: Vec<Rect> = self
+            .layout_cover
+            .iter()
+            .chain(self.laid_cover.iter())
+            .copied()
+            .collect();
+        for rect in &rects {
             self.mark(&mut fixed, rect, &mut |c| c.cover = true);
         }
         for (c, f) in self.cells.iter_mut().zip(&fixed) {
@@ -898,6 +953,7 @@ impl Sight {
         self.fixed = fixed;
         self.light_field_stale = true;
         self.views_stale = true;
+        self.cells_version += 1;
     }
 
     /// Whether a tile is low cover.
@@ -913,10 +969,28 @@ impl Sight {
     /// the answer is no, so a body far behind a barricade is in the open
     /// — a bolt comes over it.
     pub fn covered(&self, body: Vec2, from: Vec2) -> bool {
+        self.cover_between(body, from).is_some()
+    }
+
+    /// [`Sight::covered`] with the tile of cover that does it, for the
+    /// bolt it stopped to be taken off the bags (`Combat::cover_hits`).
+    pub fn cover_between(&self, body: Vec2, from: Vec2) -> Option<(i32, i32)> {
+        self.cover_along(body, from, Some(COVER_REACH * self.tile))
+    }
+
+    /// The same at any distance: whether sandbags lie anywhere on the
+    /// line from `body` to `from`, and where. What a sentry *dug in*
+    /// asks (feature 74), for which bags across the room count as
+    /// cover; a body wants them within reach.
+    pub fn cover_anywhere_between(&self, body: Vec2, from: Vec2) -> Option<(i32, i32)> {
+        self.cover_along(body, from, None)
+    }
+
+    fn cover_along(&self, body: Vec2, from: Vec2, reach: Option<f32>) -> Option<(i32, i32)> {
         let (mut x, mut y) = self.tile_of(body);
         let (tx, ty) = self.tile_of(from);
         if (x, y) == (tx, ty) || self.cover_at(x, y) {
-            return false;
+            return None;
         }
         let d = from - body;
         let step_x: i32 = if d.x > 0.0 { 1 } else { -1 };
@@ -933,7 +1007,6 @@ impl Sight {
         } else {
             (f32::INFINITY, f32::INFINITY)
         };
-        let reach = COVER_REACH * self.tile;
         let most = (tx - x).abs() + (ty - y).abs() + 2;
         for _ in 0..most {
             let t = if t_x < t_y {
@@ -948,14 +1021,17 @@ impl Sight {
                 t
             };
             // Past the reach, or at the shooter: nothing between counts.
-            if t >= 1.0 || (x, y) == (tx, ty) || (self.middle(x, y) - body).len() > reach {
-                return false;
+            if t >= 1.0
+                || (x, y) == (tx, ty)
+                || reach.is_some_and(|reach| (self.middle(x, y) - body).len() > reach)
+            {
+                return None;
             }
             if self.cover_at(x, y) {
-                return true;
+                return Some((x, y));
             }
         }
-        false
+        None
     }
 
     /// Work the mask out again from these eyes and these shut doors, if
@@ -1226,12 +1302,12 @@ pub const MAP_PX_PER_TILE: i32 = 8;
 /// and its neighbour are a pixel apart eighty tiles out, past a plain's
 /// sight range with room to spare, so nothing between them is missed —
 /// two thousand streaked at the far side of a landed room's box.
-const RAYS: u32 = 4096;
+pub(crate) const RAYS: u32 = 4096;
 /// The fog over what the crew do not see of their own deck.
 const MAP_FOG: f32 = 0.62;
 /// The fog over what they have looked at of a stranger's deck and do not
 /// see now: the structure shows through it, and no body does.
-const MAP_GREY: f32 = 0.80;
+pub(crate) const MAP_GREY: f32 = 0.80;
 /// The dark over what they see of it that no light reaches — deep enough
 /// that a lamp's pool reads against it, short of the fog so the deck
 /// stays readable.
@@ -1522,11 +1598,7 @@ impl Sight {
     /// reached — its index, its tile, and how far along the ray it is in
     /// room units — until the ray meets an opaque cell of `cells` (one
     /// that is furniture, `soft`, too, unless `through_soft`), leaves the
-    /// grid, or has gone `reach`. Each ray is the grid traversal, in
-    /// pixels: it steps to whichever pixel edge comes next, so every
-    /// pixel the line passes through is visited once and none is skipped
-    /// — the same walk as [`Sight::clear_line`] at eight times the
-    /// resolution, and integer arithmetic bar one add a step.
+    /// grid, or has gone `reach`. The walk itself is [`march_rays`].
     fn march(
         &self,
         from: Vec2,
@@ -1545,57 +1617,16 @@ impl Sight {
         let (fx, fy) = self.tile_of(from);
         let stops = |c: &Cell| c.opaque && !(through_soft && c.soft);
         let from_opaque = self.inside(fx, fy) && stops(&cells[self.index(fx, fy)]);
-        let shift = MAP_PX_PER_TILE.trailing_zeros();
-        for r in 0..RAYS {
-            let a = r as f32 / RAYS as f32 * core::f32::consts::TAU;
-            let (dx, dy) = (a.cos(), a.sin());
-            let mut x = ox.floor() as i32;
-            let mut y = oy.floor() as i32;
-            let step_x: i32 = if dx > 0.0 { 1 } else { -1 };
-            let step_y: i32 = if dy > 0.0 { 1 } else { -1 };
-            // How far along the ray (in pixels) the next vertical and
-            // horizontal pixel edges are, and how much further each one
-            // after that is.
-            let (mut t_x, delta_x) = if dx.abs() > 1e-6 {
-                let next = if dx > 0.0 { x + 1 } else { x } as f32;
-                ((next - ox) / dx, 1.0 / dx.abs())
-            } else {
-                (f32::INFINITY, f32::INFINITY)
-            };
-            let (mut t_y, delta_y) = if dy.abs() > 1e-6 {
-                let next = if dy > 0.0 { y + 1 } else { y } as f32;
-                ((next - oy) / dy, 1.0 / dy.abs())
-            } else {
-                (f32::INFINITY, f32::INFINITY)
-            };
-            // The pixel the eye is in, then every one the ray crosses into.
-            let mut t = 0.0;
-            loop {
-                if x < 0 || y < 0 || x >= w || y >= h || t > far {
-                    break;
-                }
-                let (tx, ty) = (x >> shift, y >> shift);
-                let i = (y * w + x) as usize;
-                let opaque = stops(&cells[self.index(tx, ty)]);
-                // A ray reaches into the wall that stops it — the wall is
-                // seen, and lit, from the room — and no further; one that
-                // starts inside a wall (an eye pressed to it) gets out.
-                if opaque && !(from_opaque && (tx, ty) == (fx, fy)) {
-                    f(i, (tx, ty), t * px);
-                    break;
-                }
-                f(i, (tx, ty), t * px);
-                if t_x < t_y {
-                    t = t_x;
-                    x += step_x;
-                    t_x += delta_x;
-                } else {
-                    t = t_y;
-                    y += step_y;
-                    t_y += delta_y;
-                }
-            }
-        }
+        let opaque = |tx: i32, ty: i32| stops(&cells[self.index(tx, ty)]);
+        march_rays(
+            (ox, oy),
+            far,
+            (w, h),
+            (fx, fy),
+            from_opaque,
+            opaque,
+            |i, tile, t| f(i, tile, t * px),
+        );
     }
 
     /// Whether a body's eyes are where they were last marched from: the
@@ -1800,6 +1831,81 @@ impl Sight {
     /// The map as last worked out.
     pub fn map(&self) -> &LightMap {
         &self.map
+    }
+}
+
+/// Walk [`RAYS`] rays out from `from` — in pixels, over a grid `dims`
+/// pixels across and down with [`MAP_PX_PER_TILE`] to a tile — calling
+/// `f` with each pixel reached: its index, its tile, and how far along
+/// the ray it is in pixels — until the ray meets a tile `opaque` says
+/// yes to, leaves the grid, or has gone `far`. `from_tile` is the tile
+/// the eye is in and `from_opaque` whether that tile itself is opaque:
+/// a ray reaches into the wall that stops it — the wall is seen, and
+/// lit, from the room — and no further; one that starts inside a wall
+/// (an eye pressed to it) gets out. Each ray is the grid traversal, in
+/// pixels: it steps to whichever pixel edge comes next, so every pixel
+/// the line passes through is visited once and none is skipped — the
+/// same walk as [`Sight::clear_line`] at eight times the resolution,
+/// and integer arithmetic bar one add a step. The deck's light map and
+/// the plain's picture (`terrain::Plane::picture`) are both marched by
+/// this, so their shadows have the same edges.
+pub(crate) fn march_rays(
+    from: (f32, f32),
+    far: f32,
+    dims: (i32, i32),
+    from_tile: (i32, i32),
+    from_opaque: bool,
+    opaque: impl Fn(i32, i32) -> bool,
+    mut f: impl FnMut(usize, (i32, i32), f32),
+) {
+    let (ox, oy) = from;
+    let (w, h) = dims;
+    let shift = MAP_PX_PER_TILE.trailing_zeros();
+    for r in 0..RAYS {
+        let a = r as f32 / RAYS as f32 * core::f32::consts::TAU;
+        let (dx, dy) = (a.cos(), a.sin());
+        let mut x = ox.floor() as i32;
+        let mut y = oy.floor() as i32;
+        let step_x: i32 = if dx > 0.0 { 1 } else { -1 };
+        let step_y: i32 = if dy > 0.0 { 1 } else { -1 };
+        // How far along the ray (in pixels) the next vertical and
+        // horizontal pixel edges are, and how much further each one
+        // after that is.
+        let (mut t_x, delta_x) = if dx.abs() > 1e-6 {
+            let next = if dx > 0.0 { x + 1 } else { x } as f32;
+            ((next - ox) / dx, 1.0 / dx.abs())
+        } else {
+            (f32::INFINITY, f32::INFINITY)
+        };
+        let (mut t_y, delta_y) = if dy.abs() > 1e-6 {
+            let next = if dy > 0.0 { y + 1 } else { y } as f32;
+            ((next - oy) / dy, 1.0 / dy.abs())
+        } else {
+            (f32::INFINITY, f32::INFINITY)
+        };
+        // The pixel the eye is in, then every one the ray crosses into.
+        let mut t = 0.0;
+        loop {
+            if x < 0 || y < 0 || x >= w || y >= h || t > far {
+                break;
+            }
+            let (tx, ty) = (x >> shift, y >> shift);
+            let i = (y * w + x) as usize;
+            if opaque(tx, ty) && !(from_opaque && (tx, ty) == from_tile) {
+                f(i, (tx, ty), t);
+                break;
+            }
+            f(i, (tx, ty), t);
+            if t_x < t_y {
+                t = t_x;
+                x += step_x;
+                t_x += delta_x;
+            } else {
+                t = t_y;
+                y += step_y;
+                t_y += delta_y;
+            }
+        }
     }
 }
 

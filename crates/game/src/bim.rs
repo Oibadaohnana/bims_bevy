@@ -12,7 +12,7 @@
 
 use crate::character::{Character, Look};
 use crate::clock;
-use crate::combat::{Blow, Gear};
+use crate::combat::{Blow, Gear, Trigger};
 use crate::filth::{self, Filth, Mess, Ordeal};
 use crate::health::Health;
 use crate::math::{Vec2, vec2};
@@ -145,12 +145,10 @@ pub struct Bim {
 
     /// What it wears and what it shoots with. See `crate::combat`.
     pub gear: Gear,
-    /// Seconds until the weapon can fire again.
-    pub reload: f32,
-    /// Shots left of the burst a trigger pull started, and seconds until
-    /// the next of them. See `Game::tick_combat`.
-    pub burst_left: u32,
-    pub burst_timer: f32,
+    /// Its trigger: the reload, and the burst a pull started. One rule
+    /// for a Bim and a sentry alike — see `crate::combat::Trigger` and
+    /// `Game::tick_combat`.
+    pub trigger: Trigger,
     /// The enemy — an index into the targets — it is in a melee with:
     /// locked, unable to fire, trading blows every `MELEE_PERIOD`
     /// seconds on `melee_timer`. Nothing but the distance between them
@@ -227,9 +225,7 @@ impl Bim {
             sore: 0.0,
             bed: None,
             gear: Gear::issued(),
-            reload: 0.0,
-            burst_left: 0,
-            burst_timer: 0.0,
+            trigger: Trigger::default(),
             locked: None,
             melee_timer: 0.0,
             blow: None,

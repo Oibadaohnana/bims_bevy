@@ -24,7 +24,7 @@ as in the room, living the same life on the ship you designed.
 nix run .
 ```
 
-That builds the game and opens it. There are nine things to run, and each is
+That builds the game and opens it. There are eleven things to run, and each is
 a name rather than a flag:
 
 | command | `cargo run` | opens |
@@ -36,6 +36,8 @@ a name rather than a flag:
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock and bunks to spare for one |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
 | `nix run .#combat` | `cargo run -- combat` | the fight: the combat ship — fourteen crew, a gun in every hand — docked at the spawn rebuilt as the arena and made hostile, its people enemies, fifteen of them; a recruited crew member shoots at any it can see |
+| `nix run .#tier2_test` | `cargo run -- tier2_test` | `combat` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the garrison's the same — nothing at tier one on either side |
+| `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
 | `nix run .#raid` | `cargo run -- raid` | the simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in — the warning, the raider on the map and closing at its own pace, then the boarding |
 
 The `cargo run` forms build from the working tree, which is what you want
@@ -54,6 +56,7 @@ nix develop            # a shell with the toolchain and the runtime libraries
 nix build              # the binary lands in result/bin/bims
 nix flake check        # builds it, runs every crate's tests, checks formatting
 ./check                # everything above and a smoke run of each window
+./hidden <command>     # runs it on a headless compositor — nothing opens on the desktop
 ```
 
 `bims --self-check` prints whether this build agrees with the constants the
@@ -131,6 +134,55 @@ lobby — a guest sees the host's world, can pan, zoom and inspect it, and can
 change a thing — and the settings themselves are plain numbers: a sum of
 money, a tile count, a seed, a type and two ids. Nothing but numbers can
 cross into the simulation anyway.
+
+**Your Bim has a name, and so does everybody's pointer** (feature 60). The
+Game setup tab has a **Your Bim** field, host's and guest's alike: what
+you type there is what your crew member is called — over its head, in
+its panel, in the log and the diary — and blank keeps the crew's own
+name for the berth (James, Kate, Priya, Tomas). The lobby's crew list
+shows each player's Bim's name beside them, in the colour that player's
+pointer and route will be drawn in; the names are dealt with the slots
+at Start, one said late still lands, and a save keeps them. From the yard
+on, every other player's **pointer** is drawn where it is over the ship —
+a see-through arrow in their colour with their Bim's name beside it, over
+the tile they are over on *your* screen whatever they have zoomed or
+turned, gone when theirs is off the ship or on the map. It is sent twenty
+times a second at most and never through the host: a pointer is a picture,
+not an order, and it is in nothing that has to agree.
+
+**No two Bims look quite alike, and yours wears the hair you gave it**
+(feature 62). Every body is one of five **builds**, from slight to
+sturdy — six per cent of the body scale a step, enough to tell two
+apart standing together — and wears one of eight **hairstyles** in one
+of six **colours**: cropped, long, bald, bob, bun, mohawk, ponytail or
+curly, in dark, brown, black, blond, red or grey, drawn from above on the
+crown and again on the deck when the body is down. The first two of
+any crew are the pair they always were (a dark crop with the pale yoke,
+brown hair down past the collar with the mauve one); everybody after —
+a crew of five, a station's people, a garrison, a mercenary — is dealt a
+look off its index, the same on every machine and off no dice, so a seed
+that pins a probe is not moved by it. The Game setup tab's **Hair** row,
+under the name field, is the chooser: the figure as it will stand on
+the deck, a button a style and a swatch a colour, everybody's to pick
+like the name; it goes out with the name, is dealt with the slots at
+Start and one picked late still lands. A look is a picture and nothing
+else — the reach, the hit test and the checksum are the same whatever
+the hair — and a save carries it on the body.
+
+**The host's world is the world** (feature 67). With company every copy
+of the world is the host's, checked by checksum every couple of seconds;
+when a guest's copy parts from it — a bug, a build not quite the host's
+— the guest says so in the log (*Your world has drifted…*, *Catching up
+with the host…*), asks the host for its world, and the host sends the
+whole game as the text a save is, which the guest then plays on from as
+its own crew member (*Back on the host's world.*). The same is how a
+load works with company: **only the host can load** — a guest's Load is
+greyed with the reason — and a game saved for a different number of
+players than are in the room is refused (*That game was saved for N
+players; M are here.*); a load that goes replaces the world on every
+machine, and guests still in the yard are brought into the game with it.
+A world in flight is a few megabytes, so it is a hitch on both ends, the
+way a load is. A game of one loads as it always did.
 
 ## The ship designer
 
@@ -590,32 +642,40 @@ you can lift from the panel.
 Hostile ships come to you. Every day to three days, while the ship is
 **holding** — stopped, tied to nothing, charging nothing — a **raider**
 appears at the edge of the radar and closes on the ship in a straight
-line; the log says so, the map draws it ringed in red on its line in,
-and **everybody's speed goes back to 1×** once — a reset, not a veto:
-raise it again if you like. Nothing comes while the ship is docked,
-under way, casting off, pushing off, coming alongside or charging a
-jump, and nothing comes before the crew have left their start station
-for the first time; a raid that falls due under way waits for the next
-hold. The warning is the sensors': the raider comes in at a fixed speed
-from however far the ship can see, so a ship with nobody's eyes but its
-own gets a minute, one sensor array half an hour, and the most a hull
-can carry two hours. Leave before it arrives — a trip, or a jump that
-completes — and the raid is off; the raider turns up where the ship was
-and gives up.
+line; the log says so, a **red warning** goes up along the top of the
+screen — *RAIDERS — incoming in 1 hour 30 minutes, 3 aboard*, the time
+left counted down in words as it comes — the map draws it ringed in red
+on its line in, and **everybody's speed goes back to 1×** once — a
+reset, not a veto: raise it again if you like. Nothing comes while the
+ship is docked, under way, casting off, pushing off, coming alongside
+or charging a jump, and nothing comes before the crew have left their
+start station for the first time; a raid that falls due under way waits
+for the next hold. The warning is the sensors': the raider comes in at
+a fixed speed from however far the ship can see, so a ship with
+nobody's eyes but its own gets a minute, one sensor array half an hour,
+and the most a hull can carry two hours. Leave before it arrives — a
+trip, or a jump that completes — and the raid is off; the raider turns
+up where the ship was and gives up.
 
 Stay, and it **docks to you**: a small hull with a port, a bunk a
 boarder, a reactor and a shelf, tied airlock to airlock exactly as the
 ship ties up at a station, and from then on it is a hostile station
-docked to the ship. Its **boarders** — one and one for every crew
-member, doubled with the crew's worth the way a station's garrison is,
-six at most — are posted at the ship's gangway, the deck just inside
-its airlock, and come through the passage after it: an enemy that has
-seen a crew member hunts to where it last saw them and, once it has
-hunted, holds or closes and never gives ground again; one that finds
-the airlock locked against it smashes it, thirty seconds, as at any
-door. Every boarder down and the raider is a **derelict** tied to the
-ship: loot the bodies as at any hostile dock, and cast off to be rid of
-it — it is gone the moment the ship pushes off, and never seen again.
+docked to the ship. **The ship's airlock is locked in its face** the
+step it ties up — the crew's lock, the one the door's panel sets, so
+the panel unlocks it too if you would rather meet them in the passage.
+Its **boarders** — one, one more for every thirty days the game has
+run, and one for every crew member, doubled with the crew's worth the
+way a station's garrison is, six at most — are posted at the ship's
+gangway, the deck just inside its airlock, find the door shut against
+them and **force it**: thirty seconds of heaving, the bar over the door
+and under the red warning (*RAIDERS ALONGSIDE — 3 forcing the
+airlock*), and then the lock gives (*RAIDERS ABOARD*) and they come
+through the passage after it. An enemy that has seen a crew member
+hunts to where it last saw them and, once it has hunted, holds or
+closes and never gives ground again. Every boarder down and the raider
+is a **derelict** tied to the ship, and the warning comes down: loot
+the bodies as at any hostile dock, and cast off to be rid of it — it is
+gone the moment the ship pushes off, and never seen again.
 
 **No crew member standing** — dead or out cold, every one, whatever
 put them down — and the run is over: a screen says so, with the day and
@@ -637,8 +697,14 @@ still, away from any berth (docked, the station's people are aboard; under
 way, the ship is flying), and then the ship is in that system, in empty
 space, pointing the way it was, with only what its own sensors reach on
 the chart. Nothing of the old system comes along — its stations, its
-people, its mining site — and everything of the ship's does. Abort during
-the charge leaves the ship where it was. **System view** puts the map back.
+people, its mining site — and everything of the ship's does. **The system
+remembers, though**: jump back and it is as the crew left it — the station
+they turned against them still an enemy's, the key they took still off
+its desk, the rocks they mined still gone and their marks still on the
+belt, the shelf they plundered still bare, the lamps they shot still out,
+the chart still charted, the dead still dead — where a system never
+visited is as the galaxy rolled it. Abort during the charge leaves the
+ship where it was. **System view** puts the map back.
 
 ### Landing on a planet
 
@@ -649,10 +715,15 @@ ship slides to the point straight over the planet and comes down from
 there — the planet growing under it until it fills the window, then
 black for a moment while the ground is laid out — and is set down on a
 **landing pad**. There is no space any more: the planet is the whole of
-the surroundings. Beside the pad stands a **town** of ten to fifty
+the surroundings. Beside the pad stands a **town** of five to thirty
 people, on one of three **biomes** — **desert**, **temperate** or
 **arctic** (an ice world is always arctic; a rocky planet is one of the
-other two) — and no two towns are laid out the same. Its **houses**
+other two) — and no two towns are laid out the same. It is built like a
+**fort**: a **wall** runs round the whole of it, the pad is set into
+the west wall — the ship docks into the wall as it docks into a
+station's hull — and two **gates**, each a street's width with a pier
+of wall either side, open in the north wall and the south where the
+cross street meets them. Its **houses**
 stand along two or three streets, a few bunks each with a door onto the
 street; the **gathering hall** is its mess, a galley along the north
 wall and tables with a chair for everyone; a **bathhouse** holds a
@@ -669,19 +740,20 @@ at **half the pace** under the sky and have nothing to plug in, so a
 brownout never touches them and a town has twice the trays a ship
 would. An arctic town grows nothing in its ground and has
 **greenhouses** instead, buildings full of hydroponic bays. Standing
-lights line the streets, and by day the whole ground is lit. Round the
-town is the **wild**, and it is what stops a Bim rather than an edge:
-dense forest, a lake or a river and a few boulders in temperate country;
-cliffs of rock, cactus scrub and one oasis in a desert; outcrops, a
-frozen lake and firs in the arctic. A Bim off the ship can walk any way
-it likes until a tree, a cliff, the water or a wall is in the way —
-there is always a way from the pad to every door and every field, and
-never a pocket it cannot get to.
+lights line the streets, and by day the whole ground is lit. Over the
+ground the town leaves inside its wall is the **wild**, and it is what
+stops a Bim rather than a line on the ground: copses, a lake or a river
+and a few boulders in temperate country; cliffs of rock, cactus scrub
+and one oasis in a desert; outcrops, a frozen lake and firs in the
+arctic. A Bim off the ship can walk any way it likes until a tree, a
+cliff, the water or a wall is in the way — there is always a way from
+the pad to every door, every field and both gates, and never a pocket
+it cannot get to.
 
 The town is not the whole of the ground. It stands on a **plain** ten
 thousand tiles across, and the ship is set down on open ground with the
-plain on every side of it: walk round the hull, out through the gaps in
-the wild ring, and keep going. What is out there is the planet's —
+plain on every side of it: walk round the hull, or out through either
+gate, and keep going. What is out there is the planet's —
 cliffs, water, forest too dense to push through, the odd tree and rock —
 and it is what confines a crew member, not any edge; the plain's own
 edge is a rim of cliff further off than anybody will walk. The ground is
@@ -690,7 +762,9 @@ made as it is walked and seen, never all at once, and the view reaches
 planet, the ground is drawn that far from the middle of the window and
 no further, and a crew member sees that far over open country. What the
 crew have not seen of the plain is black; what they have seen and do not
-see now is grey; and a walk out into it is a walk like any other — right-
+see now is grey — and both have the same smooth edges as the fog on the
+deck: the shadow a cliff or a forest throws is the cliff's edge, not a
+stair of tiles; and a walk out into it is a walk like any other — right-
 click the ground, however far, and the crew member goes leg by leg, and
 comes back the same way when it is hungry. A town is
 **hostile or friendly** like a station — the map rings its planet in red
@@ -796,10 +870,21 @@ The rest is researched: **smelting** (the smelter), the **workshop** (the
 workbench and its components), **fusion power** (a **fusion reactor** that
 makes 3 500 a minute in a three-by-three block, thirty times the fission
 one), and then, behind a **lock**, the **armoury** (the bench, every weapon
-and the three pieces of armour) and **emitters**. Click a node for what it
-opens and to put the AI onto it; it works through the node on the clock,
-hours for the workshop nodes and a day for the reactor, as long as the
-desk has power, and stops if the power goes. A part the crew do not know
+and the three pieces of armour), **emitters** and the **hyperdrive**; and
+in the second tier, behind a lock of its own, the workbench's
+**upgrades**. Click a node for what it
+opens and to **queue** it: whatever it needs that is not yet known goes
+onto the queue ahead of it — queue fusion power on a fresh crew and
+smelting and the workshop go in first — and the AI works through the
+queue in order on the clock, going straight onto the next node the step
+one is done, as long as the desk has power, and stopping if the power
+goes. Research is slow: a third of a day for smelting, half a day for the
+workshop, two days for the reactor and most of a day to a day and a
+quarter for each locked node. Every queued box wears its place in the
+line, the line itself is written under the tree, and a node picked there
+can be **taken off the queue** — taking with it whatever was queued
+behind it that needed it — or, if the AI is on it, **stopped**, which
+loses what was put in and sends the AI onto the next. A part the crew do not know
 is not on the Build tab and not in the designer's palette, and a recipe
 they do not know is greyed on the Management tab, so a playtest ship's
 smelter smelts nothing until smelting is known.
@@ -814,12 +899,20 @@ their pack, where it is **two cells tall**: a pack with no two free cells
 one over the other cannot take it. Carry it home, store it from the pack
 into the ship's own research desk (a click on the desk opens its
 window, one slot the key's exact size) and on the Research tab **Consume
-the key**: the key is gone and tier one's lock is open for good — both
-locked nodes at once, since the key opens the tier, not a node. There
-are three tiers to come; the second's key will be bigger, want a bigger
-desk, and want a tier-one key as well, which is where the progression
-goes. A key a station buys back for five thousand euros if you have no
-use for it, and a key taken is a key gone: the desk stays bare.
+a key** with the node picked: the key is gone and that node's lock is
+open for good — that node alone, since **one key opens one node**, not
+the tier: the three tier-one locked nodes are the armoury, the emitters
+and the hyperdrive, three keys off three stations. **Tier two** is one
+node, the workbench's upgrades, and its key is the **tier-two research
+key**: the same slab, drawn in the tier-two blue, lying on the research
+desk of **every hostile station** — lit up the same way — and taken the
+same way, in the middle of the fight if that is when you reach it; nobody
+sells one. A node wants a key of its own tier, so a tier-one key in the
+desk does nothing for the upgrades and a tier-two key nothing for the
+armoury, and the desk holds one key of either. Tier three is declared
+and empty. A key a station buys back — five thousand euros for a
+tier-one, ten for a tier-two — if you have no use for it, and a key
+taken is a key gone: the desk stays bare.
 
 ### Mining, on foot
 
@@ -1010,8 +1103,10 @@ is, so it *approaches*: from far off a plate with its icon on it, nearer its
 hull tile by tile, and within fifty tiles of its hull the people who live
 there — two on most stations, one on a relay, nobody on a derelict, whose room
 opens all the same so its fixtures are drawn — are the room's Bims again, up and about between the room's own pictures of its
-fixtures, with names over their heads. Leave and they are forgotten; come
-back and they are at their bunks. The ship **docks beside it, airlock to
+fixtures, with names over their heads. Leave and come back and they are at
+their bunks again — **the living ones**: whoever the crew killed there stays
+dead, so a station raided is met with its survivors, and one emptied stays
+empty (a mercenary hired away is not there to hire twice either). The ship **docks beside it, airlock to
 airlock**: the trip ends at the berth, the ship is turned so its airlock
 faces the station's, the two collars — each stands half a tile out of
 its skin — meet as a tube between the hulls, and both doors are drawn
@@ -1236,12 +1331,11 @@ so the flame is where the ship is at any speed. **System map** is the star,
 what the crew have found, the ring the scanner reaches to, the route, and a
 little hull pointing where the ship is pointing.
 
-The camera is **north-up in both by default**. It is the ship that turns on
-screen. A camera that followed the heading would make a flip legible and every
-other moment unreadable — you could not tell which way you were going, because
-"which way" would always look the same. **Head up** (the View tab, or `N`)
-is the other choice: the ship held square to the window and the sky and the
-map turned round it instead.
+The camera is **head up in both by default**: the ship held square to the
+window, the deck the way it was laid out, and the sky and the map turned
+round it instead. **North up** (the View tab, or `N`) is the other choice:
+the camera never turns and it is the ship that turns on screen, which is
+what makes a flip legible — head up, "which way" always looks the same.
 
 The ship view **follows the crew member you steer**: James is what sits in
 the middle, on the deck or across a station, and a drag can shove the view
@@ -1380,7 +1474,11 @@ protection comes off the damage first, what is left drains the piece, and
 only what the piece could not take reaches the body.
 
 **Every weapon and every piece has a tier**, one to three, and the
-workbench is where a tier is made: two of a kind at the same tier go into
+workbench is where a tier is made — once the crew know how: the
+**upgrades** node of the research tree, tier two, behind a tier-two key
+off an enemy's desk ([Research](#research)); until it is researched the
+button says so and the crew carry nothing to the bench. Two of a kind at
+the same tier go into
 its two slots, **Upgrade** in its window starts a day of work on them,
 and one of the next tier comes out in the third slot — a quarter more
 damage and accuracy for a weapon, half again the health and protection
@@ -1550,7 +1648,15 @@ bunk of its own number, as far as the bunks go; click any bunk for a menu
 that says whose it is and offers **Assign to** the crew member shown (the
 one you have selected, else your own) — whoever had it loses it — or **Give
 up this bunk**. Aboard a ship a hire takes the first spare bunk, a dead
-crew member's comes free, and a station's bunks are not yours to give. A
+crew member's comes free, and a station's bunks are not yours to give.
+**Every bunk of the ship's says whose it is, on the deck** (feature 61):
+a name written small across the mattress, in your colour for your own,
+and *Unassigned* on one nobody has. And **a bunk nobody has does not
+stay nobody's while a crew member sleeps on the deck**: a mercenary, or
+any crew member you do not steer, takes the first spare one at the next
+step — the moment you give yours up, the moment a bunk comes free — so
+only a player's Bim is ever without one by choice. Yours is yours to take
+back: click it and assign it. A
 crew member **with no bunk sleeps on the deck** where it stands — the
 `combat` command's fourteen on a ship with five bunks, or anybody you took
 one from — and only **three hours in every six**: the six-hour window opens
@@ -1625,6 +1731,7 @@ foot of a bed should cost nothing.
 | Click one | Select it — a click is just a box of no size. Only James takes orders |
 | Click empty floor / `Esc` | Deselect — the right-hand panels go with it. `Esc` first shuts whatever is up, innermost first: a cell's rows, a fixture's menu, a grid window |
 | Right-click the floor | Send the selection there — opens a door on the way if it must |
+| **Shift** with a right-click, a right-drag or a menu row | The order **waits its turn** behind what the Bim is on and whatever was queued before it, the way RimWorld queues them (feature 69): the queued walks are drawn on the deck as a dashed thread with a pip at each spot, and the rest show on the agenda. A plain order afterwards calls the queue off. What cannot be begun when its turn comes — a stew with one vegetable left — is dropped without a word; a walk with nowhere to go is refused at the click |
 | Tray, bottom left | **Schedule** — paint the day and set the thresholds; **Management** — autonomy, food to keep, what is aboard; on the ship, **Build** — lay parts out for the crew to build |
 | Action thresholds, under the strip | Rest and Food: how low each may get before the Bim acts, and a tick box to stop it acting at all |
 | Point at anything | Top left says what it is, and what is lying on it |
@@ -1694,6 +1801,21 @@ walking to wherever it was sent, or after the errand that displaced it.
 The queue is a stack. Each interruption goes on the *front*, so a chain always
 resumes directly after whatever displaced it: interrupt a meal with a nap and
 the nap with a trip to the heads, and the order back out is heads, nap, meal.
+
+**Hold Shift and the new thing waits instead** (feature 69). A right-click on
+the deck, a right-drag for a line, a row of a fixture's menu, a bandage on the
+crew sheet, a gun picked up off the deck — given with Shift held, any of them
+goes on the *back* of the same queue, behind what the Bim is on and whatever
+was queued before it, the way RimWorld queues orders. The walks are drawn on
+the deck as a dashed thread from where the Bim is bound now through every spot
+in turn, a pip at each, until they are walked; the rest sit on the agenda under
+their own names. When its turn comes an order is *begun* the way the row would
+have begun it, against the room as it is then: a stew queued behind a bowl
+finds the cold store one vegetable short and is dropped without a word, the way
+the greyed row would have refused it; a galley the other Bim is in is waited
+for. A plain order — anything given without the key — calls the queue off,
+though what the Bim had put down of its own is kept to be picked up. Shift on a
+greyed row does nothing: what cannot be ordered now cannot be queued either.
 
 Resuming is the part with a trap in it. Standing steps assume the Bim is already
 in the right place — `Chop` chops whatever is in front of it — so dropping the
@@ -2338,7 +2460,9 @@ carries a **hand laser pistol** from the start; the armoury makes four
 more, and a Bim swaps to one out of its pack. It does nothing else about
 the enemy: it stands where it was put, as a recruited Bim does, and shoots
 from there; walking it somewhere is still yours to order, and it holds its
-fire while it walks. Let it go and the weapon is holstered.
+fire while it walks. Let it go and the weapon is holstered. Your own
+Bim is heard drawing and holstering — the same recording, the holstering
+slowed a little — and nobody else is.
 
 Every shot is a **bolt** that flies — at the weapon's speed, until it
 reaches a body, a wall or the end of its range — and is always drawn,
@@ -2402,13 +2526,17 @@ out of reach ends it. The log says *locked in melee* the step it happens.
 A station's people are hostile or not as the galaxy was generated (the
 system map rings a hostile station red, and a crew is never started at
 one); `combat` makes the dock hostile regardless. **How many of them
-there are is up to you**: an enemy station arms two people plus one for
-every crew member, and doubles that every time the worth of your ship
-and everything in its hold has grown by another half of what you set out
-with — so a crew that has been trading and building well finds every
-enemy's dock a bigger fight than a poor one does, up to sixteen. The
-money in hand is not counted, only the ship and its cargo, and a station
-keeps the crowd you reached it with until you have left and come back.
+there are is up to you, and to the calendar**: an enemy station arms
+one person plus one for every crew member, and doubles that every time
+the worth of your ship and everything in its hold has grown by another
+half of what you set out with — so a crew that has been trading and
+building well finds every enemy's dock a bigger fight than a poor one
+does, up to sixteen. The money in hand is not counted, only the ship and
+its cargo. And **the enemy gets stronger the longer the game runs**:
+thirty days in, that one person is two, sixty days in three, and so on
+every thirty days, before the crew are counted and the worth doubles
+it — a raider's boarders grow the same way. A station keeps the crowd
+you reached it with until you have left and come back.
 A crew member dying, treated
 or dead is said in the log, and so is every hit. What a hit does to a
 body, and how it is dressed, is [Getting hurt](#getting-hurt); the

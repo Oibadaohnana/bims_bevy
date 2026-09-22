@@ -15,6 +15,11 @@
 # not a click; and the two ambiences are brought down well below the
 # recordings, which were made close up, to sit under everything else.
 #
+# A run re-encodes every clip, and an Ogg stream carries a random serial
+# number, so the clips that were not meant to change come out different
+# bytes of the same length: put those back from the tree (`git show
+# HEAD:crates/app/sounds/x.ogg > x.ogg`) so the diff is the clips that did.
+#
 # Silence at the start of every recording was measured with
 # `silencedetect`, the onsets of the one-shots with a 5 ms RMS envelope,
 # and the numbers below are those. Redo them if the recordings change.
@@ -210,3 +215,26 @@ engine_loop
 # hears of it. Seamed over two seconds each.
 loop ship Spaceship_ambience.mp3 3.5 75.8 2.0 "highpass=f=40" -30
 loop station Spacestation_ambience.mp3 3.6 68.8 2.0 "highpass=f=40,lowpass=f=9000" -30
+
+# The three planets' air, one a biome, played on the ground at a
+# settlement in place of the station's hum (`Bed::of_biome`). All three
+# recordings start with a moment of silence and end on a fade, and are
+# looped over the steady middle. They were recorded at very different
+# levels — the temperate one at -25 LUFS, the arctic wind close and loud
+# at -15, the desert almost nothing at -48 — and all three are brought
+# to the ambiences' -30, so the desert is lifted a good eighteen dB and
+# the wind brought down as far. The desert's low band is the recorder's
+# rumble more than the wind, and goes with the same shelf as the rest.
+loop temperate Temperate_climate_ambiance.mp3 3.5 68.5 2.0 "highpass=f=40" -30
+loop desert Desert_world_ambiance.mp3 3.7 47.5 2.0 "highpass=f=40" -30
+loop arctic Arctic_world_ambiance.mp3 2.7 56.5 2.0 "highpass=f=40,lowpass=f=9000" -30
+
+# --- the holster ----------------------------------------------------------
+
+# One recording of a weapon coming out of its holster, half a second long
+# from its onset at sixty milliseconds; the tail past half a second is
+# room tone and is cut. It is the draw as recorded, and the holstering is
+# the same slowed to 85%, a shade lower and longer, so the two are told
+# apart by ear: out is quick, back is unhurried.
+shot draw Unholster_and_holstering.mp3 0.06 0.46 "highpass=f=100" 0.08
+shot holster Unholster_and_holstering.mp3 0.06 0.54 "asetrate=48000*0.85,aresample=48000,highpass=f=100" 0.10 0.85

@@ -7,7 +7,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Nine things to run, and each is a name rather than a flag:
+//! Eleven things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -24,6 +24,9 @@
 //!                    and made hostile, its people enemies, fifteen of
 //!                    them; a recruited crew member shoots at any it can
 //!                    see
+//! bims tier2_test    `combat` with everybody's kit at tier two: every gun and
+//!                    a full set of armour, crew and garrison alike
+//! bims tier3_test    the same at tier three
 //! bims raid          the simulation off its berth, holding in open space,
 //!                    with a raid on its way: contact ten seconds in, the
 //!                    raider then closing at its own pace
@@ -43,6 +46,7 @@ mod grid;
 mod icons;
 mod keys;
 mod names;
+mod net;
 mod save;
 mod screens;
 mod settings;
@@ -51,10 +55,9 @@ mod sound;
 mod theme;
 
 use bevy::prelude::*;
-use bevy::window::PresentMode;
 use bevy_egui::EguiPlugin;
 
-/// Which of the nine things this process is.
+/// Which of the eleven things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -66,6 +69,9 @@ pub enum Launch {
     /// friendly ground, and the ship landed at the settlement.
     TestPlanet,
     Combat,
+    /// `Combat` with everybody's guns and armour at one tier, both
+    /// sides: the `tier2_test` and `tier3_test` commands.
+    CombatAtTier(bims::combat::Tier),
     /// The simulation with a raid on its way: off the berth and holding,
     /// contact ten seconds in.
     Raid,
@@ -97,7 +103,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|room|test|test_planet|combat|raid|stationbuilder [name]|--self-check]"
+        "usage: bims [game|simulation|design|room|test|test_planet|combat|tier2_test|tier3_test|raid|stationbuilder [name]|--self-check]"
     );
     std::process::exit(2)
 }
@@ -112,6 +118,8 @@ fn main() {
         Some("test_planet") => Launch::TestPlanet,
         // Accepted as a flag too, since that is how it was first asked for.
         Some("combat") | Some("--combat") => Launch::Combat,
+        Some("tier2_test") => Launch::CombatAtTier(bims::combat::Tier::Two),
+        Some("tier3_test") => Launch::CombatAtTier(bims::combat::Tier::Three),
         Some("raid") => Launch::Raid,
         Some("stationbuilder") => Launch::StationBuilder,
         Some("--self-check") => {
@@ -140,7 +148,7 @@ fn main() {
         primary_window: Some(Window {
             title: "Bims".into(),
             name: Some(dev::window_name()),
-            present_mode: PresentMode::AutoVsync,
+            present_mode: dev::present_mode(),
             resolution: dev::window_resolution(),
             mode: dev::window_mode(),
             // The panels want their room: the designer's palette and
@@ -161,6 +169,7 @@ fn main() {
     .insert_resource(launch)
     .insert_resource(screens::station::SketchName(sketch))
     .insert_resource(keys::Keys::load())
+    .init_resource::<net::Online>()
     .init_state::<Screen>()
     .add_plugins((
         canvas::CanvasPlugin,
@@ -188,6 +197,7 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Test
         | Launch::TestPlanet
         | Launch::Combat
+        | Launch::CombatAtTier(_)
         | Launch::Raid => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();

@@ -36,7 +36,7 @@ const FIBRE_AT_DAWN: u32 = 0;
 /// Which of the four a caller means. The codes cross the boundary —
 /// `Game::target(kind)` and `Game::set_target(kind, n)` — so they are
 /// fixed, and appended to rather than reordered.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Stock {
     Veg = 0,

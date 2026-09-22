@@ -15,13 +15,15 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use bims::room::{HIT_DOOR, HIT_DROPPED, HIT_SHIP_DOOR};
+use bims::order::CrewOrder;
+use bims::room::{HIT_BIM, HIT_DOOR, HIT_DROPPED, HIT_SHIP_DOOR};
 use flight::Target;
 use physics::{Facing, ResourceId};
 use ship::Session;
 use ship::game::ViewMode;
 use shipdesign::Storage;
 use shipdesign::parts::Rotation;
+use wire::{PeerId, To};
 use world::{ShipState, Speed, Where, WorldEvent};
 use worldgen::Node;
 
@@ -34,9 +36,10 @@ use crate::crew::{
 use crate::format::{euros, grouped, roman, spell};
 use crate::keys::{Action, Keys};
 use crate::names::*;
+use crate::net::{CHECK_EVERY, Event, Online, Packet};
 use crate::save::Request;
 use crate::screens::room::{panel_frame, tray_frame};
-use crate::settings::{Sheet, settings_sheet};
+use crate::settings::{Allowed, Sheet, settings_sheet};
 use crate::shapes::View;
 use crate::sound::{Bed, Sounds};
 use crate::{Launch, Screen, icons, theme};
@@ -106,6 +109,17 @@ struct MarkDrag {
     /// it and this one: a fast pull skips tiles between frames.
     last: (i32, i32),
     touched: Vec<(i32, i32)>,
+}
+
+/// An order to the crew's room as the seam carries it: given plain, or —
+/// with Shift held — to wait its turn behind what the crew member is on
+/// (feature 69, `Order::CrewLater`).
+fn crew_order(order: CrewOrder, later: bool) -> Order {
+    if later {
+        Order::CrewLater(order)
+    } else {
+        Order::Crew(order)
+    }
 }
 
 /// The tiles a straight pull of the pointer from `from` to `to` crosses,
@@ -201,6 +215,9 @@ pub struct GameScreen {
     resume: Speed,
     /// The smooth fog over the deck, as a texture — see `fogmap`.
     fog: crate::fogmap::FogTexture,
+    /// The same over the plain beyond the box, on a planet: a texture a
+    /// chunk of the room, kept while the room composes the chunk.
+    plain_fog: std::collections::BTreeMap<(i32, i32), crate::fogmap::FogTexture>,
     /// The galaxy chart, up over the system map: the strip's `Galaxy view`.
     /// The chart itself is the lobby's, made the first time it is asked
     /// for — it generates every system once — and kept for the game.
@@ -211,6 +228,23 @@ pub struct GameScreen {
     /// The star picked on the chart: what its system holds is in the
     /// strip, and it is where Jump goes.
     picked_star: Option<u32>,
+    /// The slots whose players have left the game: said once each; their
+    /// crew members carry on unsteered.
+    gone: Vec<u32>,
+    /// A guest whose checksum has parted from the host's and has asked
+    /// for its world (`Packet::Resync`, feature 67): said once, and not
+    /// asked again until the world arrives. The wrong world keeps
+    /// stepping meanwhile — stopping would make it wronger under the
+    /// pointer.
+    resyncing: bool,
+    /// The host's side of it: the step each peer was last answered a
+    /// `World` at, so a guest that keeps asking gets one an
+    /// `CHECK_EVERY` at most — the world is megabytes to write.
+    answered: Vec<(PeerId, u64)>,
+    /// `BIMS_DESYNC_AT`: on a guest, the step at which one order is
+    /// applied without asking the host — a divergence on purpose, for
+    /// looking at the resync. Taken once it has fired.
+    desync_at: Option<u64>,
     /// Seconds of black left over the canvas: a landing ends in it — the
     /// planet has filled the window and the settlement is being laid out —
     /// and it lifts once the ground is there. Nought nearly always.
@@ -272,10 +306,15 @@ fn open(
     session: Option<Res<ShipSession>>,
     launch: Res<Launch>,
     window: Single<&Window>,
+    online: Res<Online>,
 ) {
     let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
     let (slot, players) = match session {
-        Some(session) => (session.0.editor.local, session.0.editor.players),
+        Some(session) => {
+            // The crew's names, as the lobby dealt them or a save kept them.
+            crate::names::set_crew_names(&session.0.crew_names);
+            (session.0.editor.local, session.0.editor.players)
+        }
         None => {
             // No design phase in front of this: the simulation, on the
             // playtest ship. The `test` command is the same somewhere else
@@ -314,8 +353,12 @@ fn open(
             // of the clock in — ten seconds at 1× — and the raider then
             // closing at its own pace, so the warning, the map and the
             // boarding are watched from the start rather than staged.
+            // `tier2_test` and `tier3_test` are `combat` with everybody's
+            // guns and armour at that tier, crew and garrison alike
+            // (`Session::combat_at_tier`).
             let mut session = match *launch {
                 Launch::Combat => Session::combat(seed, size.x, size.y),
+                Launch::CombatAtTier(tier) => Session::combat_at_tier(seed, tier, size.x, size.y),
                 Launch::Test | Launch::TestPlanet => {
                     let design = shipdesign::fixture::combat_ship();
                     let mut session =
@@ -404,11 +447,14 @@ fn open(
                 }
             }
             let out = (session.editor.local, session.editor.players);
+            crate::names::set_crew_names(&session.crew_names);
             commands.insert_resource(ShipSession(session));
             out
         }
     };
-    commands.insert_resource(GameScreen::fresh(slot, players));
+    let mut screen = GameScreen::fresh(slot, players);
+    screen.net.wire = online.wire();
+    commands.insert_resource(screen);
 }
 
 impl GameScreen {
@@ -417,7 +463,11 @@ impl GameScreen {
     /// frame fits the world to it.
     fn fresh(slot: u32, players: u32) -> GameScreen {
         GameScreen {
-            net: Net { slot, players },
+            net: Net {
+                slot,
+                players,
+                wire: None,
+            },
             panels: None,
             aimed: None,
             pending: None,
@@ -438,13 +488,31 @@ impl GameScreen {
             size: Vec2::ZERO,
             resume: Speed::Real,
             fog: crate::fogmap::FogTexture::default(),
+            plain_fog: std::collections::BTreeMap::new(),
             galaxy_up: false,
             galaxy: None,
             galaxy_list: lobby::draw::DrawList::new(),
             galaxy_size: Vec2::ZERO,
             picked_star: None,
+            gone: Vec::new(),
+            resyncing: false,
+            answered: Vec::new(),
+            desync_at: crate::dev::desync_at(),
             blackout: 0.0,
         }
+    }
+
+    /// The screen as `fresh` makes it, round a world that took this
+    /// one's place — a load, or the host's world arrived (feature 67) —
+    /// with the wire and the log carried across: the company is the
+    /// same company, and what was said is still worth reading. The
+    /// probe's divergence is not carried: a world replaced has had it.
+    fn again(&mut self, slot: u32, players: u32) -> GameScreen {
+        let mut next = GameScreen::fresh(slot, players);
+        next.net.wire = self.net.wire.take();
+        next.log = std::mem::take(&mut self.log);
+        next.desync_at = None;
+        next
     }
 }
 
@@ -492,6 +560,7 @@ fn frame(
     mut bindings: ResMut<Keys>,
     mut commands: Commands,
     mut next: ResMut<NextState<Screen>>,
+    mut online: ResMut<Online>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -500,6 +569,139 @@ fn frame(
     let now = ctx.input(|i| i.time);
     let dt = time.delta_secs().min(super::designer::MAX_FRAME_DT) as f64;
     let mut root = root_ui(&ctx);
+
+    // --- the wire ------------------------------------------------------------
+    // What the others said since last frame, in order. On the host a
+    // guest's ask is applied and goes round; on a guest the host's applied
+    // orders and its steps are what the world is made of. The host gone
+    // is the end of company: the clock is this window's from here.
+    for event in online.drain(now) {
+        match event {
+            Event::Packet { from, packet } => match packet {
+                Packet::Ask { at, message } => {
+                    if let Some(slot) = online.slot_of(from) {
+                        screen.net.asked(session, slot, at, message, from);
+                    }
+                }
+                Packet::Applied { from, at, message } => {
+                    screen.net.applied(session, from, at, message);
+                }
+                Packet::Refused { why } => {
+                    let line = if why == 0 {
+                        ACCEPT_STALE
+                    } else {
+                        edit_line(why)
+                    };
+                    screen.log.push(line.to_string());
+                }
+                Packet::Steps { n, checksum } if !screen.net.is_clock() => {
+                    for _ in 0..n {
+                        session.world_step();
+                    }
+                    if let (Some(theirs), Some(game)) = (checksum, &session.game) {
+                        let mine = world::world_checksum(&game.world);
+                        if theirs != mine && !screen.resyncing {
+                            // Parted from the host: say so, and ask for
+                            // its world. Once — the steps keep coming
+                            // and keep being applied to the wrong world
+                            // until it arrives (`Packet::World`).
+                            screen.resyncing = true;
+                            screen.log.push(DESYNC.into());
+                            screen.log.push(RESYNC_ASKED.into());
+                            if let Some(wire) = &screen.net.wire {
+                                wire.send(To::Host, &Packet::Resync { reason: 0 });
+                            }
+                            if crate::dev::auto().is_some() {
+                                println!("desync: {} {theirs:#x} {mine:#x}", game.world.steps);
+                            }
+                        } else if theirs == mine && crate::dev::auto().is_some() {
+                            println!("checksum: {} {mine:#x}", game.world.steps);
+                        }
+                    }
+                }
+                // A guest asking for the world: the host writes it out
+                // and sends it to that guest alone — once an
+                // `CHECK_EVERY` a peer at most, since the writing is the
+                // hitch a save is. A guest asked is nobody's to answer.
+                Packet::Resync { .. } if screen.net.wire.as_ref().is_some_and(|w| w.host) => {
+                    let at = session.game.as_ref().map_or(0, |g| g.world.steps);
+                    let recently = screen
+                        .answered
+                        .iter()
+                        .any(|&(p, last)| p == from && at < last + CHECK_EVERY);
+                    if !recently && let Some(text) = session.save() {
+                        screen.answered.retain(|&(p, _)| p != from);
+                        screen.answered.push((from, at));
+                        if let Some(wire) = &screen.net.wire {
+                            wire.send(To::Peer(from), &Packet::World { save: text, at });
+                        }
+                        if crate::dev::auto().is_some() {
+                            println!("world sent: {at} asked");
+                        }
+                    }
+                }
+                // The host's world, whole: this one's replaced with it,
+                // as this player's own slot, in place — the packets
+                // behind it in this same drain are steps of the new
+                // world. The screen starts over round it as at a load,
+                // the wire and the log kept; the canvas is fitted again
+                // this frame, since it is unmeasured. A host applies
+                // none, and nobody applies one from anybody but the host.
+                Packet::World { save, at }
+                    if Some(from) == online.host
+                        && screen.net.wire.as_ref().is_some_and(|w| !w.host) =>
+                {
+                    let size = screen.size.max(Vec2::splat(64.0));
+                    match Session::restore_as(&save, online.my_slot(), size.x, size.y) {
+                        Ok(loaded) => {
+                            let (slot, players) = (loaded.editor.local, loaded.editor.players);
+                            crate::names::set_crew_names(&loaded.crew_names);
+                            *session = loaded;
+                            *screen = screen.again(slot, players);
+                            screen.log.push(RESYNC_DONE.into());
+                            if crate::dev::auto().is_some() {
+                                println!("resync: {at}");
+                            }
+                        }
+                        // Not asked again: the answer would be the same
+                        // text, and it is megabytes a time.
+                        Err(why) => {
+                            screen
+                                .log
+                                .push(world_refused(&crate::save::load_error(why)));
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Event::Roster => {
+                for slot in 0..screen.net.players {
+                    let there = online
+                        .slots
+                        .get(slot as usize)
+                        .is_some_and(|id| online.peers.iter().any(|p| p.id == *id));
+                    if !there && !screen.gone.contains(&slot) {
+                        screen.gone.push(slot);
+                        screen.log.push(player_left(&crew_name(slot)));
+                    }
+                }
+            }
+            Event::Closed(_) | Event::Lost(_) if screen.net.wire.is_some() => {
+                screen.net.wire = None;
+                screen.log.push(HOST_GONE.into());
+            }
+            _ => {}
+        }
+    }
+
+    // A Bim's name said late — after the host's Start, or typed since —
+    // lands on the crew here, and on every word about them.
+    if online.names_said(&mut session.crew_names) {
+        crate::names::set_crew_names(&session.crew_names);
+    }
+    if online.hair_said(&mut session.crew_hair) {
+        session.dress_crew();
+    }
 
     if session.game.is_none() {
         // A world that never opened — a spawn the galaxy has not got.
@@ -517,20 +719,65 @@ fn frame(
     }
 
     // --- the world, stepped -------------------------------------------------
-    let times = session
-        .game
-        .as_ref()
-        .map(|g| g.world.effective_speed().multiplier())
-        .unwrap_or(0) as f64;
-    screen.backlog += dt * session.steps_per_second() * times;
+    // The clock is this window's alone in a game of one, and the host's
+    // with company: a guest's steps arrived above, and the host says
+    // below how many it took, with its checksum every `CHECK_EVERY` so a
+    // guest can tell it is still the same world.
     let mut steps = 0;
-    while screen.backlog >= 1.0 && steps < MAX_STEPS_PER_FRAME {
-        session.world_step();
-        screen.backlog -= 1.0;
-        steps += 1;
-    }
-    if screen.backlog > MAX_STEPS_PER_FRAME as f64 {
-        screen.backlog = 0.0; // gave up catching up
+    if screen.net.is_clock() {
+        let times = session
+            .game
+            .as_ref()
+            .map(|g| g.world.effective_speed().multiplier())
+            .unwrap_or(0) as f64;
+        screen.backlog += dt * session.steps_per_second() * times;
+        let before = session.game.as_ref().map_or(0, |g| g.world.steps);
+        while screen.backlog >= 1.0 && steps < MAX_STEPS_PER_FRAME {
+            session.world_step();
+            screen.backlog -= 1.0;
+            steps += 1;
+        }
+        if screen.backlog > MAX_STEPS_PER_FRAME as f64 {
+            screen.backlog = 0.0; // gave up catching up
+        }
+        if steps > 0
+            && let Some(wire) = &screen.net.wire
+            && let Some(game) = &session.game
+        {
+            let after = game.world.steps;
+            let checksum = (before / CHECK_EVERY != after / CHECK_EVERY)
+                .then(|| world::world_checksum(&game.world));
+            if let Some(mine) = checksum
+                && crate::dev::auto().is_some()
+            {
+                println!("checksum: {after} {mine:#x}");
+            }
+            wire.send(To::All, &Packet::Steps { n: steps, checksum });
+        }
+    } else if let Some(at) = screen.desync_at
+        && let Some(room) = session.room_ref()
+        && session.game.as_ref().is_some_and(|g| g.world.steps >= at)
+    {
+        // `BIMS_DESYNC_AT`: the guest's own crew member sent three tiles
+        // over without the host hearing of it — a world of its own from
+        // here, for the resync to mend.
+        screen.desync_at = None;
+        let slot = screen.net.slot;
+        let from = room.bim_pos(slot as usize);
+        use bims::order::CrewOrder;
+        screen
+            .net
+            .apply_unasked(session, Order::Crew(CrewOrder::SelectOwn));
+        screen.net.apply_unasked(
+            session,
+            Order::Crew(CrewOrder::Move {
+                x: from.x + 3.0 * shipdesign::parts::TILE as f32,
+                y: from.y,
+            }),
+        );
+        if crate::dev::auto().is_some() {
+            println!("diverged: {at}");
+        }
     }
     // What just happened. An event is a thing that happened once, so the
     // list is drained after it is read.
@@ -578,17 +825,30 @@ fn frame(
                 }
             }
         }
-        // The beds: a station's hum while tied up with the rooms joined,
-        // the ship's own otherwise, and the engines while they burn —
-        // and the world is moving, since a paused burn is silent.
-        match game.world.ship.state {
-            ShipState::Docked { .. } | ShipState::CastingOff { .. } => sounds.want(Bed::Station),
+        // The beds: a planet's air while set down at its settlement — the
+        // biome's own — a station's hum while tied up with the rooms
+        // joined, the ship's own otherwise, and the engines while they
+        // burn — and the world is moving, since a paused burn is silent.
+        let ground = game
+            .world
+            .landed()
+            .and_then(|body| game.world.surface(body))
+            .map(|surface| surface.biome);
+        match (ground, &game.world.ship.state) {
+            (Some(biome), _) => sounds.want(Bed::of_biome(biome)),
+            (None, ShipState::Docked { .. } | ShipState::CastingOff { .. }) => {
+                sounds.want(Bed::Station)
+            }
             _ => sounds.want(Bed::Ship),
         }
         if game.world.effort().engines > 0 && game.world.effective_speed().multiplier() > 0 {
             sounds.want(Bed::Engine);
         }
     }
+    let local = screen.net.slot;
+    // Everything that changes the ship or the crew goes through the seam
+    // as an order, gathered here and sent below.
+    let mut orders: Vec<Order> = Vec::new();
 
     // The crew's panels, built once there is a room to read, and rebuilt
     // for whoever is there now: a docking brings the station's residents
@@ -596,10 +856,8 @@ fn frame(
     let crew_now = session.room_ref().map(|r| r.crew_count()).unwrap_or(0);
     match &mut screen.panels {
         None => {
-            let mut panels = CrewPanels::new(crate::crew::player(), crew_now);
-            if let Some(room) = session.room() {
-                room.select_group(1);
-            }
+            let mut panels = CrewPanels::new(local as usize, crew_now);
+            orders.push(Order::Crew(CrewOrder::SelectOwn));
             panels.begin_frame();
             screen.panels = Some(panels);
         }
@@ -638,17 +896,15 @@ fn frame(
         let who = session.room_ref().map(|r| panels.inventory_who(r));
         panels.nearby = who.map_or_else(Vec::new, |who| nearby_of(session, who, &name));
     }
-    let local = screen.net.slot;
 
     // --- an order on its way to the helm ---------------------------------------
     // The strip at the top walked the crew member to the seat; the order
     // goes through the frame they get there, and the post is lifted once
     // the world has stepped with it — a step later, so they are still at
     // the seat when the command lands.
-    let mut orders: Vec<Order> = Vec::new();
     if let Some(game) = &mut session.game {
         if screen.relieve && steps > 0 {
-            game.world.stand_down(local);
+            orders.push(Order::Crew(CrewOrder::StandDown { who: local }));
             screen.relieve = false;
         }
         if let Some(order) = screen.pending
@@ -722,6 +978,15 @@ fn frame(
         panels.tool = None;
     }
     let marking = panels.tool == Some(Tool::Mine) && !map_up;
+    // Where this pointer is over the deck, to the room, as a design point
+    // — nothing over a panel, and nothing with the map up, where a tile
+    // means nothing.
+    online.point(
+        now,
+        on_canvas
+            .filter(|_| !map_up)
+            .map(|p| session.design_point(p.x, p.y)),
+    );
     if let Some(game) = &mut session.game {
         game.marking = marking;
     }
@@ -950,10 +1215,18 @@ fn frame(
                     // itself — no menu — into the pack of the Bim shown.
                     if fixture == HIT_DROPPED {
                         let id = room.hit_dropped();
-                        if let Some(who) = who
-                            && !room.fetch(who, id)
-                        {
-                            screen.log.push(PICK_UP_REFUSED.into());
+                        if let Some(who) = who {
+                            if room.can_fetch(who, id) {
+                                orders.push(crew_order(
+                                    CrewOrder::PickUp {
+                                        who: who as u32,
+                                        item: id,
+                                    },
+                                    pointer.shift,
+                                ));
+                            } else {
+                                screen.log.push(PICK_UP_REFUSED.into());
+                            }
                         }
                     } else if fixture != 0 {
                         let at = pointer.pos.unwrap();
@@ -990,9 +1263,29 @@ fn frame(
                     if let Some(room) = session.room() {
                         room.drag_update(rx, ry);
                         if pointer.primary_released {
-                            let fixture = room.drag_end(rx, ry);
+                            // The picture of the marquee is this window's;
+                            // the pick itself is an order, the same on
+                            // every player's copy of the room. A click on
+                            // a fixture is that fixture's menu here, and
+                            // nobody's pick there.
+                            room.drag_cancel();
+                            let (fx, fy) = session.room_point(from.x, from.y);
+                            orders.push(Order::Crew(CrewOrder::Select {
+                                x0: fx,
+                                y0: fy,
+                                x1: rx,
+                                y1: ry,
+                            }));
+                            let room = session.room().unwrap();
                             let moved = (p - from).length() > CLICK_SLOP;
-                            if fixture != 0 && !moved {
+                            let mut fixture = if moved { 0 } else { room.hit_at(rx, ry) };
+                            // A living crew member under a left click is
+                            // picked, not menued: only a body down is a
+                            // window.
+                            if fixture == HIT_BIM && !room.is_down(room.hit_bim()) {
+                                fixture = 0;
+                            }
+                            if fixture != 0 {
                                 // A body — dead, out cold, or one of the
                                 // station's people down — opens its inventory
                                 // straight off; anything else its menu.
@@ -1022,11 +1315,25 @@ fn frame(
                     if let Some(room) = session.room() {
                         room.order_drag_update(rx, ry);
                         if pointer.secondary_released {
+                            // The line drawn is this window's; the order
+                            // is everybody's. A walk with no way there
+                            // comes back as a `Refused` event.
+                            room.order_drag_cancel();
                             let dragged = (p - from).length() > CLICK_SLOP;
-                            let code = room.order_drag_end(rx, ry, dragged);
-                            if let Some(refused) = order_refused(code) {
-                                screen.log.push(refused.into());
-                            }
+                            let (fx, fy) = session.room_point(from.x, from.y);
+                            let walk = if dragged {
+                                CrewOrder::Line {
+                                    x0: fx,
+                                    y0: fy,
+                                    x1: rx,
+                                    y1: ry,
+                                }
+                            } else {
+                                CrewOrder::Move { x: rx, y: ry }
+                            };
+                            // With Shift held the walk waits its turn
+                            // behind what the crew are on (feature 69).
+                            orders.push(crew_order(walk, pointer.shift));
                             screen.order_from = None;
                         }
                     }
@@ -1087,9 +1394,7 @@ fn frame(
                 }
                 // Select: the crew member you steer, selected and in the middle.
                 if keys_now.pressed(i, Action::Select) {
-                    if let Some(room) = session.room() {
-                        room.select_group(1);
-                    }
+                    orders.push(Order::Crew(CrewOrder::SelectOwn));
                     if let Some(game) = &mut session.game {
                         game.centre_on_player();
                     }
@@ -1102,10 +1407,8 @@ fn frame(
                     {
                         game.rotate_placing();
                     }
-                } else if keys_now.pressed(i, Action::Recruit)
-                    && let Some(room) = session.room()
-                {
-                    room.toggle_recruited();
+                } else if keys_now.pressed(i, Action::Recruit) {
+                    orders.push(Order::Crew(CrewOrder::Recruit));
                 }
                 // Tab: the inventory of the crew member you steer.
                 if keys_now.pressed(i, Action::Inventory) {
@@ -1264,7 +1567,7 @@ fn frame(
                 // stack already fills a short window, and a panel added
                 // to it shoves the whole stack up over this row.
                 if let Some(room) = session.room_ref()
-                    && room.is_recruited()
+                    && room.is_recruited(local)
                 {
                     let locked =
                         room.is_alive(local as usize) && room.is_locked(local as usize).is_some();
@@ -1296,6 +1599,12 @@ fn frame(
                             theme::question_mark(ui, ALARM_TIP);
                         });
                     });
+                }
+                // And the raid, in red: the raider closing with the
+                // time it has left counted down, then its boarders at
+                // the locked airlock, forcing it, and through it.
+                if let Some(game) = &session.game {
+                    raid_warning(ui, &game.world);
                 }
             });
         })
@@ -1376,6 +1685,7 @@ fn frame(
                         lobby: &mut screen.galaxy,
                         picked: &mut screen.picked_star,
                     },
+                    &mut orders,
                 );
             });
         });
@@ -1516,7 +1826,11 @@ fn frame(
         if let Some(source) = panels.walk.take()
             && let Some(at) = world.body_position(source)
         {
-            world.aboard.room.send_to(who, at);
+            orders.push(Order::Crew(CrewOrder::SendTo {
+                who: who as u32,
+                x: at.x,
+                y: at.y,
+            }));
         }
         // Whose the station alongside is, for the Kill row on a body among
         // its people: an enemy's, or not.
@@ -1559,7 +1873,7 @@ fn frame(
         // take goes through the seam the frame they are within reach —
         // or is forgotten if the key goes or the ship does.
         if let Some(who) = panels.key_requested {
-            if !world.key_at_the_dock() {
+            if world.key_at_the_dock() == 0 {
                 panels.key_requested = None;
             } else if world.key_in_reach(who) {
                 orders.push(Order::Gear(GearOrder::TakeKey { who }));
@@ -1579,6 +1893,12 @@ fn frame(
     for order in panels.orders.drain(..) {
         orders.push(Order::Gear(order));
     }
+    for order in panels.crew_orders.drain(..) {
+        orders.push(Order::Crew(order));
+    }
+    for order in panels.later_orders.drain(..) {
+        orders.push(Order::CrewLater(order));
+    }
     for order in orders.drain(..) {
         screen.net.order(session, order);
     }
@@ -1588,7 +1908,7 @@ fn frame(
         &mut sounds.mix,
         &mut bindings,
         &mut screen.saves,
-        session.playing(),
+        Allowed::of(session.playing(), online.is_guest()),
     );
     match asked {
         Some(Request::Save(name)) => match session.save() {
@@ -1603,16 +1923,39 @@ fn frame(
         // the first frame fits the canvas to the world as an open does.
         // Both land after this frame, which has already drawn the old
         // one; the world under the pointer next frame is the loaded one.
+        // With company — the host's, since a guest's Load is greyed —
+        // the file has to fit the room, and the loaded world goes to
+        // everybody (`Packet::World`, feature 67): each guest replaces
+        // its own with it the way this end does here. The wire is kept
+        // across the new screen for that.
         Some(Request::Load(path)) => {
             let read = crate::save::read(&path).and_then(|text| {
+                if let Some(here) = online.room_size()
+                    && ship::save::players_of(&text) != Some(here)
+                {
+                    let saved = ship::save::players_of(&text).unwrap_or(0);
+                    return Err(load_players(saved, here));
+                }
                 Session::restore(&text, screen.size.x, screen.size.y)
+                    .map(|loaded| (loaded, text))
                     .map_err(crate::save::load_error)
             });
             match read {
-                Ok(loaded) => {
+                Ok((loaded, text)) => {
                     let (slot, players) = (loaded.editor.local, loaded.editor.players);
+                    if let Some(wire) = &screen.net.wire
+                        && wire.host
+                    {
+                        let at = loaded.game.as_ref().map_or(0, |g| g.world.steps);
+                        wire.send(To::All, &Packet::World { save: text, at });
+                        if crate::dev::auto().is_some() {
+                            let now = session.game.as_ref().map_or(0, |g| g.world.steps);
+                            println!("world sent: {at} loaded at {now}");
+                        }
+                    }
+                    crate::names::set_crew_names(&loaded.crew_names);
                     commands.insert_resource(ShipSession(loaded));
-                    commands.insert_resource(GameScreen::fresh(slot, players));
+                    commands.insert_resource(screen.again(slot, players));
                 }
                 Err(why) => screen.saves.failed(why),
             }
@@ -1686,18 +2029,77 @@ fn frame(
         // The smooth fog over the deck — what the crew do not see, and
         // the dark where no light reaches — as the room's light map,
         // through the ship's camera and heading like the crew's names.
-        if !map_up && let Some((map, corners)) = session.light_map() {
-            let corners = corners.map(|(x, y)| {
-                let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
-                egui::pos2(at.x, at.y)
-            });
-            screen.fog.paint(&ctx, &painter, map, corners);
+        if !map_up {
+            // The plain's fog first, a chunk a texture: the pieces of
+            // each leave the room's box to the light map, so the two
+            // never lie over one another. A chunk the room let go of
+            // takes its texture with it.
+            let fogs = session.plain_fog();
+            screen
+                .plain_fog
+                .retain(|key, _| fogs.iter().any(|(k, _, _)| k == key));
+            for (key, map, pieces) in fogs {
+                let pieces: Vec<crate::fogmap::Piece> = pieces
+                    .iter()
+                    .map(|p| crate::fogmap::Piece {
+                        uv0: p.uv0,
+                        uv1: p.uv1,
+                        corners: p.corners.map(|(x, y)| {
+                            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                            egui::pos2(at.x, at.y)
+                        }),
+                    })
+                    .collect();
+                screen
+                    .plain_fog
+                    .entry(key)
+                    .or_default()
+                    .paint_pieces(&ctx, &painter, map, &pieces);
+            }
+            if let Some((map, corners)) = session.light_map() {
+                let corners = corners.map(|(x, y)| {
+                    let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                    egui::pos2(at.x, at.y)
+                });
+                screen.fog.paint(&ctx, &painter, map, corners);
+            }
         }
     }
 
     // The pick in the pointer's hand, where the system's cursor was.
     if marking && let Some(p) = on_canvas {
         pick_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
+    }
+    // The others' pointers over the deck, each in its player's colour
+    // with their Bim's name, through the ship's camera and heading like
+    // the names: over the tile they are over, whichever way each has
+    // turned the ship.
+    if !map_up {
+        for (slot, (x, y)) in online.others_pointing() {
+            let (x, y) = session.design_point_on_screen(x, y);
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            theme::ghost_pointer(
+                &painter,
+                egui::pos2(at.x, at.y),
+                theme::ship_color32(ship::world_paint::player_color(slot)),
+                &crew_name(slot),
+            );
+        }
+    }
+
+    // The bunks' tags, across the middle of each: whose it is, or that it
+    // is nobody's (feature 61). Under the names, so a sleeper's own stays
+    // on top; the station's bunks on a joined deck wear none.
+    if !map_up {
+        for label in session.bunk_labels() {
+            let at = view.to_canvas(Vec2::new(label.x, label.y)) + canvas.min;
+            let (words, color) = match label.owner {
+                Some(o) if o == local => (crew_name(o), theme::YOURS),
+                Some(o) => (crew_name(o), theme::THEIRS),
+                None => (BED_TAG_UNASSIGNED.to_string(), theme::MUTED),
+            };
+            theme::bunk_tag(&painter, egui::pos2(at.x, at.y), &words, color);
+        }
     }
 
     // The crew's names, over their heads, where the ship says each Bim
@@ -1856,6 +2258,7 @@ fn trip_panel(
     relieve: &mut bool,
     log: &mut Vec<String>,
     chart: &mut Chart,
+    orders: &mut Vec<Order>,
 ) {
     // Re-quoted every frame while the player is aiming at something. A
     // quote goes stale the moment the ship moves.
@@ -2037,11 +2440,13 @@ fn trip_panel(
     }
 
     // A press is a walk first. The order waits in `pending` for the crew
-    // member to reach the seat; a walk that cannot start — no helm, or no
-    // way to it — says so and orders nothing.
+    // member to reach the seat; with no helm to walk to it says so and
+    // orders nothing. The walk itself is `Order::ToHelm`, through the
+    // seam like every order: a way there or not is the world's to say.
     let game = session.game.as_mut().unwrap();
     if let Some(order) = press {
-        if game.world.order_to_helm(local) {
+        if game.world.helm_spot().is_some() {
+            orders.push(Order::ToHelm);
             *pending = Some(order);
             *relieve = false;
         } else {
@@ -2050,7 +2455,7 @@ fn trip_panel(
     }
     if cancel {
         *pending = None;
-        game.world.stand_down(local);
+        orders.push(Order::Crew(CrewOrder::StandDown { who: local }));
     }
 }
 
@@ -2298,6 +2703,57 @@ fn describe_aim(session: &Session, aimed: Option<Aim>) -> String {
     }
 }
 
+/// The frame the raid warning sits in: the panel's, filled and edged in
+/// red, so it is the one red thing on the screen.
+fn raid_frame() -> egui::Frame {
+    panel_frame()
+        .fill(egui::Color32::from_rgba_unmultiplied(64, 14, 10, 235))
+        .stroke(egui::Stroke::new(1.0, theme::WARN))
+}
+
+/// The red warning while a raid is on (feature 68): the raider closing,
+/// with what is left of its run counted down in words every frame; its
+/// boarders at the ship's airlock, locked in their face the step it tied
+/// up; the bar as they force it; and the airlock given. Nothing once the
+/// boarders are all down — the log said so — or with no raid on.
+fn raid_warning(ui: &mut egui::Ui, world: &world::World) {
+    let words = match world.raid() {
+        world::Raid::Quiet | world::Raid::Docked { repelled: true, .. } => return,
+        world::Raid::Closing { boarders, .. } => {
+            let left = world.raid_minutes_left().unwrap_or(0.0);
+            raid_incoming(&crate::format::in_words(left), *boarders)
+        }
+        world::Raid::Docked {
+            boarders, breached, ..
+        } => {
+            if *breached {
+                raid_aboard(*boarders)
+            } else if world.raid_forcing().is_some() {
+                raid_forcing(*boarders)
+            } else {
+                raid_at_the_airlock(*boarders)
+            }
+        }
+    };
+    let forcing = world.raid_forcing();
+    raid_frame().show(ui, |ui| {
+        ui.vertical(|ui| {
+            let row = ui
+                .horizontal(|ui| {
+                    ui.label(egui::RichText::new(words).strong().color(theme::BAD));
+                    theme::question_mark(ui, RAID_TIP);
+                })
+                .response
+                .rect;
+            // The bar under the words, the width of them: how far the
+            // heaving has got, the same as the bar over the door.
+            if let Some(progress) = forcing {
+                theme::thin_bar(ui, row.width(), progress, theme::WARN);
+            }
+        });
+    });
+}
+
 /// The day and the clock, with the speed beside them: what you asked for
 /// is the button held down, and what the world is running at is the one
 /// coloured — a player held at 1x by somebody else needs to be able to see
@@ -2425,7 +2881,7 @@ fn trade_window(
             }
         });
     if walk {
-        session.walk_to_desk(local);
+        orders.push(Order::ToDesk);
     }
 }
 
@@ -2745,9 +3201,10 @@ fn research_view(session: &Session) -> ResearchView {
         unlocked: research.unlocked,
         current: research.current.map(|n| n.code()),
         fraction: research.fraction(),
+        queue: research.queue.iter().map(|n| n.code()).collect(),
         desk: world.research_desk_aboard(),
         powered: world.research_desk_powered(),
-        keys: world.keys_in_desk(),
+        keys: [world.keys_in_desk(1), world.keys_in_desk(2)],
         parts: shipdesign::PartKind::ALL
             .iter()
             .map(|&kind| research.part_allowed(kind))
@@ -2759,6 +3216,7 @@ fn research_view(session: &Session) -> ResearchView {
         view.done[i] = research.is_done(node);
         view.available[i] = research.available(node);
         view.needs_key[i] = research.needs_key(node);
+        view.queueable[i] = research.queueable(node);
     }
     view
 }

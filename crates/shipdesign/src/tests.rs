@@ -3281,7 +3281,7 @@ fn the_fixtures_are_wired() {
 fn every_recipe_holds_together() {
     use crate::recipes::{RECIPES, at, recipes_are_sound};
     assert!(recipes_are_sound());
-    assert_eq!(RECIPES.len(), 14);
+    assert_eq!(RECIPES.len(), 16);
 
     let smelt = &RECIPES[0];
     assert_eq!(smelt.station, PartKind::Smelter);
@@ -3311,7 +3311,7 @@ fn every_recipe_holds_together() {
     assert_eq!(emitter.output_mass(), emitter.input_mass());
 
     assert_eq!(at(PartKind::Smelter).count(), 1);
-    assert_eq!(at(PartKind::Workbench).count(), 5);
+    assert_eq!(at(PartKind::Workbench).count(), 7);
     // Six at the armoury since the medkit went to the drug lab, which
     // makes two: medicine is made from the first day, and the armoury is
     // researched (`crate::research`).
@@ -3625,14 +3625,23 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
         assert_eq!(node_of_part(PartKind::FusionReactor), Node::FusionPower);
         assert_eq!(node_of_part(PartKind::Hyperdrive), Node::Hyperdrive);
         assert_eq!(Node::Hyperdrive.def().requires, &[Node::FusionPower]);
-        // Locked nodes are the armoury, the emitters and the hyperdrive, all in
-        // tier one, all wanting a key.
+        // Locked nodes are the armoury, the emitters and the hyperdrive in
+        // tier one, and the upgrades in tier two, all wanting a key of
+        // their tier.
         for node in Node::ALL {
-            let locked = matches!(node, Node::Armoury | Node::Emitters | Node::Hyperdrive);
+            let locked = matches!(
+                node,
+                Node::Armoury | Node::Emitters | Node::Hyperdrive | Node::Upgrades
+            );
             assert_eq!(node.def().locked, locked, "{node:?}");
             assert_eq!(fresh.needs_key(node), locked, "{node:?}");
-            assert_eq!(node.def().tier, 1);
+            let tier = if node == Node::Upgrades { 2 } else { 1 };
+            assert_eq!(node.def().tier, tier, "{node:?}");
         }
+        assert_eq!(Node::Upgrades.def().requires, &[Node::Armoury]);
+        assert_eq!(Node::Upgrades.def().minutes, 1_440);
+        assert_eq!(Research::key_wanted(Node::Upgrades), Some(2));
+        assert!(!fresh.upgrades_allowed());
     }
 
     // --- research_runs_in_order_and_a_key_opens_a_node ---
@@ -3642,31 +3651,42 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
         assert!(r.available(Node::Smelting));
         assert!(!r.available(Node::Workshop));
         assert!(!r.available(Node::Armoury));
-        assert!(!r.begin(Node::Workshop));
-        assert!(r.begin(Node::Smelting));
+        // The AI is idle until `next`: a node queued goes onto it then.
+        assert!(r.enqueue(Node::Smelting));
+        assert_eq!(r.current, None);
+        assert!(!r.enqueue(Node::Smelting), "queued already");
+        assert_eq!(r.next(), Some(Node::Smelting));
+        assert_eq!(r.next(), None, "busy");
+        assert!(r.queue.is_empty());
         // Not there yet: nothing finished, and the fraction climbs.
-        assert_eq!(r.advance(100.0), None);
+        let smelting = Node::Smelting.def().minutes as f64;
+        assert_eq!(r.advance(smelting * 0.45), None);
         assert!(r.fraction() > 0.4 && r.fraction() < 0.5);
         // A cancel loses the progress: beginning again starts over.
-        r.cancel();
+        assert!(r.cancel().is_empty());
         assert_eq!(r.current, None);
-        assert!(r.begin(Node::Smelting));
-        assert_eq!(r.advance(140.0), None);
+        assert!(r.enqueue(Node::Smelting));
+        assert_eq!(r.next(), Some(Node::Smelting));
+        assert_eq!(r.advance(smelting - 100.0), None);
         assert_eq!(r.advance(100.0), Some(Node::Smelting));
         assert!(r.is_done(Node::Smelting));
         assert!(r.part_allowed(PartKind::Smelter));
         assert!(r.recipe_allowed(0));
         assert_eq!(r.current, None);
         assert!(r.available(Node::Workshop));
-        assert!(r.begin(Node::Workshop));
-        assert_eq!(r.advance(360.0), Some(Node::Workshop));
+        assert!(r.enqueue(Node::Workshop));
+        assert_eq!(r.next(), Some(Node::Workshop));
+        assert_eq!(
+            r.advance(Node::Workshop.def().minutes as f64),
+            Some(Node::Workshop)
+        );
         // The workshop done, three things open up: the fusion reactor at
         // once, and the two locked nodes only behind the key.
         assert!(r.available(Node::FusionPower));
         assert!(!r.available(Node::Armoury));
         assert!(r.needs_key(Node::Armoury));
         assert!(r.needs_key(Node::Emitters));
-        assert!(!r.begin(Node::Armoury));
+        assert!(!r.enqueue(Node::Armoury));
         assert!(
             !r.unlock(Node::FusionPower),
             "nothing to unlock on a keyless node"
@@ -3684,21 +3704,108 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
             "a key opens one node, not the tier"
         );
         assert!(!r.available(Node::Emitters));
-        assert!(r.begin(Node::Armoury));
-        assert_eq!(r.advance(720.0), Some(Node::Armoury));
+        assert!(r.enqueue(Node::Armoury));
+        assert_eq!(r.next(), Some(Node::Armoury));
+        assert_eq!(
+            r.advance(Node::Armoury.def().minutes as f64),
+            Some(Node::Armoury)
+        );
         assert!(r.part_allowed(PartKind::Armoury));
         for i in [3, 4, 7, 10, 13] {
             assert!(r.recipe_allowed(i), "recipe {i}");
         }
         assert!(!r.recipe_allowed(2), "the emitter is its own node");
-        assert!(!r.begin(Node::Emitters), "still behind its own key");
+        assert!(!r.enqueue(Node::Emitters), "still behind its own key");
         assert!(r.unlock(Node::Emitters));
-        // Switching nodes drops what was put into the last one.
-        assert!(r.begin(Node::Emitters));
+        // Queueing behind a busy AI: the emitters go on, and fusion power
+        // waits behind them; a cancel of the emitters loses what was put
+        // in and the AI goes onto fusion power at the next step.
+        assert!(r.enqueue(Node::Emitters));
+        assert_eq!(r.next(), Some(Node::Emitters));
         assert_eq!(r.advance(300.0), None);
-        assert!(r.begin(Node::FusionPower));
+        assert!(r.enqueue(Node::FusionPower));
+        assert_eq!(r.queue, vec![Node::FusionPower]);
+        assert_eq!(r.next(), None, "still on the emitters");
+        assert!(
+            r.cancel().is_empty(),
+            "fusion power did not need the emitters"
+        );
+        assert_eq!(r.next(), Some(Node::FusionPower));
         assert_eq!(r.progress, 0.0);
-        assert!(r.begin(Node::Emitters));
-        assert_eq!(r.progress, 0.0);
+        assert!(r.queue.is_empty());
+    }
+
+    // --- a_queue_brings_its_prerequisites_and_loses_its_dependants ---
+    {
+        use crate::research::{Node, Research};
+        let mut r = Research::new();
+        // The hyperdrive on a fresh crew: behind its key, so refused
+        // whole — nothing of the chain goes on.
+        assert!(!r.queueable(Node::Hyperdrive));
+        assert!(!r.enqueue(Node::Hyperdrive));
+        assert!(r.queue.is_empty());
+        assert!(r.unlock(Node::Hyperdrive));
+        assert!(r.queueable(Node::Hyperdrive));
+        // Now the whole chain, prerequisites first.
+        assert!(r.enqueue(Node::Hyperdrive));
+        assert_eq!(
+            r.queue,
+            vec![
+                Node::Smelting,
+                Node::Workshop,
+                Node::FusionPower,
+                Node::Hyperdrive
+            ]
+        );
+        for node in r.queue.clone() {
+            assert!(r.planned(node));
+            assert!(!r.queueable(node), "{node:?} is queued already");
+        }
+        // The AI takes the head; the rest wait, and are not begun early.
+        assert_eq!(r.next(), Some(Node::Smelting));
+        assert_eq!(r.queue.len(), 3);
+        assert_eq!(r.next(), None);
+        // Something else queued while it works goes to the back, with the
+        // prerequisites it lacks — the workshop is planned already.
+        assert!(r.unlock(Node::Armoury));
+        assert!(r.enqueue(Node::Armoury));
+        assert_eq!(
+            r.queue,
+            vec![
+                Node::Workshop,
+                Node::FusionPower,
+                Node::Hyperdrive,
+                Node::Armoury
+            ]
+        );
+        // Taking fusion power out takes the hyperdrive with it, and
+        // nothing else.
+        assert_eq!(
+            r.dequeue(Node::FusionPower),
+            vec![Node::FusionPower, Node::Hyperdrive]
+        );
+        assert_eq!(r.queue, vec![Node::Workshop, Node::Armoury]);
+        assert!(r.dequeue(Node::FusionPower).is_empty(), "not there");
+        // Cancelling the smelting the AI is on empties the queue: both
+        // needed it, one through the other.
+        assert_eq!(r.cancel(), vec![Node::Workshop, Node::Armoury]);
+        assert!(r.queue.is_empty());
+        assert_eq!(r.next(), None);
+        // Finished nodes hand over: smelting done, the AI goes straight
+        // onto the workshop at the next `next`, the armoury after.
+        assert!(r.enqueue(Node::Armoury));
+        assert_eq!(r.queue, vec![Node::Smelting, Node::Workshop, Node::Armoury]);
+        assert_eq!(r.next(), Some(Node::Smelting));
+        assert_eq!(
+            r.advance(Node::Smelting.def().minutes as f64),
+            Some(Node::Smelting)
+        );
+        assert_eq!(r.next(), Some(Node::Workshop));
+        assert_eq!(
+            r.advance(Node::Workshop.def().minutes as f64),
+            Some(Node::Workshop)
+        );
+        assert_eq!(r.next(), Some(Node::Armoury));
+        assert!(r.queue.is_empty());
     }
 }

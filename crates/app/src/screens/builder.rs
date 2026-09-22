@@ -5,11 +5,12 @@
 //! and the room deals in a `Game` and has no menus. Only the World tab
 //! touches the galaxy, through `crates/lobby`.
 //!
-//! The multiplayer half is surface only. Nothing here opens a socket:
-//! [`Net`] is a local stand-in with the shape a transport will have, and it
-//! is the one seam to replace. Every part of the UI that will eventually be
-//! told something by the network is already told it by `net` instead, so
-//! wiring one up means implementing `net` and not touching the screens.
+//! The multiplayer half (feature 59) is `crate::net`: the lobby is a room
+//! at the relay, the host's settings go to everybody in it, a guest can
+//! point at a star, and the host's Start takes the whole room into the
+//! yard. The screen reads the room — who is in it, whose it is — off the
+//! `Online` resource and never past it, which is what made the wire a
+//! change to that one object rather than to the screens.
 //!
 //! What the settings come out as, and the only things that leave this
 //! screen, are plain numbers: a count of euros, a tile count, a seed, a
@@ -17,11 +18,14 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bims::character::{Hair, Look, Shade};
 use lobby::{Lobby, NONE};
+use wire::To;
 
 use crate::canvas::{paint_shapes, rect_of, root_ui};
 use crate::format::{euros, roman};
 use crate::names::*;
+use crate::net::{Event, Online, Packet, SettingsWire};
 use crate::shapes::View;
 use crate::{Screen, theme};
 
@@ -51,12 +55,9 @@ const DEFAULT_GALAXY: u32 = 0;
 const LOBBY_SLOTS: usize = 4;
 
 /// Room codes are read out loud down a phone line, so the alphabet leaves
-/// out the pairs that are heard wrong: O/0, I/1.
-const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const CODE_LENGTH: usize = 6;
-
-/// Who you are until there are accounts. The room calls crew 0 James.
-const YOU: &str = "James";
+/// out the pairs that are heard wrong: O/0, I/1. The relay deals them
+/// (`wire::CODE_ALPHABET`); the field takes as many letters as one is.
+const CODE_LENGTH: usize = wire::CODE_LENGTH;
 
 /// How long a passing remark stays on screen, in seconds.
 const NOTE_SECONDS: f64 = 4.0;
@@ -65,7 +66,11 @@ const NOTE_SECONDS: f64 = 4.0;
 /// star, not a drag of the map.
 const DRAG_SLOP: f32 = 4.0;
 
-const LOBBY_SAID: &str = "Nobody can reach this lobby yet.";
+/// What the lobby's footer says when nothing has happened lately: where
+/// the room is.
+fn lobby_said() -> String {
+    format!("Through {}.", crate::net::server_url())
+}
 
 /// What a game would be started with. One object, shared by every settings
 /// tool on the screen: the solo screen and the lobby cannot disagree about
@@ -82,6 +87,13 @@ pub struct Settings {
     /// and nought.
     pub players: u32,
     pub slot: u32,
+    /// What the players called their crew, in slot order — empty at a slot
+    /// is the crew's own name (`names::crew_name`). Dealt at Start with the
+    /// slots, so every machine calls each Bim the same.
+    pub names: Vec<String>,
+    /// How each player wears their Bim's hair, in slot order, dealt at
+    /// Start like the names (feature 62). Empty is every slot's dealt look.
+    pub hair: Vec<(Hair, Shade)>,
 }
 
 impl Default for Settings {
@@ -94,60 +106,35 @@ impl Default for Settings {
             spawn: None,
             players: 1,
             slot: 0,
+            names: Vec::new(),
+            hair: Vec::new(),
         }
     }
 }
 
-struct Player {
-    name: String,
-    host: bool,
-    you: bool,
-}
-
-/// The network that is not there yet. Same shape a real one will have:
-/// you ask it for things, and it tells you what happened. Nothing in the
-/// screens reaches past it.
+/// The lobby's end of the seam. The room itself — the socket, the code,
+/// who is in it — is `crate::net::Online`, one for the whole game; what
+/// the lobby keeps of its own is what it last told the others, so the
+/// settings go out when they change and not every frame the tab is
+/// drawn.
 #[derive(Default)]
 struct Net {
-    code: Option<String>,
-    host: bool,
-    players: Vec<Player>,
+    pushed: Option<SettingsWire>,
 }
 
 impl Net {
-    /// Open a lobby. Locally this only mints a code and seats you; with a
-    /// transport behind it, it is the call that creates the room.
-    fn create(&mut self) -> Result<String, String> {
-        let code = make_code();
-        self.code = Some(code.clone());
-        self.host = true;
-        self.players = vec![Player {
-            name: YOU.into(),
-            host: true,
-            you: true,
-        }];
-        Ok(code)
-    }
-
-    /// Walk into somebody else's lobby. There is nothing to walk into yet,
-    /// and saying so is better than pretending: the field, the button and
-    /// the refusal are all real, only the wire is missing.
-    fn join(&mut self, code: &str) -> Result<(), String> {
-        if !is_code(code) {
-            return Err("That is not a room code.".into());
+    /// The host's settings, to everybody — on a change, or when `again`
+    /// says so (somebody joined and has nothing yet). A guest pushes
+    /// nothing: the host decides the settings.
+    fn push(&mut self, online: &Online, settings: &Settings, again: bool) {
+        if !online.is_host() {
+            return;
         }
-        Err(format!(
-            "No way to reach {code} yet — nothing is listening."
-        ))
-    }
-
-    /// The host changed a setting. With a transport this is the broadcast.
-    fn push(&self, _what: &Settings) {}
-
-    fn leave(&mut self) {
-        self.code = None;
-        self.host = false;
-        self.players.clear();
+        let now = SettingsWire::of(settings);
+        if again || self.pushed != Some(now) {
+            self.pushed = Some(now);
+            online.send(To::All, &Packet::Settings(now));
+        }
     }
 }
 
@@ -200,9 +187,27 @@ pub struct BuilderScreen {
     tab: Tab,
     seed_text: String,
     join_code: String,
+    /// What this player calls their Bim, as typed: kept across lobbies,
+    /// said to the room on every change (`Online::say_bim_name`) and
+    /// dealt with the slots at Start.
+    bim_name: String,
+    /// The name as last said to the room, so it goes out on a change and
+    /// again for a joiner, not every frame.
+    said_bim_name: Option<String>,
+    /// How this player's Bim wears its hair, as picked: kept like the
+    /// name, said to the room the same way (`Online::say_bim_hair`).
+    bim_hair: (Hair, Shade),
+    said_bim_hair: Option<(Hair, Shade)>,
+    /// The chooser's picture of it, drawn afresh each frame it is shown.
+    portrait: bims::draw::DrawList,
     join_note: Option<Remark>,
     world_note: Option<Remark>,
     lobby_said: Option<Remark>,
+    /// Who was in the lobby last frame, so a roster change can say who
+    /// came or went.
+    seen: Vec<wire::PeerId>,
+    /// `BIMS_AUTO` has pressed Start; once.
+    auto_done: bool,
     /// The galaxy: built once, moved between the two tools. There is one
     /// galaxy, one camera over it and one canvas.
     lobby: Lobby,
@@ -251,9 +256,16 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         tab: Tab::Setup,
         seed_text: settings.seed.to_string(),
         join_code: String::new(),
+        bim_name: crate::dev::bim_name(),
+        said_bim_name: None,
+        bim_hair: crate::dev::bim_hair(),
+        said_bim_hair: None,
+        portrait: bims::draw::DrawList::new(),
         join_note: None,
         world_note: None,
         lobby_said: None,
+        seen: Vec::new(),
+        auto_done: false,
         lobby,
         inspected: None,
         pressed: None,
@@ -276,15 +288,205 @@ fn frame(
     mut commands: Commands,
     time: Res<Time>,
     window: Single<&Window>,
+    mut online: ResMut<Online>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
     let settings = &mut *settings;
+    let online = &mut *online;
     let now = ctx.input(|i| i.time);
     screen.lobby.advance(time.delta_secs().min(0.1));
     let mut root = root_ui(&ctx);
     let mut go: Option<Screen> = None;
     let mut start = false;
+
+    // `BIMS_AUTO`: the lobby played with nobody at the keyboard (`dev.rs`).
+    if let Some(auto) = crate::dev::auto()
+        && !screen.auto_done
+    {
+        if *state.get() == Screen::Menu && online.link.state() == &crate::net::LinkState::Offline {
+            match auto {
+                crate::dev::Auto::Create => {
+                    online.create();
+                    go = Some(Screen::Lobby);
+                }
+                crate::dev::Auto::Join(code) => online.join(&code),
+            }
+        }
+        if *state.get() == Screen::Lobby
+            && online.is_host()
+            && online.peers.len() >= crate::dev::auto_players()
+        {
+            if settings.spawn.is_none() {
+                pick_random_start(screen, settings, online);
+            }
+            start = true;
+            screen.auto_done = true;
+        }
+    }
+
+    // What the room said since last frame: the relay, and the others in
+    // it. A guest's settings and its Start come from the host this way;
+    // a refusal or a closed room is a line and the menu again.
+    for event in online.drain(now) {
+        match event {
+            Event::Connected => {}
+            Event::Joined => {
+                screen.seen = online.peers.iter().map(|p| p.id).collect();
+                if crate::dev::auto().is_some()
+                    && let Some(code) = &online.code
+                {
+                    println!("lobby: {code}");
+                }
+                if online.is_host() {
+                    screen.net.push(online, settings, true);
+                } else {
+                    screen.join_note = None;
+                    go = Some(Screen::Lobby);
+                }
+                // And what this player calls their Bim, to whoever is
+                // already in.
+                screen.said_bim_name = None;
+                screen.said_bim_hair = None;
+            }
+            Event::Roster => {
+                // A joiner has no settings yet; the host says them again.
+                screen.net.push(online, settings, true);
+                // Nor anybody's Bim's name: everybody says theirs again.
+                screen.said_bim_name = None;
+                screen.said_bim_hair = None;
+                // And who came or went, by name.
+                let now_here: Vec<wire::PeerId> = online.peers.iter().map(|p| p.id).collect();
+                for p in &online.peers {
+                    if !screen.seen.contains(&p.id) {
+                        screen.lobby_said = Remark::say(player_joined(&p.name), false, now);
+                    }
+                }
+                if screen.seen.iter().any(|id| !now_here.contains(id)) {
+                    screen.lobby_said = Remark::say(SOMEBODY_LEFT, false, now);
+                }
+                screen.seen = now_here;
+            }
+            Event::Rejected(why) => {
+                let line = relay_refusal(why);
+                screen.join_note = Remark::say(line.clone(), true, now);
+                screen.lobby_said = Remark::say(line, true, now);
+                if *state.get() == Screen::Lobby && online.code.is_none() {
+                    go = Some(Screen::Menu);
+                }
+            }
+            Event::Lost(why) => {
+                let line = format!("{LINK_LOST} {why}");
+                screen.join_note = Remark::say(line.clone(), true, now);
+                if *state.get() == Screen::Lobby {
+                    go = Some(Screen::Menu);
+                }
+            }
+            Event::Closed(why) => {
+                screen.join_note = Remark::say(room_closed(why), true, now);
+                if *state.get() == Screen::Lobby {
+                    go = Some(Screen::Menu);
+                }
+            }
+            Event::Packet { from, packet } => match packet {
+                Packet::Settings(wire) if Some(from) == online.host => {
+                    let galaxy_moved = wire.seed != settings.seed || wire.galaxy != settings.galaxy;
+                    wire.onto(settings);
+                    if galaxy_moved {
+                        screen.seed_text = settings.seed.to_string();
+                        screen.inspected = None;
+                        screen
+                            .lobby
+                            .set_world(settings.seed, ship::session::galaxy_type(settings.galaxy));
+                    }
+                    screen.lobby.spawn = settings.spawn;
+                }
+                Packet::Suggest { star } => {
+                    screen.lobby.ping(star);
+                    screen.lobby_said = Remark::say(
+                        format!("{} points at a star.", crate::net::peer_name(online, from)),
+                        false,
+                        now,
+                    );
+                }
+                Packet::Start {
+                    settings: wire,
+                    slots,
+                    names,
+                    hair,
+                } if Some(from) == online.host => {
+                    wire.onto(settings);
+                    online.slots = slots;
+                    settings.players = online.slots.len().max(1) as u32;
+                    settings.slot = online.my_slot();
+                    settings.names = names;
+                    // This player's own Bim is called what its field says,
+                    // whether or not that reached the host before Start;
+                    // the others learn it off the wire (`Online::names_said`).
+                    let mine = settings.slot as usize;
+                    if settings.names.len() <= mine {
+                        settings.names.resize(mine + 1, String::new());
+                    }
+                    settings.names[mine] = wire::tidy_name(&screen.bim_name);
+                    // And its hair is what the chooser says, the same way.
+                    settings.hair = hair;
+                    if settings.hair.len() <= mine {
+                        for s in settings.hair.len()..=mine {
+                            let look = Look::of(s);
+                            settings.hair.push((look.hair, look.shade));
+                        }
+                    }
+                    settings.hair[mine] = screen.bim_hair;
+                    commands.insert_resource(crate::screens::designer::Start(settings.clone()));
+                    go = Some(Screen::Design);
+                }
+                // The host loaded a game: its world, whole, is this end's
+                // now, and the game screen opens round it as it does for
+                // a load here (feature 67). Nothing before Start deals
+                // the slots, so the seat is the one `Online::deal` would
+                // deal: this player's place in join order.
+                Packet::World { save, .. } if Some(from) == online.host && !online.is_host() => {
+                    let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
+                    let seat = if online.slots.is_empty() {
+                        online
+                            .peers
+                            .iter()
+                            .position(|p| Some(p.id) == online.me)
+                            .unwrap_or(0) as u32
+                    } else {
+                        online.my_slot()
+                    };
+                    match ship::Session::restore_as(&save, seat, size.x, size.y) {
+                        Ok(loaded) => {
+                            commands.insert_resource(crate::screens::designer::ShipSession(loaded));
+                            screen.loading = false;
+                            go = Some(Screen::Game);
+                        }
+                        Err(why) => {
+                            let line = world_refused(&crate::save::load_error(why));
+                            screen.lobby_said = Remark::say(line, true, now);
+                        }
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+    // What this player calls their Bim, to the room: when it changes, and
+    // again after a join — the field is read here rather than where it is
+    // drawn, so a name typed on the Setup tab still goes out with the
+    // World tab up.
+    if online.is_online() {
+        let name = wire::tidy_name(&screen.bim_name);
+        if screen.said_bim_name.as_deref() != Some(name.as_str()) {
+            online.say_bim_name(&name);
+            screen.said_bim_name = Some(name);
+        }
+        if screen.said_bim_hair != Some(screen.bim_hair) {
+            online.say_bim_hair(screen.bim_hair.0, screen.bim_hair.1);
+            screen.said_bim_hair = Some(screen.bim_hair);
+        }
+    }
 
     match state.get() {
         Screen::Menu => {
@@ -303,15 +505,18 @@ fn frame(
                             go = Some(Screen::Setup);
                         }
                         if theme::big(ui, "Create lobby", true).clicked() {
-                            match screen.net.create() {
-                                Ok(_) => go = Some(Screen::Lobby),
-                                Err(why) => screen.join_note = Remark::say(why, true, now),
-                            }
+                            online.create();
+                            screen.net.pushed = None;
+                            screen.lobby_said = Remark::say(CONNECTING, false, now);
+                            go = Some(Screen::Lobby);
                         }
                         // A saved game, picked up where it was left: the
                         // window lists what is on disk, read afresh each
-                        // time it opens.
-                        if theme::big(ui, "Load", true).clicked() {
+                        // time it opens. Not for a guest, whose world is
+                        // the host's (feature 67).
+                        let load = theme::big(ui, "Load", !online.is_guest())
+                            .on_disabled_hover_text(LOAD_GUEST);
+                        if load.clicked() {
                             screen.saves.note = None;
                             screen.saves.refresh();
                             screen.loading = true;
@@ -330,9 +535,12 @@ fn frame(
                         let submitted =
                             field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                         if ui.button("Join").clicked() || submitted {
-                            let typed = screen.join_code.trim().to_uppercase();
-                            if let Err(why) = screen.net.join(&typed) {
-                                screen.join_note = Remark::say(why, true, now);
+                            let typed = wire::normalise_code(&screen.join_code);
+                            if wire::is_code(&typed) {
+                                online.join(&typed);
+                                screen.join_note = Remark::say(CONNECTING, false, now);
+                            } else {
+                                screen.join_note = Remark::say(NOT_A_CODE, true, now);
                             }
                         }
                     });
@@ -394,27 +602,27 @@ fn frame(
                 });
             });
             egui::CentralPanel::default().show(&mut root, |ui| {
-                tool(ui, screen, settings, true, now);
+                tool(ui, screen, settings, online, true, now);
             });
         }
         Screen::Lobby => {
             egui::Panel::top("lobby-head").show(&mut root, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button("< Leave").clicked() {
-                        screen.net.leave();
+                        online.leave();
                         go = Some(Screen::Menu);
                     }
                     ui.heading("Lobby");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Copy").clicked()
-                            && let Some(code) = &screen.net.code
+                            && let Some(code) = &online.code
                         {
                             ui.ctx().copy_text(code.clone());
                             screen.lobby_said = Remark::say(format!("Copied {code}."), false, now);
                         }
                         ui.label(
                             egui::RichText::new(
-                                screen.net.code.clone().unwrap_or_else(|| "——————".into()),
+                                online.code.clone().unwrap_or_else(|| "——————".into()),
                             )
                             .size(18.0)
                             .strong(),
@@ -425,8 +633,8 @@ fn frame(
             });
             egui::Panel::bottom("lobby-foot").show(&mut root, |ui| {
                 ui.horizontal(|ui| {
-                    Remark::show(&mut screen.lobby_said, ui, now, LOBBY_SAID);
-                    let why = start_refusal(settings);
+                    Remark::show(&mut screen.lobby_said, ui, now, &lobby_said());
+                    let why = lobby_start_refusal(settings, online);
                     ui.label(egui::RichText::new(why.unwrap_or("")).color(theme::CAUTION));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if theme::big(ui, "Start", why.is_none()).clicked() {
@@ -435,24 +643,48 @@ fn frame(
                     });
                 });
             });
+            let my_bim = wire::tidy_name(&screen.bim_name);
             egui::Panel::left("lobby-crew")
                 .default_size(220.0)
                 .show(&mut root, |ui| {
                     theme::heading(ui, "Crew");
                     for i in 0..LOBBY_SLOTS {
-                        ui.horizontal(|ui| match screen.net.players.get(i) {
+                        ui.horizontal(|ui| match online.peers.get(i) {
                             Some(p) => {
-                                theme::swatch(ui, theme::ACCENT);
-                                ui.label(if p.you {
+                                // In the colour their pointer and their
+                                // route will be drawn in: the crew are
+                                // dealt in this order.
+                                theme::swatch(
+                                    ui,
+                                    theme::ship_color32(ship::world_paint::player_color(i as u32)),
+                                );
+                                ui.label(if Some(p.id) == online.me {
                                     format!("{} (you)", p.name)
                                 } else {
                                     p.name.clone()
                                 });
                                 ui.label(
-                                    egui::RichText::new(if p.host { "Host" } else { "Crew" })
-                                        .small()
-                                        .color(theme::MUTED),
+                                    egui::RichText::new(if Some(p.id) == online.host {
+                                        "Host"
+                                    } else {
+                                        "Crew"
+                                    })
+                                    .small()
+                                    .color(theme::MUTED),
                                 );
+                                // And what their Bim is called: what they
+                                // typed, else the berth's own name.
+                                let bim = if Some(p.id) == online.me {
+                                    Some(my_bim.as_str())
+                                } else {
+                                    online.bim_name(p.id)
+                                }
+                                .filter(|n| !n.is_empty())
+                                .map(str::to_string)
+                                .unwrap_or_else(|| {
+                                    CREW_NAMES.get(i).map(|s| s.to_string()).unwrap_or_default()
+                                });
+                                ui.label(egui::RichText::new(bim).color(theme::ACCENT));
                             }
                             None => {
                                 theme::swatch(ui, theme::RAISED);
@@ -464,7 +696,7 @@ fn frame(
                         });
                     }
                     ui.label(
-                        egui::RichText::new(if screen.net.host {
+                        egui::RichText::new(if online.is_host() {
                             "Read the code out to whoever is joining."
                         } else {
                             "The host decides the settings."
@@ -473,26 +705,50 @@ fn frame(
                         .color(theme::MUTED),
                     );
                 });
-            let editable = screen.net.host;
+            let editable = online.is_host();
             egui::CentralPanel::default().show(&mut root, |ui| {
-                tool(ui, screen, settings, editable, now);
+                tool(ui, screen, settings, online, editable, now);
             });
         }
         _ => {}
     }
 
-    if start && start_refusal(settings).is_none() {
+    if start && lobby_start_refusal(settings, online).is_none() {
         // Start hands the game over to the designer. What crosses is the
         // numbers and nothing else: the money each Bim brings, the build
         // area in tiles, how many players there are, which slot you are,
         // the seed, the galaxy type, and the star and station the game
         // starts at.
-        settings.players = if screen.net.code.is_some() {
-            screen.net.players.len().max(1) as u32
+        // With company, the crew are dealt in join order — the host slot 0
+        // — and everybody is told: the same Start on every machine.
+        if online.is_online() {
+            online.begin();
+            let slots = online.deal();
+            settings.players = slots.len().max(1) as u32;
+            settings.slot = online.my_slot();
+            // The names go with the slots: what each said, and this
+            // player's own off the field, since nobody is told their own.
+            let mut names = online.deal_names(&slots);
+            names[settings.slot as usize] = wire::tidy_name(&screen.bim_name);
+            settings.names = names.clone();
+            let mut hair = online.deal_hair(&slots);
+            hair[settings.slot as usize] = screen.bim_hair;
+            settings.hair = hair.clone();
+            online.send(
+                To::All,
+                &Packet::Start {
+                    settings: SettingsWire::of(settings),
+                    slots,
+                    names,
+                    hair,
+                },
+            );
         } else {
-            1
-        };
-        settings.slot = 0;
+            settings.players = 1;
+            settings.slot = 0;
+            settings.names = vec![wire::tidy_name(&screen.bim_name)];
+            settings.hair = vec![screen.bim_hair];
+        }
         commands.insert_resource(crate::screens::designer::Start(settings.clone()));
         go = Some(Screen::Design);
     }
@@ -510,12 +766,25 @@ fn start_refusal(settings: &Settings) -> Option<&'static str> {
     None
 }
 
+/// The same in a lobby: a station picked, the room reached, and the host
+/// the one pressing — a guest waits for the host's Start.
+fn lobby_start_refusal(settings: &Settings, online: &Online) -> Option<&'static str> {
+    if online.connecting() {
+        return Some(CONNECTING);
+    }
+    if online.is_online() && !online.is_host() {
+        return Some("The host starts the game.");
+    }
+    start_refusal(settings)
+}
+
 /// The settings tool: one tabbed panel, shown on its own for a solo game
 /// and inside the lobby. Both write to the same `Settings`.
 fn tool(
     ui: &mut egui::Ui,
     screen: &mut BuilderScreen,
     settings: &mut Settings,
+    online: &Online,
     editable: bool,
     now: f64,
 ) {
@@ -545,10 +814,119 @@ fn tool(
                 &SHIPS.map(|(label, tiles, sub)| (label, sub.to_string(), tiles)),
                 &mut settings.ship,
             );
-            screen.net.push(settings);
+            // The player's own crew member's name: everybody's to type,
+            // host or guest, since each names their own.
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new(BIM_NAME).strong());
+            ui.label(
+                egui::RichText::new(BIM_NAME_NOTE)
+                    .small()
+                    .color(theme::MUTED),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut screen.bim_name)
+                    .char_limit(wire::MAX_NAME)
+                    .hint_text(BIM_NAME_HINT)
+                    .desired_width(180.0),
+            );
+            hair_chooser(ui, screen);
+            screen.net.push(online, settings, false);
         }
-        Tab::World => world(ui, screen, settings, editable, now),
+        Tab::World => world(ui, screen, settings, online, editable, now),
     }
+}
+
+/// How big the chooser's portrait is, in points a side, and how far the
+/// figure is zoomed: a body is some ninety units across at the room's
+/// scale, so nine tenths fills the box with it, hair and all.
+const PORTRAIT_SIDE: f32 = 96.0;
+const PORTRAIT_ZOOM: f32 = 0.9;
+
+/// The hair chooser (feature 62): the figure as it will stand on the
+/// deck, a button a style and a swatch a colour, everybody's to pick like
+/// the name. The portrait is the room's own drawing of the Bim
+/// (`character::portrait`), facing up the screen, so what is chosen is
+/// what is seen.
+fn hair_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(BIM_HAIR).strong());
+    ui.label(
+        egui::RichText::new(BIM_HAIR_NOTE)
+            .small()
+            .color(theme::MUTED),
+    );
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(PORTRAIT_SIDE, PORTRAIT_SIDE),
+            egui::Sense::hover(),
+        );
+        ui.painter().rect_filled(rect, 4.0, theme::RAISED);
+        let (hair, shade) = screen.bim_hair;
+        screen.portrait.clear();
+        bims::character::portrait(
+            Look::of(0).with_hair(hair, shade),
+            -std::f32::consts::FRAC_PI_2,
+            &mut screen.portrait,
+        );
+        paint_shapes(
+            ui.painter(),
+            rect_of(rect),
+            View {
+                scale: PORTRAIT_ZOOM,
+                // A view is measured from the canvas, not the window.
+                offset: Vec2::splat(PORTRAIT_SIDE / 2.0),
+            },
+            screen.portrait.data(),
+        );
+        ui.painter().rect_stroke(
+            rect,
+            4.0,
+            egui::Stroke::new(1.0, theme::LINE),
+            egui::StrokeKind::Outside,
+        );
+        ui.vertical(|ui| {
+            // The styles, four to a row.
+            for row in Hair::ALL.chunks(4) {
+                ui.horizontal(|ui| {
+                    for &style in row {
+                        let on = style == hair;
+                        let b =
+                            egui::Button::new(hair_name(style)).min_size(egui::vec2(76.0, 22.0));
+                        let b = if on { b.fill(theme::RAISED_ON) } else { b };
+                        if ui.add(b).clicked() {
+                            screen.bim_hair.0 = style;
+                        }
+                    }
+                });
+            }
+            // The colours: a swatch each, the picked one ringed.
+            ui.horizontal(|ui| {
+                for &tone in &Shade::ALL {
+                    let (r, g, b) = tone.rgb();
+                    let colour = egui::Color32::from_rgb(
+                        (r * 255.0) as u8,
+                        (g * 255.0) as u8,
+                        (b * 255.0) as u8,
+                    );
+                    let (swatch, response) =
+                        ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                    ui.painter().rect_filled(swatch, 3.0, colour);
+                    if tone == shade {
+                        ui.painter().rect_stroke(
+                            swatch,
+                            3.0,
+                            egui::Stroke::new(2.0, theme::ACCENT),
+                            egui::StrokeKind::Outside,
+                        );
+                    }
+                    if response.clicked() {
+                        screen.bim_hair.1 = tone;
+                    }
+                }
+                ui.label(egui::RichText::new(shade_name(shade)).color(theme::MUTED));
+            });
+        });
+    });
 }
 
 /// A row of mutually exclusive choices, each one a number written into the
@@ -587,6 +965,7 @@ fn world(
     ui: &mut egui::Ui,
     screen: &mut BuilderScreen,
     settings: &mut Settings,
+    online: &Online,
     editable: bool,
     now: f64,
 ) {
@@ -683,7 +1062,7 @@ fn world(
             .lobby
             .set_world(settings.seed, ship::session::galaxy_type(settings.galaxy));
         screen.lobby.spawn = None;
-        screen.net.push(settings);
+        screen.net.push(online, settings, false);
     }
 
     ui.label(
@@ -741,7 +1120,7 @@ fn world(
                         .add_enabled(editable, egui::Button::new("Random start"))
                         .clicked()
                     {
-                        pick_random_start(screen, settings);
+                        pick_random_start(screen, settings, online);
                     }
                 });
             });
@@ -749,7 +1128,7 @@ fn world(
         });
         ui.vertical(|ui| {
             ui.set_width(card_w);
-            system_card(ui, screen, settings, editable, card_w);
+            system_card(ui, screen, settings, online, editable, card_w);
         });
     });
 }
@@ -840,6 +1219,7 @@ fn system_card(
     ui: &mut egui::Ui,
     screen: &mut BuilderScreen,
     settings: &mut Settings,
+    online: &Online,
     editable: bool,
     width: f32,
 ) {
@@ -1007,11 +1387,12 @@ fn system_card(
                         if editable {
                             settings.spawn = Some((star, i as u32));
                             screen.lobby.spawn = settings.spawn;
-                            screen.net.push(settings);
+                            screen.net.push(online, settings, false);
                         } else {
                             // A guest pointing at a station: a ring on the map
                             // for everybody, and a word about who.
                             screen.lobby.ping(star);
+                            online.send(To::All, &Packet::Suggest { star });
                         }
                     }
                 });
@@ -1022,7 +1403,7 @@ fn system_card(
 /// A random station among every star that has one a crew can start at:
 /// the lobby's rule (`Lobby::random_start`), which skips the hostile
 /// ones — a crew cannot start at an enemy's — off this page's roll.
-fn pick_random_start(screen: &mut BuilderScreen, settings: &mut Settings) {
+fn pick_random_start(screen: &mut BuilderScreen, settings: &mut Settings, online: &Online) {
     let roll = crate::screens::room::rand_seed();
     let Some((star, station)) = screen.lobby.random_start(roll) else {
         return;
@@ -1030,7 +1411,7 @@ fn pick_random_start(screen: &mut BuilderScreen, settings: &mut Settings) {
     inspect(screen, star);
     settings.spawn = Some((star, station));
     screen.lobby.spawn = settings.spawn;
-    screen.net.push(settings);
+    screen.net.push(online, settings, false);
 }
 
 /// What a station at a star is called, "Cordell Yard 7 at Tanis-284". Reads
@@ -1075,17 +1456,6 @@ fn parse_seed(text: &str) -> Option<u64> {
     trimmed.parse().ok()
 }
 
-fn make_code() -> String {
-    let roll = crate::screens::room::rand_seed();
-    (0..CODE_LENGTH)
-        .map(|i| CODE_ALPHABET[((roll >> (i * 8)) as usize) % CODE_ALPHABET.len()] as char)
-        .collect()
-}
-
-fn is_code(text: &str) -> bool {
-    text.len() == CODE_LENGTH && text.bytes().all(|b| CODE_ALPHABET.contains(&b))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1103,11 +1473,12 @@ mod tests {
         }
 
         // --- a_room_code_is_six_of_the_readable_letters ---
+        // The relay deals them (`wire`); the field takes exactly that many.
         {
-            let code = make_code();
-            assert!(is_code(&code), "{code}");
-            assert!(!is_code("O0I1AB"));
-            assert!(!is_code("ABCDE"));
+            assert_eq!(CODE_LENGTH, 6);
+            assert!(wire::is_code("Q7FKAB"));
+            assert!(!wire::is_code("O0I1AB"));
+            assert!(!wire::is_code("ABCDE"));
         }
     }
 }

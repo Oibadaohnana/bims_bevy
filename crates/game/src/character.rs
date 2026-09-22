@@ -87,10 +87,18 @@ const VISOR: Color = Color::rgb(0.55, 0.78, 0.95);
 /// that tells two people in the same coverall apart from directly above.
 const TRIM: Color = Color::rgb(0.86, 0.93, 0.96);
 const TRIM_B: Color = Color::rgb(0.74, 0.42, 0.62);
-const HAIR_B: Color = Color::rgb(0.42, 0.26, 0.13);
 const SKIN: Color = Color::rgb(0.91, 0.73, 0.55);
 const NOSE: Color = Color::rgb(0.82, 0.62, 0.45);
+/// The hair, in [`Shade`]'s order: the first two are the classic pair's
+/// — the first crew member's dark crop, the second's brown fall.
 const HAIR: Color = Color::rgb(0.23, 0.17, 0.12);
+const HAIR_B: Color = Color::rgb(0.42, 0.26, 0.13);
+const HAIR_BLACK: Color = Color::rgb(0.12, 0.10, 0.10);
+const HAIR_BLOND: Color = Color::rgb(0.82, 0.68, 0.38);
+const HAIR_RED: Color = Color::rgb(0.64, 0.27, 0.12);
+const HAIR_GREY: Color = Color::rgb(0.70, 0.70, 0.68);
+/// The band round a bun or a ponytail.
+const HAIR_BAND: Color = Color::rgb(0.55, 0.20, 0.25);
 const BOOT: Color = Color::rgb(0.24, 0.18, 0.13);
 const OUTLINE: Color = Color::rgba(0.05, 0.08, 0.07, 0.55);
 const SHADOW: Color = Color::rgba(0.0, 0.0, 0.0, 0.20);
@@ -207,55 +215,211 @@ impl Uniform {
     }
 }
 
-/// Which of the crew this is, as far as the drawing is concerned: the colour
-/// of the yoke on the coverall, a hair colour, and whether it is worn long.
+/// Which of the crew this is, as far as the drawing is concerned: the
+/// colour of the yoke on the coverall, how the hair is worn and what
+/// colour it is, and how big the body is.
 ///
 /// Nothing but `draw` reads it. Two Bims behave identically — that is the
-/// point of the second one — so the only thing that distinguishes them in the
-/// simulation is the index, and the only thing that distinguishes them on the
-/// deck is this. The coverall itself is the [`Uniform`]'s.
-#[derive(Clone, Copy, PartialEq)]
+/// point of the second one — so the only thing that distinguishes them in
+/// the simulation is the index, and the only thing that distinguishes them
+/// on the deck is this. The coverall itself is the [`Uniform`]'s. The
+/// index deals a look ([`Look::of`]); a player picks the hair for their
+/// own at the start ([`Look::with_hair`], feature 62), and the room is
+/// told through `Game::set_look`.
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Look {
-    /// Pale yoke, cropped hair.
-    First,
-    /// Mauve yoke, hair down past the collar.
-    Second,
+pub struct Look {
+    pub yoke: Yoke,
+    pub hair: Hair,
+    pub shade: Shade,
+    /// How big the body is drawn, `0..BUILDS`: [`Look::scale`] turns it
+    /// into a factor on the body's scale. Drawing only — the reach, the
+    /// collision radius and where a click lands are the same for all.
+    pub build: u8,
+}
+
+/// How many builds there are, from the slightest to the sturdiest, and
+/// how far apart: `BUILDS / 2` is the middling one, drawn at exactly the
+/// body scale, and each step either side is `BUILD_STEP` of it — enough
+/// to tell two apart standing together, not enough to look like another
+/// kind of thing.
+pub const BUILDS: u8 = 5;
+pub const BUILD_STEP: f32 = 0.06;
+
+/// The colour of the yoke across the shoulders: the one thing that told
+/// the classic pair apart from directly above, kept alternating down the
+/// crew.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Yoke {
+    Pale,
+    Mauve,
+}
+
+/// How the hair is worn, seen from above. Every arm is a shape or two on
+/// the crown in [`Character::draw`] and its lying-down twin in
+/// `draw_flat`; the name of each is the app's (`names::HAIR_NAMES`,
+/// pinned to [`Hair::ALL`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Hair {
+    /// Short all over: the crown and nothing past the head.
+    Cropped,
+    /// Down past the collar: a fall back over the shoulders.
+    Long,
+    /// None.
+    Bald,
+    /// Cut level at the chin: the crown wider than the head all round.
+    Bob,
+    /// Tied up in a knot at the back.
+    Bun,
+    /// A strip down the middle, the sides shaved.
+    Mohawk,
+    /// Tied back and hanging behind in one tail.
+    Ponytail,
+    /// A round mass standing out from the head all round.
+    Curly,
+}
+
+impl Hair {
+    /// Every style, in the order a chooser lists them. The classic pair's
+    /// first: the first crew member's crop, the second's fall.
+    pub const ALL: [Hair; 8] = [
+        Hair::Cropped,
+        Hair::Long,
+        Hair::Bald,
+        Hair::Bob,
+        Hair::Bun,
+        Hair::Mohawk,
+        Hair::Ponytail,
+        Hair::Curly,
+    ];
+
+    /// Its place in [`Hair::ALL`].
+    pub fn code(self) -> u8 {
+        Hair::ALL.iter().position(|&h| h == self).unwrap_or(0) as u8
+    }
+}
+
+/// What colour the hair is. Like [`Hair`], listed for a chooser and named
+/// by the app (`names::SHADE_NAMES`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Shade {
+    Dark,
+    Brown,
+    Black,
+    Blond,
+    Red,
+    Grey,
+}
+
+impl Shade {
+    pub const ALL: [Shade; 6] = [
+        Shade::Dark,
+        Shade::Brown,
+        Shade::Black,
+        Shade::Blond,
+        Shade::Red,
+        Shade::Grey,
+    ];
+
+    /// Its place in [`Shade::ALL`].
+    pub fn code(self) -> u8 {
+        Shade::ALL.iter().position(|&s| s == self).unwrap_or(0) as u8
+    }
+
+    /// The colour, for the swatch a chooser shows as much as for the
+    /// crown: red, green and blue, nought to one.
+    pub fn rgb(self) -> (f32, f32, f32) {
+        let c = self.colour();
+        (c.r, c.g, c.b)
+    }
+
+    fn colour(self) -> Color {
+        match self {
+            Shade::Dark => HAIR,
+            Shade::Brown => HAIR_B,
+            Shade::Black => HAIR_BLACK,
+            Shade::Blond => HAIR_BLOND,
+            Shade::Red => HAIR_RED,
+            Shade::Grey => HAIR_GREY,
+        }
+    }
 }
 
 impl Look {
-    /// The index decides it, so a third of the crew would be a third arm here
-    /// rather than a change anywhere else.
+    /// The classic pair: pale yoke and a dark crop, mauve yoke and brown
+    /// hair down past the collar, both of middling build. What the first
+    /// two of any crew look like, so the room's two Bims are the two they
+    /// always were.
+    pub const CLASSIC: [Look; 2] = [
+        Look {
+            yoke: Yoke::Pale,
+            hair: Hair::Cropped,
+            shade: Shade::Dark,
+            build: BUILDS / 2,
+        },
+        Look {
+            yoke: Yoke::Mauve,
+            hair: Hair::Long,
+            shade: Shade::Brown,
+            build: BUILDS / 2,
+        },
+    ];
+
+    /// The index decides it: the classic pair for the first two, and for
+    /// everybody after a hair, a shade and a build dealt off the index
+    /// with the yoke still alternating — so a crew of five, a station's
+    /// residents and a garrison are all told apart at a glance, and the
+    /// same index is the same look on every machine. Deliberately not
+    /// off the RNG: a draw here would move every roll after it, and the
+    /// probes pin their seeds.
     pub fn of(who: usize) -> Look {
-        if who % 2 == 0 {
-            Look::First
-        } else {
-            Look::Second
+        if let Some(&classic) = Look::CLASSIC.get(who) {
+            return classic;
+        }
+        // A multiplicative hash, so neighbouring indices do not come out
+        // as a sequence.
+        let k = (who as u32).wrapping_mul(0x9E37_79B9);
+        let pick = |shift: u32, of: usize| ((k >> shift) % of as u32) as usize;
+        Look {
+            yoke: if who % 2 == 0 {
+                Yoke::Pale
+            } else {
+                Yoke::Mauve
+            },
+            hair: Hair::ALL[pick(8, Hair::ALL.len())],
+            shade: Shade::ALL[pick(16, Shade::ALL.len())],
+            build: pick(24, BUILDS as usize) as u8,
         }
     }
 
+    /// The same look with the hair the player chose.
+    pub fn with_hair(self, hair: Hair, shade: Shade) -> Look {
+        Look {
+            hair,
+            shade,
+            ..self
+        }
+    }
+
+    /// What the body's scale is multiplied by for this build: one for the
+    /// middling one, a step either way for each build from it.
+    pub fn scale(self) -> f32 {
+        let build = self.build.min(BUILDS - 1) as f32;
+        1.0 + (build - (BUILDS / 2) as f32) * BUILD_STEP
+    }
+
     fn trim(self) -> Color {
-        match self {
-            Look::First => TRIM,
-            Look::Second => TRIM_B,
+        match self.yoke {
+            Yoke::Pale => TRIM,
+            Yoke::Mauve => TRIM_B,
         }
     }
 
     fn hair(self) -> Color {
-        match self {
-            Look::First => HAIR,
-            Look::Second => HAIR_B,
-        }
-    }
-
-    /// How far the hair reaches past the head, seen from above. Nothing for
-    /// the cropped one; a fall down the back for the other, which is the one
-    /// thing that reads as a difference at this scale even in silhouette.
-    fn mane(self) -> f32 {
-        match self {
-            Look::First => 0.0,
-            Look::Second => 1.0,
-        }
+        self.shade.colour()
     }
 }
 
@@ -382,7 +546,11 @@ pub struct Character {
     /// Waypoints left to walk, from the pathfinder. Overrides the wander until
     /// the last one is reached.
     path: Vec<Vec2>,
-    pub selected: bool,
+    /// Who has this Bim selected: one bit a player, bit `p` for the
+    /// player in slot `p`. A mask rather than a flag because two players
+    /// do not share a selection — see `crate::order`. Read through
+    /// [`Character::is_selected_by`], set through [`Character::select_for`].
+    pub selected: u32,
     /// Animates the selection ring so a picked Bim reads at a glance.
     select_pulse: f32,
 
@@ -488,7 +656,7 @@ impl Character {
             stride: 0.0,
             idle: rng.range(0.0, 100.0),
             path: Vec::new(),
-            selected: false,
+            selected: 0,
             select_pulse: 0.0,
             scripted: false,
             face_target: None,
@@ -1352,12 +1520,50 @@ impl Character {
         }
     }
 
-    pub fn draw(&self, list: &mut DrawList) {
+    /// Whether player `slot` has this Bim selected.
+    pub fn is_selected_by(&self, slot: u32) -> bool {
+        slot < 32 && self.selected & (1 << slot) != 0
+    }
+
+    /// Select this Bim for player `slot`, or drop it from their selection.
+    pub fn select_for(&mut self, slot: u32, on: bool) {
+        if slot >= 32 {
+            return;
+        }
+        if on {
+            self.selected |= 1 << slot;
+        } else {
+            self.selected &= !(1 << slot);
+        }
+    }
+
+    /// What this Bim looks like.
+    pub fn look(&self) -> Look {
+        self.look
+    }
+
+    /// Give it another look: the hair a player chose, or a whole look
+    /// dealt afresh. Drawing only.
+    pub fn set_look(&mut self, look: Look) {
+        self.look = look;
+    }
+
+    /// The scale the standing figure is drawn at: [`BODY_SCALE`] by the
+    /// look's build, so a sturdy Bim's hands, held things and weapon are
+    /// as much bigger as its body. Every draw method goes through this;
+    /// the reach and the hit test do not.
+    fn body_scale(&self) -> f32 {
+        BODY_SCALE * self.look.scale()
+    }
+
+    /// Draw the body, with the rings player `viewer` sees under it: the
+    /// selection ring is theirs alone, since a selection is one player's.
+    pub fn draw(&self, list: &mut DrawList, viewer: u32) {
         if self.dead {
             self.draw_fallen(list);
             return;
         }
-        self.draw_rings(list);
+        self.draw_rings(list, viewer);
         if self.unconscious {
             self.draw_lying(list);
             return;
@@ -1390,7 +1596,7 @@ impl Character {
             _ => (0.0, 0.0),
         };
         let lift = 1.0 + 0.16 * hop - 0.10 * heave;
-        let scale = BODY_SCALE * lift;
+        let scale = self.body_scale() * lift;
         // Leant out to the peek while aiming from one; the body itself
         // has not moved, and nothing but the picture knows.
         let pos = self.drawn_at();
@@ -1398,8 +1604,8 @@ impl Character {
         // Cast under the body and turned with it, so the halo always fits.
         // It pulls in and darkens as the Bim leaves the deck.
         list.ellipse(
-            pos + vec2(0.0, (4.5 + 7.0 * hop) * BODY_SCALE),
-            vec2(28.0, 36.0) * BODY_SCALE * (1.0 - 0.22 * hop),
+            pos + vec2(0.0, (4.5 + 7.0 * hop) * self.body_scale()),
+            vec2(28.0, 36.0) * self.body_scale() * (1.0 - 0.22 * hop),
             self.heading,
             SHADOW,
         );
@@ -1517,24 +1723,7 @@ impl Character {
 
         b.ellipse(at(Vec2::ZERO), vec2(15.5, 15.5), 0.0, OUTLINE);
         b.ellipse(at(Vec2::ZERO), vec2(13.5, 13.5), 0.0, SKIN);
-        // Hair worn long falls back over the shoulders, which from directly
-        // above is a second ellipse behind the head. Drawn before the crown so
-        // the crown sits on top of it rather than the fall sitting on the face.
-        let mane = self.look.mane();
-        if mane > 0.0 {
-            b.ellipse(
-                at(vec2(-7.5 * mane, 0.0)),
-                vec2(14.0, 17.5) * mane,
-                look,
-                self.look.hair(),
-            );
-        }
-        b.ellipse(
-            at(vec2(-2.0, 0.0)),
-            vec2(11.0, 13.0),
-            look,
-            self.look.hair(),
-        );
+        draw_hair_standing(&mut b, self.look, at, look);
         b.ellipse(at(vec2(5.6, 0.0)), vec2(4.0, 3.2), look, NOSE);
         // The helm: a cap over the hair, rimmed, leaving the face clear.
         if let Some(helm) = self.armour[0] {
@@ -1580,12 +1769,12 @@ impl Character {
 
     /// The rings on the deck under a living Bim: selected, an enemy, under
     /// orders. Drawn before the body, standing or lying.
-    fn draw_rings(&self, list: &mut DrawList) {
+    fn draw_rings(&self, list: &mut DrawList, viewer: u32) {
         let pos = self.drawn_at();
-        if self.selected {
+        if self.is_selected_by(viewer) {
             // A ring on the ground under the Bim, breathing gently so it stays
             // legible against the floor.
-            let pulse = (1.0 + self.select_pulse.sin() * 0.04) * BODY_SCALE;
+            let pulse = (1.0 + self.select_pulse.sin() * 0.04) * self.body_scale();
             list.circle(pos, 40.0 * pulse, ACCENT.alpha(0.10));
             list.ring(pos, 40.0 * pulse, 2.5, ACCENT.alpha(0.85));
         }
@@ -1593,14 +1782,14 @@ impl Character {
         if self.hostile {
             // An enemy is ringed in the colour its shots are, thin and
             // steady: a warning, not a selection.
-            list.ring(pos, 46.0 * BODY_SCALE, 2.0, ENEMY.alpha(0.75));
+            list.ring(pos, 46.0 * self.body_scale(), 2.0, ENEMY.alpha(0.75));
         }
 
         if self.recruited {
             // A wider ring outside the selection one, broken into four arcs so
             // the two never read as the same thing. Shown whether or not the
             // Bim is selected: being under orders outlasts a click elsewhere.
-            let pulse = (1.0 + self.select_pulse.sin() * 0.05) * BODY_SCALE;
+            let pulse = (1.0 + self.select_pulse.sin() * 0.05) * self.body_scale();
             let span = 52.0 * pulse;
             list.ring(pos, span, 1.5, COMMAND.alpha(0.35));
             for i in 0..4 {
@@ -1617,7 +1806,7 @@ impl Character {
     fn draw_fallen(&self, list: &mut DrawList) {
         self.draw_flat(
             list,
-            BODY_SCALE,
+            self.body_scale(),
             (GONE_SHIRT, GONE_SLEEVE, GONE_SKIN, GONE_HAIR),
         );
     }
@@ -1630,7 +1819,7 @@ impl Character {
         let breath = 1.0 + 0.03 * (self.idle * TAU / BREATH_PERIOD).sin();
         self.draw_flat(
             list,
-            BODY_SCALE * breath,
+            self.body_scale() * breath,
             (
                 self.uniform.shirt(),
                 self.uniform.sleeve(),
@@ -1655,7 +1844,7 @@ impl Character {
         let scale = scale * FLAT_SCALE;
         list.ellipse(
             self.pos + vec2(3.0, 5.0) * FLAT_SCALE,
-            vec2(74.0, 36.0) * BODY_SCALE * FLAT_SCALE,
+            vec2(74.0, 36.0) * self.body_scale() * FLAT_SCALE,
             self.heading,
             SHADOW,
         );
@@ -1720,13 +1909,10 @@ impl Character {
         // the hair over the crown and the near side, the face showing to
         // the right. Long hair fans out on the deck behind it.
         let head = vec2(25.0, 1.0);
-        let mane = self.look.mane();
-        if mane > 0.0 {
-            b.ellipse(head + vec2(-5.0, -6.0), vec2(20.0, 17.0) * mane, -0.5, hair);
-        }
+        draw_hair_lying(&mut b, self.look.hair, head, hair, true);
         b.ellipse(head, vec2(15.5, 15.5), 0.0, OUTLINE);
         b.ellipse(head, vec2(13.0, 13.0), 0.0, skin);
-        b.ellipse(head + vec2(-1.0, -3.0), vec2(12.0, 10.0), 0.35, hair);
+        draw_hair_lying(&mut b, self.look.hair, head, hair, false);
         b.ellipse(head + vec2(3.0, 5.5), vec2(4.0, 3.0), 1.2, NOSE);
         if let Some(helm) = self.armour[0] {
             b.ellipse(head + vec2(-1.5, -3.0), vec2(13.5, 11.5), 0.35, HELM_RIM);
@@ -1748,7 +1934,7 @@ impl Character {
     /// Whatever is in the hands, placed in front of the body.
     fn draw_held(&self, list: &mut DrawList, pose: Pose) {
         let pos = self.drawn_at();
-        let to_world = |local: Vec2| pos + (local * BODY_SCALE).rotate(self.heading);
+        let to_world = |local: Vec2| pos + (local * self.body_scale()).rotate(self.heading);
 
         if let Some(weapon) = self.armed.filter(|_| !self.dead) {
             self.draw_weapon(list, pose, weapon);
@@ -1786,7 +1972,7 @@ impl Character {
             let laid = ((turn / TAU) as i32 % 6 + 1).max(1);
             for i in 0..laid {
                 let a = self.heading + i as f32 * (TAU / 6.0) + turn * 0.15;
-                let at = wrap + Vec2::from_angle(a) * (6.0 * BODY_SCALE);
+                let at = wrap + Vec2::from_angle(a) * (6.0 * self.body_scale());
                 list.rect(at, vec2(7.0, 2.5), a + PI * 0.5, 1.0, BANDAGE_EDGE);
             }
         }
@@ -1929,7 +2115,7 @@ impl Character {
         let rot = self.heading;
         let sleeve = self.uniform.sleeve();
         // Everything in the body's own frame and scale, like the body.
-        let mut b = list.brush(pos, rot, BODY_SCALE);
+        let mut b = list.brush(pos, rot, self.body_scale());
         // The grip: ahead of the head, a little to the right, the way a
         // gun is shouldered. The left hand is out along the barrel from
         // there, further the longer the gun.
@@ -1995,7 +2181,7 @@ impl Character {
                     let angle = SWING_ARC * (t - 0.5);
                     let base = b.to_world(vec2(6.0, 0.0));
                     let dir = Vec2::from_angle(rot + angle);
-                    draw_blade(list, base + dir * 4.0, dir, 36.0 * BODY_SCALE);
+                    draw_blade(list, base + dir * 4.0, dir, 36.0 * self.body_scale());
                     // The arc behind it, fading: where the blade has been.
                     let steps = 6;
                     for i in 0..steps {
@@ -2007,13 +2193,13 @@ impl Character {
                         let d = Vec2::from_angle(rot + a);
                         let fade = 1.0 - back;
                         list.line(
-                            base + d * (14.0 * BODY_SCALE),
-                            base + d * (40.0 * BODY_SCALE),
+                            base + d * (14.0 * self.body_scale()),
+                            base + d * (40.0 * self.body_scale()),
                             5.0,
                             BLADE_EDGE.alpha(0.25 * fade),
                         );
                     }
-                    let mut b = list.brush(pos, rot, BODY_SCALE);
+                    let mut b = list.brush(pos, rot, self.body_scale());
                     hand(&mut b, vec2(8.0, 2.0));
                 } else {
                     // At rest: the hilt in the right hand, the blade forward
@@ -2021,11 +2207,11 @@ impl Character {
                     let dir = Vec2::from_angle(rot - 0.35);
                     draw_blade(
                         list,
-                        pos + (hilt * BODY_SCALE).rotate(rot),
+                        pos + (hilt * self.body_scale()).rotate(rot),
                         dir,
-                        32.0 * BODY_SCALE,
+                        32.0 * self.body_scale(),
                     );
-                    let mut b = list.brush(pos, rot, BODY_SCALE);
+                    let mut b = list.brush(pos, rot, self.body_scale());
                     hand(&mut b, hilt);
                 }
             }
@@ -2045,6 +2231,118 @@ fn draw_pick(list: &mut DrawList, at: Vec2, rot: f32) {
 /// The schword: a hilt at `hilt`, the blade `length` along `dir` — a
 /// white core between two cyan strokes, one wide and faint and one thin
 /// and bright, so the edge reads as light rather than paint.
+/// A figure of `look` standing still at the origin facing `heading`, in
+/// the crew's coverall, drawn into `list` — what a chooser shows beside
+/// the hairstyles (feature 62). The same `draw` as on the deck, so the
+/// picture is the Bim and not a drawing of one; nothing rolled, so it
+/// stands the same every frame.
+pub fn portrait(look: Look, heading: f32, list: &mut DrawList) {
+    let mut figure = Character::new(Vec2::ZERO, look, &mut Rng::new(0));
+    figure.heading = heading;
+    figure.intent = heading;
+    figure.idle = 0.0;
+    figure.draw(list, u32::MAX);
+}
+
+/// The hair on a standing head, seen from above, in the head's own frame:
+/// `at` puts a point local to the head — the face towards +x — onto the
+/// body, and `turn` is the glance the head is turned by. The crown sits on
+/// the back of the head with the face showing ahead of it; what a style
+/// adds is drawn before the crown so the crown lies on top rather than a
+/// fall on the face. The nose goes on after, so a puff that reaches the
+/// face still leaves it.
+fn draw_hair_standing(b: &mut Brush, look: Look, at: impl Fn(Vec2) -> Vec2, turn: f32) {
+    let hair = look.hair();
+    let crown = |b: &mut Brush| b.ellipse(at(vec2(-2.0, 0.0)), vec2(11.0, 13.0), turn, hair);
+    match look.hair {
+        Hair::Cropped => crown(b),
+        Hair::Bald => {}
+        // A fall back over the shoulders: a second ellipse behind the head.
+        Hair::Long => {
+            b.ellipse(at(vec2(-7.5, 0.0)), vec2(14.0, 17.5), turn, hair);
+            crown(b);
+        }
+        // Level at the chin: the crown wider than the head all round, so
+        // it shows past the skin at the sides and the back.
+        Hair::Bob => {
+            b.ellipse(at(vec2(-3.0, 0.0)), vec2(14.0, 17.5), turn, OUTLINE);
+            b.ellipse(at(vec2(-3.0, 0.0)), vec2(12.5, 16.0), turn, hair);
+        }
+        // The crown, and a knot behind it with its band.
+        Hair::Bun => {
+            crown(b);
+            b.ellipse(at(vec2(-8.5, 0.0)), vec2(7.5, 7.5), turn, OUTLINE);
+            b.ellipse(at(vec2(-8.5, 0.0)), vec2(6.0, 6.0), turn, hair);
+            b.rect(at(vec2(-6.0, 0.0)), vec2(1.5, 5.0), turn, 0.0, HAIR_BAND);
+        }
+        // A strip down the middle, the sides bare.
+        Hair::Mohawk => {
+            b.rect(at(vec2(-1.5, 0.0)), vec2(13.0, 4.5), turn, 2.0, hair);
+        }
+        // The crown, and one tail hanging behind from a band.
+        Hair::Ponytail => {
+            b.ellipse(at(vec2(-13.0, 0.0)), vec2(15.0, 5.0), turn, hair);
+            crown(b);
+            b.rect(at(vec2(-7.0, 0.0)), vec2(1.8, 5.0), turn, 0.0, HAIR_BAND);
+        }
+        // A round mass standing out from the head all round, rimmed so
+        // its edge holds against the deck; the face shows in front of it.
+        Hair::Curly => {
+            b.ellipse(at(vec2(-4.0, 0.0)), vec2(18.0, 20.0), turn, OUTLINE);
+            b.ellipse(at(vec2(-4.0, 0.0)), vec2(16.5, 18.5), turn, hair);
+        }
+    }
+}
+
+/// The hair on a head lying on its cheek, `head` the head's centre in the
+/// body's frame: what a style spreads on the deck goes down before the
+/// head (`under`), what sits on it after. The lying head faces +x with
+/// its crown to the near (−y) side, the way `draw_flat` lays it.
+fn draw_hair_lying(b: &mut Brush, style: Hair, head: Vec2, hair: Color, under: bool) {
+    let crown = |b: &mut Brush| b.ellipse(head + vec2(-1.0, -3.0), vec2(12.0, 10.0), 0.35, hair);
+    match (style, under) {
+        (Hair::Bald, _) => {}
+        (Hair::Cropped, false) => crown(b),
+        (Hair::Cropped, true) => {}
+        // Long hair fans out on the deck behind it.
+        (Hair::Long, true) => b.ellipse(head + vec2(-5.0, -6.0), vec2(20.0, 17.0), -0.5, hair),
+        (Hair::Long, false) => crown(b),
+        (Hair::Bob, true) => b.ellipse(head + vec2(-2.0, -3.0), vec2(16.5, 14.0), 0.35, OUTLINE),
+        (Hair::Bob, false) => b.ellipse(head + vec2(-2.0, -3.0), vec2(15.0, 12.5), 0.35, hair),
+        (Hair::Bun, true) => {
+            b.ellipse(head + vec2(-7.0, -8.0), vec2(7.5, 7.5), 0.0, OUTLINE);
+            b.ellipse(head + vec2(-7.0, -8.0), vec2(6.0, 6.0), 0.0, hair);
+        }
+        (Hair::Bun, false) => {
+            crown(b);
+            b.rect(
+                head + vec2(-5.0, -6.0),
+                vec2(1.5, 4.5),
+                -0.8,
+                0.0,
+                HAIR_BAND,
+            );
+        }
+        (Hair::Mohawk, true) => {}
+        (Hair::Mohawk, false) => b.rect(head + vec2(-1.0, -3.5), vec2(12.0, 4.0), 0.35, 2.0, hair),
+        (Hair::Ponytail, true) => {
+            b.ellipse(head + vec2(-11.0, -9.0), vec2(16.0, 5.0), -0.6, hair);
+        }
+        (Hair::Ponytail, false) => {
+            crown(b);
+            b.rect(
+                head + vec2(-6.0, -6.0),
+                vec2(1.8, 4.5),
+                -0.6,
+                0.0,
+                HAIR_BAND,
+            );
+        }
+        (Hair::Curly, true) => b.ellipse(head + vec2(-3.0, -5.0), vec2(19.5, 17.5), 0.35, OUTLINE),
+        (Hair::Curly, false) => b.ellipse(head + vec2(-3.0, -5.0), vec2(18.0, 16.0), 0.35, hair),
+    }
+}
+
 /// A weapon lying on the deck at `at`, dropped by a body knocked out:
 /// the gun the hands draw, without the hands, its muzzle unlit, laid
 /// askew the way a thing falls. A shadow under it so it reads as *on*

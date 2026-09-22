@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-nine things to run, and each is a name rather than a flag:
+eleven things to run, and each is a name rather than a flag:
 
 | command | `cargo run` | opens |
 | --- | --- | --- |
@@ -19,6 +19,8 @@ nine things to run, and each is a name rather than a flag:
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member (four bunks to spare) and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement the way `BIMS_LANDED=1` lands the simulation (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
 | `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **fourteen crew** (`COMBAT_CREW`: five at the bunks, nine standing on the deck), a gun in every hand — the five kinds dealt round — docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — `ARENA_GARRISON`, fifteen, whatever the crew's worth — and a recruited crew member draws its weapon and shoots at any it can see. `Session::combat` is all of it; `--combat` is taken too |
+| `nix run .#tier2_test` | `cargo run -- tier2_test` | `combat` with **everybody's kit at tier two** — every crew member's gun at it (its kind as `combat` dealt it) and a fresh helm, kevlar and leg guards at it on, pieces of the world's, and every one of the garrison the same, its pieces the room's own (`Session::combat_at_tier`, `World::outfit_for_probe`) — so the fight is looked at with nothing at tier one on either side. `BIMS_FIGHT=1` stages it as it stages `combat`, the resident's pistol kept at its tier |
+| `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
 | `nix run .#raid` | `cargo run -- raid` | the simulation **off its berth, holding in open space, with a raid on its way**: the next raid brought forward to ten minutes of the clock — ten seconds at 1× — so contact comes as you watch, the raider closing at its own pace after it (`Session::raid_coming_for_probe`, `World::raid_coming_for_probe`; `RAID_IN_MINUTES` in `screens/game.rs`). Where `BIMS_RAID=contact` opens with the raider already on the radar, this is the warning arriving |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
@@ -39,7 +41,8 @@ re-enters the shell itself when either is missing. A `cargo run` that
 opens nothing, or dies looking for `libvulkan`, is this. The rules crates
 alone (`cargo test -p bims`, `-p world`) build anywhere.
 
-**A run with nobody at the keyboard** is `crates/app/src/dev.rs`:
+**A run with nobody at the keyboard** is `crates/app/src/dev.rs`, and it
+is run through **`./hidden`** so it opens on nobody's desktop:
 `BIMS_SMOKE_FRAMES=n` runs `n` frames in a hidden window and exits;
 `BIMS_SCREENSHOT=file.png` saves the frame thirty before the end;
 `BIMS_POINTER="40:move:600,250;60:click:600,250;90:right:300,400"` and
@@ -55,9 +58,12 @@ the landing run seven tenths of the way down, for looking at the descent
 crew member recruited inside the station's door and one of its people a
 few tiles down the corridor, for looking at a fight without walking the
 station for one. `BIMS_RAID=1` opens the simulation off its berth in
-open space with a raider tied to it and its boarders coming through the
-airlock, and `BIMS_RAID=contact` with the raider on the radar and
-closing, for the map; `BIMS_LOST=1` opens it with every crew member
+open space with a raider tied to it and its boarders at the ship's
+airlock, locked in their face — forcing it by 900 frames, through it by
+2400 — and `BIMS_RAID=contact` with the raider on the radar and
+closing, for the map; the red warning along the top
+(`screens/game.rs::raid_warning`, its words `names::raid_*`) is in
+every one of those pictures; `BIMS_LOST=1` opens it with every crew member
 shot where they stand, so the end screen is what the next frame is
 (`./check` runs `raided`). `BIMS_AFIELD=1` opens the simulation landed with the
 crew member walked out onto the plain west of the ship and a minute gone
@@ -76,17 +82,36 @@ how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_FIGHT=1 BIMS_S
 combat | grep ^sound:` is a fight's worth. Move at least a frame before
 clicking — egui hit-tests a click against the widgets laid out on the
 previous frame. That is how a change to a screen is *looked at* from a
-terminal: run it, read the PNG. Two things about it: on Wayland the
-compositor decides a hidden window's size and it can be small, so read the
-picture for what is drawn rather than where; and a scripted click goes out
-as a `WindowEvent` as well as a typed message, because bevy_egui reads the
-former and Bevy's own input the latter. A smoke run's window is
-`bims-smoke` to the window system (`dev::window_name`; the game's is
-`bims`) — a Wayland window cannot be hidden, and `BIMS_FULLSCREEN=1`
-makes it the whole screen — and `./check` gives Hyprland a live rule that
-parks that class on workspace `SMOKE_WORKSPACE` (2) without switching to
-it, so the nine runs go by unseen. `BIMS_SAVES_DIR` moves the saves,
-and `./check` points a smoke run's at `target/check/saves`.
+terminal: run it through `./hidden`, read the PNG —
+`BIMS_SMOKE_FRAMES=60 BIMS_SCREENSHOT=shot.png ./hidden target/debug/bims
+simulation`. **A Wayland window cannot be hidden**, so `./hidden` gives
+the run a display nobody can see: it starts a headless weston (in
+`shell.nix`; the script re-enters the shell for it) on a memory output
+of `BIMS_WINDOW`'s size (1400x900 unless asked), points `WAYLAND_DISPLAY`
+at it, drops `DISPLAY` so nothing can fall back to the desktop, and takes
+the compositor down with the command; its kiosk shell gives the one
+window the whole output, so the picture is exactly that size and
+`BIMS_FULLSCREEN` is not needed. A run *not* through it flashes up on
+the desktop as a window named `bims-smoke` (`dev::window_name`; the
+game's is `bims`). Two things about a smoke run itself: a headless
+output has no vblank to wait for, so a smoke run is opened without vsync
+(`dev::present_mode`) and paces itself to sixty frames a second in
+`smoke_exit`, since the screens step by real time; and a scripted click
+goes out as a `WindowEvent` as well as a typed message, because bevy_egui
+reads the former and Bevy's own input the latter. `BIMS_SAVES_DIR` moves
+the saves, and `./check` points a smoke run's at `target/check/saves`.
+**A game with company** is two such runs — two `./hidden`s, a compositor
+each — against a relay: `BIMS_SERVER=ws://127.0.0.1:18792`
+with `PORT=18792 target/debug/bims-server` up, `BIMS_AUTO=create` on the
+host (it prints `lobby: <code>`) and `BIMS_AUTO=join:<code>` on the guest —
+the host starts once `BIMS_AUTO_PLAYERS` (2) are in, everybody accepts a
+second into the yard, and the world opens on both. `BIMS_NAME` is the
+player's name, `BIMS_BIM_NAME` the Bim's and `BIMS_BIM_HAIR=mohawk:red` (a
+style and a shade, by name or place in `Hair::ALL`/`Shade::ALL`) its
+hair (feature 62), and a `BIMS_POINTER` moved
+over one window's deck is the ghost pointer on the other's screenshot
+(feature 60). Give the guest more frames than the host, or the host's
+picture has "has left" on it.
 
 ## `AGENTS` is how many of you there are — read it first
 
@@ -239,7 +264,7 @@ Things about that which are easy to get wrong:
   body down, the rest of them a click away on the **Nearby** strip over
   the window (`CrewPanels::nearby`, a `Near` list the screens rebuild
   every frame off the room's `within_reach` and the world's
-  `in_reach_of_body`). `BIMS_KEYS` knows `Tab` and `Space` by name.
+  `in_reach_of_body`). `BIMS_KEYS` knows `Tab` and `Space` by name, and `+Shift` at one frame with `-Shift` at a later one holds Shift across a click between them — a Shift order, feature 69 (bevy_egui reads the modifier a frame late, so leave a frame or two each side).
   **egui moves keyboard focus on Tab**, and a widget with focus is egui
   wanting the keyboard, so the frame after a Tab every key would have
   been egui's: `keys::release_tab_focus` at the top of a screen's frame
@@ -326,7 +351,8 @@ Things about that which are easy to get wrong:
   the files; the player's own volumes are `Sounds::mix`, set on the Esc
   sheet's audio page and multiplied in at the end — a one-shot's when it
   starts, so a mute does not spawn one, and a bed's every frame. A one-shot despawns itself; a **bed** (the ship's hum, a
-  station's, the engines) loops the whole time at whatever level the
+  station's, the engines, and a planet's air by its biome — temperate,
+  desert, arctic — set down at a settlement, `Bed::of_biome`) loops the whole time at whatever level the
   screen asks for *every frame*, and fades out when nobody asks, so a
   screen that closes takes its sound with it. Cues are thinned with a
   cool-down **per kind and per place**: at 24x a frame holds a whole
@@ -344,7 +370,7 @@ layer — none of that is a type error.
 
 **`./check` runs all of it.** The quick tier — `./check` — is the git-tree
 check, `cargo fmt`, the workspace build, `cargo test --workspace`, clippy on
-the app, and a smoke run of each of the eight windows (sixty frames, hidden,
+the app, and a smoke run of each of the eleven windows (sixty frames, on `./hidden`'s headless compositor,
 with a screenshot of the room, the simulation, the yard, the combat
 dock, the simulation landed on a planet and `test_planet` left in
 `target/check/`); `./check full` adds the native probes (compiled fresh into `target/probes/`,

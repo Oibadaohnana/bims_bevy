@@ -72,6 +72,10 @@ pub struct Pointer {
     pub middle_pressed: bool,
     /// Wheel, in points, up positive.
     pub scroll: f32,
+    /// Shift held: an order given with it waits its turn behind what the
+    /// crew member is on rather than displacing it (feature 69). Read
+    /// with the buttons so a click and its key are the same frame's.
+    pub shift: bool,
 }
 
 impl Pointer {
@@ -90,6 +94,7 @@ impl Pointer {
             secondary_released: i.pointer.button_released(Secondary),
             middle_down: i.pointer.button_down(Middle),
             middle_pressed: i.pointer.button_pressed(Middle),
+            shift: i.modifiers.shift,
             // The raw wheel events rather than the smoothed delta: a zoom
             // wants the notch, not a scroll area's easing.
             scroll: i

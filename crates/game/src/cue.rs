@@ -46,6 +46,11 @@ pub enum Cue {
     DoorSmash,
     /// The door gave: its lock forced, the leaves drawing back.
     DoorForced,
+    /// A weapon came out of its holster, or went back into it: `drawn`
+    /// is out. Said the step the hand changes, whoever's hand it is —
+    /// `player` is a player's own Bim in the crew's room, which is the
+    /// one the app plays; a bot's and an enemy's are said and dropped.
+    Holster { drawn: bool, player: bool },
 }
 
 /// A cue and where in the room it happened, in room units — the door's

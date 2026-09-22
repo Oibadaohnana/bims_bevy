@@ -4,12 +4,12 @@
 use crate::bim::{
     Bim, CREW, GROUND_SLEEP, GROUND_WINDOW, PLAYER, SORE_LASTS, TALKS_ABOUT, TRAIL_LIFE,
 };
-use crate::character::{ACCENT, Action, BODY_MARGIN, Held, PICK_RADIUS, SWING_TIME, Worn};
+use crate::character::{ACCENT, Action, BODY_MARGIN, Held, Look, PICK_RADIUS, SWING_TIME, Worn};
 use crate::clock::MINUTES_PER_SECOND;
 use crate::clock::{self, Clock};
 use crate::combat::{
     ArmourKind, Blow, Combat, FIST_DAMAGE, Gear, Hit, Item, LOOT_CELLS, LootCell, MELEE_PERIOD,
-    MELEE_RANGE, PACK_CELLS, Piece, Shot, Tactics, Weapon, WeaponStats,
+    MELEE_RANGE, PACK_CELLS, Piece, Sentry, Shot, Tactics, Weapon, WeaponStats,
 };
 use crate::cue::{Cue, Cued};
 use crate::door;
@@ -312,6 +312,11 @@ pub const JOB_TREAT: u32 = 23;
 pub const JOB_FETCH: u32 = 24;
 pub const JOB_EXECUTE: u32 = 25;
 pub const JOB_FERRY: u32 = 26;
+/// A walk to a spot on the deck waiting its turn — a Shift-click. Only
+/// ever on the agenda, never the activity: the walk is given, not run.
+pub const JOB_WALK: u32 = 27;
+/// Laying an engineer's kit on the deck (feature 74).
+pub const JOB_DEPLOY: u32 = 28;
 
 fn job_code(kind: Kind, rest_minutes: f32) -> u32 {
     match kind {
@@ -346,6 +351,8 @@ fn job_code(kind: Kind, rest_minutes: f32) -> u32 {
         Kind::Fetch { .. } => JOB_FETCH,
         Kind::Execute { .. } => JOB_EXECUTE,
         Kind::Ferry { .. } => JOB_FERRY,
+        Kind::Walk { .. } => JOB_WALK,
+        Kind::Deploy { .. } => JOB_DEPLOY,
     }
 }
 
@@ -375,6 +382,27 @@ struct Marker {
     bad: bool,
 }
 
+/// A dash and the gap after it, in room units, on the thread through the
+/// queued walks — see `Game::render`.
+const DASH: f32 = 10.0;
+const DASH_GAP: f32 = 7.0;
+
+/// A dashed line from `a` to `b`: what a walk not yet walked is drawn as,
+/// where a solid one is the line a right-drag is drawing now.
+fn dashed(list: &mut DrawList, a: Vec2, b: Vec2, colour: Color) {
+    let whole = (b - a).len();
+    if whole <= 0.5 {
+        return;
+    }
+    let along = (b - a) * (1.0 / whole);
+    let mut at = 0.0;
+    while at < whole {
+        let end = (at + DASH).min(whole);
+        list.line(a + along * at, a + along * end, 2.0, colour);
+        at += DASH + DASH_GAP;
+    }
+}
+
 /// One recipe the world would like made, at one bench: what the room's
 /// craft job is offered off. The world hands the room a fresh list every
 /// step — see `Game::set_craft_orders` — worked out from the hold, the
@@ -387,6 +415,19 @@ pub struct Order {
     pub recipe: u32,
     pub bench: usize,
     pub minutes: f32,
+    /// The one Bim that may take it, or anybody: an engineer's repair at
+    /// the workbench is its own (feature 74).
+    pub only: Option<usize>,
+}
+
+/// One of the ship's bunks, for the name the host writes on it
+/// (`Game::bunk_tags`): which, where its middle is in room units, and
+/// whose it is — `None` for one nobody has, which says so on the deck.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct BunkTag {
+    pub bed: usize,
+    pub at: Vec2,
+    pub owner: Option<usize>,
 }
 
 /// What the world says about the outside, this step: who may go out — a
@@ -514,7 +555,9 @@ fn exclusive(kind: Kind) -> Option<Exclusive> {
         | Kind::Bandage { .. }
         | Kind::Treat { .. }
         | Kind::Fetch { .. }
-        | Kind::Execute { .. } => None,
+        | Kind::Execute { .. }
+        | Kind::Walk { .. }
+        | Kind::Deploy { .. } => None,
     }
 }
 
@@ -709,6 +752,24 @@ pub struct Game {
     /// The hits this room's own bodies took since the world last asked,
     /// already applied. See `Game::take_wounds_taken`.
     wounds_taken: Vec<Hit>,
+    /// The engineers' sentries on this deck, as the world last said
+    /// (`set_sentries`, feature 74): shooters that are not bodies, fired
+    /// by `tick_combat` after the crew and standing after them on the
+    /// list a hostile bolt looks for. Their triggers are the room's to
+    /// keep between steps; everything else about them is the world's.
+    sentries: Vec<Sentry>,
+    /// Trigger pulls each sentry made since the world last asked, by
+    /// the world's id, and the hits each took — a hostile bolt's damage,
+    /// or a blow's — for the world to take off its shots and its health.
+    sentry_shots: Vec<(u32, u32)>,
+    sentry_hits: Vec<(u32, f32)>,
+    /// The per-Bim work factors the world set (`set_work_factors`): what
+    /// an engineer's talents do to a craft's and a build's working steps,
+    /// one each way, applied in the `effort` product and nowhere else.
+    work_factors: Vec<(f32, f32)>,
+    /// Which Bims keep at a deploy when hit (`set_steady_hands`): the
+    /// engineer's *steady hands* talent. Anybody else drops it.
+    steady_hands: Vec<bool>,
     /// Every worn piece a hit broke since the world last asked — whose,
     /// and what it was — for the world to say so. See `Game::wound`.
     pieces_broken: Vec<(usize, ArmourKind)>,
@@ -742,6 +803,17 @@ pub struct Game {
     /// pointer positions back into room coordinates.
     view_scale: f32,
     view_offset: Vec2,
+    /// How many of the crew are players' own — the first `players` of
+    /// them, slot *i* steering Bim *i* — and take orders from their
+    /// player alone; the rest are bots, ordered about only under the
+    /// alarm. One in the classic room and aboard a ship with one player;
+    /// the world sets the ship's (`set_players`). See `crate::order`.
+    players: usize,
+    /// Whose eyes the picture is drawn for: the selection ring is that
+    /// player's. A picture setting, this window's own, left out of a save
+    /// with the picture (`set_viewer`).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    viewer: u32,
 }
 
 impl Game {
@@ -896,6 +968,11 @@ impl Game {
             enemy_unseen_for: f32::MAX,
             watched: None,
             wounds_taken: Vec::new(),
+            sentries: Vec::new(),
+            sentry_shots: Vec::new(),
+            sentry_hits: Vec::new(),
+            work_factors: Vec::new(),
+            steady_hands: Vec::new(),
             pieces_broken: Vec::new(),
             traumas: Vec::new(),
             treated: Vec::new(),
@@ -906,6 +983,8 @@ impl Game {
             bodies_from: 0,
             view_scale: 1.0,
             view_offset: Vec2::ZERO,
+            players: 1,
+            viewer: 0,
         };
         game.refresh_blockers();
         game.resize(width, height);
@@ -1007,6 +1086,39 @@ impl Game {
     fn free_bed(&self) -> Option<usize> {
         (0..self.room.bunks())
             .find(|&bed| !self.bed_is_foreign(bed) && self.room.bed_owner(bed).is_none())
+    }
+
+    /// A bot takes a bunk that is going spare. Every step: for each of the
+    /// ship's bunks nobody has, the first crew member alive with none that
+    /// is not a player's own gets it — a hire, one of the `combat`
+    /// command's fourteen, whoever was put on the deck when a bunk changed
+    /// hands. A player's Bim is left as it is: giving up a bunk is the
+    /// player's to do, and so is taking one. Through `assign_bed`, so a
+    /// lie-down on the deck is stood up first.
+    fn settle_bunks(&mut self) {
+        while let Some(bed) = self.free_bed() {
+            let Some(who) = (self.players..self.bims.len())
+                .find(|&who| self.bims[who].is_alive() && self.room.bed_of(who).is_none())
+            else {
+                return;
+            };
+            self.assign_bed(who, Some(bed));
+        }
+    }
+
+    /// A tag for every bunk of the ship's, for the host to write a name
+    /// on: where the bunk's middle is, in room units, and whose it is —
+    /// `None` for one nobody has. A station's bunks on a joined deck are
+    /// left out, being nobody's to give (`bed_assignable`).
+    pub fn bunk_tags(&self) -> Vec<BunkTag> {
+        (0..self.room.bunks())
+            .filter(|&bed| self.bed_assignable(bed))
+            .map(|bed| BunkTag {
+                bed,
+                at: self.room.beds[bed].frame.center(),
+                owner: self.room.bed_owner(bed),
+            })
+            .collect()
     }
 
     /// Whether Bim `who` may lie down on the deck now: no bunk of its own,
@@ -1143,7 +1255,11 @@ impl Game {
                 .set_post(bim.character.post().map(|p| p + shift).filter(|&p| {
                     (self.maps.pick(true).nearest_free(p) - p).len() <= 2.0 * BODY_MARGIN
                 }));
-            bim.character.selected = bim.character.selected && who == PLAYER;
+            // A player's own keeps its selections across the move; a
+            // crewmate picked by a marquee is let go of.
+            if !self.is_player(who) {
+                bim.character.selected = 0;
+            }
             self.bims.push(bim);
         }
         self.refresh_blockers();
@@ -1237,6 +1353,10 @@ impl Game {
         // answer handed to each of the crew, rather than the first one to look
         // taking the night for itself.
         let bedtime = self.schedule.due(self.clock.minutes());
+
+        // A bunk going spare goes to a bot with none before anybody is sent
+        // to bed, so the night is spent in it rather than on the deck.
+        self.settle_bunks();
 
         // Each in turn, and each entirely on its own account. Nothing below
         // knows or cares which one it is working on except where the room is
@@ -1411,7 +1531,7 @@ impl Game {
         }
         for who in 0..self.bims.len() {
             let bim = &mut self.bims[who];
-            bim.reload = (bim.reload - dt).max(0.0);
+            bim.trigger.tick(dt);
             bim.hit_flash = (bim.hit_flash - dt).max(0.0);
             bim.melee_timer = (bim.melee_timer - dt).max(0.0);
             if let Some(blow) = bim.blow.as_mut() {
@@ -1447,9 +1567,20 @@ impl Game {
                 && !dressing
                 && !fleeing;
             let weapon = bim.gear.weapon.filter(|_| armed);
+            // The hand changing is heard: the weapon coming out, or going
+            // back. Said for everybody; the app plays a player's own.
+            if bim.character.is_armed() != weapon.is_some() {
+                self.room.cues.push(Cued {
+                    cue: Cue::Holster {
+                        drawn: weapon.is_some(),
+                        player: !self.hostile_bodies && who < self.players,
+                    },
+                    at: bim.character.pos,
+                });
+            }
             bim.character.set_armed(weapon.map(|w| w.kind));
             if fleeing {
-                bim.burst_left = 0;
+                bim.trigger.hold();
                 bim.locked = None;
                 bim.blow = None;
                 bim.peek = None;
@@ -1483,7 +1614,7 @@ impl Game {
             }
             let bim = &mut self.bims[who];
             let Some(weapon) = weapon else {
-                bim.burst_left = 0;
+                bim.trigger.hold();
                 bim.locked = None;
                 bim.blow = None;
                 bim.peek = None;
@@ -1498,7 +1629,7 @@ impl Game {
             // it is done. The room says who was finished, the world kills.
             if let Some(at) = executing {
                 let from = bim.character.pos;
-                bim.burst_left = 0;
+                bim.trigger.hold();
                 bim.locked = None;
                 bim.blow = None;
                 bim.peek = None;
@@ -1515,8 +1646,7 @@ impl Game {
                     } else if bim.melee_timer < MELEE_PERIOD - SWING_TIME {
                         bim.character.set_action(Action::None);
                     }
-                } else if bim.reload <= 0.0 {
-                    bim.reload = 1.0 / stats.fire_rate.max(1e-3);
+                } else if bim.trigger.pull_single(&stats) {
                     if self.hostile_bodies {
                         self.combat.shoot(from, at, weapon, false);
                     } else {
@@ -1537,10 +1667,11 @@ impl Game {
                 self.plan_stand(who, dt, &stats);
                 // And, with nobody it can get to, the doors in the way.
                 self.breach(who, dt);
-            } else if alarm && !seen_to && who != PLAYER && !holds_post {
+            } else if alarm && !seen_to && !self.is_player(who) && !holds_post {
                 let from = self.bims[who].character.pos;
-                let player_up =
-                    self.bims[PLAYER].is_alive() && !self.bims[PLAYER].character.is_outside();
+                // Somebody's own to gather round: any player's, up and in.
+                let player_up = (0..self.players.min(self.bims.len()))
+                    .any(|p| self.bims[p].is_alive() && !self.bims[p].character.is_outside());
                 if !player_up || self.combat.sees_any(&self.room.sight, from) {
                     self.plan_stand(who, dt, &stats);
                 } else {
@@ -1573,7 +1704,7 @@ impl Game {
             let locked = self.combat.melee_with(&self.room.sight, from, &stats);
             bim.locked = locked;
             if let Some(enemy) = locked {
-                bim.burst_left = 0;
+                bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
                 if let Some(at) = self.combat.targets()[enemy].map(|t| t.at) {
@@ -1603,7 +1734,7 @@ impl Game {
                 continue;
             }
             let Some((_, eye, at)) = self.combat.aim(&self.room.sight, from, &stats) else {
-                bim.burst_left = 0;
+                bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
                 continue;
@@ -1617,7 +1748,7 @@ impl Game {
             // to lean from.
             let walking = bim.character.is_walking();
             if walking && eye != from {
-                bim.burst_left = 0;
+                bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
                 continue;
@@ -1632,30 +1763,41 @@ impl Game {
             if !walking {
                 bim.character.face((at - eye).angle());
             }
-            let shoot = if bim.reload <= 0.0 {
-                // The trigger: the first of the burst now, the rest to
-                // follow, and the trigger rate to wait out after.
-                bim.reload = 1.0 / stats.fire_rate.max(1e-3);
-                bim.burst_left = stats.burst.saturating_sub(1);
-                bim.burst_timer = stats.burst_gap;
-                true
-            } else if bim.burst_left > 0 {
-                bim.burst_timer -= dt;
-                if bim.burst_timer <= 0.0 {
-                    bim.burst_left -= 1;
-                    bim.burst_timer = stats.burst_gap;
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if shoot {
+            // One trigger for a Bim and a sentry alike (`Trigger::pull`).
+            if bim.trigger.pull(dt, &stats) {
                 if self.hostile_bodies {
                     self.combat.shoot(eye, at, weapon, walking);
                 } else {
                     self.combat.fire(eye, at, weapon, false, walking);
+                }
+            }
+        }
+        // The sentries, after the crew (feature 74): each is a shooter
+        // with no body — a position, a weapon and a trigger — and shoots
+        // the way a Bim standing still does, at the nearest visible enemy
+        // in range, through the one `aim` and the one `fire`. Never in a
+        // hostile room: the world lays them on the crew's deck alone. A
+        // sentry with no shots left holds.
+        if !self.hostile_bodies {
+            for i in 0..self.sentries.len() {
+                let sentry = self.sentries[i];
+                let stats = sentry.weapon.stats();
+                self.sentries[i].trigger.tick(dt);
+                if sentry.shots == 0 {
+                    self.sentries[i].trigger.hold();
+                    continue;
+                }
+                let Some((_, _, at)) = self.combat.aim(&self.room.sight, sentry.at, &stats)
+                else {
+                    self.sentries[i].trigger.hold();
+                    continue;
+                };
+                if self.sentries[i].trigger.pull(dt, &stats) {
+                    self.combat.fire(sentry.at, at, sentry.weapon, false, false);
+                    match self.sentry_shots.iter_mut().find(|(id, _)| *id == sentry.id) {
+                        Some((_, n)) => *n += 1,
+                        None => self.sentry_shots.push((sentry.id, 1)),
+                    }
                 }
             }
         }
@@ -1664,8 +1806,13 @@ impl Game {
             // and on its feet on the deck — where it leans out to while it
             // peeks, whether it does, and the odds its armour dodges a
             // bolt. A body out cold is nobody's target and a bolt flies
-            // over it.
-            let bodies: Vec<Option<(Vec2, bool, f32)>> = self
+            // over it. The sentries stand after the crew on the list — no
+            // armour to dodge with, and "peeking" only when dug in with
+            // sandbags anywhere between it and the shooter, which is what
+            // that talent means — so a hit past the crew's count is a hit
+            // on a sentry.
+            let crew = self.bims.len();
+            let mut bodies: Vec<Option<(Vec2, bool, f32)>> = self
                 .bims
                 .iter()
                 .map(|b| {
@@ -1677,11 +1824,36 @@ impl Game {
                         ))
                 })
                 .collect();
+            for sentry in &self.sentries {
+                // Dug in: judged against every bolt in the air this step,
+                // from where each was fired.
+                let dug_in = sentry.dug_in
+                    && self.combat.bolts.iter().any(|b| {
+                        b.hostile
+                            && self
+                                .room
+                                .sight
+                                .cover_anywhere_between(sentry.at, b.fired_from)
+                                .is_some()
+                    });
+                bodies.push(Some((sentry.at, dug_in, 0.0)));
+            }
             self.combat.step(dt, &self.room.sight, &bodies);
             // What landed on a lamp comes off the lamp: at nought it is
             // out, and the deck round it goes dark.
             for (lamp, damage) in self.combat.take_lamp_hits() {
                 self.room.sight.damage_lamp(lamp, damage);
+            }
+            // And what landed on a sentry is the sentry's, not a body's.
+            let taken = std::mem::take(&mut self.combat.wounds_taken);
+            for hit in taken {
+                if hit.who >= crew {
+                    if let Some(sentry) = self.sentries.get(hit.who - crew) {
+                        self.sentry_hits.push((sentry.id, hit.damage));
+                    }
+                } else {
+                    self.combat.wounds_taken.push(hit);
+                }
             }
         }
         // What landed on us goes on the body now, and a copy is kept for
@@ -1727,7 +1899,7 @@ impl Game {
     /// it is the player's.
     fn muster_crew(&mut self, alarm: bool) {
         for who in 0..self.bims.len() {
-            if who == PLAYER || !self.bims[who].is_alive() {
+            if self.is_player(who) || !self.bims[who].is_alive() {
                 continue;
             }
             if alarm {
@@ -2096,7 +2268,13 @@ impl Game {
         let from = bim.character.pos;
         let rank = (1..who).filter(|&i| self.bims[i].is_alive()).count();
         let nav = self.maps.for_body(false, self.room.bath.is_open());
-        let player = self.bims[PLAYER].character.pos;
+        // Round the nearest player's own that is up and in; with several
+        // players the crew gather round whichever is closest.
+        let player = (0..self.players.min(self.bims.len()))
+            .filter(|&p| self.bims[p].is_alive() && !self.bims[p].character.is_outside())
+            .map(|p| self.bims[p].character.pos)
+            .min_by(|a, b| (*a - from).len().total_cmp(&(*b - from).len()))
+            .unwrap_or(self.bims[PLAYER].character.pos);
         // Its own slot, or the next one round that there is a way to — a
         // slot inside a wall the player stands against is nobody's.
         let Some(to) = (0..GATHER_SLOTS.len())
@@ -2374,6 +2552,16 @@ impl Game {
         // same tenth is in the pace above. A trauma on it, untreated or
         // lasting, slows the work the same way.
         let effort = self.bims[who].solitude.stage().works_at() * self.bims[who].health.works_at();
+        // And what an engineer's talents do (feature 74): a factor on a
+        // craft's working steps, another on a build's, and nothing on any
+        // other errand — the task says which job it serves.
+        let (craft, build) = self.work_factors.get(who).copied().unwrap_or((1.0, 1.0));
+        let effort = effort
+            * match self.bims[who].task.as_ref().map(|t| t.kind()) {
+                Some(Kind::Craft { .. }) => craft,
+                Some(Kind::Build { .. }) => build,
+                _ => 1.0,
+            };
         let taken = self.taken_for(who);
         {
             let (bims, room, maps, rng) =
@@ -2945,6 +3133,15 @@ impl Game {
         }
     }
 
+    /// The errand dropped for good rather than put down: suspended, so the
+    /// hands and the scripting come back the way a suspend leaves them,
+    /// and then not kept. What a hit does to a deploy.
+    fn drop_task(&mut self, who: usize) {
+        if let Some(task) = self.bims[who].task.take() {
+            let _ = task.suspend(&mut self.bims[who].character, &mut self.room);
+        }
+    }
+
     /// The same, for a new order from the player, which also cancels any move
     /// that was waiting on a door.
     ///
@@ -2961,6 +3158,40 @@ impl Game {
                 self.bims[who].queue.insert(0, saved);
             }
         }
+    }
+
+    /// A plain order is the end of what was queued with Shift: the orders
+    /// waiting their turn are dropped, and what the Bim had *put down* —
+    /// its own errand, displaced by an order — stays to be picked up.
+    /// RimWorld's rule, so a queue can be called off by giving any order
+    /// without the key. The live orders call it ([`Game::order`],
+    /// [`Game::order_move_for`]); an order begun off the queue does not.
+    pub(crate) fn drop_ordered(&mut self, who: usize) {
+        self.bims[who].queue.retain(|saved| !saved.is_ordered());
+    }
+
+    /// The spots the walks waiting their turn on `who`'s queue are bound
+    /// for, in order — the Shift-clicks on the deck — for the picture and
+    /// the probes; nothing for a Bim with none.
+    pub fn queued_walks(&self, who: usize) -> Vec<Vec2> {
+        self.bims
+            .get(who)
+            .map(|bim| {
+                bim.queue
+                    .iter()
+                    .filter(|saved| matches!(saved.kind(), Kind::Walk { .. }))
+                    .filter_map(|saved| saved.target())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// How many orders wait their turn on `who`'s queue — given with
+    /// Shift, not yet begun. For the probes.
+    pub fn ordered_count(&self, who: usize) -> u32 {
+        self.bims.get(who).map_or(0, |bim| {
+            bim.queue.iter().filter(|s| s.is_ordered()).count() as u32
+        })
     }
 
     /// Whether the Bim is at this moment on its way to work the door panel.
@@ -3212,6 +3443,14 @@ impl Game {
             return;
         }
         let saved = self.bims[who].queue.remove(0);
+        // An order given for later is begun now, the way its row or
+        // right-click would have begun it — and dropped if it cannot be,
+        // the way the row would have refused. A chain put down is picked
+        // up where it was.
+        if saved.is_ordered() {
+            self.begin_ordered(who, &saved);
+            return;
+        }
         let taken = self.taken_for(who);
         self.bims[who].task = Some(Task::resume(
             saved,
@@ -3220,6 +3459,92 @@ impl Game {
             &self.maps,
             &taken,
         ));
+    }
+
+    /// Begin an order that waited its turn on the queue (`Saved::ordered`)
+    /// through the same door the live order goes through, so every check
+    /// the row makes — something to cook, a way to the pan, a bunk or the
+    /// deck's allowance — is made now, against the room as it is now. A
+    /// walk is given the way a right-click gives one (`walk_order`): the
+    /// door opened on the way, a cross on the deck if there is no way
+    /// there after all, and the Bim posted at the spot when the order
+    /// was one that posts. Whether anything began is the room's to show;
+    /// what could not be is simply gone from the queue.
+    fn begin_ordered(&mut self, who: usize, saved: &Saved) {
+        let minutes = saved.rest_minutes();
+        match saved.kind() {
+            Kind::Walk { post } => {
+                let Some(to) = saved.target() else {
+                    return;
+                };
+                let code = self.walk_order(who, to.x, to.y);
+                if post && (code == ORDER_MOVING || code == ORDER_VIA_DOOR) {
+                    let spot = self.nearest_stand(who, to);
+                    self.bims[who].character.set_post(Some(spot));
+                }
+            }
+            Kind::Meal(dish) => {
+                self.cook(who, dish);
+            }
+            Kind::Batch => {
+                self.make_stew(who);
+            }
+            Kind::Reheat => {
+                self.reheat(who);
+            }
+            Kind::Leftovers => {
+                self.eat_leftovers(who);
+            }
+            Kind::Clean => {
+                self.sweep_up(who);
+            }
+            Kind::Shower => {
+                self.take_shower(who);
+            }
+            Kind::Heads => {
+                self.use_toilet(who);
+            }
+            Kind::Rest => {
+                self.rest(who, minutes);
+            }
+            Kind::Switch(which) => self.send_to_switch(who, which),
+            Kind::Fetch { item } => {
+                self.fetch(who, item);
+            }
+            Kind::Bandage { patient, part } => {
+                if let Some(part) = Part::from_code(part) {
+                    self.bandage(who, patient, part);
+                }
+            }
+            Kind::Treat { patient, part } => {
+                if let Some(part) = Part::from_code(part) {
+                    self.treat(who, patient, part);
+                }
+            }
+            // Nothing a Shift-click can queue: the rest are the room's own
+            // errands and the world's, never `Saved::ordered`.
+            Kind::Tend { .. }
+            | Kind::Chat
+            | Kind::Craft { .. }
+            | Kind::Eva
+            | Kind::Haul { .. }
+            | Kind::Build { .. }
+            | Kind::Execute { .. }
+            | Kind::Ferry { .. }
+            | Kind::Deploy { .. } => {}
+        }
+    }
+
+    /// Whether a queued walk could be given now: on the plain it is
+    /// planned on the body's window when it is begun, so always; on the
+    /// deck, a way there as the door stands, or with it open when it is
+    /// not locked — a walk locked out waits for the door like an errand
+    /// does, rather than being dropped.
+    fn walk_ready(&self, who: usize, to: Vec2) -> bool {
+        if self.on_a_window(who, to) {
+            return true;
+        }
+        self.can_reach(who, to) || (!self.room.bath.locked && self.can_reach_through_door(who, to))
     }
 
     /// Whether the chain at the front of the queue is one the Bim should be
@@ -3252,6 +3577,23 @@ impl Game {
                 || saved.picks().clashes(&self.taken_for(who))
             {
                 return false;
+            }
+            // An order waiting its turn is begun, not resumed, so it asks
+            // what beginning asks: one of everything free, and for a walk
+            // a way there (`walk_ready`) — a galley in use or a locked
+            // door is waited for, not dropped. What could not be begun
+            // with nobody else aboard — leftovers with every pot empty —
+            // is ready so that beginning it drops it, rather than
+            // waiting on the agenda for a pot nobody is filling.
+            if saved.is_ordered() {
+                return match (saved.kind(), saved.target()) {
+                    (Kind::Walk { .. }, Some(to)) => self.walk_ready(who, to),
+                    (kind, _) => {
+                        let from = self.bims[who].character.pos;
+                        self.can_begin(who, kind)
+                            || !task::can_pick_all(kind, &self.room, from, &task::Taken::default())
+                    }
+                };
             }
             saved
                 .resume_station(&self.room, self.bims[who].character.pos)
@@ -4041,7 +4383,7 @@ impl Game {
             return None;
         }
         if self.bims[who].character.is_recruited() {
-            let bot = self.hostile_bodies || who != PLAYER;
+            let bot = self.hostile_bodies || !self.is_player(who);
             let quiet = self.bims[who].locked.is_none()
                 && self.bims[who].blow.is_none()
                 && !self
@@ -4219,7 +4561,8 @@ impl Game {
     /// over an emitter when both want doing and both benches stand free.
     fn craft_on_offer(&self, who: usize) -> Option<Order> {
         self.orders.iter().copied().find(|order| {
-            self.room.benches.get(order.bench).is_some()
+            order.only.is_none_or(|only| only == who)
+                && self.room.benches.get(order.bench).is_some()
                 && self.can_begin(
                     who,
                     Kind::Craft {
@@ -4516,9 +4859,9 @@ impl Game {
         core::mem::take(&mut self.room.returned)
     }
 
-    /// The sites put together since the last call, for the world to put the
-    /// parts down.
-    pub fn take_built(&mut self) -> Vec<u32> {
+    /// The sites put together since the last call, each with who put it
+    /// together, for the world to put the parts down.
+    pub fn take_built(&mut self) -> Vec<(u32, usize)> {
         core::mem::take(&mut self.room.built)
     }
 
@@ -5473,17 +5816,52 @@ impl Game {
     /// Whatever it is in the middle of is left to finish. Cancelling would
     /// throw away a half-cooked meal for the sake of tidiness, and a right
     /// click interrupts it anyway.
-    pub fn toggle_recruited(&mut self) {
-        let now = !self.bims[PLAYER].character.is_recruited();
-        self.bims[PLAYER].character.set_recruited(now);
+    ///
+    /// Recruit player `slot`'s own crew member, or let it go again.
+    pub fn toggle_recruited(&mut self, slot: u32) {
+        let who = slot as usize;
+        if who >= self.bims.len() {
+            return;
+        }
+        let now = !self.bims[who].character.is_recruited();
+        self.bims[who].character.set_recruited(now);
         if now {
             // It is the thing being ordered about, so it is the thing selected.
-            self.bims[PLAYER].character.selected = true;
+            self.bims[who].character.select_for(slot, true);
         }
     }
 
-    pub fn is_recruited(&self) -> bool {
-        self.bims[PLAYER].character.is_recruited()
+    /// Whether player `slot`'s own crew member is recruited.
+    pub fn is_recruited(&self, slot: u32) -> bool {
+        self.bims
+            .get(slot as usize)
+            .is_some_and(|b| b.character.is_recruited())
+    }
+
+    /// How many of the crew are players' own — see `crate::order`. The
+    /// first `players` Bims, slot *i* steering Bim *i*.
+    pub fn set_players(&mut self, players: u32) {
+        self.players = players.max(1) as usize;
+    }
+
+    pub fn players(&self) -> u32 {
+        self.players as u32
+    }
+
+    /// Whether Bim `who` is a player's own: steered by the mouse rather
+    /// than by its own lights, and never a bot.
+    pub fn is_player(&self, who: usize) -> bool {
+        who < self.players
+    }
+
+    /// Whose eyes the picture is drawn for — `render` rings that player's
+    /// selection and nobody else's. A picture setting, this window's own.
+    pub fn set_viewer(&mut self, slot: u32) {
+        self.viewer = slot;
+    }
+
+    pub fn viewer(&self) -> u32 {
+        self.viewer
     }
 
     pub fn is_autonomous(&self) -> bool {
@@ -5492,54 +5870,60 @@ impl Game {
 
     // --- player input ---------------------------------------------------
 
-    /// Select by control group. There is one Bim, so group 1 is all of them.
-    pub fn select_group(&mut self, group: u32) {
-        if group == 1 {
-            self.select_only(Some(PLAYER));
+    /// Select by control group, for player `slot`. Group 1 is the player's
+    /// own crew member.
+    pub fn select_group(&mut self, slot: u32, group: u32) {
+        if group == 1 && (slot as usize) < self.bims.len() {
+            self.select_only(slot, Some(slot as usize));
         }
     }
 
-    pub fn clear_selection(&mut self) {
-        self.select_only(None);
+    pub fn clear_selection(&mut self, slot: u32) {
+        self.select_only(slot, None);
     }
 
-    /// One of the crew selected, or none.
+    /// One of the crew selected by player `slot`, or none.
     ///
     /// Selecting is *looking at*, not taking charge of: any of them can be
     /// picked, and picking one is what puts its panels on screen. Whether it
     /// takes orders is a separate question — see `order_move`, which asks
-    /// after [`PLAYER`] always and a crewmate only under the alarm.
+    /// after the player's own always and a crewmate only under the alarm.
     ///
     /// A click picks one; a marquee picks everybody it touches
-    /// (`select_many`), and the panels show the first of them.
-    fn select_only(&mut self, who: Option<usize>) {
+    /// (`select_many`), and the panels show the first of them. Every
+    /// player has a selection of their own: `Character::selected` is a
+    /// mask, and one player's click leaves the others' alone.
+    fn select_only(&mut self, slot: u32, who: Option<usize>) {
         for (i, bim) in self.bims.iter_mut().enumerate() {
-            bim.character.selected = who == Some(i);
+            bim.character.select_for(slot, who == Some(i));
         }
     }
 
     /// Several at once: what a marquee does. Nobody else stays selected.
-    fn select_many(&mut self, who: &[usize]) {
+    fn select_many(&mut self, slot: u32, who: &[usize]) {
         for (i, bim) in self.bims.iter_mut().enumerate() {
-            bim.character.selected = who.contains(&i);
+            bim.character.select_for(slot, who.contains(&i));
         }
     }
 
-    /// Which of them is selected, or `None` — the first, when several are:
-    /// the player's own if it is among them, since it comes first.
-    pub fn selected(&self) -> Option<usize> {
-        self.bims.iter().position(|b| b.character.selected)
+    /// Which of them player `slot` has selected, or `None` — the first,
+    /// when several are: the player's own if it is among them, since it
+    /// comes first.
+    pub fn selected(&self, slot: u32) -> Option<usize> {
+        self.bims
+            .iter()
+            .position(|b| b.character.is_selected_by(slot))
     }
 
-    /// Everybody selected, in crew order.
-    pub fn selected_all(&self) -> Vec<usize> {
+    /// Everybody player `slot` has selected, in crew order.
+    pub fn selected_all(&self, slot: u32) -> Vec<usize> {
         (0..self.bims.len())
-            .filter(|&i| self.bims[i].character.selected)
+            .filter(|&i| self.bims[i].character.is_selected_by(slot))
             .collect()
     }
 
-    pub fn is_selected(&self, who: usize) -> bool {
-        self.bims[who].character.selected
+    pub fn is_selected(&self, who: usize, slot: u32) -> bool {
+        self.bims[who].character.is_selected_by(slot)
     }
 
     pub fn bim_pos(&self, who: usize) -> Vec2 {
@@ -5552,8 +5936,8 @@ impl Game {
         self.bims.len() as u32
     }
 
-    pub fn selected_count(&self) -> u32 {
-        self.selected_all().len() as u32
+    pub fn selected_count(&self, slot: u32) -> u32 {
+        self.selected_all(slot).len() as u32
     }
 
     pub fn drag_begin(&mut self, x: f32, y: f32) {
@@ -5573,7 +5957,7 @@ impl Game {
     /// Returns the fixture under a click, if any, so the host can open a menu
     /// on it. Clicking a fixture leaves the selection alone — opening the
     /// fridge should not deselect the Bim you were about to give a job to.
-    pub fn drag_end(&mut self, x: f32, y: f32) -> u32 {
+    pub fn drag_end(&mut self, slot: u32, x: f32, y: f32) -> u32 {
         self.drag_update(x, y);
         let Some((start, end)) = self.drag.take() else {
             return HIT_NONE;
@@ -5602,9 +5986,9 @@ impl Game {
             })
             .collect();
         if box_.width() < 4.0 && box_.height() < 4.0 {
-            self.select_only(touched.first().copied());
+            self.select_only(slot, touched.first().copied());
         } else {
-            self.select_many(&touched);
+            self.select_many(slot, &touched);
         }
         HIT_NONE
     }
@@ -5626,38 +6010,50 @@ impl Game {
     /// With several selected, each gets a spot of its own round the point
     /// ([`CLUSTER_SLOTS`], in crew order) rather than all of them the one
     /// tile; a right-*drag* is a line instead — [`Game::order_line`].
-    pub fn order_move(&mut self, x: f32, y: f32) -> u32 {
-        let squad = self.orderable();
-        if squad.is_empty() {
+    pub fn order_move(&mut self, slot: u32, x: f32, y: f32) -> u32 {
+        let Some((squad, spots)) = self.huddle(slot, vec2(x, y)) else {
             return ORDER_IGNORED;
-        }
-        let at = vec2(x, y);
-        if squad.len() == 1 {
-            return self.order_one(squad[0], at);
-        }
-        let spots: Vec<Vec2> = (0..squad.len())
-            .map(|i| {
-                let (dx, dy) = CLUSTER_SLOTS[i % CLUSTER_SLOTS.len()];
-                at + vec2(dx * TILE, dy * TILE)
-            })
-            .collect();
-        self.order_squad(&squad, &spots)
+        };
+        self.order_squad(slot, &squad, &spots)
     }
 
-    /// A right-drag from `from` to `to` with a selection: the crew that
-    /// take orders are spread evenly along that line, ends included, each
-    /// to the point nearest its own place along it so nobody crosses
-    /// anybody. One alone goes to where the drag began. The codes are
-    /// `order_move`'s: `ORDER_MOVING` if anybody set off, else the first
-    /// refusal.
-    pub fn order_line(&mut self, from: Vec2, to: Vec2) -> u32 {
-        let mut squad = self.orderable();
+    /// Who a right-click at `at` sends, and where each goes: one alone to
+    /// the point, several to a spot apiece round it ([`CLUSTER_SLOTS`],
+    /// in crew order). `None` when nobody selected takes orders.
+    pub(crate) fn huddle(&self, slot: u32, at: Vec2) -> Option<(Vec<usize>, Vec<Vec2>)> {
+        let squad = self.orderable(slot);
         if squad.is_empty() {
-            return ORDER_IGNORED;
+            return None;
+        }
+        let spots: Vec<Vec2> = if squad.len() == 1 {
+            vec![at]
+        } else {
+            (0..squad.len())
+                .map(|i| {
+                    let (dx, dy) = CLUSTER_SLOTS[i % CLUSTER_SLOTS.len()];
+                    at + vec2(dx * TILE, dy * TILE)
+                })
+                .collect()
+        };
+        Some((squad, spots))
+    }
+
+    /// Who a right-drag from `from` to `to` sends, and where each stands
+    /// along the line — see [`Game::order_line`]. `None` when nobody
+    /// selected takes orders.
+    pub(crate) fn formation(
+        &self,
+        slot: u32,
+        from: Vec2,
+        to: Vec2,
+    ) -> Option<(Vec<usize>, Vec<Vec2>)> {
+        let mut squad = self.orderable(slot);
+        if squad.is_empty() {
+            return None;
         }
         let n = squad.len();
         if n == 1 {
-            return self.order_one(squad[0], from);
+            return Some((squad, vec![from]));
         }
         let along = (to - from).normalize_or_zero();
         squad.sort_by(|&a, &b| {
@@ -5668,24 +6064,94 @@ impl Game {
         let spots: Vec<Vec2> = (0..n)
             .map(|i| from + (to - from) * (i as f32 / (n - 1) as f32))
             .collect();
-        self.order_squad(&squad, &spots)
+        Some((squad, spots))
     }
 
-    /// Whoever is selected and takes orders: the player's own always; a
-    /// crewmate only while the alarm is up — in combat mode the crew take
-    /// orders, and only then.
-    fn orderable(&self) -> Vec<usize> {
-        self.selected_all()
+    /// One queued walk each, spot for spot; the best code of them, as
+    /// [`Game::order_squad`] answers.
+    pub(crate) fn queue_squad(&mut self, squad: &[usize], spots: &[Vec2]) -> u32 {
+        let mut best = ORDER_IGNORED;
+        for (&who, &spot) in squad.iter().zip(spots) {
+            // A crewmate holds the spot it was sent to, as it does when
+            // sent there now; the player's own goes on to the next thing.
+            let post = !self.is_player(who);
+            let code = self.queue_walk(who, spot, post);
+            if code == ORDER_MOVING || best == ORDER_IGNORED {
+                best = code;
+            }
+        }
+        best
+    }
+
+    /// Put an order on the back of its Bim's queue, to be begun when its
+    /// turn comes — see [`Game::order_later`]. Nothing for a body down.
+    pub(crate) fn queue_order(&mut self, saved: Saved) {
+        let who = saved.who();
+        if who < self.bims.len() && self.is_alive(who) {
+            self.bims[who].queue.push(saved);
+        }
+    }
+
+    /// Put a walk to `to` on the back of `who`'s queue, to be given when
+    /// its turn comes — see [`Game::order_later`]. Refused now, with a
+    /// cross, when there is no way there even with the door open: the
+    /// deck is one piece or it is not, wherever the Bim will be standing
+    /// by then. On the plain the walk is planned on the body's window
+    /// when it is begun, so nothing is asked now. A ping where the Bim
+    /// will stand, as a live order pings.
+    pub(crate) fn queue_walk(&mut self, who: usize, to: Vec2, post: bool) -> u32 {
+        if !self.is_alive(who) || self.bims[who].character.is_outside() {
+            return ORDER_IGNORED;
+        }
+        let stand = self.nearest_stand(who, to);
+        if !self.on_a_window(who, to) && !self.can_reach_through_door(who, stand) {
+            self.mark(stand, true);
+            return ORDER_NOWHERE;
+        }
+        self.bims[who]
+            .queue
+            .push(Saved::ordered(who, Kind::Walk { post }, 0.0, Some(stand)));
+        self.mark(stand, false);
+        ORDER_MOVING
+    }
+
+    /// Whether a walk by `who` to `at` is on the plain's windows rather
+    /// than the deck's grid: the room is on a planet, and the body is
+    /// afield or the point is beyond the deck's box.
+    fn on_a_window(&self, who: usize, at: Vec2) -> bool {
+        self.room.plane.is_some()
+            && (self.bims[who].character.is_afield() || !self.room.interior.contains(at))
+    }
+
+    /// A right-drag from `from` to `to` with a selection: the crew that
+    /// take orders are spread evenly along that line, ends included, each
+    /// to the point nearest its own place along it so nobody crosses
+    /// anybody. One alone goes to where the drag began. The codes are
+    /// `order_move`'s: `ORDER_MOVING` if anybody set off, else the first
+    /// refusal.
+    pub fn order_line(&mut self, slot: u32, from: Vec2, to: Vec2) -> u32 {
+        let Some((squad, spots)) = self.formation(slot, from, to) else {
+            return ORDER_IGNORED;
+        };
+        self.order_squad(slot, &squad, &spots)
+    }
+
+    /// Whoever player `slot` has selected and takes orders from them:
+    /// their own crew member always; a crewmate only while the alarm is
+    /// up — in combat mode the crew take orders, and only then. Another
+    /// player's own is never theirs to order.
+    fn orderable(&self, slot: u32) -> Vec<usize> {
+        self.selected_all(slot)
             .into_iter()
-            .filter(|&who| who == PLAYER || self.alarm)
+            .filter(|&who| who == slot as usize || (self.alarm && !self.is_player(who)))
             .collect()
     }
 
     /// One order each, spot for spot; the best code of them.
-    fn order_squad(&mut self, squad: &[usize], spots: &[Vec2]) -> u32 {
+    fn order_squad(&mut self, slot: u32, squad: &[usize], spots: &[Vec2]) -> u32 {
         let mut best = ORDER_IGNORED;
         for (&who, &spot) in squad.iter().zip(spots) {
-            let code = self.order_one(who, spot);
+            let code = self.order_one(slot, who, spot);
             if code == ORDER_MOVING || best == ORDER_IGNORED {
                 best = code;
             }
@@ -5694,11 +6160,15 @@ impl Game {
     }
 
     /// [`Game::order_move`] for one of the crew that takes orders.
-    fn order_one(&mut self, who: usize, at: Vec2) -> u32 {
-        let code = self.order_move_for(who, at.x, at.y);
+    fn order_one(&mut self, slot: u32, who: usize, at: Vec2) -> u32 {
+        let code = self.order_move_for(slot, who, at.x, at.y);
         // A crewmate ordered somewhere holds that spot rather than falling
         // back into the gathering round the player, until the alarm is over.
-        if who != PLAYER && code != ORDER_IGNORED && code != ORDER_NOWHERE && code != ORDER_LOCKED {
+        if !self.is_player(who)
+            && code != ORDER_IGNORED
+            && code != ORDER_NOWHERE
+            && code != ORDER_LOCKED
+        {
             let spot = self.nearest_stand(who, at);
             self.bims[who].character.set_post(Some(spot));
         }
@@ -5721,15 +6191,15 @@ impl Game {
     /// [`Game::order_line`], anything shorter [`Game::order_move`] at the
     /// point. The screen is what decides a drag is a drag, since a click
     /// is judged in points on the glass, not in room units.
-    pub fn order_drag_end(&mut self, x: f32, y: f32, dragged: bool) -> u32 {
+    pub fn order_drag_end(&mut self, slot: u32, x: f32, y: f32, dragged: bool) -> u32 {
         self.order_drag_update(x, y);
         let Some((from, to)) = self.order_drag.take() else {
             return ORDER_IGNORED;
         };
         if dragged {
-            self.order_line(from, to)
+            self.order_line(slot, from, to)
         } else {
-            self.order_move(to.x, to.y)
+            self.order_move(slot, to.x, to.y)
         }
     }
 
@@ -5737,10 +6207,22 @@ impl Game {
         self.order_drag = None;
     }
 
-    /// [`Game::order_move`] for one Bim, the checks on who is done.
-    fn order_move_for(&mut self, who: usize, x: f32, y: f32) -> u32 {
-        if !self.bims[who].character.selected
-            || !self.is_alive(who)
+    /// [`Game::order_move`] for one Bim, the checks on who is done. A
+    /// plain order, so what was queued with Shift goes (`drop_ordered`).
+    fn order_move_for(&mut self, slot: u32, who: usize, x: f32, y: f32) -> u32 {
+        if !self.bims[who].character.is_selected_by(slot) {
+            return ORDER_IGNORED;
+        }
+        self.drop_ordered(who);
+        self.walk_order(who, x, y)
+    }
+
+    /// The walk a right-click gives, to whoever it was decided it goes to:
+    /// what [`Game::order_move_for`] does once it has asked whose the Bim
+    /// is, and what a walk waiting its turn on the queue is given with
+    /// when its turn comes ([`Game::begin_ordered`]).
+    fn walk_order(&mut self, who: usize, x: f32, y: f32) -> u32 {
+        if !self.is_alive(who)
             // Out there it is on a walk, and the walk brings it in.
             || self.bims[who].character.is_outside()
         {
@@ -5752,9 +6234,7 @@ impl Game {
 
         // On the plain, or bound for it: the body's window, and no door
         // to work — the ground has none.
-        if self.room.plane.is_some()
-            && (self.bims[who].character.is_afield() || !self.room.interior.contains(want))
-        {
+        if self.on_a_window(who, want) {
             if !self.plan_route(who, want) {
                 self.mark(want, true);
                 return ORDER_NOWHERE;
@@ -6552,6 +7032,205 @@ impl Game {
         std::mem::take(&mut self.wounds_taken)
     }
 
+    // --- the engineer's deployables (feature 74) ---------------------------
+
+    /// The sentries on this deck, as the world keeps them: where each
+    /// stands in room units, its weapon, its shots left and whether it is
+    /// dug in. Said every step; one the world names again keeps its
+    /// trigger, one it does not name is gone. Nothing in a room whose
+    /// bodies are hostile — the crew's deck is the one they are laid on.
+    pub fn set_sentries(&mut self, sentries: Vec<Sentry>) {
+        let old = std::mem::take(&mut self.sentries);
+        self.sentries = sentries
+            .into_iter()
+            .map(|mut s| {
+                if let Some(was) = old.iter().find(|o| o.id == s.id) {
+                    s.trigger = was.trigger;
+                }
+                s
+            })
+            .collect();
+    }
+
+    /// The sentries as last said, with their triggers.
+    pub fn sentries(&self) -> &[Sentry] {
+        &self.sentries
+    }
+
+    /// Trigger pulls each sentry made since last asked, by id.
+    pub fn take_sentry_shots(&mut self) -> Vec<(u32, u32)> {
+        std::mem::take(&mut self.sentry_shots)
+    }
+
+    /// The damage each sentry took since last asked, by id, a hit a row.
+    pub fn take_sentry_hits(&mut self) -> Vec<(u32, f32)> {
+        std::mem::take(&mut self.sentry_hits)
+    }
+
+    /// The bolts the sandbags stopped since last asked: the tile of cover
+    /// each landed in and its damage, for the world to take off a laid
+    /// deployable there. See `Combat::take_cover_hits`.
+    pub fn take_cover_hits(&mut self) -> Vec<((i32, i32), f32)> {
+        self.combat.take_cover_hits()
+    }
+
+    /// The low cover laid on this deck at run time — deployed sandbags,
+    /// in room units — the whole list, over the layout's own. Said every
+    /// step; a fresh `Sight` starts with none, so a relayout, a join or
+    /// an unjoin is answered by the next step's call.
+    pub fn set_laid_cover(&mut self, laid: &[Rect]) {
+        self.room.sight.set_laid_cover(laid);
+    }
+
+    /// The low cover laid at run time, as last set.
+    pub fn laid_cover(&self) -> &[Rect] {
+        self.room.sight.laid_cover()
+    }
+
+    /// An enemy's blow on a sentry — a melee `Shot` the world carried
+    /// across and found nearest a sentry — landing if the enemy at `from`
+    /// is still within reach of it, with the same slack a body gets.
+    /// Whether it landed; the damage goes out through `take_sentry_hits`.
+    pub fn enemy_strike_sentry(&mut self, from: Vec2, sentry: usize, damage: f32) -> bool {
+        let Some(s) = self.sentries.get(sentry) else {
+            return false;
+        };
+        if (s.at - from).len() > (MELEE_RANGE + 0.5) * TILE {
+            return false;
+        }
+        let at = s.at;
+        self.sentry_hits.push((s.id, damage));
+        self.combat.lull_break();
+        self.attacked_for = ALARM_HOLD;
+        self.combat.cues.push(Cued {
+            cue: Cue::Blow {
+                cut: false,
+                on_crew: true,
+            },
+            at,
+        });
+        true
+    }
+
+    /// What an engineer's talents do to a Bim's working steps, by index:
+    /// a factor on a craft's and a factor on a build's, one each — the
+    /// `effort` product takes the one for the errand on hand and no
+    /// other. One for everybody the world does not name.
+    pub fn set_work_factors(&mut self, factors: Vec<(f32, f32)>) {
+        self.work_factors = factors;
+    }
+
+    /// Which Bims keep at a deploy when a hit lands on them — the
+    /// engineer's *steady hands* — by index; anybody not named drops it
+    /// and keeps the kit.
+    pub fn set_steady_hands(&mut self, steady: Vec<bool>) {
+        self.steady_hands = steady;
+    }
+
+    /// Send `who` to lay a kit on the tile at `tile` (room units, the
+    /// tile's middle) beside which it will stand for `minutes` of working
+    /// steps — an engineer's sandbags or sentry, the world having checked
+    /// the kit is in the pack and the tile will take it. `sentry` is only
+    /// carried back on `take_deployed`. The walk is to the nearest tile
+    /// beside it, or the tile itself; nowhere to stand is `false` and
+    /// nothing begun. A live order: what the Bim was on is put down onto
+    /// the queue, as any order does.
+    pub fn deploy(&mut self, who: usize, tile: Vec2, sentry: bool, minutes: f32) -> bool {
+        if who >= self.bims.len() || !self.bims[who].is_alive() {
+            return false;
+        }
+        let from = self.bims[who].character.pos;
+        if task::deploy_stand(&self.room, &self.maps, tile, from).is_none() {
+            return false;
+        }
+        self.interrupt_for_order(who);
+        self.drop_ordered(who);
+        let taken = self.taken_for(who);
+        let bim = &mut self.bims[who];
+        bim.task = Some(Task::deploy(
+            who,
+            tile,
+            sentry,
+            minutes,
+            &mut bim.character,
+            &mut self.room,
+            &self.maps,
+            &taken,
+        ));
+        true
+    }
+
+    /// Whether the tile whose middle is `tile` will take a kit laid by
+    /// `who`: walkable deck floor with nothing blocking on it, not a door
+    /// or an airlock, and a tile beside it — or itself — that `who` can
+    /// walk to. Whether a deployable is there already is the world's to
+    /// ask, since the world keeps them.
+    pub fn deploy_tile_ok(&self, who: usize, tile: Vec2) -> bool {
+        let Some(bim) = self.bims.get(who) else {
+            return false;
+        };
+        let nav = self.maps.pick(self.room.bath.is_open());
+        nav.interior().contains(tile)
+            && nav.is_free(tile)
+            && self.room.door_at(tile).is_none()
+            && task::deploy_stand(&self.room, &self.maps, tile, bim.character.pos).is_some()
+    }
+
+    /// Every kit laid since last asked: who laid it, the middle of the
+    /// tile in room units, and whether it was a sentry. The world puts
+    /// the deployable down and takes the kit out of the pack.
+    pub fn take_deployed(&mut self) -> Vec<(usize, Vec2, bool)> {
+        std::mem::take(&mut self.room.deployed)
+    }
+
+    /// Whether a body at `body` is in low cover from something at `from`
+    /// on this deck — `Sight::covered` — for the tests.
+    #[allow(dead_code)]
+    pub fn covered_for_probe(&self, body: Vec2, from: Vec2) -> bool {
+        self.room.sight.covered(body, from)
+    }
+
+    /// The work factors the world set for `who`, for the tests.
+    #[allow(dead_code)]
+    pub fn work_factors_for_probe(&self, who: usize) -> (f32, f32) {
+        self.work_factors.get(who).copied().unwrap_or((1.0, 1.0))
+    }
+
+    /// A bolt the sandbags on `tile` stopped, said as the fight would say
+    /// it — for the tests, which want the bags hit without a fight.
+    #[allow(dead_code)]
+    pub fn cover_hit_for_probe(&mut self, tile: (i32, i32), damage: f32) {
+        self.combat.cover_hit_for_probe(tile, damage);
+    }
+
+    /// A hit on sentry `id`, said as a bolt landing on it would be.
+    #[allow(dead_code)]
+    pub fn sentry_hit_for_probe(&mut self, id: u32, damage: f32) {
+        self.sentry_hits.push((id, damage));
+    }
+
+    /// Where a Bim stands to work bench `bench`, for the tests.
+    #[allow(dead_code)]
+    pub fn bench_spot_for_probe(&self, bench: usize) -> Vec2 {
+        self.room.benches[bench].at
+    }
+
+    /// Whether `who` is on a craft of `recipe` right now, for the tests.
+    #[allow(dead_code)]
+    pub fn is_at_work_for_probe(&self, who: usize, recipe: u32) -> bool {
+        self.bims.get(who).and_then(|b| b.task.as_ref()).is_some_and(
+            |t| matches!(t.kind(), Kind::Craft { recipe: r, .. } if r == recipe),
+        )
+    }
+
+    /// Whether `who` is on a deploy errand, for the world and the panels.
+    pub fn is_deploying(&self, who: usize) -> bool {
+        self.bims
+            .get(who)
+            .and_then(|b| b.task.as_ref())
+            .is_some_and(|t| matches!(t.kind(), Kind::Deploy { .. }))
+    }
+
     /// The lamps: where each is, what it has left and how bright it is
     /// shown. See `sight::Lamp`. A bolt that lands on one takes its
     /// damage off it, and at nought it is out.
@@ -6665,6 +7344,13 @@ impl Game {
         let mut out = WoundOutcome::default();
         if !self.bims.get(who).is_some_and(|b| b.is_alive()) {
             return out;
+        }
+        // A hit on an engineer laying a kit is the kit put down where it
+        // was — in the pack — and the errand dropped, not put down onto
+        // the queue to be picked up again under fire; unless its hands are
+        // steady (`set_steady_hands`), when it keeps at it.
+        if self.is_deploying(who) && !self.steady_hands.get(who).copied().unwrap_or(false) {
+            self.drop_task(who);
         }
         let bim = &mut self.bims[who];
         bim.hit_flash = HIT_FLASH;
@@ -7089,17 +7775,23 @@ impl Game {
         true
     }
 
+    /// Whether [`Game::fetch`] would start: the Bim alive, awake and in,
+    /// and the weapon still lying there. What the screen asks before it
+    /// sends the order, so a refusal can be said at the click.
+    pub fn can_fetch(&self, who: usize, item: u32) -> bool {
+        who < self.bims.len()
+            && self.bims[who].is_alive()
+            && !self.bims[who].character.is_unconscious()
+            && !self.bims[who].character.is_outside()
+            && self.room.weapons_down.iter().any(|d| d.id == item)
+    }
+
     /// else in the pack (`apply_pickups`). The player's order from the menu
     /// on it, and what a bot does for its own gun the moment it comes round
     /// (`fetch_own_weapon`). Refused for a Bim that cannot — dead, out
     /// cold, outside — or a weapon that is not there any more.
     pub fn fetch(&mut self, who: usize, item: u32) -> bool {
-        if who >= self.bims.len()
-            || !self.bims[who].is_alive()
-            || self.bims[who].character.is_unconscious()
-            || self.bims[who].character.is_outside()
-            || !self.room.weapons_down.iter().any(|d| d.id == item)
-        {
+        if !self.can_fetch(who, item) {
             return false;
         }
         let kind = Kind::Fetch { item };
@@ -7138,7 +7830,7 @@ impl Game {
             if (self.bims[who].character.pos - dropped.at).len() > 2.0 * TILE {
                 continue;
             }
-            let bot = self.hostile_bodies || who != PLAYER;
+            let bot = self.hostile_bodies || !self.is_player(who);
             let gear = &mut self.bims[who].gear;
             let hand_first = bot && gear.weapon.is_none();
             if hand_first {
@@ -7182,7 +7874,7 @@ impl Game {
     /// enemy about — it is running — and not while it is under arms at a
     /// post the player gave it.
     fn fetch_own_weapon(&mut self, who: usize) {
-        let bot = self.hostile_bodies || who != PLAYER;
+        let bot = self.hostile_bodies || !self.is_player(who);
         let bim = &self.bims[who];
         if !bot
             || bim.gear.weapon.is_some()
@@ -7289,6 +7981,20 @@ impl Game {
     /// What a Bim has on it.
     pub fn gear(&self, who: usize) -> Gear {
         self.bims[who].gear
+    }
+
+    /// What a Bim looks like — the yoke, the hair, the build
+    /// (`character::Look`).
+    pub fn look(&self, who: usize) -> Look {
+        self.bims[who].character.look()
+    }
+
+    /// Give a Bim another look: the hair a player chose at the start
+    /// (feature 62). Drawing only, so nothing the world checks moves.
+    pub fn set_look(&mut self, who: usize, look: Look) {
+        if who < self.bims.len() {
+            self.bims[who].character.set_look(look);
+        }
     }
 
     // --- the pack and what is worn ------------------------------------------
@@ -7628,6 +8334,39 @@ impl Game {
     /// `render`. `None` for a room not drawn through the crew's eyes.
     pub fn light_map(&self) -> Option<&crate::sight::LightMap> {
         (self.fog == Fog::Crew && self.room.sight.map().width > 0).then(|| self.room.sight.map())
+    }
+
+    /// The same picture of the plain beyond the box, on a planet — a
+    /// picture a chunk, `terrain::Plane::picture` — from the crew's
+    /// eyes, for the room tiles `window` covers (both ends in): what a
+    /// host is about to draw, since the plain is too big to picture
+    /// whole. Asked once a frame after `render`, by the host that knows
+    /// its camera; nothing anywhere but a plain through the crew's
+    /// eyes. The pictures are `plain_pictures`.
+    pub fn picture_plain(&mut self, window: (i32, i32, i32, i32)) {
+        if self.fog != Fog::Crew {
+            return;
+        }
+        let eyes: Vec<Vec2> = self.bims.iter().map(|b| b.character.pos).collect();
+        let sight = &self.room.sight;
+        if let Some(plane) = self.room.plane.as_mut() {
+            plane.picture(
+                &eyes,
+                TILE,
+                &|x, y| sight.opaque_room_tile(x, y),
+                sight.cells_version(),
+                window,
+            );
+        }
+    }
+
+    /// The plain's pictures as last composed, by the room's chunk —
+    /// `terrain::Plane::pictures`. Empty off a planet.
+    pub fn plain_pictures(&self) -> Vec<((i32, i32), &crate::sight::LightMap)> {
+        match (&self.room.plane, self.fog) {
+            (Some(plane), Fog::Crew) => plane.pictures().collect(),
+            _ => Vec::new(),
+        }
     }
 
     /// Whether the crew see the tile a room point is in, as of the last
@@ -8128,6 +8867,28 @@ impl Game {
             }
         }
 
+        // The walks waiting their turn — the Shift-clicks on the deck —
+        // for the viewer's own crew member and whoever it has selected: a
+        // dashed thread from where the Bim is bound now through each spot
+        // in turn, a pip at every one, so what was queued can be read off
+        // the deck until it is walked. In the ping's colour, since a
+        // queued walk is a ping that stays.
+        for (who, bim) in self.bims.iter().enumerate() {
+            if who != self.viewer as usize && !bim.character.is_selected_by(self.viewer) {
+                continue;
+            }
+            let mut from = bim.character.destination().unwrap_or(bim.character.pos);
+            for saved in &bim.queue {
+                let (Kind::Walk { .. }, Some(to)) = (saved.kind(), saved.target()) else {
+                    continue;
+                };
+                dashed(&mut self.list, from, to, ACCENT.alpha(0.65));
+                self.list.circle(to, 6.0, ACCENT.alpha(0.9));
+                self.list.ring(to, 16.0, 2.0, ACCENT.alpha(0.8));
+                from = to;
+            }
+        }
+
         // What lies on the deck under the bodies: the guns dropped by
         // whoever went out cold, where they fell — the one under the
         // pointer ringed in the highlight's cyan, so it reads as something
@@ -8149,7 +8910,7 @@ impl Game {
         // a station's people behind a bulkhead are not drawn at all.
         for (who, bim) in self.bims.iter().enumerate() {
             if self.body_seen(who) {
-                bim.character.draw(&mut self.list);
+                bim.character.draw(&mut self.list, self.viewer);
                 // A shot that landed: a flash on the body, gone in a blink.
                 if bim.hit_flash > 0.0 {
                     let t = bim.hit_flash / HIT_FLASH;
@@ -8228,7 +8989,7 @@ impl Game {
         // will stand along it, a pip apiece, so the order can be read
         // before it is given.
         if let Some((from, to)) = self.order_drag {
-            let n = self.orderable().len();
+            let n = self.orderable(self.viewer).len();
             if n > 0 && (to - from).len() > 1.0 {
                 self.list.line(from, to, 1.5, MARQUEE_EDGE.alpha(0.8));
                 let pips = n.max(2);
@@ -8457,6 +9218,62 @@ mod tests {
         assert_eq!(next.bed_of(3), None);
     }
 
+    /// A bunk nobody has goes to a bot with none at the next step, and
+    /// never to a player's Bim: giving one up and taking one are the
+    /// player's own to do. The tags say whose every bunk is, and that one
+    /// is nobody's.
+    #[test]
+    fn a_bot_with_no_bunk_takes_one_that_is_going_spare_and_a_player_does_not() {
+        let mut game = room();
+        assert_eq!(game.players(), 1, "James is the player's, Kate a bot");
+        // Kate's given up: she has it back a step later.
+        assert!(game.assign_bed(1, None));
+        assert_eq!(game.bed_owner(1), None);
+        game.simulate(DT);
+        assert_eq!(game.bed_of(1), Some(1), "taken again");
+        // James's given up: it stays nobody's, however long, since he is
+        // the player's and Kate has one.
+        assert!(game.assign_bed(0, None));
+        for _ in 0..60 {
+            game.simulate(DT);
+        }
+        assert_eq!(game.bed_of(0), None);
+        assert_eq!(game.bed_owner(0), None);
+        let tags = game.bunk_tags();
+        assert_eq!(tags.len(), BERTHS);
+        assert_eq!(tags[0].bed, 0);
+        assert_eq!(tags[0].owner, None, "nobody's, and says so");
+        assert_eq!(tags[1].owner, Some(1));
+        assert!(
+            game.room.beds[0].frame.contains(tags[0].at),
+            "the tag is on the bunk"
+        );
+        // Kate moved to his: hers comes free, and he still does not take
+        // it — nor does she, having one.
+        assert!(game.assign_bed(1, Some(0)));
+        game.simulate(DT);
+        assert_eq!(game.bed_of(1), Some(0));
+        assert_eq!(game.bed_of(0), None);
+        assert_eq!(game.bed_owner(1), None);
+        // A third, arriving with none past a bunk going spare, is given it
+        // on arrival; and a fourth, past the bunks, has none until Kate
+        // dies — then hers is the fourth's the step after.
+        let mut other = room();
+        let more = other.take_crew();
+        game.adopt(more, Vec2::ZERO);
+        assert_eq!(game.crew_count(), 4);
+        assert_eq!(game.bed_of(2), Some(1), "the spare one, on arrival");
+        assert_eq!(game.bed_of(3), None);
+        game.simulate(DT);
+        assert_eq!(game.bed_of(3), None, "none going spare");
+        game.kill_for_probe(1);
+        game.simulate(DT);
+        assert!(!game.is_alive(1));
+        game.simulate(DT);
+        assert_eq!(game.bed_of(3), Some(0), "the dead Bim's, the step after");
+        assert_eq!(game.bed_of(0), None, "and the player's still none");
+    }
+
     #[test]
     fn a_hostile_room_goes_to_war_over_a_target_and_records_its_shots() {
         let mut game = room();
@@ -8468,7 +9285,7 @@ mod tests {
         let target = kate + vec2(4.0 * TILE, 0.0);
         game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
         game.simulate(DT);
-        assert!(game.is_recruited(), "at war, under orders");
+        assert!(game.is_recruited(0), "at war, under orders");
         assert!(game.bims[1].character.is_recruited());
         // They shoot, and what they shoot is recorded rather than flown.
         for _ in 0..120 {
@@ -8495,7 +9312,7 @@ mod tests {
         // Peace: the target gone, the orders lifted.
         game.set_hostiles(Vec::new());
         game.simulate(DT);
-        assert!(!game.is_recruited());
+        assert!(!game.is_recruited(0));
         assert!(!game.bims[1].character.is_recruited());
         assert!(!game.is_armed(0));
     }
@@ -8800,7 +9617,7 @@ mod tests {
                 "ran from {before} to {after} off the enemy"
             );
             // The player's own runs too, whatever the player said.
-            game.toggle_recruited();
+            game.toggle_recruited(0);
             let james = game.bim_pos(0);
             game.set_hostiles(vec![Some((
                 james + vec2(3.0 * TILE, 0.0),
@@ -8870,7 +9687,7 @@ mod tests {
             // The player's own, recruited and wounded short of dying, walks
             // where it is sent: only dying makes it run.
             game.issue(0, Gear::issued());
-            game.toggle_recruited();
+            game.toggle_recruited(0);
             assert!(!game.wound(0, Part::Body, 4.0).leg_lost);
             assert!(game.bims[0].health.is_hurt());
             for _ in 0..30 {
@@ -10530,7 +11347,7 @@ mod tests {
         }
         assert!(!game.is_alarmed());
         assert!(!game.bims[1].character.is_recruited());
-        assert!(!game.is_recruited(), "James untouched");
+        assert!(!game.is_recruited(0), "James untouched");
         // Within range and in view: to arms, the pistol out of the pack,
         // and shots at it.
         let near = kate + vec2(4.0 * TILE, 0.0);
@@ -10548,7 +11365,7 @@ mod tests {
             "drawn from the pack"
         );
         assert!(shot, "and shooting");
-        assert!(!game.is_recruited(), "James is the player's");
+        assert!(!game.is_recruited(0), "James is the player's");
         // Gone: stood down — once nobody has seen it for the hold, since
         // an enemy that steps out of sight is not an enemy gone.
         game.set_hostiles(Vec::new());
@@ -10590,22 +11407,22 @@ mod tests {
         let kate = game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
         // A sweep over both selects both; the panels' one is James, first.
         game.drag_begin(james.x - TILE, james.y - TILE);
-        game.drag_end(kate.x + TILE, kate.y + TILE);
-        assert_eq!(game.selected_count(), 2);
-        assert_eq!(game.selected_all(), vec![0, 1]);
-        assert_eq!(game.selected(), Some(0));
+        game.drag_end(0, kate.x + TILE, kate.y + TILE);
+        assert_eq!(game.selected_count(0), 2);
+        assert_eq!(game.selected_all(0), vec![0, 1]);
+        assert_eq!(game.selected(0), Some(0));
         // A click on one is that one alone.
         game.drag_begin(kate.x, kate.y);
-        game.drag_end(kate.x, kate.y);
-        assert_eq!(game.selected_all(), vec![1]);
+        game.drag_end(0, kate.x, kate.y);
+        assert_eq!(game.selected_all(0), vec![1]);
         game.drag_begin(james.x - TILE, james.y - TILE);
-        game.drag_end(kate.x + TILE, kate.y + TILE);
+        game.drag_end(0, kate.x + TILE, kate.y + TILE);
 
         // In peace a line moves the player's own alone — Kate takes no
         // orders — and one alone goes to where the drag began.
         let a = vec2(ROOM_W * 0.35, ROOM_H * 0.8);
         let b = vec2(ROOM_W * 0.55, ROOM_H * 0.8);
-        assert_eq!(game.order_line(a, b), ORDER_MOVING);
+        assert_eq!(game.order_line(0, a, b), ORDER_MOVING);
         assert!((game.destination_for_probe(0).unwrap() - a).len() < TILE);
         assert!(
             game.destination_for_probe(1)
@@ -10622,10 +11439,10 @@ mod tests {
         }
         assert!(game.is_alarmed());
         game.drag_begin(0.0, 0.0);
-        game.drag_end(ROOM_W, ROOM_H);
-        assert_eq!(game.selected_count(), 2);
+        game.drag_end(0, ROOM_W, ROOM_H);
+        assert_eq!(game.selected_count(0), 2);
         assert_eq!(
-            game.order_line(b, a),
+            game.order_line(0, b, a),
             ORDER_MOVING,
             "the drag's direction does not matter"
         );
@@ -10639,11 +11456,11 @@ mod tests {
         game.order_drag_begin(a.x, a.y);
         game.order_drag_update(b.x, b.y);
         assert!(game.order_drag.is_some());
-        assert_eq!(game.order_drag_end(b.x, b.y, true), ORDER_MOVING);
+        assert_eq!(game.order_drag_end(0, b.x, b.y, true), ORDER_MOVING);
         assert!(game.order_drag.is_none());
         // A point for two is a huddle: two spots, not one.
         let c = vec2(ROOM_W * 0.45, ROOM_H * 0.3);
-        assert_eq!(game.order_move(c.x, c.y), ORDER_MOVING);
+        assert_eq!(game.order_move(0, c.x, c.y), ORDER_MOVING);
         let (dj, dk) = (
             game.destination_for_probe(0).unwrap(),
             game.destination_for_probe(1).unwrap(),
@@ -10660,9 +11477,9 @@ mod tests {
         let kate = game.put_for_probe(1, vec2(ROOM_W * 0.85, ROOM_H * 0.85));
         // Kate cannot be ordered about in peace.
         game.drag_begin(kate.x, kate.y);
-        game.drag_end(kate.x, kate.y);
-        assert_eq!(game.selected(), Some(1));
-        assert_eq!(game.order_move(james.x, james.y), ORDER_IGNORED);
+        game.drag_end(0, kate.x, kate.y);
+        assert_eq!(game.selected(0), Some(1));
+        assert_eq!(game.order_move(0, james.x, james.y), ORDER_IGNORED);
         // An enemy within range but out of sight — beyond the room's walls,
         // twenty-five tiles off — is the alarm without a target to act on.
         let unseen = james + vec2((ALARM_RANGE - 5.0) * TILE, 0.0);
@@ -10704,12 +11521,12 @@ mod tests {
         // Ordered somewhere, she goes and holds it.
         let at = game.bim_pos(1);
         game.drag_begin(at.x, at.y);
-        game.drag_end(at.x, at.y);
-        assert_eq!(game.selected(), Some(1));
+        game.drag_end(0, at.x, at.y);
+        assert_eq!(game.selected(0), Some(1));
         // Somewhere on the open deck, away from the heads and their door.
         let spot = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
         // Through the heads' door if her slot was inside them.
-        let code = game.order_move(spot.x, spot.y);
+        let code = game.order_move(0, spot.x, spot.y);
         assert!(code == ORDER_MOVING || code == ORDER_VIA_DOOR, "{code}");
         for _ in 0..(60 * 20) {
             game.simulate(DT);
@@ -10725,7 +11542,7 @@ mod tests {
         assert!(!game.is_alarmed());
         assert!(game.bims[1].character.post().is_none());
         assert!(!game.bims[1].character.is_recruited());
-        assert_eq!(game.order_move(james.x, james.y), ORDER_IGNORED);
+        assert_eq!(game.order_move(0, james.x, james.y), ORDER_IGNORED);
     }
 
     /// A swing is not a hit until it has been swung: the blow lands

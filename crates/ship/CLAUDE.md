@@ -54,10 +54,13 @@ After anything in `world_paint.rs` they are worth thirty seconds: a hull drawn
 mirrored, or a starfield turning with the ship, is obvious there and invisible
 in every assertion.
 
-**Head up is the player's exception, and it is one number.** `Game::head_up`
+**Head up is the player's choice, and it is one number.** `Game::head_up`
 (the View buttons and `N` in `crates/app/src/screens/game.rs`, `Game::head_up` at the
 boundary) holds the ship square to the window in both views and turns the sky,
-the station alongside and the map round it instead. It is done without a
+the station alongside and the map round it instead. It is **on by default**
+since feature 65 — both of `Game`'s constructors set it, and the tests'
+`game()` fixture in `tests.rs` turns it off again, since those are written
+north up and the head-up ones say so by name. It is done without a
 second camera: `Game::camera_turn()` is `-heading` when it is on and nothing
 otherwise, `Game::ship_turn()` is `heading + camera_turn()`, and the rule is
 that **everything drawing or reading back the ship goes through `ship_turn`
@@ -445,6 +448,15 @@ engine's `now` is its `thrust_power × throttle` while `Firing` lights its
 facing and it is on a live network, nought otherwise, so the numbers
 agree with the exhaust.
 
+**The bunks' tags are the same shape** (feature 61): `Session::bunk_labels`
+→ `world_paint::bunk_labels`, one `BunkLabel` per bunk of the ship's off
+`Game::bunk_tags` — the bunk's middle taken to the design (`Aboard::to_design`)
+and through `on_screen` like a Bim, and whose it is — which
+`screens/game.rs` writes across the bed with `theme::bunk_tag` every
+frame, under the crew's names, the owner's name or *Unassigned*. A
+station's bunks on a joined deck are not in it.
+`a_bunk_s_tag_lands_on_the_bunk_and_turns_with_the_ship` pins it.
+
 ## The blueprint is the part's own picture, and its answer is asked once a tile
 
 `Game::placing` is the Build tab's tool — a kind and a rotation, this
@@ -590,6 +602,29 @@ one texture (`crates/app/src/fogmap.rs`), and
 `world_paint::light_map_on_screen` / `Session::light_map` hand over its
 four corners through the ship's camera and heading — the `on_screen` the
 crew's names use — so it lands on the deck at any zoom and heading.
+
+**The plain's fog is the same texture, a chunk at a time** (feature 67,
+September 2026). On a planet the fog beyond the room's box used to be
+`world_paint::plain`'s own rectangles, a run of tiles each, and looked
+like the tile fog the deck had before its light map; now the room
+pictures the plain the way it pictures the deck
+(`bims::terrain::Plane::picture`, `crates/game/CLAUDE.md`), a
+`LightMap` per 32-tile chunk of the room, and `plain` draws the ground
+alone. Two things are the ship's: `world_paint::plain_window` is the
+room tiles the plain is drawn over this frame — the camera's reach,
+capped at `PLAIN_DRAWN` — and `ship::Game::picture_the_plain` hands it
+to the room once a frame in `Session::render`, after
+`hold_view_to_the_ground` and before `world_paint::paint`, since the
+room does not know the camera; and `world_paint::plain_fog_on_screen`
+/ `Session::plain_fog` hand the app every chunk's map with its
+`FogPiece`s — the chunk less the room's box, at most four rectangles,
+each a UV rectangle of the texture and four corners through
+`on_screen` — so the plain's fog and the light map never lie over one
+another and a picture's apron (`PICTURE_APRON`, composed for the app's
+blur to read across the seam) is never drawn. The app keeps a
+`fogmap::FogTexture` per chunk (`GameScreen::plain_fog`, dropped when
+the room lets the chunk go) and `FogTexture::paint_pieces` draws a
+list of pieces of one texture; `paint` is one whole piece.
 
 **A lamp's glass shows what the fight did to it.** `fittings::lamp_face`
 is drawn over each light part after the hull (`world_paint::lamp_faces`,
@@ -776,3 +811,45 @@ Three things about it that are easy to get wrong:
 refused as `LoadError::Version` rather than read wrong, and one that is
 not a save at all as `LoadError::Syntax` with the parser's words. Where
 the file goes is the app's (`crates/app/src/save.rs`).
+
+**The same text is the host's world on the wire** (feature 67). A guest
+whose checksum has parted from the host's, or every guest when the host
+loads a game, is handed the host's `Session::save()` whole
+(`net::Packet::World`, `crates/app/src/net.rs`) and stands a session up
+round it with **`Session::restore_as(text, local, w, h)`** — `restore`
+with the caller's slot in place of the file's, so the guest comes up as
+*its* crew member and not the host's (`restore` is `restore_as` with the
+file's own `local`; both go through `stood_up`, and a slot the crew has
+not got is clamped to the last as `Game::resume` clamps it). Before the
+host loads with company it asks **`save::players_of(text)`** — the player
+count read off the front the way `version_of` reads the version, since
+`players` is written right behind it — and refuses a file saved for a
+different number than are in the room. The file's `local` is still what
+a load *without* company comes up as.
+`the_host_s_save_read_back_as_a_guest_is_the_same_world_steered_from_its_own_slot`
+is the test: a two-player game saved on one end and `restore_as` slot 1
+on the other agree by checksum, as read back and six hundred steps on.
+
+**`Session::crew_names` is the one string a session carries** (feature
+60, version 9): what the players called their crew, in slot order, empty
+at a slot for the app's own name. It is nothing the rules read — the
+world knows crew member 1 and nothing else — and the app puts it where
+the words are (`names::set_crew_names`) at every open and load; it is
+here so a save keeps it. Beside it, `Session::design_point` and
+`design_point_on_screen` are one player's pointer as the others see it:
+a canvas point read back to a point on the ship's grid — the yard's view
+before the world opens, `Game::design_point_at` after — and that point
+put forward again through the ship's turn (`world_paint::design_on_screen`,
+the crew's names' arithmetic), so a pointer lands on the tile it is over
+whatever each window has zoomed and turned.
+
+**`Session::crew_hair` is the players' hair** (feature 62): what each
+picked on the setup tab, in slot order, put onto the crew by
+`Session::dress_crew` — `Look::of(slot).with_hair(..)` through
+`Game::set_look` for as many slots as have said and are players, so a
+bot or a hire keeps what its index dealt it — at `start_game` and again
+from the app whenever a choice arrives late (`Online::hair_said`). Not in
+the save: the look is on the character and the save carries that
+(version 10, `Look` a struct).
+`the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens`
+pins it, and that the checksum does not move for a hair.

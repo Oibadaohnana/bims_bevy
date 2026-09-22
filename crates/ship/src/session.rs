@@ -22,6 +22,7 @@ use crate::draw::{Color, DrawList};
 use crate::editor::{Editor, Phase};
 use crate::game::Game;
 use crate::{paint, world_paint};
+use bims::character::{Hair, Look, Shade};
 
 /// "The lobby did not say." What a star or a station id is when there is
 /// none — `u32::MAX`, the same value the lobby uses for nothing, because
@@ -82,6 +83,17 @@ pub struct Session {
     pub seed: u64,
     pub galaxy: u32,
     pub spawn: Option<(u32, u32)>,
+    /// What the players called their crew, in slot order — the one
+    /// string a session carries, and the app's to spell (feature 60).
+    /// Empty, or empty at a slot, is the app's own name for that slot.
+    /// Saved with the world, since a crew renamed and read back under
+    /// the old names would be somebody else's crew.
+    pub crew_names: Vec<String>,
+    /// The hair each player chose for their crew member, in slot order
+    /// (feature 62): put onto the crew's looks when the world opens and
+    /// whenever it changes ([`Session::dress_crew`]). Not saved — the
+    /// look is on the character, and the save carries that.
+    pub crew_hair: Vec<(Hair, Shade)>,
     list: DrawList,
 }
 
@@ -135,8 +147,18 @@ impl Session {
                 .unwrap_or(Market::PLAIN);
             editor.dock_at(stock, desk);
         }
+        // The gift: the playtest ship for one, and for a crew of more the
+        // combat ship — the same hull with bunks and chairs for five — since
+        // the playtest ship sleeps and seats one, and a lobby's yard that
+        // opened with a fault before anybody laid a tile would open on
+        // "too few bunks" every time.
+        let given = if players > 1 {
+            shipdesign::fixture::combat_ship_on(build_area)
+        } else {
+            shipdesign::fixture::playtest_ship_on(build_area)
+        };
         if preset == Preset::Playtest
-            && let Some(given) = shipdesign::fixture::playtest_ship_on(build_area)
+            && let Some(given) = given
         {
             editor.give(given);
         }
@@ -146,6 +168,8 @@ impl Session {
             seed,
             galaxy,
             spawn,
+            crew_names: Vec::new(),
+            crew_hair: Vec::new(),
             list: DrawList::new(),
         }
     }
@@ -208,6 +232,8 @@ impl Session {
             seed,
             galaxy,
             spawn,
+            crew_names: Vec::new(),
+            crew_hair: Vec::new(),
             list: DrawList::new(),
         }
     }
@@ -263,9 +289,25 @@ impl Session {
             seed,
             galaxy,
             spawn,
+            crew_names: Vec::new(),
+            crew_hair: Vec::new(),
             list: DrawList::new(),
         };
         session.make_dock_hostile();
+        session
+    }
+
+    /// The `tier2_test` and `tier3_test` commands: [`Session::combat`]
+    /// with everybody's kit at `tier` — every crew member's gun at it and
+    /// a full set of armour at it on, and the garrison's the same
+    /// (`World::outfit_for_probe`, after the dock is hostile so the
+    /// garrison is the crowd that is dressed). The fight with nothing at
+    /// tier one on either side.
+    pub fn combat_at_tier(seed: u64, tier: bims::combat::Tier, width: f32, height: f32) -> Session {
+        let mut session = Session::combat(seed, width, height);
+        if let Some(game) = session.game.as_mut() {
+            game.world.outfit_for_probe(tier);
+        }
         session
     }
 
@@ -283,6 +325,8 @@ impl Session {
             seed,
             galaxy,
             spawn,
+            crew_names: Vec::new(),
+            crew_hair: Vec::new(),
             list: DrawList::new(),
         }
     }
@@ -469,6 +513,25 @@ impl Session {
             self.editor.view.width,
             self.editor.view.height,
         );
+        self.dress_crew();
+    }
+
+    /// Put the hair the players chose onto their crew members
+    /// (`crew_hair`, feature 62): slot *i*'s Bim gets its dealt look
+    /// (`Look::of`) with the hair said for slot *i*, for as many slots as
+    /// have said and are players — a bot, a hire, a resident keeps what
+    /// the index dealt it. Nothing before the world opens; called at
+    /// `start_game` and by the app whenever a choice arrives late.
+    pub fn dress_crew(&mut self) {
+        let players = self.editor.players as usize;
+        let Some(game) = &mut self.game else {
+            return;
+        };
+        let room = &mut game.world.aboard.room;
+        let crew = room.crew_count() as usize;
+        for (slot, &(hair, shade)) in self.crew_hair.iter().enumerate().take(players.min(crew)) {
+            room.set_look(slot, Look::of(slot).with_hair(hair, shade));
+        }
     }
 
     /// The live ship: the game's if there is one, the design being laid out
@@ -509,7 +572,9 @@ impl Session {
             Some(game) => {
                 // The room aboard draws itself once a frame, here, and not
                 // once a step: at 24x that is one picture rather than
-                // twenty-four.
+                // twenty-four. Through this player's eyes: the selection
+                // ring is theirs (`bims::order`).
+                game.world.aboard.room.set_viewer(game.local);
                 game.world.aboard.render();
                 // And the station's room, whose people are always in it now:
                 // drawn once a frame the same way, or they stand in the
@@ -522,6 +587,7 @@ impl Session {
                 game.stream_sky();
                 game.follow_player();
                 game.hold_view_to_the_ground();
+                game.picture_the_plain();
                 // Whether the blueprint in hand would go where the pointer
                 // is, asked before the painter colours it.
                 game.ghost_check();
@@ -770,12 +836,38 @@ impl Session {
         Some((game.world.aboard.room.light_map()?, corners))
     }
 
+    /// The plain's fog beyond the box, on a planet: a picture a chunk
+    /// and the pieces of each to draw, in the camera's units —
+    /// `world_paint::plain_fog_on_screen`. Empty anywhere else.
+    pub fn plain_fog(
+        &self,
+    ) -> Vec<(
+        (i32, i32),
+        &bims::sight::LightMap,
+        Vec<world_paint::FogPiece>,
+    )> {
+        match &self.game {
+            Some(game) => world_paint::plain_fog_on_screen(game),
+            None => Vec::new(),
+        }
+    }
+
     /// The numbers the electricity view puts over the drainers, in the
     /// camera's units — `world_paint::power_labels`. Empty before there is
     /// a world.
     pub fn power_labels(&self) -> Vec<world_paint::PowerLabel> {
         match &self.game {
             Some(game) => world_paint::power_labels(game),
+            None => Vec::new(),
+        }
+    }
+
+    /// Every bunk of the ship's, where its middle lands in the camera's
+    /// units and whose it is — `world_paint::bunk_labels`, for the name
+    /// the host writes on each. Empty before there is a world.
+    pub fn bunk_labels(&self) -> Vec<world_paint::BunkLabel> {
+        match &self.game {
+            Some(game) => world_paint::bunk_labels(game),
             None => Vec::new(),
         }
     }
@@ -839,18 +931,6 @@ impl Session {
         self.game
             .as_ref()
             .is_some_and(|g| g.world.at_the_desk(slot))
-    }
-
-    /// Walk that player's crew member to the station's trading desk — a
-    /// room order, no seam crossed. False with no desk to walk to.
-    pub fn walk_to_desk(&mut self, slot: u32) -> bool {
-        let Some(game) = self.game.as_mut() else {
-            return false;
-        };
-        let Some(at) = game.world.desk_spot() else {
-            return false;
-        };
-        game.world.aboard.room.send_to(slot as usize, at)
     }
 
     // --- the map ----------------------------------------------------------
@@ -994,6 +1074,35 @@ impl Session {
                 )
             }
             None => (0.0, 0.0),
+        }
+    }
+
+    /// A canvas point as a design point — a point on the ship's own grid,
+    /// in design units, whichever phase the session is in: read back
+    /// through the yard's view before the world opens, and through the
+    /// ship's camera and heading after (`Game::design_point_at`). What
+    /// one player's pointer is sent to the others as (feature 60): the
+    /// same tile on every machine, whatever each has zoomed and turned.
+    pub fn design_point(&self, x: f32, y: f32) -> (f32, f32) {
+        match &self.game {
+            Some(g) => {
+                let p = g.design_point_at(x, y);
+                (p.x as f32, p.y as f32)
+            }
+            None => self.editor.view.to_world(x, y),
+        }
+    }
+
+    /// [`Self::design_point`] read forwards: where a design point lands
+    /// in the view's units — what the view offset and scale turn into a
+    /// canvas pixel, the way the shapes and the crew's names are placed.
+    /// Nought and the yard's grid agree, so before the world opens a
+    /// design point *is* the view's; after, it goes through the ship's
+    /// turn like a Bim (`world_paint::crew_on_screen`).
+    pub fn design_point_on_screen(&self, x: f32, y: f32) -> (f32, f32) {
+        match &self.game {
+            Some(g) => world_paint::design_on_screen(g, x, y),
+            None => (x, y),
         }
     }
 }

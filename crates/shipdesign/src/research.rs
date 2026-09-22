@@ -14,14 +14,18 @@
 //!
 //! A locked node stays locked until a **research key** of its tier has
 //! been put into the crew's research desk and consumed there **for that
-//! node** ([`Research::unlock`]). A key is a resource found on a friendly
-//! station's research desk (`physics::ResourceId::ResearchKey` for tier
-//! one), carried off in a pack where it takes [`KEY_CELLS`], and it is
-//! consumed — **one key opens one node** and is gone, so two locked nodes
-//! are two keys and two stations. A later tier's key
-//! is bigger and wants a bigger desk; that is where the progression goes,
-//! and it is why the key's size and the desk's slot are written down here
-//! as a pair.
+//! node** ([`Research::unlock`]). A key is a resource found on a
+//! station's research desk — the tier-one key
+//! (`physics::ResourceId::ResearchKey`) on a friendly station's, the
+//! tier-two (`ResearchKeyTwo`) on every hostile station's — carried off
+//! in a pack where it takes [`KEY_CELLS`], and it is consumed — **one key
+//! opens one node** and is gone, so two locked nodes are two keys and two
+//! stations. A node wants a key of **its own tier** ([`Research::key_wanted`]):
+//! the other tier's key in the desk opens nothing. Both keys are the
+//! same size for now, and the desk holds one of either; a later key that
+//! is bigger and wants a bigger desk is where the progression could go,
+//! which is why the key's size and the desk's slot are written down here
+//! as a pair. Tier three is declared ([`TIERS`]) and empty.
 //!
 //! # What a node gates
 //!
@@ -34,21 +38,38 @@
 //! with a smelter keeps the smelter; it stands idle until the crew know
 //! what to do at it.
 //!
+//! # The queue
+//!
+//! The AI thinks about one node at a time, but it can be given a list:
+//! [`Research::enqueue`] puts a node at the back of the **queue**, and
+//! whatever it needs that is not yet known, on the AI or queued goes in
+//! ahead of it — so queueing the hyperdrive on a fresh crew queues
+//! smelting, the workshop and fusion power first — refused only when
+//! something in that chain is still behind a key. [`Research::next`]
+//! takes an idle AI onto the first queued node it can begin, and `world`
+//! calls it every step the desk has power, so a node queued while the AI
+//! is idle begins that step. Taking a node out — [`Research::dequeue`],
+//! or [`Research::cancel`] on the one the AI is on — takes out with it
+//! everything queued that needed it: the queue is always a plan that can
+//! be carried out in order.
+//!
 //! # Integers, and one state
 //!
 //! The tree is data and the crew's progress through it is [`Research`], a
-//! few booleans and a count of minutes, which `world` keeps and hashes:
-//! a server and a client have to agree about what a crew knows, or one
-//! ship builds what the other refuses.
+//! few booleans, a count of minutes and the queue, which `world` keeps
+//! and hashes: a server and a client have to agree about what a crew
+//! knows and what it will know next, or one ship builds what the other
+//! refuses.
 
 use crate::parts::PartKind;
 
-/// How many tiers the tree has. The first is the starting point; the
-/// others are to come, and every table here is sized so that they can.
+/// How many tiers the tree has. The first is the starting point, the
+/// second holds the upgrades node, and the third is declared and empty;
+/// every table here is sized so that it can be filled.
 pub const TIERS: u32 = 3;
 
-/// A tier-one research key's size in a pack, cells across and down — and
-/// the slot in a tier-one research desk, which is exactly that size.
+/// A research key's size in a pack, cells across and down — either tier's
+/// — and the slot in a research desk, which is exactly that size.
 pub const KEY_CELLS: (u32, u32) = (1, 2);
 
 /// One node of the tree. The discriminants cross the seam as numbers —
@@ -81,12 +102,17 @@ pub enum Node {
     /// The hyperdrive: a jump to another star. After fusion power, behind
     /// a tier-one key of its own.
     Hyperdrive = 8,
+    /// The workbench's upgrades: two of a kind at one tier into one of
+    /// the next, one to two and two to three alike. After the armoury,
+    /// behind a tier-two key — the first tier-two node, and the one
+    /// thing the enemy's desks are worth walking to.
+    Upgrades = 9,
 }
 
 impl Node {
     /// Every node, in discriminant order. `ALL[n as usize] == n`, which
     /// [`Node::def`] relies on and [`tree_is_sound`] checks.
-    pub const ALL: [Node; 9] = [
+    pub const ALL: [Node; 10] = [
         Node::Survival,
         Node::Mining,
         Node::Medicine,
@@ -96,6 +122,7 @@ impl Node {
         Node::Armoury,
         Node::Emitters,
         Node::Hyperdrive,
+        Node::Upgrades,
     ];
 
     pub fn code(self) -> u32 {
@@ -137,8 +164,11 @@ pub struct NodeDef {
     pub minutes: u32,
 }
 
-/// The tree. Placeholder times throughout: hours for the workshop
-/// nodes, a day for the fusion reactor, half a day for each locked node.
+/// The tree. Placeholder times throughout, and every tier-one time
+/// doubled in September 2026 (feature 64: research was over too soon):
+/// a third and a half of a day for the workshop nodes, two days for the
+/// fusion reactor, most of a day to a day and a quarter for each locked
+/// node.
 pub static RESEARCH: [NodeDef; NODES] = [
     NodeDef {
         node: Node::Survival,
@@ -166,42 +196,49 @@ pub static RESEARCH: [NodeDef; NODES] = [
         requires: &[Node::Mining],
         tier: 1,
         locked: false,
-        minutes: 240,
+        minutes: 480,
     },
     NodeDef {
         node: Node::Workshop,
         requires: &[Node::Smelting],
         tier: 1,
         locked: false,
-        minutes: 360,
+        minutes: 720,
     },
     NodeDef {
         node: Node::FusionPower,
         requires: &[Node::Workshop],
         tier: 1,
         locked: false,
-        minutes: 1_440,
+        minutes: 2_880,
     },
     NodeDef {
         node: Node::Armoury,
         requires: &[Node::Workshop],
         tier: 1,
         locked: true,
-        minutes: 720,
+        minutes: 1_440,
     },
     NodeDef {
         node: Node::Emitters,
         requires: &[Node::Workshop],
         tier: 1,
         locked: true,
-        minutes: 600,
+        minutes: 1_200,
     },
     NodeDef {
         node: Node::Hyperdrive,
         requires: &[Node::FusionPower],
         tier: 1,
         locked: true,
-        minutes: 900,
+        minutes: 1_800,
+    },
+    NodeDef {
+        node: Node::Upgrades,
+        requires: &[Node::Armoury],
+        tier: 2,
+        locked: true,
+        minutes: 1_440,
     },
 ];
 
@@ -222,11 +259,13 @@ pub fn node_of_part(kind: PartKind) -> Node {
 }
 
 /// Which node a row of `crate::recipes::RECIPES` waits on, by index. The
-/// emitter is its own node; the armour at the workbench is the armoury's,
-/// since it is what a fight wants; everything else waits on its bench.
+/// emitter is its own node, and so is the sentry kit, which fires through
+/// one; the armour at the workbench is the armoury's, since it is what a
+/// fight wants; everything else waits on its bench — the sandbag kit on
+/// the workshop, like the components.
 pub fn node_of_recipe(index: usize) -> Node {
     match index {
-        2 => Node::Emitters,
+        2 | 15 => Node::Emitters,
         7..=9 => Node::Armoury,
         i => crate::recipes::RECIPES
             .get(i)
@@ -248,6 +287,10 @@ pub struct Research {
     pub current: Option<Node>,
     /// Minutes put into `current` so far.
     pub progress: f64,
+    /// What the AI goes onto next, in order: never a node that is known
+    /// or on the AI, and each one's prerequisites known, on the AI or
+    /// earlier in this list — see the module note.
+    pub queue: Vec<Node>,
 }
 
 impl Default for Research {
@@ -268,6 +311,7 @@ impl Research {
             unlocked: [false; NODES],
             current: None,
             progress: 0.0,
+            queue: Vec::new(),
         }
     }
 
@@ -306,6 +350,12 @@ impl Research {
         self.is_done(node_of_recipe(index))
     }
 
+    /// Whether the workbench may take two of a kind up a tier: the
+    /// upgrades node, which covers both steps.
+    pub fn upgrades_allowed(&self) -> bool {
+        self.is_done(Node::Upgrades)
+    }
+
     /// Open a node's lock. What consuming a key does; the caller has
     /// taken a key of the node's tier out of the desk. `false` for a node
     /// that has no lock, is open already or is researched, in which case
@@ -324,30 +374,117 @@ impl Research {
         node.def().locked.then_some(node.def().tier)
     }
 
-    /// Put the AI onto a node. Starting a different node loses what was
-    /// put into the last one: the AI thinks about one thing at a time.
-    /// `false` when the node cannot be begun.
-    pub fn begin(&mut self, node: Node) -> bool {
-        if !self.available(node) {
+    /// Whether a node is spoken for: known, on the AI, or in the queue.
+    pub fn planned(&self, node: Node) -> bool {
+        self.is_done(node) || self.current == Some(node) || self.queue.contains(&node)
+    }
+
+    /// Whether every node from this one back to what is known is open:
+    /// planned already, or with its lock open and its own prerequisites
+    /// the same. What [`Research::enqueue`] wants of the chain it would
+    /// queue.
+    fn chain_open(&self, node: Node) -> bool {
+        self.planned(node)
+            || (self.is_unlocked(node) && node.def().requires.iter().all(|&r| self.chain_open(r)))
+    }
+
+    /// Whether [`Research::enqueue`] would take a node: not planned
+    /// already, and nothing it needs — however far back — still behind
+    /// a key.
+    pub fn queueable(&self, node: Node) -> bool {
+        !self.planned(node) && self.chain_open(node)
+    }
+
+    /// Put a node at the back of the queue, with whatever it needs that
+    /// is not yet planned ahead of it, prerequisites first. `false`, and
+    /// nothing queued, when it is planned already or something in that
+    /// chain is behind a key. The AI goes onto the head of the queue at
+    /// the next [`Research::next`].
+    pub fn enqueue(&mut self, node: Node) -> bool {
+        if !self.queueable(node) {
             return false;
         }
-        if self.current != Some(node) {
-            self.progress = 0.0;
-        }
-        self.current = Some(node);
+        self.push_chain(node);
         true
     }
 
-    /// Take the AI off whatever it is on. What was put in is lost, as it
-    /// is when it is put onto something else: it thinks about one thing
-    /// at a time, and an idle AI is thinking about nothing.
-    pub fn cancel(&mut self) {
+    fn push_chain(&mut self, node: Node) {
+        if self.planned(node) {
+            return;
+        }
+        for &r in node.def().requires {
+            self.push_chain(r);
+        }
+        self.queue.push(node);
+    }
+
+    /// Take a node out of the queue, and with it everything queued that
+    /// needed it: what came out, the node first — empty for a node not in
+    /// the queue.
+    pub fn dequeue(&mut self, node: Node) -> Vec<Node> {
+        if !self.queue.contains(&node) {
+            return Vec::new();
+        }
+        self.queue.retain(|&n| n != node);
+        let mut out = vec![node];
+        out.extend(self.prune());
+        out
+    }
+
+    /// Put an idle AI onto the first queued node it can begin. The node
+    /// it went onto, if it went onto one; `None` while it is busy or the
+    /// queue holds nothing it can begin.
+    pub fn next(&mut self) -> Option<Node> {
+        if self.current.is_some() {
+            return None;
+        }
+        let at = self.queue.iter().position(|&n| self.available(n))?;
+        let node = self.queue.remove(at);
+        self.current = Some(node);
+        self.progress = 0.0;
+        Some(node)
+    }
+
+    /// Take the AI off whatever it is on. What was put in is lost: it
+    /// thinks about one thing at a time, and an idle AI is thinking
+    /// about nothing. Whatever was queued behind it that needed it comes
+    /// out of the queue too, and is the returned list; the AI goes onto
+    /// what is left at the next [`Research::next`].
+    pub fn cancel(&mut self) -> Vec<Node> {
         self.current = None;
         self.progress = 0.0;
+        self.prune()
+    }
+
+    /// Drop from the queue whatever cannot be carried out any more: a
+    /// node known already, or one needing a node that is neither known,
+    /// on the AI nor queued — and then whatever needed *that*. What came
+    /// out, in queue order.
+    fn prune(&mut self) -> Vec<Node> {
+        let mut out = Vec::new();
+        loop {
+            let kept: Vec<Node> = self
+                .queue
+                .iter()
+                .copied()
+                .filter(|&n| {
+                    !self.is_done(n)
+                        && n.def().requires.iter().all(|&r| {
+                            self.is_done(r) || self.current == Some(r) || self.queue.contains(&r)
+                        })
+                })
+                .collect();
+            if kept.len() == self.queue.len() {
+                return out;
+            }
+            out.extend(self.queue.iter().copied().filter(|n| !kept.contains(n)));
+            self.queue = kept;
+        }
     }
 
     /// `minutes` more of the AI's time on the current node. The node it
-    /// finished, if it finished one this call; the AI then stands idle.
+    /// finished, if it finished one this call; the AI then stands idle
+    /// until the next [`Research::next`].
     pub fn advance(&mut self, minutes: f64) -> Option<Node> {
         let node = self.current?;
         if !self.available(node) {

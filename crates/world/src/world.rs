@@ -47,18 +47,24 @@ use shipdesign::{CARGO_SLOTS, ShipDesign, design_hash};
 use worldgen::math::{DVec2, dvec2};
 use worldgen::{Galaxy, GalaxyType, Node, StarSystem};
 
-use bims::combat::{ArmourKind, Item, LOOT_CELLS, LootCell, PACK_CELLS, Tier, Weapon, WeaponKind};
+use bims::combat::{
+    ArmourKind, Item, LOOT_CELLS, LootCell, PACK_CELLS, Sentry, Tier, Weapon, WeaponKind,
+};
 use bims::game::Container;
 use bims::health::Part;
+use bims::order::CrewOrder;
 use bims::sight::Stance;
 
 use crate::armour::{self, FetchKind, LootSource, Piece, Where};
 use crate::build::{self, BuildSite, SiteRefusal};
+use crate::class::{self, Class, Progress, Side, Talent};
+use crate::deploy::{self, Deck, DeployKind, Deployable, Kit};
 use crate::crew::{Aboard, Residents};
 use crate::data;
 use crate::event::{Refusal, WorldEvent};
 use crate::frame::{self, Frame};
 use crate::grid::{Grid, Kept, Wanted};
+use crate::memory::{self, Losses, SystemMemory};
 use crate::mercenary::{self, Hired, Offer};
 use crate::mining::{self, MiningSite};
 use crate::plunder::{self, Plunder};
@@ -254,37 +260,54 @@ pub enum Command {
         id: u32,
     },
     /// Take the research key off the research desk of the station the
-    /// ship is tied to, into crew member `who`'s pack: the ship docked,
-    /// a key there (`World::station_keys`), `who` alive, awake, aboard
-    /// and within [`data::REACH`] of that desk, and two cells free in the
-    /// pack, one over the other — a key is that big. The desk is bare
-    /// after; the key is stowed in the crew's own desk from the pack
-    /// like anything else, and consumed there by an `Unlock`.
+    /// ship is tied to, into crew member `who`'s pack, whichever tier
+    /// lies there (`World::station_keys`: tier one on a friend's desk,
+    /// tier two on every enemy's): the ship docked, a key there, `who`
+    /// alive, awake, aboard and within [`data::REACH`] of that desk, and
+    /// two cells free in the pack, one over the other — a key is that
+    /// big. Nothing about whose desk it is or whether its people stand:
+    /// a key is taken at a hostile dock in the middle of the fight. The
+    /// desk is bare after; the key is stowed in the crew's own desk from
+    /// the pack like anything else, and consumed there by an `Unlock`.
     TakeKey {
         slot: u32,
         who: u32,
     },
     /// Consume the research key in the crew's research desk to open the
     /// lock on node `node` (`shipdesign::research::Node`'s code) — one
-    /// key, one node. Wants a key in the desk and a powered research desk
-    /// aboard; a node open already, or with no lock, is refused, so no
-    /// key is spent for nothing.
+    /// key, one node, and a key of **the node's own tier**
+    /// (`Research::key_wanted`): a desk holding only the other tier's
+    /// key is refused `NoKey` and that key stays. Wants a powered
+    /// research desk aboard; a node open already, or with no lock, is
+    /// refused, so no key is spent for nothing.
     Unlock {
         slot: u32,
         node: u32,
     },
-    /// Put the ship's AI onto node `node` of the research tree
-    /// (`shipdesign::research::Node`'s code). Wants a research desk
-    /// aboard and the node to be one that can be begun; what the AI was on
-    /// before is dropped. A command because every player's ship has to
-    /// agree about what its crew know.
+    /// Queue node `node` of the research tree (`shipdesign::research::Node`'s
+    /// code) for the ship's AI, with whatever it needs that is not yet
+    /// known or queued ahead of it (`Research::enqueue`): the AI goes
+    /// onto the head of the queue whenever it is idle and the desk has
+    /// power, so a node queued while it is idle is begun the same step.
+    /// Wants a research desk aboard, and refuses a node planned already
+    /// or one whose chain is behind a key. A command because every
+    /// player's ship has to agree about what its crew know, and what
+    /// they will know next.
     Research {
         slot: u32,
         node: u32,
     },
-    /// Take the AI off whatever it is on.
+    /// Take the AI off whatever it is on: what was put in is lost, and
+    /// whatever was queued that needed it comes off the queue too. The AI
+    /// goes onto what is left of the queue the same step.
     CancelResearch {
         slot: u32,
+    },
+    /// Take node `node` off the research queue, and with it everything
+    /// queued that needed it. A node not in the queue is refused.
+    Dequeue {
+        slot: u32,
+        node: u32,
     },
     /// Whether the crew combine matching gear at the workbench: with `on`,
     /// whenever the hold has two of a kind at the same tier and a
@@ -344,6 +367,96 @@ pub enum Command {
         cell: u32,
         to: u32,
         turned: bool,
+    },
+    /// An order to the crew's room — a click on the deck, a walk, a row
+    /// of a fixture's menu, a box on the Management tab — see
+    /// [`bims::order::CrewOrder`]. A command because the crew's positions
+    /// are in the checksum: every player's ship has to agree about who
+    /// walked where, so nothing reaches into the room except through
+    /// here. Three of them the world answers itself — `ToHelm`, `ToDesk`,
+    /// `StandDown` — since the room does not know where the helm is;
+    /// the rest go to `Game::order`. A walk with no way there is
+    /// `Refused` with `DoorLocked` or `NoWayThere`; every other order
+    /// shows its answer on the deck and says nothing.
+    Crew {
+        slot: u32,
+        order: CrewOrder,
+    },
+    /// The same order given with Shift held (feature 69): it waits its
+    /// turn on the crew member's queue behind what it is on rather than
+    /// displacing it — `Game::order_later`. A walk with no way there is
+    /// refused the same way; the rest are dropped without a word when
+    /// their turn comes and they cannot be begun.
+    CrewLater {
+        slot: u32,
+        order: CrewOrder,
+    },
+    /// Walk that player's own crew member to the helm, to stand there
+    /// until sent elsewhere — what a Confirm from the strip does first.
+    /// Nothing with no helm or no way to it.
+    ToHelm {
+        slot: u32,
+    },
+    /// Walk that player's own crew member to the station's trading desk.
+    /// Nothing with no desk.
+    ToDesk {
+        slot: u32,
+    },
+    /// Choose that player's class (feature 74, `crate::class`): what its
+    /// own crew member is. Allowed until the ship first leaves its
+    /// berth, refused `ClassLocked` after. An engineer sets out with
+    /// [`crate::deploy::ENGINEER_START_KITS`] sandbag kits in its pack,
+    /// and a class put back to none takes them out again.
+    SetClass {
+        slot: u32,
+        class: Class,
+    },
+    /// Pick a talent for that player's own crew member: one side of a
+    /// pick level it has reached and not picked at yet. Refused
+    /// `NotAnEngineer` without a class, `NotAPickLevel`, `LevelNotReached`
+    /// or `AlreadyPicked` otherwise; a pick is never changed.
+    PickTalent {
+        slot: u32,
+        level: u32,
+        side: Side,
+    },
+    /// Send that player's own engineer to lay `kit` on the tile `(x, y)`
+    /// of the crew's room — a room tile, which the world puts on the ship's
+    /// deck or the station's by where it lies. Wants the Bim fit to act,
+    /// an engineer, the kit in its pack, for a sentry the third level and
+    /// a sentry short of its limit, and a tile of reachable deck floor
+    /// that is not a door, holds no blocking part and no deployable
+    /// (`CantDeployThere`). The Bim walks beside it and works there —
+    /// see `crate::deploy`.
+    Deploy {
+        slot: u32,
+        kit: Kit,
+        x: i32,
+        y: i32,
+    },
+    /// Take deployable `id` back into that player's own engineer's pack
+    /// as a kit: the engineer fit to act and within [`data::REACH`] of it,
+    /// with room in the pack. Counted as a re-used kit.
+    PackUp {
+        slot: u32,
+        id: u32,
+    },
+    /// Refill sentry `id` to its full shots: that player's own engineer
+    /// within reach of it, and [`crate::deploy::SENTRY_REFILL_METAL`] in
+    /// the hold — none wanted with *field refit*.
+    Refill {
+        slot: u32,
+        id: u32,
+    },
+    /// Begin a repair at the workbench — the engineer's *armourer*
+    /// talent: a damaged piece in the bench's first input slot, the
+    /// second empty, [`crate::deploy::ARMOUR_REPAIR_METAL`] in the hold,
+    /// and that player's own engineer with the talent, who alone works
+    /// the session. The piece comes out in the output slot with
+    /// [`crate::class::ARMOUR_REPAIR_PER_METAL`] back on it, capped at
+    /// its tier's full health.
+    Repair {
+        slot: u32,
     },
 }
 
@@ -646,11 +759,12 @@ pub struct World {
     /// What the crew know how to build and make, and what the AI is on —
     /// `shipdesign::research`. In `world_checksum` whole.
     pub research: Research,
-    /// Whether each station's research desk still has its key on it, by
-    /// index into `stations`: what the blueprint rolled (`Station::key`),
-    /// the spawn's always, until a crew member takes it. In
-    /// `world_checksum` whole.
-    pub station_keys: Vec<bool>,
+    /// Which tier of research key each station's desk still has on it —
+    /// nought for none, one, two — by index into `stations`: what the
+    /// blueprint rolled (`Station::key`; tier one on a friend's desk,
+    /// tier two on every enemy's), the spawn's tier one always, until a
+    /// crew member takes it. In `world_checksum` whole.
+    pub station_keys: Vec<u8>,
     /// The weapons in the hold, each with its tier, sorted by kind and
     /// tier. **The hold's count of each weapon resource is always the
     /// number of these of that kind** — [`World::settle_guns`] holds it
@@ -718,6 +832,43 @@ pub struct World {
     /// at the cast-off, and a jump leaves them all behind with the
     /// system. See [`crate::plunder`]. In `world_checksum` whole.
     pub plunder: Vec<Plunder>,
+    /// What every station of this system has lost to the crew — its own
+    /// people dead, its mercenaries hired away or dead — by the station's
+    /// id, sorted. Added to whenever a station's room is closed
+    /// ([`World::close_residents`]) and taken off the crowd the room is
+    /// opened with again ([`World::people_of`], [`World::mercenaries_of`]),
+    /// so a station raided stays raided. See [`crate::memory`]. In
+    /// `world_checksum` whole.
+    pub losses: Vec<Losses>,
+    /// Every system the ship has jumped out of, as it was left: the
+    /// fields above that belong to the system rather than the ship —
+    /// the hostile list, the keys, the sites, the plunder, the stations'
+    /// lamps, the chart and the losses — filed by star at the jump out
+    /// and put back at the jump in. See [`crate::memory`]. In
+    /// `world_checksum` whole.
+    pub memories: Vec<SystemMemory>,
+    /// Each player's class, by slot (feature 74, `crate::class`): what
+    /// its own crew member is. Chosen before the game opens and kept
+    /// with the start; `Command::SetClass` may change it until the ship
+    /// first leaves its berth. In `world_checksum`.
+    pub classes: Vec<Class>,
+    /// Each crew member's way through its class, by index: experience
+    /// and the picks made. Only a player's own gains any. In
+    /// `world_checksum` whole.
+    pub progress: Vec<Progress>,
+    /// Whether the ship has ever left its first berth: what locks the
+    /// classes. In `world_checksum`.
+    pub undocked_once: bool,
+    /// Every deployable laid and standing, in id order: an engineer's
+    /// sandbags and sentries, on the ship's deck or a station's. See
+    /// [`crate::deploy`]. In `world_checksum` whole.
+    pub deployables: Vec<Deployable>,
+    /// The next deployable's id. Only ever climbs, like a site's.
+    pub next_deployable: u32,
+    /// Kits each crew member has taken back — packed up, salvaged — and
+    /// not laid again yet, by index: a deploy uses one of these before a
+    /// fresh kit, and gives no experience for it. In `world_checksum`.
+    pub reused_kits: Vec<u32>,
 }
 
 /// A lamp a fight has damaged, remembered by where it hangs: which
@@ -775,6 +926,10 @@ pub struct Workbench {
     /// say once the thing is off its slot.
     pub back: bool,
     pub work: Option<Upgrade>,
+    /// The engineer repairing the piece in the first slot, by crew index,
+    /// while a repair is under way (feature 74, *armourer*): the one Bim
+    /// the session is offered to. `None` with no repair on.
+    pub repair: Option<u32>,
 }
 
 impl Workbench {
@@ -787,7 +942,16 @@ impl Workbench {
 
     /// Whether nothing is on the bench, in the arms or under way.
     pub fn is_empty(&self) -> bool {
-        self.slots.iter().all(|s| s.is_none()) && self.carrying.is_none() && self.work.is_none()
+        self.slots.iter().all(|s| s.is_none())
+            && self.carrying.is_none()
+            && self.work.is_none()
+            && self.repair.is_none()
+    }
+
+    /// Whether anybody is at work on what is on the bench: an upgrade's
+    /// day, or a repair.
+    pub fn busy(&self) -> bool {
+        self.work.is_some() || self.repair.is_some()
     }
 
     /// The first empty input slot, if either is.
@@ -817,13 +981,18 @@ impl Workbench {
     /// work under way, and — with the other slot filled — the same kind at
     /// the same tier as what is there, below tier three.
     pub fn takes(&self, item: Item) -> Result<usize, Refusal> {
-        if self.work.is_some() {
+        if self.busy() {
             return Err(Refusal::BenchBusy);
         }
         let (Some(resource), Some(tier)) = (armour::resource_of_item(item), tier_of(item)) else {
             return Err(Refusal::NoPair);
         };
-        if tier.next().is_none() {
+        // A damaged piece goes onto an empty bench at any tier: a repair
+        // (feature 74) wants no pair, and a tier-three piece has nowhere
+        // to go up but can still be mended.
+        let mending = matches!(item, Item::Armour(p) if p.health < p.stats().health)
+            && self.slots.iter().all(|s| s.is_none());
+        if tier.next().is_none() && !mending {
             return Err(Refusal::NoPair);
         }
         let Some(free) = self.free_in() else {
@@ -943,9 +1112,9 @@ impl World {
         let start_worth = shipdesign::Budget::spent(&design);
         let dynamics = flight::dynamics(&design, crew).map_err(StartError::NotAShip)?;
         let aboard = Aboard::new(&design, crew, seed);
-        let station_keys: Vec<bool> = stations
+        let station_keys: Vec<u8> = stations
             .iter()
-            .map(|s| s.key || s.id == station_id)
+            .map(|s| if s.id == station_id { 1 } else { s.key })
             .collect();
         let design_for_charge = design.clone();
         let ship = Ship {
@@ -1017,6 +1186,14 @@ impl World {
             raids: Raids::new(seed),
             lost: false,
             plunder: Vec::new(),
+            losses: Vec::new(),
+            memories: Vec::new(),
+            classes: vec![Class::None; players as usize],
+            progress: vec![Progress::default(); crew as usize],
+            undocked_once: false,
+            deployables: Vec::new(),
+            next_deployable: 1,
+            reused_kits: vec![0; crew as usize],
         };
 
         // Whatever armour the design was accepted carrying is so many
@@ -1095,6 +1272,11 @@ impl World {
         //    `dock_at` again, as at any berth. See `crate::raid`.
         self.run_raid(&mut events);
         let now = self.ship.position();
+        //    And whether the ship has ever left its berth, which is what
+        //    locks the classes (feature 74).
+        if !matches!(self.ship.state, ShipState::Docked { .. }) {
+            self.undocked_once = true;
+        }
 
         // 4. What that brought into range.
         self.discover_along(was, now, &mut events);
@@ -1118,6 +1300,10 @@ impl World {
         );
         let seat = if wants_helm { self.helm_spot() } else { None };
         self.aboard.set_helm(seat);
+        //    And how many of the crew are players' own: a room is built
+        //    afresh at every dock and undock and starts at one, so it is
+        //    told every step, before it moves anybody (`bims::order`).
+        self.aboard.room.set_players(self.players());
         //    And what the benches are wanted for, worked out fresh from the
         //    hold, the targets and the power; then, after the step, what
         //    they finished, moved through the hold.
@@ -1142,13 +1328,21 @@ impl World {
         let builds = self.build_orders();
         let suit_ok = self.suit_ok();
         self.aboard.room.set_build_orders(builds, suit_ok);
+        //    And the engineers' work (feature 74): what their talents do
+        //    to the working steps, which of them keep at a deploy under
+        //    fire, the sandbags laid as cover on both rooms, and the
+        //    sentries on the crew's deck to be fired there. What the fight
+        //    did to them is read back after `visit`.
+        self.hand_the_room_the_engineers();
         self.aboard.step();
         if let Some(residents) = &mut self.residents {
             residents.aboard.step();
         }
         self.visit(&mut events);
+        self.settle_deployables(&mut events);
         self.sync_lamps();
         self.casualties(&mut events);
+        self.experience(&mut events);
         self.melee_locks(&mut events);
         //    What the fight did to the raid: the boarders re-posted at the
         //    gangway after it, or all down and the raider a derelict; and
@@ -1206,8 +1400,12 @@ impl World {
         for ferry in self.aboard.room.take_ferry_returned() {
             self.finish_ferry_return(ferry);
         }
-        for site in self.aboard.room.take_built() {
-            self.finish_build(site, &mut events);
+        for (site, who) in self.aboard.room.take_built() {
+            self.finish_build(site, who, &mut events);
+        }
+        //    And the kits laid, each a deployable put down.
+        for (who, at, sentry) in self.aboard.room.take_deployed() {
+            self.finish_deploy(who, at, sentry, &mut events);
         }
 
         // 8. Health and radiation: each crew member's body, dosed while it
@@ -1248,11 +1446,22 @@ impl World {
             | Command::Unlock { slot, .. }
             | Command::Research { slot, .. }
             | Command::CancelResearch { slot }
+            | Command::Dequeue { slot, .. }
             | Command::SetAutoUpgrade { slot, .. }
             | Command::Upgrade { slot }
             | Command::StowOnBench { slot, .. }
             | Command::Arrange { slot, .. }
-            | Command::Repack { slot, .. } => slot,
+            | Command::Repack { slot, .. }
+            | Command::Crew { slot, .. }
+            | Command::CrewLater { slot, .. }
+            | Command::ToHelm { slot }
+            | Command::ToDesk { slot }
+            | Command::SetClass { slot, .. }
+            | Command::PickTalent { slot, .. }
+            | Command::Deploy { slot, .. }
+            | Command::PackUp { slot, .. }
+            | Command::Refill { slot, .. }
+            | Command::Repair { slot } => slot,
         };
 
         match command {
@@ -1320,7 +1529,8 @@ impl World {
             Command::Plunder { who, id, .. } => self.plunder(slot, who, id, events),
             Command::Unlock { node, .. } => self.unlock(slot, node, events),
             Command::Research { node, .. } => self.research(slot, node, events),
-            Command::CancelResearch { .. } => self.research.cancel(),
+            Command::CancelResearch { .. } => self.cancel_research(events),
+            Command::Dequeue { node, .. } => self.dequeue(slot, node, events),
             Command::SetAutoUpgrade { on, .. } => self.auto_upgrade = on,
             Command::Upgrade { .. } => {
                 if let Err(why) = self.begin_upgrade(events) {
@@ -1343,6 +1553,47 @@ impl World {
                 turned,
                 ..
             } => self.repack(slot, who, cell, to, turned, events),
+            Command::Crew { order, .. } => {
+                // A room built since the last step starts at one player.
+                self.aboard.room.set_players(self.players());
+                let code = self.aboard.room.order(slot, order);
+                // A walk with no way there is the one order that is said:
+                // the room's `ORDER_LOCKED` and `ORDER_NOWHERE`.
+                if let Some(why) = walk_refusal(code) {
+                    events.push(refused(slot, why));
+                }
+            }
+            Command::CrewLater { order, .. } => {
+                self.aboard.room.set_players(self.players());
+                let code = self.aboard.room.order_later(slot, order);
+                if let Some(why) = walk_refusal(code) {
+                    events.push(refused(slot, why));
+                }
+            }
+            Command::ToHelm { .. } => {
+                self.order_to_helm(slot);
+            }
+            Command::ToDesk { .. } => {
+                self.walk_to_desk(slot);
+            }
+            Command::SetClass { class, .. } => {
+                if let Err(why) = self.set_class(slot, class) {
+                    events.push(refused(slot, why));
+                }
+            }
+            Command::PickTalent { level, side, .. } => self.pick_talent(slot, level, side, events),
+            Command::Deploy { kit, x, y, .. } => {
+                if let Err(why) = self.deploy(slot, kit, (x, y)) {
+                    events.push(refused(slot, why));
+                }
+            }
+            Command::PackUp { id, .. } => self.pack_up(slot, id, events),
+            Command::Refill { id, .. } => self.refill(slot, id, events),
+            Command::Repair { .. } => {
+                if let Err(why) = self.begin_repair(slot, events) {
+                    events.push(refused(slot, why));
+                }
+            }
         }
     }
 
@@ -1514,31 +1765,40 @@ impl World {
             return false;
         };
         let at = crate::jump::landing_point(&system);
+        // The system left behind, as it was left — its station's room
+        // closed first, so its dead are counted — filed under its star.
+        self.close_residents();
+        self.remember_system();
         self.star_id = star;
         self.system = system;
         self.stations = Station::all_of(&self.system);
         self.surfaces = Surface::all_of(&self.system, self.galaxy_seed);
-        let mut hostile: Vec<u32> = self
-            .stations
-            .iter()
-            .filter(|s| s.hostile)
-            .map(|s| s.id)
-            .chain(self.surfaces.iter().filter(|s| s.hostile).map(|s| s.id))
-            .collect();
-        hostile.sort_unstable();
-        self.hostile = hostile;
-        self.station_keys = self.stations.iter().map(|s| s.key).collect();
         // A raider closing on the ship is left behind with the system.
         if matches!(self.raids.state, Raid::Closing { .. }) {
             self.raids.state = Raid::Quiet;
             events.push(WorldEvent::RaidCancelled);
         }
-        self.residents = None;
-        self.reinforcements = 0;
-        self.sites.clear();
-        self.plunder.clear();
+        // The system arrived at: as the crew left it, if they have been
+        // here, else as the generator rolled it.
+        if !self.recall_system(star) {
+            let mut hostile: Vec<u32> = self
+                .stations
+                .iter()
+                .filter(|s| s.hostile)
+                .map(|s| s.id)
+                .chain(self.surfaces.iter().filter(|s| s.hostile).map(|s| s.id))
+                .collect();
+            hostile.sort_unstable();
+            self.hostile = hostile;
+            self.station_keys = self.stations.iter().map(|s| s.key).collect();
+            self.reinforcements = 0;
+            self.sites.clear();
+            self.plunder.clear();
+            self.lamps.retain(|d| d.station.is_none());
+            self.discovered.clear();
+            self.losses.clear();
+        }
         self.site_version += 1;
-        self.discovered.clear();
         self.ship.state = ShipState::Holding;
         self.ship.destination_set_by = None;
         self.ship.pending = None;
@@ -1592,6 +1852,7 @@ impl World {
                     self.raids.state = Raid::Quiet;
                     self.hostile.retain(|&id| id != station);
                     self.plunder.retain(|p| p.station != station);
+                    self.losses.retain(|l| l.station != station);
                 }
                 let slot = self.ship.pending.map(|(slot, _)| slot).unwrap_or(0);
                 events.push(match surface {
@@ -2057,6 +2318,7 @@ impl World {
                 self.raids.state = Raid::Docked {
                     station,
                     boarders,
+                    breached: false,
                     repelled: false,
                 };
                 // Its people are enemies from the first step it is there.
@@ -2068,6 +2330,9 @@ impl World {
                 self.ship.destination_set_by = None;
                 self.ship.pending = None;
                 self.dock_at(id);
+                // Nobody asked it aboard: the airlock is locked in its
+                // face, and its boarders have to force it.
+                self.seal_against_raid();
                 self.on_ship_changed();
                 events.push(WorldEvent::RaidBoarded { boarders });
             }
@@ -2075,11 +2340,86 @@ impl World {
         }
     }
 
+    /// The ship's airlock as a door of the crew's room: the one the
+    /// port's opening is in, through the ship's shift on a joined deck.
+    /// `None` without a port, or while the room is the ship's alone and
+    /// the door is not in it.
+    pub fn ship_airlock_door(&self) -> Option<usize> {
+        let port = shipdesign::port(&self.ship.design)?;
+        let (px, py) = port.centre;
+        let at = self.aboard.offset.add(dvec2(px, py));
+        self.aboard
+            .room
+            .door_index_at(bims::math::vec2(at.x as f32, at.y as f32))
+    }
+
+    /// Lock the ship's airlock against a raider the step it ties up: the
+    /// crew's lock, the one the panel sets, so the panel unlocks it too.
+    /// The boarders posted at the gangway find it shut and force it
+    /// (`bims::game::Game::breach`); `sync_doors` carries the lock into
+    /// their room next step. Nothing without a port, or with the door
+    /// already locked.
+    fn seal_against_raid(&mut self) {
+        let Some(door) = self.ship_airlock_door() else {
+            return;
+        };
+        if self.aboard.room.ship_door_is_locked(door) {
+            return;
+        }
+        self.aboard
+            .room
+            .order_door_now(door, bims::door::Order::Lock);
+    }
+
+    /// How far the raider's boarders have got with forcing the ship's
+    /// airlock, nought to one, while they are at it — the bar over the
+    /// door, for the warning. `None` when nobody is heaving at it: not
+    /// raided, the door not locked, or the boarders not there yet.
+    pub fn raid_forcing(&self) -> Option<f32> {
+        if !self.raided() {
+            return None;
+        }
+        let door = self.ship_airlock_door()?;
+        self.aboard.room.door_states().get(door)?.smash
+    }
+
+    /// Whether the ship's airlock still holds a raider's boarders out:
+    /// tied to a raider, and the lock not yet given.
+    pub fn raid_airlock_holds(&self) -> bool {
+        matches!(
+            self.raids.state,
+            Raid::Docked {
+                breached: false,
+                ..
+            }
+        ) && self.raided()
+    }
+
+    /// How many minutes of the clock until a closing raider arrives, if
+    /// one is closing — the warning's countdown. Never below nought.
+    pub fn raid_minutes_left(&self) -> Option<f64> {
+        match &self.raids.state {
+            Raid::Closing { arrives, .. } => Some((arrives - self.clock_minutes).max(0.0)),
+            _ => None,
+        }
+    }
+
     /// The raid after the fight, while the raider is tied up: the boarders
-    /// posted at the gangway again — a fight drops every post — and,
-    /// every one of them down, the raider a derelict, said once.
+    /// posted at the gangway again — a fight drops every post — the
+    /// airlock's lock gone said once (`RaidBreached`, whether they forced
+    /// it or the crew opened it), and, every one of them down, the raider
+    /// a derelict, said once.
     fn settle_raid(&mut self, events: &mut Vec<WorldEvent>) {
-        let Raid::Docked { repelled, .. } = &mut self.raids.state else {
+        let airlock_locked = self
+            .ship_airlock_door()
+            .is_some_and(|door| self.aboard.room.ship_door_is_locked(door));
+        let Raid::Docked {
+            boarders,
+            breached,
+            repelled,
+            ..
+        } = &mut self.raids.state
+        else {
             return;
         };
         let Some(residents) = &mut self.residents else {
@@ -2089,6 +2429,12 @@ impl World {
         // ashore, and a post at the gangway would send them back.
         if !matches!(self.ship.state, ShipState::Docked { .. }) || *repelled {
             return;
+        }
+        if !*breached && !airlock_locked {
+            *breached = true;
+            events.push(WorldEvent::RaidBreached {
+                boarders: *boarders,
+            });
         }
         let all_down =
             (0..residents.aboard.count() as usize).all(|who| residents.aboard.room.is_down(who));
@@ -2221,9 +2567,12 @@ impl World {
     /// How many people a station's room is opened with: the people who
     /// live there, or, at an enemy's, the enemies — [`enemies_of`] the
     /// crew's number and worth against [`World::start_worth`], and the
-    /// days gone by ([`World::days_gone`]). Nobody on a derelict either
-    /// way. Asked when the room opens, so a station keeps the crowd it
-    /// was reached with until the ship has gone and come back.
+    /// days gone by ([`World::days_gone`]) — **less its dead**
+    /// ([`World::losses`]): the people the crew have killed there stay
+    /// dead, so a station raided opens with its survivors and one emptied
+    /// opens empty. Nobody on a derelict either way. Asked when the room
+    /// opens, so a station keeps the crowd it was reached with until the
+    /// ship has gone and come back.
     pub fn people_of(&self, station: &Station) -> u32 {
         if station.residents() == 0 {
             return 0;
@@ -2234,7 +2583,7 @@ impl World {
         if raid::raider_index(station.id).is_some() {
             return station.residents();
         }
-        match self.stance(station.id) {
+        let crowd = match self.stance(station.id) {
             Stance::Hostile => enemies_of(
                 self.aboard.crew_count(),
                 self.worth(),
@@ -2244,22 +2593,25 @@ impl World {
             .saturating_add(self.reinforcements)
             .min(data::ENEMIES_MAX),
             Stance::Friendly | Stance::Neutral => station.residents(),
-        }
+        };
+        crowd.saturating_sub(self.losses_at(station.id).dead)
     }
 
     /// How many mercenaries for hire live at a station, on top of
     /// [`World::people_of`]: none at an enemy's or on a derelict, else
     /// [`mercenary::how_many`] the crew's worth against
     /// [`World::start_worth`] off the station's seed — at least
-    /// `least_mercenaries` for the `test` command. Asked when the room
-    /// opens, like the people, so a station keeps its offer until the
-    /// ship has gone and come back.
+    /// `least_mercenaries` for the `test` command — **less those gone**
+    /// ([`World::losses`]): one hired onto the crew, or dead, is not there
+    /// to hire again. Asked when the room opens, like the people, so a
+    /// station keeps its offer until the ship has gone and come back.
     pub fn mercenaries_of(&self, station: &Station) -> u32 {
         if station.residents() == 0 || self.stance(station.id) == Stance::Hostile {
             return 0;
         }
         mercenary::how_many(self.worth(), self.start_worth, station.map_seed)
             .max(self.least_mercenaries)
+            .saturating_sub(self.losses_at(station.id).mercenaries)
     }
 
     /// Where this ship docks at that station: airlock to airlock, outside
@@ -2340,7 +2692,13 @@ impl World {
         // ship arrived faster than the room did.
         let residents = match self.residents.take() {
             Some(residents) if residents.station == id => residents,
-            _ => Residents::open(id, &design, count, mercs, seed, self.clock_minutes),
+            other => {
+                // Another station's room, if that is what was open, is
+                // closed the way the range closes one: its dead counted.
+                self.residents = other;
+                self.close_residents();
+                Residents::open(id, &design, count, mercs, seed, self.clock_minutes)
+            }
         };
         self.drop_loads();
         let ship_seed = self.galaxy_seed ^ self.steps;
@@ -2396,6 +2754,8 @@ impl World {
         self.residents = Some(residents);
         self.apply_stances();
         self.restore_lamps();
+        // And the laid sandbags onto both fresh rooms (feature 74).
+        self.sync_deployed_cover();
         self.lay_plunder();
         if banked {
             self.on_ship_changed();
@@ -2439,10 +2799,16 @@ impl World {
                 let s = self.station(station)?;
                 let count = self.people_of(s);
                 let mercs = self.mercenaries_of(s);
-                (count + mercs != r.aboard.count())
-                    .then(|| (s.design.clone(), count, mercs, s.map_seed))
+                (count + mercs != r.aboard.count()).then(|| (s.design.clone(), s.map_seed))
             });
-        if let Some((design, count, mercs, seed)) = reopen {
+        if let Some((design, seed)) = reopen {
+            // The old crowd's dead counted before the new crowd stands,
+            // and the new crowd is the fewer for them.
+            self.close_residents();
+            let (count, mercs) = self
+                .station(station)
+                .map(|s| (self.people_of(s), self.mercenaries_of(s)))
+                .unwrap_or((0, 0));
             let mut residents =
                 Residents::open(station, &design, count, mercs, seed, self.clock_minutes);
             // Docked there, the room is looked into the way `join_rooms`
@@ -2782,6 +3148,19 @@ impl World {
             .is_some_and(|r| self.stance(r.station) == Stance::Hostile);
         let hits = self.aboard.room.take_hits();
         let executed = self.aboard.room.take_executed();
+        // The engineers' sentries (feature 74), for the residents to be
+        // handed after the crew: each at its spot in the station's own
+        // units, with its rifle. Worked out before the residents' room
+        // is borrowed, since the owner's talents are the world's.
+        let sentry_targets: Vec<Option<(DVec2, Weapon)>> = self
+            .sentries_in_room()
+            .into_iter()
+            .map(|(d, at)| {
+                self.aboard
+                    .to_station(dvec2(at.x as f64, at.y as f64))
+                    .map(|p| (p, self.sentry_weapon(d.owner_slot)))
+            })
+            .collect();
         let Some(residents) = self.residents.as_mut().filter(|_| hostile) else {
             self.aboard.room.set_hostiles(Vec::new());
             if let Some(residents) = &mut self.residents {
@@ -2832,7 +3211,7 @@ impl World {
         // in cover is dodged half the time.
         // In the residents' room's own units: the station's design units
         // plus the shift its deck took when the ship was turned onto it.
-        let crew: Vec<Option<(bims::math::Vec2, Weapon)>> = self
+        let mut crew: Vec<Option<(bims::math::Vec2, Weapon)>> = self
             .aboard
             .crew_ashore()
             .into_iter()
@@ -2849,6 +3228,16 @@ impl World {
                 })
             })
             .collect();
+        // And the engineers' sentries after them (feature 74), each at
+        // its spot with its rifle: the nearest-target rule includes them,
+        // and a hit past the crew's count is a hit on one.
+        let crew_count = crew.len();
+        for target in sentry_targets {
+            crew.push(target.map(|(p, weapon)| {
+                let at = p.add(shift);
+                (bims::math::vec2(at.x as f32, at.y as f32), weapon)
+            }));
+        }
         room.set_hostiles(crew.clone());
         room.set_hostiles_peeking(&self.aboard.crew_peeking());
         // And the odds each dodges a bolt for its armour, the same way.
@@ -2880,12 +3269,20 @@ impl World {
                         .min_by(|a, b| a.1.total_cmp(&b.1))
                         .map(|(who, _)| who);
                     if let Some(who) = who {
-                        self.aboard.room.enemy_strike(
-                            on_deck(shot.from),
-                            who,
-                            shot.damage,
-                            shot.cut,
-                        );
+                        if who >= crew_count {
+                            self.aboard.room.enemy_strike_sentry(
+                                on_deck(shot.from),
+                                who - crew_count,
+                                shot.damage,
+                            );
+                        } else {
+                            self.aboard.room.enemy_strike(
+                                on_deck(shot.from),
+                                who,
+                                shot.damage,
+                                shot.cut,
+                            );
+                        }
                     }
                     continue;
                 }
@@ -2983,6 +3380,11 @@ impl World {
             if down && !self.crew_down[who] {
                 self.crew_down[who] = true;
                 events.push(WorldEvent::CrewDown { who: who as u32 });
+                // A dead crew member'"'"'s level, experience and talents die with
+                // it (feature 74).
+                if let Some(progress) = self.progress.get_mut(who) {
+                    *progress = Progress::default();
+                }
             }
         }
     }
@@ -3072,6 +3474,11 @@ impl World {
             }
         }
         self.restore_lamps();
+        // A station's deck is left behind with its deployables (feature
+        // 74); the ship's keep theirs, and both rooms are told the cover
+        // again on the next step, since a fresh `Sight` has none.
+        self.drop_station_deployables();
+        self.sync_deployed_cover();
         if banked {
             self.on_ship_changed();
         }
@@ -3084,6 +3491,82 @@ impl World {
             .iter()
             .map(|s| (s, s.clearance(here)))
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    }
+
+    /// The station's room closed, and what it lost while it was open
+    /// remembered: its own people dead and its mercenaries dead, added to
+    /// [`World::losses`] for the station, so the room opens again with
+    /// the survivors ([`World::people_of`], [`World::mercenaries_of`]).
+    /// The one door a residents' room goes out by, bar a probe's.
+    fn close_residents(&mut self) -> Option<Residents> {
+        let residents = self.residents.take()?;
+        let (mut own, mut hired) = (0u32, 0u32);
+        for who in 0..residents.aboard.count() as usize {
+            if residents.aboard.room.is_alive(who) {
+                continue;
+            }
+            match residents.fee.get(who) {
+                Some(Some(_)) => hired += 1,
+                _ => own += 1,
+            }
+        }
+        // A raider's are the raid's, gone with the raider.
+        if raid::raider_index(residents.station).is_none() {
+            memory::amend_losses(&mut self.losses, residents.station, |l| {
+                l.dead += own;
+                l.mercenaries += hired;
+            });
+        }
+        Some(residents)
+    }
+
+    /// What the station at `id` has lost to the crew.
+    pub fn losses_at(&self, id: u32) -> Losses {
+        memory::losses_at(&self.losses, id)
+    }
+
+    /// This system as the crew leave it, filed by its star on
+    /// [`World::memories`] — everything of the world that is the system's
+    /// rather than the ship's — for [`World::recall_system`] to put back.
+    /// Called by a jump out; the fields themselves are left as they are
+    /// for the jump to replace.
+    fn remember_system(&mut self) {
+        let memory = SystemMemory {
+            star: self.star_id,
+            hostile: self.hostile.clone(),
+            reinforcements: self.reinforcements,
+            station_keys: self.station_keys.clone(),
+            sites: self.sites.clone(),
+            plunder: self.plunder.clone(),
+            lamps: self
+                .lamps
+                .iter()
+                .filter(|d| d.station.is_some())
+                .copied()
+                .collect(),
+            discovered: self.discovered.clone(),
+            losses: self.losses.clone(),
+        };
+        memory::file_memory(&mut self.memories, memory);
+    }
+
+    /// The system at `star` as the crew left it, put back — `false`, and
+    /// nothing touched, if they have never been. The ship's own lamps
+    /// stay; the station's remembered ones join them.
+    fn recall_system(&mut self, star: u32) -> bool {
+        let Some(memory) = memory::memory_of(&self.memories, star).cloned() else {
+            return false;
+        };
+        self.hostile = memory.hostile;
+        self.reinforcements = memory.reinforcements;
+        self.station_keys = memory.station_keys;
+        self.sites = memory.sites;
+        self.plunder = memory.plunder;
+        self.lamps.retain(|d| d.station.is_none());
+        self.lamps.extend(memory.lamps);
+        self.discovered = memory.discovered;
+        self.losses = memory.losses;
+        true
     }
 
     /// Open the station's room when the ship comes within range of its hull,
@@ -3120,7 +3603,7 @@ impl World {
             if keep {
                 return;
             }
-            self.residents = None;
+            self.close_residents();
         }
         if let Some((id, clearance, (count, mercs), seed)) = near
             && clearance <= data::RESIDENTS_RANGE
@@ -3423,6 +3906,7 @@ impl World {
                         recipe: i as u32,
                         bench,
                         minutes: recipe.minutes as f32,
+                        only: None,
                     });
                 }
             }
@@ -3445,6 +3929,27 @@ impl World {
                 recipe: UPGRADE_ORDER,
                 bench,
                 minutes: data::UPGRADE_SESSION_MINUTES as f32,
+                only: None,
+            });
+        }
+        // And the armourer's repair session (feature 74), at the first
+        // workbench, for the one engineer who began it and nobody else,
+        // while the bench is powered and nobody is at it.
+        if let Some(who) = self.bench.repair
+            && self.powered(PartKind::Workbench)
+            && self.aboard.room.crafts_under_way(deploy::REPAIR_ORDER) == 0
+            && let Some(bench) = self
+                .aboard
+                .room
+                .benches()
+                .iter()
+                .position(|b| b.kind == PartKind::Workbench.code())
+        {
+            orders.push(bims::game::Order {
+                recipe: deploy::REPAIR_ORDER,
+                bench,
+                minutes: class::ARMOUR_REPAIR_MINUTES as f32,
+                only: Some(who as usize),
             });
         }
         orders
@@ -3457,6 +3962,10 @@ impl World {
     fn finish_craft(&mut self, recipe: u32, events: &mut Vec<WorldEvent>) {
         if recipe == UPGRADE_ORDER {
             self.finish_upgrade_session();
+            return;
+        }
+        if recipe == deploy::REPAIR_ORDER {
+            self.finish_repair(events);
             return;
         }
         let Some(r) = shipdesign::RECIPES.get(recipe as usize) else {
@@ -3736,7 +4245,7 @@ impl World {
     /// happened: a part that will not go is a site to lay out again, not
     /// one to stand at for ever. The room is laid out again under the
     /// crew with the part in it.
-    fn finish_build(&mut self, site: u32, events: &mut Vec<WorldEvent>) {
+    pub(crate) fn finish_build(&mut self, site: u32, who: usize, events: &mut Vec<WorldEvent>) {
         let Some(at) = self.builds.iter().position(|s| s.id == site) else {
             return;
         };
@@ -3760,6 +4269,10 @@ impl World {
                 self.on_ship_changed();
                 self.relayout_room();
                 events.push(WorldEvent::Built { kind: site.kind });
+                // And every engineer within the builder's vicinity learnt
+                // something from it (feature 74).
+                let at = self.aboard.room.bim_pos(who);
+                self.award_engineers_near(at, class::XP_BUILT, events);
             }
             Err(_) => events.push(WorldEvent::BuildLost { kind: site.kind }),
         }
@@ -3789,6 +4302,8 @@ impl World {
             }
         }
         self.restore_lamps();
+        // A relayout is a fresh `Sight`: the laid sandbags again (feature 74).
+        self.sync_deployed_cover();
     }
 
     // --- a walk outside ------------------------------------------------------
@@ -4131,6 +4646,20 @@ impl World {
         self.aboard.room.desk_spot(0)
     }
 
+    /// Walk that player's crew member to the station's trading desk:
+    /// `Command::ToDesk`, since the walk moves a crew member and every
+    /// player's ship has to agree about where each of them is. False
+    /// with no desk to walk to.
+    pub fn walk_to_desk(&mut self, slot: u32) -> bool {
+        if slot >= self.aboard.crew_count() {
+            return false;
+        }
+        let Some(at) = self.desk_spot() else {
+            return false;
+        };
+        self.aboard.room.send_to(slot as usize, at)
+    }
+
     /// Stand that player's crew member at the trading desk, without the
     /// walk. For probes of trading, which have to be at it.
     pub fn man_the_desk_for_probe(&mut self, slot: u32) -> bool {
@@ -4145,9 +4674,10 @@ impl World {
     }
 
     /// Send that player's crew member to the helm, to stand there until
-    /// sent elsewhere. A room order like any other, not a command: it
-    /// crosses no seam and lands on nobody else's screen. False when there
-    /// is no helm or no way to it.
+    /// sent elsewhere — `Command::ToHelm`. Once a room order that crossed
+    /// no seam; a command since the wire went in (feature 59), because
+    /// the walk moves a crew member and the crew's positions are in the
+    /// checksum. False when there is no helm or no way to it.
     pub fn order_to_helm(&mut self, slot: u32) -> bool {
         if slot >= self.aboard.crew_count() {
             return false;
@@ -4164,8 +4694,8 @@ impl World {
     /// Lift the post [`World::order_to_helm`] set, so that player's crew
     /// member goes back about its errands. The page's Confirm walks the
     /// Bim to the seat, gives the order once it is there, and then lets it
-    /// go — under way the helm is a job the room hands out itself. A room
-    /// order like the walk: it crosses no seam.
+    /// go — under way the helm is a job the room hands out itself.
+    /// `CrewOrder::StandDown` through `Command::Crew`, like the walk.
     pub fn stand_down(&mut self, slot: u32) {
         if slot < self.aboard.crew_count() {
             self.aboard.room.stand_down(slot as usize);
@@ -4606,14 +5136,17 @@ impl World {
     }
 
     /// Whether the button could be pressed now, or why not: a workbench
-    /// aboard, nothing under way, the output slot clear, and a pair in the
-    /// input slots — what [`Command::Upgrade`] checks, so a window can say
-    /// so first.
+    /// aboard, the upgrades node researched, nothing under way, the output
+    /// slot clear, and a pair in the input slots — what
+    /// [`Command::Upgrade`] checks, so a window can say so first.
     pub fn can_upgrade(&self) -> Result<(), Refusal> {
         if self.workbench().is_none() {
             return Err(Refusal::NoWorkbench);
         }
-        if self.bench.work.is_some() || self.bench.slots[Workbench::OUT].is_some() {
+        if !self.research.upgrades_allowed() {
+            return Err(Refusal::NoUpgrades);
+        }
+        if self.bench.busy() || self.bench.slots[Workbench::OUT].is_some() {
             return Err(Refusal::BenchBusy);
         }
         self.bench.pair().map(|_| ())
@@ -4621,9 +5154,14 @@ impl World {
 
     /// The first pair of matching gear in the hold that could go up a
     /// tier, for the crew to carry to the bench: armour kinds first, then
-    /// weapons, the lowest tier first within a kind, tier three never.
-    /// What the pair is; which pieces is `bench_wants`'s.
+    /// weapons, the lowest tier first within a kind, tier three never —
+    /// and nothing at all until the upgrades node is researched, so no
+    /// pair is carried to a bench that would refuse it. What the pair is;
+    /// which pieces is `bench_wants`'s.
     fn upgrade_pair(&self) -> Option<(ResourceId, Tier)> {
+        if !self.research.upgrades_allowed() {
+            return None;
+        }
         for kind in ArmourKind::ALL {
             for tier in Tier::ALL {
                 if tier.next().is_none() {
@@ -4657,7 +5195,10 @@ impl World {
     /// out is fresh whatever went in. `None` with nothing to carry — both
     /// slots full, or nothing in the hold that would pair.
     fn bench_wants(&self) -> Option<Kept> {
-        if self.bench.free_in().is_none() || self.bench.work.is_some() {
+        if self.bench.free_in().is_none()
+            || self.bench.busy()
+            || !self.research.upgrades_allowed()
+        {
             return None;
         }
         let other = Workbench::IN.into_iter().find_map(|i| self.bench.slots[i]);
@@ -4696,7 +5237,7 @@ impl World {
         let (Some(bench), Some(store)) = (self.workbench(), self.store_bench()) else {
             return Vec::new();
         };
-        if self.bench.work.is_some() {
+        if self.bench.busy() {
             return Vec::new();
         }
         // A carry under way keeps its order until it lands: the room is a
@@ -4859,7 +5400,7 @@ impl World {
             events.push(refused(slot, Refusal::NotAboard));
             return;
         };
-        if self.bench.work.is_some() && at as usize != Workbench::OUT {
+        if self.bench.busy() && at as usize != Workbench::OUT {
             events.push(refused(slot, Refusal::BenchBusy));
             return;
         }
@@ -5759,7 +6300,9 @@ impl World {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         };
-        // Out of the station's room.
+        // Out of the station's room — and off its offer for good: the
+        // station remembers one fewer for hire ([`World::losses`]).
+        let station = residents.station;
         let mut everybody = residents.aboard.room.take_crew();
         let mut body = everybody.remove(resident as usize);
         residents
@@ -5768,7 +6311,10 @@ impl World {
             .adopt(everybody, bims::math::Vec2::ZERO);
         residents.aboard.crew = residents.aboard.room.crew_count();
         residents.down.remove(resident as usize);
+        residents.xp_down.remove(resident as usize);
+        residents.xp_dead.remove(resident as usize);
         residents.fee.remove(resident as usize);
+        memory::amend_losses(&mut self.losses, station, |l| l.mercenaries += 1);
         // Into the crew's, where it stood on the deck, with its armour
         // renumbered as the world's — and its berth left behind, since
         // that was the station's: `adopt` gives it the bunk the offer
@@ -5902,7 +6448,14 @@ impl World {
                 .adopt(vec![body], bims::math::Vec2::ZERO);
             residents.aboard.crew = residents.aboard.room.crew_count();
             residents.down.push(false);
+            residents.xp_down.push(false);
+            residents.xp_dead.push(false);
             residents.fee.push(Some(hired.fee));
+            // Back on the station's offer, if it was hired off it.
+            let station = residents.station;
+            memory::amend_losses(&mut self.losses, station, |l| {
+                l.mercenaries = l.mercenaries.saturating_sub(1)
+            });
         }
         self.on_ship_changed();
         self.mirror_pieces(events);
@@ -5928,19 +6481,28 @@ impl World {
             })
     }
 
-    /// Whether a station's research desk still has its key on it.
-    pub fn station_has_key(&self, station: u32) -> bool {
+    /// Which tier of research key a station's desk still has on it, nought
+    /// for none.
+    pub fn station_key(&self, station: u32) -> u8 {
         self.stations
             .iter()
             .zip(&self.station_keys)
-            .any(|(s, &key)| s.id == station && key)
+            .find(|(s, _)| s.id == station)
+            .map_or(0, |(_, &key)| key)
     }
 
-    /// Whether the station the ship is tied to has a key on its desk.
-    pub fn key_at_the_dock(&self) -> bool {
+    /// Whether a station's research desk still has a key on it, of
+    /// either tier.
+    pub fn station_has_key(&self, station: u32) -> bool {
+        self.station_key(station) > 0
+    }
+
+    /// Which tier of key the station the ship is tied to has on its desk,
+    /// nought for none — or away from a berth.
+    pub fn key_at_the_dock(&self) -> u8 {
         match self.ship.state {
-            ShipState::Docked { station } => self.station_has_key(station),
-            _ => false,
+            ShipState::Docked { station } => self.station_key(station),
+            _ => 0,
         }
     }
 
@@ -5974,10 +6536,11 @@ impl World {
         self.research_desk_aboard() && self.powered(PartKind::ResearchDesk)
     }
 
-    /// How many research keys are in the crew's own desk and not spoken
-    /// for. What an `Unlock` consumes one of.
-    pub fn keys_in_desk(&self) -> u32 {
-        self.free(ResourceId::ResearchKey)
+    /// How many research keys of `tier` are in the crew's own desk and
+    /// not spoken for. What an `Unlock` of a node of that tier consumes
+    /// one of; nought for a tier no key exists for.
+    pub fn keys_in_desk(&self, tier: u8) -> u32 {
+        armour::key_resource(tier).map_or(0, |r| self.free(r))
     }
 
     /// A take of the station's key. See [`Command::TakeKey`] for what is
@@ -5992,7 +6555,8 @@ impl World {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         };
-        if !self.station_keys[at] || self.station_desk().is_none() {
+        let tier = self.station_keys[at];
+        if tier == 0 || self.station_desk().is_none() {
             events.push(refused(slot, Refusal::NoKey));
             return;
         }
@@ -6000,7 +6564,7 @@ impl World {
             events.push(refused(slot, Refusal::OutOfReach));
             return;
         }
-        let key = Item::Key(1);
+        let key = Item::Key(tier);
         let Some(cell) = self.aboard.room.gear(who as usize).free_cell_for(key) else {
             events.push(refused(slot, Refusal::PackFull));
             return;
@@ -6009,54 +6573,104 @@ impl World {
             events.push(refused(slot, Refusal::PackFull));
             return;
         }
-        self.station_keys[at] = false;
+        self.station_keys[at] = 0;
         events.push(WorldEvent::KeyTaken { who });
     }
 
-    /// An unlock: a key out of the crew's desk, gone, and the node's lock
-    /// open. See [`Command::Unlock`] for what is checked.
+    /// An unlock: a key of the node's own tier out of the crew's desk,
+    /// gone, and the node's lock open. See [`Command::Unlock`] for what is
+    /// checked: a desk holding only the other tier's key is `NoKey`, and
+    /// that key stays.
     fn unlock(&mut self, slot: u32, node: u32, events: &mut Vec<WorldEvent>) {
         if !self.research_desk_powered() {
             events.push(refused(slot, Refusal::NoResearchDesk));
             return;
         }
-        if self.keys_in_desk() == 0 {
+        let Some(node_of) = ResearchNode::from_code(node) else {
+            events.push(refused(slot, Refusal::NotResearchable));
+            return;
+        };
+        // A node with no lock wants no key, and is refused before the
+        // desk is looked at; a locked one wants its own tier's.
+        let key = Research::key_wanted(node_of)
+            .and_then(|tier| u8::try_from(tier).ok())
+            .and_then(armour::key_resource);
+        let Some(key) = key else {
+            events.push(refused(slot, Refusal::NotResearchable));
+            return;
+        };
+        if self.free(key) == 0 {
             events.push(refused(slot, Refusal::NoKey));
             return;
         }
-        let opened = ResearchNode::from_code(node).is_some_and(|n| self.research.unlock(n));
-        if !opened {
+        if !self.research.unlock(node_of) {
             events.push(refused(slot, Refusal::NotResearchable));
             return;
         }
-        self.ship.design.cargo[ResourceId::ResearchKey as usize] -= 1;
+        self.ship.design.cargo[key as usize] -= 1;
         self.on_ship_changed();
         events.push(WorldEvent::Unlocked { node });
     }
 
-    /// Put the AI onto a node. See [`Command::Research`].
+    /// Queue a node for the AI. See [`Command::Research`]: a
+    /// `ResearchQueued` for it and for each prerequisite that went in
+    /// ahead of it; the AI takes the head in `run_research` this step.
     fn research(&mut self, slot: u32, node: u32, events: &mut Vec<WorldEvent>) {
         if !self.research_desk_aboard() {
             events.push(refused(slot, Refusal::NoResearchDesk));
             return;
         }
-        let begun = ResearchNode::from_code(node).is_some_and(|n| self.research.begin(n));
-        if !begun {
+        let before = self.research.queue.len();
+        let queued = ResearchNode::from_code(node).is_some_and(|n| self.research.enqueue(n));
+        if !queued {
             events.push(refused(slot, Refusal::NotResearchable));
             return;
         }
-        events.push(WorldEvent::ResearchBegun { node });
+        for node in &self.research.queue[before..] {
+            events.push(WorldEvent::ResearchQueued { node: node.code() });
+        }
     }
 
-    /// The AI's step: a step's minutes onto whatever it is on, while a
-    /// research desk aboard is running, and the word when a node is done.
-    /// Stage 6's second half — it runs on the desk's power.
-    fn run_research(&mut self, events: &mut Vec<WorldEvent>) {
-        if self.research.current.is_none() || !self.research_desk_powered() {
+    /// Take the AI off what it is on, and off the queue what needed it.
+    /// See [`Command::CancelResearch`].
+    fn cancel_research(&mut self, events: &mut Vec<WorldEvent>) {
+        for node in self.research.cancel() {
+            events.push(WorldEvent::ResearchDropped { node: node.code() });
+        }
+    }
+
+    /// Take a node off the queue, and what needed it with it. See
+    /// [`Command::Dequeue`].
+    fn dequeue(&mut self, slot: u32, node: u32, events: &mut Vec<WorldEvent>) {
+        let dropped = ResearchNode::from_code(node)
+            .map(|n| self.research.dequeue(n))
+            .unwrap_or_default();
+        if dropped.is_empty() {
+            events.push(refused(slot, Refusal::NotQueued));
             return;
+        }
+        for node in dropped {
+            events.push(WorldEvent::ResearchDropped { node: node.code() });
+        }
+    }
+
+    /// The AI's step, while a research desk aboard is running: onto the
+    /// head of the queue if it is idle, a step's minutes onto whatever it
+    /// is on, and the word when a node is done — and onto the next queued
+    /// node the same step, so a queue is worked through without an idle
+    /// step between. Stage 6's second half — it runs on the desk's power.
+    fn run_research(&mut self, events: &mut Vec<WorldEvent>) {
+        if !self.research_desk_powered() {
+            return;
+        }
+        if let Some(node) = self.research.next() {
+            events.push(WorldEvent::ResearchBegun { node: node.code() });
         }
         if let Some(node) = self.research.advance(data::STEP_MINUTES) {
             events.push(WorldEvent::Researched { node: node.code() });
+            if let Some(next) = self.research.next() {
+                events.push(WorldEvent::ResearchBegun { node: next.code() });
+            }
         }
     }
 
@@ -6232,6 +6846,32 @@ impl World {
         }
     }
 
+    /// Whether a command is applied the moment it is sent rather than at
+    /// the top of the next step: the speed, for the reason above, and an
+    /// order to the crew's room (`Command::Crew`, `ToHelm`, `ToDesk`) —
+    /// a click on the deck at a pause is a click that shows, and a walk
+    /// begun between two steps is what the room always did. Deterministic
+    /// all the same, since every copy applies the same commands in the
+    /// same order (`crates/app/src/net.rs`); what it changes is *when*
+    /// between two steps, and both ends agree about that too.
+    pub fn applies_at_once(command: &Command) -> bool {
+        matches!(
+            command,
+            Command::SetSpeed { .. }
+                | Command::Crew { .. }
+                | Command::ToHelm { .. }
+                | Command::ToDesk { .. }
+        )
+    }
+
+    /// Apply one command now, between steps — for the ones
+    /// [`World::applies_at_once`] says so of. The events it raised.
+    pub fn apply_now(&mut self, command: Command) -> Vec<WorldEvent> {
+        let mut events = Vec::new();
+        self.apply(command, &mut events);
+        events
+    }
+
     /// How many steps a second of real time is worth at 1x.
     ///
     /// The page needs it to turn a frame into steps, and it is a fact about
@@ -6342,6 +6982,23 @@ impl World {
     /// holding ship keeps the frame it is in, and a probe that puts the
     /// ship somewhere else next wants it to start from nowhere. For probes
     /// of what happens away from a station.
+    /// The room laid out again on the ship as it is — a relayout with no
+    /// part built, which is what a relayout is to the sandbags laid on it
+    /// (feature 74). For the tests.
+    pub fn relayout_room_for_probe(&mut self) {
+        self.relayout_room();
+    }
+
+    /// The ship put at a station's berth from a hold — `dock_at`, the
+    /// state with it — for the tests: what a docking ends in, without
+    /// the flight.
+    pub fn dock_at_for_probe(&mut self, station: u32) {
+        self.ship.state = ShipState::Docked { station };
+        self.ship.frame = Frame::Local(Node::Station(station));
+        self.dock_at(station);
+        self.settle_residents();
+    }
+
     pub fn undock_for_probe(&mut self) {
         self.ship.state = ShipState::Holding;
         self.ship.frame = Frame::Space;
@@ -6497,7 +7154,10 @@ impl World {
                 .to_room(dvec2(there.x as f64, there.y as f64));
             residents.aboard.room.put_for_probe(0, there);
             let mut gear = residents.aboard.room.gear(0);
-            gear.weapon = Some(bims::combat::WeaponKind::LaserPistol.basic());
+            // At the tier the hand had, so `outfit_for_probe`'s kit stays
+            // a set.
+            let tier = gear.weapon.map_or(Tier::One, |w| w.tier);
+            gear.weapon = Some(WeaponKind::LaserPistol.at(tier));
             residents.aboard.room.issue(0, gear);
         }
         // The crew member: just inside the station's door, under orders.
@@ -6506,6 +7166,54 @@ impl World {
             .put_for_probe(0, bims::math::vec2(ashore.x as f32, ashore.y as f32));
         self.aboard.room.recruit_for_probe(0, true);
         true
+    }
+
+    /// Everybody's kit at one tier: every crew member's weapon at `tier`
+    /// (its kind kept, the pistol for an empty hand) and a fresh helm,
+    /// kevlar and leg guards at it over whatever was worn — pieces of the
+    /// world's, ids off `next_piece` and `Where::Worn`, so the checksum,
+    /// the health bars and a loot see them like any other; and the same
+    /// for every one of the station's people in the open room, those
+    /// pieces the room's own (numbered from a thousand a head past the
+    /// mercenaries' kits) until a loot takes one over. The `tier2_test`
+    /// and `tier3_test` commands: the fight with nothing at tier one on
+    /// either side. Whatever was worn before is dropped, not stowed. For
+    /// probes and for the app.
+    pub fn outfit_for_probe(&mut self, tier: Tier) {
+        let armed = |gear: &bims::combat::Gear| {
+            Some(
+                gear.weapon
+                    .map_or(WeaponKind::LaserPistol, |w| w.kind)
+                    .at(tier),
+            )
+        };
+        for who in 0..self.aboard.crew_count() as usize {
+            let mut gear = self.aboard.room.gear(who);
+            gear.weapon = armed(&gear);
+            for kind in ArmourKind::ALL {
+                let id = self.next_piece;
+                self.next_piece += 1;
+                self.pieces.push(Piece {
+                    at: Where::Worn { who: who as u32 },
+                    ..Piece::new(id, kind, tier)
+                });
+                *gear.worn_mut(kind.slot()) = Some(bims::combat::Piece::new(id, kind, tier));
+            }
+            self.aboard.room.issue(who, gear);
+        }
+        if let Some(residents) = &mut self.residents {
+            let room = &mut residents.aboard.room;
+            for who in 0..room.crew_count() as usize {
+                let mut gear = room.gear(who);
+                gear.weapon = armed(&gear);
+                let first = 1_000 * (who as u32 + 1) + 100;
+                for (n, kind) in ArmourKind::ALL.into_iter().enumerate() {
+                    let piece = bims::combat::Piece::new(first + n as u32, kind, tier);
+                    *gear.worn_mut(kind.slot()) = Some(piece);
+                }
+                room.issue(who, gear);
+            }
+        }
     }
 
     /// Rebuild the station the ship is tied to as the arena —
@@ -6658,8 +7366,773 @@ pub struct Preview {
     pub docks: bool,
 }
 
+// --- classes, experience and the engineer's deployables (feature 74) -------
+//
+// `crate::class` is what a class and its progress are; `crate::deploy`
+// what a deployable is. This is the world's side of both: the commands,
+// the experience given out in the step, the deployables handed to the
+// rooms and read back from them, and what the engineer's talents do to
+// each of those.
+
+impl World {
+    /// That player's class.
+    pub fn class_of(&self, slot: u32) -> Class {
+        self.classes.get(slot as usize).copied().unwrap_or_default()
+    }
+
+    /// A crew member's progress: the class's, for a player's own; a fresh
+    /// one for anybody else, who has none.
+    pub fn progress_of(&self, who: u32) -> Progress {
+        self.progress.get(who as usize).cloned().unwrap_or_default()
+    }
+
+    /// Whether crew member `who` is a player's engineer.
+    fn is_engineer(&self, who: u32) -> bool {
+        self.class_of(who) == Class::Engineer
+    }
+
+    /// Whether a player's engineer has picked a talent.
+    pub fn has_talent(&self, who: u32, talent: Talent) -> bool {
+        self.is_engineer(who) && self.progress_of(who).has(talent)
+    }
+
+    /// Choose a player's class — see [`Command::SetClass`]. The kits an
+    /// engineer sets out with go into, or come out of, its pack.
+    pub fn set_class(&mut self, slot: u32, class: Class) -> Result<(), Refusal> {
+        if slot >= self.players() || slot as usize >= self.classes.len() {
+            return Err(Refusal::NotAboard);
+        }
+        if self.undocked_once {
+            return Err(Refusal::ClassLocked);
+        }
+        let was = self.classes[slot as usize];
+        if was == class {
+            return Ok(());
+        }
+        self.classes[slot as usize] = class;
+        let who = slot as usize;
+        let kit = Item::Stack(ResourceId::SandbagKit as u32);
+        let room = &mut self.aboard.room;
+        match (was, class) {
+            (Class::None, Class::Engineer) => {
+                for _ in 0..deploy::ENGINEER_START_KITS {
+                    room.give(who, None, kit);
+                }
+            }
+            (Class::Engineer, Class::None) => {
+                let mut left = deploy::ENGINEER_START_KITS;
+                let pack = room.pack(who);
+                for (cell, item) in pack.iter().enumerate() {
+                    if left > 0 && *item == Some(kit) && room.take(who, cell).is_some() {
+                        left -= 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// A pick — see [`Command::PickTalent`].
+    fn pick_talent(&mut self, slot: u32, level: u32, side: Side, events: &mut Vec<WorldEvent>) {
+        if self.class_of(slot) == Class::None || slot as usize >= self.progress.len() {
+            events.push(refused(slot, Refusal::NotAnEngineer));
+            return;
+        }
+        let level = u8::try_from(level).unwrap_or(u8::MAX);
+        match self.progress[slot as usize].pick(level, side) {
+            Ok(talent) => events.push(WorldEvent::TalentPicked {
+                who: slot,
+                talent: talent.code(),
+            }),
+            Err(why) => events.push(refused(slot, why)),
+        }
+    }
+
+    /// `xp` to one crew member: every level it reaches said.
+    pub(crate) fn award(&mut self, who: usize, xp: u32, events: &mut Vec<WorldEvent>) {
+        if self.class_of(who as u32) == Class::None || who >= self.progress.len() {
+            return;
+        }
+        for level in self.progress[who].gain(xp) {
+            events.push(WorldEvent::LevelUp {
+                who: who as u32,
+                level: level as u32,
+            });
+        }
+    }
+
+    /// Whether crew member `who` is alive, aboard and within the vicinity
+    /// of a point of the crew's room.
+    pub(crate) fn in_vicinity(&self, who: usize, at: bims::math::Vec2) -> bool {
+        let room = &self.aboard.room;
+        who < room.crew_count() as usize
+            && room.is_alive(who)
+            && !room.is_outside(who)
+            && (room.bim_pos(who) - at).len() <= class::VICINITY_TILES * shipdesign::TILE as f32
+    }
+
+    /// `xp` to every classed crew member within the vicinity of `at`.
+    fn award_classed_near(&mut self, at: bims::math::Vec2, xp: u32, events: &mut Vec<WorldEvent>) {
+        for who in 0..self.classes.len() {
+            if self.class_of(who as u32) != Class::None && self.in_vicinity(who, at) {
+                self.award(who, xp, events);
+            }
+        }
+    }
+
+    /// `xp` to every engineer within the vicinity of `at`.
+    fn award_engineers_near(
+        &mut self,
+        at: bims::math::Vec2,
+        xp: u32,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        for who in 0..self.classes.len() {
+            if self.is_engineer(who as u32) && self.in_vicinity(who, at) {
+                self.award(who, xp, events);
+            }
+        }
+    }
+
+    /// After `visit`: every enemy that went down or died this step, once
+    /// each, to every classed crew member within the vicinity of where it
+    /// lies on the joined deck. Only a hostile station's people, only
+    /// while the rooms are joined — on an unjoined deck nobody is in
+    /// anybody's vicinity. A crewmate or a hire going down is nobody's
+    /// experience.
+    fn experience(&mut self, events: &mut Vec<WorldEvent>) {
+        let Some(residents) = &self.residents else {
+            return;
+        };
+        if self.stance(residents.station) != Stance::Hostile || !self.aboard.is_joined() {
+            return;
+        }
+        let mut gained: Vec<(bims::math::Vec2, u32)> = Vec::new();
+        let count = residents.aboard.count() as usize;
+        for who in 0..count.min(residents.xp_down.len()) {
+            let room = &residents.aboard.room;
+            let dead = !room.is_alive(who);
+            let down = dead || room.is_unconscious(who);
+            let Some(at) = self.aboard.from_station(residents.aboard.position(who as u32)) else {
+                continue;
+            };
+            let at = bims::math::vec2(at.x as f32, at.y as f32);
+            if down && !residents.xp_down[who] {
+                gained.push((at, class::XP_ENEMY_DOWN));
+            }
+            if dead && !residents.xp_dead[who] {
+                gained.push((at, class::XP_ENEMY_DEAD));
+            }
+        }
+        if let Some(residents) = &mut self.residents {
+            for who in 0..count.min(residents.xp_down.len()) {
+                let room = &residents.aboard.room;
+                let dead = !room.is_alive(who);
+                residents.xp_down[who] |= dead || room.is_unconscious(who);
+                residents.xp_dead[who] |= dead;
+            }
+        }
+        for (at, xp) in gained {
+            self.award_classed_near(at, xp, events);
+        }
+    }
+
+    // --- the deployables ---------------------------------------------------
+
+    /// Where a deployable stands in the crew's room, in room units, or
+    /// `None` for one on a station's deck that is not in the room.
+    fn deployable_room_pos(&self, d: &Deployable) -> Option<bims::math::Vec2> {
+        let t = shipdesign::TILE as f64;
+        let p = dvec2((d.tile.0 as f64 + 0.5) * t, (d.tile.1 as f64 + 0.5) * t);
+        let at = match d.deck {
+            Deck::Ship => self.aboard.room_of(false, p)?,
+            Deck::Station(id) => {
+                if self.ship.state.alongside() != Some(id) {
+                    return None;
+                }
+                self.aboard.from_station(p)?
+            }
+        };
+        Some(bims::math::vec2(at.x as f32, at.y as f32))
+    }
+
+    /// The same in the residents' room, or `None` when it has no such
+    /// deck: the ship's, while the rooms are joined; the station's own,
+    /// whenever the room is open.
+    fn deployable_residents_pos(&self, d: &Deployable) -> Option<bims::math::Vec2> {
+        let residents = self.residents.as_ref()?;
+        let t = shipdesign::TILE as f64;
+        let p = dvec2((d.tile.0 as f64 + 0.5) * t, (d.tile.1 as f64 + 0.5) * t);
+        let at = match d.deck {
+            Deck::Ship => residents.aboard.from_station(p)?,
+            Deck::Station(id) => {
+                if residents.station != id {
+                    return None;
+                }
+                let at = residents.aboard.to_room(p);
+                return Some(at);
+            }
+        };
+        Some(bims::math::vec2(at.x as f32, at.y as f32))
+    }
+
+    /// The tile of low cover a point is the middle of.
+    fn cover_rect(at: bims::math::Vec2) -> bims::math::Rect {
+        let t = shipdesign::TILE as f32;
+        bims::math::Rect::from_center_size(at, bims::math::vec2(t, t))
+    }
+
+    /// The deployable of a kind on a deck's tile, if any.
+    fn deployable_at(&self, deck: Deck, tile: (u32, u32)) -> Option<&Deployable> {
+        self.deployables
+            .iter()
+            .find(|d| d.deck == deck && d.tile == tile)
+    }
+
+    /// A deployable by id.
+    pub fn deployable(&self, id: u32) -> Option<&Deployable> {
+        self.deployables.iter().find(|d| d.id == id)
+    }
+
+    /// The deployable standing on the tile of the crew's room a point is
+    /// in, if any, with where it stands: what a click on the deck finds.
+    pub fn deployable_under(&self, p: bims::math::Vec2) -> Option<(Deployable, bims::math::Vec2)> {
+        let t = shipdesign::TILE as f32;
+        self.deployables.iter().find_map(|d| {
+            let at = self.deployable_room_pos(d)?;
+            ((p.x / t).floor() == (at.x / t).floor() && (p.y / t).floor() == (at.y / t).floor())
+                .then_some((*d, at))
+        })
+    }
+
+    /// Every deployable in the crew's room with where it stands, for the
+    /// painter and the panels.
+    pub fn deployables_in_room(&self) -> Vec<(Deployable, bims::math::Vec2)> {
+        self.deployables
+            .iter()
+            .filter_map(|d| self.deployable_room_pos(d).map(|at| (*d, at)))
+            .collect()
+    }
+
+    /// The deployables within [`data::REACH`] of crew member `who`, with
+    /// where each stands.
+    pub fn deployables_in_reach(&self, who: u32) -> Vec<(Deployable, bims::math::Vec2)> {
+        if who >= self.aboard.crew_count() {
+            return Vec::new();
+        }
+        let here = self.aboard.room.bim_pos(who as usize);
+        let reach = data::REACH * shipdesign::TILE as f32;
+        self.deployables_in_room()
+            .into_iter()
+            .filter(|(_, at)| (*at - here).len() <= reach)
+            .collect()
+    }
+
+    /// A sentry's rifle for its owner: tier two from the seventh level
+    /// (*sentry mark II*), tier three with *sentry mark III*.
+    pub(crate) fn sentry_weapon(&self, owner: u32) -> Weapon {
+        let tier = if self.has_talent(owner, Talent::SentryMarkThree) {
+            Tier::Three
+        } else if self.progress_of(owner).level() >= class::SENTRY_MARK_TWO_LEVEL {
+            Tier::Two
+        } else {
+            Tier::One
+        };
+        WeaponKind::AutoRifle.at(tier)
+    }
+
+    /// A fresh sentry's health for its owner: *armoured sentry* on top.
+    fn sentry_health(&self, owner: u32) -> f32 {
+        if self.has_talent(owner, Talent::ArmouredSentry) {
+            deploy::SENTRY_HEALTH * class::ARMOURED_SENTRY_HEALTH
+        } else {
+            deploy::SENTRY_HEALTH
+        }
+    }
+
+    /// A full sentry's shots for its owner: *deep magazine* on top.
+    fn sentry_shots(&self, owner: u32) -> u32 {
+        if self.has_talent(owner, Talent::DeepMagazine) {
+            (deploy::SENTRY_SHOTS as f32 * class::DEEP_MAGAZINE_SHOTS) as u32
+        } else {
+            deploy::SENTRY_SHOTS
+        }
+    }
+
+    /// How many sentries an engineer may have standing: one, two with
+    /// *second sentry*.
+    pub fn sentry_limit(&self, owner: u32) -> u32 {
+        if self.has_talent(owner, Talent::SecondSentry) {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// How many sentries an engineer has standing, anywhere.
+    fn sentries_of(&self, owner: u32) -> u32 {
+        self.deployables
+            .iter()
+            .filter(|d| d.kind == DeployKind::Sentry && d.owner_slot == owner)
+            .count() as u32
+    }
+
+    /// What a deploy asks, before the errand: the slot's Bim fit to act,
+    /// an engineer with the kit in its pack, a sentry allowed it, and the
+    /// tile free to take it. What the app greys a press out with, and
+    /// [`Command::Deploy`]'s own check.
+    pub fn can_deploy(&self, slot: u32, kit: Kit, tile: (i32, i32)) -> Result<(), Refusal> {
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if !self.is_engineer(slot) {
+            return Err(Refusal::NotAnEngineer);
+        }
+        let who = slot as usize;
+        let room = &self.aboard.room;
+        let wanted = Item::Stack(kit.resource() as u32);
+        if !room.pack(who).iter().any(|i| *i == Some(wanted)) {
+            return Err(Refusal::NoKit);
+        }
+        if kit == Kit::Sentry {
+            if self.progress_of(slot).level() < class::SENTRY_LEVEL {
+                return Err(Refusal::NoSentryYet);
+            }
+            if self.sentries_of(slot) >= self.sentry_limit(slot) {
+                return Err(Refusal::SentryLimit);
+            }
+        }
+        let t = shipdesign::TILE as f32;
+        let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
+        if !room.deploy_tile_ok(who, at) || self.deployable_under(at).is_some() {
+            return Err(Refusal::CantDeployThere);
+        }
+        Ok(())
+    }
+
+    /// The deploy begun: the walk and the work are the room's
+    /// (`Game::deploy`); the kit leaves the pack when the work is done
+    /// (`finish_deploy`). See [`Command::Deploy`].
+    fn deploy(&mut self, slot: u32, kit: Kit, tile: (i32, i32)) -> Result<(), Refusal> {
+        self.can_deploy(slot, kit, tile)?;
+        let minutes = self.deploy_minutes(slot, kit);
+        let t = shipdesign::TILE as f32;
+        let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
+        if !self
+            .aboard
+            .room
+            .deploy(slot as usize, at, kit == Kit::Sentry, minutes as f32)
+        {
+            return Err(Refusal::CantDeployThere);
+        }
+        Ok(())
+    }
+
+    /// How long laying a kit takes an engineer, in game minutes: the
+    /// kind's, halved by *sandbagger* or *quick build*.
+    pub fn deploy_minutes(&self, slot: u32, kit: Kit) -> f64 {
+        match kit {
+            Kit::Sandbag => {
+                let factor = if self.has_talent(slot, Talent::Sandbagger) {
+                    class::SANDBAGGER_TIME
+                } else {
+                    1.0
+                };
+                deploy::DEPLOY_SANDBAG_MINUTES * factor
+            }
+            Kit::Sentry => {
+                let factor = if self.has_talent(slot, Talent::QuickBuild) {
+                    class::QUICK_BUILD_TIME
+                } else {
+                    1.0
+                };
+                deploy::DEPLOY_SENTRY_MINUTES * factor
+            }
+        }
+    }
+
+    /// Which deck a point of the crew's room is on, and which tile of
+    /// that deck's design.
+    fn deck_of(&self, at: bims::math::Vec2) -> (Deck, (u32, u32)) {
+        let (foreign, p) = self.aboard.design_of(dvec2(at.x as f64, at.y as f64));
+        let t = shipdesign::TILE as f64;
+        let tile = ((p.x / t).floor().max(0.0) as u32, (p.y / t).floor().max(0.0) as u32);
+        let deck = match (foreign, self.ship.state.alongside()) {
+            (true, Some(id)) => Deck::Station(id),
+            _ => Deck::Ship,
+        };
+        (deck, tile)
+    }
+
+    /// The work done: the room said `who` laid a kit at `at`. The kit
+    /// comes out of the pack now and the deployable goes down — if the
+    /// kit is still there, the engineer still one and the tile still
+    /// free; else nothing, and the kit stays where it is. A re-used kit
+    /// (`reused_kits`) is spent first and gives no experience; a fresh one
+    /// is [`class::XP_BUILT`] to every engineer in the layer's vicinity.
+    /// *Bulk bags* lays a second tile of sandbags beside the first out of
+    /// the one kit, on the first free neighbour.
+    fn finish_deploy(
+        &mut self,
+        who: usize,
+        at: bims::math::Vec2,
+        sentry: bool,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        let slot = who as u32;
+        let kit = if sentry { Kit::Sentry } else { Kit::Sandbag };
+        if !self.is_engineer(slot) {
+            return;
+        }
+        let wanted = Item::Stack(kit.resource() as u32);
+        let Some(cell) = self
+            .aboard
+            .room
+            .pack(who)
+            .iter()
+            .position(|i| *i == Some(wanted))
+        else {
+            return;
+        };
+        let (deck, tile) = self.deck_of(at);
+        if self.deployable_at(deck, tile).is_some()
+            || (sentry && self.sentries_of(slot) >= self.sentry_limit(slot))
+        {
+            return;
+        }
+        if self.aboard.room.take(who, cell).is_none() {
+            return;
+        }
+        self.lay(kit.lays(), slot, deck, tile);
+        if kit == Kit::Sandbag && self.has_talent(slot, Talent::BulkBags) {
+            let t = shipdesign::TILE as f32;
+            let beside = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)]
+                .into_iter()
+                .map(|(dx, dy)| at + bims::math::vec2(dx * t, dy * t))
+                .find(|&p| self.aboard.room.deploy_tile_ok(who, p) && self.deployable_under(p).is_none());
+            if let Some(p) = beside {
+                let (deck, tile) = self.deck_of(p);
+                self.lay(DeployKind::Sandbags, slot, deck, tile);
+            }
+        }
+        events.push(WorldEvent::Deployed {
+            who: slot,
+            kind: kit.lays().code(),
+        });
+        if self.reused_kits.get(who).copied().unwrap_or(0) > 0 {
+            self.reused_kits[who] -= 1;
+        } else {
+            self.award_engineers_near(at, class::XP_BUILT, events);
+        }
+        self.sync_deployed_cover();
+    }
+
+    /// One deployable down, fresh, for `owner`.
+    fn lay(&mut self, kind: DeployKind, owner: u32, deck: Deck, tile: (u32, u32)) {
+        let id = self.next_deployable;
+        self.next_deployable += 1;
+        let (health, shots) = match kind {
+            DeployKind::Sandbags => (deploy::SANDBAG_HEALTH, 0),
+            DeployKind::Sentry => (self.sentry_health(owner), self.sentry_shots(owner)),
+        };
+        self.deployables.push(Deployable {
+            id,
+            kind,
+            owner_slot: owner,
+            deck,
+            tile,
+            health,
+            shots,
+        });
+        self.deployables.sort_by_key(|d| d.id);
+    }
+
+    /// Which deployable a player's engineer stands within reach of, by
+    /// id, fit to act — what a pack-up and a refill want first.
+    fn deployable_in_reach(&self, slot: u32, id: u32) -> Result<Deployable, Refusal> {
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if !self.is_engineer(slot) {
+            return Err(Refusal::NotAnEngineer);
+        }
+        let d = *self.deployable(id).ok_or(Refusal::NoSuchDeployable)?;
+        if !self
+            .deployables_in_reach(slot)
+            .iter()
+            .any(|(near, _)| near.id == id)
+        {
+            return Err(Refusal::OutOfReach);
+        }
+        Ok(d)
+    }
+
+    /// A deployable back into the pack as a kit — see [`Command::PackUp`].
+    fn pack_up(&mut self, slot: u32, id: u32, events: &mut Vec<WorldEvent>) {
+        let d = match self.deployable_in_reach(slot, id) {
+            Ok(d) => d,
+            Err(why) => {
+                events.push(refused(slot, why));
+                return;
+            }
+        };
+        let kit = Item::Stack(d.kind.kit().resource() as u32);
+        if !self.aboard.room.give(slot as usize, None, kit) {
+            events.push(refused(slot, Refusal::PackFull));
+            return;
+        }
+        self.deployables.retain(|x| x.id != id);
+        if let Some(n) = self.reused_kits.get_mut(slot as usize) {
+            *n += 1;
+        }
+        events.push(WorldEvent::PackedUp {
+            who: slot,
+            kind: d.kind.code(),
+        });
+        self.sync_deployed_cover();
+    }
+
+    /// A sentry filled to its shots — see [`Command::Refill`].
+    fn refill(&mut self, slot: u32, id: u32, events: &mut Vec<WorldEvent>) {
+        let d = match self.deployable_in_reach(slot, id) {
+            Ok(d) => d,
+            Err(why) => {
+                events.push(refused(slot, why));
+                return;
+            }
+        };
+        if d.kind != DeployKind::Sentry {
+            events.push(refused(slot, Refusal::NoSuchDeployable));
+            return;
+        }
+        let free = !self.has_talent(slot, Talent::FieldRefit);
+        if free && self.free(ResourceId::Metal) < deploy::SENTRY_REFILL_METAL {
+            events.push(refused(slot, Refusal::NotAboard));
+            return;
+        }
+        if free {
+            self.ship.design.cargo[ResourceId::Metal as usize] -= deploy::SENTRY_REFILL_METAL;
+            self.on_ship_changed();
+        }
+        let shots = self.sentry_shots(d.owner_slot);
+        if let Some(s) = self.deployables.iter_mut().find(|x| x.id == id) {
+            s.shots = shots;
+        }
+        events.push(WorldEvent::Refilled { who: slot });
+    }
+
+    /// Before the rooms step: what the engineers' talents do to the crew's
+    /// working steps and to a deploy under fire, the sandbags laid as
+    /// cover on both rooms, and the sentries on the crew's deck.
+    fn hand_the_room_the_engineers(&mut self) {
+        let crew = self.aboard.crew_count();
+        let factors: Vec<(f32, f32)> = (0..crew)
+            .map(|who| {
+                (
+                    if self.has_talent(who, Talent::QuickHands) {
+                        class::QUICK_HANDS_EFFORT
+                    } else {
+                        1.0
+                    },
+                    if self.has_talent(who, Talent::SiteForeman) {
+                        class::SITE_FOREMAN_EFFORT
+                    } else {
+                        1.0
+                    },
+                )
+            })
+            .collect();
+        let steady: Vec<bool> = (0..crew)
+            .map(|who| self.has_talent(who, Talent::SteadyHands))
+            .collect();
+        self.aboard.room.set_work_factors(factors);
+        self.aboard.room.set_steady_hands(steady);
+        self.sync_deployed_cover();
+        let sentries: Vec<Sentry> = self
+            .deployables
+            .iter()
+            .filter(|d| d.kind == DeployKind::Sentry)
+            .filter_map(|d| {
+                let at = self.deployable_room_pos(d)?;
+                Some(Sentry {
+                    id: d.id,
+                    at,
+                    weapon: self.sentry_weapon(d.owner_slot),
+                    shots: d.shots,
+                    dug_in: self.has_talent(d.owner_slot, Talent::DugIn),
+                    trigger: bims::combat::Trigger::default(),
+                })
+            })
+            .collect();
+        self.aboard.room.set_sentries(sentries);
+    }
+
+    /// The laid sandbags as cover on both rooms, as they stand now. Cheap
+    /// when nothing changed (`Sight::set_laid_cover` compares), so it is
+    /// asked every step and after every change to the list.
+    fn sync_deployed_cover(&mut self) {
+        let bags: Vec<&Deployable> = self
+            .deployables
+            .iter()
+            .filter(|d| d.kind == DeployKind::Sandbags)
+            .collect();
+        let crew: Vec<bims::math::Rect> = bags
+            .iter()
+            .filter_map(|d| self.deployable_room_pos(d).map(World::cover_rect))
+            .collect();
+        let theirs: Vec<bims::math::Rect> = bags
+            .iter()
+            .filter_map(|d| self.deployable_residents_pos(d).map(World::cover_rect))
+            .collect();
+        self.aboard.room.set_laid_cover(&crew);
+        if let Some(residents) = &mut self.residents {
+            residents.aboard.room.set_laid_cover(&theirs);
+        }
+    }
+
+    /// The sentries in the crew's room, index for index with how they
+    /// were handed over, with where each stands: what the residents'
+    /// room is handed after the crew as targets.
+    fn sentries_in_room(&self) -> Vec<(Deployable, bims::math::Vec2)> {
+        self.aboard
+            .room
+            .sentries()
+            .iter()
+            .filter_map(|s| self.deployable(s.id).map(|d| (*d, s.at)))
+            .collect()
+    }
+
+    /// After `visit`: what the fight did to the deployables — the shots
+    /// the sentries fired, the hits they took, the bolts the sandbags
+    /// stopped — and what is gone for it, said. A destroyed sentry's kit
+    /// goes back into its owner's pack with *salvage*, as a re-used kit,
+    /// if there is room.
+    pub(crate) fn settle_deployables(&mut self, events: &mut Vec<WorldEvent>) {
+        for (id, n) in self.aboard.room.take_sentry_shots() {
+            if let Some(d) = self.deployables.iter_mut().find(|d| d.id == id) {
+                d.shots = d.shots.saturating_sub(n);
+            }
+        }
+        for (id, damage) in self.aboard.room.take_sentry_hits() {
+            if let Some(d) = self.deployables.iter_mut().find(|d| d.id == id) {
+                d.health -= damage;
+            }
+        }
+        let hits = self.aboard.room.take_cover_hits();
+        if !hits.is_empty() {
+            let t = shipdesign::TILE as f32;
+            for ((x, y), damage) in hits {
+                let p = bims::math::vec2((x as f32 + 0.5) * t, (y as f32 + 0.5) * t);
+                if let Some((d, _)) = self
+                    .deployable_under(p)
+                    .filter(|(d, _)| d.kind == DeployKind::Sandbags)
+                    && let Some(d) = self.deployables.iter_mut().find(|x| x.id == d.id)
+                {
+                    d.health -= damage;
+                }
+            }
+        }
+        let gone: Vec<Deployable> = self
+            .deployables
+            .iter()
+            .filter(|d| d.health <= 0.0)
+            .copied()
+            .collect();
+        if gone.is_empty() {
+            return;
+        }
+        self.deployables.retain(|d| d.health > 0.0);
+        for d in gone {
+            events.push(WorldEvent::DeployableLost {
+                kind: d.kind.code(),
+            });
+            if d.kind == DeployKind::Sentry && self.has_talent(d.owner_slot, Talent::Salvage) {
+                let who = d.owner_slot as usize;
+                let kit = Item::Stack(Kit::Sentry.resource() as u32);
+                if self.aboard.room.is_alive(who) && self.aboard.room.give(who, None, kit) {
+                    if let Some(n) = self.reused_kits.get_mut(who) {
+                        *n += 1;
+                    }
+                }
+            }
+        }
+        self.sync_deployed_cover();
+    }
+
+    /// The deployables on a station's deck are lost when the rooms
+    /// unjoin: called from `unjoin_rooms`.
+    fn drop_station_deployables(&mut self) {
+        self.deployables.retain(|d| d.deck == Deck::Ship);
+    }
+
+    // --- the armourer's repair ---------------------------------------------
+
+    /// A repair begun at the workbench — see [`Command::Repair`].
+    fn begin_repair(&mut self, slot: u32, events: &mut Vec<WorldEvent>) -> Result<(), Refusal> {
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if !self.has_talent(slot, Talent::Armourer) {
+            return Err(Refusal::NoTalent);
+        }
+        if self.workbench().is_none() {
+            return Err(Refusal::NoWorkbench);
+        }
+        if self.bench.busy() || self.bench.slots[Workbench::OUT].is_some() {
+            return Err(Refusal::BenchBusy);
+        }
+        let damaged = match (self.bench.slots[0], self.bench.slots[1]) {
+            (Some(Item::Armour(p)), None) => p.health < p.stats().health,
+            _ => false,
+        };
+        if !damaged {
+            return Err(Refusal::NoPair);
+        }
+        if self.free(ResourceId::Metal) < deploy::ARMOUR_REPAIR_METAL {
+            return Err(Refusal::NotAboard);
+        }
+        self.ship.design.cargo[ResourceId::Metal as usize] -= deploy::ARMOUR_REPAIR_METAL;
+        self.on_ship_changed();
+        self.bench.repair = Some(slot);
+        let _ = events;
+        Ok(())
+    }
+
+    /// The session done: the piece into the output slot with the metal's
+    /// worth back on it, capped at its tier's full health.
+    fn finish_repair(&mut self, events: &mut Vec<WorldEvent>) {
+        if self.bench.repair.take().is_none() {
+            return;
+        }
+        let Some(Item::Armour(mut piece)) = self.bench.slots[0] else {
+            return;
+        };
+        piece.health = (piece.health
+            + class::ARMOUR_REPAIR_PER_METAL * deploy::ARMOUR_REPAIR_METAL as f32)
+            .min(piece.stats().health);
+        self.bench.slots[0] = None;
+        self.bench.slots[Workbench::OUT] = Some(Item::Armour(piece));
+        events.push(WorldEvent::Repaired {
+            kind: piece.kind.code(),
+        });
+    }
+}
+
+
 fn refused(slot: u32, why: Refusal) -> WorldEvent {
     WorldEvent::Refused { slot, why }
+}
+
+/// The refusal a walk's code is, if it is one: the room's `ORDER_LOCKED`
+/// and `ORDER_NOWHERE` — see `bims::order`. `None` for a walk that went,
+/// or an order that was not a walk.
+fn walk_refusal(code: u32) -> Option<Refusal> {
+    match code {
+        bims::game::ORDER_LOCKED => Some(Refusal::DoorLocked),
+        bims::game::ORDER_NOWHERE => Some(Refusal::NoWayThere),
+        _ => None,
+    }
 }
 
 /// What a room banked since last asked, folded into the hold: the

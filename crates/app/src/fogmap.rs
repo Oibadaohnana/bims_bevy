@@ -13,7 +13,11 @@
 //! The quad's corners are the map's four corners through whatever the
 //! screen did to the room — the room's own scale and offset on the room
 //! screen, the ship's camera and heading on the game's — so the fog lands
-//! on the deck it was traced over at any zoom and heading.
+//! on the deck it was traced over at any zoom and heading. The plain
+//! beyond the deck, on a planet, is the same picture a chunk at a time
+//! (`bims::terrain::Plane::picture`): the game screen keeps a texture a
+//! chunk and draws each as `paint_pieces` — the chunk less the deck's
+//! box, which the light map covers, and never the picture's apron.
 //!
 //! The map's edges are **blurred on the way in**. The room marches its
 //! rays pixel by pixel, so the edge of what is seen — the line a wall's
@@ -85,6 +89,16 @@ pub struct FogTexture {
     version: u64,
 }
 
+/// A piece of the texture to draw: the part of it between `uv0` and
+/// `uv1` (nought to one across the map), at `corners` on the canvas in
+/// window points — the piece's origin, then clockwise.
+#[derive(Clone, Copy, Debug)]
+pub struct Piece {
+    pub uv0: (f32, f32),
+    pub uv1: (f32, f32),
+    pub corners: [egui::Pos2; 4],
+}
+
 impl FogTexture {
     /// Draw `map` with its corners — origin, then clockwise — at `corners`
     /// on the canvas, in window points.
@@ -95,79 +109,112 @@ impl FogTexture {
         map: &LightMap,
         corners: [egui::Pos2; 4],
     ) {
+        self.paint_pieces(
+            ctx,
+            painter,
+            map,
+            &[Piece {
+                uv0: (0.0, 0.0),
+                uv1: (1.0, 1.0),
+                corners,
+            }],
+        );
+    }
+
+    /// Draw these pieces of `map`: the plain's fog draws a chunk's
+    /// picture less the room's box and never its apron.
+    pub fn paint_pieces(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        map: &LightMap,
+        pieces: &[Piece],
+    ) {
         if map.width == 0 || map.height == 0 {
             return;
         }
-        if self.handle.is_none() || self.version != map.version {
-            // What the room composed again since the version this holds,
-            // if that is the one before: the box it says, else the lot.
-            let follows = self.version + 1 == map.version;
-            let region = match (follows, map.changed, &self.handle) {
-                (true, Some(r), Some(_)) => r,
-                _ => (0, 0, map.width, map.height),
-            };
-            // The box, widened by the blur's reach: what changed inside it
-            // shows for that far outside it.
-            let (x, y, w, h) = {
-                let (x, y, w, h) = region;
-                let (x0, y0) = (x.saturating_sub(REACH), y.saturating_sub(REACH));
-                let x1 = (x + w + REACH).min(map.width);
-                let y1 = (y + h + REACH).min(map.height);
-                (x0, y0, x1 - x0, y1 - y0)
-            };
-            // Two layers in one pixel: the darkness, black at the map's
-            // alpha, and the lamplight over it at the map's glow —
-            // composed premultiplied, which is what egui's textures are.
-            let pixels: Vec<egui::Color32> = blurred(map, (x, y, w, h))
-                .into_iter()
-                .map(|(a, g)| {
-                    let (a, g) = (a as f32 / 255.0, g as f32 / 255.0);
-                    let over = g + a * (1.0 - g);
-                    egui::Color32::from_rgba_premultiplied(
-                        (LAMPLIGHT[0] * g * 255.0) as u8,
-                        (LAMPLIGHT[1] * g * 255.0) as u8,
-                        (LAMPLIGHT[2] * g * 255.0) as u8,
-                        (over * 255.0) as u8,
-                    )
-                })
-                .collect();
-            let image = egui::ColorImage {
-                size: [w, h],
-                source_size: egui::vec2(w as f32, h as f32),
-                pixels,
-            };
-            match &mut self.handle {
-                Some(handle) if (w, h) == (map.width, map.height) => {
-                    handle.set(image, egui::TextureOptions::LINEAR)
-                }
-                Some(handle) => handle.set_partial([x, y], image, egui::TextureOptions::LINEAR),
-                None => {
-                    self.handle =
-                        Some(ctx.load_texture("fog", image, egui::TextureOptions::LINEAR));
-                }
-            }
-            self.version = map.version;
-        }
+        self.upload(ctx, map);
         let Some(handle) = &self.handle else {
             return;
         };
         let mut mesh = egui::Mesh::with_texture(handle.id());
-        let uvs = [
-            egui::pos2(0.0, 0.0),
-            egui::pos2(1.0, 0.0),
-            egui::pos2(1.0, 1.0),
-            egui::pos2(0.0, 1.0),
-        ];
-        for (at, uv) in corners.iter().zip(uvs) {
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: *at,
-                uv,
-                color: egui::Color32::WHITE,
-            });
+        for piece in pieces {
+            let (u0, v0) = piece.uv0;
+            let (u1, v1) = piece.uv1;
+            let uvs = [
+                egui::pos2(u0, v0),
+                egui::pos2(u1, v0),
+                egui::pos2(u1, v1),
+                egui::pos2(u0, v1),
+            ];
+            let first = mesh.vertices.len() as u32;
+            for (at, uv) in piece.corners.iter().zip(uvs) {
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: *at,
+                    uv,
+                    color: egui::Color32::WHITE,
+                });
+            }
+            mesh.add_triangle(first, first + 1, first + 2);
+            mesh.add_triangle(first, first + 2, first + 3);
         }
-        mesh.add_triangle(0, 1, 2);
-        mesh.add_triangle(0, 2, 3);
         painter.add(egui::Shape::mesh(mesh));
+    }
+
+    /// Take the map's picture, if this holds another version of it: the
+    /// box it says changed when this holds the version before, else the
+    /// lot.
+    fn upload(&mut self, ctx: &egui::Context, map: &LightMap) {
+        if self.handle.is_some() && self.version == map.version {
+            return;
+        }
+        // What the room composed again since the version this holds,
+        // if that is the one before: the box it says, else the lot.
+        let follows = self.version + 1 == map.version;
+        let region = match (follows, map.changed, &self.handle) {
+            (true, Some(r), Some(_)) => r,
+            _ => (0, 0, map.width, map.height),
+        };
+        // The box, widened by the blur's reach: what changed inside it
+        // shows for that far outside it.
+        let (x, y, w, h) = {
+            let (x, y, w, h) = region;
+            let (x0, y0) = (x.saturating_sub(REACH), y.saturating_sub(REACH));
+            let x1 = (x + w + REACH).min(map.width);
+            let y1 = (y + h + REACH).min(map.height);
+            (x0, y0, x1 - x0, y1 - y0)
+        };
+        // Two layers in one pixel: the darkness, black at the map's
+        // alpha, and the lamplight over it at the map's glow —
+        // composed premultiplied, which is what egui's textures are.
+        let pixels: Vec<egui::Color32> = blurred(map, (x, y, w, h))
+            .into_iter()
+            .map(|(a, g)| {
+                let (a, g) = (a as f32 / 255.0, g as f32 / 255.0);
+                let over = g + a * (1.0 - g);
+                egui::Color32::from_rgba_premultiplied(
+                    (LAMPLIGHT[0] * g * 255.0) as u8,
+                    (LAMPLIGHT[1] * g * 255.0) as u8,
+                    (LAMPLIGHT[2] * g * 255.0) as u8,
+                    (over * 255.0) as u8,
+                )
+            })
+            .collect();
+        let image = egui::ColorImage {
+            size: [w, h],
+            source_size: egui::vec2(w as f32, h as f32),
+            pixels,
+        };
+        match &mut self.handle {
+            Some(handle) if (w, h) == (map.width, map.height) => {
+                handle.set(image, egui::TextureOptions::LINEAR)
+            }
+            Some(handle) => handle.set_partial([x, y], image, egui::TextureOptions::LINEAR),
+            None => {
+                self.handle = Some(ctx.load_texture("fog", image, egui::TextureOptions::LINEAR));
+            }
+        }
+        self.version = map.version;
     }
 }
 

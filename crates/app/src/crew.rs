@@ -63,6 +63,7 @@ use bevy_egui::egui;
 use bims::combat::{Item as PackItem, LOOT_CELLS, PACK_CELLS, PACK_COLS, PACK_ROWS, Piece};
 use bims::game::{Container, Game};
 use bims::manager::Stock;
+use bims::order::CrewOrder;
 use bims::room::*;
 use bims::{bim, door, health, manager, schedule, task};
 use physics::ResourceId;
@@ -72,7 +73,7 @@ use shipdesign::research::{KEY_CELLS, NODES, Node};
 use shipdesign::{CARGO_SLOTS, Storage};
 use world::{FetchKind, Grid, Kept, LootSource};
 
-use crate::format::{clock_text, date_text, span_text};
+use crate::format::{clock_text, date_text, ordinal, span_text};
 use crate::grid::{self, Cell};
 use crate::icons;
 use crate::keys::{Action, Keys};
@@ -140,10 +141,11 @@ pub struct Hold {
     /// container that takes each resource — `World::in_reach`.
     pub reach: [bool; CARGO_SLOTS],
     /// Which research desk on the deck is the station's, while docked —
-    /// `World::station_desk` — and whether its key is still on it. The
-    /// desk's row reads both.
+    /// `World::station_desk` — and which tier of key is still on it,
+    /// nought for none (`World::key_at_the_dock`). The desk's row reads
+    /// both.
     pub station_desk: Option<usize>,
-    pub station_key: bool,
+    pub station_key: u8,
     /// Which shelves on the deck are the station's, while docked —
     /// `World::station_shelves`: not the hold's, and an enemy's to
     /// plunder.
@@ -227,7 +229,7 @@ pub struct Shelf {
 /// What a row or a ctrl-click asked for, about somebody's gear. The
 /// screen sends it: on the ship as the matching `world::Command`, in the
 /// room straight to the `Game`.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum GearOrder {
     /// Put what is in a pack cell into a container.
     Stow { who: u32, cell: u32 },
@@ -508,25 +510,34 @@ pub struct ResearchView {
     pub needs_key: [bool; NODES],
     /// By `Node` code: a locked node whose key has been consumed.
     pub unlocked: [bool; NODES],
+    /// By `Node` code: could be queued now — not known, on the AI or
+    /// queued already, and nothing it needs still behind a key.
+    pub queueable: [bool; NODES],
     /// What the AI is on, and how far, nought to one.
     pub current: Option<u32>,
     pub fraction: f64,
+    /// What it goes onto next, in order, as `Node` codes.
+    pub queue: Vec<u32>,
     /// A research desk aboard, and running.
     pub desk: bool,
     pub powered: bool,
-    /// Keys in the crew's own desk.
-    pub keys: u32,
+    /// Keys in the crew's own desk, by tier: `keys[0]` tier one, `keys[1]`
+    /// tier two.
+    pub keys: [u32; 2],
     /// Whether each part may be laid out, by `PartKind` code.
     pub parts: Vec<bool>,
 }
 
 /// What the Research tab asked for.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ResearchOrder {
-    /// Put the AI onto a node — `Command::Research`.
+    /// Queue a node for the AI — `Command::Research`; it begins at once
+    /// if the AI is idle.
     Begin(u32),
-    /// Take it off — `Command::CancelResearch`.
+    /// Take the AI off what it is on — `Command::CancelResearch`.
     Cancel,
+    /// Take a node off the queue — `Command::Dequeue`.
+    Dequeue(u32),
     /// Consume the key in the desk to open a locked node — `Command::Unlock`.
     Unlock(u32),
 }
@@ -558,9 +569,10 @@ pub struct Menu {
     fresh: bool,
 }
 
-/// What a menu row does when it is clicked: walks the player's Bim over
-/// to do it.
-type Errand = Box<dyn FnOnce(&mut Game)>;
+/// What a menu row does when it is clicked: an order to the room, sent the
+/// way the screen sends one — through the seam on the ship, straight to
+/// the room in the test room — that walks the player's Bim over to do it.
+type Errand = CrewOrder;
 
 /// One row of a fixture's menu: an errand for the Bim, or a window to
 /// open — the cold store's "Open", a body's "Loot" — which is the panels'
@@ -588,13 +600,13 @@ impl Item {
         label: impl Into<String>,
         hint: impl Into<String>,
         disabled: bool,
-        f: impl FnOnce(&mut Game) + 'static,
+        order: CrewOrder,
     ) -> Item {
         Item {
             label: label.into(),
             hint: hint.into(),
             disabled,
-            run: Some(Box::new(f)),
+            run: Some(order),
             opens: None,
         }
     }
@@ -691,6 +703,16 @@ pub struct CrewPanels {
     /// What the rows and the ctrl-clicks asked for this frame, for the
     /// screen to send. Drained by it.
     pub orders: Vec<GearOrder>,
+    /// What the menus and the Management tab asked of the room this frame
+    /// — `bims::order::CrewOrder`s — for the screen to send: through the
+    /// seam on the ship, straight to the room in the test room. Nothing in
+    /// here reaches into the room itself, since the crew's positions are
+    /// every player's to agree on (feature 59).
+    pub crew_orders: Vec<CrewOrder>,
+    /// The same, given with Shift held: to wait their turn behind what
+    /// the crew member is on (feature 69) — `Game::order_later`,
+    /// `Order::CrewLater` on the ship. Drained beside `crew_orders`.
+    pub later_orders: Vec<CrewOrder>,
 }
 
 impl CrewPanels {
@@ -729,6 +751,8 @@ impl CrewPanels {
             pack_drag: None,
             keys: Keys::default(),
             orders: Vec::new(),
+            crew_orders: Vec::new(),
+            later_orders: Vec::new(),
         }
     }
 
@@ -847,7 +871,11 @@ impl CrewPanels {
         if let Some(spot) = game.container_spot(container)
             && game.is_alive(who)
         {
-            game.send_to(who, spot);
+            self.crew_orders.push(CrewOrder::SendTo {
+                who: who as u32,
+                x: spot.x,
+                y: spot.y,
+            });
         }
         self.open = Some(Open::Container(container));
         self.inventory_open = true;
@@ -864,11 +892,7 @@ impl CrewPanels {
     /// ship without one.
     pub fn open_named(&mut self, game: &mut Game, what: &str) {
         if what == "plunder" {
-            if let Some(&shelf) = self
-                .hold
-                .as_ref()
-                .and_then(|h| h.station_shelves.first())
-            {
+            if let Some(&shelf) = self.hold.as_ref().and_then(|h| h.station_shelves.first()) {
                 self.open_plunder(game, shelf);
             }
             return;
@@ -903,7 +927,11 @@ impl CrewPanels {
         if let Some(spot) = game.container_spot(Container::Shelf(shelf))
             && game.is_alive(who)
         {
-            game.send_to(who, spot);
+            self.crew_orders.push(CrewOrder::SendTo {
+                who: who as u32,
+                x: spot.x,
+                y: spot.y,
+            });
         }
         self.open = Some(Open::Plunder(shelf));
         self.inventory_open = true;
@@ -1061,8 +1089,9 @@ impl CrewPanels {
                         }
                     }),
                     no_stew || galley.is_some(),
-                    move |g| {
-                        g.cook(who, Dish::Stew);
+                    CrewOrder::Cook {
+                        who: who as u32,
+                        dish: Dish::Stew,
                     },
                 ));
                 items.push(Item::run(
@@ -1077,8 +1106,9 @@ impl CrewPanels {
                         }
                     }),
                     no_bowl || galley.is_some(),
-                    move |g| {
-                        g.cook(who, Dish::Bowl);
+                    CrewOrder::Cook {
+                        who: who as u32,
+                        dish: Dish::Bowl,
                     },
                 ));
                 items.push(Item::run(
@@ -1090,7 +1120,10 @@ impl CrewPanels {
                     in_galley(&fridge_held)
                         .unwrap_or_else(|| takes_over.unwrap_or("the Bim walks over to it").into()),
                     fridge_held.is_some(),
-                    move |g| g.toggle_fridge(who, fridge),
+                    CrewOrder::ToggleFridge {
+                        who: who as u32,
+                        fridge: fridge as u32,
+                    },
                 ));
                 // On the ship the cold store is a container as well: its
                 // window is the hold's cold class, the way the armoury's
@@ -1115,9 +1148,7 @@ impl CrewPanels {
                             })
                         }),
                         galley.is_some(),
-                        move |g| {
-                            g.eat_leftovers(who);
-                        },
+                        CrewOrder::EatLeftovers { who: who as u32 },
                     ));
                 }
                 let no_stock = game.store_veg() < 1 || game.store_tofu() < 1;
@@ -1135,9 +1166,7 @@ impl CrewPanels {
                         }
                     }),
                     no_stock || galley.is_some(),
-                    move |g| {
-                        g.make_stew(who);
-                    },
+                    CrewOrder::MakeStew { who: who as u32 },
                 ));
                 let idle_left = game.stove_idle_left(hob);
                 items.push(Item::run(
@@ -1156,7 +1185,10 @@ impl CrewPanels {
                         })
                     }),
                     hob_held.is_some(),
-                    move |g| g.toggle_stove(who, hob),
+                    CrewOrder::ToggleStove {
+                        who: who as u32,
+                        hob: hob as u32,
+                    },
                 ));
             }
             HIT_DISHWASHER => {
@@ -1190,7 +1222,10 @@ impl CrewPanels {
                         }
                     }),
                     left > 0.0 || loaded == 0 || washer_held.is_some(),
-                    move |g| g.run_dishwasher(who, washer),
+                    CrewOrder::RunDishwasher {
+                        who: who as u32,
+                        washer: washer as u32,
+                    },
                 ));
             }
             HIT_SHOWER => {
@@ -1208,9 +1243,7 @@ impl CrewPanels {
                             }
                         }),
                     !can || shower.is_some(),
-                    move |g| {
-                        g.take_shower(who);
-                    },
+                    CrewOrder::TakeShower { who: who as u32 },
                 ));
             }
             HIT_TOILET => {
@@ -1228,9 +1261,7 @@ impl CrewPanels {
                             }
                         }),
                     !can || heads.is_some(),
-                    move |g| {
-                        g.use_toilet(who);
-                    },
+                    CrewOrder::UseToilet { who: who as u32 },
                 ));
             }
             HIT_DOOR => {
@@ -1247,7 +1278,7 @@ impl CrewPanels {
                         }
                     }),
                     locked || heads.is_some(),
-                    move |g| g.toggle_door(who),
+                    CrewOrder::ToggleDoor { who: who as u32 },
                 ));
                 items.push(Item::run(
                     if locked { "Unlock" } else { "Lock" },
@@ -1261,7 +1292,7 @@ impl CrewPanels {
                             .into()
                     }),
                     heads.is_some(),
-                    move |g| g.toggle_door_lock(who),
+                    CrewOrder::ToggleDoorLock { who: who as u32 },
                 ));
             }
             HIT_SHIP_DOOR => {
@@ -1285,16 +1316,14 @@ impl CrewPanels {
                             .into()
                     },
                     locked,
-                    move |g| {
-                        g.order_door(
-                            who,
-                            door,
-                            if held {
-                                door::Order::Close
-                            } else {
-                                door::Order::Open
-                            },
-                        )
+                    CrewOrder::Door {
+                        who: who as u32,
+                        door: door as u32,
+                        order: if held {
+                            door::Order::Close
+                        } else {
+                            door::Order::Open
+                        },
                     },
                 ));
                 items.push(Item::run(
@@ -1307,16 +1336,14 @@ impl CrewPanels {
                         })
                         .to_string(),
                     false,
-                    move |g| {
-                        g.order_door(
-                            who,
-                            door,
-                            if locked {
-                                door::Order::Unlock
-                            } else {
-                                door::Order::Lock
-                            },
-                        )
+                    CrewOrder::Door {
+                        who: who as u32,
+                        door: door as u32,
+                        order: if locked {
+                            door::Order::Unlock
+                        } else {
+                            door::Order::Lock
+                        },
                     },
                 ));
             }
@@ -1341,9 +1368,7 @@ impl CrewPanels {
                             }
                         }),
                     dirty == 0 || broom.is_some(),
-                    move |g| {
-                        g.sweep_up(who);
-                    },
+                    CrewOrder::SweepUp { who: who as u32 },
                 ));
             }
             HIT_HYDRO => {
@@ -1415,7 +1440,10 @@ impl CrewPanels {
                         "grow whatever the store is short of"
                     },
                     false,
-                    move |g| g.set_hydro_automated(bay, !automated),
+                    CrewOrder::HydroAutomated {
+                        bay: bay as u32,
+                        on: !automated,
+                    },
                 ));
                 for (code, label, what) in [
                     (1, "Plant greens in every tray", "two of these in a stew"),
@@ -1443,7 +1471,10 @@ impl CrewPanels {
                             format!("no matter the target · {what}")
                         },
                         false,
-                        move |g| g.set_hydro_forced(bay, if on { 0 } else { code }),
+                        CrewOrder::HydroForced {
+                            bay: bay as u32,
+                            code: if on { 0 } else { code },
+                        },
                     ));
                 }
             }
@@ -1473,8 +1504,10 @@ impl CrewPanels {
                             hint.to_string()
                         },
                         !can,
-                        move |g| {
-                            g.bandage(who, patient, part);
+                        CrewOrder::Bandage {
+                            who: who as u32,
+                            patient: patient as u32,
+                            part,
                         },
                     ));
                 }
@@ -1517,10 +1550,12 @@ impl CrewPanels {
                             ),
                             hint,
                             !can,
-                            move |g| {
-                                if let Some(h) = helper {
-                                    g.treat(h, patient, part);
-                                }
+                            CrewOrder::Treat {
+                                // Disabled with no helper, so the row is
+                                // never run with the placeholder.
+                                who: helper.unwrap_or(who) as u32,
+                                patient: patient as u32,
+                                part,
                             },
                         ));
                     }
@@ -1617,9 +1652,9 @@ impl CrewPanels {
                 // A station's research desk: the one row walks the Bim
                 // shown over and takes the key, if there is one.
                 let desk = game.hit_research();
-                let key = self.hold.as_ref().is_some_and(|h| h.station_key);
-                if key {
-                    items.push(Item::opens(KEY_ROW, KEY_ROW_HINT, Open::Key(desk)));
+                let key = self.hold.as_ref().map_or(0, |h| h.station_key);
+                if key > 0 {
+                    items.push(Item::opens(key_row(key), KEY_ROW_HINT, Open::Key(desk)));
                 } else {
                     items.push(Item::note(KEY_ROW, NO_KEY_ROW_HINT.into()));
                 }
@@ -1645,8 +1680,9 @@ impl CrewPanels {
                         BED_UNASSIGN_ROW,
                         BED_UNASSIGN_HINT,
                         false,
-                        move |g| {
-                            g.assign_bed(shown, None);
+                        CrewOrder::AssignBed {
+                            who: shown as u32,
+                            bed: bims::order::NO_BED,
                         },
                     ));
                 } else {
@@ -1654,8 +1690,9 @@ impl CrewPanels {
                         format!("{BED_ASSIGN_ROW} {}", name(shown as u32)),
                         BED_ASSIGN_HINT,
                         false,
-                        move |g| {
-                            g.assign_bed(shown, Some(bed));
+                        CrewOrder::AssignBed {
+                            who: shown as u32,
+                            bed: bed as u32,
                         },
                     ));
                 }
@@ -1670,14 +1707,22 @@ impl CrewPanels {
                                 format!("up around {}", clock_text(now + minutes))
                             }),
                             false,
-                            move |g| {
-                                g.rest(who, minutes);
+                            CrewOrder::Rest {
+                                who: who as u32,
+                                minutes,
                             },
                         ));
                     }
                 }
             }
             _ => {}
+        }
+        // While there is something to wait behind, a word about Shift: a
+        // row given with it waits its turn (feature 69). Only under rows
+        // that are errands — the Loot and Open rows are windows.
+        let something_on = busy || game.agenda_len(who) > 0 || game.is_walking(who);
+        if something_on && items.iter().any(|item| item.run.is_some()) {
+            items.push(Item::note(SHIFT_LATER, SHIFT_LATER_HINT.into()));
         }
         items
     }
@@ -1702,6 +1747,10 @@ impl CrewPanels {
             .map(|item| theme::Row::new(item.label.clone(), item.hint.clone(), item.disabled))
             .collect();
         let (chosen, rect) = theme::popup(ctx, "fixture-menu", at, &rows);
+        // Shift, as the row was clicked: the errand waits its turn rather
+        // than taking over (feature 69). Asked of the context outside any
+        // input closure of its own.
+        let later = ctx.input(|i| i.modifiers.shift);
         if let Some(i) = chosen {
             let item = items.into_iter().nth(i).unwrap();
             self.menu = None;
@@ -1715,21 +1764,34 @@ impl CrewPanels {
                 }
                 Some(Open::Trade(desk)) => {
                     if let Some(spot) = game.desk_spot(desk) {
-                        game.send_to(self.inventory_who(game), spot);
+                        let who = self.inventory_who(game) as u32;
+                        self.crew_orders.push(CrewOrder::SendTo {
+                            who,
+                            x: spot.x,
+                            y: spot.y,
+                        });
                     }
                     self.trade_requested = true;
                 }
                 Some(Open::Key(desk)) => {
                     let who = self.inventory_who(game);
                     if let Some(spot) = game.research_spot(desk) {
-                        game.send_to(who, spot);
+                        self.crew_orders.push(CrewOrder::SendTo {
+                            who: who as u32,
+                            x: spot.x,
+                            y: spot.y,
+                        });
                     }
                     self.key_requested = Some(who as u32);
                 }
                 Some(Open::Plunder(shelf)) => self.open_plunder(game, shelf),
                 None => {
-                    if let Some(run) = item.run {
-                        run(game);
+                    if let Some(order) = item.run {
+                        if later {
+                            self.later_orders.push(order);
+                        } else {
+                            self.crew_orders.push(order);
+                        }
                     }
                 }
             }
@@ -1776,7 +1838,9 @@ impl CrewPanels {
         game: &mut Game,
         name: &dyn Fn(u32) -> String,
     ) -> bool {
-        let Some(who) = (0..self.crew_count).find(|&w| game.is_selected(w as usize)) else {
+        let Some(who) =
+            (0..self.crew_count).find(|&w| game.is_selected(w as usize, self.player as u32))
+        else {
             return false;
         };
         let w = who as usize;
@@ -2303,7 +2367,7 @@ impl CrewPanels {
     pub fn inventory_who(&self, game: &Game) -> usize {
         (0..self.crew_count)
             .map(|w| w as usize)
-            .find(|&w| game.is_selected(w))
+            .find(|&w| game.is_selected(w, self.player as u32))
             .unwrap_or(self.player)
     }
 
@@ -2351,7 +2415,7 @@ impl CrewPanels {
                     format!("combat mode — {LOCKED_STATUS}")
                 } else if game.is_armed(who) {
                     "combat mode — weapon drawn".into()
-                } else if game.is_recruited() && who == self.player {
+                } else if game.is_recruited(self.player as u32) && who == self.player {
                     "combat mode".into()
                 } else {
                     "weapon holstered".into()
@@ -2578,10 +2642,18 @@ impl CrewPanels {
         // other crew take no orders, and one of them is dressed by being
         // walked over to.
         if let Some(part) = dress {
-            game.bandage(self.player, who, part);
+            self.crew_orders.push(CrewOrder::Bandage {
+                who: self.player as u32,
+                patient: who as u32,
+                part,
+            });
         }
         if let Some((helper, part)) = treat {
-            game.treat(helper, who, part);
+            self.crew_orders.push(CrewOrder::Treat {
+                who: helper as u32,
+                patient: who as u32,
+                part,
+            });
         }
     }
 
@@ -4090,14 +4162,30 @@ impl CrewPanels {
                     .color(theme::WARN),
             );
         }
-        ui.label(
-            egui::RichText::new(format!(
-                "Keys in the desk: {} — a locked node wants one consumed for it",
-                view.keys
-            ))
-            .small()
-            .color(theme::MUTED),
-        );
+        // The keys in the desk, a column a tier: a locked node wants one
+        // of its own tier consumed for it.
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("Keys in the desk:")
+                    .small()
+                    .color(theme::MUTED),
+            );
+            ui.label(
+                egui::RichText::new(format!("tier one {}", view.keys[0]))
+                    .small()
+                    .color(theme::MUTED),
+            );
+            ui.label(
+                egui::RichText::new(format!("tier two {}", view.keys[1]))
+                    .small()
+                    .color(theme::TIER_TWO),
+            );
+            ui.label(
+                egui::RichText::new("— a locked node wants one of its tier consumed for it")
+                    .small()
+                    .color(theme::MUTED),
+            );
+        });
         ui.add_space(4.0);
 
         // The tree. Depth is one past the deepest prerequisite; the boxes
@@ -4169,9 +4257,10 @@ impl CrewPanels {
             let b = box_of(node);
             let i = node as usize;
             let current = view.current == Some(node.code());
+            let queued = view.queue.iter().position(|&q| q == node.code());
             let (fill, edge, ink) = if view.done[i] {
                 (theme::RAISED_ON, theme::ACCENT, theme::INK)
-            } else if current {
+            } else if current || queued.is_some() {
                 (theme::RAISED, theme::ACCENT, theme::INK)
             } else if view.available[i] {
                 (theme::RAISED, theme::MUTED, theme::INK)
@@ -4211,16 +4300,45 @@ impl CrewPanels {
                 // A small lock: a mark in the corner.
                 painter.circle_filled(egui::pos2(b.max.x - 7.0, b.min.y + 7.0), 3.0, theme::GRAVE);
             }
+            if let Some(at) = queued {
+                // Its place in the queue, counted from one, in the corner.
+                let centre = egui::pos2(b.max.x - 6.0, b.min.y + 6.0);
+                painter.circle_filled(centre, 5.5, theme::ACCENT);
+                painter.text(
+                    centre,
+                    egui::Align2::CENTER_CENTER,
+                    (at + 1).to_string(),
+                    egui::FontId::proportional(9.0),
+                    theme::PANEL_DEEP,
+                );
+            }
         }
         if let Some(node) = hovered {
             response.clone().on_hover_text(node_line(node.code()));
         }
 
-        // The picked node, under the tree.
+        // The queue, in order, under the tree — what the AI goes onto
+        // next, with what is on it now at the front — and then the picked
+        // node.
         ui.add_space(6.0);
+        if view.current.is_some() || !view.queue.is_empty() {
+            let mut line: Vec<String> = Vec::new();
+            if let Some(code) = view.current {
+                line.push(format!("{} (on it)", node_name(code)));
+            }
+            line.extend(view.queue.iter().map(|&code| node_name(code).to_string()));
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(format!("Queue: {}", line.join(" > ")))
+                        .small()
+                        .color(theme::MUTED),
+                )
+                .wrap(),
+            );
+        }
         let Some(node) = picked else {
             ui.label(
-                egui::RichText::new("Click a node for what it opens and to put the AI onto it.")
+                egui::RichText::new("Click a node for what it opens and to queue it for the AI.")
                     .small()
                     .color(theme::MUTED),
             );
@@ -4228,6 +4346,7 @@ impl CrewPanels {
         };
         let i = node as usize;
         let def = node.def();
+        let queued = view.queue.iter().position(|&q| q == node.code());
         ui.label(egui::RichText::new(node_name(node.code())).strong());
         ui.add(egui::Label::new(egui::RichText::new(node_line(node.code())).small()).wrap());
         if !def.requires.is_empty() {
@@ -4250,6 +4369,12 @@ impl CrewPanels {
                 span_text((view.fraction * def.minutes as f64) as f32),
                 span_text(def.minutes as f32)
             )
+        } else if let Some(at) = queued {
+            format!(
+                "Queued, {} in line: {} of the AI's time.",
+                ordinal(at + 1),
+                span_text(def.minutes as f32)
+            )
         } else if view.needs_key[i] {
             format!(
                 "Locked: wants a tier-{} research key consumed at the desk for it. {}",
@@ -4266,18 +4391,28 @@ impl CrewPanels {
                 },
                 span_text(def.minutes as f32)
             )
+        } else if view.queueable[i] {
+            format!(
+                "Can be queued, with what it comes after ahead of it. {}",
+                span_text(def.minutes as f32)
+            )
         } else {
             format!(
-                "Waiting on what it comes after. {}",
+                "Waiting on what it comes after, which is behind a key. {}",
                 span_text(def.minutes as f32)
             )
         };
         ui.label(egui::RichText::new(state).small().color(theme::MUTED));
         ui.horizontal(|ui| {
             if view.needs_key[i] {
-                let can = view.keys > 0 && view.desk && view.powered;
-                let hint = if view.keys == 0 {
-                    "no key in the research desk — one is found on a friendly station's desk"
+                let keys = view.keys.get(def.tier as usize - 1).copied().unwrap_or(0);
+                let can = keys > 0 && view.desk && view.powered;
+                let hint = if keys == 0 {
+                    if def.tier == 2 {
+                        "no tier-two key in the research desk — one lies on every hostile station's desk"
+                    } else {
+                        "no tier-one key in the research desk — one is found on a friendly station's desk"
+                    }
                 } else if !view.powered {
                     "the desk has to be running"
                 } else {
@@ -4295,28 +4430,50 @@ impl CrewPanels {
                 }
             }
             if view.current == Some(node.code()) {
-                if ui
-                    .small_button("Stop")
-                    .on_hover_text("takes the AI off it; what was put in is lost")
-                    .clicked()
-                {
+                let hint = if view.queue.is_empty() {
+                    "takes the AI off it; what was put in is lost"
+                } else {
+                    "takes the AI off it and onto the next in the queue; what was put in is lost, and whatever queued needed it comes off"
+                };
+                if ui.small_button("Stop").on_hover_text(hint).clicked() {
                     actions.research_orders.push(ResearchOrder::Cancel);
                 }
+            } else if queued.is_some() {
+                if ui
+                    .small_button("Take off the queue")
+                    .on_hover_text("takes it off the queue, and whatever queued needed it")
+                    .clicked()
+                {
+                    actions
+                        .research_orders
+                        .push(ResearchOrder::Dequeue(node.code()));
+                }
             } else if !view.done[i] {
-                let can = view.available[i] && view.desk;
+                let can = view.queueable[i] && view.desk;
                 let hint = if !view.desk {
                     NO_DESK_HINT
                 } else if view.needs_key[i] {
                     "consume a key at the desk first"
-                } else if !view.available[i] {
-                    "research what it comes after first"
-                } else if view.current.is_some() {
-                    "puts the AI onto this instead; what it was on is dropped"
-                } else {
+                } else if !view.queueable[i] {
+                    "something it comes after is behind a key: consume one for that first"
+                } else if view.current.is_some() || !view.queue.is_empty() {
+                    if view.available[i] {
+                        "queues it for the AI, after what is queued"
+                    } else {
+                        "queues it for the AI, with what it comes after ahead of it"
+                    }
+                } else if view.available[i] {
                     "puts the AI onto it"
+                } else {
+                    "queues it, with what it comes after ahead of it; the AI starts on the first"
+                };
+                let word = if view.current.is_some() || !view.queue.is_empty() {
+                    "Queue"
+                } else {
+                    "Research"
                 };
                 if ui
-                    .add_enabled(can, egui::Button::new("Research").small())
+                    .add_enabled(can, egui::Button::new(word).small())
                     .on_hover_text(hint)
                     .on_disabled_hover_text(hint)
                     .clicked()
@@ -4542,11 +4699,17 @@ impl CrewPanels {
                 let response = response.on_hover_text(format!("{hour:02}:00"));
                 if response.drag_started() || response.clicked() {
                     self.painting = true;
-                    game.set_schedule_slot(hour as u32, self.brush);
+                    self.crew_orders.push(CrewOrder::ScheduleSlot {
+                        hour: hour as u32,
+                        slot: self.brush,
+                    });
                 } else if self.painting && response.hovered() {
                     // Dragging across the strip paints the whole run in one
                     // gesture.
-                    game.set_schedule_slot(hour as u32, self.brush);
+                    self.crew_orders.push(CrewOrder::ScheduleSlot {
+                        hour: hour as u32,
+                        slot: self.brush,
+                    });
                 }
             }
         });
@@ -4569,7 +4732,8 @@ impl CrewPanels {
                 for i in TRIGGER_NEEDS {
                     let mut on = game.need_trigger_on(i);
                     if ui.checkbox(&mut on, "").changed() {
-                        game.set_need_trigger_on(i, on);
+                        self.crew_orders
+                            .push(CrewOrder::NeedTriggerOn { need: i, on });
                     }
                     ui.label(
                         egui::RichText::new(NEED_NAMES.get(i as usize).copied().unwrap_or("Need"))
@@ -4580,7 +4744,10 @@ impl CrewPanels {
                         .add(egui::Slider::new(&mut at, 0..=100).show_value(false))
                         .changed()
                     {
-                        game.set_need_trigger(i, at as f32 / 100.0);
+                        self.crew_orders.push(CrewOrder::NeedTrigger {
+                            need: i,
+                            at: at as f32 / 100.0,
+                        });
                     }
                     ui.label(
                         egui::RichText::new(format!("{at}%"))
@@ -4694,9 +4861,11 @@ impl CrewPanels {
                 }
                 if let Some((job, back)) = clicked {
                     if back {
-                        game.cycle_work_priority_back(job);
+                        self.crew_orders
+                            .push(CrewOrder::WorkPriority { job, back: true });
                     } else {
-                        game.cycle_work_priority(job);
+                        self.crew_orders
+                            .push(CrewOrder::WorkPriority { job, back: false });
                     }
                     self.sort = None;
                 }
@@ -4714,7 +4883,7 @@ impl CrewPanels {
         ui.horizontal(|ui| {
             let mut on = game.is_autonomous();
             if ui.checkbox(&mut on, "").changed() {
-                game.set_autonomous(on);
+                self.crew_orders.push(CrewOrder::Autonomous { on });
             }
             theme::asks(ui, "Let the Bim decide", AUTONOMY_TIP);
         });
@@ -4779,7 +4948,10 @@ impl CrewPanels {
                             .speed(0.2),
                     );
                     if input.changed() {
-                        game.set_target(which, target);
+                        self.crew_orders.push(CrewOrder::StockTarget {
+                            which,
+                            count: target,
+                        });
                     }
                     for r in [&a, &b, &c] {
                         self.points(r, SPOT_FRIDGE);

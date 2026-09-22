@@ -15,7 +15,11 @@
 //! out on the previous frame. `press`, `move`, `release` (and `rpress`,
 //! `rrelease` for the right button) across several frames are a drag.
 //! `wheel` and `wheelup` at a point are a notch of the wheel, which zooms.
-//! `BIMS_KEYS="60:Escape,90:M"` presses keys.
+//! `BIMS_KEYS="60:Escape,90:M"` presses keys. `+Shift` at a frame holds
+//! Shift down and `-Shift` lets it go — the two frames apart, since
+//! bevy_egui reads the modifier a frame after it is written — so
+//! `BIMS_KEYS="58:+Shift,66:-Shift"` round a `right` at 62 is a
+//! Shift-right-click: an order that waits its turn (feature 69).
 //!
 //! `BIMS_AT_BELT=1` opens the simulation holding at a belt, its mining site
 //! laid out, instead of docked. `BIMS_LANDED=1` opens it landed on the
@@ -36,6 +40,15 @@
 //! `BIMS_SOUND_LOG=1` prints every clip as it is played and every bed as
 //! it starts or stops — how a sound is *heard* from a terminal, where a
 //! hidden window has no speaker anybody is listening to.
+//!
+//! `BIMS_AUTO=create` and `BIMS_AUTO=join:<code>` play the lobby and the
+//! yard with nobody at the keyboard, against the relay `BIMS_SERVER` names
+//! — how a game with company is looked at from a terminal ([`auto`]).
+//! `BIMS_BIM_NAME` fills the setup's name field for such a run ([`bim_name`])
+//! and `BIMS_BIM_HAIR` its hair chooser ([`bim_hair`]). `BIMS_DESYNC_AT=<steps>`
+//! parts a guest's world from the host's on purpose at that step, for
+//! looking at the resync ([`desync_at`]); `scratchpad/duo_resync.sh` is
+//! the pair of runs that does, and the host's load with company.
 
 use bevy::diagnostic::{DiagnosticsStore, FrameCount, FrameTimeDiagnosticsPlugin};
 use bevy::input::ButtonState;
@@ -195,11 +208,88 @@ pub fn smoke_frames() -> Option<u32> {
         .and_then(|v| v.parse().ok())
 }
 
+/// `BIMS_AUTO` plays the lobby and the yard with nobody at the keyboard,
+/// which is how a game with company is looked at from a terminal — two
+/// windows against a relay, `BIMS_SERVER` naming it. `BIMS_AUTO=create`
+/// opens a lobby at the menu and prints `lobby: <code>` when the relay
+/// deals one; `BIMS_AUTO=join:<code>` walks into it. Then the host, once
+/// `BIMS_AUTO_PLAYERS` (default 2) are in the lobby, picks a random start
+/// and presses Start, and every window presses Accept a second into the
+/// yard, so the world opens on all of them. With it on, the game prints
+/// `checksum: <steps> <hash>` at every checksum a guest matched, and
+/// `desync` if one did not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Auto {
+    Create,
+    Join(String),
+}
+
+pub fn auto() -> Option<Auto> {
+    let what = std::env::var("BIMS_AUTO").ok()?;
+    match what.split_once(':') {
+        None if what == "create" => Some(Auto::Create),
+        Some(("join", code)) => Some(Auto::Join(code.to_string())),
+        _ => None,
+    }
+}
+
+/// `BIMS_DESYNC_AT=<steps>`: on a guest, once the world has gone that
+/// many steps, one order is applied locally without asking the host — a
+/// divergence on purpose, so the resync (feature 67, `Packet::Resync`)
+/// can be looked at: the guest prints `diverged:`, then `desync:` at the
+/// next checksum, and `resync:` when the host's world lands. Nothing on
+/// a host or in a game of one.
+pub fn desync_at() -> Option<u64> {
+    std::env::var("BIMS_DESYNC_AT").ok()?.parse().ok()
+}
+
+/// How many the host waits for before it presses Start, under `BIMS_AUTO`.
+pub fn auto_players() -> usize {
+    std::env::var("BIMS_AUTO_PLAYERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2)
+}
+
+/// What the setup's name field starts with — `BIMS_BIM_NAME`, else
+/// blank — so a run with nobody at the keyboard can name its Bim and the
+/// name be read off the others' screenshots.
+pub fn bim_name() -> String {
+    std::env::var("BIMS_BIM_NAME").unwrap_or_default()
+}
+
+/// What the setup's hair chooser starts on — `BIMS_BIM_HAIR=<style>:<shade>`,
+/// each a place in `Hair::ALL` / `Shade::ALL` or its name from `names.rs`
+/// (`mohawk:red`), else the first crew member's own crop — so a run with
+/// nobody at the keyboard can pick a head and it be read off a
+/// screenshot.
+pub fn bim_hair() -> (bims::character::Hair, bims::character::Shade) {
+    use bims::character::{Hair, Look, Shade};
+    let dealt = Look::of(0);
+    let Ok(spec) = std::env::var("BIMS_BIM_HAIR") else {
+        return (dealt.hair, dealt.shade);
+    };
+    let mut parts = spec.split(':');
+    let pick = |word: Option<&str>, names: &[&str]| -> Option<usize> {
+        let word = word?.trim();
+        word.parse::<usize>()
+            .ok()
+            .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(word)))
+    };
+    let hair = pick(parts.next(), &crate::names::HAIR_NAMES)
+        .and_then(|i| Hair::ALL.get(i).copied())
+        .unwrap_or(dealt.hair);
+    let shade = pick(parts.next(), &crate::names::SHADE_NAMES)
+        .and_then(|i| Shade::ALL.get(i).copied())
+        .unwrap_or(dealt.shade);
+    (hair, shade)
+}
+
 /// What the window is called to the window system — its Wayland app id and
 /// its X11 class: `bims`, and `bims-smoke` for a run with nobody at the
 /// keyboard, so a desktop can be told where to put those and leave the
-/// game alone. `./check` gives Hyprland a rule that parks them on
-/// workspace 2 without switching to it.
+/// game alone. A smoke run is normally not on the desktop at all: `./hidden`
+/// opens it on a headless compositor of its own.
 pub fn window_name() -> String {
     if smoke_frames().is_some() {
         "bims-smoke".to_string()
@@ -220,6 +310,23 @@ pub fn window_mode() -> bevy::window::WindowMode {
         _ => WindowMode::Windowed,
     }
 }
+
+/// A run with nobody at the keyboard does not wait for the screen. It is
+/// meant to be looked at on `./hidden`'s headless compositor, whose output
+/// has no real vblank — vsync there came out at six frames a second — so
+/// the swapchain is asked not to wait, and [`smoke_exit`] paces the frames
+/// to [`SMOKE_HZ`] itself, so a run behaves as it did on a real screen.
+pub fn present_mode() -> bevy::window::PresentMode {
+    use bevy::window::PresentMode;
+    if smoke_frames().is_some() {
+        PresentMode::AutoNoVsync
+    } else {
+        PresentMode::AutoVsync
+    }
+}
+
+/// What a smoke run's frame rate is held to, in place of the screen's.
+const SMOKE_HZ: f64 = 60.0;
 
 pub fn window_resolution() -> WindowResolution {
     let default = WindowResolution::new(1400, 900);
@@ -256,8 +363,21 @@ fn smoke_exit(
     window: Single<&Window>,
     mut exit: MessageWriter<AppExit>,
     mut shot_taken: Local<bool>,
+    mut last_frame: Local<Option<std::time::Instant>>,
 ) {
     let Some(limit) = smoke_frames() else { return };
+    // Without vsync (`present_mode`) a frame is as quick as the machine
+    // draws it, and the screens step by real time, so the run is held to
+    // a screen's pace here: the rest of this frame's sixtieth is slept.
+    let period = std::time::Duration::from_secs_f64(1.0 / SMOKE_HZ);
+    if let Some(last) = *last_frame {
+        let due = last + period;
+        let now = std::time::Instant::now();
+        if due > now {
+            std::thread::sleep(due - now);
+        }
+    }
+    *last_frame = Some(std::time::Instant::now());
     if frames.0 + 30 >= limit
         && !*shot_taken
         && let Ok(path) = std::env::var("BIMS_SCREENSHOT")
@@ -309,8 +429,18 @@ fn scripted_input(
         let Some(name) = at_this_frame(item) else {
             continue;
         };
-        let (key_code, logical) = match name.as_str() {
+        // `+Name` is the press alone, held from here; `-Name` the release.
+        let (name, states): (&str, &[ButtonState]) = match name.as_bytes().first() {
+            Some(b'+') => (&name[1..], &[ButtonState::Pressed]),
+            Some(b'-') => (&name[1..], &[ButtonState::Released]),
+            _ => (
+                name.as_str(),
+                &[ButtonState::Pressed, ButtonState::Released],
+            ),
+        };
+        let (key_code, logical) = match name {
             "Escape" | "Esc" => (KeyCode::Escape, Key::Escape),
+            "Shift" => (KeyCode::ShiftLeft, Key::Shift),
             "Enter" => (KeyCode::Enter, Key::Enter),
             "Tab" => (KeyCode::Tab, Key::Tab),
             "Space" => (KeyCode::Space, Key::Space),
@@ -336,7 +466,7 @@ fn scripted_input(
             }
             _ => continue,
         };
-        for state in [ButtonState::Pressed, ButtonState::Released] {
+        for &state in states {
             let input = KeyboardInput {
                 key_code,
                 logical_key: logical.clone(),

@@ -111,8 +111,10 @@ pub struct Game {
     /// Head up rather than north up: the ship is drawn the way it was laid
     /// out and the sky, the station alongside and the map turn round it
     /// instead. A view setting and nothing else — the heading is what it is,
-    /// and nothing that decides anything reads this. Off by default, because
-    /// a fixed sky is what makes a flip legible; see `camera.rs`.
+    /// and nothing that decides anything reads this. On by default (feature
+    /// 65): the ship square to the window is the view the game opens on,
+    /// and North up on the View tab, or `N`, is the fixed sky that makes a
+    /// flip legible; see `camera.rs`.
     pub head_up: bool,
     /// Whether the player is marking rocks: the Actions tab's Mine tool is
     /// on, so a rock under the pointer is rung. A tool setting, this
@@ -229,7 +231,7 @@ impl Game {
             preview: None,
             aimed: None,
             hover: None,
-            head_up: false,
+            head_up: true,
             follow: false,
             map_anchor: DVec2::ZERO,
             marking: false,
@@ -266,7 +268,7 @@ impl Game {
             preview: None,
             aimed: None,
             hover: None,
-            head_up: false,
+            head_up: true,
             follow: false,
             map_anchor: DVec2::ZERO,
             marking: false,
@@ -377,7 +379,7 @@ impl Game {
             return;
         }
         self.map_view.set_focus(0.0, 0.0);
-        let who = bims::bim::PLAYER as u32;
+        let who = self.local;
         if who >= self.world.aboard.count() {
             return;
         }
@@ -397,6 +399,19 @@ impl Game {
             0.0
         };
         self.ship_view.set_floor(floor);
+    }
+
+    /// On a planet, the plain's picture for this frame — the fog beyond
+    /// the box, marched like the room's light map, a chunk a texture —
+    /// asked of the room over the window the plain is about to be drawn
+    /// on (`world_paint::plain_window`), which is why it is asked here
+    /// and not in the room's own `render`: the room does not know the
+    /// camera. Once a frame, after the view is held to the ground and
+    /// before the picture.
+    pub fn picture_the_plain(&mut self) {
+        if let Some(window) = crate::world_paint::plain_window(self) {
+            self.world.aboard.room.picture_plain(window);
+        }
     }
 
     /// A place in the system as the map camera's focus: from the ship, y
@@ -446,7 +461,7 @@ impl Game {
     pub fn centre_on_player(&mut self) {
         self.map_view.recentre(0.0, 0.0);
         self.map_anchor = self.world.ship.position();
-        let who = bims::bim::PLAYER as u32;
+        let who = self.local;
         if who >= self.world.aboard.count() {
             return;
         }
@@ -565,13 +580,16 @@ impl Game {
 
     /// Queue an order for the next step.
     ///
-    /// With one exception, and it is `world`'s rather than this module's: a
-    /// speed request is applied straight away, because at a pause there are no
-    /// steps for a queued one to land on and the pause could never be lifted.
-    /// See [`World::request_speed`].
+    /// With exceptions, and they are `world`'s rather than this module's:
+    /// a speed request is applied straight away, because at a pause there
+    /// are no steps for a queued one to land on and the pause could never
+    /// be lifted; and so is an order to the crew's room, so a click on the
+    /// deck at a pause is a click that shows. See
+    /// [`World::applies_at_once`].
     pub fn send(&mut self, command: Command) {
-        if let Command::SetSpeed { slot, speed } = command {
-            self.world.request_speed(slot, speed);
+        if World::applies_at_once(&command) {
+            let events = self.world.apply_now(command);
+            self.events.extend(events);
             return;
         }
         self.queued.push(command);

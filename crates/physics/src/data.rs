@@ -120,12 +120,27 @@ pub enum ResourceId {
     /// counts it the way a locker counts a medkit; made nowhere and sold
     /// nowhere, and a station buys one for the curiosity.
     ResearchKey = 21,
+    /// A tier-two research key: the same slab, found on the research desk
+    /// of a **hostile** station — every one that is not a derelict — and
+    /// carried off the same way, two cells in a pack, one in the crew's
+    /// desk. Consumed there to open the tier-two node
+    /// (`shipdesign::research::Node::Upgrades`).
+    ResearchKeyTwo = 22,
+    /// An engineer's sandbag kit (feature 74, `world::deploy`): one bar of
+    /// metal's worth of sacks and frame, made at the workbench, carried
+    /// in the pack and laid as a deployable on a deck tile — never a part
+    /// of the ship. Sold nowhere; a station buys one back.
+    SandbagKit = 23,
+    /// An engineer's sentry kit: a turret in a crate, the auto rifle's
+    /// worth of emitter and action on two bars of metal. The same rules
+    /// as the sandbag kit's.
+    SentryKit = 24,
 }
 
 impl ResourceId {
     /// Every resource, in discriminant order. `ALL[id as usize].id == id`,
     /// which [`ResourceId::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [ResourceId; 22] = [
+    pub const ALL: [ResourceId; 25] = [
         ResourceId::Ore,
         ResourceId::Metal,
         ResourceId::Components,
@@ -148,6 +163,9 @@ impl ResourceId {
         ResourceId::SniperRifle,
         ResourceId::Schword,
         ResourceId::ResearchKey,
+        ResourceId::ResearchKeyTwo,
+        ResourceId::SandbagKit,
+        ResourceId::SentryKit,
     ];
 
     pub fn def(self) -> &'static ResourceDef {
@@ -182,7 +200,7 @@ pub struct ResourceDef {
 /// components and the galvum that went into it, and four components weigh
 /// one metal. `shipdesign::recipes` is where those recipes live and
 /// `every_recipe_conserves_mass` there is what holds this column to them.
-pub static RESOURCES: [ResourceDef; 22] = [
+pub static RESOURCES: [ResourceDef; 25] = [
     ResourceDef {
         id: ResourceId::Ore,
         mass_per_unit: 10.0,
@@ -282,6 +300,20 @@ pub static RESOURCES: [ResourceDef; 22] = [
     ResourceDef {
         id: ResourceId::ResearchKey,
         mass_per_unit: 2.0,
+    },
+    ResourceDef {
+        id: ResourceId::ResearchKeyTwo,
+        mass_per_unit: 2.0,
+    },
+    // The engineer's kits weigh what went into them: a sandbag kit one
+    // metal, a sentry kit two metal, two components and an emitter.
+    ResourceDef {
+        id: ResourceId::SandbagKit,
+        mass_per_unit: 8.0,
+    },
+    ResourceDef {
+        id: ResourceId::SentryKit,
+        mass_per_unit: 36.0,
     },
 ];
 

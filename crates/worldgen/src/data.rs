@@ -256,7 +256,12 @@ impl StationKind {
             // its shelf.
                 | ResourceId::SniperRifle
                 | ResourceId::Schword
-                | ResourceId::ResearchKey,
+                | ResourceId::ResearchKey
+                | ResourceId::ResearchKeyTwo
+                // An engineer's kits are made at the crew's own workbench:
+                // no station stocks them, and any station buys them.
+                | ResourceId::SandbagKit
+                | ResourceId::SentryKit,
             ) => false,
             // Mined off an asteroid on the way to its ore; nobody stocks it.
             (_, ResourceId::Rock) => false,
@@ -477,7 +482,10 @@ mod tests {
                         | ResourceId::AutoRifle
                         | ResourceId::SniperRifle
                         | ResourceId::Schword
-                        | ResourceId::ResearchKey,
+                        | ResourceId::ResearchKey
+                        | ResourceId::ResearchKeyTwo
+                        | ResourceId::SandbagKit
+                        | ResourceId::SentryKit,
                     ) => false,
                     (_, ResourceId::Rock) => false,
                     (StationKind::MiningOutpost, ResourceId::Galvum) => true,
@@ -501,6 +509,9 @@ mod tests {
         assert!(!StationKind::MiningOutpost.sells(ResourceId::Schword));
         assert!(!StationKind::MiningOutpost.sells(ResourceId::Rock));
         assert!(!StationKind::Orbital.sells(ResourceId::ResearchKey));
+        assert!(!StationKind::Relay.sells(ResourceId::ResearchKeyTwo));
+        assert!(!StationKind::Orbital.sells(ResourceId::SandbagKit));
+        assert!(!StationKind::Refinery.sells(ResourceId::SentryKit));
         // Fibre and bandages: the orbitals, bandages at the refineries too,
         // and neither is a staple.
         assert!(StationKind::Orbital.sells(ResourceId::Fibre));

@@ -15,20 +15,47 @@ use world::{Refusal, WorldEvent};
 /// Who is aboard, by lobby slot. The room calls crew 0 James.
 pub const CREW_NAMES: [&str; 5] = ["James", "Kate", "Priya", "Tomas", "Mateo"];
 
+/// What the players called their crew, in slot order, over the table
+/// above (feature 60): set from the session whenever one is opened or
+/// loaded (`set_crew_names`), and read by [`crew_name`] wherever a crew
+/// member is named — the log, the panels, the name over a head. A slot
+/// left blank is the table's. A process-wide cell rather than a resource
+/// threaded through forty callers, because the names are words and the
+/// words are this file's.
+static GIVEN_NAMES: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
+
+/// The crew's names as the players gave them, from the session that
+/// holds them (`ship::Session::crew_names`). Empty clears them.
+pub fn set_crew_names(names: &[String]) {
+    let mut given = GIVEN_NAMES.write().unwrap_or_else(|e| e.into_inner());
+    given.clear();
+    given.extend(names.iter().map(|n| wire::tidy_name(n)));
+}
+
+/// A crew member's name: what its player called it, else the table's.
 pub fn crew_name(who: u32) -> String {
+    if let Some(given) = given_name(who) {
+        return given;
+    }
     CREW_NAMES
         .get(who as usize)
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("Crew {}", who + 1))
 }
 
+fn given_name(who: u32) -> Option<String> {
+    let given = GIVEN_NAMES.read().unwrap_or_else(|e| e.into_inner());
+    given.get(who as usize).filter(|n| !n.is_empty()).cloned()
+}
+
 /// What the people living on a station are called. The world knows a
 /// resident as a station and a seat and nothing else, so the names are
 /// dealt out here, by station and seat, off one list: enough that no two
 /// on one station share a name, and the same ones every time the ship
-/// comes back. Sixty-four because a town on a planet holds up to fifty
-/// (`world::data::SURFACE_POPULATION`), and the formula below walks the
-/// list seat by seat from where the station starts.
+/// comes back. Sixty-four because a town on a planet held up to fifty
+/// (`world::data::SURFACE_POPULATION`, thirty since feature 66), and
+/// the formula below walks the list seat by seat from where the station
+/// starts.
 pub const RESIDENT_NAMES: [&str; 64] = [
     "Ada", "Tomas", "Priya", "Yusuf", "Mei", "Olu", "Sanne", "Ravi", "Ines", "Kofi", "Hana",
     "Bram", "Leila", "Jonas", "Nour", "Emil", "Amara", "Sofia", "Kenji", "Zara", "Mateo", "Aiko",
@@ -313,7 +340,7 @@ pub const NOT_A_TOOL: &[u32] = &[
 ];
 
 /// What a station sells, indexed by `physics::ResourceId`.
-pub const RESOURCE_NAMES: [&str; 22] = [
+pub const RESOURCE_NAMES: [&str; 23] = [
     "Ore",
     "Metal",
     "Components",
@@ -336,6 +363,7 @@ pub const RESOURCE_NAMES: [&str; 22] = [
     "Sniper rifles",
     "Schwords",
     "Research keys",
+    "Tier-two keys",
 ];
 
 pub fn resource_name(id: ResourceId) -> &'static str {
@@ -497,7 +525,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotAtTheDesk => "nobody of yours is at the trading desk — walk over first",
         Refusal::NoKey => "there is no research key there",
         Refusal::NoResearchDesk => "the ship has no research desk running — the AI works on one",
-        Refusal::NotResearchable => "that cannot be researched now",
+        Refusal::NotResearchable => "that cannot be queued for research now",
         Refusal::NotResearched => "the crew do not know how to build that yet",
         Refusal::NotHostile => "only an enemy's people are finished off",
         Refusal::Unarmed => "nothing in hand to do it with",
@@ -516,7 +544,114 @@ pub fn refusal(why: Refusal) -> &'static str {
             "the bench takes two of a kind at one tier — the same weapon or piece, below tier three"
         }
         Refusal::BenchBusy => "the bench is at work on what is on it — wait for the day to finish",
+        // A walk ordered on the deck (`Command::Crew`): the room's two
+        // refusals, said the way `order_refused` says them in the test room.
+        Refusal::DoorLocked => "the bathroom door is locked on the only way there",
+        Refusal::NoWayThere => "there is no way there at all",
+        Refusal::NotQueued => "that is not on the research queue",
+        Refusal::NoUpgrades => {
+            "the crew do not know how to upgrade gear yet — research Upgrades, behind a tier-two key"
+        }
     }
+}
+
+// --- the wire (feature 59) --------------------------------------------------------
+
+/// What the relay's refusals say — `wire::Refusal`, a code each, the way
+/// the world's are. The one with a number in it carries the server's
+/// protocol, so the line can say which.
+pub fn relay_refusal(why: wire::Refusal) -> String {
+    match why {
+        wire::Refusal::Protocol { server } => format!(
+            "This game speaks protocol {}; the server speaks {server}. One of you is out of date.",
+            wire::PROTOCOL
+        ),
+        wire::Refusal::HelloFirst | wire::Refusal::Greeted => {
+            "The server lost its place in the handshake.".into()
+        }
+        wire::Refusal::NoName => "The server wants a name — set BIMS_NAME.".into(),
+        wire::Refusal::InRoom => "Leave the lobby you are in first.".into(),
+        wire::Refusal::NoCodes => "The server has no room codes left. Try again shortly.".into(),
+        wire::Refusal::NoSuchRoom => "No lobby has that code.".into(),
+        wire::Refusal::RoomFull => "That lobby is full.".into(),
+        wire::Refusal::Begun => "That game has already begun.".into(),
+        wire::Refusal::NotInRoom => "You are not in a lobby.".into(),
+        wire::Refusal::NotHost => "Only the host can start the game.".into(),
+        wire::Refusal::TooBig => "That was too much to send at once.".into(),
+    }
+}
+
+/// Why a room closed under you.
+pub fn room_closed(why: wire::Closed) -> &'static str {
+    match why {
+        wire::Closed::HostLeft => "The host left, and the lobby closed with them.",
+    }
+}
+
+/// An Accept refused: it was made against a ship that has since changed,
+/// or a game that has since begun.
+pub const ACCEPT_STALE: &str = "That Accept was for a ship that has since changed.";
+/// While the socket is being opened and the room asked for.
+pub const CONNECTING: &str = "Reaching the server…";
+/// A join with something that is not six of the code's letters.
+pub const NOT_A_CODE: &str = "That is not a room code: six letters or digits.";
+/// The connection died; what the socket said follows.
+pub const LINK_LOST: &str = "Lost the connection:";
+/// The host has gone mid-game: the ship is this player's own from here.
+pub const HOST_GONE: &str = "The host has gone. The ship is yours now, and the clock with it.";
+/// A guest's copy of the world disagrees with the host's.
+pub const DESYNC: &str =
+    "Your world has drifted from the host's — what you see may not be what they see.";
+/// The guest asked the host for its world (feature 67).
+pub const RESYNC_ASKED: &str = "Catching up with the host…";
+/// The host's world arrived and took the guest's place.
+pub const RESYNC_DONE: &str = "Back on the host's world.";
+/// A guest's Load is greyed with this: the host's world is the world.
+pub const LOAD_GUEST: &str = "Only the host can load a game.";
+/// The host's load does not fit the room.
+pub fn load_players(saved: u32, here: u32) -> String {
+    format!("That game was saved for {saved} players; {here} are here.")
+}
+/// The host's world arrived and could not be read.
+pub fn world_refused(why: &str) -> String {
+    format!("Could not read the host's world: {why}")
+}
+/// Somebody left the game; their crew member carries on unsteered.
+pub fn player_left(name: &str) -> String {
+    format!("{name} has left. Their crew member carries on alone.")
+}
+/// Somebody joined the lobby.
+pub fn player_joined(name: &str) -> String {
+    format!("{name} joined.")
+}
+/// Somebody left the lobby; the relay says the roster, not who.
+pub const SOMEBODY_LEFT: &str = "Somebody left.";
+/// The setup's name field: what the player calls their crew member.
+pub const BIM_NAME: &str = "Your Bim";
+pub const BIM_NAME_NOTE: &str = "What your crew member is called; blank keeps the crew's own name";
+/// The field's hint, and what the lobby's roster prints for a Bim not
+/// yet named: the crew's own name for that berth.
+pub const BIM_NAME_HINT: &str = "a name";
+/// The setup's hair chooser: the row's title and its note, and the name
+/// of every style and every colour, in `bims::character::Hair::ALL`'s and
+/// `Shade::ALL`'s order (feature 62).
+pub const BIM_HAIR: &str = "Hair";
+pub const BIM_HAIR_NOTE: &str = "How your crew member wears it, and its colour";
+pub const HAIR_NAMES: [&str; 8] = [
+    "Cropped", "Long", "Bald", "Bob", "Bun", "Mohawk", "Ponytail", "Curly",
+];
+pub const SHADE_NAMES: [&str; 6] = ["Dark", "Brown", "Black", "Blond", "Red", "Grey"];
+pub fn hair_name(hair: bims::character::Hair) -> &'static str {
+    HAIR_NAMES
+        .get(hair.code() as usize)
+        .copied()
+        .unwrap_or("Hair")
+}
+pub fn shade_name(shade: bims::character::Shade) -> &'static str {
+    SHADE_NAMES
+        .get(shade.code() as usize)
+        .copied()
+        .unwrap_or("Hair")
 }
 
 /// Why a blueprint will not go where the pointer is, from
@@ -807,10 +942,14 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             format!("{units} of the food in the cold store spoiled for want of power.")
         }
         WorldEvent::RaidContact { boarders, minutes } => format!(
-            "Raiders. A hostile ship is on the radar, {minutes} minutes out and closing, with {boarders} aboard. Everybody back to 1×."
+            "Raiders. A hostile ship is on the radar and closing, incoming in {}, with {boarders} aboard. Everybody back to 1×.",
+            crate::format::in_words(minutes as f64)
         ),
-        WorldEvent::RaidBoarded { boarders } => {
-            format!("The raider is alongside: {boarders} boarders are coming through the airlock.")
+        WorldEvent::RaidBoarded { boarders } => format!(
+            "The raider is alongside: the airlock is locked in its face, and {boarders} boarders are forcing it."
+        ),
+        WorldEvent::RaidBreached { boarders } => {
+            format!("The airlock gave: {boarders} boarders are coming through it.")
         }
         WorldEvent::RaidCancelled => "The raider lost the ship, and gave up.".into(),
         WorldEvent::RaidRepelled => {
@@ -822,6 +961,12 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             1 => format!("{} took a thing off the enemy's shelf.", who(w)),
             n => format!("{} took {n} off the enemy's shelf.", who(w)),
         },
+        WorldEvent::ResearchQueued { node } => {
+            format!("Queued for research: {}.", node_name(node))
+        }
+        WorldEvent::ResearchDropped { node } => {
+            format!("Off the research queue: {}.", node_name(node))
+        }
     })
 }
 
@@ -1057,6 +1202,14 @@ pub const HELPER_OUT: &str = "not from where the Bim is";
 /// the Bim for it: dead, out cold, outside, or the gun already gone.
 pub const PICK_UP_REFUSED: &str = "Can't pick that up from here.";
 
+/// The greyed line under a fixture menu's rows while the Bim has
+/// something on: a row clicked with Shift held waits its turn behind it
+/// rather than taking over (feature 69), and so does a right-click on the
+/// deck.
+pub const SHIFT_LATER: &str = "Shift-click: afterwards";
+pub const SHIFT_LATER_HINT: &str =
+    "a row or a spot on the deck given with Shift waits its turn behind what the Bim is on";
+
 /// Why a Bandage row is greyed for a patient outside in a suit: nobody
 /// can walk to it there.
 pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in first";
@@ -1072,7 +1225,7 @@ pub const OVER_LINE: &str = "Nobody of the crew is standing. The run is over.";
 pub const OVER_BACK: &str = "Back to the menu";
 
 pub const UPGRADE_LABEL: &str = "Combine matching gear";
-pub const UPGRADE_TIP: &str = "Ticked, whoever is free carries two of a kind at the same tier — two pistols, two helms — from the lockers to the workbench's two slots one at a time, presses Upgrade for you, and a day of work later carries the one that comes off a tier up back to the lockers: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. Unticked, the bench is yours: put a pair on it from the pack and press the button in its window. The hours done are kept whoever is at the bench.";
+pub const UPGRADE_TIP: &str = "Ticked, whoever is free carries two of a kind at the same tier — two pistols, two helms — from the lockers to the workbench's two slots one at a time, presses Upgrade for you, and a day of work later carries the one that comes off a tier up back to the lockers: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. Unticked, the bench is yours: put a pair on it from the pack and press the button in its window. The hours done are kept whoever is at the bench. Nothing is upgraded, ticked or not, until the Upgrades node of the research tree is known — tier two, behind a tier-two key off a hostile station's desk.";
 
 /// The line under it while something is on the bench: what, to which
 /// tier, and how far — or that it is done and waiting in the output slot.
@@ -1176,10 +1329,12 @@ pub fn memory_line(what: u32, d: u32) -> Option<String> {
 }
 
 fn crew_or(who: u32, fallback: &str) -> String {
-    CREW_NAMES
-        .get(who as usize)
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| fallback.to_string())
+    given_name(who).unwrap_or_else(|| {
+        CREW_NAMES
+            .get(who as usize)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| fallback.to_string())
+    })
 }
 
 /// What a Bim says it is talking about, by the code from `chat_topic`.
@@ -1328,6 +1483,7 @@ pub fn job_name(code: u32) -> &'static str {
         24 => "Picking a weapon up",
         25 => "Finishing off",
         26 => "Carrying gear to the workbench",
+        27 => "Walking over",
         _ => "Busy",
     }
 }
@@ -1355,6 +1511,7 @@ pub fn activity_line(code: u32) -> Option<&'static str> {
         24 => "Going for the weapon on the deck…",
         25 => "Finishing off a body…",
         26 => "Carrying gear to the workbench…",
+        27 => "Walking over…",
         _ => return None,
     })
 }
@@ -1512,7 +1669,7 @@ pub fn locked_tip() -> String {
 /// What each thing in a grid cell is, for the tooltip under its icon,
 /// indexed by `physics::ResourceId`. A piece of armour's numbers are put
 /// after its line by the grid, off the piece itself.
-pub const ITEM_TIPS: [&str; 22] = [
+pub const ITEM_TIPS: [&str; 23] = [
     "Iron ore off a belt. Two lumps smelt into a bar of metal.",
     "A bar of metal: what most of the ship is built of, and what the workbench works.",
     "Components, worked out of metal at the workbench. Four to a bar.",
@@ -1535,6 +1692,7 @@ pub const ITEM_TIPS: [&str; 22] = [
     "A sniper rifle: four bars of metal, two components and two emitters at the armoury. Reaches furthest.",
     "A schword, a blade with a laser edge: a bar of metal, a component and two emitters at the armoury. Cuts, at arm's length.",
     "A tier-one research key: an artifact off a station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the locked part of the research tree.",
+    "A tier-two research key: an artifact off a hostile station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the upgrades node, which wants it and no other.",
 ];
 
 pub fn item_tip(id: ResourceId) -> &'static str {
@@ -1543,7 +1701,7 @@ pub fn item_tip(id: ResourceId) -> &'static str {
 
 /// The research tree's nodes, indexed by `shipdesign::research::Node`, and
 /// what each of them opens.
-pub const NODE_NAMES: [&str; 9] = [
+pub const NODE_NAMES: [&str; 10] = [
     "Living aboard",
     "Mining",
     "Medicine",
@@ -1553,9 +1711,10 @@ pub const NODE_NAMES: [&str; 9] = [
     "Armoury",
     "Emitters",
     "Hyperdrive",
+    "Upgrades",
 ];
 
-pub const NODE_LINES: [&str; 9] = [
+pub const NODE_LINES: [&str; 10] = [
     "Everything a crew needs to live and to fly: the hull, the galley, the heads, the bunks, the hydroponic bay, the fusion reactor, the helm and the engines. Known from the start.",
     "A walk outside with a pick: the suit locker and the suit. Known from the start.",
     "Bandages and medkits at the drug lab. Known from the start.",
@@ -1565,6 +1724,7 @@ pub const NODE_LINES: [&str; 9] = [
     "The armoury, every weapon it makes, the vest, and the three pieces of armour at the workbench.",
     "The emitter at the workbench: what a laser fires through, and what the guns want.",
     "The hyperdrive: a jump to another star, bolted to a main engine. Charged from the helm for twenty seconds, and then the ship is in empty space round the star picked on the galaxy chart.",
+    "The workbench's upgrades: two weapons or pieces of a kind at one tier into one of the next — tier one to two, and two to three. The first tier-two node: it wants a tier-two key, which lies on the research desk of every hostile station.",
 ];
 
 pub fn node_name(code: u32) -> &'static str {
@@ -1579,13 +1739,21 @@ pub fn node_line(code: u32) -> &'static str {
 }
 
 /// The Research tab.
-pub const RESEARCH_TIP: &str = "Research is done by the ship's AI at the research desk, on the desk's power — the crew have stopped being able to. Pick a node the crew can begin and the AI works through it on the clock; what it opens can be built from the Build tab and made at the benches after. The nodes behind a lock want a research key each — one key opens one node: a key is found on the research desk of most friendly stations — lit up, so it can be seen from the door — and a crew member within two tiles takes it into their pack, where it is two cells tall. Put it in the ship's own desk and consume it there for the node, and that node is open for good.";
+pub const RESEARCH_TIP: &str = "Research is done by the ship's AI at the research desk, on the desk's power — the crew have stopped being able to. Pick a node and queue it: whatever it needs that is not yet known goes onto the queue ahead of it, the AI works through the queue in order on the clock — days at a time — and what a node opens can be built from the Build tab and made at the benches after. A node taken off the queue takes with it whatever was waiting on it. The nodes behind a lock want a research key each — one key opens one node, and a node wants a key of its own tier: a tier-one key is found on the research desk of most friendly stations, a tier-two key on the desk of every hostile one — lit up either way, so it can be seen from the door — and a crew member within two tiles takes it into their pack, where it is two cells tall. Put it in the ship's own desk and consume it there for the node, and that node is open for good.";
 pub const NO_DESK_HINT: &str =
     "No research desk aboard — the AI works on one. Build one from the Build tab.";
 pub const DESK_DARK_HINT: &str =
     "The research desk is unpowered: nothing is researched until it is.";
 pub const KEY_ROW: &str = "Take the research key";
 pub const KEY_ROW_HINT: &str = "walk over and take it into the pack — it is two cells tall";
+
+/// The desk's row, naming the tier of key that lies on it.
+pub fn key_row(tier: u8) -> String {
+    match tier {
+        2 => "Take the tier-two research key".to_string(),
+        _ => KEY_ROW.to_string(),
+    }
+}
 pub const NO_KEY_ROW_HINT: &str = "there is no key on this desk";
 pub const RESEARCH_WINDOW: &str = "Research desk";
 pub const RESEARCH_LOCKED: &str = "needs research";
@@ -1668,6 +1836,24 @@ pub const NO_QUOTE: &str = "—";
 pub const ABOARD_HEAD: &str = "Aboard";
 pub const CART_HEAD: &str = "Cart";
 
+/// The red warning along the top while a raid is on — feature 68: what
+/// it says while the raider closes (`span` from `format::in_words`,
+/// counted down every frame), while its boarders stand at the ship's
+/// locked airlock, while they heave at it, and once it has given.
+pub fn raid_incoming(span: &str, boarders: u32) -> String {
+    format!("RAIDERS — incoming in {span}, {boarders} aboard")
+}
+pub fn raid_at_the_airlock(boarders: u32) -> String {
+    format!("RAIDERS ALONGSIDE — {boarders} at the locked airlock")
+}
+pub fn raid_forcing(boarders: u32) -> String {
+    format!("RAIDERS ALONGSIDE — {boarders} forcing the airlock")
+}
+pub fn raid_aboard(boarders: u32) -> String {
+    format!("RAIDERS ABOARD — {boarders} through the airlock")
+}
+pub const RAID_TIP: &str = "A hostile ship is closing on yours and will tie up alongside. Its boarders come for the ship through your airlock, which is locked in their face the moment they arrive: they have to force it — half a minute of heaving, the bar over the door — and you may unlock it from its panel yourself to meet them in the passage. Everybody's speed was put back to 1× when it came onto the radar; leaving before it arrives loses it.";
+
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
 pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws a weapon — out of the pack if the hand is empty — and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
@@ -1684,6 +1870,9 @@ pub const BED_OWN_HINT: &str = "their own";
 pub const BED_NOBODY_S: &str = "nobody's";
 /// A station's bunk on the joined deck: not the ship's to give.
 pub const BED_FOREIGN_HINT: &str = "the station's — not yours to give";
+/// The tag written on a bunk nobody has, on the deck (feature 61); a bunk
+/// somebody has wears their name.
+pub const BED_TAG_UNASSIGNED: &str = "Unassigned";
 /// The status lines: a Bim with no bunk, and one sore from the deck.
 pub const NO_BED_LINE: &str = "No bunk — sleeps on the deck, three hours in every six";
 pub const SORE_LINE: &str = "Slept on the deck";
@@ -1702,6 +1891,21 @@ pub const DPS_TIP: &str = "Damage a second with every shot landing up close: the
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A player's name for their Bim is what every line calls it; a slot
+    /// left blank, or past the list, keeps the table's; and the names are
+    /// tidied on the way in like everything off the wire.
+    #[test]
+    fn the_crew_are_called_what_their_players_called_them() {
+        set_crew_names(&["".to_string(), " Ada \n".to_string()]);
+        assert_eq!(crew_name(0), "James");
+        assert_eq!(crew_name(1), "Ada");
+        assert_eq!(crew_name(2), "Priya");
+        assert_eq!(crew_or(1, "One of the crew"), "Ada");
+        assert!(memory_line(30, 1).unwrap().starts_with("Ada died"));
+        set_crew_names(&[]);
+        assert_eq!(crew_name(1), "Kate");
+    }
 
     #[test]
     fn every_table_of_the_rules_is_as_long_as_its_enum() {
@@ -1767,6 +1971,18 @@ mod tests {
         // --- the_work_list_names_every_job ---
         {
             assert_eq!(WORK_NAMES.len(), bims::work::Job::ALL.len());
+        }
+
+        // --- the_chooser_names_every_hair_and_shade ---
+        {
+            assert_eq!(HAIR_NAMES.len(), bims::character::Hair::ALL.len());
+            assert_eq!(SHADE_NAMES.len(), bims::character::Shade::ALL.len());
+            for (i, hair) in bims::character::Hair::ALL.iter().enumerate() {
+                assert_eq!(hair.code() as usize, i);
+            }
+            for (i, shade) in bims::character::Shade::ALL.iter().enumerate() {
+                assert_eq!(shade.code() as usize, i);
+            }
         }
 
         // --- the_readout_names_every_mess ---
@@ -1870,6 +2086,7 @@ mod tests {
                 bims::game::JOB_FETCH,
                 bims::game::JOB_EXECUTE,
                 bims::game::JOB_FERRY,
+                bims::game::JOB_WALK,
             ] {
                 assert_ne!(job_name(code), job_name(u32::MAX));
                 assert!(activity_line(code).is_some());

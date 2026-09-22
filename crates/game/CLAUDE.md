@@ -213,6 +213,23 @@ app's bunk menu (`HIT_BED`, `Game::hit_bed()`) is a note saying whose,
 **Assign to <the Bim shown>** or **Give up this bunk**, and Nap/Sleep on
 the player's own bunk only.
 
+**A bot takes a bunk going spare, and a bunk wears its owner's name**
+(feature 61). `Game::settle_bunks`, at the top of every `simulate` before
+the crew are ticked: while `free_bed()` finds one of the ship's bunks
+nobody has, the first Bim alive past `players` with none gets it through
+`assign_bed` — a hire past `adopt`'s spare, the `combat` command's
+fourteen when one comes free, whoever was put on the deck when the
+player moved a bunk. A player's own (`is_player`) is never given one this
+way: giving a bunk up and taking one are the player's to do, so the
+"Give up this bunk" row leaves a player on the deck and a bot on it a
+step. `Game::bunk_tags` is the label's side: a `BunkTag` per assignable
+bunk — the bed, its frame's centre in room units, the owner — which
+`ship::world_paint::bunk_labels` turns through the ship's camera and the
+app writes on the deck (`theme::bunk_tag`, `names::BED_TAG_UNASSIGNED`)
+under the crew's names; a station's bunks on a joined deck wear none.
+`a_bot_with_no_bunk_takes_one_that_is_going_spare_and_a_player_does_not`
+pins the settling and the tags.
+
 **A Bim with no bunk sleeps on the deck.** The same `Kind::Rest` chain:
 `enter(GoToBed)` puts the nearest free cell under its feet on `target`
 (and clears it for a Bim with a bunk, so `Task::sleeps_on_ground` reads
@@ -383,6 +400,63 @@ where each will stand while it is dragged.
 `a_marquee_selects_everybody_it_touches_and_a_right_drag_forms_them_up_along_a_line`
 pins it.
 
+## An order given with Shift waits its turn (feature 69)
+
+`Game::order_later(slot, order)` is `Game::order` with Shift held: the
+errand goes on the **back** of the Bim's `queue` rather than displacing
+what it is on, so a Shift-click on a row, a Shift-right-click on the
+deck and a Shift-drag for a line are RimWorld's queued orders. The
+entry is a `Saved::ordered(who, kind, minutes, target)` — `Saved::fresh`
+with its `ordered` flag up — and the flag is what tells the two apart at
+`pump_queue`: a chain that was *put down* is `Task::resume`d where it
+was, an order that was never begun is **begun** through the same door
+the live order goes through (`begin_ordered`: `cook`, `sweep_up`,
+`send_to_switch`, `bandage`…), so every check the row makes is made
+then, against the room as it is then, and what cannot be begun is
+*dropped* rather than walked through into an empty cold store.
+`queue_ready` asks what beginning asks — `can_begin` (one of everything
+free) rather than `resume_station` — so a galley in use is waited for;
+what could not begin with nobody else aboard (`can_pick_all` against an
+empty `Taken`: leftovers with every pot empty) is let through to be
+dropped, or it would sit on the agenda for a pot nobody is filling.
+
+**A walk is `Kind::Walk { post }` with the spot on `Saved::target`**,
+and it is never run as a chain: `pump_queue` hands it to `walk_order` —
+`order_move_for`'s body, the selection check taken off — so the door is
+opened on the way, the plain's windows are walked leg by leg and the
+refusals are the right-click's; `post` is a crewmate's under the alarm
+(`queue_squad` sets it for everybody but a player's own), so the Bim
+holds the spot the way `order_one` posts it. `Step::GoToSpot` exists
+only so the entry has a first step and `Kind::steps` a length.
+`queue_walk` refuses at the click, with the cross, when there is no way
+there even with the door open (`can_reach_through_door` of the snapped
+stand — the deck is one piece or it is not, wherever the Bim will be by
+then), and `walk_ready` holds a queued walk for a locked door like an
+errand. `huddle` and `formation` are the spots a click and a drag deal
+out, shared by the live order and the queued one; `queue_squad` is
+`order_squad` for the queue.
+
+**A plain order calls the queue off**: `drop_ordered(who)` throws away
+the `ordered` entries and keeps the chains put down. `Game::order` calls
+it for every errand variant (`CrewOrder::errand_for`) and
+`order_move_for` for a walk — never `walk_order`, which is also how a
+queued walk is begun, and never the bots' own `take_over`, so a Bim
+deciding to eat does not lose what the player queued. A Shift on
+anything that is not an errand — a selection, a Management box —
+is the plain order.
+
+**The queued walks are drawn**: `render` threads a dashed line from where
+the Bim is bound now through every `Kind::Walk` on its queue, a pip and a
+ring at each in the ping's `ACCENT`, for the viewer's own Bim and whoever
+it has selected; `queued_walks(who)` is the same list for the probes and
+`ordered_count(who)` how many orders wait. The agenda shows the rest
+under `JOB_WALK` = 27 ("Walking over"). Adding the flag to `Saved` is
+`SAVE_VERSION` 13; `world::Command::CrewLater` and the app's
+`Order::CrewLater` carry it over the seam (`wire::PROTOCOL` 6).
+`a_shift_order_waits_its_turn_and_a_plain_one_calls_the_queue_off` in
+`order::tests` and `a_shift_order_is_a_command_that_waits_its_turn` in
+the world's `tests_orders` pin it.
+
 ## The room says what it sounds like, and plays nothing
 
 `cue.rs` is the diary's arrangement for sound: a `Cue` is a code and a
@@ -407,6 +481,10 @@ drained by the app through `Game::take_cues`. What each is played as is
   in the crew's room through `Game::enemy_fire`, which is where the cue
   comes from; a hostile room's `Combat` says nothing about them. A blow on
   a crew member is `Game::enemy_strike`'s cue, on an enemy `Combat::brawl`'s.
+- **A hand changing is a cue too.** `tick_combat` works out each step
+  whether a Bim is armed and `Cue::Holster { drawn, player }` is said
+  the step that answer changes — for everybody, `player` marking a
+  player's own Bim in the crew's room, which is the one the app plays.
 - `scratchpad/cues.rs` is the probe: a stew's ten strokes on the board, a
   day's heads' door opening and shutting turn and turn about, and nothing
   at all in a quiet first second.
@@ -2657,3 +2735,72 @@ the deck's floor box and `DECK_MARGIN` tiles of ground
 - `Maps::afield` and `Game::afield_blockers` are `serde(skip)`: a load
   rebuilds them on the first step. `Plane::chunks` and `seen` likewise;
   `explored` is saved.
+- **The plain's picture is the light map's march, a chunk at a time**
+  (feature 67, September 2026; the note before `terrain::PICTURE_PX`).
+  `Plane::observe` stays the rule — tiles, for `seen_at` and the world
+  — and `Plane::picture(eyes, tile, blocked, cells, window)` is what is
+  drawn: from every eye, `sight::march_rays` (the deck's ray walk,
+  pulled out of `Sight::march` so the two pictures have the same
+  edges) over a window of `VIEW` tiles each way at `MAP_PX_PER_TILE`,
+  stopped by the ground's opaque tiles off the deck and by `blocked` on
+  it — `Sight::opaque_room_tile`, doors and all — into a `PlainView`
+  a body (kept while its eye is within half a pixel and the deck's
+  `Sight::cells_version` is the one it was marched over; a relayout
+  `forget_views`), and composed into a `sight::LightMap` per chunk of
+  the *room* (`CHUNK` tiles a side in the room's frame; the ground's
+  own chunks are the station's) for the chunks the host's `window`
+  touches. Nought where a view reaches, `MAP_GREY` where a ray has ever
+  reached (`Picture::explored`, a bit a pixel, kept for good), black
+  elsewhere; no glow — the plain is daylight and has no lamps. The
+  deck's pixels are composed like the rest and never drawn: the host
+  cuts the box out of the pieces it draws, and composing them keeps the
+  blur continuous at the box's edge. Each picture carries a
+  `PICTURE_APRON` of its neighbours' pixels for the same reason at
+  chunk seams. `Game::picture_plain(window)` is the room's side —
+  `Fog::Crew` only — and `Game::plain_pictures` hands them over; the
+  window comes from the ship's camera (`ship::Game::picture_the_plain`,
+  `world_paint::plain_window`), which is why it is asked after
+  `render` and not in it. Nothing of it is saved: a plane read back
+  seeds a chunk's memory from the tile rule's as it stood when the
+  picture began (`seed`, whole tiles) and a plane made here from
+  nothing, since the tile rule reaches half a tile past the rays with
+  a stepped rim. A marched outdoor eye costs about what the deck's does
+  (~10 ms in release over open ground, most of it the two million ray
+  steps), a composed chunk a fraction of a millisecond.
+
+## A look is a yoke, a hair, a shade and a build, and it is drawing only
+
+Feature 62 (September 2026), `character.rs`. `Look` is a struct now —
+`yoke: Yoke` (Pale/Mauve, alternating down the crew as it always did),
+`hair: Hair` (eight styles, `Hair::ALL`), `shade: Shade` (six colours,
+`Shade::ALL`), `build: u8` (`0..BUILDS`, five; `Look::scale()` is `1 ±
+BUILD_STEP` a step from the middling one) — and `Look::of(who)` deals
+one: `Look::CLASSIC` for the first two, so the room's pair are the pair
+they were, and for every index after a hair, a shade and a build off a
+multiplicative hash of the index. **Not off the RNG, on purpose**: a
+draw in `Bim::new` would move every roll after it and re-seed every
+probe ("Adding furniture moves everything"). `Game::look(who)` and
+`Game::set_look(who, look)` read and change it; the world's
+`Session::dress_crew` puts a player's chosen hair on their slot with
+`Look::with_hair`.
+
+- **Everything the body draws goes through `Character::body_scale()`**,
+  `BODY_SCALE` by the build — the brush, the shadow, the rings, the
+  held things and the weapon — so a sturdy Bim's hands and gun are as
+  much bigger as its body. `picked_at`, `PICK_RADIUS`, `BODY_MARGIN`
+  and the reach do not: a build is a picture, not a rule, and the
+  checksum never sees it. `draw_dropped` and `draw_blade` keep the
+  plain constant, having no body.
+- **The hair is two functions**, `draw_hair_standing` (the head's own
+  frame, face to +x, what a style adds drawn before the crown so the
+  crown lies on top and the nose after so a puff still leaves the face)
+  and `draw_hair_lying` (the head on its cheek in `draw_flat`, called
+  twice: `under` for what spreads on the deck before the head, then
+  what sits on it). A new style is an arm in each, a name in the app's
+  `HAIR_NAMES` (pinned to `Hair::ALL` by `names.rs`'s test) and an
+  entry in `Hair::ALL`; `code()` is the place in that list and is what
+  crosses the wire.
+- `character::portrait(look, heading, list)` is a figure at the origin
+  for the setup's chooser: the same `draw`, off `Rng::new(0)` with the
+  idle glance zeroed, so it stands still.
+- `Look` changed shape in the save (`SAVE_VERSION` 10).

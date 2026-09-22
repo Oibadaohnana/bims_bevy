@@ -119,6 +119,22 @@ pub fn key_rolled(map_seed: u64) -> bool {
     Rng::new(map_seed ^ 0x_4B45_5931).below(100) < KEY_CHANCE
 }
 
+/// Which tier of key a station's desk holds when the world opens, nought
+/// for none: a derelict's nothing; an enemy's a tier-two key, every one;
+/// a friend's a tier-one key at [`key_rolled`]'s odds. The spawn is the
+/// world's to force (`World::start`).
+pub fn key_tier(kind: StationKind, hostile: bool, map_seed: u64) -> u8 {
+    if kind == StationKind::Derelict {
+        0
+    } else if hostile {
+        2
+    } else if key_rolled(map_seed) {
+        1
+    } else {
+        0
+    }
+}
+
 /// How many enemies a hostile station holds against a crew of `crew`,
 /// whose ship and hold are worth `worth` now and were worth `start_worth`
 /// when the world opened, `days` whole days ago: [`base_by_day`] — one,
@@ -191,7 +207,7 @@ pub struct Station {
     pub design: ShipDesign,
     /// How many people live here: the plan's number for a station
     /// ([`Plan::residents`]), and a town's own roll for a planet's surface
-    /// (`crate::surface::Surface::population`, ten to fifty). What
+    /// (`crate::surface::Surface::population`, five to thirty). What
     /// [`Station::residents`] answers, and what the layout was sized to.
     pub population: u32,
     /// Where design tile (0, 0) sits in the system. The grid's centre is on
@@ -212,12 +228,14 @@ pub struct Station {
     /// `World::start`. The rule a caller wants is `World::stance`: the
     /// spawn is home whatever this says, and nothing else overrides it.
     pub hostile: bool,
-    /// Whether a tier-one research key was found on its research desk
-    /// when the world opened: rolled off the seed at [`KEY_CHANCE`] for a
-    /// station that is neither an enemy's nor a derelict. The blueprint's
-    /// word; whether the key is still there is `World::station_keys`, and
-    /// the spawn has one whatever this says.
-    pub key: bool,
+    /// Which tier of research key was found on its research desk when the
+    /// world opened, nought for none: tier one rolled off the seed at
+    /// [`KEY_CHANCE`] for a friendly station that is not a derelict, tier
+    /// two on every hostile station that is not a derelict, no roll. The
+    /// blueprint's word; whether the key is still there is
+    /// `World::station_keys`, and the spawn has a tier-one key whatever
+    /// this says.
+    pub key: u8,
 }
 
 impl Station {
@@ -243,9 +261,7 @@ impl Station {
             stock: blueprint.stock,
             bias: blueprint.bias,
             hostile: blueprint.hostile,
-            key: !blueprint.hostile
-                && blueprint.kind != StationKind::Derelict
-                && key_rolled(blueprint.map_seed),
+            key: key_tier(blueprint.kind, blueprint.hostile, blueprint.map_seed),
         }
     }
 
@@ -423,9 +439,11 @@ pub enum Plan {
     /// up. Five.
     Comb,
     /// Not a station's at all but a planet's: the town the ship lands at,
-    /// laid out on the ground — open, no skin — with the pad at its west
-    /// edge, the watch house and the trading house beside it, a hall,
-    /// houses along its streets, fields and the wild out to the edge
+    /// laid out on the ground — open, no skin — built like a fort: a wall
+    /// round the deck with the pad in its west side and a gate in its
+    /// north and its south, the watch house and the trading house beside
+    /// the pad, a hall, houses along its streets, fields and the wild
+    /// over the rest inside the wall
     /// (`crate::surface`). Never rolled: a body's surface is this whatever
     /// its seed says, and no station is. Sized [`data::SURFACE_SIDE`]
     /// whatever its kind; how many live there is the surface's own roll

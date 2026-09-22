@@ -82,8 +82,10 @@ pub fn icon(painter: &egui::Painter, rect: Rect, item: Item) {
         },
         // A key is its tier's resource, tall: the cell it is given is two
         // cells high, and the picture is drawn to fill it.
-        Item::Key(1) => resource(painter, rect, ResourceId::ResearchKey),
-        Item::Key(_) => unknown(painter, rect),
+        Item::Key(tier) => match world::armour::key_resource(tier) {
+            Some(id) => resource(painter, rect, id),
+            None => unknown(painter, rect),
+        },
     }
 }
 
@@ -321,24 +323,30 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
         // The research key: a tall dark slab with a brass rim, a notch cut
         // out of its top edge, and a lit trace zig-zagging down it. Drawn
         // to the cell's height, so in a two-cell slot it is a tall key
-        // and in a one-cell one a short one.
-        ResourceId::ResearchKey => {
-            s.rect_filled(b.rect(0.28, 0.08, 0.72, 0.92), b.px(0.04), KEY_EDGE);
-            s.rect_filled(b.rect(0.33, 0.13, 0.67, 0.87), b.px(0.03), KEY);
-            s.rect_filled(b.rect(0.44, 0.08, 0.56, 0.18), 0.0, KEY);
-            let trace = [
-                b.at(0.50, 0.24),
-                b.at(0.40, 0.38),
-                b.at(0.60, 0.52),
-                b.at(0.40, 0.66),
-                b.at(0.50, 0.80),
-            ];
-            for pair in trace.windows(2) {
-                s.line_segment([pair[0], pair[1]], Stroke::new(b.px(0.05), KEY_TRACE));
-            }
-            s.circle_filled(b.at(0.50, 0.80), b.px(0.05), KEY_TRACE);
-        }
+        // and in a one-cell one a short one. The tier-two key is the same
+        // slab with its rim and trace in the theme's tier-two colour.
+        ResourceId::ResearchKey => key(s, b, KEY_EDGE, KEY_TRACE),
+        ResourceId::ResearchKeyTwo => key(s, b, theme::TIER_TWO, theme::TIER_TWO),
     }
+}
+
+/// A research key: the slab, its rim and notch, and the lit trace down it
+/// in the two colours a tier gives it.
+fn key(s: &mut Sketch, b: &Box_, edge: Color32, trace: Color32) {
+    s.rect_filled(b.rect(0.28, 0.08, 0.72, 0.92), b.px(0.04), edge);
+    s.rect_filled(b.rect(0.33, 0.13, 0.67, 0.87), b.px(0.03), KEY);
+    s.rect_filled(b.rect(0.44, 0.08, 0.56, 0.18), 0.0, KEY);
+    let path = [
+        b.at(0.50, 0.24),
+        b.at(0.40, 0.38),
+        b.at(0.60, 0.52),
+        b.at(0.40, 0.66),
+        b.at(0.50, 0.80),
+    ];
+    for pair in path.windows(2) {
+        s.line_segment([pair[0], pair[1]], Stroke::new(b.px(0.05), trace));
+    }
+    s.circle_filled(b.at(0.50, 0.80), b.px(0.05), trace);
 }
 
 /// A vest: the body of it with the neck cut out, and the yoke across the
@@ -448,8 +456,7 @@ pub fn laid(painter: &egui::Painter, rect: Rect, item: Item, turned: bool) {
             .get(weapon.kind.resource() as usize)
             .copied(),
         Item::Stack(code) => ResourceId::ALL.get(code as usize).copied(),
-        Item::Key(1) => Some(ResourceId::ResearchKey),
-        Item::Key(_) => None,
+        Item::Key(tier) => world::armour::key_resource(tier),
     };
     match id {
         Some(id) if upright.width() >= 1.5 * upright.height() && is_long(id) => {
@@ -705,6 +712,7 @@ mod tests {
         }
         icon(&painter, rect, Item::Stack(u32::MAX));
         icon(&painter, rect, Item::Key(1));
+        icon(&painter, rect, Item::Key(2));
         icon(&painter, rect, Item::Key(9));
         stew(&painter, rect);
         plate(&painter, rect);

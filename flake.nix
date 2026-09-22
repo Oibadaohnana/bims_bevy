@@ -82,6 +82,39 @@
             };
           };
 
+          # The relay, for the server box (feature 59): `crates/server`,
+          # the one other binary. Only `wire` and tokio behind it — no
+          # Bevy, no ALSA, no GPU stack — so the box that has none of those
+          # builds it, and a fix to the game never means rebuilding it.
+          # The workspace's own lock, so the two are pinned together.
+          bims-server = pkgs.rustPlatform.buildRustPackage {
+            pname = "bims-server";
+            version = "0.1.0";
+            inherit src;
+
+            cargoLock.lockFile = ./Cargo.lock;
+
+            cargoBuildFlags = [
+              "-p"
+              "server"
+            ];
+            # The relay's own tests and the wire's; the socket test starts
+            # the binary it just built on a free port.
+            cargoTestFlags = [
+              "-p"
+              "server"
+              "-p"
+              "wire"
+            ];
+
+            meta = {
+              description = "The Bims relay: rooms by code, and bytes passed between the players in one";
+              mainProgram = "bims-server";
+              platforms = systems;
+            };
+          };
+
+
           # One per thing to run. Each is a name rather than a flag on one
           # app, so `nix run .#room` reads as what it is.
           runFor =
@@ -104,7 +137,7 @@
             };
         in
         {
-          inherit bims;
+          inherit bims bims-server;
           bims-game = runFor {
             name = "bims-game";
             what = "game";
@@ -146,6 +179,16 @@
             what = "combat";
             about = "The simulation docked at a hostile station, the people living there enemies";
           };
+          bims-tier2-test = runFor {
+            name = "bims-tier2-test";
+            what = "tier2_test";
+            about = "The fight with everybody's guns and armour at tier two, crew and garrison alike";
+          };
+          bims-tier3-test = runFor {
+            name = "bims-tier3-test";
+            what = "tier3_test";
+            about = "The fight with everybody's guns and armour at tier three, crew and garrison alike";
+          };
           bims-raid = runFor {
             name = "bims-raid";
             what = "raid";
@@ -169,8 +212,11 @@
             bims-test
             bims-test-planet
             bims-combat
+            bims-tier2-test
+            bims-tier3-test
             bims-raid
             bims-stationbuilder
+            bims-server
             ;
           default = built.bims;
         }
@@ -182,9 +228,13 @@
       # that ship given; `.#room` is the behaviour test room; `.#test` is the
       # simulation somewhere else each time; `.#test_planet` is that set down
       # on a planet; `.#combat` is the simulation at a hostile station;
+      # `.#tier2_test` and `.#tier3_test` are that fight with every gun and
+      # every piece of armour at that tier, both sides;
       # `.#raid` is the simulation holding in open space with a raid on its
       # way, contact ten seconds in;
-      # `.#stationbuilder` is the sketching grid, which
+      # saves beside the working tree rather than inside the store;
+      # `.#server` is the relay the game finds its crew through, run on
+      # the server box rather than a desk.
       # saves beside the working tree rather than inside the store.
       apps = eachSystem (
         pkgs:
@@ -204,8 +254,11 @@
           test = app built.bims-test "Docked at a random station in a random galaxy, on the playtest ship";
           test_planet = app built.bims-test-planet "Set down on a planet in a random galaxy, on the playtest ship";
           combat = app built.bims-combat "The simulation docked at a hostile station, the people living there enemies";
+          tier2_test = app built.bims-tier2-test "The fight with everybody's guns and armour at tier two, crew and garrison alike";
+          tier3_test = app built.bims-tier3-test "The fight with everybody's guns and armour at tier three, crew and garrison alike";
           raid = app built.bims-raid "The simulation holding in open space with a raid on its way, contact ten seconds in";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
+          server = app built.bims-server "The relay: rooms by code, and bytes passed between the players in one — what runs at bims.buggly.de";
           default = game;
         }
       );

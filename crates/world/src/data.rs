@@ -238,13 +238,14 @@ pub const UPGRADE_SESSIONS: u32 = 24;
 /// the ship lands at: a **town** laid out on the ground as a station is
 /// laid out in a hull (`crate::surface`, `crate::station::Plan::Surface`).
 /// This many tiles across — bigger than any station, and than the arena —
-/// with a landing pad at its west edge, the watch house and the trading
-/// house beside it, a gathering hall, houses along its streets, fields or
-/// greenhouses to feed it, and the wild round the whole of it out to the
-/// edge, where the world ends. Sized for the biggest town
-/// ([`SURFACE_POPULATION`]): fifty people want twenty-six strips of
-/// field and a hall with twenty-seven tables in it, and the wild wants
-/// room round that.
+/// and built like a fort: a wall round the whole of it with a gate in
+/// the north wall and one in the south, the landing pad in its west
+/// wall, the watch house and the trading house beside the pad, a
+/// gathering hall, houses along its streets, fields or greenhouses to
+/// feed it, and the wild over whatever ground the town leaves inside the
+/// wall; the plain is beyond it. Room for the biggest town
+/// ([`SURFACE_POPULATION`]) — thirty people want sixteen strips of field
+/// and a hall with fifteen tables in it — and open ground round that.
 pub const SURFACE_SIDE: u32 = 96;
 
 /// How many people live in a town, at the least and at the most,
@@ -252,9 +253,9 @@ pub const SURFACE_SIDE: u32 = 96;
 /// (`crate::surface::Surface::all_of`). A town is sized by it: a bunk
 /// each and two over for mercenaries, a chair each in the hall, a strip
 /// of field for every two of them or a bay under glass for every four, a
-/// bathhouse for every twelve. Ten is a hamlet round a pad; fifty fills
-/// the ground.
-pub const SURFACE_POPULATION: (u32, u32) = (10, 50);
+/// bathhouse for every twelve. Five is a hamlet round a pad; thirty
+/// fills the streets. (Ten to fifty until feature 66.)
+pub const SURFACE_POPULATION: (u32, u32) = (5, 30);
 
 /// How high over a planet a landing begins its descent and a lift-off
 /// ends, in world units: where a trip to the body ends, so a ship that

@@ -208,11 +208,12 @@ pub fn is_gear(resource: ResourceId) -> bool {
 }
 
 /// The tier of research key a resource is, if it is one: the tier-one key
-/// is the one there is. The room carries a key as `Item::Key(tier)` — two
+/// and the tier-two. The room carries a key as `Item::Key(tier)` — two
 /// cells tall — and the hold counts it as this resource.
 pub fn key_tier_of(resource: ResourceId) -> Option<u8> {
     match resource {
         ResourceId::ResearchKey => Some(1),
+        ResourceId::ResearchKeyTwo => Some(2),
         _ => None,
     }
 }
@@ -222,6 +223,7 @@ pub fn key_tier_of(resource: ResourceId) -> Option<u8> {
 pub fn key_resource(tier: u8) -> Option<ResourceId> {
     match tier {
         1 => Some(ResourceId::ResearchKey),
+        2 => Some(ResourceId::ResearchKeyTwo),
         _ => None,
     }
 }

@@ -14,9 +14,32 @@
 use bevy_egui::egui;
 
 use crate::keys::{Action, Keys};
+use crate::names::LOAD_GUEST;
 use crate::save::{self, Request, Saves};
 use crate::sound::Mix;
 use crate::theme;
+
+/// What the sheet may do with the game, which is the screen's to say:
+/// `save` is whether there is a game to write — the design phase has
+/// none — and `load` whether this end may read one in. A guest may not
+/// (feature 67): the host's world is the world, and a guest that loaded
+/// would be a second clock. Greyed rather than hidden, with the reason.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Allowed {
+    pub save: bool,
+    pub load: bool,
+}
+
+impl Allowed {
+    /// The screen's phase and company, in one: `playing` is whether the
+    /// world is open, `guest` whether this end is somebody's guest.
+    pub fn of(playing: bool, guest: bool) -> Allowed {
+        Allowed {
+            save: playing,
+            load: !guest,
+        }
+    }
+}
 
 /// Which page of the sheet is up.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -39,7 +62,7 @@ pub fn settings_sheet(
     mix: &mut Mix,
     keys: &mut Keys,
     saves: &mut Saves,
-    can_save: bool,
+    allowed: Allowed,
 ) -> Option<Request> {
     let page = (*sheet)?;
     let title = match page {
@@ -55,15 +78,20 @@ pub fn settings_sheet(
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| match page {
-            Sheet::Menu => menu(ui, sheet, saves, can_save),
+            Sheet::Menu => menu(ui, sheet, saves, allowed),
             Sheet::Audio => audio(ui, sheet, mix),
             Sheet::Controls => controls(ui, sheet, keys),
             Sheet::Save => {
-                request = save::save_page(ui, saves, can_save);
+                request = save::save_page(ui, saves, allowed.save);
                 back(ui, sheet);
             }
             Sheet::Load => {
-                request = save::load_page(ui, saves);
+                if allowed.load {
+                    request = save::load_page(ui, saves);
+                } else {
+                    ui.set_min_width(360.0);
+                    ui.label(egui::RichText::new(LOAD_GUEST).color(theme::MUTED));
+                }
                 back(ui, sheet);
             }
         });
@@ -78,7 +106,7 @@ fn back(ui: &mut egui::Ui, sheet: &mut Option<Sheet>) {
     }
 }
 
-fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, can_save: bool) {
+fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, allowed: Allowed) {
     theme::heading(ui, "UI scale");
     theme::ui_scale_row(ui);
     ui.add_space(8.0);
@@ -95,7 +123,7 @@ fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, can_sav
     // a page opens, so a file from another run is there.
     ui.horizontal(|ui| {
         let save = ui
-            .add_enabled(can_save, egui::Button::new("Save"))
+            .add_enabled(allowed.save, egui::Button::new("Save"))
             .on_disabled_hover_text(
                 "Nothing to save yet: the game starts when the ship is accepted.",
             );
@@ -104,7 +132,10 @@ fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, can_sav
             saves.refresh();
             *sheet = Some(Sheet::Save);
         }
-        if ui.button("Load").clicked() {
+        let load = ui
+            .add_enabled(allowed.load, egui::Button::new("Load"))
+            .on_disabled_hover_text(LOAD_GUEST);
+        if load.clicked() {
             saves.note = None;
             saves.refresh();
             *sheet = Some(Sheet::Load);

@@ -340,6 +340,21 @@ pub enum Step {
     GoToVictim,
     Execute,
 
+    // A walk to a spot on the deck and nothing more — `Kind::Walk`, a
+    // move the player gave with Shift held, waiting its turn on the queue
+    // behind whatever the Bim is on. It is never *run* as a chain: the
+    // game takes it off the queue and gives the walk the way a right-click
+    // does (`Game::pump_queue`), so the door is opened on the way and the
+    // plain's windows are walked leg by leg like any other order.
+    GoToSpot,
+
+    // Laying a kit — `Kind::Deploy`: over to a tile beside the one it goes
+    // on (`deploy_stand`) and the minutes at it, `rest_minutes` like a
+    // build's. `Deploy` only says, on the way out, that it was laid
+    // (`Room::deployed`); the world owns what was laid.
+    GoToDeploySpot,
+    Deploy,
+
     // Carrying a thing between two benches — `Kind::Ferry`: over to the
     // first, a moment reaching into it, over to the second with the thing
     // in the arms, and a moment putting it down. The room never knows what
@@ -458,12 +473,14 @@ impl Step {
             GoToPatient => Dress,
             GoToDropped => PickUp,
             GoToVictim => Execute,
+            GoToSpot => Done,
+            GoToDeploySpot => Deploy,
             GoToStore => TakeGear,
             TakeGear => CarryGear,
             CarryGear => PutGear,
             StartDishwasher | FlipSwitch | ClimbOutOfBed | ShutDoorBehind | PutBroomBack | Talk
             | ShutStoreOnStew | Shower | Work | PutSuitBack | DropMaterials | Construct | Dress
-            | PickUp | Execute | PutGear | Done => Done,
+            | PickUp | Execute | PutGear | Deploy | Done => Done,
         }
     }
 
@@ -564,6 +581,8 @@ impl Step {
                 | GoToPatient
                 | GoToDropped
                 | GoToVictim
+                | GoToSpot
+                | GoToDeploySpot
                 | GoToStore
                 | CarryGear
         )
@@ -718,6 +737,28 @@ pub enum Kind {
         from: usize,
         to: usize,
     },
+    /// A walk to a spot on the deck, given with Shift held so it waits its
+    /// turn behind what the Bim is on: the spot rides on `Saved::target`.
+    /// `post` is whether the Bim stands there once it arrives — a
+    /// crewmate's under the alarm, a walk to a desk — the way the live
+    /// order would have posted it. Never a running chain: see
+    /// `Step::GoToSpot` and `Game::pump_queue`.
+    Walk {
+        post: bool,
+    },
+    /// Laying an engineer's kit on the deck tile `(x, y)` — a room tile,
+    /// in tiles — as a deployable: sandbags, or a `sentry` (feature 74).
+    /// The walk to a tile beside it and the minutes riding in
+    /// `rest_minutes` of working steps at it, with `effort` on them the
+    /// way a build's are. The room says it was laid on `Room::deployed`;
+    /// the world puts the deployable down and takes the kit from the
+    /// pack, so a deploy given up leaves the kit where it was. A hit on
+    /// the Bim drops it (`Game::strike`) unless its hands are steady.
+    Deploy {
+        x: i32,
+        y: i32,
+        sentry: bool,
+    },
 }
 
 impl Kind {
@@ -744,6 +785,20 @@ impl Kind {
             Kind::Fetch { .. } => Step::GoToDropped,
             Kind::Execute { .. } => Step::GoToVictim,
             Kind::Ferry { .. } => Step::GoToStore,
+            Kind::Walk { .. } => Step::GoToSpot,
+            Kind::Deploy { .. } => Step::GoToDeploySpot,
+        }
+    }
+
+    /// The middle of the tile a deploy is laying its kit on, in room
+    /// units, or `None` for every other errand.
+    pub fn deploy_tile(self) -> Option<Vec2> {
+        match self {
+            Kind::Deploy { x, y, .. } => Some(vec2(
+                (x as f32 + 0.5) * crate::filth::TILE,
+                (y as f32 + 0.5) * crate::filth::TILE,
+            )),
+            _ => None,
         }
     }
 
@@ -1087,6 +1142,14 @@ pub struct Saved {
     seat: Option<(Vec2, f32)>,
     /// The fixtures it was using, kept: its pot is still on its hob.
     picks: Picks,
+    /// An order the player gave with Shift held, waiting its turn — never
+    /// begun, so it is *begun* when its turn comes, the way the live order
+    /// would have been, rather than resumed: the cold store is asked for
+    /// its two vegetables then, the door for its lock, and what cannot be
+    /// begun is dropped rather than walked through into nothing. See
+    /// `Game::order_later` and `Game::pump_queue`. Off for a chain that was
+    /// put down, and for the timetable's sleep.
+    ordered: bool,
 }
 
 impl Saved {
@@ -1111,7 +1174,36 @@ impl Saved {
             tool: Held::Nothing,
             seat: None,
             picks: Picks::default(),
+            ordered: false,
         }
+    }
+
+    /// An order given for later: [`Saved::fresh`], flagged `ordered`, with
+    /// the spot a walk is bound for on `target` (`None` for every other
+    /// errand).
+    pub fn ordered(who: usize, kind: Kind, rest_minutes: f32, target: Option<Vec2>) -> Saved {
+        Saved {
+            target,
+            ordered: true,
+            ..Saved::fresh(who, kind, rest_minutes)
+        }
+    }
+
+    /// Whether this is an order waiting its turn rather than a chain put
+    /// down. See the field.
+    pub fn is_ordered(&self) -> bool {
+        self.ordered
+    }
+
+    /// Whose chain this is.
+    pub fn who(&self) -> usize {
+        self.who
+    }
+
+    /// The spot a queued walk is bound for, and a sweep's tile: `None` for
+    /// a chain that has not chosen one.
+    pub fn target(&self) -> Option<Vec2> {
+        self.target
     }
 
     pub fn picks(&self) -> Picks {
@@ -1259,8 +1351,9 @@ fn destination(
         // Beside the patient, chosen as the walk is entered from where the
         // patient stands then; the kit's container the same.
         GoToKit | GoToPatient => target,
-        // And beside the weapon on the deck, likewise; and the body.
-        GoToDropped | GoToVictim => target,
+        // And beside the weapon on the deck, likewise; and the body; and
+        // the spot a queued walk was given for.
+        GoToDropped | GoToVictim | GoToSpot | GoToDeploySpot => target,
         // The two benches a carry runs between: the first from anywhere, the
         // second with the thing in the arms.
         GoToStore => match kind {
@@ -1396,6 +1489,30 @@ pub fn site_stand(room: &Room, maps: &Maps, site: u32, from: Vec2, outside: bool
             .find(|&p| nav.interior().contains(p) && nav.is_free(p) && nav.can_reach(from, p))
     };
     pick(ring).or_else(|| pick(own))
+}
+
+/// Where to stand to lay a kit on the tile whose middle is `tile`, from
+/// `from`: the nearest of the four tiles beside it — never a corner, like
+/// a site — that the deck's grid has a route to, and failing that the
+/// tile itself, since a sandbag is laid at the feet. `None` with no
+/// way to any of it. Asked when the order is given and again as the
+/// walk is entered, like a site's, so the two agree.
+pub fn deploy_stand(room: &Room, maps: &Maps, tile: Vec2, from: Vec2) -> Option<Vec2> {
+    let nav = maps.pick(room.bath.is_open());
+    let t = crate::filth::TILE;
+    let mut ring: Vec<Vec2> = [(0.0, -1.0), (-1.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
+        .into_iter()
+        .map(|(dx, dy)| tile + vec2(dx * t, dy * t))
+        .collect();
+    ring.sort_by(|a, b| {
+        (*a - from)
+            .len()
+            .partial_cmp(&(*b - from).len())
+            .unwrap_or(core::cmp::Ordering::Equal)
+    });
+    ring.into_iter()
+        .chain(core::iter::once(tile))
+        .find(|&p| nav.interior().contains(p) && nav.is_free(p) && nav.can_reach(from, p))
 }
 
 /// Where to stand to dress `patient`, for `who` standing at `from`: the
@@ -1599,7 +1716,7 @@ fn weight(step: Step, rest_minutes: f32) -> f32 {
         NOMINAL_WALK
     } else if matches!(
         step,
-        Step::Doze | Step::Work | Step::Mine | Step::Construct | Step::Dress
+        Step::Doze | Step::Work | Step::Mine | Step::Construct | Step::Dress | Step::Deploy
     ) {
         clock::seconds(rest_minutes)
     } else {
@@ -2154,6 +2271,28 @@ impl Task {
         )
     }
 
+    /// Off to lay a kit on the tile whose middle is `tile` — sandbags, or
+    /// a `sentry` — for `minutes` of working steps beside it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn deploy(
+        who: usize,
+        tile: Vec2,
+        sentry: bool,
+        minutes: f32,
+        ch: &mut Character,
+        room: &mut Room,
+        maps: &Maps,
+        taken: &Taken,
+    ) -> Task {
+        let t = crate::filth::TILE;
+        let kind = Kind::Deploy {
+            x: (tile.x / t).floor() as i32,
+            y: (tile.y / t).floor() as i32,
+            sentry,
+        };
+        Task::starting_at(who, kind, kind.first_step(), minutes, ch, room, maps, taken)
+    }
+
     /// Where the body this chain is finishing off lies, while the hands are
     /// at it — the `Execute` step — for `Game::tick_combat` to shoot or
     /// swing at; `None` on any other step or errand.
@@ -2338,7 +2477,12 @@ impl Task {
     /// length; a doze runs for as long as the Bim was told to sleep.
     fn duration(&self) -> f32 {
         match self.step {
-            Step::Doze | Step::Work | Step::Mine | Step::Construct | Step::Dress => {
+            Step::Doze
+            | Step::Work
+            | Step::Mine
+            | Step::Construct
+            | Step::Dress
+            | Step::Deploy => {
                 clock::seconds(self.rest_minutes)
             }
             step => step.duration(),
@@ -2437,6 +2581,7 @@ impl Task {
                 tool: ch.tool_held(),
                 seat: ch.seat(),
                 picks: self.picks,
+                ordered: false,
             },
         };
         // `None`, deliberately: a suspended chain is kept, not given up, and
@@ -2799,6 +2944,17 @@ impl Task {
                     return;
                 }
             }
+            // Beside the tile the kit goes on, from wherever the Bim stands.
+            Step::GoToDeploySpot => {
+                self.target = self
+                    .kind
+                    .deploy_tile()
+                    .and_then(|tile| deploy_stand(room, maps, tile, ch.pos));
+                if self.target.is_none() {
+                    self.blocked = true;
+                    return;
+                }
+            }
             _ => {}
         }
 
@@ -2983,6 +3139,16 @@ impl Task {
                         }
                     }
                 }
+            }
+            // Turned to the tile the kit goes on, hands at it.
+            Deploy => {
+                if let Some(tile) = self.kind.deploy_tile() {
+                    let d = tile - ch.pos;
+                    if d.len() > 1e-3 {
+                        ch.face(d.y.atan2(d.x));
+                    }
+                }
+                ch.set_action(Action::Chop);
             }
             // Reaching into the first bench, and putting the thing down on
             // the second: turned into each.
@@ -3172,7 +3338,7 @@ impl Task {
             // once, for the same reason.
             Construct => {
                 if let Some(site) = self.kind.site() {
-                    room.built.push(site);
+                    room.built.push((site, self.who));
                     room.builds.retain(|b| b.site != site);
                 }
             }
@@ -3246,6 +3412,15 @@ impl Task {
             Execute => {
                 if let Kind::Execute { visitor, .. } = self.kind {
                     room.executed.push((self.who, visitor));
+                }
+            }
+            // Laid: the room says who laid what where, and the world puts
+            // the deployable down and takes the kit out of the pack.
+            Deploy => {
+                if let (Kind::Deploy { sentry, .. }, Some(tile)) =
+                    (self.kind, self.kind.deploy_tile())
+                {
+                    room.deployed.push((self.who, tile, sentry));
                 }
             }
             // The hand closed on the weapon: the room says which, and the

@@ -49,14 +49,17 @@
 pub mod armour;
 pub mod build;
 pub mod checksum;
+pub mod class;
 pub mod crew;
 pub mod data;
+pub mod deploy;
 pub mod docking;
 pub mod event;
 pub mod fixture;
 pub mod frame;
 pub mod grid;
 pub mod jump;
+pub mod memory;
 pub mod mercenary;
 pub mod mining;
 pub mod plunder;
@@ -69,9 +72,12 @@ pub mod world;
 pub use armour::{FetchKind, LootSource, Piece, Where};
 pub use build::{BuildSite, SiteRefusal};
 pub use checksum::world_checksum;
+pub use class::{Class, Progress, Side, Talent};
+pub use deploy::{Deck, DeployKind, Deployable, Kit};
 pub use event::{Refusal, WorldEvent};
 pub use frame::Frame;
 pub use grid::{Grid, Kept, Slot, Wanted};
+pub use memory::{Losses, SystemMemory};
 pub use mining::{MiningSite, Rock, RockTile};
 pub use plunder::Plunder;
 pub use raid::{Raid, Raids, boarders_of, raider_id, raider_index};
@@ -91,6 +97,12 @@ pub use flight::{Phase, PlanError, Target};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_engineer;
+#[cfg(test)]
+mod tests_memory;
+#[cfg(test)]
+mod tests_orders;
 #[cfg(test)]
 mod tests_plunder;
 #[cfg(test)]

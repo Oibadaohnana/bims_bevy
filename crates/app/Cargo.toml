@@ -30,14 +30,31 @@ bevy = { workspace = true, features = [
     "x11",
 ] }
 bevy_egui = { workspace = true }
-bims = { path = "../game" }
+bims = { path = "../game", features = ["serde"] }
 economy = { path = "../economy" }
-flight = { path = "../flight" }
+flight = { path = "../flight", features = ["serde"] }
 health = { path = "../health" }
 lobby = { path = "../lobby" }
-physics = { path = "../physics" }
+physics = { path = "../physics", features = ["serde"] }
 ship = { path = "../ship" }
-shipdesign = { path = "../shipdesign" }
+shipdesign = { path = "../shipdesign", features = ["serde"] }
 time = { path = "../time" }
-world = { path = "../world" }
+world = { path = "../world", features = ["serde"] }
 worldgen = { path = "../worldgen" }
+# The wire (feature 59): the relay's protocol, and the socket to it. A
+# message between players is postcard bytes the relay passes along
+# untouched, encoded through `wire`. The socket runs on its own
+# thread and reaches Bevy over channels, so the blocking client is the one
+# wanted here — no runtime, no async colouring in the screens — under TLS,
+# since the relay sits behind nginx at `wss://bims.buggly.de`: rustls with
+# the Mozilla roots built in, and `ring` for its arithmetic, all pure Rust
+# bar ring's C, which the nix build compiles like anything else.
+wire = { path = "../wire" }
+serde = { version = "1", features = ["derive"] }
+tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+
+[dev-dependencies]
+# The relay's rooms, with no socket: the lockstep test in `net.rs` passes
+# two sessions' messages through a `Hub` in-process.
+server = { path = "../server" }

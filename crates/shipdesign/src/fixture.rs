@@ -38,7 +38,7 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// hashing differently, and a test that compares two computed values would
 /// pass happily while both were wrong. Update them only when the reference
 /// design itself is meant to change.
-pub const REFERENCE_HASH: [u64; 2] = [0xb92b_bb68_93eb_1a6d, 0xa761_1d84_abf5_a356];
+pub const REFERENCE_HASH: [u64; 2] = [0x2760_6d43_490b_1d5d, 0x976e_412e_4bc4_be76];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -349,7 +349,7 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// target that hashed the simulation's ship differently would start a
 /// different simulation. Update it only when the ship below is meant to
 /// change.
-pub const PLAYTEST_HASH: u64 = 0x8a02_8ecd_515c_80fc;
+pub const PLAYTEST_HASH: u64 = 0x3099_3509_dff4_4e3c;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
@@ -862,12 +862,26 @@ pub fn combat_ship() -> ShipDesign {
 /// Its hash is not pinned: it is [`PLAYTEST_HASH`]'s ship moved, and the
 /// part count says whether every part came across.
 pub fn playtest_ship_on(area: u32) -> Option<ShipDesign> {
+    ship_on(playtest_ship(), area)
+}
+
+/// [`combat_ship`] laid out on a build area of `area` tiles, the way
+/// [`playtest_ship_on`] lays the playtest ship out: what a lobby of more
+/// than one is given in the yard, since the playtest ship has one bunk
+/// and one chair and a crew of two would be an error before anybody laid
+/// a tile.
+pub fn combat_ship_on(area: u32) -> Option<ShipDesign> {
+    ship_on(combat_ship(), area)
+}
+
+/// A ship of [`AREA`] tiles laid out again on `area` of them — the rule
+/// [`playtest_ship_on`] describes.
+fn ship_on(source: ShipDesign, area: u32) -> Option<ShipDesign> {
     if area < AREA {
         return None;
     }
     let shift = (area - AREA) / 2;
     let budget = Budget::new(REFERENCE_POOL);
-    let source = playtest_ship();
     let mut design = ShipDesign::new(area);
     // In id order, which is placement order: the frame went down before the
     // deck and the deck before what stands on it, and ids only ever climb.

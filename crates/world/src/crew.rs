@@ -697,6 +697,11 @@ pub struct Residents {
     /// above nought, so "down" is asked of the room each step rather
     /// than read off the hit — see `World::visit`.
     pub down: Vec<bool>,
+    /// Which of them the crew have already been given experience for
+    /// going down — out cold or dead — and for dying, by index, so each
+    /// enemy counts once for each (feature 74, `crate::class`).
+    pub xp_down: Vec<bool>,
+    pub xp_dead: Vec<bool>,
     /// Which of them are mercenaries for hire, by index, and what a month
     /// of each costs (`crate::mercenary::priced`); `None` for one of the
     /// station's own. Derived from the seed and the crew's worth when the
@@ -788,6 +793,8 @@ impl Residents {
         Residents {
             station,
             aboard,
+            xp_down: down.clone(),
+            xp_dead: down.clone(),
             down,
             fee,
         }

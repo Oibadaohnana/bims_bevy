@@ -35,8 +35,13 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// the checksum's shape does: it moved when the raids went in (September
 /// 2026), since the schedule is hashed from the first step, and again
 /// when an enemy's shelf became loot (`crate::plunder`), since the list
-/// of them is hashed whole.
-pub const REFERENCE_CHECKSUM: u64 = 0x_9937_b08f_c1b9_0777;
+/// of them is hashed whole, and again when the research grew its queue
+/// (feature 64), hashed the same way, and again when the tier-two key
+/// went in: the cargo is one slot longer, the research tree one node,
+/// and a station's key is a tier (`World::station_keys`), and again
+/// when a system got a memory (feature 71, `crate::memory`): the losses
+/// and the systems left are hashed whole after the plunder.
+pub const REFERENCE_CHECKSUM: u64 = 0x_b522_21d1_8990_3e39;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -60,6 +65,31 @@ pub fn simulation_world(
         design,
         money,
         players,
+        data::DEFAULT_SEED,
+        GalaxyType::SpiralTwoArm,
+        star,
+        station,
+    )
+    .expect("the default seed should have somewhere to spawn")
+}
+
+/// [`simulation_world`] with `crew` aboard, of whom the first `players`
+/// are players — `World::start_with_crew`. A world of one player and two
+/// crew is one where the second is a crewmate nobody steers: a bot, under
+/// the alarm, since feature 59 gave every player's own to its player.
+pub fn crewed_world(
+    design: shipdesign::ShipDesign,
+    money: economy::Money,
+    players: u32,
+    crew: u32,
+) -> World {
+    let galaxy = worldgen::Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
+    let (star, station) = crate::spawn(&galaxy).expect("the default seed has a dock somewhere");
+    World::start_with_crew(
+        design,
+        money,
+        players,
+        crew,
         data::DEFAULT_SEED,
         GalaxyType::SpiralTwoArm,
         star,

@@ -811,7 +811,8 @@ sells for about half what it did. Nothing saved carries a price, so
 ## Research is a tree in `research.rs`, and a key opens one node
 
 `crates/shipdesign/src/research.rs` is the rules crate's half of what the
-crew know: `Node` (eight, codes 0–7, appended never renumbered), `RESEARCH`
+crew know: `Node` (ten, codes 0–9, appended never renumbered — 8 the
+hyperdrive, 9 the upgrades, the one tier-two node), `RESEARCH`
 (a `NodeDef` a node — what it `requires`, its `tier`, whether it is
 `locked` — wanting a key of its tier consumed **for it**; a key opens one
 node, never a tier — and `minutes` of the AI's time, nought for
@@ -819,14 +820,32 @@ what is known at the start), `node_of_part`/`node_of_recipe` (the gates:
 everything not named waits on `Survival`, so a new part is buildable
 unless the table says otherwise), and `Research`, the state the world keeps
 and hashes — `done` and `unlocked` as a boolean a node, `current` and
-`progress`. `Research::unlock(node)` refuses a node with no lock, one open
-already or one researched, so no key is spent for nothing.
-`tree_is_sound` pins the table's shape; `the_research_tree_is_sound_and_the_crew_know_how_to_live`
-and `research_runs_in_order_and_a_key_opens_a_node` in `tests.rs` pin what
-a fresh crew know (every part but the four benches and the fusion reactor;
-the bandage and the medkit and nothing else the benches make) and the
-order. **`Research::begin` on a different node loses the progress**, and
-so does `cancel`: the AI thinks about one thing at a time.
+`progress`, and the `queue`. `Research::unlock(node)` refuses a node with
+no lock, one open already or one researched, so no key is spent for
+nothing. `tree_is_sound` pins the table's shape; `the_research_tree_is_sound_and_the_crew_know_how_to_live`,
+`research_runs_in_order_and_a_key_opens_a_node` and
+`a_queue_brings_its_prerequisites_and_loses_its_dependants` in `tests.rs`
+pin what a fresh crew know (every part but the four benches and the
+fusion reactor; the bandage and the medkit and nothing else the benches
+make), the order, and the queue.
+
+**The queue is a plan (feature 64).** `Research::enqueue(node)` puts a
+node at the back of `queue` with every prerequisite it lacks ahead of it
+(`push_chain`, prerequisites first), refused whole — nothing queued —
+when the node is `planned` already (known, on the AI or queued) or
+anything in that chain is behind a key (`queueable` is that test, for
+the app's button). Nothing starts by itself: `Research::next()` puts an
+*idle* AI onto the first queued node that is `available`, and `world`
+calls it every step the desk has power, before `advance` and again the
+step a node finishes, so a queue is worked through without an idle step.
+`dequeue(node)` and `cancel()` (the AI off `current`, progress lost)
+both `prune`: whatever is queued that needs a node no longer known, on
+the AI or queued comes off too, to a fix-point, and both hand back what
+came off so the world can say so. There is no "switch now": a node
+wanted first is a `cancel` and the queue. The tier-one times were
+doubled with the queue (research was over too soon): 480, 720, 2 880
+for the keyless nodes, 1 440, 1 200, 1 800 for the locked ones — the
+tests read `def().minutes` rather than the numbers.
 
 Two parts came with it, both the six edits. `PartKind::ResearchDesk = 38`
 is a table's footprint worked from the tile below, seen over like the
@@ -845,13 +864,32 @@ bulkhead, the combat chairs and the galley's row rule out every other —
 and that moved `PLAYTEST_HASH`, `PLAYTEST_PARTS` (648) and the draw the
 wiring test pins (137).
 
-`ResourceId::ResearchKey = 22` is the key: mass 2, €5 000 (a station buys
+`ResourceId::ResearchKey = 21` is the key: mass 2, €5 000 (a station buys
 one), `Storage::Research`, sold nowhere (`StationKind::sells`'s
 "made, never sold" arm, so no galaxy checksum moved), which grew
-`CARGO_SLOTS` to 23 and re-pinned both `REFERENCE_HASH`es. What it does is
+`CARGO_SLOTS` to 22 and re-pinned both `REFERENCE_HASH`es. What it does is
 the world's — `crates/world/CLAUDE.md` — and what it is in a pack is the
 room's (`bims::combat::Item::Key`, two cells tall; `crates/game/CLAUDE.md`).
 `KEY_CELLS` here is the pair the desk's slot and the pack's cells agree on.
+
+**Tier two** (b-next, "Tier two, on the enemy's desk"):
+`ResourceId::ResearchKeyTwo = 22`, appended — the same slab, mass 2,
+€10 000 (a root, a placeholder like the tier-one's), `Storage::Research`
+and one cell of it, the tier-one key's `kind_bias` row, sold nowhere —
+which grew `CARGO_SLOTS` to 23 and moved `REFERENCE_HASH`,
+`PLAYTEST_HASH`, `world::REFERENCE_CHECKSUM` **and**
+`worldgen::REFERENCE_CHECKSUMS` (the price bias is drawn for every
+resource and hashed, so a resource appended draws one more lean a
+station; not a `GENERATOR_VERSION` bump, no layout moved). It lies on
+every hostile station's desk (`world::station::key_tier`) and opens
+`Node::Upgrades = 9`, the one tier-two node — locked, after the
+armoury, 1 440 minutes, `Research::upgrades_allowed()` — which the
+workbench's upgrades wait on, both steps. `Research::key_wanted(node)`
+is the node's own tier, and `world` refuses the other tier's key. Tier
+three is declared (`TIERS`) and empty. `RESOURCE_NAMES` and `ITEM_TIPS`
+are 23, `NODE_NAMES` and `NODE_LINES` 10; the icon is `icons::key` in
+the theme's `TIER_TWO`, and `theme::item_tint` tints a tier-two key's
+cell the way it tints tier-two gear.
 
 **The medkit moved to the drug lab.** `RECIPES[5]` keeps its index and its
 inputs and its `station` is `DrugLab` now: medicine is made from the first

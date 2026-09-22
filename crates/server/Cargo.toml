@@ -1,0 +1,29 @@
+# The relay: what runs at bims.buggly.de.
+#
+# It introduces the players to each other and passes bytes between them, and
+# that is all it does — the game is simulated on every player's own machine,
+# the host's being the clock (`crates/app/src/net.rs`). So it links `wire`
+# and nothing else of the workspace: no Bevy, no world, no room. The box it
+# runs on has no GPU and never needs one to build a fix.
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2024"
+description = "The Bims relay — rooms by code, and bytes passed between the players in one"
+
+[[bin]]
+name = "bims-server"
+path = "src/main.rs"
+
+[dependencies]
+wire = { path = "../wire" }
+# Rooms sit idle for long stretches while somebody reads a code out and
+# the crew argue over a bunk, so a task a connection beats a thread a
+# connection: most are parked on a read almost all of the time.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "io-util"] }
+tokio-tungstenite = "0.24"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+
+[dev-dependencies]
+# The integration test drives the relay over a real socket, as a client.
+tungstenite = "0.24"

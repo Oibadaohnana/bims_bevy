@@ -29,10 +29,10 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// is meant to change — which is a [`crate::GENERATOR_VERSION`] bump, and
 /// the test that reads them says so.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_3e04_a251_9fe9_7d06,
-    0x_7504_4e49_2574_f291,
-    0x_5ec6_8966_bdb7_2d6d,
-    0x_0005_b4e5_62b9_d53e,
+    0x_8a6b_8218_a852_cbc9,
+    0x_c247_6331_f6bf_b6fe,
+    0x_d740_a28f_8545_dbf2,
+    0x_3977_aae3_406b_4121,
 ];
 
 /// The reference galaxy of one type.

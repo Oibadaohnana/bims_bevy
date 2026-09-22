@@ -157,8 +157,9 @@ pub enum WorldEvent {
     /// `node`'s lock is open — `Command::Unlock`. See
     /// `shipdesign::research`.
     Unlocked { node: u32 },
-    /// The AI was put onto a node of the research tree —
-    /// `Command::Research`; `node` is `shipdesign::research::Node`'s code.
+    /// The AI went onto a node of the research tree — the head of the
+    /// queue, the step it fell idle with one there; `node` is
+    /// `shipdesign::research::Node`'s code.
     ResearchBegun { node: u32 },
     /// The AI finished a node: what it gates can be built and made now.
     Researched { node: u32 },
@@ -202,9 +203,13 @@ pub enum WorldEvent {
     /// aboard, `minutes` out — see `crate::raid`. Every player's speed
     /// request was put back to 1× with it, once.
     RaidContact { boarders: u32, minutes: u32 },
-    /// The raider is tied to the ship and its `boarders` are coming
-    /// through the airlock.
+    /// The raider is tied to the ship, its `boarders` posted at the
+    /// ship's airlock — locked against them the same step
+    /// (`World::seal_against_raid`) — and forcing it.
     RaidBoarded { boarders: u32 },
+    /// The ship's airlock gave — or the crew opened it — and the raider's
+    /// `boarders` are coming through. Said once a raid.
+    RaidBreached { boarders: u32 },
     /// The raider arrived to find the ship gone — under way, or in
     /// another system — and the raid is off.
     RaidCancelled,
@@ -217,6 +222,33 @@ pub enum WorldEvent {
     /// Crew member `who` took `units` of a stack off an enemy's shelf into
     /// the pack — a raider's or a hostile station's; see `crate::plunder`.
     Plundered { who: u32, units: u32 },
+    /// A node went onto the research queue — `Command::Research`, one for
+    /// the node asked for and one for each prerequisite queued ahead of
+    /// it; `node` is `shipdesign::research::Node`'s code.
+    ResearchQueued { node: u32 },
+    /// A node came off the research queue without being begun — a
+    /// `Dequeue`, or in the wake of a `Dequeue` or a `CancelResearch` of
+    /// what it needed.
+    ResearchDropped { node: u32 },
+    /// A crew member reached a level of its class (feature 74,
+    /// `crate::class`): who, and the level. Said once a level; a pick
+    /// level leaves a pick pending until `Command::PickTalent`.
+    LevelUp { who: u32, level: u32 },
+    /// A crew member picked a talent: who, and `crate::class::Talent`'s
+    /// code.
+    TalentPicked { who: u32, talent: u32 },
+    /// An engineer laid a kit: who, and `crate::deploy::DeployKind`'s code.
+    Deployed { who: u32, kind: u32 },
+    /// An engineer packed a deployable up into a kit: who, and the kind.
+    PackedUp { who: u32, kind: u32 },
+    /// A deployable was destroyed — sandbags shot to nothing, a sentry
+    /// drained — by the kind.
+    DeployableLost { kind: u32 },
+    /// A sentry was refilled: whose hands.
+    Refilled { who: u32 },
+    /// A piece of armour was repaired at the workbench — the armourer's
+    /// session done — by `bims::combat::ArmourKind`'s code.
+    Repaired { kind: u32 },
 }
 
 /// Why a command did nothing.
@@ -298,14 +330,15 @@ pub enum Refusal {
     /// station's trading desk — see `World::at_the_desk`.
     NotAtTheDesk = 21,
     /// A take of a key off a desk with none on it, or an unlock with no
-    /// key in the crew's own desk.
+    /// key of the node's tier in the crew's own desk — the other tier's
+    /// key there opens nothing, and stays.
     NoKey = 22,
     /// Research, or an unlock, with no research desk aboard, or one that is
     /// not powered: the AI runs on it.
     NoResearchDesk = 23,
-    /// Research of a node that cannot be begun: done already, wanting
-    /// something not yet researched, or behind a lock still shut — and an
-    /// unlock of a node with no lock, or one open already.
+    /// Research of a node that cannot be queued: known, on the AI or
+    /// queued already, or behind a lock still shut, itself or something it
+    /// needs — and an unlock of a node with no lock, or one open already.
     NotResearchable = 24,
     /// A site for a part the crew do not know how to build yet — see
     /// `shipdesign::research`.
@@ -347,6 +380,48 @@ pub enum Refusal {
     /// day's work is under way on the pair; the output waits in its slot
     /// and can be taken any time.
     BenchBusy = 36,
+    /// A walk ordered somewhere the only way to is through a locked
+    /// door — `Command::Crew`, the room's `ORDER_LOCKED`.
+    DoorLocked = 37,
+    /// A walk ordered somewhere there is no way to at all —
+    /// `Command::Crew`, the room's `ORDER_NOWHERE`.
+    NoWayThere = 38,
+    /// A `Dequeue` of a node that is not on the research queue.
+    NotQueued = 39,
+    /// An upgrade begun at the workbench before the crew know how —
+    /// `shipdesign::research::Node::Upgrades`, the tier-two node, not
+    /// yet researched. Said before the bench is looked at, so a pair on
+    /// it waits.
+    NoUpgrades = 40,
+    /// A class chosen after the ship first left its berth: a class is
+    /// chosen at the start (`Command::SetClass`, `crate::class`).
+    ClassLocked = 41,
+    /// A deploy, a pack-up, a refill or a repair by a crew member that is
+    /// not an engineer, or a pick by one with no class.
+    NotAnEngineer = 42,
+    /// A deploy with no such kit in the pack.
+    NoKit = 43,
+    /// A sentry laid before the engineer's third level.
+    NoSentryYet = 44,
+    /// A sentry laid with as many standing as the engineer may have —
+    /// one, two with *second sentry*.
+    SentryLimit = 45,
+    /// A deploy on a tile that will not take it: not reachable deck
+    /// floor, a door or an airlock, a part in the way, or a deployable
+    /// there already.
+    CantDeployThere = 46,
+    /// A pack-up, a refill or a strike of a deployable that is not there,
+    /// or of the wrong kind — a refill of sandbags.
+    NoSuchDeployable = 47,
+    /// A pick at a level that is not a pick level — a fixed one, or none.
+    NotAPickLevel = 48,
+    /// A pick at a level the crew member has not reached.
+    LevelNotReached = 49,
+    /// A pick at a level already picked: a pick is never changed.
+    AlreadyPicked = 50,
+    /// Something an engineer's talent gates, asked for without the
+    /// talent: a repair without *armourer*.
+    NoTalent = 51,
 }
 
 impl Refusal {
@@ -419,6 +494,16 @@ impl WorldEvent {
             WorldEvent::RaidRepelled => 62,
             WorldEvent::CrewLost => 63,
             WorldEvent::Plundered { .. } => 64,
+            WorldEvent::ResearchQueued { .. } => 65,
+            WorldEvent::ResearchDropped { .. } => 66,
+            WorldEvent::RaidBreached { .. } => 67,
+            WorldEvent::LevelUp { .. } => 68,
+            WorldEvent::TalentPicked { .. } => 69,
+            WorldEvent::Deployed { .. } => 70,
+            WorldEvent::PackedUp { .. } => 71,
+            WorldEvent::DeployableLost { .. } => 72,
+            WorldEvent::Refilled { .. } => 73,
+            WorldEvent::Repaired { .. } => 74,
         }
     }
 
@@ -466,7 +551,9 @@ impl WorldEvent {
             | WorldEvent::Stowed { who } => who as i64,
             WorldEvent::Unlocked { node }
             | WorldEvent::ResearchBegun { node }
-            | WorldEvent::Researched { node } => node as i64,
+            | WorldEvent::Researched { node }
+            | WorldEvent::ResearchQueued { node }
+            | WorldEvent::ResearchDropped { node } => node as i64,
             // The tier in the hundreds: under a hundred resources, and a
             // tier is never a hundred.
             WorldEvent::UpgradeBegun { resource, tier }
@@ -496,11 +583,22 @@ impl WorldEvent {
             WorldEvent::RaidContact { boarders, minutes } => {
                 (boarders as i64) + 100 * (minutes as i64)
             }
-            WorldEvent::RaidBoarded { boarders } => boarders as i64,
+            WorldEvent::RaidBoarded { boarders } | WorldEvent::RaidBreached { boarders } => {
+                boarders as i64
+            }
             WorldEvent::RaidCancelled | WorldEvent::RaidRepelled | WorldEvent::CrewLost => 0,
             // The units in the hundreds: a crew is never a hundred, and a
             // pack has fifty cells.
             WorldEvent::Plundered { who, units } => (who as i64) + 100 * (units as i64),
+            // The level, the talent and the kind in the hundreds, the same
+            // way: a crew is never a hundred.
+            WorldEvent::LevelUp { who, level } => (who as i64) + 100 * (level as i64),
+            WorldEvent::TalentPicked { who, talent } => (who as i64) + 100 * (talent as i64),
+            WorldEvent::Deployed { who, kind } | WorldEvent::PackedUp { who, kind } => {
+                (who as i64) + 100 * (kind as i64)
+            }
+            WorldEvent::DeployableLost { kind } | WorldEvent::Repaired { kind } => kind as i64,
+            WorldEvent::Refilled { who } => who as i64,
         }
     }
 }

@@ -194,7 +194,11 @@ fn boarders_are_counted_like_a_garrison_to_a_lower_cap() {
     assert_eq!(boarders_of(2, 1_000, 1_000, month - 1), 3);
     assert_eq!(boarders_of(2, 1_000, 1_000, month), 4, "a month: one more");
     assert_eq!(boarders_of(2, 1_000, 1_000, 2 * month), 5);
-    assert_eq!(boarders_of(1, 1_500, 1_000, month), 6, "three doubled, capped");
+    assert_eq!(
+        boarders_of(1, 1_500, 1_000, month),
+        6,
+        "three doubled, capped"
+    );
     assert_eq!(boarders_of(2, 1_000, 1_000, 10 * month), data::BOARDERS_MAX);
 
     // And a raid is rolled at the clock's day: the same crew, thirty
@@ -252,7 +256,10 @@ fn a_raid_staged_to_come_in_ten_minutes_makes_contact_on_the_tenth() {
     let berth = world.ship.position();
     assert!(world.raid_coming_for_probe(10));
     assert!(matches!(world.ship.state, ShipState::Holding));
-    assert!(world.ship.position().distance(berth) > 1_000.0, "off the berth");
+    assert!(
+        world.ship.position().distance(berth) > 1_000.0,
+        "off the berth"
+    );
     assert_eq!(*world.raid(), Raid::Quiet);
     assert!(world.raid_contact().is_none(), "nothing on the radar yet");
     let began = world.clock_minutes;
@@ -273,7 +280,10 @@ fn a_raid_staged_to_come_in_ten_minutes_makes_contact_on_the_tenth() {
     assert!((world.clock_minutes - began - 10.0).abs() < data::STEP_MINUTES * 1.5);
     assert!(matches!(world.raid(), Raid::Closing { .. }));
     assert!(world.raid_contact().is_some(), "the raider on the radar");
-    assert_eq!(minutes_out(&events) as f64, (world.detection_range() / data::RAIDER_SPEED).ceil());
+    assert_eq!(
+        minutes_out(&events) as f64,
+        (world.detection_range() / data::RAIDER_SPEED).ceil()
+    );
 }
 
 /// A raid arrives while holding: contact at the edge of the radar with
@@ -375,9 +385,25 @@ fn a_raid_arrives_while_holding_and_the_boarders_come_for_the_ship() {
     // The next raid is on the schedule after this one.
     assert_eq!(world.raids.next, 1);
     assert!(world.raids.due > world.clock_minutes as u64);
+    // And the ship's airlock was locked in its face the same step: the
+    // crew's lock, as from the panel.
+    let airlock = world
+        .ship_airlock_door()
+        .expect("the ship's airlock is a door of the joined room");
+    assert!(world.aboard.room.ship_door_is_locked(airlock), "sealed");
+    assert!(world.raid_airlock_holds());
+    assert_eq!(world.raid_forcing(), None, "nobody at it yet");
+    assert!(matches!(
+        world.raid(),
+        Raid::Docked {
+            breached: false,
+            ..
+        }
+    ));
 
-    // They come: within a couple of minutes at least one boarder is on the
-    // ship's own deck, through the passage.
+    // They come: to the locked door, and heave at it — the bar on the
+    // deck's door — until the lock gives, said once, and then at least
+    // one boarder is on the ship's own deck, through the passage.
     let ship = world.ship.design.clone();
     let on_ship = |world: &World| {
         let (origin, ex, ey) = world.aboard.station_frame.unwrap();
@@ -393,15 +419,45 @@ fn a_raid_arrives_while_holding_and_the_boarders_come_for_the_ship() {
             ship.grid().get(shipdesign::Layer::Structure, tile) != 0
         })
     };
+    let mut forcing = false;
+    let mut breached = 0;
     let mut aboard = false;
-    for _ in 0..3_000 {
-        world.step(&[]);
+    for _ in 0..6_000 {
+        let events = world.step(&[]);
+        if world.raid_forcing().is_some() {
+            forcing = true;
+            assert!(
+                world.aboard.room.ship_door_is_locked(airlock),
+                "forcing a door that holds"
+            );
+        }
+        breached += events
+            .iter()
+            .filter(|e| matches!(e, WorldEvent::RaidBreached { .. }))
+            .count();
+        if breached > 0 && !on_ship(&world) {
+            assert!(forcing, "the lock gave to the heaving");
+            assert!(!world.raid_airlock_holds());
+        }
         if on_ship(&world) {
+            assert!(breached > 0, "nobody aboard before the lock gave");
             aboard = true;
             break;
         }
     }
-    assert!(aboard, "a boarder came onto the ship's deck");
+    assert!(forcing, "the boarders heaved at the airlock");
+    assert_eq!(breached, 1, "the lock gave, said once");
+    assert!(aboard, "and a boarder came onto the ship's deck");
+    assert!(!world.aboard.room.ship_door_is_locked(airlock));
+    // Said once: the steps after say nothing more of it.
+    for _ in 0..60 {
+        let events = world.step(&[]);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::RaidBreached { .. }))
+        );
+    }
 }
 
 /// A raid is cancelled by leaving: the raider arrives to find the ship

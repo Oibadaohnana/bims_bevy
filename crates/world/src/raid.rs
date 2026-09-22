@@ -35,10 +35,17 @@
 //! If the ship is not holding when the raider arrives — it left, or it
 //! jumped — the raid is cancelled. Arrived, the raider is set down so that
 //! its berth for this ship is where the ship is, and the ship is docked
-//! to it; the boarders are posted at the ship's gangway, the deck just
-//! inside its airlock, and come through the passage after it
-//! (`Residents::post_boarders`), forcing the airlock if it is locked
-//! against them (`bims::game::Game::breach`).
+//! to it — **and the ship's airlock is locked against it** the same step
+//! (`World::seal_against_raid`), a lock of the crew's the way the panel
+//! sets one: nobody asked the raider aboard. The boarders are posted at
+//! the ship's gangway, the deck just inside its airlock
+//! (`Residents::post_boarders`), find the door shut in their way and
+//! **force it** — `bims::game::Game::breach`, thirty seconds of heaving
+//! at an airlock (`bims::door::SMASH_AIRLOCK`), the bar over the door on
+//! the deck — and come through the passage once it gives
+//! (`WorldEvent::RaidBreached`, said once; [`Raid::Docked`]'s
+//! `breached`). The crew may unlock it themselves and meet them in the
+//! passage; the lock is theirs.
 //!
 //! # How many, and the end
 //!
@@ -119,11 +126,13 @@ pub enum Raid {
         began: f64,
         arrives: f64,
     },
-    /// The raider tied to the ship, with `boarders` aboard it — a
+    /// The raider tied to the ship, with `boarders` aboard it — through
+    /// the ship's airlock once its lock has given (`breached`), and a
     /// derelict once every one of them is down (`repelled`).
     Docked {
         station: Station,
         boarders: u32,
+        breached: bool,
         repelled: bool,
     },
 }
@@ -240,7 +249,7 @@ impl Raids {
             stock,
             bias: economy::market::Bias::NONE,
             hostile: true,
-            key: false,
+            key: 0,
         };
         // The berth is the anchor and a constant, so the anchor that puts
         // the berth on the ship is the ship less the berth at nought.

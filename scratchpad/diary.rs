@@ -225,24 +225,24 @@ fn main() {
     // --- selecting ----------------------------------------------------------
 
     let mut game = Game::new(3, 960.0, 640.0);
-    check!("nobody is selected to begin with", game.selected().is_none());
-    game.select_group(1);
-    check!("group 1 is the player's Bim", game.selected() == Some(PLAYER));
+    check!("nobody is selected to begin with", game.selected(0).is_none());
+    game.select_group(0, 1);
+    check!("group 1 is the player's Bim", game.selected(0) == Some(PLAYER));
     // Clicking the other one picks her instead — one at a time.
     let kate = game.bim_pos(1);
     game.drag_begin(kate.x, kate.y);
-    game.drag_end(kate.x, kate.y);
-    check!("clicking the other one selects her", game.selected() == Some(1), format!("{:?}", game.selected()));
+    game.drag_end(0, kate.x, kate.y);
+    check!("clicking the other one selects her", game.selected(0) == Some(1), format!("{:?}", game.selected(0)));
     check!("and only her", !game.is_selected(PLAYER));
     // But she still takes no orders.
     let away = game.bim_pos(PLAYER);
     check!(
         "and an order to her is ignored",
-        game.order_move(away.x, away.y) == 0,
-        game.order_move(away.x, away.y)
+        game.order_move(0, away.x, away.y) == 0,
+        game.order_move(0, away.x, away.y)
     );
-    game.clear_selection();
-    check!("and Escape puts the panels away", game.selected().is_none());
+    game.clear_selection(0);
+    check!("and Escape puts the panels away", game.selected(0).is_none());
 
     println!();
     if fails > 0 { println!("{fails} FAILED"); std::process::exit(1); }

@@ -13,7 +13,7 @@ use worldgen::{BodyKind, GalaxyType, StationKind};
 use crate::data;
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
 use crate::station::{Plan, build_placer, layout, layout_surface, side_of};
-use crate::surface::{Biome, GUARD_POST, SURFACE_KIND, Surface, surface_id};
+use crate::surface::{Biome, GATE_WIDTH, GATE_X0, GUARD_POST, SURFACE_KIND, Surface, surface_id};
 use crate::world::World;
 
 fn basic() -> World {
@@ -28,7 +28,7 @@ fn middle((x, y): (u32, u32)) -> bims::math::Vec2 {
 
 /// The populations a town is walked at: the smallest, one in the middle
 /// that rounds awkwardly everywhere, and the biggest.
-const POPULATIONS: [u32; 3] = [10, 27, 50];
+const POPULATIONS: [u32; 3] = [5, 17, 30];
 const SEEDS: [u64; 2] = [1, 0x_5749_4e44_4f57_0001];
 
 /// How many wild parts a town has round it.
@@ -45,7 +45,8 @@ fn wild_count(design: &ShipDesign) -> u32 {
 }
 
 /// A town is a place the room can live in, in every biome at every size:
-/// the port in its west edge with nothing beyond, the designer's rules
+/// the port in its west edge with nothing beyond, a wall on every other
+/// tile of the edge but the two gates, the designer's rules
 /// finding nothing wrong with it for the people who live there, one
 /// trading desk, one research desk, a bunk each and two to spare for
 /// mercenaries, a chair each in the hall, a bathhouse for every twelve,
@@ -131,6 +132,41 @@ fn a_town_is_a_place_the_room_can_live_in_and_can_be_walked_in_every_biome() {
                 let grid = design.grid();
                 let post = (GUARD_POST.0 as i32, GUARD_POST.1 as i32);
                 assert!(walkable(&design, &grid, post), "{name}: the post is clear");
+
+                // The fort: a wall on every outermost tile of the deck
+                // but the pad's two and the two gates', the gates open
+                // where the west cross street meets the north wall and
+                // the south, six tiles wide and walkable.
+                let (first, last) = (1i32, data::SURFACE_SIDE as i32 - 2);
+                let kind_at = |tile: (i32, i32)| {
+                    let id = grid.get(shipdesign::Layer::Object, tile);
+                    design.part(id).map(|p| p.kind)
+                };
+                let is_gate = |x: i32| (GATE_X0 as i32..(GATE_X0 + GATE_WIDTH) as i32).contains(&x);
+                let mid = data::SURFACE_SIDE as i32 / 2;
+                for i in first..=last {
+                    for tile in [(i, first), (i, last), (first, i), (last, i)] {
+                        let (x, y) = tile;
+                        if (y == first || y == last) && is_gate(x) {
+                            assert!(
+                                walkable(&design, &grid, tile),
+                                "{name}: the gate at {tile:?} is open"
+                            );
+                        } else if x == first && (y == mid - 1 || y == mid) {
+                            assert_eq!(
+                                kind_at(tile),
+                                Some(PartKind::Airlock),
+                                "{name}: the pad at {tile:?}"
+                            );
+                        } else {
+                            assert_eq!(
+                                kind_at(tile),
+                                Some(PartKind::Wall),
+                                "{name}: the wall at {tile:?}"
+                            );
+                        }
+                    }
+                }
 
                 // Nothing wild where a Bim has to stand or pass: on or
                 // beside a use spot, the post, a standing light, a door's
@@ -306,7 +342,7 @@ fn a_landable_body_rolls_a_biome_and_a_population() {
         (0.35..=0.65).contains(&share),
         "{share} of rocky planets are desert"
     );
-    assert!(least < 20 && most > 40, "populations {least}..{most}");
+    assert!(least < 12 && most > 24, "populations {least}..{most}");
 }
 
 /// A field is a bay at half pace with nothing to plug in: the same tray

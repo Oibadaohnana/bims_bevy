@@ -305,18 +305,7 @@ pub fn world_checksum(world: &World) -> u64 {
     // The mining sites: every rock still standing at each, and the marks.
     // Integers throughout, so they go in whole.
     for site in &world.sites {
-        hash.eat(site.belt as u64);
-        hash.eat(site.tiles.len() as u64);
-        for tile in &site.tiles {
-            hash.eat(tile.x as i64 as u64);
-            hash.eat(tile.y as i64 as u64);
-            hash.eat(tile.kind.code() as u64);
-        }
-        hash.eat(site.marked.len() as u64);
-        for &(x, y) in &site.marked {
-            hash.eat(x as i64 as u64);
-            hash.eat(y as i64 as u64);
-        }
+        eat_site(&mut hash, site);
     }
 
     // The construction sites: what is to be built where, and what has
@@ -337,10 +326,11 @@ pub fn world_checksum(world: &World) -> u64 {
     }
 
     // What the crew know: every node done or not, every lock open or not,
-    // what the AI is on and how far it has got — a crew that knows how to
-    // build a thing and one that does not are two different games. And
-    // which stations still have their key: a key taken is a key nobody
-    // else can take.
+    // what the AI is on and how far it has got, and what it goes onto
+    // next — a crew that knows how to build a thing and one that does not
+    // are two different games, and so are two that will know different
+    // things tomorrow. And which tier of key each station still has on
+    // its desk: a key taken is a key nobody else can take.
     for &done in world.research.done.iter() {
         hash.eat(u64::from(done));
     }
@@ -355,6 +345,10 @@ pub fn world_checksum(world: &World) -> u64 {
             .unwrap_or(u64::MAX),
     );
     hash.eat_rounded(world.research.progress, FINE_GRID);
+    hash.eat(world.research.queue.len() as u64);
+    for node in &world.research.queue {
+        hash.eat(node.code() as u64);
+    }
     hash.eat(world.station_keys.len() as u64);
     for &key in &world.station_keys {
         hash.eat(u64::from(key));
@@ -406,6 +400,7 @@ pub fn world_checksum(world: &World) -> u64 {
         crate::raid::Raid::Docked {
             station,
             boarders,
+            breached,
             repelled,
         } => {
             hash.eat(2);
@@ -414,6 +409,7 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat_rounded(station.anchor.x, POSITION_GRID);
             hash.eat_rounded(station.anchor.y, POSITION_GRID);
             hash.eat(*boarders as u64);
+            hash.eat(u64::from(*breached));
             hash.eat(u64::from(*repelled));
         }
     }
@@ -430,7 +426,113 @@ pub fn world_checksum(world: &World) -> u64 {
         eat_grid(&mut hash, &plunder.grid);
     }
 
+    // What every station has lost to the crew, and every system the ship
+    // has left as it was left — integers throughout, the sites and the
+    // shelves the way they go in above: a crew that emptied a station and
+    // one that did not are two different galaxies.
+    eat_losses(&mut hash, &world.losses);
+    hash.eat(world.memories.len() as u64);
+    for memory in &world.memories {
+        hash.eat(memory.star as u64);
+        hash.eat(memory.hostile.len() as u64);
+        for &station in &memory.hostile {
+            hash.eat(station as u64);
+        }
+        hash.eat(memory.reinforcements as u64);
+        hash.eat(memory.station_keys.len() as u64);
+        for &key in &memory.station_keys {
+            hash.eat(u64::from(key));
+        }
+        hash.eat(memory.sites.len() as u64);
+        for site in &memory.sites {
+            eat_site(&mut hash, site);
+        }
+        hash.eat(memory.plunder.len() as u64);
+        for plunder in &memory.plunder {
+            hash.eat(plunder.station as u64);
+            hash.eat(plunder.capacity as u64);
+            eat_grid(&mut hash, &plunder.grid);
+        }
+        hash.eat(memory.lamps.len() as u64);
+        for lamp in &memory.lamps {
+            hash.eat(lamp.station.map(u64::from).unwrap_or(u64::MAX));
+            hash.eat(lamp.tile.0 as u64);
+            hash.eat(lamp.tile.1 as u64);
+            hash.eat_rounded(lamp.health as f64, HEALTH_GRID);
+        }
+        hash.eat(memory.discovered.len() as u64);
+        for node in &memory.discovered {
+            let (kind, id) = node_key(node);
+            hash.eat(kind as u64);
+            hash.eat(id as u64);
+        }
+        eat_losses(&mut hash, &memory.losses);
+    }
+
+    // The classes and what each crew member has learnt, whether the
+    // berth was ever left, every deployable standing and the kits taken
+    // back (feature 74): a pick made is a different crew, a sentry laid a
+    // different fight. Integers throughout but a deployable's health, to
+    // a hundredth like a piece of armour's.
+    hash.eat(world.classes.len() as u64);
+    for class in &world.classes {
+        hash.eat(class.code() as u64);
+    }
+    hash.eat(world.progress.len() as u64);
+    for progress in &world.progress {
+        hash.eat(progress.xp as u64);
+        hash.eat(progress.picks.len() as u64);
+        for &(level, side) in &progress.picks {
+            hash.eat(u64::from(level));
+            hash.eat(side.code() as u64);
+        }
+    }
+    hash.eat(u64::from(world.undocked_once));
+    hash.eat(world.deployables.len() as u64);
+    for d in &world.deployables {
+        hash.eat(d.id as u64);
+        hash.eat(d.kind.code() as u64);
+        hash.eat(d.owner_slot as u64);
+        hash.eat(d.deck.code() as u64);
+        hash.eat(d.tile.0 as u64);
+        hash.eat(d.tile.1 as u64);
+        hash.eat_rounded(d.health as f64, HEALTH_GRID);
+        hash.eat(d.shots as u64);
+    }
+    hash.eat(world.next_deployable as u64);
+    hash.eat(world.reused_kits.len() as u64);
+    for &n in &world.reused_kits {
+        hash.eat(n as u64);
+    }
+
     hash.0
+}
+
+/// A mining site whole: its belt, every rock still standing and the
+/// marks. Integers throughout.
+fn eat_site(hash: &mut Fnv, site: &crate::mining::MiningSite) {
+    hash.eat(site.belt as u64);
+    hash.eat(site.tiles.len() as u64);
+    for tile in &site.tiles {
+        hash.eat(tile.x as i64 as u64);
+        hash.eat(tile.y as i64 as u64);
+        hash.eat(tile.kind.code() as u64);
+    }
+    hash.eat(site.marked.len() as u64);
+    for &(x, y) in &site.marked {
+        hash.eat(x as i64 as u64);
+        hash.eat(y as i64 as u64);
+    }
+}
+
+/// What the stations have lost, station by station.
+fn eat_losses(hash: &mut Fnv, losses: &[crate::memory::Losses]) {
+    hash.eat(losses.len() as u64);
+    for loss in losses {
+        hash.eat(loss.station as u64);
+        hash.eat(loss.dead as u64);
+        hash.eat(loss.mercenaries as u64);
+    }
 }
 
 /// A grid — one of the hold's, or an enemy's shelf — whole: every slot,

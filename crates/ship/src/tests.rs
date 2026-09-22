@@ -24,7 +24,7 @@ const CANVAS: (f32, f32) = (960.0, 640.0);
 fn game() -> Game {
     let galaxy = worldgen::Galaxy::new(world::data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
     let (star, station) = world::spawn(&galaxy).expect("the default seed has a dock");
-    Game::start(
+    let mut game = Game::start(
         flyer(2),
         40_000,
         2,
@@ -36,7 +36,11 @@ fn game() -> Game {
         CANVAS.0,
         CANVAS.1,
     )
-    .expect("the fixture should open a world")
+    .expect("the fixture should open a world");
+    // The game opens head up (feature 65); these tests are written north
+    // up, the ship turned to its heading, and the ones about head up say so.
+    game.head_up = false;
+    game
 }
 
 /// Where a design tile's middle lands on the canvas, the way the painter puts
@@ -1005,6 +1009,101 @@ fn a_resident_on_the_ship_s_deck_is_drawn_over_it() {
     );
 }
 
+/// The host's save, stood up on a guest as the guest's own slot
+/// (`Session::restore_as`, feature 67): the same world by its checksum —
+/// as read back and six hundred steps on — but this end steers slot 1,
+/// and the file says how many players it was saved for off its front
+/// (`save::players_of`), for the host to check a load against the room.
+#[test]
+fn the_host_s_save_read_back_as_a_guest_is_the_same_world_steered_from_its_own_slot() {
+    use crate::Session;
+    use crate::save::players_of;
+    let two = |slot: u32| {
+        let mut session = Session::design(
+            shipdesign::fixture::AREA,
+            100_000,
+            2,
+            slot,
+            world::data::DEFAULT_SEED,
+            0,
+            ship_session_spawn(),
+            crate::Preset::Empty,
+            CANVAS.0,
+            CANVAS.1,
+        );
+        session.editor.give(shipdesign::fixture::combat_ship());
+        let hash = session.editor.hash();
+        assert!(session.accept(0, hash));
+        assert!(session.accept(1, hash));
+        assert!(session.playing());
+        session
+    };
+    let mut host = two(0);
+    let mut guest = two(1);
+    for _ in 0..300 {
+        host.world_step();
+        guest.world_step();
+    }
+    host.crew_names = vec!["Ada".to_string(), "Bob".to_string()];
+    let text = host.save().expect("a world to save");
+    assert_eq!(players_of(&text), Some(2), "the players, off the front");
+    assert_eq!(players_of("(not a save"), None);
+    assert_eq!(players_of("(version:1,local:0"), None);
+    let mut back = Session::restore_as(&text, 1, CANVAS.0, CANVAS.1).expect("the text reads back");
+    assert_eq!(back.editor.local, 1, "the guest's own slot");
+    assert_eq!(back.game.as_ref().unwrap().local, 1);
+    assert_eq!(back.editor.players, 2);
+    assert_eq!(back.crew_names, host.crew_names);
+    let checksum = |s: &Session| s.game.as_ref().unwrap().world.checksum();
+    assert_eq!(
+        checksum(&back),
+        checksum(&host),
+        "the host's world, as read back"
+    );
+    assert_eq!(
+        checksum(&back),
+        checksum(&guest),
+        "which is what the guest had"
+    );
+    // The file's own slot is what `restore` comes up as, and a slot the
+    // crew has not got is the last one.
+    assert_eq!(
+        Session::restore(&text, CANVAS.0, CANVAS.1)
+            .unwrap()
+            .editor
+            .local,
+        0
+    );
+    assert_eq!(
+        Session::restore_as(&text, 7, CANVAS.0, CANVAS.1)
+            .unwrap()
+            .editor
+            .local,
+        1
+    );
+    for _ in 0..600 {
+        host.world_step();
+        back.world_step();
+    }
+    assert_eq!(checksum(&back), checksum(&host), "six hundred steps on");
+    let room = |s: &Session| {
+        let room = &s.game.as_ref().unwrap().world.aboard.room;
+        (0..room.crew_count() as usize)
+            .map(|who| room.bim_pos(who))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        room(&back),
+        room(&host),
+        "the crew's places, six hundred steps on"
+    );
+}
+
+fn ship_session_spawn() -> Option<(u32, u32)> {
+    // The dock the wire test docks at, so the two crews stand somewhere.
+    crate::session::pick_dock(world::data::DEFAULT_SEED, 0, 0)
+}
+
 /// A game written out and read back is the same game: the world's
 /// checksum, the room aboard, and the picture both draw; and it stays the
 /// same game stepped on — what a save left out would show up there as a
@@ -1019,9 +1118,11 @@ fn a_game_saved_and_read_back_is_the_same_game() {
     for _ in 0..300 {
         session.world_step();
     }
+    session.crew_names = vec!["Ada".to_string()];
     let text = session.save().expect("a world to save");
     let mut back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
     assert_eq!(back.editor.players, 1);
+    assert_eq!(back.crew_names, session.crew_names, "the crew's names");
     assert_eq!(back.seed, session.seed);
     assert_eq!(back.spawn, session.spawn);
     let same = |a: &Session, b: &Session, when: &str| {
@@ -1197,4 +1298,210 @@ fn a_landed_view_reaches_no_further_than_the_ground_is_loaded() {
         (px, py),
         "the view walked off"
     );
+}
+
+/// Every bunk of the ship's wears a name on the deck — whose it is, or
+/// that it is nobody's — and the tag lands where the bunk does: over the
+/// Bim that starts at it, and turned with the ship the way its name is.
+#[test]
+fn a_bunk_s_tag_lands_on_the_bunk_and_turns_with_the_ship() {
+    let mut game = game();
+    let labels = world_paint::bunk_labels(&game);
+    // The ship's own: docked, the deck is joined, and the station's
+    // bunks are not its to give and wear no tag.
+    let room = &game.world.aboard.room;
+    let ours = (0..room.bed_count())
+        .filter(|&b| room.bed_assignable(b))
+        .count();
+    assert!(
+        ours < room.bed_count(),
+        "docked, the station's bunks are there too"
+    );
+    assert_eq!(labels.len(), ours);
+    assert_eq!(ours, 2, "the flyer sleeps two");
+    assert_eq!(labels[0].owner, Some(0));
+    assert_eq!(labels[1].owner, Some(1));
+    // Bim *i* starts at bunk *i*: the tag is within a couple of tiles of
+    // where its name goes.
+    for who in 0..2u32 {
+        let (cx, cy) = world_paint::crew_on_screen(&game, who);
+        let l = labels[who as usize];
+        let off = ((l.x - cx).powi(2) + (l.y - cy).powi(2)).sqrt();
+        assert!(
+            off < 2.0 * TILE as f32,
+            "bunk {who}'s tag is {off} from its Bim"
+        );
+    }
+    // Given up, it says nobody's.
+    assert!(game.world.aboard.room.assign_bed(0, None));
+    let labels = world_paint::bunk_labels(&game);
+    assert_eq!(labels[0].owner, None);
+    // And turned with the ship, not left where the deck was.
+    game.world.ship.heading = 1.1;
+    let turned = world_paint::bunk_labels(&game);
+    assert!(
+        (turned[1].x - labels[1].x).abs() > 1.0 || (turned[1].y - labels[1].y).abs() > 1.0,
+        "the tag turned with the ship"
+    );
+    let (cx, cy) = world_paint::crew_on_screen(&game, 1);
+    let off = ((turned[1].x - cx).powi(2) + (turned[1].y - cy).powi(2)).sqrt();
+    assert!(off < 2.0 * TILE as f32, "and stayed by its Bim: {off}");
+}
+
+#[test]
+fn the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens() {
+    use crate::Session;
+    use bims::character::{Hair, Look, Shade};
+    let spawn = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1).spawn;
+    let mut session = Session::design(
+        shipdesign::fixture::AREA,
+        100_000,
+        2,
+        0,
+        world::data::DEFAULT_SEED,
+        0,
+        spawn,
+        crate::Preset::Playtest,
+        CANVAS.0,
+        CANVAS.1,
+    );
+    // Only the first player has said; the second keeps the look its slot
+    // deals, and so does the third — who is nobody's, whatever the list
+    // says.
+    session.crew_hair = vec![(Hair::Mohawk, Shade::Red)];
+    // Nothing before the world opens.
+    session.dress_crew();
+    let hash = session.editor.hash();
+    assert!(session.accept(0, hash));
+    assert!(session.accept(1, hash));
+    let room = &session
+        .game
+        .as_ref()
+        .expect("the world opened")
+        .world
+        .aboard
+        .room;
+    assert_eq!(
+        room.look(0),
+        Look::of(0).with_hair(Hair::Mohawk, Shade::Red)
+    );
+    assert_eq!(room.look(1), Look::of(1));
+    // Said late, for the second: put on at once, and a third slot is
+    // nobody's — a bot keeps what it was dealt.
+    session.crew_hair = vec![
+        (Hair::Mohawk, Shade::Red),
+        (Hair::Bald, Shade::Grey),
+        (Hair::Curly, Shade::Blond),
+    ];
+    session.dress_crew();
+    let room = &session.game.as_ref().unwrap().world.aboard.room;
+    assert_eq!(room.look(1), Look::of(1).with_hair(Hair::Bald, Shade::Grey));
+    if room.crew_count() > 2 {
+        assert_eq!(room.look(2), Look::of(2));
+    }
+    // And a look is drawing only: the checksum is the same whatever the hair.
+    let before = session.game.as_ref().unwrap().world.checksum();
+    session.crew_hair[0] = (Hair::Long, Shade::Black);
+    session.dress_crew();
+    assert_eq!(session.game.as_ref().unwrap().world.checksum(), before);
+}
+
+/// A save keeps which tier of key each station's desk still holds: the
+/// spawn's tier one, an enemy's tier two, and a desk taken bare — and a
+/// tier-two key in the crew's own desk comes back as one.
+#[test]
+fn save_round_trip_keeps_key_tiers() {
+    use crate::Session;
+    use physics::ResourceId;
+    use shipdesign::research::Node;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    let world = &mut session.game.as_mut().unwrap().world;
+    let home = world.home;
+    let keys: Vec<u8> = world.station_keys.clone();
+    assert_eq!(world.station_key(home), 1);
+    assert!(keys.contains(&2), "an enemy's desk in the spawn system");
+    assert!(keys.contains(&0), "and a derelict's, bare");
+    // A tier-one key taken from the spawn, and a tier-two key in the desk.
+    let at = world.stations.iter().position(|s| s.id == home).unwrap();
+    world.station_keys[at] = 0;
+    world.ship.design.cargo[ResourceId::ResearchKeyTwo as usize] = 1;
+    world.on_ship_changed();
+    assert_eq!(world.keys_in_desk(2), 1);
+    let keys: Vec<u8> = world.station_keys.clone();
+    let checksum = world.checksum();
+
+    let text = session.save().expect("a world to save");
+    let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    let world = &back.game.as_ref().unwrap().world;
+    assert_eq!(world.station_keys, keys);
+    assert_eq!(world.station_key(home), 0);
+    assert_eq!(world.keys_in_desk(2), 1);
+    assert_eq!(world.keys_in_desk(1), 0);
+    assert_eq!(world.checksum(), checksum);
+    assert!(!world.research.is_done(Node::Upgrades));
+    assert_eq!(world.research.done.len(), shipdesign::research::NODES);
+}
+
+/// `tier2_test` and `tier3_test` are the `combat` session with everybody's
+/// kit at that tier: every crew member's gun at it, its kind as `combat`
+/// dealt it, and a full set of armour at it — pieces of the world's, worn
+/// — and every one of the garrison the same. `combat` itself is left at
+/// tier one, unarmoured.
+#[test]
+fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
+    use crate::session::Session;
+    use bims::combat::Tier;
+    use bims::health::Part;
+
+    let plain = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
+    let plain = plain.game.as_ref().unwrap();
+    for tier in [Tier::Two, Tier::Three] {
+        let session = Session::combat_at_tier(world::data::DEFAULT_SEED, tier, CANVAS.0, CANVAS.1);
+        let game = session.game.as_ref().unwrap();
+        let world = &game.world;
+        let crew = world.aboard.crew_count() as usize;
+        assert_eq!(crew, shipdesign::fixture::COMBAT_CREW as usize);
+        for who in 0..crew {
+            let gear = world.aboard.room.gear(who);
+            let dealt = plain.world.aboard.room.gear(who).weapon.unwrap();
+            assert_eq!(gear.weapon, Some(dealt.kind.at(tier)), "crew {who}");
+            for part in Part::ALL {
+                let piece = gear.worn(part).expect("a piece on every part");
+                assert_eq!(piece.tier, tier);
+                let kept = world
+                    .pieces
+                    .iter()
+                    .find(|p| p.id == piece.id)
+                    .expect("the world knows the piece");
+                assert_eq!(kept.at, world::armour::Where::Worn { who: who as u32 });
+                assert_eq!(kept.tier, tier);
+            }
+        }
+        let residents = world.residents.as_ref().expect("the garrison's room");
+        assert_eq!(residents.aboard.count(), world::data::ARENA_GARRISON);
+        for who in 0..residents.aboard.count() as usize {
+            let gear = residents.aboard.room.gear(who);
+            assert_eq!(gear.weapon.map(|w| w.tier), Some(tier), "resident {who}");
+            for part in Part::ALL {
+                assert_eq!(gear.worn(part).map(|p| p.tier), Some(tier));
+            }
+        }
+        // The garrison's pieces are numbered a head apart, past any
+        // mercenary's kit, so no two bodies' collide in the room.
+        let ids: std::collections::BTreeSet<u32> = (0..residents.aboard.count() as usize)
+            .flat_map(|who| {
+                let gear = residents.aboard.room.gear(who);
+                Part::ALL
+                    .into_iter()
+                    .map(move |part| gear.worn(part).unwrap().id)
+            })
+            .collect();
+        assert_eq!(ids.len(), 3 * residents.aboard.count() as usize);
+    }
+    // `combat` is what it was: tier one in every hand, nothing worn.
+    for who in 0..plain.world.aboard.crew_count() as usize {
+        let gear = plain.world.aboard.room.gear(who);
+        assert_eq!(gear.weapon.map(|w| w.tier), Some(Tier::One));
+        assert!(Part::ALL.iter().all(|&p| gear.worn(p).is_none()));
+    }
 }

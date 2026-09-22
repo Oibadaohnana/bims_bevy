@@ -20,6 +20,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+use bims::order::CrewOrder;
 use flight::Target;
 use physics::ResourceId;
 use ship::{Preset, Session};
@@ -33,11 +34,13 @@ use crate::crew::{GearOrder, ResearchOrder};
 use crate::format::euros;
 use crate::keys::{Action, Keys};
 use crate::names::*;
-use crate::settings::{Sheet, settings_sheet};
+use crate::net::{Event, Online, Packet, Wire};
+use crate::settings::{Allowed, Sheet, settings_sheet};
 use crate::shapes::View;
 use crate::sound::Sounds;
 use crate::{Screen, icons, theme};
 use economy::Money;
+use wire::{PeerId, To};
 
 use super::builder::Settings;
 
@@ -61,10 +64,10 @@ pub struct Start(pub Settings);
 #[derive(Resource)]
 pub struct ShipSession(pub Session);
 
-// --- the network that is not there yet ---------------------------------------
+// --- the seam, and the wire behind it ------------------------------------------
 
-/// An edit to the design, or an order to the ship, as a transport would
-/// carry it.
+/// An edit to the design, or an order to the ship, as the wire carries it.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Message {
     Place {
         kind: u32,
@@ -85,6 +88,7 @@ pub enum Message {
 /// An order to the ship, once the game has started. Stamped with the
 /// **step** it applies at rather than with a design hash: an Edit has to be
 /// judged against the ship it was made for, and an order against *when*.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Order {
     Fly(Target),
     Stop,
@@ -135,6 +139,19 @@ pub enum Order {
     /// Land on the planet the ship is holding over. From the helm, like a
     /// trip.
     Land,
+    /// An order to the crew's room — a click on the deck, a walk, a row of
+    /// a fixture's menu, a Management box — `Command::Crew`. The crew's
+    /// positions are in the checksum, so nothing reaches the room but
+    /// through here (`bims::order`).
+    Crew(CrewOrder),
+    /// The same, given with Shift held: it waits its turn on the crew
+    /// member's queue rather than displacing what it is on —
+    /// `Command::CrewLater` (feature 69).
+    CrewLater(CrewOrder),
+    /// Walk the player's own crew member to the helm — `Command::ToHelm`.
+    ToHelm,
+    /// Walk it to the station's trading desk — `Command::ToDesk`.
+    ToDesk,
 }
 
 /// What the other end said about a message.
@@ -148,11 +165,22 @@ pub struct Outcome {
 /// The seam. `send` is the client half — it stamps every message with the
 /// design hash it was made against — and `receive` is the other end,
 /// which applies messages **in arrival order** and reports a refusal back.
-/// That is the whole protocol, and it is written out now rather than
-/// discovered later inside a click handler.
+/// That is the whole protocol, and it was written out before there was a
+/// wire rather than discovered later inside a click handler.
+///
+/// With a `wire` (feature 59, `crate::net`) the two halves are on two
+/// machines: the **host** receives — its own messages at once, a guest's
+/// as they arrive — and tells everybody what went (`Packet::Applied`),
+/// which every guest then receives in that order; a **guest** posts an
+/// ask and applies nothing itself until the host says so. Without one
+/// the two halves are the two calls one after the other, as they were.
 pub struct Net {
     pub slot: u32,
     pub players: u32,
+    /// The wire, while the game is played with company. `None` is a game
+    /// of one — or a guest whose host has gone, which is the same thing
+    /// from then on.
+    pub wire: Option<Wire>,
 }
 
 impl Net {
@@ -210,9 +238,72 @@ impl Net {
     }
 
     /// Stamp a message with the design it was made against and post it.
+    /// The host applies at once and tells the room; a guest asks the host
+    /// and is told later — the outcome it gets now is a provisional yes,
+    /// and a refusal comes back through `Packet::Refused` onto the said
+    /// line.
     fn send(&self, session: &mut Session, message: Message) -> Outcome {
         let at = session.editor.hash();
-        Self::receive(session, self.slot, at, message)
+        match &self.wire {
+            Some(wire) if !wire.host => {
+                wire.send(To::Host, &Packet::Ask { at, message });
+                Outcome { ok: true, why: 0 }
+            }
+            _ => {
+                let outcome = Self::receive(session, self.slot, at, message);
+                if outcome.ok
+                    && let Some(wire) = &self.wire
+                {
+                    wire.send(
+                        To::All,
+                        &Packet::Applied {
+                            from: self.slot,
+                            at,
+                            message,
+                        },
+                    );
+                }
+                outcome
+            }
+        }
+    }
+
+    /// A guest's ask, arrived at the host: applied in arrival order and
+    /// told to the room if it went, refused to the asker if not. Nothing
+    /// on a guest, whose asks go to the host.
+    pub fn asked(&self, session: &mut Session, from: u32, at: u64, message: Message, peer: PeerId) {
+        let Some(wire) = &self.wire else { return };
+        if !wire.host {
+            return;
+        }
+        let outcome = Self::receive(session, from, at, message);
+        if outcome.ok {
+            wire.send(To::All, &Packet::Applied { from, at, message });
+        } else {
+            wire.send(To::Peer(peer), &Packet::Refused { why: outcome.why });
+        }
+    }
+
+    /// The host said this went: applied here the same way, in the same
+    /// order. What a guest's world is made of.
+    pub fn applied(&self, session: &mut Session, from: u32, at: u64, message: Message) {
+        if self.wire.as_ref().is_some_and(|w| !w.host) {
+            Self::receive(session, from, at, message);
+        }
+    }
+
+    /// Whether this end is the clock: a game of one, or the host.
+    pub fn is_clock(&self) -> bool {
+        self.wire.as_ref().is_none_or(|w| w.host)
+    }
+
+    /// An order applied here and told to nobody — the one thing a guest
+    /// must never do, done on purpose: `BIMS_DESYNC_AT` (`dev.rs`) parts
+    /// a guest's world from the host's with it, for the resync to mend
+    /// (feature 67). Nothing else calls it.
+    pub fn apply_unasked(&self, session: &mut Session, order: Order) {
+        let at = session.editor.hash();
+        Self::receive(session, self.slot, at, Message::Order(order));
     }
 
     /// The other end of the wire. Nothing is queued or reordered; one that
@@ -361,11 +452,18 @@ impl Net {
                             Command::Research { slot, node }
                         }
                         Order::Research(ResearchOrder::Cancel) => Command::CancelResearch { slot },
+                        Order::Research(ResearchOrder::Dequeue(node)) => {
+                            Command::Dequeue { slot, node }
+                        }
                         Order::Research(ResearchOrder::Unlock(node)) => {
                             Command::Unlock { slot, node }
                         }
                         Order::AutoUpgrade(on) => Command::SetAutoUpgrade { slot, on },
                         Order::Upgrade => Command::Upgrade { slot },
+                        Order::Crew(order) => Command::Crew { slot, order },
+                        Order::CrewLater(order) => Command::CrewLater { slot, order },
+                        Order::ToHelm => Command::ToHelm { slot },
+                        Order::ToDesk => Command::ToDesk { slot },
                         Order::Gear(GearOrder::StowOnBench { who, cell }) => {
                             Command::StowOnBench { slot, who, cell }
                         }
@@ -383,6 +481,12 @@ impl Net {
 #[derive(Resource)]
 pub struct DesignerScreen {
     pub net: Net,
+    /// The slots whose players have left the room: their seats agree to
+    /// whatever the rest accept, so a game is never held up by an empty
+    /// chair. The host's to keep, since the host is who accepts for them.
+    gone: Vec<u32>,
+    /// `BIMS_AUTO` has pressed Accept; once.
+    auto_accepted: bool,
     /// Something said for a moment: a refusal.
     said: Option<(String, f64)>,
     /// What is in the station panel's cart, not yet bought or sold.
@@ -417,6 +521,7 @@ fn open(
     start: Option<Res<Start>>,
     window: Single<&Window>,
     mut next: ResMut<NextState<Screen>>,
+    online: Res<Online>,
 ) {
     let Some(start) = start else {
         // Nothing handed over: nowhere to start.
@@ -424,7 +529,10 @@ fn open(
             net: Net {
                 slot: 0,
                 players: 1,
+                wire: None,
             },
+            gone: Vec::new(),
+            auto_accepted: false,
             said: None,
             cart: Cart::new(),
             pan_from: None,
@@ -438,7 +546,7 @@ fn open(
     };
     let s = start.0.clone();
     let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
-    let session = Session::design(
+    let mut session = Session::design(
         s.ship,
         s.money_per_bim,
         s.players,
@@ -450,6 +558,13 @@ fn open(
         size.x,
         size.y,
     );
+    // What the players called their crew: on the session, which the
+    // save carries, and in `names` for every word said about them.
+    session.crew_names = s.names.clone();
+    crate::names::set_crew_names(&session.crew_names);
+    // And how they wear their hair: on the session, put onto the crew
+    // when the world opens (`Session::dress_crew`, feature 62).
+    session.crew_hair = s.hair.clone();
     let ok = session.spawn_ok();
     let lost = match s.spawn {
         None => "The lobby did not say which station to start at.".into(),
@@ -461,7 +576,10 @@ fn open(
         net: Net {
             slot: session.editor.local,
             players: session.editor.players,
+            wire: online.wire(),
         },
+        gone: Vec::new(),
+        auto_accepted: false,
         said: None,
         cart: Cart::new(),
         pan_from: None,
@@ -511,6 +629,7 @@ fn frame(
     mut sounds: ResMut<Sounds>,
     mut bindings: ResMut<Keys>,
     mut commands: Commands,
+    mut online: ResMut<Online>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -520,6 +639,104 @@ fn frame(
     let dt = time.delta_secs().min(MAX_FRAME_DT);
     let mut root = root_ui(&ctx);
     let editable = session.designing();
+
+    // --- the wire ------------------------------------------------------------
+    // What the others said: a guest's ask lands on the host and goes round
+    // as applied; the host's applied lands on every guest. A refusal is a
+    // line. The room closing is the end of company — the yard is this
+    // player's alone from here, and the empty seats agree to the ship.
+    for event in online.drain(now) {
+        match event {
+            Event::Packet { from, packet } => match packet {
+                Packet::Ask { at, message } => {
+                    if let Some(slot) = online.slot_of(from) {
+                        screen.net.asked(session, slot, at, message, from);
+                        accept_for_the_gone(screen, session, message);
+                    }
+                }
+                Packet::Applied { from, at, message } => {
+                    screen.net.applied(session, from, at, message);
+                }
+                // The host's first steps can land here: the last Accept
+                // opens the world on the host, which steps it and says so
+                // in its next frame, while this end is still a frame from
+                // the game screen — the `Applied` that opened the world
+                // here is earlier in this very drain. Dropped, they were a
+                // guest one step behind for the whole game (found by
+                // feature 67's checksum, which then mended it).
+                Packet::Steps { n, .. } if !screen.net.is_clock() && session.playing() => {
+                    for _ in 0..n {
+                        session.world_step();
+                    }
+                }
+                Packet::Refused { why } => {
+                    // An Accept refused comes back with no code: it was
+                    // for a ship that has since changed.
+                    let line = if why == 0 {
+                        ACCEPT_STALE
+                    } else {
+                        edit_line(why)
+                    };
+                    screen.said = Some((line.to_string(), now + SAID_SECONDS));
+                }
+                // The host loaded a game from the yard: its world, whole,
+                // is this end's now, as this player's own slot, and the
+                // game screen opens round it — the way the host's own
+                // load leaves the yard (feature 67).
+                Packet::World { save, .. }
+                    if Some(from) == online.host
+                        && screen.net.wire.as_ref().is_some_and(|w| !w.host) =>
+                {
+                    let (w, h) = (screen.size.x.max(64.0), screen.size.y.max(64.0));
+                    match Session::restore_as(&save, online.my_slot(), w, h) {
+                        Ok(loaded) => {
+                            commands.insert_resource(ShipSession(loaded));
+                            screen.sheet = None;
+                            next.set(Screen::Game);
+                        }
+                        Err(why) => {
+                            let line = world_refused(&crate::save::load_error(why));
+                            screen.said = Some((line, now + SAID_SECONDS));
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Event::Roster => {
+                // Whoever is not in the room any more has an empty seat.
+                for slot in 0..screen.net.players {
+                    let there = online
+                        .slots
+                        .get(slot as usize)
+                        .is_some_and(|id| online.peers.iter().any(|p| p.id == *id));
+                    if !there && !screen.gone.contains(&slot) {
+                        screen.gone.push(slot);
+                        screen.said = Some((
+                            player_left(&crate::names::crew_name(slot)),
+                            now + SAID_SECONDS,
+                        ));
+                    }
+                }
+            }
+            Event::Closed(_) | Event::Lost(_) => {
+                screen.net.wire = None;
+                screen.gone = (0..screen.net.players)
+                    .filter(|&s| s != screen.net.slot)
+                    .collect();
+                screen.said = Some((HOST_GONE.into(), now + SAID_SECONDS));
+            }
+            _ => {}
+        }
+    }
+
+    // A Bim's name said late — after the host's Start, or typed since —
+    // lands on the crew here, and on every word about them.
+    if online.names_said(&mut session.crew_names) {
+        crate::names::set_crew_names(&session.crew_names);
+    }
+    if online.hair_said(&mut session.crew_hair) {
+        session.dress_crew();
+    }
 
     // --- the header --------------------------------------------------------
     egui::Panel::top("design-bar").show(&mut root, |ui| {
@@ -689,14 +906,23 @@ fn frame(
     if let Some(why) = refused {
         screen.said = Some((edit_line(why).to_string(), now + SAID_SECONDS));
     }
+    // `BIMS_AUTO`: Accept a second into the yard, once.
+    if crate::dev::auto().is_some()
+        && editable
+        && !screen.auto_accepted
+        && !session.editor.has_errors()
+        && now > 1.0
+    {
+        accept_clicked = true;
+        screen.auto_accepted = true;
+    }
     if accept_clicked {
         let mine = session.editor.accepted(screen.net.slot);
         let done = screen.net.accept(session, !mine);
         if !done.ok {
-            screen.said = Some((
-                "That Accept was for a ship that has since changed.".into(),
-                now + SAID_SECONDS,
-            ));
+            screen.said = Some((ACCEPT_STALE.into(), now + SAID_SECONDS));
+        } else if !mine {
+            accept_for_the_gone(screen, session, Message::Accept(true));
         }
     }
 
@@ -763,6 +989,9 @@ fn frame(
     } else if screen.pan_from.is_none() {
         session.editor.leave();
     }
+    // Where this pointer is over the grid, to the room, as a design point;
+    // off it — over a panel, out of the window — as nothing.
+    online.point(now, on_grid.map(|p| session.design_point(p.x, p.y)));
 
     if keys {
         ctx.input(|i| {
@@ -865,21 +1094,37 @@ fn frame(
     // Save is greyed out here — a design phase is not a game — and a load
     // is the way out of one: the loaded session takes this one's place
     // and the game screen opens round it, as it does after an Accept.
+    // With company the host's load goes to everybody as its whole world
+    // (`Packet::World`, feature 67), and has to fit the room first; a
+    // guest's Load is greyed.
     let asked = settings_sheet(
         &ctx,
         &mut screen.sheet,
         &mut sounds.mix,
         &mut bindings,
         &mut screen.saves,
-        false,
+        Allowed::of(false, online.is_guest()),
     );
     if let Some(crate::save::Request::Load(path)) = asked {
         let read = crate::save::read(&path).and_then(|text| {
+            if let Some(here) = online.room_size()
+                && ship::save::players_of(&text) != Some(here)
+            {
+                let saved = ship::save::players_of(&text).unwrap_or(0);
+                return Err(load_players(saved, here));
+            }
             Session::restore(&text, screen.size.x.max(64.0), screen.size.y.max(64.0))
+                .map(|loaded| (loaded, text))
                 .map_err(crate::save::load_error)
         });
         match read {
-            Ok(loaded) => {
+            Ok((loaded, text)) => {
+                if let Some(wire) = &screen.net.wire
+                    && wire.host
+                {
+                    let at = loaded.game.as_ref().map_or(0, |g| g.world.steps);
+                    wire.send(To::All, &Packet::World { save: text, at });
+                }
                 commands.insert_resource(ShipSession(loaded));
                 screen.sheet = None;
                 next.set(Screen::Game);
@@ -898,6 +1143,19 @@ fn frame(
     };
     let painter = canvas_painter(&ctx, canvas);
     paint_shapes(&painter, canvas, view, session.render());
+    // The others' pointers over the grid, each in its player's colour
+    // with their Bim's name, where the tile they are over is on this
+    // screen.
+    for (slot, (x, y)) in online.others_pointing() {
+        let (x, y) = session.design_point_on_screen(x, y);
+        let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+        theme::ghost_pointer(
+            &painter,
+            egui::pos2(at.x, at.y),
+            theme::ship_color32(ship::world_paint::player_color(slot)),
+            &crew_name(slot),
+        );
+    }
 
     // The last Accept settles the ship *and* opens the world — one event.
     if session.playing() {
@@ -1455,6 +1713,35 @@ fn issue_rows(ui: &mut egui::Ui, session: &Session) -> Option<usize> {
         ui.label(egui::RichText::new("Nothing wrong with it.").color(theme::ACCENT));
     }
     focus
+}
+
+/// An Accept that went is echoed for every seat whose player has left:
+/// the empty chairs agree to the ship as it stands, so the last Accept
+/// of those still here is the one that opens the world. The host's to
+/// do — its own Accepts and a guest's alike land here — and a player
+/// alone after the host left has every other seat empty.
+fn accept_for_the_gone(screen: &DesignerScreen, session: &mut Session, message: Message) {
+    if !matches!(message, Message::Accept(true)) || !screen.net.is_clock() {
+        return;
+    }
+    let at = session.editor.hash();
+    for &slot in &screen.gone {
+        if !session.editor.accepted(slot) {
+            let done = Net::receive(session, slot, at, Message::Accept(true));
+            if done.ok
+                && let Some(wire) = &screen.net.wire
+            {
+                wire.send(
+                    To::All,
+                    &Packet::Applied {
+                        from: slot,
+                        at,
+                        message: Message::Accept(true),
+                    },
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

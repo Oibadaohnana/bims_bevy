@@ -225,6 +225,14 @@ pub fn trade_price(resource: ResourceId) -> Money {
         // Found, never made and never sold; a station pays for one as a
         // curiosity, which is a great deal less than what it opens.
         ResourceId::ResearchKey => 5_000,
+        // The tier-two key, off an enemy's desk: twice the tier-one's, a
+        // placeholder like it.
+        ResourceId::ResearchKeyTwo => 10_000,
+        // The engineer's kits, made at the workbench and never sold, priced
+        // by the labour rule like the armour: a metal and ten minutes, and
+        // two metal, two components and an emitter with an hour on them.
+        ResourceId::SandbagKit => 61,
+        ResourceId::SentryKit => 885,
     }
 }
 
@@ -258,8 +266,10 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::Shotgun
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
-        | ResourceId::Schword => Storage::Locker,
-        ResourceId::ResearchKey => Storage::Research,
+        | ResourceId::Schword
+        | ResourceId::SandbagKit
+        | ResourceId::SentryKit => Storage::Locker,
+        ResourceId::ResearchKey | ResourceId::ResearchKeyTwo => Storage::Research,
     }
 }
 
@@ -318,7 +328,8 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         | ResourceId::Emitter
         | ResourceId::Rock
         | ResourceId::Fibre
-        | ResourceId::ResearchKey => Footprint::new(1, 1),
+        | ResourceId::ResearchKey
+        | ResourceId::ResearchKeyTwo => Footprint::new(1, 1),
         // The guns lie along a row: the pistol short, the shotgun broad,
         // the sniper rifle the whole width of a locker.
         ResourceId::Handgun => Footprint::new(1, 2),
@@ -336,6 +347,9 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         ResourceId::Suit => Footprint::new(3, 3),
         ResourceId::Medkit => Footprint::new(2, 2),
         ResourceId::Bandage => Footprint::new(1, 1),
+        // The engineer's kits: a sack of sandbags, a sentry's crate.
+        ResourceId::SandbagKit => Footprint::new(2, 2),
+        ResourceId::SentryKit => Footprint::new(2, 3),
         // The food: a crate of vegetables, a block of tofu.
         ResourceId::Vegetable => Footprint::new(1, 2),
         ResourceId::Tofu => Footprint::new(4, 4),
@@ -369,7 +383,10 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
         | ResourceId::Schword
-        | ResourceId::ResearchKey => 1,
+        | ResourceId::ResearchKey
+        | ResourceId::ResearchKeyTwo
+        | ResourceId::SandbagKit
+        | ResourceId::SentryKit => 1,
     }
 }
 

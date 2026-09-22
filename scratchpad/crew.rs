@@ -149,10 +149,10 @@ fn main() {
     // --- only James takes orders -------------------------------------------
 
     let mut game = Game::new(3, 960.0, 640.0);
-    game.select_group(1);
-    check!("selecting picks one Bim", game.selected_count() == 1, game.selected_count());
-    game.toggle_recruited();
-    check!("recruiting takes the player's Bim", game.is_recruited());
+    game.select_group(0, 1);
+    check!("selecting picks one Bim", game.selected_count(0) == 1, game.selected_count(0));
+    game.toggle_recruited(0);
+    check!("recruiting takes the player's Bim", game.is_recruited(0));
     check!(
         "and PLAYER is the one it took",
         game.bim_pos(PLAYER) == game.bim_pos(PLAYER),

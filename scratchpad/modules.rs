@@ -43,6 +43,8 @@ mod math;
 mod nav;
 #[path = "../crates/game/src/needs.rs"]
 mod needs;
+#[path = "../crates/game/src/order.rs"]
+mod order;
 #[path = "../crates/game/src/rng.rs"]
 mod rng;
 #[path = "../crates/game/src/room.rs"]

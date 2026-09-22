@@ -95,7 +95,7 @@ pub struct Recipe {
 
 /// The table. Indexed by position, and the index is what crosses the wasm
 /// boundary — `ship_recipe_*` — so a recipe is appended, never inserted.
-pub static RECIPES: [Recipe; 14] = [
+pub static RECIPES: [Recipe; 16] = [
     Recipe {
         station: PartKind::Smelter,
         inputs: &[(ResourceId::Ore, 2)],
@@ -224,6 +224,30 @@ pub static RECIPES: [Recipe; 14] = [
             (ResourceId::Emitter, 2),
         ],
         output: (ResourceId::Schword, 1),
+        minutes: 60,
+        vents: false,
+    },
+    // The engineer's kits (feature 74), at the workbench: a sandbag kit is
+    // a metal's worth of sacks and frame in ten minutes, behind the
+    // workshop like the components; a sentry kit is a turret in a crate —
+    // an auto rifle's emitter and action on two bars of metal, an hour —
+    // behind the emitters, since it fires through one. Only an engineer
+    // can lay either (`world::deploy`); the bench makes them for anybody.
+    Recipe {
+        station: PartKind::Workbench,
+        inputs: &[(ResourceId::Metal, 1)],
+        output: (ResourceId::SandbagKit, 1),
+        minutes: 10,
+        vents: false,
+    },
+    Recipe {
+        station: PartKind::Workbench,
+        inputs: &[
+            (ResourceId::Metal, 2),
+            (ResourceId::Components, 2),
+            (ResourceId::Emitter, 1),
+        ],
+        output: (ResourceId::SentryKit, 1),
         minutes: 60,
         vents: false,
     },

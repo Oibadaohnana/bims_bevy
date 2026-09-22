@@ -235,11 +235,12 @@ pub fn tier_tint(tier: bims::combat::Tier) -> Option<egui::Color32> {
 }
 
 /// The tint an item is drawn in, if it has a tier above one: a weapon's or
-/// a piece's; a stack and a key have none.
+/// a piece's, and a research key's by its tier; a stack has none.
 pub fn item_tint(item: bims::combat::Item) -> Option<egui::Color32> {
     match item {
         bims::combat::Item::Armour(piece) => tier_tint(piece.tier),
         bims::combat::Item::Weapon(weapon) => tier_tint(weapon.tier),
+        bims::combat::Item::Key(2) => Some(TIER_TWO),
         bims::combat::Item::Stack(_) | bims::combat::Item::Key(_) => None,
     }
 }
@@ -418,6 +419,64 @@ pub fn name_over(painter: &egui::Painter, at: egui::Pos2, name: &str, color: egu
     }
     painter.text(at, egui::Align2::CENTER_BOTTOM, name, font, color);
 }
+
+/// The tag on a bunk (feature 61): whose it is, or that it is nobody's,
+/// written small across the middle of the bed on the background layer,
+/// stroked in the void's darkness like a name so it reads over the
+/// mattress. `at` is the bunk's middle; a name over a sleeper's head is
+/// lifted well clear of it.
+pub fn bunk_tag(painter: &egui::Painter, at: egui::Pos2, words: &str, color: egui::Color32) {
+    let font = egui::FontId::proportional(NAME_SIZE * 0.8);
+    for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
+        painter.text(
+            at + egui::vec2(dx, dy),
+            egui::Align2::CENTER_CENTER,
+            words,
+            font.clone(),
+            NAME_STROKE,
+        );
+    }
+    painter.text(at, egui::Align2::CENTER_CENTER, words, font, color);
+}
+
+/// Another player's pointer, where it is over the ship (feature 60): an
+/// arrow in their colour, see-through so the deck under it still reads,
+/// with their Bim's name small beside it. Drawn in points, so it is the
+/// same size at any zoom, like the names.
+pub fn ghost_pointer(painter: &egui::Painter, at: egui::Pos2, color: egui::Color32, name: &str) {
+    // The head is a triangle and the tail a stroke: an arrow is concave,
+    // and epaint fills a polygon as if it were convex.
+    let head: Vec<egui::Pos2> = [(0.0, 0.0), (0.0, 15.0), (11.0, 11.0)]
+        .into_iter()
+        .map(|(dx, dy)| at + egui::vec2(dx, dy))
+        .collect();
+    let tail = [at + egui::vec2(4.5, 10.5), at + egui::vec2(8.0, 18.0)];
+    let fill = color.gamma_multiply(GHOST_POINTER_ALPHA);
+    let dark = NAME_STROKE.gamma_multiply(GHOST_POINTER_ALPHA);
+    painter.line_segment(tail, egui::Stroke::new(5.0, dark));
+    painter.add(egui::Shape::convex_polygon(
+        head.clone(),
+        dark,
+        egui::Stroke::new(2.0, dark),
+    ));
+    painter.line_segment(tail, egui::Stroke::new(3.0, fill));
+    painter.add(egui::Shape::convex_polygon(head, fill, egui::Stroke::NONE));
+    if !name.is_empty() {
+        let font = egui::FontId::proportional(NAME_SIZE * 0.85);
+        let label = at + egui::vec2(14.0, 12.0);
+        painter.text(
+            label + egui::vec2(1.0, 1.0),
+            egui::Align2::LEFT_TOP,
+            name,
+            font.clone(),
+            NAME_STROKE.gamma_multiply(GHOST_POINTER_ALPHA),
+        );
+        painter.text(label, egui::Align2::LEFT_TOP, name, font, fill);
+    }
+}
+
+/// How see-through another player's pointer is.
+const GHOST_POINTER_ALPHA: f32 = 0.6;
 
 /// A mark over a name — the `?` over a mercenary for hire: a small disc in
 /// the void's darkness with the glyph on it in `color`, on the background

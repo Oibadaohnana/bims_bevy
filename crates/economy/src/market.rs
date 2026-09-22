@@ -191,6 +191,9 @@ pub fn kind_bias(kind: MarketKind, resource: ResourceId) -> i32 {
         ResourceId::SniperRifle => [0, 0, 0, 15, 0],
         ResourceId::Schword => [0, 0, 0, 15, 0],
         ResourceId::ResearchKey => [0, 0, 0, 15, 0],
+        ResourceId::ResearchKeyTwo => [0, 0, 0, 15, 0],
+        ResourceId::SandbagKit => [0, 0, 0, 15, 0],
+        ResourceId::SentryKit => [0, 0, 0, 15, 0],
     };
     row[kind as usize]
 }

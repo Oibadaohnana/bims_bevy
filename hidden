@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Run something with its window on a display nobody can see.
+#
+#   ./hidden target/debug/bims simulation
+#   BIMS_SMOKE_FRAMES=60 BIMS_SCREENSHOT=shot.png ./hidden target/debug/bims room
+#
+# A smoke run (`BIMS_SMOKE_FRAMES`, crates/app/src/dev.rs) is a window that
+# opens, draws and exits with nobody watching — but a Wayland window cannot
+# be hidden, so on the desktop it is a window that flashes up, or one the
+# compositor has to be told to park elsewhere. This starts a *headless*
+# Wayland compositor of its own (weston, on a memory output no screen
+# shows), runs the command with WAYLAND_DISPLAY pointed at it, and takes
+# the compositor down with it. Nothing reaches the desktop, whatever the
+# desktop is; two of these at once are two compositors, so a game with
+# company (CLAUDE.md, "A game with company") is two of them.
+#
+# The output is BIMS_WINDOW's size (1400x900 unless asked), and weston's
+# kiosk shell gives the one window the whole of it, so a screenshot comes
+# out at exactly that size — BIMS_FULLSCREEN is neither needed nor harmful.
+#
+# The command's exit status is this script's. The compositor's log is
+# printed only if it failed to come up.
+#
+# Two things about the compositor:
+#
+#   * It draws with the GPU (`--renderer=gl`, EGL without a screen). The
+#     CPU renderer (`pixman`) will not do: it offers no dmabuf, and the
+#     app's Vulkan swapchain wants one — the run dies in ERROR_SURFACE_LOST.
+#   * Its output has no real vblank, and a swapchain waiting on one came
+#     out at six frames a second; so a smoke run does not wait for the
+#     screen (`dev::present_mode`) and paces itself to sixty instead.
+#
+# weston is in shell.nix; like ./check, this re-enters the shell if it is
+# not on PATH, and the window system's libraries come with it.
+set -uo pipefail
+cd "$(dirname "$0")"
+
+if [ $# -eq 0 ]; then
+  sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
+  exit 2
+fi
+
+if ! command -v weston >/dev/null || [ -z "${LD_LIBRARY_PATH:-}" ] || ! [[ "$LD_LIBRARY_PATH" == *vulkan-loader* ]]; then
+  exec nix-shell shell.nix --run "./hidden $(printf '%q ' "$@")"
+fi
+
+: "${XDG_RUNTIME_DIR:?weston wants XDG_RUNTIME_DIR for its socket}"
+
+size=${BIMS_WINDOW:-1400x900}
+width=${size%x*}
+height=${size#*x}
+socket=bims-hidden-$$
+log=$(mktemp -t bims-hidden.XXXXXX)
+
+weston --backend=headless --renderer=gl --shell=kiosk --no-config \
+  --socket="$socket" --width="$width" --height="$height" \
+  --idle-time=0 --log="$log" >/dev/null 2>&1 &
+weston_pid=$!
+cleanup() {
+  kill "$weston_pid" 2>/dev/null
+  wait "$weston_pid" 2>/dev/null
+  rm -f "$log"
+}
+trap cleanup EXIT
+
+for _ in $(seq 100); do
+  [ -S "$XDG_RUNTIME_DIR/$socket" ] && break
+  if ! kill -0 "$weston_pid" 2>/dev/null; then break; fi
+  sleep 0.05
+done
+if ! [ -S "$XDG_RUNTIME_DIR/$socket" ]; then
+  echo "hidden: the headless compositor did not come up:" >&2
+  sed 's/^/  /' "$log" >&2
+  exit 1
+fi
+
+# DISPLAY is dropped as well as WAYLAND_DISPLAY replaced: a window system
+# the command cannot reach is one it cannot fall back to the desktop by.
+env -u DISPLAY WAYLAND_DISPLAY="$socket" "$@"
