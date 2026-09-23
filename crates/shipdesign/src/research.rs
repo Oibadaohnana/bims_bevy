@@ -6,9 +6,11 @@
 //! module is the tree it works through: one [`NodeDef`] a node, each
 //! naming what it wants researched first, which **tier** it sits in, and
 //! whether it is **locked** — wanting a key of that tier consumed for it. The crew set out
-//! knowing everything a crew needs to live — the hydroponic bay, the
-//! galley, the heads, the hull, the fission reactor, mining in a suit,
-//! and medicine — and research the rest.
+//! knowing everything a crew needs to live and to fight — the hydroponic
+//! bay, the galley, the heads, the hull, the fission reactor, the
+//! workbench, the armoury, the suit locker and medicine — and research
+//! the two things that are left: fusion power, and the hyperdrive behind
+//! it.
 //!
 //! # Keys
 //!
@@ -35,7 +37,7 @@
 //! [`Research::recipe_allowed`] before a bench is offered a recipe, and the
 //! app hides the rest of the palette. A design accepted in the design
 //! phase is never re-checked — the yard built it — so a ship that came
-//! with a smelter keeps the smelter; it stands idle until the crew know
+//! with a fusion reactor keeps it; it stands idle until the crew know
 //! what to do at it.
 //!
 //! # The queue
@@ -44,7 +46,7 @@
 //! [`Research::enqueue`] puts a node at the back of the **queue**, and
 //! whatever it needs that is not yet known, on the AI or queued goes in
 //! ahead of it — so queueing the hyperdrive on a fresh crew queues
-//! smelting, the workshop and fusion power first — refused only when
+//! fusion power first — refused only when
 //! something in that chain is still behind a key. [`Research::next`]
 //! takes an idle AI onto the first queued node it can begin, and `world`
 //! calls it every step the desk has power, so a node queued while the AI
@@ -80,47 +82,32 @@ pub const KEY_CELLS: (u32, u32) = (1, 2);
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Node {
     /// Everything a crew needs to live and to fly: the hull, the galley,
-    /// the heads, the bunks, the bay, the fission reactor, the helm and
-    /// the engines. Known at the start.
+    /// the heads, the bunks, the bay, the fission reactor, the helm, the
+    /// engines, the suit locker, the workbench and the armoury. Known at
+    /// the start.
     Survival = 0,
-    /// A walk outside with a pick: the suit locker and the suit. Known at
-    /// the start, so the crew can mine from the first day.
-    Mining = 1,
-    /// Bandages and medkits at the drug lab. Known at the start.
-    Medicine = 2,
-    /// The smelter: ore into metal. Keyless, after mining.
-    Smelting = 3,
-    /// The workbench: metal into components. Keyless, after smelting.
-    Workshop = 4,
-    /// The fusion reactor. Keyless, after the workshop.
-    FusionPower = 5,
-    /// The armoury and every weapon and piece of armour: what it makes,
-    /// and the three pieces the workbench makes. Behind a tier-one key.
-    Armoury = 6,
-    /// The emitter, at the workbench. Behind a tier-one key of its own.
-    Emitters = 7,
+    /// Medkits at the drug lab. Known at the start.
+    Medicine = 1,
+    /// The fusion reactor. Keyless, and the one node a crew have to work
+    /// for without a key.
+    FusionPower = 2,
     /// The hyperdrive: a jump to another star. After fusion power, behind
     /// a tier-one key of its own.
-    Hyperdrive = 8,
+    Hyperdrive = 3,
     /// The workbench's upgrades: two of a kind at one tier into one of
-    /// the next, one to two and two to three alike. After the armoury,
-    /// behind a tier-two key — the first tier-two node, and the one
-    /// thing the enemy's desks are worth walking to.
-    Upgrades = 9,
+    /// the next, one to two and two to three alike. Behind a tier-two key
+    /// — the one tier-two node, and the one thing the enemy's desks are
+    /// worth walking to.
+    Upgrades = 4,
 }
 
 impl Node {
     /// Every node, in discriminant order. `ALL[n as usize] == n`, which
     /// [`Node::def`] relies on and [`tree_is_sound`] checks.
-    pub const ALL: [Node; 10] = [
+    pub const ALL: [Node; 5] = [
         Node::Survival,
-        Node::Mining,
         Node::Medicine,
-        Node::Smelting,
-        Node::Workshop,
         Node::FusionPower,
-        Node::Armoury,
-        Node::Emitters,
         Node::Hyperdrive,
         Node::Upgrades,
     ];
@@ -164,21 +151,19 @@ pub struct NodeDef {
     pub minutes: u32,
 }
 
-/// The tree. Placeholder times throughout, and every tier-one time
-/// doubled in September 2026 (feature 64: research was over too soon):
-/// a third and a half of a day for the workshop nodes, two days for the
-/// fusion reactor, most of a day to a day and a quarter for each locked
-/// node.
+/// The tree. Placeholder times throughout, unchanged since feature 64
+/// doubled them: two days for the fusion reactor and a day and a quarter
+/// for the hyperdrive behind it.
+///
+/// The money rework (feature 95) took **five nodes** out of it — mining,
+/// smelting, the workshop, emitters and the armoury — because every one
+/// of them gated a bench or a material that is gone: there is nothing to
+/// mine, nothing to smelt, and the guns and armour they made are bought.
+/// What was behind them is known at the start, the workbench, the armoury
+/// and the suit locker included.
 pub static RESEARCH: [NodeDef; NODES] = [
     NodeDef {
         node: Node::Survival,
-        requires: &[],
-        tier: 1,
-        locked: false,
-        minutes: 0,
-    },
-    NodeDef {
-        node: Node::Mining,
         requires: &[],
         tier: 1,
         locked: false,
@@ -192,39 +177,11 @@ pub static RESEARCH: [NodeDef; NODES] = [
         minutes: 0,
     },
     NodeDef {
-        node: Node::Smelting,
-        requires: &[Node::Mining],
-        tier: 1,
-        locked: false,
-        minutes: 480,
-    },
-    NodeDef {
-        node: Node::Workshop,
-        requires: &[Node::Smelting],
-        tier: 1,
-        locked: false,
-        minutes: 720,
-    },
-    NodeDef {
         node: Node::FusionPower,
-        requires: &[Node::Workshop],
+        requires: &[],
         tier: 1,
         locked: false,
         minutes: 2_880,
-    },
-    NodeDef {
-        node: Node::Armoury,
-        requires: &[Node::Workshop],
-        tier: 1,
-        locked: true,
-        minutes: 1_440,
-    },
-    NodeDef {
-        node: Node::Emitters,
-        requires: &[Node::Workshop],
-        tier: 1,
-        locked: true,
-        minutes: 1_200,
     },
     NodeDef {
         node: Node::Hyperdrive,
@@ -235,7 +192,7 @@ pub static RESEARCH: [NodeDef; NODES] = [
     },
     NodeDef {
         node: Node::Upgrades,
-        requires: &[Node::Armoury],
+        requires: &[],
         tier: 2,
         locked: true,
         minutes: 1_440,
@@ -245,33 +202,26 @@ pub static RESEARCH: [NodeDef; NODES] = [
 /// Which node a part waits on. Everything not named is survival — known
 /// at the start — which is the safe default: a new part the tree has not
 /// heard of is a part the crew can build, not one nobody can.
+///
+/// Three parts are named and no more. The suit locker, the workbench and
+/// the armoury were behind nodes the money rework took away, and are
+/// known at the start with everything else.
 pub fn node_of_part(kind: PartKind) -> Node {
     match kind {
-        PartKind::SuitLocker => Node::Mining,
         PartKind::DrugLab => Node::Medicine,
-        PartKind::Smelter => Node::Smelting,
-        PartKind::Workbench => Node::Workshop,
         PartKind::FusionReactor => Node::FusionPower,
-        PartKind::Armoury => Node::Armoury,
         PartKind::Hyperdrive => Node::Hyperdrive,
         _ => Node::Survival,
     }
 }
 
-/// Which node a row of `crate::recipes::RECIPES` waits on, by index. The
-/// emitter is its own node, and so is the sentry kit, which fires through
-/// one; the armour at the workbench is the armoury's, since it is what a
-/// fight wants; everything else waits on its bench — the sandbag kit on
-/// the workshop, like the components.
+/// Which node a row of `crate::recipes::RECIPES` waits on, by index: its
+/// bench's, which for the one row there is means medicine.
 pub fn node_of_recipe(index: usize) -> Node {
-    match index {
-        2 | 15 => Node::Emitters,
-        7..=9 => Node::Armoury,
-        i => crate::recipes::RECIPES
-            .get(i)
-            .map(|r| node_of_part(r.station))
-            .unwrap_or(Node::Survival),
-    }
+    crate::recipes::RECIPES
+        .get(index)
+        .map(|r| node_of_part(r.station))
+        .unwrap_or(Node::Survival)
 }
 
 /// The crew's progress through the tree: what is researched, which locked

@@ -97,16 +97,8 @@ const TICK_SIZE: f32 = 0.5;
 /// iron a silver that catches the light, galvum the purple nothing else
 /// aboard is. Told apart at a glance, which is the point: which asteroid
 /// is the rare one shows through its skin.
-pub static ROCK_COLORS: [Color; 3] = [
-    Color::rgb(0.42, 0.36, 0.30),
-    Color::rgb(0.72, 0.74, 0.78),
-    Color::rgb(0.62, 0.32, 0.82),
-];
 /// The seam between one rock tile and the next, and the lit edge on each.
-const ROCK_SEAM: Color = Color::rgba(0.0, 0.0, 0.0, 0.35);
-const ROCK_LIT: Color = Color::rgba(1.0, 1.0, 1.0, 0.10);
 /// A rock marked to be mined: ringed in the warm colour an order is.
-const MARK: Color = Color::rgb(0.98, 0.72, 0.35);
 /// A construction site: the blueprint's blue, and how far through the
 /// part's own picture shows for a site and for the blueprint in hand.
 const BLUEPRINT: Color = Color::rgb(0.45, 0.72, 1.0);
@@ -487,7 +479,6 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     // The rocks of the mining site, if the ship is at one. In the ship's
     // frame — they were laid out on its tile grid — so they go through the
     // same turn the hull does; and under it, since they are outside it.
-    rocks(game, &mut ship);
 
     // Under everything: the rim that makes the hull a body against the
     // stars, and the exhaust, which shows where it clears the stern and
@@ -519,16 +510,11 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
         }
     }
 
-    // The tile under the pointer, rung. Part of the ship, so turned with it
-    // — and a rock under the pointer while the player is marking rocks,
-    // which is on the same grid.
+    // The tile under the pointer, rung. Part of the ship, so turned with
+    // it.
     let tile = TILE as f32;
-    let over_rock = game.marking
-        && game
-            .hover
-            .is_some_and(|(x, y)| game.world.site_here().is_some_and(|s| s.at(x, y).is_some()));
     if let Some((x, y)) = game.hover
-        && (design.holds((x, y)) || over_rock)
+        && design.holds((x, y))
     {
         let m = signed_tile_middle(x, y);
         ship.push(
@@ -740,86 +726,6 @@ fn signed_tile_middle(x: i32, y: i32) -> DVec2 {
     )
 }
 
-/// The mining site's rocks, a tile each, in the ship's frame: every tile
-/// standing, in its kind's colour with a seam round it and a lit edge, and
-/// the marked ones ringed. Nothing while the ship is not at a site.
-fn rocks(game: &Game, ship: &mut DrawList) {
-    let Some(site) = game.world.site_here() else {
-        return;
-    };
-    let tile = TILE as f32;
-    for rock in &site.tiles {
-        let m = signed_tile_middle(rock.x, rock.y);
-        let (x, y) = (m.x as f32, m.y as f32);
-        let color = ROCK_COLORS[rock.kind.code() as usize % ROCK_COLORS.len()];
-        list_rock(ship, x, y, tile, color);
-    }
-    for &(x, y) in &site.marked {
-        let m = signed_tile_middle(x, y);
-        let (x, y) = (m.x as f32, m.y as f32);
-        ship.push(
-            crate::draw::KIND_RECT,
-            x,
-            y,
-            tile - 4.0,
-            tile - 4.0,
-            0.0,
-            4.0,
-            0.0,
-            MARK.alpha(0.35),
-        );
-        ship.push(
-            crate::draw::KIND_RECT,
-            x,
-            y,
-            tile - 4.0,
-            tile - 4.0,
-            0.0,
-            4.0,
-            4.0,
-            MARK,
-        );
-    }
-}
-
-/// One tile of rock: the seam is the tile, the rock is inset into it, and a
-/// lighter sliver along its top-left edge is the light on it.
-fn list_rock(list: &mut DrawList, x: f32, y: f32, tile: f32, color: Color) {
-    list.push(
-        crate::draw::KIND_RECT,
-        x,
-        y,
-        tile,
-        tile,
-        0.0,
-        0.0,
-        0.0,
-        ROCK_SEAM,
-    );
-    list.push(
-        crate::draw::KIND_RECT,
-        x,
-        y,
-        tile - 3.0,
-        tile - 3.0,
-        0.0,
-        5.0,
-        0.0,
-        color,
-    );
-    list.push(
-        crate::draw::KIND_RECT,
-        x - tile * 0.12,
-        y - tile * 0.12,
-        tile * 0.5,
-        tile * 0.5,
-        0.0,
-        6.0,
-        0.0,
-        ROCK_LIT,
-    );
-}
-
 /// The part a site or a blueprint is for, as its own picture, faded into
 /// `list`: the hull's or the fittings' picture where there is one, the
 /// deck's tile for plating, and the part's colour as a block otherwise —
@@ -984,25 +890,6 @@ fn sites(game: &Game, grid: &Grid, ship: &mut DrawList) {
         let (x0, y0, x1, y1) = part_box(site.kind, site.origin, site.rotation);
         ship.box_between(x0, y0, x1, y1, 3.0, BLUEPRINT.alpha(0.16));
         ship.stroke_between(x0 + 1.5, y0 + 1.5, x1 - 1.5, y1 - 1.5, 3.0, 2.0, BLUEPRINT);
-        // What has arrived, as a share of what it is made of.
-        let recipe = site.recipe(design);
-        let wanted: u32 = recipe.iter().map(|&(_, u)| u).sum();
-        let there: u32 = recipe
-            .iter()
-            .map(|&(id, u)| site.delivered[id as usize].min(u))
-            .sum();
-        if wanted > 0 && there > 0 {
-            let share = there as f32 / wanted as f32;
-            let w = (x1 - x0 - 8.0) * share;
-            ship.rect(
-                x0 + 4.0 + w / 2.0,
-                y1 - 6.0,
-                w,
-                4.0,
-                0.0,
-                if there >= wanted { LIVE } else { BLUEPRINT },
-            );
-        }
     }
 }
 
@@ -1915,12 +1802,6 @@ fn local_node(game: &Game, list: &mut DrawList) {
     match node {
         Node::Station(_) => {}
         Node::Body(id) => {
-            // A belt the ship is holding at is drawn as its rocks, tile by
-            // tile in the ship's frame — see `rocks` — not as the handful
-            // of stones the map's icon is.
-            if game.world.site_here().is_some() {
-                return;
-            }
             // Coming down onto it, the planet grows under the ship until
             // it is the whole window; lifting off, it shrinks back to the
             // size it is held beside at. Geometric, so the growth reads

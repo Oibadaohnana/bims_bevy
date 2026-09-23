@@ -75,7 +75,7 @@ pub const REFERENCE_SHIP: ReferenceShip = ReferenceShip {
     facing: Facing::Forward,
     hull_mass: 1000.0,
     crew_count: 2,
-    cargo: [(ResourceId::Metal, 100)],
+    cargo: [(ResourceId::LegGuard, 100)],
     can_flip: true,
 };
 
@@ -226,56 +226,47 @@ impl StationKind {
         StationKind::Relay,
     ];
 
-    /// Whether a station of this kind has this to sell.
+    /// Whether a station of this **kind** has this to sell.
     ///
-    /// The whole of the rule, and the only place it is written down. A
-    /// derelict sells nothing — there is nobody aboard to sell it. Galvum
-    /// is the mining outposts' alone, which is what makes one somewhere
-    /// worth flying to. An emitter is never sold: it is made at a
-    /// workbench out of galvum, and a station that sold finished emitters
-    /// would make the galvum pointless. Every station **buys** anything;
-    /// this is only about what is on the shelf.
+    /// The ceiling on a shelf, and — for everything but the gear — the
+    /// only place the rule is written down. A derelict sells nothing:
+    /// there is nobody aboard to sell it.
+    ///
+    /// **The guns and the armour are not here.** Since the money rework
+    /// (feature 95) whether a place trades in weapons, or in armour, is
+    /// rolled per **station** rather than per kind — `Stock::roll`, off
+    /// [`WEAPON_TRADE_CHANCE`] and [`ARMOUR_TRADE_CHANCE`] — so that two
+    /// orbitals in one system are two different shops. This answers
+    /// `true` for all eight, since the ceiling has no opinion about them
+    /// and `Stock` is what decides; a caller wanting to know whether a
+    /// thing is actually on sale asks the station's `Stock::sells`.
+    ///
+    /// Every station **buys** anything; this is only about what is on the
+    /// shelf.
     pub fn sells(self, resource: physics::ResourceId) -> bool {
         use physics::ResourceId;
         match (self, resource) {
             (StationKind::Derelict, _) => false,
-            // Made at the armoury and the workbench; nobody stocks them. The
-            // three pieces of armour are the workbench's the same way, and
-            // the four weapons after the handgun the armoury's.
+            // A research key is found on a station's research desk, never
+            // on its shelf; a class's charges (features 88 and 90) come
+            // back on a cooldown and nobody stocks one. Any station buys
+            // any of them.
             (
                 _,
-                ResourceId::Emitter
-                | ResourceId::Handgun
-                | ResourceId::Vest
-                | ResourceId::Helm
-                | ResourceId::Kevlar
-                | ResourceId::LegGuard
-                | ResourceId::Shotgun
-                | ResourceId::AutoRifle
-            // A research key is found on a station's research desk, never on
-            // its shelf.
-                | ResourceId::SniperRifle
-                | ResourceId::Schword
-                | ResourceId::ResearchKey
+                ResourceId::ResearchKey
                 | ResourceId::ResearchKeyTwo
-                // An engineer's kits are made at the crew's own workbench
-                // and a soldier's grenades at its armoury: no station
-                // stocks them, and any station buys them.
                 | ResourceId::SandbagKit
                 | ResourceId::SentryKit
                 | ResourceId::Grenade,
             ) => false,
-            // Mined off an asteroid on the way to its ore; nobody stocks it.
-            (_, ResourceId::Rock) => false,
-            (StationKind::MiningOutpost, ResourceId::Galvum) => true,
-            (_, ResourceId::Galvum) => false,
-            // Fibre is grown where there is ground to grow it, and a bandage
-            // is on the shelf where there are people to hurt themselves: the
-            // orbitals, and the refineries for the bandage alone. Neither is
-            // a staple — a crew grows the one and rolls the other.
-            (StationKind::Orbital, ResourceId::Fibre | ResourceId::Bandage) => true,
-            (StationKind::Refinery, ResourceId::Bandage) => true,
-            (_, ResourceId::Fibre | ResourceId::Bandage) => false,
+            // A dressing is on the shelf where there are people to hurt
+            // themselves: the orbitals and the refineries. A medkit is
+            // made at a drug lab and is on every other shelf.
+            (StationKind::Orbital | StationKind::Refinery, ResourceId::Bandage) => true,
+            (_, ResourceId::Bandage) => false,
+            // A pressure suit hangs where people work outside.
+            (StationKind::Refinery | StationKind::MiningOutpost, ResourceId::Suit) => true,
+            (_, ResourceId::Suit) => false,
             _ => true,
         }
     }
@@ -462,9 +453,12 @@ mod tests {
         }
     }
 
-    /// What is on the shelf where: galvum only at an outpost, an emitter
-    /// nowhere, rock nowhere, nothing at a derelict, and everything else
-    /// everywhere somebody lives.
+    /// What is on the shelf where: nothing at a derelict, no key and no
+    /// class charge anywhere, a dressing at the orbitals and the
+    /// refineries, a pressure suit where people work outside, and
+    /// everything else everywhere somebody lives. The **gear** is the
+    /// station's own roll and not the kind's, so the ceiling lets all
+    /// eight pieces through.
     #[test]
     fn what_each_kind_of_station_sells() {
         use physics::ResourceId;
@@ -474,58 +468,89 @@ mod tests {
                     (StationKind::Derelict, _) => false,
                     (
                         _,
-                        ResourceId::Emitter
-                        | ResourceId::Handgun
-                        | ResourceId::Vest
-                        | ResourceId::Helm
-                        | ResourceId::Kevlar
-                        | ResourceId::LegGuard
-                        | ResourceId::Shotgun
-                        | ResourceId::AutoRifle
-                        | ResourceId::SniperRifle
-                        | ResourceId::Schword
-                        | ResourceId::ResearchKey
+                        ResourceId::ResearchKey
                         | ResourceId::ResearchKeyTwo
                         | ResourceId::SandbagKit
                         | ResourceId::SentryKit
                         | ResourceId::Grenade,
                     ) => false,
-                    (_, ResourceId::Rock) => false,
-                    (StationKind::MiningOutpost, ResourceId::Galvum) => true,
-                    (_, ResourceId::Galvum) => false,
-                    (StationKind::Orbital, ResourceId::Fibre | ResourceId::Bandage) => true,
-                    (StationKind::Refinery, ResourceId::Bandage) => true,
-                    (_, ResourceId::Fibre | ResourceId::Bandage) => false,
+                    (StationKind::Orbital | StationKind::Refinery, ResourceId::Bandage) => true,
+                    (_, ResourceId::Bandage) => false,
+                    (StationKind::Refinery | StationKind::MiningOutpost, ResourceId::Suit) => true,
+                    (_, ResourceId::Suit) => false,
                     _ => true,
                 };
                 assert_eq!(kind.sells(resource), want, "{kind:?} {resource:?}");
             }
         }
-        assert!(StationKind::MiningOutpost.sells(ResourceId::Galvum));
-        assert!(!StationKind::Orbital.sells(ResourceId::Galvum));
-        assert!(!StationKind::MiningOutpost.sells(ResourceId::Emitter));
         assert!(StationKind::Orbital.sells(ResourceId::Medkit));
-        assert!(!StationKind::Orbital.sells(ResourceId::Handgun));
-        assert!(!StationKind::Orbital.sells(ResourceId::Shotgun));
-        assert!(!StationKind::Refinery.sells(ResourceId::AutoRifle));
-        assert!(!StationKind::Relay.sells(ResourceId::SniperRifle));
-        assert!(!StationKind::MiningOutpost.sells(ResourceId::Schword));
-        assert!(!StationKind::MiningOutpost.sells(ResourceId::Rock));
+        assert!(StationKind::Orbital.sells(ResourceId::Vegetable));
         assert!(!StationKind::Orbital.sells(ResourceId::ResearchKey));
         assert!(!StationKind::Relay.sells(ResourceId::ResearchKeyTwo));
         assert!(!StationKind::Orbital.sells(ResourceId::SandbagKit));
         assert!(!StationKind::Refinery.sells(ResourceId::SentryKit));
         assert!(!StationKind::Orbital.sells(ResourceId::Grenade));
-        // Fibre and bandages: the orbitals, bandages at the refineries too,
-        // and neither is a staple.
-        assert!(StationKind::Orbital.sells(ResourceId::Fibre));
+        // Dressings: the orbitals and the refineries, and not a staple.
         assert!(StationKind::Orbital.sells(ResourceId::Bandage));
         assert!(StationKind::Refinery.sells(ResourceId::Bandage));
-        assert!(!StationKind::Refinery.sells(ResourceId::Fibre));
         assert!(!StationKind::MiningOutpost.sells(ResourceId::Bandage));
-        assert!(!StationKind::Relay.sells(ResourceId::Fibre));
-        assert!(!STAPLES.contains(&ResourceId::Fibre));
+        assert!(!StationKind::Relay.sells(ResourceId::Bandage));
         assert!(!STAPLES.contains(&ResourceId::Bandage));
+        // Suits: where there is work outside, and nowhere else.
+        assert!(StationKind::Refinery.sells(ResourceId::Suit));
+        assert!(StationKind::MiningOutpost.sells(ResourceId::Suit));
+        assert!(!StationKind::Orbital.sells(ResourceId::Suit));
+        // A derelict sells nothing at all, gear included.
+        for resource in ResourceId::ALL {
+            assert!(!StationKind::Derelict.sells(resource), "{resource:?}");
+        }
+    }
+
+    /// The two gear trades are a **function of the seed alone**, rolled
+    /// off their own stream, and each puts its whole list on the shelf or
+    /// none of it (feature 95). A derelict rolls neither.
+    #[test]
+    fn the_gear_trades_are_a_roll_of_their_own() {
+        use crate::rng::Rng;
+        let roll =
+            |kind, seed: u64| Stock::roll(kind, &mut Rng::new(seed), &mut Rng::new(seed ^ 0x_9E37));
+        // The same seed gives the same shelf, every time.
+        for seed in 0..50u64 {
+            let once = roll(StationKind::Orbital, seed);
+            assert_eq!(once, roll(StationKind::Orbital, seed), "seed {seed}");
+            // All five weapons or none; all three pieces or none.
+            let weapons = WEAPONS.iter().filter(|&&r| once.sells(r)).count();
+            assert!(weapons == 0 || weapons == WEAPONS.len(), "seed {seed}");
+            let armour = ARMOUR.iter().filter(|&&r| once.sells(r)).count();
+            assert!(armour == 0 || armour == ARMOUR.len(), "seed {seed}");
+            assert_eq!(once.weapon_trade(), weapons > 0, "seed {seed}");
+            assert_eq!(once.armour_trade(), armour > 0, "seed {seed}");
+            // A derelict has no market and rolls nothing.
+            assert_eq!(roll(StationKind::Derelict, seed), Stock::NONE);
+        }
+        // Over enough seeds, about two in five each way, and the two are
+        // independent — so neither is always on and neither always off.
+        let mut both = 0;
+        let mut neither = 0;
+        let (mut guns, mut plate) = (0, 0);
+        for seed in 0..400u64 {
+            let s = roll(StationKind::Orbital, seed);
+            guns += s.weapon_trade() as u32;
+            plate += s.armour_trade() as u32;
+            both += (s.weapon_trade() && s.armour_trade()) as u32;
+            neither += (!s.weapon_trade() && !s.armour_trade()) as u32;
+        }
+        assert!((100..=220).contains(&guns), "{guns} of 400 sold guns");
+        assert!((100..=220).contains(&plate), "{plate} of 400 sold armour");
+        assert!(both > 20, "{both} sold both");
+        assert!(neither > 20, "{neither} sold neither");
+        // And a staple is on every shelf that has a market at all.
+        for seed in 0..50u64 {
+            for &staple in STAPLES.iter() {
+                let s = roll(StationKind::Orbital, seed);
+                assert!(s.sells(staple), "seed {seed}: {staple:?}");
+            }
+        }
     }
 
     /// The matching rule, both ways round: what each kind accepts, and what
@@ -585,28 +610,59 @@ mod tests {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Stock(pub u32);
 
-/// On every shelf the kind allows: what the crew build with and eat.
-pub const STAPLES: [ResourceId; 4] = [
-    ResourceId::Ore,
-    ResourceId::Metal,
-    ResourceId::Vegetable,
-    ResourceId::Tofu,
+/// On every shelf the kind allows: what the crew eat, and the medicine
+/// they cannot do without.
+pub const STAPLES: [ResourceId; 3] = [ResourceId::Vegetable, ResourceId::Tofu, ResourceId::Medkit];
+
+/// The five weapons a **weapon trade** puts on its shelf, and the three
+/// pieces a **armour trade** does (feature 95). Whether a station has
+/// either is one flag each, rolled off its own stream — so a place may
+/// sell guns, armour, both or neither, and a crew who want a sniper rifle
+/// have somewhere to fly to rather than a bench to stand at.
+pub const WEAPONS: [ResourceId; 5] = [
+    ResourceId::Handgun,
+    ResourceId::Shotgun,
+    ResourceId::AutoRifle,
+    ResourceId::SniperRifle,
+    ResourceId::Schword,
 ];
+pub const ARMOUR: [ResourceId; 3] = [ResourceId::Helm, ResourceId::Kevlar, ResourceId::LegGuard];
 
 /// How likely a station is to stock any one good that is not a staple.
 pub const STOCKED_CHANCE: f64 = 0.6;
+
+/// How likely a place with a market is to trade in weapons, and how
+/// likely it is to trade in armour. **Independent**: the two are rolled
+/// separately, so two in five places sell guns and two in five sell
+/// armour and about one in six sells both. Placeholders, like every other
+/// number here.
+pub const WEAPON_TRADE_CHANCE: f64 = 0.4;
+pub const ARMOUR_TRADE_CHANCE: f64 = 0.4;
 
 impl Stock {
     /// Nothing on the shelf: a derelict's, or a page with no market.
     pub const NONE: Stock = Stock(0);
 
-    /// Roll one station's shelf. `roll` is the station's own stream, and a
-    /// draw is made for every resource the kind sells whether it is a
-    /// staple or not, so that adding a staple does not reshuffle the rest.
-    pub fn roll(kind: StationKind, roll: &mut crate::rng::Rng) -> Stock {
+    /// Roll one station's shelf. `roll` is the station's own stream and
+    /// `gear` its **gear-trade** stream (`Purpose::GearTrade`, feature
+    /// 95), kept apart so that reworking what is on a shelf never moves
+    /// which places sell guns. A draw is made from `roll` for every
+    /// resource the kind sells whether it is a staple or not, so that
+    /// adding a staple does not reshuffle the rest.
+    ///
+    /// A **derelict has no market** and rolls nothing: neither stream is
+    /// drawn from, since there is nobody aboard to keep a desk.
+    pub fn roll(
+        kind: StationKind,
+        roll: &mut crate::rng::Rng,
+        gear: &mut crate::rng::Rng,
+    ) -> Stock {
+        if kind == StationKind::Derelict {
+            return Stock::NONE;
+        }
         let mut bits = 0u32;
         for &resource in ResourceId::ALL.iter() {
-            if !kind.sells(resource) {
+            if !kind.sells(resource) || WEAPONS.contains(&resource) || ARMOUR.contains(&resource) {
                 continue;
             }
             let drawn = roll.chance(STOCKED_CHANCE);
@@ -614,11 +670,25 @@ impl Stock {
                 bits |= 1 << resource as u32;
             }
         }
+        // The two trades, in this order and always both drawn, so that
+        // turning one chance does not move the other.
+        let weapons = gear.chance(WEAPON_TRADE_CHANCE);
+        let armour = gear.chance(ARMOUR_TRADE_CHANCE);
+        if weapons {
+            for &resource in WEAPONS.iter() {
+                bits |= 1 << resource as u32;
+            }
+        }
+        if armour {
+            for &resource in ARMOUR.iter() {
+                bits |= 1 << resource as u32;
+            }
+        }
         Stock(bits)
     }
 
-    /// Everything the kind sells, without a roll: a fixed shelf for a
-    /// test that wants the kind's rule and nothing else.
+    /// Everything the kind sells, the gear included, without a roll: a
+    /// fixed shelf for a test that wants the kind's rule and nothing else.
     pub fn everything(kind: StationKind) -> Stock {
         let mut bits = 0u32;
         for &resource in ResourceId::ALL.iter() {
@@ -631,6 +701,18 @@ impl Stock {
 
     pub fn sells(self, resource: ResourceId) -> bool {
         self.0 & (1 << resource as u32) != 0
+    }
+
+    /// Whether this place trades in **weapons**: the flag, read back off
+    /// the shelf. What the system preview, the start selection and the
+    /// station tooltip say (feature 95).
+    pub fn weapon_trade(self) -> bool {
+        self.sells(ResourceId::Handgun)
+    }
+
+    /// Whether this place trades in **armour**, the same way.
+    pub fn armour_trade(self) -> bool {
+        self.sells(ResourceId::Helm)
     }
 }
 

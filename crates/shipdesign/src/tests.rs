@@ -16,7 +16,6 @@ use crate::design::{
 };
 use crate::fixture::{CREWS, REFERENCE_HASH, REFERENCE_PARTS, REFERENCE_POOL, flyer, reference};
 use crate::mass::{acceleration, hull_mass, ship_mass};
-use crate::materials::{bound_mass, bound_materials, build_from_cargo, deconstruct_to_cargo};
 use crate::parts::{
     ENGINE_POWER, GRID_COLS, Layer, PartKind, REACTOR_OUTPUT, Rotation, TILE, covered,
     defs_are_sound, footprint, part_mass, use_spots,
@@ -280,7 +279,7 @@ fn shielding_and_storage_are_where_they_are_meant_to_be() {
         holding,
         vec![
             (PartKind::ColdStore, (Storage::ColdStore, 100)),
-            (PartKind::Shelf, (Storage::Shelf, 100)),
+            (PartKind::Shelf, (Storage::Locker, 10 * GRID_COLS)),
             // The lockers are cells of a grid `GRID_COLS` across: two
             // rows, eight and six.
             (PartKind::SuitLocker, (Storage::Locker, 2 * GRID_COLS)),
@@ -344,7 +343,7 @@ fn a_diagonal_wall_is_a_wall_in_every_rule_and_a_triangle_in_the_picture() {
         assert_eq!(d.blocks_movement, s.blocks_movement);
         assert_eq!(d.shields, s.shields);
         assert_eq!(d.price, s.price);
-        assert_eq!(d.recipe, s.recipe);
+        assert_eq!(d.mass, s.mass);
         assert!(d.use_spots.is_empty());
     }
     let mut r = Rotation::R0;
@@ -367,8 +366,8 @@ fn cargo_is_the_right_length() {
 // --- rotation -------------------------------------------------------------
 
 /// The engine is 2 x 3, which makes it the part where a rotation bug in the
-/// footprint cannot hide, and the bay is 2 x 2 with one use spot below its
-/// left-hand column, which makes it the part where a rotation bug in the
+/// footprint cannot hide, and the workbench is 2 x 1 with one use spot below
+/// its left-hand column, which makes it the part where a rotation bug in the
 /// use spots cannot hide. Every tile below is worked out by hand, not by
 /// running the code and writing down what came out.
 #[test]
@@ -385,7 +384,7 @@ fn all_four_turns_land_where_they_should_and_r_comes_back_round() {
             out
         };
         let spots = |rotation| {
-            use_spots(PartKind::Smelter, rotation)
+            use_spots(PartKind::Workbench, rotation)
                 .into_iter()
                 .map(|(dx, dy)| (at.0 as i32 + dx, at.1 as i32 + dy))
                 .collect::<Vec<_>>()
@@ -397,8 +396,8 @@ fn all_four_turns_land_where_they_should_and_r_comes_back_round() {
             tiles(Rotation::R0),
             vec![(10, 10), (10, 11), (10, 12), (11, 10), (11, 11), (11, 12)]
         );
-        // The smelter: you stand below its left-hand column.
-        assert_eq!(spots(Rotation::R0), vec![(10, 12)]);
+        // The workbench: you stand below its left-hand column.
+        assert_eq!(spots(Rotation::R0), vec![(10, 11)]);
 
         // A quarter turn clockwise: three across, two down; and south has become
         // west, level with the top row.
@@ -419,7 +418,7 @@ fn all_four_turns_land_where_they_should_and_r_comes_back_round() {
         // with the bottom row.
         assert_eq!(footprint(PartKind::Engine, Rotation::R270), (3, 2));
         assert_eq!(tiles(Rotation::R270), tiles(Rotation::R90));
-        assert_eq!(spots(Rotation::R270), vec![(12, 11)]);
+        assert_eq!(spots(Rotation::R270), vec![(11, 11)]);
     }
 
     // --- r_goes_round_and_comes_back ---
@@ -887,13 +886,15 @@ fn what_the_ship_can_hold_is_the_sum_of_what_is_on_it() {
     }
 
     let design = with_holds();
-    assert_eq!(design.capacity(Storage::Shelf), 100);
-    assert_eq!(design.capacity(Storage::Locker), 2 * GRID_COLS);
+    // A shelf is locker room since the money rework took the materials
+    // away, so the shelf and the suit locker are one class between them.
+    assert_eq!(design.capacity(Storage::Locker), 100 + 2 * GRID_COLS);
     assert_eq!(design.capacity(Storage::ColdStore), 100);
+    assert_eq!(design.capacity(Storage::Research), 0);
 
     // Two shelves are twice the shelf.
     let more = put(design, PartKind::Shelf, (2, 4));
-    assert_eq!(more.capacity(Storage::Shelf), 200);
+    assert_eq!(more.capacity(Storage::Locker), 200 + 2 * GRID_COLS);
 }
 
 #[test]
@@ -906,31 +907,31 @@ fn buying_fills_the_right_hold_and_a_sale_hands_back_what_the_goods_cost() {
 
         // At the desk's ask — the plain desk's, which is over the book by the
         // spread's half — and never at the book itself.
-        let stocked = bought(&design, &budget, ResourceId::Metal, 10);
-        assert_eq!(stocked.carrying(ResourceId::Metal), 10);
-        let ask = budget.market.quote(ResourceId::Metal).ask;
-        assert!(ask > trade_price(ResourceId::Metal));
-        assert_eq!(budget.remaining(&stocked) + 10 * ask, before);
+        let stocked = bought(&design, &budget, ResourceId::Suit, 2);
+        assert_eq!(stocked.carrying(ResourceId::Suit), 2);
+        let ask = budget.market.quote(ResourceId::Suit).ask;
+        assert!(ask > trade_price(ResourceId::Suit));
+        assert_eq!(budget.remaining(&stocked) + 2 * ask, before);
         assert_ne!(
-            budget.remaining(&stocked) + trade_value(ResourceId::Metal, 10).unwrap(),
+            budget.remaining(&stocked) + trade_value(ResourceId::Suit, 2).unwrap(),
             before,
             "bought at the book",
         );
-        // And a desk that leans the other way charges less for the same ten.
+        // And a desk that leans the other way charges less for the same two:
+        // a refinery is a place people work outside, and sells suits cheap.
         let cheap = Budget::at(
             REFERENCE_POOL,
             market::Market::new(market::MarketKind::Refinery, market::Bias::NONE),
         );
-        let cheaper = bought(&design, &cheap, ResourceId::Metal, 10);
+        let cheaper = bought(&design, &cheap, ResourceId::Suit, 2);
         assert!(cheap.remaining(&cheaper) > budget.remaining(&stocked));
-        // Metal is racking, so it is the shelf that filled up and not the
-        // locker — one cell, since ten metal is one stack.
-        assert_eq!(stocked.stored(Storage::Shelf), 1);
-        assert_eq!(stocked.stored(Storage::Locker), 0);
+        // A suit hangs in a locker, so it is the lockers that filled up and
+        // not the cold store — nine cells a suit folded, two of them.
+        assert_eq!(stocked.stored(Storage::Locker), 18);
         assert_eq!(stocked.stored(Storage::ColdStore), 0);
 
-        // Food and gear go to their own classes, and two resources sharing a
-        // class share the room.
+        // Food goes to its own class, and two resources sharing a class
+        // share the room.
         let full = bought(
             &bought(&stocked, &budget, ResourceId::Tofu, 30),
             &budget,
@@ -940,19 +941,20 @@ fn buying_fills_the_right_hold_and_a_sale_hands_back_what_the_goods_cost() {
         // Three blocks of tofu at four by four, two crates of vegetables at
         // one by two.
         assert_eq!(full.stored(Storage::ColdStore), 3 * 16 + 2 * 2);
-        // The lockers count cells, and a suit folded is three by three of
-        // them; a box of dressings is two by two and holds five (feature
-        // 87), so eleven cells spare take two boxes and not three.
-        let suited = bought(&full, &budget, ResourceId::Suit, 1);
-        assert_eq!(suited.stored(Storage::Locker), 9);
-        assert_eq!(suited.spare(Storage::Locker), 2 * GRID_COLS - 9);
-        assert!(suited.has_room(ResourceId::Suit, 1));
-        assert!(!suited.has_room(ResourceId::Suit, 2));
-        assert!(suited.has_room(ResourceId::Bandage, 10));
-        assert!(!suited.has_room(ResourceId::Bandage, 11));
-        assert_eq!(suited.most_of(ResourceId::Suit), 2);
-        assert_eq!(suited.most_of(ResourceId::SniperRifle), 2);
-        assert_eq!(suited.most_of(ResourceId::Ore), 1000, "ten to a stack");
+        // The lockers count cells: a hundred and twenty of them here, with
+        // the two suits' eighteen used. A box of dressings is two by two
+        // and holds five (feature 87), so the hundred and two spare take
+        // twenty-five boxes and not twenty-six.
+        assert_eq!(full.capacity(Storage::Locker), 100 + 2 * GRID_COLS);
+        assert_eq!(full.stored(Storage::Locker), 18);
+        assert_eq!(full.spare(Storage::Locker), 102);
+        assert!(full.has_room(ResourceId::Suit, 11));
+        assert!(!full.has_room(ResourceId::Suit, 12));
+        assert!(full.has_room(ResourceId::Bandage, 125));
+        assert!(!full.has_room(ResourceId::Bandage, 130));
+        assert_eq!(full.most_of(ResourceId::Suit), 13);
+        assert_eq!(full.most_of(ResourceId::SniperRifle), 12);
+        assert_eq!(full.most_of(ResourceId::Bandage), 150, "five to a box");
     }
 
     // --- a_sale_hands_back_exactly_what_the_goods_cost ---
@@ -961,19 +963,19 @@ fn buying_fills_the_right_hold_and_a_sale_hands_back_what_the_goods_cost() {
         let design = with_holds();
         let before = budget.remaining(&design);
 
-        let stocked = bought(&design, &budget, ResourceId::Components, 40);
+        let stocked = bought(&design, &budget, ResourceId::Bandage, 40);
         assert!(budget.remaining(&stocked) < before);
 
         let sold = apply(
             &stocked,
             &budget,
             Edit::Sell {
-                resource: ResourceId::Components,
+                resource: ResourceId::Bandage,
                 units: 40,
             },
         )
         .unwrap();
-        assert_eq!(sold.carrying(ResourceId::Components), 0);
+        assert_eq!(sold.carrying(ResourceId::Bandage), 0);
         assert_eq!(budget.remaining(&sold), before, "the refund was not whole");
         assert_eq!(sold.cargo, design.cargo);
 
@@ -982,20 +984,15 @@ fn buying_fills_the_right_hold_and_a_sale_hands_back_what_the_goods_cost() {
             &stocked,
             &budget,
             Edit::Sell {
-                resource: ResourceId::Components,
+                resource: ResourceId::Bandage,
                 units: 15,
             },
         )
         .unwrap();
-        assert_eq!(half.carrying(ResourceId::Components), 25);
+        assert_eq!(half.carrying(ResourceId::Bandage), 25);
         assert_eq!(
             budget.remaining(&half),
-            before
-                - budget
-                    .market
-                    .quote(ResourceId::Components)
-                    .cost(25)
-                    .unwrap(),
+            before - budget.market.quote(ResourceId::Bandage).cost(25).unwrap(),
         );
     }
 }
@@ -1015,7 +1012,7 @@ fn what_cannot_be_paid_for_stowed_or_is_not_aboard_is_refused() {
                 &design,
                 &broke,
                 Edit::Buy {
-                    resource: ResourceId::Ore,
+                    resource: ResourceId::Bandage,
                     units: 1
                 }
             ),
@@ -1024,14 +1021,14 @@ fn what_cannot_be_paid_for_stowed_or_is_not_aboard_is_refused() {
 
         // Money enough for five at the desk's ask and an order for six.
         let thin = Budget::new(
-            Budget::spent(&design) + 5 * market::Market::PLAIN.quote(ResourceId::Ore).ask,
+            Budget::spent(&design) + 5 * market::Market::PLAIN.quote(ResourceId::Bandage).ask,
         );
         assert!(
             apply(
                 &design,
                 &thin,
                 Edit::Buy {
-                    resource: ResourceId::Ore,
+                    resource: ResourceId::Bandage,
                     units: 5
                 }
             )
@@ -1042,24 +1039,25 @@ fn what_cannot_be_paid_for_stowed_or_is_not_aboard_is_refused() {
                 &design,
                 &thin,
                 Edit::Buy {
-                    resource: ResourceId::Ore,
+                    resource: ResourceId::Bandage,
                     units: 6
                 }
             ),
             Err(EditError::CargoUnaffordable),
         );
 
-        // Room for a hundred stacks on the shelf — a thousand ore, ten to a
-        // stack — and an order for one more than that — with money for both,
-        // so what refuses it is the ship and not the pool.
+        // Room for thirty boxes in the lockers — a hundred and fifty
+        // dressings, five to a box of two by two — and an order for one
+        // more than that, with money for both, so what refuses it is the
+        // ship and not the pool.
         let rich = Budget::new(REFERENCE_POOL);
         assert!(
             apply(
                 &design,
                 &rich,
                 Edit::Buy {
-                    resource: ResourceId::Ore,
-                    units: 1000
+                    resource: ResourceId::Bandage,
+                    units: 150
                 }
             )
             .is_ok()
@@ -1069,23 +1067,23 @@ fn what_cannot_be_paid_for_stowed_or_is_not_aboard_is_refused() {
                 &design,
                 &rich,
                 Edit::Buy {
-                    resource: ResourceId::Ore,
-                    units: 1001
+                    resource: ResourceId::Bandage,
+                    units: 151
                 }
             ),
             Err(EditError::NoRoomAboard),
         );
 
-        // And the class is shared: eighty stacks of ore leaves twenty cells,
-        // two hundred metal.
-        let part_full = bought(&design, &rich, ResourceId::Ore, 800);
+        // And the class is shared: twenty-four boxes of dressings leave
+        // twenty-four cells, six medkits at four cells each.
+        let part_full = bought(&design, &rich, ResourceId::Bandage, 120);
         assert!(
             apply(
                 &part_full,
                 &rich,
                 Edit::Buy {
-                    resource: ResourceId::Metal,
-                    units: 200
+                    resource: ResourceId::Medkit,
+                    units: 6
                 }
             )
             .is_ok()
@@ -1095,20 +1093,20 @@ fn what_cannot_be_paid_for_stowed_or_is_not_aboard_is_refused() {
                 &part_full,
                 &rich,
                 Edit::Buy {
-                    resource: ResourceId::Metal,
-                    units: 201
+                    resource: ResourceId::Medkit,
+                    units: 7
                 }
             ),
             Err(EditError::NoRoomAboard),
         );
-        // A part-full stack is topped up for nothing: with 805 aboard, five
-        // more ore take no cell and the metal still fits.
-        let odd = bought(&design, &rich, ResourceId::Ore, 805);
-        assert_eq!(odd.stored(Storage::Shelf), 81);
-        assert!(odd.has_room(ResourceId::Ore, 5));
-        assert!(!odd.has_room(ResourceId::Ore, 196));
-        assert_eq!(odd.room_for(ResourceId::Ore), 195);
-        assert_eq!(odd.most_of(ResourceId::Ore), 1000);
+        // A part-full box is topped up for nothing: with 121 aboard, four
+        // more dressings take no cell.
+        let odd = bought(&design, &rich, ResourceId::Bandage, 121);
+        assert_eq!(odd.stored(Storage::Locker), 100);
+        assert!(odd.has_room(ResourceId::Bandage, 4));
+        assert!(!odd.has_room(ResourceId::Bandage, 30));
+        assert_eq!(odd.room_for(ResourceId::Bandage), 29);
+        assert_eq!(odd.most_of(ResourceId::Bandage), 150);
         assert_eq!(
             odd.most_of(ResourceId::Tofu),
             60,
@@ -1178,33 +1176,44 @@ fn what_cannot_be_paid_for_stowed_or_is_not_aboard_is_refused() {
 #[test]
 fn a_hold_with_something_in_it_cannot_be_taken_off() {
     let budget = Budget::new(REFERENCE_POOL);
-    // Two shelves, a hundred cells each — a thousand ore in stacks of
-    // ten — and fifteen hundred units aboard.
+    // Two shelves at a hundred cells each and the suit locker's twenty:
+    // two hundred and twenty cells of the lockers, filled to the last one
+    // with fifty-five boxes of dressings, four cells and five to a box.
     let mut design = put(with_holds(), PartKind::Shelf, (2, 4));
-    design = bought(&design, &budget, ResourceId::Ore, 1500);
+    design = bought(&design, &budget, ResourceId::Bandage, 275);
 
     let shelf = design.grid().get(Layer::Object, (2, 2));
     assert_eq!(
         apply(&design, &budget, Edit::Remove { part_id: shelf }),
         Err(EditError::StorageInUse),
-        "a shelf came off under fifteen hundred units of ore",
+        "a shelf came off under two hundred and seventy-five dressings",
     );
 
-    // Sell five hundred and one shelf is spare, so it comes off.
+    // Sell a hundred and twenty-five and one shelf is spare, so it comes
+    // off: thirty boxes fit the hundred and twenty cells left.
     let lighter = apply(
         &design,
         &budget,
         Edit::Sell {
-            resource: ResourceId::Ore,
-            units: 500,
+            resource: ResourceId::Bandage,
+            units: 125,
         },
     )
     .unwrap();
     assert!(apply(&lighter, &budget, Edit::Remove { part_id: shelf }).is_ok());
 
-    // The tank and the cold store are empty, so they were never in the way.
-    let tank = design.grid().get(Layer::Object, (4, 2));
-    assert!(apply(&design, &budget, Edit::Remove { part_id: tank }).is_ok());
+    // The suit locker is locker room too since the money rework, so it is
+    // as much in the way as a shelf: taking it off would leave the
+    // dressings two hundred cells to lie in and they want two hundred and
+    // twenty.
+    let locker = design.grid().get(Layer::Object, (4, 2));
+    assert_eq!(
+        apply(&design, &budget, Edit::Remove { part_id: locker }),
+        Err(EditError::StorageInUse),
+    );
+    // The cold store is empty, so it was never in the way.
+    let cold = design.grid().get(Layer::Object, (8, 2));
+    assert!(apply(&design, &budget, Edit::Remove { part_id: cold }).is_ok());
 }
 
 // --- radiation -------------------------------------------------------------
@@ -1914,14 +1923,14 @@ fn the_hull_weighs_what_its_parts_weigh_and_the_hold_adds_to_it() {
     let stocked = bought(
         &put(design.clone(), PartKind::Shelf, (5, 5)),
         &budget,
-        ResourceId::Metal,
+        ResourceId::Bandage,
         20,
     );
     let with_shelf = want + part_mass(PartKind::Shelf);
     assert_eq!(hull_mass(&stocked), with_shelf, "cargo is not hull");
     assert_eq!(
         ship_mass(&stocked, 2).unwrap().get(),
-        with_shelf + 20.0 * ResourceId::Metal.mass_per_unit() + 2.0 * physics::PLAYER_MASS,
+        with_shelf + 20.0 * ResourceId::Bandage.mass_per_unit() + 2.0 * physics::PLAYER_MASS,
     );
 }
 
@@ -1955,39 +1964,151 @@ fn an_axis_with_nothing_pushing_accelerates_at_nothing_and_two_engines_add_up() 
         assert!((forward - 40_000.0 / mass).abs() < 1e-12, "{forward}");
     }
 }
+// --- what a part weighs, and what building one costs ----------------------
 
-// --- materials, and mass that is moved rather than made -------------------
+/// **Every part weighs exactly what it weighed before the money rework**
+/// (feature 95), when its weight was a recipe of metal and components
+/// added up. The table is that sum, written out kind by kind, so a figure
+/// retyped into `PARTS` is a failure here rather than a ship that
+/// mysteriously accelerates differently.
+#[test]
+fn a_part_weighs_what_its_recipe_weighed() {
+    // kind, and what its recipe came to at metal 8, components 2 and an
+    // emitter 16 — the masses those three had on the day they went.
+    let pinned: [(PartKind, f64); 49] = [
+        (PartKind::Floor, 8.0),
+        (PartKind::Wall, 16.0),
+        (PartKind::Door, 20.0),
+        (PartKind::Engine, 400.0),
+        (PartKind::Bunk, 28.0),
+        (PartKind::ColdStore, 60.0),
+        (PartKind::Worktop, 24.0),
+        (PartKind::Hob, 30.0),
+        (PartKind::Dishwasher, 46.0),
+        (PartKind::Table, 16.0),
+        (PartKind::Chair, 8.0),
+        (PartKind::Toilet, 26.0),
+        (PartKind::Basin, 16.0),
+        (PartKind::HydroBay, 120.0),
+        (PartKind::BroomLocker, 10.0),
+        (PartKind::Structure, 16.0),
+        (PartKind::OutsideWall, 34.0),
+        (PartKind::Helm, 72.0),
+        (PartKind::Reactor, 300.0),
+        (PartKind::PowerConduit, 8.0),
+        (PartKind::Battery, 52.0),
+        (PartKind::LifeSupport, 88.0),
+        (PartKind::Airlock, 76.0),
+        (PartKind::SensorArray, 48.0),
+        (PartKind::Shelf, 16.0),
+        (PartKind::Shower, 28.0),
+        (PartKind::Thruster, 44.0),
+        (PartKind::HeavyEngine, 1_400.0),
+        (PartKind::DiagonalWall, 16.0),
+        (PartKind::DiagonalOutsideWall, 34.0),
+        (PartKind::Workbench, 56.0),
+        (PartKind::SuitLocker, 28.0),
+        (PartKind::Armoury, 96.0),
+        (PartKind::DrugLab, 52.0),
+        (PartKind::TradingDesk, 24.0),
+        (PartKind::Sandbags, 8.0),
+        (PartKind::ResearchDesk, 72.0),
+        (PartKind::FusionReactor, 1_120.0),
+        (PartKind::Hyperdrive, 640.0),
+        (PartKind::WallLight, 10.0),
+        (PartKind::StandingLight, 18.0),
+        (PartKind::SmallPlant, 8.0),
+        (PartKind::BigPlant, 16.0),
+        (PartKind::Picture, 8.0),
+        (PartKind::Field, 8.0),
+        (PartKind::Tree, 8.0),
+        (PartKind::Shrub, 8.0),
+        (PartKind::Boulder, 8.0),
+        (PartKind::Water, 8.0),
+    ];
+    assert_eq!(pinned.len(), PartKind::ALL.len(), "a part went unpinned");
+    for (kind, mass) in pinned {
+        assert_eq!(part_mass(kind), mass, "{kind:?}");
+        assert_eq!(kind.def().mass, mass, "{kind:?}");
+    }
+    // And nothing weighs nothing, whatever else moves.
+    for &kind in PartKind::ALL.iter() {
+        assert!(part_mass(kind) > 0.0, "{kind:?} weighs nothing");
+    }
+}
 
-/// A yard to build one part in: frame, deck over all but the outermost ring
-/// of it, and shelves holding **exactly** the heaviest recipe there is — the
-/// heavy engine's — which is what lets the "one unit short" case below build
-/// that and then be refused a wall.
-///
-/// The bare ring of frame is what the deck plating and the hull parts want —
-/// structure with nothing on it. More than one shelf on purpose:
-/// deconstructing a shelf has to find room for the metal *that shelf was
-/// made of*, and with one there would be nowhere to put it. That case has a
-/// test of its own below.
-fn yard() -> ShipDesign {
+/// What a site costs, and what taking the part off gives back: the part's
+/// price both ways, with no loss — and, for deck plating, the frame's
+/// price as well on a tile that has no frame yet, since `Edit::Plate`
+/// lays both.
+#[test]
+fn a_site_costs_its_price_and_a_removal_gives_all_of_it_back() {
+    use crate::materials::{refund_for, site_price};
     let mut design = framed(12, (1, 1), (11, 11));
     for y in 2..11 {
         for x in 2..11 {
             design = put(design, PartKind::Floor, (x, y));
         }
     }
-    for x in 2..5 {
-        design = put(design, PartKind::Shelf, (x, 2));
+
+    // A placement costs the part's price and nothing else.
+    for kind in [PartKind::Wall, PartKind::Engine, PartKind::Shelf] {
+        let edit = Edit::Place {
+            kind,
+            origin: (5, 5),
+            rotation: Rotation::R0,
+        };
+        assert_eq!(site_price(&design, edit), kind.def().price, "{kind:?}");
     }
-    for &(id, units) in PartKind::HeavyEngine.def().recipe {
-        design = bought(&design, &rich(), id, units);
+
+    // Plating: the deck alone where there is frame, the deck and the frame
+    // where there is not.
+    let deck = PartKind::Floor.def().price;
+    let frame = PartKind::Structure.def().price;
+    assert_eq!(site_price(&design, Edit::Plate { origin: (1, 3) }), deck);
+    assert_eq!(
+        site_price(&design, Edit::Plate { origin: (0, 0) }),
+        deck + frame
+    );
+
+    // What is not construction costs nothing.
+    assert_eq!(site_price(&design, Edit::Remove { part_id: 1 }), 0);
+    assert_eq!(
+        site_price(
+            &design,
+            Edit::Buy {
+                resource: ResourceId::Vegetable,
+                units: 1
+            }
+        ),
+        0
+    );
+
+    // And a removal hands the whole price back — every part in the table,
+    // so nothing quietly refunds a fraction.
+    for &kind in PartKind::ALL.iter() {
+        let spot = yard_spot(kind);
+        let Ok(built) = apply(
+            &design,
+            &rich(),
+            Edit::Place {
+                kind,
+                origin: spot,
+                rotation: Rotation::R0,
+            },
+        ) else {
+            continue;
+        };
+        let part = built.parts.last().unwrap().id;
+        assert_eq!(refund_for(&built, part), kind.def().price, "{kind:?}");
     }
-    design
+    assert_eq!(refund_for(&design, 9_999), 0, "no such part");
 }
 
-/// Somewhere in [`yard`] that this kind can legally go.
+/// Somewhere in the yard above that this kind can legally go.
 fn yard_spot(kind: PartKind) -> (u32, u32) {
-    // A wall light and a picture hang from a wall: the shelves, at its
-    // back turned `R0`.
+    // A wall light and a picture hang from a wall, and the yard has none;
+    // a spot with nothing at its back is refused, which the caller skips.
     if crate::parts::hangs_on_wall(kind) {
         return (3, 3);
     }
@@ -2002,289 +2123,6 @@ fn yard_spot(kind: PartKind) -> (u32, u32) {
         // Everything else wants deck, and the middle of the yard is clear
         // for the largest footprint in the table.
         _ => (5, 5),
-    }
-}
-
-fn build(design: &ShipDesign, kind: PartKind) -> Result<ShipDesign, EditError> {
-    build_from_cargo(
-        design,
-        Edit::Place {
-            kind,
-            origin: yard_spot(kind),
-            rotation: Rotation::R0,
-        },
-    )
-}
-
-/// Every recipe is materials and only materials. Ore is what metal is
-/// refined from, fuel is burnt and the other two are eaten — none of them is
-/// something a wall is made of, and a recipe that named one would be a part
-/// nobody could build out of anything they mined.
-/// Three recipes added up by hand. Metal is 8 a unit and components are 2,
-/// and a part weighs what went into it and nothing else — so these are the
-/// numbers that catch `part_mass` quietly growing a second term.
-#[test]
-fn a_part_is_made_of_metal_and_components_and_weighs_what_it_is_made_of() {
-    // --- a_part_is_made_of_metal_and_components_and_nothing_else ---
-    {
-        for &kind in PartKind::ALL.iter() {
-            let recipe = kind.def().recipe;
-            assert!(!recipe.is_empty(), "{kind:?} is made of nothing");
-            for &(id, units) in recipe {
-                assert!(
-                    id == ResourceId::Metal || id == ResourceId::Components,
-                    "{kind:?} is made of {id:?}",
-                );
-                assert!(units > 0, "{kind:?} wants no {id:?}");
-            }
-            let named_twice = recipe
-                .iter()
-                .enumerate()
-                .any(|(i, &(id, _))| recipe[..i].iter().any(|&(seen, _)| seen == id));
-            assert!(!named_twice, "{kind:?} names a material twice");
-            assert!(part_mass(kind) > 0.0, "{kind:?} weighs nothing");
-        }
-    }
-
-    // --- a_part_weighs_what_it_is_made_of ---
-    {
-        assert_eq!(part_mass(PartKind::Engine), 40.0 * 8.0 + 40.0 * 2.0);
-        assert_eq!(part_mass(PartKind::Engine), 400.0);
-        assert_eq!(part_mass(PartKind::Wall), 2.0 * 8.0);
-        assert_eq!(part_mass(PartKind::Wall), 16.0);
-        assert_eq!(part_mass(PartKind::Helm), 4.0 * 8.0 + 20.0 * 2.0);
-        assert_eq!(part_mass(PartKind::Helm), 72.0);
-    }
-}
-
-/// The whole of the contract, for every part there is: what comes out of the
-/// hold and what goes into the wall weigh the same, so the ship's mass does
-/// not move.
-/// And back again. Deconstructing what was just built returns the hold to
-/// exactly what it held before — every unit of it, for every part in the
-/// table — which is the "no loss" half of the rule.
-#[test]
-fn building_out_of_the_hold_changes_no_weight_and_taking_off_puts_every_material_back() {
-    // --- building_a_part_out_of_the_hold_does_not_change_what_the_ship_weighs ---
-    {
-        let yard = yard();
-        let before = ship_mass(&yard, 2).unwrap().get();
-        for &kind in PartKind::ALL.iter() {
-            let built =
-                build(&yard, kind).unwrap_or_else(|e| panic!("{kind:?} was refused: {e:?}"));
-            let after = ship_mass(&built, 2).unwrap().get();
-            assert!(
-                (after - before).abs() < 1e-9,
-                "{kind:?}: {before} became {after}",
-            );
-            // And it went the way round it is meant to: the hull gained exactly
-            // the part, so the hold lost exactly the part.
-            assert!(
-                (hull_mass(&built) - hull_mass(&yard) - part_mass(kind)).abs() < 1e-9,
-                "{kind:?}",
-            );
-            assert_eq!(built.parts.len(), yard.parts.len() + 1, "{kind:?}");
-        }
-    }
-
-    // --- taking_a_part_off_puts_every_material_back ---
-    {
-        let yard = yard();
-        let before = ship_mass(&yard, 2).unwrap().get();
-        for &kind in PartKind::ALL.iter() {
-            let built =
-                build(&yard, kind).unwrap_or_else(|e| panic!("{kind:?} was refused: {e:?}"));
-            let id = built.parts.last().unwrap().id;
-            let back =
-                deconstruct_to_cargo(&built, id).unwrap_or_else(|e| panic!("{kind:?}: {e:?}"));
-            assert_eq!(back.cargo, yard.cargo, "{kind:?} came back short");
-            assert!(
-                (ship_mass(&back, 2).unwrap().get() - before).abs() < 1e-9,
-                "{kind:?}",
-            );
-            assert_eq!(back.parts.len(), yard.parts.len(), "{kind:?}");
-        }
-    }
-}
-
-/// An empty hold builds nothing, and it is refused whole — not placed and
-/// then paid for, which would be a wall standing there for free.
-/// Materials have to have somewhere to go. A ship with no shelf cannot take
-/// a hob apart, and the one whose only shelf *is* the part coming off cannot
-/// either — the room is measured after the removal, which is the case that
-/// makes the rule bite.
-#[test]
-fn building_without_the_materials_or_deconstructing_with_nowhere_to_put_them_is_refused() {
-    // --- building_without_the_materials_is_refused ---
-    {
-        let bare = floored(12, (1, 1), (11, 11));
-        for kind in [PartKind::Wall, PartKind::Engine, PartKind::Hob] {
-            assert_eq!(
-                build_from_cargo(
-                    &bare,
-                    Edit::Place {
-                        kind,
-                        origin: (5, 5),
-                        rotation: Rotation::R0,
-                    },
-                ),
-                Err(EditError::MaterialsShort),
-                "{kind:?}",
-            );
-        }
-
-        // One unit short is still short: it is the whole recipe or nothing. The
-        // yard holds exactly the heavy engine's recipe, so building one empties
-        // the shelves.
-        let yard = yard();
-        let engine = build(&yard, PartKind::HeavyEngine).unwrap();
-        assert_eq!(engine.carrying(ResourceId::Metal), 0);
-        assert_eq!(engine.carrying(ResourceId::Components), 0);
-        assert_eq!(
-            build(&engine, PartKind::Wall),
-            Err(EditError::MaterialsShort),
-        );
-
-        // The placement rules are still `apply`'s, and they are asked first: a
-        // part that will not fit is told so rather than told to go shopping.
-        assert_eq!(
-            build_from_cargo(
-                &bare,
-                Edit::Place {
-                    kind: PartKind::Hob,
-                    origin: (11, 11),
-                    rotation: Rotation::R0,
-                },
-            ),
-            Err(EditError::MissingFloor),
-        );
-
-        // And nothing but a placement is construction.
-        assert_eq!(
-            build_from_cargo(&yard, Edit::Remove { part_id: 1 }),
-            Err(EditError::BadCode),
-        );
-        assert_eq!(
-            build_from_cargo(
-                &yard,
-                Edit::Buy {
-                    resource: ResourceId::Metal,
-                    units: 1,
-                },
-            ),
-            Err(EditError::BadCode),
-        );
-    }
-
-    // --- a_deconstruction_with_nowhere_to_put_the_materials_is_refused ---
-    {
-        let bare = put(floored(12, (1, 1), (11, 11)), PartKind::Hob, (5, 5));
-        let hob = bare.parts.last().unwrap().id;
-        assert_eq!(
-            deconstruct_to_cargo(&bare, hob),
-            Err(EditError::NoRoomAboard),
-        );
-
-        let one_shelf = put(floored(12, (1, 1), (11, 11)), PartKind::Shelf, (2, 2));
-        let shelf = one_shelf.parts.last().unwrap().id;
-        assert_eq!(
-            deconstruct_to_cargo(&one_shelf, shelf),
-            Err(EditError::NoRoomAboard),
-            "the shelf cannot hold the metal it is made of once it is off",
-        );
-        // With a second shelf to put it on, the same removal is fine.
-        let two = put(one_shelf, PartKind::Shelf, (3, 2));
-        assert_eq!(
-            deconstruct_to_cargo(&two, shelf).map(|d| d.carrying(ResourceId::Metal)),
-            Ok(2),
-        );
-
-        // A part that is not there is `NoSuchPart`, the same as a removal is.
-        assert_eq!(
-            deconstruct_to_cargo(&bare, 9_999),
-            Err(EditError::NoSuchPart),
-        );
-        // And the removal rules still hold: the deck under the hob is holding it
-        // up, whatever the materials would do.
-        let deck = bare.grid().get(Layer::Floor, (5, 5));
-        assert_eq!(
-            deconstruct_to_cargo(&bare, deck),
-            Err(EditError::SupportInUse),
-        );
-    }
-}
-
-/// Deck plating is construction too, and it costs what it lays: the deck's
-/// recipe on a tile that already has frame, the deck's and the frame's on
-/// one that has not — `recipe_for` says which, and `build_from_cargo`
-/// spends exactly that.
-#[test]
-fn plating_from_the_hold_pays_for_the_frame_only_where_there_is_none() {
-    use crate::materials::recipe_for;
-    let yard = yard();
-    let metal = yard.carrying(ResourceId::Metal);
-    let deck = PartKind::Floor.def().recipe[0].1;
-    let frame = PartKind::Structure.def().recipe[0].1;
-
-    // The bare ring is frame with no deck on it.
-    let framed = Edit::Plate { origin: (1, 3) };
-    assert_eq!(recipe_for(&yard, framed), vec![(ResourceId::Metal, deck)]);
-    let plated = build_from_cargo(&yard, framed).unwrap();
-    assert_eq!(plated.carrying(ResourceId::Metal), metal - deck);
-    assert!(plated.grid().has_floor((1, 3)));
-
-    // The tile outside the frame has nothing in it at all.
-    let bare = Edit::Plate { origin: (0, 0) };
-    assert_eq!(
-        recipe_for(&yard, bare),
-        vec![(ResourceId::Metal, deck + frame)]
-    );
-    let plated = build_from_cargo(&yard, bare).unwrap();
-    assert_eq!(plated.carrying(ResourceId::Metal), metal - deck - frame);
-    assert!(plated.grid().has_structure((0, 0)));
-    assert!(plated.grid().has_floor((0, 0)));
-
-    // And what is not construction costs nothing.
-    assert!(recipe_for(&yard, Edit::Remove { part_id: 1 }).is_empty());
-}
-
-/// What is welded in and what is in the hold are one stock of materials.
-/// Building moves units from one column to the other and changes neither
-/// total — the same statement as the mass one, in the units a hauling step
-/// will want.
-#[test]
-fn what_is_welded_in_and_what_is_in_the_hold_are_one_stock() {
-    let yard = yard();
-    let built = build(&yard, PartKind::Engine).unwrap();
-
-    let before = bound_materials(&yard);
-    let after = bound_materials(&built);
-    assert_eq!(
-        after[ResourceId::Metal as usize] - before[ResourceId::Metal as usize],
-        40,
-    );
-    assert_eq!(
-        after[ResourceId::Components as usize] - before[ResourceId::Components as usize],
-        40,
-    );
-    for &id in ResourceId::ALL.iter() {
-        let i = id as usize;
-        assert_eq!(
-            after[i] + built.carrying(id) as u64,
-            before[i] + yard.carrying(id) as u64,
-            "{id:?} was made or lost",
-        );
-    }
-
-    // Nothing is made of food or ore, so those columns stay empty however
-    // the ship is built.
-    for id in [ResourceId::Ore, ResourceId::Vegetable, ResourceId::Tofu] {
-        assert_eq!(after[id as usize], 0, "{id:?} is welded into something");
-    }
-
-    // The two ways of weighing the hull are one sum written twice.
-    for design in [yard, built, reference(4)] {
-        assert!((bound_mass(&design) - hull_mass(&design)).abs() < 1e-9);
     }
 }
 
@@ -2325,7 +2163,6 @@ fn the_playtest_ship_is_a_whole_ship_for_one_and_moves_onto_a_bigger_grid_whole(
             (PartKind::SmallPlant, 1),
             (PartKind::Picture, 1),
             (PartKind::Shelf, 2),
-            (PartKind::Smelter, 1),
             (PartKind::Workbench, 1),
             (PartKind::DrugLab, 1),
             (PartKind::Armoury, 1),
@@ -2730,7 +2567,6 @@ fn power_is_made_held_and_drawn_where_it_is_meant_to_be() {
             (PartKind::Helm, 5.0),
             (PartKind::LifeSupport, 20.0),
             (PartKind::SensorArray, 10.0),
-            (PartKind::Smelter, 40.0),
             (PartKind::Workbench, 15.0),
             (PartKind::Armoury, 10.0),
             (PartKind::DrugLab, 5.0),
@@ -3264,10 +3100,11 @@ fn the_fixtures_are_wired() {
     // The one engine, wired along row 16, which is what it burns.
     assert_eq!(power.engine_draw, ENGINE_POWER);
     // Life support, the helm, the array, the cold store, the bay, two
-    // doors, the smelter, the workbench, the drug lab, the armoury and
-    // the research desk: 137 — and the six wall lights and the standing
-    // light, 190 between them, since the lamps went on the bill.
-    assert_eq!(power.draw, 327.0);
+    // doors, the workbench, the drug lab, the armoury and the research
+    // desk: 97, the smelter's 40 gone with the smelter — and the six wall
+    // lights and the standing light, 190 between them, since the lamps
+    // went on the bill.
+    assert_eq!(power.draw, 287.0);
     assert_eq!(power.storage, crate::parts::BATTERY_CHARGE);
     let codes = all_codes(&design, 1);
     assert!(!codes.contains(&IssueCode::Unpowered.code()));
@@ -3276,228 +3113,46 @@ fn the_fixtures_are_wired() {
 
 // --- recipes --------------------------------------------------------------
 
-/// The table, said out loud: what each makes, at what, and the mass rule —
-/// conserved at the workbench, lost only at the smelter, gained nowhere.
+/// The one row left, said out loud: what it makes, at what, and the mass
+/// rule — a medkit weighs exactly the two vegetables that went into it,
+/// which is what holds `physics::RESOURCES`'s medkit mass to the recipe.
 #[test]
 fn every_recipe_holds_together() {
     use crate::recipes::{RECIPES, at, recipes_are_sound};
     assert!(recipes_are_sound());
-    assert_eq!(RECIPES.len(), 17);
+    assert_eq!(RECIPES.len(), 1, "the money rework left one recipe");
 
-    let smelt = &RECIPES[0];
-    assert_eq!(smelt.station, PartKind::Smelter);
-    assert_eq!(smelt.inputs, &[(ResourceId::Ore, 2)]);
-    assert_eq!(smelt.output, (ResourceId::Metal, 1));
-    assert!(smelt.vents);
-    assert!(
-        smelt.output_mass() < smelt.input_mass(),
-        "the slag is vented"
-    );
+    let medkit = &RECIPES[0];
+    assert_eq!(medkit.station, PartKind::DrugLab);
+    assert_eq!(medkit.inputs, &[(ResourceId::Vegetable, 2)]);
+    assert_eq!(medkit.output, (ResourceId::Medkit, 1));
+    assert_eq!(medkit.minutes, 15);
 
-    let components = &RECIPES[1];
-    assert_eq!(components.station, PartKind::Workbench);
-    assert_eq!(components.output, (ResourceId::Components, 4));
-    assert!(!components.vents);
-    assert_eq!(components.output_mass(), components.input_mass());
-
-    let emitter = &RECIPES[2];
-    assert_eq!(emitter.station, PartKind::Workbench);
-    assert_eq!(emitter.output, (ResourceId::Emitter, 1));
-    assert!(
-        emitter
-            .inputs
-            .iter()
-            .any(|&(id, _)| id == ResourceId::Galvum)
-    );
-    assert_eq!(emitter.output_mass(), emitter.input_mass());
-
-    assert_eq!(at(PartKind::Smelter).count(), 1);
-    assert_eq!(at(PartKind::Workbench).count(), 7);
-    // Seven at the armoury — six since the medkit went to the drug lab,
-    // which makes two (medicine is made from the first day, and the
-    // armoury is researched, `crate::research`), and the soldier's
-    // grenade (feature 75), the last row.
-    assert_eq!(at(PartKind::Armoury).count(), 7);
-    let grenade = &RECIPES[16];
-    assert_eq!(grenade.station, PartKind::Armoury);
-    assert_eq!(
-        grenade.inputs,
-        &[(ResourceId::Metal, 1), (ResourceId::Components, 1)]
-    );
-    assert_eq!(grenade.output, (ResourceId::Grenade, 1));
-    assert_eq!(grenade.minutes, 20);
-    assert_eq!(grenade.output_mass(), grenade.input_mass());
-    assert_eq!(at(PartKind::DrugLab).count(), 2);
-    assert_eq!(at(PartKind::Hob).count(), 0);
-    // The three the armoury makes, and what they are made of: the handgun
-    // is the one thing that wants an emitter, so it is the one thing that
-    // wants galvum.
-    let handgun = &RECIPES[3];
-    assert_eq!(handgun.output, (ResourceId::Handgun, 1));
-    assert!(
-        handgun
-            .inputs
-            .iter()
-            .any(|&(id, _)| id == ResourceId::Emitter)
-    );
-    assert_eq!(handgun.output_mass(), handgun.input_mass());
-    assert_eq!(RECIPES[4].output, (ResourceId::Vest, 1));
-    assert_eq!(RECIPES[5].output, (ResourceId::Medkit, 1));
-    assert_eq!(RECIPES[5].station, PartKind::DrugLab);
-    for r in &RECIPES[3..6] {
-        assert_eq!(
-            r.station == PartKind::Armoury,
-            r.output.0 != ResourceId::Medkit
-        );
-        assert!(!r.vents);
-        assert_eq!(r.output_mass(), r.input_mass(), "{:?}", r.output);
-    }
-    // The drug lab's one recipe: two fibre off the bay, one bandage, and
-    // the bandage weighs the fibre.
-    let bandage = &RECIPES[6];
-    assert_eq!(bandage.station, PartKind::DrugLab);
-    assert_eq!(bandage.inputs, &[(ResourceId::Fibre, 2)]);
-    assert_eq!(bandage.output, (ResourceId::Bandage, 1));
-    assert!(!bandage.vents);
-    assert_eq!(bandage.output_mass(), bandage.input_mass());
-    // The three pieces of armour, back at the workbench, each weighing
-    // its metal: the kevlar is the one that wants galvum, and the vest at
-    // the armoury is still the vest.
-    let armour = &RECIPES[7..10];
-    assert_eq!(armour[0].inputs, &[(ResourceId::Metal, 2)]);
-    assert_eq!(armour[0].output, (ResourceId::Helm, 1));
-    assert_eq!(armour[0].minutes, 30);
-    assert_eq!(
-        armour[1].inputs,
-        &[(ResourceId::Metal, 3), (ResourceId::Galvum, 1)]
-    );
-    assert_eq!(armour[1].output, (ResourceId::Kevlar, 1));
-    assert_eq!(armour[1].minutes, 45);
-    assert_eq!(armour[2].inputs, &[(ResourceId::Metal, 1)]);
-    assert_eq!(armour[2].output, (ResourceId::LegGuard, 1));
-    assert_eq!(armour[2].minutes, 20);
-    for r in armour {
-        assert_eq!(r.station, PartKind::Workbench);
-        assert!(!r.vents);
-        assert_eq!(r.output_mass(), r.input_mass(), "{:?}", r.output);
-    }
-    assert_eq!(RECIPES[4].output, (ResourceId::Vest, 1), "the vest stays");
-    // The four weapons after the handgun, at the armoury again, each
-    // weighing what went into it: the shotgun is the one gun with no
-    // emitter in it, and the sniper and the schword want two.
-    let weapons = &RECIPES[10..14];
-    assert_eq!(
-        weapons[0].inputs,
-        &[(ResourceId::Metal, 4), (ResourceId::Components, 2)]
-    );
-    assert_eq!(weapons[0].output, (ResourceId::Shotgun, 1));
-    assert_eq!(weapons[0].minutes, 45);
-    assert_eq!(
-        weapons[1].inputs,
-        &[
-            (ResourceId::Metal, 3),
-            (ResourceId::Components, 3),
-            (ResourceId::Emitter, 1)
-        ]
-    );
-    assert_eq!(weapons[1].output, (ResourceId::AutoRifle, 1));
-    assert_eq!(weapons[1].minutes, 60);
-    assert_eq!(
-        weapons[2].inputs,
-        &[
-            (ResourceId::Metal, 4),
-            (ResourceId::Components, 2),
-            (ResourceId::Emitter, 2)
-        ]
-    );
-    assert_eq!(weapons[2].output, (ResourceId::SniperRifle, 1));
-    assert_eq!(weapons[2].minutes, 75);
-    assert_eq!(
-        weapons[3].inputs,
-        &[
-            (ResourceId::Metal, 1),
-            (ResourceId::Components, 1),
-            (ResourceId::Emitter, 2)
-        ]
-    );
-    assert_eq!(weapons[3].output, (ResourceId::Schword, 1));
-    assert_eq!(weapons[3].minutes, 60);
-    for r in weapons {
-        assert_eq!(r.station, PartKind::Armoury);
-        assert!(!r.vents);
-        assert_eq!(r.output_mass(), r.input_mass(), "{:?}", r.output);
-    }
-    // Every station draws, so every one of them stops in a brownout.
+    // Mass in equals mass out, in the numbers: two vegetables at a half
+    // are one, and a medkit weighs one.
+    assert_eq!(medkit.input_mass(), 1.0);
+    assert_eq!(medkit.output_mass(), 1.0);
+    assert_eq!(ResourceId::Medkit.mass_per_unit(), 1.0);
     for r in RECIPES.iter() {
-        assert!(r.station.def().draws(), "{:?}", r.station);
+        assert!((r.output_mass() - r.input_mass()).abs() < 1e-9);
     }
-}
 
-// --- the price of a made thing --------------------------------------------
-
-/// What a recipe earns at one desk, in whole euros and possibly below
-/// nought: every input bought at that desk's ask, the output sold at its
-/// bid, with the desk's lean on each resource given by `lean`. The
-/// "printer" sum — one desk, one bench, round and round.
-fn margin_at(
-    recipe: &crate::recipes::Recipe,
-    kind: market::MarketKind,
-    lean: impl Fn(ResourceId) -> i32,
-) -> i64 {
-    let cost: i64 = recipe
-        .inputs
-        .iter()
-        .map(|&(id, units)| market::quote(kind, lean(id), id).ask as i64 * units as i64)
-        .sum();
-    let (out, units) = recipe.output;
-    market::quote(kind, lean(out), out).bid as i64 * units as i64 - cost
-}
-
-/// Whether `margin` a cycle of `minutes` is at most `cap` a bench-hour:
-/// `margin × 60 ≤ cap × minutes`, in integers, so no rounding of the
-/// rate can hide a euro.
-fn under_per_hour(margin: i64, minutes: u32, cap: i64) -> bool {
-    margin * 60 <= cap * minutes as i64
-}
-
-/// The rule for a made thing's book value — its inputs at theirs plus a
-/// fifth an hour at the bench, `recipes::made_book` — and the numbers
-/// `economy::trade_price` carries, written in by hand, agree for every
-/// output but metal, which is exempt. A retyped price, a changed recipe
-/// or a turned labour constant fails here; the smelter's row is checked
-/// to be the one exception rather than skipped.
-#[test]
-fn every_made_book_is_its_inputs_and_labour() {
-    use crate::recipes::{LABOUR_BP_PER_HOUR, RECIPES, made_book};
-    assert_eq!(LABOUR_BP_PER_HOUR, 2_000);
-    for (i, r) in RECIPES.iter().enumerate() {
-        let (out, _) = r.output;
-        if out == ResourceId::Metal {
-            assert!(
-                made_book(r) != trade_price(out),
-                "metal is exempt from the rule, and priced as a root"
-            );
-            continue;
-        }
-        assert_eq!(
-            trade_price(out),
-            made_book(r),
-            "recipe {i} makes {out:?}: the book is not its inputs and labour"
-        );
+    // One bench makes anything, and it is the drug lab. The workbench
+    // combines and makes nothing; the armoury is a cabinet.
+    assert_eq!(at(PartKind::DrugLab).count(), 1);
+    assert_eq!(at(PartKind::Workbench).count(), 0);
+    assert_eq!(at(PartKind::Armoury).count(), 0);
+    // And every station a recipe names draws, so a brownout stops it.
+    for r in RECIPES.iter() {
+        assert!(r.station.def().draws(), "{:?} draws nothing", r.station);
     }
-    // The sum, worked by hand for the first two rows past the roots: a
-    // metal (60) and twenty minutes (666 bp) over four is 15, and a
-    // metal, two of those and a galvum (490) with an hour (2_000 bp) is
-    // 588.
-    assert_eq!(made_book(&RECIPES[1]), 15);
-    assert_eq!(made_book(&RECIPES[2]), 588);
 }
 
 /// Leaning a desk one more per cent in a resource's favour never lowers
-/// either side of its quote: the mid rounds down but rises with the
-/// lean, and the half rises no faster than the mid. It is what lets the
-/// desk tests below look at the two ends of the roll and nowhere in
-/// between.
+/// either side of its quote: the mid rounds down but rises with the lean,
+/// and the half rises no faster than the mid. It is what lets anything
+/// that cares about a desk look at the two ends of the roll and nowhere
+/// in between.
 #[test]
 fn quote_is_monotone_in_the_bias() {
     use market::MAX_BIAS;
@@ -3518,80 +3173,11 @@ fn quote_is_monotone_in_the_bias() {
     }
 }
 
-/// At the plain desk — an orbital's, with no lean of its own, which is
-/// what every design phase buys at — no recipe earns more than two
-/// hundred euros a bench-hour buying its inputs at the ask and selling
-/// its output at the bid, the smelter included. What closed the printer:
-/// before the rule the components row alone cleared five hundred a
-/// cycle.
-#[test]
-fn no_recipe_prints_at_a_plain_desk() {
-    use crate::recipes::RECIPES;
-    let plain = market::Market::PLAIN;
-    for (i, r) in RECIPES.iter().enumerate() {
-        let margin = margin_at(r, plain.kind, |id| plain.bias.of(id));
-        assert!(
-            under_per_hour(margin, r.minutes, 200),
-            "recipe {i} ({:?}) earns {margin} a cycle of {} minutes at the plain desk",
-            r.output.0,
-            r.minutes
-        );
-    }
-}
-
-/// Nor at any single desk the generator can roll: for every kind of
-/// station and every way of leaning each resource in the recipe to
-/// either end of its roll on its own — the worst case for the crew is
-/// every input cheap and the output dear, but each is tried both ways so
-/// nothing is assumed about which — the same sum stays under seven
-/// hundred euros a bench-hour. The extremes are enough by
-/// `quote_is_monotone_in_the_bias`: a lean in between is a quote in
-/// between.
-#[test]
-fn no_recipe_prints_at_any_single_desk() {
-    use crate::recipes::RECIPES;
-    use market::MAX_BIAS;
-    for kind in market::MarketKind::ALL {
-        for (i, r) in RECIPES.iter().enumerate() {
-            let resources: Vec<ResourceId> = r
-                .inputs
-                .iter()
-                .map(|&(id, _)| id)
-                .chain(std::iter::once(r.output.0))
-                .collect();
-            for combination in 0u32..(1 << resources.len()) {
-                let lean = |id: ResourceId| {
-                    let at = resources.iter().position(|&x| x == id).unwrap();
-                    if combination & (1 << at) != 0 {
-                        MAX_BIAS as i32
-                    } else {
-                        -(MAX_BIAS as i32)
-                    }
-                };
-                let margin = margin_at(r, kind, lean);
-                assert!(
-                    under_per_hour(margin, r.minutes, 700),
-                    "recipe {i} ({:?}) earns {margin} a cycle of {} minutes at a {kind:?} leaning {combination:b}",
-                    r.output.0,
-                    r.minutes
-                );
-            }
-        }
-    }
-}
-
-// --- research ----------------------------------------------------------------
-
-/// The tree holds together, and the crew set out knowing what a crew
-/// needs to live: every part that is not a bench or the fusion reactor,
-/// mining, and medicine — the drug lab and both its recipes — with the
-/// smelter, the workbench, the armoury and the emitter still to learn.
-/// The AI works one node at a time, in prerequisite order, and a locked
-/// node waits for its key: smelting is available at once, the workshop
-/// only after it, and the armoury not until a key has been consumed for
-/// it — for it alone: the emitters stay locked until a key of their own,
-/// and a second key on the armoury does nothing, since one opens a node
-/// for good.
+/// The tree the money rework left: five nodes, three known at the start,
+/// fusion power to work for and the hyperdrive behind a key of its own,
+/// with the upgrades in tier two behind a tier-two key. Everything the
+/// five deleted nodes used to gate — the suit locker, the workbench, the
+/// armoury — is known from the first day.
 #[test]
 fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
     // --- the_research_tree_is_sound_and_the_crew_know_how_to_live ---
@@ -3599,59 +3185,55 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
         use crate::recipes::RECIPES;
         use crate::research::{Node, Research, node_of_part, node_of_recipe, tree_is_sound};
         assert!(tree_is_sound());
+        assert_eq!(Node::ALL.len(), 5);
         let fresh = Research::new();
         for node in Node::ALL {
             assert_eq!(fresh.is_done(node), node.known_at_start(), "{node:?}");
         }
         assert!(fresh.is_done(Node::Survival));
-        assert!(fresh.is_done(Node::Mining));
         assert!(fresh.is_done(Node::Medicine));
+        assert!(!fresh.is_done(Node::FusionPower));
+        // Two parts in the whole table are not buildable on day one.
         for kind in PartKind::ALL {
-            let expected = !matches!(
-                kind,
-                PartKind::Smelter
-                    | PartKind::Workbench
-                    | PartKind::Armoury
-                    | PartKind::FusionReactor
-                    | PartKind::Hyperdrive
-            );
+            let expected = !matches!(kind, PartKind::FusionReactor | PartKind::Hyperdrive);
             assert_eq!(fresh.part_allowed(kind), expected, "{kind:?}");
         }
         assert!(fresh.part_allowed(PartKind::SuitLocker));
+        assert!(fresh.part_allowed(PartKind::Workbench));
+        assert!(fresh.part_allowed(PartKind::Armoury));
         assert!(fresh.part_allowed(PartKind::ResearchDesk));
-        assert!(fresh.part_allowed(PartKind::Reactor));
-        // Medicine from the first day: the bandage and the medkit, both at
-        // the drug lab, and nothing else the benches make.
+        // Medicine from the first day, and it is the only recipe there is.
         for (i, recipe) in RECIPES.iter().enumerate() {
-            let medicine = matches!(recipe.output.0, ResourceId::Bandage | ResourceId::Medkit);
-            assert_eq!(fresh.recipe_allowed(i), medicine, "recipe {i}");
-            assert_eq!(node_of_recipe(i) == Node::Medicine, medicine, "recipe {i}");
+            assert_eq!(recipe.output.0, ResourceId::Medkit);
+            assert!(fresh.recipe_allowed(i), "recipe {i}");
+            assert_eq!(node_of_recipe(i), Node::Medicine, "recipe {i}");
         }
-        assert_eq!(node_of_recipe(2), Node::Emitters);
-        assert_eq!(node_of_recipe(0), Node::Smelting);
-        assert_eq!(node_of_recipe(1), Node::Workshop);
-        for i in [3, 4, 7, 8, 9, 10, 11, 12, 13] {
-            assert_eq!(node_of_recipe(i), Node::Armoury, "recipe {i}");
-        }
+        assert_eq!(node_of_part(PartKind::DrugLab), Node::Medicine);
         assert_eq!(node_of_part(PartKind::FusionReactor), Node::FusionPower);
         assert_eq!(node_of_part(PartKind::Hyperdrive), Node::Hyperdrive);
         assert_eq!(Node::Hyperdrive.def().requires, &[Node::FusionPower]);
-        // Locked nodes are the armoury, the emitters and the hyperdrive in
-        // tier one, and the upgrades in tier two, all wanting a key of
-        // their tier.
+        assert_eq!(Node::FusionPower.def().requires, &[]);
+        assert_eq!(Node::Upgrades.def().requires, &[]);
+        // Locked: the hyperdrive in tier one and the upgrades in tier two,
+        // each wanting a key of its own tier.
         for node in Node::ALL {
-            let locked = matches!(
-                node,
-                Node::Armoury | Node::Emitters | Node::Hyperdrive | Node::Upgrades
-            );
+            let locked = matches!(node, Node::Hyperdrive | Node::Upgrades);
             assert_eq!(node.def().locked, locked, "{node:?}");
-            assert_eq!(fresh.needs_key(node), locked, "{node:?}");
             let tier = if node == Node::Upgrades { 2 } else { 1 };
             assert_eq!(node.def().tier, tier, "{node:?}");
         }
-        assert_eq!(Node::Upgrades.def().requires, &[Node::Armoury]);
+        // A shut lock is a shut lock whether or not what it wants is
+        // researched: the hyperdrive still waits on fusion power as well.
+        assert!(fresh.needs_key(Node::Upgrades));
+        assert!(fresh.needs_key(Node::Hyperdrive));
+        assert!(!fresh.needs_key(Node::FusionPower));
+        assert!(!fresh.available(Node::Hyperdrive));
         assert_eq!(Node::Upgrades.def().minutes, 1_440);
+        assert_eq!(Node::FusionPower.def().minutes, 2_880);
+        assert_eq!(Node::Hyperdrive.def().minutes, 1_800);
         assert_eq!(Research::key_wanted(Node::Upgrades), Some(2));
+        assert_eq!(Research::key_wanted(Node::Hyperdrive), Some(1));
+        assert_eq!(Research::key_wanted(Node::FusionPower), None);
         assert!(!fresh.upgrades_allowed());
     }
 
@@ -3659,91 +3241,54 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
     {
         use crate::research::{Node, Research};
         let mut r = Research::new();
-        assert!(r.available(Node::Smelting));
-        assert!(!r.available(Node::Workshop));
-        assert!(!r.available(Node::Armoury));
+        assert!(r.available(Node::FusionPower));
+        assert!(!r.available(Node::Hyperdrive));
         // The AI is idle until `next`: a node queued goes onto it then.
-        assert!(r.enqueue(Node::Smelting));
+        assert!(r.enqueue(Node::FusionPower));
         assert_eq!(r.current, None);
-        assert!(!r.enqueue(Node::Smelting), "queued already");
-        assert_eq!(r.next(), Some(Node::Smelting));
+        assert!(!r.enqueue(Node::FusionPower), "queued already");
+        assert_eq!(r.next(), Some(Node::FusionPower));
         assert_eq!(r.next(), None, "busy");
         assert!(r.queue.is_empty());
         // Not there yet: nothing finished, and the fraction climbs.
-        let smelting = Node::Smelting.def().minutes as f64;
-        assert_eq!(r.advance(smelting * 0.45), None);
+        let fusion = Node::FusionPower.def().minutes as f64;
+        assert_eq!(r.advance(fusion * 0.45), None);
         assert!(r.fraction() > 0.4 && r.fraction() < 0.5);
         // A cancel loses the progress: beginning again starts over.
         assert!(r.cancel().is_empty());
         assert_eq!(r.current, None);
-        assert!(r.enqueue(Node::Smelting));
-        assert_eq!(r.next(), Some(Node::Smelting));
-        assert_eq!(r.advance(smelting - 100.0), None);
-        assert_eq!(r.advance(100.0), Some(Node::Smelting));
-        assert!(r.is_done(Node::Smelting));
-        assert!(r.part_allowed(PartKind::Smelter));
-        assert!(r.recipe_allowed(0));
+        assert!(r.enqueue(Node::FusionPower));
+        assert_eq!(r.next(), Some(Node::FusionPower));
+        assert_eq!(r.advance(fusion - 100.0), None);
+        assert_eq!(r.advance(100.0), Some(Node::FusionPower));
+        assert!(r.is_done(Node::FusionPower));
+        assert!(r.part_allowed(PartKind::FusionReactor));
         assert_eq!(r.current, None);
-        assert!(r.available(Node::Workshop));
-        assert!(r.enqueue(Node::Workshop));
-        assert_eq!(r.next(), Some(Node::Workshop));
-        assert_eq!(
-            r.advance(Node::Workshop.def().minutes as f64),
-            Some(Node::Workshop)
-        );
-        // The workshop done, three things open up: the fusion reactor at
-        // once, and the two locked nodes only behind the key.
-        assert!(r.available(Node::FusionPower));
-        assert!(!r.available(Node::Armoury));
-        assert!(r.needs_key(Node::Armoury));
-        assert!(r.needs_key(Node::Emitters));
-        assert!(!r.enqueue(Node::Armoury));
+        // Fusion power done, the hyperdrive is behind its key alone.
+        assert!(!r.available(Node::Hyperdrive));
+        assert!(r.needs_key(Node::Hyperdrive));
+        assert!(!r.enqueue(Node::Hyperdrive));
         assert!(
             !r.unlock(Node::FusionPower),
             "nothing to unlock on a keyless node"
         );
         assert!(r.is_unlocked(Node::FusionPower));
-        assert_eq!(Research::key_wanted(Node::Armoury), Some(1));
-        assert_eq!(Research::key_wanted(Node::Smelting), None);
-        assert!(r.unlock(Node::Armoury));
-        assert!(!r.unlock(Node::Armoury), "a node unlocks once");
-        assert!(r.is_unlocked(Node::Armoury));
-        assert!(!r.needs_key(Node::Armoury));
-        assert!(r.available(Node::Armoury));
+        assert!(r.unlock(Node::Hyperdrive));
+        assert!(!r.unlock(Node::Hyperdrive), "a node unlocks once");
+        assert!(r.is_unlocked(Node::Hyperdrive));
+        assert!(!r.needs_key(Node::Hyperdrive));
+        assert!(r.available(Node::Hyperdrive));
         assert!(
-            r.needs_key(Node::Emitters),
+            r.needs_key(Node::Upgrades),
             "a key opens one node, not the tier"
         );
-        assert!(!r.available(Node::Emitters));
-        assert!(r.enqueue(Node::Armoury));
-        assert_eq!(r.next(), Some(Node::Armoury));
+        assert!(r.enqueue(Node::Hyperdrive));
+        assert_eq!(r.next(), Some(Node::Hyperdrive));
         assert_eq!(
-            r.advance(Node::Armoury.def().minutes as f64),
-            Some(Node::Armoury)
+            r.advance(Node::Hyperdrive.def().minutes as f64),
+            Some(Node::Hyperdrive)
         );
-        assert!(r.part_allowed(PartKind::Armoury));
-        for i in [3, 4, 7, 10, 13] {
-            assert!(r.recipe_allowed(i), "recipe {i}");
-        }
-        assert!(!r.recipe_allowed(2), "the emitter is its own node");
-        assert!(!r.enqueue(Node::Emitters), "still behind its own key");
-        assert!(r.unlock(Node::Emitters));
-        // Queueing behind a busy AI: the emitters go on, and fusion power
-        // waits behind them; a cancel of the emitters loses what was put
-        // in and the AI goes onto fusion power at the next step.
-        assert!(r.enqueue(Node::Emitters));
-        assert_eq!(r.next(), Some(Node::Emitters));
-        assert_eq!(r.advance(300.0), None);
-        assert!(r.enqueue(Node::FusionPower));
-        assert_eq!(r.queue, vec![Node::FusionPower]);
-        assert_eq!(r.next(), None, "still on the emitters");
-        assert!(
-            r.cancel().is_empty(),
-            "fusion power did not need the emitters"
-        );
-        assert_eq!(r.next(), Some(Node::FusionPower));
-        assert_eq!(r.progress, 0.0);
-        assert!(r.queue.is_empty());
+        assert!(r.part_allowed(PartKind::Hyperdrive));
     }
 
     // --- a_queue_brings_its_prerequisites_and_loses_its_dependants ---
@@ -3759,64 +3304,42 @@ fn the_research_tree_is_sound_runs_in_order_and_a_key_opens_a_node() {
         assert!(r.queueable(Node::Hyperdrive));
         // Now the whole chain, prerequisites first.
         assert!(r.enqueue(Node::Hyperdrive));
-        assert_eq!(
-            r.queue,
-            vec![
-                Node::Smelting,
-                Node::Workshop,
-                Node::FusionPower,
-                Node::Hyperdrive
-            ]
-        );
+        assert_eq!(r.queue, vec![Node::FusionPower, Node::Hyperdrive]);
         for node in r.queue.clone() {
             assert!(r.planned(node));
             assert!(!r.queueable(node), "{node:?} is queued already");
         }
         // The AI takes the head; the rest wait, and are not begun early.
-        assert_eq!(r.next(), Some(Node::Smelting));
-        assert_eq!(r.queue.len(), 3);
+        assert_eq!(r.next(), Some(Node::FusionPower));
+        assert_eq!(r.queue.len(), 1);
         assert_eq!(r.next(), None);
-        // Something else queued while it works goes to the back, with the
-        // prerequisites it lacks — the workshop is planned already.
-        assert!(r.unlock(Node::Armoury));
-        assert!(r.enqueue(Node::Armoury));
-        assert_eq!(
-            r.queue,
-            vec![
-                Node::Workshop,
-                Node::FusionPower,
-                Node::Hyperdrive,
-                Node::Armoury
-            ]
-        );
-        // Taking fusion power out takes the hyperdrive with it, and
-        // nothing else.
-        assert_eq!(
-            r.dequeue(Node::FusionPower),
-            vec![Node::FusionPower, Node::Hyperdrive]
-        );
-        assert_eq!(r.queue, vec![Node::Workshop, Node::Armoury]);
-        assert!(r.dequeue(Node::FusionPower).is_empty(), "not there");
-        // Cancelling the smelting the AI is on empties the queue: both
-        // needed it, one through the other.
-        assert_eq!(r.cancel(), vec![Node::Workshop, Node::Armoury]);
+        // Something else queued while it works goes to the back. The
+        // upgrades need nothing, so they go on alone.
+        assert!(r.unlock(Node::Upgrades));
+        assert!(r.enqueue(Node::Upgrades));
+        assert_eq!(r.queue, vec![Node::Hyperdrive, Node::Upgrades]);
+        // Taking fusion power out is not possible — the AI is on it — but
+        // cancelling it takes the hyperdrive with it and leaves the
+        // upgrades, which never needed it.
+        assert_eq!(r.cancel(), vec![Node::Hyperdrive]);
+        assert_eq!(r.queue, vec![Node::Upgrades]);
+        assert_eq!(r.next(), Some(Node::Upgrades));
         assert!(r.queue.is_empty());
-        assert_eq!(r.next(), None);
-        // Finished nodes hand over: smelting done, the AI goes straight
-        // onto the workshop at the next `next`, the armoury after.
-        assert!(r.enqueue(Node::Armoury));
-        assert_eq!(r.queue, vec![Node::Smelting, Node::Workshop, Node::Armoury]);
-        assert_eq!(r.next(), Some(Node::Smelting));
+        // Finished nodes hand over: fusion power done, the AI goes
+        // straight onto the hyperdrive at the next `next`.
         assert_eq!(
-            r.advance(Node::Smelting.def().minutes as f64),
-            Some(Node::Smelting)
+            r.advance(Node::Upgrades.def().minutes as f64),
+            Some(Node::Upgrades)
         );
-        assert_eq!(r.next(), Some(Node::Workshop));
+        assert!(r.upgrades_allowed());
+        assert!(r.enqueue(Node::Hyperdrive));
+        assert_eq!(r.queue, vec![Node::FusionPower, Node::Hyperdrive]);
+        assert_eq!(r.next(), Some(Node::FusionPower));
         assert_eq!(
-            r.advance(Node::Workshop.def().minutes as f64),
-            Some(Node::Workshop)
+            r.advance(Node::FusionPower.def().minutes as f64),
+            Some(Node::FusionPower)
         );
-        assert_eq!(r.next(), Some(Node::Armoury));
+        assert_eq!(r.next(), Some(Node::Hyperdrive));
         assert!(r.queue.is_empty());
     }
 }

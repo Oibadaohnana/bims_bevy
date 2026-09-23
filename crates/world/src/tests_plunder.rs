@@ -79,7 +79,7 @@ fn an_enemy_s_shelf_is_laid_out_once_and_a_stack_comes_off_it_into_the_pack() {
     // The station's shelves are not containers of the hold: standing at
     // one reaches nothing of the crew's.
     for &i in &shelves {
-        assert!(!world.container_takes(Container::Shelf(i), ResourceId::Ore));
+        assert!(!world.container_takes(Container::Shelf(i), ResourceId::Medkit));
     }
     let ships_own = (0..)
         .take_while(|&i| {
@@ -91,14 +91,14 @@ fn an_enemy_s_shelf_is_laid_out_once_and_a_stack_comes_off_it_into_the_pack() {
         })
         .find(|i| !shelves.contains(i))
         .expect("the ship has a shelf of its own");
-    assert!(world.container_takes(Container::Shelf(ships_own), ResourceId::Ore));
+    assert!(world.container_takes(Container::Shelf(ships_own), ResourceId::Medkit));
 
     // Out of reach from the ship's deck; in reach at the shelf.
     let ore = laid
         .grid
         .slots
         .iter()
-        .find(|s| s.kept == Kept::Stack(ResourceId::Ore))
+        .find(|s| s.kept == Kept::Stack(ResourceId::Tofu))
         .expect("ore is a staple");
     assert!(!world.shelf_ashore_in_reach(0));
     let events = world.step(&[Command::Plunder {
@@ -120,37 +120,39 @@ fn an_enemy_s_shelf_is_laid_out_once_and_a_stack_comes_off_it_into_the_pack() {
     }]);
     assert!(refused(&events, Refusal::NotAboard), "{events:?}");
 
-    // The stack comes off, one to a cell, as far as the pack goes.
+    // The stack comes off, one to a cell, as far as the pack goes. How
+    // far that is is the **footprint's** to say rather than the free
+    // cells': a block of tofu is four by four and only a bandage stacks
+    // in a pack, so a pack with cells to spare still takes only the
+    // blocks that lie in it.
     let before = world_checksum(&world);
-    let free = (0..bims::combat::PACK_CELLS)
-        .filter(|&c| world.aboard.room.gear(0).pack[c].is_none())
-        .count() as u32;
-    let expect = ore.count.min(free);
     let events = world.step(&[Command::Plunder {
         slot: 0,
         who: 0,
         id: ore.id,
     }]);
+    let expect = events
+        .iter()
+        .find_map(|e| match e {
+            WorldEvent::Plundered { who: 0, units } => Some(*units),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{events:?}"));
     assert!(
-        events.contains(&WorldEvent::Plundered {
-            who: 0,
-            units: expect
-        }),
-        "{events:?}"
+        expect > 0 && expect <= ore.count,
+        "{expect} of {}",
+        ore.count
     );
     let in_pack = world
         .aboard
         .room
         .gear(0)
-        .pack
-        .iter()
-        .filter(|c| **c == Some(Item::Stack(ResourceId::Ore as u32)))
-        .count() as u32;
+        .units_of(Item::Stack(ResourceId::Tofu as u32));
     assert_eq!(in_pack, expect);
     let after = world.plunder_alongside().unwrap();
     assert_eq!(
-        after.grid.units_of(ResourceId::Ore),
-        laid.grid.units_of(ResourceId::Ore) - expect,
+        after.grid.units_of(ResourceId::Tofu),
+        laid.grid.units_of(ResourceId::Tofu) - expect,
         "the shelf gave up what the pack took"
     );
     assert_ne!(
@@ -216,6 +218,6 @@ fn two_worlds_on_one_seed_find_the_same_shelf() {
         a.station(station)
             .unwrap()
             .design
-            .capacity(economy::Storage::Shelf)
+            .capacity(economy::Storage::Locker)
     );
 }

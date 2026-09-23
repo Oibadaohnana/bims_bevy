@@ -16,13 +16,21 @@ the painter and the page, `crates/ship/CLAUDE.md`.
 
 ## A recipe is a row, a bench is a solid, and the hold is the world's
 
-`shipdesign::recipes::RECIPES` is the table: a station `PartKind`, inputs,
-one output, minutes, and `vents` — the smelter may lose mass and nothing
-may gain it; `every_recipe_holds_together` pins the arithmetic against
-the resource table, which is why `Emitter` weighs 16 and `Components` 2.
-`recipes::at(kind)` is how anything asks "is this a bench"; `aboard.rs`
-uses it to build `Layout::benches` (a `room::Bench`: the part's code, its
-frame, its use spot) — the **only** `shipdesign` use, still in `aboard.rs`.
+`shipdesign::recipes::RECIPES` is the table, and since the money rework
+(feature 95) it is **one row**: two `Vegetable` into one `Medkit` at the
+drug lab, a quarter of an hour. `every_recipe_holds_together` pins the
+arithmetic against the resource table, which is why a medkit weighs two
+vegetables — crafting conserves mass and there is no exception left, the
+smelter that vented slag being gone.
+
+**"Is this a bench" is `shipdesign::recipes::is_workstation(kind)` now**,
+not `recipes::at(kind).next().is_some()`: the **workbench** is worked at
+for the upgrades and the armour repair and the **armoury** is the cabinet
+a crew fetch a gun out of, and neither has a recipe. `aboard.rs` builds
+`Layout::benches` off it (a `room::Bench`: the part's code, its frame, its
+use spot) and it is still the **only** `shipdesign` use in there. Without
+it `World::workbench()` and `World::store_bench()` answer `NoWorkbench` on
+a ship that plainly has both.
 
 The chain is `Kind::Craft { recipe, bench }`, two steps, `GoToBench` and
 `Work`, with the length riding in `rest_minutes` the way a doze's does,
@@ -38,118 +46,56 @@ bench is free — `Exclusive::Bench(index)` — and `craft_on_offer` takes the
 first, so recipe order is preference order.
 
 Targets are `World::craft_targets`, in `world_checksum`, set by
-`Command::SetCraftTarget` (`net.keep` → `Command::SetCraftTarget`) and clamped to
-the class's capacity. Nought at the start, for the same reason as the
-stew target. The items panel's `.keep` box is the control and
-`recipeLines` is what reads the `ship_recipe_*` exports — all seven of
-them, or the boundary check names the unused one. `JOB_CRAFT = 18`,
-`SPOT_BENCH = 19` (ringing only; the readout names the part), and
-`WORK_NAMES`/`WORK_SPOTS` in `crates/app/src/crew.rs` grew a row.
+`Command::SetCraftTarget` and clamped to the class's capacity. Nought at
+the start, for the same reason as the stew target. The items panel's
+`.keep` box is the control. `JOB_CRAFT`, `SPOT_BENCH` and
+`WORK_NAMES`/`WORK_SPOTS` in `crates/app/src/crew.rs` are the app's half —
+and `Job::Mine` came **out** of that list with the mining, so every job
+code after it moved down one.
 
-`PartKind::Armoury = 34` is the third bench, and the one that is also a
-container (`Storage::Locker`, eight since the four weapons); `Handgun =
-9`, `Vest = 10` and `Medkit = 11` are what it makes, and `Shotgun = 18`,
-`AutoRifle = 19`, `SniperRifle = 20` and `Schword = 21` since
-(`RECIPES[10..=13]`), all in the locker class. **A held item
-is a resource in the locker class** — a count, no per-item state — until
-something needs a charge or wear; the suit was the first and these are the
-next three. Armour was the first thing that *did* need wear, and the
-answer was not to make it something else: it stays a count in the hold
-and becomes a `Piece` the moment it leaves it — "A piece of armour is a
-resource in the hold and an instance everywhere else" below.
-`a_target_for_a_handgun_runs_the_whole_chain_from_the_hold` is
-the user's original example run end to end.
+`PartKind::Armoury` is a bench that makes nothing and holds a great deal:
+`Storage::Locker`, eighty cells, the cabinet the guns and the armour live
+in. `PartKind::DrugLab` is the other, and the one whose product the room
+*uses*: the medkit that gets a body out of a dying state. The hold is
+still the world's — the room never sees the recipe — but the medkits to
+hand are handed to the room every step and read back after it; see "The
+enemy shoots back" below for that seam, and `crates/game/CLAUDE.md` for
+what a medkit and a bandage do.
 
-`PartKind::DrugLab = 35` is the fourth, and the one whose product the
-room *uses*: `RECIPES[6]`, two `Fibre` (13) to one `Bandage` (14) in a
-quarter of an hour. The hold is still the world's — the room never sees
-the recipe — but the count of bandages to hand and the fibre on the shelf
-are handed to the room every step and read back after it; see "The enemy
-shoots back" below for that seam, and `crates/game/CLAUDE.md` for what a
-bandage does.
+The playtest ship has a workbench and a drug lab aft, both `R180` so they
+are worked from the row forward of them, an armoury forward by the bunk
+with a second reactor to pay for it, a second shelf, five bandages, two
+medkits, a suit, a piece of each armour and one of each of the four
+weapons — 83 of the lockers' 360 cells, the shelf being locker class too
+since the money rework. `benches()` is three there: the workbench, the
+drug lab and the armoury.
 
-The playtest ship has a smelter, a workbench and a drug lab aft, all
-`R180` so they are worked from the row forward of them (the row aft is
-the stern), an armoury forward by the bunk with a second reactor to pay
-for it, a second shelf, 40 ore, five bandages, six fibre, a piece of
-each armour and one of each of the four weapons — 84 of the lockers'
-160 cells since they became a grid ("Every hold but the desk is a grid" below);
-thirteen of sixteen slots before, which is why the armoury's cabinet
-grew to eight.
-`a_target_for_metal_has_a_bim_smelt_ore_at_the_bench` runs
-the whole seam natively and `simulation-check.mjs`'s keep section from a
-click; both craft tests count `benches()` as four now, the drug lab and
-the armoury being benches through `recipes::at`.
+## The outside is a place, and it is a walk to a site and nothing else
 
-## The outside is a place, and the ship's tile grid is its grid
+A walk outside is `Kind::Eva`, from `GoToSuitLocker` to `PutSuitBack`.
+There **was** a reason of its own to go: a belt held at laid a
+`MiningSite` out in the ship's design frame, rocks were marked with
+`Command::MarkRock`, and a suited Bim walked the outside on a grid of its
+own and dug ore and galvum out of the asteroids' cores. The money rework
+(feature 95) took the whole of it away with the materials it fed:
+`crates/world/src/mining.rs`, `MiningSite`, `World::sites`,
+`World::site_here`, `World::eva_offer`, `bims::game::Eva`, the marks and
+their commands, `site_version`, `Job::Mine`, `WorldEvent::Mined`, the
+asteroid painter and the mining UI are all gone.
 
-A walk outside — `Kind::Eva`, from `GoToSuitLocker` to `PutSuitBack` —
-used to hold the body at a spot beyond the collar for an hour and a half
-and read `worldgen::belt_yield`. Now the belt is a **mining site**,
-`crates/world/src/mining.rs`: hold station at a belt and `settle_site`
-(stage 4's last word in `World::step`) lays `MiningSite::generate` out
-**in the ship's design frame** — every rock a `RockTile { x, y, kind }`
-on the same integer tile grid the hull is on, negative and past the build
-area both — from `Purpose::MiningSite` and the belt's id, clear of
-`hull_box()` by `CLEARANCE`. Once per belt: `World::sites` keeps every
-site the ship has held at, mined tiles and all, in belt order, and it is
-in `world_checksum` whole. That frame is the whole trick: a suited Bim
-walks the outside in room units like the deck, the painter turns the
-rocks with the hull (`world_paint::rocks`, and `local_node` skips the
-belt's icon-rocks while a site is laid out), and a click on a rock is
-`Game::tile_at` like a click on the deck.
+What is left is the **run of steps**, because a construction site beyond
+the hull is still reached through the airlock: `Kind::fork` turns off at
+`StepOut` and back at `WalkToPort`, so a build outside is the suit, the
+gangway, the walk on `Nav::outside`, the work, and the suit hung up
+again. `Room::rocks_version` is kept and moves for nothing: it is what
+`Game::refresh_outside` reads, and a planet's ground or another reason to
+rebuild the outside grid would set it.
 
-Skin and core: `depths` floods each blob from the outside in and a tile
-`CORE_DEPTH` (3) or deeper is the ore — `Rock::Iron` on most, `Galvum` on
-`GALVUM_SHARE` (a tenth: the whole tenths for certain, the remainder as a
-chance, so a site of twelve has one galvum asteroid for certain). What a
-tile yields is `mining::yield_of`: two `ResourceId::Rock` (the new
-resource, id 12, €2, shelf, sold nowhere — that moved `CARGO_SLOTS` to
-13 and re-pinned `PLAYTEST_HASH`, both `REFERENCE_HASH`es and
-`REFERENCE_CHECKSUM`), two ore, or one galvum.
-
-Nothing is mined that is not **marked**: `Command::MarkRock { x, y }`
-toggles, `Command::ClearMarks` clears, `set_off` clears through
-`leave_site` (by the *frame*, not the state — the ship is `Travelling`
-by then) and recalls whoever is out (`Game::recall_outside`, which
-abandons the walk for good and drops a queued one). The room is handed
-the site every step as `bims::game::Eva { allowed, targets, rocks,
-version, tile_minutes }` — the marked tiles' middles, every rock as a
-`Rect`, and `site_version`, which moves on every mark and every mined
-tile so the room rebuilds its outside grid then and only then. `Mine`'s
-`leave` puts the rock's middle on `Room::mined`; the step drains it with
-`Game::take_mined` **before** `take_walks`, `finish_tile` takes the tile
-out, adds what fits to the shelf and tallies it, and `finish_walk` says
-the tally as one `Mined { rock, ore, galvum }` when the Bim is in (the
-walk is counted at `StepIn`'s *enter*, so the same step sees it).
-
-**Nothing stands at a belt.** A trip to a body ends
-`flight::data::ARRIVAL_RADIUS_BODY` (15 000) short of it, and a station
-orbits its parent nearer than that (`worldgen`'s `STATION_ORBIT`, about
-10 000), so with an outpost or a derelict bolted to the belt a ship that
-came in on the station's side had the *station* for its nearest node,
-`frame_candidate` settled the view on it, `belt_alongside` said no and no
-site was laid out — the Actions tab said "Hold station at an asteroid
-belt" at the belt. `worldgen::data::parent_suits` now refuses every kind
-a belt (the outposts moved to rocky planets and ice worlds),
-`nothing_stands_at_a_belt` in `worldgen` pins no station within twice the
-arrival radius of any belt in the four reference galaxies, and
-`coming_to_rest_at_a_belt_from_any_side_lays_the_site_out` here puts the
-ship at the arrival radius from twelve directions round every belt of
-the spawn system and asks for the site each time.
-
-`hold_at_belt_for_probe` is how a test — and `BIMS_AT_BELT=1` in the
-app — gets there without flying: undock, put at the belt, settle the
-frame, lay the site. `marked_rocks_are_mined_on_foot_and_what_they_yield_lands_on_the_shelf`
-marks a straight dig from a core tile out to the skin and runs it;
-`a_mining_site_is_laid_out_about_the_ship_at_a_belt` pins the clearance,
-the depth rule, determinism and the galvum share over two hundred belts.
-
-The room's half — the outside grid, `next_rock`, why a rock is mined
-straight on and never from a corner — is in `crates/game/CLAUDE.md`.
 Stage 8 is as it was: `World::health` doses a body at `SUIT_INTENSITY`
-while `Game::is_outside(who)`, `EVA_DOSE_LIMIT` keeps a dosed Bim in and
-sends one out there home from the next rock (`eva_allowed` on the room).
+while `Game::is_outside(who)`, and `EVA_DOSE_LIMIT` keeps a dosed Bim in.
+`World::hold_at_belt_for_probe` is still there — undock, put the ship at
+the spawn system's first belt, settle the frame — because a few tests
+want the ship holding somewhere that is not a berth; it lays nothing out.
 
 ## The design phase, then the game, and one clock in it
 
@@ -271,7 +217,8 @@ Five things that hang off that:
 - **The spawn is the first friendly orbital in a system with a belt**,
   not the first station: `World::spawn` skips derelicts, because a crew
   that opens docked at a wreck sees nobody and blocks, and skips a system
-  with no belt, because the belt is the mining site and the playtest —
+  with no belt, which was the mining site and is now only what keeps the
+  simulation on the dock every pinned number stands on —
   `BIMS_AT_BELT=1`, and every fixture test that walks outside through
   `at_a_belt` — holds at the spawn system's first belt. An orbital rather
   than any lived-on kind because it is the ordinary case, and because the
@@ -367,11 +314,10 @@ What that rests on, and what will bite:
   if that is more than a body's margin away, which is what a crew member
   left on the station at departure gets. `take_crew` takes `&mut self`
   and leaves the old room standing for a reason: giving up an errand is
-  what puts a sheaf of fibre in somebody's hands into the *old* room's
+  what puts a medkit in somebody's hands back into the *old* room's
   store, so `join_rooms` and `unjoin_rooms` take the crew out first and
-  then `bank_medicine` off that room — `take_harvested_fibre`,
-  `take_bandages_used` — into the hold before it is dropped. Before
-  that, a harvest in hand at the moment of docking was lost.
+  then `bank_medicine` off that room into the hold before it is dropped.
+  Before that, a kit in hand at the moment of docking was lost.
 - **One galley, the ship's.** The joined room maps the first of each
   fixture kind by id — the ship's — and `Aboard::leave_the_station_s`
   drops every further fixture standing in the station's box from
@@ -727,15 +673,10 @@ Things that bit or would:
   `put_for_probe` each step so nobody walks off the mark.
 - **The hold's medicine is handed to the room every step, and read
   back after it.** Stage 5 sets the **medkits** to hand
-  and the fibre on the cold store's shelf from the hold
-  (`hand_the_room_the_hold_s_medicine` —
-  `set_medkits`, `set_stock` with the hold's `Fibre`) before the room
-  steps, and after it takes what was used off and puts what was grown
-  in (`take_the_room_s_medicine`:
-  `take_medkits_used`, `take_harvested_fibre`) — fibre the cold store cannot take is
-  **dropped without an event**, since the room's count is set again
-  from the hold next step and an event a sheaf for a full larder would
-  be noise. **The bandages are not in that handover any more** (feature
+  from the hold (`hand_the_room_the_hold_s_medicine` — `set_medkits`,
+  and `set_stock` with the bay handed **nought** fibre, since nothing
+  grows it any more) before the room
+  steps, and after it takes what was used off (`take_medkits_used`). **The bandages are not in that handover any more** (feature
   87): a dressing is a thing in a pack, put there by
   `World::restock_bandages` and spent out of the pack by the room, so
   no count crosses either way — see "The dressings are carried" below.
@@ -754,25 +695,24 @@ Things that bit or would:
   `crates/game/CLAUDE.md`), and
   `a_wound_is_dressed_with_a_bandage_from_the_hold_and_a_treatment_fetches_the_kit`
   runs it
-  on the playtest ship, which carries five (and two medkits, since
-  September 2026 — a re-pin of `PLAYTEST_HASH`). The residents' room
+  on the playtest ship, which carries five dressings and two medkits. The residents' room
   deals `data::RESIDENT_BANDAGES` into **each of its living people's
   packs** and gets `RESIDENT_MEDKITS` on its shelf at open, with no
   hold behind either — what its
   people spend on each other of their own accord now that the room has
   a Medical job (`Game::medical_on_offer`, `crates/game/CLAUDE.md`), but
   only once the fight is over: a recruited Bim takes no errand of its
-  own, and at war every resident is recruited. A bandage is
-  `RECIPES[6]` at the drug lab out of two fibre — the playtest ship has
-  the lab, so `benches()` is three there and the two craft tests say
-  so.
+  own, and at war every resident is recruited. A bandage is **bought**
+  since the money rework, not made; the one recipe left is the medkit at
+  the drug lab.
 
 ## A piece of armour is a resource in the hold and an instance everywhere else
 
-`crates/world/src/armour.rs`. `ResourceId::Helm = 15`, `Kevlar = 16`,
-`LegGuard = 17` are locker class like a medkit, made at the workbench
-(`RECIPES[7..=9]`), sold nowhere, and the playtest ship carries one each
-— so buying, selling, crafting, mass and the shelves needed nothing new.
+`crates/world/src/armour.rs`. `ResourceId::Helm = 6`, `Kevlar = 7`,
+`LegGuard = 8` are locker class like a medkit, **bought** at any place
+with the armour trade since the money rework (feature 95) and made
+nowhere, and the playtest ship carries one each
+— so buying, selling, mass and the shelves needed nothing new.
 Beside the count the world keeps `World::pieces: Vec<Piece>` — `id`
 (`next_piece`, only climbs), `kind: bims::combat::ArmourKind`, `health`,
 `at: Where::Hold | Pack { who, cell } | Worn { who }` — because a piece
@@ -794,9 +734,9 @@ FetchKind::Piece(id) | Resource(code) }`, `Equip { who, cell }`,
 `Unequip { who, part }`, `Discard { who, cell }`, server-shaped like
 `SetCraftTarget`. A stow or a fetch wants the Bim within `data::REACH`
 (two tiles) of a container that takes the thing — `container_takes`: a
-bench whose part is a locker-class cabinet (the armoury, the drug lab;
-the smelter holds nothing), a shelf for shelf goods *and* for armour and
-weapons, a cold store for food; `Aboard::containers` lists them by the
+bench whose part is a locker-class cabinet (the armoury, the drug lab),
+a **shelf**, which is locker class itself since the money rework took
+the shelf class away, and a cold store for food; `Aboard::containers` lists them by the
 room's indices and `Game::within_reach` measures — and is refused
 `OutOfReach` (14) otherwise; `PackFull` (15), `NoRoom` (16, the class
 full; `NoRoomAboard` is the same wall met buying) and `Broken` (17) are
@@ -806,7 +746,8 @@ the gun off `World::guns` (below), the highest tier of the kind, the way
 the piece is the least damaged — `armour::weapon_resource` is `WeaponKind::
 resource()` looked up in `ResourceId::ALL`, the way `resource_of` reads
 `ArmourKind::resource()`, so the room's table is the one table: the
-handgun being the laser pistol and the four after it their own (17–20 since the fuel resource went),
+handgun being the laser pistol and the four after it their own (9–12
+since the money rework closed the deleted resources up),
 with `weapon_of` its inverse, `item_of` the item a resource makes and
 `is_gear` what the shelves take beside the lockers
 (`every_weapon_is_a_locker_resource_and_the_two_tables_agree` pins the
@@ -997,14 +938,15 @@ of the class so many rows of it (`PartDef::capacity` in cells — a shelf
 its `economy::footprint` — a pistol 1×2, an auto rifle 1×7, a shotgun
 2×5, a sniper rifle 1×10, a schword 1×5; a helm 2×4, kevlar 4×4, leg
 guards 3×2; a suit 3×3, a medkit 2×2, a box of dressings 2×2 and five to a stack (feature 87); a crate of
-vegetables 1×2, a block of tofu 4×4, the materials 1×1 — the way a
+vegetables 1×2, a block of tofu 4×4, a grenade 1×1 — the way a
 survival game's inventory is laid out. **Goods that stack cover a
-footprint a stack** (`economy::stack_size`: ten ore, twenty components,
-ten vegetables or tofu, one of anything worn, held or dressed with), so
+footprint a stack** (`economy::stack_size`:
+ten vegetables or tofu, five dressings, one of anything worn or held), so
 what a shelf holds is its cells times the stacks: the playtest ship's
-forty ore are four cells. Beside the counts the world keeps
-`World::grids: [Grid; 3]` in `World::GRID_CLASSES` order (shelf, cold
-store, locker — `World::grid(class)` looks one up) — each `slots:
+forty vegetables are four cells. Beside the counts the world keeps
+`World::grids: [Grid; 2]` in `World::GRID_CLASSES` order (cold store,
+locker — the shelf class went with the materials at the money rework and
+`PartKind::Shelf` is locker class now; `World::grid(class)` looks one up) — each `slots:
 Vec<Slot>`, `{ id, kept: Kept, count, foot, x, y, turned }` with
 `Kept::Piece(id) | Gun(kind, tier) | Stack(resource)`, and `next`, an id
 that only climbs. **The invariant is the pieces' again: a class's slots
@@ -1028,7 +970,7 @@ invariant of the lockers.
 **The gate is `World::has_room(resource, units)`**, asked *before* a
 count moves — by `buy`, `can_make` (the output onto the grid as it
 stands; what the inputs would free is not counted, so a bench whose
-shelf is full waits a step for the ore to be spent), `tend_bench` (the
+locker is full waits a step for the vegetables to be spent), `tend_bench` (the
 upgraded thing carried back from the workbench) and `stow` — and it is
 the area rule (`ShipDesign::has_room`) **and** a
 place on the grid as it stands (`Grid::can_take`, a trial `add` on a
@@ -1040,8 +982,7 @@ cold store with area for three blocks of tofu and a four-by-four run for
 two refuses the third
 (`the_shelves_hold_stacks_and_a_fetch_takes_one_off_the_stack_asked_for`)
 — and that is the point: tidy, or turn something. `World::room_for(resource,
-wanted)` is the most of `wanted` that would go, for a haul off a rock or
-a harvest banked. The designer's `Edit::Buy` has only the area rule,
+wanted)` is the most of `wanted` that would go, for a harvest banked. The designer's `Edit::Buy` has only the area rule,
 since the yard has no grid; a design bought full in the yard is laid out
 at `World::new` and overflows, if it does, the way a poked count does.
 
@@ -1263,14 +1204,63 @@ and the order.
 The desk moved `REFERENCE_CHECKSUM` (every station's layout has one)
 and the walkability contract covers it.
 
+## Money, the bounty and what a crew are worth (feature 95)
+
+Three readings and one payment, all in `world.rs`, and none of them new
+state beyond `World::money` itself.
+
+**`World::worth()` is everything the crew own**, in whole euros:
+
+- every part of the ship at `PartDef::price`;
+- the hold at the **book value** (`economy::trade_price`, the same
+  everywhere — a valuation, never what a desk pays), with a gun or a
+  piece of armour at its **tier**, `book × economy::TIER_PRICE[t]`;
+- every gun and every piece of armour **on** a crew member — in a hand,
+  worn or in a pack — at the same book and tier, and every stack in a
+  pack (a box of dressings, a medkit, a key) at its book;
+- and `World::money`.
+
+The crew's gear is in there on purpose: a thing moved out of the hold
+into a pack must be worth the same in both, or a restock would make the
+crew poorer and `start_worth != worth()` on the first step. **`start_worth`
+is `worth()` taken at `World::start`**, the starting pool included, so
+unspent money is never counted as growth — which it was before the pool
+went into the sum. Both are what `station::enemies_of`,
+`raid::boarders_of`, `mercenary::how_many` and the droid waves are scaled
+against, so every one of those got quieter about a crew that is merely
+carrying its own money about.
+
+**The Republic pays a bounty** for an enemy taken down:
+`data::REPUBLIC_BOUNTY` by the enemy's **gear tier** — 500, 1 500, 4 500
+— `World::bounty_for(tier)` indexed safely, nought for no tier. It is
+paid **once per enemy**, at the first down *or* death, whoever did it,
+into `World::money`, and it is hooked at `award_classed_near`'s call site
+in `experience` — the one place the world already walks the enemies that
+are newly down and flags them, so nothing counts twice. Hostile stances
+only: a friend's people, a neutral's and the crew are worth nothing, and
+a droid pays nothing at all (a machine has no gear tier). The event is
+`WorldEvent::Bounty { amount }` (92), and the app's line is "The Republic
+pays €X."
+
+**A quote is `World::quote_at(station, resource, tier)`**, which is
+`quote` times the tier factor on both the ask and the bid
+(`Quote::at_tier`), and `quote` itself for anything that comes at no
+tier. `buy` takes a `tier` and the gun or the piece arrives at it;
+`sell` takes none — `tiers_leaving(resource, units)` says which tiers
+actually leave the hold, **lowest first**, and the desk pays for each at
+its own. `gear_tier(room, who)` is what an enemy's bounty is read off.
+
 ## The world is bounded by the ship, and money by the dock
 
 Two rules carried straight over from the design phase into the game, and both
 are easy to lose:
 
-- **Money only works while docked.** `Buy` and `Sell` are refused anywhere
+- **Goods only change hands while docked.** `Buy` and `Sell` are refused
+  anywhere
   else, with `Refusal::NotDocked` — and *holding station beside* a station is
-  not docked either, which wants an airlock. The trade window — and the
+  not docked either, which wants an airlock. A **part** is the exception
+  since the money rework: a construction site is paid for docked, holding
+  or landed, because euros are not a shelf. The trade window — and the
   Station button on the tray that opens it — is hidden rather than
   disabled, because a panel full of dead buttons is a panel nobody can
   tell is dead on purpose.
@@ -1278,15 +1268,21 @@ are easy to lose:
   `worldgen::Stock` is a bit a resource on the `StationBlueprint`, carried
   onto `world::Station::stock` and asked by `buy` (`Refusal::NotSoldHere`),
   `Session::sold_here` and the editor's `market`. `StationKind::sells` is
-  still the ceiling; under it `Stock::roll` puts the `STAPLES` on every
+  still the ceiling; under it `Stock::roll` puts the `STAPLES` —
+  vegetables, tofu and medkits — on every
   shelf and rolls the rest at `STOCKED_CHANCE` off the station's own branch
   of the contents stream. A test that buys something at the spawn buys a
-  staple, or reads the shelf first the way
-  `a_station_only_sells_what_its_kind_sells` reads the kind.
+  staple, or reads the shelf first. **The gear is not on the shelf at
+  all**: a gun or a piece of armour is behind one of the two **trades**
+  the place rolled off its own seed (`Stock::weapon_trade`,
+  `Stock::armour_trade`; `crates/worldgen/CLAUDE.md`), and
+  `Stock::sells` answers for it off that flag — so a station with neither
+  sells no gear whatever its kind, and that is the ordinary case rather
+  than a fault.
 - **What a thing costs is the station's desk's, and it is two numbers.**
   Nothing is bought or sold at `economy::trade_price` — that is the
   **book value**, a valuation, and the world reads it only through
-  `shipdesign::Budget::spent` (`start_worth`, `World::worth`). `buy`
+  `World::worth` (above). `buy`
   and `sell` quote `Station::market()` — an `economy::market::Market`,
   the desk's kind with the station's own `bias` — and pay its **ask**
   for a buy and its **bid** for a sale, checked sums both, the bid always
@@ -1303,6 +1299,9 @@ are easy to lose:
   settlement's is rolled beside its shelf in `Surface::all_of`. The bias
   is not in `world_checksum` — it is a function of the galaxy seed, in
   the galaxy checksum, like the shelf.
+  **A tier multiplies both**: `World::quote_at` is the quote times
+  `economy::TIER_PRICE[t]`, a buy names its tier and a sale gives up the
+  lowest tiers in the hold first and is paid for each at its own.
   `buying_costs_money_and_makes_the_ship_heavier` pins a buy at the ask
   and the sale back at the bid losing the spread;
   `a_derelict_has_no_market_and_every_other_station_quotes` the rest.
@@ -1656,49 +1655,59 @@ share (size, corridor, residents), and the spawn rule;
 `a_station_is_a_place_the_room_can_live_in` and the walkability contract
 run every plan on every kind.
 
-## Construction is stage 7, and the materials never leave the hold until the part goes down
+## Construction is stage 7, and a site is paid for out of the pool
 
-`crates/world/src/build.rs` is a `BuildSite` — kind, origin, rotation,
-the same three numbers a design-phase placement is — and what has been
-carried to it (`delivered`) or is in somebody's arms on the way
-(`carrying`). `Command::PlaceSite`/`CancelSite` are the seam; `builds`
-and `next_site` are in `world_checksum`; `WorldEvent` codes 27–30 are
-`SitePlaced`, `SiteCancelled`, `Built`, `BuildLost`; `Refusal` 10–13 are
-`UnderWay`, `WontFit`, `NoSuchSite`, `UnderConstruction`. Every step the
-world hands the room one `bims::game::Build` **per site**
-(`build_orders`): its tiles in room units (the offset added, like the
-helm), `haul: Some((resource code, units))` for the first material short
-of the recipe that the hold has any free of — a `HAUL_LOAD` at most — and
-`minutes > 0` when everything is there and the part would go down now.
-Stage 7 drains `take_picked`/`take_dropped`/`take_returned`/`take_built`
-and moves the count. Things that bit, or would:
+`crates/world/src/build.rs` is a `BuildSite` — an id, a kind, an origin
+and a rotation, the same three numbers a design-phase placement is, and
+**nothing else**: since the money rework (feature 95) there is nothing
+carried to a site, so `delivered` and `carrying` went with the hauling.
+`BuildSite::price(design)` is what it costs (`shipdesign::site_price` of
+its `edit()`: a plating site is the floor and, where the tile has no
+frame, the structure under it) and `build_minutes(price)` is how long it
+takes, `BUILD_MINUTES_BASE + BUILD_MINUTES_PER_EURO × price`.
 
-- **A "delivered" load is a reservation, not a move.** `World::free(id)`
-  is what is aboard less every site's claim, and `sell`, `can_make` and
-  the haul offers all ask it; `finish_build` then calls
-  `build_from_cargo` — which takes `Edit::Plate` now, for plating that
-  lays its own frame — and the whole recipe leaves the hold in one go.
-  So mass is conserved at every step, a cancelled site frees everything,
-  and a room taken apart at dock or undock (`drop_loads`) drops what was
-  in the arms back onto the count without the room saying anything.
+`Command::PlaceSite`/`CancelSite` are the seam; `builds` and `next_site`
+are in `world_checksum`; `WorldEvent` codes 27–30 are `SitePlaced`,
+`SiteCancelled`, `Built`, `BuildLost`; `Refusal` 10–13 are `UnderWay`,
+`WontFit`, `NoSuchSite`, `UnderConstruction`, and **80 is
+`NotEnoughMoney`**. Every step the world hands the room one
+`bims::game::Build` per site (`build_orders`): its tiles in room units
+(the offset added, like the helm) and `minutes > 0` when the part would
+go down now — which is to say when `can_modify_part` allows it, when
+`shipdesign::apply` of its edit goes, and when **the crew can pay for
+it**.
+
+- **A site is begun only while the pool covers it.**
+  `World::affordable_site(site)` is the rule: the price of every site
+  already begun comes off `World::money` first (`free_money`), and what
+  is left has to cover this one — so two sites are never both begun on
+  one wall's worth of euros, and a site that cannot be paid for **waits**
+  rather than failing. `place_site` refuses `NotEnoughMoney` outright
+  where the pool could never cover it. `finish_build` takes the price and
+  puts the part down in the same step.
+- **Deconstruction gives the whole price back** (`shipdesign::refund_for`),
+  so building and unbuilding leave `World::worth()` where it was —
+  `building_and_deconstructing_leave_worth_unchanged` in
+  `tests_money.rs`.
+- **A site is paid for anywhere.** Goods want a desk and a desk is a
+  place; a part does not, because euros are not a shelf. Docked, holding
+  station or landed, the price leaves the pool and the part goes down.
 - **Every site is on the room's list, wanting nothing or not.** The
-  first cut only listed sites with something to do, and a Bim carrying a
-  load found its site gone from the list at `CarryToSite` — `site_stand`
-  had nothing to stand beside — and gave the load up, every trip.
+  first cut only listed sites with something to do, and a Bim walking to
+  one found its site gone from the list — `site_stand` had nothing to
+  stand beside — and gave the errand up, every trip.
 - **The room's copy is a step behind the world.** `Construct`'s `leave`
-  takes the site off `Room::builds` and `DropMaterials`'s clears its
-  `haul`, or the room re-offers the very site it just finished within the
-  same step — `consider_errand` runs after the chain ends — and the
-  world's `Built` arrives with a fresh chain already on the way to
-  nothing. `building_under_way` skips a chain that `is_done()` for the
-  same reason.
+  takes the site off `Room::builds`, or the room re-offers the very site
+  it just finished within the same step — `consider_errand` runs after
+  the chain ends — and the world's `Built` arrives with a fresh chain
+  already on the way to nothing. `building_under_way` skips a chain that
+  `is_done()` for the same reason.
 - **`can_place_site` is `apply` on `design_with_sites()`** — every
   pending site laid on first, in order — and then `validate`: a site is
   refused (`SiteRefusal::Fault(code)`) when the ship *would then* raise
   an error it does not raise now. A wall on the hob's use spot is the
   case; the app says the issue line. The room works the sites in order,
-  so a wall on plating that is itself a site waits for the deck
-  (`minutes` stays 0 until `apply` on the real design goes).
+  so a wall on plating that is itself a site waits for the deck.
 - **The ship and the building keep off each other.** Sites are placed
   and worked only while `at_rest()` (`Docked | Holding`); `confirm`
   refuses `UnderConstruction` while any site `begun()` or the room says
@@ -1710,14 +1719,15 @@ and moves the count. Things that bit, or would:
   `Aboard::relayout` → `Game::relayout` → `Room::relayout` — keeping
   every errand, the dirt, the crops and the doors' locks; docking is the
   only thing that still takes the room apart. Joined, the joined design
-  is recomputed through `docking::join` and the offset does not move (a
-  join's shift is the station's corners against the ship's *build area*).
-- `BUILD_MINUTES_BASE`/`_PER_UNIT` and `HAUL_LOAD` are in `data.rs`.
-  Adding sites to the checksum moved `REFERENCE_CHECKSUM`.
+  is recomputed through `docking::join` and the offset does not move.
+- `BUILD_MINUTES_BASE`/`_PER_EURO` are in `data.rs`. `HAUL_LOAD`,
+  `World::haul_load`, `World::free` and every reservation are gone with
+  the hauling, and so are `Room::picked`/`dropped`/`returned` and the
+  four `Step`s that filled them.
 
-The room's half — the two chains, the stand spot, the suit — is in
+The room's half — the one chain, the stand spot, the suit — is in
 `crates/game/CLAUDE.md`; the blueprint and the Build tab in
-`crates/ship/CLAUDE.md`. `a_site_on_the_deck_is_hauled_to_and_built_by_the_crew`,
+`crates/ship/CLAUDE.md`. `a_site_on_the_deck_is_paid_for_and_built_by_the_crew`,
 `a_site_beyond_the_hull_is_built_in_a_suit`,
 `the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving`
 and `a_site_is_refused_where_the_designer_would_have_refused_it` are the
@@ -1778,10 +1788,11 @@ stages — then `advance`, `Researched` the step a node is done, and
 step between.
 
 What research gates, and where: `craft_orders` skips a recipe
-`!research.recipe_allowed(i)` however the bench came aboard, so the
-playtest ship's smelter is idle until smelting is known — which is why
-`know_everything_for_probe` (or `research_for_probe(node)`, which brings
-the prerequisites) is the first line of every craft test; and
+`!research.recipe_allowed(i)` however the bench came aboard — the one
+recipe there is waits on `Medicine`, which is known at the start, so
+nothing is held back by it in practice since the money rework cut the
+tree to five nodes; `know_everything_for_probe` and
+`research_for_probe(node)` are still how a test gets ahead of it. And
 `can_place_site` answers `SiteRefusal::NotResearched(node code)` before it
 asks `apply`, `place_site` refusing `NotResearched`. The design phase is
 not gated here (the yard built the ship); the app's palette leaves the
@@ -1790,8 +1801,8 @@ unknown parts out off `Research::new()`.
 **Where the keys are.** `Station::key` is a **tier**, nought for none,
 and `station::key_tier(kind, hostile, map_seed)` is the rule: a derelict
 holds nothing; every hostile station holds the **tier-two key**
-(`ResourceId::ResearchKeyTwo`, appended at 22 — b-next, "Tier two, on
-the enemy's desk"), no roll; a friendly one holds the tier-one key at
+(`ResourceId::ResearchKeyTwo`, 14 since the money rework closed the
+deleted resources up), no roll; a friendly one holds the tier-one key at
 `station::key_rolled(map_seed)`'s odds — `KEY_CHANCE` (80) in a hundred
 off a stream of its own, the layout's rolls what they were, and the
 tier-two keys going in moved no tier-one key: which friendly desks hold
@@ -2779,8 +2790,8 @@ to a cell, as far as the pack goes** — `Grid::remove(resource, 1,
 Some(id))` a unit at a time against `Gear::free_cell_for` — and
 `WorldEvent::Plundered { who, units }` (64, `who + 100 * units`) says
 how many. A fetch from the ship's own hold is still one unit a command;
-loot is a stack a click because thirty clicks for thirty ore is not a
-raid anybody would run. `World::plunder_alongside()` is the grid the
+loot is a stack a click because thirty clicks for thirty crates of
+vegetables is not a raid anybody would run. `World::plunder_alongside()` is the grid the
 app draws (`None` at a friend's or away from a berth, which shuts the
 window), `plunder_spot(who)` the nearest station shelf's use spot for
 the walk over.
@@ -3004,20 +3015,21 @@ one for everybody since feature 88 took *quick hands* off the tree) and
 pattern: `Command::Repair` (`can_repair`: the talent, `NoTalent`; a
 workbench; the bench not `busy()` — `Workbench::repair: Option<u32>` is
 the engineer, and `busy()` is it or `work` — a damaged piece alone in
-the first slot, `NoPair` otherwise; `ARMOUR_REPAIR_METAL` in the hold,
-taken at once) puts `bench.repair = Some(slot)`, `craft_orders` offers
+the first slot, `NoPair` otherwise; `deploy::ARMOUR_REPAIR_COST` (100 €)
+in the pool, taken at once — it was metal out of the hold until the
+money rework) puts `bench.repair = Some(slot)`, `craft_orders` offers
 one `Order { recipe: REPAIR_ORDER, only: Some(slot) }` at the first
 workbench — the room's `craft_on_offer` skips an order with an `only`
 that is not the asker — and `finish_repair` puts the piece in the
-output slot with `ARMOUR_REPAIR_PER_METAL` back on it, capped at its
+output slot with `class::ARMOUR_REPAIR_HEALTH` back on it, capped at its
 tier's health (`Repaired` 74). `Workbench::takes` lets a damaged piece
 of any tier onto an empty bench for it.
 
-**What moved.** `ResourceId::SandbagKit = 23` and `SentryKit = 24`
-(`CARGO_SLOTS` 25, `RECIPES[14..=15]` at the workbench behind Workshop
-and Emitters, 61 and 885 by the labour rule, locker class, footprints
-2×2 and 2×3, sold nowhere) re-pinned every design hash, the galaxy
-checksums and `REFERENCE_CHECKSUM` (`0x_b522_21d1_8990_3e39`); the
+**What moved.** `ResourceId::SandbagKit` and `SentryKit` (15 and 16
+since the money rework closed the deleted resources up; locker class,
+footprints 2×2 and 2×3, sold nowhere, and **made nowhere** since
+feature 88 turned them into charges) re-pinned every design hash, the galaxy
+checksums and `REFERENCE_CHECKSUM`; the
 classes, progress, `undocked_once`, the deployables and `reused_kits`
 are hashed after the memories; **`SAVE_VERSION` 16, `wire::PROTOCOL` 9**.
 `Refusal` 41–51 are the new ones. `BIMS_CLASS=engineer` in the app puts
@@ -3060,11 +3072,10 @@ on }` (75). It is hashed off the room like the positions, with the
 *rampage* stacks (`Game::rampage`, integers) and — until feature 90 made
 it one entry of `World::charge_timers` — `World::last_throw`.
 
-**A grenade is `ResourceId::Grenade = 25`** (`CARGO_SLOTS` 26, `RECIPES[16]`
-at the armoury behind Armoury — a metal and a component, twenty minutes,
-79 by the labour rule, mass 10, locker class, 1×1, sold nowhere and
-bought anywhere; every design hash, `worldgen::REFERENCE_CHECKSUMS` and
-`REFERENCE_CHECKSUM` re-pinned). `Command::Throw { slot, x, y }` names a
+**A grenade is `ResourceId::Grenade`** (17 since the money rework closed
+the deleted resources up; mass 10, locker class, 1×1, sold nowhere and
+bought anywhere, and **made nowhere** since feature 95 took its recipe
+with the materials). `Command::Throw { slot, x, y }` names a
 room tile like a deploy; `can_throw` refuses in this order: `OutOfReach`
 (not fit), `NotASoldier`, `NoGrenadesYet` (55, under `GRENADE_LEVEL`),
 `NoGrenade` (54), `CoolingDown` (56, `grenade_cooldown_left` off
@@ -3319,12 +3330,13 @@ remainder counts on. The room counts a hit where it *lands*
 (`Game::count_hit_taken`), so armour, a surge and the body all count and
 a miss or a dodge does not.
 
-**A haul's load is the hauler's now** (*pack mule*): `Room::picked` is
-`(site, resource, units, who)` and `finish_pick` works the load out
-again from the site's shortfall, `World::haul_load(who)` and
-`World::free` rather than reading the order's number — the order is the
-site's and the load is the crew member's. For anybody without the
-talent it is the number it always was.
+***Pack mule* is gone** (feature 95): it was a bigger load carried to a
+construction site, and nothing is carried to one any more. `Room::picked`,
+`finish_pick`, `World::haul_load` and `World::free` went with it, and the
+tank's **second level is a fixed level** — *plated* alone, given outright
+rather than chosen at. `Talent::PackMule` is deleted rather than kept as
+a dead code, so `Talent::ALL` is 69 and the tank's band starts one
+lower; `class::fixed_at(Class::Tank, 2)` is the one row in that table.
 
 **What moved.** `SAVE_VERSION` 19, `wire::PROTOCOL` 12, `Refusal` 68–69
 (`NotATank`, `NoTauntYet`; a taunt within its cooldown is the grenade's
@@ -4099,7 +4111,7 @@ The app's half is one line in the trade window (`names::front_premium`,
 what it is charged on) off `Session::front_premium()`.
 `BIMS_CRISIS_DAY=0 BIMS_TRADE=1 bims crisis` is the picture: the origin
 already red two hops off, the line under the desk's own, and the guns,
-the armour and the medicine dearer with the ore and the metal unmoved.
+the armour and the medicine dearer with the food unmoved.
 `tests_front.rs` is the rule.
 
 ## Defending a town (feature 94)
@@ -4208,3 +4220,29 @@ and both clocks a minute — with `BIMS_DEFENSE_DELAY` over the first.
 **Not in this step**: the Machine Heart; stopping the spread; attacks on
 orbital stations; droids raiding the ship; a second ship following the
 first.
+
+## What the money rework moved (feature 95)
+
+The numbers, in one place, since this file quotes a good many of them
+along the way and the money rework moved most at once:
+
+- **`REFERENCE_CHECKSUM` = `0x_00fd_e444_a606_d8d2`**, `SAVE_VERSION`
+  **31**, `wire::PROTOCOL` **23** (the relay wants redeploying), and
+  `worldgen::GENERATOR_VERSION` **7**, which re-rolled every galaxy: new
+  systems, new stations, new shelves — and a new **raid schedule**, since
+  `Raids::stream` mixes the version in. Two world tests that undock and
+  then work for days at the workbench now push the next raid a month out
+  (`World::raid_due_for_probe`) rather than being boarded halfway
+  through.
+- `shipdesign`: `REFERENCE_HASH`, `PLAYTEST_HASH`, `PLAYTEST_PARTS`
+  (667) and `COMBAT_PARTS` (675) re-pinned; `CARGO_SLOTS` **18**;
+  `ALL`/`PARTS` **49** with `PartKind::Smelter` gone and 31..49 closed up
+  to 30..48.
+- `worldgen`: `REFERENCE_CHECKSUMS` re-pinned, `Purpose::GearTrade` = 14.
+- `economy`: `Storage` is three — `ColdStore`, `Locker`, `Research`.
+- `world`: `Refusal::NotEnoughMoney` = 80, `WorldEvent::Bounty` = 92,
+  `WorldEvent::Mined` deleted, `Talent::PackMule` deleted (`ALL` 69),
+  `World::GRID_CLASSES` two long, `Command::Buy` grew a `tier`.
+- `tests_money.rs` is the new file: what a crew are worth, the bounty,
+  and where the gear is sold. The construction half of it is in
+  `tests.rs` beside the other building tests.

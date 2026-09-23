@@ -22,21 +22,13 @@ use crate::theme;
 // The accents. One a thing, and the armour's are the colours the deck
 // draws the pieces in (`crates/game/src/character.rs`), so the icon and
 // the cap on the Bim's head agree.
-const ORE: Color32 = Color32::from_rgb(0xa8, 0x7c, 0x5a);
-const METAL: Color32 = Color32::from_rgb(0xb4, 0xbe, 0xc8);
-const COMPONENTS: Color32 = Color32::from_rgb(0x5f, 0xc8, 0xb8);
 const VEG: Color32 = Color32::from_rgb(0x7c, 0xc4, 0x5a);
 const TOFU: Color32 = Color32::from_rgb(0xf0, 0xe8, 0xd0);
-const GALVUM: Color32 = Color32::from_rgb(0xb0, 0x7c, 0xe8);
-const EMITTER: Color32 = Color32::from_rgb(0x66, 0xd8, 0xf0);
 const SUIT: Color32 = Color32::from_rgb(0xe4, 0xe4, 0xdc);
 const GUN: Color32 = Color32::from_rgb(0x50, 0x58, 0x64);
 const GUN_LIGHT: Color32 = Color32::from_rgb(0x66, 0xb8, 0xff);
-const VEST: Color32 = Color32::from_rgb(0x8a, 0x92, 0x5c);
 const MEDKIT: Color32 = Color32::from_rgb(0xf2, 0xf2, 0xf2);
 const CROSS: Color32 = Color32::from_rgb(0xe0, 0x40, 0x40);
-const ROCK: Color32 = Color32::from_rgb(0x7a, 0x7e, 0x82);
-const FIBRE: Color32 = Color32::from_rgb(0xd0, 0xb8, 0x80);
 const BANDAGE: Color32 = Color32::from_rgb(0xe8, 0xdc, 0xc8);
 const HELM: Color32 = Color32::from_rgb(0x8c, 0x9e, 0xb8);
 const KEVLAR: Color32 = Color32::from_rgb(0x38, 0x3d, 0x47);
@@ -135,34 +127,6 @@ pub fn resource(painter: &egui::Painter, rect: Rect, id: ResourceId) {
 /// One resource's icon, drawn in fractions of a box.
 fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
     match id {
-        ResourceId::Ore => {
-            // A lump, and a fleck of the iron in it.
-            s.add(egui::Shape::convex_polygon(
-                b.poly(&[
-                    (0.18, 0.62),
-                    (0.30, 0.30),
-                    (0.55, 0.20),
-                    (0.82, 0.40),
-                    (0.80, 0.72),
-                    (0.50, 0.84),
-                ]),
-                ORE,
-                Stroke::new(b.px(0.04), SHADE),
-            ));
-            s.circle_filled(b.at(0.58, 0.48), b.px(0.10), METAL);
-        }
-        ResourceId::Metal => {
-            // A bar, with the light along its top edge.
-            s.rect_filled(b.rect(0.12, 0.34, 0.88, 0.66), b.px(0.06), METAL);
-            s.rect_filled(b.rect(0.16, 0.37, 0.84, 0.44), b.px(0.03), SHINE);
-        }
-        ResourceId::Components => {
-            // Three chips.
-            for (x, y) in [(0.22, 0.22), (0.54, 0.22), (0.38, 0.54)] {
-                s.rect_filled(b.rect(x, y, x + 0.26, y + 0.26), b.px(0.03), COMPONENTS);
-                s.circle_filled(b.at(x + 0.13, y + 0.13), b.px(0.04), SHADE);
-            }
-        }
         ResourceId::Vegetable => {
             // A leaf on a stem.
             s.add(egui::Shape::convex_polygon(
@@ -192,30 +156,6 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
                 egui::StrokeKind::Inside,
             );
         }
-        ResourceId::Galvum => {
-            // A crystal, one facet lit.
-            s.add(egui::Shape::convex_polygon(
-                b.poly(&[
-                    (0.50, 0.10),
-                    (0.80, 0.42),
-                    (0.62, 0.90),
-                    (0.38, 0.90),
-                    (0.20, 0.42),
-                ]),
-                GALVUM,
-                Stroke::NONE,
-            ));
-            s.add(egui::Shape::convex_polygon(
-                b.poly(&[(0.50, 0.10), (0.62, 0.42), (0.50, 0.90), (0.38, 0.42)]),
-                SHINE,
-                Stroke::NONE,
-            ));
-        }
-        ResourceId::Emitter => {
-            // A lens: a ring, and the point of light in it.
-            s.circle_stroke(b.at(0.5, 0.5), b.px(0.30), Stroke::new(b.px(0.08), EMITTER));
-            s.circle_filled(b.at(0.5, 0.5), b.px(0.10), EMITTER);
-        }
         ResourceId::Suit => {
             // A helmet over a body.
             s.circle_filled(b.at(0.5, 0.30), b.px(0.18), SUIT);
@@ -232,38 +172,11 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
             s.rect_filled(b.rect(0.33, 0.37, 0.70, 0.41), b.px(0.01), SCOPE);
             s.circle_filled(b.at(0.79, 0.42), b.px(0.07), GUN_LIGHT);
         }
-        ResourceId::Vest => {
-            vest(s, b, VEST, SHADE);
-        }
         ResourceId::Medkit => {
             // A case with a cross on it.
             s.rect_filled(b.rect(0.14, 0.26, 0.86, 0.82), b.px(0.06), MEDKIT);
             s.rect_filled(b.rect(0.42, 0.36, 0.58, 0.72), b.px(0.02), CROSS);
             s.rect_filled(b.rect(0.24, 0.46, 0.76, 0.62), b.px(0.02), CROSS);
-        }
-        ResourceId::Rock => {
-            s.add(egui::Shape::convex_polygon(
-                b.poly(&[
-                    (0.16, 0.66),
-                    (0.26, 0.34),
-                    (0.52, 0.18),
-                    (0.84, 0.36),
-                    (0.82, 0.74),
-                    (0.48, 0.86),
-                ]),
-                ROCK,
-                Stroke::new(b.px(0.04), SHADE),
-            ));
-        }
-        ResourceId::Fibre => {
-            // A bundle of stalks, tied.
-            for x in [0.34, 0.44, 0.54, 0.64] {
-                s.line_segment(
-                    [b.at(x, 0.14), b.at(x, 0.86)],
-                    Stroke::new(b.px(0.06), FIBRE),
-                );
-            }
-            s.rect_filled(b.rect(0.26, 0.44, 0.74, 0.56), b.px(0.02), SHADE);
         }
         ResourceId::Bandage => {
             // A box of dressings since feature 87: two rolls, the one

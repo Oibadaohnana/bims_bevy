@@ -93,7 +93,7 @@ const PACK_CELL: f32 = 34.0;
 /// lying across seven of them and a count in a stack's corner.
 fn container_cell(class: Storage) -> f32 {
     match class {
-        Storage::Shelf | Storage::Locker | Storage::ColdStore => 24.0,
+        Storage::Locker | Storage::ColdStore => 24.0,
         // The desk's slot is the key's size: a pack cell, two down.
         Storage::Research => PACK_CELL,
     }
@@ -105,9 +105,7 @@ fn container_cell(class: Storage) -> f32 {
 /// to, and their windows lay the hold out on them (`grid_things`).
 fn container_dims(class: Storage) -> (usize, usize) {
     match class {
-        Storage::Shelf | Storage::ColdStore | Storage::Locker => {
-            (shipdesign::GRID_COLS as usize, 0)
-        }
+        Storage::ColdStore | Storage::Locker => (shipdesign::GRID_COLS as usize, 0),
         Storage::Research => (KEY_CELLS.0 as usize, KEY_CELLS.1 as usize),
     }
 }
@@ -133,7 +131,7 @@ pub struct Hold {
     /// lockers' in `World::GRID_CLASSES` order — where every stack, piece
     /// and gun lies and which way round, and each grid's size in cells;
     /// what the container windows are pictures of.
-    pub grids: [Grid; 3],
+    pub grids: [Grid; 2],
     pub grid_capacity: [u32; 3],
     pub used: [u32; 4],
     pub capacity: [u32; 4],
@@ -469,7 +467,7 @@ const KEEP_SPOTS: [u32; 5] = [SPOT_BAY, SPOT_BAY, SPOT_HOB, SPOT_BAY, SPOT_NOTHI
 /// names a kind: both hobs for cooking, every bay for the bay jobs. Hauling
 /// is the crop carry, and where a haul *ends* is the thing worth pointing
 /// at. Indexed by `work::Job` code; the test below pins the length.
-const WORK_SPOTS: [u32; 10] = [
+const WORK_SPOTS: [u32; 9] = [
     SPOT_LOCKER,
     SPOT_BAY,
     SPOT_BAY,
@@ -477,7 +475,6 @@ const WORK_SPOTS: [u32; 10] = [
     SPOT_HOB,
     SPOT_HELM,
     SPOT_BENCH,
-    SPOT_SUIT_LOCKER,
     // A site is wherever it was laid out; nothing fixed to ring.
     SPOT_NOTHING,
     // A patient is wherever it fell, and a ring round a body would be a
@@ -498,7 +495,6 @@ enum Tab {
     View,
     /// Things the player does with the pointer on the crew's behalf. Only
     /// on the ship's screen: the room has no outside.
-    Actions,
     /// Parts to lay out for the crew to build, by category, with a search
     /// box over them; and the sites laid out so far. Only on the ship's
     /// screen: the room is not a ship.
@@ -779,7 +775,7 @@ fn points_left(view: &ClassView) -> usize {
         return 0;
     }
     (2..=view.level)
-        .filter(|&l| world::class::is_pick_level(l) && taken_at(view, l).is_none())
+        .filter(|&l| world::class::is_pick_level(view.class, l) && taken_at(view, l).is_none())
         .count()
 }
 
@@ -802,13 +798,11 @@ fn skill_numbers(class: world::Class, slot: Slot) -> String {
     }
 }
 
-/// A tool the pointer is holding, picked on the Actions tab. One at a time,
-/// and none is the ordinary pointer.
+/// A tool the pointer is holding, picked on the Build tab. One at a time,
+/// and none is the ordinary pointer. There was a `Mine` beside it until
+/// the money rework (feature 95) took the mining away.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tool {
-    /// Marking rocks outside to be mined: a click on a rock marks it, a
-    /// second click unmarks it.
-    Mine,
     /// Laying out a part of this kind: a blueprint follows the pointer, `R`
     /// turns it, and a click lays it down as a construction site for the
     /// crew to carry to and build.
@@ -835,12 +829,6 @@ pub struct Craft {
 /// ship is at a mining site and how many rocks are marked, and — going the
 /// other way — that the marks are to be cleared.
 pub struct Actions {
-    pub at_site: bool,
-    pub marked: usize,
-    /// How many of those a walk could get to: the rest wait on a rock in
-    /// front of them.
-    pub reachable: usize,
-    pub clear: bool,
     /// And what the View tab shows over the ship. Read in and written
     /// back, like `clear`.
     pub overlay: Overlay,
@@ -850,11 +838,11 @@ pub struct Actions {
     pub crafts: Vec<Craft>,
     pub keep: Vec<(ResourceId, u32)>,
     /// The Build tab: whether the ship is at rest, which is the only time
-    /// anything is laid out or built; how much of each material is aboard
-    /// and not spoken for by a site, by `ResourceId`; the sites laid out;
-    /// and — going the other way — the sites to be called off.
+    /// anything is laid out or built; what the pool has left after the
+    /// sites already begun (feature 95); the sites laid out; and — going
+    /// the other way — the sites to be called off.
     pub at_rest: bool,
-    pub free: [u32; CARGO_SLOTS],
+    pub free_money: economy::Money,
     pub sites: Vec<Site>,
     pub cancel: Vec<u32>,
     /// The camera, for the View tab: which way is up, and whether it
@@ -944,7 +932,9 @@ pub struct Site {
     pub kind: PartKind,
     pub at: (u32, u32),
     pub progress: String,
-    pub stocked: bool,
+    /// Whether the crew can afford it: its price is inside what the pool
+    /// has left after the sites already begun (feature 95).
+    pub affordable: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2973,14 +2963,13 @@ impl CrewPanels {
         ];
         if actions.is_some() {
             tabs.push((Tab::View, "View"));
-            tabs.push((Tab::Actions, "Actions"));
             tabs.push((Tab::Build, "Build"));
             tabs.push((Tab::Research, "Research"));
             tabs.push((Tab::Skills, SKILLS));
             tabs.push((Tab::Ship, "Ship"));
         } else if matches!(
             self.tab,
-            Tab::Actions | Tab::View | Tab::Build | Tab::Research | Tab::Skills | Tab::Ship
+            Tab::View | Tab::Build | Tab::Research | Tab::Skills | Tab::Ship
         ) {
             self.tab = Tab::Schedule;
         }
@@ -3029,11 +3018,6 @@ impl CrewPanels {
             Tab::Inventory => {
                 let who = self.inventory_who(game);
                 self.inventory(ui, game, who, name);
-            }
-            Tab::Actions => {
-                if let Some(actions) = actions {
-                    self.actions(ui, actions);
-                }
             }
             Tab::View => {
                 if let Some(actions) = actions {
@@ -4337,7 +4321,7 @@ impl CrewPanels {
                     cols,
                     rows,
                     blocked,
-                    container_cell(Storage::Shelf),
+                    container_cell(Storage::Locker),
                     &things,
                     &mut no_drag,
                     &never,
@@ -4882,15 +4866,13 @@ impl CrewPanels {
                             .small()
                             .color(theme::MUTED),
                     );
-                    ui.label(
-                        egui::RichText::new(&site.progress)
-                            .small()
-                            .color(if site.stocked {
-                                theme::ACCENT
-                            } else {
-                                theme::MUTED
-                            }),
-                    );
+                    ui.label(egui::RichText::new(&site.progress).small().color(
+                        if site.affordable {
+                            theme::MUTED
+                        } else {
+                            theme::WARN
+                        },
+                    ));
                     if ui.small_button("Cancel").clicked() {
                         cancel = Some(site.id);
                     }
@@ -5601,24 +5583,19 @@ impl CrewPanels {
                         .color(theme::MUTED),
                 );
             }
-            let mut text = egui::text::LayoutJob::default();
-            for (i, &(id, units)) in kind.def().recipe.iter().enumerate() {
-                let short = actions.free[id as usize] < units;
-                text.append(
-                    &format!(
-                        "{}{units} {}",
-                        if i > 0 { ", " } else { "" },
-                        resource_name(id).to_lowercase()
-                    ),
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::proportional(11.0),
-                        color: if short { theme::WARN } else { theme::MUTED },
-                        ..Default::default()
-                    },
-                );
-            }
-            ui.label(text);
+            // What it costs out of the crew's one pool (feature 95), in
+            // the warning colour when there is not that much left after
+            // the sites already begun.
+            let price = kind.def().price;
+            ui.label(
+                egui::RichText::new(crate::format::euros(price))
+                    .size(11.0)
+                    .color(if actions.free_money < price {
+                        theme::WARN
+                    } else {
+                        theme::MUTED
+                    }),
+            );
         });
     }
 
@@ -5680,65 +5657,6 @@ impl CrewPanels {
                 actions.follow = false;
             }
         });
-    }
-
-    /// The tools: one row an action, each a toggle that puts the tool in
-    /// the pointer's hand. Mine is the one there is. Selected, a click on
-    /// the canvas is a mark rather than a selection, and the tab says how
-    /// many rocks are marked and lets the lot be cleared.
-    fn actions(&mut self, ui: &mut egui::Ui, actions: &mut Actions) {
-        ui.set_max_width(360.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Action").small().color(theme::MUTED));
-            theme::question_mark(
-                ui,
-                "Pick an action and use it on the canvas. Escape or a right-click puts the pointer down again.",
-            );
-        });
-        ui.horizontal(|ui| {
-            let on = self.tool == Some(Tool::Mine);
-            let button = ui.add_enabled(actions.at_site, theme::toggle_button(on, "Mine"));
-            if button.clicked() {
-                self.tool = if on { None } else { Some(Tool::Mine) };
-            }
-            ui.label(
-                egui::RichText::new("Click or drag over rocks outside to mark them to be mined.")
-                    .small()
-                    .color(theme::MUTED),
-            );
-        });
-        let on = self.tool == Some(Tool::Mine);
-        let hint = if !actions.at_site {
-            "Hold station at an asteroid belt to mine its rocks."
-        } else if on {
-            "Click a rock outside to mark it to be mined, or drag across the rocks to mark a whole face; click or drag over marked rocks to unmark them. A Bim with mining on its work list takes a suit out and digs the marked rocks, nearest first."
-        } else {
-            "An asteroid is rock on the outside; the ore is three tiles in. Silver is iron ore, purple is galvum."
-        };
-        ui.add(egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap());
-        if actions.at_site {
-            ui.horizontal(|ui| {
-                let word = if actions.marked == 1 { "rock" } else { "rocks" };
-                ui.label(format!("{} {word} marked", actions.marked));
-                let out_of_reach = actions.marked.saturating_sub(actions.reachable);
-                if out_of_reach > 0 {
-                    ui.label(
-                        egui::RichText::new(format!("{out_of_reach} out of reach"))
-                            .color(theme::WARN),
-                    );
-                    theme::question_mark(
-                        ui,
-                        "A rock is mined from the tile beside it, straight on, never from a corner. One with rock on every side waits until a rock in front of it is mined — mark those too.",
-                    );
-                }
-                if ui
-                    .add_enabled(actions.marked > 0, egui::Button::new("Clear marks"))
-                    .clicked()
-                {
-                    actions.clear = true;
-                }
-            });
-        }
     }
 
     /// The day, one slot an hour, painted with a brush; and under it the
@@ -6470,7 +6388,8 @@ fn class_of(game: &Game, container: Container) -> Option<Storage> {
             .def()
             .capacity
             .map(|(class, _)| class),
-        Container::Shelf(_) => game.container_frame(container).map(|_| Storage::Shelf),
+        // A shelf is locker room since the money rework (feature 95).
+        Container::Shelf(_) => game.container_frame(container).map(|_| Storage::Locker),
         Container::Fridge(_) => game.container_frame(container).map(|_| Storage::ColdStore),
         Container::Desk(_) => game.container_frame(container).map(|_| Storage::Research),
     }
@@ -6781,7 +6700,7 @@ mod tests {
         // spend. Seven pick levels, which is what a tenth-level run opens
         // with.
         let all: Vec<(u8, world::Side)> = (2..=world::class::LEVELS)
-            .filter(|&l| world::class::is_pick_level(l))
+            .filter(|&l| world::class::is_pick_level(world::Class::Engineer, l))
             .map(|l| (l, world::Side::Right))
             .collect();
         assert_eq!(all.len(), 7);

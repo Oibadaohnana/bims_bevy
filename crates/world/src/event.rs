@@ -67,10 +67,6 @@ pub enum WorldEvent {
     /// from the hold, or there was no longer room for the output. The
     /// labour is lost, and this says so.
     CraftLost { recipe: u32 },
-    /// A walk outside came back with so much rock, ore and galvum on the
-    /// shelf. Nought of all three means it mined nothing, or the shelves
-    /// were full.
-    Mined { rock: u32, ore: u32, galvum: u32 },
     /// A crew member's body crossed a line — see `health::HealthEvent`.
     /// One code per health event, `who` as the value.
     Health {
@@ -306,6 +302,10 @@ pub enum WorldEvent {
     /// And some of the town's survivors went with them: how many, said
     /// once, right after [`WorldEvent::TownHeld`].
     TownsfolkJoined { count: u32 },
+    /// The Republic paid a bounty for an enemy taken down (feature 95):
+    /// so many euros into the crew's one pool, said once for however many
+    /// were downed this step. Fighting is how a crew earn.
+    Bounty { amount: economy::Money },
 }
 
 /// Why a command did nothing.
@@ -547,6 +547,11 @@ pub enum Refusal {
     /// stands (feature 93, `crate::jammer`). Sideways and outward are
     /// accepted, and flying *into* an infested system never is refused.
     Jammed = 79,
+    /// A construction site the crew cannot pay for: its part's price is
+    /// more than the pool has left after the sites already begun
+    /// (feature 95, `crate::build`). The site stands and waits; money
+    /// earned or a site cancelled lets it go on.
+    NotEnoughMoney = 80,
 }
 
 impl Refusal {
@@ -577,7 +582,8 @@ impl WorldEvent {
             WorldEvent::Docking { .. } => 13,
             WorldEvent::Crafted { .. } => 14,
             WorldEvent::CraftLost { .. } => 15,
-            WorldEvent::Mined { .. } => 16,
+            // 16 is free: it was `Mined`, which went with the mining
+            // (feature 95).
             // 17 to 26: `HealthEvent` runs 1 to 10.
             WorldEvent::Health { event, .. } => 16 + event.code(),
             WorldEvent::SitePlaced { .. } => 27,
@@ -647,6 +653,7 @@ impl WorldEvent {
             WorldEvent::Infested { .. } => 89,
             WorldEvent::TownHeld { .. } => 90,
             WorldEvent::TownsfolkJoined { .. } => 91,
+            WorldEvent::Bounty { .. } => 92,
         }
     }
 
@@ -664,10 +671,8 @@ impl WorldEvent {
             | WorldEvent::DroidStationCleared { station }
             | WorldEvent::TownHeld { station } => station as i64,
             WorldEvent::TownsfolkJoined { count } => count as i64,
+            WorldEvent::Bounty { amount } => amount as i64,
             WorldEvent::Crafted { recipe } | WorldEvent::CraftLost { recipe } => recipe as i64,
-            WorldEvent::Mined { rock, ore, galvum } => {
-                (rock + 1_000 * ore + 1_000_000 * galvum) as i64
-            }
             // The station in the thousands, the person in the units.
             WorldEvent::EnemyDown { station, who } => (who + 1_000 * station) as i64,
             // The kind in the hundreds and the body under it, the way

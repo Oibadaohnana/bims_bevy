@@ -15,15 +15,17 @@
 //! `World::worth`). Nothing is bought or sold at it. What a station's desk
 //! charges is the [`market`]: the book leaned on by the kind of station
 //! and by the station's own roll, then split into an ask and a bid, so
-//! that the same ore is cheap at the outpost that digs it and dear at
-//! the relay that has to have it shipped in. *Whether* a station sells a
-//! thing is a different question again and is the station's —
-//! `worldgen::StationKind::sells` — since this crate knows no stations.
+//! that a crate of vegetables is cheap at the settlement that grows it
+//! and dear at the relay that has to have it shipped in. *Whether* a
+//! station sells a thing is a different question again and is the
+//! station's — `worldgen::StationKind::sells` for the food and the
+//! station's own `Stock` for the gear — since this crate knows no
+//! stations.
 //!
 //! Supply is unlimited. What bounds a purchase is **the ship**: goods are
-//! stowed, and [`storage`] says in what — food in a cold store, fuel in a
-//! tank, everything else on a shelf. A ship with nowhere to put a thing
-//! cannot buy it.
+//! stowed, and [`storage`] says in what — food in a cold store,
+//! everything else in a locker. A ship with nowhere to put a thing cannot
+//! buy it.
 //!
 //! Three things it is built around:
 //!
@@ -114,35 +116,32 @@ pub fn add(a: Money, b: Money) -> Result<Money, EconomyError> {
 
 /// Where a resource is stowed aboard.
 ///
-/// Not a part: several parts can be a shelf between them, and the question a
-/// purchase asks is "is there room in the **class**", not "is there room in
-/// that cupboard". `PartDef::capacity` in `shipdesign` is what says which
+/// Not a part: several parts can be a locker between them, and the question
+/// a purchase asks is "is there room in the **class**", not "is there room
+/// in that cupboard". `PartDef::capacity` in `shipdesign` is what says which
 /// part provides which class and how much of it.
+///
+/// There was a `Shelf` at `0` until the money rework (feature 95) took the
+/// materials away: with nothing left that keeps on racking, a shelf is a
+/// locker's worth of room and `PartKind::Shelf` provides the locker class.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Storage {
-    /// Racking. Ore, metal, components — anything that keeps.
-    Shelf = 0,
     /// Food, which goes off.
-    ColdStore = 1,
-    /// Things worn or carried: suits, and later weapons and medkits. A
-    /// suit locker provides it.
-    Locker = 2,
+    ColdStore = 0,
+    /// Things worn or carried: suits, guns, armour, medicine. A suit
+    /// locker, an armoury and a shelf all provide it.
+    Locker = 1,
     /// A research desk's own slot: where a research key sits until it is
     /// consumed. One a desk, and nothing else goes in it.
-    Research = 3,
+    Research = 2,
 }
 
 impl Storage {
     /// Every class, in discriminant order. The host builds one capacity
     /// readout per entry.
-    pub const ALL: [Storage; 4] = [
-        Storage::Shelf,
-        Storage::ColdStore,
-        Storage::Locker,
-        Storage::Research,
-    ];
+    pub const ALL: [Storage; 3] = [Storage::ColdStore, Storage::Locker, Storage::Research];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -153,89 +152,106 @@ impl Storage {
     }
 }
 
-/// What one unit is **worth**, in whole euros: the book value. **Valuation
-/// only** — `Budget::spent` and `World::worth` are what it is for, and
-/// nothing is bought or sold at it: every transaction goes through
-/// [`market::quote`], which leans on this and splits it. The same
-/// everywhere, which is what makes it a valuation.
+/// What a piece of gear at each tier costs, as a multiple of its book
+/// value at tier one: indexed by the tier's own number, so
+/// `TIER_PRICE[1]` is one, `TIER_PRICE[2]` four and `TIER_PRICE[3]`
+/// sixteen. Index `0` is no tier and is never asked for.
 ///
-/// The roots — ore, galvum, rock, the crops, the suit, the key — are
-/// placeholder numbers, and so is metal, which is exempt from the rule
-/// below on purpose: a staple on every shelf, and the market already
-/// holds the smelter near break-even. **Everything made is its inputs
-/// plus labour** and nothing else: for a recipe, in `shipdesign::RECIPES`
-/// order (an input is always an earlier output),
+/// **Each step is more than double the last**, and that is the whole
+/// point of the table: two of a kind combined at the workbench make one
+/// of the next tier, so a player who can buy two tier-ones for less than
+/// one tier-two has a reason to walk to the bench. `tier_price_doubles`
+/// below is what holds it. Placeholders like every other number here.
+pub const TIER_PRICE: [Money; 4] = [0, 1, 4, 16];
+
+/// What one tier multiplies a price by — [`TIER_PRICE`] indexed safely,
+/// since a tier arrives from the room as a number. One for anything that
+/// is not a tier.
+pub fn tier_price(tier: u32) -> Money {
+    TIER_PRICE.get(tier as usize).copied().unwrap_or(1).max(1)
+}
+
+/// Whether a resource comes at a **tier**: the five weapons and the three
+/// pieces of armour, the things `bims::combat` keeps a `Tier` on. What
+/// [`tier_price`] applies to, and nothing else — a medkit is a medkit.
 ///
-/// ```text
-/// cost   = Σ book(input) × units
-/// labour = LABOUR_BP_PER_HOUR × minutes / 60          // basis points
-/// book   = max(1, cost × (10_000 + labour) / 10_000 / units out)
-/// ```
+/// A `match` rather than a list, so a resource added to `physics` is a
+/// compile error here.
+pub fn tiered(resource: ResourceId) -> bool {
+    match resource {
+        ResourceId::Handgun
+        | ResourceId::Shotgun
+        | ResourceId::AutoRifle
+        | ResourceId::SniperRifle
+        | ResourceId::Schword
+        | ResourceId::Helm
+        | ResourceId::Kevlar
+        | ResourceId::LegGuard => true,
+        ResourceId::Vegetable
+        | ResourceId::Tofu
+        | ResourceId::Suit
+        | ResourceId::Medkit
+        | ResourceId::Bandage
+        | ResourceId::ResearchKey
+        | ResourceId::ResearchKeyTwo
+        | ResourceId::SandbagKit
+        | ResourceId::SentryKit
+        | ResourceId::Grenade => false,
+    }
+}
+
+/// What one unit is **worth**, in whole euros: the book value at **tier
+/// one**. **Valuation only** — `Budget::spent` and `World::worth` are
+/// what it is for, and nothing is bought or sold at it: every transaction
+/// goes through [`market::quote`], which leans on this and splits it, and
+/// a piece of gear above tier one is worth this times
+/// [`TIER_PRICE`]. The same everywhere, which is what makes it a
+/// valuation.
 ///
-/// integer, rounding down at each division in that order, with
-/// `shipdesign::recipes::LABOUR_BP_PER_HOUR` the one constant. This crate
-/// knows no recipes, so the numbers are written in here by hand, and
-/// `every_made_book_is_its_inputs_and_labour` in `shipdesign` — which
-/// knows both the table and the market — recomputes them: a retyped
-/// number, or a recipe changed without its price, fails there. Before
-/// the rule the made goods were priced for feel, and a bench turned one
-/// metal into four components worth ten of it: a printer, at every
-/// lived-in station.
+/// **Every number here is written in by hand.** It was worked out from a
+/// recipe until the money rework (feature 95) took the recipes away;
+/// there is nothing left to derive a price from, so what a thing is worth
+/// is a decision rather than a sum. The gear is the part that was
+/// decided rather than inherited: a pistol at fifteen hundred and a
+/// sniper rifle at five thousand, and **armour at a hundred euros a point
+/// of the piece's health** — fifteen for a helm, twenty for the kevlar,
+/// ten for the leg guards, which is where its three numbers come from.
 ///
 /// A `match` rather than a table so that a new [`ResourceId`] is a compile
 /// error here rather than a resource that is quietly worth nothing.
 pub fn trade_price(resource: ResourceId) -> Money {
     match resource {
-        ResourceId::Ore => 20,
-        ResourceId::Metal => 60,
-        // A metal and twenty minutes, over four.
-        ResourceId::Components => 15,
+        // The food, cheap: what a crew eat.
         ResourceId::Vegetable => 8,
         ResourceId::Tofu => 12,
-        ResourceId::Galvum => 400,
-        // Nobody sells one — `worldgen::StationKind::sells` — but a station
-        // will buy one, and a price is what it pays. The galvum is most of
-        // it.
-        ResourceId::Emitter => 588,
+        // A pressure suit. What a walk outside the hull wants.
         ResourceId::Suit => 2_500,
-        // Made, never sold, like the emitter; a station buys them.
-        ResourceId::Handgun => 710,
-        ResourceId::Vest => 305,
+        // The five weapons, at tier one.
+        ResourceId::Handgun => 1_500,
+        ResourceId::Shotgun => 3_000,
+        ResourceId::AutoRifle => 4_000,
+        ResourceId::SniperRifle => 5_000,
+        ResourceId::Schword => 5_000,
+        // The three pieces of armour, at a hundred a point of health:
+        // fifteen, twenty and ten (`bims::balance`).
+        ResourceId::LegGuard => 1_000,
+        ResourceId::Helm => 1_500,
+        ResourceId::Kevlar => 2_000,
+        // Two vegetables and a quarter of an hour at the drug lab — the
+        // one thing the crew still make — and a dressing off a shelf.
         ResourceId::Medkit => 32,
-        // What an asteroid is skinned in. Nobody sells it and a station pays
-        // next to nothing for it; it is what a pick brings back on the way to
-        // the ore.
-        ResourceId::Rock => 2,
-        // A crop, cheaper than the vegetables it grows beside; and what the
-        // drug lab rolls two of into a dressing for a wound.
-        ResourceId::Fibre => 6,
         ResourceId::Bandage => 12,
-        // Armour, made at the workbench and never sold; a station buys a
-        // piece, and pays for the metal in it and the hours, not the fit.
-        ResourceId::Helm => 132,
-        ResourceId::Kevlar => 667,
-        ResourceId::LegGuard => 63,
-        // The four weapons after the handgun, made at the armoury and never
-        // sold, priced as it is: what went into each, and the hours. The
-        // emitters are most of it.
-        ResourceId::Shotgun => 310,
-        ResourceId::AutoRifle => 975,
-        ResourceId::SniperRifle => 1_807,
-        ResourceId::Schword => 1_501,
         // Found, never made and never sold; a station pays for one as a
         // curiosity, which is a great deal less than what it opens.
         ResourceId::ResearchKey => 5_000,
-        // The tier-two key, off an enemy's desk: twice the tier-one's, a
-        // placeholder like it.
+        // The tier-two key, off an enemy's desk: twice the tier-one's.
         ResourceId::ResearchKeyTwo => 10_000,
-        // The engineer's kits, made at the workbench and never sold, priced
-        // by the labour rule like the armour: a metal and ten minutes, and
-        // two metal, two components and an emitter with an hour on them.
-        ResourceId::SandbagKit => 61,
-        ResourceId::SentryKit => 885,
-        // The soldier's grenade, at the armoury: a metal and a component
-        // with twenty minutes on them.
-        ResourceId::Grenade => 79,
+        // A class's charges (features 88 and 90): they come back on a
+        // cooldown rather than being bought, and nobody stocks one, but a
+        // station will buy one off a pack and a price is what it pays.
+        ResourceId::SandbagKit => 60,
+        ResourceId::SentryKit => 880,
+        ResourceId::Grenade => 80,
     }
 }
 
@@ -250,17 +266,9 @@ pub fn trade_value(resource: ResourceId, units: u32) -> Result<Money, EconomyErr
 /// Where a resource is stowed. Same reason for the `match` as above.
 pub fn storage(resource: ResourceId) -> Storage {
     match resource {
-        ResourceId::Ore
-        | ResourceId::Metal
-        | ResourceId::Components
-        | ResourceId::Galvum
-        | ResourceId::Emitter
-        | ResourceId::Rock => Storage::Shelf,
-        // Fibre is a crop, and goes cold with the rest of the harvest.
-        ResourceId::Vegetable | ResourceId::Tofu | ResourceId::Fibre => Storage::ColdStore,
+        ResourceId::Vegetable | ResourceId::Tofu => Storage::ColdStore,
         ResourceId::Suit
         | ResourceId::Handgun
-        | ResourceId::Vest
         | ResourceId::Medkit
         | ResourceId::Bandage
         | ResourceId::Helm
@@ -279,7 +287,7 @@ pub fn storage(resource: ResourceId) -> Storage {
 
 /// How much of a locker a thing takes up: so many rows by so many
 /// columns of the lockers' grid, the way an inventory in a survival game
-/// lays gear out — a rifle lies along a row, a vest is a square. Either
+/// lays gear out — a rifle lies along a row, a helm is a wide square. Either
 /// way round: a thing can be turned in its locker, and its footprint
 /// turned with it (`turned()`). Nothing here is a float or a `usize`, for
 /// the reason the module note gives; the number that goes in a hash is
@@ -311,13 +319,13 @@ impl Footprint {
 }
 
 /// The room one stack of a resource takes in its class. **Every class but
-/// the research desk is a grid**: a shelf, a cold store, a suit locker,
+/// the research desk is a grid**: a cold store, a suit locker, a shelf,
 /// an armoury or a drug lab is so many cells (`shipdesign::PartDef::capacity`),
 /// and each thing kept there covers its footprint of them — a pistol a
-/// row of two, a sniper rifle a row of ten, a vest four by four, a crate
+/// row of two, a sniper rifle a row of ten, a kevlar vest four by four, a crate
 /// of vegetables one by two, a block of tofu four by four. Goods that
 /// stack ([`stack_size`]) cover one footprint a stack, however full the
-/// stack is, so what a shelf holds is its cells times the stacks. The
+/// stack is, so what a locker holds is its cells times the stacks. The
 /// desk's one slot is one cell.
 ///
 /// A `match` rather than a table, like [`storage`], so that a new
@@ -325,15 +333,7 @@ impl Footprint {
 /// quietly takes no room.
 pub fn footprint(resource: ResourceId) -> Footprint {
     match resource {
-        ResourceId::Ore
-        | ResourceId::Metal
-        | ResourceId::Components
-        | ResourceId::Galvum
-        | ResourceId::Emitter
-        | ResourceId::Rock
-        | ResourceId::Fibre
-        | ResourceId::ResearchKey
-        | ResourceId::ResearchKeyTwo => Footprint::new(1, 1),
+        ResourceId::ResearchKey | ResourceId::ResearchKeyTwo => Footprint::new(1, 1),
         // The guns lie along a row: the pistol short, the shotgun broad,
         // the sniper rifle the whole width of a locker.
         ResourceId::Handgun => Footprint::new(1, 2),
@@ -341,12 +341,11 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         ResourceId::AutoRifle => Footprint::new(1, 7),
         ResourceId::SniperRifle => Footprint::new(1, 10),
         ResourceId::Schword => Footprint::new(1, 5),
-        // The armour: a vest is a square, a helm lies on its side, the
+        // The armour: the kevlar is a square, a helm lies on its side, the
         // leg guards stand.
         ResourceId::Kevlar => Footprint::new(4, 4),
         ResourceId::Helm => Footprint::new(2, 4),
         ResourceId::LegGuard => Footprint::new(3, 2),
-        ResourceId::Vest => Footprint::new(3, 3),
         // The suit folded, a medkit's case, and a box of dressings — a
         // bandage is gauze and tape the size of a medkit's case
         // (feature 87), and five of them go in one box (`stack_size`).
@@ -365,17 +364,11 @@ pub fn footprint(resource: ResourceId) -> Footprint {
 }
 
 /// How many units of a resource go in one stack — one footprint of its
-/// class's grid. What bounds a shelf: a hundred cells hold a thousand ore
-/// in stacks of ten, or a hundred medkits, or one thing each of what does
-/// not stack. A `match`, so a new resource is a compile error rather
-/// than a stack of nought.
+/// class's grid. What bounds a locker: a hundred cells hold a hundred
+/// medkits, or one thing each of what does not stack. A `match`, so a new
+/// resource is a compile error rather than a stack of nought.
 pub fn stack_size(resource: ResourceId) -> u32 {
     match resource {
-        // The materials, by the sack: ore, metal, rock and fibre ten, the
-        // small components twenty, the precious galvum and emitters five.
-        ResourceId::Ore | ResourceId::Metal | ResourceId::Rock | ResourceId::Fibre => 10,
-        ResourceId::Components => 20,
-        ResourceId::Galvum | ResourceId::Emitter => 5,
         // The food, by the crate.
         ResourceId::Vegetable | ResourceId::Tofu => 10,
         // The dressings, by the box: five to a footprint (feature 87), so
@@ -384,7 +377,6 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         // Everything worn, held or dressed with is one to a footprint.
         ResourceId::Suit
         | ResourceId::Handgun
-        | ResourceId::Vest
         | ResourceId::Medkit
         | ResourceId::Helm
         | ResourceId::Kevlar
@@ -475,41 +467,27 @@ mod tests {
             assert!(trade_price(id) > 0, "{id:?} is free");
             assert!(Storage::ALL.contains(&storage(id)), "{id:?}");
         }
-        assert_eq!(trade_price(ResourceId::Ore), 20);
-        assert_eq!(trade_price(ResourceId::Metal), 60);
-        assert_eq!(trade_price(ResourceId::Components), 15);
         assert_eq!(trade_price(ResourceId::Vegetable), 8);
         assert_eq!(trade_price(ResourceId::Tofu), 12);
-        assert_eq!(trade_price(ResourceId::Galvum), 400);
-        assert_eq!(trade_price(ResourceId::Emitter), 588);
         assert_eq!(trade_price(ResourceId::Suit), 2_500);
-        assert_eq!(trade_price(ResourceId::Handgun), 710);
-        assert_eq!(trade_price(ResourceId::Vest), 305);
         assert_eq!(trade_price(ResourceId::Medkit), 32);
-        assert_eq!(trade_price(ResourceId::Rock), 2);
-        assert_eq!(trade_price(ResourceId::Fibre), 6);
         assert_eq!(trade_price(ResourceId::Bandage), 12);
-        assert_eq!(trade_price(ResourceId::Helm), 132);
-        assert_eq!(trade_price(ResourceId::Kevlar), 667);
-        assert_eq!(trade_price(ResourceId::LegGuard), 63);
-        assert_eq!(trade_price(ResourceId::Shotgun), 310);
-        assert_eq!(trade_price(ResourceId::AutoRifle), 975);
-        assert_eq!(trade_price(ResourceId::SniperRifle), 1_807);
-        assert_eq!(trade_price(ResourceId::Schword), 1_501);
+        // The five weapons and the three pieces of armour, as feature 95
+        // asked for them.
+        assert_eq!(trade_price(ResourceId::Handgun), 1_500);
+        assert_eq!(trade_price(ResourceId::Shotgun), 3_000);
+        assert_eq!(trade_price(ResourceId::AutoRifle), 4_000);
+        assert_eq!(trade_price(ResourceId::SniperRifle), 5_000);
+        assert_eq!(trade_price(ResourceId::Schword), 5_000);
+        assert_eq!(trade_price(ResourceId::LegGuard), 1_000);
+        assert_eq!(trade_price(ResourceId::Helm), 1_500);
+        assert_eq!(trade_price(ResourceId::Kevlar), 2_000);
 
-        assert_eq!(storage(ResourceId::Ore), Storage::Shelf);
-        assert_eq!(storage(ResourceId::Metal), Storage::Shelf);
-        assert_eq!(storage(ResourceId::Components), Storage::Shelf);
         assert_eq!(storage(ResourceId::Vegetable), Storage::ColdStore);
         assert_eq!(storage(ResourceId::Tofu), Storage::ColdStore);
-        assert_eq!(storage(ResourceId::Galvum), Storage::Shelf);
-        assert_eq!(storage(ResourceId::Emitter), Storage::Shelf);
         assert_eq!(storage(ResourceId::Suit), Storage::Locker);
         assert_eq!(storage(ResourceId::Handgun), Storage::Locker);
-        assert_eq!(storage(ResourceId::Vest), Storage::Locker);
         assert_eq!(storage(ResourceId::Medkit), Storage::Locker);
-        assert_eq!(storage(ResourceId::Rock), Storage::Shelf);
-        assert_eq!(storage(ResourceId::Fibre), Storage::ColdStore);
         assert_eq!(storage(ResourceId::Bandage), Storage::Locker);
         assert_eq!(storage(ResourceId::Helm), Storage::Locker);
         assert_eq!(storage(ResourceId::Kevlar), Storage::Locker);
@@ -518,13 +496,73 @@ mod tests {
         assert_eq!(storage(ResourceId::AutoRifle), Storage::Locker);
         assert_eq!(storage(ResourceId::SniperRifle), Storage::Locker);
         assert_eq!(storage(ResourceId::Schword), Storage::Locker);
+        assert_eq!(storage(ResourceId::ResearchKey), Storage::Research);
+    }
+
+    /// **Armour is a hundred euros a point of the piece's health**
+    /// (feature 95). This crate knows no `bims`, so the three healths are
+    /// written in here as the numbers `bims::balance` holds — a helm
+    /// fifteen, the kevlar twenty, the leg guards ten — and the test is
+    /// that the book values are a hundred times them.
+    #[test]
+    fn armour_is_a_hundred_a_point_of_health() {
+        for (piece, health) in [
+            (ResourceId::Helm, 15),
+            (ResourceId::Kevlar, 20),
+            (ResourceId::LegGuard, 10),
+        ] {
+            assert_eq!(trade_price(piece), 100 * health, "{piece:?}");
+        }
+    }
+
+    /// The tier table, and the one inequality it exists for: each step is
+    /// **more than double** the last, so combining two of a kind at the
+    /// workbench is always cheaper than buying one of the tier above.
+    /// Only gear is tiered; everything else is worth what it is worth.
+    #[test]
+    fn tier_price_more_than_doubles_at_every_step() {
+        assert_eq!(TIER_PRICE[1], 1);
+        assert_eq!(TIER_PRICE[2], 4);
+        assert_eq!(TIER_PRICE[3], 16);
+        assert!(TIER_PRICE[2] > 2 * TIER_PRICE[1]);
+        assert!(TIER_PRICE[3] > 2 * TIER_PRICE[2]);
+        // Asked with a number off the room: a tier, and anything that is
+        // not one.
+        assert_eq!(tier_price(1), 1);
+        assert_eq!(tier_price(3), 16);
+        assert_eq!(tier_price(0), 1);
+        assert_eq!(tier_price(9), 1);
+        // The eight things that come at a tier, and nothing else.
+        let tiered_count = ResourceId::ALL.iter().filter(|&&r| tiered(r)).count();
+        assert_eq!(tiered_count, 8);
+        for gear in [
+            ResourceId::Handgun,
+            ResourceId::Shotgun,
+            ResourceId::AutoRifle,
+            ResourceId::SniperRifle,
+            ResourceId::Schword,
+            ResourceId::Helm,
+            ResourceId::Kevlar,
+            ResourceId::LegGuard,
+        ] {
+            assert!(tiered(gear), "{gear:?}");
+        }
+        for plain in [
+            ResourceId::Vegetable,
+            ResourceId::Suit,
+            ResourceId::Medkit,
+            ResourceId::Bandage,
+            ResourceId::ResearchKey,
+        ] {
+            assert!(!tiered(plain), "{plain:?}");
+        }
     }
 
     /// The footprints, as they were asked for: a pistol one by two, a
     /// rifle one by seven, a shotgun two by five, a sniper rifle one by
-    /// ten; a vest four by four, a helm two by four, leg guards three by
-    /// two. Everything outside the lockers is one cell, so those classes
-    /// count as they always did; and turning a thing keeps its area.
+    /// ten; a kevlar vest four by four, a helm two by four, leg guards
+    /// three by two. A key is one cell, so the desk's slot counts as it
+    /// always did; and turning a thing keeps its area.
     #[test]
     fn a_thing_takes_its_footprint_in_a_locker_and_one_cell_elsewhere() {
         assert_eq!(footprint(ResourceId::Handgun), Footprint::new(1, 2));
@@ -551,30 +589,32 @@ mod tests {
                 assert_eq!(f, Footprint::new(1, 1), "{id:?}: the desk's one slot");
             }
         }
-        // Stacks: ten ore to a cell, one gun; forty-one ore is five stacks.
-        assert_eq!(stack_size(ResourceId::Ore), 10);
+        // Stacks: ten vegetables to a crate, one gun; forty-one
+        // vegetables is five crates.
+        assert_eq!(stack_size(ResourceId::Vegetable), 10);
+        assert_eq!(stack_size(ResourceId::Bandage), 5);
         assert_eq!(stack_size(ResourceId::SniperRifle), 1);
-        assert_eq!(stacks_of(ResourceId::Ore, 41), 5);
-        assert_eq!(stacks_of(ResourceId::Ore, 40), 4);
-        assert_eq!(stacks_of(ResourceId::Ore, 0), 0);
+        assert_eq!(stacks_of(ResourceId::Vegetable, 41), 5);
+        assert_eq!(stacks_of(ResourceId::Vegetable, 40), 4);
+        assert_eq!(stacks_of(ResourceId::Vegetable, 0), 0);
     }
 
     #[test]
     fn an_order_is_priced_by_the_unit_and_cannot_wrap() {
-        assert_eq!(trade_value(ResourceId::Metal, 0), Ok(0));
-        assert_eq!(trade_value(ResourceId::Metal, 1), Ok(60));
-        assert_eq!(trade_value(ResourceId::Metal, 100), Ok(6_000));
+        assert_eq!(trade_value(ResourceId::Handgun, 0), Ok(0));
+        assert_eq!(trade_value(ResourceId::Handgun, 1), Ok(1_500));
+        assert_eq!(trade_value(ResourceId::Handgun, 100), Ok(150_000));
         assert_eq!(trade_value(ResourceId::Tofu, 250), Ok(3_000));
         // The largest order the type can express still has to be answerable,
         // and the one that does not fit has to be a refusal.
         assert_eq!(
-            trade_value(ResourceId::Components, u32::MAX),
-            Ok(15 * u32::MAX as Money),
+            trade_value(ResourceId::Vegetable, u32::MAX),
+            Ok(8 * u32::MAX as Money),
         );
-        assert!(Storage::from_code(4).is_none());
-        assert_eq!(Storage::from_code(1), Some(Storage::ColdStore));
-        assert_eq!(Storage::from_code(2), Some(Storage::Locker));
-        assert_eq!(Storage::from_code(3), Some(Storage::Research));
+        assert!(Storage::from_code(3).is_none());
+        assert_eq!(Storage::from_code(0), Some(Storage::ColdStore));
+        assert_eq!(Storage::from_code(1), Some(Storage::Locker));
+        assert_eq!(Storage::from_code(2), Some(Storage::Research));
         assert_eq!(storage(ResourceId::ResearchKey), Storage::Research);
     }
 }

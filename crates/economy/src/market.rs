@@ -62,19 +62,12 @@ pub fn war_goods(resource: ResourceId) -> bool {
         | ResourceId::Schword => true,
         // What is worn into a fight. The pressure suit is not armour: it
         // is for going outside, and a war does not make it dearer.
-        ResourceId::Vest | ResourceId::Helm | ResourceId::Kevlar | ResourceId::LegGuard => true,
+        ResourceId::Helm | ResourceId::Kevlar | ResourceId::LegGuard => true,
         // And what patches up what those two did.
         ResourceId::Medkit | ResourceId::Bandage => true,
-        ResourceId::Ore
-        | ResourceId::Metal
-        | ResourceId::Components
-        | ResourceId::Vegetable
+        ResourceId::Vegetable
         | ResourceId::Tofu
-        | ResourceId::Galvum
-        | ResourceId::Emitter
         | ResourceId::Suit
-        | ResourceId::Rock
-        | ResourceId::Fibre
         | ResourceId::ResearchKey
         | ResourceId::ResearchKeyTwo
         | ResourceId::SandbagKit
@@ -167,6 +160,19 @@ impl Quote {
     pub fn fetches(self, units: u32) -> Result<Money, EconomyError> {
         value(self.bid, units)
     }
+
+    /// The same quote for a piece of gear at `tier`: **both sides**
+    /// multiplied by `crate::tier_price`, so a desk asks four times as
+    /// much for a tier-two rifle as for a tier-one and bids four times as
+    /// much for one off the crew's shelf. The one place a tier touches a
+    /// price; `crate::tiered` says which resources it may be asked of.
+    pub fn at_tier(self, tier: u32) -> Quote {
+        let factor = crate::tier_price(tier);
+        Quote {
+            ask: self.ask.saturating_mul(factor),
+            bid: self.bid.saturating_mul(factor),
+        }
+    }
 }
 
 /// `price * units`, or a refusal. Checked like every other sum here.
@@ -210,36 +216,30 @@ impl Market {
 /// to `physics` is a compile error here rather than a thing every desk
 /// quotes at the book; the columns are [`MarketKind::ALL`] in order,
 /// and the row's length is what makes a new kind one too. **Starting
-/// values, to be tuned**: a mining outpost sells ore and galvum cheap and
-/// pays well for food, metal and components; a refinery sells metal cheap
-/// and pays well for ore; an orbital sells food and fibre cheap; a relay
-/// is dear on everything and pays well for food and bandages; a
-/// settlement sells food cheap and pays well for metal.
+/// values, to be tuned**: an orbital and a settlement sell food cheap and
+/// a mining outpost, out on its own, pays well for it; a relay is dear on
+/// everything, and dearest of all on the food and the dressings it has to
+/// have shipped in; a settlement, where the fighting is, pays well for
+/// guns and armour.
 pub fn kind_bias(kind: MarketKind, resource: ResourceId) -> i32 {
     // Columns: Orbital, Refinery, MiningOutpost, Relay, Settlement.
     const O: usize = MarketKind::ALL.len();
     let row: [i32; O] = match resource {
-        ResourceId::Ore => [0, 20, -20, 15, 0],
-        ResourceId::Metal => [0, -20, 15, 15, 15],
-        ResourceId::Components => [0, 0, 15, 15, 0],
         ResourceId::Vegetable => [-15, 0, 15, 25, -15],
         ResourceId::Tofu => [-15, 0, 15, 25, -15],
-        ResourceId::Galvum => [0, 0, -20, 15, 0],
-        ResourceId::Emitter => [0, 0, 0, 15, 0],
-        ResourceId::Suit => [0, 0, 0, 15, 0],
-        ResourceId::Handgun => [0, 0, 0, 15, 0],
-        ResourceId::Vest => [0, 0, 0, 15, 0],
+        // A suit is a refinery's and an outpost's stock in trade: both
+        // are places people work outside.
+        ResourceId::Suit => [0, -15, -15, 15, 0],
+        // The guns and the armour. A settlement buys them well — it is
+        // the one place with a militia to arm.
+        ResourceId::Handgun
+        | ResourceId::Shotgun
+        | ResourceId::AutoRifle
+        | ResourceId::SniperRifle
+        | ResourceId::Schword => [0, 0, 0, 15, 10],
+        ResourceId::Helm | ResourceId::Kevlar | ResourceId::LegGuard => [0, 0, 0, 15, 10],
         ResourceId::Medkit => [0, 0, 0, 15, 0],
-        ResourceId::Rock => [0, 0, 0, 15, 0],
-        ResourceId::Fibre => [-15, 0, 0, 15, 0],
         ResourceId::Bandage => [0, 0, 0, 25, 0],
-        ResourceId::Helm => [0, 0, 0, 15, 0],
-        ResourceId::Kevlar => [0, 0, 0, 15, 0],
-        ResourceId::LegGuard => [0, 0, 0, 15, 0],
-        ResourceId::Shotgun => [0, 0, 0, 15, 0],
-        ResourceId::AutoRifle => [0, 0, 0, 15, 0],
-        ResourceId::SniperRifle => [0, 0, 0, 15, 0],
-        ResourceId::Schword => [0, 0, 0, 15, 0],
         ResourceId::ResearchKey => [0, 0, 0, 15, 0],
         ResourceId::ResearchKeyTwo => [0, 0, 0, 15, 0],
         ResourceId::SandbagKit => [0, 0, 0, 15, 0],
@@ -260,9 +260,10 @@ pub fn kind_bias(kind: MarketKind, resource: ResourceId) -> i32 {
 /// bid  = max(1, mid - half)
 /// ```
 ///
-/// The half is at least a euro, so that a thing worth two — rock — still
-/// has a spread: without it the desk would buy and sell rock at one
-/// price, and `bid < ask` is the one thing every quote promises. Nothing
+/// The half is at least a euro, so that a thing worth a handful — a
+/// crate of vegetables — still has a spread: without it the desk would
+/// buy and sell food at one price, and `bid < ask` is the one thing every
+/// quote promises. Nothing
 /// here can overflow: the book tops out in the thousands and the leans
 /// in the tens, so the products are small however the biases go.
 pub fn quote(kind: MarketKind, bias: i32, resource: ResourceId) -> Quote {
@@ -307,28 +308,35 @@ mod tests {
         }
     }
 
-    /// The sum, worked by hand for metal at the book: mid 60, half 3.
-    /// Then leaned: a refinery sells metal at twenty under, an outpost
-    /// buys it at fifteen over, and a local roll adds to either.
+    /// The sum, worked by hand for a handgun at the book: mid 1500, half
+    /// 75. Then leaned: a settlement pays ten over for a weapon, and a
+    /// local roll adds to either.
     #[test]
     fn the_sum_comes_out_as_written() {
-        let plain = quote(MarketKind::Orbital, 0, ResourceId::Metal);
-        assert_eq!(plain, Quote { ask: 63, bid: 57 });
-        // 60 * 80 / 100 = 48; half = 48 * 1000 / 20000 = 2.
+        let plain = quote(MarketKind::Orbital, 0, ResourceId::Handgun);
         assert_eq!(
-            quote(MarketKind::Refinery, 0, ResourceId::Metal),
-            Quote { ask: 50, bid: 46 }
+            plain,
+            Quote {
+                ask: 1_575,
+                bid: 1_425
+            }
         );
-        // 60 * 115 / 100 = 69; half = 3.
+        // 1500 * 110 / 100 = 1650; half = 1650 * 1000 / 20000 = 82.
         assert_eq!(
-            quote(MarketKind::MiningOutpost, 0, ResourceId::Metal),
-            Quote { ask: 72, bid: 66 }
+            quote(MarketKind::Settlement, 0, ResourceId::Handgun),
+            Quote {
+                ask: 1_732,
+                bid: 1_568
+            }
         );
-        // And with the station's own lean on top: 60 * 130 / 100 = 78,
-        // half 3.
+        // And with the station's own lean on top: 1500 * 125 / 100 = 1875,
+        // half 93.
         assert_eq!(
-            quote(MarketKind::MiningOutpost, 15, ResourceId::Metal),
-            Quote { ask: 81, bid: 75 }
+            quote(MarketKind::Settlement, 15, ResourceId::Handgun),
+            Quote {
+                ask: 1_968,
+                bid: 1_782
+            }
         );
         // Rounding is down at each division: 8 * 85 / 100 = 6 (6.8), and
         // the half is the floor of one euro.
@@ -336,37 +344,70 @@ mod tests {
             quote(MarketKind::Orbital, 0, ResourceId::Vegetable),
             Quote { ask: 7, bid: 5 }
         );
-        // Rock is worth two and the half is still a euro of it.
+        // A tier multiplies both sides and nothing else: four times at
+        // tier two, sixteen at tier three (feature 95).
         assert_eq!(
-            quote(MarketKind::Orbital, 0, ResourceId::Rock),
-            Quote { ask: 3, bid: 1 }
+            plain.at_tier(2),
+            Quote {
+                ask: 4 * 1_575,
+                bid: 4 * 1_425
+            }
         );
+        assert_eq!(
+            plain.at_tier(3),
+            Quote {
+                ask: 16 * 1_575,
+                bid: 16 * 1_425
+            }
+        );
+        assert_eq!(plain.at_tier(1), plain);
+    }
+
+    /// The ask stays over the bid at **every tier**, which is what makes a
+    /// thing bought and sold straight back lose money whatever tier it is
+    /// at (feature 95).
+    #[test]
+    fn the_ask_is_over_the_bid_at_every_tier() {
+        for kind in MarketKind::ALL {
+            for &resource in ResourceId::ALL.iter().filter(|&&r| crate::tiered(r)) {
+                for bias in (-MAX_BIAS as i32)..=(MAX_BIAS as i32 + MAX_FRONT_BIAS) {
+                    let base = quote(kind, bias, resource);
+                    let mut last = 0;
+                    for tier in 1..=3 {
+                        let q = base.at_tier(tier);
+                        assert!(q.bid < q.ask, "{kind:?} {resource:?} tier {tier}");
+                        assert!(
+                            q.bid > last,
+                            "{kind:?} {resource:?} tier {tier} is no dearer"
+                        );
+                        last = q.bid;
+                    }
+                }
+            }
+        }
     }
 
     /// The starting leans, as they were asked for.
     #[test]
     fn each_kind_leans_the_way_it_was_asked_to() {
         use MarketKind::*;
-        assert!(kind_bias(MiningOutpost, ResourceId::Ore) < 0);
-        assert!(kind_bias(MiningOutpost, ResourceId::Galvum) < 0);
-        assert!(kind_bias(MiningOutpost, ResourceId::Vegetable) > 0);
-        assert!(kind_bias(MiningOutpost, ResourceId::Metal) > 0);
-        assert!(kind_bias(MiningOutpost, ResourceId::Components) > 0);
-        assert!(kind_bias(Refinery, ResourceId::Metal) < 0);
-        assert!(kind_bias(Refinery, ResourceId::Ore) > 0);
         assert!(kind_bias(Orbital, ResourceId::Vegetable) < 0);
         assert!(kind_bias(Orbital, ResourceId::Tofu) < 0);
-        assert!(kind_bias(Orbital, ResourceId::Fibre) < 0);
         assert!(kind_bias(Settlement, ResourceId::Vegetable) < 0);
-        assert!(kind_bias(Settlement, ResourceId::Metal) > 0);
+        assert!(kind_bias(MiningOutpost, ResourceId::Vegetable) > 0);
+        assert!(kind_bias(MiningOutpost, ResourceId::Suit) < 0);
+        assert!(kind_bias(Refinery, ResourceId::Suit) < 0);
+        // A settlement has a militia, and pays for what arms it.
+        assert!(kind_bias(Settlement, ResourceId::AutoRifle) > 0);
+        assert!(kind_bias(Settlement, ResourceId::Kevlar) > 0);
         for &resource in ResourceId::ALL.iter() {
             assert!(
                 kind_bias(Relay, resource) > 0,
                 "{resource:?} not dear at a relay"
             );
         }
-        assert!(kind_bias(Relay, ResourceId::Vegetable) > kind_bias(Relay, ResourceId::Ore));
-        assert!(kind_bias(Relay, ResourceId::Bandage) > kind_bias(Relay, ResourceId::Ore));
+        assert!(kind_bias(Relay, ResourceId::Vegetable) > kind_bias(Relay, ResourceId::Handgun));
+        assert!(kind_bias(Relay, ResourceId::Bandage) > kind_bias(Relay, ResourceId::Handgun));
     }
 
     /// What the front premium is charged on: a weapon, a piece of
@@ -379,7 +420,6 @@ mod tests {
             ResourceId::AutoRifle,
             ResourceId::SniperRifle,
             ResourceId::Schword,
-            ResourceId::Vest,
             ResourceId::Helm,
             ResourceId::Kevlar,
             ResourceId::LegGuard,
@@ -389,16 +429,9 @@ mod tests {
             assert!(war_goods(resource), "{resource:?} is war goods");
         }
         for resource in [
-            ResourceId::Ore,
-            ResourceId::Metal,
-            ResourceId::Components,
             ResourceId::Vegetable,
             ResourceId::Tofu,
-            ResourceId::Galvum,
-            ResourceId::Emitter,
             ResourceId::Suit,
-            ResourceId::Rock,
-            ResourceId::Fibre,
             ResourceId::ResearchKey,
             ResourceId::ResearchKeyTwo,
             ResourceId::SandbagKit,
@@ -407,29 +440,29 @@ mod tests {
         ] {
             assert!(!war_goods(resource), "{resource:?} is not war goods");
         }
-        // Eleven of them, and the table covers every resource there is.
+        // Ten of them, and the table covers every resource there is.
         let all = ResourceId::ALL.iter().filter(|&&r| war_goods(r)).count();
-        assert_eq!(all, 11, "the war goods");
+        assert_eq!(all, 10, "the war goods");
     }
 
     /// A market quotes through its own bias, and the plain one at none.
     #[test]
     fn a_market_quotes_through_its_own_lean() {
         let mut bias = Bias::NONE;
-        bias.0[ResourceId::Ore as usize] = -15;
+        bias.0[ResourceId::Handgun as usize] = -15;
         assert!(bias.in_range());
         let desk = Market::new(MarketKind::Orbital, bias);
         assert_eq!(
-            desk.quote(ResourceId::Ore),
-            quote(MarketKind::Orbital, -15, ResourceId::Ore)
+            desk.quote(ResourceId::Handgun),
+            quote(MarketKind::Orbital, -15, ResourceId::Handgun)
         );
         assert_eq!(
-            desk.quote(ResourceId::Metal),
-            quote(MarketKind::Orbital, 0, ResourceId::Metal)
+            desk.quote(ResourceId::Tofu),
+            quote(MarketKind::Orbital, 0, ResourceId::Tofu)
         );
         assert_eq!(
-            Market::PLAIN.quote(ResourceId::Ore),
-            quote(MarketKind::Orbital, 0, ResourceId::Ore)
+            Market::PLAIN.quote(ResourceId::Handgun),
+            quote(MarketKind::Orbital, 0, ResourceId::Handgun)
         );
         bias.0[0] = MAX_BIAS + 1;
         assert!(!bias.in_range());

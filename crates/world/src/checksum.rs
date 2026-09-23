@@ -358,16 +358,10 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(request.code() as u64);
     }
 
-    // The mining sites: every rock still standing at each, and the marks.
-    // Integers throughout, so they go in whole.
-    for site in &world.sites {
-        eat_site(&mut hash, site);
-    }
-
-    // The construction sites: what is to be built where, and what has
-    // been carried to each. Integers throughout. The next id is in too:
-    // two worlds with the same sites and a different next id would hand
-    // the next site different names.
+    // The construction sites: what is to be built where. Integers
+    // throughout, and nothing is carried to one since the money rework
+    // (feature 95). The next id is in too: two worlds with the same sites
+    // and a different next id would hand the next site different names.
     hash.eat(world.next_site as u64);
     hash.eat(world.builds.len() as u64);
     for site in &world.builds {
@@ -376,9 +370,6 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(site.origin.0 as u64);
         hash.eat(site.origin.1 as u64);
         hash.eat(site.rotation.code() as u64);
-        for &units in site.delivered.iter().chain(site.carrying.iter()) {
-            hash.eat(units as u64);
-        }
     }
 
     // What the crew know: every node done or not, every lock open or not,
@@ -500,10 +491,6 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(memory.station_keys.len() as u64);
         for &key in &memory.station_keys {
             hash.eat(u64::from(key));
-        }
-        hash.eat(memory.sites.len() as u64);
-        for site in &memory.sites {
-            eat_site(&mut hash, site);
         }
         hash.eat(memory.plunder.len() as u64);
         for plunder in &memory.plunder {
@@ -707,23 +694,6 @@ pub fn world_checksum(world: &World) -> u64 {
     }
 
     hash.0
-}
-
-/// A mining site whole: its belt, every rock still standing and the
-/// marks. Integers throughout.
-fn eat_site(hash: &mut Fnv, site: &crate::mining::MiningSite) {
-    hash.eat(site.belt as u64);
-    hash.eat(site.tiles.len() as u64);
-    for tile in &site.tiles {
-        hash.eat(tile.x as i64 as u64);
-        hash.eat(tile.y as i64 as u64);
-        hash.eat(tile.kind.code() as u64);
-    }
-    hash.eat(site.marked.len() as u64);
-    for &(x, y) in &site.marked {
-        hash.eat(x as i64 as u64);
-        hash.eat(y as i64 as u64);
-    }
 }
 
 /// What the stations have lost, station by station.

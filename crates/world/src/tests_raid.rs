@@ -700,7 +700,7 @@ fn a_repelled_raider_is_a_derelict_until_the_ship_casts_off() {
     // the rooms joined.
     let shelf = world.plunder_alongside().expect("a raider's shelf");
     assert_eq!(shelf.station, station);
-    assert!(shelf.grid.units_of(ResourceId::Ore) > 0, "{shelf:?}");
+    assert!(shelf.grid.units_of(ResourceId::Tofu) > 0, "{shelf:?}");
     assert!(!world.station_shelves().is_empty());
 
     // Cast off: the raider is gone with the push-off.

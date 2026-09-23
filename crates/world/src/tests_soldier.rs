@@ -1016,11 +1016,10 @@ fn two_runs_of_a_grenade_fight_on_one_seed_are_the_same_fight_and_the_book_is_th
         world_checksum(&world)
     };
     assert_eq!(run(), run());
-    assert_eq!(trade_price(ResourceId::Grenade), 79);
-    assert_eq!(
-        shipdesign::recipes::made_book(&shipdesign::RECIPES[16]),
-        trade_price(ResourceId::Grenade)
-    );
+    // A grenade is a charge on a cooldown since feature 90 and is made
+    // nowhere since feature 95; a desk still buys one off a pack, and
+    // its book value is a hand-written number like every other.
+    assert_eq!(trade_price(ResourceId::Grenade), 80);
 }
 
 // --- D: the ten levels ----------------------------------------------------------

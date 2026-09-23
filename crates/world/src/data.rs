@@ -214,17 +214,13 @@ pub const DEFAULT_SEED: u64 = 0x_5749_4e44_4f57_0001;
 pub const SIMULATION_MONEY: Money = 50_000;
 
 /// How long putting a part together takes, in game minutes: this much
-/// whatever it is, plus this much a unit of what it is made of. A wall of
-/// two metal is six minutes beside it; a heavy engine, two hundred and
-/// fifty units, a little over two hours. The carrying is on top, a load
-/// at a time — see [`HAUL_LOAD`].
+/// whatever it is, plus this much per hundred euros of the part's price.
+/// A wall at 100 euros is six minutes; a heavy engine at 75 000, a little
+/// over six hours. It was per unit of materials until the money rework
+/// (feature 95) took the materials away, and nothing is carried to a site
+/// now, so the walk is the whole of what is on top.
 pub const BUILD_MINUTES_BASE: f64 = 5.0;
-pub const BUILD_MINUTES_PER_UNIT: f64 = 0.5;
-
-/// How many units of one material a Bim carries to a construction site in
-/// one trip. A wall is one trip; the heavy engine's hundred and fifty
-/// metal is eight.
-pub const HAUL_LOAD: u32 = 20;
+pub const BUILD_MINUTES_PER_HUNDRED: f64 = 0.5;
 
 /// Combining two of a kind at the workbench into one of the next tier
 /// (`World::upgrade`) is a day's work, taken an hour at a time: each
@@ -422,3 +418,15 @@ pub const DEFENSE_DELAY_MINUTES: f64 = 60.0;
 /// cent, when the last wave is destroyed. A fifth, rounded down, and never
 /// fewer than one while there is anybody but the guard left to come.
 pub const DEFENSE_JOIN_PERCENT: u32 = 20;
+
+/// What the Republic pays for an enemy taken down, by the tier of the gear
+/// it carried: index one is tier one, and index nought is no tier at all
+/// and is never asked for (feature 95).
+///
+/// **Fighting is how a crew earn.** Nothing is mined and nothing is made
+/// but medicine, so the only money that comes into the game comes across a
+/// desk or off a body — and a crew that never fights never gets rich.
+/// Each step is three times the last on purpose: a tier-three enemy is
+/// worth pushing towards, which is what the crisis wants of them.
+/// Placeholders, like every other number here.
+pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];

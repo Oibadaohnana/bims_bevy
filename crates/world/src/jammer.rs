@@ -103,7 +103,13 @@ pub fn blueprint(system: &StarSystem, galaxy_seed: u64, star: u32) -> StationBlu
     // Each off its own branch, the way a settlement's are, so reworking
     // one of them does not move the others.
     let map_seed = stream.branch(0x_4d41_5000_0000_0000).next_u64();
-    let stock = Stock::roll(JAMMER_KIND, &mut stream.branch(0x_5354_4f43_4b00_0000));
+    // The shelf off "STOCK", and the two gear-trade flags off "GEAR"
+    // (feature 95), the way the generator keeps them apart.
+    let stock = Stock::roll(
+        JAMMER_KIND,
+        &mut stream.branch(0x_5354_4f43_4b00_0000),
+        &mut stream.branch(0x_4745_4152_0000_0000),
+    );
     let bias = worldgen::data::price_bias(&mut stream.branch(0x_4249_4153_0000_0000));
     let mut place = stream.branch(0x_504c_4143_4500_0000);
     let ring = JAMMER_FIRST_RING + place.below(JAMMER_RINGS);

@@ -71,9 +71,7 @@ is run through **`./hidden`** so it opens on nobody's desktop:
 `BIMS_POINTER="40:move:600,250;60:click:600,250;90:right:300,400"` and
 `BIMS_KEYS="60:Escape,90:M"` drive the pointer and the keys at those frames,
 in logical points from the window's top left. `wheel` and `wheelup` at
-a point are a notch of the wheel, which zooms. `BIMS_AT_BELT=1` opens the
-simulation holding at a belt with its mining site laid out, for looking at
-the outside without flying there; `BIMS_LANDED=1` opens it set down on
+a point are a notch of the wheel, which zooms. `BIMS_LANDED=1` opens it set down on
 the spawn system's first planet with ground — the pad, the ground and
 the settlement beside it — and `BIMS_LANDING=0.7` over that planet with
 the landing run seven tenths of the way down, for looking at the descent
@@ -372,6 +370,45 @@ red, commit it all the same and say so in the message — one numbered
 commit a session is what makes a task's changes findable afterwards, and
 an agent that leaves its work uncommitted leaves the next one guessing
 which lines in the tree are whose.
+
+## Money, not materials (feature 95)
+
+The economy used to be a chain: ore mined off a belt, smelted into metal,
+worked into components and emitters, and those built into parts and guns.
+**It is money now**, and the change reached every crate:
+
+- **Eight resources are gone** — ore, metal, components, galvum, emitters,
+  rock, fibre and the armoury's vest — and the discriminants after each
+  were closed up rather than left as holes (`physics::ResourceId`, 18 of
+  them). Nothing saved has to load, so nothing was owed a hole. That moved
+  every design hash, both galaxy checksum sets and `REFERENCE_CHECKSUM`,
+  and bumped `GENERATOR_VERSION` to 7.
+- **`Storage::Shelf` is gone with them**: three classes left, and
+  `PartKind::Shelf` is locker class. `PartKind::Smelter` is gone.
+- **A part has a `mass` column** where it had a `recipe`, set to exactly
+  what its recipe weighed, so nothing about how a ship flies moved. A
+  **construction site costs its part's price**, paid out of the pool
+  anywhere — docked, holding or landed — and a deconstruction gives the
+  whole price back. There is no hauling: `Job::Mine` and the haul half of
+  `Job::Haul` are gone, and so is `World::free` and every reservation.
+- **`RECIPES` is one row**: two vegetables into a medkit at the drug lab.
+  The workbench and the armoury are still worked at — upgrades, and the
+  cabinet — through `shipdesign::recipes::is_workstation`.
+- **Mining is gone**: `crates/world/src/mining.rs`, `bims::game::Eva`, the
+  marks, the Actions tab and `BIMS_AT_BELT` with it. Belts stay as bodies.
+- **The research tree is five nodes**, and everything behind a deleted one
+  is known at the start.
+- **Gear is bought**, where a place has the trade: two flags a market,
+  rolled off its own seed, and every tier on sale at the book times 1, 4
+  and 16 (`economy::TIER_PRICE`).
+- **The Republic pays a bounty** for an enemy taken down, by its gear tier,
+  once per enemy — which is where money comes from in a fight.
+
+The detail is in `crates/world/CLAUDE.md` ("Construction is stage 7",
+"Money, the bounty and what a crew are worth"),
+`crates/shipdesign/CLAUDE.md` and `crates/worldgen/CLAUDE.md`, and the
+player's half is `README.md` (*Making things*, *Trading*, *Building,
+aboard*).
 
 ## It is a workspace, and the app is one crate of eleven
 

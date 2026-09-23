@@ -265,45 +265,31 @@ pub enum Step {
     Work,
 
     // A walk outside: a suit out of its locker, over to the deck inside the
-    // port, out through the airlock, and then — on the outside's own grid,
-    // see `nav::Nav::outside` — to a marked rock, a pick swung at it until
-    // it is gone, the next rock, and so on until there is none it can get
-    // to; then back to the port, in, and the suit hung up again. `PickRock`
-    // is a step of no length between one rock and the next: the world
-    // takes the mined tile out and hands the room the rocks afresh, and
-    // the grid is rebuilt, before the next rock is chosen — so a tile just
-    // mined is a tile the Bim can now stand in to reach the one behind it.
-    // What a rock yields is the world's to add: the room puts the mined
-    // rock's middle on `Room::mined` and counts finished walks in
-    // `Room::walks_done`. See `Kind::Eva`.
+    // port, out through the airlock, and back in and the suit hung up
+    // again after. Nothing goes out there on its own account any more —
+    // the walk to mine a belt went with the mining (feature 95) — so this
+    // run of steps exists for the one errand that still leaves the hull: a
+    // construction site beyond it, which turns off at `StepOut` and back
+    // at `WalkToPort` (`Kind::fork`).
     GoToSuitLocker,
     TakeSuit,
     GoToGangway,
     StepOut,
-    PickRock,
-    WalkToRock,
-    Mine,
     WalkToPort,
     StepIn,
     BackToSuitLocker,
     PutSuitBack,
 
-    // Building. A load off a shelf, carried to a construction site and put
-    // down there — one trip an errand, `Kind::Haul` — and, once everything
-    // is there, standing beside the site and putting it together for as
-    // long as the world says, `Kind::Build`. A site outside the hull is the
-    // same two errands with the suit and the airlock either side of the
-    // walk to it, on the outside's grid: the walk out borrows the walk
-    // outside's steps above, from `GoToSuitLocker` to `StepOut` and from
-    // `WalkToPort` to `PutSuitBack`. The room moves no materials and
-    // changes no ship: `TakeMaterials` says a load was taken, `DropMaterials`
-    // that it arrived and `Construct` that the site is built, on
-    // `Room::picked`, `Room::dropped` and `Room::built`, and the world
-    // moves the count and puts the part down.
-    GoToShelf,
-    TakeMaterials,
-    CarryToSite,
-    DropMaterials,
+    // Building. Standing beside a construction site and putting it
+    // together for as long as the world says, `Kind::Build`. A site
+    // outside the hull is the same errand with the suit and the airlock
+    // either side of the walk to it, on the outside's grid: the walk out
+    // borrows the walk outside's steps above, from `GoToSuitLocker` to
+    // `StepOut` and from `WalkToPort` to `PutSuitBack`. Nothing is
+    // carried — a part is paid for out of the crew's pool rather than
+    // built out of the hold since feature 95 — so the room changes no
+    // ship and says only, on `Room::built`, that the site is done; the
+    // world takes the price and puts the part down.
     GoToSite,
     Construct,
 
@@ -452,21 +438,15 @@ impl Step {
             GoToSuitLocker => TakeSuit,
             TakeSuit => GoToGangway,
             GoToGangway => StepOut,
-            StepOut => PickRock,
-            PickRock => WalkToRock,
-            WalkToRock => Mine,
-            // Round again for the next rock; `next_step` is what sends the
-            // Bim home instead when there is none.
-            Mine => PickRock,
+            // Nothing is done out there on its own account: the one errand
+            // that steps out is a build, and it forks here.
+            StepOut => WalkToPort,
             WalkToPort => StepIn,
             StepIn => BackToSuitLocker,
             BackToSuitLocker => PutSuitBack,
-            // The two building errands as they run inside the hull; the
-            // outside variants turn off through the airlock in
-            // `Kind::steps` and `Task::next_step`.
-            GoToShelf => TakeMaterials,
-            TakeMaterials => CarryToSite,
-            CarryToSite => DropMaterials,
+            // The building errand as it runs inside the hull; the outside
+            // variant turns off through the airlock in `Kind::steps` and
+            // `Task::next_step`.
             GoToSite => Construct,
             GoToKit => TakeKit,
             TakeKit => GoToPatient,
@@ -479,8 +459,8 @@ impl Step {
             TakeGear => CarryGear,
             CarryGear => PutGear,
             StartDishwasher | FlipSwitch | ClimbOutOfBed | ShutDoorBehind | PutBroomBack | Talk
-            | ShutStoreOnStew | Shower | Work | PutSuitBack | DropMaterials | Construct | Dress
-            | PickUp | Execute | PutGear | Deploy | Done => Done,
+            | ShutStoreOnStew | Shower | Work | PutSuitBack | Construct | Dress | PickUp
+            | Execute | PutGear | Deploy | Done => Done,
         }
     }
 
@@ -518,7 +498,7 @@ impl Step {
             Shower => clock::seconds(crate::needs::SHOWER_MINUTES),
             TakeSuit | PutSuitBack => 1.5,
             StepOut | StepIn => 1.0,
-            TakeMaterials | DropMaterials | TakeGear | PutGear => 1.2,
+            TakeGear | PutGear => 1.2,
             StowCrop => 0.7,
             OpenDoor | ShutDoor | UnlockDoor | ShutDoorBehind => 0.7,
             SitOnToilet | RiseFromToilet => 0.7,
@@ -571,11 +551,8 @@ impl Step {
                 | GoToBench
                 | GoToSuitLocker
                 | GoToGangway
-                | WalkToRock
                 | WalkToPort
                 | BackToSuitLocker
-                | GoToShelf
-                | CarryToSite
                 | GoToSite
                 | GoToKit
                 | GoToPatient
@@ -666,27 +643,15 @@ pub enum Kind {
         recipe: u32,
         bench: usize,
     },
-    /// A walk outside to mine the marked rocks, in a suit. How long one
-    /// rock takes rides in `rest_minutes`. Only aboard a room with a suit
-    /// locker and a port — see `Room::suit_locker` and `Room::gangway` —
-    /// and only when the world says the ship is at a site with rocks
-    /// marked and a suit aboard; see `Game::set_eva`.
-    Eva,
-    /// One load of materials from a shelf to construction site `site`, put
-    /// down there. `outside` is whether the site is beyond the hull, in
-    /// which case the walk goes out through the airlock in a suit and back
-    /// in again after — decided when the errand is begun, off whether any
-    /// tile beside the site can be stood on from the deck. Which materials
-    /// and how many is the world's: the room says a load was taken and a
-    /// load arrived, on `Room::picked` and `Room::dropped`.
-    Haul {
-        site: u32,
-        outside: bool,
-    },
     /// Putting construction site `site` together, standing beside it, for
-    /// the minutes riding in `rest_minutes` the way a craft's do. `outside`
-    /// as for a haul. The room says it is done on `Room::built`; the world
-    /// puts the part down.
+    /// the minutes riding in `rest_minutes` the way a craft's do.
+    /// `outside` is whether the site is beyond the hull, in which case the
+    /// walk goes out through the airlock in a suit and back in again
+    /// after — decided when the errand is begun, off whether any tile
+    /// beside the site can be stood on from the deck. Nothing is carried:
+    /// a part is paid for out of the crew's pool since feature 95. The
+    /// room says it is done on `Room::built`; the world takes the price
+    /// and puts the part down.
     Build {
         site: u32,
         outside: bool,
@@ -780,8 +745,6 @@ impl Kind {
             Kind::Chat => Step::GoToMeet,
             Kind::Shower => Step::GoToShower,
             Kind::Craft { .. } => Step::GoToBench,
-            Kind::Eva => Step::GoToSuitLocker,
-            Kind::Haul { .. } => Step::GoToShelf,
             Kind::Build { outside: true, .. } => Step::GoToSuitLocker,
             Kind::Build { outside: false, .. } => Step::GoToSite,
             Kind::Bandage { .. } => Step::GoToPatient,
@@ -820,17 +783,14 @@ impl Kind {
     /// errand.
     pub fn site(self) -> Option<u32> {
         match self {
-            Kind::Haul { site, .. } | Kind::Build { site, .. } => Some(site),
+            Kind::Build { site, .. } => Some(site),
             _ => None,
         }
     }
 
     /// Whether this errand goes out through the airlock.
     fn goes_outside(self) -> bool {
-        matches!(
-            self,
-            Kind::Eva | Kind::Haul { outside: true, .. } | Kind::Build { outside: true, .. }
-        )
+        matches!(self, Kind::Build { outside: true, .. })
     }
 
     /// The step after `here` where this chain turns off the straight line
@@ -857,12 +817,8 @@ impl Kind {
             // chopping.
             (Kind::Tend { .. }, Step::OpenFridge) => Step::StowCrop,
             (Kind::Tend { .. }, Step::CloseFridge) => Step::Done,
-            // A load for a site outside goes out through the airlock with
-            // the Bim, and the Bim comes back in after putting it down; a
-            // build outside is the same walk round the work.
-            (Kind::Haul { outside: true, .. }, Step::TakeMaterials) => Step::GoToSuitLocker,
-            (Kind::Haul { outside: true, .. }, Step::StepOut) => Step::CarryToSite,
-            (Kind::Haul { outside: true, .. }, Step::DropMaterials) => Step::WalkToPort,
+            // A build outside goes out through the airlock with the Bim,
+            // and the Bim comes back in when the part is down.
             (Kind::Build { outside: true, .. }, Step::StepOut) => Step::GoToSite,
             (Kind::Build { outside: true, .. }, Step::Construct) => Step::WalkToPort,
             _ => return None,
@@ -881,9 +837,6 @@ impl Kind {
             let here = at?;
             let next = match (self, here) {
                 (Kind::Meal(_), Step::Chop) => Step::PutKnifeDown,
-                // One rock, counted once: the chain goes round for every rock
-                // it can reach, and how many that is nothing here can know.
-                (Kind::Eva, Step::Mine) => Step::WalkToPort,
                 _ => self.fork(here).unwrap_or_else(|| here.next()),
             };
             at = if next == Step::Done { None } else { Some(next) };
@@ -1345,14 +1298,12 @@ fn destination(
         // Bim, and the errand is not begun — `Game::can_go_outside` asks.
         GoToSuitLocker | BackToSuitLocker => room.suit_locker_station(),
         GoToGangway => room.gangway,
-        // Beside the rock chosen as the step was entered, the way a tile to
-        // sweep is; and back to the spot outside the port.
-        WalkToRock => target,
+        // Back to the spot outside the port.
         WalkToPort => room.outside,
-        // The nearest shelf, and a tile beside the site, both chosen as the
-        // step is entered — from wherever the Bim is standing, on whichever
-        // grid it is standing on.
-        GoToShelf | CarryToSite | GoToSite => target,
+        // A tile beside the site, chosen as the step is entered — from
+        // wherever the Bim is standing, on whichever grid it is standing
+        // on.
+        GoToSite => target,
         // Beside the patient, chosen as the walk is entered from where the
         // patient stands then; the kit's container the same.
         GoToKit | GoToPatient => target,
@@ -1422,15 +1373,7 @@ fn outside_half(kind: Kind, step: Step) -> bool {
     }
     matches!(
         step,
-        Step::StepOut
-            | Step::PickRock
-            | Step::WalkToRock
-            | Step::Mine
-            | Step::CarryToSite
-            | Step::DropMaterials
-            | Step::GoToSite
-            | Step::Construct
-            | Step::WalkToPort
+        Step::StepOut | Step::GoToSite | Step::Construct | Step::WalkToPort
     )
 }
 
@@ -1629,62 +1572,6 @@ pub fn nearest_shelf(room: &Room, maps: &Maps, from: Vec2) -> Option<Vec2> {
     shelves.into_iter().find(|&at| nav.can_reach(from, at))
 }
 
-/// The next marked rock the Bim can get to from `from`, and where to stand
-/// to mine it: the nearest marked rock with a tile beside it — four ways,
-/// never a diagonal — that the outside grid has a route to. `None` with no
-/// outside grid, no rocks marked, or none of them reachable.
-///
-/// Four ways and not eight because of what a dig is: the tile mined is the
-/// tile the Bim stands in to reach the one behind it, and a body cannot
-/// squeeze diagonally between two rocks into a tile that was mined from
-/// its corner — the grid refuses that, rightly — so a rock mined from a
-/// corner would be a pocket nothing can get into, and the rock behind it
-/// marked for nothing.
-///
-/// One place, asked both when the walk is set up and when the chain asks
-/// itself whether there is another, for the same reason as `next_dirty`:
-/// the two have to agree or the chain loops.
-pub fn next_rock(room: &Room, maps: &Maps, from: Vec2) -> Option<(Vec2, Vec2)> {
-    reachable_rocks(room, maps, from).into_iter().next()
-}
-
-/// Every marked rock the Bim can get to from `from`, nearest first, each
-/// with the tile to stand on. What `next_rock` picks the first of, and
-/// what the room counts to say how many marks are out of reach.
-pub fn reachable_rocks(room: &Room, maps: &Maps, from: Vec2) -> Vec<(Vec2, Vec2)> {
-    let mut found = Vec::new();
-    let Some(nav) = maps.outside() else {
-        return found;
-    };
-    let t = crate::filth::TILE;
-    let mut rocks: Vec<Vec2> = room.rock_targets.clone();
-    rocks.sort_by(|a, b| {
-        (*a - from)
-            .len()
-            .partial_cmp(&(*b - from).len())
-            .unwrap_or(core::cmp::Ordering::Equal)
-    });
-    for rock in rocks {
-        let mut beside: Vec<Vec2> = [(0.0, -1.0), (-1.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
-            .into_iter()
-            .map(|(dx, dy)| rock + vec2(dx * t, dy * t))
-            .collect();
-        beside.sort_by(|a, b| {
-            (*a - from)
-                .len()
-                .partial_cmp(&(*b - from).len())
-                .unwrap_or(core::cmp::Ordering::Equal)
-        });
-        for stand in beside {
-            if nav.is_free(stand) && nav.can_reach(from, stand) {
-                found.push((rock, stand));
-                break;
-            }
-        }
-    }
-    found
-}
-
 /// The step to start at when picking `target` up again.
 ///
 /// Standing steps assume the Bim is already in the right place — `Chop` chops
@@ -1721,7 +1608,7 @@ fn weight(step: Step, rest_minutes: f32) -> f32 {
         NOMINAL_WALK
     } else if matches!(
         step,
-        Step::Doze | Step::Work | Step::Mine | Step::Construct | Step::Dress | Step::Deploy
+        Step::Doze | Step::Work | Step::Construct | Step::Dress | Step::Deploy
     ) {
         clock::seconds(rest_minutes)
     } else {
@@ -1811,11 +1698,6 @@ pub struct Task {
     /// dirt is somewhere a body cannot quite stand.
     target: Option<Vec2>,
     swept: u32,
-    /// The rock the Bim is walking to or swinging at, by its middle, while
-    /// `target` is the tile beside it that it stands on. Chosen as
-    /// `WalkToRock` is entered. Not on `Saved`: a walk put down out there
-    /// chooses its rock afresh when it goes out again.
-    rock: Option<Vec2>,
     /// Where the patient stood when the walk over to it was planned
     /// (`GoToPatient`). A patient that has since moved more than
     /// [`FOLLOW_SLACK`] from there — running from a fight, say — has the
@@ -1908,7 +1790,6 @@ impl Task {
             face,
             target,
             swept: 0,
-            rock: None,
             patient_at: None,
             lifted: None,
             started_inside: false,
@@ -2137,43 +2018,6 @@ impl Task {
             maps,
             taken,
         )
-    }
-
-    /// Out for a walk: the suit, the airlock, the marked rocks at `minutes`
-    /// each, and back.
-    pub fn eva(
-        who: usize,
-        minutes: f32,
-        ch: &mut Character,
-        room: &mut Room,
-        maps: &Maps,
-        taken: &Taken,
-    ) -> Task {
-        Task::starting_at(
-            who,
-            Kind::Eva,
-            Step::GoToSuitLocker,
-            minutes,
-            ch,
-            room,
-            maps,
-            taken,
-        )
-    }
-
-    /// One load of materials from a shelf to site `site`, out through the
-    /// airlock and back if the site is `outside` the hull.
-    pub fn haul(
-        who: usize,
-        site: u32,
-        outside: bool,
-        ch: &mut Character,
-        room: &mut Room,
-        maps: &Maps,
-        taken: &Taken,
-    ) -> Task {
-        let kind = Kind::Haul { site, outside };
-        Task::starting_at(who, kind, kind.first_step(), 0.0, ch, room, maps, taken)
     }
 
     /// One thing from bench `from` to bench `to`, the way the world asked.
@@ -2442,24 +2286,6 @@ impl Task {
                 _ => {}
             }
         }
-        // Out there, the chain goes round: after each rock — and straight
-        // after stepping out — a moment to count the rocks again, and then
-        // the nearest marked one it can get to, or home when there is none
-        // or the world says this Bim is to come in.
-        if self.kind == Kind::Eva {
-            match self.step {
-                StepOut | Mine => return PickRock,
-                PickRock => {
-                    let may_stay = room.eva_allowed.get(self.who).copied().unwrap_or(false);
-                    return if may_stay && next_rock(room, maps, from).is_some() {
-                        WalkToRock
-                    } else {
-                        WalkToPort
-                    };
-                }
-                _ => {}
-            }
-        }
         // A planting leaves nothing in the Bim's hands, so there is nothing
         // to carry anywhere and the errand is over at the tray. Asked of
         // what was actually lifted rather than of what the bay wanted when
@@ -2490,7 +2316,7 @@ impl Task {
     /// length; a doze runs for as long as the Bim was told to sleep.
     fn duration(&self) -> f32 {
         match self.step {
-            Step::Doze | Step::Work | Step::Mine | Step::Construct | Step::Dress | Step::Deploy => {
+            Step::Doze | Step::Work | Step::Construct | Step::Dress | Step::Deploy => {
                 clock::seconds(self.rest_minutes)
             }
             step => step.duration(),
@@ -2659,19 +2485,6 @@ impl Task {
         if kind == Kind::Clean && ch.main_held() == Held::Broom {
             ch.hold_main(Held::Nothing);
         }
-        // A load for a site given up for good, once it is off the shelf,
-        // goes back on the shelf: the room says so and the world moves the
-        // count, the same way it took it off. Not a suspended one — the
-        // chain is kept and walks on with it — and not one that has not
-        // been taken yet, which is every step up to and including the
-        // reach into the shelf, since `TakeMaterials` says so as it ends.
-        if for_good
-            && let Kind::Haul { site, .. } = kind
-            && !matches!(step, GoToShelf | TakeMaterials)
-        {
-            room.returned.push(site);
-            ch.hold_main(Held::Nothing);
-        }
         // A thing carried between benches the same: given up for good once
         // it is in the arms, the room says so and the world puts it back.
         if for_good
@@ -2726,7 +2539,6 @@ impl Task {
             face: 0.0,
             target: saved.target,
             swept: saved.swept,
-            rock: None,
             patient_at: None,
             lifted: saved.lifted,
             started_inside: saved.started_inside,
@@ -2864,35 +2676,15 @@ impl Task {
                 Some(nav.nearest_free(ch.pos))
             };
         }
-        // Which rock, likewise: the nearest marked one it can get to now,
-        // and the tile beside it to stand on.
-        if self.step == Step::WalkToRock {
-            let next = next_rock(room, maps, ch.pos);
-            self.rock = next.map(|(rock, _)| rock);
-            self.target = next.map(|(_, stand)| stand);
-        }
-        // The shelf and the spot beside the site, likewise: the nearest of
-        // each from here, on the grid the body is on. A site the world no
-        // longer wants — cancelled, built by the other one — has nowhere to
-        // walk to, and the errand is given up the way a shut door gives one
-        // up. The load is in hand on the walk to the site whatever the
-        // hands were doing before it: a walk picked up again starts with
-        // them empty.
+        // The spot beside the site, likewise: the nearest from here, on the
+        // grid the body is on. A site the world no longer wants —
+        // cancelled, built by the other one — has nowhere to walk to, and
+        // the errand is given up the way a shut door gives one up.
         match self.step {
-            Step::GoToShelf => {
-                self.target = nearest_shelf(room, maps, ch.pos);
-                if self.target.is_none() {
-                    self.blocked = true;
-                    return;
-                }
-            }
             // The thing is in the arms on the walk to the second bench,
-            // whatever the hands were doing before it, for the same reason.
+            // whatever the hands were doing before it.
             Step::CarryGear => ch.hold_main(Held::Crate),
-            Step::CarryToSite | Step::GoToSite => {
-                if self.step == Step::CarryToSite {
-                    ch.hold_main(Held::Crate);
-                }
+            Step::GoToSite => {
                 self.target = self
                     .kind
                     .site()
@@ -3063,16 +2855,6 @@ impl Task {
                 ch.face(room.port_facing());
                 ch.set_action(Action::Reach);
             }
-            // Between rocks: standing there a moment while the rocks are
-            // counted again. At a rock: turned to it, the pick going.
-            PickRock => ch.set_action(Action::None),
-            Mine => {
-                if let Some(rock) = self.rock {
-                    let d = rock - ch.pos;
-                    ch.face(d.y.atan2(d.x));
-                }
-                ch.set_action(Action::Chop);
-            }
             StepIn => {
                 if let Some(gangway) = room.gangway {
                     ch.come_inside(gangway);
@@ -3089,28 +2871,13 @@ impl Task {
                 }
                 ch.set_action(Action::Reach);
             }
-            // At the shelf, reaching in; at the site, turned to it — the
-            // load set down, or the arms going at it for the build.
-            TakeMaterials => {
-                if let Some((frame, _)) = self
-                    .target
-                    .and_then(|at| room.shelves.iter().find(|(_, spot)| *spot == at))
-                {
-                    let d = frame.center() - ch.pos;
-                    ch.face(d.y.atan2(d.x));
-                }
-                ch.set_action(Action::Reach);
-            }
-            DropMaterials | Construct => {
+            // At the site, turned to it, the arms going at the work.
+            Construct => {
                 if let Some(build) = self.kind.site().and_then(|site| site_of(room, site)) {
                     let d = site_middle(build) - ch.pos;
                     ch.face(d.y.atan2(d.x));
                 }
-                ch.set_action(if self.step == Construct {
-                    Action::Chop
-                } else {
-                    Action::Reach
-                });
+                ch.set_action(Action::Chop);
             }
             // Turned to the patient, hands on it. Its own wounds it dresses
             // facing whichever way it arrived.
@@ -3296,11 +3063,6 @@ impl Task {
             }
             // A shower takes the lot off, whatever it was.
             Shower => ch.wash(1.0),
-            // Back through the door: a walk to mine finished, and the room
-            // counts it the moment the body is in, which is the same step
-            // the world reads the count. A trip out to a site is not a walk
-            // and brings nothing back.
-            StepIn if self.kind == Kind::Eva => room.walks_done += 1,
             SitDown => {
                 // The plate goes on the table as the Bim sits down to it.
                 if let Held::Plate(fill, _) = ch.main_held() {
@@ -3317,37 +3079,12 @@ impl Task {
     fn leave(&mut self, ch: &mut Character, room: &mut Room) {
         use Step::*;
         match self.step {
-            // Out through the door: held beyond the hull, in the suit, until
-            // `StepIn` brings the body back. With the pick for a rock; with
-            // nothing, or the load, for a site.
+            // Out through the door: held beyond the hull, in the suit,
+            // until `StepIn` brings the body back. Nothing is carried out
+            // there and nothing comes back.
             StepOut => {
                 if let Some(outside) = room.outside {
-                    ch.go_outside(outside, room.port_facing(), self.kind == Kind::Eva);
-                }
-            }
-            // A load off the shelf: the room says so, and the world decides
-            // how much that is and takes it off the count. What the hands
-            // hold is a crate, whatever is in it.
-            TakeMaterials => {
-                if let Kind::Haul { site, .. } = self.kind
-                    && let Some(build) = site_of(room, site)
-                    && let Some((resource, units)) = build.haul
-                {
-                    room.picked.push((site, resource, units, self.who));
-                }
-                ch.hold_main(Held::Crate);
-            }
-            // Put down at the site: the world moves the load onto it. The
-            // room's own copy of the order is a step behind the world, so
-            // the site is marked wanting nothing here as well, or the same
-            // load is offered again before the world has spoken.
-            DropMaterials => {
-                ch.hold_main(Held::Nothing);
-                if let Some(site) = self.kind.site() {
-                    room.dropped.push(site);
-                    if let Some(build) = room.builds.iter_mut().find(|b| b.site == site) {
-                        build.haul = None;
-                    }
+                    ch.go_outside(outside, room.port_facing(), false);
                 }
             }
             // Built: the world puts the part down. Off the room's list at
@@ -3356,17 +3093,6 @@ impl Task {
                 if let Some(site) = self.kind.site() {
                     room.built.push((site, self.who));
                     room.builds.retain(|b| b.site != site);
-                }
-            }
-            // A rock gone: the room writes down which and the world moves
-            // what it yields; the room never touches a resource itself. It
-            // comes off the room's own copy of the rocks and the marks too,
-            // so the next rock chosen is not this one again.
-            Mine => {
-                if let Some(rock) = self.rock.take() {
-                    room.mined.push(rock);
-                    room.rock_targets.retain(|&r| r != rock);
-                    room.rocks.retain(|r| !r.contains(rock));
                 }
             }
             // Finished: the room writes it down and the world moves the

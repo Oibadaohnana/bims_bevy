@@ -64,7 +64,7 @@ const BRANCH: u64 = 0x_4c4f_4f54_0000_0000;
 /// would not fit the shelves is left off; a derelict, which stocks
 /// nothing, has an empty grid.
 pub fn lay_out(station: &Station) -> Plunder {
-    let capacity = station.design.capacity(economy::Storage::Shelf);
+    let capacity = station.design.capacity(economy::Storage::Locker);
     let mut grid = Grid::default();
     let mut roll = Rng::new(station.map_seed).branch(BRANCH);
     for &resource in ResourceId::ALL.iter() {

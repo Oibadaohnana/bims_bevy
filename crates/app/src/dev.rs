@@ -21,8 +21,7 @@
 //! `BIMS_KEYS="58:+Shift,66:-Shift"` round a `right` at 62 is a
 //! Shift-right-click: an order that waits its turn (feature 69).
 //!
-//! `BIMS_AT_BELT=1` opens the simulation holding at a belt, its mining site
-//! laid out, instead of docked. `BIMS_LANDED=1` opens it landed on the
+//! `BIMS_LANDED=1` opens it landed on the
 //! spawn system's first planet with ground, the settlement beside the pad.
 //! `BIMS_LANDING=1` opens it over that planet with the landing just begun,
 //! `=0.7` seven tenths of the way down.
@@ -60,13 +59,6 @@ use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
 use bevy::input::mouse::{MouseButton, MouseButtonInput, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorMoved, WindowEvent, WindowResolution};
-
-/// `BIMS_AT_BELT=1` opens the simulation holding at the spawn system's belt
-/// with its mining site laid out, rather than docked — how a change to the
-/// outside is looked at without flying there first.
-pub fn at_belt() -> bool {
-    std::env::var("BIMS_AT_BELT").as_deref() == Ok("1")
-}
 
 /// `BIMS_LANDED=1` opens the simulation set down on the spawn system's
 /// first planet with ground, tied up at its settlement — how the ground,

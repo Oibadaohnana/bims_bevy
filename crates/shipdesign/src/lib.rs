@@ -82,26 +82,26 @@
 //!   does to a Bim standing in one — over what time, with what effect on
 //!   health — is the play phase's and is not decided.
 //! - **What is bought is stowed where its class says.** Food in a cold
-//!   store, gear in a locker, everything else on a shelf; `economy::storage` is
+//!   store, everything else in a locker; `economy::storage` is
 //!   the mapping and `PartDef::capacity` is what provides each class. A play
-//!   phase that moves a crate of ore into the fridge has broken the contract
-//!   the purchase was checked against.
+//!   phase that moves a crate of vegetables into a gun cabinet has broken the
+//!   contract the purchase was checked against.
 //! - **The money left over carries into the play phase.** It is not spent at
 //!   Accept and it is not converted into anything: it is what the crew have
-//!   in hand when they undock. It is only **spendable while docked**, and the
-//!   design phase is docked at the spawn station — which is the whole reason
-//!   everything in it is instant. Out between stations there is nothing to
-//!   buy from, and a part comes out of the hold or does not get built.
-//! - **Mass is conserved.** A part weighs its recipe and nothing else, so
-//!   construction moves materials from the hold into the hull and
-//!   deconstruction moves all of them back. [`materials`] is the contract and
-//!   the two functions that keep it; the play phase has to build on the same
-//!   rule or a ship will change weight by being rebuilt.
+//!   in hand when they undock. **Goods** are only bought while docked, since a
+//!   desk is a place; a **part** is paid for anywhere, because since the money
+//!   rework (feature 95) a construction site costs euros and there is nothing
+//!   in a hold to build out of.
+//! - **A part costs money and weighs what the table says.** It had a recipe
+//!   and weighed it until the money rework; now building one takes its price
+//!   out of the pool and adds its mass to the ship, and deconstructing gives
+//!   both back. [`materials`] is that contract and the two functions that
+//!   keep it.
 //!
 //! # What is deliberately absent
 //!
 //! Oxygen and airtightness, construction labour, hauling, construction
-//! sites, scrap, undo, and the final art. A part has a recipe, a price, a
+//! sites, scrap, undo, and the final art. A part has a mass, a price, a
 //! footprint, somewhere to stand, a thrust or a turning force since the
 //! flight step, and a power figure since [`power`] — and nothing else,
 //! because every field that exists is a field something has to keep true.
@@ -133,7 +133,7 @@ pub use economy::{
     stacks_of, starting_pool, storage, trade_price, trade_value,
 };
 pub use mass::{acceleration, hull_mass, ship_mass};
-pub use materials::{bound_materials, build_from_cargo, deconstruct_to_cargo, recipe_for};
+pub use materials::{refund_for, site_price};
 pub use parts::{
     BATTERY_CHARGE, BIG_PLANT_LIFT, BIG_PLANT_TILES, Comfort, ENGINE_POWER, FUSION_OUTPUT,
     GRID_COLS, Layer, PICTURE_LIFT, PICTURE_TILES, PartDef, PartKind, REACTOR_OUTPUT, Rotation,
@@ -145,7 +145,7 @@ pub use power::{
     Budget as PowerBudget, Network, Thrust, budget as power_budget, is_powered, networks,
     powered_parts, thrust, unpowered,
 };
-pub use recipes::{RECIPES, Recipe, recipes_are_sound};
+pub use recipes::{RECIPES, Recipe, is_workstation, recipes_are_sound};
 pub use research::{
     KEY_CELLS, NODES, Node, NodeDef, RESEARCH, Research, TIERS, node_of_part, node_of_recipe,
 };

@@ -1,39 +1,41 @@
 //! Construction: a part of the ship laid out by the player and put
-//! together by the crew, out of what is in the hold.
+//! together by the crew, **paid for out of the crew's one pool**.
 //!
 //! A [`BuildSite`] is a part that is not there yet — a kind, a tile and a
-//! turn, the same three numbers a placement in the design phase is — and
-//! what has been carried to it. The crew haul its recipe to it a load at a
-//! time off the shelves and then put it together beside it, and when they
-//! have, the part is placed through `shipdesign::build_from_cargo` exactly
-//! as the design phase would have placed it, paid for in materials. Stage 7
-//! of [`crate::World::step`] is where all of that lands.
+//! turn, the same three numbers a placement in the design phase is. A Bim
+//! walks to it, works the build time, the part goes down through
+//! `shipdesign::apply` exactly as the design phase would have placed it,
+//! and **the price leaves the pool at that moment**. Stage 7 of
+//! [`crate::World::step`] is where all of that lands.
 //!
-//! # The materials never leave the hold until the part goes down
+//! # There is nothing to haul
 //!
-//! A load "carried to a site" is a **reservation** on the hold, not a move
-//! out of it: [`BuildSite::delivered`] and [`BuildSite::carrying`] count
-//! units the crew have spoken for, and the count on the shelf is untouched
-//! until `build_from_cargo` takes the whole recipe in one go. That keeps
-//! the contract in `shipdesign::materials` true at every step — the ship
-//! weighs its parts plus its hold, and nothing is in transit weighing
-//! nothing — and it means a site given up costs nothing to give up. What
-//! the reservation does is keep the metal from being sold or smelted out
-//! from under the site: [`crate::World::free`] is what is aboard less what
-//! the sites have claimed, and every hand that reaches for the hold asks
-//! that rather than the raw count.
+//! Before the money rework (feature 95) a site was built out of the hold:
+//! the crew carried its recipe to it a load at a time, what was "carried
+//! to a site" was a reservation on the hold, and the whole recipe left it
+//! in one call. There are no materials any more — nothing is mined and
+//! nothing is refined — so a site holds nothing, reserves nothing, and a
+//! site given up costs nothing to give up because nothing was ever spent
+//! on it.
+//!
+//! What has taken its place is the **pool**: a site is only begun while
+//! the money, less the prices of the sites already begun, covers its price
+//! (`World::affordable_site`), and a crew that cannot afford one sees
+//! [`crate::Refusal::NotEnoughMoney`] and the site waits. Money is the one
+//! thing that may be spent away from a station — see the contract in
+//! `shipdesign::materials`.
 //!
 //! # The ship does not move while it is built on, and is not built on while it moves
 //!
 //! Both halves are the world's to keep. A site is only placed, and the
 //! crew only sent to one, while the ship is at rest — docked or holding —
-//! and a Confirm is refused while any site has something carried to it or
-//! a Bim on the way to it. A blueprint with nothing done at it does not
-//! hold the ship: it is a plan, and a plan can wait.
+//! and a Confirm is refused while a Bim is on the way to one. A blueprint
+//! nobody has walked to does not hold the ship: it is a plan, and a plan
+//! can wait.
 
-use physics::ResourceId;
+use economy::Money;
 use shipdesign::parts::{PartKind, Rotation};
-use shipdesign::{CARGO_SLOTS, Edit, ShipDesign, recipe_for};
+use shipdesign::{Edit, ShipDesign, site_price};
 
 /// One part waiting to be built.
 #[derive(Clone, PartialEq, Debug)]
@@ -46,11 +48,6 @@ pub struct BuildSite {
     pub kind: PartKind,
     pub origin: (u32, u32),
     pub rotation: Rotation,
-    /// Units of each resource carried to the site so far, by `ResourceId`.
-    /// A reservation on the hold — see the module note.
-    pub delivered: [u32; CARGO_SLOTS],
-    /// Units in somebody's arms on the way to it, the same way.
-    pub carrying: [u32; CARGO_SLOTS],
 }
 
 impl BuildSite {
@@ -60,8 +57,6 @@ impl BuildSite {
             kind,
             origin,
             rotation,
-            delivered: [0; CARGO_SLOTS],
-            carrying: [0; CARGO_SLOTS],
         }
     }
 
@@ -80,10 +75,10 @@ impl BuildSite {
         }
     }
 
-    /// What it is made of, against `design` — plating a bare tile costs
-    /// the frame as well as the deck.
-    pub fn recipe(&self, design: &ShipDesign) -> Vec<(ResourceId, u32)> {
-        recipe_for(design, self.edit())
+    /// What it costs, against `design` — plating a bare tile costs the
+    /// frame as well as the deck.
+    pub fn price(&self, design: &ShipDesign) -> Money {
+        site_price(design, self.edit())
     }
 
     /// Every tile the part will cover.
@@ -93,44 +88,17 @@ impl BuildSite {
             .map(|(dx, dy)| (self.origin.0 + dx, self.origin.1 + dy))
             .collect()
     }
-
-    /// Units of `resource` still to be carried to it, against `design`.
-    pub fn short(&self, design: &ShipDesign, resource: ResourceId) -> u32 {
-        let wanted = self
-            .recipe(design)
-            .iter()
-            .find(|&&(id, _)| id == resource)
-            .map(|&(_, units)| units)
-            .unwrap_or(0);
-        wanted.saturating_sub(self.delivered[resource as usize] + self.carrying[resource as usize])
-    }
-
-    /// Whether everything it is made of is there.
-    pub fn stocked(&self, design: &ShipDesign) -> bool {
-        self.recipe(design)
-            .iter()
-            .all(|&(id, units)| self.delivered[id as usize] >= units)
-    }
-
-    /// Whether anything has been done at it: a load carried to it or on
-    /// its way. What holds the ship at its berth.
-    pub fn begun(&self) -> bool {
-        self.delivered.iter().any(|&u| u > 0) || self.carrying.iter().any(|&u| u > 0)
-    }
-
-    /// Units of `resource` spoken for by this site, delivered or in
-    /// transit.
-    pub fn reserved(&self, resource: ResourceId) -> u32 {
-        self.delivered[resource as usize] + self.carrying[resource as usize]
-    }
 }
 
 /// How long putting a part together takes, in game minutes: a base plus a
-/// share per unit of materials, so a wall is a few minutes and a heavy
-/// engine an afternoon. Placeholder, like every other number aboard.
-pub fn build_minutes(recipe: &[(ResourceId, u32)]) -> f64 {
-    let units: u32 = recipe.iter().map(|&(_, units)| units).sum();
-    crate::data::BUILD_MINUTES_BASE + crate::data::BUILD_MINUTES_PER_UNIT * units as f64
+/// share per **hundred euros** of the part's price, so a wall is a few
+/// minutes and a heavy engine an afternoon. It was per unit of materials
+/// until the money rework (feature 95); the price stands in for the bulk
+/// of a part the way its recipe did. Placeholder, like every other number
+/// aboard.
+pub fn build_minutes(price: Money) -> f64 {
+    let hundreds = price as f64 / 100.0;
+    crate::data::BUILD_MINUTES_BASE + crate::data::BUILD_MINUTES_PER_HUNDRED * hundreds
 }
 
 /// Why a site may not be laid out where it was asked for. What

@@ -184,11 +184,11 @@ fn every_quote_path_agrees_and_a_sale_pays_the_front_price() {
     assert!(front.ask > quiet.ask, "{front:?} over {quiet:?}");
     // And a resource that is not war goods is untouched by all of it.
     assert_eq!(
-        world.quote(home, ResourceId::Metal),
+        world.quote(home, ResourceId::Vegetable),
         Some(market::quote(
             desk.kind,
-            desk.bias.of(ResourceId::Metal),
-            ResourceId::Metal
+            desk.bias.of(ResourceId::Vegetable),
+            ResourceId::Vegetable
         ))
     );
 
@@ -236,6 +236,7 @@ fn every_quote_path_agrees_and_a_sale_pays_the_front_price() {
         slot: 0,
         resource: stocked,
         units: 1,
+        tier: 1,
     }]);
     assert!(
         events

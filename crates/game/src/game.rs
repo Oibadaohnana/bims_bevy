@@ -450,8 +450,6 @@ fn job_code(kind: Kind, rest_minutes: f32) -> u32 {
         Kind::Chat => JOB_CHAT,
         Kind::Shower => JOB_SHOWER,
         Kind::Craft { .. } => JOB_CRAFT,
-        Kind::Eva => JOB_EVA,
-        Kind::Haul { .. } => JOB_HAUL,
         Kind::Build { .. } => JOB_BUILD,
         Kind::Bandage { .. } => JOB_BANDAGE,
         Kind::Treat { .. } => JOB_TREAT,
@@ -585,42 +583,19 @@ pub struct BunkTag {
     pub owner: Option<usize>,
 }
 
-/// What the world says about the outside, this step: who may go out — a
-/// Bim whose dose is already high may not — which rocks are to be mined
-/// and where every rock is, in room units, and how long one takes. `None`
-/// when there is nowhere to walk to: not at a site, no suit aboard, no
-/// room for what comes back. See `Game::set_eva`.
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Eva {
-    pub allowed: Vec<bool>,
-    /// The marked rocks, by the middle of each, in the order they were
-    /// marked.
-    pub targets: Vec<Vec2>,
-    /// Every rock tile, as a solid the outside grid goes round.
-    pub rocks: Vec<Rect>,
-    /// Moves whenever `rocks` or `targets` do, so the outside grid is
-    /// rebuilt then and not every step.
-    pub version: u64,
-    /// How long one rock takes to mine, in game minutes.
-    pub tile_minutes: f32,
-}
-
 /// One construction site the world wants worked, this step: where it is,
-/// in room units, and what it wants — a load of `haul.0` (a resource code
-/// the room never reads) `haul.1` units strong carried to it, or, with
-/// `haul` empty, to be put together over `minutes`. The world hands the
-/// room a fresh list every step — `Game::set_build_orders` — worked out
-/// from the sites, the hold and whether the ship is at rest; the room
-/// decides who goes, whether it is reached from the deck or from outside,
-/// and reports what was done. See `Kind::Haul` and `Kind::Build`.
+/// in room units, and how long putting it together takes. The world hands
+/// the room a fresh list every step — `Game::set_build_orders` — worked
+/// out from the sites, the pool and whether the ship is at rest; the room
+/// decides who goes and whether it is reached from the deck or from
+/// outside, and reports what was done. Nothing is carried to a site: a
+/// part is bought (feature 95). See `Kind::Build`.
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Build {
     pub site: u32,
     /// Every tile of the footprint, as a rect each.
     pub tiles: Vec<Rect>,
-    pub haul: Option<(u32, u32)>,
     pub minutes: f32,
 }
 
@@ -679,11 +654,8 @@ enum Exclusive {
 fn exclusive(kind: Kind) -> Option<Exclusive> {
     match kind {
         Kind::Craft { bench, .. } => Some(Exclusive::Bench(bench)),
-        Kind::Eva => Some(Exclusive::Airlock),
-        Kind::Haul { outside: true, .. } | Kind::Build { outside: true, .. } => {
-            Some(Exclusive::Airlock)
-        }
-        Kind::Haul { site, .. } | Kind::Build { site, .. } => Some(Exclusive::Site(site)),
+        Kind::Build { outside: true, .. } => Some(Exclusive::Airlock),
+        Kind::Build { site, .. } => Some(Exclusive::Site(site)),
         // A carry holds the bench it is putting the thing on: two Bims
         // ferrying to the workbench at once would be two hands in one slot,
         // and a Bim at work on it is at it already.
@@ -827,9 +799,6 @@ pub struct Game {
     /// What the world wants made right now. See [`Order`]. Empty in the
     /// classic room, which has no benches and no world.
     orders: Vec<Order>,
-    /// Whether a walk outside is on, and for whom. See [`Eva`]. Never in
-    /// the classic room.
-    eva: Option<Eva>,
     /// What a body outside is pushed out of: the hull and the rocks. Kept
     /// with the outside grid — see `refresh_outside`.
     outside_blockers: Vec<Rect>,
@@ -841,11 +810,6 @@ pub struct Game {
     /// Which version of the rocks the outside grid was built from, so it
     /// is rebuilt when they change and not otherwise.
     outside_version: Option<u64>,
-    /// How many marked rocks can be got to from the port, as of the last
-    /// rebuild. What keeps a walk from being offered to rocks nobody can
-    /// reach — a rock three deep with nothing in front of it marked — and
-    /// what the host says are out of reach.
-    rocks_reachable: usize,
     /// Bodies on this deck that are not this room's: a docked station's
     /// people, who walk about in a room of their own while this one draws
     /// the doors they walk through. Only the doors read them — see
@@ -1218,11 +1182,9 @@ impl Game {
             helm: None,
             helmsman: None,
             orders: Vec::new(),
-            eva: None,
             outside_blockers: Vec::new(),
             afield_blockers: Vec::new(),
             outside_version: None,
-            rocks_reachable: 0,
             visitors: Vec::new(),
             visitors_down: Vec::new(),
             visitors_hailable: Vec::new(),
@@ -4099,10 +4061,9 @@ impl Game {
             .iter()
             .find(|b| b.character.is_outside())
             .map(|b| b.character.pos);
-        if self.eva.is_none() && self.room.builds.is_empty() && out.is_none() {
+        if self.room.builds.is_empty() && out.is_none() {
             self.maps.set_outside(None);
             self.outside_version = None;
-            self.rocks_reachable = 0;
             return;
         }
         let Some(centre) = out.or(self.room.outside) else {
@@ -4119,20 +4080,11 @@ impl Game {
         if !stale {
             return;
         }
-        let mut solids = self.room.hull.clone();
-        solids.extend(self.room.rocks.iter().copied());
+        let solids = self.room.hull.clone();
         self.maps
             .set_outside(Some(Nav::outside(centre, &solids, BODY_MARGIN, tile)));
         self.outside_blockers = solids;
         self.outside_version = Some(self.room.rocks_version);
-        // Whether the walk is worth offering: asked from the port, once per
-        // change, since a route to every marked rock is a search of the
-        // whole grid when there is none.
-        self.rocks_reachable = self
-            .room
-            .outside
-            .map(|from| task::reachable_rocks(&self.room, &self.maps, from).len())
-            .unwrap_or(0);
     }
 
     /// The plain, a window a body: who is out on it, and a grid for each
@@ -4983,8 +4935,6 @@ impl Game {
             Kind::Tend { .. }
             | Kind::Chat
             | Kind::Craft { .. }
-            | Kind::Eva
-            | Kind::Haul { .. }
             | Kind::Build { .. }
             | Kind::Execute { .. }
             | Kind::Ferry { .. }
@@ -5790,11 +5740,10 @@ impl Game {
                 Job::Plant | Job::Cut => self.tend_bay(who),
                 Job::Clean => self.sweep_up(who),
                 Job::Craft => self.craft(who),
-                Job::Mine => self.go_outside(who),
-                // A load to a site. The harvest's carry is not offered on
-                // its own — see `waits_on` — but a site's is an errand.
-                // A load to a site, or a thing to the workbench and back.
-                Job::Haul => self.haul(who) || self.ferry(who),
+                // The harvest's carry is not offered on its own — see
+                // `waits_on` — but a thing to the workbench and back is an
+                // errand.
+                Job::Haul => self.ferry(who),
                 Job::Build => self.build(who),
                 // A wound to dress, somebody's: the same errand the player
                 // orders from the menu on a body, chosen by the room.
@@ -6002,15 +5951,11 @@ impl Game {
         if self.craft_on_offer(who).is_some() {
             offered.push(Job::Craft);
         }
-        // A belt to walk out to, a suit to wear, and nobody else out there.
-        if self.can_go_outside(who) {
-            offered.push(Job::Mine);
-        }
-        // A site short of something a shelf has, and one with everything
-        // there and nobody at it.
-        if self.haul_on_offer(who).is_some() || self.ferry_on_offer(who).is_some() {
+        // A thing to carry between two benches.
+        if self.ferry_on_offer(who).is_some() {
             offered.push(Job::Haul);
         }
+        // A site with nobody at it.
         if self.build_on_offer(who).is_some() {
             offered.push(Job::Build);
         }
@@ -6050,43 +5995,6 @@ impl Game {
                     },
                 )
         })
-    }
-
-    /// Whether `who` could set out on a walk now: the world says there is
-    /// one and this Bim may go, a marked rock can be got to from the port,
-    /// the room has a suit locker and a port, and the airlock is nobody
-    /// else's.
-    fn can_go_outside(&self, who: usize) -> bool {
-        self.eva
-            .as_ref()
-            .is_some_and(|eva| eva.allowed.get(who).copied().unwrap_or(false))
-            && self.rocks_reachable > 0
-            && self.room.suit_locker.is_some()
-            && self.room.gangway.is_some()
-            && self.room.outside.is_some()
-            && self.can_begin(who, Kind::Eva)
-    }
-
-    /// Out through the airlock, to the marked rocks, at the world's minutes
-    /// a rock.
-    pub fn go_outside(&mut self, who: usize) -> bool {
-        if !self.can_go_outside(who) {
-            return false;
-        }
-        let minutes = self.eva.as_ref().map(|e| e.tile_minutes).unwrap_or(0.0);
-        if minutes <= 0.0 || !self.take_over(who, Kind::Eva, minutes) {
-            return false;
-        }
-        let taken = self.taken_for(who);
-        self.bims[who].task = Some(Task::eva(
-            who,
-            minutes,
-            &mut self.bims[who].character,
-            &mut self.room,
-            &self.maps,
-            &taken,
-        ));
-        true
     }
 
     /// Off to make the first thing on offer.
@@ -6135,42 +6043,13 @@ impl Game {
             .then_some(true)
     }
 
-    /// The first site wanting a load that `who` could carry now: something
-    /// to fetch, a shelf it can get to, a way to the site, and nobody else
-    /// on that site. In the world's order. The site and whether it is
-    /// outside.
-    fn haul_on_offer(&self, who: usize) -> Option<(u32, bool)> {
-        // No site wanting anything is the usual case, and the shelf is not
-        // asked about until there is one: this is asked of every idle Bim
-        // every step, and a station has shelves by the dozen.
-        if !self.room.builds.iter().any(|b| b.haul.is_some()) {
-            return None;
-        }
-        let from = self.bims[who].character.pos;
-        if task::nearest_shelf(&self.room, &self.maps, from).is_none() {
-            return None;
-        }
-        self.room
-            .builds
-            .iter()
-            .filter(|b| b.haul.is_some())
-            .find_map(|b| {
-                let outside = self.site_reach(who, b.site)?;
-                let kind = Kind::Haul {
-                    site: b.site,
-                    outside,
-                };
-                self.can_begin(who, kind).then_some((b.site, outside))
-            })
-    }
-
     /// The first site with everything there that `who` could put together
     /// now, the same way.
     fn build_on_offer(&self, who: usize) -> Option<(u32, bool, f32)> {
         self.room
             .builds
             .iter()
-            .filter(|b| b.haul.is_none() && b.minutes > 0.0)
+            .filter(|b| b.minutes > 0.0)
             .find_map(|b| {
                 let outside = self.site_reach(who, b.site)?;
                 let kind = Kind::Build {
@@ -6180,27 +6059,6 @@ impl Game {
                 self.can_begin(who, kind)
                     .then_some((b.site, outside, b.minutes))
             })
-    }
-
-    /// Off with a load to the first site that wants one.
-    pub fn haul(&mut self, who: usize) -> bool {
-        let Some((site, outside)) = self.haul_on_offer(who) else {
-            return false;
-        };
-        if !self.take_over(who, Kind::Haul { site, outside }, 0.0) {
-            return false;
-        }
-        let taken = self.taken_for(who);
-        self.bims[who].task = Some(Task::haul(
-            who,
-            site,
-            outside,
-            &mut self.bims[who].character,
-            &mut self.room,
-            &self.maps,
-            &taken,
-        ));
-        true
     }
 
     /// Off to put the first site with everything there together.
@@ -6233,17 +6091,6 @@ impl Game {
     pub fn set_build_orders(&mut self, builds: Vec<Build>, suit_ok: Vec<bool>) {
         self.room.builds = builds;
         self.room.suit_ok = suit_ok;
-    }
-
-    /// The loads taken off a shelf since the last call — `(site, resource,
-    /// units, who)` each — for the world to take off the count.
-    pub fn take_picked(&mut self) -> Vec<(u32, u32, u32, usize)> {
-        core::mem::take(&mut self.room.picked)
-    }
-
-    /// The sites a load arrived at since the last call.
-    pub fn take_dropped(&mut self) -> Vec<u32> {
-        core::mem::take(&mut self.room.dropped)
     }
 
     /// The first thing the world wants carried between two benches that
@@ -6332,25 +6179,31 @@ impl Game {
         core::mem::take(&mut self.room.ferry_returned)
     }
 
-    /// The sites whose load was given up short of them since the last
-    /// call: what was carried is back on the shelf.
-    pub fn take_returned(&mut self) -> Vec<u32> {
-        core::mem::take(&mut self.room.returned)
-    }
-
     /// The sites put together since the last call, each with who put it
     /// together, for the world to put the parts down.
     pub fn take_built(&mut self) -> Vec<(u32, usize)> {
         core::mem::take(&mut self.room.built)
     }
 
-    /// Whether anybody is on a building errand — carrying to a site or at
-    /// one. What holds the ship at rest while it is being built on.
-    pub fn building_under_way(&self) -> bool {
+    /// Whether anybody is on a building errand **for `site`**: walking
+    /// to it or standing at it. What the world asks before it counts a
+    /// site's price as spoken for (feature 95) — a site nobody has
+    /// walked to costs nothing to lay out and nothing to give up.
+    pub fn building_at(&self, site: u32) -> bool {
         self.bims.iter().any(|b| {
             b.task.as_ref().is_some_and(|t| {
-                !t.is_done() && matches!(t.kind(), Kind::Haul { .. } | Kind::Build { .. })
+                !t.is_done() && matches!(t.kind(), Kind::Build { site: s, .. } if s == site)
             })
+        })
+    }
+
+    /// Whether anybody is on a building errand. What holds the ship at
+    /// rest while it is being built on.
+    pub fn building_under_way(&self) -> bool {
+        self.bims.iter().any(|b| {
+            b.task
+                .as_ref()
+                .is_some_and(|t| !t.is_done() && matches!(t.kind(), Kind::Build { .. }))
         })
     }
 
@@ -6458,51 +6311,8 @@ impl Game {
             .count() as u32
     }
 
-    /// What the outside is, and who may go. The world says, every step; a
-    /// walk already under way reads the rocks and the marks as they stand
-    /// at each rock, and comes in when there is nothing left it may do.
-    pub fn set_eva(&mut self, eva: Option<Eva>) {
-        match &eva {
-            Some(eva) => {
-                self.room.rock_targets = eva.targets.clone();
-                self.room.rocks = eva.rocks.clone();
-                self.room.rocks_version = eva.version;
-                self.room.eva_allowed = eva.allowed.clone();
-                self.room.tile_minutes = eva.tile_minutes;
-            }
-            None => {
-                self.room.rock_targets.clear();
-                self.room.rocks.clear();
-                self.room.eva_allowed.clear();
-                // A different outside is a different grid, whatever the
-                // world's count says.
-                self.room.rocks_version = self.room.rocks_version.wrapping_add(1);
-            }
-        }
-        self.eva = eva;
-    }
-
-    /// The rocks mined since the last call, by the middle of each in room
-    /// units. The world takes each out of its site and moves what it
-    /// yields onto the shelf.
-    pub fn take_mined(&mut self) -> Vec<(f32, f32)> {
-        core::mem::take(&mut self.room.mined)
-            .into_iter()
-            .map(|p| (p.x, p.y))
-            .collect()
-    }
-
-    /// How many of the marked rocks a walk from the port could get to, as
-    /// of the last look — the rest are marked for nothing until a rock in
-    /// front of them is mined. What the host says beside the count of marks.
-    pub fn rocks_reachable(&self) -> usize {
-        self.rocks_reachable
-    }
-
     /// Everybody in: whoever is outside is brought back through the door
-    /// and the walk given up for good, and a walk waiting on the queue is
-    /// dropped. For a ship leaving its site — the rocks it was walking to
-    /// are not there any more.
+    /// and the errand given up for good. For a ship that is leaving.
     pub fn recall_outside(&mut self) {
         for who in 0..self.bims.len() {
             if self.bims[who].character.is_outside()
@@ -6510,16 +6320,7 @@ impl Game {
             {
                 task.abandon(&mut self.bims[who].character, &mut self.room);
             }
-            self.bims[who]
-                .queue
-                .retain(|saved| saved.kind() != Kind::Eva);
         }
-    }
-
-    /// Walks outside finished since the last call. The world reads the
-    /// belt for each.
-    pub fn take_walks(&mut self) -> u32 {
-        core::mem::take(&mut self.room.walks_done)
     }
 
     /// Whether this Bim is outside the hull, in a suit. What the world
@@ -14908,9 +14709,9 @@ mod tests {
                 Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
             );
             assert_eq!(game.gear(0).weapon, Some(WeaponKind::LaserPistol.basic()));
-            assert!(game.give(0, Some(5), Item::Stack(14)));
+            assert!(game.give(0, Some(5), Item::Stack(5)));
             assert_eq!(game.equip(0, 5), None);
-            assert_eq!(game.pack(0)[5], Some(Item::Stack(14)));
+            assert_eq!(game.pack(0)[5], Some(Item::Stack(5)));
             assert_eq!(game.equip(0, 6), None, "an empty cell");
             assert_eq!(game.equip(0, 99), None, "no such cell");
         }
@@ -14923,20 +14724,20 @@ mod tests {
                 ..Piece::new(9, ArmourKind::BasicLegs, Tier::One)
             };
             assert!(game.give(0, Some(2), Item::Armour(legs)));
-            assert!(!game.give(0, Some(2), Item::Stack(1)), "the cell is full");
+            assert!(!game.give(0, Some(2), Item::Stack(17)), "the cell is full");
             assert!(
-                !game.give(0, Some(2 + PACK_COLS), Item::Stack(1)),
+                !game.give(0, Some(2 + PACK_COLS), Item::Stack(17)),
                 "and so is the cell the guards reach over"
             );
             assert_eq!(game.take(0, 2), Some(Item::Armour(legs)), "damage kept");
             assert_eq!(game.take(0, 2), None, "gone");
             // Fifty one-cell things in, the fifty-first has nowhere to go.
             for _ in 0..PACK_CELLS {
-                assert!(game.give(0, None, Item::Stack(1)));
+                assert!(game.give(0, None, Item::Stack(17)));
             }
-            assert!(!game.give(0, None, Item::Stack(1)), "full");
+            assert!(!game.give(0, None, Item::Stack(17)), "full");
             for i in 0..PACK_CELLS {
-                assert_eq!(game.take(0, i), Some(Item::Stack(1)));
+                assert_eq!(game.take(0, i), Some(Item::Stack(17)));
             }
 
             let broken = Piece {
@@ -15045,11 +14846,11 @@ mod tests {
         };
         assert!(game.give(0, Some(0), Item::Armour(helm)));
         assert_eq!(game.equip(0, 0), None);
-        assert!(game.give(0, Some(4), Item::Stack(14)));
+        assert!(game.give(0, Some(4), Item::Stack(5)));
         assert_eq!(game.gear(0).weapon, Some(WeaponKind::LaserPistol.basic()));
         // The window shows the pack, the worn pieces and the hand.
         let cells = game.loot_cells(0);
-        assert_eq!(cells[4], Some(Item::Stack(14)));
+        assert_eq!(cells[4], Some(Item::Stack(5)));
         assert_eq!(
             cells[LootCell::Head.code() as usize],
             Some(Item::Armour(helm))
@@ -15082,7 +14883,7 @@ mod tests {
         assert_eq!(game.weapon(0), None);
         assert_eq!(
             game.take_from_body(0, LootCell::Pack(4)),
-            Some(Item::Stack(14))
+            Some(Item::Stack(5))
         );
         assert_eq!(game.pack(0)[4], None);
         assert_eq!(game.take_from_body(0, LootCell::Pack(4)), None);

@@ -66,7 +66,6 @@ pub mod jump;
 pub mod medic;
 pub mod memory;
 pub mod mercenary;
-pub mod mining;
 pub mod orders;
 pub mod plunder;
 pub mod raid;
@@ -89,7 +88,6 @@ pub use grid::{Grid, Kept, Slot, Wanted};
 pub use jammer::{JAMMER_BASE, jammer_id, jammer_star};
 pub use medic::Medic;
 pub use memory::{Losses, SystemMemory};
-pub use mining::{MiningSite, Rock, RockTile};
 pub use orders::Standing;
 pub use plunder::Plunder;
 pub use raid::{Raid, Raids, boarders_of, raider_id, raider_index};
@@ -128,6 +126,8 @@ mod tests_jammer;
 mod tests_medic;
 #[cfg(test)]
 mod tests_memory;
+#[cfg(test)]
+mod tests_money;
 #[cfg(test)]
 mod tests_orders;
 #[cfg(test)]

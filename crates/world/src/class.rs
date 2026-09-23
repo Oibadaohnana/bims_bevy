@@ -445,39 +445,38 @@ pub enum Talent {
     MassSurge = 40,
     FieldSurgeon = 41,
     // The tank's (feature 77).
-    PackMule = 42,
-    Plated = 43,
-    Breacher = 44,
-    Unmovable = 45,
-    WideWall = 46,
-    FastWall = 47,
-    LoudTaunt = 48,
-    LongTaunt = 49,
-    HoldFast = 50,
-    Guarded = 51,
-    Interpose = 52,
-    Magnet = 53,
-    Fortress = 54,
-    RallyingWall = 55,
+    Plated = 42,
+    Breacher = 43,
+    Unmovable = 44,
+    WideWall = 45,
+    FastWall = 46,
+    LoudTaunt = 47,
+    LongTaunt = 48,
+    HoldFast = 49,
+    Guarded = 50,
+    Interpose = 51,
+    Magnet = 52,
+    Fortress = 53,
+    RallyingWall = 54,
     // The commander's (feature 78).
-    WidePresence = 56,
-    StrongPresence = 57,
-    Haggler = 58,
-    Outfitter = 59,
-    FocusFire = 60,
-    Pincer = 61,
-    LongRally = 62,
-    QuickRally = 63,
-    SteadyRanks = 64,
-    DoubleTime = 65,
-    Relentless = 66,
-    Grit = 67,
-    Anchor = 68,
-    Warcry = 69,
+    WidePresence = 55,
+    StrongPresence = 56,
+    Haggler = 57,
+    Outfitter = 58,
+    FocusFire = 59,
+    Pincer = 60,
+    LongRally = 61,
+    QuickRally = 62,
+    SteadyRanks = 63,
+    DoubleTime = 64,
+    Relentless = 65,
+    Grit = 66,
+    Anchor = 67,
+    Warcry = 68,
 }
 
 impl Talent {
-    pub const ALL: [Talent; 70] = [
+    pub const ALL: [Talent; 69] = [
         Talent::ReinforcedSand,
         Talent::SiteForeman,
         Talent::Sandbagger,
@@ -520,7 +519,6 @@ impl Talent {
         Talent::ClosingSurge,
         Talent::MassSurge,
         Talent::FieldSurgeon,
-        Talent::PackMule,
         Talent::Plated,
         Talent::Breacher,
         Talent::Unmovable,
@@ -558,7 +556,9 @@ impl Talent {
         Talent::ALL.get(code as usize).copied()
     }
 
-    /// Whose talent it is.
+    /// Whose talent it is. Fourteen a class, bar the tank's **thirteen**
+    /// since the money rework (feature 95) took *pack mule* off its
+    /// second level, which is a fixed level now.
     pub fn class(self) -> Class {
         if self.code() < 14 {
             Class::Engineer
@@ -566,7 +566,7 @@ impl Talent {
             Class::Soldier
         } else if self.code() < 42 {
             Class::Medic
-        } else if self.code() < 56 {
+        } else if self.code() < 55 {
             Class::Tank
         } else {
             Class::Commander
@@ -632,8 +632,8 @@ pub const SENTRY_MARK_THREE_FIRE_RATE: f32 = 2.0;
 pub const SENTRY_MARK_THREE_DAMAGE: f32 = 1.2;
 /// *Quick build*: what the sentry deploy time is multiplied by.
 pub const QUICK_BUILD_TIME: f64 = 0.5;
-/// *Armourer*: what one metal at the workbench puts back on a piece.
-pub const ARMOUR_REPAIR_PER_METAL: f32 = 10.0;
+/// *Armourer*: what one repair at the workbench puts back on a piece.
+pub const ARMOUR_REPAIR_HEALTH: f32 = 10.0;
 /// *Armourer*: how long the repair takes at the bench, in game minutes.
 pub const ARMOUR_REPAIR_MINUTES: u32 = 10;
 
@@ -771,8 +771,6 @@ pub const TAUNT_COOLDOWN: f64 = 20.0;
 pub const TAUNT_MINUTES: f64 = 6.0;
 /// How far a taunt reaches, in tiles.
 pub const TAUNT_RADIUS: f32 = 10.0;
-/// *Pack mule*: how many loads a haul trip carries for him.
-pub const PACK_MULE_LOADS: u32 = 2;
 /// *Plated*: what a worn piece's protection is multiplied by on him.
 pub const PLATED_PROTECTION: f32 = 1.5;
 /// *Breacher*: what forcing a locked door takes, of the ordinary time.
@@ -864,10 +862,26 @@ pub fn aura_bonus(bonus: f32, factor: f32) -> f32 {
     (1.0 + (bonus - 1.0) * factor).max(0.0)
 }
 
-/// Whether a level is a pick level — the same shape for every class:
-/// fixed at one, three and seven, a pick at the rest.
-pub fn is_pick_level(level: u8) -> bool {
-    matches!(level, 2 | 4 | 5 | 6 | 8 | 9 | 10)
+/// Whether a level is a pick level **for this class**: every class is
+/// fixed at one, three and seven and a pick at the rest, bar the tank's
+/// second, which the money rework (feature 95) made a fixed level when
+/// hauling went and *pack mule* with it — *plated* stands alone there.
+///
+/// Asked of `pick_at`, so the two can never disagree about the shape of
+/// a tree.
+pub fn is_pick_level(class: Class, level: u8) -> bool {
+    pick_at(class, level).is_some()
+}
+
+/// The one talent a **fixed** level of a class gives outright, if it
+/// gives one: the tank's *plated* at the second, and nothing anywhere
+/// else so far. A fixed level costs no skill point and is never picked
+/// at; `Progress::has` counts it from the level it sits at.
+pub fn fixed_at(class: Class, level: u8) -> Option<Talent> {
+    match (class, level) {
+        (Class::Tank, 2) => Some(Talent::Plated),
+        _ => None,
+    }
 }
 
 /// The two talents a class offers at a pick level, left and right, or
@@ -895,7 +909,6 @@ pub fn pick_at(class: Class, level: u8) -> Option<(Talent, Talent)> {
         (Class::Medic, 8) => (Talent::SelfCare, Talent::DoubleLink),
         (Class::Medic, 9) => (Talent::GunnerMedic, Talent::ClosingSurge),
         (Class::Medic, 10) => (Talent::MassSurge, Talent::FieldSurgeon),
-        (Class::Tank, 2) => (Talent::PackMule, Talent::Plated),
         (Class::Tank, 4) => (Talent::Breacher, Talent::Unmovable),
         (Class::Tank, 5) => (Talent::WideWall, Talent::FastWall),
         (Class::Tank, 6) => (Talent::LoudTaunt, Talent::LongTaunt),
@@ -959,6 +972,7 @@ impl Progress {
         self.picks
             .iter()
             .any(|&(level, side)| talent_of(class, level, side) == Some(talent))
+            || (1..=self.level()).any(|l| fixed_at(class, l) == Some(talent))
     }
 
     /// The pick made at a level, if any.
@@ -971,8 +985,8 @@ impl Progress {
 
     /// The lowest reached pick level with no pick yet, if any: what the
     /// panel offers, and what a level-up leaves pending.
-    pub fn pending_pick(&self) -> Option<u8> {
-        (2..=self.level()).find(|&l| is_pick_level(l) && self.picked_at(l).is_none())
+    pub fn pending_pick(&self, class: Class) -> Option<u8> {
+        (2..=self.level()).find(|&l| is_pick_level(class, l) && self.picked_at(l).is_none())
     }
 
     /// Choose a side at a level for a crew member of `class`: a pick
@@ -995,9 +1009,13 @@ impl Progress {
 
     /// Every talent picked, for a crew member of `class`, in level order.
     pub fn talents(&self, class: Class) -> Vec<Talent> {
-        self.picks
-            .iter()
-            .filter_map(|&(level, side)| talent_of(class, level, side))
+        (1..=self.level())
+            .filter_map(|l| fixed_at(class, l))
+            .chain(
+                self.picks
+                    .iter()
+                    .filter_map(|&(level, side)| talent_of(class, level, side)),
+            )
             .collect()
     }
 }
@@ -1046,7 +1064,7 @@ mod tests {
         assert_eq!(p.gain(99), Vec::<u8>::new());
         assert_eq!(p.gain(1), vec![2]);
         assert_eq!(p.gain(600), vec![3, 4, 5]);
-        assert_eq!(p.pending_pick(), Some(2));
+        assert_eq!(p.pending_pick(Class::Engineer), Some(2));
         assert_eq!(
             p.pick(Class::Engineer, 3, Side::Left),
             Err(Refusal::NotAPickLevel)
@@ -1077,7 +1095,7 @@ mod tests {
         // class.
         assert!(p.has(Class::Soldier, Talent::PointBlank));
         assert_eq!(p.talents(Class::Soldier), vec![Talent::PointBlank]);
-        assert_eq!(p.pending_pick(), Some(4));
+        assert_eq!(p.pending_pick(Class::Engineer), Some(4));
         for class in [
             Class::Engineer,
             Class::Soldier,
@@ -1087,7 +1105,18 @@ mod tests {
         ] {
             let mut all = Vec::new();
             for level in 1..=LEVELS {
-                assert_eq!(pick_at(class, level).is_some(), is_pick_level(level));
+                // A fixed level's talent is the class's too, given rather
+                // than chosen at.
+                if let Some(fixed) = fixed_at(class, level) {
+                    all.push(fixed);
+                }
+                assert_eq!(pick_at(class, level).is_some(), is_pick_level(class, level));
+                // A fixed level gives its talent outright and costs no
+                // point: the tank's second since the money rework.
+                if let Some(fixed) = fixed_at(class, level) {
+                    assert_eq!(fixed.class(), class);
+                    assert!(pick_at(class, level).is_none());
+                }
                 if let Some((l, r)) = pick_at(class, level) {
                     assert_eq!(l.class(), class);
                     assert_eq!(r.class(), class);
@@ -1143,7 +1172,7 @@ mod tests {
         }
         assert_eq!(Talent::FieldDressing.class(), Class::Medic);
         assert_eq!(Talent::Rampage.class(), Class::Soldier);
-        assert_eq!(Talent::PackMule.class(), Class::Tank);
+        assert_eq!(Talent::Plated.class(), Class::Tank);
         assert_eq!(Talent::RallyingWall.class(), Class::Tank);
         assert_eq!(Talent::WidePresence.class(), Class::Commander);
         assert_eq!(Talent::Warcry.class(), Class::Commander);
@@ -1169,7 +1198,7 @@ mod tests {
             assert_eq!(key_level(class, false), Some(1), "{class:?}'s E");
             assert_eq!(key_level(class, true), Some(3), "{class:?}'s Q");
             // And the third is a fixed level, so nobody has to pick it.
-            assert!(!is_pick_level(3));
+            assert!(!is_pick_level(class, 3));
         }
         assert_eq!(key_level(Class::Engineer, true), Some(SENTRY_LEVEL));
         assert_eq!(key_level(Class::Soldier, true), Some(GRENADE_LEVEL));

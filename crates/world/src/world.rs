@@ -39,7 +39,7 @@
 //! and change the centre of mass and the inertia without changing the total.
 
 use economy::market::{self, Quote};
-use economy::{Money, Storage, footprint, storage};
+use economy::{Money, Storage, footprint, storage, trade_price};
 use flight::{Dynamics, Phase, Plan, PlanError, Target, angle};
 use physics::ResourceId;
 use shipdesign::parts::{PartKind, Rotation};
@@ -72,7 +72,6 @@ use crate::jammer;
 use crate::medic::Medic;
 use crate::memory::{self, Grave, Losses, SystemMemory};
 use crate::mercenary::{self, Hired, Offer};
-use crate::mining::{self, MiningSite};
 use crate::orders::Standing;
 use crate::plunder::{self, Plunder};
 use crate::raid::{self, Raid, Raids};
@@ -118,10 +117,16 @@ pub enum Command {
         slot: u32,
         speed: Speed,
     },
+    /// Buy `units` of `resource` at `tier` across the station's desk.
+    /// **Every tier of a gun and a piece of armour is on sale** since the
+    /// money rework (feature 95), at the book times `economy::TIER_PRICE`;
+    /// a resource that comes at no tier ignores the field, and one is
+    /// what a caller with nothing to say passes.
     Buy {
         slot: u32,
         resource: ResourceId,
         units: u32,
+        tier: u32,
     },
     Sell {
         slot: u32,
@@ -135,19 +140,6 @@ pub enum Command {
         slot: u32,
         resource: ResourceId,
         units: u32,
-    },
-    /// Mark a rock tile at the mining site to be mined, or unmark a marked
-    /// one — `(x, y)` in the ship's design tiles, where the site's rocks
-    /// are. A command because the crew work to the marks and every
-    /// player's ship has to agree about which rocks are wanted.
-    MarkRock {
-        slot: u32,
-        x: i32,
-        y: i32,
-    },
-    /// Take every mark off.
-    ClearMarks {
-        slot: u32,
     },
     /// Lay out a part to be built: a construction site at `origin`, turned
     /// by `rotation`, for the crew to carry the materials to and put
@@ -452,10 +444,10 @@ pub enum Command {
     },
     /// Begin a repair at the workbench — the engineer's *armourer*
     /// talent: a damaged piece in the bench's first input slot, the
-    /// second empty, [`crate::deploy::ARMOUR_REPAIR_METAL`] in the hold,
+    /// second empty, [`crate::deploy::ARMOUR_REPAIR_COST`] in the pool,
     /// and that player's own engineer with the talent, who alone works
     /// the session. The piece comes out in the output slot with
-    /// [`crate::class::ARMOUR_REPAIR_PER_METAL`] back on it, capped at
+    /// [`crate::class::ARMOUR_REPAIR_HEALTH`] back on it, capped at
     /// its tier's full health.
     Repair {
         slot: u32,
@@ -888,17 +880,6 @@ pub struct World {
     pub health: Vec<health::HealthState>,
     /// One per player, in slot order. The world runs at the slowest of them.
     pub speed_requests: Vec<Speed>,
-    /// The asteroids about every belt the ship has held station at, one
-    /// site a belt in belt order, laid out the first time the ship came
-    /// to rest there and kept — a mined tile stays mined. See
-    /// [`crate::mining`].
-    pub sites: Vec<MiningSite>,
-    /// Bumped every time a site's rocks change, so the room rebuilds its
-    /// outside grid then and only then.
-    pub site_version: u64,
-    /// What the walk under way has mined so far — rock, ore, galvum — to
-    /// be said all at once when the Bim comes back in.
-    walk_tally: (u32, u32, u32),
     /// The parts laid out to be built and not built yet, in the order they
     /// were laid out — which is the order the crew take them in. See
     /// [`crate::build`]. In `world_checksum` whole.
@@ -986,7 +967,7 @@ pub struct World {
     /// lies and which way round, as far as they fit.
     /// [`World::settle_grids`] holds them the way `settle_pieces` holds
     /// the pieces; see [`crate::grid`]. In `world_checksum` whole.
-    pub grids: [Grid; 3],
+    pub grids: [Grid; 2],
     /// Every lamp a fight has damaged, by where it hangs, with what it has
     /// left. A room is built afresh at every dock, undock and relayout,
     /// and this is what puts the damage back on its lamps, and what
@@ -1365,8 +1346,6 @@ impl World {
         let droid_origin = droidplan::origin(&galaxy, star_id);
         let droid_hops = galaxy.hops_from(droid_origin);
 
-        // What the crew set out with, for the enemies to be scaled against.
-        let start_worth = shipdesign::Budget::spent(&design);
         let dynamics = flight::dynamics(&design, crew).map_err(StartError::NotAShip)?;
         let aboard = Aboard::new(&design, crew, seed);
         let station_keys: Vec<u8> = stations
@@ -1423,9 +1402,6 @@ impl World {
             // Everybody starts at real time. Anything else would have the
             // world already moving before the first player had looked at it.
             speed_requests: vec![Speed::Real; players as usize],
-            sites: Vec::new(),
-            site_version: 0,
-            walk_tally: (0, 0, 0),
             builds: Vec::new(),
             next_site: 1,
             home: station_id,
@@ -1438,7 +1414,9 @@ impl World {
             crew_locked: vec![false; crew as usize],
             pieces: Vec::new(),
             next_piece: 1,
-            start_worth,
+            // Taken below, once the world stands: `worth` reads the
+            // crew's gear and the pool as well as the ship.
+            start_worth: 0,
             research: Research::new(),
             // The spawn has a key whatever it rolled: the first key is
             // how the research loop is learnt, and a crew that had to fly
@@ -1447,7 +1425,7 @@ impl World {
             guns: Vec::new(),
             auto_upgrade: false,
             bench: Workbench::default(),
-            grids: [Grid::default(), Grid::default(), Grid::default()],
+            grids: [Grid::default(), Grid::default()],
             lamps: Vec::new(),
             powered_parts: shipdesign::powered_parts(&design_for_charge),
             browned_out: false,
@@ -1497,6 +1475,11 @@ impl World {
         // whoever lives there already up and about.
         world.dock_at(station_id);
         world.settle_residents();
+        // What the crew set out with, for the enemies to be scaled
+        // against — the **same** sum `worth` gives from then on, the
+        // starting pool included, so unspent money is never counted as
+        // growth (feature 95).
+        world.start_worth = world.worth();
         Ok(world)
     }
 
@@ -1583,7 +1566,6 @@ impl World {
         //    after the landing, the next after each is destroyed, and the
         //    whole of it held where it stands while the ship is away.
         self.defense_waves(&mut events);
-        self.settle_site();
 
         // 5. Crew: the room's own update, aboard, on this clock. Bims live
         //    in ship-design coordinates and the ship's position, rotation and
@@ -1629,8 +1611,6 @@ impl World {
         //    thing now, spent out of the pack of whoever winds it.
         self.restock_bandages();
         self.hand_the_room_the_hold_s_medicine();
-        let eva = self.eva_offer();
-        self.aboard.room.set_eva(eva);
         //    And the construction sites, what each still wants, and who may
         //    go out to one beyond the hull. What the room did about them is
         //    read in stage 7.
@@ -1701,12 +1681,6 @@ impl World {
             self.finish_craft(recipe, &mut events);
         }
         self.finish_upgrade(&mut events);
-        for at in self.aboard.room.take_mined() {
-            self.finish_tile(at);
-        }
-        for _ in 0..self.aboard.room.take_walks() {
-            self.finish_walk(&mut events);
-        }
 
         // 6. Power: what the reactors made this step against what the
         //    wired consumers drew, into or out of the batteries. What is
@@ -1719,20 +1693,12 @@ impl World {
         //    And the AI's research, which runs on the research desk's power.
         self.run_research(&mut events);
 
-        // 7. Construction: what the crew did at the sites this step — a load
-        //    taken off a shelf, a load put down, a load given up, a part put
-        //    together — moved through the hold. Building goes through
-        //    `shipdesign::materials`, out of what is aboard, and asks
-        //    `World::can_modify_part` first. See `crate::build`.
-        for (site, resource, _units, who) in self.aboard.room.take_picked() {
-            self.finish_pick(site, resource, who);
-        }
-        for site in self.aboard.room.take_dropped() {
-            self.finish_drop(site);
-        }
-        for site in self.aboard.room.take_returned() {
-            self.finish_return(site);
-        }
+        // 7. Construction: what the crew did at the sites this step — a
+        //    part put together. Nothing is carried to a site since
+        //    feature 95: a part is **bought**, and its price leaves the
+        //    pool the moment it goes down. See `crate::build` and
+        //    `shipdesign::materials`; `World::can_modify_part` is asked
+        //    first.
         //    And the workbench's carries, the same three ways.
         for ferry in self.aboard.room.take_ferry_picked() {
             self.finish_ferry_pick(ferry);
@@ -1772,8 +1738,6 @@ impl World {
             | Command::Buy { slot, .. }
             | Command::Sell { slot, .. }
             | Command::SetCraftTarget { slot, .. }
-            | Command::MarkRock { slot, .. }
-            | Command::ClearMarks { slot }
             | Command::PlaceSite { slot, .. }
             | Command::CancelSite { slot, .. }
             | Command::Stow { slot, .. }
@@ -1850,16 +1814,17 @@ impl World {
                 self.land(slot, events);
             }
             Command::Buy {
-                resource, units, ..
-            } => self.buy(slot, resource, units, events),
+                resource,
+                units,
+                tier,
+                ..
+            } => self.buy(slot, resource, units, tier, events),
             Command::Sell {
                 resource, units, ..
             } => self.sell(slot, resource, units, events),
             Command::SetCraftTarget {
                 resource, units, ..
             } => self.set_craft_target(resource, units),
-            Command::MarkRock { x, y, .. } => self.mark_rock(x, y),
-            Command::ClearMarks { .. } => self.clear_marks(),
             Command::PlaceSite {
                 kind,
                 origin,
@@ -2204,7 +2169,6 @@ impl World {
             self.hostile = hostile;
             self.station_keys = self.stations.iter().map(|s| s.key).collect();
             self.reinforcements = 0;
-            self.sites.clear();
             self.plunder.clear();
             self.lamps.retain(|d| d.station.is_none());
             self.discovered.clear();
@@ -2221,7 +2185,6 @@ impl World {
         // ship does not arrive inside the station it came to destroy.
         self.settle_jammer();
         let at = crate::jump::landing_point(&self.system);
-        self.site_version += 1;
         self.ship.state = ShipState::Holding;
         self.ship.destination_set_by = None;
         self.ship.pending = None;
@@ -2496,7 +2459,7 @@ impl World {
                     departed: self.clock_minutes,
                 };
                 self.unjoin_rooms();
-                self.leave_site(events);
+                self.leave_site();
                 events.push(WorldEvent::Departed { slot });
             }
             Err(error) => {
@@ -2639,7 +2602,7 @@ impl World {
             began: self.clock_minutes,
         };
         self.ship.destination_set_by = Some(slot);
-        self.leave_site(events);
+        self.leave_site();
         events.push(WorldEvent::Landing { body });
     }
 
@@ -2748,7 +2711,7 @@ impl World {
                 if let Err(i) = self.hostile.binary_search(&id) {
                     self.hostile.insert(i, id);
                 }
-                self.leave_site(events);
+                self.leave_site();
                 self.ship.state = ShipState::Docked { station: id };
                 self.ship.destination_set_by = None;
                 self.ship.pending = None;
@@ -2966,14 +2929,95 @@ impl World {
         self.raids.due = self.clock_minutes.floor() as u64 + minutes;
     }
 
-    /// What the ship and everything in its hold are worth now, in whole
-    /// euros: every part's price and every unit of cargo at its **book
-    /// value** — `shipdesign::Budget::spent`, `economy::trade_price` a
-    /// unit, the same everywhere; a valuation, not what any desk would
-    /// pay. The crew's money in hand is not in it: net worth here is the
-    /// ship and its contents, which is what an enemy sizes up.
+    /// The crew's **whole net worth** now, in whole euros (feature 95):
+    ///
+    /// - every part of the ship at its price;
+    /// - the hold at the **book value** (`economy::trade_price`, the same
+    ///   everywhere; a valuation, not what any desk would pay), with a
+    ///   gun or a piece of armour at its **tier** (`economy::TIER_PRICE`);
+    /// - every gun and every piece of armour on every crew member — in a
+    ///   hand, worn, or in a pack — at the same book and tier;
+    /// - and the **money in hand**.
+    ///
+    /// The money used to be left out, so a crew that sold its hold got
+    /// poorer in the enemies' eyes by doing it. Now nothing a crew own
+    /// changes what they are worth by moving from one pocket to another:
+    /// a purchase, a sale, a fetch out of the hold and a piece put on are
+    /// all worth the spread and nothing else.
+    ///
+    /// Saturating throughout: a world worth more than a `u64` is a bug
+    /// upstream, and a wrap would hand an enemy a crew worth nothing.
     pub fn worth(&self) -> Money {
-        shipdesign::Budget::spent(&self.ship.design)
+        let design = &self.ship.design;
+        let mut sum: Money = design
+            .parts
+            .iter()
+            .fold(0, |sum, p| sum.saturating_add(p.kind.def().price));
+        // The hold, bar the gear: a gun and a piece are counted off the
+        // lists that carry their tiers, below, so that a tier-two rifle
+        // is not valued as a tier-one one.
+        for &id in ResourceId::ALL.iter() {
+            if economy::tiered(id) {
+                continue;
+            }
+            let units = design.carrying(id) as Money;
+            sum = sum.saturating_add(trade_price(id).saturating_mul(units));
+        }
+        // Every piece of armour there is, wherever it lies: the hold, a
+        // pack, a body (`World::pieces` is all three).
+        for piece in &self.pieces {
+            sum = sum.saturating_add(gear_value(
+                armour::resource_of(piece.kind),
+                piece.tier.code(),
+            ));
+        }
+        // The hold's guns, then every weapon the crew carry — in a hand
+        // or in a pack — which no list of the world's holds.
+        for gun in &self.guns {
+            sum = sum.saturating_add(gear_value(
+                armour::weapon_resource(gun.kind),
+                gun.tier.code(),
+            ));
+        }
+        // And what the crew carry that no list of the world's holds: the
+        // weapon in a hand, every weapon in a pack, and every stack in
+        // one — a box of dressings, a medkit, a key. A thing moved out of
+        // the hold and into a pack must be worth the same in both, or a
+        // restock would make the crew poorer.
+        let room = &self.aboard.room;
+        for who in 0..room.crew_count() as usize {
+            let gear = room.gear(who);
+            for weapon in gear.weapon.into_iter() {
+                sum = sum.saturating_add(gear_value(
+                    armour::weapon_resource(weapon.kind),
+                    weapon.tier.code(),
+                ));
+            }
+            for cell in 0..gear.pack.len() {
+                let units = gear.units(cell) as Money;
+                match gear.pack[cell] {
+                    Some(Item::Weapon(weapon)) => {
+                        sum = sum.saturating_add(gear_value(
+                            armour::weapon_resource(weapon.kind),
+                            weapon.tier.code(),
+                        ));
+                    }
+                    Some(Item::Stack(code)) => {
+                        if let Some(&id) = ResourceId::ALL.get(code as usize) {
+                            sum = sum.saturating_add(trade_price(id).saturating_mul(units.max(1)));
+                        }
+                    }
+                    Some(Item::Key(tier)) => {
+                        if let Some(id) = armour::key_resource(tier) {
+                            sum = sum.saturating_add(trade_price(id));
+                        }
+                    }
+                    // A piece in a pack is on `World::pieces` already.
+                    Some(Item::Armour(_)) | None => {}
+                }
+            }
+        }
+        sum.saturating_add(self.money)
     }
 
     /// How many whole days the game has run: `clock_minutes` — elapsed
@@ -4029,7 +4073,6 @@ impl World {
     /// the pack by the room, so no count crosses either way.
     fn hand_the_room_the_hold_s_medicine(&mut self) {
         let design = &self.ship.design;
-        let fibre = design.carrying(ResourceId::Fibre);
         let medkits = design.carrying(ResourceId::Medkit);
         // And where a kit is fetched from: the use spot of every container
         // that takes one — a locker-class cabinet, a shelf — so the walk
@@ -4065,7 +4108,10 @@ impl World {
         room.set_pack_kits(carried);
         room.set_kit_stands(&stands);
         let (veg, tofu, stew) = (room.store_veg(), room.store_tofu(), room.store_stew());
-        room.set_stock(veg, tofu, stew, fibre);
+        // Nothing grows fibre any more (feature 95): the drug lab rolls no
+        // dressings and there is no such resource, so the bay is handed
+        // nought of it and never plants any.
+        room.set_stock(veg, tofu, stew, 0);
     }
 
     /// What the room did with its medicine this step, moved through the
@@ -4238,7 +4284,6 @@ impl World {
             hostile: self.hostile.clone(),
             reinforcements: self.reinforcements,
             station_keys: self.station_keys.clone(),
-            sites: self.sites.clone(),
             plunder: self.plunder.clone(),
             lamps: self
                 .lamps
@@ -4274,7 +4319,6 @@ impl World {
         self.hostile = memory.hostile;
         self.reinforcements = memory.reinforcements;
         self.station_keys = memory.station_keys;
-        self.sites = memory.sites;
         self.plunder = memory.plunder;
         self.lamps.retain(|d| d.station.is_none());
         self.lamps.extend(memory.lamps);
@@ -4575,15 +4619,11 @@ impl World {
         let inputs_aboard = recipe
             .inputs
             .iter()
-            .all(|&(id, units)| self.free(id) >= units);
+            .all(|&(id, units)| design.carrying(id) >= units);
         let (output, units) = recipe.output;
         // Room for the output as the hold stands: what the inputs free is
-        // not counted — the smelter's ore and its metal share the shelves,
-        // but a stack of ore going does not make a place for the metal
-        // until it has gone, and the order is placed before it does. So
-        // a bench with a full shelf waits a step for the ore to be spent,
-        // and is not lost.
-        let _ = design;
+        // not counted — the vegetables and the medkit share no class, but
+        // the rule is the same for whatever is added next.
         inputs_aboard && self.has_room(output, units)
     }
 
@@ -4709,25 +4749,7 @@ impl World {
     /// it, or a Bim on the way to one. What refuses a Confirm — the ship
     /// does not move while it is built on.
     pub fn under_construction(&self) -> bool {
-        self.builds.iter().any(|s| s.begun()) || self.aboard.room.building_under_way()
-    }
-
-    /// Units of `resource` the sites have spoken for, delivered or in
-    /// somebody's arms.
-    pub fn reserved(&self, resource: ResourceId) -> u32 {
-        self.builds
-            .iter()
-            .fold(0u32, |sum, s| sum.saturating_add(s.reserved(resource)))
-    }
-
-    /// Units of `resource` aboard that nothing has claimed: what may be
-    /// sold, smelted, or carried to another site. Every hand that reaches
-    /// for the hold asks this rather than the raw count.
-    pub fn free(&self, resource: ResourceId) -> u32 {
-        self.ship
-            .design
-            .carrying(resource)
-            .saturating_sub(self.reserved(resource))
+        self.aboard.room.building_under_way()
     }
 
     pub fn site(&self, id: u32) -> Option<&BuildSite> {
@@ -4831,15 +4853,37 @@ impl World {
         events.push(WorldEvent::SiteCancelled { kind: gone.kind });
     }
 
-    /// Every site, one order each, this step: what it still wants carried
-    /// — the first material short of its recipe that the hold has any free
-    /// of, a load of it — and, with everything there, that it is to be
-    /// built and how long that takes. A site wanting neither is still on
-    /// the list — a load may be on its way to it, and the walk has to find
-    /// it — with nothing to start at it: short of something the hold has
-    /// none of, or a wall on deck that is itself still a site, waiting for
-    /// the deck. Nothing while the ship is not at rest. In the order the
-    /// sites were laid out, which is what the room picks from.
+    /// What the money, less every site already begun, still covers: what
+    /// `affordable_site` measures a site's price against.
+    ///
+    /// "Begun" is a site a Bim is on its way to or standing at
+    /// (`Game::building_at`): the crew work the sites in order, and a
+    /// price is only spoken for once somebody is walking to it. A site
+    /// nobody has walked to costs nothing to lay out and nothing to give
+    /// up.
+    pub fn free_money(&self) -> Money {
+        let design = &self.ship.design;
+        let spoken_for: Money = self
+            .builds
+            .iter()
+            .filter(|s| self.aboard.room.building_at(s.id))
+            .fold(0, |sum, s| sum.saturating_add(s.price(design)));
+        self.money.saturating_sub(spoken_for)
+    }
+
+    /// Whether a site may be begun now: its price is inside what the pool
+    /// has left after the sites already begun. What keeps two Bims from
+    /// walking to two parts the crew can only afford one of.
+    pub fn affordable_site(&self, site: &BuildSite) -> bool {
+        self.aboard.room.building_at(site.id) || site.price(&self.ship.design) <= self.free_money()
+    }
+
+    /// Every site, one order each, this step: where it is and how long
+    /// putting it together takes. A site the crew cannot afford, or one
+    /// on a site that is itself still a site, is on the list with nothing
+    /// to start at it — the walk has to find it — and `minutes` nought is
+    /// what says so. Nothing while the ship is not at rest. In the order
+    /// the sites were laid out, which is what the room picks from.
     pub fn build_orders(&self) -> Vec<bims::game::Build> {
         if !self.at_rest() {
             return Vec::new();
@@ -4851,7 +4895,6 @@ impl World {
         self.builds
             .iter()
             .map(|site| {
-                let recipe = site.recipe(design);
                 let tiles = site
                     .tiles()
                     .into_iter()
@@ -4865,26 +4908,21 @@ impl World {
                         )
                     })
                     .collect();
-                let haul = recipe.iter().find_map(|&(id, _)| {
-                    let short = site.short(design, id);
-                    let load = short.min(data::HAUL_LOAD).min(self.free(id));
-                    (load > 0).then_some((id as u32, load))
-                });
-                // Only a part that would go down now is worth putting
-                // together: one on a site that is itself waiting is not,
-                // and nor is one `can_modify_part` says to leave.
-                let buildable = site.stocked(design)
-                    && self.can_modify_part(site.kind)
+                // Only a part that would go down now, and that the crew
+                // can pay for, is worth walking to: one on a site that is
+                // itself waiting is not, and nor is one
+                // `can_modify_part` says to leave.
+                let buildable = self.can_modify_part(site.kind)
+                    && self.affordable_site(site)
                     && shipdesign::apply(design, &free, site.edit()).is_ok();
                 let minutes = if buildable {
-                    build::build_minutes(&recipe) as f32
+                    build::build_minutes(site.price(design)) as f32
                 } else {
                     0.0
                 };
                 bims::game::Build {
                     site: site.id,
                     tiles,
-                    haul,
                     minutes,
                 }
             })
@@ -4903,56 +4941,12 @@ impl World {
             .collect()
     }
 
-    /// A Bim took a load off a shelf for `site`: as much of `resource` as
-    /// the site is short, the **hauler's own load** ([`World::haul_load`],
-    /// twice the ordinary with *pack mule*) and what the hold has free
-    /// allow is now in its arms — spoken for, not moved. Worked out again
-    /// here rather than read off the order, since the order is the site's
-    /// and the load is the crew member's. A site that has gone gets
-    /// nothing, and the Bim carries a crate of nothing to nowhere, which
-    /// the room sorts out at its next walk.
-    fn finish_pick(&mut self, site: u32, resource: u32, who: usize) {
-        let Some(resource) = ResourceId::ALL.get(resource as usize).copied() else {
-            return;
-        };
-        let short = self
-            .builds
-            .iter()
-            .find(|s| s.id == site)
-            .map_or(0, |s| s.short(&self.ship.design, resource));
-        let got = short
-            .min(self.haul_load(who as u32))
-            .min(self.free(resource));
-        if let Some(site) = self.builds.iter_mut().find(|s| s.id == site) {
-            site.carrying[resource as usize] += got;
-        }
-    }
-
-    /// A load arrived: everything in transit to the site is delivered.
-    fn finish_drop(&mut self, site: u32) {
-        if let Some(site) = self.builds.iter_mut().find(|s| s.id == site) {
-            for (delivered, carrying) in site.delivered.iter_mut().zip(site.carrying.iter_mut()) {
-                *delivered += core::mem::take(carrying);
-            }
-        }
-    }
-
-    /// A load was given up short of the site: the hold's again.
-    fn finish_return(&mut self, site: u32) {
-        if let Some(site) = self.builds.iter_mut().find(|s| s.id == site) {
-            site.carrying = [0; CARGO_SLOTS];
-        }
-    }
-
-    /// Every load in somebody's arms, the hold's again: for a room being
-    /// taken apart, whose crew drop everything they were carrying without
-    /// the room saying so.
+    /// A thing on its way to or from the workbench goes back into the
+    /// hold: for a room being taken apart, whose crew drop what they were
+    /// carrying without the room saying so. Nothing is carried to a
+    /// construction site any more (feature 95), so this is the bench's
+    /// ferry and nothing else.
     fn drop_loads(&mut self) {
-        for site in &mut self.builds {
-            site.carrying = [0; CARGO_SLOTS];
-        }
-        // And a thing on its way to or from the workbench goes back into
-        // the hold: the chain carrying it is gone with the room.
         if let Some(item) = self.bench.carrying.take() {
             self.hold_takes(item);
         }
@@ -4974,18 +4968,24 @@ impl World {
             events.push(WorldEvent::BuildLost { kind: site.kind });
             return;
         }
-        // The reservation is this site's own, and it is gone with the site
-        // — so the recipe is checked against what is free of *every other*
-        // site's claim, which is what `free` says now that it is out of
-        // the list.
-        let recipe = site.recipe(&self.ship.design);
-        if recipe.iter().any(|&(id, units)| self.free(id) < units) {
+        // The price is this site's own, and the site is out of the list by
+        // now — so it is checked against the whole pool less what the
+        // *other* sites under way have spoken for, which is what
+        // `free_money` says.
+        let price = site.price(&self.ship.design);
+        if price > self.free_money() {
+            events.push(refused(0, Refusal::NotEnoughMoney));
             events.push(WorldEvent::BuildLost { kind: site.kind });
             return;
         }
-        match shipdesign::build_from_cargo(&self.ship.design, site.edit()) {
+        let free = shipdesign::Budget::new(Money::MAX);
+        match shipdesign::apply(&self.ship.design, &free, site.edit()) {
             Ok(next) => {
                 self.ship.design = next;
+                // Paid for at the moment the part goes down, wherever the
+                // ship is: money is the one thing that may be spent away
+                // from a station (`shipdesign::materials`).
+                self.money -= price;
                 self.on_ship_changed();
                 self.relayout_room();
                 events.push(WorldEvent::Built { kind: site.kind });
@@ -5026,181 +5026,35 @@ impl World {
         self.sync_deployed_cover();
     }
 
-    // --- a walk outside ------------------------------------------------------
+    // --- holding at a belt ---------------------------------------------------
 
-    /// The belt whose frame the ship is in, if it is in one, whatever the
-    /// ship is doing there.
-    fn belt_here(&self) -> Option<&worldgen::Body> {
-        let Frame::Local(Node::Body(id)) = self.ship.frame else {
-            return None;
+    /// Let go of the dock and hold at the first belt of this system.
+    /// `false`, and nothing moved, when the system has no belt. There was
+    /// a mining site laid out here until feature 95; a belt is a body
+    /// with nothing to do at it now, and this is only a way to a node the
+    /// ship has been at.
+    pub fn hold_at_belt_for_probe(&mut self) -> bool {
+        let Some(belt) = self
+            .system
+            .bodies
+            .iter()
+            .find(|b| b.kind == worldgen::BodyKind::AsteroidBelt)
+            .cloned()
+        else {
+            return false;
         };
-        self.system
-            .body(id)
-            .filter(|b| b.kind == worldgen::BodyKind::AsteroidBelt)
+        self.undock_for_probe();
+        self.put_for_probe(belt.position);
+        self.settle_frame_for_probe();
+        true
     }
 
-    /// The belt the ship is holding at, if it is: at rest in the local
-    /// frame of a body of that kind.
-    fn belt_alongside(&self) -> Option<&worldgen::Body> {
-        if self.ship.state != ShipState::Holding {
-            return None;
-        }
-        self.belt_here()
-    }
-
-    /// The hull's tiles, as the box they span — `(x0, y0, x1, y1)`,
-    /// inclusive — which is what a mining site is laid out clear of.
-    fn hull_box(&self) -> (i32, i32, i32, i32) {
-        let mut span: Option<(i32, i32, i32, i32)> = None;
-        for part in &self.ship.design.parts {
-            for (x, y) in part.tiles() {
-                let (x, y) = (x as i32, y as i32);
-                span = Some(match span {
-                    None => (x, y, x, y),
-                    Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
-                });
-            }
-        }
-        span.unwrap_or((0, 0, 0, 0))
-    }
-
-    /// Stage 4's last word: the ship has come to rest at a belt it has not
-    /// held at before, so the asteroids about it are laid out now, in the
-    /// frame it is holding in. Once per belt — coming back finds the site
-    /// as it was left, mined tiles and all.
-    fn settle_site(&mut self) {
-        let Some(belt) = self.belt_alongside().map(|b| b.id) else {
-            return;
-        };
-        if self.sites.iter().any(|s| s.belt == belt) {
-            return;
-        }
-        let site = MiningSite::generate(self.galaxy_seed, self.star_id, belt, self.hull_box());
-        let at = self.sites.partition_point(|s| s.belt < belt);
-        self.sites.insert(at, site);
-        self.site_version += 1;
-    }
-
-    /// The mining site the ship is holding at, if it is at one.
-    pub fn site_here(&self) -> Option<&MiningSite> {
-        let belt = self.belt_alongside()?.id;
-        self.sites.iter().find(|s| s.belt == belt)
-    }
-
-    fn site_here_mut(&mut self) -> Option<&mut MiningSite> {
-        let belt = self.belt_alongside()?.id;
-        self.sites.iter_mut().find(|s| s.belt == belt)
-    }
-
-    /// Mark a rock at the site to be mined, or take the mark off again.
-    /// Nothing happens away from a site or off a rock.
-    fn mark_rock(&mut self, x: i32, y: i32) {
-        if let Some(site) = self.site_here_mut()
-            && site.toggle_mark(x, y)
-        {
-            self.site_version += 1;
-        }
-    }
-
-    fn clear_marks(&mut self) {
-        if let Some(site) = self.site_here_mut() {
-            site.clear_marks();
-            self.site_version += 1;
-        }
-    }
-
-    /// The ship is leaving the site: the marks come off, since an order to
-    /// mine a rock is an order about a place the ship is at, whoever is out
-    /// there is brought back in through the door, and what that walk had
-    /// mined so far is said now, since it will not come in on its own.
-    fn leave_site(&mut self, events: &mut Vec<WorldEvent>) {
-        // By the frame, not by the state: the ship is under way by the time
-        // this is asked.
-        if let Some(belt) = self.belt_here().map(|b| b.id)
-            && let Some(site) = self.sites.iter_mut().find(|s| s.belt == belt)
-        {
-            site.clear_marks();
-            self.site_version += 1;
-        }
+    /// The ship is leaving a belt: whoever is outside is brought back in
+    /// through the door. There was a mining site here until feature 95 and
+    /// its marks came off too; a belt is a body with nothing to do at it
+    /// now.
+    fn leave_site(&mut self) {
         self.aboard.room.recall_outside();
-        if self.walk_tally != (0, 0, 0) {
-            self.finish_walk(events);
-        }
-    }
-
-    /// Whether the crew may walk outside this step, and to what: holding at
-    /// a belt with rocks marked, a port to go out by, a suit in the locker,
-    /// room on the shelf for what comes back, and each Bim's dose under the
-    /// limit. The room is handed every rock as something to walk round and
-    /// the marked ones as where to go, in the ship's own units.
-    pub fn eva_offer(&self) -> Option<bims::game::Eva> {
-        let site = self.site_here()?;
-        shipdesign::dock::port(&self.ship.design)?;
-        if self.ship.design.carrying(ResourceId::Suit) == 0 {
-            return None;
-        }
-        let design = &self.ship.design;
-        if design.stored(Storage::Shelf) >= design.capacity(Storage::Shelf) {
-            return None;
-        }
-        let t = shipdesign::TILE as f32;
-        let middle = |(x, y): (i32, i32)| {
-            let (mx, my) = mining::tile_middle(x, y);
-            bims::math::vec2(mx as f32, my as f32)
-        };
-        Some(bims::game::Eva {
-            allowed: self
-                .health
-                .iter()
-                .map(|h| !h.dead && h.dose < data::EVA_DOSE_LIMIT)
-                .collect(),
-            targets: site.targets().map(middle).collect(),
-            rocks: site
-                .tiles
-                .iter()
-                .map(|r| {
-                    let m = middle((r.x, r.y));
-                    bims::math::Rect::from_min_size(
-                        bims::math::vec2(m.x - t / 2.0, m.y - t / 2.0),
-                        bims::math::vec2(t, t),
-                    )
-                })
-                .collect(),
-            version: self.site_version,
-            tile_minutes: data::MINE_TILE_MINUTES as f32,
-        })
-    }
-
-    /// A Bim mined the rock whose middle is `at`, in the ship's units: the
-    /// tile comes out of the site and what it yields goes on the shelf, as
-    /// much of it as fits, counted towards what the walk brings back. A
-    /// tile that is not there — mined by the other one, or the ship has
-    /// left — yields nothing.
-    fn finish_tile(&mut self, at: (f32, f32)) {
-        let t = shipdesign::TILE as f32;
-        let (x, y) = ((at.0 / t).floor() as i32, (at.1 / t).floor() as i32);
-        let Some(kind) = self.site_here_mut().and_then(|s| s.mine(x, y)) else {
-            return;
-        };
-        self.site_version += 1;
-        let (resource, units) = mining::yield_of(kind);
-        // What the shelves have room for: a stack topped up, or a new one
-        // where it fits.
-        let got = self.room_for(resource, units);
-        let design = &mut self.ship.design;
-        design.cargo[resource as usize] += got;
-        match kind {
-            mining::Rock::Stone => self.walk_tally.0 += got,
-            mining::Rock::Iron => self.walk_tally.1 += got,
-            mining::Rock::Galvum => self.walk_tally.2 += got,
-        }
-        self.on_ship_changed();
-    }
-
-    /// A walk came back: say what it brought, all at once.
-    fn finish_walk(&mut self, events: &mut Vec<WorldEvent>) {
-        let (rock, ore, galvum) = core::mem::take(&mut self.walk_tally);
-        events.push(WorldEvent::Mined { rock, ore, galvum });
     }
 
     /// Stage 8: each body, one step on, exposed while outside in the suit
@@ -5486,7 +5340,57 @@ impl World {
         Some(market::quote(desk.kind, bias, resource))
     }
 
-    fn buy(&mut self, slot: u32, resource: ResourceId, units: u32, events: &mut Vec<WorldEvent>) {
+    /// The same for a piece of gear at a **tier** (feature 95): the
+    /// tier-one quote with both sides multiplied by `economy::TIER_PRICE`,
+    /// so a desk asks four times as much for a tier-two rifle as for a
+    /// tier-one and bids four times as much for one off the crew's shelf.
+    /// A resource that comes at no tier is quoted as it always was,
+    /// whatever tier is asked for.
+    pub fn quote_at(&self, station: u32, resource: ResourceId, tier: u32) -> Option<Quote> {
+        let quote = self.quote(station, resource)?;
+        Some(if economy::tiered(resource) {
+            quote.at_tier(tier)
+        } else {
+            quote
+        })
+    }
+
+    /// Which tiers `units` of a gear resource would **leave** the hold as,
+    /// lowest first — the sell rule `settle_guns` and `settle_pieces`
+    /// follow — so a sale is paid for what it actually gives up. Empty
+    /// for a resource that comes at no tier.
+    fn tiers_leaving(&self, resource: ResourceId, units: u32) -> Vec<u32> {
+        if !economy::tiered(resource) {
+            return Vec::new();
+        }
+        let mut tiers: Vec<u32> = if let Some(kind) = armour::weapon_of(resource) {
+            self.guns
+                .iter()
+                .filter(|g| g.kind == kind)
+                .map(|g| g.tier.code())
+                .collect()
+        } else if let Some(kind) = armour::kind_of(resource) {
+            self.pieces
+                .iter()
+                .filter(|p| p.kind == kind && p.at == Where::Hold)
+                .map(|p| p.tier.code())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        tiers.sort_unstable();
+        tiers.truncate(units as usize);
+        tiers
+    }
+
+    fn buy(
+        &mut self,
+        slot: u32,
+        resource: ResourceId,
+        units: u32,
+        tier: u32,
+        events: &mut Vec<WorldEvent>,
+    ) {
         let ShipState::Docked { station } = self.ship.state else {
             events.push(refused(slot, Refusal::NotDocked));
             return;
@@ -5498,10 +5402,13 @@ impl World {
             events.push(refused(slot, Refusal::NoMarket));
             return;
         }
+        // Every tier is on sale (feature 95), so what is asked for is a
+        // resource **and** a tier; anything that comes at no tier ignores
+        // it.
         let Some(quote) = self
             .station(station)
             .filter(|s| s.stock.sells(resource))
-            .and_then(|_| self.quote(station, resource))
+            .and_then(|_| self.quote_at(station, resource, tier))
         else {
             events.push(refused(slot, Refusal::NotSoldHere));
             return;
@@ -5526,6 +5433,29 @@ impl World {
             return;
         }
         self.money -= value;
+        // A gun or a piece arrives at the tier it was bought at: the
+        // instance goes on the list **before** the count moves, or
+        // `settle_guns`/`settle_pieces` would make the difference up with
+        // tier-one ones. Everything else is a count and nothing more.
+        if economy::tiered(resource)
+            && let Some(at) = bims::combat::Tier::from_code(tier)
+        {
+            if let Some(kind) = armour::weapon_of(resource) {
+                for _ in 0..units {
+                    self.guns.push(kind.at(at));
+                }
+                self.guns.sort_by_key(|g| (g.kind.code(), g.tier.code()));
+            } else if let Some(kind) = armour::kind_of(resource) {
+                for _ in 0..units {
+                    let id = self.next_piece;
+                    self.next_piece += 1;
+                    self.pieces.push(armour::Piece {
+                        at: Where::Hold,
+                        ..armour::Piece::new(id, kind, at)
+                    });
+                }
+            }
+        }
         self.ship.design.cargo[resource as usize] += units;
         self.on_ship_changed();
         events.push(WorldEvent::Traded {
@@ -5550,9 +5480,7 @@ impl World {
             events.push(refused(slot, Refusal::NoMarket));
             return;
         };
-        // What the construction sites have claimed is not the crew's to
-        // sell — see `free`.
-        let aboard = self.free(resource);
+        let aboard = self.ship.design.carrying(resource);
         if units > aboard {
             events.push(refused(slot, Refusal::NotAboard));
             return;
@@ -5565,10 +5493,21 @@ impl World {
             return;
         }
         // At the desk's bid, which is under its ask: what was bought here
-        // and sold straight back has lost money.
-        let Ok(value) = quote.fetches(units) else {
-            events.push(refused(slot, Refusal::SumTooBig));
-            return;
+        // and sold straight back has lost money. **A market buys gear at
+        // its tier** (feature 95), and a sale gives up the lowest tiers
+        // first, so the sum is one line a thing rather than one for the
+        // lot.
+        let tiers = self.tiers_leaving(resource, units);
+        let value = if tiers.is_empty() {
+            let Ok(value) = quote.fetches(units) else {
+                events.push(refused(slot, Refusal::SumTooBig));
+                return;
+            };
+            value
+        } else {
+            tiers.iter().fold(0, |sum: Money, &tier| {
+                sum.saturating_add(quote.at_tier(tier).bid)
+            })
         };
         let Ok(money) = economy::add(self.money, value) else {
             events.push(refused(slot, Refusal::SumTooBig));
@@ -5712,7 +5651,7 @@ impl World {
     /// The grids' classes, in the order `grids` keeps them: the code of
     /// each is its index. The research desk is a count of one and has
     /// none.
-    pub const GRID_CLASSES: [Storage; 3] = [Storage::Shelf, Storage::ColdStore, Storage::Locker];
+    pub const GRID_CLASSES: [Storage; 2] = [Storage::ColdStore, Storage::Locker];
 
     /// A class's grid, if the class is one: the shelves', the cold
     /// stores' or the lockers'.
@@ -6327,8 +6266,9 @@ impl World {
             // deck, are an enemy's to plunder or a friend's to leave alone,
             // never the hold's.
             Container::Shelf(i) => {
-                (class == Storage::Shelf || armour::is_gear(resource))
-                    && !self.station_shelves().contains(&i)
+                // A shelf is locker room since the money rework, so it
+                // takes what a locker takes.
+                class == Storage::Locker && !self.station_shelves().contains(&i)
             }
             Container::Fridge(_) => class == Storage::ColdStore,
             // The crew's own desks only: a key put on a station's desk
@@ -6518,7 +6458,7 @@ impl World {
                 return;
             }
         };
-        if self.free(resource) == 0 {
+        if self.ship.design.carrying(resource) == 0 {
             events.push(refused(slot, Refusal::NotAboard));
             return;
         }
@@ -7512,7 +7452,7 @@ impl World {
     /// not spoken for. What an `Unlock` of a node of that tier consumes
     /// one of; nought for a tier no key exists for.
     pub fn keys_in_desk(&self, tier: u8) -> u32 {
-        armour::key_resource(tier).map_or(0, |r| self.free(r))
+        armour::key_resource(tier).map_or(0, |r| self.ship.design.carrying(r))
     }
 
     /// A take of the station's key. See [`Command::TakeKey`] for what is
@@ -7574,7 +7514,7 @@ impl World {
             events.push(refused(slot, Refusal::NotResearchable));
             return;
         };
-        if self.free(key) == 0 {
+        if self.ship.design.carrying(key) == 0 {
             events.push(refused(slot, Refusal::NoKey));
             return;
         }
@@ -8364,27 +8304,6 @@ impl World {
         }
         self.residents = Some(residents);
         self.apply_stances();
-        true
-    }
-
-    /// Let go of the dock and hold at the first belt of this system, its
-    /// site laid out — the state a walk outside is looked at in. `false`,
-    /// and nothing moved, when the system has no belt. For probes and for
-    /// `BIMS_AT_BELT` in the app.
-    pub fn hold_at_belt_for_probe(&mut self) -> bool {
-        let Some(belt) = self
-            .system
-            .bodies
-            .iter()
-            .find(|b| b.kind == worldgen::BodyKind::AsteroidBelt)
-            .cloned()
-        else {
-            return false;
-        };
-        self.undock_for_probe();
-        self.put_for_probe(belt.position);
-        self.settle_frame_for_probe();
-        self.settle_site();
         true
     }
 }
@@ -10063,6 +9982,7 @@ impl World {
             return downed;
         }
         let mut gained: Vec<(bims::math::Vec2, u32)> = Vec::new();
+        let mut bounty: Money = 0;
         let count = residents.aboard.count() as usize;
         for who in 0..count.min(residents.xp_down.len()) {
             let room = &residents.aboard.room;
@@ -10078,6 +9998,12 @@ impl World {
             if down && !residents.xp_down[who] {
                 gained.push((at, class::XP_ENEMY_DOWN));
                 downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
+                // The Republic's bounty (feature 95), once per enemy at
+                // the first down or death, whoever did it. A machine is
+                // worth nothing: the Republic pays for people.
+                if who < residents.aboard.room.crew_count() as usize {
+                    bounty = bounty.saturating_add(bounty_for(gear_tier(room, who)));
+                }
             }
             if dead && !residents.xp_dead[who] {
                 gained.push((at, class::XP_ENEMY_DEAD));
@@ -10093,6 +10019,12 @@ impl World {
         }
         for (at, xp) in gained {
             self.award_classed_near(at, xp, events);
+        }
+        // And what the Republic owes for them, said once however many
+        // went down this step.
+        if bounty > 0 {
+            self.money = self.money.saturating_add(bounty);
+            events.push(WorldEvent::Bounty { amount: bounty });
         }
         downed
     }
@@ -10820,8 +10752,8 @@ impl World {
         if !damaged {
             return Err(Refusal::NoPair);
         }
-        if self.free(ResourceId::Metal) < deploy::ARMOUR_REPAIR_METAL {
-            return Err(Refusal::NotAboard);
+        if self.money < deploy::ARMOUR_REPAIR_COST {
+            return Err(Refusal::NotEnoughMoney);
         }
         Ok(())
     }
@@ -10829,8 +10761,7 @@ impl World {
     /// A repair begun at the workbench — see [`Command::Repair`].
     fn begin_repair(&mut self, slot: u32, events: &mut Vec<WorldEvent>) -> Result<(), Refusal> {
         self.can_repair(slot)?;
-        self.ship.design.cargo[ResourceId::Metal as usize] -= deploy::ARMOUR_REPAIR_METAL;
-        self.on_ship_changed();
+        self.money -= deploy::ARMOUR_REPAIR_COST;
         self.bench.repair = Some(slot);
         let _ = events;
         Ok(())
@@ -11593,7 +11524,7 @@ impl World {
             if !calm && !(carried == 0 && self.aboard.room.is_out_of_harm(who)) {
                 continue;
             }
-            if self.free(ResourceId::Medkit) == 0 {
+            if self.ship.design.carrying(ResourceId::Medkit) == 0 {
                 continue;
             }
             let Some(cell) = self.aboard.room.gear(who).free_cell_for(wanted) else {
@@ -11636,7 +11567,7 @@ impl World {
                 || self.aboard.room.is_unconscious(who)
                 || self.aboard.room.is_outside(who)
                 || self.aboard.room.bandages_of(who) >= wanted
-                || self.free(ResourceId::Bandage) == 0
+                || self.ship.design.carrying(ResourceId::Bandage) == 0
             {
                 continue;
             }
@@ -11876,17 +11807,6 @@ impl World {
             class::BULWARK_PACE * class::FAST_WALL_PACE
         } else {
             class::BULWARK_PACE
-        }
-    }
-
-    /// How big a load a crew member's haul trip carries, in units:
-    /// [`data::HAUL_LOAD`], [`class::PACK_MULE_LOADS`] of it with *pack
-    /// mule*. Read as the load is taken, so it is the hauler's own.
-    pub fn haul_load(&self, who: u32) -> u32 {
-        if self.has_talent(who, Talent::PackMule) {
-            data::HAUL_LOAD * class::PACK_MULE_LOADS
-        } else {
-            data::HAUL_LOAD
         }
     }
 
@@ -12738,9 +12658,7 @@ impl World {
         let Some(Item::Armour(mut piece)) = self.bench.slots[0] else {
             return;
         };
-        piece.health = (piece.health
-            + class::ARMOUR_REPAIR_PER_METAL * deploy::ARMOUR_REPAIR_METAL as f32)
-            .min(piece.stats().health);
+        piece.health = (piece.health + class::ARMOUR_REPAIR_HEALTH).min(piece.stats().health);
         self.bench.slots[0] = None;
         self.bench.slots[Workbench::OUT] = Some(Item::Armour(piece));
         events.push(WorldEvent::Repaired {
@@ -12774,7 +12692,10 @@ fn walk_refusal(code: u32) -> Option<Refusal> {
 /// sheaf in somebody's hands into the store.
 fn bank_medicine(design: &mut ShipDesign, room: &mut bims::game::Game) -> bool {
     let kits = room.take_medkits_used();
-    let grown = room.take_harvested_fibre();
+    // Whatever the bay grew of what nobody eats is dropped: there is no
+    // fibre resource since the money rework (feature 95), and the room is
+    // handed nought of it every step so it never plants any.
+    let _ = room.take_harvested_fibre();
     // A helper that opened a kit out of its own pack: the medkit leaves
     // the pack and goes on the hold's count, since from the moment it is
     // in a hand it is counted the way a kit off a shelf is — spent by
@@ -12793,16 +12714,12 @@ fn bank_medicine(design: &mut ShipDesign, room: &mut bims::game::Game) -> bool {
             out_of_packs += 1;
         }
     }
-    if kits == 0 && grown == 0 && out_of_packs == 0 {
+    if kits == 0 && out_of_packs == 0 {
         return false;
     }
     design.cargo[ResourceId::Medkit as usize] += out_of_packs;
     let medkits = &mut design.cargo[ResourceId::Medkit as usize];
     *medkits = medkits.saturating_sub(kits);
-    // By area: a stack of fibre is one cell, so a cell spare is a stack
-    // that lies.
-    let space = design.room_for(ResourceId::Fibre);
-    design.cargo[ResourceId::Fibre as usize] += grown.min(space);
     true
 }
 
@@ -12904,11 +12821,12 @@ pub fn spawn_with_ground(galaxy: &Galaxy, pick: u64) -> Option<(u32, u32)> {
 /// crew that opens docked at a wreck with nobody aboard opens at a place
 /// to salvage rather than a place to start from. Nobody there is an enemy
 /// (`StationBlueprint::hostile`), because a crew that opens at an enemy's
-/// opens under fire. And the system has an asteroid belt, because a belt
-/// is the mining site (`crate::mining`) and the playtest is where mining
-/// is looked at: `BIMS_AT_BELT` and every fixture test that walks outside
-/// hold at the spawn system's first belt, and a spawn system without one
-/// would leave them nothing to hold at.
+/// opens under fire. And the system has an **asteroid belt** — which was
+/// the mining site until the money rework (feature 95) took the mining
+/// away, and is kept because the simulation's dock is what every pinned
+/// hash and checksum in the workspace stands on: dropping the condition
+/// would move the spawn to another station in another system and re-pin
+/// the lot for nothing.
 ///
 /// The game proper starts where the lobby's World tab said, and that pair
 /// comes into [`World::start`] from outside. This is for `nix run
@@ -12937,4 +12855,39 @@ pub fn spawn(galaxy: &Galaxy) -> Option<(u32, u32)> {
         }
     }
     None
+}
+
+/// What the Republic pays for an enemy of that gear tier — [`data::REPUBLIC_BOUNTY`]
+/// indexed safely, since a tier arrives from the room as a number
+/// (feature 95). Nought for no tier at all.
+pub fn bounty_for(tier: u32) -> Money {
+    data::REPUBLIC_BOUNTY
+        .get(tier as usize)
+        .copied()
+        .unwrap_or(0)
+}
+
+/// What tier of gear a body in `room` carries: the best of what is in its
+/// hand and on its back, tier one for a body with nothing at all. What the
+/// Republic's bounty is paid by.
+fn gear_tier(room: &bims::game::Game, who: usize) -> u32 {
+    let gear = room.gear(who);
+    let worn = [gear.head, gear.body, gear.legs]
+        .into_iter()
+        .flatten()
+        .map(|p| p.tier.code());
+    gear.weapon
+        .map(|w| w.tier.code())
+        .into_iter()
+        .chain(worn)
+        .max()
+        .unwrap_or(1)
+}
+
+/// What one unit of a resource is worth at a tier: its book value times
+/// `economy::TIER_PRICE` (feature 95). The one place a tier touches a
+/// valuation, the way `Quote::at_tier` is the one place it touches a
+/// price.
+fn gear_value(resource: ResourceId, tier: u32) -> Money {
+    trade_price(resource).saturating_mul(economy::tier_price(tier))
 }

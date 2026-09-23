@@ -557,21 +557,23 @@ fn the_fixed_levels_are_the_wall_the_taunt_and_the_iron_frame() {
 }
 
 #[test]
-fn pack_mule_and_plated() {
-    // *Pack mule*: twice the load a haul trip carries, for his trips.
-    let mut world = tank();
-    assert_eq!(world.haul_load(0), crate::data::HAUL_LOAD);
-    pick(&mut world, 0, Talent::PackMule);
-    assert_eq!(
-        world.haul_load(0),
-        crate::data::HAUL_LOAD * class::PACK_MULE_LOADS
-    );
-    assert_eq!(world.haul_load(1), crate::data::HAUL_LOAD, "his alone");
-    // *Plated*: half again the protection, on him.
+fn plated_stands_alone_at_the_second_level() {
+    // Since the money rework (feature 95) the tank's second level is a
+    // **fixed** level: *pack mule* went with the hauling, and *plated* is
+    // given outright rather than chosen at.
+    assert!(!class::is_pick_level(Class::Tank, 2));
+    assert_eq!(class::fixed_at(Class::Tank, 2), Some(Talent::Plated));
+    assert_eq!(class::pick_at(Class::Tank, 2), None);
+    // *Plated*: half again the protection, on him, from the second level
+    // with nothing to pick.
     let mut world = tank();
     assert_eq!(world.set_class(1, Class::Tank), Ok(()));
-    pick(&mut world, 0, Talent::Plated);
+    // Slot 0 to the second level, where *plated* is given; slot 1 left
+    // at the first, where it is not.
+    level_up(&mut world, 0, 2);
     world.step(&[]);
+    assert!(world.has_talent(0, Talent::Plated));
+    assert!(!world.has_talent(1, Talent::Plated));
     assert_eq!(
         world.skill_of(0).armour_protection,
         class::PLATED_PROTECTION
@@ -796,15 +798,28 @@ fn fortress_and_rallying_wall() {
         class::TANK_DRAIN * class::FORTRESS_DRAIN
     );
     assert_eq!(world.armour_drain(1), class::TANK_DRAIN);
+    // Both are tanks at the second level, so both wear *plated* — a fixed
+    // level since the money rework rather than a pick — and the piece
+    // stops half again what it says it does. What comes through drains it
+    // at the tank's own rate, and his is a quarter where hers is a half.
+    level_up(&mut world, 1, 2);
+    world.step(&[]);
     let kevlar = ArmourKind::BasicKevlar;
     let protection = kevlar.stats().protection;
+    let through = 8.0 + protection - protection * class::PLATED_PROTECTION;
     for who in [0, 1] {
         wear(&mut world, who, kevlar, 20.0);
     }
     world.aboard.room.wound(0, Part::Body, 8.0 + protection);
     world.aboard.room.wound(1, Part::Body, 8.0 + protection);
-    assert_eq!(20.0 - worn_health(&world, 0, kevlar), 2.0);
-    assert_eq!(20.0 - worn_health(&world, 1, kevlar), 4.0);
+    assert_eq!(
+        20.0 - worn_health(&world, 0, kevlar),
+        through * class::TANK_DRAIN * class::FORTRESS_DRAIN
+    );
+    assert_eq!(
+        20.0 - worn_health(&world, 1, kevlar),
+        through * class::TANK_DRAIN
+    );
     // *Rallying wall*: the crew within three tiles of him drain at half
     // rate too, while he taunts.
     let mut world = tank();

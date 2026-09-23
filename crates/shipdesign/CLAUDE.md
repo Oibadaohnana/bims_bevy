@@ -21,8 +21,10 @@ the row, `PART_COLORS` in `crates/ship/src/paint.rs` for the colour,
 `PART_NAMES` in `crates/app/src/names.rs` for the word, `PART_GROUPS` beside it for
 which heading it lives under in the designer, and `BUILD_GROUPS` for which
 category of the game's Build tab (`every_buildable_part_is_in_one_build_group`
-pins that one). A part with a recipe made at it is a seventh:
-a row in `recipes::RECIPES`, and `aboard.rs` makes it a bench off that. The three arrays are fixed-length, so those
+pins that one). A part worked at is a seventh: a row in
+`recipes::RECIPES` for a bench something is made at, or a name in
+`recipes::is_workstation` for one that is worked at for another reason,
+and `aboard.rs` builds the room's benches off that. The three arrays are fixed-length, so those
 three are compile errors; the two tables in the host are not, and
 `scratchpad/ship-check.mjs` is what catches them. Same shape as `memory.rs`'s `What` and
 `work.rs`'s `Job`, and for the same reason: no strings cross the boundary, so
@@ -35,8 +37,9 @@ leaving them at the default:
   already. `defs_are_sound` refuses a part that needs its own layer and one
   that needs nothing unless it is the frame; nothing else can catch a hull
   part that quietly asks for deck.
-- **`recipe`.** What it is made of, which is also **what it weighs** — there
-  is no mass column. See the next section.
+- **`mass`.** What it weighs, in kilograms. It was a `recipe` and the mass
+  was that recipe added up until the money rework (feature 95); every
+  row now carries the number its recipe used to come to. See the next section.
 - **`shields`.** Whether it keeps the radiation out. Defaulting to `false` is
   safe; defaulting to `true` on something that is not hull puts a hole in
   every exposure check that will never be noticed.
@@ -51,9 +54,9 @@ leaving them at the default:
   them, a pistol one by two, a sniper rifle one by ten, a vest four by
   four, a crate of vegetables one by two, a block of tofu four by four.
   **Goods that stack cover a footprint a stack** (`economy::stack_size`:
-  ten ore, twenty components, ten vegetables, one of anything worn or
+  ten vegetables or tofu, five dressings, one of anything worn or
   held), so what a shelf holds is its cells times the stacks — a
-  hundred cells are a thousand ore. `ShipDesign::stored` is cells over
+  hundred cells are a thousand vegetables. `ShipDesign::stored` is cells over
   the stacks (`stacks_of`, the last part full), `has_room(resource,
   units)` the area rule every buy asks (`Edit::Buy` and the deconstruct
   refund go through it; a unit that tops up a part-full stack takes no
@@ -134,7 +137,7 @@ Both fixtures are wired — `REFERENCE_CONDUIT`, `PLAYTEST_BRANCHES` off the
 spine in column 8 — which moved `REFERENCE_HASH`, `REFERENCE_PARTS`,
 `PLAYTEST_HASH`, `PLAYTEST_PARTS` and `REFERENCE_CHECKSUM`;
 `the_fixtures_are_wired` pins that neither warns and the playtest ship
-draws **327 of 5 000** — six systems, the smelter, the workbench, the drug
+draws **327 of 5 000** — six systems, the workbench, the drug
 lab, the armoury and the research desk, 137, and its six wall lights and
 standing light, 190 — off **two reactors**, plus its engine's 1 000 while
 it burns. The lamps' runs are the last twelve tiles of `PLAYTEST_BRANCHES`
@@ -155,14 +158,14 @@ dragging conduit, which is an area tool like deck. **The station layout is
 not wired**: nothing reads a station's power and it is only checked for
 errors, so its reactors and batteries are still furniture.
 
-## A new resource needs six edits, and the compiler catches three
+## A new resource needs seven edits, and the compiler catches four
 
 `ResourceId` in `crates/physics/src/data.rs` — appended, `ALL` and
-`RESOURCES` grown with it — then `trade_price`, `storage` and
-`market::kind_bias` in `economy` (all `match`es, so a missing arm is a
-compile error; the last is a row of five, one a `MarketKind`, and the
-station biases already rolled keep their entries since the new one is
-drawn after them), `CARGO_SLOTS` in
+`RESOURCES` grown with it — then `trade_price`, `storage`, `footprint`,
+`stack_size` and `market::kind_bias` in `economy` (all `match`es, so a
+missing arm is a compile error; the last is a row of five, one a
+`MarketKind`, and the station biases already rolled keep their entries
+since the new one is drawn after them), `CARGO_SLOTS` in
 `crates/shipdesign/src/design.rs` (an array length; `cargo_is_the_right_length`
 pins it, and **every design hash moves** because the cargo is hashed at
 fixed length — re-pin `REFERENCE_HASH`, `PLAYTEST_HASH` and
@@ -174,69 +177,71 @@ by its tests, and `ITEM_TIPS` beside it the same), and a picture in
 `crates/app/src/icons.rs` — `icons::resource` is a `match` on
 `ResourceId`, so a resource with no icon is a compile error, and
 `every_resource_and_every_item_has_an_icon` draws each into a windowless
-painter. Then decide **who sells
-it**: `StationKind::sells` in `crates/worldgen/src/data.rs` is the only
-place that is written down, and its test enumerates every pair. Galvum is
-the outposts' alone, an emitter is nobody's, a derelict sells nothing;
-fibre is the orbitals' and a bandage the orbitals' and the refineries'.
-Shotgun (18), AutoRifle (19), SniperRifle (20) and Schword (21) are the
-last four added — locker class, sold nowhere, weighing their armoury
-recipes; see "Armour is three recipes" below — and Helm (15), Kevlar
-(16) and LegGuard (17) before them
-are the worked example: locker class like the medkit, at 16, 28 and 8 a
-unit — two metal, three metal and a galvum, one metal, so the three
-workbench recipes conserve mass — priced 132, 667 and 63 since the
-labour rule went in (the metal in each and the hours at the bench; see
-"A made thing is worth its inputs and labour" below), and **sold
-nowhere**. That
-last is the edit that is easy to miss: `sells` falls through to `_ =>
-true`, so a resource left out of its "made, never sold" arm is on every
-lived-in station's shelf and every galaxy checksum moves. The arm and
-its mirror in `what_each_kind_of_station_sells` both name the three.
-(Fibre, 13, and Bandage, 14, were the pair before: a crop in the
-cold-store class at 1.0 and a dressing in the locker class at 2.0, so
-the drug lab's recipe conserves mass too.) `Refusal::NotSoldHere = 9` is the world's answer and
+painter. Then decide **who sells it**: `StationKind::sells` in
+`crates/worldgen/src/data.rs` is the only place that is written down, and
+its test enumerates every pair. Since the money rework that table is
+short: the **staples** — vegetables, tofu and medkits — are on every
+lived-in shelf, bandages and suits are rolled, a derelict sells nothing,
+and the gear is not on the shelf at all but behind the two **trades**
+(`Stock::weapon_trade`, `Stock::armour_trade`). That is the edit easiest
+to miss: `sells` falls through to `_ => true`, so a resource left out of
+its "never on a shelf" arm is on every lived-in station's shelf and every
+galaxy checksum moves. The kits and the grenade are the worked example —
+locker class, sold nowhere, made nowhere since features 88 and 90 made
+them charges on a cooldown. `Refusal::NotSoldHere = 9` is the world's
+answer and
 `EditError::NotSoldHere = 17` the design phase's — the editor asks
 `Editor::market`, the spawn station's kind, before it asks `apply`, since
 `shipdesign` knows no stations. `Session::sold_here` is the one export both
 phases read.
 
-## A part weighs its recipe, and there is no mass column
+**And decide whether it comes at a tier.** `economy::tiered` is that
+list — the five weapons and the three pieces of armour — and a resource
+on it is priced by `Quote::at_tier` at `TIER_PRICE[t]` wherever it is
+bought or valued, in the world (`World::quote_at`, `World::worth`) and
+in the trade window's row chooser alike.
 
-`PartDef::recipe` is what a part is made of — metal and components, never ore
-and never food — and `parts::part_mass` adds it up. **That is the only place a
-mass comes from.** A separate `mass` field existed and is gone, because two
-numbers that are meant to agree are two numbers that will not: a part heavier
-than what went into it is mass appearing out of nothing every time one is
-built.
+## A part has a mass column, and it is what its recipe weighed (feature 95)
 
-What that buys is in `crates/shipdesign/src/materials.rs`, and it is a
-contract rather than a feature. Building moves the recipe out of the hold and
-into the part; deconstructing moves **all** of it back. Total ship mass is
-unchanged either way, and changes only through trading while docked, food
-eaten or grown, and crew joining or leaving — nothing is burnt in flight. `build_from_cargo`
-and `deconstruct_to_cargo` are that rule written down and tested against every
-part in the table. `world`'s construction step calls the first — see
-`crates/world/CLAUDE.md` — with a Bim and a site in the middle: what is
-"carried to a site" is a reservation on the hold, and the whole recipe
-leaves it in one `build_from_cargo`, which takes `Edit::Plate` as well now
-(`recipe_for` says what plating costs: the deck, and the frame where the
-tile has none). Nothing calls the second yet.
+`PartDef::recipe` is **gone**. A part has a `price` in euros and a `mass`
+in kilograms, two unrelated numbers in the same row, and `parts::part_mass`
+is the second of them. Every one of them was set to exactly what that
+part's recipe used to weigh, so nothing about how a ship flies moved and
+`a_part_weighs_what_its_recipe_weighed` in the tests pins the whole
+forty-nine-row table against a written-down list.
+
+What that buys is in `crates/shipdesign/src/materials.rs`, which is now
+two functions and a contract:
+
+```rust
+pub fn site_price(design: &ShipDesign, edit: Edit) -> Money
+pub fn refund_for(design: &ShipDesign, part_id: u32) -> Money
+```
+
+**Building is a purchase and deconstruction is a refund**, at the same
+number: a site costs its part's price — a plating site the floor and,
+where the tile has no frame, the structure under it, since `Edit::Plate`
+lays both — and taking a part off gives the whole price back. So a crew
+that builds and unbuilds is neither richer nor poorer, which
+`building_and_deconstructing_leave_worth_unchanged` in `crates/world`
+pins through `World::worth`.
 
 Three things that go with it:
 
-- **Money only works at a station.** The design phase is instant and paid in
-  euros because it is docked at the spawn station. Away from one, `price` means
-  nothing and a part comes out of the hold or is not built. `price` and
-  `recipe` are deliberately **unrelated** — nothing derives one from the other.
-- **The centre of mass is not conserved, only the total.** Parts sit at their
-  tile centres and cargo and crew at the centre of mass, so welding the hold
-  into an engine at the stern moves it. Nothing reads that yet; `mass.rs` is
-  one figure.
-- **Deconstruction can be refused for want of a shelf.** The materials have to
-  go somewhere, and a ship whose only shelf is the part coming off has nowhere
-  — `NoRoomAboard`, measured against the design *after* the removal. Losing
-  them quietly would be the one thing the contract forbids.
+- **Money works anywhere a part is concerned.** Goods want a desk, so
+  they want a dock; a part does not, because euros are not a shelf. A
+  site is paid for docked, holding or landed (`World::affordable_site`),
+  and the refusal when the pool will not stretch is
+  `Refusal::NotEnoughMoney`.
+- **The centre of mass is not conserved, only the total.** Unchanged:
+  parts sit at their tile centres and cargo and crew at the centre of
+  mass, so welding the hold into an engine at the stern moves it.
+- **A deconstruction can no longer be refused for want of a shelf.**
+  There are no materials to put anywhere: the price goes into the pool,
+  which has no capacity.
+
+`build_from_cargo`, `deconstruct_to_cargo`, `recipe_for`,
+`bound_materials`, `bound_mass` and `recipe_is_sound` are all gone.
 
 ## Four layers, and the stack is a chain of `requires`
 
@@ -518,10 +523,9 @@ the reference's got three more tiles of column 8 (`REFERENCE_CONDUIT` is
 23), and its tank's deck is bare.
 
 The `yard` in `crates/shipdesign/src/tests.rs` stocks **exactly** the heavy
-engine's recipe, because it is the heaviest recipe there is and the
+engine's price, because it is the dearest part there is and the
 "one unit short" case builds one and is then refused a wall. A part with a
-bigger recipe than 150 metal and 100 components wants that fixture moved with
-it, and a fourth shelf.
+bigger price wants that fixture moved with it.
 
 ## The required-fixture list is a mirror of the chains
 
@@ -589,26 +593,27 @@ and it is hand-copied from a dump, so redraw it when the ship moves. The airlock
 which `simulation-check.mjs` relies on; the engine is at `(9, 16)` with the
 two stern ring tiles decked so its bell *is* the stern and nothing of the
 ship is aft of it. The stern row holds the workshop — the workbench at
-`(11, 17)` and the smelter at `(14, 16)` to starboard of the engine, the
-drug lab at `(6, 17)` to port of it, all `R180` so they are worked from
+`(11, 17)` to starboard of the engine and the
+drug lab at `(6, 17)` to port of it, both `R180` so they are worked from
 the row forward of them, the row aft being the stern. The **armoury** is
 not in the workshop: it stands on the main deck at `(14, 7)`, `R0`,
 along the bridge bulkhead to starboard and forward of the bunk, worked
 from `(14, 8)` the way the galley is worked from the row below it, and
 its **second reactor** is at `(13, 11)`, under the bay by the airlock —
 both placed clear of `(9..=11, 11)`, the tiles the world's tests lay
-their own conduit and armoury on. The cargo carries **5 bandages and 6
-fibre** (`PLAYTEST_CARGO`) so the dressing seam can be tried from the
-first minute, **one helm, one kevlar and one pair of leg guards** so
+their own conduit and armoury on. The **smelter** stood at `(14, 16)`
+beside the workbench until the money rework took the part away
+(feature 95), which is why `PLAYTEST_PARTS` dropped. The cargo carries
+**5 bandages and 2 medkits**
+(`PLAYTEST_CARGO`) so the dressing and the treatment seams can be tried
+from the first minute, **one helm, one kevlar and one pair of leg guards** so
 the armoury's grid opens with something in it to equip, and **one of
 each of the four weapons** — a shotgun, an auto rifle, a sniper rifle
 and a schword — so each can be put in a hand and looked at. The locker
-class is what those had to fit in — the suit locker's two rows, the
-drug lab's six and the armoury's **eight** are sixteen rows of ten
-cells, with a suit (nine), five bandages, two medkits (four each), three
-pieces (eight, sixteen and six) and four weapons (ten, seven, ten and
-five) in them, which is the "84 of 160 cells in the lockers" the
-armoury's window says. Before the grid those were sixteen *slots*, a
+class is what those had to fit in — and since the money rework the
+**shelf is locker class too**, which is why the window says 83 of 360
+rather than 84 of 160: the two shelves' twenty rows joined the suit
+locker's two, the drug lab's six and the armoury's eight. Before the grid those were sixteen *slots*, a
 thing each, and "13 of 16". The armoury's cabinet was
 four until the weapons came: twelve slots with nine used would have had
 one weapon quietly refused by `apply` rather than fail anything, and
@@ -695,124 +700,70 @@ is what it is shut; open or shut is the room's to know. `defs_are_sound`
 pins that nothing walked through blocks sight (bar the door) and every
 wall does. The room reads it in `aboard::layout_of` and nowhere else.
 
-## The drug lab is the fourth bench, and a bandage is the one recipe that heals
+## The drug lab is the one bench that makes anything (feature 95)
 
-`PartKind::DrugLab = 35` is the workbench's footprint and use spot — `(2, 1)`,
-worked from `(0, 1)` — with a lighter draw (5: a press and a steriliser,
-not a lathe), a cabinet of its own (`Storage::Locker`, six, the armoury's
-precedent for a bench that is also a container) and a recipe of five metal
-and six components. `recipes::RECIPES[6]` is what it makes: two **fibre**
-to one **bandage** in a quarter of an hour, `vents: false`, and the bandage
-weighs the fibre, which `every_recipe_holds_together` pins along with
-`at(DrugLab)` being one recipe long. Nothing here knows what a bandage
-*does* — that is `bims::health`, where a bandage closes every wound on one
-part of a body — any more than it knows what a handgun shoots; the table
-is what goes in, what comes out and how long. The cabinet is the reason
-the playtest ship can carry its five bandages: until the armoury came
-aboard its only other locker was the suit locker, two slots with a suit
-in one, and the armoury's eight are what the three pieces of armour and
-the four weapons sit in now (see "The playtest ship is three
-compartments").
+`PartKind::DrugLab` is the workbench's footprint and use spot — `(2, 1)`,
+worked from `(0, 1)` — with a light draw (5: a press and a steriliser,
+not a lathe) and a cabinet of its own (`Storage::Locker`, sixty cells).
+`recipes::RECIPES` is **one row long** and it is this bench's: **two
+vegetables into one medkit** in a quarter of an hour. Nothing here knows
+what a medkit *does* — that is `bims::health`, where it is what gets a
+body out of a dying state — any more than it knows what a handgun shoots;
+the table is what goes in, what comes out and how long.
 
-Two edits the six-edit rule did not name, because they are outside the
-crate and cannot be left out: `PART_COLORS` in `crates/ship/src/paint.rs`
-is indexed by `kind as usize` in every painter, so a part the table is one
-short for panics the designer on its first frame; and `trade_price` and
-`storage` in `economy` are exhaustive matches on `ResourceId`, so the
-resource half is a compile error there. The drug lab has a picture now
-— `fittings::drug_lab`, its `PART_COLORS` green-white as the bench top
-with a vial rack, a flask and a small still on it (`crates/ship/CLAUDE.md`)
-— so a block on the deck is once again a part somebody forgot to draw.
+**Crafting conserves mass and there is no exception left.** A medkit
+weighs exactly two vegetables; `Recipe::vents` is gone with the smelter
+that needed it, and `recipes_are_sound` insists on the equality.
 
-## Armour is three recipes at the workbench, and the vest is not the kevlar
+`recipes::is_workstation(kind)` is what `bims::aboard` builds the room's
+benches off now, because "is this a bench" stopped being "does a recipe
+name it": the **workbench** is worked at for the upgrades and the armour
+repair, and the **armoury** is the cabinet a crew fetch a gun out of, and
+neither has a recipe. Without it `World::workbench()` and
+`World::store_bench()` answered `NoWorkbench` on a ship that plainly had
+one.
 
-`recipes::RECIPES[7..=9]` are a **helm** (two metal, half an hour),
-**kevlar** (three metal and a galvum, three quarters) and **leg guards**
-(one metal, twenty minutes), all at `PartKind::Workbench`, none venting,
-each weighing exactly its metal — which is why the three masses in
-`physics::RESOURCES` are 16, 28 and 8 and not round numbers. They went to
-the workbench because that is where the user put them, and the armoury's
-own vest (`RECIPES[4]`, four metal and two components) **stays**: a vest
-is a `Vest`, a count in a locker with no state, and the kevlar is a piece
-with a health of its own. `every_recipe_holds_together` pins all of it —
-the table fourteen long, `at(Workbench)` five (components, the emitter
-and the three pieces), the vest still at index 4, and the mass of every
-piece equal to its inputs — and it is the test to extend for a fourth
-piece, which is one more row appended (the index crosses the seam) and
-one more `ResourceId` in the locker class.
+`recipes::made_book` and `LABOUR_BP_PER_HOUR` are gone: they were a rule
+for keeping a production chain from printing money, and there is no chain.
+Every book value in `economy::trade_price` is a hand-written number now.
 
-The four weapons were exactly that, appended after the leg guards, back
-at the armoury. `RECIPES[10..=13]` are the **shotgun** (four metal, two
-components, three quarters of an hour), the **auto rifle** (three metal,
-three components, an emitter, an hour), the **sniper rifle** (four
-metal, two components, two emitters, an hour and a quarter) and the
-**schword** (one metal, one component, two emitters, an hour), none
-venting; `every_recipe_holds_together` pins each row's inputs, output,
-minutes, station and mass. The masses in `physics::RESOURCES` — 36, 46,
-68 and 42 — are what the inputs weigh (metal 8, components 2, an
-emitter 16), and not the 12/10/14/6 the spec first said, because the
-table conserves mass and the spec said to move the masses rather than
-the inputs; heavy, because an emitter is. What each weapon *does* is
-`bims::combat::WeaponKind::stats`, keyed on the resource code the same
-way (`WeaponKind::resource()`: 9, 18, 19, 20, 21).
+## Armour and the weapons are bought, not made (feature 95)
 
-What a piece *does* — its health, its protection, the slot it is cut for
-— is `bims::combat::ArmourKind::stats`, keyed on the resource code (15,
-16, 17), and the rule that a piece is a resource in a container and an
-instance everywhere else is the world's (`World::pieces`,
-`crates/world/CLAUDE.md`). This crate knows the three only as goods:
-`CARGO_SLOTS` was 18 for them and is 22 for the weapons
-(`cargo_is_the_right_length`), the hold
-counts them like bandages, `apply(Buy)` refuses a fourth when the
-lockers are full exactly as it refuses a medkit, and a station only ever
-buys them since none sells. **Adding them moved `REFERENCE_HASH` even
-though `reference` did not change**, because the cargo is hashed at
-fixed length — and the weapons moved it again, along with
-`PLAYTEST_HASH` (the cargo grew, the parts did not: `PLAYTEST_PARTS` is
-still 647) and `world::fixture::REFERENCE_CHECKSUM`; expect that of the
-next resource too, and re-pin by running rather than assuming the
-reference ship is untouched. `worldgen`'s `REFERENCE_CHECKSUMS` did not
-move for the weapons, since a resource in the "made, never sold" arm is
-never rolled onto a shelf — and the weapons are priced (310, 975,
-1 807, 1 501 by the labour rule; 1 000, 2 000, 3 000, 2 500 when they
-went in) only so a station can buy them off the crew.
+The three pieces — `Helm`, `Kevlar`, `LegGuard` — and the five weapons —
+`Handgun`, `Shotgun`, `AutoRifle`, `SniperRifle`, `Schword` — are goods
+with no recipe. This crate knows them only as cargo: locker class,
+footprints in `economy::footprint`, one to a stack, hashed in the design
+like any other. What a piece *does* is `bims::combat::ArmourKind::stats`,
+keyed on the resource code, and what a weapon does is `WeaponKind::stats`
+the same way; the rule that a piece is a resource in a container and an
+instance everywhere else is the world's (`World::pieces`).
 
-## A made thing is worth its inputs and labour
+Their **book prices** are the one thing worth writing down here, since
+they are no longer derived: a handgun 1 500, a shotgun 3 000, an auto
+rifle 4 000, a sniper rifle 5 000, a schword 5 000; and armour at **a
+hundred euros a point of health** — leg guards 1 000, a helm 1 500,
+kevlar 2 000. `economy::armour_is_a_hundred_a_point_of_health` pins the
+second of those against `ArmourKind::stats`, so a piece whose health is
+retuned and whose price is not fails rather than drifts.
 
-Since September 2026 (b-next). The made goods' book values were typed
-for feel, and one metal (63 at a plain desk) into four components (143
-each at the bid) was +509 € a twenty-minute cycle at every lived-in
-station — ten times the best trade route. Now `recipes::made_book(r)`
-is the rule — `cost = Σ book(input) × units`, `labour =
-LABOUR_BP_PER_HOUR × minutes / 60` in basis points, `book = max(1, cost
-× (10 000 + labour) / 10 000 / units out)`, integer, floored at each
-division in that order — and `LABOUR_BP_PER_HOUR` (2 000, a fifth an
-hour) is its one constant. `economy` knows no recipes, so
-`trade_price` is still a hand-written `match` and the numbers in it
-are what the rule says; the **roots** (ore, galvum, rock, the crops,
-the suit, the key) keep their placeholders, and **metal is exempt** —
-a staple on every shelf, and the market already holds the smelter
-near break-even. Four tests here, since this is the one crate that
-knows both the table and the market:
-`every_made_book_is_its_inputs_and_labour` (the rule against
-`trade_price` for every output but metal — a retyped number, a changed
-recipe or a turned constant fails it), `quote_is_monotone_in_the_bias`
-(a lean of one more never lowers an ask or a bid, so the extremes are
-enough), `no_recipe_prints_at_a_plain_desk` (inputs at the ask, output
-at the bid, at most 200 € a bench-hour at `Market::PLAIN`) and
-`no_recipe_prints_at_any_single_desk` (every kind, every resource in
-the recipe at `±MAX_BIAS` independently, at most 700 € a bench-hour).
-What moved with it: `World::worth()` for a crew carrying made gear —
-so enemies and mercenaries scale later — `start_worth` where a
-fixture's design phase bought components, and a looted weapon or piece
-sells for about half what it did. Nothing saved carries a price, so
-`SAVE_VERSION` did not move.
+**A tier multiplies the price on both sides**: `economy::TIER_PRICE` is
+`[0, 1, 4, 16]` and `economy::tier_price(t)` reads it, with
+`Quote::at_tier` applying it to the ask and the bid alike. The table has
+to grow faster than doubling — `TIER_PRICE[2] > 2 × [1]` and `[3] > 2 ×
+[2]` — or two of a kind combined at the workbench would be worth less
+than the pair that went in, and `tier_price_more_than_doubles_at_every_step`
+in `economy` is that test. `economy::tiered(resource)` is which goods
+come at a tier at all: the five weapons and the three pieces, and nothing
+else.
 
 ## Research is a tree in `research.rs`, and a key opens one node
 
 `crates/shipdesign/src/research.rs` is the rules crate's half of what the
-crew know: `Node` (ten, codes 0–9, appended never renumbered — 8 the
-hyperdrive, 9 the upgrades, the one tier-two node), `RESEARCH`
+crew know: `Node` (**five** since the money rework, codes 0–4 — 3 the
+hyperdrive, 4 the upgrades, the one tier-two node; the five nodes it
+gated a production chain with went with the chain, and the
+discriminants were closed up rather than left as holes, since no save
+has to load), `RESEARCH`
 (a `NodeDef` a node — what it `requires`, its `tier`, whether it is
 `locked` — wanting a key of its tier consumed **for it**; a key opens one
 node, never a tier — and `minutes` of the AI's time, nought for
@@ -825,9 +776,18 @@ no lock, one open already or one researched, so no key is spent for
 nothing. `tree_is_sound` pins the table's shape; `the_research_tree_is_sound_and_the_crew_know_how_to_live`,
 `research_runs_in_order_and_a_key_opens_a_node` and
 `a_queue_brings_its_prerequisites_and_loses_its_dependants` in `tests.rs`
-pin what a fresh crew know (every part but the four benches and the
-fusion reactor; the bandage and the medkit and nothing else the benches
-make), the order, and the queue.
+pin what a fresh crew know (every part but the fusion reactor and the
+hyperdrive — the suit locker, the workbench and the armoury were behind
+nodes that are gone — and the one recipe there is), the order, and the
+queue.
+
+**The tree is five nodes** (feature 95): `Survival` and `Medicine` known
+at the start, `FusionPower` keyless and two days of the AI's time,
+`Hyperdrive` after it behind a tier-one key, and `Upgrades` behind the
+tier-two key. `node_of_part` names three parts — the drug lab, the fusion
+reactor and the hyperdrive — and everything else is `Survival`;
+`node_of_recipe` is its bench's, which for the one row there is means
+medicine.
 
 **The queue is a plan (feature 64).** `Research::enqueue(node)` puts a
 node at the back of `queue` with every prerequisite it lacks ahead of it
@@ -1004,30 +964,18 @@ them is a nicer place to stand; the comfort test excepts the tree from
 "every comfort is seen over" for exactly that reason. What each looks
 like — by biome — is the painter's (`ship::fittings::part_in`).
 
-## The engineer's kits are two resources and two recipes (feature 74)
+## The class charges are three resources and no recipes (features 74, 75, 95)
 
-`ResourceId::SandbagKit = 23` and `SentryKit = 24`, appended — mass 8
-and 36, what their recipes weigh; locker class, footprints 2×2 and 2×3,
-one to a stack; 61 and 885 by the labour rule; sold nowhere (the "made,
-never sold" arm) and bought anywhere — grew `CARGO_SLOTS` to 25 and
-moved `REFERENCE_HASH`, `PLAYTEST_HASH`, `world::REFERENCE_CHECKSUM` and
-`worldgen::REFERENCE_CHECKSUMS` (the lean is drawn a resource).
-`RECIPES[14]` is the sandbag kit — a metal, ten minutes, at the
-workbench behind Workshop — and `RECIPES[15]` the sentry kit — two
-metal, two components, an emitter, an hour — behind **Emitters**
-(`node_of_recipe`: `2 | 15`), since it fires through one; the table is
-sixteen long and `at(Workbench)` seven. What a kit does is the world's
-(`world::deploy`); this crate knows them as goods.
+`ResourceId::SandbagKit = 15`, `SentryKit = 16` and `Grenade = 17` — mass
+8, 36 and 10, locker class, footprints 2×2, 2×3 and 1×1, one to a stack,
+priced 60, 880 and 80, sold nowhere (the "never on a shelf" arm) and
+bought anywhere. **None of them is made.** They had recipes at the
+workbench and the armoury; features 88 and 90 turned them into **charges
+on a cooldown** — a spent one comes back into the engineer's or the
+soldier's pack on its own timer, and no class makes anything to use a
+skill — and the money rework took the recipes' inputs away with the
+materials. The resources stayed, because they are still things that lie
+in a pack cell, are looted off a body and are traded; what each does is
+the world's (`world::deploy`, `world::class::Charge`), and this crate
+knows them as goods.
 
-## The soldier's grenade is one resource and one recipe (feature 75)
-
-`ResourceId::Grenade = 25`, appended — mass 10, what its recipe weighs;
-locker class, 1×1, one to a stack; 79 by the labour rule; sold nowhere
-(the "made, never sold" arm) and bought anywhere — grew `CARGO_SLOTS` to
-26 and moved `REFERENCE_HASH`, `PLAYTEST_HASH`, `world::REFERENCE_CHECKSUM`
-and `worldgen::REFERENCE_CHECKSUMS`. `RECIPES[16]` makes it at the
-**armoury** behind Armoury like the armour there — a metal and a
-component, twenty minutes — so the table is seventeen long and
-`at(Armoury)` seven. Anybody makes, carries and trades one; only a
-soldier throws it, and what it does is the room's (`bims::combat::Grenade`,
-`crates/game/CLAUDE.md`) and the world's (`crates/world/CLAUDE.md`).

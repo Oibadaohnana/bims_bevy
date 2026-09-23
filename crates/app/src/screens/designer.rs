@@ -97,18 +97,15 @@ pub enum Order {
         resource: ResourceId,
         units: u32,
         buying: bool,
+        /// Which tier of a gun or a piece of armour: every tier is on
+        /// sale since the money rework (feature 95). One for anything
+        /// that comes at no tier.
+        tier: u32,
     },
     Keep {
         resource: ResourceId,
         units: u32,
     },
-    /// Mark a rock at the mining site to be mined, or unmark it: a design
-    /// tile, the grid the rocks are laid out on.
-    Mark {
-        x: i32,
-        y: i32,
-    },
-    ClearMarks,
     /// Lay out a part to be built, at a design tile, turned so.
     Build {
         kind: PartKind,
@@ -402,12 +399,14 @@ impl Net {
                             resource,
                             units,
                             buying,
+                            tier,
                         } => {
                             if buying {
                                 Command::Buy {
                                     slot,
                                     resource,
                                     units,
+                                    tier,
                                 }
                             } else {
                                 Command::Sell {
@@ -422,8 +421,6 @@ impl Net {
                             resource,
                             units,
                         },
-                        Order::Mark { x, y } => Command::MarkRock { slot, x, y },
-                        Order::ClearMarks => Command::ClearMarks { slot },
                         Order::Build {
                             kind,
                             x,
@@ -922,7 +919,7 @@ fn frame(
 
     // --- what is wrong with it, and the station ------------------------------
     let mut accept_clicked = false;
-    let mut trade: Vec<(u32, u32, bool)> = Vec::new();
+    let mut trade: Vec<(u32, u32, bool, u32)> = Vec::new();
     let mut focus: Option<usize> = None;
     egui::Panel::right("checks")
         .default_size(420.0)
@@ -1002,7 +999,9 @@ fn frame(
     // The cart goes as one lot, sells first; the first refusal is what is
     // said, and the rest of the lot still goes — a line that fits fits.
     let mut refused = None;
-    for (resource, units, buying) in trade {
+    // The yard buys at tier one and offers no chooser: `Edit::Buy` takes
+    // no tier, and the goods bought here are the crew's to start with.
+    for (resource, units, buying, _tier) in trade {
         let done = if buying {
             screen.net.buy(session, resource, units)
         } else {
@@ -1353,6 +1352,13 @@ fn commit_drag(screen: &mut DesignerScreen, session: &mut Session, now: f64) {
 pub struct Cart {
     /// Indexed by `ResourceId`.
     lines: Vec<i32>,
+    /// Which **tier** each line is bought at, indexed the same way, and
+    /// one wherever nobody has said otherwise (feature 95). Only a gun or
+    /// a piece of armour comes at a tier — `economy::tiered` — and only a
+    /// buy names one: a sale gives up the lowest tiers first and the
+    /// world prices each thing at its own (`World::sell`), so the line
+    /// means "buy at this tier" and nothing else.
+    tiers: Vec<u32>,
 }
 
 /// Why the cart cannot go as it stands, worst first.
@@ -1365,11 +1371,36 @@ impl Cart {
     pub fn new() -> Cart {
         Cart {
             lines: vec![0; ResourceId::ALL.len()],
+            tiers: vec![1; ResourceId::ALL.len()],
         }
     }
 
     fn line(&self, id: ResourceId) -> i32 {
         self.lines.get(id as usize).copied().unwrap_or(0)
+    }
+
+    /// The tier this line buys at: one for anything that comes at no
+    /// tier, and whatever the row's chooser was last set to for gear.
+    fn tier(&self, id: ResourceId) -> u32 {
+        if !economy::tiered(id) {
+            return 1;
+        }
+        self.tiers.get(id as usize).copied().unwrap_or(1)
+    }
+
+    /// Deal at another tier. The line goes with it: a tier changed under
+    /// a line would be that line at another price, which nobody asked
+    /// for.
+    fn set_tier(&mut self, id: ResourceId, to: u32) {
+        if !economy::tiered(id) {
+            return;
+        }
+        if self.tier(id) != to {
+            self.set(id, 0);
+        }
+        if let Some(tier) = self.tiers.get_mut(id as usize) {
+            *tier = to;
+        }
     }
 
     fn add(&mut self, id: ResourceId, by: i32) {
@@ -1403,13 +1434,17 @@ impl Cart {
         for &id in ResourceId::ALL.iter() {
             let line = self.line(id);
             let units = line.unsigned_abs();
-            let quote = session.quote(id);
             if line > 0 {
-                let ask = quote.map_or(0, |q| q.ask);
+                // A buy is at the tier the row's chooser names; a sale is
+                // quoted at the plain bid, since which tiers actually
+                // leave the hold is the world's to decide (`World::sell`
+                // gives up the lowest first and pays each at its own), and
+                // a summary that guessed high would be a promise.
+                let ask = session.quote_at(id, self.tier(id)).map_or(0, |q| q.ask);
                 out.0 = out.0.saturating_add(units);
                 out.1 = out.1.saturating_add(ask.saturating_mul(units as Money));
             } else if line < 0 {
-                let bid = quote.map_or(0, |q| q.bid);
+                let bid = session.quote(id).map_or(0, |q| q.bid);
                 out.2 = out.2.saturating_add(units);
                 out.3 = out.3.saturating_add(bid.saturating_mul(units as Money));
             }
@@ -1458,19 +1493,21 @@ impl Cart {
     }
 
     /// The deals to send, sells first so the money and the room are there
-    /// for the buys: `(resource index, units, buying)`.
-    pub fn deals(&self) -> Vec<(u32, u32, bool)> {
+    /// for the buys: `(resource index, units, buying, tier)`. A sale's
+    /// tier is one and means nothing — the world gives up the lowest
+    /// tiers first whatever is asked; a buy's is the row's chooser.
+    pub fn deals(&self) -> Vec<(u32, u32, bool, u32)> {
         let mut out = Vec::new();
         for (i, &id) in ResourceId::ALL.iter().enumerate() {
             let line = self.line(id);
             if line < 0 {
-                out.push((i as u32, line.unsigned_abs(), false));
+                out.push((i as u32, line.unsigned_abs(), false, 1));
             }
         }
         for (i, &id) in ResourceId::ALL.iter().enumerate() {
             let line = self.line(id);
             if line > 0 {
-                out.push((i as u32, line.unsigned_abs(), true));
+                out.push((i as u32, line.unsigned_abs(), true, self.tier(id)));
             }
         }
         out
@@ -1494,11 +1531,12 @@ pub fn trade_rows(
     editable: bool,
     confirm: bool,
     aboard: impl Fn(&Session, ResourceId) -> u32,
-) -> Vec<(u32, u32, bool)> {
+) -> Vec<(u32, u32, bool, u32)> {
     // Whether the cart with `id`'s line at `to` would still go.
     let fits_at = |cart: &Cart, id: ResourceId, to: i32| -> bool {
         let mut next = Cart {
             lines: cart.lines.clone(),
+            tiers: cart.tiers.clone(),
         };
         next.set(id, to);
         if to < 0 && to.unsigned_abs() > aboard(session, id) {
@@ -1533,25 +1571,41 @@ pub fn trade_rows(
     };
     // What one of a thing costs bought here and fetches sold here, as
     // words: the desk's ask and bid, or a dash where nobody quotes.
-    let priced = |session: &Session, id: ResourceId| -> (String, String) {
-        match session.quote(id) {
+    let priced = |session: &Session, id: ResourceId, tier: u32| -> (String, String) {
+        match session.quote_at(id, tier) {
             Some(q) => (euros(q.ask), euros(q.bid)),
             None => (NO_QUOTE.into(), NO_QUOTE.into()),
         }
     };
     egui::Grid::new(("goods", editable))
-        .num_columns(8)
+        .num_columns(9)
         .min_col_width(icons::INLINE)
         .spacing([8.0, 2.0])
         .show(ui, |ui| {
-            for word in ["", "", ASK_HEAD, BID_HEAD, ABOARD_HEAD, "", CART_HEAD, ""] {
+            for word in [
+                "",
+                "",
+                TIER_HEAD,
+                ASK_HEAD,
+                BID_HEAD,
+                ABOARD_HEAD,
+                "",
+                CART_HEAD,
+                "",
+            ] {
                 ui.label(egui::RichText::new(word).small().color(theme::MUTED));
             }
             ui.end_row();
             for &id in ResourceId::ALL.iter() {
                 let sold = session.sold_here(id);
                 let held = aboard(session, id);
-                let quote = session.quote(id);
+                // The tier this row deals at: a gun or a piece of armour
+                // is on sale at every tier (feature 95), the book times
+                // one, four and sixteen, so the row carries a chooser and
+                // everything else a blank. It is a **buy**'s tier: the
+                // world gives up the lowest tiers first on a sale.
+                let tier = cart.tier(id);
+                let quote = session.quote_at(id, tier);
                 let line = cart.line(id);
                 let color = if sold || held > 0 {
                     theme::INK
@@ -1560,12 +1614,30 @@ pub fn trade_rows(
                 };
                 icons::resource_cell(ui, id);
                 ui.label(egui::RichText::new(resource_name(id)).color(color));
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    // Only where there is a world to buy in: the yard's
+                    // `Edit::Buy` takes no tier and buys at one.
+                    if !economy::tiered(id) || session.game.is_none() {
+                        return;
+                    }
+                    for t in 1..=economy::TIER_PRICE.len() as u32 - 1 {
+                        let on = t == tier;
+                        let button = egui::Button::new(t.to_string())
+                            .small()
+                            .selected(on)
+                            .min_size(egui::vec2(16.0, 0.0));
+                        if ui.add_enabled(editable, button).clicked() {
+                            cart.set_tier(id, t);
+                        }
+                    }
+                });
                 // What one of it costs here, and what the desk pays for
                 // one: the station's own two numbers, every line of them,
                 // whether it stocks the thing or only takes it. The ask is
                 // dimmed where the thing is not on the shelf, since nobody
                 // can buy at it.
-                let (ask, bid) = priced(session, id);
+                let (ask, bid) = priced(session, id, tier);
                 ui.label(egui::RichText::new(ask).color(if sold {
                     theme::INK
                 } else {
@@ -1866,8 +1938,8 @@ mod tests {
         let mut cart = Cart::new();
         assert!(cart.is_empty());
         assert!(cart.deals().is_empty());
-        cart.add(ResourceId::Ore, 10);
-        cart.add(ResourceId::Metal, -10);
+        cart.add(ResourceId::Medkit, 10);
+        cart.add(ResourceId::Bandage, -10);
         cart.add(ResourceId::Tofu, 3);
         cart.add(ResourceId::Tofu, -3);
         assert!(!cart.is_empty());
@@ -1875,7 +1947,7 @@ mod tests {
         // quote; a session with no spawn quotes nothing and the cart
         // comes to nothing.
         let nowhere = Session::design(12, 10_000, 1, 0, 1, 0, None, Preset::Playtest, 800.0, 600.0);
-        assert!(nowhere.quote(ResourceId::Ore).is_none());
+        assert!(nowhere.quote(ResourceId::Medkit).is_none());
         assert_eq!(cart.totals(&nowhere), (10, 0, 10, 0));
         let spawn = world::spawn(&worldgen::Galaxy::new(
             1,
@@ -1895,21 +1967,22 @@ mod tests {
         );
         let (bought, cost, sold, earned) = cart.totals(&session);
         assert_eq!((bought, sold), (10, 10));
-        let ore = session.quote(ResourceId::Ore).unwrap();
-        let metal = session.quote(ResourceId::Metal).unwrap();
-        assert!(ore.bid < ore.ask);
-        assert_eq!(cost, 10 * ore.ask);
-        assert_eq!(earned, 10 * metal.bid);
-        // Ore and metal share a class, and the change to it is in cells,
-        // a stack a footprint: on an empty hold ten ore bought is a stack
-        // laid and ten metal sold is nothing gone, so the class is one
-        // cell up; three tofu bought and three sold is nought; three tofu
-        // on their own would be a block of four by four.
+        let kit = session.quote(ResourceId::Medkit).unwrap();
+        let dressing = session.quote(ResourceId::Bandage).unwrap();
+        assert!(kit.bid < kit.ask);
+        assert_eq!(cost, 10 * kit.ask);
+        assert_eq!(earned, 10 * dressing.bid);
+        // The medkits and the dressings share a class, and the change to
+        // it is in cells, a stack a footprint: on an empty hold ten
+        // medkits bought are ten boxes of two by two and ten dressings
+        // sold are nothing gone, so the class is forty cells up; three
+        // tofu bought and three sold is nought, and three tofu on their
+        // own would be a block of four by four.
         let session = nowhere;
-        assert_eq!(session.cargo(ResourceId::Ore), 0, "an empty hold");
+        assert_eq!(session.cargo(ResourceId::Medkit), 0, "an empty hold");
         assert_eq!(
-            cart.change(&session, Session::storage_of(ResourceId::Ore)),
-            1
+            cart.change(&session, Session::storage_of(ResourceId::Medkit)),
+            40
         );
         assert_eq!(
             cart.change(&session, Session::storage_of(ResourceId::Tofu)),
@@ -1924,11 +1997,65 @@ mod tests {
         assert_eq!(
             cart.deals(),
             vec![
-                (ResourceId::Metal as u32, 10, false),
-                (ResourceId::Ore as u32, 10, true),
+                (ResourceId::Bandage as u32, 10, false, 1),
+                (ResourceId::Medkit as u32, 10, true, 1),
             ]
         );
         cart.clear();
         assert!(cart.is_empty());
+    }
+
+    /// A row's tier (feature 95): gear alone has one, a line bought at it
+    /// costs the book times `TIER_PRICE`, and the tier rides out on the
+    /// deal. A sale is at no tier — the world gives up the lowest first.
+    #[test]
+    fn a_cart_buys_gear_at_the_tier_its_row_names() {
+        let spawn = world::spawn(&worldgen::Galaxy::new(
+            1,
+            worldgen::GalaxyType::SpiralTwoArm,
+        ));
+        let session = Session::design(
+            12,
+            10_000_000,
+            1,
+            0,
+            1,
+            0,
+            spawn,
+            Preset::Playtest,
+            800.0,
+            600.0,
+        );
+        let mut cart = Cart::new();
+        // Nothing but a gun or a piece of armour comes at a tier, and a
+        // row that has none stays at one whatever is asked of it.
+        cart.set_tier(ResourceId::Tofu, 3);
+        assert_eq!(cart.tier(ResourceId::Tofu), 1);
+        assert_eq!(cart.tier(ResourceId::Handgun), 1, "one until it is said");
+
+        cart.add(ResourceId::Handgun, 2);
+        let one = session.quote_at(ResourceId::Handgun, 1).unwrap();
+        assert_eq!(cart.totals(&session).1, 2 * one.ask);
+        assert_eq!(cart.deals(), vec![(ResourceId::Handgun as u32, 2, true, 1)]);
+
+        // At tier two the line is dropped — a tier picked under a line is
+        // that line at another price, which nobody asked for — and a fresh
+        // one costs four times the book.
+        cart.set_tier(ResourceId::Handgun, 2);
+        assert_eq!(cart.totals(&session).1, 0, "the line went with the tier");
+        cart.add(ResourceId::Handgun, 2);
+        let two = session.quote_at(ResourceId::Handgun, 2).unwrap();
+        assert_eq!(two.ask, one.ask * economy::TIER_PRICE[2]);
+        assert_eq!(cart.totals(&session).1, 2 * two.ask);
+        assert_eq!(cart.deals(), vec![(ResourceId::Handgun as u32, 2, true, 2)]);
+
+        // A sale carries tier one and means nothing by it.
+        let mut sale = Cart::new();
+        sale.set_tier(ResourceId::Handgun, 3);
+        sale.add(ResourceId::Handgun, -1);
+        assert_eq!(
+            sale.deals(),
+            vec![(ResourceId::Handgun as u32, 1, false, 1)]
+        );
     }
 }

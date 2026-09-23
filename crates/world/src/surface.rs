@@ -193,7 +193,11 @@ impl Surface {
                 let hostile = stream
                     .branch(0x_484f_5354_0000_0000)
                     .chance(worldgen::data::HOSTILE_SHARE);
-                let stock = Stock::roll(SURFACE_KIND, &mut stream.branch(0x_5354_4f43_4b00_0000));
+                let stock = Stock::roll(
+                    SURFACE_KIND,
+                    &mut stream.branch(0x_5354_4f43_4b00_0000),
+                    &mut stream.branch(0x_4745_4152_0000_0000),
+                );
                 // And the desk's lean, off "BIAS" as the generator's is.
                 let bias = worldgen::data::price_bias(&mut stream.branch(0x_4249_4153_0000_0000));
                 // The ground: an ice world is arctic; a rocky planet rolls

@@ -77,10 +77,7 @@ const STRIPE: Color = Color::rgb(0.92, 0.72, 0.18);
 /// round it, the bench top, the lamp over it and the board under it, the
 /// suit through the locker's window, and the armoury's gunmetal and the
 /// rifles' stocks. The part colours are the palette swatches again.
-const SMELT: Color = Color::rgb(0.80, 0.42, 0.20);
 const MELT: Color = Color::rgb(1.0, 0.70, 0.28);
-const MELT_CORE: Color = Color::rgb(1.0, 0.93, 0.66);
-const BRICK: Color = Color::rgb(0.38, 0.27, 0.23);
 const BENCH: Color = Color::rgb(0.56, 0.50, 0.38);
 const BENCH_EDGE: Color = Color::rgba(0.30, 0.26, 0.18, 0.6);
 const LAMP: Color = Color::rgb(1.0, 0.92, 0.70);
@@ -137,7 +134,6 @@ pub fn part_in(list: &mut DrawList, part: &PlacedPart, biome: Option<Biome>) -> 
         PartKind::Reactor => reactor(list, part),
         PartKind::Battery => battery(list, part),
         PartKind::LifeSupport => life_support(list, part),
-        PartKind::Smelter => smelter(list, part),
         PartKind::Workbench => workbench(list, part),
         PartKind::SuitLocker => suit_locker(list, part),
         PartKind::Armoury => armoury(list, part),
@@ -834,140 +830,6 @@ fn life_support(list: &mut DrawList, part: &PlacedPart) {
 }
 
 // --- the workshop ------------------------------------------------------------------
-
-/// The smelter: a furnace housing with the hearth set into its far half —
-/// firebrick round a well of melt, glowing brighter towards the middle —
-/// the flue in one corner, and along the near side, where the Bim stands,
-/// the pour spout over a row of ingot moulds and the controls beside them.
-fn smelter(list: &mut DrawList, part: &PlacedPart) {
-    let (local, across, along) = Local::of(part);
-    let (w, h) = (across - 6.0, along - 6.0);
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 5.0, 0.0, PANEL);
-    local.push(list, KIND_RECT, 0.0, 0.0, w, h, 5.0, 1.5, PANEL_EDGE);
-    // Hazard stripes along the two sides.
-    for u in [-w / 2.0 + 5.0, w / 2.0 - 5.0] {
-        for i in 0..6 {
-            let v = -h / 2.0 + 8.0 + i as f32 * (h - 16.0) / 5.0;
-            local.push(list, KIND_RECT, u, v, 6.0, 6.0, 0.0, 0.0, STRIPE);
-        }
-    }
-    // The hearth, in the far half: brick, then the well, then the melt in
-    // rings from its dull edge to the white of its middle.
-    let d = w.min(h) * 0.52;
-    let hv = -h * 0.2;
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        hv,
-        d + 12.0,
-        d + 12.0,
-        0.0,
-        0.0,
-        BRICK,
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        0.0,
-        hv,
-        d + 12.0,
-        d + 12.0,
-        0.0,
-        2.0,
-        PANEL_EDGE,
-    );
-    local.push(list, KIND_ELLIPSE, 0.0, hv, d, d, 0.0, 0.0, DRAIN);
-    for (share, colour) in [(0.86, SMELT.alpha(0.75)), (0.62, MELT), (0.34, MELT_CORE)] {
-        local.push(
-            list,
-            KIND_ELLIPSE,
-            0.0,
-            hv,
-            d * share,
-            d * share,
-            0.0,
-            0.0,
-            colour,
-        );
-    }
-    // The flue, in the far corner away from the controls.
-    let (fu, fv) = (w * 0.34, -h * 0.34);
-    local.push(list, KIND_ELLIPSE, fu, fv, 16.0, 16.0, 0.0, 0.0, STEEL);
-    local.push(list, KIND_ELLIPSE, fu, fv, 16.0, 16.0, 0.0, 2.0, PANEL_EDGE);
-    local.push(list, KIND_ELLIPSE, fu, fv, 7.0, 7.0, 0.0, 0.0, DRAIN);
-    // The spout out of the hearth towards the moulds, with melt in it.
-    let sv = hv + d / 2.0 + 4.0;
-    local.push(list, KIND_RECT, 0.0, sv, 14.0, 12.0, 2.0, 0.0, BRICK);
-    local.push(
-        list,
-        KIND_RECT,
-        0.0,
-        sv,
-        6.0,
-        10.0,
-        1.0,
-        0.0,
-        MELT.alpha(0.85),
-    );
-    // A shelf of moulds along the near side, the first two poured.
-    let mv = h / 2.0 - 12.0;
-    local.push(
-        list,
-        KIND_RECT,
-        -w * 0.12,
-        mv,
-        w * 0.6,
-        16.0,
-        2.0,
-        0.0,
-        PANEL_LIT,
-    );
-    for i in 0..4 {
-        let u = -w * 0.34 + i as f32 * w * 0.147;
-        local.push(list, KIND_RECT, u, mv, 11.0, 10.0, 1.5, 0.0, DRAIN);
-        if i < 2 {
-            local.push(list, KIND_RECT, u, mv, 8.0, 7.0, 1.0, 0.0, STEEL);
-        }
-    }
-    // The controls beside them: a dial and two lamps, the hot one lit.
-    let cu = w * 0.34;
-    local.push(list, KIND_RECT, cu, mv, 22.0, 18.0, 2.0, 0.0, DRAIN);
-    local.push(list, KIND_ELLIPSE, cu - 5.0, mv, 8.0, 8.0, 0.0, 0.0, STEEL);
-    local.push(
-        list,
-        KIND_RECT,
-        cu - 5.0,
-        mv - 2.0,
-        1.5,
-        4.0,
-        0.0,
-        0.0,
-        DRAIN,
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        cu + 5.0,
-        mv - 4.0,
-        4.0,
-        4.0,
-        0.0,
-        0.0,
-        WARN,
-    );
-    local.push(
-        list,
-        KIND_ELLIPSE,
-        cu + 5.0,
-        mv + 4.0,
-        4.0,
-        4.0,
-        0.0,
-        0.0,
-        GOOD,
-    );
-}
 
 /// The workbench: a bench top with a tool rail along its far edge and the
 /// tools hung on it, a vice at one end, a lamp over the other, and the

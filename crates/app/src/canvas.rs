@@ -63,8 +63,6 @@ pub struct Pointer {
     /// Over a panel, a window or a menu: the canvas is not to act on it.
     pub over_ui: bool,
     pub primary_pressed: bool,
-    /// Held, this frame: a drag under way, or a click not yet let go.
-    pub primary_down: bool,
     pub primary_released: bool,
     pub secondary_pressed: bool,
     pub secondary_released: bool,
@@ -88,7 +86,6 @@ impl Pointer {
             pos: i.pointer.latest_pos().map(|p| Vec2::new(p.x, p.y)),
             over_ui,
             primary_pressed: i.pointer.button_pressed(Primary),
-            primary_down: i.pointer.button_down(Primary),
             primary_released: i.pointer.button_released(Primary),
             secondary_pressed: i.pointer.button_pressed(Secondary),
             secondary_released: i.pointer.button_released(Secondary),

@@ -1472,14 +1472,22 @@ fn system_card(
                     .unwrap_or_else(|| "deep space".into()),
                 _ => "deep space".into(),
             };
+            // Which gear trades it has (feature 95) goes on the same
+            // line: a crew choosing where to start are choosing a desk
+            // as much as a system.
+            let trades = gear_trades(
+                s.stock.sells(physics::ResourceId::Handgun),
+                s.stock.sells(physics::ResourceId::Helm),
+            );
             (
                 station_name(s.name),
                 format!(
-                    "{} · {parent}",
+                    "{} · {parent}{}",
                     STATION_KIND_NAMES
                         .get(s.kind as usize)
                         .copied()
-                        .unwrap_or("Station")
+                        .unwrap_or("Station"),
+                    trades.map(|t| format!(" · {t}")).unwrap_or_default()
                 ),
             )
         })

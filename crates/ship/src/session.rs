@@ -599,15 +599,6 @@ impl Session {
             .is_some_and(|system| system.station(station).is_some())
     }
 
-    /// Hold at the first belt of the system with its mining site laid out,
-    /// rather than docked — see `World::hold_at_belt_for_probe`. `false`
-    /// when there is no belt, or no world.
-    pub fn hold_at_belt_for_probe(&mut self) -> bool {
-        self.game
-            .as_mut()
-            .is_some_and(|g| g.world.hold_at_belt_for_probe())
-    }
-
     /// The ship set down on the system's first planet with ground, without
     /// the descent — see `World::land_for_probe`. What `BIMS_LANDED=1` does.
     pub fn land_for_probe(&mut self) -> bool {
@@ -1145,6 +1136,28 @@ impl Session {
         }
     }
 
+    /// The same at a **tier** (feature 95): the book quote times
+    /// `economy::TIER_PRICE` — one, four, sixteen — on both the ask and
+    /// the bid, for a gun or a piece of armour; the plain quote for
+    /// everything else, which comes at no tier. `World::quote_at` is the
+    /// rule while the ship is docked, and the design phase's desk is
+    /// asked the same way, so the yard and the world agree.
+    pub fn quote_at(&self, resource: ResourceId, tier: u32) -> Option<Quote> {
+        match &self.game {
+            Some(g) => match g.world.ship.state {
+                world::ShipState::Docked { station } => g.world.quote_at(station, resource, tier),
+                _ => None,
+            },
+            None => self.quote(resource).map(|q| {
+                if economy::tiered(resource) {
+                    q.at_tier(tier)
+                } else {
+                    q
+                }
+            }),
+        }
+    }
+
     /// Units of it aboard the **live** ship.
     pub fn cargo(&self, resource: ResourceId) -> u32 {
         self.design_ref().carrying(resource)
@@ -1602,12 +1615,17 @@ pub fn self_check() -> u32 {
     let solo = economy::starting_pool(100_000, 1) == Ok(120_000);
     let crew = economy::starting_pool(100_000, 4) == Ok(400_000);
     let none = economy::starting_pool(100_000, 0).is_err();
-    // And a desk's quote: metal is worth 60 at the book, and a plain
-    // orbital's desk asks 63 for one and bids 57 — the book, half the
-    // spread either side, rounded down. The same sum the market tests
-    // pin, so a machine whose integer division went its own way says so.
-    let quoted = economy::market::quote(economy::market::MarketKind::Orbital, 0, ResourceId::Metal)
-        == economy::market::Quote { ask: 63, bid: 57 };
+    // And a desk's quote: a handgun is worth 1 500 at the book, and a
+    // plain orbital's desk asks 1 575 for one and bids 1 425 — the book,
+    // half the spread either side, rounded down. The same sum the market
+    // tests pin, so a machine whose integer division went its own way
+    // says so.
+    let quoted =
+        economy::market::quote(economy::market::MarketKind::Orbital, 0, ResourceId::Handgun)
+            == economy::market::Quote {
+                ask: 1_575,
+                bid: 1_425,
+            };
     if crate::draw::STRIDE == 12 && solo && crew && none && quoted {
         bits |= 1 << 4;
     }

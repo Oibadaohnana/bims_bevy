@@ -835,27 +835,14 @@ pub struct Room {
     pub desks: Vec<(Rect, Vec2)>,
     /// The research desks, the same. See `Layout::research`.
     pub research: Vec<(Rect, Vec2)>,
-    /// The construction sites the world wants worked, this step: what each
-    /// still wants carried to it, or that it is to be built. Set by
+    /// The construction sites the world wants worked, this step: where
+    /// each is and how long it takes to put together. Set by
     /// `Game::set_build_orders`; empty in the classic room and while the
     /// ship is under way. See `crate::game::Build`.
     pub builds: Vec<crate::game::Build>,
     /// Who may put a suit on and go out to a site outside the hull, by crew
-    /// index — the world's say, like `eva_allowed`, and set with the sites.
+    /// index — the world's say, set with the sites.
     pub suit_ok: Vec<bool>,
-    /// What the construction chains did since the world last asked, each
-    /// drained by the world every step — `Game::take_picked` and friends.
-    /// The room moves no materials: it says a load of `units` of resource
-    /// `resource` was taken off a shelf for `site`, that the load reached
-    /// the site, that a load was given up short of it, or that the site was
-    /// built, and the world moves the count. `(site, resource, units,
-    /// who)` — the hauler with it, since how big a load a trip carries is
-    /// that crew member's (the tank's *pack mule*, feature 77) and the
-    /// world works it out again as the load is taken — then `site`,
-    /// `site` and `site`.
-    pub picked: Vec<(u32, u32, u32, usize)>,
-    pub dropped: Vec<u32>,
-    pub returned: Vec<u32>,
     /// The sites put together, each with who put it together — for the
     /// world to give the engineers about the builder their due (feature
     /// 74). `(site, who)`.
@@ -875,31 +862,16 @@ pub struct Room {
     pub ferry_picked: Vec<crate::game::Ferry>,
     pub ferry_dropped: Vec<crate::game::Ferry>,
     pub ferry_returned: Vec<crate::game::Ferry>,
-    /// The outside, as the world says it is this step: every rock tile as
-    /// a solid, the marked ones as where a walk goes, and a version that
-    /// moves when the rocks do. Set by `Game::set_eva`; empty in the
-    /// classic room and away from a site.
-    pub rocks: Vec<Rect>,
-    pub rock_targets: Vec<Vec2>,
+    /// Moves whenever the outside grid has to be built again. Nothing
+    /// changes it now that the mining is gone; it is kept because
+    /// `Game::refresh_outside` reads it, and a planet's ground or another
+    /// reason to rebuild would set it.
     pub rocks_version: u64,
     /// The planet's plain the deck stands on, while it is landed on one:
     /// the ground beyond the room's box, what the crew see of it, and
     /// the frame it is read through. See `crate::terrain`. `None`
     /// everywhere else, and in the classic room.
     pub plane: Option<crate::terrain::Plane>,
-    /// Who may be out there, by crew index: a Bim past the dose limit is
-    /// sent home from the next rock. Set with the rocks.
-    pub eva_allowed: Vec<bool>,
-    /// How long one rock takes to mine, in game minutes. The world's
-    /// number, carried because the room has no table of its own.
-    pub tile_minutes: f32,
-    /// The middles of the rocks mined since the world last asked. The
-    /// world drains it with `Game::take_mined` and moves what each yields
-    /// onto the shelf; the room never touches a resource itself.
-    pub mined: Vec<Vec2>,
-    /// Walks outside finished since the world last asked. The world drains
-    /// it with `Game::take_walks` and says what came back.
-    pub walks_done: u32,
     /// Recipes finished at a bench since the world last asked — indices into
     /// `shipdesign::recipes::RECIPES`. The world drains it every step with
     /// `Game::take_crafted` and moves the cargo; the room keeps no stock of
@@ -1097,22 +1069,13 @@ impl Room {
             research: Vec::new(),
             builds: Vec::new(),
             suit_ok: Vec::new(),
-            picked: Vec::new(),
-            dropped: Vec::new(),
-            returned: Vec::new(),
             built: Vec::new(),
             deployed: Vec::new(),
             ferries: Vec::new(),
             ferry_picked: Vec::new(),
             ferry_dropped: Vec::new(),
             ferry_returned: Vec::new(),
-            rocks: Vec::new(),
-            rock_targets: Vec::new(),
             rocks_version: 0,
-            eva_allowed: Vec::new(),
-            tile_minutes: 0.0,
-            mined: Vec::new(),
-            walks_done: 0,
             crafted: Vec::new(),
             helm: None,
             filth: Filth::new(interior),
@@ -1249,22 +1212,13 @@ impl Room {
             research: layout.research,
             builds: Vec::new(),
             suit_ok: Vec::new(),
-            picked: Vec::new(),
-            dropped: Vec::new(),
-            returned: Vec::new(),
             built: Vec::new(),
             deployed: Vec::new(),
             ferries: Vec::new(),
             ferry_picked: Vec::new(),
             ferry_dropped: Vec::new(),
             ferry_returned: Vec::new(),
-            rocks: Vec::new(),
-            rock_targets: Vec::new(),
             rocks_version: 0,
-            eva_allowed: Vec::new(),
-            tile_minutes: 0.0,
-            mined: Vec::new(),
-            walks_done: 0,
             crafted: Vec::new(),
             filth,
             sight,

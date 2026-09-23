@@ -71,7 +71,7 @@ pub fn resident_name(station: u32, who: u32) -> String {
 
 /// What each part is called. Indexed by the `PartKind` discriminant in
 /// `crates/shipdesign/src/parts.rs`.
-pub const PART_NAMES: [&str; 50] = [
+pub const PART_NAMES: [&str; 49] = [
     "Deck plating",
     "Wall",
     "Door",
@@ -102,7 +102,6 @@ pub const PART_NAMES: [&str; 50] = [
     "Heavy engine",
     "Diagonal wall",
     "Diagonal outside wall",
-    "Smelter",
     "Workbench",
     "Suit locker",
     "Armoury",
@@ -202,7 +201,6 @@ pub const PART_GROUPS: &[(&str, &[u32])] = &[
     (
         "Workshop",
         &[
-            PartKind::Smelter as u32,
             PartKind::Workbench as u32,
             PartKind::Armoury as u32,
             PartKind::DrugLab as u32,
@@ -267,7 +265,6 @@ pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
         "Production",
         "Where something is made: the workshop benches, the armoury, the drug lab, and the bay that grows the food.",
         &[
-            PartKind::Smelter as u32,
             PartKind::Workbench as u32,
             PartKind::Armoury as u32,
             PartKind::DrugLab as u32,
@@ -340,20 +337,12 @@ pub const NOT_A_TOOL: &[u32] = &[
 ];
 
 /// What a station sells, indexed by `physics::ResourceId`.
-pub const RESOURCE_NAMES: [&str; 26] = [
-    "Ore",
-    "Metal",
-    "Components",
+pub const RESOURCE_NAMES: [&str; 18] = [
     "Vegetables",
     "Tofu",
-    "Galvum",
-    "Emitters",
     "Suits",
     "Handguns",
-    "Vests",
     "Medkits",
-    "Rock",
-    "Fibre",
     "Bandages",
     "Helm",
     "Kevlar",
@@ -401,7 +390,7 @@ pub fn tier_word(tier: bims::combat::Tier) -> Option<String> {
 }
 
 /// Where goods are stowed, indexed by `economy::Storage`.
-pub const STORAGE_NAMES: [&str; 4] = ["Shelves", "Cold stores", "Lockers", "Research desk"];
+pub const STORAGE_NAMES: [&str; 3] = ["Cold stores", "Lockers", "Research desk"];
 
 /// How many units a buy or sell button moves.
 pub const TRADE_STEPS: [u32; 3] = [1, 10, 100];
@@ -596,6 +585,9 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoLane => "no hyperlane runs from here to there — jump along the route",
         Refusal::Jammed => {
             "the machines' jammer holds this system's lanes shut — clear it, or jump outward"
+        }
+        Refusal::NotEnoughMoney => {
+            "there is not enough money left for it — earn some, or call another site off"
         }
     }
 }
@@ -828,7 +820,7 @@ pub fn skill_slot_line(level: u8, pick: bool) -> String {
         format!("Level {level} — the level's own")
     }
 }
-pub const TALENT_NAMES: [&str; 70] = [
+pub const TALENT_NAMES: [&str; 69] = [
     "Reinforced sand",
     "Site foreman",
     "Sandbagger",
@@ -871,7 +863,6 @@ pub const TALENT_NAMES: [&str; 70] = [
     "Closing surge",
     "Mass surge",
     "Field surgeon",
-    "Pack mule",
     "Plated",
     "Breacher",
     "Unmovable",
@@ -900,7 +891,7 @@ pub const TALENT_NAMES: [&str; 70] = [
     "Anchor",
     "Warcry",
 ];
-pub const TALENT_TIPS: [&str; 70] = [
+pub const TALENT_TIPS: [&str; 69] = [
     "Every bag you lay takes fifty more before it is gone.",
     "Put a construction site together a quarter faster.",
     "Lay sandbags in half the time.",
@@ -943,7 +934,6 @@ pub const TALENT_TIPS: [&str; 70] = [
     "A surge ending closes every open wound on the patient.",
     "A surge covers every crew member within three tiles of the patient.",
     "Once a fight, treats a trauma with no medkit at all, in half the time.",
-    "Carries two loads a trip when hauling to a construction site.",
     "Every piece of armour he wears protects half again as much.",
     "Forces a locked door in half the time.",
     "Never runs from a fight, and loses no pace to low blood while his kevlar holds.",
@@ -998,6 +988,9 @@ pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
         (world::Class::Medic, 3) => "Surge: may shield the medic and the patient.",
         (world::Class::Medic, 7) => "Mender: a beamed patient's parts mend ten times as fast.",
         (world::Class::Tank, 1) => "Bulwark: stands as a wall, and his armour drains at half rate.",
+        (world::Class::Tank, 2) => {
+            "Plated: every piece of armour he wears protects half again as much."
+        }
         (world::Class::Tank, 3) => "Taunt: may draw the enemy's fire onto himself.",
         (world::Class::Tank, 7) => "Iron frame: a hit rolled on his head lands on his body.",
         (world::Class::Commander, 1) => {
@@ -1026,6 +1019,7 @@ pub fn level_name(class: world::Class, level: u8) -> Option<&'static str> {
         (world::Class::Medic, 3) => "Surge",
         (world::Class::Medic, 7) => "Mender",
         (world::Class::Tank, 1) => "Bulwark",
+        (world::Class::Tank, 2) => "Plated",
         (world::Class::Tank, 3) => "Taunt",
         (world::Class::Tank, 7) => "Iron frame",
         (world::Class::Commander, 1) => "Aura and squad",
@@ -1141,8 +1135,9 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             )
         ),
         T::Armourer => format!(
-            "{} points back on a piece of armour per metal, {} game minutes at the workbench",
-            fig(c::ARMOUR_REPAIR_PER_METAL as f64),
+            "{} points back on a piece of armour for €{}, {} game minutes at the workbench",
+            fig(c::ARMOUR_REPAIR_HEALTH as f64),
+            world::deploy::ARMOUR_REPAIR_COST,
             c::ARMOUR_REPAIR_MINUTES
         ),
         T::BetterArmour => format!(
@@ -1351,15 +1346,6 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             by(c::FIELD_SURGEON_TIME as f64)
         ),
         // --- the tank's ---
-        T::PackMule => format!(
-            "Hauling to a site {} loads a trip — {} units",
-            step(1.0, c::PACK_MULE_LOADS as f64, ""),
-            step(
-                world::data::HAUL_LOAD as f64,
-                (world::data::HAUL_LOAD * c::PACK_MULE_LOADS) as f64,
-                ""
-            )
-        ),
         T::Plated => format!(
             "Every piece of armour he wears protects {}",
             by(c::PLATED_PROTECTION as f64)
@@ -1579,6 +1565,10 @@ pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
             by(c::TANK_DRAIN as f64),
             fig(c::BULWARK_REACH as f64),
             by(c::BULWARK_PACE as f64)
+        ),
+        (world::Class::Tank, 2) => format!(
+            "Every piece of armour he wears stops {} what it says it does",
+            by(c::PLATED_PROTECTION as f64)
         ),
         (world::Class::Tank, 3) => format!(
             "A taunt reaches {} tiles, runs {} game minutes, and wants {} seconds between",
@@ -1832,20 +1822,11 @@ pub fn site_refusal_line(why: world::SiteRefusal) -> String {
     }
 }
 
-/// How much of what a site is made of has reached it, in words: "2 of 2
-/// metal, 0 of 1 components".
+/// What a site costs out of the crew's one pool, in words: "€1,200".
+/// Nothing is carried to a site since the money rework (feature 95), so
+/// what there is to say about one is its price.
 pub fn site_progress(site: &world::BuildSite, design: &shipdesign::ShipDesign) -> String {
-    site.recipe(design)
-        .iter()
-        .map(|&(id, units)| {
-            format!(
-                "{} of {units} {}",
-                site.delivered[id as usize].min(units),
-                resource_name(id).to_lowercase()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+    crate::format::euros(site.price(design))
 }
 
 /// What the ship is doing, indexed by `world::ShipState::code`.
@@ -1935,23 +1916,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 "Nothing made: the materials for {} were gone.",
                 made_name(recipe)
             )
-        }
-        WorldEvent::Mined { rock, ore, galvum } => {
-            if rock == 0 && ore == 0 && galvum == 0 {
-                "Back from outside with nothing.".into()
-            } else {
-                let mut got: Vec<String> = Vec::new();
-                if rock > 0 {
-                    got.push(format!("{rock} rock"));
-                }
-                if ore > 0 {
-                    got.push(format!("{ore} ore"));
-                }
-                if galvum > 0 {
-                    got.push(format!("{galvum} galvum"));
-                }
-                format!("Back from outside with {}.", got.join(", "))
-            }
         }
         WorldEvent::Health { who: w, event } => match event {
             HealthEvent::RadiationDetected => {
@@ -2159,7 +2123,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             who: w,
             class,
             level,
-        } => match world::class::is_pick_level(level as u8) {
+        } => match world::class::is_pick_level(
+            world::Class::from_code(class).unwrap_or_default(),
+            level as u8,
+        ) {
             true => format!(
                 "{} reached level {level} — a skill point to spend, on the Skills tab.",
                 who(w)
@@ -2240,6 +2207,9 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Carried { who: w, .. } => format!("{} sets them down.", who(w)),
         WorldEvent::TownHeld { .. } => TOWN_HELD.into(),
         WorldEvent::TownsfolkJoined { count } => townsfolk_joined(count),
+        WorldEvent::Bounty { amount } => {
+            format!("The Republic pays {}.", crate::format::euros(amount))
+        }
     })
 }
 
@@ -2345,12 +2315,28 @@ pub fn made_name(recipe: u32) -> String {
 /// What each kind of body is called. Indexed by `worldgen::BodyKind`.
 pub const BODY_KIND_NAMES: [&str; 4] = ["Rocky planet", "Gas giant", "Ice world", "Asteroid belt"];
 
-/// What a rock tile of a mining site is made of, by `world::Rock` code.
-pub const ROCK_NAMES: [&str; 3] = ["Rock", "Iron ore", "Galvum"];
-
 /// And each kind of station, by `worldgen::StationKind`.
 pub const STATION_KIND_NAMES: [&str; 5] =
     ["Orbital", "Refinery", "Mining outpost", "Derelict", "Relay"];
+
+/// Which gear trades a place has, for the line that names it (feature
+/// 95): a market rolls a **weapon trade** and an **armour trade** off its
+/// own seed, each independently, and a station with neither sells no gear
+/// at all — so the word is worth saying before flying there. `None` where
+/// there is nothing to say.
+pub fn gear_trades(weapons: bool, armour: bool) -> Option<&'static str> {
+    match (weapons, armour) {
+        (true, true) => Some("weapons · armour"),
+        (true, false) => Some("weapons"),
+        (false, true) => Some("armour"),
+        (false, false) => None,
+    }
+}
+
+/// The same for a line of its own, where there is room for a sentence:
+/// what the place trades in, or that it deals in no gear.
+pub const NO_GEAR_TRADE: &str = "No gear traded here.";
+pub const GEAR_TRADE_TIP: &str = "Every place with a market rolls two trades off its own seed: weapons — handguns, shotguns, auto rifles, sniper rifles and schwords — and armour — helms, kevlar and leg guards. Each is all of its list or none of it, and a place may have both, one or neither. Every tier a market deals in is on sale at the book times four for tier two and sixteen for tier three, and it buys gear at whatever tier the gear is.";
 
 /// `worldgen::StarClass`, hottest first.
 pub const STAR_CLASS_NAMES: [&str; 7] = ["O", "B", "A", "F", "G", "K", "M"];
@@ -2883,7 +2869,7 @@ pub fn order_refused(code: u32) -> Option<&'static str> {
 
 /// The jobs on the work list, by `work::Job` code, and which fixture each
 /// is about so resting on a row rings the place it happens.
-pub const WORK_NAMES: [&str; 10] = [
+pub const WORK_NAMES: [&str; 9] = [
     "Cleaning",
     "Planting",
     "Plant cutting",
@@ -2891,7 +2877,6 @@ pub const WORK_NAMES: [&str; 10] = [
     "Cooking",
     "Controlling the ship",
     "Making things",
-    "Mining outside",
     "Building",
     "Medical",
 ];
@@ -3033,33 +3018,25 @@ pub fn locked_tip() -> String {
 /// What each thing in a grid cell is, for the tooltip under its icon,
 /// indexed by `physics::ResourceId`. A piece of armour's numbers are put
 /// after its line by the grid, off the piece itself.
-pub const ITEM_TIPS: [&str; 26] = [
-    "Iron ore off a belt. Two lumps smelt into a bar of metal.",
-    "A bar of metal: what most of the ship is built of, and what the workbench works.",
-    "Components, worked out of metal at the workbench. Four to a bar.",
-    "A vegetable off the bay. Two of them make a stew.",
+pub const ITEM_TIPS: [&str; 18] = [
+    "A vegetable off the bay. Two of them make a stew, and two make a medkit at the drug lab.",
     "A block of tofu, pressed from soy.",
-    "Galvum, the rare crystal. Emitters and kevlar want it.",
-    "An emitter: metal, components and galvum at the workbench. What a laser fires through.",
     "A pressure suit, for a walk outside.",
-    "A laser handgun: two components and an emitter at the armoury.",
-    "A vest, from the armoury.",
-    "A medkit, from the armoury.",
-    "Rock off a belt. Worth little.",
-    "Fibre, the one crop nobody eats. Two of it roll into a bandage at the drug lab.",
-    "A bandage. Closes every wound on one part of a body.",
-    "A basic helm, for the head: two bars of metal at the workbench.",
-    "Basic kevlar, for the body: three bars of metal and a galvum at the workbench.",
-    "Basic leg guards: a bar of metal at the workbench.",
-    "A shotgun: four bars of metal and two components at the armoury. Hits hard up close.",
-    "An auto rifle: three bars of metal, three components and an emitter at the armoury. Fires in bursts.",
-    "A sniper rifle: four bars of metal, two components and two emitters at the armoury. Reaches furthest.",
-    "A schword, a blade with a laser edge: a bar of metal, a component and two emitters at the armoury. Cuts, at arm's length.",
+    "A laser handgun. Bought at a desk that trades in weapons.",
+    "A medkit: two vegetables at the drug lab, the one thing the crew still make.",
+    "A bandage. Closes every wound on one part of a body. Five to a box.",
+    "A basic helm, for the head. Bought at a desk that trades in armour.",
+    "Basic kevlar, for the body. Bought at a desk that trades in armour.",
+    "Basic leg guards. Bought at a desk that trades in armour.",
+    "A shotgun. Hits hard up close.",
+    "An auto rifle. Fires in bursts.",
+    "A sniper rifle. Reaches furthest.",
+    "A schword, a blade with a laser edge. Cuts, at arm's length.",
     "A tier-one research key: an artifact off a station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the locked part of the research tree.",
     "A tier-two research key: an artifact off a hostile station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the upgrades node, which wants it and no other.",
-    "A sandbag kit: a bar of metal at the workbench. An engineer lays it on a deck tile as a barricade to duck behind — E, over the tile.",
-    "A sentry kit: two bars of metal, two components and an emitter at the workbench. An engineer of the third level sets it up as a turret with an auto rifle's aim — Q, over the tile.",
-    "A grenade: a soldier of the third level carries two of them as charges and throws one — Q, over the tile — and it bursts on everything within two and a half tiles, friend and foe alike, two seconds on. A thrown one comes back into the pack thirty seconds later; nobody has to make one, though the armoury still can, out of a bar of metal and a component.",
+    "A sandbag kit. An engineer lays it on a deck tile as a barricade to duck behind — E, over the tile — and a spent charge comes back on its own cooldown.",
+    "A sentry kit. An engineer of the third level sets it up as a turret with an auto rifle's aim — Q, over the tile — and a spent charge comes back on its own cooldown.",
+    "A grenade: a soldier of the third level carries two of them as charges and throws one — Q, over the tile — and it bursts on everything within two and a half tiles, friend and foe alike, two seconds on. A thrown one comes back into the pack thirty seconds later.",
 ];
 
 pub fn item_tip(id: ResourceId) -> &'static str {
@@ -3068,30 +3045,20 @@ pub fn item_tip(id: ResourceId) -> &'static str {
 
 /// The research tree's nodes, indexed by `shipdesign::research::Node`, and
 /// what each of them opens.
-pub const NODE_NAMES: [&str; 10] = [
+pub const NODE_NAMES: [&str; 5] = [
     "Living aboard",
-    "Mining",
     "Medicine",
-    "Smelting",
-    "Workshop",
     "Fusion power",
-    "Armoury",
-    "Emitters",
     "Hyperdrive",
     "Upgrades",
 ];
 
-pub const NODE_LINES: [&str; 10] = [
-    "Everything a crew needs to live and to fly: the hull, the galley, the heads, the bunks, the hydroponic bay, the fusion reactor, the helm and the engines. Known from the start.",
-    "A walk outside with a pick: the suit locker and the suit. Known from the start.",
-    "Bandages and medkits at the drug lab. Known from the start.",
-    "The smelter: two ore into a bar of metal.",
-    "The workbench: a bar of metal into four components.",
-    "The large fusion reactor: four reactors' power in a three-by-three block — a heavy engine flat out, and every bench and system aboard.",
-    "The armoury, every weapon it makes, the vest, and the three pieces of armour at the workbench.",
-    "The emitter at the workbench: what a laser fires through, and what the guns want — and the engineer's sentry kit, which fires through one.",
-    "The hyperdrive: a jump to another star, bolted to a main engine. Charged from the helm for twenty seconds, and then the ship is in empty space round the star picked on the galaxy chart.",
-    "The workbench's upgrades: two weapons or pieces of a kind at one tier into one of the next — tier one to two, and two to three. The first tier-two node: it wants a tier-two key, which lies on the research desk of every hostile station.",
+pub const NODE_LINES: [&str; 5] = [
+    "Everything a crew needs to live, to fight and to fly: the hull, the galley, the heads, the bunks, the hydroponic bay, the fission reactor, the helm, the engines, the suit locker, the workbench and the armoury. Known from the start.",
+    "The drug lab, and the medkit it makes out of two vegetables. Known from the start.",
+    "The large fusion reactor: four reactors' power in a three-by-three block — a heavy engine flat out, and every bench and system aboard. The one node with no key on it.",
+    "The hyperdrive: a jump to another star, bolted to a main engine. Charged from the helm for twenty seconds, and then the ship is in empty space round the star picked on the galaxy chart. After fusion power, and behind a tier-one key.",
+    "The workbench's upgrades: two weapons or pieces of a kind at one tier into one of the next — tier one to two, and two to three. The one tier-two node: it wants a tier-two key, which lies on the research desk of every hostile station.",
 ];
 
 pub fn node_name(code: u32) -> &'static str {
@@ -3213,6 +3180,9 @@ pub const NO_ROOM_FOR: &str = "No room for";
 /// The trade rows' column headings: what one costs bought here (the
 /// desk's ask), what the desk pays for one (its bid), and the rest.
 pub const ASK_HEAD: &str = "Costs";
+/// The tier column of the trade rows: which tier a gun or a piece of
+/// armour is bought at (feature 95), blank for everything else.
+pub const TIER_HEAD: &str = "Tier";
 pub const BID_HEAD: &str = "Pays";
 /// A price where nobody quotes one: a derelict's desk, or nowhere.
 pub const NO_QUOTE: &str = "—";
@@ -3638,7 +3608,7 @@ mod tests {
             );
             assert!(event_line(WorldEvent::Locked { who: 0 }).is_some());
             let begun = event_line(WorldEvent::UpgradeBegun {
-                resource: 8,
+                resource: ResourceId::Handgun as u32,
                 tier: 2,
             })
             .unwrap();
@@ -3648,7 +3618,7 @@ mod tests {
             );
             assert!(
                 event_line(WorldEvent::Upgraded {
-                    resource: 14,
+                    resource: ResourceId::Helm as u32,
                     tier: 3
                 })
                 .is_some()

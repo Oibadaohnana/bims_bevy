@@ -362,7 +362,7 @@ fn a_site_finished_and_a_kit_laid_are_the_engineer_s_and_a_re_used_kit_is_not() 
     let here = world.aboard.room.bim_pos(1);
     world.aboard.room.put_for_probe(1, here);
     let origin = site_near(&world, 0);
-    world.ship.design.cargo[ResourceId::Metal as usize] += 10;
+    world.ship.design.cargo[ResourceId::Vegetable as usize] += 10;
     let events = world.step(&[Command::PlaceSite {
         slot: 0,
         kind: PartKind::Sandbags,
@@ -454,7 +454,7 @@ fn a_pick_is_refused_for_the_wrong_slot_level_or_a_second_time_and_moves_the_che
         refused_with(&events, Refusal::NotAPickLevel),
         "a fixed level"
     );
-    assert_eq!(world.progress_of(0).pending_pick(), Some(2));
+    assert_eq!(world.progress_of(0).pending_pick(Class::Engineer), Some(2));
     let before = world_checksum(&world);
     let events = world.step(&[Command::PickTalent {
         slot: 0,
@@ -469,7 +469,7 @@ fn a_pick_is_refused_for_the_wrong_slot_level_or_a_second_time_and_moves_the_che
         "{events:?}"
     );
     assert_ne!(world_checksum(&world), before, "a pick is in the checksum");
-    assert_eq!(world.progress_of(0).pending_pick(), None);
+    assert_eq!(world.progress_of(0).pending_pick(Class::Engineer), None);
     let events = world.step(&[Command::PickTalent {
         slot: 0,
         level: 2,
@@ -521,9 +521,10 @@ fn an_engineer_sets_out_with_its_kits_and_the_class_locks_at_the_first_undock() 
         slot: 0,
         class: Class::Engineer,
     }]);
-    // The kits are priced by the labour rule.
-    assert_eq!(trade_price(ResourceId::SandbagKit), 61);
-    assert_eq!(trade_price(ResourceId::SentryKit), 885);
+    // The kits are priced by hand since the money rework took the labour
+    // rule away with the production chains it was written to keep honest.
+    assert_eq!(trade_price(ResourceId::SandbagKit), 60);
+    assert_eq!(trade_price(ResourceId::SentryKit), 880);
     // Off the berth, and the class is fixed.
     world.man_the_helm_for_probe(0);
     let target = Target::Point(
@@ -1069,9 +1070,9 @@ fn the_armourer_repairs_a_piece_at_the_workbench_for_a_metal() {
         "without the talent"
     );
     pick(&mut world, 0, Talent::Armourer);
-    world.ship.design.cargo[ResourceId::Metal as usize] += 5;
+    world.ship.design.cargo[ResourceId::Vegetable as usize] += 5;
     world.on_ship_changed();
-    let metal = world.free(ResourceId::Metal);
+    let money = world.money;
     let events = world.step(&[Command::Repair { slot: 0 }]);
     assert!(
         !events
@@ -1080,10 +1081,7 @@ fn the_armourer_repairs_a_piece_at_the_workbench_for_a_metal() {
         "{events:?}"
     );
     assert_eq!(world.bench.repair, Some(0));
-    assert_eq!(
-        world.free(ResourceId::Metal),
-        metal - deploy::ARMOUR_REPAIR_METAL
-    );
+    assert_eq!(world.money, money - deploy::ARMOUR_REPAIR_COST);
     // Only the engineer works it; Kate is never sent.
     let mut done = false;
     for _ in 0..60 * 60 * 6 {
@@ -1103,7 +1101,7 @@ fn the_armourer_repairs_a_piece_at_the_workbench_for_a_metal() {
         panic!("the piece is in the output slot");
     };
     assert_eq!(out.id, 900);
-    assert_eq!(out.health, full - 25.0 + class::ARMOUR_REPAIR_PER_METAL);
+    assert_eq!(out.health, full - 25.0 + class::ARMOUR_REPAIR_HEALTH);
 }
 
 /// *Higher quality armour* (feature 88) is the engineer's own worn

@@ -2,30 +2,28 @@
 //!
 //! One table, [`PARTS`], with one entry per [`PartKind`] in discriminant
 //! order. Every number in it is a **placeholder** — nothing here has been
-//! balanced against anything, and the recipes and prices exist so that the
+//! balanced against anything, and the masses and prices exist so that the
 //! rules in [`crate::design`] and [`crate::validate`] have something real to
 //! be exercised against.
 //!
 //! What is *not* a placeholder is the shape of the table. The discriminants
-//! cross the wasm boundary as numbers and will one day be in a save file, so
-//! they are written out and **never renumbered**: a new part is appended, a
-//! retired one leaves a hole.
+//! cross the wasm boundary as numbers, so they are written out: a new part is
+//! appended. (No save has to load, so the money rework closed `Smelter`'s `30`
+//! up rather than leaving a hole in a table indexed by this.)
 //!
-//! # A part is made of something, and weighs what it is made of
+//! # A part weighs something and costs something
 //!
-//! [`PartDef::recipe`] is the materials one is built from — metal and
-//! components, never ore and never food — and [`part_mass`] is that recipe
-//! added up. There is deliberately **no mass column**: a part that weighed
-//! something other than its materials would gain or lose mass every time one
-//! was built, and the whole of [`crate::materials`] is the promise that it
-//! does not.
+//! [`PartDef::mass`] is what one weighs and [`PartDef::price`] what one
+//! costs, in euros out of the crew's shared pool — at the dock in the design
+//! phase, and anywhere at all once the crew are flying, since a construction
+//! site is paid for out of the same pool wherever the ship is
+//! ([`crate::materials`]).
 //!
-//! [`PartDef::price`] is the other half and it is **independent**. It is what
-//! a finished part costs in euros at a station, where money and materials can
-//! be swapped for each other; away from one there is no price, only the
-//! recipe. Nothing works one out from the other, and nothing should — an
-//! instant part bought at the dock and a part welded up out of the hold are
-//! two different transactions that happen to end in the same wall.
+//! The two are **independent**, and the mass column is the one place a part's
+//! weight is written down. It was a recipe of metal and components until the
+//! money rework (feature 95), and every figure in the column is exactly what
+//! that recipe weighed, so nothing about any ship moved when the materials
+//! went.
 //!
 //! # Four layers, and what holds what up
 //!
@@ -50,7 +48,6 @@
 //! being cooked in.
 
 use economy::{Money, Storage};
-use physics::ResourceId;
 
 /// World units to a tile side. Fixed, and the one place it is written down.
 ///
@@ -215,45 +212,46 @@ pub enum PartKind {
     /// exposure fill is four-neighbour, and a staircase of these touching
     /// corner to corner is as tight as a straight run.
     DiagonalOutsideWall = 29,
-    /// Two ore in, one metal out, the slag vented. The first workstation,
-    /// and the one that draws most — see [`crate::recipes`].
-    Smelter = 30,
-    /// Metal into components, and metal, components and galvum into an
-    /// emitter. See [`crate::recipes`].
-    Workbench = 31,
+    /// The bench where two of a kind at one tier are combined into one
+    /// of the next — the world's upgrade, `world::World::upgrade`. It
+    /// makes nothing of its own any more; see [`crate::recipes`].
+    Workbench = 30,
     /// Where the pressure suits hang: the locker class of storage, two of
     /// them. Where a walk outside starts and ends.
-    SuitLocker = 32,
-    /// A bench and a locker in one: where handguns, vests and medkits are
-    /// made — [`crate::recipes`] — and where they are kept, four of them.
-    Armoury = 33,
-    /// The bench where fibre is rolled into bandages — [`crate::recipes`].
+    SuitLocker = 31,
+    /// The gun cabinet: the locker class of storage, eight rows of it,
+    /// and where a crew keep what they fight with. It made handguns,
+    /// vests and medkits until the money rework (feature 95) took every
+    /// recipe at it away; it is a container now and nothing else.
+    Armoury = 32,
+    /// The bench where two vegetables are made into a medkit — the one
+    /// row left in [`crate::recipes`].
     /// The workbench's size and its habits: worked from the tile below,
     /// draws, and a body sees over nothing of it.
-    DrugLab = 34,
+    DrugLab = 33,
     /// A station's trading desk: where the crew trade with the station.
     /// A table's footprint, worked from the tile below, and a body sees
     /// over it. Every station lays one down inside its port; a ship has
     /// no use for one, and buying and selling want somebody at it —
     /// `world::World::at_the_desk`.
-    TradingDesk = 35,
+    TradingDesk = 34,
     /// Sandbags: a tile of low cover, half a body's height. Walked over
     /// and seen over, but a body standing close behind it is dodged half
     /// the shots that come across it — `is_cover`, and `bims::sight`'s
     /// `covered`. Laid in a station's hallways, and buildable on a ship.
-    Sandbags = 36,
+    Sandbags = 35,
     /// The research computer desk: a console the ship's AI does its
     /// research at — see [`crate::research`] — with one slot in it for a
     /// research key (`Storage::Research`, one). A table's footprint,
     /// worked from the tile below, seen over, and it draws. Every friendly
     /// station keeps one in its research room, and the key on it is what
     /// the crew go ashore for.
-    ResearchDesk = 37,
+    ResearchDesk = 36,
     /// The large fusion reactor: [`FUSION_OUTPUT`] a minute, four basic
     /// reactors' worth in a three-by-three block. What the research
     /// tree's first big node buys; nothing else about it is new — it
     /// supplies like the reactor and is wired like it.
-    FusionReactor = 38,
+    FusionReactor = 37,
     /// The hyperdrive: what jumps the ship to another star. A two-by-two
     /// block on deck that draws all day like a system and is **bolted to a
     /// main engine** — a tile of its footprint four-neighbour to a tile of
@@ -261,7 +259,7 @@ pub enum PartKind {
     /// wired like everything else. Behind a tier-one key in the research
     /// tree (`research::Node::Hyperdrive`). What a jump *is* — the charge,
     /// the empty space it lands in — is `world`'s.
-    Hyperdrive = 39,
+    Hyperdrive = 38,
     /// A wall light: a lamp on a bracket against a bulkhead or the hull —
     /// a one-tile part on the deck beside the wall it hangs from, and its
     /// **rotation says which wall**: the tile [`wall_light_back`] names
@@ -271,10 +269,10 @@ pub enum PartKind {
     /// past, lighting [`WALL_LIGHT_TILES`] round it. Always on, and draws nothing — it has its own cell. What
     /// light *does* — the dark, and how far a Bim sees in it — is the
     /// room's, `bims::sight`.
-    WallLight = 40,
+    WallLight = 39,
     /// A standing light: a lamp on a pole, one tile, anywhere on the
     /// deck, seen over and walked round, lighting [`STANDING_LIGHT_TILES`].
-    StandingLight = 41,
+    StandingLight = 40,
     /// A small plant in a pot: the first of the three **comforts** — parts
     /// that do nothing but make a deck nicer to stand on. One tile,
     /// walked past and seen over, and it **lifts the surroundings** of
@@ -282,44 +280,44 @@ pub enum PartKind {
     /// [`SMALL_PLANT_LIFT`] — [`comfort`] is the table, and what the lift
     /// does to a Bim is the room's, `bims::filth`. Does nothing else:
     /// no draw, nothing to work.
-    SmallPlant = 42,
+    SmallPlant = 41,
     /// A big plant in a tub: a comfort like the small one, walked round
     /// rather than past, and seen over, lifting the surroundings further
     /// and wider ([`BIG_PLANT_LIFT`], [`BIG_PLANT_TILES`]).
-    BigPlant = 43,
+    BigPlant = 42,
     /// A framed picture on a wall: the third comfort. **Hung** like a wall
     /// light — its rotation names its wall, [`wall_light_back`], and
     /// placing one on nothing is refused ([`hangs_on_wall`]) — walked under
     /// and seen past, lifting the surroundings of every tile within
     /// [`PICTURE_TILES`] by [`PICTURE_LIFT`].
-    Picture = 44,
+    Picture = 43,
     /// A strip of open ground under crop: a hydroponic bay's footprint —
     /// six trays, worked from the row beside them — grown in the soil
     /// of a planet's settlement (`world::surface`) at half a bay's pace
     /// and on no power at all, since there is nothing to plug in. The
     /// room's, like the bay (`bims::hydro::Bay::field`). Not a tool:
     /// nothing grows on a deck.
-    Field = 45,
+    Field = 44,
     /// A tree on a planet's ground: one tile, walked round and **not**
     /// seen past — a band of them is a forest a Bim cannot go through —
     /// and a comfort like the big plant, so the ground under one is a
     /// nicer place to stand. What a settlement's wild is made of.
-    Tree = 46,
+    Tree = 45,
     /// A shrub — or a cactus, or a tussock, by the planet: one tile,
     /// walked round and seen over, a comfort like the small plant.
-    Shrub = 47,
+    Shrub = 46,
     /// A boulder: one tile of rock, walked round and not seen past. A
     /// line of them is a cliff.
-    Boulder = 48,
+    Boulder = 47,
     /// A tile of water — a lake, a river, a pool, or ice: walked round
     /// and seen over.
-    Water = 49,
+    Water = 48,
 }
 
 impl PartKind {
     /// Every kind, in discriminant order. `ALL[k as usize] == k`, which
     /// [`PartKind::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [PartKind; 50] = [
+    pub const ALL: [PartKind; 49] = [
         PartKind::Floor,
         PartKind::Wall,
         PartKind::Door,
@@ -350,7 +348,6 @@ impl PartKind {
         PartKind::HeavyEngine,
         PartKind::DiagonalWall,
         PartKind::DiagonalOutsideWall,
-        PartKind::Smelter,
         PartKind::Workbench,
         PartKind::SuitLocker,
         PartKind::Armoury,
@@ -483,17 +480,18 @@ pub struct PartDef {
     /// across, so a capacity is best a multiple of it). `None` for
     /// everything that is not a container.
     pub capacity: Option<(Storage, u32)>,
-    /// What the part is **made of**: units of each material, and nothing
-    /// else. Never empty, and only [`ResourceId::Metal`],
-    /// [`ResourceId::Components`] and [`ResourceId::Emitter`] — ore and
-    /// galvum are what those are made from and the food is
-    /// eaten, so none of them belongs in a wall.
+    /// What one weighs, whole, in the same units the resources are
+    /// weighed in. Strictly greater than zero: a part that weighed
+    /// nothing would be a ship that got faster the more of them it had.
     ///
-    /// There is no separate mass. [`part_mass`] adds the recipe up, so a
-    /// part weighs exactly what went into it and building one moves mass
-    /// from the hold into the hull without changing the total — see the
-    /// contract in [`crate::materials`].
-    pub recipe: &'static [(ResourceId, u32)],
+    /// It was a **recipe** until the money rework (feature 95) took the
+    /// materials away, and [`part_mass`] added that recipe up. The column
+    /// is exactly what each part's recipe weighed on the day it went, so
+    /// no ship's mass, inertia or flight moved when it did; what changed
+    /// is that a part is now **bought**, at [`PartDef::price`], and its
+    /// weight is a fact about the part rather than a sum over a hold —
+    /// see the contract in [`crate::materials`].
+    pub mass: f64,
     /// Greater than zero for the main engines — [`PartKind::Engine`] and
     /// [`PartKind::HeavyEngine`] — and nothing else. [`PartDef::pushes`] is
     /// the question to ask; nothing should list the kinds.
@@ -616,7 +614,7 @@ impl PartDef {
 /// told about how a part is approached — [`crate::validate`] already insists
 /// every one of them is floor a body can stand on and that they can all reach
 /// each other, so a design that passes here is one the crew can work.
-pub static PARTS: [PartDef; 50] = [
+pub static PARTS: [PartDef; 49] = [
     PartDef {
         kind: PartKind::Floor,
         footprint: (1, 1),
@@ -627,7 +625,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 50,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -647,7 +645,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 100,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 2)],
+        mass: 16.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -672,7 +670,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 400,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 2), (ResourceId::Components, 2)],
+        mass: 20.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -691,7 +689,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 20_000,
         shields: true,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 40), (ResourceId::Components, 40)],
+        mass: 400.0,
         thrust: 20_000.0,
         torque_thrust: 0.0,
         thrust_power: ENGINE_POWER,
@@ -708,7 +706,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 800,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 2)],
+        mass: 28.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -727,7 +725,7 @@ pub static PARTS: [PartDef; 50] = [
         // Ten rows of the cold store's grid: crates of vegetables and
         // blocks of tofu, ten to a stack.
         capacity: Some((Storage::ColdStore, 10 * GRID_COLS)),
-        recipe: &[(ResourceId::Metal, 6), (ResourceId::Components, 6)],
+        mass: 60.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -744,7 +742,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 600,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 3)],
+        mass: 24.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -761,7 +759,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 1_200,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 3)],
+        mass: 30.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -778,7 +776,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 900,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 5), (ResourceId::Components, 3)],
+        mass: 46.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -798,7 +796,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 400,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 2)],
+        mass: 16.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -818,7 +816,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 150,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -835,7 +833,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 1_000,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 1)],
+        mass: 26.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -852,7 +850,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 500,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 2)],
+        mass: 16.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -872,7 +870,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 4_000,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 12), (ResourceId::Components, 12)],
+        mass: 120.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -889,7 +887,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 150,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1), (ResourceId::Components, 1)],
+        mass: 10.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -910,7 +908,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 50,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 2)],
+        mass: 16.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -929,7 +927,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 200,
         shields: true,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 1)],
+        mass: 34.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -949,7 +947,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 5_000,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 20)],
+        mass: 72.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -969,7 +967,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 12_000,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 30), (ResourceId::Components, 30)],
+        mass: 300.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -986,7 +984,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 20,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1003,7 +1001,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 3_000,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 10)],
+        mass: 52.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1020,7 +1018,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 6_000,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 8), (ResourceId::Components, 12)],
+        mass: 88.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1039,7 +1037,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 3_000,
         shields: true,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 8), (ResourceId::Components, 6)],
+        mass: 76.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1057,7 +1055,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 4_000,
         shields: true,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 12)],
+        mass: 48.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1074,10 +1072,11 @@ pub static PARTS: [PartDef; 50] = [
         use_spots: &[(0, 1)],
         price: 300,
         shields: false,
-        // Ten by ten: what a shelf holds is stacks — ten ore to a cell,
-        // twenty components — and what the workbench makes to wear.
-        capacity: Some((Storage::Shelf, 10 * GRID_COLS)),
-        recipe: &[(ResourceId::Metal, 2)],
+        // Ten by ten of the lockers' grid: since the money rework a
+        // shelf is simply more locker room — guns, armour, medicine —
+        // there being no materials left to rack.
+        capacity: Some((Storage::Locker, 10 * GRID_COLS)),
+        mass: 16.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1094,7 +1093,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 1_200,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 2)],
+        mass: 28.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1117,7 +1116,7 @@ pub static PARTS: [PartDef; 50] = [
         // skin. A ring of thrusters with gaps between them is still gaps.
         shields: true,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 6)],
+        mass: 44.0,
         thrust: 0.0,
         // Placeholder, and picked against a scenario rather than out of the
         // air: four of these on the flyable fixture's hull turn it through
@@ -1148,7 +1147,7 @@ pub static PARTS: [PartDef; 50] = [
         // small engine on a big hull crawls. Its draw is per unit of thrust
         // too — five times the small engine's — so on one basic reactor it
         // runs at half throttle, and a fast ship is a well-powered one.
-        recipe: &[(ResourceId::Metal, 150), (ResourceId::Components, 100)],
+        mass: 1400.0,
         thrust: 100_000.0,
         torque_thrust: 0.0,
         thrust_power: 5.0 * ENGINE_POWER,
@@ -1168,7 +1167,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 100,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 2)],
+        mass: 16.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1185,7 +1184,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 200,
         shields: true,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 4), (ResourceId::Components, 1)],
+        mass: 34.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1198,23 +1197,6 @@ pub static PARTS: [PartDef; 50] = [
     // room's craft chain stands a Bim at — `bims::room::Bench`. Both draw,
     // so both want conduit under them, and both stop in a brownout.
     PartDef {
-        kind: PartKind::Smelter,
-        footprint: (2, 2),
-        layer: Layer::Object,
-        blocks_movement: true,
-        requires: Some(Layer::Floor),
-        use_spots: &[(0, 2)],
-        price: 8_000,
-        shields: false,
-        capacity: None,
-        recipe: &[(ResourceId::Metal, 20), (ResourceId::Components, 10)],
-        thrust: 0.0,
-        torque_thrust: 0.0,
-        thrust_power: 0.0,
-        power: -40.0,
-        charge: 0.0,
-    },
-    PartDef {
         kind: PartKind::Workbench,
         footprint: (2, 1),
         layer: Layer::Object,
@@ -1224,7 +1206,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 3_000,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 6), (ResourceId::Components, 4)],
+        mass: 56.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1242,7 +1224,7 @@ pub static PARTS: [PartDef; 50] = [
         shields: false,
         // Two rows of the lockers' grid: a suit folded, and room beside it.
         capacity: Some((Storage::Locker, 2 * GRID_COLS)),
-        recipe: &[(ResourceId::Metal, 3), (ResourceId::Components, 2)],
+        mass: 28.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1262,7 +1244,7 @@ pub static PARTS: [PartDef; 50] = [
         // — the sniper rifle lies the whole width of one — and room under
         // them for what the workbench makes to wear.
         capacity: Some((Storage::Locker, 8 * GRID_COLS)),
-        recipe: &[(ResourceId::Metal, 10), (ResourceId::Components, 8)],
+        mass: 96.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1284,7 +1266,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 4_000,
         shields: false,
         capacity: Some((Storage::Locker, 6 * GRID_COLS)),
-        recipe: &[(ResourceId::Metal, 5), (ResourceId::Components, 6)],
+        mass: 52.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1303,7 +1285,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 600,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 3)],
+        mass: 24.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1322,7 +1304,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 150,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1343,7 +1325,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 8_000,
         shields: false,
         capacity: Some((Storage::Research, 1)),
-        recipe: &[(ResourceId::Metal, 6), (ResourceId::Components, 12)],
+        mass: 72.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1364,7 +1346,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 180_000,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 120), (ResourceId::Components, 80)],
+        mass: 1120.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1387,7 +1369,7 @@ pub static PARTS: [PartDef; 50] = [
         // Metal and components alone, like the fusion reactor and for the
         // same reason: an emitter in it would put a second key behind this
         // one's.
-        recipe: &[(ResourceId::Metal, 60), (ResourceId::Components, 80)],
+        mass: 640.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1407,7 +1389,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 200,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1), (ResourceId::Components, 1)],
+        mass: 10.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1427,7 +1409,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 400,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 2), (ResourceId::Components, 1)],
+        mass: 18.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1446,7 +1428,7 @@ pub static PARTS: [PartDef; 50] = [
         shields: false,
         capacity: None,
         // The pot. The plant weighs nothing worth the metal's while.
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1464,7 +1446,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 450,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 2)],
+        mass: 16.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1483,7 +1465,7 @@ pub static PARTS: [PartDef; 50] = [
         shields: false,
         capacity: None,
         // The frame.
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1506,7 +1488,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 600,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1526,7 +1508,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 200,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1544,7 +1526,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 100,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1562,7 +1544,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 300,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1580,7 +1562,7 @@ pub static PARTS: [PartDef; 50] = [
         price: 100,
         shields: false,
         capacity: None,
-        recipe: &[(ResourceId::Metal, 1)],
+        mass: 8.0,
         thrust: 0.0,
         torque_thrust: 0.0,
         thrust_power: 0.0,
@@ -1746,22 +1728,16 @@ pub fn door_slides_along_x(rotation: Rotation) -> bool {
     w > h
 }
 
-/// What a part weighs: its recipe, added up.
+/// What a part weighs: [`PartDef::mass`], and nothing else.
 ///
-/// **There is no other answer.** A part does not carry a mass of its own
-/// beside the materials it is made of, because the two could then disagree —
-/// and a part that weighs more than what went into it is mass appearing out
-/// of nothing every time one is built. See [`crate::materials`] for what
-/// that buys.
+/// **There is no other answer.** It was the part's recipe added up until
+/// the money rework (feature 95); the column it reads now holds exactly
+/// what each of those recipes weighed, so nothing about any ship moved.
+/// See [`crate::materials`] for what a ship's mass is made of now.
 ///
-/// Strictly positive, which [`defs_are_sound`] checks: every recipe has
-/// something in it and every material weighs something.
+/// Strictly positive, which [`defs_are_sound`] checks.
 pub fn part_mass(kind: PartKind) -> f64 {
-    kind.def()
-        .recipe
-        .iter()
-        .map(|&(id, units)| units as f64 * id.mass_per_unit())
-        .sum()
+    kind.def().mass
 }
 
 /// The footprint a part covers once it is turned: tiles across and down.
@@ -1861,23 +1837,8 @@ pub fn essential(kind: PartKind) -> bool {
     matches!(kind, PartKind::LifeSupport | PartKind::Door)
 }
 
-/// Whether one recipe holds together: something in it, only materials, a
-/// real number of each, and no resource named twice — two entries for metal
-/// would be a part whose weight depends on which one a reader stopped at.
-fn recipe_is_sound(recipe: &'static [(ResourceId, u32)]) -> bool {
-    !recipe.is_empty()
-        && recipe.iter().enumerate().all(|(i, &(id, units))| {
-            let material = matches!(
-                id,
-                ResourceId::Metal | ResourceId::Components | ResourceId::Emitter
-            );
-            let once = !recipe[..i].iter().any(|&(seen, _)| seen == id);
-            material && units > 0 && once
-        })
-}
-
 /// Whether the table above holds together: one entry per kind, in order, each
-/// made of something and costing something, thrust on engines and nowhere
+/// weighing something and costing something, thrust on engines and nowhere
 /// else, turning force on thrusters and nowhere else, a footprint with area in
 /// it, exactly one part on the floor layer and exactly one on the structure
 /// layer, nothing requiring its own layer, and no container that holds
@@ -1891,7 +1852,6 @@ pub fn defs_are_sound() -> bool {
         let engine = matches!(kind, PartKind::Engine | PartKind::HeavyEngine);
         let thruster = kind == PartKind::Thruster;
         def.kind == kind
-            && recipe_is_sound(def.recipe)
             && part_mass(kind) > 0.0
             && part_mass(kind).is_finite()
             && def.thrust.is_finite()

@@ -272,21 +272,21 @@ mod tests {
     #[test]
     fn resource_table_holds_together() {
         assert!(data::defs_are_sound());
-        assert_eq!(ResourceId::Metal.def().id, ResourceId::Metal);
+        assert_eq!(ResourceId::Handgun.def().id, ResourceId::Handgun);
     }
 
     #[test]
     fn mass_is_hull_plus_cargo_plus_crew_and_a_bare_hull_is_still_its_hull() {
         // --- cargo_is_units_times_unit_mass ---
         {
-            let hold = [(ResourceId::Ore, 3), (ResourceId::Components, 10)];
-            assert!(close(cargo_mass(&hold), 3.0 * 10.0 + 10.0 * 2.0));
+            let hold = [(ResourceId::Suit, 3), (ResourceId::Bandage, 10)];
+            assert!(close(cargo_mass(&hold), 3.0 * 6.0 + 10.0 * 2.0));
             assert_eq!(cargo_mass(&[]), 0.0);
         }
 
         // --- mass_is_hull_plus_cargo_plus_crew ---
         {
-            let m = ship_mass(1000.0, &[(ResourceId::Metal, 100)], 2).unwrap();
+            let m = ship_mass(1000.0, &[(ResourceId::LegGuard, 100)], 2).unwrap();
             assert!(close(m.get(), 1000.0 + 800.0 + 2.0 * PLAYER_MASS));
         }
 
@@ -365,7 +365,7 @@ mod tests {
     /// 518400 units and keeps the world generator's distances legible.
     #[test]
     fn the_reference_arrangement_accelerates_at_one() {
-        let m = ship_mass(1000.0, &[(ResourceId::Metal, 100)], 2).unwrap();
+        let m = ship_mass(1000.0, &[(ResourceId::LegGuard, 100)], 2).unwrap();
         let engines = [
             EngineSpec::new(1000.0, Facing::Forward).unwrap(),
             EngineSpec::new(1000.0, Facing::Forward).unwrap(),

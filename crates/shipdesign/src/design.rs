@@ -25,7 +25,7 @@ use crate::parts::{Layer, PartKind, Rotation, covered, footprint, hangs_on_wall,
 /// `physics::ResourceId::ALL.len()`, written out because it sizes an array
 /// and an array length has to be a constant. `cargo_is_the_right_length`
 /// pins the two together.
-pub const CARGO_SLOTS: usize = 26;
+pub const CARGO_SLOTS: usize = 18;
 
 /// One part, placed. `origin` is the top-left tile of the **turned**
 /// footprint, so a part's origin is where you clicked whichever way round it

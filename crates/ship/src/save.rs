@@ -82,7 +82,7 @@ use crate::game::Game;
 /// **derived jammer station** is not in the file either: it is rolled off
 /// the star's own stream, and `settle_crisis` lays it again
 /// (`World::settle_jammer`) on every read.
-pub const SAVE_VERSION: u32 = 30;
+pub const SAVE_VERSION: u32 = 31;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

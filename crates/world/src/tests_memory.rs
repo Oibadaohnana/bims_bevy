@@ -361,20 +361,12 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
         tile: (3, 3),
         health: 0.0,
     });
-    // And mined at the belt: a rock gone and another marked.
+    // And held at the belt, which closes the station's room.
     assert!(
         world.hold_at_belt_for_probe(),
         "the spawn system has a belt"
     );
-    assert!(!world.sites.is_empty());
-    let gone = world.sites[0].tiles.pop().expect("a rock");
-    let marked = world.sites[0].tiles[0];
-    world.step(&[Command::MarkRock {
-        slot: 0,
-        x: marked.x,
-        y: marked.y,
-    }]);
-    assert_eq!(world.sites[0].marked, vec![(marked.x, marked.y)]);
+    world.step(&[]);
     // The room closed by the flight to the belt counted the dead.
     assert!(world.residents.is_none());
     assert_eq!(world.losses_at(station).dead, 1);
@@ -382,21 +374,19 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     let left = (
         world.hostile.clone(),
         world.station_keys.clone(),
-        world.sites.clone(),
         world.plunder.clone(),
         world.lamps.clone(),
         world.discovered.clone(),
         world.losses.clone(),
     );
-    assert!(!left.5.is_empty(), "the chart has something on it");
+    assert!(!left.4.is_empty(), "the chart has something on it");
 
     // Away: the other system as the generator rolled it, and this one
     // filed under its star.
     jump_to(&mut world, to);
     assert_eq!(world.memories.len(), 1);
     assert_eq!(world.memories[0].star, from);
-    assert_eq!(world.memories[0].sites, left.2);
-    assert_eq!(world.memories[0].losses, left.6);
+    assert_eq!(world.memories[0].losses, left.5);
     for s in &world.stations {
         assert_eq!(world.hostile.binary_search(&s.id).is_ok(), s.hostile);
     }
@@ -404,7 +394,6 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
         world.station_keys,
         world.stations.iter().map(|s| s.key).collect::<Vec<_>>()
     );
-    assert!(world.sites.is_empty());
     assert!(world.plunder.is_empty());
     assert!(world.losses.is_empty());
     assert!(
@@ -420,17 +409,12 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     assert_eq!(world.memories.len(), 2);
     assert_eq!(world.hostile, left.0);
     assert_eq!(world.station_keys, left.1);
-    assert_eq!(world.sites, left.2);
-    assert_eq!(world.plunder, left.3);
-    assert_eq!(world.lamps, left.4);
-    assert_eq!(world.losses, left.6);
-    for node in &left.5 {
+    assert_eq!(world.plunder, left.2);
+    assert_eq!(world.lamps, left.3);
+    assert_eq!(world.losses, left.5);
+    for node in &left.4 {
         assert!(world.discovered.contains(node), "{node:?} forgotten");
     }
-    assert!(
-        world.sites[0].tiles.iter().all(|t| *t != gone),
-        "the rock stays mined"
-    );
     assert_eq!(world.stance(station), Stance::Hostile);
     assert_eq!(world.station_keys[with_key], 0, "the key stays taken");
     // Its people: one fewer, still.
@@ -599,6 +583,7 @@ fn the_map_marks_where_the_ship_has_already_been() {
         world.hold_at_belt_for_probe(),
         "the spawn system has a belt"
     );
+    world.step(&[]);
     world.step(&[]);
     let belt = world
         .visited

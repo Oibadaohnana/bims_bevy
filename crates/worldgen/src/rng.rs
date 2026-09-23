@@ -79,6 +79,11 @@ pub enum Purpose {
     /// it — and its own stream, so that a jammer never moves a raid or the
     /// machines' origin.
     Jammer = 13,
+    /// Whether a place with a market trades in **weapons**, and whether
+    /// it trades in **armour** (feature 95, `data::Stock::roll`): two
+    /// flags a station, and its own stream so that reworking what is on
+    /// a shelf never moves which places sell guns.
+    GearTrade = 14,
 }
 
 /// SplitMix64's finalizer. Takes a counter-ish input to a well-spread output,

@@ -387,8 +387,9 @@ fn an_infested_station_has_no_desk_and_nothing_on_a_shelf() {
     assert!(world.man_the_desk_for_probe(0), "a desk to stand at");
     let events = world.step(&[Command::Buy {
         slot: 0,
-        resource: ResourceId::Metal,
+        resource: ResourceId::Vegetable,
         units: 1,
+        tier: 1,
     }]);
     assert!(
         events
@@ -399,7 +400,7 @@ fn an_infested_station_has_no_desk_and_nothing_on_a_shelf() {
     let money = world.money;
     let events = world.step(&[Command::Sell {
         slot: 0,
-        resource: ResourceId::Metal,
+        resource: ResourceId::Vegetable,
         units: 1,
     }]);
     assert!(

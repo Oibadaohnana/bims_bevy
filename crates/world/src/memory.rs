@@ -6,7 +6,7 @@
 //! one of them, the dead included — so a garrison shot to the last man
 //! stood up again the moment the ship had gone a little way off. And a
 //! jump replaced every part of the world that belonged to the system —
-//! the hostile list, the keys on the desks, the mining sites, the
+//! the hostile list, the keys on the desks, the
 //! plundered shelves, the lamps shot out, the chart — so a jump away and
 //! back was a system as the generator rolled it, the key back on the
 //! desk and the rocks back in the belt.
@@ -46,7 +46,6 @@ use bims::character::Look;
 use bims::combat::Gear;
 use worldgen::Node;
 
-use crate::mining::MiningSite;
 use crate::plunder::Plunder;
 use crate::world::LampDamage;
 
@@ -175,8 +174,6 @@ pub struct SystemMemory {
     pub reinforcements: u32,
     /// `World::station_keys`: which tier of key each desk still has.
     pub station_keys: Vec<u8>,
-    /// `World::sites`: every belt's rocks as they were left.
-    pub sites: Vec<MiningSite>,
     /// `World::plunder`: every enemy's shelf as it was left.
     pub plunder: Vec<Plunder>,
     /// The stations' lamps of `World::lamps` — the ship's own stay with

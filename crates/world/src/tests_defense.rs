@@ -14,7 +14,7 @@ use crate::defense;
 use crate::event::WorldEvent;
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
 use crate::surface;
-use crate::world::{ShipState, World};
+use crate::world::World;
 use crate::world_checksum;
 
 fn basic() -> World {

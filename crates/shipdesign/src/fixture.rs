@@ -38,7 +38,7 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// hashing differently, and a test that compares two computed values would
 /// pass happily while both were wrong. Update them only when the reference
 /// design itself is meant to change.
-pub const REFERENCE_HASH: [u64; 2] = [0x8738_8ed2_db1c_edad, 0xa0b3_ee44_78bc_88d6];
+pub const REFERENCE_HASH: [u64; 2] = [0x0617_9497_2e16_65ac, 0x5b4f_9597_b2c6_baf7];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -349,12 +349,12 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// target that hashed the simulation's ship differently would start a
 /// different simulation. Update it only when the ship below is meant to
 /// change.
-pub const PLAYTEST_HASH: u64 = 0x24cc_7ccb_9d40_5ffc;
+pub const PLAYTEST_HASH: u64 = 0xd9cb_319c_6859_03ec;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the
 /// reason [`REFERENCE_PARTS`] gives.
-pub const PLAYTEST_PARTS: u32 = 668;
+pub const PLAYTEST_PARTS: u32 = 667;
 
 /// The playtest hull, as columns of the grid: the west skin and the east,
 /// the bow row and the stern row. Sixteen tiles across and eighteen long,
@@ -476,27 +476,26 @@ const PLAYTEST_BRANCHES: [(u32, u32); 54] = [
     (7, 9),
 ];
 
-/// What the playtest ship carries: enough metal and
-/// components to build with, some ore for the smelter, a few days of food,
-/// one suit in the locker, a few bandages with the fibre for a few more,
-/// so a wound can be dressed from the first minute and the lab tried,
-/// one piece of armour for each part of the body, so the armoury's grid
-/// has something in it to equip, and one of each weapon after the
-/// handgun, so every gun and the schword can be put in a hand without
-/// first being made. Bought through [`apply`], so the shelf, the cold
-/// store and the locker are what bound it — and the locker class is the
-/// suit locker, the drug lab's cabinet and the armoury's between them,
-/// which is what makes room for the armour and the weapons.
-pub const PLAYTEST_CARGO: [(ResourceId, u32); 16] = [
-    (ResourceId::Metal, 60),
-    (ResourceId::Components, 40),
-    (ResourceId::Ore, 40),
+/// What the playtest ship carries: a few days of food, one suit in the
+/// locker, a few bandages and a couple of medkits, so a wound can be
+/// dressed from the first minute and the drug lab tried, one piece of
+/// armour for each part of the body, so the armoury's grid has something
+/// in it to equip, and one of each weapon after the handgun, so every gun
+/// and the schword can be put in a hand without first being bought.
+/// Bought through [`apply`], so the cold store and the lockers are what
+/// bound it — and the locker class is the suit locker, the drug lab's
+/// cabinet, the armoury's and the shelves between them, which is what
+/// makes room for the armour and the weapons.
+///
+/// The materials went with the money rework (feature 95): the metal, the
+/// components and the ore for the smelter had nothing left to be spent
+/// on, and the fibre nothing left to be rolled into.
+pub const PLAYTEST_CARGO: [(ResourceId, u32); 12] = [
     (ResourceId::Vegetable, 40),
     (ResourceId::Tofu, 20),
     (ResourceId::Suit, 1),
     (ResourceId::Bandage, 5),
     (ResourceId::Medkit, 2),
-    (ResourceId::Fibre, 6),
     (ResourceId::Helm, 1),
     (ResourceId::Kevlar, 1),
     (ResourceId::LegGuard, 1),
@@ -718,11 +717,11 @@ pub fn playtest_ship() -> ShipDesign {
     put(&mut design, PartKind::Basin, (12, 14), Rotation::R0);
     put(&mut design, PartKind::Shower, (13, 14), Rotation::R0);
     put(&mut design, PartKind::Engine, (9, 16), Rotation::R0);
-    // The workshop, to starboard of the engine and turned to face forward,
-    // so each is worked from the row above it — the row below is the
-    // stern. A second shelf beside the first for the ore.
+    // The workbench, to starboard of the engine and turned to face
+    // forward, so it is worked from the row above it — the row below is
+    // the stern. The smelter stood beside it until the money rework
+    // (feature 95) took ore and metal away; nothing replaced it.
     put(&mut design, PartKind::Workbench, (11, 17), Rotation::R180);
-    put(&mut design, PartKind::Smelter, (14, 16), Rotation::R180);
     put(&mut design, PartKind::Shelf, (7, 14), Rotation::R0);
     // The drug lab in the stern row to port of the engine, turned the
     // same way for the same reason.

@@ -34,12 +34,12 @@ pub enum Job {
     /// Lifting a ripe one out of it.
     Cut,
     /// Carrying things: what was lifted out of a tray to the cold store,
-    /// and materials from a shelf to a construction site. The first has no
-    /// errand of its own — it is the back half of a [`Job::Cut`], so a
-    /// cutting waits on whichever of the two is set later. The second is an
-    /// errand in its own right: a load off a shelf, walked to the site and
-    /// put down there, one trip at a time, while the world says a site
-    /// still wants something (`game::Build`).
+    /// and a gun or a piece of armour between the lockers and the
+    /// workbench. The first has no errand of its own — it is the back half
+    /// of a [`Job::Cut`], so a cutting waits on whichever of the two is set
+    /// later. The second is an errand in its own right (`game::Ferry`).
+    /// Materials to a construction site were the third until the money
+    /// rework (feature 95): there are none to carry.
     Haul,
     /// Cooking: a meal for a hungry Bim, and stew for the cold store while
     /// the shelf holds fewer than the manager asked for — one vegetable and
@@ -54,22 +54,17 @@ pub enum Job {
     /// knows the helm through `Game::set_helm`, which the world calls: the
     /// classic room has no helm and never offers this.
     Helm,
-    /// Making something at a bench — the smelter, the workbench — while the
+    /// Making something at a bench — the drug lab — while the
     /// world has an order for it: the hold short of a product the player
     /// asked to keep, the inputs aboard, and the station powered. One row
     /// for every bench, because what a Bim does at any of them is stand
     /// there; which recipe is the order's. See `game::Order`.
     Craft,
-    /// A walk outside in a suit to gather ore, while the ship is holding
-    /// at a belt with a suit aboard and room for what comes back. The world
-    /// says when — `game::Eva` — and what a walk yields is the belt's.
-    Mine,
     /// Putting a part of the ship together at a construction site the
-    /// player laid out, once everything it is made of has been carried
-    /// there — [`Job::Haul`] is the carrying. The world says what there is
-    /// to build and what each site still wants (`game::Build`); the room
-    /// walks a Bim to a shelf and to the site, in a suit if the site is
-    /// outside the hull.
+    /// player laid out. Nothing is carried to one: a part is paid for out
+    /// of the crew's pool (feature 95), so the errand is the walk and the
+    /// work. The world says what there is to build (`game::Build`); the
+    /// room walks a Bim to the site, in a suit if it is outside the hull.
     Build,
     /// Dressing a wound with one of the ship's bandages — its own first,
     /// while it bleeds, else the crewmate with the most open wounds — on
@@ -83,7 +78,7 @@ pub enum Job {
 }
 
 impl Job {
-    pub const ALL: [Job; 10] = [
+    pub const ALL: [Job; 9] = [
         Job::Clean,
         Job::Plant,
         Job::Cut,
@@ -91,7 +86,6 @@ impl Job {
         Job::Cook,
         Job::Helm,
         Job::Craft,
-        Job::Mine,
         Job::Build,
         Job::Medical,
     ];

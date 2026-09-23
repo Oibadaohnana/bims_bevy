@@ -124,20 +124,6 @@ enum Aim {
 /// marked one — and the drag that follows does the same to every rock the
 /// pointer is pulled over, so a whole face is marked in one stroke.
 ///
-/// The press decides which way the stroke goes, from the first rock: a
-/// stroke that began on a bare rock marks and skips the marked, one that
-/// began on a marked rock unmarks and skips the bare. `touched` is every
-/// tile the stroke has already sent an order for, kept here because the
-/// order lands on a step and a paused world would otherwise be asked to
-/// toggle the same rock every frame the pointer rests on it.
-struct MarkDrag {
-    marking: bool,
-    /// The tile the pointer was over last frame, to walk the tiles between
-    /// it and this one: a fast pull skips tiles between frames.
-    last: (i32, i32),
-    touched: Vec<(i32, i32)>,
-}
-
 /// An order to the crew's room as the seam carries it: given plain, or —
 /// with Shift held — to wait its turn behind what the crew member is on
 /// (feature 69, `Order::CrewLater`).
@@ -147,27 +133,6 @@ fn crew_order(order: CrewOrder, later: bool) -> Order {
     } else {
         Order::Crew(order)
     }
-}
-
-/// The tiles a straight pull of the pointer from `from` to `to` crosses,
-/// both ends included: one a step along the longer axis, the other axis
-/// rounded to keep beside the line. What a stroke marks, so a rock
-/// between two frames' positions is not skipped.
-fn tiles_between(from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
-    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
-    let steps = dx.abs().max(dy.abs());
-    (0..=steps)
-        .map(|i| {
-            if steps == 0 {
-                return from;
-            }
-            let t = i as f32 / steps as f32;
-            (
-                from.0 + (dx as f32 * t).round() as i32,
-                from.1 + (dy as f32 * t).round() as i32,
-            )
-        })
-        .collect()
 }
 
 impl Aim {
@@ -237,9 +202,6 @@ pub struct GameScreen {
     /// making — a line for the selected crew, or a point if it never moves
     /// further than a click.
     order_from: Option<Vec2>,
-    /// A drag with the Mine tool in hand: the rocks are marked, or
-    /// unmarked, as the pointer is dragged over them.
-    mark_drag: Option<MarkDrag>,
     pan_from: Option<Vec2>,
     /// The Esc sheet, if it is up, and which page.
     sheet: Option<Sheet>,
@@ -645,9 +607,6 @@ fn open(
             // And `BIMS_BEAM` after it: the class has to be on before a
             // medic can hold anybody (feature 76).
             crate::dev::beam_crew(&mut session);
-            if crate::dev::at_belt() {
-                session.hold_at_belt_for_probe();
-            }
             if crate::dev::landed() || crate::dev::afield() {
                 session.land_for_probe();
             }
@@ -810,7 +769,6 @@ impl GameScreen {
             hover_at: None,
             marquee_from: None,
             order_from: None,
-            mark_drag: None,
             pan_from: None,
             sheet: None,
             saves: crate::save::Saves::default(),
@@ -1248,7 +1206,7 @@ fn frame(
                 level: progress.level(),
                 to_next: progress.to_next(),
                 pending: progress
-                    .pending_pick()
+                    .pending_pick(class)
                     .and_then(|l| world::class::pick_at(class, l).map(|(a, b)| (l, a, b))),
                 picks: progress.picks.clone(),
                 talents: progress.talents(class),
@@ -1403,18 +1361,6 @@ fn frame(
     }
     let panels = screen.panels.as_mut().unwrap();
 
-    // The tool in the pointer's hand. Mine only means anything at a
-    // mining site, in the ship view: away from one it is put down.
-    let (at_site, marked) = session
-        .game
-        .as_ref()
-        .and_then(|g| g.world.site_here())
-        .map(|s| (true, s.marked.len()))
-        .unwrap_or((false, 0));
-    if panels.tool == Some(Tool::Mine) && !at_site {
-        panels.tool = None;
-    }
-    let marking = panels.tool == Some(Tool::Mine) && !map_up;
     // Where this pointer is over the deck, to the room, as a design point
     // — nothing over a panel, and nothing with the map up, where a tile
     // means nothing.
@@ -1424,12 +1370,6 @@ fn frame(
             .filter(|_| !map_up)
             .map(|p| session.design_point(p.x, p.y)),
     );
-    if let Some(game) = &mut session.game {
-        game.marking = marking;
-    }
-    if !marking {
-        screen.mark_drag = None;
-    }
     // The blueprint in hand — the Build tab's tool — is the ship view's:
     // the painter draws it under the pointer there, and on the map a tile
     // means nothing. The turn it has is kept across a change of part; the
@@ -1449,23 +1389,15 @@ fn frame(
         game.set_placing(building.map(|kind| (kind, rotation)));
     }
     let mut actions = Actions {
-        at_site,
-        marked,
-        reachable: session.room_ref().map(|r| r.rocks_reachable()).unwrap_or(0),
-        clear: false,
         overlay: session.game.as_ref().map(|g| g.overlay).unwrap_or_default(),
         crafts: crafts(session),
         keep: Vec::new(),
         at_rest: session.game.as_ref().is_some_and(|g| g.world.at_rest()),
-        free: {
-            let mut free = [0u32; shipdesign::CARGO_SLOTS];
-            if let Some(game) = &session.game {
-                for &id in ResourceId::ALL.iter() {
-                    free[id as usize] = game.world.free(id);
-                }
-            }
-            free
-        },
+        free_money: session
+            .game
+            .as_ref()
+            .map(|g| g.world.free_money())
+            .unwrap_or(0),
         sites: sites(session),
         cancel: Vec::new(),
         head_up: session.game.as_ref().is_some_and(|g| g.head_up),
@@ -1621,47 +1553,6 @@ fn frame(
                 if pointer.secondary_pressed {
                     panels.tool = None;
                 }
-            }
-        } else if marking {
-            // With the Mine tool in hand the pointer is about the rocks and
-            // nothing else: a press on one marks it, or unmarks it, through
-            // the seam like any order, and dragging on from there does
-            // the same to every rock the pointer crosses (`MarkDrag`); a
-            // right-click puts the tool down. The system's cursor goes
-            // and a pick is drawn in its place, below.
-            if let Some(p) = on_canvas {
-                ctx.set_cursor_icon(egui::CursorIcon::None);
-                if let Some(game) = &session.game
-                    && let Some(site) = game.world.site_here()
-                {
-                    let here = game.tile_at(p.x, p.y);
-                    if pointer.primary_pressed && site.at(here.0, here.1).is_some() {
-                        screen.mark_drag = Some(MarkDrag {
-                            marking: !site.is_marked(here.0, here.1),
-                            last: here,
-                            touched: Vec::new(),
-                        });
-                    }
-                    if let Some(drag) = &mut screen.mark_drag
-                        && pointer.primary_down
-                    {
-                        for (x, y) in tiles_between(drag.last, here) {
-                            let rock = site.at(x, y).is_some();
-                            let wants = site.is_marked(x, y) != drag.marking;
-                            if rock && wants && !drag.touched.contains(&(x, y)) {
-                                drag.touched.push((x, y));
-                                orders.push(Order::Mark { x, y });
-                            }
-                        }
-                        drag.last = here;
-                    }
-                }
-                if pointer.secondary_pressed {
-                    panels.tool = None;
-                }
-            }
-            if !pointer.primary_down {
-                screen.mark_drag = None;
             }
         } else if let Some(p) = on_canvas {
             let (rx, ry) = session.room_point(p.x, p.y);
@@ -2075,12 +1966,8 @@ fn frame(
     };
     let speed = game.world.trip_state().map(|s| s.speed).unwrap_or(0.0);
     let degrees = (game.world.ship.heading.to_degrees() + 360.0) % 360.0;
-    // What the pointer is over, in the ship view: the part under it and the
-    // tile, and what the room aboard makes of the same point.
-    let rock_under = game.hover.and_then(|(x, y)| {
-        let site = game.world.site_here()?;
-        Some((site.at(x, y)?, site.is_marked(x, y), x, y))
-    });
+    // What the pointer is over, in the ship view: the part under it and
+    // the tile, and what the room aboard makes of the same point.
     // A blueprint in hand names itself and says whether it would go; a
     // site under the pointer names the part and what has reached it.
     let ghost = building.and_then(|kind| Some((kind, game.ghost_answer()?)));
@@ -2102,17 +1989,6 @@ fn frame(
             (
                 format!("Blueprint · {}", part_name(site.kind)),
                 site_progress(site, &game.world.ship.design),
-            )
-        }
-        Some(_) if !map_up && rock_under.is_some() => {
-            let (kind, marked, x, y) = rock_under.unwrap();
-            let name = ROCK_NAMES
-                .get(kind.code() as usize)
-                .copied()
-                .unwrap_or("Rock");
-            (
-                format!("{name} · {x}, {y}"),
-                if marked { "Marked to be mined" } else { "" }.to_string(),
             )
         }
         Some(p) if !map_up && session.game_tile_inside() => {
@@ -2357,9 +2233,6 @@ fn frame(
     // agreed.
     if !screen.trading {
         screen.cart.clear();
-    }
-    if actions.clear {
-        orders.push(Order::ClearMarks);
     }
     for (resource, units) in actions.keep.drain(..) {
         orders.push(Order::Keep { resource, units });
@@ -2752,10 +2625,6 @@ fn frame(
         }
     }
 
-    // The pick in the pointer's hand, where the system's cursor was.
-    if marking && let Some(p) = on_canvas {
-        pick_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
-    }
     // And the red crosshair while the attack key has the pointer armed
     // (feature 84), in the same place for the same reason.
     if screen.aiming_attack
@@ -3162,22 +3031,6 @@ fn frame(
     Ok(())
 }
 
-/// A pick, drawn at the pointer: the handle running down and to the left
-/// of the point, the head across its top, each stroke over a dark one so
-/// it reads on the deck and on the void alike.
-fn pick_cursor(painter: &egui::Painter, at: egui::Pos2) {
-    let handle = [at + egui::vec2(-11.0, 11.0), at + egui::vec2(2.0, -2.0)];
-    let head = [at + egui::vec2(-5.0, -7.0), at + egui::vec2(9.0, 5.0)];
-    for (width, color) in [
-        (5.0, egui::Color32::from_black_alpha(200)),
-        (2.5, theme::INK),
-    ] {
-        painter.line_segment(handle, egui::Stroke::new(width, color));
-        painter.line_segment(head, egui::Stroke::new(width + 1.0, color));
-    }
-    painter.circle_filled(at, 1.5, theme::ACCENT);
-}
-
 /// The pointer while the attack key has it armed (feature 84): a red
 /// crosshair where the system's cursor was, each stroke over a dark one
 /// so it reads on the deck and on the void alike. Red because what the
@@ -3559,14 +3412,21 @@ fn system_contents(ui: &mut egui::Ui, base: &str, system: &worldgen::StarSystem)
                     theme::INK
                 }),
             );
+            // And which gear trades it has (feature 95), since that is
+            // the one thing about a station worth flying to it for.
+            let trades = gear_trades(
+                station.stock.sells(ResourceId::Handgun),
+                station.stock.sells(ResourceId::Helm),
+            );
             ui.label(
                 egui::RichText::new(format!(
-                    "{}{}",
+                    "{}{}{}",
                     STATION_KIND_NAMES
                         .get(station.kind as usize)
                         .copied()
                         .unwrap_or("Station"),
-                    if station.hostile { " · hostile" } else { "" }
+                    if station.hostile { " · hostile" } else { "" },
+                    trades.map(|t| format!(" · {t}")).unwrap_or_default()
                 ))
                 .small()
                 .color(theme::MUTED),
@@ -4058,16 +3918,39 @@ fn trade_window(
             if let Some(hops) = session.front_premium() {
                 theme::asks(ui, &front_premium(hops), FRONT_PREMIUM_TIP);
             }
+            // And which gear this desk deals in (feature 95): the two
+            // trades are rolled off the place's own seed, so a station
+            // that sells no guns at all is the ordinary case rather than
+            // a fault, and the line says so before the rows are read.
+            let trades = gear_trades(
+                session.sold_here(ResourceId::Handgun),
+                session.sold_here(ResourceId::Helm),
+            );
+            theme::asks(
+                ui,
+                &trades
+                    .map(|t| format!("Gear traded here: {t}."))
+                    .unwrap_or_else(|| NO_GEAR_TRADE.to_string()),
+                GEAR_TRADE_TIP,
+            );
             ui.add_space(4.0);
             // What is aboard to sell is what no construction site has
             // claimed, which is the rule `Sell` is judged by.
-            let free =
-                |s: &Session, id: ResourceId| s.game.as_ref().map_or(0, |g| g.world.free(id));
-            for (resource, units, buying) in trade_rows(ui, session, cart, true, at_desk, free) {
+            let free = |s: &Session, id: ResourceId| {
+                s.game
+                    .as_ref()
+                    .map_or(0, |g| g.world.ship.design.carrying(id))
+            };
+            for (resource, units, buying, tier) in
+                trade_rows(ui, session, cart, true, at_desk, free)
+            {
                 orders.push(Order::Deal {
                     resource: ResourceId::ALL[resource as usize],
                     units,
                     buying,
+                    // The tier the row's chooser named (feature 95): a buy
+                    // is at that tier, a sale gives up the lowest first.
+                    tier,
                 });
             }
         });
@@ -4321,7 +4204,7 @@ fn hold_of(session: &Session, who: usize) -> Hold {
     };
     let world = &game.world;
     for &id in ResourceId::ALL.iter() {
-        hold.counts[id as usize] = world.free(id);
+        hold.counts[id as usize] = world.ship.design.carrying(id);
         hold.reach[id as usize] = world.in_reach(who as u32, id);
     }
     hold.guns = world.guns.clone();
@@ -4595,7 +4478,7 @@ fn sites(session: &Session) -> Vec<crate::crew::Site> {
             kind: site.kind,
             at: site.origin,
             progress: site_progress(site, design),
-            stocked: site.stocked(design),
+            affordable: game.world.affordable_site(site),
         })
         .collect()
 }

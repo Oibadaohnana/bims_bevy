@@ -446,13 +446,15 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
         })
         .collect();
 
-    // The workstations: every part with a recipe made at it, in id order,
-    // each with the spot in front of it off its use spot, turned with the
+    // The workstations: every part worked at — a recipe made at it, or
+    // the workbench and the armoury, which are worked at for other
+    // reasons (`shipdesign::recipes::is_workstation`) — in id order, each
+    // with the spot in front of it off its use spot, turned with the
     // part. They stay solids in `others`; the ship draws them.
     let benches: Vec<Bench> = design
         .parts
         .iter()
-        .filter(|p| shipdesign::recipes::at(p.kind).next().is_some())
+        .filter(|p| shipdesign::recipes::is_workstation(p.kind))
         .map(|p| Bench {
             kind: p.kind.code(),
             frame: part_rect(p),

@@ -12,7 +12,7 @@ use economy::{Money, Storage, trade_price};
 use physics::ResourceId;
 use shipdesign::fixture::flyer;
 use shipdesign::parts::PartKind;
-use shipdesign::{Budget, Edit, Rotation, ShipDesign, apply, build_from_cargo};
+use shipdesign::{Budget, Edit, Rotation, ShipDesign, apply};
 use worldgen::math::{DVec2, dvec2};
 use worldgen::{GalaxyType, StationKind};
 
@@ -20,7 +20,6 @@ use crate::data;
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::{REFERENCE_MONEY, crewed_world, reference_target, simulation_world};
 use crate::frame::Frame;
-use crate::mining::{self, MiningSite, Rock, RockTile};
 use crate::speed::Speed;
 use crate::station::Station;
 use crate::world::{Command, ShipState, World};
@@ -36,7 +35,7 @@ fn world_with(design: ShipDesign, money: Money, players: u32) -> World {
     simulation_world(design, money, players)
 }
 
-fn basic() -> World {
+pub(crate) fn basic() -> World {
     world_with(flyer(2), REFERENCE_MONEY, 2)
 }
 
@@ -352,11 +351,12 @@ fn stepping_a_trip_lands_where_the_plan_said_it_would() {
 
 // --- what a ship change does, and does not do -------------------------------
 
-/// The conservation contract, in the world rather than in `shipdesign`:
-/// welding a wall out of the hold changes where the weight is and not how
-/// much of it there is, and it does not move the hull a millimetre.
+/// A part built adds its own mass and **does not move the hull a
+/// millimetre**: the anchor is stored and the position derived, so
+/// bolting a wall to the stern drags the centre of mass aft and leaves
+/// every tile of the ship exactly where it was.
 #[test]
-fn building_a_part_out_of_the_hold_moves_no_mass_and_no_hull() {
+fn building_a_part_moves_the_centre_of_mass_and_not_the_hull() {
     // The flyer has no shelf, so there is nowhere to keep the materials. One
     // shelf and a hundred units of metal is what a construction step would
     // actually be working from.
@@ -376,7 +376,7 @@ fn building_a_part_out_of_the_hold_moves_no_mass_and_no_hull() {
         &design,
         &budget,
         Edit::Buy {
-            resource: ResourceId::Metal,
+            resource: ResourceId::Vegetable,
             units: 60,
         },
     )
@@ -390,19 +390,26 @@ fn building_a_part_out_of_the_hold_moves_no_mass_and_no_hull() {
 
     // A wall at the far end of the ship, which is where the centre of mass
     // will be dragged.
-    world.ship.design = build_from_cargo(
+    world.ship.design = apply(
         &world.ship.design,
+        &Budget::new(economy::Money::MAX),
         Edit::Place {
             kind: PartKind::Wall,
             origin: (16, 16),
             rotation: Rotation::R0,
         },
     )
-    .expect("the hold had the metal for a wall");
+    .expect("a wall at the stern");
     world.on_ship_changed();
 
+    // A part is **bought** since the money rework (feature 95), so the
+    // ship is heavier by exactly the wall — the hull and the hold were
+    // one stock of materials before, and are not now.
     assert!(
-        close(world.ship.dynamics.mass.get(), before_mass),
+        close(
+            world.ship.dynamics.mass.get(),
+            before_mass + shipdesign::part_mass(PartKind::Wall)
+        ),
         "mass went from {before_mass} to {}",
         world.ship.dynamics.mass.get(),
     );
@@ -637,7 +644,6 @@ fn trading_wants_somebody_at_the_desk_and_a_station_only_sells_what_its_kind_sel
         assert!(world.desk_spot().is_none());
         assert!(!world.man_the_desk_for_probe(0));
     }
-
     // --- a_station_only_sells_what_its_kind_sells ---
     {
         let budget = Budget::new(10_000_000);
@@ -657,45 +663,62 @@ fn trading_wants_somebody_at_the_desk_and_a_station_only_sells_what_its_kind_sel
             panic!("a world opens docked");
         };
         let kind = world.station(station).unwrap().kind;
-        assert!(kind.sells(ResourceId::Metal));
+        assert!(kind.sells(ResourceId::Vegetable));
         assert!(world.man_the_desk_for_probe(0), "a desk to trade at");
 
+        // A research key is found on a desk, never on a shelf, and no
+        // kind stocks one.
         let events = world.step(&[Command::Buy {
             slot: 0,
-            resource: ResourceId::Emitter,
+            resource: ResourceId::ResearchKey,
             units: 1,
+            tier: 1,
         }]);
         assert!(refused_with(&events, Refusal::NotSoldHere), "{events:?}");
-        assert_eq!(world.ship.design.carrying(ResourceId::Emitter), 0);
+        assert_eq!(world.ship.design.carrying(ResourceId::ResearchKey), 0);
 
+        // A pressure suit hangs where people work outside, and nowhere
+        // else (feature 95).
         let events = world.step(&[Command::Buy {
             slot: 0,
-            resource: ResourceId::Galvum,
+            resource: ResourceId::Suit,
             units: 1,
+            tier: 1,
         }]);
-        if kind == worldgen::StationKind::MiningOutpost {
-            assert_eq!(world.ship.design.carrying(ResourceId::Galvum), 1);
+        let outside_work = matches!(
+            kind,
+            worldgen::StationKind::Refinery | worldgen::StationKind::MiningOutpost
+        );
+        if outside_work
+            && world
+                .station(station)
+                .unwrap()
+                .stock
+                .sells(ResourceId::Suit)
+        {
+            assert_eq!(world.ship.design.carrying(ResourceId::Suit), 1);
         } else {
             assert!(refused_with(&events, Refusal::NotSoldHere), "{events:?}");
-            assert_eq!(world.ship.design.carrying(ResourceId::Galvum), 0);
         }
 
-        // Metal is on every shelf, and what is aboard sells anywhere with
-        // somebody to buy it.
+        // Vegetables are on every shelf, and what is aboard sells
+        // anywhere with somebody to buy it.
         let events = world.step(&[Command::Buy {
             slot: 0,
-            resource: ResourceId::Metal,
+            resource: ResourceId::Vegetable,
             units: 1,
+            tier: 1,
         }]);
         assert!(!refused_with(&events, Refusal::NotSoldHere), "{events:?}");
-        assert_eq!(world.ship.design.carrying(ResourceId::Metal), 1);
+        let veg = world.ship.design.carrying(ResourceId::Vegetable);
+        assert!(veg > 0);
         let money = world.money;
         world.step(&[Command::Sell {
             slot: 0,
-            resource: ResourceId::Metal,
+            resource: ResourceId::Vegetable,
             units: 1,
         }]);
-        assert_eq!(world.ship.design.carrying(ResourceId::Metal), 0);
+        assert_eq!(world.ship.design.carrying(ResourceId::Vegetable), veg - 1);
         assert!(world.money > money);
     }
 }
@@ -732,6 +755,7 @@ fn nothing_is_bought_or_sold_under_way_or_away_from_a_station() {
                 slot: 0,
                 resource: ResourceId::Vegetable,
                 units: 1,
+                tier: 1,
             },
             Command::Sell {
                 slot: 0,
@@ -749,6 +773,7 @@ fn nothing_is_bought_or_sold_under_way_or_away_from_a_station() {
             slot: 0,
             resource: ResourceId::Vegetable,
             units: 1,
+            tier: 1,
         }]);
         assert!(
             refused_with(&events, Refusal::NotDocked),
@@ -951,7 +976,6 @@ fn a_charged_hyperdrive_puts_the_ship_in_another_system() {
     assert!(world.jump_charge().is_none());
     assert_eq!(world.ship.destination_set_by, None);
     assert!(world.residents.is_none());
-    assert!(world.sites.is_empty());
     assert_eq!(world.ship.frame, Frame::Space);
     // In empty space: clear of everything the new system holds.
     let here = world.ship.position();
@@ -1413,16 +1437,18 @@ fn buying_costs_money_and_makes_the_ship_heavier() {
 
     let money = world.money;
     let mass = world.ship.dynamics.mass.get();
+    let aboard = world.ship.design.carrying(ResourceId::Vegetable);
     let events = world.step(&[Command::Buy {
         slot: 1,
-        resource: ResourceId::Metal,
+        resource: ResourceId::Vegetable,
         units: 10,
+        tier: 1,
     }]);
 
     assert!(events.iter().any(|e| matches!(
         e,
         WorldEvent::Traded {
-            resource: ResourceId::Metal,
+            resource: ResourceId::Vegetable,
             units: 10,
             ..
         }
@@ -1432,13 +1458,16 @@ fn buying_costs_money_and_makes_the_ship_heavier() {
     // and never at the book itself.
     let desk = world.station(world.home).unwrap().market().unwrap();
     assert_eq!(desk.bias, economy::market::Bias::NONE, "the spawn leans");
-    let quote = desk.quote(ResourceId::Metal);
-    assert_ne!(quote.ask, trade_price(ResourceId::Metal));
+    let quote = desk.quote(ResourceId::Vegetable);
+    assert_ne!(quote.ask, trade_price(ResourceId::Vegetable));
     assert_eq!(world.money, money - 10 * quote.ask);
-    assert_eq!(world.ship.design.carrying(ResourceId::Metal), 10);
+    assert_eq!(
+        world.ship.design.carrying(ResourceId::Vegetable),
+        aboard + 10
+    );
     assert!(close(
         world.ship.dynamics.mass.get(),
-        mass + 10.0 * ResourceId::Metal.mass_per_unit(),
+        mass + 10.0 * ResourceId::Vegetable.mass_per_unit(),
     ));
 
     // And selling puts it back at the bid — by whoever is at the desk —
@@ -1446,7 +1475,7 @@ fn buying_costs_money_and_makes_the_ship_heavier() {
     assert!(world.man_the_desk_for_probe(0));
     world.step(&[Command::Sell {
         slot: 0,
-        resource: ResourceId::Metal,
+        resource: ResourceId::Vegetable,
         units: 10,
     }]);
     assert_eq!(world.money, money - 10 * (quote.ask - quote.bid));
@@ -1507,17 +1536,18 @@ fn a_derelict_has_no_market_and_every_other_station_quotes() {
         .map(|s| s.id);
     if let Some(id) = derelict {
         world.ship.state = ShipState::Docked { station: id };
-        world.ship.design.cargo[ResourceId::Metal as usize] = 5;
+        world.ship.design.cargo[ResourceId::Vegetable as usize] = 5;
         let events = world.step(&[Command::Sell {
             slot: 0,
-            resource: ResourceId::Metal,
+            resource: ResourceId::Vegetable,
             units: 1,
         }]);
         assert!(refused_with(&events, Refusal::NoMarket));
         let events = world.step(&[Command::Buy {
             slot: 0,
-            resource: ResourceId::Metal,
+            resource: ResourceId::Vegetable,
             units: 1,
+            tier: 1,
         }]);
         assert!(refused_with(&events, Refusal::NotSoldHere));
     }
@@ -1528,31 +1558,34 @@ fn what_cannot_be_paid_for_or_stowed_is_refused() {
     let mut world = world_with(flyer(2), 100, 2);
     assert!(world.man_the_desk_for_probe(0), "a desk to trade at");
     // No money. A staple, which every shelf carries: whether the spawn
-    // rolled components is the generator's business, not this test's.
+    // rolled anything else is the generator's business, not this
+    // test's.
     let events = world.step(&[Command::Buy {
         slot: 0,
-        resource: ResourceId::Metal,
-        units: 10,
+        resource: ResourceId::Vegetable,
+        units: 100,
+        tier: 1,
     }]);
     assert!(refused_with(&events, Refusal::Unaffordable));
 
-    // Money, but nowhere to put it: the flyer has no racking.
+    // Money, but nowhere to put it: the flyer has no locker room.
     world.money = 1_000_000;
-    assert_eq!(world.ship.design.capacity(Storage::Shelf), 0);
+    assert_eq!(world.ship.design.capacity(Storage::Locker), 0);
     let events = world.step(&[Command::Buy {
         slot: 0,
-        resource: ResourceId::Metal,
+        resource: ResourceId::Medkit,
         units: 1,
+        tier: 1,
     }]);
-    assert!(refused_with(&events, Refusal::NoRoomAboard));
+    assert!(refused_with(&events, Refusal::NoRoomAboard), "{events:?}");
 
     // And selling what is not there.
     let events = world.step(&[Command::Sell {
         slot: 0,
-        resource: ResourceId::Ore,
+        resource: ResourceId::Schword,
         units: 1,
     }]);
-    assert!(refused_with(&events, Refusal::NotAboard));
+    assert!(refused_with(&events, Refusal::NotAboard), "{events:?}");
 }
 
 fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
@@ -2119,11 +2152,12 @@ fn the_lockers_lay_the_gear_out_and_a_thing_can_be_moved_and_turned() {
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     let mut twin = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     lockers_agree(&world);
-    // Sixteen rows of ten: two for the suit locker, eight for the armoury,
-    // six for the drug lab. Everything aboard is laid, and covers what the
-    // class counts.
-    assert_eq!(world.grid_capacity(Storage::Locker), 16 * GRID_COLS);
-    assert_eq!(crate::Grid::rows(world.grid_capacity(Storage::Locker)), 16);
+    // Thirty-six rows of ten: two for the suit locker, eight for the
+    // armoury, six for the drug lab and ten for each of the two shelves,
+    // which are locker room since the money rework (feature 95).
+    // Everything aboard is laid, and covers what the class counts.
+    assert_eq!(world.grid_capacity(Storage::Locker), 36 * GRID_COLS);
+    assert_eq!(crate::Grid::rows(world.grid_capacity(Storage::Locker)), 36);
     assert_eq!(
         world.grid(Storage::Locker).unwrap().covered(),
         world.ship.design.stored(Storage::Locker)
@@ -2168,12 +2202,15 @@ fn the_lockers_lay_the_gear_out_and_a_thing_can_be_moved_and_turned() {
     // Off the grid, over another slot, or a slot that is not there: refused
     // and nothing moved.
     for bad in [
+        // Off the bottom: the lockers are thirty-six rows since a shelf
+        // became locker room (feature 95), and a rifle stood on end at
+        // row 30 reaches past them.
         Command::Arrange {
             slot: 0,
             class: Storage::Locker.code(),
             id: sniper.id,
             x: 9,
-            y: 7,
+            y: 30,
             turned: true,
         },
         Command::Arrange {
@@ -2397,29 +2434,29 @@ fn the_grid_turns_a_thing_to_fit_and_keeps_an_overflow_unplaced() {
     // more top the last up and take no cell; seven off come off the last
     // stack first, and a stack emptied loses its slot.
     let mut grid = Grid::default();
-    grid.settle(capacity, &[Wanted::Units(ResourceId::Ore, 25, one)]);
+    grid.settle(capacity, &[Wanted::Units(ResourceId::Tofu, 25, one)]);
     let counts = |grid: &Grid| -> Vec<u32> { grid.slots.iter().map(|s| s.count).collect() };
     assert_eq!(counts(&grid), vec![10, 10, 5]);
-    assert_eq!(grid.units_of(ResourceId::Ore), 25);
-    assert!(grid.can_take(capacity, ResourceId::Ore, 175, one));
+    assert_eq!(grid.units_of(ResourceId::Tofu), 25);
+    assert!(grid.can_take(capacity, ResourceId::Tofu, 175, one));
     assert!(
-        !grid.can_take(capacity, ResourceId::Ore, 176, one),
+        !grid.can_take(capacity, ResourceId::Tofu, 176, one),
         "twenty cells"
     );
-    grid.settle(capacity, &[Wanted::Units(ResourceId::Ore, 30, one)]);
+    grid.settle(capacity, &[Wanted::Units(ResourceId::Tofu, 30, one)]);
     assert_eq!(counts(&grid), vec![10, 10, 10]);
-    grid.settle(capacity, &[Wanted::Units(ResourceId::Ore, 23, one)]);
+    grid.settle(capacity, &[Wanted::Units(ResourceId::Tofu, 23, one)]);
     assert_eq!(counts(&grid), vec![10, 10, 3]);
-    grid.settle(capacity, &[Wanted::Units(ResourceId::Ore, 12, one)]);
+    grid.settle(capacity, &[Wanted::Units(ResourceId::Tofu, 12, one)]);
     assert_eq!(counts(&grid), vec![10, 2]);
     let first = grid.slots[0].id;
     assert_eq!(
-        grid.remove(ResourceId::Ore, 4, Some(first)),
+        grid.remove(ResourceId::Tofu, 4, Some(first)),
         4,
         "off the stack asked for"
     );
     assert_eq!(counts(&grid), vec![6, 2]);
-    grid.settle(capacity, &[Wanted::Units(ResourceId::Ore, 0, one)]);
+    grid.settle(capacity, &[Wanted::Units(ResourceId::Tofu, 0, one)]);
     assert!(grid.slots.is_empty());
 
     // A bandage moved to the middle of a row leaves no run of seven in it:
@@ -2452,45 +2489,41 @@ fn the_grid_turns_a_thing_to_fit_and_keeps_an_overflow_unplaced() {
     assert_eq!(grid.slot(bandage).map(|s| (s.x, s.y)), Some((7, 0)));
 }
 
-/// The shelves and the cold store are grids of stacks: the playtest ore
-/// is four stacks of ten on four cells, the tofu two blocks of four by
-/// four; a fetch of a slot takes one off *that* stack; a sale empties the
-/// last stack first; and a block that the cold store has area for but no
-/// four-by-four run of cells for is refused.
+/// The cold store and the lockers are grids of stacks: the playtest
+/// ship's forty vegetables are four crates of ten on two cells each, the
+/// twenty tofu two blocks of four by four; a fetch of a slot takes one
+/// off *that* stack; a sale empties the last stack first; and a block the
+/// cold store has area for but no four-by-four run of cells for is
+/// refused.
 #[test]
 fn the_shelves_hold_stacks_and_a_fetch_takes_one_off_the_stack_asked_for() {
     use crate::{FetchKind, Kept};
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    let shelves = world.grid(Storage::Shelf).unwrap();
-    let ore: Vec<crate::Slot> = shelves
+    without_dressings(&mut world);
+    let cold = world.grid(Storage::ColdStore).unwrap();
+    let veg: Vec<crate::Slot> = cold
         .slots
         .iter()
-        .filter(|s| s.kept == Kept::Stack(ResourceId::Ore))
+        .filter(|s| s.kept == Kept::Stack(ResourceId::Vegetable))
         .copied()
         .collect();
     assert_eq!(
-        ore.iter().map(|s| s.count).collect::<Vec<u32>>(),
-        vec![10; 4]
+        veg.iter().map(|s| s.count).collect::<Vec<u32>>(),
+        vec![10; 4],
+        "ten to a crate"
     );
-    assert_eq!(shelves.units_of(ResourceId::Components), 40);
+    assert_eq!(cold.units_of(ResourceId::Vegetable), 40);
     assert_eq!(
-        shelves
-            .slots
+        cold.slots
             .iter()
-            .filter(|s| s.kept == Kept::Stack(ResourceId::Components))
+            .filter(|s| s.kept == Kept::Stack(ResourceId::Tofu))
             .count(),
         2,
-        "twenty to a stack"
+        "ten to a block"
     );
-    // Four ore, six metal, two components: twelve cells of two hundred.
-    assert_eq!(world.ship.design.stored(Storage::Shelf), 12);
-    assert_eq!(shelves.covered(), 12);
-    let cold = world.grid(Storage::ColdStore).unwrap();
-    assert_eq!(
-        world.ship.design.stored(Storage::ColdStore),
-        4 * 2 + 2 * 16 + 1
-    );
+    // Four crates at one by two and two blocks at four by four.
+    assert_eq!(world.ship.design.stored(Storage::ColdStore), 4 * 2 + 2 * 16);
     assert_eq!(cold.covered(), world.ship.design.stored(Storage::ColdStore));
     // Area for three more blocks of tofu, cells in a run for two.
     assert!(world.ship.design.has_room(ResourceId::Tofu, 30), "by area");
@@ -2498,20 +2531,20 @@ fn the_shelves_hold_stacks_and_a_fetch_takes_one_off_the_stack_asked_for() {
     assert!(!world.has_room(ResourceId::Tofu, 30), "not by the grid");
     assert_eq!(world.room_for(ResourceId::Tofu, 30), 20);
 
-    // One off the second stack, by its slot, standing at a shelf: that
-    // stack is nine, the first still ten.
-    let second = ore[1].id;
-    let shelf = world
+    // One off the second crate, by its slot, standing at the cold store:
+    // that crate is nine, the first still ten.
+    let second = veg[1].id;
+    let store = world
         .aboard
         .room
-        .container_spot(bims::game::Container::Shelf(0))
-        .expect("a shelf with a use spot");
-    world.aboard.room.put_for_probe(0, shelf);
+        .container_spot(bims::game::Container::Fridge(0))
+        .expect("a cold store with a use spot");
+    world.aboard.room.put_for_probe(0, store);
     let events = world.step(&[Command::Fetch {
         slot: 0,
         who: 0,
         kind: FetchKind::Slot {
-            class: Storage::Shelf.code(),
+            class: Storage::ColdStore.code(),
             id: second,
         },
     }]);
@@ -2519,33 +2552,33 @@ fn the_shelves_hold_stacks_and_a_fetch_takes_one_off_the_stack_asked_for() {
         !refused_with(&events, Refusal::OutOfReach) && !refused_with(&events, Refusal::NotAboard),
         "{events:?}"
     );
-    assert_eq!(world.ship.design.carrying(ResourceId::Ore), 39);
-    let shelves = world.grid(Storage::Shelf).unwrap();
-    assert_eq!(shelves.slot(second).map(|s| s.count), Some(9));
-    assert_eq!(shelves.slot(ore[0].id).map(|s| s.count), Some(10));
-    assert_eq!(shelves.units_of(ResourceId::Ore), 39);
+    assert_eq!(world.ship.design.carrying(ResourceId::Vegetable), 39);
+    let cold = world.grid(Storage::ColdStore).unwrap();
+    assert_eq!(cold.slot(second).map(|s| s.count), Some(9));
+    assert_eq!(cold.slot(veg[0].id).map(|s| s.count), Some(10));
+    assert_eq!(cold.units_of(ResourceId::Vegetable), 39);
     // A sale of nine comes off the last stack.
     assert!(world.man_the_desk_for_probe(0));
     let events = world.step(&[Command::Sell {
         slot: 0,
-        resource: ResourceId::Ore,
+        resource: ResourceId::Vegetable,
         units: 9,
     }]);
     assert!(
         events.contains(&WorldEvent::Traded {
             slot: 0,
-            resource: ResourceId::Ore,
+            resource: ResourceId::Vegetable,
             units: -9
         }),
         "{events:?}"
     );
-    let shelves = world.grid(Storage::Shelf).unwrap();
-    let counts: Vec<u32> = ore
+    let cold = world.grid(Storage::ColdStore).unwrap();
+    let counts: Vec<u32> = veg
         .iter()
-        .filter_map(|s| shelves.slot(s.id).map(|s| s.count))
+        .filter_map(|s| cold.slot(s.id).map(|s| s.count))
         .collect();
     assert_eq!(counts, vec![10, 9, 10, 1]);
-    assert_eq!(shelves.units_of(ResourceId::Ore), 30);
+    assert_eq!(cold.units_of(ResourceId::Vegetable), 30);
 }
 
 /// The room's footprint table is the world's said again by code — this
@@ -2693,12 +2726,14 @@ fn the_checksum_notices_every_kind_of_change() {
         assert_eq!(world.checksum(), was, "and peace again is the same world");
         // And the stations the generator rolled hostile are on the list from
         // the start, home excepted.
-        let rolled: Vec<u32> = world
+        let mut rolled: Vec<u32> = world
             .stations
             .iter()
             .filter(|s| s.hostile && s.id != world.home)
             .map(|s| s.id)
+            .chain(world.surfaces.iter().filter(|s| s.hostile).map(|s| s.id))
             .collect();
+        rolled.sort_unstable();
         assert_eq!(world.hostile, rolled);
         assert_eq!(world.stance(world.home), bims::sight::Stance::Friendly);
     }
@@ -2749,9 +2784,9 @@ fn the_checksum_notices_every_kind_of_change() {
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         let twin = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         assert_eq!(world_checksum(&world), world_checksum(&twin));
-        assert!(world.research.enqueue(Node::Smelting));
+        assert!(world.research.enqueue(Node::FusionPower));
         assert_ne!(world_checksum(&world), world_checksum(&twin), "queued");
-        assert_eq!(world.research.next(), Some(Node::Smelting));
+        assert_eq!(world.research.next(), Some(Node::FusionPower));
         assert_ne!(world_checksum(&world), world_checksum(&twin), "on the AI");
         world.research.cancel();
         assert_eq!(world_checksum(&world), world_checksum(&twin));
@@ -4492,14 +4527,14 @@ fn a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power
     assert!(lamps.iter().all(|(_, l)| l.powered && !l.is_dark()));
     assert!(world.aboard.room.hydro_powered(0));
     assert!(!world.aboard.room.hydro_hibernating(0));
-    assert!(world.powered(PartKind::Smelter));
+    assert!(world.powered(PartKind::DrugLab));
     assert!(world.powered(PartKind::ColdStore));
     assert_eq!(world.cold_store_out, 0);
 
     // The reactors held under the draw: the battery drains, the ship is
     // not browned out, and the cold store is not on the clock.
     let draw = world.power().draw;
-    assert_eq!(draw, 327.0);
+    assert_eq!(draw, 287.0);
     world.throttle_reactors_for_probe(draw - 27.0);
     let events = world.step(&[]);
     assert!(!events.iter().any(|e| matches!(e, WorldEvent::Brownout)));
@@ -4527,13 +4562,13 @@ fn a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power
     assert!(world.aboard.room.hydro_hibernating(0));
     assert!(!world.powered(PartKind::HydroBay));
     assert!(!world.powered(PartKind::ColdStore));
-    assert!(!world.powered(PartKind::Smelter));
+    assert!(!world.powered(PartKind::DrugLab));
     assert!(!world.powered(PartKind::Workbench));
     assert!(world.powered(PartKind::Door));
     assert!(world.powered(PartKind::LifeSupport));
     // Ore aboard and a target for metal, and still no order: the smelter
     // is dark.
-    world.set_craft_target(ResourceId::Metal, 999);
+    world.set_craft_target(ResourceId::Vegetable, 999);
     assert!(world.craft_orders().is_empty());
 
     // An hour without the cold store: a share of the food goes, off the
@@ -4589,7 +4624,7 @@ fn a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power
     );
     assert!(world.aboard.room.hydro_powered(0));
     assert!(world.powered(PartKind::ColdStore));
-    assert!(world.powered(PartKind::Smelter));
+    assert!(world.powered(PartKind::DrugLab));
     let hold_veg = world.ship.design.carrying(ResourceId::Vegetable);
     let hold_tofu = world.ship.design.carrying(ResourceId::Tofu);
     for _ in 0..data::SPOIL_STEPS + 10 {
@@ -4704,7 +4739,9 @@ fn two_runs_on_one_seed_spoil_the_same_amount() {
         simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1),
     ];
     for world in &mut worlds {
-        world.throttle_reactors_for_probe(300.0);
+        // Under the ship's draw of 287 (feature 95 took the smelter's 40
+        // with the smelter), so the batteries are flat and it browns out.
+        world.throttle_reactors_for_probe(200.0);
         world.ship.charge = 0.0;
     }
     let mut spoiled = [0u32; 2];
@@ -4729,112 +4766,97 @@ fn two_runs_on_one_seed_spoil_the_same_amount() {
 
 // --- making things -----------------------------------------------------------
 
-/// The whole seam, on the playtest ship: a target for metal, ore aboard,
-/// the smelter wired — the room is handed an order, a Bim walks to the
-/// bench and stands at it for the recipe's length, and the world moves two
-/// ore out of the hold and one metal in, with the mass moving with them.
-/// Then the target is met and nothing more is made.
+/// The whole seam, on the playtest ship: a target for medkits,
+/// vegetables aboard, the drug lab wired — the room is handed an order, a
+/// Bim walks to the bench and stands at it for the recipe's length, and
+/// the world moves two vegetables out of the hold and one medkit in, with
+/// the mass moving with them. Then the target is met and nothing more is
+/// made.
+///
+/// It was ore into metal at the smelter until the money rework (feature
+/// 95) left one recipe in the table.
 #[test]
-fn a_target_for_metal_has_a_bim_smelt_ore_at_the_bench() {
+fn a_target_for_a_medkit_has_a_bim_make_one_at_the_drug_lab() {
     use bims::game::JOB_CRAFT;
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     // The dressings every Bim carries are out of the way (feature 87).
     without_dressings(&mut world);
     world.know_everything_for_probe();
-    let ore = world.ship.design.carrying(ResourceId::Ore);
-    let metal = world.ship.design.carrying(ResourceId::Metal);
-    assert!(ore >= 2);
-    assert_eq!(world.craft_target(ResourceId::Metal), 0);
-    assert!(world.craft_orders().is_empty(), "nothing is asked for yet");
-    // The smelter, the workbench, the drug lab and the armoury.
-    assert_eq!(world.aboard.room.benches().len(), 4);
-    assert!(world.powered(PartKind::Smelter));
+    let veg = world.ship.design.carrying(ResourceId::Vegetable);
+    let kits = world.ship.design.carrying(ResourceId::Medkit);
+    assert!(veg >= 2, "the playtest ship carries vegetables");
+    let mass = world.ship.design.manifest();
+    let before: f64 = mass
+        .iter()
+        .map(|&(id, units)| units as f64 * id.mass_per_unit())
+        .sum();
 
-    // One more metal than there is: one smelt's worth.
-    world.set_craft_target(ResourceId::Metal, metal + 1);
-    let orders = world.craft_orders();
-    assert_eq!(orders.len(), 1, "{}", orders.len());
-    assert_eq!(orders[0].recipe, 0);
-    assert_eq!(orders[0].minutes, 30.0);
-    let mass_before = world.ship.dynamics.mass.get();
-
-    // The recipe is half an hour at the bench plus the walk there; give it
-    // the morning. The agenda shows the craft errand on the way.
-    let mut crafted = false;
-    let mut seen_at_bench = false;
+    world.set_craft_target(ResourceId::Medkit, kits + 1);
+    assert_eq!(world.craft_orders().len(), 1, "the drug lab is asked for");
+    let mut made = false;
+    let mut stood = false;
     for _ in 0..(4 * 60 * 60) {
         let events = world.step(&[]);
-        if world.aboard.room.agenda_len(0) > 0 && world.aboard.room.agenda_job(0, 0) == JOB_CRAFT {
-            seen_at_bench = true;
-        }
+        stood |= world.aboard.room.activity(0) == JOB_CRAFT;
         if events
             .iter()
             .any(|e| matches!(e, WorldEvent::Crafted { recipe: 0 }))
         {
-            crafted = true;
+            made = true;
             break;
         }
-        assert!(
-            !events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::CraftLost { .. })),
-            "the ore was there the whole time"
-        );
     }
-    assert!(crafted, "no metal was made in four hours");
-    assert!(seen_at_bench, "the errand never showed on the agenda");
-    assert_eq!(world.ship.design.carrying(ResourceId::Ore), ore - 2);
-    assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal + 1);
-    // Two ore at ten is twenty; one metal is eight. The slag went.
-    let mass_after = world.ship.dynamics.mass.get();
-    assert!(
-        close(mass_before - mass_after, 12.0),
-        "mass went from {mass_before} to {mass_after}"
-    );
-
-    // Met: no order, and an hour later still one metal more.
+    assert!(made, "no medkit was made in four hours");
+    assert!(stood, "nobody stood at the bench");
+    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), kits + 1);
+    assert_eq!(world.ship.design.carrying(ResourceId::Vegetable), veg - 2);
+    // Crafting conserves mass: two vegetables at a half weigh what one
+    // medkit does.
+    let after: f64 = world
+        .ship
+        .design
+        .manifest()
+        .iter()
+        .map(|&(id, units)| units as f64 * id.mass_per_unit())
+        .sum();
+    assert!((after - before).abs() < 1e-9, "{before} became {after}");
+    // The target met, nothing more is asked for.
     assert!(world.craft_orders().is_empty());
-    for _ in 0..(60 * 60) {
-        world.step(&[]);
-    }
-    assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal + 1);
 }
 
-/// A recipe wants its inputs and its station's power. With no ore aboard
-/// there is no order for metal however high the target; with the smelter
-/// unpowered, none either; and an order for components at the workbench
-/// is a different bench and is still made.
+/// A recipe wants its inputs and its station's power. With no vegetables
+/// aboard there is no order for a medkit however high the target; with
+/// the drug lab unpowered, none either.
 #[test]
 fn an_order_wants_the_inputs_aboard_and_the_bench_powered() {
     use shipdesign::fixture::playtest_ship;
     let budget = Budget::new(10_000_000);
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.know_everything_for_probe();
-    let ore = world.ship.design.carrying(ResourceId::Ore);
+    let veg = world.ship.design.carrying(ResourceId::Vegetable);
     world.ship.design = apply(
         &world.ship.design,
         &budget,
         Edit::Sell {
-            resource: ResourceId::Ore,
-            units: ore,
+            resource: ResourceId::Vegetable,
+            units: veg,
         },
     )
-    .unwrap();
+    .expect("the food sold");
     world.on_ship_changed();
-    world.set_craft_target(ResourceId::Metal, 999);
-    assert!(world.craft_orders().is_empty(), "no ore, no smelting");
+    world.set_craft_target(ResourceId::Medkit, 10);
+    assert!(
+        world.craft_orders().is_empty(),
+        "nothing to make a medkit of"
+    );
 
-    // Components out of metal want only the workbench, which has power.
-    let components = world.ship.design.carrying(ResourceId::Components);
-    world.set_craft_target(ResourceId::Components, components + 4);
-    let orders = world.craft_orders();
-    assert_eq!(orders.len(), 1);
-    assert_eq!(orders[0].recipe, 1);
+    // The vegetables back, and the order is there.
+    world.ship.design.cargo[ResourceId::Vegetable as usize] = 10;
+    world.on_ship_changed();
+    assert_eq!(world.craft_orders().len(), 1);
 
-    // Take the reactors off — the playtest ship carries two now, and one
-    // left would run the workbench: nothing is powered, nothing is on
-    // offer.
+    // Both reactors off the run and the lab is dark: no order.
     let reactors: Vec<u32> = world
         .ship
         .design
@@ -4843,34 +4865,17 @@ fn an_order_wants_the_inputs_aboard_and_the_bench_powered() {
         .filter(|p| p.kind == PartKind::Reactor)
         .map(|p| p.id)
         .collect();
-    assert!(!reactors.is_empty());
-    for reactor in reactors {
-        world.ship.design = apply(
-            &world.ship.design,
-            &budget,
-            Edit::Remove { part_id: reactor },
-        )
-        .unwrap();
+    for id in reactors {
+        world.ship.design = apply(&world.ship.design, &budget, Edit::Remove { part_id: id })
+            .expect("the reactor came off");
     }
     world.on_ship_changed();
-    assert!(!world.powered(PartKind::Workbench));
-    assert!(world.craft_orders().is_empty(), "no power, no work");
-
-    // The target is clamped to what the shelves could hold of it alone:
-    // a stack of twenty a cell.
-    world.set_craft_target(ResourceId::Components, 10_000);
-    assert_eq!(
-        world.craft_target(ResourceId::Components),
-        world.ship.design.capacity(Storage::Shelf) * 20
+    assert!(
+        world.craft_orders().is_empty(),
+        "a dark bench is no bench at all"
     );
 }
 
-/// Standing at a bench is the player's own Bim's work and nobody else's
-/// (feature 89). With a crew of two and one player, an order for metal
-/// is on offer to slot 0 and never to the crewmate behind it, whatever
-/// the Craft row says; and the smelt that gets done is done by slot 0.
-/// The rest of the work list is untouched — the crewmate still has the
-/// cooking, the bay and the deck on offer.
 #[test]
 fn a_bot_never_stands_at_a_bench_and_a_player_s_bim_does() {
     use bims::game::JOB_CRAFT;
@@ -4879,9 +4884,9 @@ fn a_bot_never_stands_at_a_bench_and_a_player_s_bim_does() {
     let mut world = crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     without_dressings(&mut world);
     world.know_everything_for_probe();
-    let metal = world.ship.design.carrying(ResourceId::Metal);
-    world.set_craft_target(ResourceId::Metal, metal + 1);
-    assert_eq!(world.craft_orders().len(), 1, "the smelter is asked for");
+    let kits = world.ship.design.carrying(ResourceId::Medkit);
+    world.set_craft_target(ResourceId::Medkit, kits + 1);
+    assert_eq!(world.craft_orders().len(), 1, "the drug lab is asked for");
     // One step to hand the order over, and the room says who it is for.
     world.step(&[]);
     let room = &world.aboard.room;
@@ -4903,7 +4908,7 @@ fn a_bot_never_stands_at_a_bench_and_a_player_s_bim_does() {
         "{bot_rows:?}"
     );
 
-    // And over a morning the smelt is slot 0's from end to end.
+    // And over a morning the making is slot 0's from end to end.
     let mut crafted = false;
     for _ in 0..(4 * 60 * 60) {
         let events = world.step(&[]);
@@ -4920,668 +4925,43 @@ fn a_bot_never_stands_at_a_bench_and_a_player_s_bim_does() {
             break;
         }
     }
-    assert!(crafted, "no metal was made in four hours");
-    assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal + 1);
-}
-
-// --- a walk outside ----------------------------------------------------------
-
-/// A belt of the spawn system, or of a system that has one: what a walk
-/// outside is measured at. The simulation's spawn system is whatever the
-/// generator made it, so this looks rather than assumes.
-fn a_belt(world: &World) -> Option<worldgen::Body> {
-    world
-        .system
-        .bodies
-        .iter()
-        .find(|b| b.kind == worldgen::BodyKind::AsteroidBelt)
-        .cloned()
-}
-
-/// The ship at a belt of the spawn system, holding, with the site laid out
-/// — or `None` when the spawn system has no belt, which a test says so
-/// about and gives up on.
-fn at_a_belt(world: &mut World) -> Option<worldgen::Body> {
-    let belt = a_belt(world)?;
-    world.undock_for_probe();
-    world.put_for_probe(belt.position);
-    world.settle_frame_for_probe();
-    assert_eq!(
-        world.ship.frame,
-        Frame::Local(worldgen::Node::Body(belt.id))
-    );
-    world.step(&[]);
-    Some(belt)
-}
-
-/// The asteroids of a site, each as its tiles: four-way connected pieces.
-fn asteroids_of(site: &MiningSite) -> Vec<Vec<RockTile>> {
-    let mut left: Vec<RockTile> = site.tiles.clone();
-    let mut out = Vec::new();
-    while let Some(seed) = left.pop() {
-        let mut piece = vec![seed];
-        let mut i = 0;
-        while i < piece.len() {
-            let (x, y) = (piece[i].x, piece[i].y);
-            let mut j = 0;
-            while j < left.len() {
-                let t = left[j];
-                if (t.x - x).abs() + (t.y - y).abs() == 1 {
-                    piece.push(left.remove(j));
-                } else {
-                    j += 1;
-                }
-            }
-            i += 1;
-        }
-        out.push(piece);
-    }
-    out
-}
-
-/// A trip to a belt ends `ARRIVAL_RADIUS_BODY` short of it, from whichever
-/// side the ship came, and the site is laid out wherever that was: at rest
-/// there the belt is the nearest thing in the system, so the view settles
-/// on the belt and not on something beside it. It used not to be — a
-/// mining outpost or a derelict sat in orbit of a belt, nearer the ship
-/// than the belt was on the near side, the view settled on *that*, and no
-/// site was laid out — which is why nothing stands at a belt any more
-/// (`worldgen::data::parent_suits`). Every belt of the spawn system, from
-/// twelve directions.
-/// Holding at a belt lays a field of asteroids out about the ship: clear of
-/// the hull, skinned in stone with the ore three tiles down, the same
-/// field every time, and galvum in about one asteroid in ten.
-#[test]
-fn a_mining_site_is_laid_out_about_the_ship_at_a_belt_from_any_side() {
-    // --- coming_to_rest_at_a_belt_from_any_side_lays_the_site_out ---
-    {
-        let mut world = basic();
-        let belts: Vec<worldgen::Body> = world
-            .system
-            .bodies
-            .iter()
-            .filter(|b| b.kind == worldgen::BodyKind::AsteroidBelt)
-            .cloned()
-            .collect();
-        assert!(!belts.is_empty(), "the spawn system has a belt to mine");
-        world.undock_for_probe();
-        for belt in &belts {
-            for i in 0..12 {
-                let angle = std::f64::consts::TAU * i as f64 / 12.0;
-                let short = DVec2::polar(angle, flight::data::ARRIVAL_RADIUS_BODY);
-                world.put_for_probe(belt.position.add(short));
-                world.settle_frame_for_probe();
-                world.step(&[]);
-                assert_eq!(
-                    world.ship.frame,
-                    Frame::Local(worldgen::Node::Body(belt.id)),
-                    "belt {} from {i}/12 round: the view is about {:?}",
-                    belt.id,
-                    world.ship.frame
-                );
-                assert_eq!(
-                    world.site_here().map(|s| s.belt),
-                    Some(belt.id),
-                    "belt {} from {i}/12 round: no site",
-                    belt.id
-                );
-                // Away again, so the next approach enters the frame afresh.
-                world.put_for_probe(belt.position.add(DVec2::polar(
-                    angle,
-                    data::LOCAL_RADIUS_BODY * data::LOCAL_HYSTERESIS * 2.0,
-                )));
-                world.settle_frame_for_probe();
-                assert_eq!(world.ship.frame, Frame::Space);
-            }
-        }
-    }
-
-    // --- a_mining_site_is_laid_out_about_the_ship_at_a_belt ---
-    {
-        use shipdesign::fixture::playtest_ship;
-        let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-        assert!(world.site_here().is_none(), "docked is not at a site");
-        let Some(belt) = at_a_belt(&mut world) else {
-            eprintln!("the spawn system has no belt; nothing to lay out");
-            return;
-        };
-        let site = world.site_here().expect("a site at a belt").clone();
-        assert_eq!(site.belt, belt.id);
-        assert!(!site.tiles.is_empty());
-        assert!(site.marked.is_empty());
-
-        // Clear of the hull, every tile of it, with room to walk between.
-        let hull: Vec<(i32, i32)> = world
-            .ship
-            .design
-            .parts
-            .iter()
-            .flat_map(|p| p.tiles())
-            .map(|(x, y)| (x as i32, y as i32))
-            .collect();
-        for tile in &site.tiles {
-            for &(hx, hy) in &hull {
-                assert!(
-                    (tile.x - hx).abs() > 2 || (tile.y - hy).abs() > 2,
-                    "rock at ({}, {}) against the hull at ({hx}, {hy})",
-                    tile.x,
-                    tile.y
-                );
-            }
-        }
-        // Skin and core: an ore tile has rock two tiles deep every way.
-        let stands = |x: i32, y: i32| site.at(x, y).is_some();
-        let mut cores = 0;
-        for tile in &site.tiles {
-            if tile.kind == Rock::Stone {
-                continue;
-            }
-            cores += 1;
-            for dx in -2..=2i32 {
-                for dy in -2..=2i32 {
-                    if dx.abs() + dy.abs() <= 2 {
-                        assert!(
-                            stands(tile.x + dx, tile.y + dy),
-                            "ore at ({}, {}) with nothing at ({dx}, {dy}) off it",
-                            tile.x,
-                            tile.y
-                        );
-                    }
-                }
-            }
-        }
-        assert!(cores > 0, "no ore anywhere in the site");
-        let pieces = asteroids_of(&site);
-        assert!(
-            pieces.len() >= mining::ASTEROIDS.0 as usize / 2,
-            "{} asteroids",
-            pieces.len()
-        );
-
-        // The same field every time.
-        let again = MiningSite::generate(world.galaxy_seed, world.star_id, belt.id, (0, 0, 19, 19));
-        let twice = MiningSite::generate(world.galaxy_seed, world.star_id, belt.id, (0, 0, 19, 19));
-        assert_eq!(again, twice);
-
-        // About one asteroid in ten carries galvum, over many belts.
-        let (mut rich, mut all) = (0, 0);
-        for belt in 0..200u32 {
-            let site = MiningSite::generate(world.galaxy_seed, world.star_id, belt, (0, 0, 19, 19));
-            for piece in asteroids_of(&site) {
-                all += 1;
-                if piece.iter().any(|t| t.kind == Rock::Galvum) {
-                    rich += 1;
-                }
-            }
-        }
-        let share = rich as f64 / all as f64;
-        assert!(
-            (0.06..=0.14).contains(&share),
-            "{rich} of {all} asteroids carry galvum"
-        );
-    }
-}
-
-/// The whole seam: holding at a belt with rocks marked and a suit in the
-/// locker, the room is told a walk is on, a Bim takes the suit, goes out
-/// through the airlock — off the deck, in the suit, dosed while it is out —
-/// walks to the marked rocks, digs through the stone to the ore, and comes
-/// back in with the rock and the ore on the shelf and the tiles gone from
-/// the site. Nothing marked, no walk; no suit, no walk.
-#[test]
-fn marked_rocks_are_mined_on_foot_and_what_they_yield_lands_on_the_shelf() {
-    use bims::game::JOB_EVA;
-    use shipdesign::fixture::playtest_ship;
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    assert_eq!(world.ship.design.carrying(ResourceId::Suit), 1);
-    assert!(!world.aboard.room.is_outside(0));
-    assert!(world.eva_offer().is_none(), "docked is not at a site");
-    let Some(_) = at_a_belt(&mut world) else {
-        eprintln!("the spawn system has no belt; nothing to walk out to");
-        return;
-    };
-    let offer = world.eva_offer().expect("a walk is on at a site");
-    assert_eq!(offer.allowed, vec![true]);
-    assert!(offer.targets.is_empty(), "nothing is marked yet");
-    assert!(!offer.rocks.is_empty());
-    assert_eq!(offer.tile_minutes, data::MINE_TILE_MINUTES as f32);
-
-    // Nothing marked: the room is told there is nothing to go out for.
-    for _ in 0..600 {
-        world.step(&[]);
-        assert!(!world.aboard.room.is_outside(0), "out with nothing marked");
-    }
-
-    // Sell the suit and there is no walk; buy it back — not docked, so by
-    // hand — and there is.
-    world.ship.design.cargo[ResourceId::Suit as usize] = 0;
-    assert!(world.eva_offer().is_none(), "no suit, no walk");
-    world.ship.design.cargo[ResourceId::Suit as usize] = 1;
-
-    // A dig: from an ore tile of the nearest asteroid straight out to the
-    // skin, every tile on the line marked. The Bim takes them from the
-    // outside in, since the one behind is only reachable once the one in
-    // front is gone.
-    let site = world.site_here().unwrap().clone();
-    let port = shipdesign::dock::port(&world.ship.design).unwrap();
-    let door = (port.centre.0 as i32, port.centre.1 as i32);
-    let nearest = site
-        .tiles
-        .iter()
-        .min_by_key(|t| (t.x - door.0).abs() + (t.y - door.1).abs())
-        .unwrap();
-    let piece = asteroids_of(&site)
-        .into_iter()
-        .find(|p| p.contains(nearest))
-        .unwrap();
-    let core = piece
-        .iter()
-        .find(|t| t.kind != Rock::Stone)
-        .copied()
-        .expect("an asteroid with a core");
-    let (mx, my) = (
-        piece.iter().map(|t| t.x).sum::<i32>() as f64 / piece.len() as f64,
-        piece.iter().map(|t| t.y).sum::<i32>() as f64 / piece.len() as f64,
-    );
-    // Out along whichever axis the core is further from the middle on, or
-    // +x for one dead centre.
-    let (dx, dy) = if (core.x as f64 - mx).abs() >= (core.y as f64 - my).abs() {
-        (if core.x as f64 >= mx { 1 } else { -1 }, 0)
-    } else {
-        (0, if core.y as f64 >= my { 1 } else { -1 })
-    };
-    let mut marks = Vec::new();
-    let (mut x, mut y) = (core.x, core.y);
-    while site.at(x, y).is_some() {
-        marks.push((x, y));
-        x += dx;
-        y += dy;
-    }
-    assert!(marks.len() >= 3, "a dig of {} tiles", marks.len());
-    let commands: Vec<Command> = marks
-        .iter()
-        .map(|&(x, y)| Command::MarkRock { slot: 0, x, y })
-        .collect();
-    world.step(&commands);
-    assert_eq!(world.site_here().unwrap().marked, marks);
-    let offer = world.eva_offer().unwrap();
-    assert_eq!(offer.targets.len(), marks.len());
-
-    let rock = world.ship.design.carrying(ResourceId::Rock);
-    let ore = world.ship.design.carrying(ResourceId::Ore);
-    let tiles = world.site_here().unwrap().tiles.len();
-    let expect_rock: u32 = marks
-        .iter()
-        .filter(|&&(x, y)| site.at(x, y) == Some(Rock::Stone))
-        .count() as u32
-        * mining::yield_of(Rock::Stone).1;
-    let expect_ore: u32 = marks
-        .iter()
-        .filter(|&&(x, y)| site.at(x, y) == Some(Rock::Iron))
-        .count() as u32
-        * mining::yield_of(Rock::Iron).1;
-
-    let mut went_out = false;
-    let mut walked = false;
-    let mut out_at: Option<DVec2> = None;
-    let mut peak_dose = 0.0f64;
-    let mut mined: Vec<(u32, u32, u32)> = Vec::new();
-    let mut on_agenda = false;
-    // A dozen minutes a rock and the walks between, plus the errand either
-    // side and whatever else the day asks; give it the day.
-    for _ in 0..(24 * 60 * 60) {
-        let events = world.step(&[]);
-        if world.aboard.room.agenda_len(0) > 0 && world.aboard.room.agenda_job(0, 0) == JOB_EVA {
-            on_agenda = true;
-        }
-        if world.aboard.room.is_outside(0) {
-            went_out = true;
-            assert!(!world.aboard.on_deck(0), "outside is off the deck");
-            // Somewhere well away from where it stepped out: a walk, not a
-            // body held at the door.
-            let at = world.aboard.position(0);
-            let first = *out_at.get_or_insert(at);
-            if at.sub(first).length() > 3.0 * shipdesign::TILE as f64 {
-                walked = true;
-            }
-        }
-        peak_dose = peak_dose.max(world.health[0].dose);
-        for e in &events {
-            if let WorldEvent::Mined { rock, ore, galvum } = e {
-                mined.push((*rock, *ore, *galvum));
-            }
-        }
-        if world.site_here().unwrap().marked.is_empty() && !world.aboard.room.is_outside(0) {
-            break;
-        }
-    }
-    assert!(on_agenda, "the walk never showed on the agenda");
-    assert!(went_out, "the Bim never went outside");
-    assert!(walked, "the Bim never walked anywhere out there");
-    assert!(!mined.is_empty(), "no walk ever came back");
-    assert!(
-        world.site_here().unwrap().marked.is_empty(),
-        "marks left: {:?}",
-        world.site_here().unwrap().marked
-    );
-    assert_eq!(world.site_here().unwrap().tiles.len(), tiles - marks.len());
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Rock),
-        rock + expect_rock
-    );
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Ore),
-        ore + expect_ore
-    );
-    let said: (u32, u32, u32) = mined
-        .iter()
-        .fold((0, 0, 0), |a, m| (a.0 + m.0, a.1 + m.1, a.2 + m.2));
-    assert_eq!(said.0, expect_rock, "the log's rock");
-    assert_eq!(said.1, expect_ore, "the log's ore");
-    // Dosed out there, and never near the critical line.
-    assert!(
-        peak_dose > 0.0 && peak_dose < health::CRITICAL,
-        "peak dose {peak_dose}"
-    );
-    // Back in: on the deck, in the coverall, and the dose coming off.
-    assert!(!world.aboard.room.is_outside(0));
-    let dose_in = world.health[0].dose;
-    for _ in 0..(60 * 60) {
-        world.step(&[]);
-        assert!(!world.aboard.room.is_outside(0));
-    }
-    assert!(
-        world.health[0].dose < dose_in,
-        "the dose should come off inside"
-    );
-    assert!(!world.health[0].dead);
-}
-
-/// A mark is a command: it toggles, it refuses a tile that is not a rock,
-/// `ClearMarks` takes them all off, and leaving the site takes them off
-/// too and brings whoever is out there in. Two crew, since the one out
-/// on the rocks is not aboard and cannot cast off: the other takes the
-/// helm.
-#[test]
-fn a_mark_is_a_command_and_the_marks_come_off_with_the_ship() {
-    use shipdesign::fixture::playtest_ship;
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 2);
-    let Some(_) = at_a_belt(&mut world) else {
-        return;
-    };
-    let site = world.site_here().unwrap().clone();
-    let rock = site.tiles[0];
-    let (x, y) = (rock.x, rock.y);
-    world.step(&[Command::MarkRock { slot: 0, x, y }]);
-    assert!(world.site_here().unwrap().is_marked(x, y));
-    world.step(&[Command::MarkRock { slot: 0, x, y }]);
-    assert!(!world.site_here().unwrap().is_marked(x, y));
-    // Off a rock: nothing.
-    world.step(&[Command::MarkRock {
-        slot: 0,
-        x: 10_000,
-        y: 10_000,
-    }]);
-    assert!(world.site_here().unwrap().marked.is_empty());
-    world.step(&[
-        Command::MarkRock { slot: 0, x, y },
-        Command::MarkRock {
-            slot: 0,
-            x: site.tiles[1].x,
-            y: site.tiles[1].y,
-        },
-    ]);
-    assert_eq!(world.site_here().unwrap().marked.len(), 2);
-    let before = world_checksum(&world);
-    world.step(&[Command::ClearMarks { slot: 0 }]);
-    assert!(world.site_here().unwrap().marked.is_empty());
-    assert_ne!(
-        world_checksum(&world),
-        before,
-        "the marks are in the checksum"
-    );
-
-    // Marked and out there; then the ship leaves, and the marks and the
-    // walk go with it.
-    let door = shipdesign::dock::port(&world.ship.design).unwrap().centre;
-    let nearest = site
-        .tiles
-        .iter()
-        .min_by_key(|t| (t.x - door.0 as i32).abs() + (t.y - door.1 as i32).abs())
-        .unwrap();
-    world.step(&[Command::MarkRock {
-        slot: 0,
-        x: nearest.x,
-        y: nearest.y,
-    }]);
-    let mut out = None;
-    for _ in 0..(3 * 60 * 60) {
-        world.step(&[]);
-        if let Some(who) = (0..2).find(|&who| world.aboard.room.is_outside(who)) {
-            out = Some(who);
-            break;
-        }
-    }
-    let out = out.expect("nobody went out");
-    let inside = 1 - out as u32;
-    let target = nearby(&world, 200_000.0);
-    let events = set_off(&mut world, inside, target);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Departed { .. }))
-    );
-    assert!(!world.aboard.room.is_outside(out), "left outside");
-    let belt_site = world.sites.iter().find(|s| s.belt == site.belt).unwrap();
-    assert!(belt_site.marked.is_empty(), "marks survived the departure");
-    assert!(world.site_here().is_none());
-}
-
-/// A Bim past the dose limit is not sent out; below it, it is.
-#[test]
-fn a_dosed_bim_is_kept_in() {
-    use shipdesign::fixture::playtest_ship;
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    let Some(_) = at_a_belt(&mut world) else {
-        return;
-    };
-    world.health[0].dose = data::EVA_DOSE_LIMIT + 1.0;
-    assert_eq!(world.eva_offer().unwrap().allowed, vec![false]);
-    world.health[0].dose = data::EVA_DOSE_LIMIT - 1.0;
-    assert_eq!(world.eva_offer().unwrap().allowed, vec![true]);
-}
-
-/// The chain the whole thing was asked for: ore to metal, metal to
-/// components, components and galvum to an emitter, and the emitter into a
-/// laser handgun at the armoury. Set the targets and the benches do it in
-/// order, because a handgun is not on offer until there is an emitter and
-/// an emitter is not until there are components — each recipe waits on the
-/// one before it without anybody sequencing them.
-#[test]
-fn a_target_for_a_handgun_runs_the_whole_chain_from_the_hold() {
-    use shipdesign::fixture::playtest_ship;
-    let budget = Budget::new(10_000_000);
-    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    // The dressings every Bim carries are out of the way (feature 87).
-    without_dressings(&mut world);
-    world.know_everything_for_probe();
-    // An armoury amidships on a branch of its own off the spine.
-    let mut design = world.ship.design.clone();
-    for (kind, origin, rotation) in [
-        (PartKind::PowerConduit, (9, 11), Rotation::R0),
-        (PartKind::PowerConduit, (10, 11), Rotation::R0),
-        (PartKind::PowerConduit, (11, 11), Rotation::R0),
-        (PartKind::Armoury, (11, 11), Rotation::R0),
-    ] {
-        design = apply(
-            &design,
-            &budget,
-            Edit::Place {
-                kind,
-                origin,
-                rotation,
-            },
-        )
-        .unwrap_or_else(|e| panic!("{kind:?} at {origin:?}: {e:?}"));
-    }
-    // One galvum, by hand: the spawn is not an outpost.
-    design.cargo[ResourceId::Galvum as usize] = 1;
-    world.ship.design = design;
-    world.on_ship_changed();
-    assert!(world.powered(PartKind::Armoury));
-    assert_eq!(
-        world.aboard.room.benches().len(),
-        4,
-        "the room was laid out before"
-    );
-    // The room is laid out again when the rooms come apart, so the second
-    // armoury is a bench once the ship lets go of the dock.
-    world.undock_for_probe();
-    assert_eq!(world.aboard.room.benches().len(), 5);
-
-    world.set_craft_target(ResourceId::Emitter, 1);
-    world.set_craft_target(ResourceId::Handgun, 1);
-    // A handgun wants an emitter, so only the emitter is on offer.
-    let orders = world.craft_orders();
-    assert_eq!(orders.len(), 1, "{orders:?}");
-    assert_eq!(orders[0].recipe, 2);
-
-    let components = world.ship.design.carrying(ResourceId::Components);
-    let metal = world.ship.design.carrying(ResourceId::Metal);
-    let mut made = Vec::new();
-    for _ in 0..(8 * 60 * 60) {
-        let events = world.step(&[]);
-        for e in &events {
-            if let WorldEvent::Crafted { recipe } = e {
-                made.push(*recipe);
-            }
-        }
-        if world.ship.design.carrying(ResourceId::Handgun) >= 1 {
-            break;
-        }
-    }
-    assert_eq!(made, vec![2, 3], "the emitter and then the handgun");
-    assert_eq!(world.ship.design.carrying(ResourceId::Handgun), 1);
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Emitter),
-        0,
-        "used up"
-    );
-    assert_eq!(world.ship.design.carrying(ResourceId::Galvum), 0);
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Components),
-        components - 4
-    );
-    assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal - 1);
-    // A handgun goes in the locker class, beside the suit, the bandages,
-    // the medkits, the three pieces of armour and the four other weapons
-    // the playtest ship carries.
-    let bandages = world.ship.design.carrying(ResourceId::Bandage);
-    let medkits = world.ship.design.carrying(ResourceId::Medkit);
-    assert_eq!(world.ship.design.carrying(ResourceId::Suit), 1);
-    // In cells, since the lockers are a grid: the suit's nine, the
-    // helm's eight, the kevlar's sixteen and the leg guards' six, the
-    // shotgun's ten, the rifle's seven, the sniper's ten and the
-    // schword's five, the handgun's two — seventy-three — four a box of
-    // dressings, five to a box (feature 87), and four a medkit. And
-    // every one of them lies in a slot.
-    assert_eq!(
-        world.ship.design.stored(Storage::Locker),
-        73 + 4 * bandages.div_ceil(5) + 4 * medkits
-    );
-    assert_eq!(
-        world.grid(Storage::Locker).unwrap().covered(),
-        world.ship.design.stored(Storage::Locker)
-    );
-}
-
-/// Docked, the station's people live on the station: over a day in their
-/// own room they cook and eat at their own galley (a larder stocked to
-/// their goals means stew warmed up rather than a pot from scratch), go to their own heads,
-/// tend their own bay — and are never on the ship's deck, which has only
-/// the crew on it. Their goals are their own too: the crew's targets are
-/// untouched by theirs.
-#[test]
-fn docked_the_station_s_people_keep_to_the_station_and_their_own_agenda() {
-    use bims::game::{
-        JOB_BOWL, JOB_HEADS, JOB_LEFTOVERS, JOB_MEAL, JOB_REHEAT, JOB_STEW, JOB_TEND,
-    };
-    use bims::manager::Stock;
-    let mut world = basic();
-    assert!(world.aboard.is_joined());
-    let ashore = world.residents.as_ref().expect("the station's room");
-    let residents = ashore.aboard.count();
-    assert!(residents > 0, "the spawn station has nobody living on it");
-    assert_eq!(
-        ashore.aboard.room.target(Stock::Stew),
-        data::RESIDENT_STEW_EACH * residents
-    );
-    assert_eq!(
-        world.aboard.room.target(Stock::Stew),
-        0,
-        "the crew's own target moved"
-    );
-
-    let mut cooked = false;
-    let mut heads = false;
-    let mut tended = false;
-    let mut on_deck = false;
-    for _ in 0..(24 * 60 * 60) {
-        world.step(&[]);
-        let ashore = world.residents.as_ref().unwrap();
-        for who in 0..ashore.aboard.count() {
-            match ashore.aboard.room.activity(who as usize) {
-                JOB_MEAL | JOB_BOWL | JOB_STEW | JOB_REHEAT | JOB_LEFTOVERS => cooked = true,
-                JOB_HEADS => heads = true,
-                JOB_TEND => tended = true,
-                _ => {}
-            }
-        }
-        // The ship's room holds the crew and nobody else.
-        assert_eq!(world.aboard.count(), world.aboard.crew_count());
-        on_deck |= (0..world.aboard.count()).any(|who| !world.aboard.on_deck(who));
-    }
-    assert!(cooked, "nobody ashore cooked or ate in a day");
-    assert!(heads, "nobody ashore went to the heads in a day");
-    assert!(tended, "nobody ashore tended the bay in a day");
-    assert!(!on_deck, "somebody of the crew was off the deck");
+    assert!(crafted, "no medkit was made in four hours");
+    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), kits + 1);
 }
 
 // --- building ------------------------------------------------------------------
 
-/// A site laid out on the deck is carried to and built: the crew fetch
-/// the wall's metal off a shelf a load at a time, put it down at the site,
-/// then stand beside it and put it together, and the wall is on the ship
-/// with its recipe out of the hold. The ship weighs the same throughout —
-/// the materials were only ever spoken for, never in transit — and the
-/// room goes on under the crew with the wall in it: nobody's errand is
-/// lost, and the new wall is a solid the deck's grid goes round.
+/// A site laid out on the deck is walked to and built, and **its price
+/// leaves the pool the moment the part goes down** (feature 95): nothing
+/// is carried to it, since there are no materials left to carry. The ship
+/// gets *heavier* by the part's own mass — a part is bought, brought and
+/// bolted on — and the room goes on under the crew with the wall in it:
+/// nobody's errand is lost, and the new wall is a solid the deck's grid
+/// goes round.
 #[test]
-fn a_site_on_the_deck_is_hauled_to_and_built_by_the_crew() {
-    use bims::game::{JOB_BUILD, JOB_HAUL};
+fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
+    use bims::game::JOB_BUILD;
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::Layer;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     // The dressings every Bim carries are out of the way (feature 87).
     without_dressings(&mut world);
-    let metal = world.ship.design.carrying(ResourceId::Metal);
-    let parts = world.ship.design.parts.len();
+    let money = world.money;
+    let price = PartKind::Wall.def().price;
     let mass = world.ship.dynamics.mass.get();
+    let walls = world.ship.design.count(PartKind::Wall);
+
+    // A wall on an open tile of the main deck.
     let at = (9, 12);
     assert!(
         world
             .ship
             .design
             .grid()
-            .has_floor((at.0 as i32, at.1 as i32)),
-        "the site is meant to go on deck"
+            .get(Layer::Object, (at.0 as i32, at.1 as i32))
+            == 0,
+        "clear"
     );
-    assert_eq!(
-        world.can_place_site(PartKind::Wall, at, Rotation::R0),
-        Ok(())
-    );
-    assert!(world.build_orders().is_empty(), "nothing to build yet");
-
     let events = world.step(&[Command::PlaceSite {
         slot: 0,
         kind: PartKind::Wall,
@@ -5589,130 +4969,126 @@ fn a_site_on_the_deck_is_hauled_to_and_built_by_the_crew() {
         rotation: Rotation::R0,
     }]);
     assert!(
-        events.iter().any(|e| matches!(
-            e,
-            WorldEvent::SitePlaced {
-                site: 1,
-                kind: PartKind::Wall
-            }
-        )),
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::SitePlaced { .. })),
         "{events:?}"
     );
     assert_eq!(world.builds.len(), 1);
-    assert!(!world.builds[0].begun(), "nothing has been carried yet");
-    // The first order is the wall's metal, a load of it.
-    let orders = world.build_orders();
-    assert_eq!(orders.len(), 1);
-    assert_eq!(orders[0].site, 1);
-    assert_eq!(orders[0].haul, Some((ResourceId::Metal as u32, 2)));
-    assert_eq!(orders[0].tiles.len(), 1);
+    // Nothing is spent until the part goes down: a site is a plan.
+    assert_eq!(world.money, money, "nothing spent yet");
 
-    let mut hauled = false;
-    let mut built_seen = false;
-    let mut held_the_ship = false;
-    let mut sale_refused = false;
+    // The crew walk over and put it together. Nothing is hauled — the
+    // one errand is the build.
     let mut built = false;
-    for _ in 0..(4 * 60 * 60) {
-        // Once the load is claimed, the metal cannot be sold from under
-        // the site — docked, where a sale would otherwise go.
-        let sell = if world.builds.first().is_some_and(|s| s.begun()) && !sale_refused {
-            vec![Command::Sell {
-                slot: 0,
-                resource: ResourceId::Metal,
-                units: metal,
-            }]
-        } else {
-            Vec::new()
-        };
-        let events = world.step(&sell);
-        if !sell.is_empty() {
-            assert!(
-                events.iter().any(|e| matches!(
-                    e,
-                    WorldEvent::Refused {
-                        why: Refusal::NotAboard,
-                        ..
-                    }
-                )),
-                "{events:?}"
-            );
-            assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal);
-            sale_refused = true;
-        }
-        let room = &world.aboard.room;
-        if room.agenda_len(0) > 0 {
-            match room.agenda_job(0, 0) {
-                JOB_HAUL => hauled = true,
-                JOB_BUILD => built_seen = true,
-                _ => {}
-            }
-        }
-        held_the_ship |= world.under_construction();
-        assert!(
-            close(world.ship.dynamics.mass.get(), mass),
-            "the mass moved while the wall was being built"
-        );
-        if events.iter().any(|e| {
-            matches!(
-                e,
-                WorldEvent::Built {
-                    kind: PartKind::Wall
-                }
-            )
-        }) {
+    let mut stood = false;
+    for _ in 0..(6 * 60 * 60) {
+        let events = world.step(&[]);
+        stood |= world.aboard.room.activity(0) == JOB_BUILD;
+        if events.iter().any(|e| matches!(e, WorldEvent::Built { .. })) {
             built = true;
             break;
         }
-        assert!(
-            !events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::BuildLost { .. })),
-            "the metal was there the whole time"
-        );
     }
-    assert!(built, "the wall was not built in four hours");
-    assert!(hauled, "nobody was seen hauling");
-    assert!(built_seen, "nobody was seen building");
-    assert!(held_the_ship, "the build never held the ship");
-    assert!(sale_refused, "the sale was never tried");
-    assert!(world.builds.is_empty());
-    assert!(!world.under_construction());
-    assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal - 2);
-    assert_eq!(world.ship.design.parts.len(), parts + 1);
-    let grid = world.ship.design.grid();
-    let wall = grid.get(Layer::Object, (at.0 as i32, at.1 as i32));
-    assert_eq!(
-        world.ship.design.part(wall).map(|p| p.kind),
-        Some(PartKind::Wall)
+    assert!(built, "the wall was never built");
+    assert!(stood, "nobody stood at the site");
+    assert!(world.builds.is_empty(), "the site is finished with");
+    assert_eq!(world.ship.design.count(PartKind::Wall), walls + 1);
+    assert_ne!(
+        world
+            .ship
+            .design
+            .grid()
+            .get(Layer::Object, (at.0 as i32, at.1 as i32)),
+        0
     );
-    assert!(close(world.ship.dynamics.mass.get(), mass));
-    // The room aboard has the wall as a solid now: it is among what the
-    // crew are kept out of.
-    // In the joined room's units: the ship sits its offset into the deck.
-    let middle = bims::aboard::tile_middle(at.0 as i32, at.1 as i32)
-        + bims::math::vec2(world.aboard.offset.x as f32, world.aboard.offset.y as f32);
-    let (_, solids) = world.aboard.room.route_for_probe(0);
+    // Paid for, and the ship is heavier by exactly the wall.
+    assert_eq!(world.money, money - price);
+    let want = mass + shipdesign::part_mass(PartKind::Wall);
     assert!(
-        solids.iter().any(|s| s.contains(middle)),
-        "the new wall is not a solid"
+        (world.ship.dynamics.mass.get() - want).abs() < 1e-6,
+        "{} is not {want}",
+        world.ship.dynamics.mass.get()
     );
-    // And the crew are still the crew, with their needs where they were.
+    // The room came with it: the crew are still aboard and still going
+    // about their day.
     assert_eq!(world.aboard.count(), 1);
 }
 
-/// A site beyond the hull is built from outside: deck plating laid out
-/// against the skin has no tile beside it a body can stand on from the
-/// deck, so the Bim takes the suit out through the airlock, carries the
-/// load round to it and builds it out there — and the frame goes down
-/// with the deck, since plating a bare tile lays both. The dose is the
-/// walk's, as for mining.
+/// A site the crew cannot pay for **waits**, with
+/// [`Refusal::NotEnoughMoney`] where the part would otherwise go down,
+/// and the money earned since lets it go on (feature 95). And two sites
+/// the pool covers only one of are one at a time: `free_money` is the
+/// pool less the sites already begun.
+#[test]
+fn a_site_waits_while_the_pool_cannot_cover_it() {
+    use shipdesign::fixture::playtest_ship;
+    let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    without_dressings(&mut world);
+    let price = PartKind::Wall.def().price;
+    // Just short of one wall.
+    world.money = price - 1;
+    world.step(&[Command::PlaceSite {
+        slot: 0,
+        kind: PartKind::Wall,
+        origin: (9, 12),
+        rotation: Rotation::R0,
+    }]);
+    assert_eq!(world.builds.len(), 1);
+    let site = world.builds[0].clone();
+    assert_eq!(site.price(&world.ship.design), price);
+    assert!(!world.affordable_site(&site), "a euro short");
+    // Nothing is offered to be built at it: the order is on the list, and
+    // it has no minutes on it.
+    let orders = world.build_orders();
+    assert_eq!(orders.len(), 1);
+    assert_eq!(orders[0].minutes, 0.0, "nothing to start at it");
+
+    // A day goes by and nothing is built.
+    for _ in 0..(6 * 60 * 60) {
+        world.step(&[]);
+    }
+    assert_eq!(world.builds.len(), 1, "the site waits");
+    assert_eq!(world.ship.design.count(PartKind::Wall), {
+        let design = playtest_ship();
+        design.count(PartKind::Wall)
+    });
+
+    // The Republic pays, and it goes on.
+    world.money = price * 4;
+    let site = world.builds[0].clone();
+    assert!(world.affordable_site(&site));
+    let mut built = false;
+    for _ in 0..(6 * 60 * 60) {
+        if world
+            .step(&[])
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Built { .. }))
+        {
+            built = true;
+            break;
+        }
+    }
+    assert!(built, "the wall was never built once there was money");
+    assert_eq!(world.money, price * 3);
+}
+
+/// Deck plating outside the hull is built from outside: laid against the
+/// skin it has no tile beside it a body can stand on from the deck, so
+/// the Bim takes the suit out through the airlock, walks round to it and
+/// builds it out there — and the frame goes down with the deck, since
+/// plating a bare tile lays both and is charged for both. The dose is the
+/// walk's.
 #[test]
 fn a_site_beyond_the_hull_is_built_in_a_suit() {
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::Layer;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.undock_for_probe();
-    let metal = world.ship.design.carrying(ResourceId::Metal);
+    without_dressings(&mut world);
+    let money = world.money;
+    let price = PartKind::Floor.def().price + PartKind::Structure.def().price;
+
     // The tile west of the west wall, amidships: nothing there at all.
     let grid = world.ship.design.grid();
     let y = 9;
@@ -5726,64 +5102,57 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
         Ok(()),
         "plating against the skin should go"
     );
-    world.step(&[Command::PlaceSite {
+    let events = world.step(&[Command::PlaceSite {
         slot: 0,
         kind: PartKind::Floor,
         origin: at,
         rotation: Rotation::R0,
     }]);
-    // Frame and deck: three metal.
-    assert_eq!(
-        world.build_orders()[0].haul,
-        Some((ResourceId::Metal as u32, 3))
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::SitePlaced { .. })),
+        "{events:?}"
     );
+    assert_eq!(world.builds[0].price(&world.ship.design), price);
 
-    let mut went_out = false;
     let mut built = false;
-    for _ in 0..(6 * 60 * 60) {
+    let mut outside = false;
+    for _ in 0..(8 * 60 * 60) {
         let events = world.step(&[]);
-        went_out |= world.aboard.room.is_outside(0);
-        if events.iter().any(|e| {
-            matches!(
-                e,
-                WorldEvent::Built {
-                    kind: PartKind::Floor
-                }
-            )
-        }) {
+        outside |= world.aboard.room.is_outside(0);
+        if events.iter().any(|e| matches!(e, WorldEvent::Built { .. })) {
             built = true;
             break;
         }
     }
-    assert!(built, "the plating was not laid in six hours");
-    assert!(went_out, "the Bim never went outside for it");
-    // And comes back in through the door when it is done.
-    for _ in 0..(60 * 60) {
-        if !world.aboard.room.is_outside(0) {
-            break;
-        }
-        world.step(&[]);
-    }
+    assert!(built, "the plating was never laid");
+    assert!(outside, "nobody went outside for it");
     assert!(
-        !world.aboard.room.is_outside(0),
-        "the Bim is still out there"
+        world
+            .ship
+            .design
+            .grid()
+            .has_structure((at.0 as i32, at.1 as i32))
     );
-    assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal - 3);
-    let grid = world.ship.design.grid();
-    assert!(grid.has_structure((at.0 as i32, at.1 as i32)));
-    assert!(grid.has_floor((at.0 as i32, at.1 as i32)));
+    assert_ne!(
+        world
+            .ship
+            .design
+            .grid()
+            .get(Layer::Floor, (at.0 as i32, at.1 as i32)),
+        0
+    );
+    assert_eq!(world.money, money - price, "the deck and its frame");
     assert!(world.health[0].dose > 0.0, "the walk cost no dose");
 }
 
-/// The ship and the building keep off each other: nothing is laid out or
-/// worked while the ship is not at rest, and a Confirm is refused while a
-/// site has anything carried to it or anybody on the way — a bare
 /// blueprint holds nothing, and a cancelled site frees what it had claimed.
 #[test]
 fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    let metal = world.ship.design.carrying(ResourceId::Metal);
+    let money = world.money;
     let place = |slot: u32| Command::PlaceSite {
         slot,
         kind: PartKind::Wall,
@@ -5831,19 +5200,23 @@ fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
     assert_eq!(world.build_orders().len(), 1);
     world.aboard.room.recruit_for_probe(0, false);
 
-    // Once a load has been taken for it, the ship stays.
+    // Once somebody is on the way to it, the ship stays — and its price
+    // is spoken for (feature 95).
     let mut begun = false;
     for _ in 0..(60 * 60) {
         world.step(&[]);
-        if world.builds[0].begun() {
+        if world.aboard.room.building_at(world.builds[0].id) {
             begun = true;
             break;
         }
     }
-    assert!(begun, "nobody took a load in an hour");
+    assert!(begun, "nobody set out for it in an hour");
     assert!(world.under_construction());
-    assert_eq!(world.reserved(ResourceId::Metal), 2);
-    assert_eq!(world.free(ResourceId::Metal), metal - 2);
+    assert_eq!(
+        world.free_money(),
+        money - PartKind::Wall.def().price,
+        "the site's price is spoken for"
+    );
     world.man_the_helm_for_probe(0);
     let events = world.step(&[Command::Confirm { slot: 0, target }]);
     assert!(
@@ -5858,8 +5231,8 @@ fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
     );
     assert_eq!(world.ship.state, ShipState::Holding);
 
-    // Cancelled, the claim is gone and nothing has left the hold. The Bim
-    // on the way with the load finds the site gone and turns back.
+    // Cancelled, the claim is gone and nothing has left the pool. The
+    // Bim on the way finds the site gone and turns back.
     let events = world.step(&[Command::CancelSite { slot: 0, site: 1 }]);
     assert!(events.iter().any(|e| matches!(
         e,
@@ -5868,8 +5241,8 @@ fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
         }
     )));
     assert!(world.builds.is_empty());
-    assert_eq!(world.reserved(ResourceId::Metal), 0);
-    assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal);
+    assert_eq!(world.free_money(), money);
+    assert_eq!(world.money, money);
     for _ in 0..(30 * 60) {
         world.step(&[]);
     }
@@ -5967,14 +5340,13 @@ fn a_site_is_refused_where_the_designer_would_have_refused_it() {
         rotation: Rotation::R0,
     }]);
     assert_eq!(world.builds.len(), 2);
-    // Both are carried to; neither is built yet, and the wall will not be
-    // until its deck is there: what it wants is on the order, and the
-    // room only puts together a site the world gives minutes for.
+    // Both are on the list; the wall is not built until its deck is
+    // there, and the room only puts together a site the world gives
+    // minutes for.
     let orders = world.build_orders();
     assert_eq!(orders.len(), 2);
     assert_eq!(orders[0].site, 1);
     assert_eq!(orders[1].site, 2);
-    assert!(orders[1].haul.is_some());
     assert_eq!(orders[1].minutes, 0.0);
     // A site shows in the checksum.
     assert_ne!(
@@ -7569,7 +6941,9 @@ fn enemies_of_grows_with_the_crew_s_worth_and_a_hostile_dock_opens_with_a_garris
         let at_peace = residents + world.mercenaries_of(&station);
         assert_eq!(world.residents.as_ref().unwrap().aboard.count(), at_peace);
         assert_eq!(world.people_of(&station), residents, "home: its residents");
-        assert_eq!(world.start_worth, Budget::spent(&world.ship.design));
+        // Worth is everything the crew own since the money rework
+        // (feature 95): the ship, the hold, the crew's gear and the pool.
+        assert!(world.start_worth > Budget::spent(&world.ship.design));
         assert_eq!(world.worth(), world.start_worth, "nothing bought yet");
 
         world.set_hostile(station_id, true);
@@ -8244,7 +7618,9 @@ fn pieces_and_guns_agree_with_the_hold_and_every_weapon_is_a_locker_resource() {
             assert_eq!(item_of(resource), Item::Weapon(kind.basic()));
             assert_eq!(resource_of_item(Item::Weapon(kind.basic())), Some(resource));
             assert_eq!(economy::storage(resource), Storage::Locker);
-            assert!(!worldgen::StationKind::Orbital.sells(resource));
+            // Whether a weapon is on a shelf is the **station's** roll
+            // since the money rework (feature 95), not the kind's: the
+            // kind lets all five through and `Stock` decides.
         }
         assert_eq!(weapon_of(ResourceId::Helm), None);
     }
@@ -8472,28 +7848,15 @@ fn a_shot_on_the_head_is_taken_by_the_helm_first_and_a_stowed_piece_keeps_its_he
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         without_dressings(&mut world);
         world.know_everything_for_probe();
-        assert!(world.ship.design.carrying(ResourceId::Metal) >= 2);
-        assert!(world.powered(PartKind::Workbench));
 
-        // A second helm off the bench: recipe 7, half an hour at the
-        // workbench plus the walk there.
-        world.set_craft_target(ResourceId::Helm, 2);
-        let orders = world.craft_orders();
-        assert_eq!(orders.len(), 1, "{orders:?}");
-        assert_eq!(orders[0].recipe, 7);
-        let mut made = false;
-        for _ in 0..(4 * 60 * 60) {
-            let events = world.step(&[]);
-            if events.contains(&WorldEvent::Crafted { recipe: 7 }) {
-                made = true;
-                break;
-            }
-        }
-        assert!(made, "the helm was made");
+        // A second helm: bought rather than made since the money rework
+        // (feature 95) — the hold's count is poked the way a purchase
+        // moves it, and `settle_pieces` puts a whole piece behind it.
+        world.ship.design.cargo[ResourceId::Helm as usize] += 1;
+        world.on_ship_changed();
         assert_eq!(world.ship.design.carrying(ResourceId::Helm), 2);
         let helms = in_hold(&world, ArmourKind::BasicHelm);
         assert_eq!(helms.len(), 2);
-        assert_eq!(helms[1].id, 4, "the next id");
         assert_eq!(helms[1].health, 15.0, "whole");
         pieces_agree(&world);
 
@@ -8595,19 +7958,23 @@ fn a_fetch_or_a_stow_wants_the_bim_in_reach_and_room_to_put_it() {
     let (bench, _) = armoury(&world);
     assert!(world.container_takes(Container::Bench(bench), ResourceId::Helm));
     assert!(world.container_takes(Container::Bench(bench), ResourceId::Bandage));
-    assert!(!world.container_takes(Container::Bench(bench), ResourceId::Metal));
-    assert!(world.container_takes(Container::Shelf(0), ResourceId::Metal));
+    assert!(!world.container_takes(Container::Bench(bench), ResourceId::Vegetable));
+    // A shelf is locker room since the money rework (feature 95): it
+    // takes what a locker takes and nothing the cold store does.
     assert!(world.container_takes(Container::Shelf(0), ResourceId::Helm));
     assert!(world.container_takes(Container::Shelf(0), ResourceId::Handgun));
-    assert!(!world.container_takes(Container::Shelf(0), ResourceId::Bandage));
+    assert!(world.container_takes(Container::Shelf(0), ResourceId::Bandage));
+    assert!(!world.container_takes(Container::Shelf(0), ResourceId::Vegetable));
     assert!(!world.container_takes(Container::Shelf(0), ResourceId::Tofu));
     assert!(world.container_takes(Container::Fridge(0), ResourceId::Tofu));
     assert!(!world.container_takes(Container::Fridge(0), ResourceId::Helm));
-    // The smelter is a bench that holds nothing.
-    let smelter = (0..world.aboard.room.benches().len())
-        .find(|&i| world.aboard.room.bench_part(i) == PartKind::Smelter.code())
+    // The workbench is a bench that holds nothing: it is worked at, not
+    // stowed into (`shipdesign::recipes::is_workstation`).
+    let bench = (0..world.aboard.room.benches().len())
+        .find(|&i| world.aboard.room.bench_part(i) == PartKind::Workbench.code())
         .unwrap();
-    assert!(!world.container_takes(Container::Bench(smelter), ResourceId::Helm));
+    assert!(!world.container_takes(Container::Bench(bench), ResourceId::Helm));
+    assert!(!world.container_takes(Container::Bench(bench), ResourceId::Vegetable));
 
     // At the helm, forward of everything that holds anything — the bunk
     // is right beside the armoury — refused, and nothing moved.
@@ -9727,7 +9094,7 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
         // An unlock with the desk empty is refused, and spends nothing.
         let events = world.step(&[Command::Unlock {
             slot: 0,
-            node: Node::Armoury.code(),
+            node: Node::Hyperdrive.code(),
         }]);
         assert!(events.contains(&WorldEvent::Refused {
             slot: 0,
@@ -9744,24 +9111,24 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
         // The key consumed: the armoury open and the emitters still shut, the
         // desk empty, and a second key on the armoury — or one on a node
         // with no lock — refused rather than spent.
-        assert!(!world.research.is_unlocked(Node::Armoury));
+        assert!(!world.research.is_unlocked(Node::Hyperdrive));
         let events = world.step(&[Command::Unlock {
             slot: 0,
-            node: Node::Armoury.code(),
+            node: Node::Hyperdrive.code(),
         }]);
         assert!(
             events.contains(&WorldEvent::Unlocked {
-                node: Node::Armoury.code()
+                node: Node::Hyperdrive.code()
             }),
             "{events:?}"
         );
-        assert!(world.research.is_unlocked(Node::Armoury));
-        assert!(!world.research.is_unlocked(Node::Emitters));
-        assert!(world.research.needs_key(Node::Emitters));
+        assert!(world.research.is_unlocked(Node::Hyperdrive));
+        assert!(!world.research.is_unlocked(Node::Upgrades));
+        assert!(world.research.needs_key(Node::Upgrades));
         assert_eq!(world.keys_in_desk(1), 0);
         world.ship.design.cargo[ResourceId::ResearchKey as usize] = 1;
         world.on_ship_changed();
-        for node in [Node::Armoury, Node::Smelting] {
+        for node in [Node::Hyperdrive, Node::FusionPower] {
             let events = world.step(&[Command::Unlock {
                 slot: 0,
                 node: node.code(),
@@ -9778,22 +9145,22 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
         // the AI goes onto smelting the same step.
         let events = world.step(&[Command::Research {
             slot: 0,
-            node: Node::Armoury.code(),
+            node: Node::Hyperdrive.code(),
         }]);
-        for node in [Node::Smelting, Node::Workshop, Node::Armoury] {
+        for node in [Node::FusionPower, Node::FusionPower, Node::Hyperdrive] {
             assert!(
                 events.contains(&WorldEvent::ResearchQueued { node: node.code() }),
                 "{events:?}"
             );
         }
         assert!(events.contains(&WorldEvent::ResearchBegun {
-            node: Node::Smelting.code()
+            node: Node::FusionPower.code()
         }));
-        assert_eq!(world.research.current, Some(Node::Smelting));
-        assert_eq!(world.research.queue, vec![Node::Workshop, Node::Armoury]);
-        // The emitters, still behind their key, are refused whole; so is
-        // the armoury again, being queued already.
-        for node in [Node::Emitters, Node::Armoury] {
+        assert_eq!(world.research.current, Some(Node::FusionPower));
+        assert_eq!(world.research.queue, vec![Node::Hyperdrive]);
+        // The upgrades, still behind their own key, are refused whole; so
+        // is the hyperdrive again, being queued already.
+        for node in [Node::Upgrades, Node::Hyperdrive] {
             let events = world.step(&[Command::Research {
                 slot: 0,
                 node: node.code(),
@@ -9803,44 +9170,51 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
                 why: Refusal::NotResearchable
             }));
         }
-        // The workshop taken off the queue takes the armoury with it, and
-        // there is nothing to take a second time.
+        // The hyperdrive taken off the queue, and there is nothing to
+        // take a second time. Fusion power is on the AI, not the queue.
         let events = world.step(&[Command::Dequeue {
             slot: 0,
-            node: Node::Workshop.code(),
+            node: Node::Hyperdrive.code(),
         }]);
-        for node in [Node::Workshop, Node::Armoury] {
-            assert!(
-                events.contains(&WorldEvent::ResearchDropped { node: node.code() }),
-                "{events:?}"
-            );
-        }
+        assert!(
+            events.contains(&WorldEvent::ResearchDropped {
+                node: Node::Hyperdrive.code()
+            }),
+            "{events:?}"
+        );
         assert!(world.research.queue.is_empty());
         let events = world.step(&[Command::Dequeue {
             slot: 0,
-            node: Node::Workshop.code(),
+            node: Node::Hyperdrive.code(),
         }]);
         assert!(events.contains(&WorldEvent::Refused {
             slot: 0,
             why: Refusal::NotQueued
         }));
-        // The AI taken off smelting stands idle; the workshop learnt
-        // without its time, the armoury is one node's wait, and queued it
-        // is begun the same step.
+        // The AI taken off fusion power stands idle; asked for the
+        // hyperdrive, what it needs goes on ahead of it and the AI is back
+        // on fusion power the same step.
         world.step(&[Command::CancelResearch { slot: 0 }]);
         assert_eq!(world.research.current, None);
-        world.research_for_probe(Node::Workshop);
         let events = world.step(&[Command::Research {
             slot: 0,
-            node: Node::Armoury.code(),
+            node: Node::Hyperdrive.code(),
         }]);
-        assert!(events.contains(&WorldEvent::ResearchQueued {
-            node: Node::Armoury.code()
-        }));
+        for node in [Node::FusionPower, Node::Hyperdrive] {
+            assert!(
+                events.contains(&WorldEvent::ResearchQueued { node: node.code() }),
+                "{events:?}"
+            );
+        }
         assert!(events.contains(&WorldEvent::ResearchBegun {
-            node: Node::Armoury.code()
+            node: Node::FusionPower.code()
         }));
-        assert_eq!(world.research.current, Some(Node::Armoury));
+        assert!(!events.contains(&WorldEvent::ResearchBegun {
+            node: Node::Hyperdrive.code()
+        }));
+        assert_eq!(world.research.current, Some(Node::FusionPower));
+        // The hyperdrive queued behind it waits its turn.
+        assert_eq!(world.research.queue, vec![Node::Hyperdrive]);
         // The AI runs on the world's clock: a minute of steps is a minute —
         // and the step the order landed in counted too.
         for _ in 0..59 {
@@ -9851,29 +9225,18 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
             "{}",
             world.research.progress
         );
-        // Fusion power queued behind it waits its turn; nearly there, then
-        // the word — and the AI onto fusion power the same step.
-        let events = world.step(&[Command::Research {
-            slot: 0,
-            node: Node::FusionPower.code(),
-        }]);
-        assert!(events.contains(&WorldEvent::ResearchQueued {
-            node: Node::FusionPower.code()
-        }));
-        assert!(!events.contains(&WorldEvent::ResearchBegun {
-            node: Node::FusionPower.code()
-        }));
-        assert_eq!(world.research.current, Some(Node::Armoury));
-        world.research.progress = Node::Armoury.def().minutes as f64 - 0.5;
+        // Nearly there, then the word — and the AI onto the hyperdrive the
+        // same step.
+        world.research.progress = Node::FusionPower.def().minutes as f64 - 0.5;
         let mut said = false;
         for _ in 0..60 {
             let events = world.step(&[]);
             if events.contains(&WorldEvent::Researched {
-                node: Node::Armoury.code(),
+                node: Node::FusionPower.code(),
             }) {
                 assert!(
                     events.contains(&WorldEvent::ResearchBegun {
-                        node: Node::FusionPower.code()
+                        node: Node::Hyperdrive.code()
                     }),
                     "{events:?}"
                 );
@@ -9882,10 +9245,10 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
             }
         }
         assert!(said);
-        assert!(world.research.is_done(Node::Armoury));
-        assert_eq!(world.research.current, Some(Node::FusionPower));
+        assert!(world.research.is_done(Node::FusionPower));
+        assert_eq!(world.research.current, Some(Node::Hyperdrive));
         assert!(world.research.queue.is_empty());
-        assert!(world.research.part_allowed(PartKind::Armoury));
+        assert!(world.research.part_allowed(PartKind::FusionReactor));
     }
 
     // --- the_benches_and_the_build_tab_wait_on_research ---
@@ -9893,28 +9256,28 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
         use shipdesign::fixture::playtest_ship;
         use shipdesign::research::Node;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-        assert!(world.powered(PartKind::Smelter));
-        let metal = world.ship.design.carrying(ResourceId::Metal);
-        world.set_craft_target(ResourceId::Metal, metal + 1);
-        assert!(world.craft_orders().is_empty(), "smelting is not known");
-        // Medicine is: a medkit out of the vegetables at the drug lab.
+        assert!(world.powered(PartKind::DrugLab));
+        // Medicine is known from the first day, so the one recipe left is
+        // on offer at once: a medkit out of the vegetables at the drug lab.
         let medkits = world.ship.design.carrying(ResourceId::Medkit);
         world.set_craft_target(ResourceId::Medkit, medkits + 1);
         let orders = world.craft_orders();
         assert_eq!(orders.len(), 1, "{orders:?}");
-        assert_eq!(orders[0].recipe, 5);
+        assert_eq!(orders[0].recipe, 0);
         world.set_craft_target(ResourceId::Medkit, 0);
+        assert!(world.craft_orders().is_empty(), "the target is met");
 
-        // A smelter cannot be laid out, and the refusal names the node; a
-        // suit locker can, since mining is known from the first day.
-        let refusal = world.can_place_site(PartKind::Smelter, (5, 15), Rotation::R0);
+        // A fusion reactor cannot be laid out, and the refusal names the
+        // node; a suit locker can, since survival is known from the first
+        // day, and so can a drug lab, since medicine is.
+        let refusal = world.can_place_site(PartKind::FusionReactor, (5, 15), Rotation::R0);
         assert_eq!(
             refusal,
-            Err(crate::SiteRefusal::NotResearched(Node::Smelting.code()))
+            Err(crate::SiteRefusal::NotResearched(Node::FusionPower.code()))
         );
         let events = world.step(&[Command::PlaceSite {
             slot: 0,
-            kind: PartKind::Smelter,
+            kind: PartKind::FusionReactor,
             origin: (5, 15),
             rotation: Rotation::R0,
         }]);
@@ -9923,20 +9286,22 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
             why: Refusal::NotResearched
         }));
         assert!(world.builds.is_empty());
-        assert_ne!(
-            world.can_place_site(PartKind::SuitLocker, (5, 15), Rotation::R0),
-            Err(crate::SiteRefusal::NotResearched(Node::Mining.code()))
-        );
+        for kind in [PartKind::SuitLocker, PartKind::DrugLab] {
+            assert!(
+                !matches!(
+                    world.can_place_site(kind, (5, 15), Rotation::R0),
+                    Err(crate::SiteRefusal::NotResearched(_))
+                ),
+                "{kind:?}"
+            );
+        }
 
-        // Known, the smelter is offered the ore.
-        world.research_for_probe(Node::Smelting);
-        let orders = world.craft_orders();
-        assert_eq!(orders.len(), 1, "{orders:?}");
-        assert_eq!(orders[0].recipe, 0);
-        assert_ne!(
-            world.can_place_site(PartKind::Smelter, (5, 15), Rotation::R0),
-            Err(crate::SiteRefusal::NotResearched(Node::Smelting.code()))
-        );
+        // Known, the reactor is no longer held back by the tree.
+        world.research_for_probe(Node::FusionPower);
+        assert!(!matches!(
+            world.can_place_site(PartKind::FusionReactor, (5, 15), Rotation::R0),
+            Err(crate::SiteRefusal::NotResearched(_))
+        ));
     }
 }
 
@@ -9974,7 +9339,7 @@ fn keys_are_on_four_friendly_desks_in_five_and_always_at_the_spawn() {
     assert!(with > 0 && without > 0, "{with} with, {without} without");
     assert_eq!(
         (count, hash),
-        (156, 0x7d98_7bd4_6aa9_4ea5),
+        (212, 0xf701_c239_8d9d_8b25),
         "{count} {hash:#x}"
     );
     // The odds themselves, over enough seeds to mean something.
@@ -10184,15 +9549,15 @@ fn unlock_wants_the_nodes_tier() {
     assert_eq!(world.ship.design.stored(Storage::Research), 1);
     let events = world.step(&[Command::Unlock {
         slot: 0,
-        node: Node::Armoury.code(),
+        node: Node::Hyperdrive.code(),
     }]);
     assert!(refused(&events, Refusal::NoKey), "{events:?}");
     assert_eq!(world.keys_in_desk(2), 1);
-    assert!(!world.research.is_unlocked(Node::Armoury));
+    assert!(!world.research.is_unlocked(Node::Hyperdrive));
     // Nor a node with no lock, whatever is in the desk.
     let events = world.step(&[Command::Unlock {
         slot: 0,
-        node: Node::Smelting.code(),
+        node: Node::FusionPower.code(),
     }]);
     assert!(refused(&events, Refusal::NotResearchable), "{events:?}");
     assert_eq!(world.keys_in_desk(2), 1);
@@ -10397,6 +9762,12 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         // The dressings every Bim carries are out of the way (feature 87).
         without_dressings(&mut world);
         world.undock_for_probe();
+        // A month before the next raid. A day at the bench is a day off the
+        // berth, and the generator bump the money rework carried (feature
+        // 95) re-rolled every raid's gap: the one this ship used to be
+        // clear of now lands halfway through the work, and a boarding
+        // party is not what this test is about.
+        world.raid_due_for_probe(30 * 24 * 60);
         world.ship.design.cargo[ResourceId::Handgun as usize] += 2;
         upgrades_known(&mut world);
         world.on_ship_changed();
@@ -10567,6 +9938,7 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         without_dressings(&mut world);
         world.undock_for_probe();
+        world.raid_due_for_probe(30 * 24 * 60);
         upgrades_known(&mut world);
         world.ship.design.cargo[ResourceId::Handgun as usize] += 2;
         world.ship.design.cargo[ResourceId::Helm as usize] += 2;
@@ -10731,6 +10103,7 @@ fn a_pair_is_put_on_the_bench_by_hand_and_the_button_pressed() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.undock_for_probe();
+    world.raid_due_for_probe(30 * 24 * 60);
     upgrades_known(&mut world);
     world.ship.design.cargo[ResourceId::Handgun as usize] += 2;
     world.on_ship_changed();
@@ -11270,6 +10643,7 @@ fn a_ship_holding_over_a_planet_lands_on_the_pad_and_lifts_off_straight_up() {
         slot: 0,
         resource: ResourceId::Vegetable,
         units: 1,
+        tier: 1,
     }]);
     assert!(
         events
@@ -11309,7 +10683,14 @@ fn a_ship_holding_over_a_planet_lands_on_the_pad_and_lifts_off_straight_up() {
         from.distance(over) < 1.0,
         "the trip begins at {from:?}, not over the planet at {over:?}"
     );
-    assert!(world.residents.is_none(), "the settlement is behind");
+    // The settlement is behind. Another station of the system may well be
+    // within range of the point over the planet the climb ends at, and its
+    // room opening is `settle_residents` working.
+    assert_ne!(
+        world.residents.as_ref().map(|r| r.station),
+        Some(crate::surface::surface_id(planet.id)),
+        "the settlement is behind"
+    );
 }
 
 /// A Land is refused everywhere but a hold over a planet with ground: at
@@ -11324,7 +10705,7 @@ fn a_land_wants_a_hold_over_a_planet_with_ground() {
         slot: 0,
         why: Refusal::NotHolding
     }));
-    if at_a_belt(&mut world).is_some() {
+    if world.hold_at_belt_for_probe() {
         assert_eq!(world.can_land(), Err(Refusal::NoPlanetHere));
         world.man_the_helm_for_probe(0);
         let events = world.step(&[Command::Land { slot: 0 }]);

@@ -24,11 +24,12 @@ than carrying a copy — so re-pinning here is enough for both.
 `the_checksum_notices_a_station_leaning_on_a_price` moves one entry of a
 bias and asks the same.
 
-Anything on `data.rs`'s bump list moves `GENERATOR_VERSION` (6 now: 4 was
+Anything on `data.rs`'s bump list moves `GENERATOR_VERSION` (**7** now: 4 was
 the body count going from one-to-seven to two-to-ten so a system could
 hold more stations, and every position moved with it; 6 took the stations
 off the belts — see below — which re-sites a station in every system with
-a belt). The
+a belt); 7 was the money rework — eight resources deleted, so every
+shelf's bits moved, and a new stream for the gear trades. The
 station shares, the shelves and the hazards are *not* on that list, on
 purpose: they change what is in a system without changing whether its layout
 passes `layout`, so they can be tuned while the galaxy keeps its shape. The
@@ -92,20 +93,24 @@ second station.
 ## Nothing stands at a belt
 
 `data::parent_suits` is the matching rule, and its first arm refuses
-**every** kind a belt for a parent. A belt is the crew's mining site —
-`world::mining` lays the asteroids out about the ship holding at it — and
-a station in orbit of one got in the way: a trip to a body ends
+**every** kind a belt for a parent. A belt used to be the crew's mining
+site — `world::mining` laid the asteroids out about the ship holding at
+it, and the money rework (feature 95) took the mining away — and a
+station in orbit of one got in the way: a trip to a body ends
 `flight`'s `ARRIVAL_RADIUS_BODY` (15 000) short of it, a station orbits
 its parent at `STATION_ORBIT` of the minimum separation (about 10 000),
 so a ship that came in on the station's side had the station for its
 nearest node, the world's view settled on that and no site was laid out.
 The mining outposts, which were bolted to belts, are dug into rocky
-planets and ice worlds now, beside the orbitals, and still the only
-place galvum is sold. `nothing_stands_at_a_belt` (in `system.rs`'s
+planets and ice worlds now, beside the orbitals. The rule outlived the
+mining it was written for, and it stays: a station orbiting a belt is
+still a node a trip would settle on instead of the belt. `nothing_stands_at_a_belt` (in `system.rs`'s
 tests) walks every station of the four reference galaxies: none has a
 belt for a parent, none stands within twice the arrival radius of one,
-and there are still outposts. The world's `spawn` wants a belt in the
-spawn system for the same reason (`crates/world/CLAUDE.md`).
+and there are still outposts. The world's `spawn` still wants a belt in
+the spawn system, not because anything is done there any more but
+because moving the simulation's dock would re-pin every hash in the
+workspace (`crates/world/CLAUDE.md`).
 
 ## A station's side is rolled here, and the enemy's are together in one corner
 
@@ -135,16 +140,35 @@ and the lobby's `can_start` is what keeps a crew from starting at one. A
 station's `Station::hostile` in the world is this bit carried across,
 kept for anyone who wants the roll rather than the rule.
 
-## Who sells what is one `match`, and its test enumerates every pair
+## Who sells what is one `match`, and the gear is two flags beside it
 
 `StationKind::sells` in `data.rs` is the only place the shelf's ceiling is
 written down, and `a_station_stocks_the_staples_and_rolls_the_rest` in
 `tests.rs` walks every kind against every resource, so a resource added to
-`physics` without an arm here is a test that names it. Fibre is sold at orbitals — where
-there is ground to grow it — and a bandage at orbitals and refineries;
-neither is a staple, so a station rolls them like components. Galvum is
-the outposts' alone, an emitter, a handgun and a vest are nobody's, rock is
-nobody's, and a derelict sells nothing.
+`physics` without an arm here is a test that names it. Since the money
+rework the table is short: `STAPLES` — **vegetables, tofu and medkits** —
+are on every lived-in shelf whatever the roll, bandages and suits are
+rolled at `STOCKED_CHANCE`, the class charges are nobody's, and a
+derelict sells nothing.
+
+**The gear is not on that shelf.** A weapon or a piece of armour is
+behind one of two flags a place rolls off its **own** seed, on a branch
+of its own (`Purpose::GearTrade`, 14): a **weapon trade** — handgun,
+shotgun, auto rifle, sniper rifle, schword — and an **armour trade** —
+helm, kevlar, leg guards — each at `WEAPON_TRADE_CHANCE` /
+`ARMOUR_TRADE_CHANCE` (0.4 apiece) and each independent of the other, so
+a place may have both, one or neither. `Stock::roll(kind, roll, gear)`
+takes the gear stream beside the contents one and sets the bits;
+`Stock::weapon_trade()` and `Stock::armour_trade()` read them back, and
+`Stock::sells(resource)` answers for a gun or a piece off its trade's
+flag rather than off the kind. A **derelict rolls nothing** — there is
+nobody at its desk. `the_gear_trades_are_a_roll_of_their_own` pins that
+the flags are a function of the seed alone, that each trade is all of its
+list or none of it, and that both turn up over a galaxy.
+
+That is what moved `GENERATOR_VERSION` to 7: the gear stream is a new
+branch, the eight deleted resources moved every shelf's bits, and the
+lean is drawn once a resource.
 
 ## The hyperlanes are a web, and they are in the checksum (feature 92)
 

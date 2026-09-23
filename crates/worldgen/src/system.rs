@@ -707,7 +707,14 @@ fn furnish(
         name: station_name(&base, id),
         salvage_sites,
         hazard_sites,
-        stock: Stock::roll(kind, &mut base.branch(0x_5354_4f43_4b00_0000 ^ id as u64)),
+        // The shelf off the station's own branch of its contents, and the
+        // two gear-trade flags off a stream of their own (feature 95), so
+        // that reworking one never moves the other.
+        stock: Stock::roll(
+            kind,
+            &mut base.branch(0x_5354_4f43_4b00_0000 ^ id as u64),
+            &mut Rng::stream(seed, star_id, version, Purpose::GearTrade).branch(id as u64),
+        ),
         // The desk's lean, off its own branch ("BIAS") like the shelf's;
         // a derelict keeps no desk, so it has none.
         bias: if kind == StationKind::Derelict {

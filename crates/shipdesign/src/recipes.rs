@@ -1,78 +1,49 @@
-//! What the workstations make, and out of what.
+//! What the crew still make, and out of what.
 //!
-//! One table, [`RECIPES`], and one shape of chain for all of it: a Bim
-//! stands at the recipe's [`station`](Recipe::station) for its
-//! [`minutes`](Recipe::minutes), and the inputs come out of the hold and the
-//! output goes in. The chain is the room's (`bims::task::Kind::Craft`) and
-//! the hold is the world's, so **this crate does neither** — it says what a
-//! recipe is, and `crates/world` moves the cargo when the room says a Bim
-//! has finished one. A native server will move the same cargo off the same
-//! table.
+//! One table, [`RECIPES`], and since the money rework (feature 95) **one
+//! row in it**: two vegetables into a medkit at the drug lab. Everything
+//! else a crew ever made is bought now — `economy`, and a station's desk —
+//! and the workbench makes nothing at all: what it does is **combine** two
+//! of a kind at one tier into one of the next, which is the world's
+//! (`world::World::upgrade`) and not a recipe.
+//!
+//! The shape of a recipe is unchanged: a Bim stands at the row's
+//! [`station`](Recipe::station) for its [`minutes`](Recipe::minutes), the
+//! inputs come out of the hold and the output goes in. The chain is the
+//! room's (`bims::task::Kind::Craft`) and the hold is the world's, so
+//! **this crate does neither** — it says what a recipe is, and
+//! `crates/world` moves the cargo when the room says a Bim has finished
+//! one. A native server will move the same cargo off the same table.
 //!
 //! # Mass
 //!
-//! Crafting **conserves mass**: an output weighs exactly what went into it,
-//! and `every_recipe_holds_together` in the tests holds the resource table
-//! to that. The smelter is the one exception, written down as
-//! [`Recipe::vents`]: two ore at ten is twenty, one metal is eight, and the
-//! twelve is slag and is vented. A recipe may lose mass only there, and may
-//! gain it nowhere. That is the two entries making things adds to the
-//! list in [`crate::materials`] of what changes a ship's mass.
+//! Crafting **conserves mass**: an output weighs exactly what went into
+//! it, and `every_recipe_holds_together` in the tests holds the resource
+//! table to that — a medkit is two vegetables, so a medkit weighs two
+//! vegetables. There is no exception left: the smelter vented slag and the
+//! smelter is gone.
 //!
 //! # A recipe is data, a job is a station
 //!
 //! There is no chain per product. A new thing to make is one row here, and
 //! the row says which station; the work list has one job per station
 //! (`bims::work::Job::Craft` is all of them today). A target per output —
-//! "keep twenty components" — is the world's, set by the player, and it is
+//! "keep twenty medkits" — is the world's, set by the player, and it is
 //! what turns a row into an errand: a recipe is on offer while the hold has
 //! fewer of its output than the target, the inputs for one, room for the
 //! output, a bench of its station aboard, and that station powered.
 //!
 //! # What a made thing is worth
 //!
-//! Its inputs and the hours, and nothing else — [`made_book`] is the
-//! rule, [`LABOUR_BP_PER_HOUR`] its one constant, and
-//! `economy::trade_price` carries the numbers it comes to, written in by
-//! hand since that crate knows no recipes. The test
-//! `every_made_book_is_its_inputs_and_labour` holds the two together.
-//! Metal alone is exempt: a staple on every shelf, priced with the roots.
+//! Whatever `economy::trade_price` says, which is a hand-written number
+//! like every other book value now. There was a rule — inputs plus labour,
+//! `made_book` and `LABOUR_BP_PER_HOUR` — and it went with the production
+//! chains it was written to keep honest: with one recipe left there is no
+//! chain to print money along.
 
-use economy::{Money, trade_price};
 use physics::ResourceId;
 
 use crate::parts::PartKind;
-
-/// What an hour at a bench adds to what went in, in basis points of it:
-/// a fifth. A placeholder like every other number in the game, and the
-/// one knob on every made thing's book value at once; turn it and
-/// `economy::trade_price` has to be rewritten to what [`made_book`] then
-/// says.
-pub const LABOUR_BP_PER_HOUR: Money = 2_000;
-
-/// What one unit of a recipe's output is **worth** at the book, from its
-/// inputs at theirs and the minutes at the bench:
-///
-/// ```text
-/// cost   = Σ book(input) × units
-/// labour = LABOUR_BP_PER_HOUR × minutes / 60          // basis points
-/// book   = max(1, cost × (10_000 + labour) / 10_000 / units out)
-/// ```
-///
-/// integer, rounding down at each division in that order. The inputs are
-/// priced at `economy::trade_price`, so the sum is the same whichever
-/// row is asked about first; an input is always an earlier row's
-/// output, so it is the rule applied to itself all the way down to the
-/// roots.
-pub fn made_book(recipe: &Recipe) -> Money {
-    let cost: Money = recipe
-        .inputs
-        .iter()
-        .map(|&(id, units)| trade_price(id) * units as Money)
-        .sum();
-    let labour = LABOUR_BP_PER_HOUR * recipe.minutes as Money / 60;
-    (cost * (10_000 + labour) / 10_000 / recipe.output.1 as Money).max(1)
-}
 
 /// One thing the crew can make.
 #[derive(Clone, Copy, Debug)]
@@ -88,179 +59,20 @@ pub struct Recipe {
     pub output: (ResourceId, u32),
     /// How long a Bim stands at the bench, in game minutes.
     pub minutes: u32,
-    /// Whether the recipe may **lose** mass — slag off the smelter. Never
-    /// gain it. See the module note.
-    pub vents: bool,
 }
 
 /// The table. Indexed by position, and the index is what crosses the wasm
 /// boundary — `ship_recipe_*` — so a recipe is appended, never inserted.
-pub static RECIPES: [Recipe; 17] = [
-    Recipe {
-        station: PartKind::Smelter,
-        inputs: &[(ResourceId::Ore, 2)],
-        output: (ResourceId::Metal, 1),
-        minutes: 30,
-        vents: true,
-    },
-    Recipe {
-        station: PartKind::Workbench,
-        inputs: &[(ResourceId::Metal, 1)],
-        output: (ResourceId::Components, 4),
-        minutes: 20,
-        vents: false,
-    },
-    Recipe {
-        station: PartKind::Workbench,
-        inputs: &[
-            (ResourceId::Metal, 1),
-            (ResourceId::Components, 2),
-            (ResourceId::Galvum, 1),
-        ],
-        output: (ResourceId::Emitter, 1),
-        minutes: 60,
-        vents: false,
-    },
-    // The armoury: what a Bim carries into a fight, wears into one, and is
-    // patched up with after.
-    Recipe {
-        station: PartKind::Armoury,
-        inputs: &[(ResourceId::Components, 2), (ResourceId::Emitter, 1)],
-        output: (ResourceId::Handgun, 1),
-        minutes: 45,
-        vents: false,
-    },
-    Recipe {
-        station: PartKind::Armoury,
-        inputs: &[(ResourceId::Metal, 4), (ResourceId::Components, 2)],
-        output: (ResourceId::Vest, 1),
-        minutes: 40,
-        vents: false,
-    },
-    // The medkit is the drug lab's since research came in: medicine is
-    // made from the first day, and the armoury is a bench that has to be
-    // researched (`crate::research`). The row keeps its index — the index
-    // crosses the seam — and only the station moved.
+pub static RECIPES: [Recipe; 1] = [
+    // The one thing left: medicine at the drug lab, made from the first
+    // day. It kept the quarter of an hour it always had, and its inputs
+    // are the two vegetables alone now that there is no component to put
+    // in it — which is why a medkit weighs two vegetables.
     Recipe {
         station: PartKind::DrugLab,
-        inputs: &[(ResourceId::Vegetable, 2), (ResourceId::Components, 1)],
+        inputs: &[(ResourceId::Vegetable, 2)],
         output: (ResourceId::Medkit, 1),
         minutes: 15,
-        vents: false,
-    },
-    // The drug lab: two fibre off the bay rolled into a dressing. What
-    // closes a wound — see `bims::health`.
-    Recipe {
-        station: PartKind::DrugLab,
-        inputs: &[(ResourceId::Fibre, 2)],
-        output: (ResourceId::Bandage, 1),
-        minutes: 15,
-        vents: false,
-    },
-    // Armour, back at the workbench: a helm, a kevlar vest and a pair of
-    // leg guards, each weighing the metal in it. What a piece does for
-    // the body wearing it is `bims::combat`'s, like everything the
-    // armoury makes. The armoury's vest stays: it is not the kevlar.
-    Recipe {
-        station: PartKind::Workbench,
-        inputs: &[(ResourceId::Metal, 2)],
-        output: (ResourceId::Helm, 1),
-        minutes: 30,
-        vents: false,
-    },
-    Recipe {
-        station: PartKind::Workbench,
-        inputs: &[(ResourceId::Metal, 3), (ResourceId::Galvum, 1)],
-        output: (ResourceId::Kevlar, 1),
-        minutes: 45,
-        vents: false,
-    },
-    Recipe {
-        station: PartKind::Workbench,
-        inputs: &[(ResourceId::Metal, 1)],
-        output: (ResourceId::LegGuard, 1),
-        minutes: 20,
-        vents: false,
-    },
-    // The four weapons after the handgun, back at the armoury. Metal is
-    // the stock and the barrel, components the action, and an emitter
-    // what a laser fires through — so the shotgun wants none, the rifle
-    // one, the sniper two, and the schword two for the edge alone. Each
-    // weighs what went into it, like the handgun.
-    Recipe {
-        station: PartKind::Armoury,
-        inputs: &[(ResourceId::Metal, 4), (ResourceId::Components, 2)],
-        output: (ResourceId::Shotgun, 1),
-        minutes: 45,
-        vents: false,
-    },
-    Recipe {
-        station: PartKind::Armoury,
-        inputs: &[
-            (ResourceId::Metal, 3),
-            (ResourceId::Components, 3),
-            (ResourceId::Emitter, 1),
-        ],
-        output: (ResourceId::AutoRifle, 1),
-        minutes: 60,
-        vents: false,
-    },
-    Recipe {
-        station: PartKind::Armoury,
-        inputs: &[
-            (ResourceId::Metal, 4),
-            (ResourceId::Components, 2),
-            (ResourceId::Emitter, 2),
-        ],
-        output: (ResourceId::SniperRifle, 1),
-        minutes: 75,
-        vents: false,
-    },
-    Recipe {
-        station: PartKind::Armoury,
-        inputs: &[
-            (ResourceId::Metal, 1),
-            (ResourceId::Components, 1),
-            (ResourceId::Emitter, 2),
-        ],
-        output: (ResourceId::Schword, 1),
-        minutes: 60,
-        vents: false,
-    },
-    // The engineer's kits (feature 74), at the workbench: a sandbag kit is
-    // a metal's worth of sacks and frame in ten minutes, behind the
-    // workshop like the components; a sentry kit is a turret in a crate —
-    // an auto rifle's emitter and action on two bars of metal, an hour —
-    // behind the emitters, since it fires through one. Only an engineer
-    // can lay either (`world::deploy`); the bench makes them for anybody.
-    Recipe {
-        station: PartKind::Workbench,
-        inputs: &[(ResourceId::Metal, 1)],
-        output: (ResourceId::SandbagKit, 1),
-        minutes: 10,
-        vents: false,
-    },
-    Recipe {
-        station: PartKind::Workbench,
-        inputs: &[
-            (ResourceId::Metal, 2),
-            (ResourceId::Components, 2),
-            (ResourceId::Emitter, 1),
-        ],
-        output: (ResourceId::SentryKit, 1),
-        minutes: 60,
-        vents: false,
-    },
-    // The soldier's grenade (feature 75), at the armoury behind it like
-    // the armour: a bar of metal and a component's worth of fuse, twenty
-    // minutes. Anybody makes, carries and trades one; only a soldier
-    // throws it (`world::class`).
-    Recipe {
-        station: PartKind::Armoury,
-        inputs: &[(ResourceId::Metal, 1), (ResourceId::Components, 1)],
-        output: (ResourceId::Grenade, 1),
-        minutes: 20,
-        vents: false,
     },
 ];
 
@@ -281,8 +93,8 @@ impl Recipe {
 
 /// Whether the table holds together: every recipe on a station that draws,
 /// with something in, one thing out that is not also in, no input twice,
-/// every count above nought, a length, and the mass rule — equal unless it
-/// vents, and never more out than in.
+/// every count above nought, and the mass rule — what comes out weighs
+/// exactly what went in.
 pub fn recipes_are_sound() -> bool {
     RECIPES.iter().all(|r| {
         let station = r.station.def().draws();
@@ -291,14 +103,21 @@ pub fn recipes_are_sound() -> bool {
                 units > 0 && id != r.output.0 && !r.inputs[..i].iter().any(|&(seen, _)| seen == id)
             });
         let output = r.output.1 > 0;
-        let (in_mass, out_mass) = (r.input_mass(), r.output_mass());
-        let mass = if r.vents {
-            out_mass <= in_mass
-        } else {
-            (out_mass - in_mass).abs() < 1e-9
-        };
+        let mass = (r.output_mass() - r.input_mass()).abs() < 1e-9;
         station && inputs && output && r.minutes > 0 && mass
     })
+}
+
+/// Whether a part is a **workstation**: somewhere a Bim stands and
+/// works. Every part a recipe is made at, and the two that are worked at
+/// for other reasons since the money rework (feature 95) — the
+/// **workbench**, where two of a kind are combined into one of the next
+/// and a piece of armour is repaired, and the **armoury**, which is the
+/// gun cabinet a crew fetch from and stow into. `bims::aboard` builds the
+/// room's benches off this, and a bench is what makes a cabinet a
+/// container the crew can reach into.
+pub fn is_workstation(kind: PartKind) -> bool {
+    at(kind).next().is_some() || matches!(kind, PartKind::Workbench | PartKind::Armoury)
 }
 
 /// Every recipe made at `station`, by index into [`RECIPES`].

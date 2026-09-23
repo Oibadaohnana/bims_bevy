@@ -308,30 +308,37 @@ pool the same way, in whole euros, with overflow an error rather than a wrap.
 
 ### Buying what the ship will live on
 
-Under **Station** on the right is what there is to buy: ore, metal,
-components, vegetables and tofu, at the spawn station's own two prices a
+Under **Station** on the right is what there is to buy: vegetables, tofu,
+medkits, bandages, a suit, and whatever gear the spawn station trades in
+— at its own two prices a
 unit — what one *costs* here and what the desk *pays* for one, the
 station's ask and bid (*Trading*, under the game, has the sum). Buttons
 move one, ten or a hundred, and putting a thing back hands back what it
 cost — nothing has left the dock, so there is nothing to lose on the
 deal; the bid is shown, and is what a sale will fetch once the game has
-started, but nothing is sold in the yard, only put back.
+started, but nothing is sold in the yard, only put back. The yard buys at
+**tier one**: the tier chooser on the gear rows is the docked trade
+window's, since the design phase's purchase takes no tier.
 
 Two things bound a purchase, and the station's shelf is neither of them.
 Supply is unlimited; what refuses an order is **the
 pool** — goods come out of the same money the hull does, so a player who
 spends everything on plating has nothing to load it with — or **the ship**.
-Goods are stowed: food in a cold store, gear in a locker, everything else on
-a shelf. The readout under the rows is how full each class is, and a ship
-with no cold store cannot take food at all however much money there is.
+Goods are stowed: food in a cold store, and everything else in a locker —
+the armoury, the drug lab, the suit locker, and the **shelf**, which is
+locker class too since the money rework took the shelf class away with
+the materials that filled it. The readout under the rows is how full each
+class is, and a ship with no cold store cannot take food at all however
+much money there is.
 Each of those is not a count but a **grid**, ten cells across and as many
 rows as the parts aboard add up to — a shelf or a cold store is ten by
 ten — and every thing kept there covers its footprint of it: a pistol a
-row of two, a rifle seven, a sniper rifle the whole width; a vest four
+row of two, a rifle seven, a sniper rifle the whole width; kevlar four
 by four, a helm two by four; a crate of vegetables one by two, a block
 of tofu four by four. Goods that stack take one footprint a stack — ten
-ore to a cell, twenty components — so what a shelf holds is its cells
-times the stacks. A container's window lays its grid out as it is: drag
+vegetables to a crate, five dressings to a box — so what a shelf holds is
+its cells times the stacks. A container's window lays its grid out as it
+is: drag
 a thing to move it, press `R` on the way to turn it, and a thing goes in
 only where there is a run of cells for it — so a full hold is tidied,
 not counted.
@@ -341,32 +348,36 @@ hash, so a purchase clears everybody's Accept the way a wall does; it is in
 the ship's mass, so the acceleration on the handoff screen already accounts
 for it; and a shelf with something on it cannot be taken off until it is sold.
 
-### Everything is made of something, and it weighs what it is made of
+### Everything costs money, and weighs what the table says
 
-Every part has a **recipe** — so many units of metal, so many of components,
-and never ore or food, which are mined and eaten rather than built with. A part's mass is that recipe added up and there is no other
-number: a wall is two metal, and two metal is what a wall weighs.
+Every part has a **price** in euros and a **mass** in the same table
+(`shipdesign::parts`), and the two are deliberately unrelated: a wall
+costs what a wall costs and weighs what a wall weighs. There was a third
+column — a **recipe**, so many units of metal and components — and the
+mass was that recipe added up; the money rework took the materials away
+and wrote each part's mass down as exactly the number its recipe used to
+come to, so nothing about how a ship flies moved.
 
-That is what makes construction a **move** rather than a purchase. Take two
-metal out of the hold, put a wall on the frame, and the ship weighs exactly
-what it weighed a moment ago — the materials have changed where they are and
-nothing else. Take the wall off again and all two units come back; there is no
-wastage, no scrap and no scrapping penalty. A ship's mass changes only by
-trading at a station, by food being eaten or grown, and by crew coming
-aboard or leaving — nothing is burnt in flight.
+That is what makes construction a **purchase** rather than a move. The
+price of a part leaves the crew's pool and the part's mass arrives on the
+ship; take the part off again and **the whole price comes back** — there
+is no wastage, no scrap and no scrapping penalty, and the crew are
+neither richer nor poorer for building and unbuilding. A ship's mass
+changes by trading at a station, by building and deconstructing, by food
+being eaten or grown, and by crew coming aboard or leaving — nothing is
+burnt in flight.
 
-None of that is visible yet, because in the design phase there is a station
-outside and everything is bought with money. **Money only works docked** —
-that is where euros and materials swap for each other — and the design phase
-happens docked at the spawn station, which is the whole reason a part can go
-down instantly. Out between stations there is nobody to buy from, and what
-gets built comes out of the hold or does not get built. A part's price in
-euros and its recipe are deliberately unrelated: they are two different
-transactions that happen to end in the same wall.
+**Money works anywhere a part is concerned.** Goods are bought at a desk,
+so they want a dock; a part does not, because euros are not a shelf: a
+site is paid for docked, holding station or landed. The design phase
+happens docked at the spawn station, which is why a part can go down
+instantly there; out in the world a site is walked to and worked at, and
+the price leaves the pool when the work begins (*Building, aboard*).
 
-The rule is written down and tested now, against every part in the table, in
-`crates/shipdesign/src/materials.rs`. Nothing calls it — the construction step
-will, with a Bim doing the work.
+The rule is written down and tested, against every part in the table, in
+`crates/shipdesign/src/materials.rs`: `site_price` says what a site
+costs — a plating site is the floor and, where the tile has no frame, the
+structure under it — and `refund_for` says what comes back.
 
 ### What it checks
 
@@ -447,7 +458,7 @@ more than its reactor makes** rings the run: a reactor is two and a half
 thousand a minute, an engine burning flat out takes a thousand of that,
 and the lamps are the biggest of the day-long draws — a wall light 25, a
 standing light 40, so the playtest ship's six wall lights and standing
-light are 190 of the 327 it draws all day, more than its four benches
+light are 190 of the 327 it draws all day, more than its benches
 together. What the reactor has over after that is what the engines get, so
 a ship lit from end to end on one reactor pushes a little less hard; and a
 ship whose day-long draw goes over what its reactors make — a reactor
@@ -727,11 +738,11 @@ still, away from any berth (docked, the station's people are aboard; under
 way, the ship is flying), and then the ship is in that system, in empty
 space, pointing the way it was, with only what its own sensors reach on
 the chart. Nothing of the old system comes along — its stations, its
-people, its mining site — and everything of the ship's does. **The system
-remembers, though**: jump back and it is as the crew left it — the station
-they turned against them still an enemy's, the key they took still off
-its desk, the rocks they mined still gone and their marks still on the
-belt, the shelf they plundered still bare, the lamps they shot still out,
+people, its construction sites — and everything of the ship's does. **The
+system remembers, though**: jump back and it is as the crew left it — the
+station they turned against them still an enemy's, the key they took still
+off its desk,
+the shelf they plundered still bare, the lamps they shot still out,
 the chart still charted, the dead still dead — where a system never
 visited is as the galaxy rolled it. Abort during the charge leaves the
 ship where it was. **System view** puts the map back.
@@ -849,41 +860,38 @@ is the brake.
 
 ### Making things
 
-The crew make ten things, at four benches, and one mechanism does all of
+The crew make **one thing**, at one bench, and one mechanism does all of
 it. A **recipe** is a bench, what goes in, what comes out and how long it
-takes; the **smelter** turns two ore into one metal in half an hour, and the
-**workbench** turns one metal into four components in twenty minutes, or
-one metal, two components and one **galvum** into an **emitter** in an
-hour — and, out of metal alone or metal and a galvum, the three pieces of
-**armour** (see *Armour* under *What the ship will make*). Galvum is the rare one — only a mining outpost sells it, and only one
-asteroid in ten has it in its core — and the emitter is what the interesting parts will be made of: a turret, a shield,
-a mining laser. Nobody sells an emitter. The **armoury** makes the handgun,
-the three other guns and the schword (below) and the vest, and the
-**drug lab** turns two **fibre** into one **bandage** in a quarter of an
-hour — fibre being the one crop the bay grows that nobody eats, and a
-bandage the one thing made aboard that the crew already use, on each other
-— and two vegetables and a component into a **medkit**. Medicine is made
-from the first day; most of the rest has to be **researched** first, by
-the ship's AI — see [Research](#research) — and a bench aboard a ship
-whose crew have not researched what it does stands idle.
+takes; the **drug lab** turns two **vegetables** into one **medkit** in a
+quarter of an hour, and that is the whole table. Everything else a ship
+carries is **bought** — see [Trading](#trading) — because since the money
+rework there are no materials: no ore, no metal, no components, no
+galvum, no emitters. A part of the ship costs euros and a gun costs
+euros, and what a crew do to get richer is fly, fight and trade rather
+than run a production line.
 
-What turns a recipe into an errand is a **target**: on the items panel,
-every row for something the benches can make carries a *keep so many*
-number, stepped up and down, and while the hold has fewer of that thing
-than the number — and the inputs for one, and room for it, and a bench of
-the right kind with power — the work list offers *Making things*. A Bim
-walks to the bench, stands at it for the recipe's length, and the ore comes
-out of the hold and the metal goes in. The log says what was made. If the
-ore was sold while the Bim stood there, nothing is made and the log says
-that instead. The target is a command like a deal, so every player's ship
-is making the same thing.
+The **workbench** still stands, and it is still worked at: two weapons or
+two pieces of armour of a kind at one tier go onto it and one of the next
+tier comes off, a day later (see *Armour*, and *Two of a kind go onto the
+workbench* in `crates/world/CLAUDE.md`). The **armoury** still stands too,
+as the cabinet the crew fetch a gun out of and stow one into. Neither
+makes anything.
 
-The smelter loses mass — two ore at ten is twenty, one metal is eight, and
-the slag is vented — and it is the only recipe that may. Everything the
-other three benches make weighs exactly what went into it — a bandage is
-two fibre's worth. Every bench draws power, and every one stops in a
+What turns the one recipe into an errand is a **target**: on the items
+panel, the medkit's row carries a *keep so many* number, stepped up and
+down, and while the hold has fewer medkits than the number — and two
+vegetables to make one with, and room for it, and a powered drug lab
+aboard — the work list offers *Making things*. A Bim walks to the bench,
+stands at it for a quarter of an hour, and the vegetables come out of the
+hold and the medkit goes in. The log says what was made. If the vegetables
+were sold while the Bim stood there, nothing is made and the log says that
+instead. The target is a command like a deal, so every player's ship is
+making the same thing.
+
+Medicine is known from the first day. **Crafting conserves mass**: a
+medkit weighs exactly two vegetables, and nothing vents anything — the
+smelter that used to is gone. The drug lab draws power, and it stops in a
 brownout.
-
 ### Research
 
 **Research is done by the ship's AI**, at the **research desk** — a
@@ -891,33 +899,32 @@ console on a table's footprint, worked from the tile below, drawing ten —
 because the humans aboard have stopped being able to. The **Research** tab
 at the bottom left is the tree: the nodes as boxes, what is known on the
 left and what waits on it to the right, a line from each to what it
-needs. A crew sets out knowing everything a crew needs to live and to fly
-— the hull, the galley, the heads, the bunks, the hydroponic bay, the
-fission reactor, the helm and the engines — and knowing how to **mine**
-(the suit locker and the suit) and how to make **medicine** (the drug lab,
-its bandage and its medkit), so all three are possible from the first day.
-The rest is researched: **smelting** (the smelter), the **workshop** (the
-workbench and its components), **fusion power** (a **fusion reactor** that
-makes 3 500 a minute in a three-by-three block, thirty times the fission
-one), and then, behind a **lock**, the **armoury** (the bench, every weapon
-and the three pieces of armour), **emitters** and the **hyperdrive**; and
-in the second tier, behind a lock of its own, the workbench's
-**upgrades**. Click a node for what it
+needs. Since the money rework the tree is **five nodes**, because most of
+what it used to gate was a production chain and there are no production
+chains left. A crew sets out knowing everything a crew needs to live, to
+fight and to fly — the hull, the galley, the heads, the bunks, the
+hydroponic bay, the fission reactor, the helm, the engines, the suit
+locker, the workbench and the armoury — and knowing **medicine** (the
+drug lab and the medkit it makes), so all of that is possible from the
+first day. Three nodes are left to work for: **fusion power** (a **fusion
+reactor** that makes 3 500 a minute in a three-by-three block, thirty
+times the fission one), which is the one node with no key on it; the
+**hyperdrive**, after fusion power and behind a **lock**; and, in the
+second tier and behind a lock of its own, the workbench's **upgrades**.
+Click a node for what it
 opens and to **queue** it: whatever it needs that is not yet known goes
-onto the queue ahead of it — queue fusion power on a fresh crew and
-smelting and the workshop go in first — and the AI works through the
+onto the queue ahead of it — queue the hyperdrive on a fresh crew and
+fusion power goes in first — and the AI works through the
 queue in order on the clock, going straight onto the next node the step
 one is done, as long as the desk has power, and stopping if the power
-goes. Research is slow: a third of a day for smelting, half a day for the
-workshop, two days for the reactor and most of a day to a day and a
-quarter for each locked node. Every queued box wears its place in the
-line, the line itself is written under the tree, and a node picked there
-can be **taken off the queue** — taking with it whatever was queued
+goes. Research is slow: two days for the reactor, and most of a day to a
+day and a quarter for each locked node. Every queued box wears its place
+in the line, the line itself is written under the tree, and a node picked
+there can be **taken off the queue** — taking with it whatever was queued
 behind it that needed it — or, if the AI is on it, **stopped**, which
-loses what was put in and sends the AI onto the next. A part the crew do not know
-is not on the Build tab and not in the designer's palette, and a recipe
-they do not know is greyed on the Management tab, so a playtest ship's
-smelter smelts nothing until smelting is known.
+loses what was put in and sends the AI onto the next. A part the crew do
+not know is not on the Build tab and not in the designer's palette, so a
+fusion reactor cannot be laid out until fusion power is known.
 
 The lock is opened with a **research key**: an artifact, sold nowhere and
 made nowhere, that sits on the research desk of **four friendly stations
@@ -931,94 +938,61 @@ into the ship's own research desk (a click on the desk opens its
 window, one slot the key's exact size) and on the Research tab **Consume
 a key** with the node picked: the key is gone and that node's lock is
 open for good — that node alone, since **one key opens one node**, not
-the tier: the three tier-one locked nodes are the armoury, the emitters
-and the hyperdrive, three keys off three stations. **Tier two** is one
+the tier. There is one tier-one locked node now, the hyperdrive.
+**Tier two** is one
 node, the workbench's upgrades, and its key is the **tier-two research
 key**: the same slab, drawn in the tier-two blue, lying on the research
 desk of **every hostile station** — lit up the same way — and taken the
 same way, in the middle of the fight if that is when you reach it; nobody
 sells one. A node wants a key of its own tier, so a tier-one key in the
 desk does nothing for the upgrades and a tier-two key nothing for the
-armoury, and the desk holds one key of either. Tier three is declared
+hyperdrive, and the desk holds one key of either. Tier three is declared
 and empty. A key a station buys back — five thousand euros for a
 tier-one, ten for a tier-two — if you have no use for it, and a key
 taken is a key gone: the desk stays bare.
-
 ### Mining, on foot
 
-Ore is dug out of asteroids by a Bim in a **pressure suit** with a pick,
-and the outside is a place. Hold station at an asteroid belt — fly to it,
-and the trip ends short of it, alongside — and the belt
-becomes a **mining site**: a field of eight to twelve asteroids laid out
-round the ship on the ship's own tile grid, close in — the nearest a few
-tiles off the hull — so that a walk to the rock is minutes. Every asteroid
-is **stone on the outside and ore in the middle**: the skin is bare rock,
-worth next to nothing, three tiles deep, and only what lies deeper is the
-ore — silver-grey **iron ore** on most of them, and purple **galvum** on
-about one asteroid in ten. Which one is the rare one shows through its
-skin, so you can see what you are digging for before you dig.
+**There is no mining.** There was: a belt held at laid a field of
+asteroids out on the ship's own tile grid, rocks were marked with a pick
+pointer, and a Bim in a pressure suit walked out and dug ore and galvum
+out of their cores. The money rework took the whole of it away with the
+materials it fed — there is no ore, no metal, no galvum and nothing to
+smelt them at — so the **Actions** tab, the marks, the *Mining outside*
+job and the site itself are all gone.
 
-Nothing is mined that you have not **marked**. The **Actions** tab at the
-bottom left has the one action there is, **Mine**: pick it and the pointer
-becomes a pick, a click on a rock tile marks it to be mined and a second
-click unmarks it, and the tab says how many rocks are marked, how many of
-those a walk could actually get to, and clears the lot. Escape or a
-right-click puts the pointer down again. A mark is a command like a deal,
-so every player's ship is digging the same rocks; the marks come off when
-the ship leaves.
+What is left of it: the **asteroid belts** are still bodies in a system,
+still on the map, and a ship can still fly to one and hold station
+there — there is simply nothing to do when it arrives. The **mining
+outposts** are still a kind of station, dug into rocky planets and ice
+worlds, and still trade. And the **pressure suit** and the **suit
+locker** are still aboard, because a walk outside is still how a
+construction site beyond the hull is reached (see *Building, aboard*):
+the Bim takes the suit from the locker, walks to the deck inside the
+airlock, goes out onto a navigation grid of its own — a hundred tiles
+every way about it, rebuilt as it moves — works at the site, and comes
+back in and hangs the suit up.
 
-With rocks marked, a suit in the **suit locker** and room on the shelves,
-the work list offers *Mining outside*, and a Bim with it high enough on
-the list takes the suit from the locker, walks to the deck inside the
-airlock, goes out — and **walks**: the outside has a navigation grid of
-its own, a hundred tiles every way about the Bim, one cell a tile, with
-the hull and every rock on it, rebuilt as the Bim moves and as rocks come
-out. It goes to the nearest marked rock it can get to, stands on the tile
-beside it — straight on, never from a corner — and swings the pick for a
-dozen minutes until the tile is gone, then the next, until there is none
-left it can reach; then back to the port, in, and the suit hung up. A dig
-is therefore a **tunnel**: mark a line of tiles from the skin in to the
-core and the Bim takes them from the outside in, standing in each mined
-tile to reach the one behind it. A rock with rock on every side waits
-until one in front of it is mined, and the tab says how many are waiting
-like that.
-
-What comes back is on the shelf as each tile goes — two **rock** for a
-skin tile, two ore for an iron one, one galvum for a galvum one, as much
-as fits — and the log says what the walk brought when the Bim comes in.
-Rock is cargo like anything else, heavy and worth two euros a unit at any
-station, and nobody sells it. The site remembers: a tile mined is gone
-for good, and coming back to the belt finds the field as it was left.
-**Nothing stands at a belt**: no station hangs off one, so a belt is the
-ship's alone when it gets there — the mining outposts, which used to be
-bolted to the belts, are dug into rocky planets and ice worlds instead,
-and are still the one place that sells galvum.
-
-There is no air gauge. What bounds a walk is **radiation**: the suit lets a
-quarter of the open dose through, and the dose comes off at half a minute
-a minute under cover. A Bim whose dose is past half the critical line is
-not sent out again until it has come down, and one out there when it
-crosses the line finishes the rock it is at and comes in. The **Dose**
-line on the ship panel is each crew member's, in minutes-in-the-open, and
-the log says when a body crosses a line — a dose picked up, a dose
-cleared. One body outside at a time: the airlock is one Bim's while a walk
-is on.
-
-A walk interrupted — the Bim gets hungry out there — brings the body back
-in through the door, and the walk starts again from the gangway when the
-Bim is done eating, picking its rock afresh. A right-click on the deck
+What bounds a walk outside is **radiation**: the suit lets a quarter of
+the open dose through, and the dose comes off at half a minute a minute
+under cover. A Bim whose dose is past half the critical line is not sent
+out again until it has come down. The **Dose** line on the ship panel is
+each crew member's, in minutes-in-the-open, and the log says when a body
+crosses a line. One body outside at a time: the airlock is one Bim's
+while a walk is on. A walk interrupted — the Bim gets hungry out there —
+brings the body back in through the door, and the errand starts again
+from the gangway when the Bim is done eating. A right-click on the deck
 does nothing to a Bim outside: the walk is what brings it in.
 
 ### Building, aboard
 
-The ship goes on being built after the design phase — by the crew, out of
-what is on the shelves, and nothing is instant. The **Build** tab at the
-bottom left is the palette: the parts by category — *Structure* for the
-deck, the walls and the hull and the ways through it, *Furniture*,
+The ship goes on being built after the design phase — by the crew, paid
+for out of the crew's money, and nothing is instant. The **Build** tab at
+the bottom left is the palette: the parts by category — *Structure* for
+the deck, the walls and the hull and the ways through it, *Furniture*,
 *Production* for the benches, the armoury and the bay, *Galley*,
 *Hygiene*, *Power*, *Ship systems*, *Propulsion* — each row with what the
-part is made of, dimmed to a warning where the shelves have not got it,
-and a search box over the lot for when you know the word and not the
+part **costs**, dimmed to a warning where the money will not stretch, and
+a search box over the lot for when you know the word and not the
 heading. Pick a part and it is in your hand: a **blueprint** of it follows
 the pointer over the deck, the part's own picture shown through, green
 where it would go and red where it would not, with the reason at the top
@@ -1031,41 +1005,45 @@ still a blueprint goes — the crew take the sites in the order they were
 laid out, and the deck is there by the time they come to the wall.
 
 A site laid out is a **construction site**, in blueprint blue, and the
-crew work it as a job — two rows on the work list, *Hauling* and
-*Building*. Whoever is free walks to a shelf, takes a load of what the
-site is made of, carries it over — a crate in both arms — and puts it down
-there, a load of twenty units at a time until everything is there; the
-bar along the foot of the site fills as it arrives, and the tab's **Laid
-out** list says the same in numbers, with a way to call each site off.
-Then a Bim stands beside it and puts it together, a few minutes for a
-wall and a couple of hours for a heavy engine, and the part is on the ship: the
-room the crew live in is laid out again under them with the new wall a
-solid in it, the new bunk a bed, the new shelf somewhere to fetch from,
-and nobody's errand is lost for it. What it cost is exactly the recipe,
-out of the hold in one go the moment the part goes down. The materials
-never leave the shelf before that: what has been carried to a site is
-*spoken for* — it cannot be sold or smelted from under the site, and the
-Build tab counts only what is free — so the ship weighs the same
-throughout and a site called off costs nothing.
+crew work it as one job on the work list, *Building*. There is no
+hauling: since the money rework a part is **paid for** rather than made,
+so nothing is carried anywhere and no shelf is emptied. A Bim stands
+beside the site and puts it together — a few minutes for a wall and a
+couple of hours for a heavy engine, the length worked out from the price
+— with a **charge bar on the tile** while it works, and the part is on
+the ship: the room the crew live in is laid out again under them with the
+new wall a solid in it, the new bunk a bed, the new shelf somewhere to
+fetch from, and nobody's errand is lost for it.
+
+**A part's price leaves the pool when its site is begun**, not when it is
+laid out, and the crew are never allowed to begin more than they can pay
+for: a site whose price the money left over — less every site already
+begun — will not cover simply waits, and the log says *not enough money*.
+**Taking a part off gives the whole price back.** And a site is paid for
+**anywhere**: docked, holding station or landed on a planet, because
+euros are not a shelf and a crew with money in hand can build with it
+wherever they are. The Build tab's **Laid out** list says what each site
+costs and what is under way, with a way to call each one off; a site
+called off costs nothing.
 
 A site can be **outside the hull**. Plating laid out against the skin, an
 outside wall on it, a thruster in the void beside the ship: any site with
 no tile beside it that a body can stand on from the deck is reached from
-outside, and the crew do what the miners do — take the suit from the
-locker, go out through the airlock, walk round the hull on the outside's
-grid to the tile beside the site, carry the load there or build there,
-and come back in. The same dose rules apply, and the same one-at-a-time
-airlock. No tools are needed for any of it, only the materials.
+outside, and the crew take the suit from the locker, go out through the
+airlock, walk round the hull on the outside's grid to the tile beside the
+site, build there, and come back in. The same dose rules apply, and the
+same one-at-a-time airlock. No tools are needed for any of it, only the
+money.
 
 Two rules hold the ship and the building apart. **Nothing is built on a
 ship that is moving**: sites can only be laid out, and are only worked,
-while the ship is docked or holding station; under way the tab says so
-and the crew leave the sites alone. And **the ship stays put while it is
-built on**: a Confirm is refused while any site has a load carried to it
-or a Bim on the way to one. A bare blueprint with nothing done at it
-holds nothing — it is a plan, and the ship may fly with a plan on the
-deck — and cancelling a site frees the ship at once.
+while the ship is docked, holding station or landed; under way the tab
+says so and the crew leave the sites alone. And **the ship stays put
+while it is built on**: a Confirm is refused while a Bim is on its way to
+a site or standing at one. A bare blueprint with nobody at it holds
+nothing — it is a plan, and the ship may fly with a plan on the deck —
 
+and cancelling a site frees the ship at once.
 ### Seeing where you are
 
 The system you start in is **charted**: every planet, belt and station the
@@ -1190,7 +1168,7 @@ held at 1× is never a mystery.
 The rest of the screen: the **Inventory** down the left, the crew's money
 at its head and what is aboard under it by where it is kept; the readout
 under that, and the agendas; the crew member picked on the right; the tray
-at the bottom with its tabs — the room's three, then View, Actions, Build
+at the bottom with its tabs — the room's three, then View, Build
 and **Ship**, which is the helm and the ship's facts — and the Station
 button beside them while there is a station; and what just happened, at
 the bottom right.
@@ -1200,13 +1178,15 @@ the bottom right.
 **Money only works while docked**, because a station is where there is somebody
 to buy from. Holding station beside one is not docked — that wants an airlock —
 and out between them the pool buys nothing at all. Supply is unlimited; what
-bounds a purchase is the money and the hold.
+bounds a purchase is the money and the hold. Since the money rework trading
+is most of the economy: there are no materials and almost nothing is made,
+so what a crew carry, wear and shoot with was bought at somebody's desk.
 
 **Every station charges its own prices, and two numbers a thing.** There
 are two ideas of what a unit is worth, and they are kept apart on
 purpose. The **book value** (`economy::trade_price`) is what a thing *is
-worth* — the same everywhere, and used only to value a hold: what the
-crew set out with, what the ship is worth now, what an enemy's garrison
+worth* — the same everywhere, and used only to value what the crew own:
+what they set out with, what they are worth now, what an enemy's garrison
 is scaled against. Nothing is ever bought or sold at it. What a station's
 desk actually charges is its **market price** (`economy::market`): a
 **quote** of two numbers, the **ask** — what one costs bought here, the
@@ -1223,19 +1203,22 @@ The sum, in whole euros and rounding down at every division:
     bid  = max(1, mid - half)
 
 `kind_bias` is what the *kind* of station does to the price, per cent —
-a hand-written table, starting values to be tuned: a mining outpost sells
-ore and galvum cheap and pays well for food, metal and components; a
-refinery sells metal cheap and pays well for ore; an orbital sells food
-and fibre cheap; a relay is dear on everything and pays well for food and
-bandages; a planet's settlement sells food cheap and pays well for metal;
-a derelict has no market at all — nothing to buy, and nobody to sell to.
+a hand-written table, starting values to be tuned: a mining outpost pays
+well for food and medicine and is dear on gear; a refinery is the
+cheapest place to buy a gun; an orbital sells food cheap; a relay is dear
+on everything and pays well for food and bandages; a planet's settlement
+sells food cheap; a derelict has no market at all — nothing to buy, and
+nobody to sell to.
 `local_bias` is the station's own lean, one small whole number per cent
 a resource in `−15..=15`, rolled by the generator off the station's seed
 for every resource whether it stocks the thing or not, and in the galaxy
 checksum beside its shelf — so two outposts in one system are two
 different outposts, and two players on one seed see the same numbers.
 `SPREAD_BP` is the desk's cut, a thousand basis points: five per cent
-either side of the mid, and never less than a euro.
+either side of the mid, and never less than a euro. A desk **inside the
+front** — within three hyperlane hops of the machines — charges over the
+odds for what a fight is fought with on top of all that; see *The
+crisis*.
 
 **The station you start at leans only the way its kind does**: the
 generator rolls it a local bias like any other, and the world sets it to
@@ -1243,49 +1226,53 @@ nothing (`World::start`, and the yard's Station panel with it), so an
 opening pool buys the same at a kind of station whatever the seed
 rolled, and what the crew set out with is worth its book value.
 
-**A made thing is worth what went into it and the hours, and nothing
-else.** The roots — ore, galvum, rock, the crops, the suit, a research
-key — have placeholder book values, and so does metal, which is exempt
-on purpose: a staple on every shelf, and the market already holds the
-smelter near break-even. Everything the benches make is priced by one
-rule off the recipe table, in whole euros and rounding down at each
-division in this order:
+**Not every place sells gear.** Beside its shelf of goods, every place
+with a market rolls **two trades** off its own seed, each independently
+and each two in five: a **weapon trade** — handguns, shotguns, auto
+rifles, sniper rifles and schwords — and an **armour trade** — helms,
+kevlar and leg guards. A place may have both, one or neither, a derelict
+has neither, and the trade is all of its list or none of it: nowhere
+sells three of the five guns. Which trades a place has is said before you
+fly there — on the galaxy chart's system list, on the map's system panel,
+and on a line of its own at the top of the trade window — because a
+crew looking for a rifle are choosing a station rather than a system.
 
-    cost   = Σ book(input) × units
-    labour = LABOUR_BP_PER_HOUR × minutes / 60          (basis points)
-    book   = max(1, cost × (10 000 + labour) / 10 000 / units out)
+**Every tier is on sale where its trade is.** A weapon or a piece of
+armour comes at tier one, two or three, and a market that deals in it
+deals in all three: the price is the book times **one, four and sixteen**
+(`economy::TIER_PRICE`), on the ask and the bid alike. The trade window's
+gear rows carry a **1 2 3** chooser for it — pick a tier and the row's
+*Costs* and *Pays* are that tier's, and a line already in the cart goes,
+since a tier changed under a line would be that line at another price.
+Selling needs no chooser: a sale gives up the **lowest** tiers in the
+hold first and the desk pays for each thing at its own tier, so a crew
+that has combined two pistols into one keeps the good one until they
+choose to let it go.
 
-`LABOUR_BP_PER_HOUR` (`shipdesign::recipes`) is 2 000 — a fifth an hour
-at the bench — and it is the one knob on every made thing's book at
-once. So four components are a metal and twenty minutes, an emitter is
-a metal, two components and a galvum with an hour on top, and a sniper
-rifle is its four metal, two components and two emitters with an hour
-and a quarter. The numbers are written into `economy::trade_price` by
-hand, since that crate knows no recipes, and a test in `shipdesign`
-recomputes them. Before the rule the made goods were priced for feel,
-and a bench turned one metal into four components worth ten of it — a
-printer, at every lived-in station; now no recipe clears more than a
-couple of hundred euros a bench-hour at any single desk, buying its
-inputs at the ask and selling its output at the bid. The other side of
-that is that **looting pays less**: a weapon or a piece of armour off a
-body sells for about half what it did.
+**Tier one's book prices are hand-written**, and the armour's are a rule:
+a handgun 1 500, a shotgun 3 000, an auto rifle 4 000, a sniper rifle
+5 000, a schword 5 000; and **a hundred euros a point of health** for
+armour — leg guards 1 000, a helm 1 500, kevlar 2 000. The labour rule
+that used to price everything a bench made went with the production
+chains it was written to keep honest: with one recipe left there is no
+chain to print money along, and every book value is a number somebody
+chose.
 
 The shelf is a window — **Station** on the tray, docked, opens it in the
 middle of the screen and the cross, Escape or casting off shuts it — and
-what is *on* it is two rules deep. The kind's is the ceiling: galvum only
-at a mining outpost, an emitter nowhere, rock nowhere, nothing at a
-derelict — there is nobody aboard to sell it. Under that each station keeps
-a shelf of its own, rolled off its seed: ore, metal and both foods are on
-every one, because a station where the crew can buy nothing to build with
-and nothing to eat is a trap, and each of the rest — components, suits,
-medkits, an outpost's galvum, an orbital's fibre, a bandage at an orbital
-or a refinery — is there or not, so two refineries stock
-different things and there is a reason to fly to the other one. A row the
+what is *on* it is two rules deep. The kind's is the ceiling: nothing at
+a derelict — there is nobody aboard to sell it. Under that each station
+keeps a shelf of its own, rolled off its seed: **vegetables, tofu and
+medkits are on every one**, because a station where the crew can buy
+nothing to eat and nothing to treat a wound with is a trap, and each of
+the rest is there or not, so two refineries stock different things and
+there is a reason to fly to the other one. A row the
 station does not sell is greyed with its buy buttons off, and stays,
 because what is aboard can still be sold there, at the bid. Every station
 somebody lives on buys anything; a derelict buys nothing, since there is
 nobody at its desk. A station is not yet *for* anything beyond the way
-its kind leans — a theme would replace the roll, not the ceiling.
+its kind leans and the trades it rolled — a theme would replace the roll,
+not the ceiling.
 
 ### Mercenaries
 
@@ -1460,10 +1447,14 @@ half is built and the rest is not.
 
 ### One mechanism, the tree, and the mass
 
-Built. *Making things* under the game is the mechanism and the table as
-they stand; *Trading* has what each kind of station sells. The tree as
-planned had a locker class for suits and weapons — that arrives with the
-suit, below.
+Built, and then mostly **taken away again**. *Making things* under the
+game is the mechanism and the table as they stand: one row, two
+vegetables into a medkit at the drug lab. The tree of production the
+mechanism was built for — ore into metal into components into emitters
+into guns — went with the money rework: there are no materials, a part of
+the ship costs euros, and a gun is bought rather than smelted. What the
+mechanism kept is the mass rule, which still holds for the one recipe
+there is: a medkit weighs exactly the two vegetables that went into it.
 
 ### Power
 
@@ -1472,61 +1463,58 @@ the brownout* under the game, below.
 
 ### The walk outside
 
-Built, and the outside is a place now: *Mining, on foot* under the game.
+Built, and then emptied: *Mining, on foot* under the game says what is
+left of it. The suit and the airlock are still how a construction site
+beyond the hull is reached; there is nothing out there to dig.
 
 ### The armoury
 
-Built, as far as the making goes. The **armoury** is a bench and a locker in
-one: two components and an emitter make a **laser handgun** in three
-quarters of an hour, four metal and two components a **vest** — and,
-since the fight grew four more weapons, metal and components with or without an emitter make the
-**shotgun**, the **auto rifle**, the **sniper rifle** and the **schword**
-(*Combat mode* under the game says what each does) — and it holds eight
-of them beside the suits. Set a target for a handgun with galvum aboard and the benches
-run the whole chain in order without anybody sequencing them — a handgun
-is not on offer until there is an emitter, and an emitter is not until
-there are components. Nobody sells a handgun or a vest; a medkit is on
-every lived-in station's shelf. Beside it stands the **drug lab**, the
-fourth bench: two **fibre** — a crop, grown in the bay — make a
-**bandage** in a quarter of an hour, two vegetables and a component a
-**medkit** (the armoury's until research came in, since medicine is made
-from the first day and the armoury is researched), and a bandage is the one thing made
-aboard that a Bim already *does* something with: it closes the wounds on
-one part of a body (see *Getting hurt* under the game), and a medkit is
-the other — it is what gets a Bim out of a dying state. What a Bim does
-with a handgun is the fight, below — the boarding half of it; what it
-does with a vest is still nothing.
+Built, and then **stripped back to a cabinet**. The **armoury** used to
+be a bench and a locker in one, making the laser handgun, the vest and
+the four other weapons out of metal, components and emitters. It makes
+nothing now: since the money rework a weapon is **bought** at a desk that
+has the weapon trade (see *Trading*), and the armoury is what it always
+also was — the locker-class cabinet a crew fetch a gun out of and stow
+one into, eighty cells of it. The **vest** is gone entirely; the three
+real pieces of armour replaced it. Beside it stands the **drug lab**, the
+one bench that still makes anything: two **vegetables** into a
+**medkit** in a quarter of an hour. A medkit is what gets a Bim out of a
+dying state and a **bandage** — bought, not made — is what closes the
+wounds on one part of a body; see *Getting hurt* under the game. What a
+Bim does with a handgun is the fight, below.
 
 ### Armour
 
-Built. Three pieces, all made at the **workbench**: a **helm** out of two
-metal (half an hour; +15 health, 2 protection), **kevlar** out of three
-metal and a galvum (three quarters; +20, 2), and **leg guards** out of one
-metal (twenty minutes; +10, 1). The playtest ship carries one of each. A
+Built. Three pieces — a **helm** (+15 health, 2 protection), **kevlar**
+(+20, 2) and **leg guards** (+10, 1) — **bought** rather than made, at
+any place with the armour trade, priced at **a hundred euros a point of
+health**: leg guards 1 000, a helm 1 500, kevlar 2 000. The playtest ship
+carries one of each. A
 piece is two things at once, on purpose. **In a container it is a
 resource** — `Helm`, `Kevlar`, `LegGuard`, locker class beside the medkits
-— so buying, selling, crafting, mass and the shelves work on it with no
+— so buying, selling, mass and the shelves work on it with no
 new mechanism; **anywhere else it is an instance**, with an id that only
 climbs and a health it keeps wherever it goes. The world keeps every piece
 there is (`World::pieces`: id, kind, health left, and where — the hold, a
 pack cell, or worn by somebody) and holds one invariant against the hold:
 the count of each armour resource is always the number of pieces in the
-hold of that kind. A bench or a purchase pushes a whole piece; a sale takes
-the most damaged one first. What is worn and what is in the pack are the
+hold of that kind. A purchase or a workbench upgrade pushes a whole piece;
+a sale takes the most damaged one first.
+What is worn and what is in the pack are the
 room's (`bims::combat::Gear`), since the room's health reads them, and the
 world reads them back every step for the checksum.
 
 Five commands move a piece about, the way a craft target is a command —
 the hold is the world's, and every player's ship has to agree what is in
 it: **Fetch** takes a piece (or a unit of anything) out of a container into
-the crew member's 3×3 pack, **Stow** puts one back, **Equip** puts on what
+the crew member's pack, **Stow** puts one back, **Equip** puts on what
 is in a pack cell and swaps what was worn into it, **Unequip** takes a
 piece off into the pack, and **Discard** throws one away — and a sixth,
 **Loot**, takes one thing off a body that is down (see [Combat
 mode](#combat-mode-and-the-inventory)). A fetch or a
 stow wants the crew member within two tiles (`REACH`) of a container that
-takes the thing — the armoury or the drug lab for locker goods, a shelf
-for shelf goods *and* for armour and weapons, the cold store for food —
+takes the thing — a shelf, the armoury or the drug lab for locker goods,
+the cold store for food —
 and is refused *out of reach* otherwise; a full pack refuses a fetch, a
 full class refuses a stow, and a **broken** piece — at nought — cannot be
 stowed or sold at all, only discarded. Equipping wants no container. What
@@ -1534,8 +1522,10 @@ a worn piece does to a hit is [Getting hurt](#getting-hurt): the
 protection comes off the damage first, what is left drains the piece, and
 only what the piece could not take reaches the body.
 
-**Every weapon and every piece has a tier**, one to three, and the
-workbench is where a tier is made — once the crew know how: the
+**Every weapon and every piece has a tier**, one to three. A tier is
+**bought** — any market that deals in gear deals in every tier of it, at
+the book times one, four and sixteen — or **made at the workbench**, once
+the crew know how: the
 **upgrades** node of the research tree, tier two, behind a tier-two key
 off an enemy's desk ([Research](#research)); until it is researched the
 button says so and the crew carry nothing to the bench. Two of a kind at
@@ -2011,7 +2001,7 @@ then the cooldown.
 | level | left | right |
 | --- | --- | --- |
 | 1 | **Bulwark**; armour drains at half rate on him | — |
-| 2 | **Pack mule** — carries two loads a trip when hauling | **Plated** — armour protection ×1.5 on him |
+| 2 | **Plated** — armour protection ×1.5 on him, given outright | — |
 | 3 | **Taunt** — may use it | — |
 | 4 | **Breacher** — forces locked doors in half the time | **Unmovable** — never flees, and loses no pace to low blood while his kevlar holds |
 | 5 | **Wide wall** — bulwark reach ×2 | **Fast wall** — bulwark pace ×1.5 |
@@ -2806,12 +2796,11 @@ you have to undo before you can use anything.
 | **Cleaning** | sweeping the deck |
 | **Planting** | sowing an empty tray in the bay |
 | **Plant cutting** | lifting a ripe one out of it |
-| **Hauling** | carrying what was lifted to the cold store |
+| **Hauling** | carrying what was lifted to the cold store, and gear between the lockers and the workbench |
 | **Cooking** | making a meal, and stew for the shelf |
 | **Controlling the ship** | standing at the helm while the ship is under way |
 | **Making things** | working a bench the manager has an order for |
-| **Mining outside** | a walk out to the belt in a suit |
-| **Building** | putting a laid-out part together once its materials are there |
+| **Building** | putting a laid-out part together, once the crew can pay for it |
 | **Medical** | treating a crewmate's dying state with a medkit, and dressing a wound — its own, or a crewmate's — with a bandage |
 
 The colour of the box says what the number means without anybody having to
@@ -2873,10 +2862,11 @@ chain that lifted it, so that half of hauling is the back half of a cutting,
 and a cutting waits on whichever of **Plant cutting** and **Hauling** is set
 later; put hauling at the bottom and the bay stops being emptied, which is
 the truthful answer: there is nobody to carry it. The other half is an errand
-in its own right — a load off a shelf, walked to a construction site and put
-down there, one trip at a time, while a site still wants something (see
-*Building, aboard* under the game) — and that one is offered and taken at
-hauling's own number.
+in its own right — a gun or a piece of armour carried from the lockers to
+the workbench and the upgraded one carried back (see *Armour* under *What
+the ship will make*) — and that one is offered and taken at
+hauling's own number. Materials to a construction site were the third
+until the money rework: there are none to carry.
 
 ## The timetable
 

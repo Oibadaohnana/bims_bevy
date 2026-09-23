@@ -251,11 +251,11 @@ impl WeaponKind {
     /// since this crate does not know `physics`.
     pub fn resource(self) -> Option<u32> {
         Some(match self {
-            WeaponKind::LaserPistol => 8,
-            WeaponKind::Shotgun => 17,
-            WeaponKind::AutoRifle => 18,
-            WeaponKind::SniperRifle => 19,
-            WeaponKind::Schword => 20,
+            WeaponKind::LaserPistol => 3,
+            WeaponKind::Shotgun => 9,
+            WeaponKind::AutoRifle => 10,
+            WeaponKind::SniperRifle => 11,
+            WeaponKind::Schword => 12,
             // A machine's arm is no resource: it is part of the machine,
             // and there is nothing to put in a hold.
             WeaponKind::Claw | WeaponKind::Unmaker => return None,
@@ -834,9 +834,9 @@ impl ArmourKind {
     /// number is enough for the world to match the two.
     pub fn resource(self) -> u32 {
         match self {
-            ArmourKind::BasicHelm => 14,
-            ArmourKind::BasicKevlar => 15,
-            ArmourKind::BasicLegs => 16,
+            ArmourKind::BasicHelm => 6,
+            ArmourKind::BasicKevlar => 7,
+            ArmourKind::BasicLegs => 8,
         }
     }
 
@@ -933,7 +933,7 @@ impl Piece {
 /// `ResourceId::Bandage`'s code, said here because this crate does not
 /// know `physics` and the room spends a dressing out of a pack itself
 /// (feature 87). Pinned against the real one by the world's tests.
-pub const BANDAGE_CODE: u32 = 13;
+pub const BANDAGE_CODE: u32 = 5;
 
 /// How many dressings are in one box — one pack cell, one footprint of a
 /// locker (`economy::stack_size(Bandage)`).
@@ -968,34 +968,34 @@ impl Item {
         let code = match self {
             Item::Armour(piece) => piece.kind.resource(),
             // A built-in arm is never an item, so it never has a
-            // footprint; a nought would be a cell of the pistol's, and
+            // footprint; the sentinel is no resource code at all, and
             // `no_built_in_arm_is_ever_a_thing` is what holds it.
-            Item::Weapon(weapon) => weapon.kind.resource().unwrap_or(0),
+            Item::Weapon(weapon) => weapon.kind.resource().unwrap_or(u32::MAX),
             Item::Stack(code) => *code,
             Item::Key(_) => return (2, 1),
         };
         match code {
-            // The suit, the vest.
-            7 | 9 => (3, 3),
-            // The pistol.
-            8 => (1, 2),
-            // A medkit, and a box of dressings beside it (feature 87).
-            10 | 13 => (2, 2),
-            // The helm, the kevlar, the leg guards.
-            14 => (2, 4),
-            15 => (4, 4),
-            16 => (3, 2),
-            // The shotgun, the auto rifle, the sniper rifle, the schword.
-            17 => (2, 5),
-            18 => (1, 7),
-            19 => (1, 10),
-            20 => (1, 5),
             // A crate of vegetables, a block of tofu.
+            0 => (1, 2),
+            1 => (4, 4),
+            // The pressure suit, folded.
+            2 => (3, 3),
+            // The pistol.
             3 => (1, 2),
-            4 => (4, 4),
+            // A medkit, and a box of dressings beside it (feature 87).
+            4 | 5 => (2, 2),
+            // The helm, the kevlar, the leg guards.
+            6 => (2, 4),
+            7 => (4, 4),
+            8 => (3, 2),
+            // The shotgun, the auto rifle, the sniper rifle, the schword.
+            9 => (2, 5),
+            10 => (1, 7),
+            11 => (1, 10),
+            12 => (1, 5),
             // An engineer's sandbag kit, and its sentry's crate.
-            23 => (2, 2),
-            24 => (2, 3),
+            15 => (2, 2),
+            16 => (2, 3),
             _ => (1, 1),
         }
     }
@@ -3334,7 +3334,7 @@ mod tests {
             let key = Item::Key(1);
             let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
             let schword = Item::Weapon(WeaponKind::Schword.basic());
-            let bandage = Item::Stack(13);
+            let bandage = Item::Stack(5);
             let bottom = (PACK_ROWS - 1) * PACK_COLS;
             assert_eq!(key.rows(), 2);
             assert_eq!(key.footprint(), (2, 1));
@@ -3404,7 +3404,7 @@ mod tests {
             assert!(!gear.occupied(2 * PACK_COLS));
             // A square thing is never turned to fit: the two cells past the
             // rifle are too few, so it goes on the second row beside the key.
-            let suit = Item::Stack(7);
+            let suit = Item::Stack(2);
             assert_eq!(suit.footprint(), (3, 3));
             assert_eq!(gear.first_fit(suit), Some((PACK_COLS + 1, false)));
             assert_eq!(PACK_COLS * PACK_ROWS, PACK_CELLS);
@@ -3718,8 +3718,8 @@ mod tests {
             assert_eq!(WeaponKind::from_resource(resource), Some(kind));
         }
         assert_eq!(WeaponKind::from_code(0), None);
-        assert_eq!(WeaponKind::from_resource(14), None, "a helm is not a gun");
-        assert_eq!(WeaponKind::LaserPistol.resource(), Some(8));
+        assert_eq!(WeaponKind::from_resource(6), None, "a helm is not a gun");
+        assert_eq!(WeaponKind::LaserPistol.resource(), Some(3));
 
         // The second tuning of September 2026: the pistol's odds a tenth
         // down from the 95% and 65% it had, its damage a fifth up from 6,

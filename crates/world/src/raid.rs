@@ -195,7 +195,11 @@ impl Raids {
     pub fn hull(galaxy_seed: u64, n: u32) -> (u64, Stock) {
         let stream = Raids::stream(galaxy_seed, n);
         let map_seed = stream.branch(0x_4855_4c4c_0000_0000).next_u64();
-        let stock = Stock::roll(RAIDER_KIND, &mut stream.branch(0x_5354_4f43_0000_0000));
+        let stock = Stock::roll(
+            RAIDER_KIND,
+            &mut stream.branch(0x_5354_4f43_0000_0000),
+            &mut stream.branch(0x_4745_4152_0000_0000),
+        );
         (map_seed, stock)
     }
 
