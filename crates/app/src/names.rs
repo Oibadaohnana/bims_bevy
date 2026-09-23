@@ -1778,6 +1778,12 @@ pub fn grenades_line(carried: u32, cooldown: f64) -> String {
         count
     }
 }
+/// What a heal beam just put back, as it floats off the patient
+/// (feature 91): the points with a plus in front, since a number rising
+/// off a body has to say which way it went.
+pub fn heal_gain(points: u32) -> String {
+    format!("+{points}")
+}
 pub const HAIR_NAMES: [&str; 8] = [
     "Cropped", "Long", "Bald", "Bob", "Bun", "Mohawk", "Ponytail", "Curly",
 ];

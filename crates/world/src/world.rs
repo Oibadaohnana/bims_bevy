@@ -1223,6 +1223,11 @@ fn tier_of(item: Item) -> Option<Tier> {
 /// a test pins — so `finish_craft` knows it for what it is.
 pub const UPGRADE_ORDER: u32 = 1_000;
 
+/// What [`World::beam_for_probe`] leaves the patient's blood at, as a
+/// share of full: under `health::SLOWED_AT` so the beam has plenty to
+/// put back, over `health::OUT_AT` so the patient is on its feet.
+const BEAM_PROBE_BLOOD: f32 = 0.6;
+
 impl World {
     /// Open a world with the accepted ship docked at a station.
     ///
@@ -10355,12 +10360,19 @@ impl World {
 
     /// Slot 0 a medic beaming crew member 1, for a probe and for
     /// `BIMS_BEAM` in the app: crew member 1 stood a tile from it with a
-    /// wound open — so the patient wants holding and the charge fills —
-    /// and the link made. With `surge` the charge is filled and the
+    /// wound open **and blood to put back** — so the patient wants
+    /// holding, the charge fills and the beam has something to do — and
+    /// the link made. With `surge` the charge is filled and the
     /// surge triggered besides, which wants the medic at
     /// [`class::SURGE_LEVEL`] (the caller's `BIMS_LEVEL`, or this puts
     /// it there). `false`, and nothing moved, with fewer than two aboard
     /// or with slot 0 no medic.
+    ///
+    /// The blood is [`BEAM_PROBE_BLOOD`] of full rather than the wound's
+    /// own doing: a beam stops the bleeding dead, so a patient wounded
+    /// and beamed in the same breath is at full blood for ever and the
+    /// green numbers over it (feature 91) never count anything. It is
+    /// above `health::OUT_AT`, so the patient is on its feet.
     pub fn beam_for_probe(&mut self, surge: bool) -> bool {
         if self.aboard.crew_count() < 2 || !self.is_medic(0) {
             return false;
@@ -10368,6 +10380,7 @@ impl World {
         let at = self.aboard.room.bim_pos(0) + bims::math::vec2(shipdesign::TILE as f32, 0.0);
         self.aboard.room.put_for_probe(1, at);
         self.aboard.room.wound(1, bims::health::Part::Legs, 2.0);
+        self.aboard.room.bleed_for_probe(1, BEAM_PROBE_BLOOD);
         self.step(&[]);
         if self.beam(0, Some(1)).is_err() {
             return false;

@@ -3243,6 +3243,15 @@ patients, charge and flag, then each body's surge off the room. **`SAVE_VERSION`
 another crew member links the beam (`class_key` reads
 `Game::crew_at` under the pointer).
 
+**`beam_for_probe` bleeds the patient as well as wounding it** (feature
+91): `BEAM_PROBE_BLOOD` (three fifths of full — under
+`health::SLOWED_AT` so there is plenty to put back, over `OUT_AT` so the
+patient is on its feet). A beam stops the bleeding *dead*, so a patient
+wounded and beamed in the same breath is at full blood for ever, the
+beam's blood rate does nothing and the app's green numbers over it
+(feature 91) count nothing — the dial staged a beam that was doing
+visibly no work.
+
 ## The tank: the wall, the taunt and the hits (feature 77)
 
 The fourth class. `crates/world/src/class.rs` holds `Class::Tank = 4`,

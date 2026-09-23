@@ -9393,6 +9393,38 @@ impl Game {
             .is_some_and(|t| matches!(t.kind(), Kind::Deploy { .. }))
     }
 
+    /// Where `who` is putting something together and how far through the
+    /// errand it is (feature 91): the middle of the tile an engineer is
+    /// laying a kit on, or the middle of the construction site whoever it
+    /// is is building, in **room** units, with the chain's progress from
+    /// nought to one. `None` for every other errand and for a Bim with
+    /// nothing on hand.
+    ///
+    /// The walk counts towards it, because the number is the errand's own
+    /// (`Task::progress`) and because a bar standing on the tile before
+    /// the builder arrives is what says *that* tile is the one being
+    /// worked. A site the world has stopped asking for — the ship under
+    /// way, the order cancelled — has no entry in `Room::builds` and so
+    /// no bar, which is the right answer: nothing is being built there
+    /// any more.
+    pub fn working_at(&self, who: usize) -> Option<(Vec2, f32)> {
+        let task = self.bims.get(who)?.task.as_ref()?;
+        let at = match task.kind() {
+            Kind::Deploy { .. } => task.kind().deploy_tile()?,
+            Kind::Build { site, .. } => {
+                let build = self.room.builds.iter().find(|b| b.site == site)?;
+                let mut box_of = *build.tiles.first()?;
+                for tile in &build.tiles[1..] {
+                    box_of.min = vec2(box_of.min.x.min(tile.min.x), box_of.min.y.min(tile.min.y));
+                    box_of.max = vec2(box_of.max.x.max(tile.max.x), box_of.max.y.max(tile.max.y));
+                }
+                (box_of.min + box_of.max) * 0.5
+            }
+            _ => return None,
+        };
+        Some((at, task.progress()))
+    }
+
     /// The lamps: where each is, what it has left and how bright it is
     /// shown. See `sight::Lamp`. A bolt that lands on one takes its
     /// damage off it, and at nought it is out.

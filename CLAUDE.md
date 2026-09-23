@@ -163,11 +163,16 @@ tile or nothing at all: `BIMS_CLASS=commander BIMS_LEVEL=3
 BIMS_KEYS="60:Z,90:Q"` on `combat` is the squad held and the rally
 called, with the aura's ring round him throughout). Hunting a crewmate with a scripted pointer is a poor way to look
 at a beam, so **`BIMS_BEAM=1`** stands crew member 1 a tile from the
-medic with a wound on it and links the beam
-(`World::beam_for_probe`, `dev::beam_crew`), and `BIMS_BEAM=surge`
+medic with a wound on it, **its blood at three fifths** and links the
+beam (`World::beam_for_probe`, `dev::beam_crew`), and `BIMS_BEAM=surge`
 triggers the surge over that — `BIMS_CLASS=medic BIMS_BEAM=surge
 BIMS_SMOKE_FRAMES=90` on `combat` is the beam's line and both halos in
-one picture.
+one picture. The blood is short on purpose (feature 91): a beam stops
+the bleeding dead, so a patient wounded and beamed in the same breath
+sits at full blood for ever and the **green numbers** over it never
+count anything. At 1× a beam puts back half a point a second, so a
+`+1` every two seconds; `3×` on the strip is one every two thirds of
+one, which is how they are looked at in a short run.
 `BIMS_SMOKE_FREE=1` drops the sixtieth-of-a-second pacing a smoke run
 holds itself to, so the "ms a frame" it prints is what the machine
 actually took rather than a sixtieth — the one way to measure a heavy
@@ -562,6 +567,33 @@ Things about that which are easy to get wrong:
   grenade, so a box and what the key does are one picture. The box
   never decides anything: `class_key` is still what the press goes
   through, and it knows about the pointer as well.
+- **Every ability says on the deck what it is doing, on the Bim doing
+  it** (feature 91, `screens/game.rs`'s overlay block). The rule is that
+  a box at the foot of the canvas is the *player's own* readout and a
+  ring at a radius says how far something reaches, so neither tells
+  another player what the Bim beside them is *up to* — that wants a mark
+  on the body. So: a **braced** soldier is drawn braced (the room's own
+  figure, below); an engineer laying a kit or anybody putting a site
+  together has a **charge bar on the tile** (`theme::work_bar` off
+  `Game::working_at`, the walk to it counted, so the bar stands on the
+  tile that is being worked and not over the worker); a **beamed**
+  crewmate has **green numbers** rising off it for what the beam put
+  back (`theme::heal_number`, `names::heal_gain`); a **tank** wears a
+  small shield over his head while his wall is up and throws rings off
+  his body while he taunts (`theme::bulwark_shield`, `taunt_shout`,
+  inside the wall's ring and the taunt's dashed radius, which say how
+  far each reaches rather than who is holding it); and the **commander**
+  calling a rally wears two chevrons (`theme::rally_call`) — he had
+  nothing before, since `World::aura_reaching` answers `None` for a
+  commander asked about his own aura. What was already on the body
+  stands: the surge's halo, the grenade in flight and its burst, the
+  squad bracket, the aura's and the rally's rings on everybody *else*.
+  **The numbers are the screen's own state and nothing else's**: neither
+  the room nor the world records how much a beam put back, so
+  `GameScreen::heals` watches each beamed body's blood and parts frame
+  by frame, gathers the gain into whole numbers and floats one at most
+  every `HEAL_GAP` — at 24× a beam puts back a dozen points a second,
+  and a number a frame is a green smear rather than a figure.
 - **A level is spent on the Skills tab, which is a tree like the
   research's** (feature 83, `CrewPanels::skills`). The class's ten levels
   run down the tray, numbered, with the spine beside them lit as far as

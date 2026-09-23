@@ -281,6 +281,90 @@ pub struct GameScreen {
     /// player's, and the Skills tab is where the point is spent whenever
     /// they get to it.
     skills_prompt: bool,
+    /// The green numbers a heal beam puts up over the body it holds
+    /// (feature 91). Kept by the screen and nowhere else: what a beam put
+    /// back is the body's own count going up, and neither the room nor
+    /// the world records it as an event to be read.
+    heals: Heals,
+}
+
+/// How long one of those numbers is in the air, and the shortest gap
+/// between two over one body — at 24× a beam puts back a dozen points a
+/// second, and a number a frame would be a green smear rather than a
+/// figure anybody could read.
+const HEAL_FLOAT_SECONDS: f64 = 1.3;
+const HEAL_GAP: f64 = 0.45;
+
+/// What a body a beam holds had last frame, and what has gathered since
+/// the last number went up over it.
+#[derive(Clone, Copy)]
+struct Watched {
+    /// Blood and the three parts added: everything a beam puts back.
+    points: f32,
+    /// Points gathered and not yet shown — a number is whole, and a beam
+    /// puts its points back a fraction at a time.
+    gathered: f32,
+    /// When the last number over this body went up.
+    said: f64,
+}
+
+/// One number in the air: over whom, how much, and when it appeared.
+#[derive(Clone, Copy)]
+struct Floater {
+    who: u32,
+    points: u32,
+    born: f64,
+}
+
+#[derive(Default)]
+struct Heals {
+    /// One entry per crew member some medic's beam holds; dropped the
+    /// frame the beam lets go, so a body picked up again starts afresh
+    /// rather than showing what it mended on its own in between.
+    watched: std::collections::BTreeMap<u32, Watched>,
+    floating: Vec<Floater>,
+}
+
+/// What every beam on the deck has put back since last frame, gathered
+/// into whole numbers to float over each patient (feature 91). Called
+/// every frame the world is stepping, map up or not, so a number does
+/// not appear for a minute's worth of healing the moment the map closes.
+fn note_heals(heals: &mut Heals, game: &ship::game::Game, now: f64) {
+    let world = &game.world;
+    let crew = world.aboard.crew_count();
+    let mut beamed: Vec<u32> = Vec::new();
+    for medic in 0..crew {
+        for patient in world.patients_of(medic) {
+            if !beamed.contains(&patient) {
+                beamed.push(patient);
+            }
+        }
+    }
+    heals.watched.retain(|who, _| beamed.contains(who));
+    let room = &world.aboard.room;
+    for who in beamed {
+        let points = room.blood(who as usize) + room.health(who as usize);
+        let watched = heals.watched.entry(who).or_insert(Watched {
+            points,
+            gathered: 0.0,
+            said: now,
+        });
+        // Only what came *back*: a patient taking a bolt while it is
+        // beamed loses points, and a red number is the health bar's job.
+        watched.gathered += (points - watched.points).max(0.0);
+        watched.points = points;
+        if watched.gathered >= 1.0 && now - watched.said >= HEAL_GAP {
+            let whole = watched.gathered.floor();
+            watched.gathered -= whole;
+            watched.said = now;
+            heals.floating.push(Floater {
+                who,
+                points: whole as u32,
+                born: now,
+            });
+        }
+    }
+    heals.floating.retain(|f| now - f.born < HEAL_FLOAT_SECONDS);
 }
 
 pub struct GamePlugin;
@@ -678,6 +762,7 @@ impl GameScreen {
             desync_at: crate::dev::desync_at(),
             blackout: 0.0,
             skills_prompt: true,
+            heals: Heals::default(),
         }
     }
 
@@ -2585,6 +2670,14 @@ fn frame(
         }
     }
 
+    // What every beam put back since last frame (feature 91), gathered
+    // whether or not the deck is being looked at: with the map up the
+    // numbers are simply not drawn, rather than saved up for the frame
+    // it closes.
+    if let Some(game) = &session.game {
+        note_heals(&mut screen.heals, game, now);
+    }
+
     // The red cross over every crew member in a dying state: a part of
     // it at nothing with the trauma untreated, which is the one thing on
     // a body only a crewmate with a medkit ends. The living only — a
@@ -2638,9 +2731,51 @@ fn frame(
             let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
             theme::surge_mark(&painter, egui::pos2(at.x, at.y), view.scale);
         }
+        // And what each beam is putting back, in green over the patient
+        // (feature 91): the line says a medic is working and the numbers
+        // say how well it is going, which is the half another player
+        // could not see before.
+        for floater in &screen.heals.floating {
+            let Some((x, y)) = session.crew_on_screen(floater.who) else {
+                continue;
+            };
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            let rise = ((now - floater.born) / HEAL_FLOAT_SECONDS) as f32;
+            theme::heal_number(
+                &painter,
+                egui::pos2(at.x, at.y),
+                view.scale,
+                &crate::names::heal_gain(floater.points),
+                rise,
+            );
+        }
+        // The charge bar over every tile being worked (feature 91): an
+        // engineer laying a kit, or anybody putting a site together. It
+        // stands on the tile rather than over the builder, because what
+        // the player wants to see is how far *that* tile has got —
+        // which is also why the walk to it counts towards the bar.
+        {
+            let (ox, oy) = (
+                game.world.aboard.offset.x as f32,
+                game.world.aboard.offset.y as f32,
+            );
+            let room = &game.world.aboard.room;
+            for who in 0..crew {
+                let Some((at, progress)) = room.working_at(who as usize) else {
+                    continue;
+                };
+                let (x, y) = session.design_point_on_screen(at.x - ox, at.y - oy);
+                let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                theme::work_bar(&painter, egui::pos2(p.x, p.y), view.scale, progress);
+            }
+        }
         // And the tanks (feature 77): a wall up is a ring of shield at
         // the bulwark's reach, and a taunt the radius it is drawing fire
-        // from, dashed.
+        // from, dashed. Each also wears its own mark on the **body**
+        // (feature 91) — a shield over the head, and rings thrown off
+        // him — since a ring drawn at a radius says how far the ability
+        // reaches and not which of two tanks standing together is
+        // holding it.
         let t = shipdesign::TILE as f32;
         for who in 0..crew {
             let wall = game.world.is_bulwark(who);
@@ -2656,9 +2791,11 @@ fn frame(
             if wall {
                 let radius = game.world.bulwark_reach(who) * t * view.scale;
                 theme::wall_mark(&painter, at, radius, view.scale);
+                theme::bulwark_shield(&painter, at, view.scale);
             }
             if taunting {
                 theme::taunt_ring(&painter, at, game.world.taunt_radius(who) * t * view.scale);
+                theme::taunt_shout(&painter, at, view.scale, now as f32);
             }
         }
         // And the commander (feature 78): the aura's radius round him,
@@ -2697,6 +2834,23 @@ fn frame(
                 } else {
                     theme::lifted_mark(&painter, at, view.scale);
                 }
+            }
+        }
+        // And the caller of it (feature 91). `aura_reaching` answers
+        // `None` for a commander asked about his own aura — a commander
+        // is not in his own — so without this the one Bim on the deck
+        // that is certainly rallying was the one with nothing on it to
+        // say so. Two chevrons over the head rather than the rallied
+        // ring: his own rig and his selection ring are in the way of
+        // anything small drawn at the body.
+        for who in 0..crew {
+            if game.world.class_of(who) != world::Class::Commander
+                || game.world.rally_left(who) <= 0.0
+            {
+                continue;
+            }
+            if let Some(at) = on_screen(who) {
+                theme::rally_call(&painter, at, view.scale);
             }
         }
         // And whom the ability box under the pointer would reach: the

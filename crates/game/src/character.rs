@@ -143,6 +143,24 @@ const COMMAND: Color = Color::rgb(1.0, 0.82, 0.35);
 /// The brackets round a braced soldier (feature 75): the command colour
 /// darkened, since it is a stance held rather than an order given.
 const BRACED: Color = Color::rgb(0.85, 0.62, 0.20);
+/// The **braced stance** (feature 91): what a soldier holding its ground
+/// does with its feet and how far it settles onto them. The toes are
+/// turned out a good third of a right angle, the heels a little back
+/// under the body, and the whole figure is drawn at [`BRACE_CROUCH`] of
+/// its size against an unchanged shadow — which from directly above is
+/// the only way a picture can say *lower*. Drawing only, off
+/// `Character::braced`, which `Game::tick_combat` sets.
+///
+/// [`BRACE_FEET_APART`] is the load-bearing number, and it is wide for a
+/// reason: the boots are drawn **before** the torso, which is 33 units
+/// across, so a foot inside 16 of the middle is a foot nobody ever sees —
+/// standing at ease they are hidden entirely and a stride is what brings
+/// one out. A braced foot has to be set past that edge or the stance is
+/// a change to a picture the torso covers.
+const BRACE_FEET_APART: f32 = 19.0;
+const BRACE_TOE_OUT: f32 = 0.55;
+const BRACE_SET_BACK: f32 = 2.5;
+const BRACE_CROUCH: f32 = 0.93;
 /// The halo round a body under a medic's surge (feature 76): a pale
 /// healing green, wide and breathing, so a body that cannot be hurt
 /// reads as such.
@@ -2118,7 +2136,11 @@ impl Character {
             Action::Retch => (0.0, (self.action_phase * TAU / HEAVE_PERIOD).sin().abs()),
             _ => (0.0, 0.0),
         };
-        let lift = 1.0 + 0.16 * hop - 0.10 * heave;
+        // And braced (feature 91): settled down onto the feet, which with
+        // the shadow underneath unchanged is a body drawn *lower* — the
+        // one thing a picture seen from directly above can say about a
+        // stance held.
+        let lift = (1.0 + 0.16 * hop - 0.10 * heave) * if self.braced { BRACE_CROUCH } else { 1.0 };
         let scale = self.body_scale() * lift;
         // Leant out to the peek while aiming from one; the body itself
         // has not moved, and nothing but the picture knows.
@@ -2136,23 +2158,34 @@ impl Character {
         let mut b = list.brush(pos, self.heading, scale);
 
         // Boots, under the body: one strides forward as the other trails. A
-        // seated Bim tucks them in.
+        // seated Bim tucks them in. **Braced** (feature 91) they are
+        // planted instead — set wide, turned out and a little back under
+        // the body, with no stride left in them whatever the legs were
+        // doing the step before — so a soldier holding its ground reads as
+        // a stance and not only as the brackets drawn round it.
         if !self.seated {
+            let planted = self.braced;
             for side in [-1.0f32, 1.0] {
-                let step = swing * 8.0 * side * moving;
-                let at = vec2(step, 7.0 * side);
-                b.ellipse(at, vec2(13.5, 9.0), 0.0, BOOT);
+                let (at, splay) = if planted {
+                    (
+                        vec2(-BRACE_SET_BACK, BRACE_FEET_APART * side),
+                        BRACE_TOE_OUT * side,
+                    )
+                } else {
+                    (vec2(swing * 8.0 * side * moving, 7.0 * side), 0.0)
+                };
+                b.ellipse(at, vec2(13.5, 9.0), splay, BOOT);
                 // Leg guards: the boot darker, with a band across the shin.
                 if let Some(guard) = self.armour[2] {
-                    b.ellipse(at, vec2(13.5, 9.0), 0.0, GUARD);
-                    b.rect(at - vec2(2.5, 0.0), vec2(3.0, 9.0), 0.0, 0.0, GUARD_BAND);
+                    b.ellipse(at, vec2(13.5, 9.0), splay, GUARD);
+                    b.rect(at - vec2(2.5, 0.0), vec2(3.0, 9.0), splay, 0.0, GUARD_BAND);
                     if guard.broken {
-                        b.rect(at, vec2(10.0, 1.3), 0.7, 0.0, CRACK);
+                        b.rect(at, vec2(10.0, 1.3), 0.7 + splay, 0.0, CRACK);
                     }
                 }
                 // A wounded leg bleeds onto the boot.
                 if self.wounds[2] {
-                    b.ellipse(at - vec2(2.0, 0.0), vec2(8.0, 6.0), 0.0, BLOOD);
+                    b.ellipse(at - vec2(2.0, 0.0), vec2(8.0, 6.0), splay, BLOOD);
                 }
             }
         }

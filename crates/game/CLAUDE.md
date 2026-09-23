@@ -3148,6 +3148,17 @@ because the mechanism is the room's rather than that class's. `Room::built` is `
 else's — for the armourer's repair. `Item::footprint` knows the two kits
 (23 → 2×2, 24 → 2×3).
 
+**`Game::working_at(who)`** (feature 91) is the other side of the same
+errand, for the app's charge bar on the tile: the middle of the tile a
+deploy is laying its kit on, or of the construction site whoever it is
+is building, in **room** units, with `Task::progress` beside it. It
+answers for `Kind::Deploy` and `Kind::Build` and for nothing else, and
+the walk counts towards the number — a bar standing on the tile before
+the builder arrives is what says *that* tile is the one being worked. A
+site the world has stopped asking for has no entry in `Room::builds` and
+so no bar, which is the right answer: nothing is being built there any
+more.
+
 ## One shooter, and the soldier's skill on it (feature 75)
 
 **A `combat::Skill` is what a Bim's talents do to the one shooter**, and
@@ -3183,6 +3194,21 @@ Braced, a Bim is armed like a recruit (`armed` says so), takes no errand
 draws four heavy brackets round it (`BRACED`), a stance held, inside the
 recruit ring. `Bim::rampage` is the world's count, kept here so a save
 carries it; the room only reads it back (`rampage`, `set_rampage`).
+
+**And since feature 91 a braced Bim is drawn braced.** The brackets say
+*that a thing is on*; the figure says *what it is doing*, which is what
+the player asked for. Two changes in `Character::draw`, both off the same
+flag and both drawing only: the **feet are planted** — set
+`BRACE_FEET_APART` wide, the toes turned out `BRACE_TOE_OUT` and the
+heels `BRACE_SET_BACK` under the body, with no stride left in them
+whatever the legs were doing the step before — and the whole figure is
+drawn at `BRACE_CROUCH` of its size **against an unchanged shadow**,
+which seen from directly above is the only way a picture can say
+*lower*. The width is the number that matters and it is wide for a
+reason: **the boots are drawn before the torso**, which is 33 units
+across, so a foot inside 16 of the middle is a foot nobody ever sees —
+standing at ease they are hidden entirely and a stride is what brings one
+out. The first cut set them 11 apart and the two pictures were identical.
 
 **The medic's beam and surge are two more things the world sets on a
 body** (feature 76). `Game::set_held(Vec<Option<health::Beamed>>)` is

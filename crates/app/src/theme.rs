@@ -942,3 +942,162 @@ pub fn brace_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
         stroke,
     );
 }
+
+/// The charge bar over a tile something is being put together on
+/// (feature 91): an engineer laying a kit, or anybody building a site.
+/// A dark track with the progress filled in the caution colour and a
+/// hairline round it, drawn just above the tile's middle so the thing
+/// under it is still visible. `progress` is nought to one; `at` is the
+/// tile's middle on the canvas.
+///
+/// It is sized off the zoom and clamped, like every other deck mark, so
+/// a build across a station still reads with the whole deck in view.
+pub fn work_bar(painter: &egui::Painter, at: egui::Pos2, scale: f32, progress: f32) {
+    let w = (34.0 * scale).clamp(14.0, 46.0);
+    let h = (5.0 * scale).clamp(3.0, 7.0);
+    let at = egui::pos2(at.x, at.y - (16.0 * scale).clamp(7.0, 22.0));
+    let track = egui::Rect::from_center_size(at, egui::vec2(w, h));
+    let round = h * 0.5;
+    painter.rect_filled(track, round, egui::Color32::from_black_alpha(170));
+    let done = progress.clamp(0.0, 1.0);
+    if done > 0.0 {
+        let filled = egui::Rect::from_min_size(track.min, egui::vec2(w * done, h));
+        painter.rect_filled(filled, round, CAUTION.gamma_multiply(0.9));
+    }
+    painter.rect_stroke(
+        track,
+        round,
+        egui::Stroke::new(1.0, CAUTION.gamma_multiply(0.45)),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// A heal landing on a beamed body (feature 91): the points put back,
+/// floating up off the patient in the beam's own green and fading as it
+/// goes. `rise` is nought the moment it appears and one as it goes out,
+/// so the screen holds nothing but a birth time.
+///
+/// Drawn for every beamed crew member, whoever holds the beam, since the
+/// point of it is that another player can see a medic working.
+pub fn heal_number(painter: &egui::Painter, at: egui::Pos2, scale: f32, text: &str, rise: f32) {
+    let rise = rise.clamp(0.0, 1.0);
+    let lift = (NAME_LIFT * 0.7 * scale).clamp(12.0, 40.0);
+    let at = egui::pos2(at.x, at.y - lift - rise * lift * 0.8);
+    // Out over the last third, so it is read before it goes.
+    let fade = (1.0 - (rise - 0.66) / 0.34).clamp(0.0, 1.0);
+    let size = (NAME_SIZE * 1.05).max(11.0);
+    // A shadow under it first: the deck is any colour, and green on
+    // green is nothing at all.
+    painter.text(
+        at + egui::vec2(1.0, 1.0),
+        egui::Align2::CENTER_CENTER,
+        text,
+        egui::FontId::proportional(size),
+        egui::Color32::from_black_alpha(160).gamma_multiply(fade),
+    );
+    painter.text(
+        at,
+        egui::Align2::CENTER_CENTER,
+        text,
+        egui::FontId::proportional(size),
+        HEAL.gamma_multiply(fade),
+    );
+}
+
+/// A tank standing as a wall, on the tank itself (feature 91): a small
+/// shield over its head in the wall's own caution colour, inside the
+/// ring [`wall_mark`] draws at the bulwark's reach — the ring says how
+/// far the wall covers, and the shield says *which body is holding it*,
+/// which the ring alone cannot when two tanks stand near each other.
+/// The shape is [`defend_banner`]'s, small and without its ground ring:
+/// a shield is a shield wherever it is drawn.
+pub fn bulwark_shield(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let h = (15.0 * scale).clamp(7.0, 21.0);
+    let w = h * 0.68;
+    let lift = (0.55 * NAME_LIFT * scale).clamp(8.0, 30.0);
+    let foot = egui::pos2(at.x, at.y - lift);
+    let stroke = egui::Stroke::new((1.6 * scale).clamp(1.0, 2.4), CAUTION);
+    let top = foot.y - h;
+    let mid = foot.y - h * 0.34;
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(foot.x - w * 0.5, top),
+            egui::pos2(foot.x + w * 0.5, top),
+            egui::pos2(foot.x + w * 0.42, mid),
+            egui::pos2(foot.x, foot.y - h * 0.06),
+            egui::pos2(foot.x - w * 0.42, mid),
+        ],
+        CAUTION.gamma_multiply(0.40),
+        stroke,
+    ));
+    painter.line_segment(
+        [
+            egui::pos2(foot.x - w * 0.34, foot.y - h * 0.72),
+            egui::pos2(foot.x + w * 0.34, foot.y - h * 0.72),
+        ],
+        egui::Stroke::new(stroke.width * 0.8, CAUTION),
+    );
+}
+
+/// A tank taunting, on the tank itself (feature 91): rings thrown off
+/// the body in the warning colour, swelling outwards and fading as they
+/// go — a shout, drawn where the body is rather than at the taunt's
+/// reach, which is what [`taunt_ring`]'s dashes say. The two are told
+/// apart by size and by motion: this one is small and moving, that one
+/// wide and still.
+///
+/// `phase` is seconds; the rings cycle on it, so nothing is kept between
+/// frames. No facing: a shout goes every way at once, which is also why
+/// a taunt pulls whoever is round him rather than whoever is in front.
+pub fn taunt_shout(painter: &egui::Painter, at: egui::Pos2, scale: f32, phase: f32) {
+    let near = (12.0 * scale).clamp(5.0, 16.0);
+    let far = near * 2.4;
+    let rings = 2;
+    for i in 0..rings {
+        // Each ring a half-cycle behind the last, so one is always on
+        // its way out as the next leaves the body.
+        let t = (phase / TAUNT_PULSE + i as f32 / rings as f32).fract();
+        let r = near + (far - near) * t;
+        painter.circle_stroke(
+            at,
+            r,
+            egui::Stroke::new(
+                (2.0 * scale).clamp(1.0, 3.0),
+                WARN.gamma_multiply(0.8 * (1.0 - t)),
+            ),
+        );
+    }
+}
+
+/// Seconds one of a taunt's rings takes to travel out from the body.
+const TAUNT_PULSE: f32 = 0.9;
+
+/// The commander **calling** a rally, on the commander himself (feature
+/// 91): two chevrons over his head in the crew's own colour — the
+/// [`rallied_mark`]'s one chevron said twice, so the caller reads
+/// differently from the called.
+///
+/// He needs a mark of his own because `World::aura_reaching` answers
+/// `None` for a commander asked about his own aura — nobody is in their
+/// own — so the one Bim on the deck that is certainly rallying had
+/// nothing on it to say so; and it goes over the head because a small
+/// ring at the body is lost under his own rig and his selection ring,
+/// which is where [`rallied_mark`] puts it.
+pub fn rally_call(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let w = (9.0 * scale).clamp(4.0, 13.0);
+    let lift = (0.62 * NAME_LIFT * scale).clamp(10.0, 32.0);
+    let step = w * 0.7;
+    let stroke = egui::Stroke::new((1.8 * scale).clamp(1.2, 2.8), YOURS);
+    // Upwards, so the pair stacks clear of the head rather than into it.
+    for i in 0..2 {
+        let y = at.y - lift - i as f32 * step;
+        painter.line_segment(
+            [egui::pos2(at.x - w, y + step * 0.7), egui::pos2(at.x, y)],
+            stroke,
+        );
+        painter.line_segment(
+            [egui::pos2(at.x, y), egui::pos2(at.x + w, y + step * 0.7)],
+            stroke,
+        );
+    }
+}
