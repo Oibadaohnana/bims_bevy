@@ -59,6 +59,10 @@ pub struct Lobby {
     /// (feature 85, `World::stars_visited`). The page sets it every
     /// frame; empty in the lobby, where the game has not started.
     pub visited: Vec<u32>,
+    /// In the game: every star the machines hold, crossed in red
+    /// (feature 92, `World::infested_stars`). The page sets it every
+    /// frame; empty in the lobby, where the crisis has not begun.
+    pub infested: Vec<u32>,
     pub pings: Vec<Ping>,
     /// The star whose system is in the side panel, and the system itself.
     pub inspected: Option<(u32, StarSystem)>,
@@ -88,6 +92,7 @@ impl Lobby {
             here: None,
             target: None,
             visited: Vec::new(),
+            infested: Vec::new(),
             pings: Vec::new(),
             inspected: None,
             placed: Placed::default(),
@@ -201,12 +206,14 @@ impl Lobby {
             here: self.here,
             target: self.target,
             visited: &self.visited,
+            infested: &self.infested,
             pings: &self.pings,
         };
         preview::paint(
             &self.preview,
             &self.galaxy.stars,
             &self.has_station,
+            &self.galaxy.lanes,
             &marks,
             list,
         );

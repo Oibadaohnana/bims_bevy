@@ -69,8 +69,14 @@ use crate::game::Game;
 /// grave (`Residents::grave`) — feature 85. 27: the kits' cooldowns and
 /// the soldier's last throw became **one** list of charge timers
 /// (`World::charge_timers`, one entry a `class::Charge`), since a
-/// grenade is a charge on a cooldown like a kit — feature 90.
-pub const SAVE_VERSION: u32 = 27;
+/// grenade is a charge on a cooldown like a kit — feature 90. 28: the
+/// crisis (`World::droid_origin` — the star the machines began at — and
+/// the day the first star turns, with the machines' hold on a system
+/// filed alongside the rest of its memory) — feature 92. The hop table
+/// from the origin is **not** in the file: it is derived from the galaxy
+/// and the origin, and `Game::resume` works it out again
+/// (`World::settle_crisis`) on every read.
+pub const SAVE_VERSION: u32 = 28;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

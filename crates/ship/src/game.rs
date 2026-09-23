@@ -257,6 +257,13 @@ impl Game {
     pub fn resume(world: World, local: u32, width: f32, height: f32) -> Game {
         let players = world.players();
         let seed = world.galaxy_seed;
+        let mut world = world;
+        // The crisis's hop table is derived from the galaxy and the
+        // origin, and a save carries only the origin (feature 92): every
+        // world read back — a load, a restart, a guest handed the host's
+        // — wants it worked out again before anything asks which stars
+        // the machines have.
+        world.settle_crisis();
         let mut game = Game {
             world,
             mode: ViewMode::Ship,

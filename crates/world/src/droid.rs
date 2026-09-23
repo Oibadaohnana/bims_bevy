@@ -5,6 +5,13 @@
 //! stations are held, how many machines come, and when the next lot
 //! arrive.**
 //!
+//! Since feature 92 it also holds the **crisis**: [`origin`], the one
+//! star the machines begin at, and [`turns_on`], the day any star falls
+//! — `first + DROID_SPREAD_DAYS * hops` along the galaxy's hyperlanes
+//! (`worldgen::Galaxy::lanes`). Those two are the whole of the spread
+//! rule, and neither keeps any state; `World::spread_crisis` is what
+//! turns a day that has come into a station in the machines' hands.
+//!
 //! # A held station has waves, and the count is fixed at the first dock
 //!
 //! [`Infestation`] is one station's: how many waves are still to come,
@@ -32,6 +39,8 @@
 
 use crate::data;
 use economy::Money;
+use worldgen::Galaxy;
+use worldgen::rng::{Purpose, Rng};
 
 /// One droid-held station's state. Which waves are left, which is
 /// aboard, and when the next is due.
@@ -143,6 +152,70 @@ pub fn worth_steps(worth: Money, start_worth: Money) -> u32 {
 /// step a garrison grows by.
 pub fn day_steps(days_gone: u32) -> u32 {
     days_gone / data::ENEMIES_DAYS
+}
+
+// --- the crisis (feature 92) ---------------------------------------------
+
+/// Where the machines began: the one star the crisis spreads out from.
+///
+/// Rolled once, at [`crate::World::start`], off its own stream — the
+/// galaxy seed, the crew's starting star and [`Purpose::DroidOrigin`] —
+/// so the same galaxy started from the same dock puts the machines in the
+/// same place whoever asks, and moving anything else about the world
+/// never moves them.
+///
+/// What is rolled among is **every star at least
+/// [`data::DROID_ORIGIN_MIN_HOPS`] hops away** by the lane graph: which
+/// star it is matters far less than how far off it is, since the whole
+/// point of the roll is the months between the first news of the machines
+/// and the first wave at the crew's own dock. A galaxy too small or too
+/// stringy to have one that far away gives up the minimum and takes the
+/// furthest it has — never the nearest, which would open the game with
+/// the crisis next door.
+pub fn origin(galaxy: &Galaxy, start_star: u32) -> u32 {
+    let hops = galaxy.hops_from(start_star);
+    let mut rng = Rng::stream(
+        galaxy.seed,
+        start_star,
+        galaxy.generator_version,
+        Purpose::DroidOrigin,
+    );
+    let far = candidates(&hops, data::DROID_ORIGIN_MIN_HOPS);
+    let far = if far.is_empty() {
+        // Nothing far enough: as far as this galaxy goes, which is at
+        // least the star the crew are at and so never empty.
+        let furthest = hops.iter().copied().filter(|&h| h != u16::MAX).max();
+        candidates(&hops, furthest.unwrap_or(0))
+    } else {
+        far
+    };
+    let pick = rng.below(far.len() as u32) as usize;
+    far.get(pick).copied().unwrap_or(start_star)
+}
+
+/// Every star at least `least` hops off, in id order. Unreachable stars
+/// are left out — after [`worldgen::Galaxy::lanes`]'s completion there are
+/// none, but a table asked about a star of another galaxy is all of them.
+fn candidates(hops: &[u16], least: u16) -> Vec<u32> {
+    hops.iter()
+        .enumerate()
+        .filter(|&(_, &h)| h != u16::MAX && h >= least)
+        .map(|(id, _)| id as u32)
+        .collect()
+}
+
+/// The day a star `hops` from the origin turns, counting from the day the
+/// world opened: `first + DROID_SPREAD_DAYS * hops`, and [`u32::MAX`] —
+/// never — for a star the lanes do not reach.
+///
+/// `first` is [`data::DROID_FIRST_DAY`] in the game; the `crisis` probe
+/// moves it (`BIMS_CRISIS_DAY`) so a flip can be watched rather than
+/// waited ten days for.
+pub fn turns_on(first: u32, hops: u16) -> u32 {
+    if hops == u16::MAX {
+        return u32::MAX;
+    }
+    first.saturating_add(data::DROID_SPREAD_DAYS.saturating_mul(hops as u32))
 }
 
 #[cfg(test)]

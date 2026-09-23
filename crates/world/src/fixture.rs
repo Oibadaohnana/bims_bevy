@@ -65,7 +65,12 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// the soldier's `last_throw` are one `World::charge_timers` now — the
 /// two kits and the grenade, in charge order, in the kits' old place —
 /// so the soldiers' block is the brace and the *rampage* stacks alone.
-pub const REFERENCE_CHECKSUM: u64 = 0x_3a43_a3fe_a913_4b6f;
+/// And again when the crisis went in (feature 92, `crate::droid`): the
+/// star the machines began at and the day the first one turns, hashed
+/// with the droids' other dials — the hop table is derived from the
+/// origin and the galaxy and is not in there — and the machines' hold on
+/// a system's stations filed with the rest of that system's memory.
+pub const REFERENCE_CHECKSUM: u64 = 0x_3d19_a6e0_51f2_fdfa;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

@@ -32,6 +32,17 @@ pub const GALAXY_RADIUS: f64 = 50_000.0;
 /// sometimes gives you the wrong system.
 pub const MIN_STAR_SEPARATION: f64 = 200.0;
 
+/// How many nearest neighbours each star is laned to (feature 92).
+///
+/// Three is what makes the lane graph a *web* rather than a string of
+/// beads: at two, whole arms come out as chains and a hop count runs to the
+/// hundreds; at four, the galaxy is a fortnight across and a crisis that
+/// spreads a hop at a time arrives everywhere at once. Nothing flies down a
+/// lane — what the graph is *for* is how far one star is from another in
+/// hops — so what matters about the number is the hop counts it gives, and
+/// those are measured in `crates/world`.
+pub const LANE_NEIGHBOURS: usize = 3;
+
 /// Tries at placing a star before its minimum separation is given up on.
 ///
 /// Giving up rather than looping is the important half: a galaxy whose core
@@ -169,6 +180,16 @@ pub struct Galaxy {
     pub generator_version: u32,
     pub galaxy_type: GalaxyType,
     pub stars: Vec<Star>,
+    /// The hyperlanes (feature 92): for each star, in id order, the ids it
+    /// is joined to, sorted — every lane on both of its ends. One
+    /// connected graph over the whole field, built once with the stars and
+    /// part of [`crate::galaxy_checksum`]. Read through [`Galaxy::lanes`]
+    /// and walked by [`Galaxy::hops_from`].
+    ///
+    /// **Nothing flies down one.** A hyperdrive still reaches any star on
+    /// the chart; what the graph decides is how far apart two stars are in
+    /// hops, which is what the machines' crisis spreads along.
+    pub lanes: Vec<Vec<u32>>,
 }
 
 impl Galaxy {
@@ -181,12 +202,52 @@ impl Galaxy {
     /// one is how a client ends up quietly disagreeing with a server.
     pub fn with_version(seed: u64, galaxy_type: GalaxyType, generator_version: u32) -> Galaxy {
         let stars = scatter(seed, galaxy_type, generator_version);
+        let lanes = weave(&stars);
         Galaxy {
             seed,
             generator_version,
             galaxy_type,
             stars,
+            lanes,
         }
+    }
+
+    /// The stars this one is laned to, sorted by id. Empty for a star that
+    /// is not in this galaxy.
+    pub fn lanes(&self, star: u32) -> &[u32] {
+        self.lanes
+            .get(star as usize)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// How many lane hops every star is from this one, indexed by star id:
+    /// nought for the star itself and [`u16::MAX`] for one the lanes do not
+    /// reach — which, [`weave`] leaving one connected graph, is no star at
+    /// all bar when asked about one this galaxy has not got.
+    ///
+    /// Breadth-first, which is the shortest path when every lane is one
+    /// hop. Not kept on the galaxy: a `Galaxy` is regenerated freely from
+    /// its seed, and a table on it would be regenerated with it — the world
+    /// works this out once from the machines' origin and keeps it.
+    pub fn hops_from(&self, star: u32) -> Vec<u16> {
+        let mut hops = vec![u16::MAX; self.stars.len()];
+        let Some(start) = hops.get_mut(star as usize) else {
+            return hops;
+        };
+        *start = 0;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(star);
+        while let Some(at) = queue.pop_front() {
+            let so_far = hops[at as usize];
+            for &next in self.lanes(at) {
+                if hops[next as usize] == u16::MAX {
+                    hops[next as usize] = so_far.saturating_add(1);
+                    queue.push_back(next);
+                }
+            }
+        }
+        hops
     }
 
     pub fn star(&self, id: u32) -> Option<&Star> {
@@ -268,6 +329,125 @@ fn scatter(seed: u64, galaxy_type: GalaxyType, generator_version: u32) -> Vec<St
         });
     }
     stars
+}
+
+/// The lanes between the stars (feature 92): for every star, the ids it is
+/// joined to, each lane on both of its ends.
+///
+/// **No `sqrt`, no `powf`, no transcendental.** Every comparison is made on
+/// the *squared* distance, which is a subtraction and two multiplications of
+/// f64 and therefore the same number on every target, where a `sqrt` out of
+/// the platform's libm is not promised to be. The graph goes into
+/// `galaxy_checksum`, so a last-bit disagreement here would be two galaxies.
+///
+/// Two passes. Each star lanes to its [`LANE_NEIGHBOURS`] nearest, ties
+/// broken on the lower star id — and a lane is undirected, so a star out on
+/// the rim ends up with more than three and a star in a tight knot with
+/// exactly three. That pass alone leaves **islands**: four stars huddled
+/// together pick only each other and nothing else picks them. So the second
+/// is the completion — while more than one component is left, the shortest
+/// lane joining two of them is added, which is Kruskal's over the pairs the
+/// first pass did not already union — and what comes out is one connected
+/// graph, which is what makes [`Galaxy::hops_from`] finite everywhere.
+fn weave(stars: &[Star]) -> Vec<Vec<u32>> {
+    let n = stars.len();
+    let mut lanes: Vec<Vec<u32>> = vec![Vec::new(); n];
+    if n < 2 {
+        return lanes;
+    }
+    let mut parent: Vec<u32> = (0..n as u32).collect();
+
+    // The nearest few of each star, held as a short sorted list rather than
+    // found by sorting a thousand: an insertion into three is nothing, and a
+    // sort a star would be a thousand sorts of a thousand.
+    let mut near: Vec<(f64, u32)> = Vec::with_capacity(LANE_NEIGHBOURS + 1);
+    for a in 0..n {
+        near.clear();
+        for b in 0..n {
+            if a == b {
+                continue;
+            }
+            let d = stars[a].position.sub(stars[b].position).length_squared();
+            let candidate = (d, b as u32);
+            let at = near.partition_point(|&e| nearer(e, candidate));
+            if at >= LANE_NEIGHBOURS {
+                continue;
+            }
+            near.insert(at, candidate);
+            near.truncate(LANE_NEIGHBOURS);
+        }
+        for &(_, b) in &near {
+            join(&mut lanes, a as u32, b);
+            union(&mut parent, a as u32, b);
+        }
+    }
+
+    // The completion. Each round takes the shortest lane there is between
+    // two components and adds it; with every star's component flattened to
+    // a root first, a round is one walk down the pairs.
+    loop {
+        let roots: Vec<u32> = (0..n as u32).map(|i| find(&mut parent, i)).collect();
+        let mut best: Option<(f64, u32, u32)> = None;
+        for a in 0..n {
+            for b in (a + 1)..n {
+                if roots[a] == roots[b] {
+                    continue;
+                }
+                let d = stars[a].position.sub(stars[b].position).length_squared();
+                let here = (d, a as u32, b as u32);
+                if best.is_none_or(|had| shorter(here, had)) {
+                    best = Some(here);
+                }
+            }
+        }
+        let Some((_, a, b)) = best else {
+            break;
+        };
+        join(&mut lanes, a, b);
+        union(&mut parent, a, b);
+    }
+
+    for list in &mut lanes {
+        list.sort_unstable();
+        list.dedup();
+    }
+    lanes
+}
+
+/// Whether one candidate neighbour comes before another: the nearer, and at
+/// the same distance the lower star id.
+fn nearer(one: (f64, u32), other: (f64, u32)) -> bool {
+    one.0 < other.0 || (one.0 == other.0 && one.1 < other.1)
+}
+
+/// The same total order over a pair of stars: the shorter, then the lower
+/// id, then the higher. Every length here is finite, so it never meets a
+/// NaN and the order really is total.
+fn shorter(one: (f64, u32, u32), other: (f64, u32, u32)) -> bool {
+    (one.0, one.1, one.2) < (other.0, other.1, other.2)
+}
+
+fn join(lanes: &mut [Vec<u32>], a: u32, b: u32) {
+    lanes[a as usize].push(b);
+    lanes[b as usize].push(a);
+}
+
+/// Union-find with path compression and no rank: a thousand stars and a few
+/// thousand unions is not where the time goes.
+fn find(parent: &mut [u32], mut of: u32) -> u32 {
+    while parent[of as usize] != of {
+        let up = parent[of as usize];
+        parent[of as usize] = parent[up as usize];
+        of = parent[of as usize];
+    }
+    of
+}
+
+fn union(parent: &mut [u32], a: u32, b: u32) {
+    let (ra, rb) = (find(parent, a), find(parent, b));
+    if ra != rb {
+        parent[ra as usize] = rb;
+    }
 }
 
 /// One candidate position, in whichever shape this galaxy is.
@@ -553,5 +733,67 @@ mod tests {
             }
         }
         assert_eq!(Galaxy::new(31, GalaxyType::SpiralTwoArm).stars, before);
+    }
+
+    /// The whole promise of the lane graph (feature 92): it is one piece,
+    /// it is symmetric, nothing is laned to itself, and the same seed
+    /// weaves the same web while another seed weaves a different one.
+    #[test]
+    fn the_lanes_are_one_connected_web_and_the_seed_decides_it() {
+        for &t in &GalaxyType::ALL {
+            let g = Galaxy::new(77, t);
+            assert_eq!(g.lanes.len(), g.stars.len());
+            for (id, lanes) in g.lanes.iter().enumerate() {
+                let id = id as u32;
+                assert!(!lanes.is_empty(), "{t:?}: star {id} is laned to nothing");
+                assert!(lanes.windows(2).all(|w| w[0] < w[1]), "sorted and distinct");
+                for &to in lanes {
+                    assert_ne!(to, id, "a star is never laned to itself");
+                    assert!(
+                        g.lanes(to).contains(&id),
+                        "{t:?}: {id}-{to} is laned one way only"
+                    );
+                }
+                // Every star has at least the neighbours it picked; an
+                // undirected lane means it may well have more.
+                assert!(lanes.len() >= LANE_NEIGHBOURS, "{t:?}: star {id}");
+            }
+            // One piece: everything is some number of hops from star nought.
+            let hops = g.hops_from(0);
+            assert_eq!(hops.len(), g.stars.len());
+            assert_eq!(hops[0], 0);
+            assert!(
+                hops.iter().all(|&h| h != u16::MAX),
+                "{t:?}: the lanes leave an island"
+            );
+            // A hop is a lane: a neighbour is never more than one further
+            // off than the star it is laned to.
+            for (id, lanes) in g.lanes.iter().enumerate() {
+                for &to in lanes {
+                    assert!(hops[to as usize].abs_diff(hops[id]) <= 1);
+                }
+            }
+        }
+        let a = Galaxy::new(77, GalaxyType::Spiral);
+        let b = Galaxy::new(77, GalaxyType::Spiral);
+        let c = Galaxy::new(78, GalaxyType::Spiral);
+        assert_eq!(a.lanes, b.lanes, "the same seed weaves the same web");
+        assert_ne!(a.lanes, c.lanes, "another seed weaves another");
+        // And a star this galaxy has not got is nowhere: no lanes, and a
+        // hop table of nothing but unreachable.
+        assert!(a.lanes(STAR_COUNT).is_empty());
+        assert!(a.hops_from(STAR_COUNT).iter().all(|&h| h == u16::MAX));
+    }
+
+    /// The graph is in the checksum, so moving one lane moves the number —
+    /// which is what stops two builds spreading the crisis differently.
+    #[test]
+    fn the_checksum_notices_a_lane() {
+        let galaxy = Galaxy::new(77, GalaxyType::Round);
+        let systems = galaxy.every_system();
+        let pinned = crate::galaxy_checksum(&galaxy, &systems);
+        let mut moved = Galaxy::new(77, GalaxyType::Round);
+        moved.lanes[0].pop();
+        assert_ne!(pinned, crate::galaxy_checksum(&moved, &systems));
     }
 }

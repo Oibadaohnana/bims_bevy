@@ -44,6 +44,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that same fight against the machines **with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander, at the tenth level with every talent still to choose — the ship, the arena and the wave are `droids`' own, so two of these runs differ by the class and nothing else |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | the same on a planet: a town held by the machines, the ship set down at its pad, and their lander coming down on the plain beyond a gate |
 | `nix run .#raid` | `cargo run -- raid` | the simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in — the warning, the raider on the map and closing at its own pace, then the boarding |
+| `nix run .#crisis` | `cargo run -- crisis` | the simulation **a day before the machines appear**: a random galaxy and a random dock as `test` deals them, the clock wound to the eve of `DROID_FIRST_DAY`, and the crisis's origin forced two hyperlane hops from the crew's own star. Open the galaxy chart and the first star turns red while you watch; the crew's own system follows ten days later, and the day any star is due is written under its name when it is picked. `BIMS_CRISIS_DAY=n` moves the day the first one turns, and the clock opens a day short of whatever it says |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 
 Whichever of them you open, **Esc → Restart → Start again** puts the run back
@@ -1578,10 +1579,35 @@ one thing in the arms at a time, from the lockers to the bench and back.
   how big each is worked out as it lands, and the next never arrives
   while one of the last is still standing — two hours of the clock after
   the last one falls, a reinforcement ship tying up at the far airlock or
-  a lander coming down on the plain beyond a town's gate. Which stations
-  are held is the crisis step's to say and is not written yet;
-  `nix run .#droids` and `.#droids_planet` are how the fight is looked at
-  meanwhile.
+  a lander coming down on the plain beyond a town's gate.
+  `nix run .#droids` and `.#droids_planet` are how one station's fight is
+  looked at on its own.
+
+- **The crisis** is which stations they hold, and it is a clock rather
+  than a dice roll. Every galaxy is webbed with **hyperlanes** — each
+  star joined to its three nearest neighbours, and whatever else it takes
+  to leave one connected graph, drawn faintly under the stars on the
+  galaxy chart. On day ten the machines appear at **one star**, rolled at
+  the start of the game at least eight lane hops from wherever the crew
+  began, and from there the infestation spreads **one hop every five
+  days**. That is the whole rule: a star is theirs from
+  `day 10 + 5 × hops` onwards, so two players in one game agree about the
+  whole galaxy without a word passing between them, and the chart can say
+  under any star you pick exactly which day it is due. At three lanes a
+  star a galaxy runs a hundred-odd hops across, so the last star in it
+  falls somewhere around **day 500 to 725** — the crisis is a season, not
+  a raid.
+
+  **An infested system is the machines'**: every station in it, orbital
+  or town, its people gone, nothing to trade, nobody to hire, no shelf to
+  buy from — and a wave of machines standing in each. A station the crew
+  **cleared** stays cleared: the crisis never re-arms it. The flip waits
+  for the crew to leave, so a system whose day comes while you are docked
+  in it turns the moment you cast off rather than emptying the deck under
+  your feet. **Jumping is untouched** — the hyperdrive still reaches any
+  star on the chart, and the lanes are what the machines crawl along, not
+  a road anybody flies.
+  `nix run .#crisis` opens the simulation on the eve of it.
 
 ### Classes and levels
 

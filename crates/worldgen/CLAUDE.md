@@ -145,3 +145,42 @@ there is ground to grow it — and a bandage at orbitals and refineries;
 neither is a staple, so a station rolls them like components. Galvum is
 the outposts' alone, an emitter, a handgun and a vest are nobody's, rock is
 nobody's, and a derelict sells nothing.
+
+## The hyperlanes are a web, and they are in the checksum (feature 92)
+
+`Galaxy::lanes` is an adjacency list over the thousand stars, built with
+them in `Galaxy::with_version` by `galaxy::weave` and hashed in
+`galaxy_checksum` right after the stars and before the systems — which
+re-pinned all four `fixture::REFERENCE_CHECKSUMS` and is **not** a
+`GENERATOR_VERSION` bump: no star moved and no system changed shape.
+They are there for `world`'s crisis (`crates/world/CLAUDE.md`), which
+spreads one hop every five days; **nothing flies down one**, and a
+hyperdrive still reaches any star on the chart.
+
+Two passes, and the second is the one that earns its keep. Each star
+lanes to its `LANE_NEIGHBOURS` (3) nearest by **squared** distance, ties
+on the lower star id — and because a lane is undirected a rim star ends
+up with more than three (the measured spread is 3 to 7 or 8). That alone
+leaves **islands**: four stars huddled inside the minimum separation pick
+only each other and nothing else picks them. So the completion adds, while
+more than one component is left, the shortest lane joining two of them —
+Kruskal's over the pairs the first pass did not union, each round
+flattening the components to a root and walking the pairs once. What comes
+out is one connected graph, which is what makes `Galaxy::hops_from`
+(breadth-first, `u16::MAX` for unreachable) finite at every star.
+
+**No `sqrt`, no `powf`, no transcendental anywhere in it.** Every
+comparison is on the squared distance — a subtraction and two
+multiplications of f64, the same number on every target — because the
+graph is in the checksum and the crisis's whole timetable hangs off it:
+two builds that disagreed about one lane would put the machines at one
+crew's door a week before the other's. `nearer` and `shorter` are the two
+total orders (length, then the lower id, then the higher), and the lengths
+are all finite so neither meets a NaN.
+
+`the_lanes_are_one_connected_web_and_the_seed_decides_it` pins the lot —
+symmetry, no self-lane, sorted and distinct, at least three each, one
+component from star nought, a neighbour never more than one hop further
+off, and the seed deciding it — and `the_checksum_notices_a_lane` that
+dropping one moves the number. How far a galaxy runs in hops, and what
+that means for the crisis, is measured in the root `CLAUDE.md`.

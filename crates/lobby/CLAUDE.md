@@ -70,3 +70,23 @@ where they fell") — set on `Lobby::visited` every frame by
 anywhere yet. The system map ticks a visited *node* in the same grey
 (`ship::world_paint::paint_tick`), which is the third colour written out
 in two crates rather than shared.
+
+## The lanes are drawn under everything, and an infested star is crossed
+
+Feature 92. `preview::paint` takes the galaxy's `lanes` beside its stars
+now and draws each once — from the lower id, and only where an end is on
+the canvas — as a `LANE_WIDTH` (0.7px) line in `LANE`, a faint blue-grey
+under every star and every mark. Under a pixel wide on purpose: `shapes.rs`
+feathers anything thinner than a device pixel rather than dropping it, so
+the web reads as structure at the fit and still as a hairline zoomed right
+in, and never as a route — **nothing flies down a lane**, and a chart whose
+lanes looked like roads would say the opposite of the truth.
+
+`Marks::infested` is the other half: every star the machines hold
+(`World::infested_stars`, set on `Lobby::infested` every frame by
+`screens/game.rs`, empty in the lobby proper), drawn as a ring with a
+cross through it in `draw::ENEMY` — a shape nothing else on this map
+draws, in the colour a hostile station is ringed in everywhere else. It
+goes over the star and the `visited` ring and **under** the page's own
+picks, so the star the ship is at still reads as that; and it is drawn
+for a star charted or not, since the crisis is not a secret.

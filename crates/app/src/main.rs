@@ -7,7 +7,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Twenty-three things to run, and each is a name rather than a flag:
+//! Twenty-four things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -40,6 +40,9 @@
 //! bims raid          the simulation off its berth, holding in open space,
 //!                    with a raid on its way: contact ten seconds in, the
 //!                    raider then closing at its own pace
+//! bims crisis        the simulation a day before the machines appear, with
+//!                    the origin two hyperlane hops off, so the first star
+//!                    turns red on the chart while you watch
 //! bims stationbuilder [name]
 //!                    a grid to sketch a station's rough shape on, saved as
 //!                    text to `stations/<name>.txt` for a plan to be
@@ -69,7 +72,7 @@ mod theme;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-/// Which of the twenty-three things this process is.
+/// Which of the twenty-four things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -115,6 +118,14 @@ pub enum Launch {
     /// The simulation with a raid on its way: off the berth and holding,
     /// contact ten seconds in.
     Raid,
+    /// `Test` a day before the machines appear (feature 92): the same
+    /// random galaxy and roll, the clock wound on to the day before
+    /// `DROID_FIRST_DAY` and the crisis's origin forced two hyperlane
+    /// hops from the crew's own star, so the first star turns red on the
+    /// galaxy chart within a day of the clock rather than ten.
+    /// `BIMS_CRISIS_DAY` moves the day the first one turns; the clock
+    /// opens a day short of whatever it says.
+    Crisis,
     StationBuilder,
 }
 
@@ -143,7 +154,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|room|test|test_planet|combat|combat_<class>|tier2_test|tier3_test|droids|combat_droids_<class>|droids_planet|raid|stationbuilder [name]|list|--self-check]"
+        "usage: bims [game|simulation|design|room|test|test_planet|combat|combat_<class>|tier2_test|tier3_test|droids|combat_droids_<class>|droids_planet|raid|crisis|stationbuilder [name]|list|--self-check]"
     );
     eprintln!("       a class is one of: {}", class_words().join(", "));
     eprintln!("       `bims list` says what each of them opens");
@@ -155,7 +166,7 @@ fn usage() -> ! {
 /// nothing else. A new command is a row here and an arm in `main`; the
 /// classes' commands are not written out, since [`class_words`] reads
 /// them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 15] = [
+const COMMANDS: [(&str, &str); 16] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, ship design, then the world docked where you said",
@@ -194,6 +205,10 @@ const COMMANDS: [(&str, &str); 15] = [
     (
         "raid",
         "The simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in",
+    ),
+    (
+        "crisis",
+        "The simulation a day before the machines appear, the origin two hyperlane hops off: the first star turns red on the chart while you watch",
     ),
     (
         "stationbuilder [name]",
@@ -311,6 +326,7 @@ fn main() {
         Some("tier2_test") => Launch::CombatAtTier(bims::combat::Tier::Two),
         Some("tier3_test") => Launch::CombatAtTier(bims::combat::Tier::Three),
         Some("raid") => Launch::Raid,
+        Some("crisis") => Launch::Crisis,
         Some("stationbuilder") => Launch::StationBuilder,
         // What there is to run, printed rather than opened.
         Some("list") | Some("--list") | Some("--help") | Some("-h") => {
@@ -397,7 +413,8 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Droids
         | Launch::DroidsAs(_)
         | Launch::DroidsPlanet
-        | Launch::Raid => next.set(Screen::Game),
+        | Launch::Raid
+        | Launch::Crisis => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();
             settings.seed = world::data::DEFAULT_SEED;

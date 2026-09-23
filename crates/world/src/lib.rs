@@ -109,6 +109,8 @@ mod tests;
 #[cfg(test)]
 mod tests_commander;
 #[cfg(test)]
+mod tests_crisis;
+#[cfg(test)]
 mod tests_droid;
 #[cfg(test)]
 mod tests_engineer;

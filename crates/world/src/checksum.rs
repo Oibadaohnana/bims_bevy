@@ -217,6 +217,12 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(u64::from(world.droid_tier().code()));
     hash.eat_rounded(world.droid_reinforce_minutes(), FINE_GRID);
     hash.eat(u64::from(world.droid_wave_max()));
+    // And the crisis (feature 92): the star the machines began at and the
+    // day the first one turns. The hop table is *not* in here — it is
+    // derived from the origin and the galaxy, so two clients that agree
+    // about those two numbers agree about every star in the galaxy.
+    hash.eat(u64::from(world.droid_origin()));
+    hash.eat(u64::from(world.crisis_first_day()));
     // The hired hands: who, what a month costs, when it is next due and
     // whether one is owed. A crew member that costs money is a different
     // crew from one that does not.
@@ -490,6 +496,19 @@ pub fn world_checksum(world: &World) -> u64 {
         eat_losses(&mut hash, &memory.losses);
         eat_graves(&mut hash, &memory.graves);
         eat_nodes(&mut hash, &memory.visited);
+        // Which of that system's stations the machines hold, the same way
+        // the current system's go in above — a station the crew cleared is
+        // in here with `cleared` set, and that is what the crisis reads.
+        hash.eat(memory.infested.len() as u64);
+        for it in &memory.infested {
+            hash.eat(it.station as u64);
+            hash.eat(it.waves_left as u64);
+            hash.eat(it.wave as u64);
+            hash.eat(u64::from(it.next_wave.is_some()));
+            hash.eat_rounded(it.next_wave.unwrap_or(0.0), FINE_GRID);
+            hash.eat(u64::from(it.settled));
+            hash.eat(u64::from(it.cleared));
+        }
     }
 
     // The classes and what each crew member has learnt, whether the

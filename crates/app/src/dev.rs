@@ -505,6 +505,19 @@ pub fn droid_reinforce(default: f64) -> f64 {
         .unwrap_or(default)
 }
 
+/// Which day the machines' first star turns on in the `crisis` command
+/// (feature 92): `BIMS_CRISIS_DAY=3` over `data::DROID_FIRST_DAY` (ten).
+/// The clock opens a day short of it whatever it is
+/// (`Session::crisis_for_probe`), so the dial is not about how long to
+/// wait — it is about what the *rest* of the galaxy's days come out at,
+/// since every other star is five days a hop after this one.
+pub fn crisis_day() -> u32 {
+    std::env::var("BIMS_CRISIS_DAY")
+        .ok()
+        .and_then(|spec| spec.trim().parse::<u32>().ok())
+        .unwrap_or(world::data::DROID_FIRST_DAY)
+}
+
 /// How many waves a held station has all told in the `droids` probes —
 /// the one aboard counted: `BIMS_DROID_WAVES=5`, over the commands' own
 /// `screens::game::DROID_WAVES_IN_PROBE` (three). Nought reads as one,

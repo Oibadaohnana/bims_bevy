@@ -64,6 +64,13 @@ pub enum Purpose {
     /// since a raid follows the ship rather than a system; the generator
     /// draws nothing from it and the galaxy checksum never sees it.
     Raids = 11,
+    /// Where the machines began: the one star the crisis spreads out from
+    /// (feature 92, `world::droid::origin`), rolled off the galaxy seed and
+    /// the crew's starting star. The world's, like the raids — the
+    /// generator draws nothing from it and the galaxy checksum never sees
+    /// it — but its own stream all the same, so that moving the crisis
+    /// never moves a raid.
+    DroidOrigin = 12,
 }
 
 /// SplitMix64's finalizer. Takes a counter-ish input to a well-spread output,

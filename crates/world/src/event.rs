@@ -283,6 +283,11 @@ pub enum WorldEvent {
     /// [`WorldEvent::EnemyDown`] for a machine, since a droid has no
     /// name and the log would otherwise call one Sanne.
     DroidDown { station: u32, who: u32, kind: u32 },
+    /// The crisis reached this system (feature 92): every station of the
+    /// star it names has gone into the machines' hands. Said the step the
+    /// flip happens, which is the first step after the star's day with no
+    /// room of the crew's open in it.
+    Infested { star: u32 },
     /// A player gave their bots a standing order (feature 84): which
     /// player's crew member, and `crate::Standing`'s code — nought for
     /// the order called off, which is the bots back to following.
@@ -622,6 +627,7 @@ impl WorldEvent {
                 patient: Some(_), ..
             } => 87,
             WorldEvent::Carried { patient: None, .. } => 88,
+            WorldEvent::Infested { .. } => 89,
         }
     }
 
@@ -704,7 +710,9 @@ impl WorldEvent {
             WorldEvent::Traded { units, .. } => units,
             WorldEvent::Refused { why, .. } => why.code() as i64,
             // The star: a galaxy has a thousand, and a slot is never that.
-            WorldEvent::Charging { star, .. } | WorldEvent::Jumped { star } => star as i64,
+            WorldEvent::Charging { star, .. }
+            | WorldEvent::Jumped { star }
+            | WorldEvent::Infested { star } => star as i64,
             WorldEvent::JumpFailed => 0,
             // The planet: a body id.
             WorldEvent::Landing { body }

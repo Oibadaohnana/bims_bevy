@@ -3865,3 +3865,87 @@ is the dressing through the seam. **`without_dressings(&mut world)`** is
 the helper every test that lays a pack out by hand or counts the lockers
 says first: the target to nought and every pack emptied, so a box of
 dressings is not sitting in the cell the test wants.
+
+## The crisis: an origin, a hop count and a day (feature 92)
+
+Feature 83 built the machines and left "which stations are held" to a
+later step. This is that step, and the thing to hold on to is that the
+**rule has no state at all**:
+
+> a star is infested from `crisis_first_day + DROID_SPREAD_DAYS * hops`
+> onwards, where `hops` is its lane distance from the origin.
+
+No per-tick roll, nothing accumulated, nothing to keep in step: two
+clients that agree about the day, the galaxy and the origin agree about
+every star in the galaxy without a word passing between them. `data`'s
+three numbers are `DROID_FIRST_DAY` (10), `DROID_SPREAD_DAYS` (5) and
+`DROID_ORIGIN_MIN_HOPS` (8); the graph is `worldgen::Galaxy::lanes`
+(`crates/worldgen/CLAUDE.md`), and **jumping is untouched** — a
+hyperdrive still reaches any star on the chart, and nothing ever flies
+down a lane.
+
+**What is kept, and what is derived.** `World::droid_origin` is one `u32`
+rolled once at `World::start` by `droid::origin` — off `Purpose::DroidOrigin`
+(12), the galaxy seed and the crew's *starting* star, among every star at
+least `DROID_ORIGIN_MIN_HOPS` hops off, or the furthest the galaxy has if
+none is — and it is **saved and in `world_checksum`** with
+`World::crisis_first_day`, the probes' dial. `World::droid_hops`, the hop
+table from the origin, is `serde(skip)` and hashed nowhere: it is a pure
+function of the galaxy and the origin, so a save carries two integers
+rather than a thousand, and `World::settle_crisis` works it out again —
+called from `World::start` off the galaxy already in hand, and from
+`ship::Game::resume`, which is every load, every restart and every guest
+handed the host's world. `infested_on(star)`, `infested(star)` and
+`infested_stars()` are the readings; `start_star_hops_for_probe` is the
+`crisis` command's way to a star a stated number of hops off.
+
+**The flip is the state, and it waits for the crew to leave.**
+`World::spread_crisis`, a stage of the step just before `settle_droids`,
+does nothing unless `infested(star_id)` and nothing while the rooms are
+**joined** — docked, or casting off, which is the same one deck. A
+station's own room open *alongside* is not that: the crew are on their
+ship, and `infest` opens that room again with the machines in it through
+`reopen_residents`, so an undock at a system whose day has come empties
+the station in front of you. When it does
+go, every station of the system, `stations` and `surfaces` alike, goes
+through `World::infest` — feature 83's own door, so `people_of` is
+nought, `mercenaries_of` is nought, `stance` is Hostile and the room
+opens with a wave — and `WorldEvent::Infested { star }` (89) is said
+once. Two things it does not touch: **a station the crew cleared**,
+which keeps the `Infestation` it was cleared with so `infest` refuses it
+and the crisis never re-arms it; and anything about open space, so raids
+are what they were.
+
+**`World::infested` is per-system, like everything else that names a
+station id.** It went onto `SystemMemory` with the rest (`crate::memory`)
+— a jump that carried the list would hand the next system's station seven
+the last one's wave — and the jump's never-been-here branch clears it. A
+memory of a system the crisis has taken since is **overrun** on the way
+back (`SystemMemory::overrun`, called by `recall_system` when
+`infested(star)`): the chart, the rocks, the shelves and the keys stand,
+since the crew saw those and they are still there, but the `hostile`
+list, the `losses` and the `graves` are dropped — the people are gone,
+so whose side they were on and what the crew did to them is nothing the
+crew will meet. The **infestations stay**, cleared flags and all. The
+flip itself clears the live `losses` and `graves` for the same reason.
+
+The app's side: the galaxy chart draws the lanes faintly under the stars
+and crosses every infested star in the enemy's red **charted or not** —
+the crisis is not a secret — and `screens/game.rs::crisis_line` says under
+the star you pick which day it is due or since when it has been theirs.
+`tests_crisis.rs` is the rule (the origin's distance and the day
+arithmetic, two builds agreeing about every hop, the flip waiting for the
+crew and then taking the system, a cleared station staying cleared, a
+system overrun while the crew were away remembering none of its people,
+and two worlds on one seed falling alike to the checksum), with
+`crisis_spread_over_ten_seeds` (`#[ignore]`) printing the measurements the
+root `CLAUDE.md` carries. `REFERENCE_CHECKSUM` = `0x_3d19_a6e0_51f2_fdfa`;
+**`SAVE_VERSION` 28, `wire::PROTOCOL` 20** (the relay wants redeploying).
+The probe is `nix run .#crisis`, `Session::crisis_for_probe`, with
+`World::{set_crisis_first_day_for_probe, set_droid_origin_for_probe,
+set_day_for_probe}` under it.
+
+**Not in this step**, and deliberately: jumping along lanes rather than
+freely, the Machine Heart, the jammer, stopping or reversing the spread,
+what an infested system does to prices or to hiring elsewhere, and droids
+attacking a friendly town.

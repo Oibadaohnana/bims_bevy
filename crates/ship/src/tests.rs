@@ -1786,3 +1786,52 @@ fn a_droid_held_station_is_saved_and_read_back_whole() {
     }
     same(&session, &back, "six hundred steps on");
 }
+
+/// Feature 92: the crisis round-trips through a save. The origin and the
+/// day the first star turns are in the file; the **hop table** is not —
+/// it is derived from the galaxy and the origin, and `Game::resume`
+/// works it out again — so a world read back has to report the same
+/// infested set as the one it was written from, and the same checksum
+/// with it.
+#[test]
+fn the_crisis_is_saved_and_the_hop_table_is_worked_out_again() {
+    use crate::Session;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    // A day's spread behind them, so the read-back has stars to agree
+    // about rather than an empty set.
+    assert!(session.crisis_for_probe(0), "the origin goes two hops off");
+    {
+        let world = &mut session.game.as_mut().unwrap().world;
+        world.set_day_for_probe(world::data::DROID_SPREAD_DAYS * 6);
+    }
+    session.world_step();
+
+    let taken = |s: &Session| {
+        let world = &s.game.as_ref().unwrap().world;
+        (
+            world.droid_origin(),
+            world.crisis_first_day(),
+            world.infested_stars(),
+        )
+    };
+    let (origin, first_day, stars) = taken(&session);
+    assert!(stars.len() > 1, "the crisis has spread: {}", stars.len());
+
+    let text = session.save().expect("a world to save");
+    let mut back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    assert_eq!(taken(&back), (origin, first_day, stars.clone()));
+    assert_eq!(
+        session.game.as_ref().unwrap().world.checksum(),
+        back.game.as_ref().unwrap().world.checksum(),
+        "two clients at the same day"
+    );
+    for _ in 0..300 {
+        session.world_step();
+        back.world_step();
+    }
+    assert_eq!(taken(&session), taken(&back), "three hundred steps on");
+    assert_eq!(
+        session.game.as_ref().unwrap().world.checksum(),
+        back.game.as_ref().unwrap().world.checksum(),
+    );
+}

@@ -226,6 +226,13 @@ pub struct Marks<'a> {
     /// over the star itself. Sorted or not, it is drawn as it is given.
     /// Empty in the lobby, where nobody has been anywhere yet.
     pub visited: &'a [u32],
+    /// Every star the machines hold, on the chart in the game (feature
+    /// 92, `World::infested_stars`): a red ring with a cross through it,
+    /// over the star and the visited ring and under the page's own picks,
+    /// so the star the ship is at still reads as that. **Charted or not**
+    /// — the crisis is not a secret, and a star nobody has ever been to
+    /// shows as plainly as one they live at. Empty in the lobby.
+    pub infested: &'a [u32],
     pub pings: &'a [Ping],
 }
 
@@ -238,6 +245,17 @@ const TARGET: Color = Color::rgb(0.62, 0.42, 0.86);
 /// A star the crew have been to: a cool grey, nobody else's colour on
 /// the map, so a wake of them reads as a trail rather than as a warning.
 const VISITED: Color = Color::rgb(0.62, 0.70, 0.76);
+/// A hyperlane. Faint, and under every star: the web is what the crisis
+/// crawls along and is not somewhere anything flies, so it has to be
+/// legible as structure and invisible as a route.
+const LANE: Color = Color::rgba(0.42, 0.52, 0.58, 0.28);
+/// How wide a lane is drawn, in pixels. Under one, so it is feathered
+/// rather than drawn: a hairline web at the fit and a hairline web zoomed
+/// right in.
+const LANE_WIDTH: f32 = 0.7;
+/// A star the machines hold: the enemy's red, which is the colour a
+/// hostile station is ringed in on every other screen.
+const INFESTED: Color = crate::draw::ENEMY;
 
 /// How much of a star without a station shows. Dimmed rather than hidden:
 /// it can still be inspected, and a map with holes in it reads as a map that
@@ -279,6 +297,7 @@ pub fn paint(
     preview: &Preview,
     stars: &[Star],
     has_station: &[bool],
+    lanes: &[Vec<u32>],
     marks: &Marks,
     list: &mut DrawList,
 ) {
@@ -291,6 +310,29 @@ pub fn paint(
         0.0,
         VOID,
     );
+
+    // The hyperlanes, under everything: each once, from the lower id, and
+    // only where at least one end is on the canvas.
+    for (id, joined) in lanes.iter().enumerate() {
+        let Some(star) = stars.get(id) else {
+            continue;
+        };
+        let (x0, y0) = preview.to_screen(star.position.x, star.position.y);
+        let here = preview.on_canvas(x0, y0, 8.0);
+        for &to in joined {
+            if to as usize <= id {
+                continue;
+            }
+            let Some(other) = stars.get(to as usize) else {
+                continue;
+            };
+            let (x1, y1) = preview.to_screen(other.position.x, other.position.y);
+            if !here && !preview.on_canvas(x1, y1, 8.0) {
+                continue;
+            }
+            list.line(x0, y0, x1, y1, LANE_WIDTH, LANE);
+        }
+    }
 
     // Stars grow a little as the camera goes in, so a zoomed-in map is not a
     // field of the same specks further apart.
@@ -337,6 +379,33 @@ pub fn paint(
             1.0,
             VISITED.alpha(0.75),
         );
+    }
+
+    // And every star the machines hold: a ring with a cross through it,
+    // which is a shape nothing else on this map draws, in the enemy's red.
+    for star in marks
+        .infested
+        .iter()
+        .filter_map(|&id| stars.get(id as usize))
+    {
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        if !preview.on_canvas(x, y, 10.0) {
+            continue;
+        }
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            15.0,
+            15.0,
+            0.0,
+            0.0,
+            1.6,
+            INFESTED,
+        );
+        let arm = 5.5;
+        list.line(x - arm, y - arm, x + arm, y + arm, 1.6, INFESTED);
+        list.line(x - arm, y + arm, x + arm, y - arm, 1.6, INFESTED);
     }
 
     if let Some(id) = marks.hovered.and_then(|id| stars.get(id as usize)) {

@@ -476,11 +476,13 @@ fn open(
             // `test_planet` is the same roll made among the systems with
             // friendly ground, since the ship is then set down on it.
             let (seed, spawn) = match *launch {
-                Launch::Test | Launch::TestPlanet | Launch::DroidsPlanet => {
+                Launch::Test | Launch::TestPlanet | Launch::DroidsPlanet | Launch::Crisis => {
                     let seed = super::room::rand_seed();
                     let roll = super::room::rand_seed();
                     let pick = match *launch {
                         Launch::TestPlanet | Launch::DroidsPlanet => ship::session::pick_ground,
+                        // `crisis` is `test`: a dock somebody lives on,
+                        // so there are people for the machines to take.
                         _ => ship::session::pick_dock,
                     };
                     (seed, pick(seed, 0, roll))
@@ -535,11 +537,18 @@ fn open(
                     size.x,
                     size.y,
                 ),
-                Launch::Test | Launch::TestPlanet | Launch::DroidsPlanet => {
+                Launch::Test | Launch::TestPlanet | Launch::DroidsPlanet | Launch::Crisis => {
                     let design = shipdesign::fixture::combat_ship();
                     let mut session =
                         Session::simulate_on(design, 1, seed, 0, spawn, size.x, size.y);
                     session.mercenary_for_probe();
+                    // `crisis` is that with the clock a day short of the
+                    // machines appearing and their origin two hyperlane
+                    // hops off, so the chart turns red while you watch
+                    // (feature 92).
+                    if *launch == Launch::Crisis {
+                        session.crisis_for_probe(crate::dev::crisis_day());
+                    }
                     if matches!(*launch, Launch::TestPlanet | Launch::DroidsPlanet) {
                         session.land_for_probe();
                     }
@@ -1298,6 +1307,13 @@ fn frame(
             .game
             .as_ref()
             .map(|g| g.world.stars_visited())
+            .unwrap_or_default();
+        // And every star the machines hold, crossed in red (feature 92) —
+        // charted or not: the crisis is not a secret.
+        chart.infested = session
+            .game
+            .as_ref()
+            .map(|g| g.world.infested_stars())
             .unwrap_or_default();
         if canvas.size() != screen.galaxy_size {
             screen.galaxy_size = canvas.size();
@@ -3357,6 +3373,45 @@ struct Chart<'a> {
     picked: &'a mut Option<u32>,
 }
 
+/// What the crisis has to say about a star (feature 92): that the machines
+/// hold it and what day it fell, or the day it is due to. One line, under
+/// the star's name on the chart's panel, and nothing at all for a star the
+/// lanes do not reach — which, the graph being one piece, is no star at all.
+fn crisis_line(ui: &mut egui::Ui, world: &world::World, star: u32) {
+    let day = world.infested_on(star);
+    if day == u32::MAX {
+        return;
+    }
+    // The day the crisis counts by is `World::days_gone` — days the *world*
+    // has run — and the strip at the top reads the crew's own calendar,
+    // which starts at the waking hour and is a day ahead for part of every
+    // day. So the day is said with how far off it is beside it, and the two
+    // readings cannot be mistaken for one another.
+    let now = world.days_gone();
+    let (words, colour) = if world.infested(star) {
+        let since = match now - day {
+            0 => "today".to_string(),
+            1 => "yesterday".to_string(),
+            n => format!("{n} days ago"),
+        };
+        (
+            format!("Held by the machines · day {day}, {since}"),
+            theme::BAD,
+        )
+    } else {
+        let off = match day - now {
+            0 => "today".to_string(),
+            1 => "tomorrow".to_string(),
+            n => format!("{n} days off"),
+        };
+        (
+            format!("The machines reach it on day {day} · {off}"),
+            theme::WARN,
+        )
+    };
+    ui.label(egui::RichText::new(words).small().color(colour));
+}
+
 /// One system's contents, as rows: each body by its numeral and kind, each
 /// station by its name, kind and side. What the chart says a star holds —
 /// the star the ship is at, or the one picked — off the generator, the way
@@ -3442,6 +3497,7 @@ fn chart_panel(
 
     ui.label(egui::RichText::new("Here").small().color(theme::MUTED));
     ui.label(egui::RichText::new(name_of(here)).strong());
+    crisis_line(ui, &game.world, here);
     system_contents(ui, &base_of(here), &game.world.system);
 
     ui.add_space(4.0);
@@ -3450,6 +3506,7 @@ fn chart_panel(
         Some(star) if star != here => {
             ui.label(egui::RichText::new("Picked").small().color(theme::MUTED));
             ui.label(egui::RichText::new(name_of(star)).strong());
+            crisis_line(ui, &game.world, star);
             match lobby.inspected.as_ref().filter(|(id, _)| *id == star) {
                 Some((_, system)) => system_contents(ui, &base_of(star), system),
                 None => {

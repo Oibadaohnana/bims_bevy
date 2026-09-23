@@ -2101,6 +2101,9 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         }
         WorldEvent::Jumped { star } => format!("Jumped. The ship is in the system of star {star}."),
         WorldEvent::JumpFailed => "The hyperdrive did not fire: nothing working to fire.".into(),
+        WorldEvent::Infested { star } => format!(
+            "The machines have this system. Every station round star {star} is theirs: nobody left aboard, nothing to trade, nobody to hire."
+        ),
         WorldEvent::Landing { .. } => "Coming down onto the planet.".into(),
         WorldEvent::Landed { .. } => "Landed. The settlement is beside the pad.".into(),
         WorldEvent::LiftedOff { .. } => "Lifting off.".into(),

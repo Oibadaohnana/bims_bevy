@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-twenty-three things to run, and each is a name rather than a flag — and
+twenty-four things to run, and each is a name rather than a flag — and
 `cargo run -- list` prints every one of them with a line each, which is
 the build's own answer where this table is a copy:
 
@@ -28,6 +28,7 @@ the build's own answer where this table is a copy:
 | `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same wave with the class in hand** (`Launch::DroidsAs`), which is to `droids` exactly what `combat_<class>` is to `combat`: the same combat ship, the same fourteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top through the same `dev::class_crew` — so what a class does **against the machines** is the one thing two of these runs differ by. The tenth level, the Skills tab with its seven points, the engineer's own charges and `BIMS_CLASS`/`BIMS_LEVEL` over the lot are `combat_<class>`'s own, since it is the one call. The parsing is the trap: `combat_droids_` starts with `combat_`, so `main.rs` tries the longer prefix first (`DROIDS_AS` before `COMBAT_AS`) or the word reads as a class nobody is called |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
 | `nix run .#raid` | `cargo run -- raid` | the simulation **off its berth, holding in open space, with a raid on its way**: the next raid brought forward to ten minutes of the clock — ten seconds at 1× — so contact comes as you watch, the raider closing at its own pace after it (`Session::raid_coming_for_probe`, `World::raid_coming_for_probe`; `RAID_IN_MINUTES` in `screens/game.rs`). Where `BIMS_RAID=contact` opens with the raider already on the radar, this is the warning arriving |
+| `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it starts (feature 92): `test`'s own random galaxy and random dock, the clock wound to the eve of `DROID_FIRST_DAY` (ten) and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight — so the first star turns red on the galaxy chart within a day of the clock rather than forty, and the crew's own system ten days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the first star turns and the clock opens a day short of whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -140,6 +141,12 @@ a kit — two of them, thirty seconds each, and **no class makes
 anything to use a skill** — `BIMS_GRENADES=0 bims combat_soldier` is
 the `29s` in the corner of the Q box, and `BIMS_GRENADES=1` a soldier
 with one throw in hand and the next on its way.
+**`BIMS_CRISIS_DAY=n`** is the `crisis` command's own (feature 92): the
+machines' first star turns on day `n` instead of `DROID_FIRST_DAY`, and
+the clock opens a day short of whatever it says — so the dial is about
+what the *rest* of the galaxy's days come out at (five a hop after it)
+rather than about how long to wait. `BIMS_CRISIS_DAY=0 bims crisis` opens
+with the origin already red on the chart, two hops from the crew.
 `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
 round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1
@@ -252,6 +259,34 @@ machines in it draws in the same nine milliseconds, and sixty-four of
 them add about one. So sixteen is not where the cap has to be — it is
 where it is until somebody has a reason to move it, and the reason will
 be how a fight *plays* rather than what it costs.
+
+## How fast the crisis crosses a galaxy (feature 92)
+
+The lane graph is three nearest neighbours a star plus whatever a spanning
+tree still needs (`worldgen::galaxy::weave`), and the spread is one hop
+every `DROID_SPREAD_DAYS` (five) from a star rolled at least
+`DROID_ORIGIN_MIN_HOPS` (eight) hops from the crew's own. What that
+comes out at, over ten galaxy seeds — `cargo test -p world -- --ignored
+--nocapture crisis_spread_over_ten_seeds`, which takes the origin the
+way `World::start` takes it, from the dock `spawn_anywhere` picks:
+
+| | min | median | max |
+| --- | --- | --- | --- |
+| lanes a star | 3 | 4 | 7–8 |
+| hops from the origin | — | 35–57 | 96–143 |
+| the whole galaxy infested | day 490 | — | day 725 |
+
+Three things fall out of it. **Every star has at least three lanes** and
+the busiest has seven or eight — a lane is undirected, so a star out on
+the rim is picked by neighbours that were not its own picks. **A galaxy is
+about a hundred and twenty hops across**, not thirty, because the arms are
+long and the graph is a web laid over them rather than a mesh: the spread
+follows the arms. And so **the whole galaxy falls somewhere around day
+500 to 725**, with the median star at day 185 to 295 — the crisis is a
+season rather than a raid, and a crew that flies *away* from it buys
+itself years. If it ever wants to be faster, the number to move is
+`DROID_SPREAD_DAYS`, not `LANE_NEIGHBOURS`: a fourth lane a star cuts the
+hop count hard and makes the galaxy a fortnight wide.
 
 ## `AGENTS` is how many of you there are — read it first
 

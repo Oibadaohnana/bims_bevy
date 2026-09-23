@@ -899,3 +899,29 @@ as the turret stands.
 
 **`SAVE_VERSION` 26** (feature 88): the world's deployables lost their
 `shots` and every crew member's kit cooldowns went in.
+
+## The `crisis` command is two dials on a `test` world (feature 92)
+
+`Session::crisis_for_probe(first_day)` is the whole of `nix run .#crisis`:
+a `test` session — a random galaxy, a random dock somebody lives on, a
+mercenary at it — with `World::set_crisis_first_day_for_probe(first_day)`,
+the machines' origin forced onto a star `session::CRISIS_HOPS` (2) lane
+hops from the crew's own (`World::start_star_hops_for_probe` finds it,
+`set_droid_origin_for_probe` sets it and works the hop table out again),
+and the clock wound to `first_day - 1` (`set_day_for_probe`).
+
+Both halves earn their place. The roll's own floor is
+`DROID_ORIGIN_MIN_HOPS` (eight), which is forty days of the clock before
+the crisis is anywhere near the crew and one red speck on the far rim of
+the chart; two hops puts the crew's own system ten days behind the first
+star. And the clock opens on the **eve** of `first_day` whatever
+`BIMS_CRISIS_DAY` says it is, so the first flip is a day of the clock
+away rather than ten — and `set_day_for_probe` winds the **crew's
+calendar** with the world's, or the strip would read Day 1 with the chart
+saying day ten.
+
+`the_crisis_is_saved_and_the_hop_table_is_worked_out_again` in `tests.rs`
+is the save's half: the origin and the first day are in the file, the hop
+table is not — `Game::resume` calls `World::settle_crisis` for every load,
+restart and guest — so a world read back has to report the same infested
+set and the same checksum. **`SAVE_VERSION` 28.**

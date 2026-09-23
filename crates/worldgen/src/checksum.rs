@@ -93,6 +93,18 @@ pub fn galaxy_checksum(galaxy: &Galaxy, systems: &[StarSystem]) -> u64 {
         hash.eat(star.name.part as u64);
     }
 
+    // The hyperlanes (feature 92), one star's neighbours at a time. They
+    // are in here because the crisis spreads along them: two builds whose
+    // stars stood in the same places and disagreed about which were joined
+    // would put the machines at one crew's door a week before the other's.
+    hash.eat(galaxy.lanes.len() as u64);
+    for lanes in &galaxy.lanes {
+        hash.eat(lanes.len() as u64);
+        for &to in lanes {
+            hash.eat(to as u64);
+        }
+    }
+
     hash.eat(systems.len() as u64);
     for system in systems {
         hash.eat(system.star_id as u64);

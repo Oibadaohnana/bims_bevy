@@ -72,6 +72,15 @@ pub fn pick_ground(seed: u64, galaxy: u32, roll: u64) -> Option<(u32, u32)> {
     world::spawn_with_ground(&worldgen::Galaxy::new(seed, galaxy_type(galaxy)), roll)
 }
 
+/// How many hyperlane hops the `crisis` command puts between the crew's
+/// star and the machines' origin (feature 92) — [`Session::crisis_for_probe`].
+///
+/// Two, where the roll's own floor is eight: at eight, the first star to
+/// turn is forty days of the clock from the crew and the chart shows one
+/// red speck on the far rim. At two, the crew's own system falls ten days
+/// after the first, which is a run somebody can sit through.
+pub const CRISIS_HOPS: u16 = 2;
+
 pub struct Session {
     pub editor: Editor,
     /// The game, once there is one. `None` for the whole of the design
@@ -376,6 +385,46 @@ impl Session {
         self.game
             .as_mut()
             .is_some_and(|g| g.world.stage_droids_for_probe())
+    }
+
+    /// The `crisis` command (feature 92): this world put a day short of
+    /// the machines appearing, with the origin forced [`CRISIS_HOPS`]
+    /// hyperlane hops from the crew's own star.
+    ///
+    /// Both halves are the point. The origin is rolled at least
+    /// `DROID_ORIGIN_MIN_HOPS` (eight) away, which is forty days of the
+    /// clock before the crisis is anywhere near the crew; two hops is ten,
+    /// and the chart shows the whole of it spreading rather than one red
+    /// star on the far rim. And the clock opens on the day *before*
+    /// `first_day`, whatever the dial says it is, so the origin turns
+    /// within a day of the clock — a real minute at 24× — rather than ten.
+    /// The crew's own system follows two flips later.
+    ///
+    /// `false` in the design phase, or where the lanes are too short for
+    /// the hop count, which no real galaxy is.
+    pub fn crisis_for_probe(&mut self, first_day: u32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let world = &mut game.world;
+        let hops = world.start_star_hops_for_probe();
+        // Exactly that many hops off, else the furthest short of it: a
+        // galaxy that cannot manage two is not one this will be run on,
+        // but it must open rather than panic.
+        let pick = hops.iter().position(|&h| h == CRISIS_HOPS).or_else(|| {
+            hops.iter()
+                .enumerate()
+                .filter(|&(_, &h)| h != u16::MAX && h > 0)
+                .max_by_key(|&(_, &h)| h)
+                .map(|(i, _)| i)
+        });
+        let Some(origin) = pick else {
+            return false;
+        };
+        world.set_crisis_first_day_for_probe(first_day);
+        world.set_droid_origin_for_probe(origin as u32);
+        world.set_day_for_probe(first_day.saturating_sub(1));
+        true
     }
 
     pub fn infest_the_dock_for_probe(

@@ -191,6 +191,29 @@ pub struct SystemMemory {
     /// `World::visited`: which of the system's nodes the ship has been
     /// at, sorted — what the map marks as somewhere the crew have been.
     pub visited: Vec<Node>,
+    /// `World::infested`: which of the system's stations the machines
+    /// hold and how far through their waves each is (feature 83). Per
+    /// system like the rest, because a station id is a system's own: a
+    /// jump that carried this list would hand the next system's station
+    /// seven the last one's wave. **A station the crew cleared is in
+    /// here with `cleared` set**, which is what keeps the crisis from
+    /// ever re-arming it (feature 92).
+    pub infested: Vec<crate::droid::Infestation>,
+}
+
+impl SystemMemory {
+    /// What is left of a system's memory once the machines have it
+    /// (feature 92): the chart, the rocks, the shelves and the keys
+    /// stand — the crew saw those and they are still there — but the
+    /// people are gone, so whose side they were on and what the crew did
+    /// to them is no longer anything the crew will meet. The
+    /// infestations stay: they are how a station the crew cleared stays
+    /// cleared.
+    pub fn overrun(&mut self) {
+        self.hostile.clear();
+        self.losses.clear();
+        self.graves.clear();
+    }
 }
 
 /// The memory of `star` in a sorted list.

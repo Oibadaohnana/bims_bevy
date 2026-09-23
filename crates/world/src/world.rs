@@ -821,6 +821,27 @@ pub struct World {
     /// which is both.
     #[cfg_attr(feature = "serde", serde(skip))]
     droid_waves_forced: Option<u32>,
+    /// Where the machines began (feature 92): the one star the crisis
+    /// spreads out from, rolled once at [`World::start`]
+    /// ([`droidplan::origin`]) at least [`data::DROID_ORIGIN_MIN_HOPS`]
+    /// from the crew's own. Saved and in `world_checksum`: two clients
+    /// that disagreed about it would disagree about which half of the
+    /// galaxy is falling. Read by [`World::droid_origin`].
+    droid_origin: u32,
+    /// How many lane hops every star is from [`World::droid_origin`],
+    /// indexed by star id — the whole of the spread rule, since a star's
+    /// day is `crisis_first_day + DROID_SPREAD_DAYS * hops`.
+    /// **Derived, never saved**: worked out from the galaxy at the start
+    /// and again at every load ([`World::settle_crisis`]), which is why a
+    /// save carries the origin and not this.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    droid_hops: Vec<u16>,
+    /// The day the origin turns: [`data::DROID_FIRST_DAY`], bar the
+    /// `crisis` probe (`BIMS_CRISIS_DAY`), which brings it forward so a
+    /// flip is watched rather than waited ten days for. In
+    /// `world_checksum` with the droids' other dials, since it is when
+    /// the whole galaxy falls.
+    crisis_first_day: u32,
     /// The ship's power over its live networks, worked out from the parts
     /// once per change to them — `on_ship_changed` — rather than once a
     /// step: it is a union-find over every tile of the grid, and the
@@ -1314,6 +1335,13 @@ impl World {
         hostile.extend(surfaces.iter().filter(|s| s.hostile).map(|s| s.id));
         hostile.sort_unstable();
 
+        // Where the machines began, and how far every star is from it
+        // (feature 92). Rolled here, off the galaxy still in hand: the
+        // hop table is derived from the two and is worked out again at
+        // every load rather than saved.
+        let droid_origin = droidplan::origin(&galaxy, star_id);
+        let droid_hops = galaxy.hops_from(droid_origin);
+
         // What the crew set out with, for the enemies to be scaled against.
         let start_worth = shipdesign::Budget::spent(&design);
         let dynamics = flight::dynamics(&design, crew).map_err(StartError::NotAShip)?;
@@ -1359,6 +1387,9 @@ impl World {
             droid_wave_max: data::DROID_WAVE_MAX,
             droid_wave_forced: None,
             droid_waves_forced: None,
+            droid_origin,
+            droid_hops,
+            crisis_first_day: data::DROID_FIRST_DAY,
             power_budget: shipdesign::power_budget(&design_for_charge),
             discovered: Vec::new(),
             craft_targets: [0; CARGO_SLOTS],
@@ -1508,6 +1539,11 @@ impl World {
         //    opened — and the clock that brings the next one. Before the
         //    rooms are stepped, so a wave landing this step fights this
         //    step.
+        //    And the crisis (feature 92): a system whose day has come goes
+        //    into the machines' hands the first step no room of the crew's
+        //    is open in it. Before `settle_droids`, so a system that flips
+        //    this step has its wave laid this step.
+        self.spread_crisis(&mut events);
         self.settle_droids();
         self.droid_waves(&mut events);
         self.settle_site();
@@ -2124,6 +2160,10 @@ impl World {
             self.losses.clear();
             self.graves.clear();
             self.visited.clear();
+            // And the machines' hold on the *last* system's stations,
+            // which names ids this one has of its own: the crisis lays
+            // its own the first step after the arrival.
+            self.infested.clear();
         }
         self.site_version += 1;
         self.ship.state = ShipState::Holding;
@@ -4060,6 +4100,7 @@ impl World {
             losses: self.losses.clone(),
             graves: self.graves.clone(),
             visited: self.visited.clone(),
+            infested: self.infested.clone(),
         };
         memory::file_memory(&mut self.memories, memory);
     }
@@ -4068,9 +4109,18 @@ impl World {
     /// nothing touched, if they have never been. The ship's own lamps
     /// stay; the station's remembered ones join them.
     fn recall_system(&mut self, star: u32) -> bool {
-        let Some(memory) = memory::memory_of(&self.memories, star).cloned() else {
+        let Some(mut memory) = memory::memory_of(&self.memories, star).cloned() else {
             return false;
         };
+        // A system the crisis has taken since the crew were last in it
+        // (feature 92) gives back no people, no stances and no losses:
+        // whoever the crew met there is gone, and the flip that happens
+        // the moment they arrive is what stands in the place of it. What
+        // is kept is the chart, the rocks, the shelves — and the
+        // infestations, since a station cleared stays cleared.
+        if self.infested(star) {
+            memory.overrun();
+        }
         self.hostile = memory.hostile;
         self.reinforcements = memory.reinforcements;
         self.station_keys = memory.station_keys;
@@ -4082,6 +4132,7 @@ impl World {
         self.losses = memory.losses;
         self.graves = memory.graves;
         self.visited = memory.visited;
+        self.infested = memory.infested;
         true
     }
 
@@ -5240,6 +5291,13 @@ impl World {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         };
+        // Nobody keeps a desk at a station the machines hold (feature 92):
+        // the people who sold from it are gone, and a shelf without them is
+        // not a shop. The same answer a derelict's sale gets.
+        if self.is_droid_held(station) {
+            events.push(refused(slot, Refusal::NoMarket));
+            return;
+        }
         let Some(desk) = self
             .station(station)
             .filter(|s| s.stock.sells(resource))
@@ -5282,7 +5340,12 @@ impl World {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         };
-        // Somebody to sell to: a derelict keeps no desk.
+        // Somebody to sell to: a derelict keeps no desk, and neither does a
+        // station the machines hold (feature 92).
+        if self.is_droid_held(station) {
+            events.push(refused(slot, Refusal::NoMarket));
+            return;
+        }
         let Some(desk) = self.station(station).and_then(|s| s.market()) else {
             events.push(refused(slot, Refusal::NoMarket));
             return;
@@ -6669,6 +6732,12 @@ impl World {
             return;
         };
         if !self.aboard.is_joined() || self.stance(id) != Stance::Hostile {
+            return;
+        }
+        // And nothing on a station the machines hold (feature 92): the
+        // shelf goes with the people who stocked it, and a machine carries
+        // nothing and leaves nothing.
+        if self.is_droid_held(id) {
             return;
         }
         if self.plunder.iter().any(|p| p.station == id) {
@@ -8193,10 +8262,169 @@ impl World {
     }
 
     /// Whether the last machine of the last wave at this station has been
-    /// destroyed. What the crisis step reads to know a station is won
-    /// back; false for a station the machines never held.
+    /// destroyed. What the crisis reads to know a station is won back;
+    /// false for a station the machines never held.
     pub fn droid_station_cleared(&self, id: u32) -> bool {
         self.infestation(id).is_some_and(|it| it.cleared)
+    }
+
+    // --- the crisis (feature 92) ------------------------------------------
+    //
+    // The machines appear at one star on day ten and spread one hyperlane
+    // hop every five days. The *rule* is a line of arithmetic — a star is
+    // infested from `crisis_first_day + DROID_SPREAD_DAYS * hops` on, and
+    // that is the whole of it: no per-tick state, no rolls, nothing to
+    // accumulate, and two clients that agree about the day and the lane
+    // graph agree about every star in the galaxy without exchanging a
+    // word. What *is* state is the **flip**: the moment the crew's own
+    // system turns, its stations go into the machines' hands
+    // (`World::infest`, the droid step's own door) and stay there.
+
+    /// Where the machines began. Rolled once at [`World::start`] and never
+    /// again — saved, and in the checksum.
+    pub fn droid_origin(&self) -> u32 {
+        self.droid_origin
+    }
+
+    /// The hop table from the origin, worked out again off the galaxy.
+    /// **Called at every load**, since the table is derived and a save
+    /// carries only the origin; and by the probes that move the origin.
+    pub fn settle_crisis(&mut self) {
+        self.droid_hops = self.galaxy().hops_from(self.droid_origin);
+    }
+
+    /// The day this star turns, counting from the day the world opened:
+    /// [`data::DROID_FIRST_DAY`] plus [`data::DROID_SPREAD_DAYS`] a hop
+    /// from the origin, and [`u32::MAX`] — never — for a star the lanes
+    /// do not reach. What the chart says when a star is picked.
+    pub fn infested_on(&self, star: u32) -> u32 {
+        let hops = self
+            .droid_hops
+            .get(star as usize)
+            .copied()
+            .unwrap_or(u16::MAX);
+        droidplan::turns_on(self.crisis_first_day, hops)
+    }
+
+    /// Whether the machines have this star's system: its day has come.
+    ///
+    /// Note that a *station* being droid-held ([`World::is_droid_held`])
+    /// is the other half — the flip is what turns one into the other, and
+    /// a station the crew have cleared stays cleared however long the
+    /// system has been infested.
+    pub fn infested(&self, star: u32) -> bool {
+        let day = self.infested_on(star);
+        day != u32::MAX && self.days_gone() >= day
+    }
+
+    /// Every star the machines have by now, in id order. The chart's, and
+    /// it is every one of them charted or not: the crisis is not a secret.
+    pub fn infested_stars(&self) -> Vec<u32> {
+        (0..self.droid_hops.len() as u32)
+            .filter(|&star| self.infested(star))
+            .collect()
+    }
+
+    /// The day the origin turns, as this world counts it. The probes'
+    /// dial reads and writes it; the game never moves it.
+    pub fn crisis_first_day(&self) -> u32 {
+        self.crisis_first_day
+    }
+
+    /// The `crisis` probe's dial (`BIMS_CRISIS_DAY`): the origin turns on
+    /// this day instead of [`data::DROID_FIRST_DAY`], and every other star
+    /// five days a hop after it.
+    pub fn set_crisis_first_day_for_probe(&mut self, day: u32) {
+        self.crisis_first_day = day;
+    }
+
+    /// The `crisis` probe's third dial: the clock wound on to the start of
+    /// this day, so a flip that is ten days out is a minute away instead of
+    /// a morning. It moves **everything** the clock decides — the wages,
+    /// the raids' schedule, how big a garrison is — which is why it is a
+    /// probe's and not a command's.
+    ///
+    /// The **crew's calendar goes with it** (`Game::wind_clock`, the way a
+    /// station's room is wound to the world's day when it opens): the
+    /// strip along the top reads `World::day`, which is the room's, and a
+    /// probe that wound one clock and not the other would open on day ten
+    /// of the crisis and Day 1 of the crew's own diary.
+    pub fn set_day_for_probe(&mut self, day: u32) {
+        let was = self.clock_minutes;
+        self.clock_minutes = f64::from(day) * time::DAY;
+        let on = self.clock_minutes - was;
+        if on > 0.0 {
+            self.aboard.room.wind_clock(on as f32);
+            if let Some(residents) = &mut self.residents {
+                residents.aboard.room.wind_clock(on as f32);
+            }
+        }
+    }
+
+    /// The `crisis` probe's other dial: the machines began at this star
+    /// instead of the one the roll picked, and the hop table is worked
+    /// out again from it. [`World::start_star_hops_for_probe`] is how a
+    /// star a given number of hops off is found.
+    pub fn set_droid_origin_for_probe(&mut self, star: u32) {
+        self.droid_origin = star;
+        self.settle_crisis();
+    }
+
+    /// How many lane hops every star is from the crew's own, for a probe
+    /// that wants to put the origin a stated distance away.
+    pub fn start_star_hops_for_probe(&self) -> Vec<u16> {
+        self.galaxy().hops_from(self.star_id)
+    }
+
+    /// The crisis, applied to the system the ship is in: every station of
+    /// it, orbital or town, goes into the machines' hands.
+    ///
+    /// Two things hold it off. **A station the crew have cleared stays
+    /// cleared** — it keeps the [`Infestation`] it was cleared with, so
+    /// `infest` refuses it and the crisis never re-arms it. And **the flip
+    /// waits for the crew to leave**: a system whose day comes while the
+    /// rooms are **joined** — docked, or casting off, which is the same one
+    /// deck — is the system they arrived in until the ship is off the
+    /// berth. Anything else would empty a deck of the people standing on it
+    /// while the crew were walking about among them, and take the deck they
+    /// were standing on with it.
+    ///
+    /// A station's own room open *alongside* is not that: the crew are
+    /// aboard their own ship, and `infest` opens the room again with the
+    /// machines in it (`reopen_residents`, the same machinery a stance
+    /// turning hostile uses) — which is the sight the crisis is worth
+    /// watching for.
+    fn spread_crisis(&mut self, events: &mut Vec<WorldEvent>) {
+        if !self.infested(self.star_id) {
+            return;
+        }
+        if matches!(
+            self.ship.state,
+            ShipState::Docked { .. } | ShipState::CastingOff { .. }
+        ) {
+            return;
+        }
+        let mut ids: Vec<u32> = self.stations.iter().map(|s| s.id).collect();
+        ids.extend(self.surfaces.iter().map(|s| s.id));
+        let mut taken = false;
+        for id in ids {
+            if self.is_droid_held(id) {
+                continue;
+            }
+            self.infest(id);
+            taken = true;
+        }
+        if !taken {
+            return;
+        }
+        // What the crew did to the people who lived here is no longer
+        // what they will meet: the people are gone. The memory filed
+        // under this star is dropped the same way when it is recalled
+        // (`World::recall_system`), for a system that turned while the
+        // crew were somewhere else.
+        self.losses.clear();
+        self.graves.clear();
+        events.push(WorldEvent::Infested { star: self.star_id });
     }
 
     /// What tier the machines come at. One outside the probes; the

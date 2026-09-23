@@ -256,6 +256,11 @@
             what = "raid";
             about = "The simulation holding in open space with a raid on its way, contact ten seconds in";
           };
+          bims-crisis = runFor {
+            name = "bims-crisis";
+            what = "crisis";
+            about = "The simulation a day before the machines appear, their origin two hyperlane hops off";
+          };
         }
         # The machines' fight, one build a class as well: `droids` is to
         # `combat_droids_<class>` what `combat` is to `combat_<class>`,
@@ -292,6 +297,7 @@
             bims-tier2-test
             bims-tier3-test
             bims-raid
+            bims-crisis
             bims-stationbuilder
             bims-server
             ;
@@ -319,6 +325,8 @@
       # `.#droids_planet` a town on a planet held by them;
       # `.#raid` is the simulation holding in open space with a raid on its
       # way, contact ten seconds in;
+      # `.#crisis` is it a day before the machines appear, their origin two
+      # hyperlane hops off, so the first star turns red while you watch;
       # saves beside the working tree rather than inside the store;
       # `.#server` is the relay the game finds its crew through, run on
       # the server box rather than a desk.
@@ -346,6 +354,7 @@
           droids = app built.bims-droids "The fight with the arena held by the machines: a wave of droids instead of its people";
           droids_planet = app built.bims-droids-planet "A town on a planet held by the machines, the ship set down at its pad";
           raid = app built.bims-raid "The simulation holding in open space with a raid on its way, contact ten seconds in";
+          crisis = app built.bims-crisis "The simulation a day before the machines appear, their origin two hyperlane hops off";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           server = app built.bims-server "The relay: rooms by code, and bytes passed between the players in one — what runs at bims.buggly.de";
           default = game;

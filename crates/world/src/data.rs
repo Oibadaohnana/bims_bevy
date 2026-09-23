@@ -354,3 +354,26 @@ pub const DROID_REINFORCE_MINUTES: f64 = 120.0;
 /// tiles: far enough that its own picture does not overlap the gate it
 /// unloaded through.
 pub const DROID_LANDER_TILES: f64 = 7.0;
+
+// --- the crisis (feature 92) ---------------------------------------------
+//
+// The machines appear at one star and spread a hyperlane hop at a time.
+// The rule is three numbers and no state: a star is infested on
+// `DROID_FIRST_DAY + DROID_SPREAD_DAYS * hops` and every day after, where
+// `hops` is its lane distance from the origin (`worldgen::Galaxy::lanes`).
+// Nothing is rolled per tick, nothing accumulates, and two clients that
+// agree about the day and the graph agree about the whole galaxy.
+
+/// The day the origin turns: the first star the machines hold. Nothing is
+/// infested before it, whatever the graph says.
+pub const DROID_FIRST_DAY: u32 = 10;
+/// How many days the crisis takes to cross one hyperlane hop. At three
+/// lanes a star the galaxy is some thirty hops across, so this is what
+/// decides whether the whole of it falls in a season or in a year — see
+/// the measurements in the root `CLAUDE.md`.
+pub const DROID_SPREAD_DAYS: u32 = 5;
+/// How far from the crew's own star the origin is rolled, in hops: far
+/// enough that the crisis is a rumour on the chart for a month or two
+/// before it is at the door. A galaxy too small to put one that far away
+/// puts it as far as it has (`crate::droid::origin`).
+pub const DROID_ORIGIN_MIN_HOPS: u16 = 8;
