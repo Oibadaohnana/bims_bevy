@@ -253,7 +253,7 @@ fn experience_climbs_the_levels_and_a_level_up_is_said_once() {
     // Slot 1 has no class and learns nothing.
     world.award(1, 1_000, &mut events);
     assert_eq!(world.progress_of(1), Progress::default());
-    assert!(!world.has_talent(1, Talent::QuickHands));
+    assert!(!world.has_talent(1, Talent::ReinforcedSand));
 }
 
 #[test]
@@ -464,7 +464,7 @@ fn a_pick_is_refused_for_the_wrong_slot_level_or_a_second_time_and_moves_the_che
     assert!(
         events.iter().any(|e| matches!(
             e,
-            WorldEvent::TalentPicked { who: 0, talent } if *talent == Talent::QuickHands.code()
+            WorldEvent::TalentPicked { who: 0, talent } if *talent == Talent::ReinforcedSand.code()
         )),
         "{events:?}"
     );
@@ -479,7 +479,9 @@ fn a_pick_is_refused_for_the_wrong_slot_level_or_a_second_time_and_moves_the_che
         refused_with(&events, Refusal::AlreadyPicked),
         "never changed"
     );
-    assert!(world.has_talent(0, Talent::QuickHands) && !world.has_talent(0, Talent::SiteForeman));
+    assert!(
+        world.has_talent(0, Talent::ReinforcedSand) && !world.has_talent(0, Talent::SiteForeman)
+    );
 }
 
 // --- B: the class at the start ----------------------------------------------
@@ -501,11 +503,11 @@ fn an_engineer_sets_out_with_its_kits_and_the_class_locks_at_the_first_undock() 
     assert_eq!(world.class_of(0), Class::Engineer);
     assert_eq!(
         kits_in_pack(&world, 0, Kit::Sandbag),
-        deploy::ENGINEER_START_KITS as usize
+        deploy::SANDBAG_CHARGES as usize
     );
     assert_eq!(
         kits_in_pack(&world, 0, Kit::Sentry),
-        deploy::ENGINEER_START_SENTRIES as usize,
+        deploy::SENTRY_CHARGES as usize,
         "and the sentry kit its Q is"
     );
     // Put back to none, the kits come out again.
@@ -551,14 +553,14 @@ fn an_engineer_sets_out_with_its_kits_and_the_class_locks_at_the_first_undock() 
 #[test]
 fn kits_go_into_the_pack_for_a_probe() {
     let mut world = engineer();
-    let own = deploy::ENGINEER_START_SENTRIES as usize;
+    let own = deploy::SENTRY_CHARGES as usize;
     assert_eq!(kits_in_pack(&world, 0, Kit::Sentry), own, "its class's own");
     assert_eq!(world.give_kits_for_probe(0, Kit::Sentry, 2), 2);
     assert_eq!(kits_in_pack(&world, 0, Kit::Sentry), own + 2);
     assert_eq!(world.kits_of(0, Kit::Sentry), own as u32 + 2);
     assert_eq!(
         kits_in_pack(&world, 0, Kit::Sandbag),
-        deploy::ENGINEER_START_KITS as usize,
+        deploy::SANDBAG_CHARGES as usize,
         "the sandbags it set out with are untouched"
     );
     // Nobody aboard gets nothing, and neither does a pack with no room.
@@ -600,23 +602,17 @@ fn every_reason_a_deploy_is_refused() {
         world.can_deploy(0, Kit::Sandbag, tile),
         Err(Refusal::CantDeployThere)
     );
-    // The sentry's limit: one standing, and a second refused.
+    // A second sentry is **not** refused any more (feature 88): the
+    // charges are the world limit and one over it destroys the oldest.
     let tile = tile_near(&world, 0, Kit::Sentry);
-    deploy_now(&mut world, 0, Kit::Sentry, tile);
+    let (_, first) = deploy_now(&mut world, 0, Kit::Sentry, tile);
     give_kit(&mut world, 0, Kit::Sentry);
-    let tile = tile_near(&world, 0, Kit::Sandbag);
-    assert_eq!(
-        world.can_deploy(0, Kit::Sentry, tile),
-        Err(Refusal::SentryLimit)
-    );
-    // And the command says the same through the seam.
-    let events = world.step(&[Command::Deploy {
-        slot: 0,
-        kit: Kit::Sentry,
-        x: tile.0,
-        y: tile.1,
-    }]);
-    assert!(refused_with(&events, Refusal::SentryLimit));
+    let tile = tile_near(&world, 0, Kit::Sentry);
+    assert_eq!(world.can_deploy(0, Kit::Sentry, tile), Ok(()));
+    let (_, second) = deploy_now(&mut world, 0, Kit::Sentry, tile);
+    assert_eq!(world.sentries_of(0), 1, "one standing still");
+    assert!(world.deployable(first).is_none());
+    assert!(world.deployable(second).is_some());
 }
 
 #[test]
@@ -816,18 +812,19 @@ fn sentry_fight() -> (World, u32) {
     panic!("the sentry was never laid");
 }
 
+/// A sentry fires at what it sees and **never runs out** (feature 88):
+/// nothing in the game carries ammunition, so there are no shots to
+/// count and no refill to walk over for.
 #[test]
-fn a_sentry_fires_at_the_enemy_it_sees_runs_dry_and_is_refilled() {
+fn a_sentry_fires_at_the_enemy_it_sees_and_never_runs_out() {
     let (mut world, id) = sentry_fight();
     assert_eq!(world.deployable(id).unwrap().kind, DeployKind::Sentry);
-    assert_eq!(world.deployable(id).unwrap().shots, deploy::SENTRY_SHOTS);
     assert_eq!(world.deployable(id).unwrap().health, deploy::SENTRY_HEALTH);
     assert_eq!(world.sentry_weapon(0), WeaponKind::AutoRifle.basic());
     // James out of the fight: only the sentry is left to shoot, and to be
     // shot at.
     world.aboard.room.knock_out_for_probe(0);
     let before = world.residents.as_ref().unwrap().aboard.room.health(0);
-    let mut fired = false;
     for _ in 0..3_000 {
         world
             .residents
@@ -838,26 +835,25 @@ fn a_sentry_fires_at_the_enemy_it_sees_runs_dry_and_is_refilled() {
             .patch_up_for_probe(0);
         world.step(&[]);
         assert_eq!(world.aboard.room.sentries().len(), 1);
-        if world.deployable(id).unwrap().shots < deploy::SENTRY_SHOTS {
-            fired = true;
-        }
         if world.residents.as_ref().unwrap().aboard.room.health(0) < before {
             break;
         }
     }
-    assert!(fired, "the sentry pulled its trigger");
     assert!(
         world.residents.as_ref().unwrap().aboard.room.health(0) < before,
-        "and the resident was hit"
+        "the sentry pulled its trigger and the resident was hit"
     );
-    // Dry: a shot left, fired, and then nothing.
-    world
-        .deployables
-        .iter_mut()
-        .find(|d| d.id == id)
-        .unwrap()
-        .shots = 1;
-    for _ in 0..600 {
+    // And it is still firing a long while later: there is nothing to run
+    // out of. The resident is patched up every step, so a hit landing
+    // after a thousand more steps is the sentry still shooting.
+    let mut hit_again = false;
+    for _ in 0..3_000 {
+        let whole = world.residents.as_ref().unwrap().aboard.room.health(0);
+        world.step(&[]);
+        if world.residents.as_ref().unwrap().aboard.room.health(0) < whole {
+            hit_again = true;
+            break;
+        }
         world
             .residents
             .as_mut()
@@ -865,46 +861,8 @@ fn a_sentry_fires_at_the_enemy_it_sees_runs_dry_and_is_refilled() {
             .aboard
             .room
             .patch_up_for_probe(0);
-        world.step(&[]);
-        if world.deployable(id).unwrap().shots == 0 {
-            break;
-        }
     }
-    assert_eq!(world.deployable(id).unwrap().shots, 0, "dry");
-    for _ in 0..120 {
-        world.step(&[]);
-    }
-    assert_eq!(world.deployable(id).unwrap().shots, 0);
-    assert_eq!(
-        world.aboard.room.sentries()[0].trigger.burst_left,
-        0,
-        "holds"
-    );
-    // Refilled by James beside it, for a metal.
-    // James up again and beside it.
-    world.aboard.room.patch_up_for_probe(0);
-    let at = world.aboard.room.sentries()[0].at;
-    world
-        .aboard
-        .room
-        .put_for_probe(0, at + bims::math::vec2(TILE, 0.0));
-    world.step(&[]);
-    assert!(!world.aboard.room.is_unconscious(0));
-    world.ship.design.cargo[ResourceId::Metal as usize] += 2;
-    world.on_ship_changed();
-    let metal = world.free(ResourceId::Metal);
-    let events = world.step(&[Command::Refill { slot: 0, id }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Refilled { who: 0 })),
-        "{events:?}"
-    );
-    assert_eq!(world.deployable(id).unwrap().shots, deploy::SENTRY_SHOTS);
-    assert_eq!(
-        world.free(ResourceId::Metal),
-        metal - deploy::SENTRY_REFILL_METAL
-    );
+    assert!(hit_again, "a sentry never runs dry");
 }
 
 #[test]
@@ -912,12 +870,6 @@ fn a_sentry_is_the_enemy_s_target_and_is_destroyed_at_nothing() {
     let (mut world, id) = sentry_fight();
     // James out of the fight: the sentry is what the resident sees.
     world.aboard.room.knock_out_for_probe(0);
-    world
-        .deployables
-        .iter_mut()
-        .find(|d| d.id == id)
-        .unwrap()
-        .shots = 0;
     let mut lost = false;
     for _ in 0..6_000 {
         world
@@ -978,16 +930,26 @@ fn the_fixed_levels_lay_sandbags_a_sentry_and_a_mark_two_rifle() {
     assert_eq!(world.sentry_weapon(0).kind, WeaponKind::AutoRifle);
 }
 
+/// *Reinforced sand* puts fifty on every bag laid, and *site foreman* is
+/// the one work factor an engineer has left: feature 88 took *quick
+/// hands* off the tree, so the craft factor is one for everybody.
 #[test]
-fn quick_hands_and_site_foreman_are_the_work_factors() {
+fn reinforced_sand_and_site_foreman_are_the_level_two_pick() {
     let mut world = engineer();
     world.step(&[]);
     assert_eq!(world.aboard.room.work_factors_for_probe(0), (1.0, 1.0));
-    pick(&mut world, 0, Talent::QuickHands);
+    pick(&mut world, 0, Talent::ReinforcedSand);
     world.step(&[]);
     assert_eq!(
         world.aboard.room.work_factors_for_probe(0),
-        (class::QUICK_HANDS_EFFORT, 1.0)
+        (1.0, 1.0),
+        "no working step is any faster for it"
+    );
+    let tile = tile_near(&world, 0, Kit::Sandbag);
+    let (_, id) = deploy_now(&mut world, 0, Kit::Sandbag, tile);
+    assert_eq!(
+        world.deployable(id).unwrap().health,
+        deploy::SANDBAG_HEALTH + class::REINFORCED_SAND_HEALTH
     );
     let mut other = engineer();
     pick(&mut other, 0, Talent::SiteForeman);
@@ -997,6 +959,13 @@ fn quick_hands_and_site_foreman_are_the_work_factors() {
         (1.0, class::SITE_FOREMAN_EFFORT)
     );
     assert_eq!(other.aboard.room.work_factors_for_probe(1), (1.0, 1.0));
+    let tile = tile_near(&other, 0, Kit::Sandbag);
+    let (_, id) = deploy_now(&mut other, 0, Kit::Sandbag, tile);
+    assert_eq!(
+        other.deployable(id).unwrap().health,
+        deploy::SANDBAG_HEALTH,
+        "the other side lays a plain bag"
+    );
 }
 
 #[test]
@@ -1026,8 +995,11 @@ fn sandbagger_halves_the_time_and_bulk_bags_lays_two() {
     );
 }
 
+/// *Armoured sentry* is half again the health and *enhanced optics* ten
+/// tiles of range (feature 88), which is the sentry's own `Skill` and not
+/// its weapon: the gun in the turret is the same gun.
 #[test]
-fn armoured_sentry_and_deep_magazine_are_the_sentry_s_numbers() {
+fn armoured_sentry_and_enhanced_optics_are_the_sentry_s_numbers() {
     let mut world = engineer();
     pick(&mut world, 0, Talent::ArmouredSentry);
     give_kit(&mut world, 0, Kit::Sentry);
@@ -1038,17 +1010,33 @@ fn armoured_sentry_and_deep_magazine_are_the_sentry_s_numbers() {
         laid.health,
         deploy::SENTRY_HEALTH * class::ARMOURED_SENTRY_HEALTH
     );
-    assert_eq!(laid.shots, deploy::SENTRY_SHOTS);
+    assert_eq!(
+        world.sentry_skill(0),
+        bims::combat::Skill::NONE,
+        "no optics"
+    );
     let mut other = engineer();
-    pick(&mut other, 0, Talent::DeepMagazine);
+    pick(&mut other, 0, Talent::EnhancedOptics);
     give_kit(&mut other, 0, Kit::Sentry);
     let tile = tile_near(&other, 0, Kit::Sentry);
     let (_, id) = deploy_now(&mut other, 0, Kit::Sentry, tile);
     let laid = other.deployable(id).unwrap();
-    assert_eq!(laid.health, deploy::SENTRY_HEALTH);
     assert_eq!(
-        laid.shots,
-        (deploy::SENTRY_SHOTS as f32 * class::DEEP_MAGAZINE_SHOTS) as u32
+        laid.health,
+        deploy::SENTRY_HEALTH,
+        "the health is untouched"
+    );
+    let skill = other.sentry_skill(0);
+    assert_eq!(skill.range, class::ENHANCED_OPTICS_RANGE);
+    assert_eq!(skill.fire_rate, 1.0);
+    assert_eq!(skill.damage, 1.0);
+    // And the room is handed it, so the reach the turret aims with is ten
+    // tiles longer than the gun's own.
+    other.step(&[]);
+    let sentry = other.aboard.room.sentries()[0];
+    assert_eq!(
+        sentry.skill.stats(sentry.weapon).range,
+        sentry.weapon.stats().range + class::ENHANCED_OPTICS_RANGE
     );
 }
 
@@ -1118,30 +1106,33 @@ fn the_armourer_repairs_a_piece_at_the_workbench_for_a_metal() {
     assert_eq!(out.health, full - 25.0 + class::ARMOUR_REPAIR_PER_METAL);
 }
 
+/// *Higher quality armour* (feature 88) is the engineer's own worn
+/// pieces': a point added to what each stops, and five per cent more
+/// health said as the drain's reciprocal, which is the tank's own
+/// mechanism.
 #[test]
-fn field_refit_refills_for_nothing() {
+fn higher_quality_armour_adds_protection_and_health_to_what_he_wears() {
     let mut world = engineer();
-    pick(&mut world, 0, Talent::FieldRefit);
-    give_kit(&mut world, 0, Kit::Sentry);
-    let tile = tile_near(&world, 0, Kit::Sentry);
-    let (_, id) = deploy_now(&mut world, 0, Kit::Sentry, tile);
-    world
-        .deployables
-        .iter_mut()
-        .find(|d| d.id == id)
-        .unwrap()
-        .shots = 3;
-    world.ship.design.cargo[ResourceId::Metal as usize] = 0;
-    world.on_ship_changed();
-    let events = world.step(&[Command::Refill { slot: 0, id }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Refilled { who: 0 })),
-        "{events:?}"
+    let plain = world.skill_of(0);
+    assert_eq!(plain.armour_protection_add, 0.0);
+    assert_eq!(plain.armour_drain, 1.0);
+    pick(&mut world, 0, Talent::BetterArmour);
+    let skill = world.skill_of(0);
+    assert_eq!(
+        skill.armour_protection_add,
+        class::BETTER_ARMOUR_PROTECTION,
+        "a point on the protection"
     );
-    assert_eq!(world.deployable(id).unwrap().shots, deploy::SENTRY_SHOTS);
-    assert_eq!(world.free(ResourceId::Metal), 0);
+    assert!(
+        (skill.armour_drain - 1.0 / class::BETTER_ARMOUR_HEALTH).abs() < 1e-6,
+        "five per cent more health, as the drain: {}",
+        skill.armour_drain
+    );
+    // The multiplier is untouched, so it stacks with a tank's *plated*
+    // rather than replacing it.
+    assert_eq!(skill.armour_protection, 1.0);
+    // And nobody else's armour is any better for it.
+    assert_eq!(world.skill_of(1).armour_protection_add, 0.0);
 }
 
 #[test]
@@ -1170,10 +1161,30 @@ fn dug_in_is_handed_to_the_room_and_quick_build_halves_the_sentry_s_time() {
     assert!(!other.aboard.room.sentries()[0].dug_in);
 }
 
+/// *Extra bags* is one more sandbag charge (feature 88) — so the pack
+/// fills back up to four rather than three — and nothing comes back off a
+/// destroyed sentry: its charge returns on the cooldown like any other.
 #[test]
-fn salvage_returns_a_destroyed_sentry_s_kit_and_steady_hands_keep_at_a_deploy() {
+fn extra_bags_is_a_fourth_charge_and_steady_hands_keep_at_a_deploy() {
     let mut world = engineer();
-    pick(&mut world, 0, Talent::Salvage);
+    assert_eq!(
+        world.kit_charges(0, Kit::Sandbag),
+        deploy::SANDBAG_CHARGES,
+        "three to start"
+    );
+    pick(&mut world, 0, Talent::ExtraBags);
+    assert_eq!(
+        world.kit_charges(0, Kit::Sandbag),
+        deploy::SANDBAG_CHARGES + class::EXTRA_BAGS_CHARGES
+    );
+    // *Extra bags* is the ninth level's pick, so the sentry's own charge
+    // is long since learnt by the time it is taken.
+    assert_eq!(world.kit_charges(0, Kit::Sentry), deploy::SENTRY_CHARGES);
+    // The pack fills back up to the fourth, one cooldown at a time.
+    assert_eq!(kits_in_pack(&world, 0, Kit::Sandbag), 3);
+    run_for_seconds(&mut world, deploy::SANDBAG_COOLDOWN + 1.0);
+    assert_eq!(kits_in_pack(&world, 0, Kit::Sandbag), 4);
+    // A destroyed sentry gives nothing back.
     drop_kits(&mut world, 0, Kit::Sentry);
     give_kit(&mut world, 0, Kit::Sentry);
     let tile = tile_near(&world, 0, Kit::Sentry);
@@ -1187,8 +1198,11 @@ fn salvage_returns_a_destroyed_sentry_s_kit_and_steady_hands_keep_at_a_deploy() 
             .iter()
             .any(|e| matches!(e, WorldEvent::DeployableLost { .. }))
     );
-    assert_eq!(kits_in_pack(&world, 0, Kit::Sentry), 1, "the kit came back");
-    assert_eq!(world.reused_kits[0], 1, "as a re-used one");
+    assert_eq!(
+        kits_in_pack(&world, 0, Kit::Sentry),
+        0,
+        "nothing comes back off the wreck"
+    );
 
     let mut other = engineer();
     pick(&mut other, 0, Talent::SteadyHands);
@@ -1205,15 +1219,29 @@ fn salvage_returns_a_destroyed_sentry_s_kit_and_steady_hands_keep_at_a_deploy() 
     assert!(other.aboard.room.is_deploying(0), "kept at it");
 }
 
+/// The tenth level is two sentry charges or one tier-three sniper
+/// (feature 88), and the charges are the world limit: one laid over it
+/// destroys the engineer's oldest rather than being refused.
 #[test]
-fn second_sentry_is_two_and_mark_three_is_the_tier_three_rifle() {
+fn second_sentry_is_two_charges_and_mark_three_is_a_tier_three_sniper() {
     let mut world = engineer();
-    assert_eq!(world.sentry_limit(0), 1);
-    pick(&mut world, 0, Talent::SecondSentry);
-    assert_eq!(world.sentry_limit(0), 2);
     assert_eq!(
-        world.sentry_weapon(0).tier,
-        Tier::Two,
+        world.sentry_limit(0),
+        0,
+        "the charge itself is the third level's"
+    );
+    level_up(&mut world, 0, class::SENTRY_LEVEL);
+    assert_eq!(world.sentry_limit(0), deploy::SENTRY_CHARGES);
+    pick(&mut world, 0, Talent::SecondSentry);
+    assert_eq!(world.sentry_limit(0), class::SECOND_SENTRY_CHARGES);
+    assert_eq!(
+        world.kit_charges(0, Kit::Sentry),
+        class::SECOND_SENTRY_CHARGES,
+        "the limit is the charges"
+    );
+    assert_eq!(
+        world.sentry_weapon(0),
+        WeaponKind::AutoRifle.at(Tier::Two),
         "mark II at the tenth"
     );
     drop_kits(&mut world, 0, Kit::Sentry);
@@ -1221,26 +1249,116 @@ fn second_sentry_is_two_and_mark_three_is_the_tier_three_rifle() {
     give_kit(&mut world, 0, Kit::Sentry);
     give_kit(&mut world, 0, Kit::Sentry);
     // What the box at the foot of the screen counts (feature 80): the
-    // kits in the pack, held down to the room the limit leaves.
+    // kits in the pack, whatever is standing.
     assert_eq!(world.kits_of(0, Kit::Sentry), 3);
-    assert_eq!(world.sentries_left(0), 2, "three kits, two may stand");
+    assert_eq!(world.sentries_left(0), 3);
     let tile = tile_near(&world, 0, Kit::Sentry);
-    deploy_now(&mut world, 0, Kit::Sentry, tile);
-    assert_eq!(world.sentries_left(0), 1);
+    let (_, first) = deploy_now(&mut world, 0, Kit::Sentry, tile);
     let tile = tile_near(&world, 0, Kit::Sentry);
-    deploy_now(&mut world, 0, Kit::Sentry, tile);
-    assert_eq!(world.sentries_left(0), 0, "at the limit with a kit spare");
-    assert_eq!(world.kits_of(0, Kit::Sentry), 1);
-    let tile = tile_near(&world, 0, Kit::Sandbag);
-    assert_eq!(
-        world.can_deploy(0, Kit::Sentry, tile),
-        Err(Refusal::SentryLimit)
+    let (_, second) = deploy_now(&mut world, 0, Kit::Sentry, tile);
+    assert_eq!(world.sentries_of(0), 2, "both standing");
+    // The third is allowed and the oldest goes.
+    let tile = tile_near(&world, 0, Kit::Sentry);
+    assert_eq!(world.can_deploy(0, Kit::Sentry, tile), Ok(()));
+    let (_, third) = deploy_now(&mut world, 0, Kit::Sentry, tile);
+    assert_eq!(world.sentries_of(0), 2, "still two");
+    assert!(
+        world.deployable(first).is_none(),
+        "the oldest was destroyed"
     );
+    assert!(world.deployable(second).is_some());
+    assert!(world.deployable(third).is_some());
+
     let mut other = engineer();
     pick(&mut other, 0, Talent::SentryMarkThree);
     assert_eq!(
         other.sentry_weapon(0),
-        WeaponKind::AutoRifle.at(Tier::Three)
+        WeaponKind::SniperRifle.at(Tier::Three)
     );
-    assert_eq!(other.sentry_limit(0), 1);
+    assert_eq!(other.sentry_limit(0), deploy::SENTRY_CHARGES, "one charge");
+    let skill = other.sentry_skill(0);
+    assert_eq!(skill.fire_rate, class::SENTRY_MARK_THREE_FIRE_RATE);
+    assert_eq!(skill.damage, class::SENTRY_MARK_THREE_DAMAGE);
+    assert_eq!(skill.range, 0.0, "no optics of its own");
+    // Double the rate and a fifth more damage than the tier-three sniper.
+    let plain = WeaponKind::SniperRifle.at(Tier::Three).stats();
+    let theirs = skill.stats(other.sentry_weapon(0));
+    assert!((theirs.fire_rate - plain.fire_rate * 2.0).abs() < 1e-4);
+    assert!((theirs.damage - plain.damage * 1.2).abs() < 1e-3);
+    assert!((theirs.damage_far - plain.damage_far * 1.2).abs() < 1e-3);
+}
+
+/// The charges and their cooldowns (feature 88): an engineer that spends
+/// a bag gets it back three quarters of a minute later, and its sentry
+/// after a minute, out of nothing and with nobody walking for it.
+#[test]
+fn a_spent_charge_comes_back_on_its_cooldown() {
+    let mut world = engineer();
+    assert_eq!(world.kit_charges(0, Kit::Sandbag), deploy::SANDBAG_CHARGES);
+    assert_eq!(
+        world.kit_charges(0, Kit::Sentry),
+        0,
+        "the third level first"
+    );
+    assert_eq!(
+        world.kit_charges(1, Kit::Sandbag),
+        0,
+        "and nobody else has charges at all"
+    );
+    // At its charges nothing is running.
+    world.step(&[]);
+    assert_eq!(world.kit_cooldown_left(0, Kit::Sandbag), 0.0);
+    // One bag laid: the cooldown starts and the kit is back when it ends.
+    let tile = tile_near(&world, 0, Kit::Sandbag);
+    deploy_now(&mut world, 0, Kit::Sandbag, tile);
+    assert_eq!(
+        kits_in_pack(&world, 0, Kit::Sandbag),
+        deploy::SANDBAG_CHARGES as usize - 1
+    );
+    world.step(&[]);
+    let left = world.kit_cooldown_left(0, Kit::Sandbag);
+    assert!(
+        left > 0.0 && left <= deploy::SANDBAG_COOLDOWN,
+        "running: {left}"
+    );
+    run_for_seconds(&mut world, deploy::SANDBAG_COOLDOWN - 2.0);
+    assert!(
+        kits_in_pack(&world, 0, Kit::Sandbag) < deploy::SANDBAG_CHARGES as usize,
+        "not yet"
+    );
+    run_for_seconds(&mut world, 3.0);
+    assert_eq!(
+        kits_in_pack(&world, 0, Kit::Sandbag),
+        deploy::SANDBAG_CHARGES as usize,
+        "back"
+    );
+    assert_eq!(world.kit_cooldown_left(0, Kit::Sandbag), 0.0, "and at rest");
+    // The sentry's charge only exists from the third level, and it is
+    // the slower of the two.
+    level_up(&mut world, 0, class::SENTRY_LEVEL);
+    drop_kits(&mut world, 0, Kit::Sentry);
+    world.step(&[]);
+    assert_eq!(world.kit_charges(0, Kit::Sentry), deploy::SENTRY_CHARGES);
+    run_for_seconds(&mut world, deploy::SENTRY_COOLDOWN - 3.0);
+    assert_eq!(kits_in_pack(&world, 0, Kit::Sentry), 0, "slower than a bag");
+    run_for_seconds(&mut world, 4.0);
+    assert_eq!(kits_in_pack(&world, 0, Kit::Sentry), 1);
+    // And it is in the checksum: a charge waiting is a different fight.
+    let mut twin = engineer();
+    level_up(&mut twin, 0, class::SENTRY_LEVEL);
+    twin.step(&[]);
+    let tile = tile_near(&twin, 0, Kit::Sandbag);
+    deploy_now(&mut twin, 0, Kit::Sandbag, tile);
+    let before = world_checksum(&twin);
+    run_for_seconds(&mut twin, 5.0);
+    assert_ne!(world_checksum(&twin), before, "the timer is hashed");
+}
+
+/// Steps the world forward that many seconds of the clock, which is that
+/// many game minutes (`time::MINUTES_PER_SECOND`).
+fn run_for_seconds(world: &mut World, seconds: f64) {
+    let until = world.clock_minutes + seconds * time::MINUTES_PER_SECOND;
+    while world.clock_minutes < until {
+        world.step(&[]);
+    }
 }

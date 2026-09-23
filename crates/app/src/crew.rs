@@ -326,12 +326,11 @@ pub enum Open {
     /// is that index among the deck's (`Container::Shelf`), for the walk
     /// over; the grid is the one shelf whichever was clicked.
     Plunder(usize),
-    /// Not a window either: the engineer's deployable within reach packed
-    /// up into its pack (`Command::PackUp`), or its sentry refilled
-    /// (`Command::Refill`) — the rows on the nearby strip beside one
-    /// (feature 74). By the deployable's id.
+    /// Not a window either: the engineer.s deployable within reach packed
+    /// up into its pack (`Command::PackUp`) — the row on the nearby strip
+    /// beside one (feature 74). By the deployable.s id. There is no
+    /// refill any more: a sentry never runs out of shots (feature 88).
     PackUp(u32),
-    Refill(u32),
 }
 
 /// What the class section and the deployable rows asked for this frame
@@ -339,7 +338,6 @@ pub enum Open {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DeployOrder {
     PackUp(u32),
-    Refill(u32),
     Pick {
         level: u32,
         side: world::Side,
@@ -2218,7 +2216,7 @@ impl CrewPanels {
                     self.key_requested = Some(who as u32);
                 }
                 Some(Open::Plunder(shelf)) => self.open_plunder(game, shelf),
-                Some(open @ (Open::PackUp(_) | Open::Refill(_))) => self.show(open),
+                Some(open @ Open::PackUp(_)) => self.show(open),
                 None => {
                     if let Some(order) = item.run {
                         if later {
@@ -3509,18 +3507,11 @@ impl CrewPanels {
     /// Put up the window for a thing already within reach — off the
     /// nearby strip, or the Inventory key — without the walk over.
     fn show(&mut self, open: Open) {
-        // Not windows: the engineer's rows act and leave what is up as it
-        // is.
-        match open {
-            Open::PackUp(id) => {
-                self.deploy_orders.push(DeployOrder::PackUp(id));
-                return;
-            }
-            Open::Refill(id) => {
-                self.deploy_orders.push(DeployOrder::Refill(id));
-                return;
-            }
-            _ => {}
+        // Not a window: the engineer's pack-up row acts and leaves what is
+        // up as it is.
+        if let Open::PackUp(id) = open {
+            self.deploy_orders.push(DeployOrder::PackUp(id));
+            return;
         }
         self.open = Some(open);
         self.body = None;

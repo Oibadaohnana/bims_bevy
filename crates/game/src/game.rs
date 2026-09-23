@@ -894,10 +894,9 @@ pub struct Game {
     /// list a hostile bolt looks for. Their triggers are the room's to
     /// keep between steps; everything else about them is the world's.
     sentries: Vec<Sentry>,
-    /// Trigger pulls each sentry made since the world last asked, by
-    /// the world's id, and the hits each took — a hostile bolt's damage,
-    /// or a blow's — for the world to take off its shots and its health.
-    sentry_shots: Vec<(u32, u32)>,
+    /// The hits each sentry took since the world last asked, by the
+    /// world's id — a hostile bolt's damage, or a blow's — for the world
+    /// to take off its health.
     sentry_hits: Vec<(u32, f32)>,
     /// The per-Bim work factors the world set (`set_work_factors`): what
     /// an engineer's talents do to a craft's and a build's working steps,
@@ -1187,7 +1186,6 @@ impl Game {
             watched: None,
             wounds_taken: Vec::new(),
             sentries: Vec::new(),
-            sentry_shots: Vec::new(),
             sentry_hits: Vec::new(),
             work_factors: Vec::new(),
             steady_hands: Vec::new(),
@@ -2193,34 +2191,30 @@ impl Game {
             self.burst(grenade);
         }
         // The sentries, after the crew (feature 74): each is a shooter
-        // with no body — a position, a weapon and a trigger — and shoots
-        // the way a Bim standing still does, at the nearest visible enemy
-        // in range, through the one `aim` and the one `fire`. Never in a
-        // hostile room: the world lays them on the crew's deck alone. A
-        // sentry with no shots left holds.
+        // with no body — a position, a weapon, its owner's skill and a
+        // trigger — and shoots the way a Bim standing still does, at the
+        // nearest visible enemy in range, through the one `aim` and the
+        // one `fire_as`. Never in a hostile room: the world lays them on
+        // the crew's deck alone. It never runs dry (feature 88).
         if !self.hostile_bodies {
             for i in 0..self.sentries.len() {
                 let sentry = self.sentries[i];
-                let stats = sentry.weapon.stats();
+                let stats = sentry.skill.stats(sentry.weapon);
                 self.sentries[i].trigger.tick(dt);
-                if sentry.shots == 0 {
-                    self.sentries[i].trigger.hold();
-                    continue;
-                }
                 let Some((_, _, at)) = self.combat.aim(&self.room.sight, sentry.at, &stats) else {
                     self.sentries[i].trigger.hold();
                     continue;
                 };
                 if self.sentries[i].trigger.pull(dt, &stats) {
-                    self.combat.fire(sentry.at, at, sentry.weapon, false, false);
-                    match self
-                        .sentry_shots
-                        .iter_mut()
-                        .find(|(id, _)| *id == sentry.id)
-                    {
-                        Some((_, n)) => *n += 1,
-                        None => self.sentry_shots.push((sentry.id, 1)),
-                    }
+                    self.combat.fire_as(
+                        sentry.at,
+                        at,
+                        sentry.weapon,
+                        false,
+                        false,
+                        &sentry.skill,
+                        None,
+                    );
                 }
             }
         }
@@ -8576,8 +8570,8 @@ impl Game {
     // --- the engineer's deployables (feature 74) ---------------------------
 
     /// The sentries on this deck, as the world keeps them: where each
-    /// stands in room units, its weapon, its shots left and whether it is
-    /// dug in. Said every step; one the world names again keeps its
+    /// stands in room units, its weapon, its owner's skill and whether it
+    /// is dug in. Said every step; one the world names again keeps its
     /// trigger, one it does not name is gone. Nothing in a room whose
     /// bodies are hostile — the crew's deck is the one they are laid on.
     pub fn set_sentries(&mut self, sentries: Vec<Sentry>) {
@@ -8596,11 +8590,6 @@ impl Game {
     /// The sentries as last said, with their triggers.
     pub fn sentries(&self) -> &[Sentry] {
         &self.sentries
-    }
-
-    /// Trigger pulls each sentry made since last asked, by id.
-    pub fn take_sentry_shots(&mut self) -> Vec<(u32, u32)> {
-        std::mem::take(&mut self.sentry_shots)
     }
 
     /// The damage each sentry took since last asked, by id, a hit a row.
@@ -9612,7 +9601,10 @@ impl Game {
         let mut through = damage;
         let mut broke = None;
         if let Some(piece) = bim.gear.worn_mut(part).as_mut().filter(|p| !p.broken()) {
-            through -= piece.effective_protection() * skill.armour_protection;
+            // *Plated* multiplies what the piece stops; an engineer's
+            // *higher quality armour* adds a point on top (feature 88).
+            through -= piece.effective_protection() * skill.armour_protection
+                + skill.armour_protection_add;
             if through <= 0.0 {
                 out.absorbed = damage;
                 return out;

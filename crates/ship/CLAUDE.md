@@ -887,7 +887,13 @@ pins the pool untouched, each class's kit in the pack and the round trip.
 `world_paint::deployables` draws every deployable in the crew's room as a
 part stood on its room tile — `fittings::sandbags` (now `pub(crate)`) for
 laid sandbags, `fittings::sentry` for a turret: three feet, a drum, the
-barrel out to the right, an eye that is blue with shots and dull dry,
-and a dark ring closing over the drum as its health goes — appended
+barrel out to the right, the eye it aims with, and a dark ring closing
+over the drum as its health goes — appended
 turned with the room, under the room's own picture, since a station's
-tile is on the joined deck's grid rather than the ship's.
+tile is on the joined deck's grid rather than the ship's. The eye was
+dull for a sentry with no shots left; feature 88 took the shots away
+(nothing in the game carries ammunition) and the eye is lit for as long
+as the turret stands.
+
+**`SAVE_VERSION` 26** (feature 88): the world's deployables lost their
+`shots` and every crew member's kit cooldowns went in.

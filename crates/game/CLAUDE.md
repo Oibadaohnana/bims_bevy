@@ -3067,17 +3067,36 @@ reload and the burst — `tick` every step, `pull(dt, stats)` when aimed,
 `hold` when not, `pull_single` for finishing a body off — and `Bim::trigger`
 replaced the three fields that were it. `Combat::fire` rolls the hit and
 `Combat::step` the dodge, the cover and the damage, and nothing else
-does: a **sentry** (`combat::Sentry` — id, position, weapon, shots,
+does: a **sentry** (`combat::Sentry` — id, position, weapon, a `Skill`,
 `dug_in`, its own `Trigger`) is fired by `tick_combat` after the crew
-through the same `aim`/`fire`, in the crew's room only, and stands
+through the same `aim`/`fire_as`, in the crew's room only, and stands
 **after the crew on the bodies list** a hostile bolt looks for, with no
 armour and "peeking" only when dug in with sandbags anywhere on the
 line from the bolt's origin (`Sight::cover_anywhere_between`). A hit
 past the crew's count is a sentry's: `tick_combat` routes it to
 `sentry_hits` rather than `strike`, and `enemy_strike_sentry` is the
 melee case. The world sets the list every step (`set_sentries`, which
-keeps a known id's trigger) and reads back `take_sentry_shots` and
-`take_sentry_hits`.
+keeps a known id's trigger) and reads back `take_sentry_hits`.
+
+**A sentry never runs out of shots** (feature 88): nothing in the game
+carries ammunition, so `Sentry::shots`, `Game::take_sentry_shots` and the
+hold-when-dry branch are gone, and the field they were counted for is
+gone from the world's `Deployable` too. What the owner's talents do to
+the turret is the `Skill` instead — three fields feature 88 added to it
+and the `Bolt`, all of them one for everybody else:
+
+- **`Skill::damage`** multiplies a bolt's damage at *any* distance, where
+  `point_blank` bites only within the weapon's sweet range. It goes onto
+  the `Bolt` as `Bolt::damage` and is multiplied in where the bolt lands.
+- **`Skill::range`** is *tiles added* to the weapon's range, applied in
+  `Skill::stats_at`. It goes onto the `Bolt` as `Bolt::range`, and
+  `Bolt::stats()` — the weapon's stats with those tiles on — is what the
+  damage curve is read off where it lands, so the curve a bolt lands on
+  is the one it was aimed along. A longer reach is therefore also a
+  gentler falloff, which is the point of an optic.
+- **`Skill::armour_protection_add`** is added to a worn piece's
+  protection in `Game::strike`, *after* `armour_protection` has
+  multiplied it: an engineer's *higher quality armour*.
 
 **A bolt dodged behind sandbags is in the bags.** `Combat::step` asks
 `Sight::cover_between` (was `covered`, which is now it `.is_some()`)
@@ -3103,7 +3122,9 @@ question, and `JOB_DEPLOY` (28) the job code. **A hit drops it**: `strike`
 calls `drop_task` — suspended and not kept — unless `set_steady_hands`
 named the Bim. `set_work_factors` is `(craft, build)` a Bim, multiplied
 into `effort` in `tick_bim` for a `Kind::Craft` or `Kind::Build` on hand
-and nothing else. `Room::built` is `(site, who)` now, and `Order` grew
+and nothing else — the **craft half is one for everybody** since feature
+88 took *quick hands* off the engineer's tree, and the pair is kept
+because the mechanism is the room's rather than that class's. `Room::built` is `(site, who)` now, and `Order` grew
 `only: Option<usize>` — `craft_on_offer` skips an order that is somebody
 else's — for the armourer's repair. `Item::footprint` knows the two kits
 (23 → 2×2, 24 → 2×3).

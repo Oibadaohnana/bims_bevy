@@ -169,8 +169,6 @@ pub enum Order {
     },
     /// A deployable packed up into the engineer's pack — `Command::PackUp`.
     PackUp(u32),
-    /// A sentry filled — `Command::Refill`.
-    Refill(u32),
     /// The armourer's repair begun at the workbench — `Command::Repair`.
     Repair,
     /// The soldier braced, or stood easy — `Command::Brace`, the E key
@@ -528,7 +526,6 @@ impl Net {
                         }
                         Order::Deploy { kit, x, y } => Command::Deploy { slot, kit, x, y },
                         Order::PackUp(id) => Command::PackUp { slot, id },
-                        Order::Refill(id) => Command::Refill { slot, id },
                         Order::Repair => Command::Repair { slot },
                         Order::Brace(on) => Command::Brace { slot, on },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },

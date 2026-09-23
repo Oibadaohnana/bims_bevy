@@ -54,7 +54,13 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// `crate::memory`): the graves after the losses — whose deck, where on
 /// it and what is still on the body — and the nodes the ship has been
 /// at after them, both for the live system and inside every memory.
-pub const REFERENCE_CHECKSUM: u64 = 0x_3721_d0ad_d6ef_9c6f;
+/// And again when the engineer's kits became **charges on a cooldown**
+/// (feature 88, `crate::deploy`): a deployable's `shots` are gone from
+/// the hash — nothing in the game carries ammunition — and
+/// `World::kit_timers`, when each engineer's next charge of each kit is
+/// due, is hashed after the re-used kits, since a charge in the pack is a
+/// sentry that can be laid and one still cooling down is not.
+pub const REFERENCE_CHECKSUM: u64 = 0x_e136_a3b4_7e94_cdcd;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

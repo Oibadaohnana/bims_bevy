@@ -410,8 +410,8 @@ pub enum Command {
     /// Choose that player's class (feature 74, `crate::class`): what its
     /// own crew member is. Allowed until the ship first leaves its
     /// berth, refused `ClassLocked` after. An engineer sets out with
-    /// [`crate::deploy::ENGINEER_START_KITS`] sandbag kits and
-    /// [`crate::deploy::ENGINEER_START_SENTRIES`] sentry kits in its
+    /// [`crate::deploy::SANDBAG_CHARGES`] sandbag kits and
+    /// [`crate::deploy::SENTRY_CHARGES`] sentry kits in its
     /// pack, and a class put back to none takes them out again.
     SetClass {
         slot: u32,
@@ -444,13 +444,6 @@ pub enum Command {
     /// as a kit: the engineer fit to act and within [`data::REACH`] of it,
     /// with room in the pack. Counted as a re-used kit.
     PackUp {
-        slot: u32,
-        id: u32,
-    },
-    /// Refill sentry `id` to its full shots: that player's own engineer
-    /// within reach of it, and [`crate::deploy::SENTRY_REFILL_METAL`] in
-    /// the hold — none wanted with *field refit*.
-    Refill {
         slot: u32,
         id: u32,
     },
@@ -1045,6 +1038,12 @@ pub struct World {
     /// not laid again yet, by index: a deploy uses one of these before a
     /// fresh kit, and gives no experience for it. In `world_checksum`.
     pub reused_kits: Vec<u32>,
+    /// When the cooldown on each crew member's next charge of each kit
+    /// began, in clock minutes, or `None` for one not running (feature
+    /// 88) — one entry a [`Kit`], by its code. `World::restock_kits`
+    /// keeps it, and it is in `world_checksum`: a charge waiting is a
+    /// different fight from one in the pack.
+    pub kit_timers: Vec<[Option<f64>; Kit::ALL.len()]>,
     /// When each crew member last threw a grenade, in clock minutes, or
     /// never (feature 75): what the throw's cooldown is read against.
     /// In `world_checksum`.
@@ -1406,6 +1405,7 @@ impl World {
             deployables: Vec::new(),
             next_deployable: 1,
             reused_kits: vec![0; crew as usize],
+            kit_timers: vec![[None; Kit::ALL.len()]; crew as usize],
             last_throw: vec![None; crew as usize],
             medics: vec![Medic::default(); crew as usize],
             tanks: vec![Tank::default(); crew as usize],
@@ -1566,6 +1566,10 @@ impl World {
         //    fire, the sandbags laid as cover on both rooms, and the
         //    sentries on the crew's deck to be fired there. What the fight
         //    did to them is read back after `visit`.
+        //    And an engineer's charges: a spent sandbag or sentry comes
+        //    back into its pack on its own cooldown (feature 88), before
+        //    the boxes at the foot of the screen are read.
+        self.restock_kits();
         self.hand_the_room_the_engineers();
         //    And what each class wears (feature 81): drawing only, said
         //    every step because a class is chosen, a crew member joins
@@ -1722,7 +1726,6 @@ impl World {
             | Command::PickTalent { slot, .. }
             | Command::Deploy { slot, .. }
             | Command::PackUp { slot, .. }
-            | Command::Refill { slot, .. }
             | Command::Repair { slot }
             | Command::Brace { slot, .. }
             | Command::Throw { slot, .. }
@@ -1864,7 +1867,6 @@ impl World {
                 }
             }
             Command::PackUp { id, .. } => self.pack_up(slot, id, events),
-            Command::Refill { id, .. } => self.refill(slot, id, events),
             Command::Repair { .. } => {
                 if let Err(why) = self.begin_repair(slot, events) {
                     events.push(refused(slot, why));
@@ -8843,9 +8845,9 @@ impl World {
         }
     }
 
-    /// The engineer's start: [`deploy::ENGINEER_START_KITS`] sandbag kits
-    /// into the pack and [`deploy::ENGINEER_START_SENTRIES`] sentry kits
-    /// beside them.
+    /// The engineer's start: its charges in the pack — [`deploy::SANDBAG_CHARGES`]
+    /// sandbag kits and [`deploy::SENTRY_CHARGES`] sentry kits (feature
+    /// 88), which is what the cooldowns fill it back up to.
     fn give_engineer_kit(&mut self, who: usize) {
         for (kit, count) in Self::ENGINEER_START {
             let item = Item::Stack(kit.resource() as u32);
@@ -8870,17 +8872,17 @@ impl World {
         }
     }
 
-    /// What the engineer's class deals it, kit by kit.
+    /// What the engineer's class deals it, kit by kit: its charges.
     const ENGINEER_START: [(Kit, u32); 2] = [
-        (Kit::Sandbag, deploy::ENGINEER_START_KITS),
-        (Kit::Sentry, deploy::ENGINEER_START_SENTRIES),
+        (Kit::Sandbag, deploy::SANDBAG_CHARGES),
+        (Kit::Sentry, deploy::SENTRY_CHARGES),
     ];
 
     /// Kits straight into a crew member's pack, for a probe: `n` of
     /// `kit` given the way the engineer's start gives its own, and how
     /// many of them fitted. Nothing is made and nothing is paid. The
-    /// class's own start is [`deploy::ENGINEER_START_KITS`] sandbag kits
-    /// and [`deploy::ENGINEER_START_SENTRIES`] sentry kits, so a probe
+    /// class's own start is [`deploy::SANDBAG_CHARGES`] sandbag kits
+    /// and [`deploy::SENTRY_CHARGES`] sentry kits, so a probe
     /// wants this only for more of either than the class deals.
     pub fn give_kits_for_probe(&mut self, who: u32, kit: Kit, n: u32) -> u32 {
         if who >= self.aboard.crew_count() {
@@ -8890,6 +8892,32 @@ impl World {
         (0..n)
             .filter(|_| self.aboard.room.give(who as usize, None, item))
             .count() as u32
+    }
+
+    /// **Exactly** `n` of every kit in every crew member's pack, for a
+    /// probe (feature 88): what is there taken out and `n` put back, and
+    /// each cooldown started afresh — so `n` of nought is an engineer
+    /// with no charges and the full wait ahead of it, which is the one
+    /// state a scripted run cannot walk itself into. `BIMS_KITS=n`.
+    pub fn set_kits_for_probe(&mut self, n: u32) {
+        for who in 0..self.aboard.crew_count() as usize {
+            for kit in Kit::ALL {
+                let item = Item::Stack(kit.resource() as u32);
+                let pack = self.aboard.room.pack(who);
+                for (cell, thing) in pack.iter().enumerate() {
+                    if *thing == Some(item) {
+                        self.aboard.room.take(who, cell);
+                    }
+                }
+                for _ in 0..n {
+                    self.aboard.room.give(who, None, item);
+                }
+            }
+            if self.kit_timers.len() <= who {
+                self.kit_timers.resize(who + 1, [None; Kit::ALL.len()]);
+            }
+            self.kit_timers[who] = [Some(self.clock_minutes); Kit::ALL.len()];
+        }
     }
 
     /// The soldier's start (feature 75): a basic auto rifle in hand, the
@@ -9145,17 +9173,38 @@ impl World {
             .collect()
     }
 
-    /// A sentry's rifle for its owner: tier two from the seventh level
-    /// (*sentry mark II*), tier three with *sentry mark III*.
+    /// A sentry's rifle for its owner: the auto rifle at tier one, tier
+    /// two from the seventh level (*sentry mark II*), and with *sentry
+    /// mark III* a **tier-three sniper rifle** (feature 88) — whose
+    /// double rate and fifth more damage are [`World::sentry_skill`]'s,
+    /// the weapon itself being an ordinary one.
     pub(crate) fn sentry_weapon(&self, owner: u32) -> Weapon {
-        let tier = if self.has_talent(owner, Talent::SentryMarkThree) {
-            Tier::Three
-        } else if self.progress_of(owner).level() >= class::SENTRY_MARK_TWO_LEVEL {
+        if self.has_talent(owner, Talent::SentryMarkThree) {
+            return WeaponKind::SniperRifle.at(Tier::Three);
+        }
+        let tier = if self.progress_of(owner).level() >= class::SENTRY_MARK_TWO_LEVEL {
             Tier::Two
         } else {
             Tier::One
         };
         WeaponKind::AutoRifle.at(tier)
+    }
+
+    /// What a sentry's owner's talents do to its shooting (feature 88):
+    /// *enhanced optics*' ten tiles of range, and *sentry mark III*'s
+    /// fire rate and damage. [`bims::combat::Skill::NONE`] without
+    /// either; the room applies it through the one `fire_as` a Bim's
+    /// skill goes through.
+    pub(crate) fn sentry_skill(&self, owner: u32) -> bims::combat::Skill {
+        let mut skill = bims::combat::Skill::NONE;
+        if self.has_talent(owner, Talent::EnhancedOptics) {
+            skill.range = class::ENHANCED_OPTICS_RANGE;
+        }
+        if self.has_talent(owner, Talent::SentryMarkThree) {
+            skill.fire_rate = class::SENTRY_MARK_THREE_FIRE_RATE;
+            skill.damage = class::SENTRY_MARK_THREE_DAMAGE;
+        }
+        skill
     }
 
     /// A fresh sentry's health for its owner: *armoured sentry* on top.
@@ -9167,23 +9216,76 @@ impl World {
         }
     }
 
-    /// A full sentry's shots for its owner: *deep magazine* on top.
-    fn sentry_shots(&self, owner: u32) -> u32 {
-        if self.has_talent(owner, Talent::DeepMagazine) {
-            (deploy::SENTRY_SHOTS as f32 * class::DEEP_MAGAZINE_SHOTS) as u32
+    /// A fresh bag's health for whoever laid it: *reinforced sand* added
+    /// (feature 88).
+    fn sandbag_health(&self, owner: u32) -> f32 {
+        if self.has_talent(owner, Talent::ReinforcedSand) {
+            deploy::SANDBAG_HEALTH + class::REINFORCED_SAND_HEALTH
         } else {
-            deploy::SENTRY_SHOTS
+            deploy::SANDBAG_HEALTH
         }
     }
 
-    /// How many sentries an engineer may have standing: one, two with
-    /// *second sentry*.
-    pub fn sentry_limit(&self, owner: u32) -> u32 {
-        if self.has_talent(owner, Talent::SecondSentry) {
-            2
-        } else {
-            1
+    /// **Charges** of a kit an engineer has (feature 88): how many kits
+    /// of that kind its pack fills back up to, one at a time on
+    /// [`World::kit_cooldown`]. Nought for anybody who is not an
+    /// engineer, and nought for a sentry under [`class::SENTRY_LEVEL`].
+    /// For a sentry it is also the **world limit**: one more laid
+    /// destroys that engineer's oldest.
+    pub fn kit_charges(&self, who: u32, kit: Kit) -> u32 {
+        if !self.is_engineer(who) {
+            return 0;
         }
+        match kit {
+            Kit::Sandbag => {
+                deploy::SANDBAG_CHARGES
+                    + if self.has_talent(who, Talent::ExtraBags) {
+                        class::EXTRA_BAGS_CHARGES
+                    } else {
+                        0
+                    }
+            }
+            Kit::Sentry => {
+                if self.progress_of(who).level() < class::SENTRY_LEVEL {
+                    0
+                } else if self.has_talent(who, Talent::SecondSentry) {
+                    class::SECOND_SENTRY_CHARGES
+                } else {
+                    deploy::SENTRY_CHARGES
+                }
+            }
+        }
+    }
+
+    /// Seconds of the clock one charge of a kit takes to come back.
+    pub fn kit_cooldown(kit: Kit) -> f64 {
+        match kit {
+            Kit::Sandbag => deploy::SANDBAG_COOLDOWN,
+            Kit::Sentry => deploy::SENTRY_COOLDOWN,
+        }
+    }
+
+    /// Seconds of the clock until the next charge of a kit lands in that
+    /// engineer's pack; nought when the pack is already at its charges —
+    /// or when the cooldown has run out and the kit is waiting on room.
+    pub fn kit_cooldown_left(&self, who: u32, kit: Kit) -> f64 {
+        let Some(began) = self
+            .kit_timers
+            .get(who as usize)
+            .and_then(|t| t[kit.code() as usize])
+        else {
+            return 0.0;
+        };
+        // Seconds of the room's clock, the grenade cooldown's arithmetic:
+        // a game minute is a real second at 1×.
+        let since = (self.clock_minutes - began) / time::MINUTES_PER_SECOND;
+        (World::kit_cooldown(kit) - since).max(0.0)
+    }
+
+    /// How many sentries an engineer may have standing: its sentry
+    /// charges (feature 88), so the charge limit *is* the world limit.
+    pub fn sentry_limit(&self, owner: u32) -> u32 {
+        self.kit_charges(owner, Kit::Sentry)
     }
 
     /// How many sentries an engineer has standing, anywhere.
@@ -9210,17 +9312,58 @@ impl World {
             .count() as u32
     }
 
-    /// How many more sentries an engineer could lay: the kits in its
-    /// pack, held down to the room [`World::sentry_limit`] leaves it.
+    /// How many sentries an engineer could lay now: the kits in its pack
+    /// (feature 88). It is no longer held down to the room the limit
+    /// leaves, since one over the limit destroys the oldest rather than
+    /// being refused.
     pub fn sentries_left(&self, who: u32) -> u32 {
-        let room = self.sentry_limit(who).saturating_sub(self.sentries_of(who));
-        self.kits_of(who, Kit::Sentry).min(room)
+        self.kits_of(who, Kit::Sentry)
+    }
+
+    /// Every engineer's packs filled back up to its [`World::kit_charges`]
+    /// on the kinds' cooldowns (feature 88), a step of the world's clock
+    /// at a time: a charge's cooldown runs whenever the pack is short,
+    /// and when it runs out one kit goes in. In combat as out of it —
+    /// this is an ability's cooldown and not the dressings' restock — and
+    /// nothing is conjured out of the hold: a kit is the ability.
+    fn restock_kits(&mut self) {
+        let crew = self.aboard.crew_count() as usize;
+        if self.kit_timers.len() < crew {
+            self.kit_timers.resize(crew, [None; Kit::ALL.len()]);
+        }
+        let now = self.clock_minutes;
+        for who in 0..crew {
+            for kit in Kit::ALL {
+                let k = kit.code() as usize;
+                let charges = self.kit_charges(who as u32, kit);
+                let held = self.kits_of(who as u32, kit);
+                if held >= charges || !self.aboard.room.is_alive(who) {
+                    self.kit_timers[who][k] = None;
+                    continue;
+                }
+                let Some(began) = self.kit_timers[who][k] else {
+                    self.kit_timers[who][k] = Some(now);
+                    continue;
+                };
+                let since = (now - began) / time::MINUTES_PER_SECOND;
+                if since < World::kit_cooldown(kit) {
+                    continue;
+                }
+                // The charge is up. A pack with nowhere to put it keeps
+                // the timer where it is and the kit lands the step room
+                // is made, the way the grids keep an overflow unplaced.
+                let item = Item::Stack(kit.resource() as u32);
+                if self.aboard.room.give(who, None, item) {
+                    self.kit_timers[who][k] = (held + 1 < charges).then_some(now);
+                }
+            }
+        }
     }
 
     /// What a deploy asks, before the errand: the slot's Bim fit to act,
-    /// an engineer with the kit in its pack, a sentry allowed it, and the
-    /// tile free to take it. What the app greys a press out with, and
-    /// [`Command::Deploy`]'s own check.
+    /// an engineer with the kit in its pack, a sentry from the third
+    /// level, and the tile free to take it. What the app greys a press out
+    /// with, and [`Command::Deploy`]'s own check.
     pub fn can_deploy(&self, slot: u32, kit: Kit, tile: (i32, i32)) -> Result<(), Refusal> {
         if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
@@ -9234,13 +9377,10 @@ impl World {
         if !room.pack(who).iter().any(|i| *i == Some(wanted)) {
             return Err(Refusal::NoKit);
         }
-        if kit == Kit::Sentry {
-            if self.progress_of(slot).level() < class::SENTRY_LEVEL {
-                return Err(Refusal::NoSentryYet);
-            }
-            if self.sentries_of(slot) >= self.sentry_limit(slot) {
-                return Err(Refusal::SentryLimit);
-            }
+        // A sentry over the limit is not refused (feature 88): the laying
+        // destroys the engineer's oldest, so the charges are the limit.
+        if kit == Kit::Sentry && self.progress_of(slot).level() < class::SENTRY_LEVEL {
+            return Err(Refusal::NoSentryYet);
         }
         let t = shipdesign::TILE as f32;
         let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
@@ -9314,7 +9454,9 @@ impl World {
     /// (`reused_kits`) is spent first and gives no experience; a fresh one
     /// is [`class::XP_BUILT`] to every engineer in the layer's vicinity.
     /// *Bulk bags* lays a second tile of sandbags beside the first out of
-    /// the one kit, on the first free neighbour.
+    /// the one kit, on the first free neighbour. A sentry laid with as
+    /// many of that engineer's standing as it has charges **destroys its
+    /// oldest** (feature 88): the charges are the world limit.
     fn finish_deploy(
         &mut self,
         who: usize,
@@ -9338,13 +9480,32 @@ impl World {
             return;
         };
         let (deck, tile) = self.deck_of(at);
-        if self.deployable_at(deck, tile).is_some()
-            || (sentry && self.sentries_of(slot) >= self.sentry_limit(slot))
-        {
+        if self.deployable_at(deck, tile).is_some() {
             return;
         }
         if self.aboard.room.take(who, cell).is_none() {
             return;
+        }
+        // One more than the charges allow: the oldest of this engineer's
+        // goes, so a sentry can be moved about the deck freely and never
+        // outnumbers its charges (feature 88).
+        if sentry {
+            let limit = self.sentry_limit(slot);
+            while self.sentries_of(slot) >= limit.max(1) {
+                let Some(oldest) = self
+                    .deployables
+                    .iter()
+                    .filter(|d| d.kind == DeployKind::Sentry && d.owner_slot == slot)
+                    .map(|d| d.id)
+                    .min()
+                else {
+                    break;
+                };
+                self.deployables.retain(|d| d.id != oldest);
+                events.push(WorldEvent::DeployableLost {
+                    kind: DeployKind::Sentry.code(),
+                });
+            }
         }
         self.lay(kit.lays(), slot, deck, tile);
         if kit == Kit::Sandbag && self.has_talent(slot, Talent::BulkBags) {
@@ -9376,9 +9537,9 @@ impl World {
     fn lay(&mut self, kind: DeployKind, owner: u32, deck: Deck, tile: (u32, u32)) {
         let id = self.next_deployable;
         self.next_deployable += 1;
-        let (health, shots) = match kind {
-            DeployKind::Sandbags => (deploy::SANDBAG_HEALTH, 0),
-            DeployKind::Sentry => (self.sentry_health(owner), self.sentry_shots(owner)),
+        let health = match kind {
+            DeployKind::Sandbags => self.sandbag_health(owner),
+            DeployKind::Sentry => self.sentry_health(owner),
         };
         self.deployables.push(Deployable {
             id,
@@ -9387,13 +9548,12 @@ impl World {
             deck,
             tile,
             health,
-            shots,
         });
         self.deployables.sort_by_key(|d| d.id);
     }
 
     /// Which deployable a player's engineer stands within reach of, by
-    /// id, fit to act — what a pack-up and a refill want first.
+    /// id, fit to act — what a pack-up wants first.
     fn deployable_in_reach(&self, slot: u32, id: u32) -> Result<Deployable, Refusal> {
         if !self.fit_to_act(slot) {
             return Err(Refusal::OutOfReach);
@@ -9437,48 +9597,19 @@ impl World {
         self.sync_deployed_cover();
     }
 
-    /// A sentry filled to its shots — see [`Command::Refill`].
-    fn refill(&mut self, slot: u32, id: u32, events: &mut Vec<WorldEvent>) {
-        let d = match self.deployable_in_reach(slot, id) {
-            Ok(d) => d,
-            Err(why) => {
-                events.push(refused(slot, why));
-                return;
-            }
-        };
-        if d.kind != DeployKind::Sentry {
-            events.push(refused(slot, Refusal::NoSuchDeployable));
-            return;
-        }
-        let free = !self.has_talent(slot, Talent::FieldRefit);
-        if free && self.free(ResourceId::Metal) < deploy::SENTRY_REFILL_METAL {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        }
-        if free {
-            self.ship.design.cargo[ResourceId::Metal as usize] -= deploy::SENTRY_REFILL_METAL;
-            self.on_ship_changed();
-        }
-        let shots = self.sentry_shots(d.owner_slot);
-        if let Some(s) = self.deployables.iter_mut().find(|x| x.id == id) {
-            s.shots = shots;
-        }
-        events.push(WorldEvent::Refilled { who: slot });
-    }
-
     /// Before the rooms step: what the engineers' talents do to the crew's
     /// working steps and to a deploy under fire, the sandbags laid as
     /// cover on both rooms, and the sentries on the crew's deck.
     fn hand_the_room_the_engineers(&mut self) {
         let crew = self.aboard.crew_count();
+        // The craft factor is one for everybody since feature 88 took
+        // *quick hands* off the tree — every talent of the engineer's is
+        // combat's now — and the pair is kept because the room's own
+        // `set_work_factors` is a craft's and a build's.
         let factors: Vec<(f32, f32)> = (0..crew)
             .map(|who| {
                 (
-                    if self.has_talent(who, Talent::QuickHands) {
-                        class::QUICK_HANDS_EFFORT
-                    } else {
-                        1.0
-                    },
+                    1.0,
                     if self.has_talent(who, Talent::SiteForeman) {
                         class::SITE_FOREMAN_EFFORT
                     } else {
@@ -9525,7 +9656,7 @@ impl World {
                     id: d.id,
                     at,
                     weapon: self.sentry_weapon(d.owner_slot),
-                    shots: d.shots,
+                    skill: self.sentry_skill(d.owner_slot),
                     dug_in: self.has_talent(d.owner_slot, Talent::DugIn),
                     trigger: bims::combat::Trigger::default(),
                 })
@@ -9569,17 +9700,11 @@ impl World {
             .collect()
     }
 
-    /// After `visit`: what the fight did to the deployables — the shots
-    /// the sentries fired, the hits they took, the bolts the sandbags
-    /// stopped — and what is gone for it, said. A destroyed sentry's kit
-    /// goes back into its owner's pack with *salvage*, as a re-used kit,
-    /// if there is room.
+    /// After `visit`: what the fight did to the deployables — the hits the
+    /// sentries took, the bolts the sandbags stopped — and what is gone
+    /// for it, said. Nothing comes back: a destroyed sentry's charge
+    /// returns on its cooldown like any other (feature 88).
     pub(crate) fn settle_deployables(&mut self, events: &mut Vec<WorldEvent>) {
-        for (id, n) in self.aboard.room.take_sentry_shots() {
-            if let Some(d) = self.deployables.iter_mut().find(|d| d.id == id) {
-                d.shots = d.shots.saturating_sub(n);
-            }
-        }
         for (id, damage) in self.aboard.room.take_sentry_hits() {
             if let Some(d) = self.deployables.iter_mut().find(|d| d.id == id) {
                 d.health -= damage;
@@ -9614,15 +9739,6 @@ impl World {
             events.push(WorldEvent::DeployableLost {
                 kind: d.kind.code(),
             });
-            if d.kind == DeployKind::Sentry && self.has_talent(d.owner_slot, Talent::Salvage) {
-                let who = d.owner_slot as usize;
-                let kit = Item::Stack(Kit::Sentry.resource() as u32);
-                if self.aboard.room.is_alive(who) && self.aboard.room.give(who, None, kit) {
-                    if let Some(n) = self.reused_kits.get_mut(who) {
-                        *n += 1;
-                    }
-                }
-            }
         }
         self.sync_deployed_cover();
     }
@@ -9692,6 +9808,15 @@ impl World {
         // a tank's: *rallying wall* gives it to the crew round him
         // (feature 77).
         skill.armour_drain = self.armour_drain(who);
+        // And an engineer's *higher quality armour* is his own pieces'
+        // (feature 88): a point on their protection, and five per cent
+        // more health said as the drain's reciprocal, which is the tank's
+        // own mechanism — a piece's stored health never changes meaning
+        // as it moves between bodies.
+        if self.has_talent(who, Talent::BetterArmour) {
+            skill.armour_protection_add = class::BETTER_ARMOUR_PROTECTION;
+            skill.armour_drain /= class::BETTER_ARMOUR_HEALTH;
+        }
         // And so is a commander's aura, his rally and his squad order
         // (feature 78): they lift whatever the crew member's own class
         // gave it, a player's own steered Bim included.

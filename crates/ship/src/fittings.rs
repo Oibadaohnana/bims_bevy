@@ -2257,13 +2257,13 @@ pub(crate) fn sandbags(list: &mut DrawList, part: &PlacedPart) {
 const SENTRY: Color = Color::rgb(0.40, 0.44, 0.50);
 const SENTRY_DARK: Color = Color::rgb(0.24, 0.26, 0.30);
 const SENTRY_EYE: Color = Color::rgb(0.40, 0.72, 1.0);
-const SENTRY_DRY: Color = Color::rgb(0.55, 0.40, 0.30);
 
 /// A sentry on its tile: a squat base on three feet, the turret's drum
-/// on it with the rifle's barrel out to the right, and an eye that is
-/// blue while it has shots and dull when it is dry. `health` is nought
-/// to one, for the dark ring that grows as it is shot up.
-pub(crate) fn sentry(list: &mut DrawList, part: &PlacedPart, health: f32, dry: bool) {
+/// on it with the rifle's barrel out to the right, and the eye it aims
+/// with — lit for as long as it stands, since a sentry never runs out of
+/// shots (feature 88). `health` is nought to one, for the dark ring that
+/// grows as it is shot up.
+pub(crate) fn sentry(list: &mut DrawList, part: &PlacedPart, health: f32) {
     let (local, across, along) = Local::of(part);
     let side = across.min(along);
     // The feet, three round pads.
@@ -2339,7 +2339,7 @@ pub(crate) fn sentry(list: &mut DrawList, part: &PlacedPart, health: f32, dry: b
         side * 0.14,
         0.0,
         0.0,
-        if dry { SENTRY_DRY } else { SENTRY_EYE },
+        SENTRY_EYE,
     );
 }
 

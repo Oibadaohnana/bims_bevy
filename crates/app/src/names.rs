@@ -559,7 +559,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotAnEngineer => "only an engineer does that",
         Refusal::NoKit => "there is no such kit in the pack",
         Refusal::NoSentryYet => "a sentry wants the engineer's third level",
-        Refusal::SentryLimit => "as many sentries are standing as the engineer may have",
         Refusal::CantDeployThere => {
             "that tile will not take it — clear deck floor within reach, not a door, nothing on it"
         }
@@ -740,8 +739,8 @@ pub const ABILITY_NAMES: [[&str; 2]; 6] = [
 pub const ABILITY_TIPS: [[&str; 2]; 6] = [
     ["", ""],
     [
-        "Lay a sentry on the deck tile under the pointer: it shoots for itself at whatever it can see, and is refilled and packed up from the Nearby strip. The number is how many more you could lay — the kits in the pack, down to the one your talents allow standing at once.",
-        "Lay sandbags on the deck tile under the pointer: low cover, walked and seen over, ducked behind. The number is the kits in the pack.",
+        "Lay a sentry on the deck tile under the pointer: it shoots for itself at whatever it can see for as long as it stands, and is packed up from the Nearby strip. The number is the charges in the pack, each back a minute after it is spent; laying one over your limit destroys your oldest.",
+        "Lay sandbags on the deck tile under the pointer: low cover, walked and seen over, ducked behind, and gone once shot to pieces. The number is the charges in the pack, each back three quarters of a minute after it is spent.",
     ],
     [
         "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs. The number is the grenades in the pack.",
@@ -826,17 +825,17 @@ pub fn skill_slot_line(level: u8, pick: bool) -> String {
     }
 }
 pub const TALENT_NAMES: [&str; 70] = [
-    "Quick hands",
+    "Reinforced sand",
     "Site foreman",
     "Sandbagger",
     "Bulk bags",
     "Armoured sentry",
-    "Deep magazine",
+    "Enhanced optics",
     "Armourer",
-    "Field refit",
+    "Higher quality armour",
     "Dug in",
     "Quick build",
-    "Salvage",
+    "Extra bags",
     "Steady hands",
     "Second sentry",
     "Sentry mark III",
@@ -898,20 +897,20 @@ pub const TALENT_NAMES: [&str; 70] = [
     "Warcry",
 ];
 pub const TALENT_TIPS: [&str; 70] = [
-    "Work at a bench a quarter faster.",
+    "Every bag you lay takes fifty more before it is gone.",
     "Put a construction site together a quarter faster.",
     "Lay sandbags in half the time.",
-    "One sandbag kit lays two tiles side by side.",
+    "One sandbag charge lays two tiles side by side.",
     "A sentry with half again the health.",
-    "A sentry with half again the shots.",
+    "A sentry that shoots ten tiles further.",
     "Mend a damaged piece of armour at the workbench: the piece and a bar of metal in, ten points back on it.",
-    "Refill a sentry for nothing.",
+    "Armour you wear holds five per cent more and stops one more point of every hit.",
     "Sandbags anywhere between a sentry and the shooter are cover for it.",
     "Set a sentry up in half the time.",
-    "A sentry shot to pieces gives its kit back, if there is room in the pack.",
+    "One more sandbag charge.",
     "A hit no longer stops the laying of a kit.",
-    "Two sentries standing at once.",
-    "The sentry's rifle at tier three.",
+    "Two sentry charges, so two may stand at once.",
+    "The sentry carries a tier-three sniper rifle at double the rate and a fifth more damage.",
     "Every weapon's odds up by fifteen per cent.",
     "A fifth more damage within the weapon's sweet range.",
     "A fifth faster on foot while an enemy is in sight.",
@@ -1068,6 +1067,20 @@ fn pc(v: f64) -> String {
     format!("{}%", fig(v * 100.0))
 }
 
+/// How far a sentry's gun reaches at a tier, in tiles: the auto rifle at
+/// the first two and the sniper rifle at the third, which is the gun
+/// *sentry mark III* hands it (feature 88). The one place the app says a
+/// sentry's range, off `bims::combat`'s own tables.
+fn sentry_range(tier: bims::combat::Tier) -> f32 {
+    use bims::combat::{Tier, WeaponKind};
+    let kind = if tier == Tier::Three {
+        WeaponKind::SniperRifle
+    } else {
+        WeaponKind::AutoRifle
+    };
+    kind.at(tier).stats().range
+}
+
 /// **What a talent is actually worth, in numbers** — the line the Skills
 /// tree puts under a slot's name, so the choice between two of them is a
 /// choice between two figures rather than between two adjectives. Every
@@ -1082,7 +1095,14 @@ pub fn talent_numbers(talent: world::Talent) -> String {
     use world::class as c;
     match talent {
         // --- the engineer's ---
-        T::QuickHands => format!("Crafting {} — every working step at a bench", by(c::QUICK_HANDS_EFFORT as f64)),
+        T::ReinforcedSand => format!(
+            "Sandbag health {}",
+            step(
+                world::deploy::SANDBAG_HEALTH as f64,
+                (world::deploy::SANDBAG_HEALTH + c::REINFORCED_SAND_HEALTH) as f64,
+                ""
+            )
+        ),
         T::SiteForeman => format!("Building {} — every working step at a site", by(c::SITE_FOREMAN_EFFORT as f64)),
         T::Sandbagger => format!(
             "Laying sandbags {} game minutes ({})",
@@ -1093,7 +1113,10 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             ),
             by(c::SANDBAGGER_TIME)
         ),
-        T::BulkBags => "One kit lays 1 -> 2 tiles of sandbags, both at 200 health".to_string(),
+        T::BulkBags => format!(
+            "One charge lays 1 -> 2 tiles of sandbags, each at its own {} health",
+            fig(world::deploy::SANDBAG_HEALTH as f64)
+        ),
         T::ArmouredSentry => format!(
             "Sentry health {} ({})",
             step(
@@ -1103,23 +1126,28 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             ),
             by(c::ARMOURED_SENTRY_HEALTH as f64)
         ),
-        T::DeepMagazine => format!(
-            "Sentry shots {} ({})",
+        // The auto rifle's range is the same at tiers one and two — only
+        // tier three scales it — so there is one figure to show.
+        T::EnhancedOptics => format!(
+            "Sentry fire range {} tiles",
             step(
-                world::deploy::SENTRY_SHOTS as f64,
-                (world::deploy::SENTRY_SHOTS as f32 * c::DEEP_MAGAZINE_SHOTS) as f64,
+                sentry_range(bims::combat::Tier::One) as f64,
+                (sentry_range(bims::combat::Tier::One) + c::ENHANCED_OPTICS_RANGE) as f64,
                 ""
-            ),
-            by(c::DEEP_MAGAZINE_SHOTS as f64)
+            )
         ),
         T::Armourer => format!(
             "{} points back on a piece of armour per metal, {} game minutes at the workbench",
             fig(c::ARMOUR_REPAIR_PER_METAL as f64),
             c::ARMOUR_REPAIR_MINUTES
         ),
-        T::FieldRefit => format!(
-            "Refilling a sentry {} metal",
-            step(world::deploy::SENTRY_REFILL_METAL as f64, 0.0, "")
+        T::BetterArmour => format!(
+            "Armour he wears holds {} more and stops {} more of every hit — a basic kevlar's {} becomes {} of protection, and its 20 health absorbs {}",
+            pc((c::BETTER_ARMOUR_HEALTH - 1.0) as f64),
+            fig(c::BETTER_ARMOUR_PROTECTION as f64),
+            fig(2.0),
+            fig(2.0 + c::BETTER_ARMOUR_PROTECTION as f64),
+            fig((20.0 * c::BETTER_ARMOUR_HEALTH) as f64)
         ),
         T::DugIn => "Sandbags on the line between a sentry and its shooter are cover for the sentry — no number of its own, the shooter's odds fall as they do against a body in cover".to_string(),
         T::QuickBuild => format!(
@@ -1131,10 +1159,31 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             ),
             by(c::QUICK_BUILD_TIME)
         ),
-        T::Salvage => "A sentry shot to pieces gives its kit back: 1 kit in the pack, if there is room".to_string(),
+        T::ExtraBags => format!(
+            "Sandbag charges {}, each back after {} seconds",
+            step(
+                world::deploy::SANDBAG_CHARGES as f64,
+                (world::deploy::SANDBAG_CHARGES + c::EXTRA_BAGS_CHARGES) as f64,
+                ""
+            ),
+            fig(world::deploy::SANDBAG_COOLDOWN)
+        ),
         T::SteadyHands => "A hit no longer stops a laying: the deploy runs to its end whatever lands".to_string(),
-        T::SecondSentry => "Sentries standing at once 1 -> 2".to_string(),
-        T::SentryMarkThree => "The sentry's rifle at tier 3, where the seventh level put it at tier 2".to_string(),
+        T::SecondSentry => format!(
+            "Sentry charges {} — and so sentries standing at once, a third laid destroying the oldest",
+            step(
+                world::deploy::SENTRY_CHARGES as f64,
+                c::SECOND_SENTRY_CHARGES as f64,
+                ""
+            )
+        ),
+        T::SentryMarkThree => format!(
+            "A tier-3 sniper rifle in place of the auto rifle: fire rate {}, damage {}, range {} tiles against the tier-2 auto rifle's {}",
+            by(c::SENTRY_MARK_THREE_FIRE_RATE as f64),
+            by(c::SENTRY_MARK_THREE_DAMAGE as f64),
+            fig(sentry_range(bims::combat::Tier::Three) as f64),
+            fig(sentry_range(bims::combat::Tier::Two) as f64)
+        ),
         // --- the soldier's ---
         T::Marksman => format!(
             "Every weapon's hit chance {} — a {} shot becomes {}",
@@ -1470,21 +1519,23 @@ pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
     use world::class as c;
     Some(match (class, level) {
         (world::Class::Engineer, 1) => format!(
-            "{} sandbag kits to start. A laying takes {} game minutes; laid bags hold {} health",
-            world::deploy::ENGINEER_START_KITS,
+            "{} sandbag charges, each back {} seconds after it is spent. A laying takes {} game minutes; laid bags hold {} health and are gone at nothing",
+            world::deploy::SANDBAG_CHARGES,
+            fig(world::deploy::SANDBAG_COOLDOWN),
             fig(world::deploy::DEPLOY_SANDBAG_MINUTES),
             fig(world::deploy::SANDBAG_HEALTH as f64)
         ),
         (world::Class::Engineer, 3) => format!(
-            "One sentry at a time: {} game minutes to lay, {} health, {} shots, {} metal a refill",
+            "{} sentry charge, back {} seconds after it is spent — and so one standing at a time, a second laid destroying the first. {} game minutes to lay, {} health, and never out of shots",
+            world::deploy::SENTRY_CHARGES,
+            fig(world::deploy::SENTRY_COOLDOWN),
             fig(world::deploy::DEPLOY_SENTRY_MINUTES),
-            fig(world::deploy::SENTRY_HEALTH as f64),
-            world::deploy::SENTRY_SHOTS,
-            world::deploy::SENTRY_REFILL_METAL
+            fig(world::deploy::SENTRY_HEALTH as f64)
         ),
-        (world::Class::Engineer, 7) => {
-            "The sentry's rifle takes the tier-2 factors, where it fired at tier 1".to_string()
-        }
+        (world::Class::Engineer, 7) => format!(
+            "The sentry's rifle takes the tier-2 factors, where it fired at tier 1: {} tiles of range",
+            fig(sentry_range(bims::combat::Tier::Two) as f64)
+        ),
         (world::Class::Soldier, 1) => format!(
             "Braced, his hit chance is {} — a {} shot becomes {}",
             by(c::BRACE_ACCURACY as f64),
@@ -1571,7 +1622,6 @@ pub fn class_line(class: world::Class, level: u8, to_next: u32) -> String {
 }
 pub const PICK_PENDING: &str = "A talent to pick:";
 pub const PACK_UP: &str = "Pack up";
-pub const REFILL: &str = "Refill";
 pub const REPAIR: &str = "Repair";
 pub const REPAIR_TIP: &str = "Mend the damaged piece in the first slot for a bar of metal: the armourer's own session at the bench, ten minutes.";
 /// What a deployable on the deck is called, by `world::DeployKind` code,
@@ -1584,7 +1634,7 @@ pub fn deployable_line(d: &world::Deployable) -> String {
         .unwrap_or("Deployable");
     match d.kind {
         world::DeployKind::Sandbags => format!("{name} — {:.0} left", d.health),
-        world::DeployKind::Sentry => format!("{name} — {:.0} health, {} shots", d.health, d.shots),
+        world::DeployKind::Sentry => format!("{name} — {:.0} health", d.health),
     }
 }
 /// The log's line for a deploy key pressed and refused, off the world's
@@ -2127,7 +2177,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             0 => "The sandbags are shot to pieces.".into(),
             _ => "A sentry is shot to pieces.".into(),
         },
-        WorldEvent::Refilled { who: w } => format!("{} refilled a sentry.", who(w)),
         WorldEvent::Repaired { kind } => format!(
             "The workbench mended {}.",
             armour_name(bims::combat::ArmourKind::from_code(kind)).to_lowercase()
@@ -3364,7 +3413,6 @@ mod tests {
                 Refusal::NotAnEngineer,
                 Refusal::NoKit,
                 Refusal::NoSentryYet,
-                Refusal::SentryLimit,
                 Refusal::CantDeployThere,
                 Refusal::NoSuchDeployable,
                 Refusal::NotAPickLevel,
@@ -3457,7 +3505,6 @@ mod tests {
                 WorldEvent::Deployed { who: 0, kind: 0 },
                 WorldEvent::PackedUp { who: 0, kind: 1 },
                 WorldEvent::DeployableLost { kind: 1 },
-                WorldEvent::Refilled { who: 0 },
                 WorldEvent::Repaired { kind: 1 },
                 WorldEvent::Braced { who: 0, on: true },
                 WorldEvent::Braced { who: 0, on: false },

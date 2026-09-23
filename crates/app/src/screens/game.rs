@@ -550,6 +550,12 @@ fn open(
             if let Some(n) = crate::dev::bandages() {
                 session.bandages_for_probe(n);
             }
+            // And the engineer's charges (feature 88): nought is the
+            // empty pack with both cooldowns running, which is what the
+            // seconds in the two boxes are looked at with.
+            if let Some(n) = crate::dev::kits() {
+                session.kits_for_probe(n);
+            }
             // A weapon asked for by name goes into the hand in place of
             // whatever was issued, the rest of the gear kept: the crew
             // member's, or every resident's; and armour asked for goes on
@@ -2184,7 +2190,6 @@ fn frame(
     for order in panels.deploy_orders.drain(..) {
         orders.push(match order {
             crate::crew::DeployOrder::PackUp(id) => Order::PackUp(id),
-            crate::crew::DeployOrder::Refill(id) => Order::Refill(id),
             crate::crew::DeployOrder::Pick { level, side } => Order::PickTalent { level, side },
             crate::crew::DeployOrder::SetClass(class) => Order::SetClass(class),
             crate::crew::DeployOrder::Repair => Order::Repair,
@@ -4073,9 +4078,10 @@ fn nearby_of(session: &Session, who: usize, name: &dyn Fn(u32) -> String) -> Vec
             },
         ));
     }
-    // And the engineer's deployables within reach (feature 74): a row
-    // to pack each up, and one to refill a sentry. Only an engineer's
-    // rows — nobody else can, and the world would only say so.
+    // And the engineer's deployables within reach (feature 74): a row to
+    // pack each up, and nothing else — a sentry never runs out of shots
+    // and is never refilled (feature 88). Only an engineer's rows —
+    // nobody else can, and the world would only say so.
     if world.class_of(who as u32) == world::Class::Engineer {
         for (d, lies) in world.deployables_in_reach(who as u32) {
             let what = deployable_line(&d);
@@ -4086,15 +4092,6 @@ fn nearby_of(session: &Session, who: usize, name: &dyn Fn(u32) -> String) -> Vec
                     label: format!("{PACK_UP} — {what}"),
                 },
             ));
-            if d.kind == world::DeployKind::Sentry {
-                found.push((
-                    (at - lies).len() + 0.01,
-                    Near {
-                        open: Open::Refill(d.id),
-                        label: format!("{REFILL} — {what}"),
-                    },
-                ));
-            }
         }
     }
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -4360,12 +4357,24 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                 extra
             } else {
                 match (class, primary) {
+                    // The two boxes count the charges in the pack and,
+                    // **with none left**, show how long until the next
+                    // one lands (feature 88). The cooldown runs whenever
+                    // the pack is short of its charges, but a box with a
+                    // charge in it is ready whatever the cooldown is
+                    // doing, and `ready` reads the cooldown as a bar to
+                    // the key — so the seconds are shown only when they
+                    // are what is actually in the way.
                     (Class::Engineer, true) => {
                         let left = world.sentries_left(slot);
                         (
                             Mark::Thing(ResourceId::SentryKit),
                             Some(left),
-                            0.0,
+                            if left == 0 {
+                                world.kit_cooldown_left(slot, world::Kit::Sentry)
+                            } else {
+                                0.0
+                            },
                             None,
                             false,
                             left == 0,
@@ -4376,7 +4385,11 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                         (
                             Mark::Thing(ResourceId::SandbagKit),
                             Some(kits),
-                            0.0,
+                            if kits == 0 {
+                                world.kit_cooldown_left(slot, world::Kit::Sandbag)
+                            } else {
+                                0.0
+                            },
                             None,
                             false,
                             kits == 0,
@@ -5208,7 +5221,7 @@ mod class_key_tests {
         assert_eq!(boxes[0].locked, Some(world::class::SENTRY_LEVEL));
         assert_eq!(
             boxes[0].count,
-            Some(world::deploy::ENGINEER_START_SENTRIES),
+            Some(world::deploy::SENTRY_CHARGES),
             "the sentry kit it set out with"
         );
         assert!(!boxes[0].ready(), "the level, not the kit");
@@ -5216,7 +5229,7 @@ mod class_key_tests {
         assert_eq!(boxes[1].locked, None);
         assert_eq!(
             boxes[1].count,
-            Some(world::deploy::ENGINEER_START_KITS),
+            Some(world::deploy::SANDBAG_CHARGES),
             "the kits it set out with"
         );
         assert!(boxes[1].ready());

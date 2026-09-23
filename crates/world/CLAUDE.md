@@ -2822,16 +2822,15 @@ asked for (A to E and the hotkeys' defaults, which are `keys.rs`'s).
 — `ship::Session::set_class` in the yard, `World::set_class` as the
 world opens — and by `Command::SetClass` until `undocked_once`, which
 the step sets the first time the state is not `Docked`; after that it is
-`Refusal::ClassLocked`. Choosing Engineer puts `ENGINEER_START_KITS`
-(three) `SandbagKit`s and `ENGINEER_START_SENTRIES` (one) `SentryKit`
-into the Bim's pack through `Game::give` (`give_engineer_kit`,
-`World::ENGINEER_START` being the two counts in one table), and choosing
-None takes them out again (`take_engineer_kit`). The sentry kit is
-dealt because a sentry kit is otherwise made at the workbench, which is
-an hour and two bars in, and the Q the class is looked at for would be
-unusable in any fight nobody stood at a bench before; a probe or a test
-that wants more than the class deals asks
-`World::give_kits_for_probe(who, kit, n)`.
+`Refusal::ClassLocked`. Choosing Engineer puts its **charges** in the
+Bim's pack — `SANDBAG_CHARGES` (three) `SandbagKit`s and
+`SENTRY_CHARGES` (one) `SentryKit` — through `Game::give`
+(`give_engineer_kit`, `World::ENGINEER_START` being the two counts in
+one table), and choosing None takes them out again
+(`take_engineer_kit`). Since feature 88 those are not crafted at all:
+they are what the cooldowns fill the pack back up to ("Charges, not
+crafting" below). A probe or a test that wants more than the class deals
+asks `World::give_kits_for_probe(who, kit, n)`.
 **The pool is untouched** — since feature 75 a
 class owns abilities and never money (`class::contribution` and
 `economy::starting_pool_of` are gone). `World::progress` is a
@@ -2846,7 +2845,7 @@ crew member's own class (`Talent::class`). `LEVEL_XP`, `level_of`,
 `is_pick_level` (the same shape for every class: fixed at one, three and
 seven), `Progress::{level, to_next, gain, picked_at, pending_pick}` are
 the rules, with every multiplier a named constant beside them
-(`QUICK_HANDS_EFFORT` … `ARMOUR_REPAIR_PER_METAL`, then the soldier's).
+(`SITE_FOREMAN_EFFORT` … `SENTRY_MARK_THREE_DAMAGE`, then the soldier's).
 `pick_talent` is the command: `NoClass` (52) without a class, then
 `Progress::pick`'s `NotAPickLevel`/`LevelNotReached`/`AlreadyPicked`. A
 `LevelUp` (68, `who`, the class's code and the level) is said once a
@@ -2867,33 +2866,106 @@ unjoined deck is nobody's, and a crewmate down is never counted.
 gives `XP_BUILT` to every engineer within the vicinity of the builder
 (`award_engineers_near`), and `finish_deploy` the same at the layer,
 unless the kit was a re-used one: `World::reused_kits` counts, a crew
-member each, the kits packed up or salvaged and not laid again, and a
+member each, the kits packed up and not laid again, and a
 deploy spends one of those first. `mercenaries` and the crew nobody
 steers have `Class::None` and are neither counted nor paid.
 
 **A deployable is a room object.** `Deployable { id, kind, owner_slot,
-deck: Ship | Station(id), tile, health, shots }` on `World::deployables`
+deck: Ship | Station(id), tile, health }` on `World::deployables`
 (id order, `next_deployable` climbing), never in the design.
 `Command::Deploy { slot, kit, x, y }` names a **room tile** of the crew's
 room — the app's `room_point` under the pointer — and `can_deploy` is
 the check the app greys a press with and the command makes: fit to act
 (`OutOfReach`), an engineer (`NotAnEngineer`), the kit in the pack
-(`NoKit`), a sentry from `SENTRY_LEVEL` (`NoSentryYet`) and under
-`sentry_limit` (`SentryLimit`, one or two with *second sentry*), and a
+(`NoKit`), a sentry from `SENTRY_LEVEL` (`NoSentryYet`), and a
 tile `Game::deploy_tile_ok` takes — walkable floor, not a door, a stand
-beside it — with nothing laid on it (`CantDeployThere`). The errand is
+beside it — with nothing laid on it (`CantDeployThere`). There is no
+limit refusal: since feature 88 a sentry over the charges destroys the
+oldest instead. The errand is
 the room's (`Game::deploy`, `Kind::Deploy`, `crates/game/CLAUDE.md`) for
 `deploy_minutes` — the kind's, halved by *sandbagger* or *quick build* —
 and the kit leaves the pack only when `Room::deployed` says it was laid:
 `finish_deploy` reads the deck and the design tile off `Aboard::design_of`
 (the station's while the tile is in the foreign box, `Deck::Station` of
-the berth), lays it with `lay` — sandbags at `SANDBAG_HEALTH`, a sentry at
-`sentry_health`/`sentry_shots` for the owner's talents — and *bulk bags*
-a second tile of sandbags on the first free neighbour. `PackUp` and
-`Refill` want the engineer within `REACH` of it (`deployables_in_reach`);
-a pack-up is the kit back (`PackFull` if not) and one more `reused_kits`;
-a refill is `SENTRY_REFILL_METAL` out of the hold unless *field refit*.
-Events `Deployed` 70, `PackedUp` 71, `DeployableLost` 72, `Refilled` 73.
+the berth), lays it with `lay` — sandbags at `sandbag_health` (the base
+plus *reinforced sand*), a sentry at `sentry_health` for the owner's
+talents — and *bulk bags*
+a second tile of sandbags on the first free neighbour. `PackUp` wants
+the engineer within `REACH` of it (`deployables_in_reach`) and is the
+kit back (`PackFull` if not) and one more `reused_kits`.
+Events `Deployed` 70, `PackedUp` 71, `DeployableLost` 72.
+
+### Charges, not crafting (feature 88)
+
+An engineer does not make its kits and a sentry does not carry
+ammunition. **Nothing in the game does**, yet, which is why *deep
+magazine*, *field refit* and *salvage* — three talents about a thing an
+engineer no longer does — went with the shots: `Deployable::shots`,
+`Sentry::shots`, `Game::take_sentry_shots`, `Command::Refill`,
+`WorldEvent::Refilled`, `Refusal::SentryLimit`, `SENTRY_SHOTS` and
+`SENTRY_REFILL_METAL` are all gone, and the four talents' **codes are
+kept** (`Talent` 0, 5, 7 and 10 are `ReinforcedSand`, `EnhancedOptics`,
+`BetterArmour` and `ExtraBags` now) rather than renumbered.
+
+- **`World::kit_charges(who, kit)`** is how many kits of a kind an
+  engineer's pack fills back up to: `SANDBAG_CHARGES` (three) plus
+  *extra bags*, and `SENTRY_CHARGES` (one) — nought under
+  `SENTRY_LEVEL` — or `SECOND_SENTRY_CHARGES` (two) with *second
+  sentry*. Nought for anybody who is not an engineer.
+- **`World::kit_timers`** is one `[Option<f64>; 2]` a crew member, the
+  clock minute each kind's current cooldown began, and it is **in
+  `world_checksum`** after the re-used kits. `World::restock_kits`, a
+  step before `hand_the_room_the_engineers`, is the whole of it: short
+  of its charges, a timer runs; run out, one kit goes into the pack
+  (through `Game::give`, so a pack with nowhere to put it keeps the
+  timer where it is and the kit lands the step room is made) and the
+  timer starts again while it is still short. `SANDBAG_COOLDOWN` is 45
+  seconds of the clock and `SENTRY_COOLDOWN` 60, read the grenade
+  cooldown's way; `World::kit_cooldown_left(who, kit)` is the reading.
+  **It runs in combat as out of it** — an ability's cooldown, not the
+  dressings' restock — and conjures nothing out of the hold, a kit being
+  the ability itself.
+- **The sentry charges are the world limit.** `sentry_limit` *is*
+  `kit_charges(.., Sentry)`, and `finish_deploy` destroys that
+  engineer's **oldest** standing sentry (lowest id, a `DeployableLost`
+  said for it) rather than refusing the laying, so a sentry can be moved
+  about the deck freely and never outnumbers its charges. Sandbags have
+  no such limit: `sentries_left` is now simply the kits in the pack.
+- **The sentry's talents are a `bims::combat::Skill`**, not a weapon:
+  `World::sentry_skill(owner)` carries *enhanced optics*'
+  `ENHANCED_OPTICS_RANGE` (ten tiles added) and *sentry mark III*'s
+  `SENTRY_MARK_THREE_FIRE_RATE` (×2) and `SENTRY_MARK_THREE_DAMAGE`
+  (×1.2), handed to the room on the `Sentry` and applied through the one
+  `Combat::fire_as` a Bim's skill goes through. `sentry_weapon` is the
+  auto rifle at tier one or two as before and a **tier-three sniper
+  rifle** with *sentry mark III*.
+- **The engineer's own armour** is *higher quality armour*'s, set in
+  `skill_of` beside `armour_drain`: `armour_protection_add` is
+  `BETTER_ARMOUR_PROTECTION` (a point added after *plated*'s multiplier)
+  and the drain is divided by `BETTER_ARMOUR_HEALTH` (1.05), which is
+  five per cent more health said the tank's way — a piece's stored
+  health never changes meaning as it moves between bodies.
+- **`REINFORCED_SAND_HEALTH`** (50) is *added* to `SANDBAG_HEALTH` (200)
+  where every other sandbag factor multiplies, and a bag at nothing is
+  gone for good as it always was.
+
+`tests_engineer.rs` pins all of it:
+`a_spent_charge_comes_back_on_its_cooldown` (the two cooldowns, the
+third level gating the sentry's, and the timer in the checksum),
+`second_sentry_is_two_charges_and_mark_three_is_a_tier_three_sniper`
+(the oldest destroyed, and the sniper's worked numbers),
+`a_sentry_fires_at_the_enemy_it_sees_and_never_runs_out`,
+`reinforced_sand_and_site_foreman_are_the_level_two_pick`,
+`armoured_sentry_and_enhanced_optics_are_the_sentry_s_numbers`,
+`higher_quality_armour_adds_protection_and_health_to_what_he_wears` and
+`extra_bags_is_a_fourth_charge_and_steady_hands_keep_at_a_deploy`.
+**`SAVE_VERSION` 26, `wire::PROTOCOL` 18** (the relay wants
+redeploying), `REFERENCE_CHECKSUM` = `0x_e136_a3b4_7e94_cdcd`. The dial
+is `World::set_kits_for_probe(n)` → `Session::kits_for_probe` →
+**`BIMS_KITS=n`**: exactly `n` of each kit in every pack with both
+cooldowns started afresh, since an engineer with nought charges and the
+whole wait ahead is the one state a scripted pointer cannot walk a Bim
+into.
 
 **Cover is set again every step, on both rooms.** `sync_deployed_cover`
 turns every laid sandbag into a tile rect in the crew's room
@@ -2911,20 +2983,21 @@ docking, undocking, joins and unjoins.
 **A sentry is the room's shooter and the enemy's target.**
 `hand_the_room_the_sentries` gives the crew's room every sentry in it as a
 `bims::combat::Sentry` — its room position, `sentry_weapon` (the auto
-rifle at tier one; two from `SENTRY_MARK_TWO_LEVEL`; three with *sentry
-mark III*), its shots and whether *dug in* — and the room fires them
+rifle at tier one; two from `SENTRY_MARK_TWO_LEVEL`; a tier-three sniper
+rifle with *sentry mark III*), `sentry_skill` and whether *dug in* — and
+the room fires them
 after the crew; `visit` appends the same sentries **after the crew** in
 the residents' targets (`to_station` of each), so the enemy's
 nearest-target rule and their blades find them, and a melee shot nearest
 a sentry index goes to `Game::enemy_strike_sentry`. `settle_deployables`,
-after `visit`, reads back `take_sentry_shots` (off `shots`),
+after `visit`, reads back
 `take_sentry_hits` (off `health`) and `take_cover_hits` — the bolts a
 body dodged behind laid sandbags, by room tile, off the bags' `health` —
-removes what is at nothing (`DeployableLost`), gives a destroyed sentry's
-kit back with *salvage* (a re-used kit, if the pack has room), and hands
-the sentries again. `hand_the_room_the_engineers` also sets
-`Game::set_work_factors` (*quick hands* on a craft, *site foreman* on a
-build, in the `effort` product and nowhere else) and
+removes what is at nothing (`DeployableLost`) and hands
+the sentries again. Nothing comes back off a wreck: its charge returns
+on its own cooldown. `hand_the_room_the_engineers` also sets
+`Game::set_work_factors` (*site foreman* on a build; the craft factor is
+one for everybody since feature 88 took *quick hands* off the tree) and
 `Game::set_steady_hands`.
 
 **The armourer's repair is `REPAIR_ORDER`** (1 001), the upgrade's

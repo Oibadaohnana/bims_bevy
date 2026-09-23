@@ -245,8 +245,6 @@ pub enum WorldEvent {
     /// A deployable was destroyed — sandbags shot to nothing, a sentry
     /// drained — by the kind.
     DeployableLost { kind: u32 },
-    /// A sentry was refilled: whose hands.
-    Refilled { who: u32 },
     /// A piece of armour was repaired at the workbench — the armourer's
     /// session done — by `bims::combat::ArmourKind`'s code.
     Repaired { kind: u32 },
@@ -442,22 +440,18 @@ pub enum Refusal {
     /// A class chosen after the ship first left its berth: a class is
     /// chosen at the start (`Command::SetClass`, `crate::class`).
     ClassLocked = 41,
-    /// A deploy, a pack-up, a refill or a repair by a crew member that is
+    /// A deploy, a pack-up or a repair by a crew member that is
     /// not an engineer, or a pick by one with no class.
     NotAnEngineer = 42,
     /// A deploy with no such kit in the pack.
     NoKit = 43,
     /// A sentry laid before the engineer's third level.
     NoSentryYet = 44,
-    /// A sentry laid with as many standing as the engineer may have —
-    /// one, two with *second sentry*.
-    SentryLimit = 45,
     /// A deploy on a tile that will not take it: not reachable deck
     /// floor, a door or an airlock, a part in the way, or a deployable
     /// there already.
     CantDeployThere = 46,
-    /// A pack-up, a refill or a strike of a deployable that is not there,
-    /// or of the wrong kind — a refill of sandbags.
+    /// A pack-up or a strike of a deployable that is not there.
     NoSuchDeployable = 47,
     /// A pick at a level that is not a pick level — a fixed one, or none.
     NotAPickLevel = 48,
@@ -611,7 +605,6 @@ impl WorldEvent {
             WorldEvent::Deployed { .. } => 70,
             WorldEvent::PackedUp { .. } => 71,
             WorldEvent::DeployableLost { .. } => 72,
-            WorldEvent::Refilled { .. } => 73,
             WorldEvent::Repaired { .. } => 74,
             WorldEvent::Braced { .. } => 75,
             WorldEvent::Thrown { .. } => 76,
@@ -738,8 +731,7 @@ impl WorldEvent {
                 (who as i64) + 100 * (kind as i64)
             }
             WorldEvent::DeployableLost { kind } | WorldEvent::Repaired { kind } => kind as i64,
-            WorldEvent::Refilled { who }
-            | WorldEvent::Thrown { who }
+            WorldEvent::Thrown { who }
             | WorldEvent::Surged { who }
             | WorldEvent::Taunted { who }
             | WorldEvent::Rallied { who } => who as i64,

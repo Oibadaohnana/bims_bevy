@@ -1572,7 +1572,7 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     };
     assert_eq!(
         kits(&session, 1),
-        world::deploy::ENGINEER_START_KITS as usize,
+        world::deploy::SANDBAG_CHARGES as usize,
         "the kits are in the pack"
     );
     assert_eq!(kits(&session, 0), 0);

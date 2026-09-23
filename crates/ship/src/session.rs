@@ -622,6 +622,17 @@ impl Session {
         }
     }
 
+    /// Exactly `n` of each of the engineer's two kits in every pack
+    /// (feature 88), for `BIMS_KITS=n`, with the cooldowns started afresh
+    /// — `BIMS_KITS=0` is the one state a scripted run cannot walk itself
+    /// into: no charge in hand and the whole wait ahead, which is what
+    /// puts the seconds in the corner of the two boxes.
+    pub fn kits_for_probe(&mut self, n: u32) {
+        if let Some(game) = self.game.as_mut() {
+            game.world.set_kits_for_probe(n);
+        }
+    }
+
     /// Crew member 1 taken out cold and carried by the field medic —
     /// `BIMS_CARRY=1` — for looking at a body in somebody's arms. The
     /// carrier is the last of the crew, which is where

@@ -20,21 +20,40 @@
 //! A **sentry** is a shooter with no body — `bims::combat::Sentry`,
 //! handed to the crew's room every step and fired there through the one
 //! trigger and the one hit calculation a Bim uses — with
-//! [`SENTRY_HEALTH`] in one pool, no parts and no armour, [`SENTRY_SHOTS`]
-//! trigger pulls and the auto rifle's stats, at the tier its owner's
-//! level and talents give. It fires at the nearest visible enemy in range
-//! and holds at nought shots; refilling it is [`SENTRY_REFILL_METAL`]
-//! out of the hold (nothing with *field refit*). The enemies' nearest-
-//! target rule includes it: a station's people are handed the sentries
-//! after the crew, their hits drain its health, and at nought it is
-//! destroyed and removed — its kit back in the owner's pack with
-//! *salvage*, if there is room. One a engineer, two with *second sentry*.
+//! [`SENTRY_HEALTH`] in one pool, no parts and no armour, and the auto
+//! rifle's stats at the tier its owner's level gives, or a **tier-three
+//! sniper rifle** with *sentry mark III*. It fires at the nearest visible
+//! enemy in range for as long as it stands: **nothing in this game
+//! carries ammunition** (feature 88), so there are no shots to count and
+//! no refill. The enemies' nearest-target rule includes it: a station's
+//! people are handed the sentries after the crew, their hits drain its
+//! health, and at nought it is destroyed and removed.
+//!
+//! # Charges, not crafting (feature 88)
+//!
+//! An engineer does not make its kits: it has **charges**, and a charge
+//! that has been spent comes back into its pack on a cooldown.
+//! [`SANDBAG_CHARGES`] dressings' worth of sandbag kits (one more with
+//! *extra bags*) at [`SANDBAG_COOLDOWN`] a charge, and
+//! [`SENTRY_CHARGES`] sentry kit at [`SENTRY_COOLDOWN`] (two with
+//! *second sentry*). `World::restock_kits` runs every step: while an
+//! engineer holds fewer kits of a kind than its charges, a cooldown
+//! runs, and when it runs out one kit goes into the pack — which is what
+//! "the skill cooldown dropping to nought" means here, since the kit in
+//! the pack is what the ability spends.
+//!
+//! **The sentry charges are also the world limit.** Laying a sentry with
+//! as many standing as the engineer has charges **destroys the oldest**
+//! rather than being refused, so an engineer's sentries can be moved
+//! about the deck freely and never outnumber its charges. Sandbags have
+//! no such limit: every bag laid stays until it is shot to pieces or
+//! packed up.
 //!
 //! # Laying one, and taking it up
 //!
 //! `Command::Deploy` wants the slot's own Bim fit to act, an engineer,
-//! the kit in its pack — `ResourceId::SandbagKit` or `SentryKit`, made at
-//! the workbench — and a tile of reachable deck floor that is not a door
+//! the kit in its pack — `ResourceId::SandbagKit` or `SentryKit` — and a
+//! tile of reachable deck floor that is not a door
 //! or an airlock, holds no blocking part and no deployable. The Bim does
 //! it as an errand (`bims::task::Kind::Deploy`): it walks beside the
 //! tile and works [`DEPLOY_SANDBAG_MINUTES`] or [`DEPLOY_SENTRY_MINUTES`]
@@ -148,30 +167,32 @@ pub struct Deployable {
     pub deck: Deck,
     /// The tile of that deck's design it stands on.
     pub tile: (u32, u32),
-    /// What it has left: [`SANDBAG_HEALTH`] or [`SENTRY_HEALTH`], times
-    /// what the owner's talents made of it when laid.
+    /// What it has left: [`SANDBAG_HEALTH`] or [`SENTRY_HEALTH`], plus or
+    /// times what the owner's talents made of it when laid.
     pub health: f32,
-    /// Trigger pulls left, for a sentry; nought for sandbags.
-    pub shots: u32,
 }
 
 /// How long laying sandbags takes, in game minutes of working steps.
 pub const DEPLOY_SANDBAG_MINUTES: f64 = 4.0;
 /// How long laying a sentry takes, the same way.
 pub const DEPLOY_SENTRY_MINUTES: f64 = 8.0;
-/// What laid sandbags can take before they are gone.
+/// What laid sandbags can take before they are gone — each bag its own
+/// pool, and gone for good at nothing.
 pub const SANDBAG_HEALTH: f32 = 200.0;
 /// A sentry's health: one pool, no parts, no armour.
 pub const SENTRY_HEALTH: f32 = 60.0;
-/// Trigger pulls a fresh sentry has.
-pub const SENTRY_SHOTS: u32 = 80;
-/// What refilling a sentry costs out of the hold.
-pub const SENTRY_REFILL_METAL: u32 = 1;
-/// Sandbag kits an engineer sets out with in its pack.
-pub const ENGINEER_START_KITS: u32 = 3;
-/// Sentry kits it sets out with beside them: one, so the sentry its Q
-/// is can be laid without standing at a workbench first.
-pub const ENGINEER_START_SENTRIES: u32 = 1;
+/// **Sandbag charges** an engineer has (feature 88): how many sandbag
+/// kits its pack fills back up to, and what it sets out with. One more
+/// with *extra bags*. There is no world limit on bags laid.
+pub const SANDBAG_CHARGES: u32 = 3;
+/// **Sentry charges**: one, two with *second sentry* — and the number of
+/// sentries that engineer may have standing, a further one laid
+/// destroying its oldest.
+pub const SENTRY_CHARGES: u32 = 1;
+/// Seconds of the clock one spent sandbag charge takes to come back.
+pub const SANDBAG_COOLDOWN: f64 = 45.0;
+/// Seconds of the clock a spent sentry charge takes to come back.
+pub const SENTRY_COOLDOWN: f64 = 60.0;
 /// Metal a repair at the workbench takes.
 pub const ARMOUR_REPAIR_METAL: u32 = 1;
 

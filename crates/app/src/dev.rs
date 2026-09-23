@@ -179,6 +179,16 @@ pub fn bandages() -> Option<u32> {
     std::env::var("BIMS_BANDAGES").ok()?.trim().parse().ok()
 }
 
+/// `BIMS_KITS=n` puts exactly `n` of **each** of the engineer's two kits
+/// in every crew member's pack and starts both cooldowns afresh (feature
+/// 88). `BIMS_KITS=0` is the state a scripted run cannot walk itself
+/// into — no charge in hand and the whole wait ahead — which is how the
+/// seconds in the corner of the two boxes are looked at
+/// (`Session::kits_for_probe`).
+pub fn kits() -> Option<u32> {
+    std::env::var("BIMS_KITS").ok()?.trim().parse().ok()
+}
+
 /// `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member out at
 /// open and leaves the next one failing — how a lamp out, the dark round
 /// it and a failing lamp's flicker are looked at without a fight that
@@ -399,7 +409,7 @@ pub fn bim_class() -> world::Class {
 /// otherwise; every other launch starts at the first level as before.
 ///
 /// **The engineer's sentry kit is its class's own**
-/// (`world::deploy::ENGINEER_START_SENTRIES`): a scripted fight has
+/// (`world::deploy::SENTRY_CHARGES`): a scripted fight has
 /// nobody to stand at a workbench for the minutes one takes, so the
 /// class deals the one the Q is, and nothing here has to.
 pub fn class_crew(session: &mut ship::Session, asked: world::Class) {

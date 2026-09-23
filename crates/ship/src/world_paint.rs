@@ -594,7 +594,7 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
 
 /// Every deployable in the crew's room, as a part stood on its tile:
 /// laid sandbags as the part's own picture, a sentry as the turret —
-/// its health as the ring closing on it, its eye dull once it is dry.
+/// its health as the ring closing on it.
 /// In the room's units, which the caller turns with the room.
 fn deployables(game: &Game, list: &mut DrawList) {
     let t = TILE as f32;
@@ -615,7 +615,6 @@ fn deployables(game: &Game, list: &mut DrawList) {
                 list,
                 &part,
                 d.health / world::deploy::SENTRY_HEALTH.max(1.0),
-                d.shots == 0,
             ),
         }
     }

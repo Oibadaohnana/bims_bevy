@@ -520,12 +520,26 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(d.tile.0 as u64);
         hash.eat(d.tile.1 as u64);
         hash.eat_rounded(d.health as f64, HEALTH_GRID);
-        hash.eat(d.shots as u64);
     }
     hash.eat(world.next_deployable as u64);
     hash.eat(world.reused_kits.len() as u64);
     for &n in &world.reused_kits {
         hash.eat(n as u64);
+    }
+    // And when each engineer's next charge of each kit is due, on the
+    // clock's grid (feature 88): a charge in the pack is a sentry that can
+    // be laid and one still cooling down is not.
+    hash.eat(world.kit_timers.len() as u64);
+    for timers in &world.kit_timers {
+        for began in timers {
+            match began {
+                Some(minutes) => {
+                    hash.eat(1);
+                    hash.eat_rounded(*minutes, FINE_GRID);
+                }
+                None => hash.eat(0),
+            }
+        }
     }
 
     // The soldiers (feature 75): who is braced and each one's *rampage*

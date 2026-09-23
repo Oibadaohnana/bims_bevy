@@ -625,6 +625,21 @@ pub struct Skill {
     /// rally (feature 78). Beats [`Skill::steady_pace`], which leaves
     /// only the blood out.
     pub unhurt: bool,
+    /// What every bolt's damage is multiplied by at any distance, near
+    /// and far alike — where [`Skill::point_blank`] bites only within the
+    /// weapon's sweet range: an engineer's *sentry mark III* (feature
+    /// 88). One for everybody else.
+    pub damage: f32,
+    /// **Tiles added** to the weapon's range: an engineer's *enhanced
+    /// optics* (feature 88). Nought for everybody else. It lengthens what
+    /// the shooter aims at and how far the bolt flies, and with it the
+    /// span the odds and the damage fall across, so a longer reach is
+    /// also a gentler falloff.
+    pub range: f32,
+    /// **Added** to a worn piece's protection, after
+    /// [`Skill::armour_protection`] has multiplied it: an engineer's
+    /// *higher quality armour* (feature 88). Nought for everybody else.
+    pub armour_protection_add: f32,
 }
 
 impl Skill {
@@ -652,6 +667,9 @@ impl Skill {
         nerve_hold: 0.0,
         marked_accuracy: 1.0,
         unhurt: false,
+        damage: 1.0,
+        range: 0.0,
+        armour_protection_add: 0.0,
     };
 
     /// The weapon's numbers through the skill: the odds multiplied (and
@@ -677,6 +695,12 @@ impl Skill {
             accuracy,
             accuracy_far,
             fire_rate: base.fire_rate * self.fire_rate,
+            // *Sentry mark III* and *enhanced optics* (feature 88): the
+            // damage at both ends of the curve, and the tiles the curve
+            // runs out to.
+            damage: base.damage * self.damage,
+            damage_far: base.damage_far * self.damage,
+            range: base.range + self.range,
             ..base
         }
     }
@@ -735,15 +759,17 @@ struct Blast {
 const BLAST_LIFE: f32 = 0.45;
 
 /// An engineer's sentry as the room keeps it (feature 74): a shooter
-/// that is not a body — a position on the deck, a weapon, a trigger and
-/// how many pulls of it are left. The world owns the sentry — its
-/// health, its shots, whose it is — and hands the room the list every
+/// that is not a body — a position on the deck, a weapon, a [`Skill`]
+/// its owner's talents made and a trigger. The world owns the sentry —
+/// its health, whose it is — and hands the room the list every
 /// step (`Game::set_sentries`); the room fires each at the nearest
 /// visible enemy in range through the same [`Combat::aim`] and
-/// [`Combat::fire`] a Bim uses, hands the pulls back (`Game::take_sentry_shots`),
+/// [`Combat::fire_as`] a Bim uses,
 /// and puts every sentry after the crew on the list of bodies a hostile
 /// bolt looks for, so a hit on one comes back as a hit on that index
-/// (`Game::take_sentry_hits`). A sentry with no shots left stands there.
+/// (`Game::take_sentry_hits`). **It never runs out of shots** (feature
+/// 88): nothing in the game carries ammunition, so a sentry fires for as
+/// long as it stands.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Sentry {
@@ -751,8 +777,10 @@ pub struct Sentry {
     pub id: u32,
     pub at: Vec2,
     pub weapon: Weapon,
-    /// Trigger pulls left; nought and it is silent.
-    pub shots: u32,
+    /// What its owner's talents do to its shooting (feature 88): the
+    /// range *enhanced optics* adds, and the fire rate and the damage
+    /// *sentry mark III* multiplies. [`Skill::NONE`] without either.
+    pub skill: Skill,
     /// Whether sandbags between it and a shooter count as cover for it
     /// at any distance — the engineer's *dug in* talent — where a body
     /// has to stand close behind them (`Sight::covered`).
@@ -1578,9 +1606,30 @@ pub struct Bolt {
     /// than the weapon's `sweet` range: the soldier's *point blank*, one
     /// for anybody else.
     pub point_blank: f32,
+    /// What its damage is multiplied by however far it has flown: a
+    /// sentry's *mark III* (feature 88), one for anybody else.
+    pub damage: f32,
+    /// Tiles added to the weapon's range for this bolt — *enhanced
+    /// optics* (feature 88), nought for anybody else — so the curve it
+    /// lands on is the one it was aimed along.
+    pub range: f32,
     /// The one body it has already slipped past — a peek that dodged it —
     /// so a bolt crossing a body over several steps is rolled for once.
     dodged: Option<usize>,
+}
+
+impl Bolt {
+    /// The curve it flies and lands on: the weapon's own with the tiles
+    /// [`Bolt::range`] added, so the damage falls off across the span it
+    /// was aimed along. [`Bolt::damage`] is *not* in it — that one is
+    /// multiplied in where the bolt lands, beside the point-blank factor.
+    pub fn stats(&self) -> WeaponStats {
+        let base = self.weapon.stats();
+        WeaponStats {
+            range: base.range + self.range,
+            ..base
+        }
+    }
 }
 
 /// A bolt that reached a body, or a blow that landed: whose — an index
@@ -2167,6 +2216,8 @@ impl Combat {
             hostile,
             by,
             point_blank: skill.point_blank,
+            damage: skill.damage,
+            range: skill.range,
             dodged: None,
         });
     }
@@ -2359,7 +2410,7 @@ impl Combat {
                         // to the body.
                         if !peeking && let Some(tile) = bags {
                             let flown = (body - bolt.fired_from).len() / TILE;
-                            bagged.push((tile, bolt.weapon.stats().damage_at(flown)));
+                            bagged.push((tile, bolt.stats().damage_at(flown) * bolt.damage));
                         }
                         continue;
                     }
@@ -2397,14 +2448,17 @@ impl Combat {
                     let at = from + flight * t;
                     if let Some(who) = who {
                         let flown = (at - bolt.fired_from).len() / TILE;
-                        let stats = bolt.weapon.stats();
+                        let stats = bolt.stats();
                         // *Point blank*: the factor while the bolt has
-                        // flown no further than the sweet range.
-                        let close = if flown <= stats.sweet {
-                            bolt.point_blank
-                        } else {
-                            1.0
-                        };
+                        // flown no further than the sweet range. The
+                        // bolt's own factor (*sentry mark III*) is on
+                        // top of it, at any distance.
+                        let close = bolt.damage
+                            * if flown <= stats.sweet {
+                                bolt.point_blank
+                            } else {
+                                1.0
+                            };
                         let roll = rng.unit();
                         let hit = Hit {
                             who,
@@ -2427,7 +2481,7 @@ impl Combat {
                     } else if let Some(lamp) = lamp {
                         // Nothing nearer than the lamp: the lamp took it.
                         let flown = (at - bolt.fired_from).len() / TILE;
-                        broken.push((lamp, bolt.weapon.stats().damage_at(flown)));
+                        broken.push((lamp, bolt.stats().damage_at(flown) * bolt.damage));
                     }
                     heard.push(Cued {
                         cue: match who {

@@ -1,5 +1,5 @@
 //! Classes: what a player's crew member is, and what it learns (features
-//! 74, 75, 76, 77 and 78).
+//! 74, 75, 76, 77, 78 and 88).
 //!
 //! A crew member has **one class**, chosen by its player before the game
 //! opens — a [`Class`] per player slot, kept on the world with the start
@@ -31,7 +31,7 @@
 //!
 //! Each enemy counts once for going down and once for dying; a crewmate
 //! or a mercenary going down gives nothing; a kit laid from a re-used one
-//! (`World::reused_kits`, a kit packed up or salvaged) gives nothing. The
+//! (`World::reused_kits`, a kit packed up) gives nothing. The
 //! vicinity is measured on the deck the fight is on, between the crew
 //! member and the enemy, or the crew member and whoever built. The
 //! soldier has no source of its own. The medic's counts when the task
@@ -69,16 +69,16 @@
 //!
 //! | level | left | right |
 //! |---|---|---|
-//! | 1 | lays sandbags; packs deployables up | — |
-//! | 2 | *Quick hands*: craft effort ×1.25 | *Site foreman*: build effort ×1.25 |
-//! | 3 | *Sentry*: may lay one sentry | — |
-//! | 4 | *Sandbagger*: sandbag deploy time ×0.5 | *Bulk bags*: one kit lays two adjacent tiles |
-//! | 5 | *Armoured sentry*: sentry health ×1.5 | *Deep magazine*: sentry shots ×1.5 |
-//! | 6 | *Armourer*: repairs armour at the workbench | *Field refit*: refilling a sentry costs no metal |
+//! | 1 | three sandbag charges, laid; packs deployables up | — |
+//! | 2 | *Reinforced sand*: +50 sandbag health | *Site foreman*: build effort ×1.25 |
+//! | 3 | *Sentry*: one sentry charge | — |
+//! | 4 | *Sandbagger*: sandbag deploy time ×0.5 | *Bulk bags*: one charge lays two adjacent tiles |
+//! | 5 | *Armoured sentry*: sentry health ×1.5 | *Enhanced optics*: sentry fire range +10 tiles |
+//! | 6 | *Armourer*: repairs armour at the workbench | *Higher quality armour*: his worn armour +5% health, +1 protection |
 //! | 7 | *Sentry mark II*: the tier-two factors on its rifle | — |
 //! | 8 | *Dug in*: sandbags anywhere between a sentry and the shooter are cover | *Quick build*: sentry deploy time ×0.5 |
-//! | 9 | *Salvage*: a destroyed sentry returns its kit to the pack | *Steady hands*: a hit no longer interrupts a deploy |
-//! | 10 | *Second sentry*: two at once | *Sentry mark III*: the tier-three factors |
+//! | 9 | *Extra bags*: one more sandbag charge | *Steady hands*: a hit no longer interrupts a deploy |
+//! | 10 | *Second sentry*: two sentry charges | *Sentry mark III*: a tier-three sniper rifle at double the rate and a fifth more damage |
 //!
 //! # The soldier's ten levels
 //!
@@ -296,18 +296,21 @@ impl Side {
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Talent {
-    // The engineer's (feature 74).
-    QuickHands = 0,
+    // The engineer's (features 74 and 88). Codes are never renumbered:
+    // the four the eighth-eighth feature replaced — *quick hands*, *deep
+    // magazine*, *field refit* and *salvage*, all of them about a thing
+    // an engineer no longer does — kept their places.
+    ReinforcedSand = 0,
     SiteForeman = 1,
     Sandbagger = 2,
     BulkBags = 3,
     ArmouredSentry = 4,
-    DeepMagazine = 5,
+    EnhancedOptics = 5,
     Armourer = 6,
-    FieldRefit = 7,
+    BetterArmour = 7,
     DugIn = 8,
     QuickBuild = 9,
-    Salvage = 10,
+    ExtraBags = 10,
     SteadyHands = 11,
     SecondSentry = 12,
     SentryMarkThree = 13,
@@ -377,17 +380,17 @@ pub enum Talent {
 
 impl Talent {
     pub const ALL: [Talent; 70] = [
-        Talent::QuickHands,
+        Talent::ReinforcedSand,
         Talent::SiteForeman,
         Talent::Sandbagger,
         Talent::BulkBags,
         Talent::ArmouredSentry,
-        Talent::DeepMagazine,
+        Talent::EnhancedOptics,
         Talent::Armourer,
-        Talent::FieldRefit,
+        Talent::BetterArmour,
         Talent::DugIn,
         Talent::QuickBuild,
-        Talent::Salvage,
+        Talent::ExtraBags,
         Talent::SteadyHands,
         Talent::SecondSentry,
         Talent::SentryMarkThree,
@@ -492,7 +495,7 @@ pub const XP_BUILT: u32 = 2;
 /// How far the vicinity reaches, in tiles.
 pub const VICINITY_TILES: f32 = 50.0;
 
-// --- the engineer's numbers (feature 74) -------------------------------------
+// --- the engineer's numbers (features 74 and 88) ------------------------------
 
 /// The level a sentry may be laid from: the engineer's third.
 pub const SENTRY_LEVEL: u8 = 3;
@@ -500,16 +503,35 @@ pub const SENTRY_LEVEL: u8 = 3;
 /// engineer's seventh.
 pub const SENTRY_MARK_TWO_LEVEL: u8 = 7;
 
-/// *Quick hands*: what a craft's working steps run at.
-pub const QUICK_HANDS_EFFORT: f32 = 1.25;
 /// *Site foreman*: what a build's working steps run at.
 pub const SITE_FOREMAN_EFFORT: f32 = 1.25;
 /// *Sandbagger*: what the sandbag deploy time is multiplied by.
 pub const SANDBAGGER_TIME: f64 = 0.5;
 /// *Armoured sentry*: what a sentry's health is multiplied by.
 pub const ARMOURED_SENTRY_HEALTH: f32 = 1.5;
-/// *Deep magazine*: what a sentry's shots are multiplied by.
-pub const DEEP_MAGAZINE_SHOTS: f32 = 1.5;
+/// *Reinforced sand* (feature 88): what is **added** to a laid bag's
+/// health, where every other sentry and sandbag factor multiplies.
+pub const REINFORCED_SAND_HEALTH: f32 = 50.0;
+/// *Enhanced optics* (feature 88): tiles **added** to the sentry's fire
+/// range. It is added to the weapon's range, so it lengthens what the
+/// sentry shoots at and the span the odds and the damage fall across.
+pub const ENHANCED_OPTICS_RANGE: f32 = 10.0;
+/// *Higher quality armour* (feature 88): what a piece worn by this
+/// engineer has of health, which is applied as the piece draining at the
+/// reciprocal — the tank's mechanism, so a piece's stored health never
+/// changes meaning as it moves between bodies.
+pub const BETTER_ARMOUR_HEALTH: f32 = 1.05;
+/// *Higher quality armour*: what is added to a worn piece's protection.
+pub const BETTER_ARMOUR_PROTECTION: f32 = 1.0;
+/// *Extra bags* (feature 88): sandbag charges added.
+pub const EXTRA_BAGS_CHARGES: u32 = 1;
+/// *Second sentry*: sentry charges in all — and so how many may stand.
+pub const SECOND_SENTRY_CHARGES: u32 = 2;
+/// *Sentry mark III* (feature 88): what its tier-three sniper rifle's
+/// fire rate is multiplied by.
+pub const SENTRY_MARK_THREE_FIRE_RATE: f32 = 2.0;
+/// *Sentry mark III*: what its damage is multiplied by, near and far.
+pub const SENTRY_MARK_THREE_DAMAGE: f32 = 1.2;
 /// *Quick build*: what the sentry deploy time is multiplied by.
 pub const QUICK_BUILD_TIME: f64 = 0.5;
 /// *Armourer*: what one metal at the workbench puts back on a piece.
@@ -749,12 +771,12 @@ pub fn is_pick_level(level: u8) -> bool {
 /// `None` for a fixed level, for no level at all, and for no class.
 pub fn pick_at(class: Class, level: u8) -> Option<(Talent, Talent)> {
     Some(match (class, level) {
-        (Class::Engineer, 2) => (Talent::QuickHands, Talent::SiteForeman),
+        (Class::Engineer, 2) => (Talent::ReinforcedSand, Talent::SiteForeman),
         (Class::Engineer, 4) => (Talent::Sandbagger, Talent::BulkBags),
-        (Class::Engineer, 5) => (Talent::ArmouredSentry, Talent::DeepMagazine),
-        (Class::Engineer, 6) => (Talent::Armourer, Talent::FieldRefit),
+        (Class::Engineer, 5) => (Talent::ArmouredSentry, Talent::EnhancedOptics),
+        (Class::Engineer, 6) => (Talent::Armourer, Talent::BetterArmour),
         (Class::Engineer, 8) => (Talent::DugIn, Talent::QuickBuild),
-        (Class::Engineer, 9) => (Talent::Salvage, Talent::SteadyHands),
+        (Class::Engineer, 9) => (Talent::ExtraBags, Talent::SteadyHands),
         (Class::Engineer, 10) => (Talent::SecondSentry, Talent::SentryMarkThree),
         (Class::Soldier, 2) => (Talent::Marksman, Talent::PointBlank),
         (Class::Soldier, 4) => (Talent::Runner, Talent::SteadyAim),
@@ -945,7 +967,7 @@ mod tests {
         );
         assert!(
             p.has(Class::Engineer, Talent::SiteForeman)
-                && !p.has(Class::Engineer, Talent::QuickHands)
+                && !p.has(Class::Engineer, Talent::ReinforcedSand)
         );
         // The same pick read as a soldier's is the soldier's right-hand
         // talent at that level: which talent a pick is depends on the

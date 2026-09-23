@@ -258,7 +258,6 @@ fn lay_bags(world: &mut World, at: Vec2) -> u32 {
         deck: Deck::Ship,
         tile: design_tile(world, at),
         health: crate::deploy::SANDBAG_HEALTH,
-        shots: 0,
     });
     id
 }
@@ -418,7 +417,7 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
             .iter()
             .filter(|i| **i == Some(kit))
             .count(),
-        crate::deploy::ENGINEER_START_KITS as usize
+        crate::deploy::SANDBAG_CHARGES as usize
     );
     assert_eq!(grenades(&world, 1), 0);
     assert_eq!(world.set_class(0, Class::None), Ok(()));
@@ -798,7 +797,6 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
         deck: Deck::Ship,
         tile: design_tile(&world, middle(run[2])),
         health: crate::deploy::SENTRY_HEALTH,
-        shots: 10,
     });
     world.step(&[]);
     assert_eq!(world.aboard.room.sentries().len(), 1);
@@ -855,7 +853,6 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
         "the sentry took {}",
         crate::deploy::SENTRY_HEALTH - s.health
     );
-    assert_eq!(s.shots, 10, "its shots are its own");
     // And the blood: the crew's deck round the crewmate.
     assert!(world.aboard.room.dirty_tiles() > 0);
     assert_eq!(
@@ -1067,7 +1064,7 @@ fn marksman_and_point_blank() {
         level: 2,
         side: Side::Left,
     }]);
-    assert!(world.has_talent(0, Talent::QuickHands));
+    assert!(world.has_talent(0, Talent::ReinforcedSand));
     assert!(!world.has_talent(0, Talent::Marksman));
     assert_eq!(world.skill_of(0), bims::combat::Skill::NONE);
 }

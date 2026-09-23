@@ -1688,43 +1688,55 @@ level it is learnt at — every class's **E** from the first level and its
 ### The engineer
 
 The first class (feature 74): sandbags, a sentry, and the workbench's
-friend. An engineer sets out with three sandbag kits and one sentry kit
-in its pack — the sentry it may set up at the third level is one it has
-without standing at a workbench for one first.
+friend. It works on **charges**, not on kits made at a bench (feature
+88): **three sandbag charges** and, from the third level, **one sentry
+charge**, each spent charge coming back into the pack on its own
+cooldown — **45 seconds** for a bag and **60** for the sentry. Nothing
+is crafted, nothing is fetched and nobody walks for it: the charge
+simply lands in the pack as the cooldown runs out, which is what the
+count in the corner of the key's box is.
 
 | level | left | right |
 | --- | --- | --- |
-| 1 | lays sandbags; packs deployables up | — |
-| 2 | **Quick hands** — craft a quarter faster | **Site foreman** — build a quarter faster |
-| 3 | **Sentry** — may set one up | — |
-| 4 | **Sandbagger** — sandbags in half the time | **Bulk bags** — one kit lays two tiles |
-| 5 | **Armoured sentry** — health ×1.5 | **Deep magazine** — shots ×1.5 |
-| 6 | **Armourer** — mends armour at the workbench | **Field refit** — a refill costs no metal |
+| 1 | three sandbag charges, laid; packs deployables up | — |
+| 2 | **Reinforced sand** — +50 sandbag health | **Site foreman** — build a quarter faster |
+| 3 | **Sentry** — one sentry charge | — |
+| 4 | **Sandbagger** — sandbags in half the time | **Bulk bags** — one charge lays two tiles |
+| 5 | **Armoured sentry** — health ×1.5 | **Enhanced optics** — fire range +10 tiles |
+| 6 | **Armourer** — mends armour at the workbench | **Higher quality armour** — his armour +5% health, +1 protection |
 | 7 | **Sentry mark II** — its rifle at tier two | — |
 | 8 | **Dug in** — sandbags anywhere between a sentry and the shooter are cover | **Quick build** — a sentry in half the time |
-| 9 | **Salvage** — a destroyed sentry gives its kit back | **Steady hands** — a hit no longer stops a deploy |
-| 10 | **Second sentry** — two at once | **Sentry mark III** — tier three |
+| 9 | **Extra bags** — one more sandbag charge | **Steady hands** — a hit no longer stops a deploy |
+| 10 | **Second sentry** — two sentry charges | **Sentry mark III** — a tier-three sniper rifle at double the rate and a fifth more damage |
 
-The workbench makes the two **kits**: a sandbag kit out of a bar of
-metal in ten minutes (behind the workshop), a sentry kit out of two bars,
-two components and an emitter in an hour (behind the emitters). No
-station sells them; any station buys them. Only an engineer can use
-them: `e` over a deck tile lays **sandbags** there — the engineer walks
-beside it and works four minutes, and a hit drops the errand with the
-kit still in the pack — and `q` sets up a **sentry**, eight minutes, from
-the third level. Either wants clear deck floor within reach that is not
-a door, with nothing on it. What is laid is a **deployable**, never a
-part of the ship: it touches neither the design nor its mass. Sandbags
-are cover exactly as the part is, in both rooms of a docked fight — the
-enemy duck behind them too — take every bolt a body dodges behind them,
-and are gone at 200; a **grenade's burst destroys them** outright,
-whatever they had left. A sentry is an auto rifle on a stand with 60 health
-and 80 trigger pulls: it fires at the nearest enemy it can see in range
-through the very same trigger and hit roll a Bim shoots with, the
-enemy's nearest-target rule includes it, their hits drain it, and at
-nothing it is shot to pieces. The rows beside one on the **Nearby**
-strip pack it up into the engineer's pack (a re-used kit) or refill a
-dry sentry for a bar of metal. On the ship's deck a deployable stays
+Every talent is a fighting talent: the tree had *quick hands* (crafting),
+*deep magazine* and *field refit* (a sentry's ammunition) and *salvage*
+(a kit back) on it, and none of the four is about a fight.
+
+Only an engineer can lay them: `e` over a deck tile lays **sandbags**
+there — the engineer walks beside it and works four minutes, and a hit
+drops the errand with the charge still in the pack — and `q` sets up a
+**sentry**, eight minutes, from the third level. Either wants clear deck
+floor within reach that is not a door, with nothing on it. What is laid
+is a **deployable**, never a part of the ship: it touches neither the
+design nor its mass. Sandbags are cover exactly as the part is, in both
+rooms of a docked fight — the enemy duck behind them too — take every
+bolt a body dodges behind them, and **are gone for good at 200 health**;
+a **grenade's burst destroys them** outright, whatever they had left.
+There is no limit on bags laid: lay one every time a charge comes back
+and the deck fills up with them.
+
+A sentry is an auto rifle on a stand with 60 health, and it **never runs
+out of shots** — nothing in this game carries ammunition, so there is
+nothing to reload and nothing to walk over and refill. It fires at the
+nearest enemy it can see in range through the very same trigger and hit
+roll a Bim shoots with, the enemy's nearest-target rule includes it,
+their hits drain it, and at nothing it is shot to pieces. **The charges
+are the limit**: with one charge only one sentry stands, and setting a
+second up destroys the first rather than being refused — so a sentry is
+moved about the deck by laying another one where you want it. The row
+beside one on the **Nearby** strip packs it up into the engineer's pack.
+On the ship's deck a deployable stays
 through docking, undocking and every join — a crew can lay a barricade
 inside the airlock while holding for a raid — on a station's deck it is
 lost when the ship casts off. The **armourer** has a **Repair** button on
