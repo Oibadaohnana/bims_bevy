@@ -3277,6 +3277,11 @@ fn a_station_s_plan_is_rolled_off_its_seed_and_the_spawn_is_a_hub() {
 /// not tile by tile, and a corridor the designer admits could cut a room
 /// off. Built by hand: a deck split by a wall with a one-tile gap, and an
 /// L of one-tile corridor through a block of wall.
+///
+/// The whole matrix — every plan on every kind at every seed — is asked
+/// for with `BIMS_SWEEP=1` (`./check full`); a plain run walks a slice of
+/// it, since a path search per tile of deck over sixty-five layouts costs
+/// more than the rest of the workspace's tests together.
 #[test]
 fn a_station_s_rooms_and_a_one_tile_corridor_can_be_walked() {
     // --- a_station_s_rooms_can_all_be_walked_from_its_door ---
@@ -3286,17 +3291,35 @@ fn a_station_s_rooms_and_a_one_tile_corridor_can_be_walked() {
         let tile = shipdesign::TILE as f32;
         let middle =
             |(x, y): (u32, u32)| bims::math::vec2((x as f32 + 0.5) * tile, (y as f32 + 0.5) * tile);
-        // Every plan on every kind; the hub at three seeds, the rest at two —
-        // the seed decides how many bays, shelves and batteries and the
-        // holes in a derelict, and the scan below is a path search per tile.
-        let plans = Plan::ALL
-            .iter()
-            .flat_map(|&plan| worldgen::StationKind::ALL.map(|kind| (plan, kind)));
+        // The scan below is a path search per tile of deck, so the matrix
+        // is what this test costs: every plan on every kind at two seeds
+        // (three for the hub) is sixty-five layouts and longer than every
+        // other test in the workspace put together, which is why it is the
+        // full tier's — `BIMS_SWEEP=1`, set by `./check full`. Without it,
+        // one seed and one kind a plan, cycled so that every plan and
+        // every kind is walked: the same assertions over a slice, which is
+        // what catches a plan that stopped being walkable at all.
+        let sweep = std::env::var("BIMS_SWEEP").is_ok();
+        let kinds = worldgen::StationKind::ALL;
+        let plans: Vec<(Plan, worldgen::StationKind)> = if sweep {
+            Plan::ALL
+                .iter()
+                .flat_map(|&plan| kinds.map(|kind| (plan, kind)))
+                .collect()
+        } else {
+            Plan::ALL
+                .iter()
+                .enumerate()
+                .map(|(i, &plan)| (plan, kinds[i % kinds.len()]))
+                .collect()
+        };
         for (plan, kind) in plans {
-            let seeds: &[u64] = if plan == Plan::Hub {
-                &[1, 7, 0x_5749_4e44_4f57_0001]
-            } else {
-                &[1, 7]
+            // The seed decides how many bays, shelves and batteries and the
+            // holes in a derelict.
+            let seeds: &[u64] = match (sweep, plan) {
+                (false, _) => &[1],
+                (true, Plan::Hub) => &[1, 7, 0x_5749_4e44_4f57_0001],
+                (true, _) => &[1, 7],
             };
             for &seed in seeds {
                 let design = layout(kind, plan, seed);
@@ -6625,6 +6648,16 @@ fn casting_off_from_a_hostile_station_stands_the_crew_down() {
         world.step(&[]);
     }
     assert!(down, "the alarm comes down in flight");
+    // James still has his own weapon out — `stage_fight_for_probe`
+    // recruited him — and since feature 84 that is a player leading the
+    // crew, so Kate keeps hers out and stays at his side. He holsters,
+    // and she stands down to her errands.
+    assert!(
+        world.aboard.room.is_armed(1),
+        "Kate follows James under arms"
+    );
+    world.aboard.room.recruit_for_probe(0, false);
+    world.step(&[]);
     assert!(!world.aboard.room.is_armed(1), "and Kate holsters");
 }
 
@@ -8003,7 +8036,7 @@ fn pieces_and_guns_agree_with_the_hold_and_every_weapon_is_a_locker_resource() {
         assert_eq!(weapon_resource(WeaponKind::Schword), ResourceId::Schword);
         for kind in WeaponKind::ALL {
             let resource = weapon_resource(kind);
-            assert_eq!(resource as u32, kind.resource());
+            assert_eq!(Some(resource as u32), kind.resource());
             assert_eq!(weapon_of(resource), Some(kind));
             assert_eq!(item_of(resource), Item::Weapon(kind.basic()));
             assert_eq!(resource_of_item(Item::Weapon(kind.basic())), Some(resource));
@@ -11029,7 +11062,13 @@ fn after_a_fight_at_a_hostile_dock_the_alarm_comes_down_and_the_crew_sleep() {
     );
     // The fight: until the resident James was put in front of is down, or
     // an hour has gone by. Both crew patched up every step so neither is
-    // bled out cold on the deck for days, which is a different story.
+    // bled out cold on the deck for days, which is a different story —
+    // **and patched through the loops after it as well**, since the
+    // station is still hostile and its people still shoot: whether the
+    // crew come out of the last exchange with an open wound is the fight
+    // re-rolled (feature 84 moved the shots to the muzzles and re-rolled
+    // it), and a crew bled out over the following day says nothing about
+    // the alarm coming down or about anybody's night.
     let mut steps = 0;
     let mut alarmed = false;
     while steps < 3600 {
@@ -11056,6 +11095,8 @@ fn after_a_fight_at_a_hostile_dock_the_alarm_comes_down_and_the_crew_sleep() {
     let hold = (ALARM_HOLD * 60.0) as usize + 60 * 60;
     let mut down = false;
     for _ in 0..hold {
+        world.aboard.room.patch_up_for_probe(0);
+        world.aboard.room.patch_up_for_probe(1);
         world.step(&[]);
         if !world.aboard.room.is_alarmed() {
             down = true;
@@ -11069,6 +11110,8 @@ fn after_a_fight_at_a_hostile_dock_the_alarm_comes_down_and_the_crew_sleep() {
             .contains(&world.residents.as_ref().unwrap().station)
     );
     for _ in 0..60 {
+        world.aboard.room.patch_up_for_probe(0);
+        world.aboard.room.patch_up_for_probe(1);
         world.step(&[]);
     }
     assert!(!world.aboard.room.is_alarmed(), "and stays down");
@@ -11188,7 +11231,7 @@ fn tier_two_probe() {
                 continue;
             };
             let mut residents =
-                crate::crew::Residents::open(station.id, &station.design, 1, 0, 7, 0.0);
+                crate::crew::Residents::open(station.id, &station.design, 1, 0, 7, 0.0, &[]);
             let inside = data::ASHORE_TILES * shipdesign::TILE as f64;
             let at = dvec2(
                 port.centre.0 - port.outward.0 as f64 * inside,
@@ -11258,4 +11301,42 @@ fn tier_two_probe() {
         world.ship.design.carrying(ResourceId::ResearchKeyTwo),
     );
     assert!(matches!(room.pack(0)[0], Some(Item::Key(2)) | None));
+}
+
+/// Feature 81: a class is worn on the deck. The world hands the room the
+/// kit every step off its own `classes` — every class its own, and a
+/// crew member with no class the plain body every Bim had before — and
+/// `Class::outfit` is the one table between the two.
+#[test]
+fn a_class_is_worn_on_the_deck_and_a_crew_member_with_no_class_wears_none() {
+    use crate::class::Class;
+    use bims::character::Outfit;
+
+    let mut world = basic();
+    // Nobody has chosen yet, so nobody is in anything.
+    world.step(&[]);
+    assert_eq!(world.aboard.room.outfit(0), Outfit::Plain);
+    assert_eq!(world.aboard.room.outfit(1), Outfit::Plain);
+
+    // Every class in turn on slot 0, and slot 1 left alone throughout.
+    let mut worn = Vec::new();
+    for class in Class::ALL {
+        assert_eq!(world.set_class(0, class), Ok(()));
+        world.step(&[]);
+        let outfit = world.aboard.room.outfit(0);
+        assert_eq!(
+            outfit,
+            class.outfit(),
+            "{class:?} is worn as {:?}",
+            class.outfit()
+        );
+        assert_eq!(world.aboard.room.outfit(1), Outfit::Plain);
+        worn.push(outfit);
+    }
+    // Six classes, six different kits: nobody looks like anybody else.
+    for (i, a) in worn.iter().enumerate() {
+        for b in &worn[i + 1..] {
+            assert_ne!(a, b, "two classes share a kit");
+        }
+    }
 }

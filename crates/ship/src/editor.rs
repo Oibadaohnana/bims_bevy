@@ -70,7 +70,6 @@ pub struct Editor {
     /// in the lobby, so `validate` is asked for that many bunks and chairs.
     pub players: u32,
     pub local: u32,
-
     /// The hash each player has accepted for, or `None`. Indexed by slot.
     accepts: Vec<Option<u64>>,
     pub phase: Phase,

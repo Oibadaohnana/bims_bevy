@@ -78,7 +78,7 @@ fn main() {
     let mut slowed_while_close = 0;
     let mut slowed_while_clear = 0;
     for _ in 0..(2 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         let gap = (game.bim_pos(1) - game.bim_pos(0)).len();
         closest = closest.min(gap);
         let both_afoot = (0..CREW).all(|w| !game.is_seated_for_probe(w));
@@ -119,7 +119,7 @@ fn main() {
     let mut cooked = [0, 0];
     let mut was = [0, 0];
     for _ in 0..(4 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         let acts: Vec<u32> = (0..CREW).map(|w| game.activity(w)).collect();
         // JOB_MEAL / JOB_BOWL / JOB_LEFTOVERS
         let cooking = |a: u32| a == 1 || a == 10 || a == 12;
@@ -170,7 +170,7 @@ fn main() {
     let kate_at = game.bim_pos(1);
     let mut walked = 0;
     for _ in 0..(6 * 60 * 60) {
-        game.update(STEP);
+        game.simulate(STEP);
         if game.is_walking(PLAYER) {
             walked += 1;
         }
@@ -195,7 +195,7 @@ fn main() {
         let mut nights = [0; CREW];
         let mut was_asleep = [false; CREW];
         for _ in 0..(7 * FRAMES_PER_DAY) {
-            game.update(STEP);
+            game.simulate(STEP);
             for w in 0..CREW {
                 worst[w] = worst[w].min(game.health(w));
                 let asleep = game.activity(w) == 4;

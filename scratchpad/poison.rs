@@ -46,7 +46,7 @@ fn main() {
         game.spend_for_probe(0, FOOD, 1.0);
         let (mut bad_pot, mut ate) = (false, false);
         for _ in 0..(4 * FRAMES_PER_HOUR) {
-            game.update(STEP);
+            game.simulate(STEP);
             bad_pot |= game.food_is_bad();
             if game.need_level(0, FOOD) > 0.9 {
                 ate = true;
@@ -116,7 +116,7 @@ fn main() {
     // times what the well one does.
     let (a0, a1) = (game.need_level(0, RESTROOM), game.need_level(1, RESTROOM));
     for _ in 0..(FRAMES_PER_HOUR / 2) {
-        game.update(STEP);
+        game.simulate(STEP);
     }
     let (b0, b1) = (game.need_level(0, RESTROOM), game.need_level(1, RESTROOM));
     let (drop0, drop1) = (a0 - b0, a1 - b1);
@@ -132,7 +132,7 @@ fn main() {
         .count();
     game.spend_for_probe(0, RESTROOM, 1.0);
     for _ in 0..(2 * 60) {
-        game.update(STEP);
+        game.simulate(STEP);
     }
     let after = (0..game.memory_len(0))
         .filter(|&i| game.memory_what(0, i) == What::Accident.code())
@@ -141,7 +141,7 @@ fn main() {
 
     // And it passes. Two days on, well again.
     for _ in 0..(2 * FRAMES_PER_DAY + FRAMES_PER_HOUR) {
-        game.update(STEP);
+        game.simulate(STEP);
     }
     check!("two days on the Bim is well", game.poisoning(0) == 0.0, game.poisoning(0));
 

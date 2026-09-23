@@ -330,8 +330,8 @@ const HALL_ROWS: u32 = 3;
 /// street's width where it meets the north wall and the south, so the
 /// street runs out through both onto the plain, a pier of wall this many
 /// tiles deep either side of each, and a standing light beyond each pier.
-pub(crate) const GATE_X0: u32 = CROSS_A_X0;
-pub(crate) const GATE_WIDTH: u32 = STREET;
+pub const GATE_X0: u32 = CROSS_A_X0;
+pub const GATE_WIDTH: u32 = STREET;
 const GATE_PIER: u32 = 2;
 /// The town's own rolls — where a house stands, what stands in it, the
 /// shape of the wild — come off the seed salted, so the furnisher's rolls

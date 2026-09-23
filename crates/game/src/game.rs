@@ -4,18 +4,22 @@
 use crate::bim::{
     Bim, CREW, GROUND_SLEEP, GROUND_WINDOW, PLAYER, SORE_LASTS, TALKS_ABOUT, TRAIL_LIFE,
 };
-use crate::character::{ACCENT, Action, BODY_MARGIN, Held, Look, PICK_RADIUS, SWING_TIME, Worn};
+use crate::character::{
+    ACCENT, Action, BODY_MARGIN, FallBack, Held, Look, Outfit, PICK_RADIUS, SWING_TIME, Tint, Worn,
+};
 use crate::clock::MINUTES_PER_SECOND;
 use crate::clock::{self, Clock};
 use crate::combat::{
-    ArmourKind, Blow, Combat, FIST_DAMAGE, Gear, Hit, Item, LOOT_CELLS, LootCell, MELEE_PERIOD,
-    MELEE_RANGE, PACK_CELLS, Piece, Sentry, Shot, Tactics, Weapon, WeaponStats,
+    ArmourKind, Blow, COVER_WORTH, Combat, FIST_DAMAGE, Gear, Grenade, Hit, Item, LOOT_CELLS,
+    LootCell, MELEE_PERIOD, MELEE_RANGE, PACK_CELLS, Piece, Sentry, Shot, Skill, Tactics, Weapon,
+    WeaponStats,
 };
 use crate::cue::{Cue, Cued};
 use crate::door;
 use crate::draw::{Color, DrawList};
+use crate::droid::{Droid, DroidPart};
 use crate::filth;
-use crate::health::{Health, Lasting, Malnutrition, Part, Trauma};
+use crate::health::{Beamed, Doctoring, Health, Lasting, Malnutrition, Part, Trauma};
 use crate::hydro;
 use crate::manager::{Manager, Stock};
 use crate::math::{Rect, TAU, Vec2, clamp, vec2};
@@ -53,6 +57,79 @@ const HIT_FLASH: f32 = 0.22;
 /// fallen one is stretched along its heading (`Character::draw_flat`),
 /// so ahead of the body is under its head.
 const DROP_FLUNG: Vec2 = vec2(-14.0, 44.0);
+
+/// A dressing or a treatment finished (feature 76): whose hands, on
+/// whom, and what was used — a bandage, a medkit, or nothing at all (a
+/// medic's field surgery). For the world to give the medic its
+/// experience by (`Game::take_healings`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Healed {
+    pub helper: usize,
+    pub patient: usize,
+    pub with: Healing,
+}
+
+/// What a [`Healed`] used.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Healing {
+    Bandage,
+    Medkit,
+    Bare,
+}
+
+/// What a commander's squad order tells one body to do (feature 78,
+/// `world::commander`): the world's word, said afresh every step for
+/// every Bim, and never kept in a save — the order itself is the
+/// world's. [`Squad::None`] for a body under none, which is everybody
+/// until a commander says otherwise, and **always** a body a player
+/// steers: an order never moves, holds or aims one of those.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum Squad {
+    #[default]
+    None,
+    /// Fire on that target ahead of any nearer one, and advance on it
+    /// the way a body that sees an enemy for itself does. `seen` is
+    /// whether it is a sighting rather than a belief: a mark nobody can
+    /// see is walked towards and never fired at.
+    Attack { enemy: usize, seen: bool },
+    /// Walk to a slot round that point, holding fire on the way, and
+    /// hold there shooting what can be seen.
+    FallBack { at: Vec2 },
+    /// Hold exactly where it stands, shooting what it can see: no walk
+    /// to cover, and no running.
+    StandGround,
+}
+
+/// What a player's **standing order** tells the bots that follow them to
+/// do (feature 84, `world::Standing`): one a player slot, the world's word,
+/// said afresh every step. [`Standing::Follow`] until a player says
+/// otherwise, and what every slot goes back to when the order is given
+/// again.
+///
+/// Whose order a bot is under is whose Bim it is nearest
+/// ([`Game::orders_for`]): with one player that is the one order there
+/// is, and with several each player leads the bots about them.
+///
+/// None of this reaches a Bim a player steers, a body on a chain, a body
+/// running for its life or one holding a post its player clicked for it:
+/// an order to one crew member is that crew member's and outranks the
+/// standing order to the rest.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Standing {
+    /// Keep to the player's side — the ring round their Bim — and pick
+    /// your own stand the moment you see an enemy for yourself.
+    #[default]
+    Follow,
+    /// Fight your way to that point of the room and hold it: cover on
+    /// the way where there is any, a stand of your own while anything is
+    /// in your weapon's reach, and a push on towards it when there is
+    /// not.
+    Attack { at: Vec2 },
+    /// Back to the ship, and hold there. The ship is where a dying body
+    /// runs to anyway, and where the last stand is made.
+    Retreat,
+}
 
 /// How a shot on a body went — see [`Game::wound`]. All nought for a shot
 /// on nobody: a dead Bim, or one that is not there.
@@ -143,6 +220,12 @@ pub const GATHER_SLOTS: [(f32, f32); 6] = [
 /// How far off its slot a gathered crew member may stand before it walks
 /// to it again, in tiles.
 pub const GATHER_SLACK: f32 = 1.0;
+/// How near an **attack banner** counts as reached, in tiles (feature
+/// 84): inside this, a bot with nothing in its weapon's reach holds the
+/// ring round the banner instead of pushing on to stand on it. Two tiles
+/// wider than the gather ring itself, so a bot settled in the ring is
+/// not shoved on towards the middle of it every plan.
+pub const BANNER_HOLD: f32 = 3.0;
 /// Where several selected crew go for one right-click, in tiles off the
 /// point, in crew order: the point itself, then a ring round it a body's
 /// width out, so an order for a squad is a huddle and not a stack.
@@ -637,6 +720,14 @@ pub struct Game {
     /// identity — it picks the berth, the seat at the table, the coverall, and
     /// the name the host prints over its head.
     bims: Vec<Bim>,
+    /// The machines on this deck (feature 83, `crate::droid`), beside the
+    /// Bims and never among them: a droid-held station's room has these
+    /// and no `bims` at all. They stand **after** the Bims in the one
+    /// **body** index space the world hands over and reads back
+    /// ([`Game::body_count`]), so a target past `bims.len()` is one of
+    /// these and a hit past it lands on one. Empty everywhere else —
+    /// aboard a ship, in the test room, at a station people live on.
+    droids: Vec<Droid>,
     /// Which of the crew is ticked first this frame. Rotates every frame so
     /// first refusal on the galley and the heads goes round rather than
     /// always falling to the same Bim.
@@ -712,6 +803,11 @@ pub struct Game {
     /// crew's own unless the world says otherwise, which it does for a
     /// station's room.
     fog: Fog,
+    /// Draw every body whatever the world says is in view: a probe's
+    /// switch for a picture (`show_everybody_for_probe`), never set in
+    /// the game and left out of a save with the rest of the picture.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    show_everybody: bool,
     /// Under `Fog::None`, how long each body stays drawn since the world
     /// last said it was in view — [`SEEN_FOR`] from the sighting, counting
     /// down. Anybody past the end of it is not drawn.
@@ -720,6 +816,15 @@ pub struct Game {
     /// joined deck — and whose. Kept here so a relayout can hand it to the
     /// fresh grid; the sight itself is the room's.
     foreign: Option<(Rect, Stance, bool)>,
+    /// Where the **ship's own** gangway is, in room units (feature 84):
+    /// the deck a few tiles inside the ship's airlock, which is where a
+    /// fall back goes. The world says it every step, because the room
+    /// cannot work it out for itself: `Room::gangway` on a joined deck
+    /// is the *joined* design's first free airlock, and with the ship's
+    /// own mated to the station that is the station's far door — the
+    /// other end of the building from the ship.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    home: Option<Vec2>,
     /// And whose the rest are, for the same reason.
     stance: Stance,
     /// The fight: the enemies the world named, the bolts in the air, the
@@ -739,6 +844,13 @@ pub struct Game {
     /// then every crew member but the player's is under arms and fights,
     /// walking to wherever `Tactics::stand` says. See `Game::tick_combat`.
     alarm: bool,
+    /// Whether the crew's bots are **under arms** — the alarm, or a
+    /// player's own Bim armed and leading them (feature 84). This, not
+    /// the alarm, is what `muster_crew` is edged on, what keeps a bot at
+    /// the player's side and what lets the crew take a player's orders:
+    /// a player that draws its weapon has the crew draw theirs and come
+    /// along, and a fight found on the way is the alarm on top of it.
+    mustered: bool,
     attacked_for: f32,
     /// How long since any of this room's living, waking people on the
     /// deck had an enemy in sight, in seconds at 1x — for a hostile
@@ -770,6 +882,48 @@ pub struct Game {
     /// Which Bims keep at a deploy when hit (`set_steady_hands`): the
     /// engineer's *steady hands* talent. Anybody else drops it.
     steady_hands: Vec<bool>,
+    /// What each Bim shoots with over its weapon (`set_skills`, feature
+    /// 75): a soldier's talents and its brace, `Skill::NONE` for anybody
+    /// the world does not name.
+    skills: Vec<Skill>,
+    /// What a commander's squad order tells each Bim to do (`set_squad`,
+    /// feature 78): `Squad::None` for a body under none. The world's
+    /// word, said every step, and left out of a save with it — the
+    /// order itself is the world's (`world::SquadOrder`).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    squad: Vec<Squad>,
+    /// What each player's standing order to the bots is (`set_orders`,
+    /// feature 84): one an entry, by player slot, [`Standing::Follow`] for
+    /// a slot that has not said. The world's word, said every step, and
+    /// left out of a save with it — the order itself is the world's
+    /// (`world::Standing`).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    standing: Vec<Standing>,
+    /// Which Bims the squad order itself put under arms, so that its
+    /// ending lets go of those and of nobody else — a Bim recruited by
+    /// the alarm, or by a probe, is left as it was found. Derived from
+    /// `squad` a step behind, and left out of a save with it.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    squad_armed: Vec<bool>,
+    /// What a medic's beam does to each body this step (`set_held`,
+    /// feature 76): `None` for a body no beam holds. The world's word,
+    /// said every step, and left out of a save with it.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    held: Vec<Option<Beamed>>,
+    /// What each Bim's doctoring runs at (`set_doctoring`, feature 76):
+    /// a medic's talents on its bandaging and treating. The world's word
+    /// every step, `Doctoring::NONE` for anybody not named.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    doctoring: Vec<Doctoring>,
+    /// Every dressing and treatment finished since the world last asked
+    /// — whose hands, on whom, and what was used — for the medic's
+    /// experience (`take_healings`, feature 76).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    healings: Vec<Healed>,
+    /// The tiles of laid sandbags a grenade's burst reached since the
+    /// world last asked, for it to take the deployables off
+    /// (`take_bags_blown`).
+    bags_blown: Vec<(i32, i32)>,
     /// Every worn piece a hit broke since the world last asked — whose,
     /// and what it was — for the world to say so. See `Game::wound`.
     pieces_broken: Vec<(usize, ArmourKind)>,
@@ -956,13 +1110,17 @@ impl Game {
             autonomous: true,
             highlight: room::SPOT_NOTHING,
             fog: Fog::Crew,
+            show_everybody: false,
             seen_for: Vec::new(),
             foreign: None,
+            home: None,
             stance: Stance::Friendly,
             combat: Combat::new(seed),
+            droids: Vec::new(),
             hostile_bodies: false,
             at_war: false,
             alarm: false,
+            mustered: false,
             attacked_for: 0.0,
             // A fresh room has been calm for ever.
             enemy_unseen_for: f32::MAX,
@@ -973,6 +1131,14 @@ impl Game {
             sentry_hits: Vec::new(),
             work_factors: Vec::new(),
             steady_hands: Vec::new(),
+            skills: Vec::new(),
+            squad: Vec::new(),
+            standing: Vec::new(),
+            squad_armed: Vec::new(),
+            held: Vec::new(),
+            doctoring: Vec::new(),
+            healings: Vec::new(),
+            bags_blown: Vec::new(),
             pieces_broken: Vec::new(),
             traumas: Vec::new(),
             treated: Vec::new(),
@@ -1396,8 +1562,11 @@ impl Game {
         }
         // The blood on the deck, for everybody: a drop is a stain on the
         // tile it lands on, and the deck keeps it until somebody sweeps.
-        for bim in &mut self.bims {
-            bim.tick_drips(dt, &mut self.rng, &mut self.room.filth);
+        // A body a medic's beam holds bleeds nothing, so it drips nothing.
+        for (who, bim) in self.bims.iter_mut().enumerate() {
+            if self.held.get(who).copied().flatten().is_none() {
+                bim.tick_drips(dt, &mut self.rng, &mut self.room.filth);
+            }
         }
         // A room with nobody in it — a station nobody lives on — has no tie
         // to break, and no remainder to take.
@@ -1417,11 +1586,16 @@ impl Game {
         // The ship's doors open for whoever walks up to them and shut
         // behind; a lock or a shut leaf is a change to what a route or a
         // body has to go round.
+        // A machine on the deck is a body for the doors like anybody
+        // else: an unlocked door opens for a droid walking up to it,
+        // which is the whole of "droids open doors" (feature 83). A
+        // wreck opens nothing.
         let bodies: Vec<Vec2> = self
             .bims
             .iter()
             .filter(|b| !b.character.is_dead())
             .map(|b| b.character.pos)
+            .chain(self.droids.iter().filter(|d| !d.destroyed).map(|d| d.pos))
             .chain(self.visitors.iter().copied())
             .collect();
         self.room.update_doors(dt, &bodies);
@@ -1478,6 +1652,28 @@ impl Game {
     /// `Shot`, not a bolt: the world flies it in the crew's room, where
     /// the body it is aimed at actually is; a blow is a melee `Shot` the
     /// world delivers straight to the body (`Game::enemy_strike`).
+    /// Where a shot of this Bim's leaves (feature 84): the emitter of
+    /// the gun in its hands ([`Character::muzzle`]), which is what the
+    /// picture shows and what the barrel points along — or the `eye` it
+    /// was aimed from when the muzzle is round a corner from it. The
+    /// fallback is not a nicety: a body leaning out of a **peek** is
+    /// drawn only part of the way there (`character::LEAN`), so its gun
+    /// can still be the wall's side of the corner its eye sees past, and
+    /// a bolt started there would land on that wall. A body with nothing
+    /// drawn in its hands has no muzzle and shoots from the eye as it
+    /// always did.
+    fn shot_from(&self, who: usize, eye: Vec2) -> Vec2 {
+        let Some(muzzle) = self.bims[who].character.muzzle() else {
+            return eye;
+        };
+        let tile = self.room.sight.tile_of(muzzle);
+        if self.room.sight.clear_line(eye, tile) {
+            muzzle
+        } else {
+            eye
+        }
+    }
+
     fn tick_combat(&mut self, dt: f32) {
         // The doors as they stand this step go into the sight before
         // anybody aims through it. The trace puts them there too, but
@@ -1525,18 +1721,76 @@ impl Game {
             && (self.attacked_for > 0.0
                 || self.enemy_unseen_for < ALARM_HOLD
                 || self.enemy_within(ALARM_RANGE * TILE));
-        if alarm != self.alarm {
-            self.alarm = alarm;
-            self.muster_crew(alarm);
+        self.alarm = alarm;
+        // And the crew's bots are under arms for the alarm **or** because
+        // a player is leading them (feature 84): a player's own Bim with
+        // its weapon out, or a standing order given. That is what walks
+        // the crew off the ship behind a player who is going somewhere
+        // dangerous, with no enemy anywhere near yet.
+        let mustered = alarm || self.led();
+        if mustered != self.mustered {
+            self.mustered = mustered;
+            self.muster_crew(mustered);
         }
+        // And a commander's squad, which is under arms with the alarm
+        // or without it (feature 78).
+        self.muster_squad(mustered);
+        // The soldiers' odds in cover, for the bolts below (feature 75).
+        let cover_odds: Vec<f32> = (0..self.bims.len())
+            .map(|who| self.skill(who).cover_dodge)
+            .collect();
+        self.combat.set_own_cover_dodge(cover_odds);
         for who in 0..self.bims.len() {
             let bim = &mut self.bims[who];
             bim.trigger.tick(dt);
+            // How a fall back is walked is worked out afresh every step
+            // (feature 84): `fall_back_aboard` sets it below for a bot
+            // under the order, and the aim turns a sprint into a
+            // backing walk the moment there is something to shoot at.
+            bim.character.set_falling_back(None);
             bim.hit_flash = (bim.hit_flash - dt).max(0.0);
             bim.melee_timer = (bim.melee_timer - dt).max(0.0);
             if let Some(blow) = bim.blow.as_mut() {
                 blow.left -= dt;
             }
+            // A brace ends when the soldier goes down (feature 75); while
+            // it holds, the picture says so.
+            if bim.braced
+                && (!bim.is_alive() || bim.character.is_unconscious() || bim.character.is_outside())
+            {
+                bim.braced = false;
+            }
+            bim.character.set_braced(bim.braced);
+            // And a bulwark when the tank goes down (feature 77).
+            if bim.bulwark
+                && (!bim.is_alive() || bim.character.is_unconscious() || bim.character.is_outside())
+            {
+                bim.bulwark = false;
+            }
+            // A beam ends the same way (feature 76): the world reads the
+            // flag back and breaks the link. And a surge runs its seconds
+            // out; ending, a *closing surge* closes every open wound.
+            if bim.beaming
+                && (!bim.is_alive() || bim.character.is_unconscious() || bim.character.is_outside())
+            {
+                bim.beaming = false;
+            }
+            if let Some(surge) = bim.surge.as_mut() {
+                surge.left -= dt;
+                if surge.left <= 0.0 {
+                    let closing = surge.closing;
+                    bim.surge = None;
+                    if closing && bim.is_alive() {
+                        for part in Part::ALL {
+                            bim.health.bandage(part);
+                        }
+                        bim.character.set_wounds([false; 3]);
+                    }
+                }
+            }
+            bim.character.set_surging(bim.surge.is_some());
+            let skill = self.skills.get(who).copied().unwrap_or(Skill::NONE);
+            let bim = &mut self.bims[who];
             // Not while doctoring: both hands are on the bandage, or on the
             // kit on the way to the patient, so the weapon is holstered for
             // the whole errand — the walk included, since a bot that fired
@@ -1549,6 +1803,14 @@ impl Game {
                 .is_some_and(|t| matches!(t.kind(), Kind::Bandage { .. } | Kind::Treat { .. }));
             // A body dying with an enemy about runs, whoever it is — the
             // player's own too — and neither aims nor fires while it does.
+            // How long it has been in that state is `fear`, and a
+            // commander's aura holds it there for a while first (feature
+            // 78); out of it the count starts again.
+            if self.would_flee(who) {
+                self.bims[who].fear += dt;
+            } else {
+                self.bims[who].fear = 0.0;
+            }
             let fleeing = self.is_fleeing(who);
             // Finishing a body off draws the weapon whether or not the Bim
             // is under arms: the body it is at, while the hands are at it.
@@ -1558,14 +1820,16 @@ impl Game {
                 .and_then(|t| t.executing_at(&self.room));
             let bim = &mut self.bims[who];
             let armed = bim.is_alive()
-                && (bim.character.is_recruited() || executing.is_some())
+                && (bim.character.is_recruited() || executing.is_some() || bim.braced)
                 && bim.gear.weapon.is_some()
                 && !bim.character.is_outside()
                 && !bim.character.is_seated()
                 && !bim.character.is_napping()
                 && !bim.character.is_unconscious()
                 && !dressing
-                && !fleeing;
+                && !fleeing
+                // A medic beaming holds its fire (feature 76).
+                && !skill.holds_fire;
             let weapon = bim.gear.weapon.filter(|_| armed);
             // The hand changing is heard: the weapon coming out, or going
             // back. Said for everybody; the app plays a player's own.
@@ -1585,6 +1849,7 @@ impl Game {
                 bim.blow = None;
                 bim.peek = None;
                 bim.character.set_lean(None);
+                bim.character.set_aim(None);
                 bim.smashing = None;
                 // Out of the enemy's sight it binds its own wound where it
                 // stands (`medical_on_offer`, off the medical row) and the
@@ -1619,9 +1884,12 @@ impl Game {
                 bim.blow = None;
                 bim.peek = None;
                 bim.character.set_lean(None);
+                bim.character.set_aim(None);
                 continue;
             };
-            let stats = weapon.stats();
+            // The weapon's numbers through the soldier's skill (feature 75):
+            // everybody else's are the weapon's own.
+            let stats = skill.stats(weapon);
             // At a body it is finishing off: squared up to it, a pull of the
             // trigger every `1 / fire_rate` — the bolt flies at where it
             // lies, and over it, since a body down is nobody's target — or a
@@ -1634,6 +1902,10 @@ impl Game {
                 bim.blow = None;
                 bim.peek = None;
                 bim.character.set_lean(None);
+                // Squared up to the body and the gun down at it: the
+                // execution's shot leaves the muzzle like any other
+                // (feature 84).
+                bim.character.set_aim(Some(at));
                 if (at - from).len() > 1e-3 {
                     bim.character.face((at - from).angle());
                 }
@@ -1647,36 +1919,42 @@ impl Game {
                         bim.character.set_action(Action::None);
                     }
                 } else if bim.trigger.pull_single(&stats) {
+                    let muzzle = self.shot_from(who, from);
                     if self.hostile_bodies {
-                        self.combat.shoot(from, at, weapon, false);
+                        self.combat.shoot(muzzle, at, weapon, false);
                     } else {
-                        self.combat.fire(from, at, weapon, false, false);
+                        self.combat
+                            .fire_as(muzzle, at, weapon, false, false, &skill, Some(who));
                     }
                 }
                 continue;
             }
-            // At war it picks its own stand. A crew member under the alarm
-            // that is not the player's to steer keeps to the player's side
-            // until it sees an enemy for itself, and then picks its own —
-            // unless the player ordered it somewhere, when it holds that. A
-            // patient somebody is walking over to holds still for them
-            // instead (`tick_bim`), and shoots from where it stands.
+            // At war it picks its own stand. A crew member under arms
+            // that is not the player's to steer does what its player's
+            // standing order says (feature 84, `bot_stand`) — keeping to
+            // their side until it sees an enemy for itself, and then
+            // picking its own — unless the player ordered *it*
+            // somewhere, when it holds that. A patient somebody is
+            // walking over to holds still for them instead (`tick_bim`),
+            // and shoots from where it stands.
             let seen_to = self.is_being_seen_to(who);
             let holds_post = self.bims[who].character.post().is_some();
+            let squad = self.squad_of(who);
             if war && !seen_to {
-                self.plan_stand(who, dt, &stats);
+                self.plan_stand(who, dt, &stats, None);
                 // And, with nobody it can get to, the doors in the way.
                 self.breach(who, dt);
-            } else if alarm && !seen_to && !self.is_player(who) && !holds_post {
-                let from = self.bims[who].character.pos;
-                // Somebody's own to gather round: any player's, up and in.
-                let player_up = (0..self.players.min(self.bims.len()))
-                    .any(|p| self.bims[p].is_alive() && !self.bims[p].character.is_outside());
-                if !player_up || self.combat.sees_any(&self.room.sight, from) {
-                    self.plan_stand(who, dt, &stats);
-                } else {
-                    self.gather(who, dt);
-                }
+            } else if squad != Squad::None && !seen_to {
+                // A commander's squad order comes before the ring round
+                // the player and before the squad member's own stand
+                // (feature 78) — and never reaches a Bim a player
+                // steers, which the world sees to.
+                self.squad_stand(who, dt, &stats, squad);
+            } else if mustered && !seen_to && !self.is_player(who) && !holds_post {
+                // A bot under arms with nothing else claiming it: its
+                // player's standing order, and its own tactics inside
+                // that (feature 84).
+                self.bot_stand(who, dt, &stats);
             }
             let bim = &mut self.bims[who];
             let from = bim.character.pos;
@@ -1694,6 +1972,7 @@ impl Game {
                         blow.damage,
                         blow.cut,
                         self.hostile_bodies,
+                        Some(who),
                     );
                 }
             }
@@ -1707,15 +1986,18 @@ impl Game {
                 bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
+                bim.character.set_aim(None);
                 if let Some(at) = self.combat.targets()[enemy].map(|t| t.at) {
                     bim.character.face((at - from).angle());
                 }
                 if bim.melee_timer <= 0.0 {
                     bim.melee_timer = MELEE_PERIOD;
+                    // A blow's damage through the soldier's *bruiser*, fist
+                    // and blade alike (feature 75).
                     let (damage, cut, swing) = if stats.melee {
-                        (stats.damage, true, Action::Swing)
+                        (stats.damage * skill.melee, true, Action::Swing)
                     } else {
-                        (FIST_DAMAGE, false, Action::Punch)
+                        (FIST_DAMAGE * skill.melee, false, Action::Punch)
                     };
                     bim.character.antic(swing, SWING_TIME);
                     bim.blow = Some(Blow {
@@ -1731,13 +2013,40 @@ impl Game {
             if stats.melee {
                 bim.peek = None;
                 bim.character.set_lean(None);
+                bim.character.set_aim(None);
                 continue;
             }
-            let Some((_, eye, at)) = self.combat.aim(&self.room.sight, from, &stats) else {
+            // Falling back under a commander's order holds its fire
+            // while it walks, and shoots what it sees once it is there
+            // (feature 78).
+            if matches!(squad, Squad::FallBack { .. }) && bim.character.is_walking() {
                 bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
+                bim.character.set_aim(None);
                 continue;
+            }
+            // The enemy a squad order marked comes before any nearer
+            // one, and a mark nobody can see is never fired at.
+            let mark = match squad {
+                Squad::Attack { enemy, seen: true } => Some(enemy),
+                _ => None,
+            };
+            let Some((which, eye, at)) =
+                self.combat.aim_marked(&self.room.sight, from, &stats, mark)
+            else {
+                bim.trigger.hold();
+                bim.peek = None;
+                bim.character.set_lean(None);
+                bim.character.set_aim(None);
+                continue;
+            };
+            // *Focus fire* is the odds against the mark alone, so the
+            // shot's numbers are read again once it is known which.
+            let stats = if mark == Some(which) {
+                skill.stats_at(weapon, true)
+            } else {
+                stats
             };
             // Squared up to it, and a shot the moment the weapon is ready.
             // On the move too, crew and enemy alike, at half the odds
@@ -1751,6 +2060,7 @@ impl Game {
                 bim.trigger.hold();
                 bim.peek = None;
                 bim.character.set_lean(None);
+                bim.character.set_aim(None);
                 continue;
             }
             // Aiming from a peek, it leans out to the peek and looks down
@@ -1762,15 +2072,42 @@ impl Game {
             bim.character.set_lean(peek);
             if !walking {
                 bim.character.face((at - eye).angle());
+            } else if bim.character.is_falling_back() {
+                // Falling back with something to shoot at (feature 84):
+                // it gives ground **backwards**, facing the enemy, so
+                // the gun stays on the fight while the feet carry it
+                // home. That is slower than the sprint it was on, and
+                // `Character::update` is where the two part company.
+                bim.character
+                    .set_falling_back(Some(FallBack::Backwards((at - eye).angle())));
             }
+            // The gun is swung onto the target before anything is fired
+            // (feature 84), since the shot leaves the muzzle and the
+            // muzzle is the end of the barrel: the aim goes on the
+            // picture first, and `Character::muzzle` is read after it.
+            bim.character.set_aim(Some(at));
             // One trigger for a Bim and a sentry alike (`Trigger::pull`).
             if bim.trigger.pull(dt, &stats) {
+                // Out of the gun, not out of the chest: the emitter where
+                // the picture puts it, falling back to the eye for a body
+                // with nothing drawn in its hands.
+                let muzzle = self.shot_from(who, eye);
                 if self.hostile_bodies {
-                    self.combat.shoot(eye, at, weapon, walking);
+                    self.combat.shoot(muzzle, at, weapon, walking);
                 } else {
-                    self.combat.fire(eye, at, weapon, false, walking);
+                    self.combat
+                        .fire_as(muzzle, at, weapon, false, walking, &skill, Some(who));
                 }
             }
+        }
+        // The machines, after the crew (feature 83): the same fight, a
+        // different body. They are only ever in a hostile room, so
+        // everything they do is recorded rather than flown.
+        self.tick_droids(dt, war);
+        // The grenades (feature 75): the fuses burn down, and each that
+        // runs out bursts on everything round it.
+        for grenade in self.combat.tick_grenades(dt) {
+            self.burst(grenade);
         }
         // The sentries, after the crew (feature 74): each is a shooter
         // with no body — a position, a weapon and a trigger — and shoots
@@ -1787,14 +2124,17 @@ impl Game {
                     self.sentries[i].trigger.hold();
                     continue;
                 }
-                let Some((_, _, at)) = self.combat.aim(&self.room.sight, sentry.at, &stats)
-                else {
+                let Some((_, _, at)) = self.combat.aim(&self.room.sight, sentry.at, &stats) else {
                     self.sentries[i].trigger.hold();
                     continue;
                 };
                 if self.sentries[i].trigger.pull(dt, &stats) {
                     self.combat.fire(sentry.at, at, sentry.weapon, false, false);
-                    match self.sentry_shots.iter_mut().find(|(id, _)| *id == sentry.id) {
+                    match self
+                        .sentry_shots
+                        .iter_mut()
+                        .find(|(id, _)| *id == sentry.id)
+                    {
                         Some((_, n)) => *n += 1,
                         None => self.sentry_shots.push((sentry.id, 1)),
                     }
@@ -1815,12 +2155,15 @@ impl Game {
             let mut bodies: Vec<Option<(Vec2, bool, f32)>> = self
                 .bims
                 .iter()
-                .map(|b| {
+                .enumerate()
+                .map(|(who, b)| {
                     (b.is_alive() && !b.character.is_outside() && !b.character.is_unconscious())
                         .then_some((
                             b.peek.unwrap_or(b.character.pos),
                             b.peek.is_some(),
-                            b.gear.dodge(),
+                            // Its armour's odds, and a braced soldier's *dug
+                            // in* on top (feature 75).
+                            (b.gear.dodge() + self.skill(who).dodge).min(1.0),
                         ))
                 })
                 .collect();
@@ -1860,7 +2203,10 @@ impl Game {
         // the world to say so.
         let taken = std::mem::take(&mut self.combat.wounds_taken);
         for hit in &taken {
-            self.strike(hit.who, hit.part, hit.damage, hit.cut);
+            self.count_hit_taken(hit);
+            // The Unmaker's strip rides on the hit (feature 83): every
+            // other weapon carries nought and this is the old call.
+            self.strike_stripping(hit.who, hit.part, hit.damage, hit.cut, hit.strips);
         }
         if !taken.is_empty() {
             self.attacked_for = ALARM_HOLD;
@@ -1903,25 +2249,88 @@ impl Game {
                 continue;
             }
             if alarm {
-                if self.bims[who].gear.weapon.is_none()
-                    && let Some(cell) = self.bims[who]
-                        .gear
-                        .pack
-                        .iter()
-                        .position(|c| matches!(c, Some(Item::Weapon(_))))
-                {
-                    self.equip(who, cell);
-                }
-                if self.bims[who].gear.weapon.is_some_and(|w| w.stats().melee) {
-                    self.wear_what_it_has(who);
-                }
-                self.interrupt(who);
-                self.bims[who].plan_wait = 0.0;
+                self.take_up_arms(who);
             }
             // Any post — peace's, or the spot the player ordered it to hold
             // during the alarm — is over either way.
             self.bims[who].character.set_post(None);
             self.bims[who].character.set_recruited(alarm);
+        }
+    }
+
+    /// Whether a player is **leading** the crew without an alarm to make
+    /// them (feature 84): any player's own Bim alive, on the deck and
+    /// under arms, or any player's standing order something other than
+    /// [`Standing::Follow`]. Either is a deliberate act of a player's, so
+    /// it can muster the crew off their errands where nothing about the
+    /// world would.
+    fn led(&self) -> bool {
+        if self.hostile_bodies {
+            return false;
+        }
+        self.standing.iter().any(|&o| o != Standing::Follow)
+            || (0..self.players.min(self.bims.len())).any(|p| {
+                let bim = &self.bims[p];
+                bim.is_alive() && bim.character.is_recruited() && !bim.character.is_outside()
+            })
+    }
+
+    /// Whether the crew's bots are under arms — see the `mustered` field.
+    pub fn is_mustered(&self) -> bool {
+        self.mustered
+    }
+
+    /// One crew member put under arms: a weapon out of the pack into an
+    /// empty hand, every piece of armour it has on for a blade, and the
+    /// errand put down onto the queue. What the alarm does to each of
+    /// them, and what a commander's squad order does to one without
+    /// waiting for an alarm (feature 78).
+    fn take_up_arms(&mut self, who: usize) {
+        if self.bims[who].gear.weapon.is_none()
+            && let Some(cell) = self.bims[who]
+                .gear
+                .pack
+                .iter()
+                .position(|c| matches!(c, Some(Item::Weapon(_))))
+        {
+            self.equip(who, cell);
+        }
+        if self.bims[who].gear.weapon.is_some_and(|w| w.stats().melee) {
+            self.wear_what_it_has(who);
+        }
+        self.interrupt(who);
+        self.bims[who].plan_wait = 0.0;
+    }
+
+    /// Every crew member under a commander's squad order under arms,
+    /// alarm or no alarm — an order works with the alarm and without it
+    /// (feature 78) — and let go again when the order ends, unless the
+    /// alarm is holding it. A player's own Bim is never in a squad
+    /// order and is never touched.
+    fn muster_squad(&mut self, alarm: bool) {
+        if self.hostile_bodies {
+            return;
+        }
+        for who in 0..self.bims.len() {
+            if self.is_player(who) || !self.bims[who].is_alive() {
+                continue;
+            }
+            let under = self.squad_of(who) != Squad::None;
+            let recruited = self.bims[who].character.is_recruited();
+            let was_the_order_s = self.squad_armed.get(who).copied().unwrap_or(false);
+            if under && !recruited {
+                self.take_up_arms(who);
+                self.bims[who].character.set_post(None);
+                self.bims[who].character.set_recruited(true);
+            } else if !under && !alarm && recruited && was_the_order_s {
+                // Only what the order put under arms is let go by its
+                // ending: a Bim somebody else recruited stays recruited.
+                self.bims[who].character.set_recruited(false);
+            }
+            if self.squad_armed.len() <= who {
+                self.squad_armed.resize(who + 1, false);
+            }
+            self.squad_armed[who] = under;
         }
     }
 
@@ -1973,6 +2382,316 @@ impl Game {
         self.alarm
     }
 
+    // --- the machines' step (feature 83) --------------------------------------
+
+    /// One step of every machine on the deck, after the crew: the body
+    /// moved, a stand chosen, the doors forced, and the arm fired or
+    /// swung. A droid is only ever in a **hostile** room, so nothing it
+    /// does flies here — every shot is a `combat::Shot` for the world to
+    /// fire in the crew's room, exactly as a hostile Bim's is.
+    ///
+    /// It is the hostile half of [`Game::tick_combat`] written for a
+    /// body with no gear, no needs and no errands: what is left is the
+    /// walk, the lock, the aim and the trigger.
+    fn tick_droids(&mut self, dt: f32, war: bool) {
+        for i in 0..self.droids.len() {
+            self.droids[i].walk(dt);
+            if self.droids[i].destroyed {
+                continue;
+            }
+            // A machine held for a picture stands where it was put and
+            // does nothing at all (`World::stage_droids_for_probe`).
+            if self.droids[i].posing {
+                continue;
+            }
+            self.droids[i].trigger.tick(dt);
+            self.droids[i].melee_timer = (self.droids[i].melee_timer - dt).max(0.0);
+            if let Some(blow) = self.droids[i].blow.as_mut() {
+                blow.left -= dt;
+            }
+            let stats = self.droids[i].stats();
+            let weapon = self.droids[i].weapon;
+            if !war {
+                // Nothing to fight: it stands where it was posted.
+                self.droids[i].trigger.hold();
+                self.droids[i].locked = None;
+                self.droids[i].blow = None;
+                self.droids[i].peek = None;
+                self.droids[i].charging(dt, false);
+                continue;
+            }
+            self.plan_droid_stand(i, dt, &stats);
+            // And, with nobody it can get to, the doors in the way: an
+            // unlocked one opens for it as it walks up (`update_doors`),
+            // and a locked one is heaved at like a boarder's.
+            self.breach_droid(i, dt);
+            let from = self.droids[i].pos;
+
+            // A swing that has been swung lands now, on the target it
+            // was aimed at if that one is still within reach.
+            if let Some(blow) = self.droids[i].blow.take_if(|b| b.left <= 0.0)
+                && self.combat.within_reach(from, blow.target)
+            {
+                self.combat
+                    .brawl(from, blow.target, weapon, blow.damage, blow.cut, true, None);
+            }
+
+            // A melee first: locked, it neither aims nor fires.
+            let locked = self.combat.melee_with(&self.room.sight, from, &stats);
+            self.droids[i].locked = locked;
+            if let Some(enemy) = locked {
+                self.droids[i].trigger.hold();
+                self.droids[i].peek = None;
+                self.droids[i].charging(dt, false);
+                if let Some(at) = self.combat.targets()[enemy].map(|t| t.at) {
+                    self.droids[i].face((at - from).angle());
+                }
+                if self.droids[i].melee_timer <= 0.0 {
+                    self.droids[i].melee_timer = MELEE_PERIOD;
+                    // A claw's blow is a crush, not a cut: it does not
+                    // bleed the way a blade's does. A gunner's machine
+                    // with a claw at its throat has no fists to fall
+                    // back on — it has an arm, and the arm is the gun —
+                    // so a Trooper or a Warden locked in a melee jabs
+                    // with what it has at `FIST_DAMAGE`.
+                    let (damage, cut) = if stats.melee {
+                        (stats.damage, false)
+                    } else {
+                        (FIST_DAMAGE, false)
+                    };
+                    self.droids[i].struck_out();
+                    self.droids[i].blow = Some(Blow {
+                        target: enemy,
+                        left: SWING_TIME,
+                        damage,
+                        cut,
+                    });
+                }
+                continue;
+            }
+            // A claw with nobody in reach has nothing to aim.
+            if stats.melee {
+                self.droids[i].peek = None;
+                self.droids[i].charging(dt, false);
+                continue;
+            }
+            let Some((_, eye, at)) = self.combat.aim(&self.room.sight, from, &stats) else {
+                self.droids[i].trigger.hold();
+                self.droids[i].peek = None;
+                self.droids[i].charging(dt, false);
+                continue;
+            };
+            // A machine that does not take cover does not peek either:
+            // a Trooper shoots from its own eyes and walks into the open
+            // to get them, rather than leaning round a wall it would be
+            // shot at from behind.
+            let takes_cover = self.droids[i].kind.takes_cover();
+            if !takes_cover && eye != from {
+                self.droids[i].trigger.hold();
+                self.droids[i].peek = None;
+                self.droids[i].charging(dt, false);
+                continue;
+            }
+            // **A Trooper fires on the move**; everything else stands
+            // still for the shot, since walking halves the odds.
+            let walking = self.droids[i].is_walking();
+            if walking && takes_cover && eye != from {
+                self.droids[i].trigger.hold();
+                self.droids[i].peek = None;
+                self.droids[i].charging(dt, false);
+                continue;
+            }
+            let peek = (eye != from).then_some(eye);
+            self.droids[i].peek = peek;
+            if !walking {
+                self.droids[i].face((at - eye).angle());
+            }
+            self.droids[i].charging(dt, true);
+            if self.droids[i].trigger.pull(dt, &stats) {
+                self.droids[i].fired();
+                self.combat.shoot(eye, at, weapon, walking);
+            }
+        }
+    }
+
+    /// Where a machine walks to: the same scoring a hostile Bim's stand
+    /// is picked by, with the kind's own weight on cover — nought for a
+    /// Trooper, which advances in the open. A Husk has a claw, so
+    /// `stand_scored` hands it straight to [`Tactics::charge`].
+    fn plan_droid_stand(&mut self, i: usize, dt: f32, stats: &WeaponStats) {
+        self.droids[i].plan_wait -= dt;
+        if self.droids[i].plan_wait > 0.0 {
+            return;
+        }
+        self.droids[i].plan_wait = PLAN_EVERY;
+        if !self.droids[i].can_move() {
+            // Legs gone: it fights where it stands, and plans nothing.
+            return;
+        }
+        let from = self.droids[i].pos;
+        let nav = self.maps.for_body(false, self.room.bath.is_open());
+        let targets = self.combat.targets().to_vec();
+        let nobody_in_sight = targets.iter().flatten().all(|t| t.stale);
+        // The hunter's rule, as a hostile Bim's: with nobody in sight a
+        // gunner walks to where something was last seen, and from then
+        // on holds or closes and never gives ground.
+        if !stats.melee && nobody_in_sight {
+            self.droids[i].hunting = true;
+            let Some(to) = Tactics::charge(nav, from, &targets) else {
+                return;
+            };
+            if (to - self.droids[i].destination()).len() <= TILE {
+                return;
+            }
+            let route = nav.path(from, to);
+            if !route.is_empty() {
+                self.droids[i].follow_path(route);
+            }
+            return;
+        }
+        let closing = self.droids[i].hunting;
+        let doorways: Vec<Rect> = self
+            .room
+            .doors
+            .iter()
+            .map(|d| d.rect)
+            .chain(self.room.airlocks.iter().copied())
+            .collect();
+        // Where the rest of its side stand, or are walking to: nobody's
+        // stand but theirs, so a wave does not pile onto one tile.
+        let taken: Vec<Vec2> = self
+            .droids
+            .iter()
+            .enumerate()
+            .filter(|&(j, d)| j != i && !d.destroyed)
+            .map(|(_, d)| d.destination())
+            .chain(
+                self.bims
+                    .iter()
+                    .filter(|b| b.is_alive() && b.character.is_recruited())
+                    .map(|b| b.character.destination().unwrap_or(b.character.pos)),
+            )
+            .collect();
+        let cover_worth = if self.droids[i].kind.takes_cover() {
+            crate::combat::COVER_WORTH
+        } else {
+            0.0
+        };
+        let Some(stand) = Tactics::stand_scored(
+            &self.room.sight,
+            nav,
+            from,
+            &targets,
+            stats,
+            &doorways,
+            &taken,
+            closing,
+            cover_worth,
+        ) else {
+            return;
+        };
+        let to = stand.at;
+        // A shot from here and nothing better than the open over there:
+        // it stops where it is and shoots — except a Trooper, which
+        // advances in the open and fires as it walks.
+        let advances = !self.droids[i].kind.takes_cover();
+        let has_a_shot = !stats.melee && self.combat.aim(&self.room.sight, from, stats).is_some();
+        if has_a_shot && !stand.cover && !advances {
+            if self.droids[i].is_walking() {
+                self.droids[i].halt();
+            }
+            return;
+        }
+        if (to - self.droids[i].destination()).len() <= TILE {
+            return;
+        }
+        let route = nav.path(from, to);
+        if !route.is_empty() {
+            self.droids[i].follow_path(route);
+        }
+    }
+
+    /// A machine with nobody it can get to goes for the doors: the same
+    /// rule as [`Game::breach`], on the machine's own clock. One body to
+    /// a door; a machine never locks one itself, so there is no lock of
+    /// its own to undo.
+    fn breach_droid(&mut self, i: usize, dt: f32) {
+        let from = self.droids[i].pos;
+        if let Some(d) = self.droids[i].smashing {
+            let at_it = self.room.doors.get(d).is_some_and(|door| {
+                door.locked && (door.station(from, DOOR_STAND_OFF) - from).len() <= TILE * 0.75
+            });
+            if at_it {
+                if self.droids[i].is_walking() {
+                    self.droids[i].halt();
+                }
+                let door = &mut self.room.doors[d];
+                let centre = door.rect.center();
+                // A machine heaves at the rate anybody without the tank's
+                // *breacher* does.
+                if let Some(cue) = door.smash_at(self.bims.len() + i, dt, 1.0) {
+                    self.room.cues.push(Cued { cue, at: centre });
+                }
+                if !self.room.doors[d].locked {
+                    self.droids[i].smashing = None;
+                }
+                return;
+            }
+            if let Some(door) = self.room.doors.get_mut(d)
+                && door.smash.is_some_and(|s| s.by == self.bims.len() + i)
+            {
+                door.drop_smash();
+            }
+            self.droids[i].smashing = None;
+        }
+        self.droids[i].breach_wait -= dt;
+        if self.droids[i].breach_wait > 0.0 {
+            return;
+        }
+        self.droids[i].breach_wait = PLAN_EVERY;
+        if !self.droids[i].can_move() {
+            return;
+        }
+        let nav = self.maps.for_body(false, self.room.bath.is_open());
+        let goals: Vec<Vec2> = self
+            .combat
+            .target_positions()
+            .into_iter()
+            .flatten()
+            .collect();
+        if goals.is_empty() || goals.iter().any(|&t| !nav.path(from, t).is_empty()) {
+            return;
+        }
+        let me = self.bims.len() + i;
+        let mut best: Option<(f32, usize, Vec2)> = None;
+        for (d, door) in self.room.doors.iter().enumerate() {
+            if !door.locked || door.smash.is_some_and(|s| s.by != me) {
+                continue;
+            }
+            let at = door.station(from, DOOR_STAND_OFF);
+            let near = (at - from).len() <= TILE * 0.75;
+            if !near && nav.path(from, at).is_empty() {
+                continue;
+            }
+            let cost = (at - from).len();
+            if best.is_none_or(|(c, _, _)| cost < c) {
+                best = Some((cost, d, at));
+            }
+        }
+        let Some((_, d, at)) = best else {
+            return;
+        };
+        if (at - from).len() <= TILE * 0.75 {
+            self.droids[i].halt();
+            self.droids[i].smashing = Some(d);
+            return;
+        }
+        let route = nav.path(from, at);
+        if !route.is_empty() {
+            self.droids[i].follow_path(route);
+        }
+    }
+
     /// One bot's choice of where to stand, when its clock comes round:
     /// `Tactics::stand_with_cover`, and a march there if it is more than a
     /// tile from where it is already going — **unless it has a shot from
@@ -1993,7 +2712,7 @@ impl Game {
     /// the weapon's range, and a hunter that stood there never followed
     /// anybody through a passage. The crew's bots take the list as it
     /// comes and never hunt: they are the player's to send.
-    fn plan_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats) {
+    fn plan_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats, mark: Option<usize>) {
         let bim = &mut self.bims[who];
         bim.plan_wait -= dt;
         if bim.plan_wait > 0.0 {
@@ -2002,7 +2721,20 @@ impl Game {
         bim.plan_wait = PLAN_EVERY;
         let from = bim.character.pos;
         let nav = self.maps.for_body(false, self.room.bath.is_open());
-        let targets = self.combat.targets().to_vec();
+        // A squad member attacking a marked enemy advances on **it**
+        // (feature 78): the rest are nobody's business for the stand,
+        // so they are taken off the list the spot is scored against.
+        let mut targets = self.combat.targets().to_vec();
+        if let Some(mark) = mark
+            && targets.get(mark).is_some_and(|t| t.is_some())
+        {
+            for (i, t) in targets.iter_mut().enumerate() {
+                if i != mark {
+                    *t = None;
+                }
+            }
+        }
+        let targets = targets;
         let nobody_in_sight = targets.iter().flatten().all(|t| t.stale);
         if self.hostile_bodies && !stats.melee && nobody_in_sight {
             bim.hunting = true;
@@ -2108,9 +2840,12 @@ impl Game {
                 if self.bims[who].character.is_walking() {
                     self.bims[who].character.halt();
                 }
+                // *Breacher* (feature 77): a tank heaves the lock open in
+                // half the time; everybody else's rate is one.
+                let rate = self.skill(who).smash_rate;
                 let door = &mut self.room.doors[i];
                 let centre = door.rect.center();
-                if let Some(cue) = door.smash(who, dt) {
+                if let Some(cue) = door.smash_at(who, dt, rate) {
                     self.room.cues.push(Cued { cue, at: centre });
                 }
                 if !self.room.doors[i].locked {
@@ -2259,6 +2994,22 @@ impl Game {
     /// the player's Bim moves, and the ring moves with it. It shoots what
     /// it sees from there like any recruited body.
     fn gather(&mut self, who: usize, dt: f32) {
+        let from = self.bims[who].character.pos;
+        // Round the nearest player's own that is up and in; with several
+        // players the crew gather round whichever is closest.
+        let player = (0..self.players.min(self.bims.len()))
+            .filter(|&p| self.bims[p].is_alive() && !self.bims[p].character.is_outside())
+            .map(|p| self.bims[p].character.pos)
+            .min_by(|a, b| (*a - from).len().total_cmp(&(*b - from).len()))
+            .unwrap_or(self.bims[PLAYER].character.pos);
+        self.gather_round(who, dt, player);
+    }
+
+    /// The same ring round a point of the room rather than round a
+    /// player's Bim: what a commander's **fall back** puts the squad in
+    /// (feature 78), anchored on the tile he named instead of on
+    /// somebody who moves.
+    fn gather_round(&mut self, who: usize, dt: f32, anchor: Vec2) {
         let bim = &mut self.bims[who];
         bim.plan_wait -= dt;
         if bim.plan_wait > 0.0 {
@@ -2268,13 +3019,7 @@ impl Game {
         let from = bim.character.pos;
         let rank = (1..who).filter(|&i| self.bims[i].is_alive()).count();
         let nav = self.maps.for_body(false, self.room.bath.is_open());
-        // Round the nearest player's own that is up and in; with several
-        // players the crew gather round whichever is closest.
-        let player = (0..self.players.min(self.bims.len()))
-            .filter(|&p| self.bims[p].is_alive() && !self.bims[p].character.is_outside())
-            .map(|p| self.bims[p].character.pos)
-            .min_by(|a, b| (*a - from).len().total_cmp(&(*b - from).len()))
-            .unwrap_or(self.bims[PLAYER].character.pos);
+        let player = anchor;
         // Its own slot, or the next one round that there is a way to — a
         // slot inside a wall the player stands against is nobody's.
         let Some(to) = (0..GATHER_SLOTS.len())
@@ -2292,6 +3037,295 @@ impl Game {
         let route = nav.path(from, to);
         if !route.is_empty() {
             self.bims[who].character.follow_path(route);
+        }
+    }
+
+    // --- the bots a player leads (feature 84) ------------------------------
+
+    /// What each player's standing order is, by slot
+    /// ([`Standing`]): the world's word, said every step.
+    pub fn set_standing(&mut self, standing: Vec<Standing>) {
+        self.standing = standing;
+    }
+
+    /// Which order a bot is under: the one given by the player whose own
+    /// Bim is nearest it, counting only players that are alive and on the
+    /// deck. [`Standing::Follow`] with nobody up, which is the same as
+    /// nobody having said anything.
+    fn standing_for(&self, who: usize) -> Standing {
+        let from = self.bims[who].character.pos;
+        (0..self.players.min(self.bims.len()))
+            .filter(|&p| self.bims[p].is_alive() && !self.bims[p].character.is_outside())
+            .min_by(|&a, &b| {
+                (self.bims[a].character.pos - from)
+                    .len()
+                    .total_cmp(&(self.bims[b].character.pos - from).len())
+            })
+            .and_then(|p| self.standing.get(p).copied())
+            .unwrap_or_default()
+    }
+
+    /// That order, for the tests and the world's readout.
+    pub fn standing_for_probe(&self, who: usize) -> Standing {
+        self.standing_for(who)
+    }
+
+    /// Whether a body is giving ground backwards — falling back with
+    /// the gun on the enemy rather than running (feature 84). For the
+    /// tests; the picture reads it off the character itself.
+    pub fn is_backing_for_probe(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.character.is_backing())
+    }
+
+    /// Whether a point of the room is **the ship's own deck** — which is
+    /// the crew's last stand (feature 84). What `set_foreign` said is
+    /// what answers it: a joined deck's station box is somebody else's
+    /// and everything else the ship's; a planet's is the other way
+    /// about, the ship's own hull box against the town and the ground.
+    /// With nothing foreign said the whole room is the ship's, which is
+    /// what a ship flying on its own is.
+    pub fn is_aboard(&self, at: Vec2) -> bool {
+        match self.foreign {
+            None => true,
+            Some((rect, _, false)) => !rect.contains(at),
+            Some((rect, _, true)) => rect.contains(at),
+        }
+    }
+
+    /// Where a body falling back to the ship makes for: the deck just
+    /// inside the **ship's** port, which is the one spot every joined
+    /// deck and every planet has and which is aboard by either rule.
+    ///
+    /// The world says where that is ([`Game::set_home`]) and the room's
+    /// own `gangway` is only the fallback, for a ship flying alone and
+    /// for the classic test room. It has to be that way round: on a
+    /// joined deck `Room::gangway` is the *joined* design's first free
+    /// airlock, and the ship's own is mated to the station, so the room
+    /// answers the station's far door — which is how a retreat used to
+    /// walk the crew out through the building rather than home.
+    /// The middle of the room for a ship with no port at all — the
+    /// classic room, a design without one — since there is nowhere else
+    /// to mean.
+    pub(crate) fn ship_anchor(&self) -> Vec2 {
+        match self.home.or(self.room.gangway) {
+            Some(at) => at,
+            None => match self.foreign {
+                Some((rect, _, true)) => rect.center(),
+                _ => self.room.interior.center(),
+            },
+        }
+    }
+
+    /// Where the ship's own gangway is, in room units, said by the world
+    /// every step (feature 84). `None` leaves the room to its own
+    /// `gangway`, which is right for a ship flying alone.
+    pub fn set_home(&mut self, at: Option<Vec2>) {
+        self.home = at;
+    }
+
+    /// The spot a fall back gathers on, for the app's defend sign.
+    pub fn fall_back_point(&self) -> Vec2 {
+        self.ship_anchor()
+    }
+
+    /// Whether the fight has come **aboard**: any target that is up
+    /// standing on the ship's own deck. This is what makes the last
+    /// stand — a body aboard with one of these does not run and does not
+    /// fall back, whatever it was told.
+    fn enemy_aboard(&self) -> bool {
+        self.combat
+            .targets()
+            .iter()
+            .flatten()
+            .any(|t| self.is_aboard(t.at))
+    }
+
+    /// Whether `who` is making the last stand: aboard the ship with the
+    /// enemy aboard it too. Read by [`Game::would_flee`] as well as by
+    /// the bots' orders, so a dying crew member cornered in its own ship
+    /// fights where it stands rather than running further in.
+    /// **A room with nowhere else in it is not a last stand.** The rule
+    /// wants a ship to be cornered *in*, which means a deck with
+    /// somebody else's half to it — a joined station, a raider tied on,
+    /// a town on a planet ([`Game::set_foreign`]). The classic test room
+    /// and a ship flying alone have none, so a dying body there runs the
+    /// way it always did.
+    fn cornered(&self, who: usize) -> bool {
+        !self.hostile_bodies
+            && self.foreign.is_some()
+            && self.is_aboard(self.bims[who].character.pos)
+            && self.enemy_aboard()
+    }
+
+    /// What a bot under arms does when nothing nearer to hand — a chain,
+    /// a post its player clicked for it, a commander's squad order — has
+    /// claimed it (feature 84). The last stand first, then a dying run,
+    /// then whatever its player's standing order is.
+    fn bot_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats) {
+        if self.cornered(who) {
+            self.plan_stand(who, dt, stats, None);
+            return;
+        }
+        match self.standing_for(who) {
+            Standing::Retreat => self.fall_back_aboard(who, dt),
+            Standing::Attack { at } => self.assault(who, dt, stats, at),
+            Standing::Follow => {
+                let from = self.bims[who].character.pos;
+                // Somebody's own to gather round: any player's, up and in.
+                let player_up = (0..self.players.min(self.bims.len()))
+                    .any(|p| self.bims[p].is_alive() && !self.bims[p].character.is_outside());
+                if !player_up || self.combat.sees_any(&self.room.sight, from) {
+                    self.plan_stand(who, dt, stats, None);
+                } else {
+                    self.gather(who, dt);
+                }
+            }
+        }
+    }
+
+    /// An **attack banner**: the bot fights its way to the point its
+    /// player put down and holds it.
+    ///
+    /// * Anything up within its weapon's reach and it fights — its own
+    ///   stand, cover and all, the same one it would pick if it had seen
+    ///   the enemy for itself.
+    /// * Nothing in reach and the banner still off, and it **pushes**:
+    ///   the ground made good towards the banner with the cover on the
+    ///   way taken where there is any ([`Tactics::advance`]), and the
+    ///   whole walk planned instead where nothing near is any nearer —
+    ///   a banner round a corner.
+    /// * Nothing in reach and the banner reached, and it holds the ring
+    ///   round it the way a fall back holds one.
+    fn assault(&mut self, who: usize, dt: f32, stats: &WeaponStats, at: Vec2) {
+        let from = self.bims[who].character.pos;
+        let in_reach = self
+            .combat
+            .targets()
+            .iter()
+            .flatten()
+            .any(|t| !t.stale && (t.at - from).len() <= stats.reach());
+        if in_reach {
+            self.plan_stand(who, dt, stats, None);
+        } else if (at - from).len() > BANNER_HOLD * TILE {
+            self.push_towards(who, dt, at);
+        } else {
+            self.gather_round(who, dt, at);
+        }
+    }
+
+    /// Falling back: the ring round the ship's own gangway, and nothing
+    /// further once it is there. The same walk a dying body makes, so
+    /// that a retreat called and a body going down look the same on the
+    /// deck.
+    ///
+    /// It is also walked differently from every other walk: the body is
+    /// marked as falling back here, at a **sprint** — head down, a
+    /// little faster than a walk — and the aim below turns that into a
+    /// **backing** walk the step it finds something to shoot at, so a
+    /// crew member covering the retreat gives ground with its gun up
+    /// rather than turning its back on the enemy ([`FallBack`]).
+    fn fall_back_aboard(&mut self, who: usize, dt: f32) {
+        let anchor = self.ship_anchor();
+        self.bims[who]
+            .character
+            .set_falling_back(Some(FallBack::Sprint));
+        self.gather_round(who, dt, anchor);
+    }
+
+    /// One push towards a point, on the body's own plan clock: the spot
+    /// [`Tactics::advance`] picks, or the whole way there when it picks
+    /// none.
+    fn push_towards(&mut self, who: usize, dt: f32, at: Vec2) {
+        let bim = &mut self.bims[who];
+        bim.plan_wait -= dt;
+        if bim.plan_wait > 0.0 {
+            return;
+        }
+        bim.plan_wait = PLAN_EVERY;
+        let from = bim.character.pos;
+        let nav = self.maps.for_body(false, self.room.bath.is_open());
+        let targets = self.combat.targets().to_vec();
+        let doorways: Vec<Rect> = self
+            .room
+            .doors
+            .iter()
+            .map(|d| d.rect)
+            .chain(self.room.airlocks.iter().copied())
+            .collect();
+        let taken: Vec<Vec2> = self
+            .bims
+            .iter()
+            .enumerate()
+            .filter(|&(i, b)| {
+                i != who && b.is_alive() && b.character.is_recruited() && !b.character.is_outside()
+            })
+            .map(|(_, b)| b.character.destination().unwrap_or(b.character.pos))
+            .collect();
+        let step = Tactics::advance(
+            &self.room.sight,
+            nav,
+            from,
+            at,
+            &targets,
+            &doorways,
+            &taken,
+            COVER_WORTH,
+        );
+        // Off the deck's box on a plain the cover lattice says nothing —
+        // the grids are the body's own window out there — so the walk is
+        // planned the way an order onto the plain is, leg by leg.
+        let Some(to) = step else {
+            if self.on_a_window(who, at) {
+                self.plan_route(who, at);
+            } else {
+                let to = nav.nearest_free(at);
+                let route = nav.path(from, to);
+                if !route.is_empty() {
+                    self.bims[who].character.follow_path(route);
+                }
+            }
+            return;
+        };
+        let going = self.bims[who].character.destination().unwrap_or(from);
+        if (to - going).len() <= TILE {
+            return;
+        }
+        let route = nav.path(from, to);
+        if !route.is_empty() {
+            self.bims[who].character.follow_path(route);
+        }
+    }
+
+    /// A squad member's stand under a commander's order (feature 78),
+    /// in place of the ring round the player and of its own tactics:
+    ///
+    /// * **attack** — the stand its own tactics would pick, scored
+    ///   against the marked enemy alone, so it advances on that one to
+    ///   cover within range and peeks round it. A mark nobody can see is
+    ///   still walked towards (*relentless*) and never fired at, which
+    ///   is what `Target::stale` already does.
+    /// * **fall back** — the gather ring anchored on the tile he named.
+    /// * **stand ground** — exactly where it stands: a walk under way
+    ///   is halted and nothing is planned.
+    fn squad_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats, squad: Squad) {
+        match squad {
+            Squad::None => {}
+            Squad::Attack { enemy, .. } => self.plan_stand(who, dt, stats, Some(enemy)),
+            Squad::FallBack { at } => {
+                // A commander's fall back holds its fire while it walks
+                // (below), so it is the **full sprint**: head down and a
+                // little faster, never the backing walk a crew member
+                // covering its own retreat gives ground with.
+                self.bims[who]
+                    .character
+                    .set_falling_back(Some(FallBack::Sprint));
+                self.gather_round(who, dt, at);
+            }
+            Squad::StandGround => {
+                if self.bims[who].character.is_walking() {
+                    self.bims[who].character.halt();
+                }
+            }
         }
     }
 
@@ -2402,9 +3436,11 @@ impl Game {
             self.bims[who].needs.level(Need::Food),
             self.bims[who].needs.level(Need::Rest),
         );
+        // A medic's beam on the body holds its blood (feature 76).
+        let held = self.held.get(who).copied().flatten();
         self.bims[who]
             .health
-            .update(minutes, food, rest, restoring == Some(Need::Rest));
+            .update_held(minutes, food, rest, restoring == Some(Need::Rest), held);
         // Going a stage further into hunger or sleeplessness is worth
         // remembering — once, as it happens, rather than for every frame it
         // goes on lasting. Only downwards: coming back out of it is a relief
@@ -2431,11 +3467,29 @@ impl Game {
         // so is squeezing past the other Bim. All three multiply: a starving
         // Bim edging round its shipmate through a fouled galley is slow for
         // three separate reasons and should read as slow.
+        // *Unmovable* (feature 77): low blood costs a tank no pace while
+        // its kevlar is on and unbroken.
+        let steady = self.skill(who).steady_pace
+            && self.bims[who]
+                .gear
+                .worn(Part::Body)
+                .is_some_and(|p| !p.broken());
+        // *Grit* (feature 78): during a rally nothing the fight has done
+        // to it costs it any pace at all.
+        let hurt = if self.skill(who).unhurt {
+            1.0
+        } else if steady {
+            self.bims[who].health.pace_steady()
+        } else {
+            self.bims[who].health.pace()
+        };
         let pace = self.bims[who].health.stage().pace()
-            * self.bims[who].health.pace()
+            * hurt
             * self.bims[who].ordeal.discomfort().pace()
             * self.bims[who].solitude.stage().works_at()
-            * self.crowding(who);
+            * self.crowding(who)
+            * self.runner(who)
+            * self.skill(who).walk;
         self.bims[who].character.set_pace(pace);
         if self.bims[who].health.is_dead() {
             self.die(who);
@@ -2556,12 +3610,21 @@ impl Game {
         // craft's working steps, another on a build's, and nothing on any
         // other errand — the task says which job it serves.
         let (craft, build) = self.work_factors.get(who).copied().unwrap_or((1.0, 1.0));
+        // And a medic's (feature 76): its bandaging, its treating, and a
+        // treatment with no kit at its own pace.
+        let doctoring = self.doctoring_of(who);
         let effort = effort
             * match self.bims[who].task.as_ref().map(|t| t.kind()) {
                 Some(Kind::Craft { .. }) => craft,
                 Some(Kind::Build { .. }) => build,
+                Some(Kind::Bandage { .. }) => doctoring.bandage,
+                Some(Kind::Treat { bare: true, .. }) => doctoring.bare.unwrap_or(doctoring.treat),
+                Some(Kind::Treat { .. }) => doctoring.treat,
                 _ => 1.0,
             };
+        // And a commander's aura (feature 78): every errand, not one
+        // kind of it — the only factor here that is nobody's own class.
+        let effort = effort * self.skill(who).effort;
         let taken = self.taken_for(who);
         {
             let (bims, room, maps, rng) =
@@ -3069,9 +4132,10 @@ impl Game {
             self.witnessed(who, What::SawSickness);
         }
 
-        // Hopping about on the spot: the one warning the player gets that an
-        // accident is coming, and the only outward sign of a need that has no
-        // bar-width left to lose.
+        // Hopping about on the spot: the last stage only — see
+        // `Urge::fidget_chance` — so it is the one warning the player gets
+        // that an accident is coming, and the only outward sign of a need
+        // that has no bar-width left to lose.
         if !self.bims[who].character.in_antic() && self.rng.chance(minutes * urge.fidget_chance()) {
             self.bims[who].character.antic(Action::Fidget, FIDGET_TIME);
         }
@@ -3151,6 +4215,9 @@ impl Game {
     /// down properly rather than dropped on the floor, so the hands and the
     /// scripting come back the way a suspend leaves them.
     fn interrupt_for_order(&mut self, who: usize) {
+        // An order that moves a braced soldier is the end of the brace
+        // (feature 75).
+        self.bims[who].braced = false;
         let stale = self.bims[who].pending_move.take().is_some() && self.on_a_door_errand(who);
         if let Some(task) = self.bims[who].task.take() {
             let saved = task.suspend(&mut self.bims[who].character, &mut self.room);
@@ -3192,6 +4259,26 @@ impl Game {
         self.bims.get(who).map_or(0, |bim| {
             bim.queue.iter().filter(|s| s.is_ordered()).count() as u32
         })
+    }
+
+    /// Whether the Bim is walking a route it was *given* rather than
+    /// running a chain: a route in hand with no errand behind it, which on
+    /// the deck means a right-click's walk, a Shift-click's when its turn
+    /// came, or the walk back to a post.
+    ///
+    /// It is worth asking because a walk is not a chain. An errand that
+    /// interrupts a chain puts it on the queue and it is picked up again
+    /// (`Game::interrupt`); an errand that interrupts a *walk* simply loses
+    /// it — nothing is saved, nothing comes back — so the Bim ends up
+    /// wherever the errand took it and a Shift chain behind it is walked
+    /// from the wrong place. So the one errand a Bim starts on *somebody
+    /// else* — going over for a word — leaves one alone (`free_to_talk`).
+    /// Everything a Bim starts on itself already asks `arrived()`, which
+    /// is the same rule said the other way round.
+    fn on_a_given_walk(&self, who: usize) -> bool {
+        self.bims
+            .get(who)
+            .is_some_and(|bim| bim.task.is_none() && !bim.character.arrived())
     }
 
     /// Whether the Bim is at this moment on its way to work the door panel.
@@ -3431,7 +4518,9 @@ impl Game {
     fn pump_queue(&mut self, who: usize) {
         // Under orders, work that was put down stays put down. The queue is
         // kept, not thrown away, so letting the Bim go picks it all up again.
+        // A braced soldier holds its ground the same way (feature 75).
         if self.bims[who].character.is_recruited()
+            || self.bims[who].braced
             || self.is_fleeing(who)
             || self.bims[who].task.is_some()
             || self.bims[who].queue.is_empty()
@@ -3516,7 +4605,7 @@ impl Game {
                     self.bandage(who, patient, part);
                 }
             }
-            Kind::Treat { patient, part } => {
+            Kind::Treat { patient, part, .. } => {
                 if let Some(part) = Part::from_code(part) {
                     self.treat(who, patient, part);
                 }
@@ -3734,8 +4823,13 @@ impl Game {
         }
     }
 
+    /// Whether a body on this deck is still up: a Bim alive, or a
+    /// machine not yet a wreck (feature 83).
     pub fn is_alive(&self, who: usize) -> bool {
-        self.bims[who].is_alive()
+        match self.droid_at(who) {
+            Some(i) => !self.droids[i].destroyed,
+            None => self.bims[who].is_alive(),
+        }
     }
 
     pub fn health(&self, who: usize) -> f32 {
@@ -4205,6 +5299,7 @@ impl Game {
         // for the heads — to take yet: that is what lets the errand below be
         // started in its place.
         if self.bims[who].character.is_recruited()
+            || self.bims[who].braced
             || self.is_fleeing(who)
             || !self.autonomous
             || self.bims[who].task.is_some()
@@ -4348,8 +5443,9 @@ impl Game {
 
     /// What `who` would do if it took the medical row. **Itself first**: its
     /// own worst part while it bleeds, dressed on the spot. Then a crewmate
-    /// dying — the one nearest, its worst-bleeding trauma, while a medkit
-    /// is on a shelf to fetch — since a trauma left alone bleeds ten a
+    /// dying — the one nearest, its worst-bleeding trauma, while there is
+    /// a medkit for it, in the helper's own pack or on a shelf to fetch —
+    /// since a trauma left alone bleeds ten a
     /// quarter hour where a wound bleeds ten an hour; never its own, since
     /// a Bim cannot treat its own. Then the crewmate with the most wounds
     /// open and that one's worst part. `None` with nothing to hand for
@@ -4409,7 +5505,7 @@ impl Game {
             _ => None,
         });
         let being_treated = in_hand(|k| match k {
-            Kind::Treat { patient, part } => Some((patient, part)),
+            Kind::Treat { patient, part, .. } => Some((patient, part)),
             _ => None,
         });
         let from = self.bims[who].character.pos;
@@ -4436,7 +5532,9 @@ impl Game {
         if !self.calm() {
             return None;
         }
-        if self.room.medkits > 0 {
+        // A kit for it: one in the helper's own pack, else one on a shelf
+        // to walk to.
+        if self.room.carries_kit(who) || self.room.medkits > 0 {
             let worst_trauma = |patient: usize| -> Option<Part> {
                 Part::ALL
                     .iter()
@@ -4757,8 +5855,8 @@ impl Game {
     }
 
     /// The loads taken off a shelf since the last call — `(site, resource,
-    /// units)` each — for the world to take off the count.
-    pub fn take_picked(&mut self) -> Vec<(u32, u32, u32)> {
+    /// units, who)` each — for the world to take off the count.
+    pub fn take_picked(&mut self) -> Vec<(u32, u32, u32, usize)> {
         core::mem::take(&mut self.room.picked)
     }
 
@@ -5243,7 +6341,9 @@ impl Game {
     /// spot. Work does not: a Bim sweeping or at the bay is interrupted,
     /// because the alternative is two Bims who are never both free at the same
     /// moment and therefore never speak — and with the deck always finding
-    /// something to be swept, that is not a hypothetical.
+    /// something to be swept, that is not a hypothetical. A walk the player
+    /// gave is the other no: see `on_a_given_walk`, and the Shift-clicks
+    /// still waiting their turn count with it.
     fn free_to_talk(&self, who: usize) -> Option<usize> {
         (0..self.bims.len()).find(|&other| {
             other != who
@@ -5260,6 +6360,15 @@ impl Game {
                 && self.bims[other].task.as_ref().is_none_or(|t| {
                     matches!(t.kind(), Kind::Clean | Kind::Tend { .. } | Kind::Chat)
                 })
+                // And neither does the player's own walk. A Bim on its way
+                // somewhere it was sent is left to get there, and so is one
+                // with Shift-clicks still waiting their turn: a chat walks
+                // it to a meeting spot, which loses the route it is on
+                // (`on_a_given_walk`) and puts every leg of the chain
+                // behind it somewhere else. Work is interrupted and comes
+                // back; a walk does not.
+                && !self.on_a_given_walk(other)
+                && self.ordered_count(other) == 0
         })
     }
 
@@ -5931,9 +7040,136 @@ impl Game {
     }
 
     /// How many are aboard. Two in the classic room; a ship's crew, up to
-    /// [`room::BERTHS`], aboard one.
+    /// [`room::BERTHS`], aboard one. **The Bims alone** — the machines on
+    /// the deck are [`Game::droid_count`], and the two together are
+    /// [`Game::body_count`].
     pub fn crew_count(&self) -> u32 {
         self.bims.len() as u32
+    }
+
+    // --- the bodies on this deck (feature 83) ---------------------------------
+    //
+    // A droid-held station's room holds machines rather than people, and
+    // the world hands both rooms one list of **bodies**: this room's Bims
+    // first, then its droids. Every `who` the world sends in and reads
+    // back — a target, a hit, a position, a peek — is an index into that
+    // one space, and the handful of methods below are where it is taken
+    // apart. Inside the room a `who` is still a Bim's, which is why
+    // nothing else had to change.
+
+    /// How many machines are on this deck. Nought everywhere but a
+    /// droid-held station's room.
+    pub fn droid_count(&self) -> u32 {
+        self.droids.len() as u32
+    }
+
+    /// How many bodies there are on this deck all told: the Bims, then
+    /// the machines. What the world sizes its target lists by.
+    pub fn body_count(&self) -> u32 {
+        (self.bims.len() + self.droids.len()) as u32
+    }
+
+    /// Which machine a body index names, or `None` for one of the Bims
+    /// (or for an index past the end of both).
+    fn droid_at(&self, who: usize) -> Option<usize> {
+        let i = who.checked_sub(self.bims.len())?;
+        (i < self.droids.len()).then_some(i)
+    }
+
+    /// The machines as they stand, for the world to read and the painter
+    /// to draw.
+    pub fn droids(&self) -> &[Droid] {
+        &self.droids
+    }
+
+    /// One of them by its **droid** index — not a body index.
+    pub fn droid(&self, i: usize) -> Option<&Droid> {
+        self.droids.get(i)
+    }
+
+    /// Put a machine on the deck, at the end of the body list. Answers
+    /// the **body** index it took, which is what the world keeps.
+    pub fn add_droid(&mut self, droid: Droid) -> usize {
+        self.droids.push(droid);
+        self.bims.len() + self.droids.len() - 1
+    }
+
+    /// Every machine off the deck: what a room built afresh starts from.
+    pub fn clear_droids(&mut self) {
+        self.droids.clear();
+    }
+
+    /// The machines out of this room, for a fresh one to take them —
+    /// what [`Game::take_crew`] is for the Bims. A dock, an undock and a
+    /// relayout all throw the room away and build another; the machines
+    /// go across with it, wrecks and all.
+    pub fn take_droids(&mut self) -> Vec<Droid> {
+        core::mem::take(&mut self.droids)
+    }
+
+    /// Machines into a fresh room, each shifted by `shift` — the way
+    /// `Room::adopt` carries the Bims across a join. Every route is
+    /// dropped: a route is the old room's grid, and the new one's is not
+    /// the same. Where they stand is the truth, and the next plan is
+    /// made from there.
+    ///
+    /// **A spot no body fits in is snapped to the nearest that one
+    /// does**, exactly as `Game::adopt` snaps a Bim carried between
+    /// rooms. A reinforcement wave is posted in rings round the airlock
+    /// its ship tied up at (`world::droid::arriving_wave`) and a ring
+    /// falls where it falls: at the arena four machines of sixteen
+    /// landed in a bulkhead or out in the void, where they could neither
+    /// walk nor see — they stood there for good, never fired a shot, and
+    /// held the *next* wave up with them, since nothing arrives while
+    /// one is still standing.
+    pub fn adopt_droids(&mut self, droids: Vec<Droid>, shift: Vec2) {
+        for mut droid in droids {
+            droid.pos = droid.pos + shift;
+            let nav = self.maps.pick(true);
+            if !nav.is_free(droid.pos) {
+                droid.pos = nav.nearest_free(droid.pos);
+            }
+            droid.halt();
+            droid.peek = None;
+            droid.blow = None;
+            droid.locked = None;
+            droid.smashing = None;
+            // **The stagger is kept.** `World::build_wave` spreads each
+            // machine's first plan over `PLAN_EVERY` so a wave of
+            // sixteen does not score sixteen lattices of stands on one
+            // step, and zeroing the wait here threw that away for every
+            // wave laid. A machine carried across a join waits at most a
+            // plan's period before it picks a stand again, which is what
+            // it did anyway.
+            self.droids.push(droid);
+        }
+    }
+
+    /// Where one of this room's bodies stands, Bim or machine.
+    pub fn body_pos(&self, who: usize) -> Vec2 {
+        match self.droid_at(who) {
+            Some(i) => self.droids[i].pos,
+            None => self.bims.get(who).map_or(Vec2::ZERO, |b| b.character.pos),
+        }
+    }
+
+    /// Take `damage` off a machine's part — the part rolled by the
+    /// caller off the combat stream's own draw (`Hit::roll` through
+    /// [`DroidPart::hit_by`]), since a droid's four parts are not a
+    /// body's three. By **droid** index. Whether anything was struck.
+    pub fn strike_droid(&mut self, i: usize, part: DroidPart, damage: f32) -> bool {
+        let Some(droid) = self.droids.get_mut(i) else {
+            return false;
+        };
+        let was = droid.destroyed;
+        droid.strike(part, damage);
+        // A machine that has just gone throws its wreck onto the deck's
+        // noise the way a bolt landing does: the fight is not quiet with
+        // one falling over.
+        if !was && droid.destroyed {
+            self.combat.lull_break();
+        }
+        true
     }
 
     pub fn selected_count(&self, slot: u32) -> u32 {
@@ -6137,13 +7373,14 @@ impl Game {
     }
 
     /// Whoever player `slot` has selected and takes orders from them:
-    /// their own crew member always; a crewmate only while the alarm is
-    /// up — in combat mode the crew take orders, and only then. Another
-    /// player's own is never theirs to order.
+    /// their own crew member always; a crewmate only while the crew are
+    /// **under arms** — the alarm, or a player leading them (feature 84,
+    /// `Game::led`) — since a crewmate at the hob is on an errand and
+    /// not a soldier. Another player's own is never theirs to order.
     fn orderable(&self, slot: u32) -> Vec<usize> {
         self.selected_all(slot)
             .into_iter()
-            .filter(|&who| who == slot as usize || (self.alarm && !self.is_player(who)))
+            .filter(|&who| who == slot as usize || (self.mustered && !self.is_player(who)))
             .collect()
     }
 
@@ -6750,11 +7987,24 @@ impl Game {
     /// none of a room nobody is looking into, and under a joined deck the
     /// ones the world said are in view — or were, a moment ago.
     pub fn body_seen(&self, who: usize) -> bool {
+        if self.show_everybody {
+            return true;
+        }
         match self.fog {
             Fog::Crew => true,
             Fog::All => false,
             Fog::None => self.seen_for.get(who).is_some_and(|&left| left > 0.0),
         }
+    }
+
+    /// Draw every body of this room whatever the world says is in view:
+    /// what a rack of machines laid out for a screenshot wants
+    /// (`world::World::stage_droids_for_probe`), since a station's room
+    /// is `Fog::None` and its bodies are drawn only where the crew can
+    /// see them. A picture setting and nothing else; nothing in the
+    /// game sets it.
+    pub fn show_everybody_for_probe(&mut self, show: bool) {
+        self.show_everybody = show;
     }
 
     // --- the fight --------------------------------------------------------------
@@ -6837,11 +8087,16 @@ impl Game {
             return;
         }
         self.last_seen.resize(at.len(), None);
+        // Every one of this room's own bodies that can look: the Bims up
+        // and awake, and the machines that are not wrecks (feature 83) —
+        // a droid-held station has nothing but the machines, so leaving
+        // them out would be a room that never sees anybody.
         let eyes: Vec<Vec2> = self
             .bims
             .iter()
             .filter(|b| b.is_alive() && !b.character.is_unconscious() && !b.character.is_outside())
             .map(|b| b.character.pos)
+            .chain(self.droids.iter().filter(|d| !d.destroyed).map(|d| d.pos))
             .collect();
         let mut believed = Vec::with_capacity(at.len());
         let mut stale = Vec::with_capacity(at.len());
@@ -6899,10 +8154,7 @@ impl Game {
     /// of the room, for the tests.
     #[allow(dead_code)]
     pub fn sees_for_probe(&self, who: usize, p: Vec2) -> bool {
-        self.room
-            .sight
-            .sees_from(self.bims[who].character.pos, p)
-            .is_some()
+        self.sees(who, p)
     }
 
     /// Where a hostile room's people believe each target is, for the
@@ -6922,6 +8174,48 @@ impl Game {
         self.combat.target_positions()
     }
 
+    /// The taunt on each target as the world last said it — the radius
+    /// in room units, nought for none, and whether it pulls a blade
+    /// (feature 77). For the tests.
+    #[allow(dead_code)]
+    pub fn hostiles_taunting_for_probe(&self) -> Vec<(f32, bool)> {
+        self.combat
+            .targets()
+            .iter()
+            .map(|t| t.map_or((0.0, false), |t| (t.taunting, t.magnet)))
+            .collect()
+    }
+
+    /// The targets as the room holds them, for a test that wants to see
+    /// what the world handed over.
+    pub fn hostiles_for_probe(&self) -> Vec<Option<crate::combat::Target>> {
+        self.combat.targets().to_vec()
+    }
+
+    /// Lock or unlock one of the room's doors outright, by its index in
+    /// [`Game::door_states`] — no errand, no panel, no walk. For a test
+    /// that wants a body shut in or out.
+    pub fn lock_door_for_probe(&mut self, door: usize, locked: bool) -> bool {
+        let Some(d) = self.room.doors.get_mut(door) else {
+            return false;
+        };
+        if locked {
+            d.lock(door::Locker::Crew);
+        } else {
+            d.unlock();
+        }
+        self.refresh_maps();
+        self.refresh_blockers();
+        true
+    }
+
+    /// One hit with a **strip** on it, laid on a body without anything
+    /// flying: the Unmaker's rule asked of `strike_stripping` straight
+    /// (feature 83). For a test, and nothing in the game calls it.
+    pub fn strip_for_probe(&mut self, who: usize, part: Part, damage: f32, strips: f32) {
+        self.strike_stripping(who, part, damage, false, strips);
+    }
+
     pub fn set_hostiles_peeking(&mut self, peeking: &[bool]) {
         self.combat.set_peeking(peeking);
     }
@@ -6935,7 +8229,11 @@ impl Game {
 
     /// The odds a bolt reaching this Bim is dodged for what it wears —
     /// `Gear::dodge`, nought for anything below tier three.
+    /// A machine wears nothing and slips nothing: its dodge is nought.
     pub fn dodge(&self, who: usize) -> f32 {
+        if self.droid_at(who).is_some() {
+            return 0.0;
+        }
         self.bims.get(who).map_or(0.0, |b| b.gear.dodge())
     }
 
@@ -6945,22 +8243,32 @@ impl Game {
         self.bims[who].locked
     }
 
-    /// What is in a Bim's hand.
+    /// What is in a body's hand — or, for a machine, the arm it was
+    /// built with, which is the same value and never an item.
     pub fn weapon(&self, who: usize) -> Option<Weapon> {
-        self.bims[who].gear.weapon
+        match self.droid_at(who) {
+            Some(i) => Some(self.droids[i].weapon),
+            None => self.bims[who].gear.weapon,
+        }
     }
 
-    /// Where a Bim leans out to while it aims from a peek beside a wall,
-    /// or `None` standing square.
+    /// Where a body leans out to while it aims from a peek beside a
+    /// wall, or `None` standing square.
     pub fn peek(&self, who: usize) -> Option<Vec2> {
-        self.bims[who].peek
+        match self.droid_at(who) {
+            Some(i) => self.droids[i].peek,
+            None => self.bims[who].peek,
+        }
     }
 
-    /// Where a shot at a Bim is aimed: the peek it leans out to while it
-    /// peeks, else where it stands. What the world hands the other room
-    /// as the target's position.
+    /// Where a shot at a body is aimed: the peek it leans out to while
+    /// it peeks, else where it stands. What the world hands the other
+    /// room as the target's position.
     pub fn exposed_at(&self, who: usize) -> Vec2 {
-        self.bims[who].peek.unwrap_or(self.bims[who].character.pos)
+        match self.droid_at(who) {
+            Some(i) => self.droids[i].exposed_at(),
+            None => self.bims[who].peek.unwrap_or(self.bims[who].character.pos),
+        }
     }
 
     /// What a Bim carries, issued: the world's, for a station's people
@@ -7013,6 +8321,7 @@ impl Game {
             return false;
         }
         let hit = self.combat.struck(who, damage, cut);
+        self.count_hit_taken(&hit);
         self.strike(who, hit.part, damage, cut);
         self.wounds_taken.push(hit);
         self.attacked_for = ALARM_HOLD;
@@ -7190,6 +8499,478 @@ impl Game {
         self.room.sight.covered(body, from)
     }
 
+    // --- the soldier: the brace, the skills and the grenades (feature 75) --
+
+    /// What a Bim shoots with over its weapon: the skill the world set,
+    /// or none.
+    fn skill(&self, who: usize) -> Skill {
+        self.skills.get(who).copied().unwrap_or(Skill::NONE)
+    }
+
+    /// What each Bim's talents do to the one shooter, by index
+    /// (`combat::Skill`): a soldier's, worked out by the world every step
+    /// from its class, its talents and its brace. `Skill::NONE` for
+    /// anybody not named.
+    pub fn set_skills(&mut self, skills: Vec<Skill>) {
+        self.skills = skills;
+    }
+
+    /// The skill the world set for `who`, for the tests.
+    #[allow(dead_code)]
+    pub fn skill_for_probe(&self, who: usize) -> Skill {
+        self.skill(who)
+    }
+
+    // --- the commander: the squad's orders (feature 78) --------------------
+
+    /// What a commander's squad order tells `who` to do, or
+    /// [`Squad::None`].
+    fn squad_of(&self, who: usize) -> Squad {
+        self.squad.get(who).copied().unwrap_or_default()
+    }
+
+    /// What the squad is under, by index (`world::SquadOrder`): the
+    /// world works it out every step from the commander's order, who is
+    /// in range of him and who a player steers, and says it here.
+    /// Anybody not named is under nothing.
+    pub fn set_squad(&mut self, squad: Vec<Squad>) {
+        self.squad = squad;
+    }
+
+    /// What the world last told `who` to do, for the tests.
+    #[allow(dead_code)]
+    pub fn squad_for_probe(&self, who: usize) -> Squad {
+        self.squad_of(who)
+    }
+
+    /// A body stopped where it stands, for the tests: the walk dropped,
+    /// which `put_for_probe` on its own does not do.
+    #[allow(dead_code)]
+    pub fn halt_for_probe(&mut self, who: usize) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.character.halt();
+        }
+    }
+
+    /// Whether a body is standing still — not walking anywhere: what a
+    /// commander's *anchor* reads off him.
+    pub fn is_standing_still(&self, who: usize) -> bool {
+        self.bims
+            .get(who)
+            .is_some_and(|b| !b.character.is_walking())
+    }
+
+    /// The ship's own doors — the powered sliding ones, not the heads' —
+    /// each as its middle and the direction through it, for the tests.
+    #[allow(dead_code)]
+    pub fn ship_doors_for_probe(&self) -> Vec<(Vec2, Vec2)> {
+        self.room
+            .doors
+            .iter()
+            .map(|d| (d.rect.center(), d.through()))
+            .collect()
+    }
+
+    /// *Runner*: the pace factor while an enemy is in sight, one
+    /// otherwise and for anybody without the talent.
+    fn runner(&self, who: usize) -> f32 {
+        let pace = self.skill(who).pace;
+        if pace == 1.0 {
+            return 1.0;
+        }
+        let from = self.bims[who].character.pos;
+        if self.combat.sees_any(&self.room.sight, from) {
+            pace
+        } else {
+            1.0
+        }
+    }
+
+    /// Brace, or stand easy: a soldier braced holds where it stands —
+    /// whatever it was on put down onto the queue, its walk dropped, no
+    /// errand taken, never running, under arms — until it is toggled off,
+    /// ordered anywhere, or goes down. The world checks who may
+    /// (`World::can_brace`); the room does as told. Whether it changed.
+    pub fn set_braced(&mut self, who: usize, on: bool) -> bool {
+        if who >= self.bims.len() || self.bims[who].braced == on {
+            return false;
+        }
+        if on {
+            if !self.bims[who].is_alive() || self.bims[who].character.is_unconscious() {
+                return false;
+            }
+            self.interrupt(who);
+            self.bims[who].pending_move = None;
+            self.bims[who].character.halt();
+            self.bims[who].character.set_post(None);
+        }
+        self.bims[who].braced = on;
+        self.bims[who].character.set_braced(on);
+        true
+    }
+
+    /// Whether a Bim is braced.
+    pub fn is_braced(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.braced)
+    }
+
+    /// A soldier's *rampage* stacks, as the world last set them.
+    pub fn rampage(&self, who: usize) -> u32 {
+        self.bims.get(who).map_or(0, |b| b.rampage)
+    }
+
+    /// Set a soldier's *rampage* stacks: the world counts the enemies it
+    /// downs and clears them when the fight ends.
+    pub fn set_rampage(&mut self, who: usize, stacks: u32) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.rampage = stacks;
+        }
+    }
+
+    // --- the tank: the wall, the taunt and the hits (feature 77) -----------
+
+    /// Stand as a wall, or stand down: a tank with Bulwark on walks at
+    /// half pace and puts the crew close behind him in cover against a
+    /// shot that would come through him. Unlike a brace it takes no
+    /// errand away — he is a wall that walks. Off again when he goes
+    /// down; the world checks who may (`World::can_bulwark`). Whether
+    /// it changed.
+    pub fn set_bulwark(&mut self, who: usize, on: bool) -> bool {
+        if who >= self.bims.len() || self.bims[who].bulwark == on {
+            return false;
+        }
+        if on && (!self.bims[who].is_alive() || self.bims[who].character.is_unconscious()) {
+            return false;
+        }
+        self.bims[who].bulwark = on;
+        true
+    }
+
+    /// Whether a Bim stands as a wall.
+    pub fn is_bulwark(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.bulwark)
+    }
+
+    /// Which target a Bim would shoot at from where it stands, for the
+    /// tests: the one [`Combat::aim`] picks over its own weapon.
+    #[allow(dead_code)]
+    pub fn aims_at_for_probe(&self, who: usize) -> Option<usize> {
+        let bim = self.bims.get(who)?;
+        let stats = self.skill(who).stats(bim.gear.weapon?);
+        let mark = match self.squad_of(who) {
+            Squad::Attack { enemy, seen: true } => Some(enemy),
+            _ => None,
+        };
+        self.combat
+            .aim_marked(&self.room.sight, bim.character.pos, &stats, mark)
+            .map(|(i, _, _)| i)
+    }
+
+    /// The walls the world last handed the shooter, for the tests.
+    #[allow(dead_code)]
+    pub fn bulwarks_for_probe(&self) -> Vec<crate::combat::Bulwark> {
+        self.combat.bulwarks().to_vec()
+    }
+
+    /// Whether nothing is in the air or lit, for a probe that fires a
+    /// bolt and wants to know when it has landed.
+    #[allow(dead_code)]
+    pub fn combat_quiet_for_probe(&self) -> bool {
+        self.combat.quiet()
+    }
+
+    /// How fast a Bim is walking, as a fraction of its usual pace, for
+    /// the tests.
+    #[allow(dead_code)]
+    pub fn pace_for_probe(&self, who: usize) -> f32 {
+        self.bims.get(who).map_or(0.0, |b| b.character.pace())
+    }
+
+    /// A Bim's blood set to `share` of full, for a test that wants one
+    /// slowed without shooting it.
+    #[allow(dead_code)]
+    pub fn bleed_for_probe(&mut self, who: usize, share: f32) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.health.set_blood_for_probe(share);
+        }
+    }
+
+    /// The tanks standing as walls among this room's own bodies, as the
+    /// world last said: which body, how far it reaches in room units,
+    /// and whether it *interposes*. Handed to the one shooter every
+    /// step, beside the skills.
+    pub fn set_bulwarks(&mut self, bulwarks: Vec<crate::combat::Bulwark>) {
+        self.combat.set_bulwarks(bulwarks);
+    }
+
+    /// How far a taunt runs on each of the enemies named by
+    /// [`Game::set_hostiles`], in room units — nought for one not
+    /// taunting — and whether it pulls charging blades (*magnet*).
+    /// Index for index with `set_hostiles`, the way
+    /// [`Game::set_hostiles_peeking`] is.
+    pub fn set_hostiles_taunting(&mut self, radius: &[f32], magnet: &[bool]) {
+        self.combat.set_taunting(radius, magnet);
+    }
+
+    /// Enemy hits that have landed on a body since the last point of
+    /// experience they made — the tank's (feature 77).
+    pub fn hits_taken(&self, who: usize) -> u32 {
+        self.bims.get(who).map_or(0, |b| b.hits_taken)
+    }
+
+    /// Seconds a body has been dying with an enemy about (feature 78):
+    /// what `is_fleeing` measures a commander's aura's hold against.
+    pub fn fear(&self, who: usize) -> f32 {
+        self.bims.get(who).map_or(0.0, |b| b.fear)
+    }
+
+    /// Set that count: the world takes the whole points out of it and
+    /// leaves the remainder.
+    pub fn set_hits_taken(&mut self, who: usize, hits: u32) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.hits_taken = hits;
+        }
+    }
+
+    /// One more enemy hit landed on a body: counted where the hit is
+    /// applied, so armour, a surge and the body itself all count and a
+    /// miss or a dodge does not. A hit from this room's own side — a
+    /// soldier's grenade, which carries `by` — is not one.
+    fn count_hit_taken(&mut self, hit: &crate::combat::Hit) {
+        if hit.by.is_none()
+            && let Some(bim) = self.bims.get_mut(hit.who)
+        {
+            bim.hits_taken = bim.hits_taken.saturating_add(1);
+        }
+    }
+
+    // --- the medic: the beam and the surge (feature 76) --------------------
+
+    /// Whether a medic holds a beam, as the world last said and the room
+    /// has not since ended: off again on an order to an errand
+    /// (`Game::order`) and when the medic goes down. The world reads it
+    /// back every step and breaks the link when it is off.
+    pub fn is_beaming(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.beaming)
+    }
+
+    /// The world's word that a medic holds a beam, or holds none. The
+    /// picture and the rule above; who is held is the world's list.
+    pub fn set_beaming(&mut self, who: usize, on: bool) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.beaming = on;
+        }
+    }
+
+    /// A medic's surge on a body: for `seconds` of the room's clock a
+    /// hit takes nothing from it (`Game::strike`); `closing` closes
+    /// every open wound as it ends. The world checks who may; the room
+    /// does as told. A body dead is left alone. A surge on a body already
+    /// surging runs from now.
+    pub fn set_surge(&mut self, who: usize, seconds: f32, closing: bool) {
+        if let Some(bim) = self.bims.get_mut(who).filter(|b| b.is_alive()) {
+            bim.surge = Some(crate::bim::Surge {
+                left: seconds,
+                closing,
+            });
+            bim.character.set_surging(true);
+        }
+    }
+
+    /// Seconds of the room's clock a body's surge has left; nought with
+    /// none running.
+    pub fn surge_left(&self, who: usize) -> f32 {
+        self.bims
+            .get(who)
+            .and_then(|b| b.surge)
+            .map_or(0.0, |s| s.left.max(0.0))
+    }
+
+    /// Whether a surge runs on a body.
+    pub fn is_surging(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.surge.is_some())
+    }
+
+    /// Whether a surge on a body closes its wounds as it ends.
+    pub fn surge_closing(&self, who: usize) -> bool {
+        self.bims
+            .get(who)
+            .and_then(|b| b.surge)
+            .is_some_and(|s| s.closing)
+    }
+
+    /// The living crew member under a room point, if any: a click's
+    /// reach (`Character::picked_at`), the first by index. Nothing is
+    /// noted — the hover's and the E key's question.
+    pub fn crew_at(&self, x: f32, y: f32) -> Option<usize> {
+        let p = vec2(x, y);
+        self.bims
+            .iter()
+            .position(|b| b.is_alive() && b.character.picked_at(p))
+    }
+
+    /// Whether `who`'s own eyes — or a peek beside a wall — see a point
+    /// of the room: the trace's rule, walls, shut doors and the dark.
+    pub fn sees(&self, who: usize, p: Vec2) -> bool {
+        self.bims
+            .get(who)
+            .is_some_and(|b| self.room.sight.sees_from(b.character.pos, p).is_some())
+    }
+
+    /// Whether nothing opaque — a wall, a shut door — stands on the
+    /// straight line from `a` to `b`: what a throw and a burst ask.
+    /// Sandbags are seen over, so they stop neither.
+    pub fn line_clear(&self, a: Vec2, b: Vec2) -> bool {
+        self.room.sight.first_opaque_along(a, b).is_none()
+    }
+
+    /// Whether the tile whose middle is `at` is deck of this room a body
+    /// could stand on: walkable floor with nothing blocking on it. What a
+    /// grenade may be thrown at.
+    pub fn is_deck_tile(&self, at: Vec2) -> bool {
+        let nav = self.maps.pick(self.room.bath.is_open());
+        nav.interior().contains(at) && nav.is_free(at)
+    }
+
+    /// Whether an **attack banner** may be put down here (feature 84):
+    /// a deck tile, or anywhere at all on a plain — the ground beyond
+    /// the deck's box is walked on the body's own window rather than on
+    /// the room's grid, so there is no tile here to ask, and a bot sent
+    /// out there walks the far walk an ordered one walks.
+    pub fn is_banner_tile(&self, at: Vec2) -> bool {
+        self.is_deck_tile(at) || self.room.plane.is_some()
+    }
+
+    /// Throw a grenade from `who`'s hands at `at` (room units, a tile's
+    /// middle): in the air and then on the tile with its fuse burning
+    /// for `fuse` seconds, bursting with `radius` room units and `damage`
+    /// at the centre. The world checks the throw (`World::can_throw`) and
+    /// takes the grenade out of the pack; the room throws. The thrower
+    /// faces the tile.
+    pub fn throw_grenade(&mut self, who: usize, at: Vec2, fuse: f32, radius: f32, damage: f32) {
+        if who >= self.bims.len() {
+            return;
+        }
+        let from = self.bims[who].character.pos;
+        if (at - from).len() > 1e-3 && !self.bims[who].character.is_walking() {
+            self.bims[who].character.face((at - from).angle());
+        }
+        self.combat.throw(who, from, at, fuse, radius, damage);
+    }
+
+    /// The grenades in the air or lying with their fuses burning.
+    pub fn grenades(&self) -> &[Grenade] {
+        &self.combat.grenades
+    }
+
+    /// The tiles of laid sandbags a burst reached since last asked, for
+    /// the world to take the deployables off.
+    pub fn take_bags_blown(&mut self) -> Vec<(i32, i32)> {
+        std::mem::take(&mut self.bags_blown)
+    }
+
+    /// A grenade's hit on one of this room's own: `strike` — through the
+    /// armour on the part, as a strike rather than a cut — and the blood
+    /// thrown over the tiles round the body the way a cut throws it.
+    pub fn blast(&mut self, who: usize, part: Part, damage: f32) -> WoundOutcome {
+        let out = self.strike(who, part, damage, false);
+        if out.through > 0.0 {
+            let at = self.bims[who].character.pos;
+            let nav = self.maps.for_body(false, self.room.bath.is_open());
+            self.room
+                .filth
+                .splash_blood(at, &mut self.rng, |tile| nav.can_reach(at, tile));
+        }
+        out
+    }
+
+    /// What a grenade's burst reaches, at `g.at` with `g.radius`: every
+    /// body of this room's own on its feet and every target standing,
+    /// within the radius and with nothing opaque between (walls and shut
+    /// doors stop it, sandbags do not), takes `g.damage` at the centre
+    /// falling in a straight line to half at the edge — halved again for
+    /// a body in cover from the burst's side, peeking or behind bags —
+    /// on a part rolled off the combat stream; the sentries in it the
+    /// same, on their health; the laid sandbags in it are gone. The parts
+    /// of the ship and the station are untouched. Own bodies first, by
+    /// index, then the targets, then the sentries, then the bags, so two
+    /// runs on one seed roll the same.
+    fn burst(&mut self, g: Grenade) {
+        let reaches = |game: &Game, at: Vec2| -> Option<f32> {
+            let d = (at - g.at).len();
+            if d > g.radius || !game.line_clear(g.at, at) {
+                return None;
+            }
+            let share = 1.0 - 0.5 * (d / g.radius.max(1e-3));
+            Some(g.damage * share)
+        };
+        let by = Some(g.by);
+        // This room's own, the thrower included.
+        let crew = self.bims.len();
+        for who in 0..crew {
+            let b = &self.bims[who];
+            if !b.is_alive() || b.character.is_outside() || b.character.is_unconscious() {
+                continue;
+            }
+            let at = b.character.pos;
+            let Some(mut damage) = reaches(self, at) else {
+                continue;
+            };
+            if b.peek.is_some() || self.room.sight.cover_between(at, g.at).is_some() {
+                damage *= 0.5;
+            }
+            let hit = self.combat.blast(who, damage, by);
+            self.blast(who, hit.part, hit.damage);
+            self.wounds_taken.push(hit);
+            self.attacked_for = ALARM_HOLD;
+            self.combat.cues.push(Cued {
+                cue: Cue::Impact { on_crew: true },
+                at,
+            });
+        }
+        // The targets: the enemy's people standing on this deck, at their
+        // exposed positions, in cover the same way.
+        let targets: Vec<Option<(Vec2, bool)>> = self
+            .combat
+            .targets()
+            .iter()
+            .map(|t| t.map(|t| (t.at, t.peeking)))
+            .collect();
+        for (i, target) in targets.into_iter().enumerate() {
+            let Some((at, peeking)) = target else {
+                continue;
+            };
+            let Some(mut damage) = reaches(self, at) else {
+                continue;
+            };
+            if peeking || self.room.sight.cover_between(at, g.at).is_some() {
+                damage *= 0.5;
+            }
+            self.combat.blast_target(i, damage, by);
+        }
+        // The sentries, on their one pool.
+        let sentries: Vec<(u32, Vec2)> = self.sentries.iter().map(|s| (s.id, s.at)).collect();
+        for (id, at) in sentries {
+            if let Some(damage) = reaches(self, at) {
+                self.sentry_hits.push((id, damage));
+            }
+        }
+        // And the laid sandbags: gone, whatever they had left.
+        let bags: Vec<Vec2> = self
+            .room
+            .sight
+            .laid_cover()
+            .iter()
+            .map(|r| r.center())
+            .collect();
+        for at in bags {
+            if reaches(self, at).is_some() {
+                self.bags_blown
+                    .push(((at.x / TILE).floor() as i32, (at.y / TILE).floor() as i32));
+            }
+        }
+    }
+
     /// The work factors the world set for `who`, for the tests.
     #[allow(dead_code)]
     pub fn work_factors_for_probe(&self, who: usize) -> (f32, f32) {
@@ -7218,9 +8999,10 @@ impl Game {
     /// Whether `who` is on a craft of `recipe` right now, for the tests.
     #[allow(dead_code)]
     pub fn is_at_work_for_probe(&self, who: usize, recipe: u32) -> bool {
-        self.bims.get(who).and_then(|b| b.task.as_ref()).is_some_and(
-            |t| matches!(t.kind(), Kind::Craft { recipe: r, .. } if r == recipe),
-        )
+        self.bims
+            .get(who)
+            .and_then(|b| b.task.as_ref())
+            .is_some_and(|t| matches!(t.kind(), Kind::Craft { recipe: r, .. } if r == recipe))
     }
 
     /// Whether `who` is on a deploy errand, for the world and the panels.
@@ -7305,6 +9087,39 @@ impl Game {
         self.bims[who].health.give_up();
     }
 
+    /// The blood set to a share of `health::MAX_BLOOD`, for a probe or a
+    /// test that wants a body out cold or bled out without waiting for a
+    /// wound to empty it — `Health::set_blood_for_probe`.
+    #[allow(dead_code)]
+    pub fn set_blood_for_probe(&mut self, who: usize, share: f32) {
+        self.bims[who].health.set_blood_for_probe(share);
+    }
+
+    /// A body laid where it fell, for a room built over a grave (feature
+    /// 85): stood at `at` — snapped to somewhere a body fits, the way an
+    /// [`Game::adopt`] snaps one — and dead from this instant, without
+    /// waiting for a tick and without a word in anybody's diary. The
+    /// death happened before this room was built; what is being laid out
+    /// is the station's memory of it, and the living here never saw it.
+    pub fn lay_out_dead(&mut self, who: usize, at: Vec2) {
+        if who >= self.bims.len() {
+            return;
+        }
+        let nav = self.maps.pick(self.room.bath.is_open());
+        let spot = nav.nearest_free(at);
+        self.bims[who].character.stand_at(spot);
+        self.bims[who].character.set_scripted(false);
+        self.bims[who].task = None;
+        self.bims[who].queue.clear();
+        self.bims[who].health.give_up();
+        self.bims[who].character.die();
+        // Its bunk is nobody's: a body does not sleep, and the living
+        // here want the beds.
+        if let Some(bed) = self.room.sleeps_in.get_mut(who) {
+            *bed = None;
+        }
+    }
+
     /// Out cold where it stands, for a probe: the blood put just under the
     /// line with nothing open, so it lies there for days rather than
     /// bleeding out in minutes. Takes at the top of its next tick, like a
@@ -7341,9 +9156,66 @@ impl Game {
     /// kept on [`Game::take_pieces_broken`] for the world, since the room
     /// applies an enemy's shots itself.
     pub fn strike(&mut self, who: usize, part: Part, damage: f32, cut: bool) -> WoundOutcome {
+        self.strike_stripping(who, part, damage, cut, 0.0)
+    }
+
+    /// [`Game::strike`] with the Unmaker's **strip** carried (feature
+    /// 83, `bims::combat::WeaponStats::strips`): with `strips` above
+    /// nought and the struck part wearing an **unbroken** piece, the
+    /// piece loses that much with its own protection ignored and the
+    /// part takes nothing — what the piece cannot take is **lost**,
+    /// rather than reaching the body. A bare part, or one whose piece is
+    /// already broken, takes the plain `damage` the ordinary way. Every
+    /// other weapon strips nought and this is `strike` exactly.
+    ///
+    /// A medic's surge still takes the whole of it, and a tank's *iron
+    /// frame* still moves a head shot onto the body first: the strip
+    /// then lands on the kevlar, which is the piece that would have
+    /// taken the damage.
+    pub fn strike_stripping(
+        &mut self,
+        who: usize,
+        part: Part,
+        damage: f32,
+        cut: bool,
+        strips: f32,
+    ) -> WoundOutcome {
         let mut out = WoundOutcome::default();
         if !self.bims.get(who).is_some_and(|b| b.is_alive()) {
             return out;
+        }
+        if strips > 0.0 {
+            let skill = self.skill(who);
+            let part = if skill.iron_frame && part == Part::Head {
+                Part::Body
+            } else {
+                part
+            };
+            let bim = &mut self.bims[who];
+            bim.hit_flash = HIT_FLASH;
+            if bim.surge.is_some() {
+                out.absorbed = damage;
+                return out;
+            }
+            let mut broke = None;
+            if let Some(piece) = bim.gear.worn_mut(part).as_mut().filter(|p| !p.broken()) {
+                // Protection ignored, and the rest of the strip lost
+                // with the piece: the lance unmakes the armour and does
+                // nothing to what is under it.
+                piece.health = (piece.health - strips).max(0.0);
+                if piece.broken() {
+                    broke = Some(piece.kind);
+                }
+                out.absorbed = damage;
+                if let Some(kind) = broke {
+                    out.piece_broke = true;
+                    self.pieces_broken.push((who, kind));
+                    self.refresh_worn(who);
+                }
+                return out;
+            }
+            // Nothing over it, or nothing left of what is: the part
+            // takes the damage like any other hit.
         }
         // A hit on an engineer laying a kit is the kit put down where it
         // was — in the pack — and the errand dropped, not put down onto
@@ -7352,20 +9224,46 @@ impl Game {
         if self.is_deploying(who) && !self.steady_hands.get(who).copied().unwrap_or(false) {
             self.drop_task(who);
         }
+        let skill = self.skill(who);
+        // *Iron frame* (feature 77): a hit rolled on the head lands on
+        // the body, so the kevlar takes what the helm would have.
+        let part = if skill.iron_frame && part == Part::Head {
+            Part::Body
+        } else {
+            part
+        };
         let bim = &mut self.bims[who];
         bim.hit_flash = HIT_FLASH;
+        // A medic's surge on it takes the whole of the hit (feature 76):
+        // no wound, no armour drained, no trauma — the flash and nothing
+        // else.
+        if bim.surge.is_some() {
+            out.absorbed = damage;
+            return out;
+        }
         let mut through = damage;
         let mut broke = None;
         if let Some(piece) = bim.gear.worn_mut(part).as_mut().filter(|p| !p.broken()) {
-            through -= piece.effective_protection();
+            through -= piece.effective_protection() * skill.armour_protection;
             if through <= 0.0 {
                 out.absorbed = damage;
                 return out;
             }
-            piece.health -= through;
-            through = (-piece.health).max(0.0);
-            piece.health = piece.health.max(0.0);
-            out.absorbed = damage - through;
+            // What the piece can still take: its health at the rate it
+            // drains — a tank's armour drains slower, so the same piece
+            // absorbs more on him, and what it has stored never changes
+            // meaning (feature 77).
+            let drain = skill.armour_drain.max(1e-6);
+            let capacity = piece.health / drain;
+            if through <= capacity {
+                piece.health -= through * drain;
+                through = 0.0;
+                out.absorbed = damage;
+            } else {
+                through -= capacity;
+                piece.health = 0.0;
+                out.absorbed = damage - through;
+            }
             if piece.broken() {
                 broke = Some(piece.kind);
             }
@@ -7434,8 +9332,13 @@ impl Game {
     }
 
     /// Out cold for want of blood — lying where it dropped, alive.
+    /// A machine is never out cold: there is no dying state, so it is
+    /// up or it is a wreck.
     pub fn is_unconscious(&self, who: usize) -> bool {
-        self.bims[who].character.is_unconscious()
+        match self.droid_at(who) {
+            Some(_) => false,
+            None => self.bims[who].character.is_unconscious(),
+        }
     }
 
     // --- dressing a wound ----------------------------------------------------
@@ -7518,10 +9421,21 @@ impl Game {
             if bim.health.bandage(part) {
                 self.room.bandages -= 1;
                 self.room.bandages_used += 1;
+                self.healings.push(Healed {
+                    helper,
+                    patient,
+                    with: Healing::Bandage,
+                });
             }
             let wounds = Part::ALL.map(|p| bim.health.wounds(p) > 0);
             bim.character.set_wounds(wounds);
         }
+    }
+
+    /// Every dressing and treatment finished since the world last asked,
+    /// with what it used (feature 76).
+    pub fn take_healings(&mut self) -> Vec<Healed> {
+        std::mem::take(&mut self.healings)
     }
 
     /// Bandages to hand. Aboard, the hold's count, set by the world every
@@ -7573,7 +9487,8 @@ impl Game {
 
     /// Send `who` to treat the trauma on `part` of `patient` — a crewmate,
     /// never itself: a Bim with a part at nothing is past doctoring
-    /// itself — with one of the room's medkits: the walk over and
+    /// itself — with the kit in its own pack if it has one, else one of
+    /// the room's medkits off a shelf: the walk over and
     /// [`task::TREAT_MINUTES`] with hands on it, and the trauma over when
     /// the hands come off (`apply_treatments`). Refused for the same
     /// reasons a bandage is, for a helper that is the patient, no medkit,
@@ -7587,14 +9502,23 @@ impl Game {
             || self.bims[who].character.is_unconscious()
             || self.bims[who].character.is_outside()
             || self.bims[patient].character.is_outside()
-            || self.room.medkits == 0
             || self.bims[patient].health.trauma(part).is_none()
         {
+            return false;
+        }
+        // A kit in the helper's own pack is a kit: it is opened where the
+        // helper stands and no shelf is walked to. Only with none there
+        // and none on a shelf is the treatment bare-handed — a medic the
+        // world lets do it (`Doctoring::bare`, its *field surgery*) — and
+        // anybody else is refused.
+        let bare = self.room.medkits == 0 && !self.room.carries_kit(who);
+        if bare && self.doctoring_of(who).bare.is_none() {
             return false;
         }
         let kind = Kind::Treat {
             patient,
             part: part.code(),
+            bare,
         };
         if !self.take_over(who, kind, task::TREAT_MINUTES) {
             return false;
@@ -7605,6 +9529,7 @@ impl Game {
             who,
             patient,
             part.code(),
+            bare,
             &mut self.bims[who].character,
             &mut self.room,
             &self.maps,
@@ -7619,7 +9544,7 @@ impl Game {
     /// within two tiles of the patient, a medkit still to hand, the
     /// patient alive.
     fn apply_treatments(&mut self) {
-        for (helper, patient, part) in core::mem::take(&mut self.room.treated) {
+        for (helper, patient, part, bare) in core::mem::take(&mut self.room.treated) {
             let Some(part) = Part::from_code(part) else {
                 continue;
             };
@@ -7636,10 +9561,47 @@ impl Game {
             if apart > 2.0 * TILE {
                 continue;
             }
-            if let Some(trauma) = self.bims[patient].health.treat(part) {
+            // A medic's hands (feature 76): where the part starts again
+            // from, and whether anything lasting is left.
+            let doctoring = self.doctoring_of(helper);
+            if let Some(trauma) = self.bims[patient].health.treat_as(
+                part,
+                doctoring.clean_hands,
+                doctoring.treated_to,
+            ) {
                 self.treated.push((patient, trauma));
+                self.healings.push(Healed {
+                    helper,
+                    patient,
+                    with: if bare { Healing::Bare } else { Healing::Medkit },
+                });
             }
         }
+    }
+
+    /// What a Bim's doctoring runs at, as the world last said (feature
+    /// 76): `Doctoring::NONE` for anybody it did not name.
+    fn doctoring_of(&self, who: usize) -> Doctoring {
+        self.doctoring.get(who).copied().unwrap_or(Doctoring::NONE)
+    }
+
+    /// What each Bim's doctoring runs at, by index (feature 76): a
+    /// medic's talents on its bandaging, its treating, and whether it
+    /// may treat with no kit. `Doctoring::NONE` for anybody not named.
+    pub fn set_doctoring(&mut self, doctoring: Vec<Doctoring>) {
+        self.doctoring = doctoring;
+    }
+
+    /// What a medic's beam does to each body this step, by index
+    /// (feature 76): `None` for a body no beam holds. Applied in the
+    /// body's health tick and nowhere else.
+    pub fn set_held(&mut self, held: Vec<Option<Beamed>>) {
+        self.held = held;
+    }
+
+    /// Whether a beam holds a body this step.
+    pub fn is_held(&self, who: usize) -> bool {
+        self.held.get(who).copied().flatten().is_some()
     }
 
     /// Medkits on the shelf, like the bandages: the hold's aboard, set by
@@ -7675,6 +9637,23 @@ impl Game {
     /// hold.
     pub fn take_medkits_used(&mut self) -> u32 {
         core::mem::take(&mut self.room.medkits_used)
+    }
+
+    /// How many medkits each Bim carries in its **own pack**, by index —
+    /// a medic's start kit, or one fetched out of the hold — the world's
+    /// word every step. A helper that carries one treats with it where it
+    /// stands rather than walking to a cabinet for the hold's: its own
+    /// kit before a new one.
+    pub fn set_pack_kits(&mut self, kits: Vec<u32>) {
+        self.room.pack_kits = kits;
+    }
+
+    /// Every helper that opened a kit out of its own pack since the last
+    /// call, for the world to take the medkit out of that pack and put it
+    /// on the hold's count — a kit in a helper's hands is the hold's
+    /// until [`Game::take_medkits_used`] says it was spent.
+    pub fn take_pack_kits_used(&mut self) -> Vec<usize> {
+        core::mem::take(&mut self.room.pack_kits_used)
     }
 
     // --- a weapon on the deck ------------------------------------------------
@@ -7768,6 +9747,11 @@ impl Game {
     /// trauma to keep it dying, which is `Health::give_up` — if it was
     /// still down. Whether it was.
     pub fn execute_body(&mut self, who: usize) -> bool {
+        // A machine is never down-and-alive: it is up or it is a wreck,
+        // so there is nothing to finish off.
+        if self.droid_at(who).is_some() {
+            return false;
+        }
         if !self.is_down(who) || !self.is_alive(who) {
             return false;
         }
@@ -7913,13 +9897,31 @@ impl Game {
     /// them the way any patient does, or nobody could ever catch it to
     /// dress it.
     pub fn is_fleeing(&self, who: usize) -> bool {
+        // A commander's aura buys it seconds before it goes (feature
+        // 78): `fear` is how long it has been in this state, counted in
+        // `tick_combat`, and it stands its ground until the hold is up.
+        self.would_flee(who) && self.bims[who].fear >= self.skill(who).nerve_hold
+    }
+
+    /// Whether everything but the hold says it runs: what `fear` counts
+    /// up under, and what [`Game::is_fleeing`] is once the hold is up.
+    fn would_flee(&self, who: usize) -> bool {
         let bim = &self.bims[who];
-        bim.is_alive()
+        // A braced soldier, or one with *iron nerve*, never runs (feature
+        // 75).
+        !bim.braced
+            && !self.skill(who).nerve
+            && bim.is_alive()
             && bim.health.dying()
             && !bim.character.is_outside()
             && !bim.character.is_unconscious()
             && self.combat.targets().iter().any(|t| t.is_some())
             && !self.helper_near(who)
+            // The last stand (feature 84): dying aboard the ship with the
+            // enemy aboard it too, there is nowhere left to run to, and a
+            // body that went on running would be shot in the back walking
+            // deeper into its own hull. It fights where it stands.
+            && !self.cornered(who)
     }
 
     /// Whether a crewmate on its way to doctor `who` is within
@@ -7939,6 +9941,15 @@ impl Game {
     /// One dying body's run, when its clock comes round: away from where
     /// the enemy are on average (`Tactics::flee`), whatever it was doing
     /// put down first. Its own `plan_wait` clock, like a stand.
+    ///
+    /// **The crew run for the ship** (feature 84): a dying crew member
+    /// makes for the deck just inside its own port rather than merely
+    /// for the far side of the station, since that is where the medkits,
+    /// the shut airlock and whoever is left are — and since a crew that
+    /// scatters under fire is a crew nobody can doctor. Only where there
+    /// is a way there; a body with the enemy between it and the port
+    /// runs the way it always did. An enemy's people are not the crew
+    /// and have no ship: theirs is `Tactics::flee` throughout.
     fn flee(&mut self, who: usize, dt: f32) {
         let bim = &mut self.bims[who];
         bim.plan_wait -= dt;
@@ -7949,7 +9960,14 @@ impl Game {
         let from = bim.character.pos;
         let nav = self.maps.for_body(false, self.room.bath.is_open());
         let targets = self.combat.targets().to_vec();
-        let Some(to) = Tactics::flee(nav, from, &targets) else {
+        let home = (!self.hostile_bodies && !self.is_aboard(from)).then(|| {
+            let anchor = nav.nearest_free(self.ship_anchor());
+            (nav.can_reach(from, anchor)).then_some(anchor)
+        });
+        let Some(to) = home
+            .flatten()
+            .or_else(|| Tactics::flee(nav, from, &targets))
+        else {
             return;
         };
         let going = self.bims[who].character.destination().unwrap_or(from);
@@ -7995,6 +10013,39 @@ impl Game {
         if who < self.bims.len() {
             self.bims[who].character.set_look(look);
         }
+    }
+
+    /// The colour each player's own Bim is ringed in, in slot order
+    /// (feature 84, `character::Tint`): slot *i*'s Bim takes the *i*th,
+    /// and everybody past the players — the bots, the hires — is left
+    /// with none, which is what draws no circle at all. Drawing only,
+    /// like the hair, so nothing the world checks moves; said again
+    /// whenever a choice arrives or the crew change.
+    pub fn set_tints(&mut self, tints: &[Tint]) {
+        for who in 0..self.bims.len() {
+            let tint = (who < self.players as usize)
+                .then(|| tints.get(who).copied())
+                .flatten();
+            self.bims[who].character.set_tint(tint);
+        }
+    }
+
+    /// The colour a Bim is ringed in, for the tests and the app.
+    pub fn tint(&self, who: usize) -> Option<Tint> {
+        self.bims.get(who).and_then(|b| b.character.tint())
+    }
+
+    /// What a Bim's class wears (feature 81). Drawing only, and the
+    /// world's to say: it hands the room one an entry every step off its
+    /// own classes, so nothing here decides it and nothing is saved.
+    pub fn set_outfit(&mut self, who: usize, outfit: Outfit) {
+        if who < self.bims.len() {
+            self.bims[who].character.set_outfit(outfit);
+        }
+    }
+
+    pub fn outfit(&self, who: usize) -> Outfit {
+        self.bims[who].character.outfit()
     }
 
     // --- the pack and what is worn ------------------------------------------
@@ -8135,6 +10186,11 @@ impl Game {
     /// Down: dead, or out cold. What a body has to be to be looted, and
     /// what the world hands the other room as `set_visitors_down`.
     pub fn is_down(&self, who: usize) -> bool {
+        if let Some(i) = self.droid_at(who) {
+            // A wreck is down for everything that asks — and, unlike a
+            // body, there is nothing on it to take.
+            return self.droids[i].destroyed;
+        }
         self.bims
             .get(who)
             .is_some_and(|b| !b.is_alive() || b.character.is_unconscious())
@@ -8147,6 +10203,13 @@ impl Game {
     /// anything may be taken is [`Game::take_from_body`]'s to say.
     pub fn loot_cells(&self, who: usize) -> [Option<Item>; LOOT_CELLS] {
         let mut cells = [None; LOOT_CELLS];
+        // A machine carries nothing: no pack, no armour, and an arm that
+        // is part of it (feature 83). Every cell empty, and
+        // `take_from_body` refuses it besides, so the Loot window never
+        // opens on a wreck.
+        if self.droid_at(who).is_some() {
+            return cells;
+        }
         let Some(bim) = self.bims.get(who) else {
             return cells;
         };
@@ -8167,6 +10230,10 @@ impl Game {
     /// for a Bim that is alive and awake — a crewmate that came round is
     /// no longer a body — and for an empty cell. The picture follows.
     pub fn take_from_body(&mut self, who: usize, cell: LootCell) -> Option<Item> {
+        // Nothing comes off a machine, wreck or not (feature 83).
+        if self.droid_at(who).is_some() {
+            return None;
+        }
         if !self.is_down(who) {
             return None;
         }
@@ -8320,6 +10387,7 @@ impl Game {
             .bims
             .iter()
             .map(|b| b.character.pos)
+            .chain(self.droids.iter().filter(|d| !d.destroyed).map(|d| d.pos))
             .chain(self.visitors.iter().copied())
             .collect();
         let mut shut = self.room.shut_leaves(&bodies);
@@ -8921,6 +10989,15 @@ impl Game {
                 }
             }
         }
+        // And the machines after them (feature 83), in the body order the
+        // world knows them by — a droid's index is `bims.len() + i`, so
+        // `body_seen` is asked with that. A wreck is drawn like anything
+        // else that is down: it lies where it fell.
+        for i in 0..self.droids.len() {
+            if self.body_seen(self.bims.len() + i) {
+                self.droids[i].draw(&mut self.list);
+            }
+        }
         // Bedding and bunk rails go over the Bim, so getting into bed puts it
         // under the covers rather than on top of them.
         self.room.draw_over(&mut self.list);
@@ -9153,7 +11230,12 @@ mod tests {
         }
         assert!(!game.is_sore(0), "over");
 
-        // His bunk back, and the next sleep is in it.
+        // His bunk back, and the next sleep is in it. Stood back on the open
+        // deck first: the day's chats walk him about (see "Two Bims standing
+        // together is a layout problem"), and which side of the heads' door
+        // he happens to have ended up on moves with the RNG stream — this
+        // half of the test is about the bunk, not about where he wandered.
+        game.put_for_probe(0, here);
         assert!(game.assign_bed(0, Some(1)));
         assert_eq!(game.bed_of(0), Some(1));
         assert!(
@@ -9917,6 +11999,169 @@ mod tests {
             assert!(game.room.doors[door].smash.is_none());
             assert!(game.room.locked_doors().is_empty());
         }
+    }
+
+    /// A room with machines and no Bims at all (feature 83): the deck's
+    /// nav, sight and fight serve them, an unlocked door opens for one
+    /// walking up to it, and a locked one between it and its target is
+    /// heaved at until the lock gives — the boarder's rule, with a body
+    /// that is not a Bim.
+    #[test]
+    fn machines_walk_a_deck_open_its_doors_and_force_a_locked_one() {
+        use crate::droid::{Droid, DroidKind};
+        // The playtest ship as a hostile room with nobody in it, and one
+        // Trooper a tile inside engineering with the aft door beside it.
+        let mut game = hostile_ship(&[]);
+        assert_eq!(game.crew_count(), 0, "no Bims at all");
+        let at = tile_middle(15.0, 14.0);
+        let who = game.add_droid(Droid::new(DroidKind::Trooper, Tier::One, 0, 1, at, 0.0, 5));
+        assert_eq!(who, 0, "the machines start where the Bims end");
+        assert_eq!(game.body_count(), 1);
+        assert_eq!(game.droid_count(), 1);
+
+        // --- an unlocked door opens for it ---
+        let door = door_at_tile(&game, 15.0, 13.0);
+        assert!(!game.room.doors[door].is_open(), "shut to begin with");
+        for _ in 0..30 {
+            game.simulate(DT);
+        }
+        assert!(
+            game.room.doors[door].is_open(),
+            "open for the machine a tile off"
+        );
+
+        // --- and a locked one is forced ---
+        // The target on the main deck in plain view through the doorway,
+        // so the machine has seen it; then the door is locked between.
+        let target = tile_middle(15.0, 10.0);
+        game.room.doors[door].order(door::Order::Lock);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        game.simulate(DT);
+        assert!(game.at_war, "seen through the closing door");
+        let mut forced = None;
+        let mut bar_seen = false;
+        for frame in 0..(60 * 30) {
+            game.simulate(DT);
+            for cued in game.take_cues() {
+                if matches!(cued.cue, Cue::DoorForced) {
+                    forced = forced.or(Some(frame));
+                }
+            }
+            if game.room.doors[door].smash_progress().is_some() {
+                bar_seen = true;
+            }
+            if forced.is_some() {
+                break;
+            }
+        }
+        let forced = forced.expect("a machine forces a locked door");
+        assert!(bar_seen, "and the heaving is drawn");
+        assert!(
+            forced >= (door::SMASH_DOOR / DT) as i32,
+            "forced at frame {forced}"
+        );
+        assert!(!game.room.doors[door].locked);
+        // And it is still the one machine, still standing.
+        assert_eq!(game.droid_count(), 1);
+        assert!(!game.droids()[0].destroyed);
+    }
+
+    /// A machine shoots the way a hostile Bim does: the shot is recorded
+    /// rather than flown, since a hostile room's bolts fly in the crew's.
+    /// And a Husk's claw locks and strikes at arm's length.
+    #[test]
+    fn a_machine_records_its_shots_and_a_husk_strikes_at_reach() {
+        use crate::droid::{Droid, DroidKind};
+        // --- a Trooper fires at what it can see ---
+        {
+            let mut game = hostile_ship(&[]);
+            let at = tile_middle(15.0, 12.0);
+            game.add_droid(Droid::new(DroidKind::Trooper, Tier::One, 0, 1, at, 0.0, 5));
+            let target = tile_middle(15.0, 9.0);
+            let mut shots = 0;
+            for _ in 0..(60 * 10) {
+                game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+                game.simulate(DT);
+                shots += game.take_shots().len();
+                if shots > 0 {
+                    break;
+                }
+            }
+            assert!(shots > 0, "the machine fired");
+            // Nothing flew here: a hostile room records and the world
+            // carries. The crew's room is where a bolt is drawn.
+            assert!(game.combat.bolts.is_empty(), "no bolt in a hostile room");
+        }
+
+        // --- a Husk locks a target within reach and lands a blow ---
+        {
+            let mut game = hostile_ship(&[]);
+            let at = tile_middle(15.0, 12.0);
+            game.add_droid(Droid::new(DroidKind::Husk, Tier::One, 0, 1, at, 0.0, 6));
+            // Half a tile away: inside `MELEE_RANGE`.
+            let target = at + vec2(TILE * 0.6, 0.0);
+            let mut blows = 0;
+            for _ in 0..(60 * 10) {
+                game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+                game.simulate(DT);
+                for shot in game.take_shots() {
+                    if shot.melee {
+                        blows += 1;
+                        // A claw crushes; it is not a cut and does not
+                        // bleed the way a blade's does.
+                        assert!(!shot.cut, "a claw is no blade");
+                        assert!(shot.damage > 0.0);
+                    }
+                }
+                if blows > 0 {
+                    break;
+                }
+            }
+            assert!(blows > 0, "the claws landed a blow");
+            assert_eq!(game.droids()[0].locked, Some(0), "and it is locked on");
+        }
+    }
+
+    /// The Unmaker's rule, where it is applied: a hit carrying a strip
+    /// takes it off the piece over the part with the piece's protection
+    /// ignored and leaves the part alone; a bare part takes the damage.
+    #[test]
+    fn a_strip_unmakes_the_armour_and_leaves_the_body_alone() {
+        let mut game = Game::new(3, 900.0, 700.0);
+        let kevlar = Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
+        let whole = kevlar.health;
+        let gear = game.gear(0);
+        game.issue(
+            0,
+            Gear {
+                body: Some(kevlar),
+                ..gear
+            },
+        );
+        let body = game.part_health(0, Part::Body);
+        // A strip bigger than the piece's protection and smaller than
+        // its health: the piece loses exactly the strip.
+        game.strike_stripping(0, Part::Body, 9.0, false, 8.0);
+        assert_eq!(game.gear(0).body.unwrap().health, whole - 8.0);
+        assert_eq!(game.part_health(0, Part::Body), body, "the part is whole");
+        assert_eq!(game.wounds(0, Part::Body), 0);
+
+        // What the piece cannot take is **lost**, not passed on: a strip
+        // far bigger than what is left breaks the piece and no more.
+        game.strike_stripping(0, Part::Body, 9.0, false, 1e6);
+        assert!(game.gear(0).body.unwrap().broken());
+        assert_eq!(game.part_health(0, Part::Body), body, "still whole");
+
+        // With the piece broken it shields nothing: the part takes the
+        // plain damage the ordinary way.
+        game.strike_stripping(0, Part::Body, 9.0, false, 1e6);
+        assert_eq!(game.part_health(0, Part::Body), body - 9.0);
+
+        // And a bare part takes it from the first.
+        let mut bare = Game::new(3, 900.0, 700.0);
+        let legs = bare.part_health(0, Part::Legs);
+        bare.strike_stripping(0, Part::Legs, 4.0, false, 30.0);
+        assert_eq!(bare.part_health(0, Part::Legs), legs - 4.0);
     }
 
     /// A dying enemy running through a door locks it behind itself, binds
@@ -11022,6 +13267,61 @@ mod tests {
         let (still, walking) = (landed(false), landed(true));
         assert!(still > 300 && still < 380, "{still} of 400 standing");
         assert!(walking > 130 && walking < 210, "{walking} of 400 walking");
+    }
+
+    /// Feature 84: the shot leaves the **gun**, and the gun is pointed
+    /// down the shot — the two are one line, which is what the muzzle
+    /// being the origin buys.
+    #[test]
+    fn a_shot_leaves_the_muzzle_and_the_barrel_points_down_it() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.85));
+        // The rifle, whose barrel is long enough that a shot out of the
+        // chest and a shot out of the muzzle are a tile apart; Kate
+        // unarmed, or she fires at the target too.
+        game.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::AutoRifle.basic()),
+                ..Gear::issued()
+            },
+        );
+        game.issue(1, Gear::default());
+        game.recruit_for_probe(0, true);
+        let target = james + vec2(5.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        // A second and a half to square up to it first — a body turns at
+        // its own rate, and the first shot goes off while it is still
+        // coming round.
+        for _ in 0..90 {
+            game.simulate(DT);
+        }
+        let mut fired_from = None;
+        for _ in 0..(60 * 4) {
+            let before = game.bolts_in_flight();
+            game.simulate(DT);
+            if game.bolts_in_flight() > before {
+                fired_from = game.combat.bolts.last().map(|b| b.fired_from);
+                break;
+            }
+        }
+        let from = fired_from.expect("he fires");
+        let body = game.bim_pos(0);
+        // Out in front of him, about a tile — the grip ahead of the
+        // chest and the barrel ahead of that — and never across the room.
+        let ahead = (from - body).len();
+        assert!(ahead > TILE * 0.8, "the shot leaves the gun: {ahead} off");
+        assert!(ahead < TILE * 1.6, "and the gun is in his hands: {ahead}");
+        // And on the line to what he shot at, bar the grip's own offset
+        // towards the firing shoulder: the barrel is pointed down it.
+        let along = (target - body).normalize_or_zero();
+        let off = (from - body).dot(along.perp()).abs();
+        assert!(off < 20.0, "the barrel points at it: {off} off the line");
+        // The origin *is* the muzzle of the gun the picture draws.
+        let muzzle = game.bims[0].character.muzzle().expect("a gun is up");
+        assert!((muzzle - from).len() < 8.0, "fired from the muzzle");
     }
 
     #[test]

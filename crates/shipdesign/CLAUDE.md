@@ -1003,3 +1003,31 @@ lift and a shrub the small plant's (`comfort`), so the ground under
 them is a nicer place to stand; the comfort test excepts the tree from
 "every comfort is seen over" for exactly that reason. What each looks
 like — by biome — is the painter's (`ship::fittings::part_in`).
+
+## The engineer's kits are two resources and two recipes (feature 74)
+
+`ResourceId::SandbagKit = 23` and `SentryKit = 24`, appended — mass 8
+and 36, what their recipes weigh; locker class, footprints 2×2 and 2×3,
+one to a stack; 61 and 885 by the labour rule; sold nowhere (the "made,
+never sold" arm) and bought anywhere — grew `CARGO_SLOTS` to 25 and
+moved `REFERENCE_HASH`, `PLAYTEST_HASH`, `world::REFERENCE_CHECKSUM` and
+`worldgen::REFERENCE_CHECKSUMS` (the lean is drawn a resource).
+`RECIPES[14]` is the sandbag kit — a metal, ten minutes, at the
+workbench behind Workshop — and `RECIPES[15]` the sentry kit — two
+metal, two components, an emitter, an hour — behind **Emitters**
+(`node_of_recipe`: `2 | 15`), since it fires through one; the table is
+sixteen long and `at(Workbench)` seven. What a kit does is the world's
+(`world::deploy`); this crate knows them as goods.
+
+## The soldier's grenade is one resource and one recipe (feature 75)
+
+`ResourceId::Grenade = 25`, appended — mass 10, what its recipe weighs;
+locker class, 1×1, one to a stack; 79 by the labour rule; sold nowhere
+(the "made, never sold" arm) and bought anywhere — grew `CARGO_SLOTS` to
+26 and moved `REFERENCE_HASH`, `PLAYTEST_HASH`, `world::REFERENCE_CHECKSUM`
+and `worldgen::REFERENCE_CHECKSUMS`. `RECIPES[16]` makes it at the
+**armoury** behind Armoury like the armour there — a metal and a
+component, twenty minutes — so the table is seventeen long and
+`at(Armoury)` seven. Anybody makes, carries and trades one; only a
+soldier throws it, and what it does is the room's (`bims::combat::Grenade`,
+`crates/game/CLAUDE.md`) and the world's (`crates/world/CLAUDE.md`).

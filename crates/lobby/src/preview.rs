@@ -221,6 +221,11 @@ pub struct Marks<'a> {
     pub here: Option<u32>,
     /// The star picked for a jump: ringed in the hyperdrive's violet.
     pub target: Option<u32>,
+    /// Every star the crew have been to, on the chart in the game
+    /// (feature 85): a small grey ring each, under the marks above and
+    /// over the star itself. Sorted or not, it is drawn as it is given.
+    /// Empty in the lobby, where nobody has been anywhere yet.
+    pub visited: &'a [u32],
     pub pings: &'a [Ping],
 }
 
@@ -230,6 +235,9 @@ const SPAWN: Color = Color::rgb(1.0, 0.86, 0.45);
 const PING: Color = Color::rgb(0.55, 0.80, 0.95);
 const HERE: Color = Color::rgb(0.50, 0.82, 0.66);
 const TARGET: Color = Color::rgb(0.62, 0.42, 0.86);
+/// A star the crew have been to: a cool grey, nobody else's colour on
+/// the map, so a wake of them reads as a trail rather than as a warning.
+const VISITED: Color = Color::rgb(0.62, 0.70, 0.76);
 
 /// How much of a star without a station shows. Dimmed rather than hidden:
 /// it can still be inspected, and a map with holes in it reads as a map that
@@ -304,6 +312,31 @@ pub fn paint(
         } else {
             list.ellipse(x, y, r * 2.0, r * 2.0, color.alpha(DIM));
         }
+    }
+
+    // Where the crew have been, under everything the page marks: a
+    // small ring apiece, inside the *here* ring so a star that is both
+    // reads as both rather than as one thick ring.
+    for star in marks
+        .visited
+        .iter()
+        .filter_map(|&id| stars.get(id as usize))
+    {
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        if !preview.on_canvas(x, y, 8.0) {
+            continue;
+        }
+        list.push(
+            crate::draw::KIND_ELLIPSE,
+            x,
+            y,
+            13.0,
+            13.0,
+            0.0,
+            0.0,
+            1.0,
+            VISITED.alpha(0.75),
+        );
     }
 
     if let Some(id) = marks.hovered.and_then(|id| stars.get(id as usize)) {

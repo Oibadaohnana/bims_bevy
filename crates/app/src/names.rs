@@ -340,7 +340,7 @@ pub const NOT_A_TOOL: &[u32] = &[
 ];
 
 /// What a station sells, indexed by `physics::ResourceId`.
-pub const RESOURCE_NAMES: [&str; 23] = [
+pub const RESOURCE_NAMES: [&str; 26] = [
     "Ore",
     "Metal",
     "Components",
@@ -364,6 +364,9 @@ pub const RESOURCE_NAMES: [&str; 23] = [
     "Schwords",
     "Research keys",
     "Tier-two keys",
+    "Sandbag kits",
+    "Sentry kits",
+    "Grenades",
 ];
 
 pub fn resource_name(id: ResourceId) -> &'static str {
@@ -552,6 +555,42 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoUpgrades => {
             "the crew do not know how to upgrade gear yet — research Upgrades, behind a tier-two key"
         }
+        Refusal::ClassLocked => "a class is chosen before the ship first leaves its berth",
+        Refusal::NotAnEngineer => "only an engineer does that",
+        Refusal::NoKit => "there is no such kit in the pack",
+        Refusal::NoSentryYet => "a sentry wants the engineer's third level",
+        Refusal::SentryLimit => "as many sentries are standing as the engineer may have",
+        Refusal::CantDeployThere => {
+            "that tile will not take it — clear deck floor within reach, not a door, nothing on it"
+        }
+        Refusal::NoSuchDeployable => "there is nothing of the kind there",
+        Refusal::NotAPickLevel => "that level has no talent to pick",
+        Refusal::LevelNotReached => "that level has not been reached",
+        Refusal::AlreadyPicked => "that level's talent is picked, and a pick is never changed",
+        Refusal::NoTalent => "the engineer has not learnt that",
+        Refusal::NoClass => "a crew member with no class has no talents to pick",
+        Refusal::NotASoldier => "only a soldier does that",
+        Refusal::NoGrenade => "there is no grenade in the pack",
+        Refusal::NoGrenadesYet => "grenades want the soldier's third level",
+        Refusal::CoolingDown => "the last throw is too recent",
+        Refusal::OutOfThrowRange => "that tile is out of throwing range",
+        Refusal::NoLineToTile => "there is a wall or a shut door in the way",
+        Refusal::CantThrowThere => "that tile is not deck",
+        Refusal::NotAMedic => "only a medic does that",
+        Refusal::NoPatient => "there is nobody there to beam",
+        Refusal::NotACrewmate => "the beam holds a crewmate, not that",
+        Refusal::OutOfBeamRange => "they are too far off for the beam",
+        Refusal::NoSightOfPatient => "the medic cannot see them",
+        Refusal::NoSurgeYet => "a surge wants the medic's third level",
+        Refusal::NotCharged => "the surge is not charged yet",
+        Refusal::NotLinked => "the beam is on nobody",
+        Refusal::NotATank => "only a tank can do that",
+        Refusal::NoTauntYet => "a taunt wants the third level",
+        Refusal::NotACommander => "only a commander can do that",
+        Refusal::NoRallyYet => "a rally wants the commander's third level",
+        Refusal::NoSquadInRange => "nobody of the squad is near enough to hear it",
+        Refusal::NoEnemyThere => "there is no enemy under the pointer",
+        Refusal::NoGroundThere => "there is no ground to attack there",
     }
 }
 
@@ -608,6 +647,17 @@ pub const RESYNC_ASKED: &str = "Catching up with the host…";
 pub const RESYNC_DONE: &str = "Back on the host's world.";
 /// A guest's Load is greyed with this: the host's world is the world.
 pub const LOAD_GUEST: &str = "Only the host can load a game.";
+/// The Esc sheet's Restart (feature 79): the menu's button, the page's
+/// line, the button that does it, and the two reasons it is greyed.
+pub const RESTART_BUTTON: &str = "Restart";
+pub const RESTART_LINE: &str = "Play this run again from the situation it opened in — the fight, the raid, the landing, or the game the yard started. Everything since is lost, and a saved game is not touched.";
+pub const RESTART_AGAIN: &str = "Start again";
+pub const RESTART_NONE: &str = "Nothing to restart yet: the run starts when the ship is accepted.";
+/// A guest's Restart is greyed with this, as its Load is.
+pub const RESTART_GUEST: &str = "Only the host can restart the run.";
+/// The line the log carries after a restart, so the screen says what
+/// happened as well as showing it.
+pub const RESTART_DONE: &str = "Back at the beginning.";
 /// The host's load does not fit the room.
 pub fn load_players(saved: u32, here: u32) -> String {
     format!("That game was saved for {saved} players; {here} are here.")
@@ -637,6 +687,1026 @@ pub const BIM_NAME_HINT: &str = "a name";
 /// `Shade::ALL`'s order (feature 62).
 pub const BIM_HAIR: &str = "Hair";
 pub const BIM_HAIR_NOTE: &str = "How your crew member wears it, and its colour";
+/// And the colour chooser (feature 84): the ring on the deck that says
+/// which of the crew is yours. One a player, so a colour somebody else
+/// in the lobby has taken is not offered.
+pub const BIM_TINT: &str = "Your colour";
+pub const BIM_TINT_NOTE: &str =
+    "The ring on the deck under your own crew member. The crew nobody steers have none.";
+pub const BIM_TINT_TAKEN: &str = "taken";
+/// The class chooser (features 74 and 75): a name a `world::Class`, in
+/// `Class::ALL`'s order, with a line each saying what it does; and a
+/// name and a line a `world::Talent`, in `Talent::ALL`'s order — each
+/// class's seven pick levels' two each, left then right, the engineer's
+/// fourteen, then the soldier's, the medic's and the tank's.
+pub const BIM_CLASS: &str = "Class";
+pub const BIM_CLASS_NOTE: &str = "What your crew member is. One class each, chosen before the ship leaves its first berth. A class adds its own two keys and its talents, and nothing else: every crew member does every job and brings the same money";
+pub const CLASS_NAMES: [&str; 6] = ["None", "Engineer", "Soldier", "Medic", "Tank", "Commander"];
+pub const CLASS_TIPS: [&str; 6] = [
+    "No class: learns nothing.",
+    "Lays sandbags for cover (E) and, from the third level, a sentry that shoots for itself (Q); packs either up again; mends armour at the workbench once it has learnt to. Sets out with three sandbag kits and one sentry kit.",
+    "Braces to hold a line (E) — steadier shooting, never running, no errands until stood easy — and from the third level throws grenades (Q). Sets out with an auto rifle in hand, the pistol in the pack, and two grenades.",
+    "Holds a crewmate up with the heal beam (E) — their wounds stop bleeding and their blood comes back — and from the third level shields them both with a surge (Q), which takes every hit for eight minutes. Fires nothing while the beam is on. Sets out with the pistol, two medkits and four bandages.",
+    "Stands as a wall (E) — half pace, and the crew close behind him are in cover against anything shot through him — and from the third level taunts (Q), so every enemy that can see him shoots at him and nobody else for six minutes. His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
+    "Lifts every friendly Bim within eight tiles of him — yours as well as the crew's — a tenth faster at work, a tenth steadier with a gun, and slower to run; and orders the squad, which is every crew member nobody is steering: attack the enemy under the pointer (E), fall back to a tile (X), stand ground (Z). From the third level he rallies (Q). Hires a mercenary at a quarter off. Sets out with the pistol.",
+];
+pub fn class_name(class: world::Class) -> &'static str {
+    CLASS_NAMES
+        .get(class.code() as usize)
+        .copied()
+        .unwrap_or("Class")
+}
+pub fn class_tip(class: world::Class) -> &'static str {
+    CLASS_TIPS.get(class.code() as usize).copied().unwrap_or("")
+}
+/// The two boxes at the foot of the screen (feature 80): what the class's
+/// own keys do, by class code, the **primary** (Q) first and the
+/// **secondary** (E) second — the same pairing `screens::game::class_key`
+/// dispatches by, so a box and the key under it are never two answers.
+/// `Class::None` has no keys and no boxes; its row is there so a code
+/// indexes the table.
+pub const ABILITY_NAMES: [[&str; 2]; 6] = [
+    ["", ""],
+    ["Sentry", "Sandbags"],
+    ["Grenade", "Brace"],
+    ["Surge", "Heal beam"],
+    ["Taunt", "Wall"],
+    ["Rally", "Squad"],
+];
+/// What each box says when it is rested on.
+pub const ABILITY_TIPS: [[&str; 2]; 6] = [
+    ["", ""],
+    [
+        "Lay a sentry on the deck tile under the pointer: it shoots for itself at whatever it can see, and is refilled and packed up from the Nearby strip. The number is how many more you could lay — the kits in the pack, down to the one your talents allow standing at once.",
+        "Lay sandbags on the deck tile under the pointer: low cover, walked and seen over, ducked behind. The number is the kits in the pack.",
+    ],
+    [
+        "Throw a grenade at the deck tile under the pointer — in range, with nothing solid in the way. It bursts two seconds later and hurts whoever is near it, yours as well as theirs. The number is the grenades in the pack.",
+        "Brace where you stand: steadier shooting, no running and no errands until you stand easy. The key again stands easy, and so does any order that moves you.",
+    ],
+    [
+        "Trigger the surge on the beam's patients and yourself: every hit is taken whole for its length — no wound, no armour drained. The bar is the charge, which fills while the beam holds somebody who is bleeding or short of blood.",
+        "Hold the heal beam on the crew member under the pointer: their wounds stop bleeding and their blood comes back. The key on nobody, or on the one held, unlinks it. You fire nothing while it is on. The number is how many more you could hold.",
+    ],
+    [
+        "Taunt: every enemy that can see you shoots at you and nobody else while it lasts.",
+        "Stand as a wall: half pace, and a crewmate close behind you is in cover against anything shot through you. The key again puts it down; so does going down.",
+    ],
+    [
+        "Call a rally: every friendly Bim near you shoots steadier and holds its nerve while it lasts.",
+        "Send the squad at the enemy under the pointer. The squad is every crew member nobody is steering; the number is how many are in it now.",
+    ],
+];
+pub fn ability_name(class: world::Class, primary: bool) -> &'static str {
+    ABILITY_NAMES
+        .get(class.code() as usize)
+        .map(|pair| pair[usize::from(!primary)])
+        .unwrap_or("")
+}
+pub fn ability_tip(class: world::Class, primary: bool) -> &'static str {
+    ABILITY_TIPS
+        .get(class.code() as usize)
+        .map(|pair| pair[usize::from(!primary)])
+        .unwrap_or("")
+}
+/// The line under a box whose level is not reached yet.
+pub fn ability_locked(level: u8) -> String {
+    format!("Level {level}")
+}
+/// The Skills tab (feature 83): the class's ten levels as a tree in the
+/// tray, what a level's slot says, and the button that spends a point.
+pub const SKILLS: &str = "Skills";
+pub const SKILLS_TIP: &str = "Your own crew member's class, level by level. A level with two slots is a choice: one skill point, spent on one of them, and it cannot be changed. The levels with one slot come on their own as you climb.";
+pub const SKILLS_NO_CLASS: &str = "This crew member has no class, so there is nothing to learn. A class is chosen on the setup tab, before the ship first leaves its berth.";
+/// How many picks are waiting: what a point is spent on, and how many
+/// there are.
+pub fn skill_points(points: usize) -> String {
+    match points {
+        0 => "No skill points — the next one comes with the next level that offers a choice."
+            .to_string(),
+        1 => "One skill point to spend.".to_string(),
+        n => format!("{n} skill points to spend."),
+    }
+}
+pub const SKILLS_HINT: &str = "Click a slot for what it does. A slot at a level you have reached, at a level you have not chosen at, is yours for a point.";
+pub const SKILL_LEARN: &str = "Learn";
+pub const SKILL_LEARN_TIP: &str =
+    "Spends a skill point on this slot. The other at the level is given up for good.";
+/// What the tree says under the slot picked, by its state.
+pub const SKILL_LEARNT: &str = "Learnt.";
+pub const SKILL_GIVEN_UP: &str = "Given up: the other slot at this level was taken.";
+pub const SKILL_COMES_WITH: &str = "Comes with the level, with nothing to choose.";
+pub fn skill_locked(level: u8) -> String {
+    format!("Waiting on level {level}.")
+}
+pub const SKILL_OPEN: &str = "Open: one skill point, and it cannot be changed.";
+/// Where a slot of the Skills tree sits, said under its name in the
+/// column beside the tree: the level, and whether it comes with the
+/// level or is one of the two that level offers.
+pub fn skill_slot_line(level: u8, pick: bool) -> String {
+    if pick {
+        format!("Level {level} — one of two")
+    } else {
+        format!("Level {level} — the level's own")
+    }
+}
+pub const TALENT_NAMES: [&str; 70] = [
+    "Quick hands",
+    "Site foreman",
+    "Sandbagger",
+    "Bulk bags",
+    "Armoured sentry",
+    "Deep magazine",
+    "Armourer",
+    "Field refit",
+    "Dug in",
+    "Quick build",
+    "Salvage",
+    "Steady hands",
+    "Second sentry",
+    "Sentry mark III",
+    "Marksman",
+    "Point blank",
+    "Runner",
+    "Steady aim",
+    "Iron nerve",
+    "Cover master",
+    "Long throw",
+    "Short fuse",
+    "Frag",
+    "Quick draw",
+    "Bruiser",
+    "Dug in",
+    "Deadeye",
+    "Rampage",
+    "Field dressing",
+    "Surgeon",
+    "Long beam",
+    "Strong beam",
+    "Clean hands",
+    "Steady hands",
+    "Quick charge",
+    "Long surge",
+    "Self-care",
+    "Double link",
+    "Gunner medic",
+    "Closing surge",
+    "Mass surge",
+    "Field surgeon",
+    "Pack mule",
+    "Plated",
+    "Breacher",
+    "Unmovable",
+    "Wide wall",
+    "Fast wall",
+    "Loud taunt",
+    "Long taunt",
+    "Hold fast",
+    "Guarded",
+    "Interpose",
+    "Magnet",
+    "Fortress",
+    "Rallying wall",
+    "Wide presence",
+    "Strong presence",
+    "Haggler",
+    "Outfitter",
+    "Focus fire",
+    "Pincer",
+    "Long rally",
+    "Quick rally",
+    "Steady ranks",
+    "Double time",
+    "Relentless",
+    "Grit",
+    "Anchor",
+    "Warcry",
+];
+pub const TALENT_TIPS: [&str; 70] = [
+    "Work at a bench a quarter faster.",
+    "Put a construction site together a quarter faster.",
+    "Lay sandbags in half the time.",
+    "One sandbag kit lays two tiles side by side.",
+    "A sentry with half again the health.",
+    "A sentry with half again the shots.",
+    "Mend a damaged piece of armour at the workbench: the piece and a bar of metal in, ten points back on it.",
+    "Refill a sentry for nothing.",
+    "Sandbags anywhere between a sentry and the shooter are cover for it.",
+    "Set a sentry up in half the time.",
+    "A sentry shot to pieces gives its kit back, if there is room in the pack.",
+    "A hit no longer stops the laying of a kit.",
+    "Two sentries standing at once.",
+    "The sentry's rifle at tier three.",
+    "Every weapon's odds up by fifteen per cent.",
+    "A fifth more damage within the weapon's sweet range.",
+    "A fifth faster on foot while an enemy is in sight.",
+    "The odds on the move halved less: three quarters of standing still, not half.",
+    "Never runs from a fight, however badly hurt.",
+    "Half again the odds of a bolt missing in cover.",
+    "Grenades thrown half again as far.",
+    "A grenade's fuse half as long.",
+    "Every weapon's fire rate up by a fifth — the seventh level's, not a pick.",
+    "A grenade's burst half again as wide.",
+    "Fists and the schword hit half again as hard.",
+    "Ten per cent more chance of slipping a bolt while braced.",
+    "Every weapon's odds at the edge of its range are its odds up close.",
+    "Each enemy downed raises the fire rate by a tenth, up to three times, until the fight ends.",
+    "Bandages a wound in half the time.",
+    "Treats a trauma with a medkit in half the time.",
+    "The heal beam reaches half again as far.",
+    "The heal beam gives back half again the blood an hour.",
+    "A trauma this medic treats leaves nothing lasting behind.",
+    "A part this medic treats comes back half again as far.",
+    "The surge charges half again as fast.",
+    "A surge lasts half again as long.",
+    "The medic's own wounds do not bleed while the beam is on.",
+    "The beam holds two crewmates at once, each at the full rate.",
+    "Fires while beaming, at half the rate.",
+    "A surge ending closes every open wound on the patient.",
+    "A surge covers every crew member within three tiles of the patient.",
+    "Once a fight, treats a trauma with no medkit at all, in half the time.",
+    "Carries two loads a trip when hauling to a construction site.",
+    "Every piece of armour he wears protects half again as much.",
+    "Forces a locked door in half the time.",
+    "Never runs from a fight, and loses no pace to low blood while his kevlar holds.",
+    "The wall shelters twice as far to either side.",
+    "Walks half again as fast with the wall up.",
+    "A taunt reaches half again as far.",
+    "A taunt lasts half again as long.",
+    "His wounds and traumas do not bleed while he taunts.",
+    "Ten per cent more chance of slipping a bolt while the wall is up.",
+    "A bolt that would hit somebody the wall shelters hits him instead.",
+    "A taunt turns every charging blade within its reach towards him.",
+    "His armour drains at half rate again — a quarter of anybody else's.",
+    "While he taunts, every crew member within three tiles drains armour at half rate too.",
+    "The aura reaches half again as far.",
+    "Every one of the aura's bonuses is half again as deep.",
+    "Hires a mercenary at two fifths off instead of a quarter.",
+    "A mercenary he hires arrives wearing the lowest basic piece it was missing, at no extra cost.",
+    "The squad's odds against the enemy it has been sent after are up by fifteen per cent.",
+    "An attack may mark two enemies at once, the squad split between them.",
+    "A rally lasts half again as long.",
+    "The rally's cooldown is half as long.",
+    "Bims in his aura bleed at three quarters the rate.",
+    "Bims in his aura walk a tenth faster.",
+    "An attack's mark lasts until that enemy is dead, not merely down.",
+    "During a rally, Bims in it lose no pace at all to wounds or traumas.",
+    "The aura's bonuses are twice as deep while he stands still.",
+    "A rally covers every friendly Bim in the room, however far off.",
+];
+pub fn talent_name(talent: world::Talent) -> &'static str {
+    TALENT_NAMES
+        .get(talent.code() as usize)
+        .copied()
+        .unwrap_or("Talent")
+}
+pub fn talent_tip(talent: world::Talent) -> &'static str {
+    TALENT_TIPS
+        .get(talent.code() as usize)
+        .copied()
+        .unwrap_or("")
+}
+/// The fixed levels' lines, for the panel: what a class's first, third
+/// and seventh give.
+pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
+    Some(match (class, level) {
+        (world::Class::Engineer, 1) => "Lays sandbags and packs deployables up.",
+        (world::Class::Engineer, 3) => "May set up a sentry.",
+        (world::Class::Engineer, 7) => "Sentry mark II: its rifle at tier two.",
+        (world::Class::Soldier, 1) => "Brace: holds a line, and shoots steadier for it.",
+        (world::Class::Soldier, 3) => "May throw grenades.",
+        (world::Class::Soldier, 7) => "Drill: every weapon's fire rate up by a fifth.",
+        (world::Class::Medic, 1) => "Heal beam: holds a crewmate's blood up.",
+        (world::Class::Medic, 3) => "Surge: may shield the medic and the patient.",
+        (world::Class::Medic, 7) => "Mender: a beamed patient's parts mend ten times as fast.",
+        (world::Class::Tank, 1) => "Bulwark: stands as a wall, and his armour drains at half rate.",
+        (world::Class::Tank, 3) => "Taunt: may draw the enemy's fire onto himself.",
+        (world::Class::Tank, 7) => "Iron frame: a hit rolled on his head lands on his body.",
+        (world::Class::Commander, 1) => {
+            "Aura: every friendly Bim near him works, shoots and holds better. Hires at a quarter off. Squad orders: attack (E), fall back (X), stand ground (Z)."
+        }
+        (world::Class::Commander, 3) => "Rally: may call it.",
+        (world::Class::Commander, 7) => {
+            "Long reach: a squad order reaches every squad member in the room."
+        }
+        _ => return None,
+    })
+}
+/// What a fixed level is *called*, for its one slot on the Skills tree —
+/// the same three levels [`level_line`] describes, said in a word or two.
+/// `None` wherever `level_line` is `None`: a pick level has two talents
+/// with names of their own, and the classless one has nothing at all.
+pub fn level_name(class: world::Class, level: u8) -> Option<&'static str> {
+    Some(match (class, level) {
+        (world::Class::Engineer, 1) => "Sandbags",
+        (world::Class::Engineer, 3) => "Sentry",
+        (world::Class::Engineer, 7) => "Sentry mark II",
+        (world::Class::Soldier, 1) => "Brace",
+        (world::Class::Soldier, 3) => "Grenades",
+        (world::Class::Soldier, 7) => "Drill",
+        (world::Class::Medic, 1) => "Heal beam",
+        (world::Class::Medic, 3) => "Surge",
+        (world::Class::Medic, 7) => "Mender",
+        (world::Class::Tank, 1) => "Bulwark",
+        (world::Class::Tank, 3) => "Taunt",
+        (world::Class::Tank, 7) => "Iron frame",
+        (world::Class::Commander, 1) => "Aura and squad",
+        (world::Class::Commander, 3) => "Rally",
+        (world::Class::Commander, 7) => "Long reach",
+        _ => return None,
+    })
+}
+
+/// A number said the way the Skills tree says one: two decimals at most,
+/// and no trailing nought at all. `6.0` is "6", `1.15` is "1.15",
+/// `26.666` is "26.67".
+fn fig(v: f64) -> String {
+    let r = (v * 100.0).round() / 100.0;
+    if (r - r.round()).abs() < 0.001 {
+        format!("{}", r.round() as i64)
+    } else {
+        let mut s = format!("{r:.2}");
+        while s.ends_with('0') {
+            s.pop();
+        }
+        s
+    }
+}
+
+/// A factor, the way a talent's line says one: `×1.15`.
+fn by(v: f64) -> String {
+    format!("×{}", fig(v))
+}
+
+/// A before and an after: `6 -> 9`, with the unit said once at the end.
+fn step(before: f64, after: f64, unit: &str) -> String {
+    let (a, b) = (fig(before), fig(after));
+    if unit.is_empty() {
+        format!("{a} -> {b}")
+    } else {
+        format!("{a} -> {b} {unit}")
+    }
+}
+
+/// A percentage, whole: `0.75` is "75%".
+fn pc(v: f64) -> String {
+    format!("{}%", fig(v * 100.0))
+}
+
+/// **What a talent is actually worth, in numbers** — the line the Skills
+/// tree puts under a slot's name, so the choice between two of them is a
+/// choice between two figures rather than between two adjectives. Every
+/// number here is the rules crates' own constant: `world::class`'s
+/// factors, and the base each one multiplies, wherever there is one to
+/// show — a sentry's health, a beam's reach, a grenade's fuse. A talent
+/// that multiplies something the weapon in hand decides (accuracy, fire
+/// rate, melee damage) says the factor and, where it helps, what it does
+/// to one worked figure.
+pub fn talent_numbers(talent: world::Talent) -> String {
+    use world::Talent as T;
+    use world::class as c;
+    match talent {
+        // --- the engineer's ---
+        T::QuickHands => format!("Crafting {} — every working step at a bench", by(c::QUICK_HANDS_EFFORT as f64)),
+        T::SiteForeman => format!("Building {} — every working step at a site", by(c::SITE_FOREMAN_EFFORT as f64)),
+        T::Sandbagger => format!(
+            "Laying sandbags {} game minutes ({})",
+            step(
+                world::deploy::DEPLOY_SANDBAG_MINUTES,
+                world::deploy::DEPLOY_SANDBAG_MINUTES * c::SANDBAGGER_TIME,
+                ""
+            ),
+            by(c::SANDBAGGER_TIME)
+        ),
+        T::BulkBags => "One kit lays 1 -> 2 tiles of sandbags, both at 200 health".to_string(),
+        T::ArmouredSentry => format!(
+            "Sentry health {} ({})",
+            step(
+                world::deploy::SENTRY_HEALTH as f64,
+                (world::deploy::SENTRY_HEALTH * c::ARMOURED_SENTRY_HEALTH) as f64,
+                ""
+            ),
+            by(c::ARMOURED_SENTRY_HEALTH as f64)
+        ),
+        T::DeepMagazine => format!(
+            "Sentry shots {} ({})",
+            step(
+                world::deploy::SENTRY_SHOTS as f64,
+                (world::deploy::SENTRY_SHOTS as f32 * c::DEEP_MAGAZINE_SHOTS) as f64,
+                ""
+            ),
+            by(c::DEEP_MAGAZINE_SHOTS as f64)
+        ),
+        T::Armourer => format!(
+            "{} points back on a piece of armour per metal, {} game minutes at the workbench",
+            fig(c::ARMOUR_REPAIR_PER_METAL as f64),
+            c::ARMOUR_REPAIR_MINUTES
+        ),
+        T::FieldRefit => format!(
+            "Refilling a sentry {} metal",
+            step(world::deploy::SENTRY_REFILL_METAL as f64, 0.0, "")
+        ),
+        T::DugIn => "Sandbags on the line between a sentry and its shooter are cover for the sentry — no number of its own, the shooter's odds fall as they do against a body in cover".to_string(),
+        T::QuickBuild => format!(
+            "Laying a sentry {} game minutes ({})",
+            step(
+                world::deploy::DEPLOY_SENTRY_MINUTES,
+                world::deploy::DEPLOY_SENTRY_MINUTES * c::QUICK_BUILD_TIME,
+                ""
+            ),
+            by(c::QUICK_BUILD_TIME)
+        ),
+        T::Salvage => "A sentry shot to pieces gives its kit back: 1 kit in the pack, if there is room".to_string(),
+        T::SteadyHands => "A hit no longer stops a laying: the deploy runs to its end whatever lands".to_string(),
+        T::SecondSentry => "Sentries standing at once 1 -> 2".to_string(),
+        T::SentryMarkThree => "The sentry's rifle at tier 3, where the seventh level put it at tier 2".to_string(),
+        // --- the soldier's ---
+        T::Marksman => format!(
+            "Every weapon's hit chance {} — a {} shot becomes {}",
+            by(c::MARKSMAN_ACCURACY as f64),
+            pc(0.6),
+            pc(0.6 * c::MARKSMAN_ACCURACY as f64)
+        ),
+        T::PointBlank => format!(
+            "Damage within the weapon's sweet range {} — a 30-point hit becomes {}",
+            by(c::POINT_BLANK_DAMAGE as f64),
+            fig(30.0 * c::POINT_BLANK_DAMAGE as f64)
+        ),
+        T::Runner => format!(
+            "Pace {} while an enemy is in sight",
+            by(c::RUNNER_PACE as f64)
+        ),
+        T::SteadyAim => format!(
+            "Hit chance on the move {} -> {} of standing still — the penalty halved",
+            pc(bims::combat::WALKING_ACCURACY as f64),
+            pc(c::steady_aim_walking() as f64)
+        ),
+        T::IronNerve => "Never runs, however badly hurt: the flee roll is off him for good".to_string(),
+        T::CoverMaster => format!(
+            "Odds of a bolt missing him in cover {} -> {} ({})",
+            pc(bims::balance::DODGE_IN_COVER as f64),
+            pc((bims::balance::DODGE_IN_COVER * c::COVER_MASTER_DODGE) as f64),
+            by(c::COVER_MASTER_DODGE as f64)
+        ),
+        T::LongThrow => format!(
+            "Grenade range {} tiles ({})",
+            step(
+                c::GRENADE_RANGE as f64,
+                (c::GRENADE_RANGE * c::LONG_THROW_RANGE) as f64,
+                ""
+            ),
+            by(c::LONG_THROW_RANGE as f64)
+        ),
+        T::ShortFuse => format!(
+            "Grenade fuse {} seconds ({})",
+            step(
+                c::GRENADE_FUSE as f64,
+                (c::GRENADE_FUSE * c::SHORT_FUSE_TIME) as f64,
+                ""
+            ),
+            by(c::SHORT_FUSE_TIME as f64)
+        ),
+        T::Frag => format!(
+            "Grenade burst {} tiles across the radius ({}); {} damage at the centre either way",
+            step(
+                c::GRENADE_RADIUS as f64,
+                (c::GRENADE_RADIUS * c::FRAG_RADIUS) as f64,
+                ""
+            ),
+            by(c::FRAG_RADIUS as f64),
+            fig(c::GRENADE_DAMAGE as f64)
+        ),
+        T::QuickDraw => format!(
+            "Seconds between throws {} ({})",
+            step(
+                c::GRENADE_COOLDOWN,
+                c::GRENADE_COOLDOWN * c::QUICK_DRAW_COOLDOWN,
+                ""
+            ),
+            by(c::QUICK_DRAW_COOLDOWN)
+        ),
+        T::Bruiser => format!(
+            "Fists and the schword {} damage",
+            by(c::BRUISER_MELEE as f64)
+        ),
+        T::DugInBraced => format!(
+            "Odds of slipping a bolt while braced +{}",
+            pc(c::DUG_IN_DODGE as f64)
+        ),
+        T::Deadeye => "A weapon's odds at the far edge of its range become its odds up close: the fall-off between sweet range and range is gone".to_string(),
+        T::Rampage => format!(
+            "Fire rate {} an enemy downed, up to {} of them ({} in all), until the fight ends",
+            by(c::RAMPAGE_FIRE_RATE as f64),
+            c::RAMPAGE_STACKS,
+            by((c::RAMPAGE_FIRE_RATE as f64).powi(c::RAMPAGE_STACKS as i32))
+        ),
+        // --- the medic's ---
+        T::FieldDressing => format!(
+            "Bandaging {} game minutes ({})",
+            step(
+                bims::task::BANDAGE_MINUTES as f64,
+                (bims::task::BANDAGE_MINUTES * c::FIELD_DRESSING_TIME) as f64,
+                ""
+            ),
+            by(c::FIELD_DRESSING_TIME as f64)
+        ),
+        T::Surgeon => format!(
+            "Treating a trauma with a medkit {} game minutes ({})",
+            step(
+                bims::task::TREAT_MINUTES as f64,
+                (bims::task::TREAT_MINUTES * c::SURGEON_TIME) as f64,
+                ""
+            ),
+            by(c::SURGEON_TIME as f64)
+        ),
+        T::LongBeam => format!(
+            "Heal beam reach {} tiles ({})",
+            step(
+                c::HEAL_BEAM_RANGE as f64,
+                (c::HEAL_BEAM_RANGE * c::LONG_BEAM_RANGE) as f64,
+                ""
+            ),
+            by(c::LONG_BEAM_RANGE as f64)
+        ),
+        T::StrongBeam => format!(
+            "Heal beam {} blood an hour ({})",
+            step(
+                c::HEAL_BEAM_BLOOD as f64,
+                (c::HEAL_BEAM_BLOOD * c::STRONG_BEAM_BLOOD) as f64,
+                ""
+            ),
+            by(c::STRONG_BEAM_BLOOD as f64)
+        ),
+        T::CleanHands => "A trauma this medic treats leaves no lasting mark at all, where an ordinary treatment leaves one behind".to_string(),
+        T::SteadyHandsMedic => format!(
+            "A treated part comes back to {} -> {} of its health ({})",
+            pc(bims::health::TREATED_TO as f64),
+            pc((bims::health::TREATED_TO * c::STEADY_HANDS_TREATED).min(1.0) as f64),
+            by(c::STEADY_HANDS_TREATED as f64)
+        ),
+        T::QuickCharge => format!(
+            "The surge charges in {} game minutes of beaming ({} the rate)",
+            step(
+                c::SURGE_CHARGE_MINUTES,
+                c::SURGE_CHARGE_MINUTES / c::QUICK_CHARGE_RATE,
+                ""
+            ),
+            by(c::QUICK_CHARGE_RATE)
+        ),
+        T::LongSurge => format!(
+            "A surge lasts {} game minutes ({})",
+            step(c::SURGE_MINUTES, c::SURGE_MINUTES * c::LONG_SURGE_TIME, ""),
+            by(c::LONG_SURGE_TIME)
+        ),
+        T::SelfCare => "The medic's own wounds bleed at nothing while the beam is on".to_string(),
+        T::DoubleLink => format!(
+            "Patients on the beam at once {}, each at the full {} blood an hour",
+            step(1.0, c::DOUBLE_LINK_PATIENTS as f64, ""),
+            fig(c::HEAL_BEAM_BLOOD as f64)
+        ),
+        T::GunnerMedic => format!(
+            "Fires while beaming, at {} fire rate — he cannot fire at all without it",
+            by(c::GUNNER_MEDIC_FIRE_RATE as f64)
+        ),
+        T::ClosingSurge => "Every open wound on the patient closes the moment the surge ends".to_string(),
+        T::MassSurge => format!(
+            "A surge covers every crew member within {} tiles of the patient, not the patient alone",
+            fig(c::MASS_SURGE_TILES as f64)
+        ),
+        T::FieldSurgeon => format!(
+            "Once a fight: a trauma treated with no medkit at all, in {} game minutes ({})",
+            step(
+                bims::task::TREAT_MINUTES as f64,
+                (bims::task::TREAT_MINUTES * c::FIELD_SURGEON_TIME) as f64,
+                ""
+            ),
+            by(c::FIELD_SURGEON_TIME as f64)
+        ),
+        // --- the tank's ---
+        T::PackMule => format!(
+            "Hauling to a site {} loads a trip — {} units",
+            step(1.0, c::PACK_MULE_LOADS as f64, ""),
+            step(
+                world::data::HAUL_LOAD as f64,
+                (world::data::HAUL_LOAD * c::PACK_MULE_LOADS) as f64,
+                ""
+            )
+        ),
+        T::Plated => format!(
+            "Every piece of armour he wears protects {}",
+            by(c::PLATED_PROTECTION as f64)
+        ),
+        T::Breacher => format!(
+            "Forcing a locked door {} seconds, an airlock {} ({})",
+            step(
+                bims::door::SMASH_DOOR as f64,
+                (bims::door::SMASH_DOOR * c::BREACHER_TIME) as f64,
+                ""
+            ),
+            step(
+                bims::door::SMASH_AIRLOCK as f64,
+                (bims::door::SMASH_AIRLOCK * c::BREACHER_TIME) as f64,
+                ""
+            ),
+            by(c::BREACHER_TIME as f64)
+        ),
+        T::Unmovable => "Never runs from a fight, and loses no pace to low blood at all while his kevlar has anything left".to_string(),
+        T::WideWall => format!(
+            "Bulwark reach {} tiles ({})",
+            step(
+                c::BULWARK_REACH as f64,
+                (c::BULWARK_REACH * c::WIDE_WALL_REACH) as f64,
+                ""
+            ),
+            by(c::WIDE_WALL_REACH as f64)
+        ),
+        T::FastWall => format!(
+            "Pace with the wall up {} of his own ({})",
+            step(
+                c::BULWARK_PACE as f64,
+                (c::BULWARK_PACE * c::FAST_WALL_PACE) as f64,
+                ""
+            ),
+            by(c::FAST_WALL_PACE as f64)
+        ),
+        T::LoudTaunt => format!(
+            "Taunt radius {} tiles ({})",
+            step(
+                c::TAUNT_RADIUS as f64,
+                (c::TAUNT_RADIUS * c::LOUD_TAUNT_RADIUS) as f64,
+                ""
+            ),
+            by(c::LOUD_TAUNT_RADIUS as f64)
+        ),
+        T::LongTaunt => format!(
+            "A taunt lasts {} game minutes ({}); {} seconds between them either way",
+            step(c::TAUNT_MINUTES, c::TAUNT_MINUTES * c::LONG_TAUNT_TIME, ""),
+            by(c::LONG_TAUNT_TIME),
+            fig(c::TAUNT_COOLDOWN)
+        ),
+        T::HoldFast => "His wounds and traumas bleed at nothing for the whole of a taunt".to_string(),
+        T::Guarded => format!(
+            "Odds of slipping a bolt while Bulwark is up +{}",
+            pc(c::GUARDED_DODGE as f64)
+        ),
+        T::Interpose => format!(
+            "A bolt that would hit anybody within the wall's {} tiles hits him instead",
+            fig(c::BULWARK_REACH as f64)
+        ),
+        T::Magnet => format!(
+            "Every charging blade within the taunt's {} tiles turns towards him",
+            fig(c::TAUNT_RADIUS as f64)
+        ),
+        T::Fortress => format!(
+            "His armour drains at {} of anybody else's ({} again on the first level's {})",
+            fig((c::TANK_DRAIN * c::FORTRESS_DRAIN) as f64),
+            by(c::FORTRESS_DRAIN as f64),
+            fig(c::TANK_DRAIN as f64)
+        ),
+        T::RallyingWall => format!(
+            "While he taunts, every crew member within {} tiles drains armour at {} too",
+            fig(c::RALLYING_WALL_TILES as f64),
+            fig(c::RALLYING_WALL_DRAIN as f64)
+        ),
+        // --- the commander's ---
+        T::WidePresence => format!(
+            "Aura reach {} tiles ({})",
+            step(
+                c::AURA_TILES as f64,
+                (c::AURA_TILES * c::WIDE_PRESENCE_RADIUS) as f64,
+                ""
+            ),
+            by(c::WIDE_PRESENCE_RADIUS as f64)
+        ),
+        T::StrongPresence => format!(
+            "Each aura bonus {} deeper: work and aim {}, nerve {}",
+            by(c::STRONG_PRESENCE as f64),
+            step(
+                c::AURA_WORK as f64,
+                c::aura_bonus(c::AURA_WORK, c::STRONG_PRESENCE) as f64,
+                ""
+            ),
+            step(
+                c::AURA_NERVE as f64,
+                c::aura_bonus(c::AURA_NERVE, c::STRONG_PRESENCE) as f64,
+                ""
+            )
+        ),
+        T::Haggler => format!(
+            "Off a mercenary's fee {}% -> {}%",
+            c::HIRE_DISCOUNT_PERCENT,
+            c::HAGGLER_DISCOUNT_PERCENT
+        ),
+        T::Outfitter => "A mercenary he hires arrives wearing the lowest basic piece it was missing, at no extra cost".to_string(),
+        T::FocusFire => format!(
+            "The squad's hit chance against the enemy it was sent after {}",
+            by(c::FOCUS_FIRE_ACCURACY as f64)
+        ),
+        T::Pincer => format!(
+            "Enemies an attack marks at once {}",
+            step(1.0, c::PINCER_MARKS as f64, "")
+        ),
+        T::LongRally => format!(
+            "A rally lasts {} game minutes ({})",
+            step(c::RALLY_MINUTES, c::RALLY_MINUTES * c::LONG_RALLY_TIME, ""),
+            by(c::LONG_RALLY_TIME)
+        ),
+        T::QuickRally => format!(
+            "Seconds between rallies {} ({})",
+            step(
+                c::RALLY_COOLDOWN,
+                c::RALLY_COOLDOWN * c::QUICK_RALLY_COOLDOWN,
+                ""
+            ),
+            by(c::QUICK_RALLY_COOLDOWN)
+        ),
+        T::SteadyRanks => format!(
+            "Bims in the aura bleed at {} the rate",
+            by(c::STEADY_RANKS_BLEED as f64)
+        ),
+        T::DoubleTime => format!(
+            "Bims in the aura walk at {} pace",
+            by(c::DOUBLE_TIME_PACE as f64)
+        ),
+        T::Relentless => "An attack's mark holds until that enemy is dead, not merely down — and the squad walks towards it even unseen".to_string(),
+        T::Grit => "During a rally, Bims in it lose no pace at all to wounds or traumas".to_string(),
+        T::Anchor => format!(
+            "Standing still, each aura bonus {} deeper: work and aim {}, nerve {}",
+            by(c::ANCHOR_BONUS as f64),
+            step(
+                c::AURA_WORK as f64,
+                c::aura_bonus(c::AURA_WORK, c::ANCHOR_BONUS) as f64,
+                ""
+            ),
+            step(
+                c::AURA_NERVE as f64,
+                c::aura_bonus(c::AURA_NERVE, c::ANCHOR_BONUS) as f64,
+                ""
+            )
+        ),
+        T::Warcry => "A rally covers every friendly Bim in the room, however far off — where it otherwise reaches only those near him".to_string(),
+    }
+}
+
+/// The same for a **fixed** level, which has no talent to look up: what
+/// the level's own ability is worth in numbers, said once. `None`
+/// wherever [`level_line`] is `None`.
+pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
+    use world::class as c;
+    Some(match (class, level) {
+        (world::Class::Engineer, 1) => format!(
+            "{} sandbag kits to start. A laying takes {} game minutes; laid bags hold {} health",
+            world::deploy::ENGINEER_START_KITS,
+            fig(world::deploy::DEPLOY_SANDBAG_MINUTES),
+            fig(world::deploy::SANDBAG_HEALTH as f64)
+        ),
+        (world::Class::Engineer, 3) => format!(
+            "One sentry at a time: {} game minutes to lay, {} health, {} shots, {} metal a refill",
+            fig(world::deploy::DEPLOY_SENTRY_MINUTES),
+            fig(world::deploy::SENTRY_HEALTH as f64),
+            world::deploy::SENTRY_SHOTS,
+            world::deploy::SENTRY_REFILL_METAL
+        ),
+        (world::Class::Engineer, 7) => {
+            "The sentry's rifle takes the tier-2 factors, where it fired at tier 1".to_string()
+        }
+        (world::Class::Soldier, 1) => format!(
+            "Braced, his hit chance is {} — a {} shot becomes {}",
+            by(c::BRACE_ACCURACY as f64),
+            pc(0.6),
+            pc(0.6 * c::BRACE_ACCURACY as f64)
+        ),
+        (world::Class::Soldier, 3) => format!(
+            "{} grenades to start: thrown {} tiles, a {}-second fuse, a {}-tile burst doing {} at the centre and half that at the edge, {} seconds between throws",
+            c::SOLDIER_START_GRENADES,
+            fig(c::GRENADE_RANGE as f64),
+            fig(c::GRENADE_FUSE as f64),
+            fig(c::GRENADE_RADIUS as f64),
+            fig(c::GRENADE_DAMAGE as f64),
+            fig(c::GRENADE_COOLDOWN)
+        ),
+        (world::Class::Soldier, 7) => {
+            format!("Every weapon's fire rate {}", by(c::DRILL_FIRE_RATE as f64))
+        }
+        (world::Class::Medic, 1) => format!(
+            "The beam reaches {} tiles and gives back {} blood an hour. {} medkits and {} bandages to start",
+            fig(c::HEAL_BEAM_RANGE as f64),
+            fig(c::HEAL_BEAM_BLOOD as f64),
+            c::MEDIC_START_MEDKITS,
+            c::MEDIC_START_BANDAGES
+        ),
+        (world::Class::Medic, 3) => format!(
+            "The surge charges over {} game minutes of beaming a patient that needs it, and runs {}",
+            fig(c::SURGE_CHARGE_MINUTES),
+            fig(c::SURGE_MINUTES)
+        ),
+        (world::Class::Medic, 7) => format!(
+            "A beamed patient's parts mend at {} the ordinary rate",
+            by(c::MENDER_RECOVER as f64)
+        ),
+        (world::Class::Tank, 1) => format!(
+            "Armour worn by him drains at {} the ordinary rate, so a piece absorbs twice as much. Bulwark shelters everybody within {} tiles, at {} his own pace",
+            by(c::TANK_DRAIN as f64),
+            fig(c::BULWARK_REACH as f64),
+            by(c::BULWARK_PACE as f64)
+        ),
+        (world::Class::Tank, 3) => format!(
+            "A taunt reaches {} tiles, runs {} game minutes, and wants {} seconds between",
+            fig(c::TAUNT_RADIUS as f64),
+            fig(c::TAUNT_MINUTES),
+            fig(c::TAUNT_COOLDOWN)
+        ),
+        (world::Class::Tank, 7) => {
+            "Every hit rolled on his head lands on his body instead".to_string()
+        }
+        (world::Class::Commander, 1) => format!(
+            "The aura reaches {} tiles: work {}, aim {}, and a dying Bim holds its ground {} seconds ({}) where it would otherwise run at once. Hires at {}% off. A squad order reaches {} tiles",
+            fig(c::AURA_TILES as f64),
+            by(c::AURA_WORK as f64),
+            by(c::AURA_AIM as f64),
+            fig((c::NERVE_HOLD * c::AURA_NERVE) as f64),
+            by(c::AURA_NERVE as f64),
+            c::HIRE_DISCOUNT_PERCENT,
+            fig(c::SQUAD_RANGE as f64)
+        ),
+        (world::Class::Commander, 3) => format!(
+            "A rally puts every friendly Bim it reaches at aim {} and stops any of them running; it runs {} game minutes, with {} seconds between",
+            by(c::RALLY_AIM as f64),
+            fig(c::RALLY_MINUTES),
+            fig(c::RALLY_COOLDOWN)
+        ),
+        (world::Class::Commander, 7) => format!(
+            "A squad order reaches the whole room, where it otherwise reaches {} tiles",
+            fig(c::SQUAD_RANGE as f64)
+        ),
+        _ => return None,
+    })
+}
+/// The class row on the crew panel: the class, the level, and what is
+/// still wanted for the next.
+pub fn class_line(class: world::Class, level: u8, to_next: u32) -> String {
+    if to_next == 0 {
+        format!("{} — level {level}", class_name(class))
+    } else {
+        format!(
+            "{} — level {level}, {to_next} xp to the next",
+            class_name(class)
+        )
+    }
+}
+pub const PICK_PENDING: &str = "A talent to pick:";
+pub const PACK_UP: &str = "Pack up";
+pub const REFILL: &str = "Refill";
+pub const REPAIR: &str = "Repair";
+pub const REPAIR_TIP: &str = "Mend the damaged piece in the first slot for a bar of metal: the armourer's own session at the bench, ten minutes.";
+/// What a deployable on the deck is called, by `world::DeployKind` code,
+/// with what it has left.
+pub const DEPLOYABLE_NAMES: [&str; 2] = ["Sandbags", "Sentry"];
+pub fn deployable_line(d: &world::Deployable) -> String {
+    let name = DEPLOYABLE_NAMES
+        .get(d.kind.code() as usize)
+        .copied()
+        .unwrap_or("Deployable");
+    match d.kind {
+        world::DeployKind::Sandbags => format!("{name} — {:.0} left", d.health),
+        world::DeployKind::Sentry => format!("{name} — {:.0} health, {} shots", d.health, d.shots),
+    }
+}
+/// The log's line for a deploy key pressed and refused, off the world's
+/// own refusal.
+pub fn deploy_refused(why: world::Refusal) -> String {
+    format!("Cannot set that up: {}.", refusal(why))
+}
+/// The same for a grenade thrown and refused (feature 75).
+pub fn throw_refused(why: world::Refusal) -> String {
+    format!("Cannot throw that: {}.", refusal(why))
+}
+/// And for a brace refused.
+pub fn brace_refused(why: world::Refusal) -> String {
+    format!("Cannot brace: {}.", refusal(why))
+}
+/// And for a beam and a surge (feature 76).
+pub fn beam_refused(why: world::Refusal) -> String {
+    format!("Cannot beam: {}.", refusal(why))
+}
+pub fn surge_refused(why: world::Refusal) -> String {
+    format!("Cannot surge: {}.", refusal(why))
+}
+/// And for a bulwark and a taunt (feature 77).
+pub fn bulwark_refused(why: world::Refusal) -> String {
+    format!("Cannot stand as a wall: {}.", refusal(why))
+}
+pub fn taunt_refused(why: world::Refusal) -> String {
+    format!("Cannot taunt: {}.", refusal(why))
+}
+/// And for a squad order and a rally (feature 78).
+pub fn squad_refused(why: world::Refusal) -> String {
+    format!("Cannot order the squad: {}.", refusal(why))
+}
+pub fn rally_refused(why: world::Refusal) -> String {
+    format!("Cannot rally: {}.", refusal(why))
+}
+/// And for either of the two standing orders every player has (feature
+/// 84): the attack banner and the retreat.
+pub fn orders_refused(why: world::Refusal) -> String {
+    format!("Cannot order the crew: {}.", refusal(why))
+}
+/// What the crew that follow you are under, for the strip over the
+/// canvas — nothing at all while they are simply following, since the
+/// ring round your Bim already says so.
+pub fn orders_line(kind: u32) -> Option<&'static str> {
+    match kind {
+        1 => Some("Crew: attacking the banner"),
+        2 => Some("Crew: falling back to the ship"),
+        _ => None,
+    }
+}
+pub const ORDERS_TIP: &str = "The crew nobody is steering keep to your side and fight for themselves when they see an enemy. F puts an attack banner down for them to fight their way to; T calls them back to the ship; either key again lets them follow you again. Nobody leaves a fight aboard the ship.";
+/// The commander's rows on the crew panel (feature 78): what the squad
+/// is under, and the rally with its cooldown.
+pub const SQUAD_NONE: &str = "Squad: free";
+pub const SQUAD_TIP: &str = "The squad is every crew member nobody is steering. E sends it at the enemy under the pointer, X calls it back to a tile, Z has it hold where it stands; the same key again lets it go. Your own Bim is never ordered by it.";
+pub fn squad_line(kind: Option<u32>, members: usize) -> String {
+    let Some(kind) = kind else {
+        return SQUAD_NONE.to_string();
+    };
+    let what = match kind {
+        0 => "attacking",
+        1 => "falling back",
+        _ => "holding ground",
+    };
+    format!("Squad {what} — {members}")
+}
+pub fn rally_line(left: f64, cooldown: f64, level_enough: bool) -> String {
+    if !level_enough {
+        return format!("Rally at level {}", world::class::RALLY_LEVEL);
+    }
+    if left > 0.0 {
+        return format!("Rallying — {left:.0} min left");
+    }
+    if cooldown > 0.0 {
+        format!("Rally ready in {cooldown:.0} s")
+    } else {
+        "Rally ready".to_string()
+    }
+}
+/// The tank's rows on the crew panel (feature 77): the wall, and the
+/// taunt with its cooldown.
+pub const WALL_UP: &str = "Wall up";
+pub const WALL_DOWN: &str = "Wall down";
+pub const WALL_TIP: &str = "Standing as a wall: half pace, and a crewmate close behind him is in cover against anything shot through him. E puts it up and down; going down takes it down.";
+pub fn taunt_line(left: f64, cooldown: f64, level_enough: bool) -> String {
+    if !level_enough {
+        return format!("Taunt at level {}", world::class::TAUNT_LEVEL);
+    }
+    if left > 0.0 {
+        return format!("Taunting — {left:.0} min left");
+    }
+    if cooldown > 0.0 {
+        format!("Taunt ready in {cooldown:.0} s")
+    } else {
+        "Taunt ready".to_string()
+    }
+}
+/// The soldier's rows on the crew panel (feature 75): grenades carried,
+/// the throw's cooldown, and the brace.
+pub const BRACED: &str = "Braced";
+pub const BRACED_TIP: &str = "Holding a line: no errands, no running, steadier shooting. E stands easy; so does any order that moves them.";
+pub const STAND_EASY: &str = "Standing easy";
+/// The medic's rows on the crew panel (feature 76): who the beam holds,
+/// and how charged the surge is.
+pub const BEAM_ON: &str = "Beaming";
+pub const BEAM_OFF: &str = "No beam";
+pub const BEAM_TIP: &str = "The heal beam holds a crewmate up: their wounds and traumas stop bleeding and their blood comes back. E over a crew member links it; E again, or on nothing, unlinks. The medic may walk, and fires nothing while it is on.";
+pub const SURGING: &str = "Surging";
+pub fn beam_line(patients: &[String]) -> String {
+    match patients {
+        [] => BEAM_OFF.to_string(),
+        [one] => format!("{BEAM_ON} {one}"),
+        many => format!("{BEAM_ON} {}", many.join(" and ")),
+    }
+}
+pub fn surge_line(charge: f32, level_enough: bool) -> String {
+    if !level_enough {
+        return format!("Surge at level {}", world::class::SURGE_LEVEL);
+    }
+    if charge >= 1.0 {
+        "Surge charged".to_string()
+    } else {
+        format!("Surge {:.0}%", charge * 100.0)
+    }
+}
+pub fn grenades_line(carried: u32, cooldown: f64) -> String {
+    let count = match carried {
+        1 => "1 grenade".to_string(),
+        n => format!("{n} grenades"),
+    };
+    if cooldown > 0.0 {
+        format!("{count} — ready in {cooldown:.0} s")
+    } else {
+        count
+    }
+}
 pub const HAIR_NAMES: [&str; 8] = [
     "Cropped", "Long", "Bald", "Bob", "Bun", "Mohawk", "Ponytail", "Curly",
 ];
@@ -652,6 +1722,15 @@ pub fn shade_name(shade: bims::character::Shade) -> &'static str {
         .get(shade.code() as usize)
         .copied()
         .unwrap_or("Hair")
+}
+/// The colours a player's own Bim can be ringed in (feature 84), pinned
+/// against `bims::character::Tint::ALL` below.
+pub const TINT_NAMES: [&str; 6] = ["Teal", "Amber", "Rose", "Violet", "Sky", "Lime"];
+pub fn tint_name(tint: bims::character::Tint) -> &'static str {
+    TINT_NAMES
+        .get(tint.code() as usize)
+        .copied()
+        .unwrap_or("Colour")
 }
 
 /// Why a blueprint will not go where the pointer is, from
@@ -698,6 +1777,21 @@ pub const STATE_NAMES: [&str; 7] = [
     "Docking",
     "Charging",
 ];
+
+/// The machines (feature 83): a wave landing, and the last of them
+/// destroyed.
+pub const DROID_REINFORCEMENTS: &str = "Another wave of machines has landed.";
+pub const DROID_CLEARED: &str = "The last of the machines is down.";
+
+/// What each of the three is called, indexed by
+/// `bims::droid::DroidKind::code`; `0` is no machine at all. A droid
+/// has no name of its own — it is a machine, not somebody — so the log
+/// says its kind.
+pub const DROID_NAMES: [&str; 4] = ["—", "Husk", "Trooper", "Warden"];
+
+pub fn droid_name(code: u32) -> &'static str {
+    DROID_NAMES.get(code as usize).copied().unwrap_or("Machine")
+}
 
 /// Which part of a trip the ship is in, indexed by `flight::Phase`.
 pub const PHASE_NAMES: [&str; 5] = ["Aligning", "Burning", "Turning", "Braking", "Holding"];
@@ -967,6 +2061,85 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::ResearchDropped { node } => {
             format!("Off the research queue: {}.", node_name(node))
         }
+        WorldEvent::LevelUp {
+            who: w,
+            class,
+            level,
+        } => match world::class::is_pick_level(level as u8) {
+            true => format!(
+                "{} reached level {level} — a skill point to spend, on the Skills tab.",
+                who(w)
+            ),
+            false => match level_line(
+                world::Class::from_code(class).unwrap_or_default(),
+                level as u8,
+            ) {
+                Some(line) => format!("{} reached level {level}: {line}", who(w)),
+                None => format!("{} reached level {level}.", who(w)),
+            },
+        },
+        WorldEvent::TalentPicked { who: w, talent } => {
+            let talent = world::Talent::from_code(talent);
+            format!(
+                "{} learnt {}.",
+                who(w),
+                talent.map(talent_name).unwrap_or("a talent")
+            )
+        }
+        WorldEvent::Deployed { who: w, kind } => format!(
+            "{} set up {}.",
+            who(w),
+            DEPLOYABLE_NAMES
+                .get(kind as usize)
+                .copied()
+                .unwrap_or("something")
+                .to_lowercase()
+        ),
+        WorldEvent::PackedUp { who: w, kind } => format!(
+            "{} packed {} up.",
+            who(w),
+            DEPLOYABLE_NAMES
+                .get(kind as usize)
+                .copied()
+                .unwrap_or("something")
+                .to_lowercase()
+        ),
+        WorldEvent::DeployableLost { kind } => match kind {
+            0 => "The sandbags are shot to pieces.".into(),
+            _ => "A sentry is shot to pieces.".into(),
+        },
+        WorldEvent::Refilled { who: w } => format!("{} refilled a sentry.", who(w)),
+        WorldEvent::Repaired { kind } => format!(
+            "The workbench mended {}.",
+            armour_name(bims::combat::ArmourKind::from_code(kind)).to_lowercase()
+        ),
+        WorldEvent::Braced { who: w, on: true } => format!("{} braced.", who(w)),
+        WorldEvent::Braced { who: w, on: false } => format!("{} stood easy.", who(w)),
+        WorldEvent::Thrown { who: w } => format!("{} threw a grenade.", who(w)),
+        WorldEvent::Beamed {
+            who: w,
+            patient: Some(p),
+        } => format!("{} beamed {}.", who(w), who(p)),
+        WorldEvent::Beamed { who: w, .. } => format!("{}'s beam is off.", who(w)),
+        WorldEvent::Surged { who: w } => format!("{} surged.", who(w)),
+        WorldEvent::Bulwarked { who: w, on: true } => format!("{} stood as a wall.", who(w)),
+        WorldEvent::Bulwarked { who: w, on: false } => format!("{} stood the wall down.", who(w)),
+        WorldEvent::Taunted { who: w } => format!("{} taunted the enemy.", who(w)),
+        WorldEvent::Squadded { who: w, kind } => match kind {
+            0 => format!("{} sent the squad in.", who(w)),
+            1 => format!("{} called the squad back.", who(w)),
+            2 => format!("{} had the squad hold its ground.", who(w)),
+            _ => format!("{} released the squad.", who(w)),
+        },
+        WorldEvent::Rallied { who: w } => format!("{} rallied the crew.", who(w)),
+        WorldEvent::DroidReinforcements { .. } => DROID_REINFORCEMENTS.into(),
+        WorldEvent::DroidDown { kind, .. } => format!("{} is down.", droid_name(kind)),
+        WorldEvent::DroidStationCleared { .. } => DROID_CLEARED.into(),
+        WorldEvent::Ordered { who: w, kind } => match kind {
+            1 => format!("{} put an attack banner down.", who(w)),
+            2 => format!("{} called the crew back to the ship.", who(w)),
+            _ => format!("{}'s crew are following again.", who(w)),
+        },
     })
 }
 
@@ -1191,6 +2364,66 @@ pub fn need_tip(need: usize) -> &'static str {
 }
 
 pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar: a shot takes its damage off whichever it lands on, and the head or the body at nothing is death. The legs at nothing is a leg lost. Every hit opens a wound that bleeds until it is dressed — the Blood bar underneath — and below half blood the Bim is slow, below a third out cold, at nothing dead. Only the worst stage of malnutrition costs health of itself, and eating properly walks it back. The lines underneath name whatever is wrong. The blue on the end of a bar is armour: a worn piece adds what it has left to the part, takes every hit first — its protection comes off the damage before anything else, and the rest drains the piece — and only what the piece cannot take reaches the body. At nothing it is broken: still worn, doing nothing, worth nothing put away — discard it and make another.";
+
+// --- what is killing it -----------------------------------------------------
+//
+// The peril block under the health bar: the one thing on the panel that
+// answers "what is this Bim dying of *now*", with the rate it is dying
+// at and how long it has at that rate. The words are here; the sums are
+// `crew::perils`, off the room's own constants.
+
+/// The headline over the block, when there is one.
+pub const PERIL_HEAD: &str = "DYING OF";
+/// A body losing blood faster than it makes it: the wounds and the
+/// untreated traumas together.
+pub const PERIL_BLEEDING: &str = "Blood loss";
+/// The last stage of malnutrition, which is the only one that costs
+/// health of itself.
+pub const PERIL_STARVING: &str = "Starvation";
+/// What each of them wants done about it.
+pub const PERIL_BLEED_MEDKIT: &str = "A crewmate with a medkit, then a bandage on the rest.";
+pub const PERIL_BLEED_BANDAGE: &str = "A bandage on each part closes the wounds.";
+pub const PERIL_STARVE_FIX: &str = "It has to eat, and soon.";
+/// The line under a body that is in a dying state but losing nothing —
+/// a concussion, broken ribs, a shattered knee. It will not die of it,
+/// and saying so is the point of the line.
+pub const PERIL_STABLE: &str = "Not losing blood — it will hold until a medkit reaches it.";
+/// How long it has left, when the rate says.
+pub fn peril_left(span: &str) -> String {
+    format!("{span} left at this rate")
+}
+/// One row of the block: where the loss is coming from, and how much.
+pub fn peril_from(what: &str, an_hour: f32) -> String {
+    format!("{what} · {} an hour", (an_hour.round() as i64))
+}
+/// What open wounds on one part are called in that list.
+pub fn peril_wounds(part: &str, n: u32) -> String {
+    if n == 1 {
+        format!("{part} · 1 open wound")
+    } else {
+        format!("{part} · {n} open wounds")
+    }
+}
+/// The total across the top of the block.
+pub fn peril_rate(an_hour: f32) -> String {
+    format!("{} blood an hour", an_hour.round() as i64)
+}
+/// How fast starvation is taking the health bar down.
+pub fn peril_drain(a_day: f32) -> String {
+    format!("{} health a day", a_day.round() as i64)
+}
+
+/// What a dead body says it died of. Nothing records a cause of death,
+/// so this reads it off the body the same way a person would: no blood
+/// left is one death, and the head and the body both at nothing with no
+/// trauma on either is the other — starved if it was starving, and
+/// otherwise its own hand, which is the only thing left that empties
+/// both parts and leaves them clean.
+pub const DEATH_BLED_OUT: &str = "Bled out.";
+pub const DEATH_STARVED: &str = "Starved.";
+pub const DEATH_GAVE_UP: &str = "Gave up.";
+
+pub const PERIL_TIP: &str = "What is taking this Bim down right now, and how long it has at that rate. Blood runs out through every open wound — ten an hour each — and through every untreated trauma that bleeds, and at nothing left the Bim is dead; a medkit ends a trauma, a bandage closes the wounds on a part. Extreme malnutrition is the other one: it takes health off the head, the body and the legs until the head and the body are both at nothing. The countdown assumes nothing changes — a bandage, a medkit or a meal moves it at once.";
 
 pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a body — the head, the body or the legs — and stops the bleeding there. Order one here, or right-click a Bim on the deck, and the crew member you steer walks over and dresses it, ten minutes with hands on. Bandages are made at the drug lab out of fibre, or bought where a station sells them.";
 
@@ -1484,6 +2717,7 @@ pub fn job_name(code: u32) -> &'static str {
         25 => "Finishing off",
         26 => "Carrying gear to the workbench",
         27 => "Walking over",
+        28 => "Setting up a kit",
         _ => "Busy",
     }
 }
@@ -1512,6 +2746,7 @@ pub fn activity_line(code: u32) -> Option<&'static str> {
         25 => "Finishing off a body…",
         26 => "Carrying gear to the workbench…",
         27 => "Walking over…",
+        28 => "Setting a kit up…",
         _ => return None,
     })
 }
@@ -1546,14 +2781,18 @@ pub const IDLE_HINT: &str = "Click a fixture for its menu · 1 or drag to select
 // --- arms and armour ------------------------------------------------------------
 
 /// What a weapon is called, indexed by `bims::combat::WeaponKind::code`;
-/// `0` is an empty slot.
-pub const WEAPON_NAMES: [&str; 6] = [
+/// `0` is an empty slot. The last two are a droid's built-in arms
+/// (feature 83): they are named here because the picture names what it
+/// draws, and nowhere else — nothing carries one.
+pub const WEAPON_NAMES: [&str; 8] = [
     "—",
     "Laser pistol",
     "Shotgun",
     "Auto rifle",
     "Sniper rifle",
     "Schword",
+    "Claw",
+    "Unmaker",
 ];
 
 /// What a piece of armour is called, indexed by `bims::combat::ArmourKind::code`;
@@ -1669,7 +2908,7 @@ pub fn locked_tip() -> String {
 /// What each thing in a grid cell is, for the tooltip under its icon,
 /// indexed by `physics::ResourceId`. A piece of armour's numbers are put
 /// after its line by the grid, off the piece itself.
-pub const ITEM_TIPS: [&str; 23] = [
+pub const ITEM_TIPS: [&str; 26] = [
     "Iron ore off a belt. Two lumps smelt into a bar of metal.",
     "A bar of metal: what most of the ship is built of, and what the workbench works.",
     "Components, worked out of metal at the workbench. Four to a bar.",
@@ -1693,6 +2932,9 @@ pub const ITEM_TIPS: [&str; 23] = [
     "A schword, a blade with a laser edge: a bar of metal, a component and two emitters at the armoury. Cuts, at arm's length.",
     "A tier-one research key: an artifact off a station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the locked part of the research tree.",
     "A tier-two research key: an artifact off a hostile station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the upgrades node, which wants it and no other.",
+    "A sandbag kit: a bar of metal at the workbench. An engineer lays it on a deck tile as a barricade to duck behind — E, over the tile.",
+    "A sentry kit: two bars of metal, two components and an emitter at the workbench. An engineer of the third level sets it up as a turret with an auto rifle's aim — Q, over the tile.",
+    "A grenade: a bar of metal and a component at the armoury. Anybody carries one; a soldier of the third level throws it — Q, over the tile — and it bursts on everything within two and a half tiles, friend and foe alike, two seconds on.",
 ];
 
 pub fn item_tip(id: ResourceId) -> &'static str {
@@ -1722,7 +2964,7 @@ pub const NODE_LINES: [&str; 10] = [
     "The workbench: a bar of metal into four components.",
     "The large fusion reactor: four reactors' power in a three-by-three block — a heavy engine flat out, and every bench and system aboard.",
     "The armoury, every weapon it makes, the vest, and the three pieces of armour at the workbench.",
-    "The emitter at the workbench: what a laser fires through, and what the guns want.",
+    "The emitter at the workbench: what a laser fires through, and what the guns want — and the engineer's sentry kit, which fires through one.",
     "The hyperdrive: a jump to another star, bolted to a main engine. Charged from the helm for twenty seconds, and then the ship is in empty space round the star picked on the galaxy chart.",
     "The workbench's upgrades: two weapons or pieces of a kind at one tier into one of the next — tier one to two, and two to three. The first tier-two node: it wants a tier-two key, which lies on the research desk of every hostile station.",
 ];
@@ -1852,6 +3094,24 @@ pub fn raid_forcing(boarders: u32) -> String {
 pub fn raid_aboard(boarders: u32) -> String {
     format!("RAIDERS ABOARD — {boarders} through the airlock")
 }
+/// The red warning along the top while the station alongside is held by
+/// the machines (feature 83): which wave is on the deck and how many are
+/// standing, then the countdown to the next one landing (`span` from
+/// `format::in_words`, counted down every frame), then the last of them
+/// gone. `wave` counts from one and `waves` is how many there are all
+/// told, the one aboard counted.
+/// Short on purpose: the line stands in a row that already holds the
+/// clock, the alarm and whatever else, and a long one is a line the
+/// crew's panels cut in half.
+pub fn droids_standing(wave: u32, waves: u32, standing: u32) -> String {
+    format!("MACHINES — wave {wave} of {waves}, {standing} up")
+}
+pub fn droids_next_wave(span: &str, wave: u32, waves: u32) -> String {
+    format!("MACHINES — wave {wave} of {waves} in {span}")
+}
+pub const DROIDS_CLEARED: &str = "MACHINES — the last wave is down";
+pub const DROIDS_TIP: &str = "The station is held by the machines, and they come in waves. How many waves there are was fixed the first time you docked here and never changes; how big each one is, is worked out as it appears, so a richer crew meets more of them. No wave arrives while a machine of the last one is still standing — the countdown starts when the last of them is destroyed — and the next comes in through the airlock farthest from your own, or through a gate of the town on a planet. Everybody's speed goes back to 1× when one lands.";
+
 pub const RAID_TIP: &str = "A hostile ship is closing on yours and will tie up alongside. Its boarders come for the ship through your airlock, which is locked in their face the moment they arrive: they have to force it — half a minute of heaving, the bar over the door — and you may unlock it from its panel yourself to meet them in the passage. Everybody's speed was put back to 1× when it came onto the radar; leaving before it arrives loses it.";
 
 /// The header's word while the crew's alarm is up, and what it means.
@@ -1973,6 +3233,216 @@ mod tests {
             assert_eq!(WORK_NAMES.len(), bims::work::Job::ALL.len());
         }
 
+        // --- the_classes_and_the_talents_are_named_and_every_pick_level_tipped ---
+        {
+            assert_eq!(CLASS_NAMES.len(), world::Class::ALL.len());
+            assert_eq!(CLASS_TIPS.len(), world::Class::ALL.len());
+            assert_eq!(TALENT_NAMES.len(), world::Talent::ALL.len());
+            assert_eq!(TALENT_TIPS.len(), world::Talent::ALL.len());
+            assert_eq!(DEPLOYABLE_NAMES.len(), 2);
+            // The two boxes at the foot of the screen: a name and a tip
+            // for every class's two keys, and none for the classless
+            // one, which has no keys (feature 80).
+            assert_eq!(ABILITY_NAMES.len(), world::Class::ALL.len());
+            assert_eq!(ABILITY_TIPS.len(), world::Class::ALL.len());
+            for class in world::Class::ALL {
+                for primary in [true, false] {
+                    let named = !ability_name(class, primary).is_empty();
+                    assert_eq!(named, class != world::Class::None);
+                    assert_eq!(!ability_tip(class, primary).is_empty(), named);
+                    assert_eq!(
+                        world::class::key_level(class, primary).is_some(),
+                        named,
+                        "{class:?} has a key exactly where it has a box"
+                    );
+                }
+            }
+            for (i, talent) in world::Talent::ALL.iter().enumerate() {
+                assert_eq!(talent.code() as usize, i);
+                assert!(!talent_tip(*talent).is_empty());
+                // And what it is actually worth, in numbers (feature 83).
+                assert!(
+                    !talent_numbers(*talent).is_empty(),
+                    "{talent:?} says what it is worth"
+                );
+            }
+            for (i, class) in world::Class::ALL.iter().enumerate() {
+                assert_eq!(class.code() as usize, i);
+            }
+            for class in [
+                world::Class::Engineer,
+                world::Class::Soldier,
+                world::Class::Medic,
+                world::Class::Tank,
+                world::Class::Commander,
+            ] {
+                for level in 1..=world::class::LEVELS {
+                    assert_eq!(
+                        world::class::pick_at(class, level).is_none(),
+                        level_line(class, level).is_some(),
+                        "{class:?} level {level}: a fixed level has a line and a pick level two talents"
+                    );
+                    // And the Skills tree's one slot is named wherever
+                    // that line is said (feature 83).
+                    assert_eq!(
+                        level_line(class, level).is_some(),
+                        level_name(class, level).is_some(),
+                        "{class:?} level {level}: a fixed level is named as well as described"
+                    );
+                    // And a fixed level says what it is worth in numbers
+                    // wherever it is named at all (feature 83).
+                    assert_eq!(
+                        level_name(class, level).is_some(),
+                        level_numbers(class, level).is_some_and(|n| !n.is_empty()),
+                        "{class:?} level {level}: a fixed level says what it is worth"
+                    );
+                }
+            }
+            for level in 1..=world::class::LEVELS {
+                assert!(level_line(world::Class::None, level).is_none());
+                assert!(level_name(world::Class::None, level).is_none());
+                assert!(level_numbers(world::Class::None, level).is_none());
+            }
+            // The figures themselves, said the tree's way: no trailing
+            // nought, two decimals at most.
+            assert_eq!(fig(6.0), "6");
+            assert_eq!(fig(1.15), "1.15");
+            assert_eq!(fig(40.0 / 1.5), "26.67");
+            assert_eq!(by(1.5), "×1.5");
+            assert_eq!(step(6.0, 9.0, "tiles"), "6 -> 9 tiles");
+            assert_eq!(pc(0.75), "75%");
+            // The new refusals and events all say something.
+            for why in [
+                Refusal::ClassLocked,
+                Refusal::NotAnEngineer,
+                Refusal::NoKit,
+                Refusal::NoSentryYet,
+                Refusal::SentryLimit,
+                Refusal::CantDeployThere,
+                Refusal::NoSuchDeployable,
+                Refusal::NotAPickLevel,
+                Refusal::LevelNotReached,
+                Refusal::AlreadyPicked,
+                Refusal::NoTalent,
+                Refusal::NoClass,
+                Refusal::NotASoldier,
+                Refusal::NoGrenade,
+                Refusal::NoGrenadesYet,
+                Refusal::CoolingDown,
+                Refusal::OutOfThrowRange,
+                Refusal::NoLineToTile,
+                Refusal::CantThrowThere,
+                Refusal::NotAMedic,
+                Refusal::NoPatient,
+                Refusal::NotACrewmate,
+                Refusal::OutOfBeamRange,
+                Refusal::NoSightOfPatient,
+                Refusal::NoSurgeYet,
+                Refusal::NotCharged,
+                Refusal::NotLinked,
+                Refusal::NotATank,
+                Refusal::NoTauntYet,
+                Refusal::NotACommander,
+                Refusal::NoRallyYet,
+                Refusal::NoSquadInRange,
+                Refusal::NoEnemyThere,
+            ] {
+                assert!(!refusal(why).is_empty());
+                assert!(deploy_refused(why).contains(refusal(why)));
+                assert!(throw_refused(why).contains(refusal(why)));
+                assert!(brace_refused(why).contains(refusal(why)));
+                assert!(beam_refused(why).contains(refusal(why)));
+                assert!(surge_refused(why).contains(refusal(why)));
+                assert!(bulwark_refused(why).contains(refusal(why)));
+                assert!(taunt_refused(why).contains(refusal(why)));
+                assert!(squad_refused(why).contains(refusal(why)));
+                assert!(rally_refused(why).contains(refusal(why)));
+            }
+            assert_eq!(squad_line(None, 0), SQUAD_NONE);
+            assert_eq!(squad_line(Some(0), 3), "Squad attacking — 3");
+            assert_eq!(squad_line(Some(1), 2), "Squad falling back — 2");
+            assert_eq!(squad_line(Some(2), 1), "Squad holding ground — 1");
+            assert_eq!(
+                rally_line(0.0, 0.0, false),
+                format!("Rally at level {}", world::class::RALLY_LEVEL)
+            );
+            assert_eq!(rally_line(0.0, 0.0, true), "Rally ready");
+            assert_eq!(rally_line(0.0, 7.2, true), "Rally ready in 7 s");
+            assert_eq!(rally_line(4.0, 12.0, true), "Rallying — 4 min left");
+            assert_eq!(
+                taunt_line(0.0, 0.0, false),
+                format!("Taunt at level {}", world::class::TAUNT_LEVEL)
+            );
+            assert_eq!(taunt_line(0.0, 0.0, true), "Taunt ready");
+            assert_eq!(taunt_line(0.0, 7.2, true), "Taunt ready in 7 s");
+            assert_eq!(taunt_line(4.0, 12.0, true), "Taunting — 4 min left");
+            assert_eq!(grenades_line(1, 0.0), "1 grenade");
+            assert_eq!(grenades_line(2, 3.4), "2 grenades — ready in 3 s");
+            assert_eq!(beam_line(&[]), BEAM_OFF);
+            assert_eq!(beam_line(&["Kate".to_string()]), "Beaming Kate");
+            assert_eq!(
+                beam_line(&["Kate".to_string(), "Ali".to_string()]),
+                "Beaming Kate and Ali"
+            );
+            assert_eq!(
+                surge_line(0.0, false),
+                format!("Surge at level {}", world::class::SURGE_LEVEL)
+            );
+            assert_eq!(surge_line(0.5, true), "Surge 50%");
+            assert_eq!(surge_line(1.0, true), "Surge charged");
+            for event in [
+                WorldEvent::LevelUp {
+                    who: 0,
+                    class: 1,
+                    level: 2,
+                },
+                WorldEvent::LevelUp {
+                    who: 0,
+                    class: 2,
+                    level: 3,
+                },
+                WorldEvent::LevelUp {
+                    who: 0,
+                    class: 2,
+                    level: 8,
+                },
+                WorldEvent::TalentPicked { who: 0, talent: 0 },
+                WorldEvent::Deployed { who: 0, kind: 0 },
+                WorldEvent::PackedUp { who: 0, kind: 1 },
+                WorldEvent::DeployableLost { kind: 1 },
+                WorldEvent::Refilled { who: 0 },
+                WorldEvent::Repaired { kind: 1 },
+                WorldEvent::Braced { who: 0, on: true },
+                WorldEvent::Braced { who: 0, on: false },
+                WorldEvent::Thrown { who: 0 },
+                WorldEvent::Beamed {
+                    who: 0,
+                    patient: Some(1),
+                },
+                WorldEvent::Beamed {
+                    who: 0,
+                    patient: None,
+                },
+                WorldEvent::Surged { who: 0 },
+                WorldEvent::Bulwarked { who: 0, on: true },
+                WorldEvent::Bulwarked { who: 0, on: false },
+                WorldEvent::Taunted { who: 0 },
+                WorldEvent::Squadded { who: 0, kind: 0 },
+                WorldEvent::Squadded { who: 0, kind: 1 },
+                WorldEvent::Squadded { who: 0, kind: 2 },
+                WorldEvent::Squadded {
+                    who: 0,
+                    kind: u32::MAX,
+                },
+                WorldEvent::Rallied { who: 0 },
+            ] {
+                assert!(
+                    event_line(event).is_some_and(|l| !l.is_empty()),
+                    "{event:?}"
+                );
+            }
+        }
+
         // --- the_chooser_names_every_hair_and_shade ---
         {
             assert_eq!(HAIR_NAMES.len(), bims::character::Hair::ALL.len());
@@ -1982,6 +3452,12 @@ mod tests {
             }
             for (i, shade) in bims::character::Shade::ALL.iter().enumerate() {
                 assert_eq!(shade.code() as usize, i);
+            }
+            // And every colour a player's own Bim can wear (feature 84).
+            assert_eq!(TINT_NAMES.len(), bims::character::Tint::ALL.len());
+            for (i, tint) in bims::character::Tint::ALL.iter().enumerate() {
+                assert_eq!(tint.code() as usize, i);
+                assert_eq!(bims::character::Tint::from_code(i as u8), *tint);
             }
         }
 
@@ -2087,6 +3563,7 @@ mod tests {
                 bims::game::JOB_EXECUTE,
                 bims::game::JOB_FERRY,
                 bims::game::JOB_WALK,
+                bims::game::JOB_DEPLOY,
             ] {
                 assert_ne!(job_name(code), job_name(u32::MAX));
                 assert!(activity_line(code).is_some());
@@ -2138,8 +3615,11 @@ mod tests {
         // --- every_weapon_has_a_name_and_the_empty_slot_is_first ---
         {
             // Slot 0 is empty; every kind's code indexes its name.
-            assert_eq!(WEAPON_NAMES.len(), bims::combat::WeaponKind::ALL.len() + 1);
-            for &kind in bims::combat::WeaponKind::ALL.iter() {
+            assert_eq!(
+                WEAPON_NAMES.len(),
+                bims::combat::WeaponKind::EVERY.len() + 1
+            );
+            for &kind in bims::combat::WeaponKind::EVERY.iter() {
                 assert!(!weapon_name(Some(kind)).is_empty());
                 assert_ne!(weapon_name(Some(kind)), WEAPON_NAMES[0]);
             }
@@ -2169,6 +3649,18 @@ mod tests {
             let schword = WeaponKind::Schword.stats();
             assert_eq!(melee_text(&schword), "Melee — 42 a swing every 2 s");
             assert!(!locked_tip().is_empty());
+        }
+
+        // --- every_machine_has_a_name_and_the_empty_slot_is_first ---
+        {
+            // Feature 83: a droid has no name of its own, so the log
+            // says its kind. Slot 0 is no machine at all.
+            assert_eq!(DROID_NAMES.len(), bims::droid::DroidKind::ALL.len() + 1);
+            for kind in bims::droid::DroidKind::ALL {
+                assert!(!droid_name(kind.code()).is_empty());
+                assert_ne!(droid_name(kind.code()), DROID_NAMES[0]);
+            }
+            assert_eq!(droid_name(99), "Machine", "a kind with no row");
         }
 
         // --- every_thing_in_a_cell_has_a_tip ---

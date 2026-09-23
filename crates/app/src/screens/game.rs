@@ -24,7 +24,7 @@ use ship::game::ViewMode;
 use shipdesign::Storage;
 use shipdesign::parts::Rotation;
 use wire::{PeerId, To};
-use world::{ShipState, Speed, Where, WorldEvent};
+use world::{Refusal, ShipState, Speed, Where, WorldEvent};
 use worldgen::Node;
 
 use super::designer::{Cart, Net, Order, ShipSession, trade_rows};
@@ -37,7 +37,7 @@ use crate::format::{euros, grouped, roman, spell};
 use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::net::{CHECK_EVERY, Event, Online, Packet};
-use crate::save::Request;
+use crate::save::{Beginning, Request};
 use crate::screens::room::{panel_frame, tray_frame};
 use crate::settings::{Allowed, Sheet, settings_sheet};
 use crate::shapes::View;
@@ -66,6 +66,21 @@ const BLACKOUT_FADE: f32 = 0.6;
 /// the world's clock — ten seconds at 1×, since a minute of the clock is
 /// a real second (`time::MINUTES_PER_SECOND`).
 const RAID_IN_MINUTES: u64 = 10;
+
+/// How long the `droids` probes wait between waves, in minutes of the
+/// world's clock: a minute, a second at 1x, where the game's own is
+/// `data::DROID_REINFORCE_MINUTES` (two hours). The shortcut feature 83
+/// asks for, so a wave landing can be watched rather than waited for.
+const DROID_REINFORCE_IN_PROBE: f64 = 1.0;
+
+/// How many waves of machines the `droids` probes give a held station,
+/// the one aboard counted — where the game's own is
+/// `droid::wave_count`'s sum, which at day nought is
+/// `data::DROID_WAVES_BASE` (two). **Three**, because these commands
+/// exist to look at what a wave *after* the first does: with two, one
+/// landed and the station was cleared. `BIMS_DROID_WAVES=n` says
+/// otherwise.
+const DROID_WAVES_IN_PROBE: u32 = 3;
 
 /// What the map writes over the ship, before where it is.
 const HERE_TAG: &str = "You";
@@ -182,6 +197,14 @@ pub struct GameScreen {
     /// world has stepped with it, so the crew member goes back to its
     /// errands and the helm is the room's job to fill.
     relieve: bool,
+    /// The room tile a soldier is aiming a grenade at while the Q key is
+    /// held (feature 75), for the burst's ring on the deck.
+    throw_aim: Option<(i32, i32)>,
+    /// The **attack** key has armed the pointer (feature 84): the system
+    /// cursor is off, a red crosshair is drawn in its place, and the next
+    /// left click on the deck puts the banner down there. Esc, a
+    /// right-click or the key again puts it away.
+    aiming_attack: bool,
     /// Whether the station's trade window is up.
     trading: bool,
     /// `BIMS_ARMOURY=1`: the armoury window is to be opened on the first
@@ -249,6 +272,15 @@ pub struct GameScreen {
     /// planet has filled the window and the settlement is being laid out —
     /// and it lifts once the ground is there. Nought nearly always.
     blackout: f32,
+    /// Whether the tray is still to be opened on the Skills tab for a
+    /// point waiting to be spent (features 80 and 83). Set at every
+    /// `WorldEvent::LevelUp` of the local slot — and at an open, so a run
+    /// that starts part-way up the tree shows the tree at once — and
+    /// taken the first frame the player's own crew member actually has a
+    /// pick waiting. Nothing is forced after that: the tray is the
+    /// player's, and the Skills tab is where the point is spent whenever
+    /// they get to it.
+    skills_prompt: bool,
 }
 
 pub struct GamePlugin;
@@ -267,8 +299,11 @@ impl Plugin for GamePlugin {
 /// as it was, so a save made before the fight is still there to load.
 fn over(
     mut contexts: EguiContexts,
-    session: Res<ShipSession>,
+    mut session: ResMut<ShipSession>,
     mut next: ResMut<NextState<Screen>>,
+    window: Single<&Window>,
+    online: Res<Online>,
+    beginning: Option<Res<Beginning>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let mut root = root_ui(&ctx);
@@ -286,6 +321,12 @@ fn over(
             )
         })
         .unwrap_or_default();
+    // The run again from where it opened, the Esc sheet's Restart from a
+    // screen that has no Esc sheet (feature 79): the fight is the likeliest
+    // place to want it, and it is the likeliest place to end up. The
+    // host's alone, as a restart is anywhere.
+    let mut again = false;
+    let restartable = beginning.is_some() && !online.is_guest();
     egui::CentralPanel::default().show(&mut root, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(ui.available_height() * 0.3);
@@ -293,11 +334,38 @@ fn over(
             ui.label(egui::RichText::new(OVER_LINE).color(theme::MUTED));
             ui.label(egui::RichText::new(when).color(theme::MUTED));
             ui.add_space(12.0);
+            if restartable && ui.link(RESTART_AGAIN).clicked() {
+                again = true;
+            }
             if ui.link(OVER_BACK).clicked() {
                 next.set(Screen::Menu);
             }
         });
     });
+    // The session is put back to the beginning and the screen entered
+    // again, so `open` stands the panels up round it as it would round
+    // any other open — the beginning it then keeps is the one just read.
+    if again
+        && let Some(text) = beginning.as_ref()
+        && let Ok(loaded) =
+            Session::restore(&text.0, window.width().max(64.0), window.height().max(64.0))
+    {
+        // With company the world goes round as it does on a load, so
+        // everybody's crew stand up again and not just the host's.
+        if online.is_host() {
+            let at = loaded.game.as_ref().map_or(0, |g| g.world.steps);
+            online.send(
+                To::All,
+                &Packet::World {
+                    save: text.0.clone(),
+                    at,
+                },
+            );
+        }
+        crate::names::set_crew_names(&loaded.crew_names);
+        session.0 = loaded;
+        next.set(Screen::Game);
+    }
     Ok(())
 }
 
@@ -313,6 +381,7 @@ fn open(
         Some(session) => {
             // The crew's names, as the lobby dealt them or a save kept them.
             crate::names::set_crew_names(&session.0.crew_names);
+            remember_beginning(&mut commands, &session.0);
             (session.0.editor.local, session.0.editor.players)
         }
         None => {
@@ -323,11 +392,11 @@ fn open(
             // `test_planet` is the same roll made among the systems with
             // friendly ground, since the ship is then set down on it.
             let (seed, spawn) = match *launch {
-                Launch::Test | Launch::TestPlanet => {
+                Launch::Test | Launch::TestPlanet | Launch::DroidsPlanet => {
                     let seed = super::room::rand_seed();
                     let roll = super::room::rand_seed();
                     let pick = match *launch {
-                        Launch::TestPlanet => ship::session::pick_ground,
+                        Launch::TestPlanet | Launch::DroidsPlanet => ship::session::pick_ground,
                         _ => ship::session::pick_dock,
                     };
                     (seed, pick(seed, 0, roll))
@@ -356,16 +425,54 @@ fn open(
             // `tier2_test` and `tier3_test` are `combat` with everybody's
             // guns and armour at that tier, crew and garrison alike
             // (`Session::combat_at_tier`).
+            // A `combat_<class>` command is the fight itself, with the
+            // class below put on the crew member you steer: the ship,
+            // the arena and the garrison are `combat`'s, so two of those
+            // runs differ by the class and nothing else (feature 79).
             let mut session = match *launch {
-                Launch::Combat => Session::combat(seed, size.x, size.y),
+                Launch::Combat | Launch::CombatAs(_) => Session::combat(seed, size.x, size.y),
                 Launch::CombatAtTier(tier) => Session::combat_at_tier(seed, tier, size.x, size.y),
-                Launch::Test | Launch::TestPlanet => {
+                // The `droids` command is the fight with the arena held
+                // by the machines (feature 83): the same ship, the same
+                // crew and the same guns, and a wave of droids about the
+                // arena instead of its garrison. `BIMS_DROID_TIER` is
+                // what tier they come at and `BIMS_DROID_WAVE` how big a
+                // wave may be, for the measurements.
+                // `combat_droids_<class>` is that same wave with the
+                // class below in hand, exactly as `combat_<class>` is
+                // `combat`'s own fight with one: the ship, the arena,
+                // the wave and both dials are `droids`'.
+                Launch::Droids | Launch::DroidsAs(_) => Session::droids(
+                    seed,
+                    crate::dev::droid_tier(),
+                    crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                    crate::dev::droid_wave_max(),
+                    crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                    size.x,
+                    size.y,
+                ),
+                Launch::Test | Launch::TestPlanet | Launch::DroidsPlanet => {
                     let design = shipdesign::fixture::combat_ship();
                     let mut session =
                         Session::simulate_on(design, 1, seed, 0, spawn, size.x, size.y);
                     session.mercenary_for_probe();
-                    if *launch == Launch::TestPlanet {
+                    if matches!(*launch, Launch::TestPlanet | Launch::DroidsPlanet) {
                         session.land_for_probe();
+                    }
+                    // `droids_planet` is that with the town held: the
+                    // settlement's own people gone and the machines in
+                    // their place, the same minute's reinforcements.
+                    if *launch == Launch::DroidsPlanet {
+                        if let (Some(n), Some(game)) =
+                            (crate::dev::droid_wave_max(), session.game.as_mut())
+                        {
+                            game.world.set_droid_wave_for_probe(n);
+                        }
+                        session.infest_the_dock_for_probe(
+                            crate::dev::droid_tier(),
+                            crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                            crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                        );
                     }
                     session
                 }
@@ -376,6 +483,17 @@ fn open(
                 }
                 _ => Session::simulate(seed, 0, spawn, size.x, size.y),
             };
+            // The class onto slot 0 first — the command's own, or
+            // `BIMS_CLASS` over it — before anything that leaves the
+            // berth, since the class locks at the first undock.
+            let asked = match *launch {
+                Launch::CombatAs(class) | Launch::DroidsAs(class) => class,
+                _ => world::Class::None,
+            };
+            crate::dev::class_crew(&mut session, asked);
+            // And `BIMS_BEAM` after it: the class has to be on before a
+            // medic can hold anybody (feature 76).
+            crate::dev::beam_crew(&mut session);
             if crate::dev::at_belt() {
                 session.hold_at_belt_for_probe();
             }
@@ -391,6 +509,18 @@ fn open(
             if crate::dev::fight() {
                 session.stage_fight_for_probe();
             }
+            // The dead of a fight nobody watched, lying where they stood
+            // (feature 85): after the fight above, so a staged fight and
+            // its aftermath can be asked for together.
+            if let Some(n) = crate::dev::graves() {
+                session.lay_graves_for_probe(n);
+            }
+            // Every state a machine can be drawn in, laid out on the
+            // arena's deck for one picture (feature 83). The wave the
+            // probe laid out is replaced by the showcase.
+            if crate::dev::droid_showcase() {
+                session.stage_droids_for_probe();
+            }
             if let Some(dock) = crate::dev::raid() {
                 session.raid_for_probe(dock);
             }
@@ -399,6 +529,11 @@ fn open(
             }
             if let Some(n) = crate::dev::lamps_out() {
                 session.shoot_lamps_for_probe(n);
+            }
+            // And the wounded: after the fight and the lamps, so a dying
+            // Bim can be asked for on a deck already staged.
+            if let Some(n) = crate::dev::dying() {
+                session.maim_for_probe(n);
             }
             // A weapon asked for by name goes into the hand in place of
             // whatever was issued, the rest of the gear kept: the crew
@@ -448,6 +583,7 @@ fn open(
             }
             let out = (session.editor.local, session.editor.players);
             crate::names::set_crew_names(&session.crew_names);
+            remember_beginning(&mut commands, &session);
             commands.insert_resource(ShipSession(session));
             out
         }
@@ -455,6 +591,19 @@ fn open(
     let mut screen = GameScreen::fresh(slot, players);
     screen.net.wire = online.wire();
     commands.insert_resource(screen);
+}
+
+/// The run as it began, kept for the Esc sheet's Restart (feature 79):
+/// the world written out the moment the screen opened, whatever opened
+/// it — a command of its own (`combat_medic`, `raid`, `test_planet`) or
+/// the last Accept in the yard. A restart stands a session up from it
+/// again the way a load does, so what is kept here is exactly the
+/// situation the run started in. Nothing is kept where there is no world
+/// to write, which is the design phase alone.
+fn remember_beginning(commands: &mut Commands, session: &Session) {
+    if let Some(text) = session.save() {
+        commands.insert_resource(crate::save::Beginning(text));
+    }
 }
 
 impl GameScreen {
@@ -472,6 +621,8 @@ impl GameScreen {
             aimed: None,
             pending: None,
             relieve: false,
+            throw_aim: None,
+            aiming_attack: false,
             trading: crate::dev::trade(),
             armoury_wanted: crate::dev::armoury(),
             tab_took_focus: false,
@@ -499,6 +650,7 @@ impl GameScreen {
             answered: Vec::new(),
             desync_at: crate::dev::desync_at(),
             blackout: 0.0,
+            skills_prompt: true,
         }
     }
 
@@ -561,6 +713,10 @@ fn frame(
     mut commands: Commands,
     mut next: ResMut<NextState<Screen>>,
     mut online: ResMut<Online>,
+    // The run as it opened, for the Esc sheet's Restart (feature 79).
+    // None where there was no world to keep, which is nowhere this
+    // screen runs — held as an option rather than assumed.
+    beginning: Option<Res<Beginning>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -699,7 +855,7 @@ fn frame(
     if online.names_said(&mut session.crew_names) {
         crate::names::set_crew_names(&session.crew_names);
     }
-    if online.hair_said(&mut session.crew_hair) {
+    if online.hair_said(&mut session.crew_hair) || online.tint_said(&mut session.crew_tints) {
         session.dress_crew();
     }
 
@@ -802,6 +958,12 @@ fn frame(
             if matches!(event, WorldEvent::Landed { .. }) {
                 screen.blackout = BLACKOUT_HOLD;
             }
+            // A level of your own may be a choice to make: the tray comes
+            // up on the Skills tab for it (features 80 and 83). Somebody
+            // else's slot is their own screen's.
+            if matches!(event, WorldEvent::LevelUp { who, .. } if who == screen.net.slot) {
+                screen.skills_prompt = true;
+            }
         }
         while screen.log.len() > LOG_LINES {
             screen.log.remove(0);
@@ -895,6 +1057,66 @@ fn frame(
     if let Some(panels) = &mut screen.panels {
         let who = session.room_ref().map(|r| panels.inventory_who(r));
         panels.nearby = who.map_or_else(Vec::new, |who| nearby_of(session, who, &name));
+        // And the player's own class, for the section under the health
+        // (feature 74).
+        panels.class_view = session.game.as_ref().map(|game| {
+            let slot = screen.net.slot;
+            let world = &game.world;
+            let progress = world.progress_of(slot);
+            let class = world.class_of(slot);
+            crate::crew::ClassView {
+                class,
+                level: progress.level(),
+                to_next: progress.to_next(),
+                pending: progress
+                    .pending_pick()
+                    .and_then(|l| world::class::pick_at(class, l).map(|(a, b)| (l, a, b))),
+                picks: progress.picks.clone(),
+                talents: progress.talents(class),
+                can_change: !world.undocked_once,
+                repair: (class == world::Class::Engineer).then(|| world.can_repair(slot)),
+                soldier: (class == world::Class::Soldier).then(|| crate::crew::SoldierView {
+                    grenades: world.grenades_of(slot),
+                    cooldown: world.grenade_cooldown_left(slot),
+                    braced: world.is_braced(slot),
+                }),
+                medic: (class == world::Class::Medic).then(|| crate::crew::MedicView {
+                    patients: world.patients_of(slot).iter().map(|&p| name(p)).collect(),
+                    charge: world.surge_charge(slot),
+                    can_surge: progress.level() >= world::class::SURGE_LEVEL,
+                    surging: world.is_surging(slot),
+                }),
+                tank: (class == world::Class::Tank).then(|| crate::crew::TankView {
+                    bulwark: world.is_bulwark(slot),
+                    taunt_left: world.taunt_left(slot),
+                    cooldown: world.taunt_cooldown_left(slot),
+                    can_taunt: progress.level() >= world::class::TAUNT_LEVEL,
+                }),
+                commander: (class == world::Class::Commander).then(|| {
+                    let order = world.squad.as_ref().filter(|o| o.by_slot == slot);
+                    crate::crew::CommanderView {
+                        squad: order.map(|o| o.kind.code()),
+                        members: order.map_or(0, |o| o.members.len()),
+                        rally_left: world.rally_left(slot),
+                        cooldown: world.rally_cooldown_left(slot),
+                        can_rally: progress.level() >= world::class::RALLY_LEVEL,
+                    }
+                }),
+            }
+        });
+        // A point waiting to be spent opens the tray on the Skills tab,
+        // once (feature 83): where the level-up window used to stand over
+        // the deck, the tree in the tray is what the player is shown.
+        // The flag waits for a pick to actually be there, so an open with
+        // no class — or a level with nothing to choose — moves nothing.
+        if panels
+            .class_view
+            .as_ref()
+            .is_some_and(|view| view.pending.is_some())
+            && std::mem::take(&mut screen.skills_prompt)
+        {
+            panels.show_skills();
+        }
     }
 
     // --- an order on its way to the helm ---------------------------------------
@@ -959,6 +1181,12 @@ fn frame(
     if galaxy_up && let Some(chart) = &mut screen.galaxy {
         chart.here = session.game.as_ref().map(|g| g.world.star_id);
         chart.target = screen.picked_star;
+        // And every star the crew have been to, ringed (feature 85).
+        chart.visited = session
+            .game
+            .as_ref()
+            .map(|g| g.world.stars_visited())
+            .unwrap_or_default();
         if canvas.size() != screen.galaxy_size {
             screen.galaxy_size = canvas.size();
             chart.preview.resize(canvas.size().x, canvas.size().y);
@@ -1128,11 +1356,40 @@ fn frame(
         if let Some(room) = session.room() {
             room.set_hover_dropped(None);
         }
+        // With the attack key pressed the pointer is about one thing and
+        // nothing else (feature 84): the system's cursor goes and a red
+        // crosshair is drawn in its place, below, a left click puts the
+        // banner down where it points, and a right-click thinks better
+        // of it. The Mine tool's shape, and for the same reason — a
+        // click that both selected a Bim and sent the crew somewhere
+        // would be a click nobody could undo.
+        if screen.aiming_attack {
+            if let Some(p) = on_canvas {
+                ctx.set_cursor_icon(egui::CursorIcon::None);
+                if pointer.primary_pressed {
+                    let (rx, ry) = session.room_point(p.x, p.y);
+                    if let Some(game) = &session.game {
+                        let t = shipdesign::TILE as f32;
+                        let tile = ((rx / t).floor() as i32, (ry / t).floor() as i32);
+                        let (order, line) = orders_key(
+                            &game.world,
+                            screen.net.slot,
+                            world::Standing::Attack { tile },
+                        );
+                        orders.extend(order);
+                        screen.log.extend(line);
+                    }
+                    screen.aiming_attack = false;
+                }
+                if pointer.secondary_pressed {
+                    screen.aiming_attack = false;
+                }
+            }
         // With a blueprint in hand the pointer is about laying it out: a
         // click on a tile it would go on sends the site through the seam,
         // one it would not says why in the log — the readout at the top
         // left says it already — and a right-click puts the tool down.
-        if let Some(kind) = building {
+        } else if let Some(kind) = building {
             if let Some(p) = on_canvas {
                 if pointer.primary_pressed
                     && let Some(game) = &mut session.game
@@ -1414,9 +1671,114 @@ fn frame(
                 if keys_now.pressed(i, Action::Inventory) {
                     panels.toggle_inventory();
                 }
+                // Q and E: the steered crew member's class's two actions
+                // (features 74 and 75) — an engineer's sentry and sandbags
+                // on the deck tile under the pointer, a soldier's grenade
+                // at it and its brace. The world says why not, into the
+                // log; with a classless crew member steered, nothing at
+                // all.
+                // While Q is held with a soldier steered, the burst's ring
+                // is drawn on the tile under the pointer.
+                screen.throw_aim = None;
+                if keys_now.down(i, Action::ClassPrimary)
+                    && let Some(game) = &session.game
+                    && game.world.class_of(screen.net.slot) == world::Class::Soldier
+                    && let Some(p) = on_canvas.filter(|_| !map_up)
+                {
+                    let (rx, ry) = session.room_point(p.x, p.y);
+                    let t = shipdesign::TILE as f32;
+                    screen.throw_aim = Some(((rx / t).floor() as i32, (ry / t).floor() as i32));
+                }
+                for action in [Action::ClassPrimary, Action::ClassSecondary] {
+                    if !keys_now.pressed(i, action) {
+                        continue;
+                    }
+                    let slot = screen.net.slot;
+                    let Some(game) = &session.game else {
+                        continue;
+                    };
+                    let room = on_canvas
+                        .filter(|_| !map_up)
+                        .map(|p| session.room_point(p.x, p.y));
+                    let tile = room.map(|(rx, ry)| {
+                        let t = shipdesign::TILE as f32;
+                        ((rx / t).floor() as i32, (ry / t).floor() as i32)
+                    });
+                    // And the crew member under the pointer, for a
+                    // medic's beam (feature 76).
+                    let under = room
+                        .and_then(|(rx, ry)| game.world.aboard.room.crew_at(rx, ry))
+                        .map(|who| who as u32);
+                    // And the enemy under it, for a commander's attack
+                    // (feature 78).
+                    let enemy = room.and_then(|(rx, ry)| game.world.resident_at(rx, ry));
+                    let (order, line) = class_key(
+                        &game.world,
+                        slot,
+                        action == Action::ClassPrimary,
+                        tile,
+                        under,
+                        enemy,
+                    );
+                    orders.extend(order);
+                    screen.log.extend(line);
+                }
+                // The commander's other two squad keys (feature 78): X
+                // calls the squad back to the tile under the pointer —
+                // to him with the pointer on nothing — and Z has it
+                // hold where it stands. They do nothing for any other
+                // class.
+                for action in [Action::SquadFallBack, Action::SquadStandGround] {
+                    if !keys_now.pressed(i, action) {
+                        continue;
+                    }
+                    let slot = screen.net.slot;
+                    let Some(game) = &session.game else {
+                        continue;
+                    };
+                    if game.world.class_of(slot) != world::Class::Commander {
+                        continue;
+                    }
+                    let tile = on_canvas.filter(|_| !map_up).map(|p| {
+                        let (rx, ry) = session.room_point(p.x, p.y);
+                        let t = shipdesign::TILE as f32;
+                        ((rx / t).floor() as i32, (ry / t).floor() as i32)
+                    });
+                    let ask = if action == Action::SquadFallBack {
+                        world::SquadAsk::FallBack { tile }
+                    } else {
+                        world::SquadAsk::StandGround
+                    };
+                    let (order, line) = squad_key(&game.world, slot, ask);
+                    orders.extend(order);
+                    screen.log.extend(line);
+                }
+                // And every player's own two (feature 84). **Attack**
+                // arms the pointer rather than doing anything: the
+                // banner goes down on the click after it, below, so
+                // that the player picks the ground. Pressed while the
+                // pointer is already armed, it is thought better of.
+                if keys_now.pressed(i, Action::Attack) {
+                    screen.aiming_attack = !screen.aiming_attack && !map_up;
+                }
+                // **Retreat** is the order itself: there is nothing to
+                // point at, since the ship is where they go.
+                if keys_now.pressed(i, Action::Retreat)
+                    && let Some(game) = &session.game
+                {
+                    screen.aiming_attack = false;
+                    let (order, line) =
+                        orders_key(&game.world, screen.net.slot, world::Standing::Retreat);
+                    orders.extend(order);
+                    screen.log.extend(line);
+                }
             }
             if i.key_pressed(egui::Key::Escape) {
-                if panels.tool.is_some() {
+                if screen.aiming_attack {
+                    // The armed pointer is put away first, and nothing
+                    // else happens — the Mine tool's rule.
+                    screen.aiming_attack = false;
+                } else if panels.tool.is_some() {
                     // A tool in hand is put down first, and nothing else
                     // happens.
                     panels.tool = None;
@@ -1561,6 +1923,15 @@ fn frame(
                 panel_frame().show(ui, |ui| {
                     clock_panel(ui, session, &screen.net, &mut orders);
                 });
+                // The machines, in the raid's red (feature 83): which
+                // wave holds the station alongside, and how long until
+                // the next lands. **Before the alarm and the rest**,
+                // which are up for the whole of a droid fight and would
+                // push this line under the crew's panels — this is the
+                // one of them the player has no other way of knowing.
+                if let Some(game) = &session.game {
+                    droid_warning(ui, &game.world);
+                }
                 // The recruited panel says why the gun has gone quiet
                 // while a blade is at the player's crew member: the same
                 // panel, since nothing on the screen may grow — the left
@@ -1581,9 +1952,13 @@ fn frame(
                                 theme::question_mark(ui, &locked_tip());
                             } else {
                                 ui.label(
-                                    egui::RichText::new("Recruited — orders only")
+                                    egui::RichText::new("Recruited — the crew follow you")
                                         .color(theme::ACCENT),
                                 );
+                                // And what that now does to everybody
+                                // else (feature 84): the crew come with
+                                // you, under arms, until you holster.
+                                theme::question_mark(ui, ORDERS_TIP);
                             }
                         });
                     });
@@ -1597,6 +1972,19 @@ fn frame(
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(ALARM_STATUS).color(theme::CAUTION));
                             theme::question_mark(ui, ALARM_TIP);
+                        });
+                    });
+                }
+                // And what this player's own standing order to the crew
+                // is, while it is anything but following (feature 84):
+                // the banner or the fall back, in the banner's red.
+                if let Some(game) = &session.game
+                    && let Some(line) = orders_line(game.world.standing_of(screen.net.slot).code())
+                {
+                    panel_frame().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(line).color(theme::ATTACK));
+                            theme::question_mark(ui, ORDERS_TIP);
                         });
                     });
                 }
@@ -1758,6 +2146,16 @@ fn frame(
     if std::mem::take(&mut panels.upgrade_requested) {
         orders.push(Order::Upgrade);
     }
+    // The class section's and the deployable rows' (feature 74).
+    for order in panels.deploy_orders.drain(..) {
+        orders.push(match order {
+            crate::crew::DeployOrder::PackUp(id) => Order::PackUp(id),
+            crate::crew::DeployOrder::Refill(id) => Order::Refill(id),
+            crate::crew::DeployOrder::Pick { level, side } => Order::PickTalent { level, side },
+            crate::crew::DeployOrder::SetClass(class) => Order::SetClass(class),
+            crate::crew::DeployOrder::Repair => Order::Repair,
+        });
+    }
     for order in actions.research_orders.drain(..) {
         orders.push(Order::Research(order));
     }
@@ -1768,17 +2166,20 @@ fn frame(
         screen.net.order(session, order);
     }
 
-    // Clear of the left stack on a narrow window, rather than over it.
-    let side_x = (canvas.max.x - 270.0).max(canvas.min.x + 290.0);
+    // Clear of the left stack on a narrow window, rather than over it. The
+    // strip is as wide as the health block wants: a part's bar, its number
+    // and the trauma holding it at nothing, in one row. And under the row
+    // of frames along the top rather than beside it — a panel this wide
+    // reaches the middle of the window, where the trip strip is.
+    let side_x = (canvas.max.x - (crate::crew::SIDE_W + 30.0)).max(canvas.min.x + 290.0);
     egui::Area::new(egui::Id::new("game-side"))
-        .fixed_pos(egui::pos2(side_x, canvas.min.y + 10.0))
+        .fixed_pos(egui::pos2(side_x, top.max.y + 4.0))
         .order(egui::Order::Middle)
         .show(&ctx, |ui| {
             if let Some(room) = session.room() {
                 let mut drawn = false;
                 let frame = panel_frame();
                 frame.show(ui, |ui| {
-                    ui.set_min_width(240.0);
                     drawn = panels.side(ui, room, &name);
                     if !drawn {
                         ui.label(
@@ -1788,6 +2189,14 @@ fn frame(
                 });
             }
         });
+
+    // The two boxes at the foot of the canvas: what the class's own keys
+    // do, how many are left and what each of them is (feature 80).
+    // Nothing for a classless crew member, which has no keys.
+    if let Some(game) = &session.game {
+        let boxes = ability_boxes(&game.world, local, &keys_now);
+        ability_bar(&ctx, canvas, &boxes);
+    }
 
     if !screen.log.is_empty() {
         egui::Area::new(egui::Id::new("game-log"))
@@ -1928,8 +2337,20 @@ fn frame(
         // everybody (`Packet::World`, feature 67): each guest replaces
         // its own with it the way this end does here. The wire is kept
         // across the new screen for that.
-        Some(Request::Load(path)) => {
-            let read = crate::save::read(&path).and_then(|text| {
+        // A restart is a load of the world kept at the open (feature 79):
+        // the same text, the same `Session::restore`, the same new screen
+        // round it — and with company the same world sent on, so the
+        // whole room goes back to the beginning together rather than one
+        // end alone. What it reads is the only difference.
+        Some(request @ (Request::Load(_) | Request::Restart)) => {
+            let text = match &request {
+                Request::Load(path) => crate::save::read(path),
+                _ => match &beginning {
+                    Some(beginning) => Ok(beginning.0.clone()),
+                    None => Err(RESTART_NONE.to_string()),
+                },
+            };
+            let read = text.and_then(|text| {
                 if let Some(here) = online.room_size()
                     && ship::save::players_of(&text) != Some(here)
                 {
@@ -1954,8 +2375,25 @@ fn frame(
                         }
                     }
                     crate::names::set_crew_names(&loaded.crew_names);
+                    let loaded_steps = loaded.game.as_ref().map_or(0, |g| g.world.steps);
                     commands.insert_resource(ShipSession(loaded));
-                    commands.insert_resource(screen.again(slot, players));
+                    let mut next = screen.again(slot, players);
+                    if request == Request::Restart {
+                        // A run with nobody at the keyboard says so, the
+                        // way a `BIMS_AUTO` one says a world was sent:
+                        // a picture cannot tell a restart from a world
+                        // that never moved, and `./check` reads this.
+                        if crate::dev::smoke_frames().is_some() {
+                            let was = session.game.as_ref().map_or(0, |g| g.world.steps);
+                            let back = loaded_steps;
+                            println!("restart: back at {back} steps, from {was}");
+                        }
+                        // The log is carried across a world replaced, so
+                        // it is where a restart says what it did: what is
+                        // above the line happened in the run before it.
+                        next.log.push(RESTART_DONE.into());
+                    }
+                    commands.insert_resource(next);
                 }
                 Err(why) => screen.saves.failed(why),
             }
@@ -2070,6 +2508,13 @@ fn frame(
     if marking && let Some(p) = on_canvas {
         pick_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
     }
+    // And the red crosshair while the attack key has the pointer armed
+    // (feature 84), in the same place for the same reason.
+    if screen.aiming_attack
+        && let Some(p) = on_canvas
+    {
+        attack_cursor(&painter, egui::pos2(p.x + canvas.min.x, p.y + canvas.min.y));
+    }
     // The others' pointers over the deck, each in its player's colour
     // with their Bim's name, through the ship's camera and heading like
     // the names: over the tile they are over, whichever way each has
@@ -2085,6 +2530,198 @@ fn frame(
                 &crew_name(slot),
             );
         }
+    }
+
+    // The red cross over every crew member in a dying state: a part of
+    // it at nothing with the trauma untreated, which is the one thing on
+    // a body only a crewmate with a medkit ends. The living only — a
+    // trauma stays on a corpse, and a cross over one would be asking for
+    // a medkit nothing can be done with. Drawn first, under the beams
+    // and the banners, so a medic already working on one shows through.
+    if !map_up && let Some(game) = &session.game {
+        for who in 0..game.world.aboard.crew_count() {
+            let room = &game.world.aboard.room;
+            if !room.is_alive(who as usize) || !room.is_dying(who as usize) {
+                continue;
+            }
+            let Some((x, y)) = session.crew_on_screen(who) else {
+                continue;
+            };
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            theme::dying_cross(&painter, egui::pos2(at.x, at.y), view.scale);
+        }
+    }
+
+    // Every heal beam on the deck (feature 76): a line from the medic to
+    // each crew member it holds, and a mark on a body a surge is running
+    // on, in the beam's own green.
+    if !map_up && let Some(game) = &session.game {
+        let crew = game.world.aboard.crew_count();
+        for medic in 0..crew {
+            let Some(from) = session.crew_on_screen(medic) else {
+                continue;
+            };
+            for patient in game.world.patients_of(medic) {
+                let Some(to) = session.crew_on_screen(patient) else {
+                    continue;
+                };
+                let a = view.to_canvas(Vec2::new(from.0, from.1)) + canvas.min;
+                let b = view.to_canvas(Vec2::new(to.0, to.1)) + canvas.min;
+                theme::heal_beam(
+                    &painter,
+                    egui::pos2(a.x, a.y),
+                    egui::pos2(b.x, b.y),
+                    view.scale,
+                );
+            }
+        }
+        for who in 0..crew {
+            if !game.world.is_surging(who) {
+                continue;
+            }
+            let Some((x, y)) = session.crew_on_screen(who) else {
+                continue;
+            };
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            theme::surge_mark(&painter, egui::pos2(at.x, at.y), view.scale);
+        }
+        // And the tanks (feature 77): a wall up is a ring of shield at
+        // the bulwark's reach, and a taunt the radius it is drawing fire
+        // from, dashed.
+        let t = shipdesign::TILE as f32;
+        for who in 0..crew {
+            let wall = game.world.is_bulwark(who);
+            let taunting = game.world.is_taunting(who);
+            if !wall && !taunting {
+                continue;
+            }
+            let Some((x, y)) = session.crew_on_screen(who) else {
+                continue;
+            };
+            let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            let at = egui::pos2(at.x, at.y);
+            if wall {
+                let radius = game.world.bulwark_reach(who) * t * view.scale;
+                theme::wall_mark(&painter, at, radius, view.scale);
+            }
+            if taunting {
+                theme::taunt_ring(&painter, at, game.world.taunt_radius(who) * t * view.scale);
+            }
+        }
+        // And the commander (feature 78): the aura's radius round him,
+        // a ring under every Bim it lifts — a player's own included —
+        // and a bracket over every squad member under his order, with a
+        // thread to the enemy it was sent at or the tile it was called
+        // back to.
+        let on_screen = |who: u32| {
+            session.crew_on_screen(who).map(|(x, y)| {
+                let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                egui::pos2(p.x, p.y)
+            })
+        };
+        for who in 0..crew {
+            if game.world.class_of(who) != world::Class::Commander {
+                continue;
+            }
+            let Some(at) = on_screen(who) else {
+                continue;
+            };
+            theme::aura_ring(&painter, at, game.world.aura_radius(who) * t * view.scale);
+        }
+        for who in 0..crew {
+            if game.world.aura_reaching(who).is_none() {
+                continue;
+            }
+            if let Some(at) = on_screen(who) {
+                theme::lifted_mark(&painter, at, view.scale);
+            }
+        }
+        if let Some(order) = &game.world.squad {
+            for &who in &order.members {
+                let Some(at) = on_screen(who) else {
+                    continue;
+                };
+                let to = match &order.kind {
+                    world::SquadKind::Attack { .. } => order
+                        .mark_for(who)
+                        .and_then(|e| session.resident_on_screen(e))
+                        .map(|(x, y)| {
+                            let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                            egui::pos2(p.x, p.y)
+                        }),
+                    world::SquadKind::FallBack { tile } => {
+                        let (ox, oy) = (
+                            game.world.aboard.offset.x as f32,
+                            game.world.aboard.offset.y as f32,
+                        );
+                        let (x, y) = session.design_point_on_screen(
+                            (tile.0 as f32 + 0.5) * t - ox,
+                            (tile.1 as f32 + 0.5) * t - oy,
+                        );
+                        let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                        Some(egui::pos2(p.x, p.y))
+                    }
+                    world::SquadKind::StandGround => None,
+                };
+                theme::squad_mark(&painter, at, to, view.scale);
+            }
+        }
+        // And every player's attack banner (feature 84), on the tile
+        // they put it down on — everybody's, since a banner is what the
+        // crew round that player are walking into, and a second player
+        // ought to see where the first has sent them.
+        let (ox, oy) = (
+            game.world.aboard.offset.x as f32,
+            game.world.aboard.offset.y as f32,
+        );
+        for slot in 0..game.world.players() {
+            let world::Standing::Attack { tile } = game.world.standing_of(slot) else {
+                continue;
+            };
+            let (x, y) = session.design_point_on_screen(
+                (tile.0 as f32 + 0.5) * t - ox,
+                (tile.1 as f32 + 0.5) * t - oy,
+            );
+            let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            theme::attack_banner(&painter, egui::pos2(p.x, p.y), view.scale);
+        }
+        // And the **defend sign** over the ship while anybody has called
+        // a retreat (feature 84): one sign, on the spot the fall back
+        // gathers on, since every player's crew fall back to the one
+        // ship. It is what says the crew are coming home, and where to
+        // — a retreat has no banner to put down, so without it the only
+        // word for it was the line in the log.
+        if (0..game.world.players())
+            .any(|slot| game.world.standing_of(slot) == world::Standing::Retreat)
+        {
+            let (rx, ry) = game.world.fall_back_point();
+            let (x, y) = session.design_point_on_screen(rx - ox, ry - oy);
+            let p = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+            theme::defend_banner(&painter, egui::pos2(p.x, p.y), view.scale);
+        }
+    }
+
+    // A grenade being aimed (feature 75): the burst's radius round the
+    // tile under the pointer while Q is held, in the throw's colour when
+    // the world would take it and the refusal's when not.
+    if !map_up
+        && let Some(tile) = screen.throw_aim
+        && let Some(game) = &session.game
+    {
+        let t = shipdesign::TILE as f32;
+        let slot = screen.net.slot;
+        let (ox, oy) = (
+            game.world.aboard.offset.x as f32,
+            game.world.aboard.offset.y as f32,
+        );
+        let (x, y) = session.design_point_on_screen(
+            (tile.0 as f32 + 0.5) * t - ox,
+            (tile.1 as f32 + 0.5) * t - oy,
+        );
+        let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+        let radius = game.world.grenade_radius(slot) * t * view.scale;
+        let ok = game.world.can_throw(slot, tile).is_ok();
+        theme::burst_ring(&painter, egui::pos2(at.x, at.y), radius, ok);
     }
 
     // The bunks' tags, across the middle of each: whose it is, or that it
@@ -2132,7 +2769,13 @@ fn frame(
             if let Some((x, y)) = session.resident_on_screen(who) {
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
                 let at = egui::pos2(at.x, at.y - theme::NAME_LIFT * view.scale);
-                theme::name_over(&painter, at, &resident_name(station, who), theme::THEIRS);
+                // A machine wears its kind, not a name: it is not
+                // somebody (feature 83).
+                let label = match session.resident_droid(who) {
+                    Some(kind) => crate::names::droid_name(kind).to_string(),
+                    None => resident_name(station, who),
+                };
+                theme::name_over(&painter, at, &label, theme::THEIRS);
                 // A mercenary for hire wears a `?` over its name: somebody
                 // to right-click and talk to, which nobody else ashore is.
                 if session.mercenary_fee(who).is_some() {
@@ -2199,6 +2842,29 @@ fn pick_cursor(painter: &egui::Painter, at: egui::Pos2) {
         painter.line_segment(head, egui::Stroke::new(width + 1.0, color));
     }
     painter.circle_filled(at, 1.5, theme::ACCENT);
+}
+
+/// The pointer while the attack key has it armed (feature 84): a red
+/// crosshair where the system's cursor was, each stroke over a dark one
+/// so it reads on the deck and on the void alike. Red because what the
+/// next click does is send people into a fight.
+fn attack_cursor(painter: &egui::Painter, at: egui::Pos2) {
+    let arms = [
+        [at + egui::vec2(-13.0, 0.0), at + egui::vec2(-4.0, 0.0)],
+        [at + egui::vec2(4.0, 0.0), at + egui::vec2(13.0, 0.0)],
+        [at + egui::vec2(0.0, -13.0), at + egui::vec2(0.0, -4.0)],
+        [at + egui::vec2(0.0, 4.0), at + egui::vec2(0.0, 13.0)],
+    ];
+    for (width, color) in [
+        (4.5, egui::Color32::from_black_alpha(200)),
+        (2.0, theme::ATTACK),
+    ] {
+        for arm in arms {
+            painter.line_segment(arm, egui::Stroke::new(width, color));
+        }
+        painter.circle_stroke(at, 7.0, egui::Stroke::new(width * 0.6, color));
+    }
+    painter.circle_filled(at, 1.5, theme::ATTACK);
 }
 
 /// What the ship is doing, in a word: `STATE_NAMES` by the state's code —
@@ -2701,6 +3367,41 @@ fn describe_aim(session: &Session, aimed: Option<Aim>) -> String {
             format!("A point in space · {} units", grouped(away.round() as u64))
         }
     }
+}
+
+/// The red warning along the top while the station alongside is held by
+/// the machines (feature 83), in the raid's own frame since it is the
+/// same kind of thing: which wave is on the deck and how many of it are
+/// standing, and — the moment the last of them is down — **the
+/// countdown to the next one landing**, which is the one number the
+/// player has no other way of knowing (a wave is never reinforced
+/// mid-fight, so until then there is nothing to count). Nothing at a
+/// station nobody holds, and nothing once the last wave is spent bar the
+/// one line saying so.
+fn droid_warning(ui: &mut egui::Ui, world: &world::World) {
+    let Some((wave, left)) = world.droid_wave_standing() else {
+        return;
+    };
+    let waves = wave + left;
+    let standing = world.droids_standing();
+    let words = if standing > 0 {
+        droids_standing(wave, waves, standing)
+    } else if let Some(due) = world.droid_wave_due() {
+        droids_next_wave(&crate::format::in_words(due), wave + 1, waves)
+    } else if left == 0 {
+        DROIDS_CLEARED.into()
+    } else {
+        // The last machine went down this very step: the clock is set
+        // at the top of the next one. Say the wave rather than a
+        // countdown of nothing.
+        droids_standing(wave, waves, 0)
+    };
+    raid_frame().show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(words).strong().color(theme::BAD));
+            theme::question_mark(ui, DROIDS_TIP);
+        });
+    });
 }
 
 /// The frame the raid warning sits in: the panel's, filled and edged in
@@ -3313,6 +4014,30 @@ fn nearby_of(session: &Session, who: usize, name: &dyn Fn(u32) -> String) -> Vec
             },
         ));
     }
+    // And the engineer's deployables within reach (feature 74): a row
+    // to pack each up, and one to refill a sentry. Only an engineer's
+    // rows — nobody else can, and the world would only say so.
+    if world.class_of(who as u32) == world::Class::Engineer {
+        for (d, lies) in world.deployables_in_reach(who as u32) {
+            let what = deployable_line(&d);
+            found.push((
+                (at - lies).len(),
+                Near {
+                    open: Open::PackUp(d.id),
+                    label: format!("{PACK_UP} — {what}"),
+                },
+            ));
+            if d.kind == world::DeployKind::Sentry {
+                found.push((
+                    (at - lies).len() + 0.01,
+                    Near {
+                        open: Open::Refill(d.id),
+                        label: format!("{REFILL} — {what}"),
+                    },
+                ));
+            }
+        }
+    }
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
     found.into_iter().map(|(_, near)| near).collect()
 }
@@ -3421,3 +4146,879 @@ fn recipe_lines(resource: ResourceId) -> String {
 
 #[allow(dead_code)]
 fn unused(_: ShipState) {}
+
+/// The picture in an ability box (feature 80). A kit or a grenade is the
+/// thing itself, out of `icons.rs`; everything else is the mark the deck
+/// already draws for it, so a box and what happens when it is pressed
+/// are one picture.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Mark {
+    Thing(ResourceId),
+    Brace,
+    Surge,
+    Beam,
+    Taunt,
+    Wall,
+    Rally,
+    Squad,
+}
+
+/// One of the two boxes at the foot of the screen (feature 80): what one
+/// of the class's own keys does, how many uses are left, and whether it
+/// could be pressed now. Read off the world every frame — nothing here
+/// is kept between frames, the way the crew panel's rows are not.
+struct AbilityBox {
+    /// The key bound to it, spelt as the Controls page spells it.
+    key: String,
+    name: &'static str,
+    tip: &'static str,
+    mark: Mark,
+    /// How many are left: kits or grenades in the pack, beams free to
+    /// link, the squad's size. `None` where nothing is counted — a wall
+    /// is a switch, not a stock.
+    count: Option<u32>,
+    /// Seconds of the clock until it may be used again; nought when it
+    /// may.
+    cooldown: f64,
+    /// How charged it is, nought to one — the medic's surge alone.
+    charge: Option<f32>,
+    /// Whether it is running now: braced, the wall up, a beam held, a
+    /// taunt, a rally, the squad under an order.
+    on: bool,
+    /// Out of stock — no kit, no grenade, a surge not charged. Told from
+    /// a count of nought that is not a stock (no beam free to link, an
+    /// empty squad), which does not stop the key.
+    short: bool,
+    /// The level it is learnt at, where the crew member is not there yet.
+    locked: Option<u8>,
+}
+
+impl AbilityBox {
+    /// Whether the key would be taken now, as far as the box can tell:
+    /// the level reached, out of the cooldown, something left to spend.
+    /// What the world says when the key is actually pressed is
+    /// `class_key`'s, and it knows about the pointer as well.
+    fn ready(&self) -> bool {
+        self.locked.is_none() && self.cooldown <= 0.0 && !self.short
+    }
+}
+
+/// The two boxes for the class `slot` steers, primary (Q) first. Empty
+/// for a classless crew member, which has no keys.
+fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox> {
+    use world::Class;
+    let class = world.class_of(slot);
+    if class == Class::None {
+        return Vec::new();
+    }
+    let level = world.progress_of(slot).level();
+    [true, false]
+        .into_iter()
+        .map(|primary| {
+            let action = if primary {
+                Action::ClassPrimary
+            } else {
+                Action::ClassSecondary
+            };
+            let wants = world::class::key_level(class, primary).unwrap_or(1);
+            let (mark, count, cooldown, charge, on, short) = match (class, primary) {
+                (Class::Engineer, true) => {
+                    let left = world.sentries_left(slot);
+                    (
+                        Mark::Thing(ResourceId::SentryKit),
+                        Some(left),
+                        0.0,
+                        None,
+                        false,
+                        left == 0,
+                    )
+                }
+                (Class::Engineer, false) => {
+                    let kits = world.kits_of(slot, world::Kit::Sandbag);
+                    (
+                        Mark::Thing(ResourceId::SandbagKit),
+                        Some(kits),
+                        0.0,
+                        None,
+                        false,
+                        kits == 0,
+                    )
+                }
+                (Class::Soldier, true) => {
+                    let held = world.grenades_of(slot);
+                    (
+                        Mark::Thing(ResourceId::Grenade),
+                        Some(held),
+                        world.grenade_cooldown_left(slot),
+                        None,
+                        false,
+                        held == 0,
+                    )
+                }
+                (Class::Soldier, false) => {
+                    (Mark::Brace, None, 0.0, None, world.is_braced(slot), false)
+                }
+                (Class::Medic, true) => {
+                    let charge = world.surge_charge(slot);
+                    (
+                        Mark::Surge,
+                        None,
+                        0.0,
+                        Some(charge),
+                        world.is_surging(slot),
+                        charge < 1.0,
+                    )
+                }
+                (Class::Medic, false) => {
+                    let held = world.patients_of(slot).len();
+                    (
+                        Mark::Beam,
+                        Some(world.beam_patients(slot).saturating_sub(held) as u32),
+                        0.0,
+                        None,
+                        held > 0,
+                        false,
+                    )
+                }
+                (Class::Tank, true) => (
+                    Mark::Taunt,
+                    None,
+                    world.taunt_cooldown_left(slot),
+                    None,
+                    world.taunt_left(slot) > 0.0,
+                    false,
+                ),
+                (Class::Tank, false) => {
+                    (Mark::Wall, None, 0.0, None, world.is_bulwark(slot), false)
+                }
+                (Class::Commander, true) => (
+                    Mark::Rally,
+                    None,
+                    world.rally_cooldown_left(slot),
+                    None,
+                    world.rally_left(slot) > 0.0,
+                    false,
+                ),
+                (Class::Commander, false) => (
+                    Mark::Squad,
+                    Some(world.squad_members(slot).len() as u32),
+                    0.0,
+                    None,
+                    world.squad.as_ref().is_some_and(|o| o.by_slot == slot),
+                    false,
+                ),
+                (Class::None, _) => (Mark::Brace, None, 0.0, None, false, false),
+            };
+            AbilityBox {
+                key: keys.key(action).name().to_string(),
+                name: ability_name(class, primary),
+                tip: ability_tip(class, primary),
+                mark,
+                count,
+                cooldown,
+                charge,
+                on,
+                short,
+                locked: (level < wants).then_some(wants),
+            }
+        })
+        .collect()
+}
+
+/// How big one box is, and how much room its name wants under it.
+const ABILITY_SIDE: f32 = 54.0;
+
+/// The bar itself: the boxes in a frame at the foot of the canvas,
+/// centred on it and never over the tray at its left, which grows a
+/// whole panel when a tab is open. Its own width and the tray's are
+/// last frame's, the way the trip strip's is — egui's own anchoring
+/// reads the same memory — so the first frame guesses and every frame
+/// after is exact.
+fn ability_bar(ctx: &egui::Context, canvas: crate::shapes::Rect, boxes: &[AbilityBox]) {
+    if boxes.is_empty() {
+        return;
+    }
+    let id = egui::Id::new("game-abilities");
+    let rect_of = |id| ctx.memory(|m| m.area_rect(id));
+    let size = rect_of(id).map_or(egui::vec2(160.0, 96.0), |r| r.size());
+    let tray = rect_of(egui::Id::new("game-tray")).map_or(canvas.min.x, |r| r.max.x);
+    let x = ((canvas.min.x + canvas.max.x - size.x) / 2.0)
+        .max(tray + 8.0)
+        .min(canvas.max.x - 10.0 - size.x);
+    let y = canvas.max.y - 10.0 - size.y;
+    egui::Area::new(id)
+        .fixed_pos(egui::pos2(x, y))
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            panel_frame().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for one in boxes {
+                        ability_box(ui, one);
+                    }
+                });
+            });
+        });
+}
+
+/// One box: the key in the corner, the picture in the middle, what is
+/// left in the other corner, and the name under it. Resting on it says
+/// what the key does — a box is a control, so it carries its own words
+/// rather than an underlined one beside it.
+fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(ABILITY_SIDE, ABILITY_SIDE), egui::Sense::hover());
+        let ready = one.ready();
+        let painter = ui.painter();
+        let edge = if one.on {
+            theme::CAUTION
+        } else if ready {
+            theme::ACCENT
+        } else {
+            theme::LINE
+        };
+        painter.rect_filled(
+            rect,
+            4.0,
+            if one.on {
+                theme::RAISED_ON
+            } else {
+                theme::RAISED
+            },
+        );
+        // The picture, dimmed while the key would not be taken — the
+        // whole box reads as off rather than the number alone.
+        let inner = rect.shrink(11.0);
+        let middle = inner.center();
+        let radius = inner.width() / 2.0;
+        match one.mark {
+            Mark::Thing(id) => icons::resource(painter, inner, id),
+            Mark::Brace => theme::brace_mark(painter, middle, radius),
+            Mark::Surge => theme::surge_mark(painter, middle, radius / 34.0),
+            Mark::Beam => theme::heal_beam(
+                painter,
+                egui::pos2(inner.min.x, inner.max.y),
+                egui::pos2(inner.max.x, inner.min.y),
+                1.4,
+            ),
+            Mark::Taunt => theme::taunt_ring(painter, middle, radius),
+            Mark::Wall => theme::wall_mark(painter, middle, radius, 1.2),
+            Mark::Rally => {
+                theme::aura_ring(painter, middle, radius);
+                theme::lifted_mark(painter, middle, radius / 10.0);
+            }
+            Mark::Squad => theme::squad_mark(
+                painter,
+                egui::pos2(middle.x, middle.y + radius * 0.4),
+                Some(egui::pos2(middle.x, inner.min.y)),
+                radius / 9.0,
+            ),
+        }
+        if !ready {
+            painter.rect_filled(rect, 4.0, theme::PANEL_DEEP.gamma_multiply(0.62));
+        }
+        painter.rect_stroke(
+            rect,
+            4.0,
+            egui::Stroke::new(1.0, edge),
+            egui::StrokeKind::Inside,
+        );
+        // The key, in the top left.
+        painter.text(
+            rect.min + egui::vec2(4.0, 3.0),
+            egui::Align2::LEFT_TOP,
+            &one.key,
+            egui::FontId::proportional(11.0),
+            if ready { theme::INK } else { theme::MUTED },
+        );
+        // What is left, in the bottom right — nothing where nothing is
+        // counted.
+        if let Some(count) = one.count {
+            painter.text(
+                rect.max - egui::vec2(4.0, 3.0),
+                egui::Align2::RIGHT_BOTTOM,
+                format!("{count}"),
+                egui::FontId::proportional(15.0),
+                if count == 0 { theme::MUTED } else { theme::INK },
+            );
+        }
+        // The surge's charge, as a bar along the foot.
+        if let Some(charge) = one.charge {
+            let bar = egui::Rect::from_min_max(
+                egui::pos2(rect.min.x + 4.0, rect.max.y - 7.0),
+                egui::pos2(rect.max.x - 4.0, rect.max.y - 4.0),
+            );
+            theme::bar_in(painter, bar, charge, theme::HEAL);
+        }
+        // The cooldown, over the picture, and the level it is learnt at
+        // where it is not learnt yet — one or the other, never both.
+        let over = if let Some(level) = one.locked {
+            Some((ability_locked(level), theme::MUTED))
+        } else if one.cooldown > 0.0 {
+            Some((format!("{:.0}s", one.cooldown), theme::CAUTION))
+        } else {
+            None
+        };
+        if let Some((words, color)) = over {
+            painter.text(
+                middle,
+                egui::Align2::CENTER_CENTER,
+                words,
+                egui::FontId::proportional(13.0),
+                color,
+            );
+        }
+        ui.label(egui::RichText::new(one.name).small().color(if ready {
+            theme::INK
+        } else {
+            theme::MUTED
+        }));
+        response.on_hover_text(one.tip);
+    });
+}
+
+/// What the class's two keys do for the crew member `slot` steers
+/// (features 74, 75 and 76): `primary` is Q, the other E, `tile` the
+/// room tile under the pointer if it is over the deck, and `under` the
+/// crew member under the pointer if there is one. An engineer's Q sets
+/// a sentry up on the tile and its E lays sandbags there; a soldier's Q
+/// throws a grenade at it and its E braces or stands easy; a medic's Q
+/// triggers its surge and its E beams `under` — pressed on the one it
+/// already holds, or on nobody while one is held, it unlinks, and on
+/// nobody with no beam on it says so; a tank's Q taunts and its E puts
+/// the wall up or takes it down. The order to send, if the
+/// world would take it, and the log's line saying why not if it would
+/// not — both off the world's own check, so the key and the command
+/// agree. A classless crew member's keys do nothing at all.
+fn class_key(
+    world: &world::World,
+    slot: u32,
+    primary: bool,
+    tile: Option<(i32, i32)>,
+    under: Option<u32>,
+    enemy: Option<u32>,
+) -> (Option<Order>, Option<String>) {
+    match world.class_of(slot) {
+        world::Class::None => (None, None),
+        world::Class::Engineer => {
+            let kit = if primary {
+                world::Kit::Sentry
+            } else {
+                world::Kit::Sandbag
+            };
+            let Some(tile) = tile else {
+                return (None, Some(deploy_refused(Refusal::CantDeployThere)));
+            };
+            match world.can_deploy(slot, kit, tile) {
+                Ok(()) => (
+                    Some(Order::Deploy {
+                        kit,
+                        x: tile.0,
+                        y: tile.1,
+                    }),
+                    None,
+                ),
+                Err(why) => (None, Some(deploy_refused(why))),
+            }
+        }
+        world::Class::Soldier if primary => {
+            let Some(tile) = tile else {
+                return (None, Some(throw_refused(Refusal::CantThrowThere)));
+            };
+            match world.can_throw(slot, tile) {
+                Ok(()) => (
+                    Some(Order::Throw {
+                        x: tile.0,
+                        y: tile.1,
+                    }),
+                    None,
+                ),
+                Err(why) => (None, Some(throw_refused(why))),
+            }
+        }
+        world::Class::Soldier => match world.can_brace(slot) {
+            Ok(()) => (Some(Order::Brace(!world.is_braced(slot))), None),
+            Err(why) => (None, Some(brace_refused(why))),
+        },
+        // The medic (feature 76): Q surges, E beams the crew member
+        // under the pointer — on the one already held, or on nobody
+        // while one is held, it unlinks.
+        world::Class::Medic if primary => match world.can_surge(slot) {
+            Ok(()) => (Some(Order::Surge), None),
+            Err(why) => (None, Some(surge_refused(why))),
+        },
+        world::Class::Medic => match under {
+            None if world.is_beaming(slot) => (Some(Order::Beam(None)), None),
+            None => (None, Some(beam_refused(Refusal::NoPatient))),
+            Some(patient) if world.patients_of(slot).contains(&patient) => {
+                (Some(Order::Beam(None)), None)
+            }
+            Some(patient) => match world.can_beam(slot, patient) {
+                Ok(()) => (Some(Order::Beam(Some(patient))), None),
+                Err(why) => (None, Some(beam_refused(why))),
+            },
+        },
+        // The tank (feature 77): Q taunts, E puts the wall up and down.
+        world::Class::Tank if primary => match world.can_taunt(slot) {
+            Ok(()) => (Some(Order::Taunt), None),
+            Err(why) => (None, Some(taunt_refused(why))),
+        },
+        world::Class::Tank => match world.can_bulwark(slot) {
+            Ok(()) => (Some(Order::Bulwark(!world.is_bulwark(slot))), None),
+            Err(why) => (None, Some(bulwark_refused(why))),
+        },
+        // The commander (feature 78): Q rallies, E sends the squad at
+        // the enemy under the pointer.
+        world::Class::Commander if primary => match world.can_rally(slot) {
+            Ok(()) => (Some(Order::Rally), None),
+            Err(why) => (None, Some(rally_refused(why))),
+        },
+        world::Class::Commander => {
+            let Some(enemy) = enemy else {
+                return (None, Some(squad_refused(Refusal::NoEnemyThere)));
+            };
+            squad_key(world, slot, world::SquadAsk::Attack { enemy })
+        }
+    }
+}
+
+/// A commander's squad key: the order if the world would take it, and
+/// the log's line saying why not if it would not — the same shape as
+/// `class_key`'s, and the same check the command makes. X and Z go
+/// through this straight; E goes through `class_key` first, which finds
+/// the enemy under the pointer.
+fn squad_key(
+    world: &world::World,
+    slot: u32,
+    ask: world::SquadAsk,
+) -> (Option<Order>, Option<String>) {
+    match world.can_squad(slot) {
+        Ok(()) => (Some(Order::Squad(ask)), None),
+        Err(why) => (None, Some(squad_refused(why))),
+    }
+}
+
+/// Every player's own standing order (feature 84), the same shape: the
+/// order if the world would take it, and the log's line if it would
+/// not. F comes through here with the tile it was clicked on, T with a
+/// retreat and nothing to point at. It is not a class's key — every
+/// player has these two — so the only refusal is being unfit to act,
+/// and an attack's on ground that is not there.
+fn orders_key(
+    world: &world::World,
+    slot: u32,
+    order: world::Standing,
+) -> (Option<Order>, Option<String>) {
+    match world.can_order(slot) {
+        Ok(()) => (Some(Order::Orders(order)), None),
+        Err(why) => (None, Some(orders_refused(why))),
+    }
+}
+
+#[cfg(test)]
+mod class_key_tests {
+    use super::*;
+    use shipdesign::fixture::flyer;
+    use world::fixture::{REFERENCE_MONEY, simulation_world};
+
+    /// Q and E dispatch by the steered crew member's class: an engineer's
+    /// deploys, a soldier's throws and braces, a classless one's do
+    /// nothing — each with the world's own reason when refused.
+    #[test]
+    fn the_class_keys_dispatch_by_the_class_steered() {
+        let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
+        assert_eq!(world.set_class(0, world::Class::Engineer), Ok(()));
+        assert_eq!(world.set_class(1, world::Class::Soldier), Ok(()));
+        let t = shipdesign::TILE as f32;
+        let tile_of = |world: &world::World, who: u32| {
+            let p = world.aboard.room.bim_pos(who as usize);
+            ((p.x / t).floor() as i32, (p.y / t).floor() as i32)
+        };
+        // Nothing for a classless crew member, key or no key, tile or none.
+        assert_eq!(class_key(&world, 2, true, None, None, None), (None, None));
+        assert_eq!(
+            class_key(&world, 2, false, Some(tile_of(&world, 2)), Some(1), None),
+            (None, None)
+        );
+        // The engineer: a sandbag kit on its own tile is refused (a tile
+        // with a body on it, and its own at that), a tile beside it is a
+        // deploy; a sentry wants the third level.
+        let here = tile_of(&world, 0);
+        let beside = (1..6)
+            .flat_map(|r| {
+                [
+                    (here.0 + r, here.1),
+                    (here.0 - r, here.1),
+                    (here.0, here.1 + r),
+                    (here.0, here.1 - r),
+                ]
+            })
+            .find(|&tile| world.can_deploy(0, world::Kit::Sandbag, tile).is_ok())
+            .expect("a free tile beside the engineer");
+        assert_eq!(
+            class_key(&world, 0, false, Some(beside), None, None),
+            (
+                Some(Order::Deploy {
+                    kit: world::Kit::Sandbag,
+                    x: beside.0,
+                    y: beside.1
+                }),
+                None
+            )
+        );
+        let (order, line) = class_key(&world, 0, true, Some(beside), None, None);
+        assert_eq!(order, None);
+        assert_eq!(
+            line,
+            Some(deploy_refused(Refusal::NoSentryYet)),
+            "the kit is its class's, the level is not reached"
+        );
+        assert_eq!(
+            class_key(&world, 0, false, None, None, None),
+            (None, Some(deploy_refused(Refusal::CantDeployThere))),
+            "no tile under the pointer"
+        );
+        // The soldier: E braces, and E again stands easy; Q wants the
+        // third level, then throws at a tile within range.
+        assert_eq!(
+            class_key(&world, 1, false, None, None, None),
+            (Some(Order::Brace(true)), None)
+        );
+        world.step(&[world::Command::Brace { slot: 1, on: true }]);
+        assert_eq!(
+            class_key(&world, 1, false, Some(tile_of(&world, 1)), None, None),
+            (Some(Order::Brace(false)), None)
+        );
+        let target = tile_of(&world, 1);
+        assert_eq!(
+            class_key(&world, 1, true, Some(target), None, None),
+            (None, Some(throw_refused(Refusal::NoGrenadesYet)))
+        );
+        let mut events = Vec::new();
+        world.award(1, world::class::LEVEL_XP[2], &mut events);
+        assert_eq!(
+            class_key(&world, 1, true, Some(target), None, None),
+            (
+                Some(Order::Throw {
+                    x: target.0,
+                    y: target.1
+                }),
+                None
+            )
+        );
+        assert_eq!(
+            class_key(&world, 1, true, None, None, None),
+            (None, Some(throw_refused(Refusal::CantThrowThere)))
+        );
+        // The medic: Q surges — refused before the third level and
+        // unlinked — and E beams whoever is under the pointer, unlinks
+        // on the one already held and on nobody.
+        assert_eq!(world.set_class(2, world::Class::Medic), Ok(()));
+        assert_eq!(
+            class_key(&world, 2, true, None, None, None),
+            (None, Some(surge_refused(Refusal::NoSurgeYet)))
+        );
+        world.award(2, world::class::LEVEL_XP[2], &mut events);
+        assert_eq!(
+            class_key(&world, 2, true, None, None, None),
+            (None, Some(surge_refused(Refusal::NotLinked)))
+        );
+        assert_eq!(
+            class_key(&world, 2, false, None, None, None),
+            (None, Some(beam_refused(Refusal::NoPatient))),
+            "E on nobody with no beam on says so"
+        );
+        assert_eq!(
+            class_key(&world, 2, false, None, Some(2), None),
+            (None, Some(beam_refused(Refusal::NotACrewmate))),
+            "never itself"
+        );
+        // Crew member 0 beside it, and beamed.
+        let at = world.aboard.room.bim_pos(2) + bims::math::vec2(t, 0.0);
+        world.aboard.room.put_for_probe(0, at);
+        world.step(&[]);
+        assert_eq!(
+            class_key(&world, 2, false, None, Some(0), None),
+            (Some(Order::Beam(Some(0))), None)
+        );
+        world.step(&[world::Command::Beam {
+            slot: 2,
+            patient: Some(0),
+        }]);
+        assert!(world.is_beaming(2));
+        assert_eq!(
+            class_key(&world, 2, false, None, Some(0), None),
+            (Some(Order::Beam(None)), None),
+            "E on the one it holds unlinks"
+        );
+        assert_eq!(
+            class_key(&world, 2, false, None, None, None),
+            (Some(Order::Beam(None)), None),
+            "and E on nobody unlinks while one is held"
+        );
+        // Linked but not charged: Q says so.
+        assert_eq!(
+            class_key(&world, 2, true, None, None, None),
+            (None, Some(surge_refused(Refusal::NotCharged)))
+        );
+        // And the engineer's keys are never a soldier's, nor the other
+        // way about: an engineer pressing E with a tile is a deploy, not
+        // a brace, and a soldier's E with a kit in its pack is a brace.
+        assert!(matches!(
+            class_key(&world, 0, false, Some(beside), None, None).0,
+            Some(Order::Deploy { .. })
+        ));
+        assert!(matches!(
+            class_key(&world, 1, false, Some(beside), None, None).0,
+            Some(Order::Brace(_))
+        ));
+    }
+
+    /// And the tank's (feature 77): Q taunts from the third level, E
+    /// puts the wall up and takes it down — neither wants a tile or a
+    /// crew member under the pointer, and neither is anybody else's.
+    #[test]
+    fn the_tank_s_keys_taunt_and_raise_the_wall() {
+        let mut world = simulation_world(flyer(4), REFERENCE_MONEY, 4);
+        assert_eq!(world.set_class(0, world::Class::Tank), Ok(()));
+        assert_eq!(world.set_class(1, world::Class::Engineer), Ok(()));
+        assert_eq!(world.set_class(2, world::Class::Soldier), Ok(()));
+        assert_eq!(world.set_class(3, world::Class::Medic), Ok(()));
+        let t = shipdesign::TILE as f32;
+        let tile_of = |world: &world::World, who: u32| {
+            let p = world.aboard.room.bim_pos(who as usize);
+            ((p.x / t).floor() as i32, (p.y / t).floor() as i32)
+        };
+        // E puts the wall up wherever the pointer is, and down again.
+        assert_eq!(
+            class_key(&world, 0, false, None, None, None),
+            (Some(Order::Bulwark(true)), None)
+        );
+        world.step(&[world::Command::Bulwark { slot: 0, on: true }]);
+        assert_eq!(
+            class_key(&world, 0, false, Some(tile_of(&world, 0)), Some(1), None),
+            (Some(Order::Bulwark(false)), None),
+            "and down again, whatever is under the pointer"
+        );
+        // Q wants the third level, and then cools down.
+        assert_eq!(
+            class_key(&world, 0, true, None, None, None),
+            (None, Some(taunt_refused(Refusal::NoTauntYet)))
+        );
+        let mut events = Vec::new();
+        world.award(0, world::class::LEVEL_XP[2], &mut events);
+        assert_eq!(
+            class_key(&world, 0, true, None, None, None),
+            (Some(Order::Taunt), None)
+        );
+        world.step(&[world::Command::Taunt { slot: 0 }]);
+        assert_eq!(
+            class_key(&world, 0, true, None, None, None),
+            (None, Some(taunt_refused(Refusal::CoolingDown)))
+        );
+        // And nobody else's keys are the tank's: the engineer deploys,
+        // the soldier braces, the medic beams.
+        assert!(matches!(
+            class_key(&world, 2, false, None, None, None).0,
+            Some(Order::Brace(_))
+        ));
+        assert_eq!(
+            class_key(&world, 3, false, None, None, None),
+            (None, Some(beam_refused(Refusal::NoPatient)))
+        );
+        assert_eq!(
+            class_key(&world, 1, true, None, None, None),
+            (None, Some(deploy_refused(Refusal::CantDeployThere)))
+        );
+        // And a tank is refused a medic's and a soldier's rules.
+        assert_eq!(world.can_bulwark(1), Err(Refusal::NotATank));
+        assert_eq!(world.can_taunt(3), Err(Refusal::NotATank));
+    }
+
+    /// The two every player has (feature 84): F and T are nobody's class
+    /// in particular — a classless crew member gives them as readily as a
+    /// commander — and the line they refuse with is the standing order's,
+    /// not a class's.
+    #[test]
+    fn the_attack_and_retreat_keys_are_every_player_s() {
+        let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
+        assert_eq!(world.set_class(1, world::Class::Tank), Ok(()));
+        world.step(&[]);
+        // A retreat, with no class at all.
+        assert_eq!(world.class_of(0), world::Class::None);
+        assert_eq!(
+            orders_key(&world, 0, world::Standing::Retreat),
+            (Some(Order::Orders(world::Standing::Retreat)), None)
+        );
+        // And with one: a class changes nothing about these two.
+        assert_eq!(
+            orders_key(&world, 1, world::Standing::Retreat),
+            (Some(Order::Orders(world::Standing::Retreat)), None)
+        );
+        // A banner on the tile the crew member stands on goes; one off
+        // the deck altogether is refused, and the line is the order's.
+        let t = shipdesign::TILE as f32;
+        let p = world.aboard.room.bim_pos(0);
+        let here = ((p.x / t).floor() as i32, (p.y / t).floor() as i32);
+        assert_eq!(
+            orders_key(&world, 0, world::Standing::Attack { tile: here }),
+            (
+                Some(Order::Orders(world::Standing::Attack { tile: here })),
+                None
+            )
+        );
+        // The world is what refuses the ground, when the order lands.
+        let events = world.step(&[world::Command::Orders {
+            slot: 0,
+            order: world::Standing::Attack {
+                tile: (-9_000, -9_000),
+            },
+        }]);
+        assert!(
+            events.iter().any(
+                |e| matches!(e, world::WorldEvent::Refused { why, .. } if *why == Refusal::NoGroundThere)
+            ),
+            "no ground there: {events:?}"
+        );
+        // Unfit to act, the key itself says so before anything is sent.
+        world.aboard.room.knock_out_for_probe(0);
+        world.step(&[]);
+        assert_eq!(
+            orders_key(&world, 0, world::Standing::Retreat),
+            (None, Some(orders_refused(Refusal::OutOfReach)))
+        );
+    }
+
+    /// The commander's four (feature 78): Q rallies, E sends the squad
+    /// at the enemy under the pointer, X calls it back and Z has it
+    /// hold — and X and Z do nothing for any other class or for a
+    /// classless crew member, which is the key handler's own guard.
+    #[test]
+    fn the_commanders_keys_are_the_squads_and_nobody_elses() {
+        let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
+        assert_eq!(world.set_class(0, world::Class::Commander), Ok(()));
+        assert_eq!(world.set_class(1, world::Class::Tank), Ok(()));
+        world.step(&[]);
+        // Q wants the third level.
+        assert_eq!(
+            class_key(&world, 0, true, None, None, None),
+            (None, Some(rally_refused(Refusal::NoRallyYet)))
+        );
+        // E with no enemy under the pointer says so.
+        assert_eq!(
+            class_key(&world, 0, false, None, None, None),
+            (None, Some(squad_refused(Refusal::NoEnemyThere)))
+        );
+        // E over an enemy is an attack the world would take.
+        assert_eq!(
+            class_key(&world, 0, false, None, None, Some(2)),
+            (
+                Some(Order::Squad(world::SquadAsk::Attack { enemy: 2 })),
+                None
+            )
+        );
+        // X and Z go straight through, tile or none.
+        assert_eq!(
+            squad_key(&world, 0, world::SquadAsk::FallBack { tile: None }),
+            (
+                Some(Order::Squad(world::SquadAsk::FallBack { tile: None })),
+                None
+            )
+        );
+        assert_eq!(
+            squad_key(&world, 0, world::SquadAsk::StandGround),
+            (Some(Order::Squad(world::SquadAsk::StandGround)), None)
+        );
+        // And for anybody else they are refused by the same rule the
+        // key handler skips them with.
+        for slot in [1, 2] {
+            assert_eq!(
+                squad_key(&world, slot, world::SquadAsk::StandGround),
+                (None, Some(squad_refused(Refusal::NotACommander)))
+            );
+            assert_ne!(world.class_of(slot), world::Class::Commander);
+        }
+        // A classless crew member's Q and E do nothing at all.
+        assert_eq!(class_key(&world, 2, true, None, None, None), (None, None));
+        assert_eq!(
+            class_key(&world, 2, false, None, None, Some(1)),
+            (None, None)
+        );
+    }
+
+    /// The two boxes at the foot of the screen (feature 80): the
+    /// class's own keys named, the key each is bound to, how many are
+    /// left, and the level the locked one wants — all read off the world
+    /// rather than kept, and the same pairing `class_key` dispatches by.
+    #[test]
+    fn the_two_boxes_say_what_the_keys_do_and_how_many_are_left() {
+        let keys = Keys::default();
+        let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
+        assert_eq!(world.set_class(0, world::Class::Engineer), Ok(()));
+        assert_eq!(world.set_class(1, world::Class::Soldier), Ok(()));
+        // A classless crew member has no keys, so it has no boxes.
+        assert!(ability_boxes(&world, 2, &keys).is_empty());
+
+        // The engineer: the sentry waits for its level with the kit its
+        // class dealt it in the pack; the sandbags are the ones it set
+        // out with, and Q and E are what the bindings say.
+        let boxes = ability_boxes(&world, 0, &keys);
+        assert_eq!(boxes.len(), 2);
+        assert_eq!((boxes[0].key.as_str(), boxes[1].key.as_str()), ("Q", "E"));
+        assert_eq!(boxes[0].name, "Sentry");
+        assert_eq!(boxes[0].locked, Some(world::class::SENTRY_LEVEL));
+        assert_eq!(
+            boxes[0].count,
+            Some(world::deploy::ENGINEER_START_SENTRIES),
+            "the sentry kit it set out with"
+        );
+        assert!(!boxes[0].ready(), "the level, not the kit");
+        assert_eq!(boxes[1].name, "Sandbags");
+        assert_eq!(boxes[1].locked, None);
+        assert_eq!(
+            boxes[1].count,
+            Some(world::deploy::ENGINEER_START_KITS),
+            "the kits it set out with"
+        );
+        assert!(boxes[1].ready());
+
+        // The soldier: the grenade waits for its level with two in the
+        // pack; the brace is there from the first and says when it is on.
+        let boxes = ability_boxes(&world, 1, &keys);
+        assert_eq!(boxes[0].name, "Grenade");
+        assert_eq!(boxes[0].count, Some(world::class::SOLDIER_START_GRENADES));
+        assert_eq!(boxes[0].locked, Some(world::class::GRENADE_LEVEL));
+        assert_eq!(boxes[1].name, "Brace");
+        assert!(boxes[1].ready() && !boxes[1].on);
+        world.step(&[world::Command::Brace { slot: 1, on: true }]);
+        assert!(ability_boxes(&world, 1, &keys)[1].on, "braced now");
+
+        // The level opens the locked one, and a throw puts it in its
+        // cooldown — which is the box saying no, not the level.
+        let mut events = Vec::new();
+        world.award(1, world::class::LEVEL_XP[2], &mut events);
+        let boxes = ability_boxes(&world, 1, &keys);
+        assert_eq!(boxes[0].locked, None);
+        assert!(boxes[0].ready());
+
+        // Every class has a name and a tip on both boxes, and the
+        // primary one is the level-three key for all of them.
+        for class in world::Class::ALL {
+            if class == world::Class::None {
+                continue;
+            }
+            let mut world = simulation_world(flyer(1), REFERENCE_MONEY, 1);
+            assert_eq!(world.set_class(0, class), Ok(()));
+            let boxes = ability_boxes(&world, 0, &keys);
+            assert_eq!(boxes.len(), 2, "{class:?}");
+            assert!(
+                boxes
+                    .iter()
+                    .all(|b| !b.name.is_empty() && !b.tip.is_empty())
+            );
+            assert_eq!(boxes[0].locked, Some(3), "{class:?}'s Q is its third");
+            assert_eq!(boxes[1].locked, None, "{class:?}'s E is its first");
+        }
+    }
+}

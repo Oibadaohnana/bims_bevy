@@ -95,7 +95,7 @@ pub struct Recipe {
 
 /// The table. Indexed by position, and the index is what crosses the wasm
 /// boundary — `ship_recipe_*` — so a recipe is appended, never inserted.
-pub static RECIPES: [Recipe; 16] = [
+pub static RECIPES: [Recipe; 17] = [
     Recipe {
         station: PartKind::Smelter,
         inputs: &[(ResourceId::Ore, 2)],
@@ -249,6 +249,17 @@ pub static RECIPES: [Recipe; 16] = [
         ],
         output: (ResourceId::SentryKit, 1),
         minutes: 60,
+        vents: false,
+    },
+    // The soldier's grenade (feature 75), at the armoury behind it like
+    // the armour: a bar of metal and a component's worth of fuse, twenty
+    // minutes. Anybody makes, carries and trades one; only a soldier
+    // throws it (`world::class`).
+    Recipe {
+        station: PartKind::Armoury,
+        inputs: &[(ResourceId::Metal, 1), (ResourceId::Components, 1)],
+        output: (ResourceId::Grenade, 1),
+        minutes: 20,
         vents: false,
     },
 ];

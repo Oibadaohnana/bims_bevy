@@ -31,7 +31,7 @@ fn main() {
     let mut game = Game::new(3, 960.0, 640.0);
     let mut early = Vec::new();
     for _ in 0..60 {
-        game.update(STEP);
+        game.simulate(STEP);
         early.extend(game.take_cues());
     }
     check!(
@@ -46,7 +46,7 @@ fn main() {
     let mut cues = Vec::new();
     let mut frames = 0;
     for _ in 0..(6 * FRAMES_PER_HOUR) {
-        game.update(STEP);
+        game.simulate(STEP);
         frames += 1;
         cues.extend(game.take_cues());
         if game.store_stew() >= 1 {
@@ -86,7 +86,7 @@ fn main() {
     // two openings in a row.
     let mut cues = Vec::new();
     for _ in 0..(18 * FRAMES_PER_HOUR) {
-        game.update(STEP);
+        game.simulate(STEP);
         cues.extend(game.take_cues());
     }
     let doors: Vec<Cue> = cues

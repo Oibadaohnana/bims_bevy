@@ -13,6 +13,39 @@
 
       eachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
+      # The classes a `combat_<class>` command is spelled with — feature
+      # 79, `world::Class::ALL` bar the classless one, in the words
+      # `names::CLASS_NAMES` gives them. A class added to the game is a
+      # name added here; `bims list` is the build's own answer, and
+      # `./check` opens each of these, so a drift is a red step rather
+      # than a quiet absence.
+      combatClasses = [
+        "engineer"
+        "soldier"
+        "medic"
+        "tank"
+        "commander"
+      ];
+
+      # What a class's command says it opens, in one place, since the
+      # package and the app each say it. "an engineer", "a tank".
+      combatAbout =
+        class:
+        let
+          a = if builtins.elem (builtins.substring 0 1 class) [ "a" "e" "i" "o" "u" ] then "an" else "a";
+        in
+        "The fight with the crew member you steer ${a} ${class}";
+
+      # And the same sentence for the machines' fight, which is the same
+      # class in the same slot with a wave of droids holding the arena
+      # instead of its garrison.
+      droidsAbout =
+        class:
+        let
+          a = if builtins.elem (builtins.substring 0 1 class) [ "a" "e" "i" "o" "u" ] then "an" else "a";
+        in
+        "The machines' fight with the crew member you steer ${a} ${class}";
+
       # Build inputs only. `target/` is an output, so leaving it out keeps
       # the hash from churning on rebuilds.
       src = nixpkgs.lib.cleanSourceWith {
@@ -179,6 +212,25 @@
             what = "combat";
             about = "The simulation docked at a hostile station, the people living there enemies";
           };
+        }
+        # That same fight, one build a class, so a class is looked at in
+        # the fight it is for without a `BIMS_CLASS` in front of the
+        # command (feature 79). The list is written here rather than read
+        # off `Class::ALL`, since nix cannot ask the binary; `bims list`
+        # is what always agrees with the build.
+        // nixpkgs.lib.listToAttrs (
+          map
+            (class: {
+              name = "bims-combat-${class}";
+              value = runFor {
+                name = "bims-combat-${class}";
+                what = "combat_${class}";
+                about = combatAbout class;
+              };
+            })
+            combatClasses
+        )
+        // {
           bims-tier2-test = runFor {
             name = "bims-tier2-test";
             what = "tier2_test";
@@ -189,12 +241,37 @@
             what = "tier3_test";
             about = "The fight with everybody's guns and armour at tier three, crew and garrison alike";
           };
+          bims-droids = runFor {
+            name = "bims-droids";
+            what = "droids";
+            about = "The fight with the arena held by the machines: a wave of droids instead of its people";
+          };
+          bims-droids-planet = runFor {
+            name = "bims-droids-planet";
+            what = "droids_planet";
+            about = "A town on a planet held by the machines, the ship set down at its pad";
+          };
           bims-raid = runFor {
             name = "bims-raid";
             what = "raid";
             about = "The simulation holding in open space with a raid on its way, contact ten seconds in";
           };
-        };
+        }
+        # The machines' fight, one build a class as well: `droids` is to
+        # `combat_droids_<class>` what `combat` is to `combat_<class>`,
+        # and the same list of classes says which builds there are.
+        // nixpkgs.lib.listToAttrs (
+          map
+            (class: {
+              name = "bims-droids-${class}";
+              value = runFor {
+                name = "bims-droids-${class}";
+                what = "combat_droids_${class}";
+                about = droidsAbout class;
+              };
+            })
+            combatClasses
+        );
     in
     {
       packages = eachSystem (
@@ -220,6 +297,10 @@
             ;
           default = built.bims;
         }
+        # One package a class's fight as well (feature 79), and one a
+        # class's fight against the machines.
+        // nixpkgs.lib.getAttrs (map (class: "bims-combat-${class}") combatClasses) built
+        // nixpkgs.lib.getAttrs (map (class: "bims-droids-${class}") combatClasses) built
       );
 
       # One app per thing you can run. `nix run .#game` is the whole game in
@@ -227,9 +308,15 @@
       # to the world on a prebuilt ship; `.#design` skips to the yard with
       # that ship given; `.#room` is the behaviour test room; `.#test` is the
       # simulation somewhere else each time; `.#test_planet` is that set down
-      # on a planet; `.#combat` is the simulation at a hostile station;
+      # on a planet; `.#combat` is the simulation at a hostile station, and
+      # `.#combat_engineer` … `.#combat_commander` are that same fight with
+      # the crew member you steer that class;
       # `.#tier2_test` and `.#tier3_test` are that fight with every gun and
       # every piece of armour at that tier, both sides;
+      # `.#droids` is that fight with the arena held by the machines,
+      # `.#combat_droids_engineer` … `.#combat_droids_commander` that
+      # same wave with the crew member you steer that class, and
+      # `.#droids_planet` a town on a planet held by them;
       # `.#raid` is the simulation holding in open space with a raid on its
       # way, contact ten seconds in;
       # saves beside the working tree rather than inside the store;
@@ -256,11 +343,33 @@
           combat = app built.bims-combat "The simulation docked at a hostile station, the people living there enemies";
           tier2_test = app built.bims-tier2-test "The fight with everybody's guns and armour at tier two, crew and garrison alike";
           tier3_test = app built.bims-tier3-test "The fight with everybody's guns and armour at tier three, crew and garrison alike";
+          droids = app built.bims-droids "The fight with the arena held by the machines: a wave of droids instead of its people";
+          droids_planet = app built.bims-droids-planet "A town on a planet held by the machines, the ship set down at its pad";
           raid = app built.bims-raid "The simulation holding in open space with a raid on its way, contact ten seconds in";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           server = app built.bims-server "The relay: rooms by code, and bytes passed between the players in one — what runs at bims.buggly.de";
           default = game;
         }
+        # `.#combat_medic` and the rest: that same fight, the crew member
+        # you steer that class (feature 79).
+        // nixpkgs.lib.listToAttrs (
+          map
+            (class: {
+              name = "combat_${class}";
+              value = app built."bims-combat-${class}" (combatAbout class);
+            })
+            combatClasses
+        )
+        # `.#combat_droids_medic` and the rest: the machines' fight, the
+        # crew member you steer that class.
+        // nixpkgs.lib.listToAttrs (
+          map
+            (class: {
+              name = "combat_droids_${class}";
+              value = app built."bims-droids-${class}" (droidsAbout class);
+            })
+            combatClasses
+        )
       );
 
       # Shared with the plain `nix-shell` entry point, so there is one list of

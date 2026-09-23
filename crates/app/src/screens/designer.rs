@@ -88,7 +88,7 @@ pub enum Message {
 /// An order to the ship, once the game has started. Stamped with the
 /// **step** it applies at rather than with a design hash: an Edit has to be
 /// judged against the ship it was made for, and an order against *when*.
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Order {
     Fly(Target),
     Stop,
@@ -152,6 +152,54 @@ pub enum Order {
     ToHelm,
     /// Walk it to the station's trading desk — `Command::ToDesk`.
     ToDesk,
+    /// The player's class chosen or changed while playing, until the
+    /// first undock — `Command::SetClass` (feature 74).
+    SetClass(world::Class),
+    /// A talent picked at a level reached — `Command::PickTalent`.
+    PickTalent {
+        level: u32,
+        side: world::Side,
+    },
+    /// The engineer sent to lay a kit on a room tile — `Command::Deploy`,
+    /// the Q and E keys over the deck.
+    Deploy {
+        kit: world::Kit,
+        x: i32,
+        y: i32,
+    },
+    /// A deployable packed up into the engineer's pack — `Command::PackUp`.
+    PackUp(u32),
+    /// A sentry filled — `Command::Refill`.
+    Refill(u32),
+    /// The armourer's repair begun at the workbench — `Command::Repair`.
+    Repair,
+    /// The soldier braced, or stood easy — `Command::Brace`, the E key
+    /// (feature 75).
+    Brace(bool),
+    /// The soldier's grenade thrown at a room tile — `Command::Throw`,
+    /// the Q key over the deck.
+    Throw {
+        x: i32,
+        y: i32,
+    },
+    /// The medic's heal beam linked to a crew member, or unlinked —
+    /// `Command::Beam`, the E key over one (feature 76).
+    Beam(Option<u32>),
+    /// The medic's surge triggered — `Command::Surge`, the Q key.
+    Surge,
+    /// The tank stood as a wall, or stood down — `Command::Bulwark`, the
+    /// E key (feature 77).
+    Bulwark(bool),
+    /// The tank's taunt — `Command::Taunt`, the Q key.
+    Taunt,
+    /// The commander's squad sent, called back or held —
+    /// `Command::Squad`, the E, X and Z keys (feature 78).
+    Squad(world::SquadAsk),
+    /// The commander's rally — `Command::Rally`, the Q key.
+    Rally,
+    /// Every player's own standing order to the bots that follow them —
+    /// `Command::Orders`, the F and T keys (feature 84).
+    Orders(world::Standing),
 }
 
 /// What the other end said about a message.
@@ -464,6 +512,23 @@ impl Net {
                         Order::CrewLater(order) => Command::CrewLater { slot, order },
                         Order::ToHelm => Command::ToHelm { slot },
                         Order::ToDesk => Command::ToDesk { slot },
+                        Order::SetClass(class) => Command::SetClass { slot, class },
+                        Order::PickTalent { level, side } => {
+                            Command::PickTalent { slot, level, side }
+                        }
+                        Order::Deploy { kit, x, y } => Command::Deploy { slot, kit, x, y },
+                        Order::PackUp(id) => Command::PackUp { slot, id },
+                        Order::Refill(id) => Command::Refill { slot, id },
+                        Order::Repair => Command::Repair { slot },
+                        Order::Brace(on) => Command::Brace { slot, on },
+                        Order::Throw { x, y } => Command::Throw { slot, x, y },
+                        Order::Beam(patient) => Command::Beam { slot, patient },
+                        Order::Surge => Command::Surge { slot },
+                        Order::Bulwark(on) => Command::Bulwark { slot, on },
+                        Order::Taunt => Command::Taunt { slot },
+                        Order::Squad(order) => Command::Squad { slot, order },
+                        Order::Rally => Command::Rally { slot },
+                        Order::Orders(order) => Command::Orders { slot, order },
                         Order::Gear(GearOrder::StowOnBench { who, cell }) => {
                             Command::StowOnBench { slot, who, cell }
                         }
@@ -565,6 +630,14 @@ fn open(
     // And how they wear their hair: on the session, put onto the crew
     // when the world opens (`Session::dress_crew`, feature 62).
     session.crew_hair = s.hair.clone();
+    // And which colour each player's own Bim is ringed in, put on with
+    // the hair (feature 84).
+    session.crew_tints = s.tints.clone();
+    // And their classes, through the seam that works the pool out again
+    // (`Session::set_class`, feature 74).
+    for (slot, &class) in s.classes.iter().enumerate() {
+        session.set_class(slot as u32, class);
+    }
     let ok = session.spawn_ok();
     let lost = match s.spawn {
         None => "The lobby did not say which station to start at.".into(),
@@ -734,8 +807,15 @@ fn frame(
     if online.names_said(&mut session.crew_names) {
         crate::names::set_crew_names(&session.crew_names);
     }
-    if online.hair_said(&mut session.crew_hair) {
+    if online.hair_said(&mut session.crew_hair) || online.tint_said(&mut session.crew_tints) {
         session.dress_crew();
+    }
+    // A class said late lands the same way, through the pool.
+    let mut classes = session.crew_classes.clone();
+    if online.classes_said(&mut classes) {
+        for (slot, &class) in classes.iter().enumerate() {
+            session.set_class(slot as u32, class);
+        }
     }
 
     // --- the header --------------------------------------------------------
@@ -866,6 +946,27 @@ fn frame(
                                 .small()
                                 .color(theme::MUTED),
                         );
+                        // The class a slot (feature 74): everybody's is
+                        // shown, this player's own is a picker, and a
+                        // change works the pool out again and is said
+                        // to the room like the hair.
+                        let class = session.class_of(slot);
+                        if slot == screen.net.slot && editable {
+                            for pick in world::Class::ALL {
+                                if theme::toggle(ui, pick == class, class_name(pick)).clicked()
+                                    && session.set_class(slot, pick)
+                                {
+                                    online.say_bim_class(pick);
+                                }
+                            }
+                            theme::question_mark(ui, class_tip(class));
+                        } else {
+                            ui.label(
+                                egui::RichText::new(class_name(class))
+                                    .small()
+                                    .color(theme::MUTED),
+                            );
+                        }
                     });
                 }
                 ui.add_space(10.0);

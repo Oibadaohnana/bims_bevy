@@ -54,3 +54,19 @@ in `theme::BAD` and "· hostile" beside it, so the refusal says why. The
 side is the generator's roll and nothing else — `crates/worldgen/CLAUDE.md`
 has where it comes from; the world's `stance` is what reads it once the
 game is open.
+
+## The marks are the page's, and one of them is a wake
+
+`preview::Marks` is everything the page asks to be drawn over the star
+field and nothing the lobby decides: the star under the pointer, the
+pending start, and — in the game, off the chart on the map — `here`, the
+star the ship is at, `target`, the one picked for a jump, and since
+feature 85 `visited`, every star the crew have been to, ringed in
+`VISITED` grey inside the *here* ring so a star that is both reads as
+both. The list is `World::stars_visited` — the systems the world has a
+memory of plus the one it is at (`crates/world/CLAUDE.md`, "The dead lie
+where they fell") — set on `Lobby::visited` every frame by
+`screens/game.rs`, and empty in the lobby proper, where nobody has been
+anywhere yet. The system map ticks a visited *node* in the same grey
+(`ship::world_paint::paint_tick`), which is the third colour written out
+in two crates rather than shared.

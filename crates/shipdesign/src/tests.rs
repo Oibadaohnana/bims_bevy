@@ -3281,7 +3281,7 @@ fn the_fixtures_are_wired() {
 fn every_recipe_holds_together() {
     use crate::recipes::{RECIPES, at, recipes_are_sound};
     assert!(recipes_are_sound());
-    assert_eq!(RECIPES.len(), 16);
+    assert_eq!(RECIPES.len(), 17);
 
     let smelt = &RECIPES[0];
     assert_eq!(smelt.station, PartKind::Smelter);
@@ -3312,10 +3312,20 @@ fn every_recipe_holds_together() {
 
     assert_eq!(at(PartKind::Smelter).count(), 1);
     assert_eq!(at(PartKind::Workbench).count(), 7);
-    // Six at the armoury since the medkit went to the drug lab, which
-    // makes two: medicine is made from the first day, and the armoury is
-    // researched (`crate::research`).
-    assert_eq!(at(PartKind::Armoury).count(), 6);
+    // Seven at the armoury — six since the medkit went to the drug lab,
+    // which makes two (medicine is made from the first day, and the
+    // armoury is researched, `crate::research`), and the soldier's
+    // grenade (feature 75), the last row.
+    assert_eq!(at(PartKind::Armoury).count(), 7);
+    let grenade = &RECIPES[16];
+    assert_eq!(grenade.station, PartKind::Armoury);
+    assert_eq!(
+        grenade.inputs,
+        &[(ResourceId::Metal, 1), (ResourceId::Components, 1)]
+    );
+    assert_eq!(grenade.output, (ResourceId::Grenade, 1));
+    assert_eq!(grenade.minutes, 20);
+    assert_eq!(grenade.output_mass(), grenade.input_mass());
     assert_eq!(at(PartKind::DrugLab).count(), 2);
     assert_eq!(at(PartKind::Hob).count(), 0);
     // The three the armoury makes, and what they are made of: the handgun

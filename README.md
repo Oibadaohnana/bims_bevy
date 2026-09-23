@@ -24,8 +24,9 @@ as in the room, living the same life on the ship you designed.
 nix run .
 ```
 
-That builds the game and opens it. There are eleven things to run, and each is
-a name rather than a flag:
+That builds the game and opens it. There are twenty-three things to run, and each is
+a name rather than a flag — `cargo run -- list` (or `bims list`) prints them
+all with a line each, and is the build's own answer rather than this table's:
 
 | command | `cargo run` | opens |
 | --- | --- | --- |
@@ -36,9 +37,20 @@ a name rather than a flag:
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock and bunks to spare for one |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
 | `nix run .#combat` | `cargo run -- combat` | the fight: the combat ship — fourteen crew, a gun in every hand — docked at the spawn rebuilt as the arena and made hostile, its people enemies, fifteen of them; a recruited crew member shoots at any it can see |
+| `nix run .#combat_engineer` … `#combat_commander` | `cargo run -- combat_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the garrison `combat`'s own, so two of these runs differ by the class and nothing else. It starts at the **tenth level** with every one of the class's seven talents still to choose, so the tray opens on the **Skills** tab with seven points to spend; `BIMS_LEVEL=3` opens it at that level instead, and `BIMS_CLASS` still overrides the command |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `combat` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the garrison's the same — nothing at tier one on either side |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
+| `nix run .#droids` | `cargo run -- droids` | that same fight against the **machines** instead of people: the arena is droid-held, its own people gone, and a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at the far airlock a minute later |
+| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that same fight against the machines **with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander, at the tenth level with every talent still to choose — the ship, the arena and the wave are `droids`' own, so two of these runs differ by the class and nothing else |
+| `nix run .#droids_planet` | `cargo run -- droids_planet` | the same on a planet: a town held by the machines, the ship set down at its pad, and their lander coming down on the plain beyond a gate |
 | `nix run .#raid` | `cargo run -- raid` | the simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in — the warning, the raider on the map and closing at its own pace, then the boarding |
+| | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
+
+Whichever of them you open, **Esc → Restart → Start again** puts the run back
+to the situation it opened in — the fight as it was dealt, the raid still on
+its way, the game the yard started — without leaving the window; the end
+screen, when the crew are down, offers the same as *Start again*. Nothing on
+disk is touched by it, and a saved game is still there to load.
 
 The `cargo run` forms build from the working tree, which is what you want
 while editing — `cargo run --release -- test` is the same thing on the
@@ -55,7 +67,10 @@ The rest:
 nix develop            # a shell with the toolchain and the runtime libraries
 nix build              # the binary lands in result/bin/bims
 nix flake check        # builds it, runs every crate's tests, checks formatting
-./check                # everything above and a smoke run of each window
+./check                # the quick tier, under a minute: the fast crates' tests, the pinned
+                       #   numbers, clippy, and five windows opened and screenshotted
+./check full           # the same deepened — every crate's tests, every sweep, every
+                       #   window, the probes, the flake
 ./hidden <command>     # runs it on a headless compositor — nothing opens on the desktop
 ```
 
@@ -1049,8 +1064,12 @@ a breathing cyan ring with a tick at each compass point that sits over
 every icon — a docked ship is on top of its station's, and the ring is
 wider than the station's — with *You · Docked · the station*, *You ·
 Alongside the belt* or *You · Open space* written over it in your own
-colour, the way the galaxy chart tags your star. Click one and the helm
-quotes the trip; Confirm sends the ship. A planet you are alongside is
+colour, the way the galaxy chart tags your star. **Where you have already
+been is ticked**: a small grey tick at the shoulder of every station,
+planet and belt the ship has actually stopped at — docked, landed or
+holding beside — and on the galaxy chart a grey ring round every star you
+have been to, so a map you have flown about says where you have flown.
+Click one and the helm quotes the trip; Confirm sends the ship. A planet you are alongside is
 drawn under the hull in the ship view, as the ground.
 
 A **station is a place**, not an icon: every one in the system is a hull on
@@ -1106,7 +1125,13 @@ opens all the same so its fixtures are drawn — are the room's Bims again, up a
 fixtures, with names over their heads. Leave and come back and they are at
 their bunks again — **the living ones**: whoever the crew killed there stays
 dead, so a station raided is met with its survivors, and one emptied stays
-empty (a mercenary hired away is not there to hire twice either). The ship **docks beside it, airlock to
+empty (a mercenary hired away is not there to hire twice either). **And
+the dead are still lying there**: every body stays where it fell, in the
+coverall it wore and with whatever the crew left on it, for as long as
+the station stands — so a station cleared an hour ago is a station with
+bodies on its deck, and one cleared a galaxy ago is the same when the
+ship comes back for it. A pack emptied comes back empty: a body is loot
+once. The ship **docks beside it, airlock to
 airlock**: the trip ends at the berth, the ship is turned so its airlock
 faces the station's, the two collars — each stands half a tile out of
 its skin — meet as a tube between the hulls, and both doors are drawn
@@ -1340,7 +1365,7 @@ what makes a flip legible — head up, "which way" always looks the same.
 The ship view **follows the crew member you steer**: James is what sits in
 the middle, on the deck or across a station, and a drag can shove the view
 only so far before he would be off the edge. **Free camera** (the View
-tab, or `F`) lets it go — the view stays where it is and a drag or the
+tab, or `V` — `F` is the attack order since feature 84) lets it go — the view stays where it is and a drag or the
 keys take it anywhere, for looking at the far end of a station while the
 crew are busy at this one — and **Follow** snaps it back to him.
 
@@ -1515,6 +1540,430 @@ one thing in the arms at a time, from the lockers to the bench and back.
   from the generator (about three in ten of the lived-on ones; the lobby
   rings them red and never starts a crew at one), and `combat` makes the
   dock hostile whatever it rolled. Armour is in too — the section above.
+
+- **The machines** are the endgame enemy, and they are in as far as a
+  probe goes: a race of three — the low, quick **Husk** that scuttles on
+  four legs and snaps its claws at arm's length; the **Trooper**, upright
+  with a gun built into its forearm, which walks into the open and fires
+  on the move; and the broad, shoulder-plated **Warden**, whose
+  **Unmaker** strips the armour off whatever it hits rather than opening
+  the body under it. A machine is not a Bim: it has four parts rather
+  than three (head, chassis, arms, legs), no blood, no dying state — head
+  or chassis at nothing and it is a wreck that instant — and nothing to
+  loot, since its arm is part of it. Shoot its arms off and it aims half
+  as well; shoot its legs off and it fights where it stands.
+  A **droid-held station** has no people at all, and its machines come in
+  **waves**: how many waves is fixed the first time the crew dock there,
+  how big each is worked out as it lands, and the next never arrives
+  while one of the last is still standing — two hours of the clock after
+  the last one falls, a reinforcement ship tying up at the far airlock or
+  a lander coming down on the plain beyond a town's gate. Which stations
+  are held is the crisis step's to say and is not written yet;
+  `nix run .#droids` and `.#droids_planet` are how the fight is looked at
+  meanwhile.
+
+### Classes and levels
+
+Each player picks a **class** for their crew member — **None**,
+**Engineer**, **Soldier**, **Medic**, **Tank** or **Commander** — on the setup tab before Start (the lobby
+deals it with the slot, like the hair), and can still change it on the
+crew panel until the ship first leaves its berth. A crew member has one
+class, and a dead one's level, experience and picks die with it.
+
+**A class is worn**, so the deck says who is who at a glance: the
+coverall is dyed the class's own shade — an engineer ochre, a soldier
+olive, a medic white, a tank steel, a commander navy, and a crew
+member with no class the blue it always was — with something on the
+head and something over the chest to go with it. The engineer is in a
+hard hat with a tool belt and pouches; the **soldier** wears
+sunglasses, crossed webbing with three magazines on it and a belt; the
+medic a capped red cross with another on the chest and a bag on the
+hip; the tank a heavy helm with a pauldron on each shoulder, and the
+biggest body of the six; the commander an officer's cap banded in
+gold, gold shoulder boards and a sash. The coverall underneath still
+says whose it is — an engineer of the crew is an ochre-ish blue where
+one ashore is an ochre-ish orange — and a helm worn over the class's
+own cap carries a band of its colour instead, so a helmeted crew are
+still read a class at a time. The setup tab's portrait wears whatever
+class is picked under it.
+
+**A class owns abilities, never jobs or money.** Every crew member does
+every job, takes every errand, places every site and uses every weapon,
+and every one brings the same money to the pool, whatever its class. A
+class only adds its own two keys and its talents, which nobody else can
+use: **Q** is the class's first action and **E** its second, whichever
+class you steer — an engineer's sentry and sandbags, a soldier's grenade
+and brace, a medic's surge and heal beam, a tank's taunt and
+wall, a commander's rally and attack order — and both are rebindable on
+the Controls page as one pair,
+not one a class. The **commander** has two keys more, his alone: **X**
+calls the squad back and **Z** has it stand its ground, and both do
+nothing for any other class. With a classless crew member steered the
+keys do
+nothing; a press the world refuses says why in the log.
+
+**Experience** comes from six things and nothing else: an enemy going
+down within fifty tiles is 10 to every classed crew member in range, an
+enemy dying 5, a construction site finished or a kit laid by the
+engineer or anybody within fifty tiles of it is 2 to that engineer, a
+**medic** finishing a bandage or a medkit treatment on a crewmate — any
+crew member but itself, mercenaries included — is 5 to that medic, and
+an enemy's shot or blow landing on a **tank** is a fifth of a point to
+that tank, counted five hits for one, and a hire that goes through from
+the slot steering a **commander** is 10 to that commander. Each
+enemy counts once for each, a crewmate or a hire going down is nothing,
+a kit packed up and laid again is nothing, an interrupted task is
+nothing, a crew member who is not a medic doctoring earns nothing
+at all, a hit on anybody who is not a tank is nothing, a refused hire is
+nothing and a hire from anybody else's slot earns a commander nothing,
+however near he stands. Ten levels — 100, 250, 450, 700, 1 000,
+1 400, 1 900, 2 500 and 3 200 for the second to the tenth — the same
+shape for every class: the first, third and seventh are fixed, and every
+other level is a **pick of two talents**, never changed once made.
+
+**A level is spent on the Skills tab.** The class's ten levels are a tree
+in the panel at the foot of the window, numbered down the left: a level
+with nothing to choose is one slot across the width, a pick level is two
+side by side, and over the tree is how many **skill points** are waiting
+— one for every level reached that has not been chosen at. A slot
+learnt is filled in, one given up is struck through, one open is ringed,
+and one at a level you have not reached is dark. Click a slot and the
+column beside the tree says what it does — and **what it is worth in
+numbers**: what the figure is now and what it becomes, a sentry's 60
+health to 90, a heal beam's 6 tiles to 9, a grenade's 2-second fuse to
+1, so the choice between a level's two slots is a choice between two
+numbers. A slot that is open has the
+*Learn* button on it, which spends the point and cannot be undone.
+Reaching a level opens the tray on that tab, and so does opening a game
+with a point already waiting; nothing is learnt until it is spent, and
+the choice waits as long as you like.
+
+**What the two keys do is drawn at the foot of the screen**: a box each
+for **Q** and **E**, with the key in one corner, the picture of what it
+does in the middle, **how many are left** in the other — kits and
+grenades in the pack, sentries the talents allow standing, beams free to
+link, the squad's size — and the name under it. Resting on a box says
+what the key does. A box is lit while the key would be taken and dim
+while it would not: the cooldown counts down over the picture, the
+surge's charge is a bar along the foot, and a key not learnt yet says the
+level it is learnt at — every class's **E** from the first level and its
+**Q** from the third. A classless crew member has no keys and no boxes.
+
+### The engineer
+
+The first class (feature 74): sandbags, a sentry, and the workbench's
+friend. An engineer sets out with three sandbag kits and one sentry kit
+in its pack — the sentry it may set up at the third level is one it has
+without standing at a workbench for one first.
+
+| level | left | right |
+| --- | --- | --- |
+| 1 | lays sandbags; packs deployables up | — |
+| 2 | **Quick hands** — craft a quarter faster | **Site foreman** — build a quarter faster |
+| 3 | **Sentry** — may set one up | — |
+| 4 | **Sandbagger** — sandbags in half the time | **Bulk bags** — one kit lays two tiles |
+| 5 | **Armoured sentry** — health ×1.5 | **Deep magazine** — shots ×1.5 |
+| 6 | **Armourer** — mends armour at the workbench | **Field refit** — a refill costs no metal |
+| 7 | **Sentry mark II** — its rifle at tier two | — |
+| 8 | **Dug in** — sandbags anywhere between a sentry and the shooter are cover | **Quick build** — a sentry in half the time |
+| 9 | **Salvage** — a destroyed sentry gives its kit back | **Steady hands** — a hit no longer stops a deploy |
+| 10 | **Second sentry** — two at once | **Sentry mark III** — tier three |
+
+The workbench makes the two **kits**: a sandbag kit out of a bar of
+metal in ten minutes (behind the workshop), a sentry kit out of two bars,
+two components and an emitter in an hour (behind the emitters). No
+station sells them; any station buys them. Only an engineer can use
+them: `e` over a deck tile lays **sandbags** there — the engineer walks
+beside it and works four minutes, and a hit drops the errand with the
+kit still in the pack — and `q` sets up a **sentry**, eight minutes, from
+the third level. Either wants clear deck floor within reach that is not
+a door, with nothing on it. What is laid is a **deployable**, never a
+part of the ship: it touches neither the design nor its mass. Sandbags
+are cover exactly as the part is, in both rooms of a docked fight — the
+enemy duck behind them too — take every bolt a body dodges behind them,
+and are gone at 200; a **grenade's burst destroys them** outright,
+whatever they had left. A sentry is an auto rifle on a stand with 60 health
+and 80 trigger pulls: it fires at the nearest enemy it can see in range
+through the very same trigger and hit roll a Bim shoots with, the
+enemy's nearest-target rule includes it, their hits drain it, and at
+nothing it is shot to pieces. The rows beside one on the **Nearby**
+strip pack it up into the engineer's pack (a re-used kit) or refill a
+dry sentry for a bar of metal. On the ship's deck a deployable stays
+through docking, undocking and every join — a crew can lay a barricade
+inside the airlock while holding for a raid — on a station's deck it is
+lost when the ship casts off. The **armourer** has a **Repair** button on
+the workbench window: a damaged piece in the first slot and a bar of
+metal in, ten minutes at the bench worked by that engineer alone, and
+the piece back out with ten points on it, up to its full health.
+
+### The soldier
+
+The second class (feature 75): a line held, and grenades. A soldier sets
+out with a basic **auto rifle** in hand, the laser pistol in the pack
+beside it, and **two grenades**. Its experience is the shared rules'
+alone — it has no source of its own.
+
+**Brace** is `E`, from the first level: a toggle. Braced, the soldier
+holds where it stands — whatever it was on put down, its walk dropped,
+no errand taken up, under arms — never runs from a fight however badly
+hurt, shoots at **1.15** the odds, and takes cover from what is round it
+as usual. Four heavy brackets round the body say so on the deck, and the
+crew panel says *Braced*. It ends when `E` is pressed again, when the
+soldier is ordered anywhere, or when it goes down.
+
+**Grenades** are `Q`, from the third level, at the deck tile under the
+pointer: within **8 tiles** with nothing opaque between (walls and shut
+doors stop a throw; sandbags do not), no sooner than **5 seconds** after
+the last, one out of the pack at once. Holding `Q` draws the burst's
+radius round the tile in the caution colour, or the warning colour
+where the throw would be refused. The grenade flies to the tile and lies
+there with its fuse blinking, and **2 seconds** after the throw it
+bursts on everything within **2.5 tiles** of the tile that has a line to
+it — walls and shut doors stop the burst, sandbags do not: every crew
+member, hire and enemy alike, the thrower included, takes **40** at the
+centre falling in a straight line to half at the edge, on one part
+rolled the way a bolt's is, through that part's armour, as a strike
+rather than a cut — halved for a body in cover from the burst's side —
+and the blood is thrown over the deck as a cut throws it; a sentry in
+it takes the same off its health; laid sandbags in it are destroyed;
+the parts of the ship and the station are untouched. Enemies neither
+throw nor dodge grenades. The **armoury** makes a grenade out of a bar
+of metal and a component in twenty minutes (79 € by the labour rule);
+anybody can make, carry and trade one, no station sells them and any
+station buys them, and only a soldier throws. The crew panel says how
+many are in the pack and how long until the next throw.
+
+| level | left | right |
+| --- | --- | --- |
+| 1 | **Brace** | — |
+| 2 | **Marksman** — accuracy ×1.15 | **Point blank** — damage within the weapon's sweet range ×1.2 |
+| 3 | **Grenades** — may throw them | — |
+| 4 | **Runner** — pace ×1.2 while an enemy is in sight | **Steady aim** — the walking penalty halved: three quarters of the odds on the move, not half |
+| 5 | **Iron nerve** — never flees | **Cover master** — the odds of dodging in cover ×1.5 |
+| 6 | **Long throw** — grenade range ×1.5 | **Short fuse** — fuse ×0.5 |
+| 7 | **Drill** — fire rate ×1.2 on every weapon | — |
+| 8 | **Frag** — burst radius ×1.5 | **Quick draw** — cooldown ×0.5 |
+| 9 | **Bruiser** — melee damage ×1.5, fists and schword | **Dug in** — dodge +10% while braced |
+| 10 | **Deadeye** — every weapon's far accuracy is its near | **Rampage** — each enemy downed raises the fire rate ×1.1, up to three, until the fight ends |
+
+Every talent applies to the soldier who holds it alone, with whatever
+weapon it carries, and all of them go through the one shooter every
+Bim and every sentry fires with: the odds are the weapon's through the
+soldier's skill, the walking odds its own, the point-blank factor rides
+on the bolt to where it lands, the cover odds and the dodge are read
+where a bolt reaches the body, and a blow's damage is multiplied as it
+is swung. A *rampage* ends — its stacks gone — when the rooms unjoin or
+no enemy is standing in the room.
+
+### The medic
+
+The third class (feature 76): a crewmate held up, and a shield over the
+pair of them. A medic sets out with the **laser pistol** in hand as
+everybody does, and **two medkits and four bandages** in its pack. Its
+own source of experience is the only one any class has: **5** every time
+it finishes bandaging a crewmate or treating a crewmate's trauma with a
+medkit — a crewmate being any crew member but itself, mercenaries
+included, counted when the task finishes and the bandage or the kit is
+used, once a task. An interrupted task, a bandage on itself and anybody
+who is not a medic doing the same give nothing.
+
+**The heal beam** is `E`, from the first level, on the crew member under
+the pointer: a player's Bim or a mercenary, never an enemy and never
+itself, within **6 tiles** and in the medic's line of sight. Pressed on
+the one it already holds, or on nothing, it unlinks. While it is linked
+the patient's open wounds and untreated traumas **do not bleed** and its
+blood comes back at **30 an hour** to full — so a patient out cold wakes
+when the blood passes the line under the ordinary rule — and the medic
+may walk but **fires nothing**. The beam *holds* a patient; it does not
+cure one: wounds stay open until bandaged, a trauma stays until a medkit
+treats it, and a part at nothing stays at nothing. It breaks when the
+patient leaves the range or the medic's sight, dies or leaves the room;
+when the medic goes down, is ordered to an errand — a plain walk keeps
+it — or unlinks. A line in the beam's green is drawn between the two on
+the deck, and the crew panel says who is held.
+
+**The surge** is `Q`, from the third level. The charge fills while the
+beam is on a patient that wants holding — under full blood, or with a
+wound open — and is full after **40 minutes** of such beaming; it keeps
+across fights and is lost only on the medic's death. Triggered with the
+beam linked and the charge full, for **8 minutes** the medic and every
+linked patient **take nothing from any hit**: no wound, no armour
+drained, no trauma, the whole of it absorbed. The charge empties;
+unlinking does not end a surge already running on the patient. A ring
+round the body says who is surging.
+
+| level | left | right |
+| --- | --- | --- |
+| 1 | **Heal beam** | — |
+| 2 | **Field dressing** — bandages in half the time | **Surgeon** — treats in half the time |
+| 3 | **Surge** — may trigger it | — |
+| 4 | **Long beam** — beam range ×1.5 | **Strong beam** — beam blood rate ×1.5 |
+| 5 | **Clean hands** — a trauma it treats leaves nothing lasting | **Steady hands** — a part it treats comes back to half again as far |
+| 6 | **Quick charge** — the surge charges ×1.5 faster | **Long surge** — a surge lasts ×1.5 |
+| 7 | **Mender** — a beamed patient's parts mend ten times as fast | — |
+| 8 | **Self-care** — its own wounds do not bleed while it beams | **Double link** — the beam holds two at once, each at the full rate |
+| 9 | **Gunner medic** — fires while beaming, at half the rate | **Closing surge** — a surge ending closes every open wound on the patient |
+| 10 | **Mass surge** — a surge covers every crew member within 3 tiles of the patient | **Field surgeon** — once a fight, treats a trauma with no medkit in half the time |
+
+Every talent applies to the medic who holds it alone: a crewmate
+bandaging the medic takes the ordinary ten minutes whatever the medic
+has learnt. *Mender* mends only the parts that are above nothing — a
+part at nothing waits for a medkit like anybody else's. *Double link*
+fills the charge off either patient and a surge covers both; a third
+patient takes the first's place. *Closing surge* closes wounds without
+giving any experience: only a finished bandage or medkit task does.
+*Field surgeon* comes back when the fight ends — the rooms unjoined, or
+no enemy standing in the room — like a soldier's *rampage*.
+
+### The tank
+
+The fourth class (feature 77): a wall the crew stand behind, and the
+enemy's fire drawn onto himself. A tank sets out with the laser pistol
+everybody does and a basic **helm, kevlar and leg guards** on — his kit
+comes with him and costs the hold nothing. His own source of experience
+is being shot at: every enemy shot or blow that **lands** on him is a
+fifth of a point, counted five for one, and the count starts again at
+every point. A hit counts after the roll and any dodge, whether his
+armour, a surge or his body took it; a miss, a dodge, and a hit from his
+own side — his soldier's grenade — count for nothing, and nobody but a
+tank gains anything from being hit.
+
+**His armour drains at half rate.** A piece's protection comes off a hit
+as it does for anybody, and what gets past it drains the piece at half
+the rate, so the same kevlar absorbs twice as much on him before it
+breaks — a kevlar with 20 left takes 40 on a tank and 20 on anyone else,
+and what the piece cannot take reaches the body exactly as before. The
+piece's stored health is never doubled: it moves between crew members
+unchanged.
+
+**Bulwark** is `E`, from the first level: a toggle. With the wall up he
+walks at **half pace**, and a crew member within **1.5 tiles** of him
+that he stands between and the shooter — nearer the shooter than the
+target is, and within 1.5 tiles of the line the shot travels — is **in
+cover** against it and dodges it half the time, exactly as behind
+sandbags. It is his own side's shelter and nobody else's: an enemy never
+takes cover behind him. A ring of shield round him says the wall is up,
+and the crew panel says so. It ends when `E` is pressed again or when he
+goes down.
+
+**Taunt** is `Q`, from the third level. For **6 minutes** every enemy
+within **10 tiles** that can see him, with him inside its weapon's
+reach, fires at **him** before any nearer target; melee chargers are
+unmoved by it until *magnet*. The next taunt waits **20 seconds** of the
+clock from the last. A dashed ring in the warning colour shows how far
+it reaches while it runs, and the crew panel counts the minutes left and
+then the cooldown.
+
+| level | left | right |
+| --- | --- | --- |
+| 1 | **Bulwark**; armour drains at half rate on him | — |
+| 2 | **Pack mule** — carries two loads a trip when hauling | **Plated** — armour protection ×1.5 on him |
+| 3 | **Taunt** — may use it | — |
+| 4 | **Breacher** — forces locked doors in half the time | **Unmovable** — never flees, and loses no pace to low blood while his kevlar holds |
+| 5 | **Wide wall** — bulwark reach ×2 | **Fast wall** — bulwark pace ×1.5 |
+| 6 | **Loud taunt** — taunt radius ×1.5 | **Long taunt** — a taunt lasts ×1.5 |
+| 7 | **Iron frame** — a hit rolled on his head lands on his body | — |
+| 8 | **Hold fast** — his wounds and traumas do not bleed while he taunts | **Guarded** — dodge +10% while the wall is up |
+| 9 | **Interpose** — a bolt that would hit somebody the wall shelters hits him | **Magnet** — a taunt turns every charging blade within its reach toward him |
+| 10 | **Fortress** — armour drain ×0.5 again, a quarter in all | **Rallying wall** — while he taunts, every crew member within 3 tiles drains armour at half rate too |
+
+Every talent applies to the tank who holds it alone, *rallying wall*
+being the one that reaches past him. *Interpose* resolves the redirected
+bolt against him as a fresh hit, armour and all, and it counts towards
+his experience; one he slips is gone rather than rerolled onto the crew
+member he shielded. *Unmovable* is the blood's halving alone: the legs
+he has lost and what a trauma costs him still tell.
+
+### The commander
+
+The fifth class (feature 78): everybody near him fights better, and the
+crew nobody is steering take his orders. A commander sets out with the
+laser pistol everybody does and nothing else. His own source of
+experience is **hiring**: a hire that goes through from the slot
+steering him is **10**, whether it is a mercenary at the dock or any
+other hire later. A refused hire is nothing, and a hire somebody else
+sends is nothing to him however near he stands.
+
+**He does two different things, and they reach different Bims.**
+
+**His aura and his rally lift every friendly Bim near him**, a player's
+own steered Bim as readily as a bot or a hired hand — never an enemy,
+and never himself.
+
+**His squad orders command only the squad**: every crew member **no
+player is steering**, the crew's own bots and the hired hands alike.
+They never move, hold or aim a Bim a player steers, and a Bim a player
+starts steering leaves the order at once. Every player keeps every order
+they have today: during the alarm anybody can still click a crewmate or
+a mercenary and send it somewhere, and a click like that takes that one
+out of the squad order until the next.
+
+**The aura** is on from the first level and needs no key. While he is
+conscious, every friendly Bim within **8 tiles** of him works a tenth
+faster, shoots a tenth straighter, and holds its ground for a while
+before it runs from a fight — where a dying body with no commander near
+it runs at once. Two commanders' auras never stack: a Bim takes the
+strongest one reaching it and no product of the two. A faint ring round
+him shows how far it reaches and a small ring marks every Bim in it.
+
+**Hiring is cheaper.** When the slot sending a hire is steering a
+commander fit to act, the mercenary's fee is **a quarter off**, rounded
+down to whole euros, and that is the fee written into the contract for
+the whole engagement — it stays that hand's price whatever happens to
+the commander afterwards. Dismissal still refunds nothing. The hire
+window shows the discounted fee while a commander is steered.
+
+**The three squad orders** work with the alarm and without it, so a crew
+can fall back to the airlock while a raider closes. Each reaches every
+squad member within **20 tiles** of him — the whole room from the
+seventh level — and a member under one is in combat mode like a
+recruited Bim: weapon drawn, errands stopped, needs draining as ever.
+
+- **Attack** (`E`) on the enemy under the pointer: every squad member
+  fires at that enemy ahead of any nearer target, and advances on it the
+  way a crew member who has seen an enemy for itself does — to cover
+  within range, peeking round it. The mark ends when that enemy is down
+  or dead.
+- **Fall back** (`X`) to the deck tile under the pointer, or to the
+  commander himself when the pointer is on nothing: every squad member
+  walks to a slot round that point — the same ring the crew gather in —
+  holding its fire while it walks, then holds there and shoots what it
+  can see.
+- **Stand ground** (`Z`): every squad member holds exactly where it
+  stands, shooting what it can see, never walking to cover and never
+  running.
+
+An order lasts until he gives another, gives the same one again (which
+lets the squad go), goes down or dies; it is called off by the rooms
+unjoining and by anything that moves the crew's indices — a hire, a
+dismissal. A bracket over each squad member says it is under one, with a
+thread to the enemy it was sent at or the tile it was called back to.
+
+**Rally** is `Q`, from the third level. For **6 minutes** every friendly
+Bim in his aura — a player's own included — shoots at ×1.3 and does not
+run at all. It stacks with the aura; two rallies do not stack with each
+other. The next rally waits **30 seconds** of the clock from the last,
+and the crew panel counts the minutes left and then the cooldown.
+
+| level | left | right |
+| --- | --- | --- |
+| 1 | the **aura**; hires at a quarter off; **Attack**, **Fall back**, **Stand ground** | — |
+| 2 | **Wide presence** — aura radius ×1.5 | **Strong presence** — each aura bonus ×1.5 (a tenth becomes three twentieths) |
+| 3 | **Rally** — may call it | — |
+| 4 | **Haggler** — hires at two fifths off | **Outfitter** — a mercenary he hires arrives with one basic piece it lacked, free |
+| 5 | **Focus fire** — the squad's odds against the enemy it attacks ×1.15 | **Pincer** — an attack may mark two enemies, the squad split between them |
+| 6 | **Long rally** — a rally lasts ×1.5 | **Quick rally** — the rally cooldown ×0.5 |
+| 7 | **Long reach** — a squad order reaches every squad member in the room | — |
+| 8 | **Steady ranks** — Bims in his aura bleed ×0.75 | **Double time** — Bims in his aura walk at pace ×1.1 |
+| 9 | **Relentless** — an attack's mark lasts until the enemy is dead, not merely down | **Grit** — during a rally, Bims in it lose no pace to wounds or traumas |
+| 10 | **Anchor** — the aura's bonuses double while he stands still | **Warcry** — a rally covers every friendly Bim in the room |
+
+Every talent applies to the commander who holds it alone. The **aura and
+rally talents reach every friendly Bim the aura or the rally reaches**,
+a player's own steered Bim included; the **squad talents reach only the
+squad**. *Outfitter*'s piece is the lowest basic one the mercenary is
+missing — helm, then kevlar, then leg guards — made for it at the hire,
+and the fee is not raised for it.
 
 ## The simulation
 
@@ -1727,6 +2176,9 @@ foot of a bed should cost nothing.
 | Right-click a fixture | The same menu, on the other button |
 | `1` | Select James (control group 1) — the one you steer |
 | `r` | Recruit James, or let him go — see below |
+| `q` / `e` | The steered crew member's **class actions**: an engineer **sets up a sentry** / **lays sandbags** on the deck tile under the pointer, out of a kit in its pack; a soldier **throws a grenade** at it (hold `q` to see the burst's radius) / **braces** where it stands, or stands easy; a medic **triggers its surge** / **beams the crew member under the pointer**, and unlinks when pressed on the one it holds or on nobody; a tank **taunts** / **puts its wall up**, or takes it down — see [Classes and levels](#classes-and-levels). The log says why not; nothing with a classless crew member |
+| `f` | **Attack**: the pointer turns into a red crosshair, and the next click on the deck plants an **attack banner** there. The crew nobody steers fight their way to it — taking the cover on the way, pushing on when nothing is in range — and hold it. `f` again, `Esc` or a right-click puts the crosshair away; the banner clicked where it already stands calls it off |
+| `t` | **Retreat**: the crew nobody steers fall back to the ship and hold there. `t` again and they go back to keeping to your side. Nobody leaves a fight *aboard* the ship — cornered in your own hull they stand and shoot whatever they were told |
 | Drag a box over one | Select it — either of them. Selecting shows its crew sheet |
 | Click one | Select it — a click is just a box of no size. Only James takes orders |
 | Click empty floor / `Esc` | Deselect — the right-hand panels go with it. `Esc` first shuts whatever is up, innermost first: a cell's rows, a fixture's menu, a grid window |
@@ -2443,7 +2895,11 @@ it — so a squad does not charge in headfirst after something only the
 log knows about. **And while the alarm is up you can order them**: click
 a crewmate to select it and right-click the deck, the way you send your
 own; it goes and holds that spot, shooting from it, until the alarm is
-over. In peace a crewmate takes no orders, as before. The alarm lasts
+over. In peace a crewmate takes no orders, as before. **A commander's
+squad orders sit beside that and never replace it**: they command the
+crew nobody is steering — attack, fall back, stand ground — and never
+move, hold or aim a Bim a player steers; a player's own click order to
+one of the squad takes that one out of the order until the next. The alarm lasts
 until nobody is near, nobody has seen an enemy and nobody has been hit
 for half a minute, when they go back to their errands — and to bed —
 however many of the station's people are still alive somewhere on it.
@@ -2868,16 +3324,17 @@ itself it sets off at 10% and none of this happens at all.
 
 | below | urge | what it does |
 | --- | --- | --- |
-| 25% | mild | hops about on the spot now and then |
-| 10% | medium | hops about more, and a **one in ten chance an hour** of wetting itself |
-| 0% | extreme | holds on for **one hour**, and then does not |
+| 25% | mild | the stage shows under the health bar; nothing on the deck |
+| 10% | medium | a **one in ten chance an hour** of wetting itself |
+| 0% | extreme | hops about on the spot, holds on for **one hour**, and then does not |
 
 Wetting itself takes the edge off — the need goes back to 45% — and leaves the
 Bim and the tile it is standing on in a state. The hour at the extreme urge ends
 in the worst of it: the need goes back to *full*, because relief is relief
 however it comes, the Bim is covered, and the tile under it goes straight to the
-bottom of the scale. The hopping is the only warning the player gets, which is
-why it is there.
+bottom of the scale. The hopping is kept for that last stage alone: it is the
+outward sign that the Bim has run out of room to hold on, and a Bim hopping
+about from the first twinge onwards said nothing the bars had not already said.
 
 ### The deck, tile by tile
 
@@ -3313,7 +3770,7 @@ And in `crates/app/src/`:
 | `names.rs` | Every word on the screen, indexed by the codes the crates hand over |
 | `shapes.rs` | The shape buffer, turned into a mesh |
 | `sound.rs` | Every sound, the way `names.rs` is every word: the room's cues and the world's events played as clips cut from `Sounds/` |
-| `settings.rs` | The Esc sheet: the UI scale, the audio volumes, and the keys |
+| `settings.rs` | The Esc sheet: the UI scale, the audio volumes, the keys, and the run put back to where it opened |
 | `canvas.rs`, `theme.rs`, `format.rs`, `dev.rs` | The pointer, the palette and widgets, numbers as words, and the smoke run |
 
 ### Getting about

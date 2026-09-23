@@ -22,7 +22,8 @@ use crate::draw::{Color, DrawList};
 use crate::editor::{Editor, Phase};
 use crate::game::Game;
 use crate::{paint, world_paint};
-use bims::character::{Hair, Look, Shade};
+use bims::character::{Hair, Look, Shade, Tint};
+use world::Class;
 
 /// "The lobby did not say." What a star or a station id is when there is
 /// none — `u32::MAX`, the same value the lobby uses for nothing, because
@@ -94,6 +95,19 @@ pub struct Session {
     /// whenever it changes ([`Session::dress_crew`]). Not saved — the
     /// look is on the character, and the save carries that.
     pub crew_hair: Vec<(Hair, Shade)>,
+    /// The colour each player chose to have their own Bim ringed in, in
+    /// slot order (feature 84, `bims::character::Tint`): put onto the
+    /// crew beside the hair ([`Session::dress_crew`]). Not saved — the
+    /// tint is on the character, and the save carries that.
+    pub crew_tints: Vec<Tint>,
+    /// The class each player chose for their crew member, in slot order
+    /// (feature 74, `world::class`): put onto the world when it opens
+    /// (`Session::start_game`, through `World::set_class`) and, in the
+    /// design phase, what the pool is worked out from
+    /// ([`Session::set_class`]). Nothing past the players; a slot not
+    /// said is `Class::None`. Playing, the world's `classes` are the
+    /// truth and a change is `Command::SetClass`.
+    pub crew_classes: Vec<Class>,
     list: DrawList,
 }
 
@@ -170,6 +184,8 @@ impl Session {
             spawn,
             crew_names: Vec::new(),
             crew_hair: Vec::new(),
+            crew_tints: Vec::new(),
+            crew_classes: Vec::new(),
             list: DrawList::new(),
         }
     }
@@ -226,7 +242,7 @@ impl Session {
                 height,
             )
         });
-        Session {
+        let mut session = Session {
             editor,
             game,
             seed,
@@ -234,8 +250,15 @@ impl Session {
             spawn,
             crew_names: Vec::new(),
             crew_hair: Vec::new(),
+            crew_tints: Vec::new(),
+            crew_classes: Vec::new(),
             list: DrawList::new(),
-        }
+        };
+        // Nobody went through the setup on this one, so the player's own
+        // Bim has the colour its slot deals it (feature 84); the hair is
+        // the look the index dealt, which is what it always was.
+        session.dress_crew();
+        session
     }
 
     /// The `combat` command's session: the simulation's spawn for `seed`,
@@ -291,9 +314,12 @@ impl Session {
             spawn,
             crew_names: Vec::new(),
             crew_hair: Vec::new(),
+            crew_tints: Vec::new(),
+            crew_classes: Vec::new(),
             list: DrawList::new(),
         };
         session.make_dock_hostile();
+        session.dress_crew();
         session
     }
 
@@ -311,6 +337,73 @@ impl Session {
         session
     }
 
+    /// The `droids` command (feature 83): [`Session::combat`] with the
+    /// arena **droid-held** instead of garrisoned. The ship, the crew and
+    /// the guns are `combat`'s own; the arena's people are gone and a
+    /// wave of machines stands about it instead, at `tier`, with the
+    /// reinforcement clock shortened to `reinforce` minutes so the next
+    /// wave can be watched arriving rather than waited two hours for.
+    ///
+    /// Turning the dock hostile is `combat`'s doing and is left as it is:
+    /// a held station is hostile whatever the list says
+    /// (`World::stance`), and the garrison it opened with is replaced by
+    /// the machines the moment `World::people_of` reads nought for it.
+    pub fn droids(
+        seed: u64,
+        tier: bims::combat::Tier,
+        reinforce: f64,
+        wave_max: Option<u32>,
+        waves: u32,
+        width: f32,
+        height: f32,
+    ) -> Session {
+        let mut session = Session::combat(seed, width, height);
+        if let (Some(n), Some(game)) = (wave_max, session.game.as_mut()) {
+            game.world.set_droid_wave_for_probe(n);
+        }
+        session.infest_the_dock_for_probe(tier, reinforce, waves);
+        session
+    }
+
+    /// The `droids_planet` command: the `test_planet` run — a random
+    /// galaxy, a system with friendly ground, the ship set down at the
+    /// settlement — with **the town** droid-held. Built by the screen,
+    /// which does the landing; this is the infesting half.
+    /// Every state a machine can be drawn in, laid out on the deck for
+    /// one picture — see `World::stage_droids_for_probe`. What
+    /// `BIMS_DROIDS=1` does.
+    pub fn stage_droids_for_probe(&mut self) -> bool {
+        self.game
+            .as_mut()
+            .is_some_and(|g| g.world.stage_droids_for_probe())
+    }
+
+    pub fn infest_the_dock_for_probe(
+        &mut self,
+        tier: bims::combat::Tier,
+        reinforce: f64,
+        waves: u32,
+    ) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let Some(id) = game.world.ship.state.station() else {
+            return false;
+        };
+        game.world.set_droid_tier_for_probe(tier);
+        game.world.set_droid_reinforce_minutes_for_probe(reinforce);
+        // Before `infest`, and before the first step: the count is fixed
+        // at the crew's first dock and never worked out again.
+        game.world.set_droid_waves_for_probe(waves);
+        game.world.infest(id);
+        // The room the crew are docked at was opened with the station's
+        // own people: it is reopened with the machines the next step,
+        // since `people_of` is nought for a held station now. Stepping
+        // once here would move the world before the first frame, so the
+        // wave is laid by the first step the screen takes.
+        true
+    }
+
     /// A session round a game read back from a save — see `crate::save`.
     pub(crate) fn resumed(
         editor: Editor,
@@ -319,6 +412,9 @@ impl Session {
         galaxy: u32,
         spawn: Option<(u32, u32)>,
     ) -> Session {
+        // No `dress_crew` here, deliberately: the hair and the colour
+        // (feature 84) are on the character and the save carries both,
+        // so dealing them again would throw away what was chosen.
         Session {
             editor,
             game: Some(game),
@@ -327,6 +423,8 @@ impl Session {
             spawn,
             crew_names: Vec::new(),
             crew_hair: Vec::new(),
+            crew_tints: Vec::new(),
+            crew_classes: Vec::new(),
             list: DrawList::new(),
         }
     }
@@ -419,6 +517,14 @@ impl Session {
             .is_some_and(|g| g.world.stage_fight_for_probe())
     }
 
+    /// `n` of the station alongside dead where they stand, the room
+    /// built again over the bodies — see `World::lay_graves_for_probe`.
+    pub fn lay_graves_for_probe(&mut self, n: u32) -> bool {
+        self.game
+            .as_mut()
+            .is_some_and(|g| g.world.lay_graves_for_probe(n))
+    }
+
     /// A raid: contact made, and with `dock` the raider tied to the ship
     /// and its boarders on their way — see `World::raid_for_probe`; what
     /// it said goes into the log.
@@ -451,6 +557,36 @@ impl Session {
             for who in 0..game.world.aboard.crew_count() as usize {
                 game.world.aboard.room.kill_for_probe(who);
             }
+        }
+    }
+
+    /// The first `n` of the crew put into a **dying state**: a part of
+    /// each taken to nothing, so its trauma is rolled and untreated, and
+    /// a couple of wounds opened besides — the body a red cross stands
+    /// over on the deck and the peril block on the panel counts down
+    /// (`BIMS_DYING=n`). Slot 0 is left alone unless `n` reaches the
+    /// whole crew: the player's own Bim walking about is what the
+    /// picture is taken from.
+    ///
+    /// The part is taken in turn — the legs, the body, the head — so a
+    /// crew of three shows three different traumas rather than three of
+    /// one, and the damage is far past anything worn, since armour takes
+    /// a hit before the body does.
+    pub fn maim_for_probe(&mut self, n: usize) {
+        let Some(game) = self.game.as_mut() else {
+            return;
+        };
+        let crew = game.world.aboard.crew_count() as usize;
+        let parts = [
+            bims::health::Part::Legs,
+            bims::health::Part::Body,
+            bims::health::Part::Head,
+        ];
+        for i in 0..n.min(crew) {
+            let who = if n >= crew { i } else { (i + 1).min(crew - 1) };
+            let part = parts[i % parts.len()];
+            game.world.aboard.room.wound(who, part, 1000.0);
+            game.world.aboard.room.wound(who, part, 1000.0);
         }
     }
 
@@ -514,6 +650,53 @@ impl Session {
             self.editor.view.height,
         );
         self.dress_crew();
+        self.class_crew();
+    }
+
+    /// Put the classes the players chose onto the world as it opens
+    /// (`crew_classes`): slot *i* gets what was said for it, through the
+    /// same `World::set_class` a `Command::SetClass` goes through, so an
+    /// engineer's kits are in its pack from the first step. Nothing
+    /// before the world opens.
+    fn class_crew(&mut self) {
+        let Some(game) = &mut self.game else {
+            return;
+        };
+        for (slot, &class) in self.crew_classes.iter().enumerate() {
+            let _ = game.world.set_class(slot as u32, class);
+        }
+    }
+
+    /// A player's class, chosen in the design phase: kept for the world to
+    /// open with. The pool is untouched — every Bim brings the same money
+    /// whatever its class (feature 75: a class owns abilities, never
+    /// money). Playing, a change is `Command::SetClass` instead, and this
+    /// does nothing. Whether anything changed.
+    pub fn set_class(&mut self, slot: u32, class: Class) -> bool {
+        if self.game.is_some() || slot >= self.editor.players {
+            return false;
+        }
+        let slot = slot as usize;
+        if self.crew_classes.len() <= slot {
+            self.crew_classes.resize(slot + 1, Class::None);
+        }
+        if self.crew_classes[slot] == class {
+            return false;
+        }
+        self.crew_classes[slot] = class;
+        true
+    }
+
+    /// A player's class: the world's while playing, else what was chosen.
+    pub fn class_of(&self, slot: u32) -> Class {
+        match &self.game {
+            Some(game) => game.world.class_of(slot),
+            None => self
+                .crew_classes
+                .get(slot as usize)
+                .copied()
+                .unwrap_or_default(),
+        }
     }
 
     /// Put the hair the players chose onto their crew members
@@ -532,6 +715,20 @@ impl Session {
         for (slot, &(hair, shade)) in self.crew_hair.iter().enumerate().take(players.min(crew)) {
             room.set_look(slot, Look::of(slot).with_hair(hair, shade));
         }
+        // And the ring under each player's own (feature 84): slot *i*'s
+        // colour, or the *i*th of `Tint::ALL` for a slot that has not
+        // said, so every player's Bim is marked and no two share one
+        // whatever the lobby did. Everybody past the players — the bots,
+        // the hires — is left with none, which is what draws no circle.
+        let tints: Vec<Tint> = (0..players)
+            .map(|slot| {
+                self.crew_tints
+                    .get(slot)
+                    .copied()
+                    .unwrap_or(Tint::ALL[slot % Tint::ALL.len()])
+            })
+            .collect();
+        room.set_tints(&tints);
     }
 
     /// The live ship: the game's if there is one, the design being laid out
@@ -896,6 +1093,17 @@ impl Session {
     pub fn resident_station(&self) -> Option<u32> {
         let game = self.game.as_ref()?;
         game.world.residents.as_ref().map(|r| r.station)
+    }
+
+    /// Which kind of machine that body of a station's room is
+    /// (`bims::droid::DroidKind::code`), or `None` for one of its
+    /// people: what the app writes over its head instead of a name,
+    /// since a droid is a machine and has none (feature 83).
+    pub fn resident_droid(&self, who: u32) -> Option<u32> {
+        let game = self.game.as_ref()?;
+        let room = &game.world.residents.as_ref()?.aboard.room;
+        let i = (who as usize).checked_sub(room.crew_count() as usize)?;
+        room.droid(i).map(|d| d.kind.code())
     }
 
     /// Where a resident is, in the ship view's camera units about the ship.

@@ -231,9 +231,10 @@ pub enum WorldEvent {
     /// what it needed.
     ResearchDropped { node: u32 },
     /// A crew member reached a level of its class (feature 74,
-    /// `crate::class`): who, and the level. Said once a level; a pick
-    /// level leaves a pick pending until `Command::PickTalent`.
-    LevelUp { who: u32, level: u32 },
+    /// `crate::class`): who, `Class`'s code, and the level. Said once a
+    /// level; a pick level leaves a pick pending until
+    /// `Command::PickTalent`.
+    LevelUp { who: u32, class: u32, level: u32 },
     /// A crew member picked a talent: who, and `crate::class::Talent`'s
     /// code.
     TalentPicked { who: u32, talent: u32 },
@@ -249,6 +250,45 @@ pub enum WorldEvent {
     /// A piece of armour was repaired at the workbench — the armourer's
     /// session done — by `bims::combat::ArmourKind`'s code.
     Repaired { kind: u32 },
+    /// A soldier braced, or stood easy again (feature 75): who, and
+    /// which.
+    Braced { who: u32, on: bool },
+    /// A soldier threw a grenade: who.
+    Thrown { who: u32 },
+    /// A medic's heal beam linked to a crew member, or unlinked (feature
+    /// 76): who, and the patient — `None` for the link broken, by the
+    /// medic or by the world (out of range, out of sight, down).
+    Beamed { who: u32, patient: Option<u32> },
+    /// A medic triggered a surge: who.
+    Surged { who: u32 },
+    /// A tank stood as a wall, or stood down again (feature 77): who,
+    /// and which.
+    Bulwarked { who: u32, on: bool },
+    /// A tank taunted: who.
+    Taunted { who: u32 },
+    /// A commander sent the squad, or released it (feature 78): who,
+    /// and `crate::SquadKind`'s code — `u32::MAX` for the order called
+    /// off.
+    Squadded { who: u32, kind: u32 },
+    /// A commander rallied: who.
+    Rallied { who: u32 },
+    /// A fresh wave of machines has landed at a droid-held station
+    /// (feature 83): which station. Everybody's speed request goes
+    /// back to 1x with it, the way raid contact does.
+    DroidReinforcements { station: u32 },
+    /// The last machine of the last wave at a droid-held station has
+    /// been destroyed: which station. Said once, and what
+    /// `World::droid_station_cleared` answers for afterwards.
+    DroidStationCleared { station: u32 },
+    /// A machine has been destroyed: which station, which body of its
+    /// room, and `bims::droid::DroidKind`'s code — said in place of
+    /// [`WorldEvent::EnemyDown`] for a machine, since a droid has no
+    /// name and the log would otherwise call one Sanne.
+    DroidDown { station: u32, who: u32, kind: u32 },
+    /// A player gave their bots a standing order (feature 84): which
+    /// player's crew member, and `crate::Standing`'s code — nought for
+    /// the order called off, which is the bots back to following.
+    Ordered { who: u32, kind: u32 },
 }
 
 /// Why a command did nothing.
@@ -422,6 +462,59 @@ pub enum Refusal {
     /// Something an engineer's talent gates, asked for without the
     /// talent: a repair without *armourer*.
     NoTalent = 51,
+    /// A pick by a crew member with no class.
+    NoClass = 52,
+    /// A brace or a throw by a crew member that is not a soldier
+    /// (feature 75).
+    NotASoldier = 53,
+    /// A throw with no grenade in the pack.
+    NoGrenade = 54,
+    /// A throw before the soldier's third level.
+    NoGrenadesYet = 55,
+    /// A throw within the cooldown of the last, or a taunt within the
+    /// cooldown of the last.
+    CoolingDown = 56,
+    /// A throw at a tile beyond the grenade's range.
+    OutOfThrowRange = 57,
+    /// A throw at a tile with a wall or a shut door in the way.
+    NoLineToTile = 58,
+    /// A throw at a tile that is not deck of the room.
+    CantThrowThere = 59,
+    /// A beam or a surge by a crew member that is not a medic (feature
+    /// 76).
+    NotAMedic = 60,
+    /// A beam with no crew member under the pointer.
+    NoPatient = 61,
+    /// A beam on somebody that is not a crewmate: the medic itself, or
+    /// an enemy.
+    NotACrewmate = 62,
+    /// A beam on a crewmate beyond the beam's range.
+    OutOfBeamRange = 63,
+    /// A beam on a crewmate the medic cannot see.
+    NoSightOfPatient = 64,
+    /// A surge before the medic's third level.
+    NoSurgeYet = 65,
+    /// A surge with the charge not full.
+    NotCharged = 66,
+    /// A surge with no patient linked.
+    NotLinked = 67,
+    /// A bulwark or a taunt by a crew member that is not a tank
+    /// (feature 77).
+    NotATank = 68,
+    /// A taunt before the tank's third level.
+    NoTauntYet = 69,
+    /// A squad order or a rally by a crew member that is not a
+    /// commander (feature 78).
+    NotACommander = 70,
+    /// A rally before the commander's third level.
+    NoRallyYet = 71,
+    /// A squad order with nobody of the squad in range of him.
+    NoSquadInRange = 72,
+    /// An attack with no enemy where the pointer was.
+    NoEnemyThere = 73,
+    /// An attack banner put down on something that is not deck of the
+    /// crew's room (feature 84).
+    NoGroundThere = 74,
 }
 
 impl Refusal {
@@ -504,6 +597,18 @@ impl WorldEvent {
             WorldEvent::DeployableLost { .. } => 72,
             WorldEvent::Refilled { .. } => 73,
             WorldEvent::Repaired { .. } => 74,
+            WorldEvent::Braced { .. } => 75,
+            WorldEvent::Thrown { .. } => 76,
+            WorldEvent::Beamed { .. } => 77,
+            WorldEvent::Surged { .. } => 78,
+            WorldEvent::Bulwarked { .. } => 79,
+            WorldEvent::Taunted { .. } => 80,
+            WorldEvent::Squadded { .. } => 81,
+            WorldEvent::Rallied { .. } => 82,
+            WorldEvent::DroidReinforcements { .. } => 83,
+            WorldEvent::DroidStationCleared { .. } => 84,
+            WorldEvent::DroidDown { .. } => 85,
+            WorldEvent::Ordered { .. } => 86,
         }
     }
 
@@ -516,13 +621,22 @@ impl WorldEvent {
             | WorldEvent::Aborted { slot }
             | WorldEvent::CastingOff { slot }
             | WorldEvent::Undocking { slot } => slot as i64,
-            WorldEvent::Docking { station } => station as i64,
+            WorldEvent::Docking { station }
+            | WorldEvent::DroidReinforcements { station }
+            | WorldEvent::DroidStationCleared { station } => station as i64,
             WorldEvent::Crafted { recipe } | WorldEvent::CraftLost { recipe } => recipe as i64,
             WorldEvent::Mined { rock, ore, galvum } => {
                 (rock + 1_000 * ore + 1_000_000 * galvum) as i64
             }
             // The station in the thousands, the person in the units.
             WorldEvent::EnemyDown { station, who } => (who + 1_000 * station) as i64,
+            // The kind in the hundreds and the body under it, the way
+            // `CrewHit` packs a part with a crew member. The station is
+            // left out: the log says which machine, not whose.
+            WorldEvent::DroidDown { who, kind, .. } => (who + 100 * kind) as i64,
+            // The order's code in the hundreds, nought being the
+            // following every slot starts on.
+            WorldEvent::Ordered { who, kind } => (who as i64) + 100 * (kind as i64),
             // The part in the tens, the person in the units: three parts,
             // and a crew is never ten.
             WorldEvent::CrewHit { who, part } => (who + 10 * part) as i64,
@@ -592,13 +706,30 @@ impl WorldEvent {
             WorldEvent::Plundered { who, units } => (who as i64) + 100 * (units as i64),
             // The level, the talent and the kind in the hundreds, the same
             // way: a crew is never a hundred.
-            WorldEvent::LevelUp { who, level } => (who as i64) + 100 * (level as i64),
+            WorldEvent::LevelUp { who, level, .. } => (who as i64) + 100 * (level as i64),
             WorldEvent::TalentPicked { who, talent } => (who as i64) + 100 * (talent as i64),
             WorldEvent::Deployed { who, kind } | WorldEvent::PackedUp { who, kind } => {
                 (who as i64) + 100 * (kind as i64)
             }
             WorldEvent::DeployableLost { kind } | WorldEvent::Repaired { kind } => kind as i64,
-            WorldEvent::Refilled { who } => who as i64,
+            WorldEvent::Refilled { who }
+            | WorldEvent::Thrown { who }
+            | WorldEvent::Surged { who }
+            | WorldEvent::Taunted { who }
+            | WorldEvent::Rallied { who } => who as i64,
+            // The order's code in the hundreds, and nought for the
+            // order called off: a crew is never a hundred.
+            WorldEvent::Squadded { who, kind } => {
+                (who as i64) + 100 * if kind == u32::MAX { 0 } else { kind as i64 + 1 }
+            }
+            WorldEvent::Braced { who, on } | WorldEvent::Bulwarked { who, on } => {
+                (who as i64) + 100 * i64::from(on)
+            }
+            // The patient plus one in the hundreds: nought is the link
+            // broken.
+            WorldEvent::Beamed { who, patient } => {
+                (who as i64) + 100 * patient.map_or(0, |p| p as i64 + 1)
+            }
         }
     }
 }

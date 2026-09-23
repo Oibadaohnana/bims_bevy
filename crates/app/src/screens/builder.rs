@@ -18,9 +18,10 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use bims::character::{Hair, Look, Shade};
+use bims::character::{Hair, Look, Shade, Tint};
 use lobby::{Lobby, NONE};
 use wire::To;
+use world::Class;
 
 use crate::canvas::{paint_shapes, rect_of, root_ui};
 use crate::format::{euros, roman};
@@ -94,6 +95,13 @@ pub struct Settings {
     /// How each player wears their Bim's hair, in slot order, dealt at
     /// Start like the names (feature 62). Empty is every slot's dealt look.
     pub hair: Vec<(Hair, Shade)>,
+    /// Each player's class for their Bim, in slot order, dealt at Start
+    /// like the hair (feature 74). Empty is every slot with none.
+    pub classes: Vec<Class>,
+    /// Which colour each player's own Bim is ringed in, in slot order,
+    /// dealt at Start like the hair (feature 84). Empty is every slot
+    /// its own of `Tint::ALL`.
+    pub tints: Vec<Tint>,
 }
 
 impl Default for Settings {
@@ -108,6 +116,8 @@ impl Default for Settings {
             slot: 0,
             names: Vec::new(),
             hair: Vec::new(),
+            classes: Vec::new(),
+            tints: Vec::new(),
         }
     }
 }
@@ -198,6 +208,16 @@ pub struct BuilderScreen {
     /// name, said to the room the same way (`Online::say_bim_hair`).
     bim_hair: (Hair, Shade),
     said_bim_hair: Option<(Hair, Shade)>,
+    /// Which colour this player's own Bim is ringed in, as picked
+    /// (feature 84): kept like the hair, said the same way
+    /// (`Online::say_bim_tint`), and a colour another player in the
+    /// lobby has taken is not offered.
+    bim_tint: Tint,
+    said_bim_tint: Option<Tint>,
+    /// What class this player's Bim is, as picked: kept like the hair,
+    /// said to the room the same way (`Online::say_bim_class`).
+    bim_class: Class,
+    said_bim_class: Option<Class>,
     /// The chooser's picture of it, drawn afresh each frame it is shown.
     portrait: bims::draw::DrawList,
     join_note: Option<Remark>,
@@ -259,7 +279,11 @@ fn open(mut commands: Commands, settings: Res<Settings>) {
         bim_name: crate::dev::bim_name(),
         said_bim_name: None,
         bim_hair: crate::dev::bim_hair(),
+        bim_tint: crate::dev::bim_tint(),
+        said_bim_tint: None,
         said_bim_hair: None,
+        bim_class: crate::dev::bim_class(),
+        said_bim_class: None,
         portrait: bims::draw::DrawList::new(),
         join_note: None,
         world_note: None,
@@ -348,6 +372,7 @@ fn frame(
                 // already in.
                 screen.said_bim_name = None;
                 screen.said_bim_hair = None;
+                screen.said_bim_tint = None;
             }
             Event::Roster => {
                 // A joiner has no settings yet; the host says them again.
@@ -355,6 +380,7 @@ fn frame(
                 // Nor anybody's Bim's name: everybody says theirs again.
                 screen.said_bim_name = None;
                 screen.said_bim_hair = None;
+                screen.said_bim_tint = None;
                 // And who came or went, by name.
                 let now_here: Vec<wire::PeerId> = online.peers.iter().map(|p| p.id).collect();
                 for p in &online.peers {
@@ -414,6 +440,8 @@ fn frame(
                     slots,
                     names,
                     hair,
+                    classes,
+                    tints,
                 } if Some(from) == online.host => {
                     wire.onto(settings);
                     online.slots = slots;
@@ -437,6 +465,23 @@ fn frame(
                         }
                     }
                     settings.hair[mine] = screen.bim_hair;
+                    // And its class, the same way.
+                    settings.classes = classes
+                        .into_iter()
+                        .map(|c| Class::from_code(c).unwrap_or_default())
+                        .collect();
+                    if settings.classes.len() <= mine {
+                        settings.classes.resize(mine + 1, Class::None);
+                    }
+                    settings.classes[mine] = screen.bim_class;
+                    // And its colour, the same way (feature 84).
+                    settings.tints = tints.into_iter().map(Tint::from_code).collect();
+                    if settings.tints.len() <= mine {
+                        for s in settings.tints.len()..=mine {
+                            settings.tints.push(Tint::ALL[s % Tint::ALL.len()]);
+                        }
+                    }
+                    settings.tints[mine] = screen.bim_tint;
                     commands.insert_resource(crate::screens::designer::Start(settings.clone()));
                     go = Some(Screen::Design);
                 }
@@ -485,6 +530,23 @@ fn frame(
         if screen.said_bim_hair != Some(screen.bim_hair) {
             online.say_bim_hair(screen.bim_hair.0, screen.bim_hair.1);
             screen.said_bim_hair = Some(screen.bim_hair);
+        }
+        // And the colour (feature 84). One somebody else took while this
+        // player was looking elsewhere is stepped off first, so no two
+        // Bims are ringed alike whoever said last.
+        let taken = online.tints_taken();
+        if taken.contains(&screen.bim_tint)
+            && let Some(free) = Tint::ALL.iter().copied().find(|t| !taken.contains(t))
+        {
+            screen.bim_tint = free;
+        }
+        if screen.said_bim_tint != Some(screen.bim_tint) {
+            online.say_bim_tint(screen.bim_tint);
+            screen.said_bim_tint = Some(screen.bim_tint);
+        }
+        if screen.said_bim_class != Some(screen.bim_class) {
+            online.say_bim_class(screen.bim_class);
+            screen.said_bim_class = Some(screen.bim_class);
         }
     }
 
@@ -734,6 +796,12 @@ fn frame(
             let mut hair = online.deal_hair(&slots);
             hair[settings.slot as usize] = screen.bim_hair;
             settings.hair = hair.clone();
+            let mut classes = online.deal_classes(&slots);
+            classes[settings.slot as usize] = screen.bim_class;
+            settings.classes = classes.clone();
+            let mut tints = online.deal_tints(&slots);
+            tints[settings.slot as usize] = screen.bim_tint;
+            settings.tints = tints.clone();
             online.send(
                 To::All,
                 &Packet::Start {
@@ -741,6 +809,8 @@ fn frame(
                     slots,
                     names,
                     hair,
+                    classes: classes.iter().map(|c| c.code()).collect(),
+                    tints: tints.iter().map(|t| t.code()).collect(),
                 },
             );
         } else {
@@ -748,6 +818,8 @@ fn frame(
             settings.slot = 0;
             settings.names = vec![wire::tidy_name(&screen.bim_name)];
             settings.hair = vec![screen.bim_hair];
+            settings.classes = vec![screen.bim_class];
+            settings.tints = vec![screen.bim_tint];
         }
         commands.insert_resource(crate::screens::designer::Start(settings.clone()));
         go = Some(Screen::Design);
@@ -830,6 +902,8 @@ fn tool(
                     .desired_width(180.0),
             );
             hair_chooser(ui, screen);
+            tint_chooser(ui, screen, &online.tints_taken());
+            class_chooser(ui, screen);
             screen.net.push(online, settings, false);
         }
         Tab::World => world(ui, screen, settings, online, editable, now),
@@ -846,7 +920,8 @@ const PORTRAIT_ZOOM: f32 = 0.9;
 /// deck, a button a style and a swatch a colour, everybody's to pick like
 /// the name. The portrait is the room's own drawing of the Bim
 /// (`character::portrait`), facing up the screen, so what is chosen is
-/// what is seen.
+/// what is seen — in the class's own kit (feature 81), since the class
+/// chosen below it is worn on the deck.
 fn hair_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
     ui.add_space(6.0);
     ui.label(egui::RichText::new(BIM_HAIR).strong());
@@ -865,6 +940,7 @@ fn hair_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
         screen.portrait.clear();
         bims::character::portrait(
             Look::of(0).with_hair(hair, shade),
+            screen.bim_class.outfit(),
             -std::f32::consts::FRAC_PI_2,
             &mut screen.portrait,
         );
@@ -927,6 +1003,87 @@ fn hair_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
             });
         });
     });
+}
+
+/// The colour chooser (feature 84): a swatch a colour, the picked one
+/// ringed, and one another player in the lobby has taken greyed and
+/// dead — a colour is one player's, which is what makes it worth
+/// drawing under their Bim at all. Solo there is nobody to clash with
+/// and every swatch is live.
+fn tint_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen, taken: &[Tint]) {
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(BIM_TINT).strong());
+    ui.label(
+        egui::RichText::new(BIM_TINT_NOTE)
+            .small()
+            .color(theme::MUTED),
+    );
+    ui.horizontal(|ui| {
+        for &tint in &Tint::ALL {
+            let gone = taken.contains(&tint);
+            let (r, g, b) = tint.rgb();
+            let colour =
+                egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8);
+            let colour = if gone {
+                colour.gamma_multiply(0.25)
+            } else {
+                colour
+            };
+            let (swatch, response) = ui.allocate_exact_size(
+                egui::vec2(24.0, 24.0),
+                if gone {
+                    egui::Sense::hover()
+                } else {
+                    egui::Sense::click()
+                },
+            );
+            ui.painter().circle_filled(swatch.center(), 10.0, colour);
+            if tint == screen.bim_tint {
+                ui.painter().circle_stroke(
+                    swatch.center(),
+                    11.5,
+                    egui::Stroke::new(2.0, theme::INK),
+                );
+            }
+            if gone {
+                response.on_hover_text(BIM_TINT_TAKEN);
+            } else if response.clicked() {
+                screen.bim_tint = tint;
+            }
+        }
+        ui.label(egui::RichText::new(tint_name(screen.bim_tint)).color(theme::MUTED));
+    });
+}
+
+/// The class chooser (feature 74): a button a class, everybody's to pick
+/// like the hair, with a line under it saying what the class does and
+/// what it brings to the pool. What is picked goes with the slot at
+/// Start and onto the world as it opens; playing, the crew panel's
+/// own picker changes it through `Command::SetClass` until the first
+/// undock.
+fn class_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(BIM_CLASS).strong());
+    ui.label(
+        egui::RichText::new(BIM_CLASS_NOTE)
+            .small()
+            .color(theme::MUTED),
+    );
+    ui.horizontal(|ui| {
+        for class in Class::ALL {
+            let on = class == screen.bim_class;
+            let b = egui::Button::new(class_name(class)).min_size(egui::vec2(96.0, 22.0));
+            let b = if on { b.fill(theme::RAISED_ON) } else { b };
+            if ui.add(b).clicked() {
+                screen.bim_class = class;
+            }
+        }
+    });
+    ui.label(
+        egui::RichText::new(class_tip(screen.bim_class))
+            .small()
+            .color(theme::MUTED),
+    );
 }
 
 /// A row of mutually exclusive choices, each one a number written into the

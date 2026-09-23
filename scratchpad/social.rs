@@ -172,7 +172,7 @@ fn main() {
         let mut bubbles = 0;
         let mut topics = std::collections::BTreeSet::new();
         for _ in 0..(7 * FRAMES_PER_DAY) {
-            game.update(STEP);
+            game.simulate(STEP);
             for w in 0..CREW {
                 let now = game.activity(w) == JOB_CHAT;
                 if now && !talking[w] {
@@ -240,7 +240,7 @@ fn main() {
             // Re-pinned every frame: the other Bim will come over for a word
             // and that would put the clock straight back to nothing.
             game.leave_alone_for_probe(PLAYER, days);
-            game.update(STEP);
+            game.simulate(STEP);
             sat |= game.broken_down_for_probe(PLAYER);
         }
         let diary = |what: What| {
@@ -289,7 +289,7 @@ fn main() {
         let mut game = Game::new(seed, 960.0, 640.0);
         for _ in 0..(3 * FRAMES_PER_DAY) {
             game.leave_alone_for_probe(PLAYER, 13.5);
-            game.update(STEP);
+            game.simulate(STEP);
             if !game.is_alive(PLAYER) {
                 died += 1;
                 break;
@@ -339,7 +339,7 @@ fn timed_walk(days: f32) -> u32 {
     assert!(game.send_for_probe(PLAYER, to), "no route for the walk");
     for f in 0..(2 * 60 * 60) {
         game.leave_alone_for_probe(PLAYER, days);
-        game.update(STEP);
+        game.simulate(STEP);
         if (game.bim_pos(PLAYER) - to).len() < 8.0 {
             return f;
         }

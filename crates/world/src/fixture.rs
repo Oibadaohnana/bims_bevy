@@ -40,8 +40,21 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// went in: the cargo is one slot longer, the research tree one node,
 /// and a station's key is a tier (`World::station_keys`), and again
 /// when a system got a memory (feature 71, `crate::memory`): the losses
-/// and the systems left are hashed whole after the plunder.
-pub const REFERENCE_CHECKSUM: u64 = 0x_b522_21d1_8990_3e39;
+/// and the systems left are hashed whole after the plunder, and again
+/// when the machines went in (feature 83, `crate::droid`): which
+/// stations they hold and the state of each is hashed after the
+/// reinforcements, with the tier they come at, the reinforcement clock
+/// and the wave cap.
+/// And again when every player got two standing orders for the bots
+/// that follow them (feature 84, `crate::orders`): one `Standing` a
+/// player slot, hashed after the squad order — an order moves bodies,
+/// so two clients that disagree about it disagree about where the crew
+/// are standing.
+/// And again when the dead started staying where they fell (feature 85,
+/// `crate::memory`): the graves after the losses — whose deck, where on
+/// it and what is still on the body — and the nodes the ship has been
+/// at after them, both for the live system and inside every memory.
+pub const REFERENCE_CHECKSUM: u64 = 0x_f766_3dcf_74a2_5cbf;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

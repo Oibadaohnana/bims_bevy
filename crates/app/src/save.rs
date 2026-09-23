@@ -20,13 +20,25 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use bevy::prelude::Resource;
 use bevy_egui::egui;
 
+use crate::names::{RESTART_AGAIN, RESTART_LINE};
 use crate::screens::station::valid_name;
 use crate::theme;
 
 /// What a save is called when nothing has been typed.
 pub const DEFAULT_NAME: &str = "game";
+
+/// The run as it began: a save that was never written to disk, made the
+/// moment the game screen opened (`screens::game::remember_beginning`)
+/// and read back by the Esc sheet's Restart (feature 79). It is a save
+/// like any other — the same text, the same `Session::restore` — so a
+/// restart and a load are the same thing happening, and the situation a
+/// command puts you in (`combat_tank`'s fight, `raid`'s warning, a
+/// landing) is a thing you can go back to without leaving the window.
+#[derive(Resource)]
+pub struct Beginning(pub String);
 
 /// One file on disk.
 #[derive(Clone, Debug)]
@@ -44,6 +56,9 @@ pub enum Request {
     Save(String),
     /// Read the game at `path` and play it.
     Load(PathBuf),
+    /// Play the run from the beginning again: the world [`Beginning`]
+    /// kept at the open, read back the way a load is (feature 79).
+    Restart,
 }
 
 /// The pages' state: the name being typed, the files found the last time
@@ -275,6 +290,31 @@ pub fn load_page(ui: &mut egui::Ui, saves: &mut Saves) -> Option<Request> {
             .small()
             .color(theme::MUTED),
     );
+    ui.add_space(4.0);
+    note(ui, saves);
+    request
+}
+
+/// The Restart page: what a restart goes back to, and the button that
+/// does it. It asks rather than doing it on the menu's click, because a
+/// run thrown away is not a thing to do by a slip of the pointer.
+/// `can` is whether there is a beginning to go back to and this end may
+/// — the design phase has no world yet, and a guest's world is the
+/// host's (feature 67) — and the button says why not instead.
+pub fn restart_page(ui: &mut egui::Ui, saves: &Saves, can: bool, why_not: &str) -> Option<Request> {
+    let mut request = None;
+    ui.set_min_width(360.0);
+    ui.label(egui::RichText::new(RESTART_LINE).color(theme::MUTED));
+    ui.add_space(8.0);
+    let button = ui
+        .add_enabled(can, egui::Button::new(RESTART_AGAIN))
+        .on_disabled_hover_text(why_not);
+    if button.clicked() {
+        request = Some(Request::Restart);
+    }
+    if !can {
+        ui.label(egui::RichText::new(why_not).small().color(theme::MUTED));
+    }
     ui.add_space(4.0);
     note(ui, saves);
     request

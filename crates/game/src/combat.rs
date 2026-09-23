@@ -123,7 +123,7 @@ use crate::cue::{Cue, Cued};
 use crate::door;
 use crate::draw::{Color, DrawList};
 use crate::health::Part;
-use crate::math::{Rect, Vec2};
+use crate::math::{Rect, Vec2, vec2};
 use crate::nav::Nav;
 use crate::rng::Rng;
 use crate::room::TILE;
@@ -142,6 +142,14 @@ const MISS_BY: f32 = HIT_RADIUS + 22.0;
 pub use crate::balance::{
     DODGE_IN_COVER, FIST_DAMAGE, MELEE_PERIOD, MELEE_RANGE, WALKING_ACCURACY,
 };
+
+/// The Unmaker's bolt (feature 83): longer than a pistol's, with the
+/// discharge jagging off the core in [`LANCE_KINKS`] steps, each thrown
+/// [`LANCE_THROW`] room units off the line.
+const LANCE_LENGTH: f32 = 46.0;
+const LANCE_GLOW: f32 = 9.0;
+const LANCE_KINKS: usize = 5;
+const LANCE_THROW: f32 = 5.0;
 
 /// How long a pistol's bolt is drawn, in room units, and how thick.
 const BOLT_LENGTH: f32 = 24.0;
@@ -185,9 +193,18 @@ pub enum WeaponKind {
     SniperRifle = 4,
     /// A blade with a laser edge: used within reach, and a cut bleeds.
     Schword = 5,
+    /// A Husk's claws, built into the machine (feature 83): they snap
+    /// shut within reach, and are never a thing anybody carries.
+    Claw = 6,
+    /// A Warden's lance, built in the same way: it strips the armour off
+    /// a part rather than opening the body under it.
+    Unmaker = 7,
 }
 
 impl WeaponKind {
+    /// The five a **body** can carry: what a bench makes, what the hold
+    /// counts, what a hand holds and what a loot finds. A droid's arms
+    /// are not among them — see [`WeaponKind::BUILT_IN`].
     pub const ALL: [WeaponKind; 5] = [
         WeaponKind::LaserPistol,
         WeaponKind::Shotgun,
@@ -196,33 +213,61 @@ impl WeaponKind {
         WeaponKind::Schword,
     ];
 
+    /// The arms that are part of a machine (feature 83): never made,
+    /// never bought, never in a hold or a pack. [`WeaponKind::resource`]
+    /// is `None` for each, which is what keeps them out of everything
+    /// the hold does.
+    pub const BUILT_IN: [WeaponKind; 2] = [WeaponKind::Claw, WeaponKind::Unmaker];
+
+    /// Every kind there is: the carried five and the built-in two. What
+    /// the app names, and what a code is read back against.
+    pub const EVERY: [WeaponKind; 7] = [
+        WeaponKind::LaserPistol,
+        WeaponKind::Shotgun,
+        WeaponKind::AutoRifle,
+        WeaponKind::SniperRifle,
+        WeaponKind::Schword,
+        WeaponKind::Claw,
+        WeaponKind::Unmaker,
+    ];
+
     pub fn code(self) -> u32 {
         self as u32
     }
 
     pub fn from_code(code: u32) -> Option<WeaponKind> {
-        WeaponKind::ALL.iter().copied().find(|k| k.code() == code)
+        WeaponKind::EVERY.iter().copied().find(|k| k.code() == code)
+    }
+
+    /// Whether a body can carry one: false for a droid's built-in arms,
+    /// which is the one thing keeping them out of the hold, the bench, a
+    /// pack and a loot.
+    pub fn carried(self) -> bool {
+        WeaponKind::ALL.contains(&self)
     }
 
     /// What the weapon is in the hold: the `ResourceId` code, the way a
     /// piece of armour has one ([`ArmourKind::resource`]) — a number,
     /// since this crate does not know `physics`.
-    pub fn resource(self) -> u32 {
-        match self {
+    pub fn resource(self) -> Option<u32> {
+        Some(match self {
             WeaponKind::LaserPistol => 8,
             WeaponKind::Shotgun => 17,
             WeaponKind::AutoRifle => 18,
             WeaponKind::SniperRifle => 19,
             WeaponKind::Schword => 20,
-        }
+            // A machine's arm is no resource: it is part of the machine,
+            // and there is nothing to put in a hold.
+            WeaponKind::Claw | WeaponKind::Unmaker => return None,
+        })
     }
 
-    /// The weapon a resource code is, if it is one.
+    /// The weapon a resource code is, if it is one. Never a built-in.
     pub fn from_resource(code: u32) -> Option<WeaponKind> {
         WeaponKind::ALL
             .iter()
             .copied()
-            .find(|k| k.resource() == code)
+            .find(|k| k.resource() == Some(code))
     }
 
     /// The weapon's numbers: one table, `crate::balance`, for a native
@@ -235,6 +280,8 @@ impl WeaponKind {
             WeaponKind::AutoRifle => balance::AUTO_RIFLE,
             WeaponKind::SniperRifle => balance::SNIPER_RIFLE,
             WeaponKind::Schword => balance::SCHWORD,
+            WeaponKind::Claw => balance::CLAW,
+            WeaponKind::Unmaker => balance::UNMAKER,
         }
     }
 
@@ -334,6 +381,10 @@ impl Weapon {
             accuracy_far: (base.accuracy_far * accuracy).min(1.0),
             damage: base.damage * damage,
             damage_far: base.damage_far * damage,
+            // A tier scales what a bolt strips the way it scales what a
+            // bolt wounds.
+            strips: base.strips * damage,
+            strips_far: base.strips_far * damage,
             ..base
         }
     }
@@ -365,6 +416,14 @@ pub struct WeaponStats {
     pub burst_gap: f32,
     /// A blade: swung within `range`, never fired.
     pub melee: bool,
+    /// What a hit takes off the **piece of armour** over the part it
+    /// lands on, that piece's protection ignored, instead of taking
+    /// anything off the part itself: the Warden's Unmaker (feature 83),
+    /// and nought for every weapon that wounds the body rather than what
+    /// is worn over it. Within `sweet` and at `range`, the two-point
+    /// curve again.
+    pub strips: f32,
+    pub strips_far: f32,
 }
 
 impl WeaponStats {
@@ -382,6 +441,12 @@ impl WeaponStats {
     /// What a shot landing on a body `tiles` away takes off it.
     pub fn damage_at(&self, tiles: f32) -> f32 {
         self.along(tiles, self.damage, self.damage_far)
+    }
+
+    /// What a shot landing `tiles` away takes off the piece of armour
+    /// over the part it reached: nought for everything but the Unmaker.
+    pub fn strips_at(&self, tiles: f32) -> f32 {
+        self.along(tiles, self.strips, self.strips_far)
     }
 
     /// What it would do a second to a body `tiles` away with the odds
@@ -484,6 +549,190 @@ impl Trigger {
         }
     }
 }
+
+/// What a soldier's talents and its brace do to the one shooter (feature
+/// 75, `world::class`): every factor a named constant there, handed to
+/// the room a Bim each step (`Game::set_skills`) and applied in exactly
+/// one place each — [`Skill::stats`] on the weapon's numbers before
+/// `Trigger::pull` and [`Combat::fire_as`] read them, the walking odds and
+/// the point-blank factor in `fire_as`, the cover odds and the dodge in
+/// [`Combat::step`], the melee factor on a blow — so there is still one
+/// hit calculation. [`Skill::NONE`] is everybody else's, and changes
+/// nothing.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Skill {
+    /// What the weapon's odds are multiplied by, near and far — the
+    /// brace, *marksman*.
+    pub accuracy: f32,
+    /// Far odds equal to the near: *deadeye*.
+    pub deadeye: bool,
+    /// What a bolt's damage is multiplied by within the weapon's `sweet`
+    /// range: *point blank*.
+    pub point_blank: f32,
+    /// What the trigger rate is multiplied by: *drill*, *rampage*.
+    pub fire_rate: f32,
+    /// The odds on the move, in place of [`WALKING_ACCURACY`]: *steady
+    /// aim*.
+    pub walking: f32,
+    /// What a blow's damage is multiplied by, fist or blade: *bruiser*.
+    pub melee: f32,
+    /// The odds a bolt is dodged in cover, in place of
+    /// [`DODGE_IN_COVER`]: *cover master*.
+    pub cover_dodge: f32,
+    /// Added to the armour's odds of slipping a bolt in the open: *dug
+    /// in*, while braced.
+    pub dodge: f32,
+    /// What the pace is multiplied by while an enemy is in sight:
+    /// *runner*.
+    pub pace: f32,
+    /// Never runs from a fight: *iron nerve*, and the brace.
+    pub nerve: bool,
+    /// Holds its fire: the weapon stays holstered, whatever it sees — a
+    /// medic beaming without *gunner medic* (feature 76).
+    pub holds_fire: bool,
+    /// What the pace is multiplied by at all times, enemy in sight or
+    /// not: the tank's bulwark (feature 77).
+    pub walk: f32,
+    /// What a worn piece's health loses of the damage that gets past its
+    /// protection: one for everybody, less for a tank, so the same piece
+    /// absorbs more on him. The piece's stored health is never doubled.
+    pub armour_drain: f32,
+    /// What a worn piece's protection is multiplied by: *plated*.
+    pub armour_protection: f32,
+    /// A hit rolled on the head lands on the body instead: *iron frame*.
+    pub iron_frame: bool,
+    /// Low blood costs it no pace while its kevlar holds: *unmovable*.
+    pub steady_pace: bool,
+    /// What forcing a locked door goes at: *breacher*.
+    pub smash_rate: f32,
+    /// What its working steps run at, over everything else that sets the
+    /// effort: a commander's aura (feature 78). One for everybody out of
+    /// one.
+    pub effort: f32,
+    /// Seconds of the clock a dying body holds its ground before it runs
+    /// — nought for everybody, since a dying body runs at once, and a
+    /// commander's aura buys it some (feature 78). [`Skill::nerve`]
+    /// beats it: a body that never runs never starts the count.
+    pub nerve_hold: f32,
+    /// What the odds against the enemy a squad order marked are
+    /// multiplied by, over [`Skill::accuracy`]: a commander's *focus
+    /// fire* (feature 78). One against anybody else, and against
+    /// everybody with no mark.
+    pub marked_accuracy: f32,
+    /// Loses no pace at all to what the fight has done to it — the legs,
+    /// the blood and every trauma alike: a commander's *grit*, during a
+    /// rally (feature 78). Beats [`Skill::steady_pace`], which leaves
+    /// only the blood out.
+    pub unhurt: bool,
+}
+
+impl Skill {
+    /// No talent at all: what everybody with no class of their own
+    /// fights with.
+    pub const NONE: Skill = Skill {
+        accuracy: 1.0,
+        deadeye: false,
+        point_blank: 1.0,
+        fire_rate: 1.0,
+        walking: WALKING_ACCURACY,
+        melee: 1.0,
+        cover_dodge: DODGE_IN_COVER,
+        dodge: 0.0,
+        pace: 1.0,
+        nerve: false,
+        holds_fire: false,
+        walk: 1.0,
+        armour_drain: 1.0,
+        armour_protection: 1.0,
+        iron_frame: false,
+        steady_pace: false,
+        smash_rate: 1.0,
+        effort: 1.0,
+        nerve_hold: 0.0,
+        marked_accuracy: 1.0,
+        unhurt: false,
+    };
+
+    /// The weapon's numbers through the skill: the odds multiplied (and
+    /// clamped to one), the far odds the near with *deadeye*, the trigger
+    /// rate multiplied. The range, the damage curve, the burst are the
+    /// weapon's own.
+    pub fn stats(&self, weapon: Weapon) -> WeaponStats {
+        self.stats_at(weapon, false)
+    }
+
+    /// The same, at the enemy a squad order marked or at anybody else:
+    /// the marked odds carry *focus fire* on top (feature 78).
+    pub fn stats_at(&self, weapon: Weapon, marked: bool) -> WeaponStats {
+        let base = weapon.stats();
+        let odds = self.accuracy * if marked { self.marked_accuracy } else { 1.0 };
+        let accuracy = (base.accuracy * odds).min(1.0);
+        let accuracy_far = if self.deadeye {
+            accuracy
+        } else {
+            (base.accuracy_far * odds).min(1.0)
+        };
+        WeaponStats {
+            accuracy,
+            accuracy_far,
+            fire_rate: base.fire_rate * self.fire_rate,
+            ..base
+        }
+    }
+}
+
+impl Default for Skill {
+    fn default() -> Skill {
+        Skill::NONE
+    }
+}
+
+/// A grenade in the air, or lying where it landed with its fuse burning
+/// (feature 75): thrown by crew member `by` from `from` at `at`, bursting
+/// when `left` runs out — [`GRENADE_FLIGHT`] of that in the air, the rest
+/// on the tile — with the radius and the centre damage the thrower's
+/// talents gave it. What the burst does is `Game::burst`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Grenade {
+    pub by: usize,
+    pub from: Vec2,
+    pub at: Vec2,
+    /// Seconds until it bursts.
+    pub left: f32,
+    /// The fuse it was thrown with, for the picture.
+    pub fuse: f32,
+    /// Room units from the burst everything within takes it.
+    pub radius: f32,
+    /// What it does at the centre; half that at the edge.
+    pub damage: f32,
+}
+
+impl Grenade {
+    /// Where it is now: along the throw for the first
+    /// [`GRENADE_FLIGHT`] seconds, then on the tile.
+    pub fn pos(&self) -> Vec2 {
+        let flown = ((self.fuse - self.left) / GRENADE_FLIGHT).clamp(0.0, 1.0);
+        self.from + (self.at - self.from) * flown
+    }
+}
+
+/// How long a grenade is in the air before it lands on its tile, in
+/// seconds: the picture, not the fuse.
+pub const GRENADE_FLIGHT: f32 = 0.6;
+
+/// A burst that has happened, briefly lit: where, how wide, how old.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+struct Blast {
+    pos: Vec2,
+    radius: f32,
+    age: f32,
+}
+
+/// How long a burst's flash lasts, in seconds.
+const BLAST_LIFE: f32 = 0.45;
 
 /// An engineer's sentry as the room keeps it (feature 74): a shooter
 /// that is not a body — a position on the deck, a weapon, a trigger and
@@ -679,7 +928,10 @@ impl Item {
     pub fn footprint(&self) -> (u8, u8) {
         let code = match self {
             Item::Armour(piece) => piece.kind.resource(),
-            Item::Weapon(weapon) => weapon.kind.resource(),
+            // A built-in arm is never an item, so it never has a
+            // footprint; a nought would be a cell of the pistol's, and
+            // `no_built_in_arm_is_ever_a_thing` is what holds it.
+            Item::Weapon(weapon) => weapon.kind.resource().unwrap_or(0),
             Item::Stack(code) => *code,
             Item::Key(_) => return (2, 1),
         };
@@ -1145,6 +1397,15 @@ pub struct Target {
     /// (`Gear::dodge`, handed across by the world through
     /// `Game::set_hostiles_dodge`); nought until it is said.
     pub dodge: f32,
+    /// How far a **taunt** of this target reaches, in room units, while
+    /// one is running on it — a tank's, feature 77; nought for anybody
+    /// not taunting, which is everybody until the world says otherwise.
+    /// A body within it that can see this target and has it in reach
+    /// fires at it before any nearer one ([`Combat::aim`]).
+    pub taunting: f32,
+    /// And whether that taunt pulls charging blades as well as fire:
+    /// the tank's *magnet* ([`Tactics::charge`]).
+    pub magnet: bool,
 }
 
 /// One shot in the air.
@@ -1164,6 +1425,14 @@ pub struct Bolt {
     /// Fired by an enemy: red, and looking for this room's own bodies
     /// rather than for the targets. See the module note.
     pub hostile: bool,
+    /// Whose hand fired it: a crew member of this room, by index, for a
+    /// friendly bolt a Bim fired — the soldier's *rampage* wants to know
+    /// who downed whom — and `None` for a sentry's or an enemy's.
+    pub by: Option<usize>,
+    /// What its damage is multiplied by while it has flown no further
+    /// than the weapon's `sweet` range: the soldier's *point blank*, one
+    /// for anybody else.
+    pub point_blank: f32,
     /// The one body it has already slipped past — a peek that dodged it —
     /// so a bolt crossing a body over several steps is rolled for once.
     dodged: Option<usize>,
@@ -1180,6 +1449,23 @@ pub struct Hit {
     pub part: Part,
     pub damage: f32,
     pub cut: bool,
+    /// Whose it was: a crew member of the room it landed in, by index,
+    /// or `None` for a sentry's bolt and for anything an enemy did.
+    pub by: Option<usize>,
+    /// A grenade's burst rather than a bolt or a blow: the body splashes
+    /// blood the way a cut does, whichever room it lands in.
+    pub blast: bool,
+    /// The roll `part` was drawn from, 0 to 1, kept so that a hit on a
+    /// body with a **different part table** can be read off the same
+    /// draw: a droid's four (feature 83, `crate::droid::DroidPart`).
+    /// One roll either way, so which kind of body a target turns out to
+    /// be does not move the combat stream.
+    pub roll: f32,
+    /// What this hit takes off the piece of armour over `part` instead
+    /// of off the part itself, that piece's protection ignored — the
+    /// Unmaker's ([`WeaponStats::strips`]). Nought for every other
+    /// weapon, and nought on a bare part, which takes `damage`.
+    pub strips: f32,
 }
 
 /// A blow on its way: a swing or a jab that has started, landing on the
@@ -1225,6 +1511,39 @@ struct Spark {
     hostile: bool,
 }
 
+/// One tank standing as a wall (feature 77, `world::class`): which of
+/// this room's own bodies it is, how far it reaches in room units, and
+/// whether a bolt it turns aside lands on it instead (*interpose*).
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Bulwark {
+    pub who: usize,
+    pub reach: f32,
+    pub interpose: bool,
+}
+
+impl Bulwark {
+    /// Whether this bulwark stands between a shot from `from` and a body
+    /// at `at`, with the tank itself at `tank`: the body within its
+    /// reach of him, him nearer the shooter than the body is, and him
+    /// within its reach of the line the shot travels. A body is never
+    /// its own bulwark — the caller checks the index.
+    pub fn shields(&self, tank: Vec2, at: Vec2, from: Vec2) -> bool {
+        let reach = self.reach * TILE;
+        if (tank - at).len() > reach {
+            return false;
+        }
+        let to = at - from;
+        let span = to.len();
+        if span <= 1e-6 || (tank - from).len() >= span {
+            return false;
+        }
+        // How far off the line from the shooter to the body he stands.
+        let along = ((tank - from).dot(to) / span).clamp(0.0, span);
+        ((from + to.normalize_or_zero() * along) - tank).len() <= reach
+    }
+}
+
 /// The fight, as the room keeps it: the enemies the world named, the bolts
 /// flying, and the hits that landed since the world last asked.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1235,6 +1554,20 @@ pub struct Combat {
     targets: Vec<Option<Target>>,
     pub bolts: Vec<Bolt>,
     sparks: Vec<Spark>,
+    /// The grenades in the air and lying with their fuses burning
+    /// (feature 75), and the bursts lately lit. See `Game::burst`.
+    pub grenades: Vec<Grenade>,
+    blasts: Vec<Blast>,
+    /// The odds each of this room's own bodies dodges a bolt in cover,
+    /// by index — a soldier's *cover master*, [`DODGE_IN_COVER`] for
+    /// anybody not named. Set every step with the skills.
+    own_cover_dodge: Vec<f32>,
+    /// The tanks standing with Bulwark on among this room's own bodies
+    /// (feature 77), said every step with the skills: a hostile bolt
+    /// aimed at a body one of them shields is dodged like a bolt in
+    /// cover, and with *interpose* it lands on the tank instead. Never
+    /// read for a friendly bolt, so an enemy shelters behind nobody.
+    bulwarks: Vec<Bulwark>,
     /// Every friendly bolt that landed on a target, and every blow, for
     /// the world to carry to the body it belongs to.
     hits: Vec<Hit>,
@@ -1276,6 +1609,10 @@ impl Combat {
             targets: Vec::new(),
             bolts: Vec::new(),
             sparks: Vec::new(),
+            grenades: Vec::new(),
+            blasts: Vec::new(),
+            own_cover_dodge: Vec::new(),
+            bulwarks: Vec::new(),
             hits: Vec::new(),
             wounds_taken: Vec::new(),
             shots: Vec::new(),
@@ -1301,6 +1638,8 @@ impl Combat {
                     peeking: false,
                     stale: false,
                     dodge: 0.0,
+                    taunting: 0.0,
+                    magnet: false,
                 })
             })
             .collect();
@@ -1325,6 +1664,32 @@ impl Combat {
                 t.stale = stale.get(i).copied().unwrap_or(false);
             }
         }
+    }
+
+    /// Which of the targets a taunt is running on, index for index like
+    /// [`Combat::set_peeking`] (feature 77): how far each taunt reaches
+    /// in room units — nought is no taunt — and whether it pulls
+    /// charging blades too. One past the end, or missing, is no taunt.
+    pub fn set_taunting(&mut self, radius: &[f32], magnet: &[bool]) {
+        for (i, target) in self.targets.iter_mut().enumerate() {
+            if let Some(t) = target {
+                t.taunting = radius.get(i).copied().unwrap_or(0.0);
+                t.magnet = magnet.get(i).copied().unwrap_or(false);
+            }
+        }
+    }
+
+    /// The bulwarks standing in this room (feature 77): which of the
+    /// bodies a hostile bolt is looked for among is a tank with it on,
+    /// how far it reaches in room units, and whether it *interposes*.
+    /// Said every step, like the skills; an empty list is nobody.
+    pub fn set_bulwarks(&mut self, bulwarks: Vec<Bulwark>) {
+        self.bulwarks = bulwarks;
+    }
+
+    /// The bulwarks as they stand.
+    pub fn bulwarks(&self) -> &[Bulwark] {
+        &self.bulwarks
     }
 
     /// Which of the targets are peeking from cover, index for index; one
@@ -1373,6 +1738,100 @@ impl Combat {
         self.cover_hits.push((tile, damage));
     }
 
+    /// The odds each of this room's own bodies dodges a bolt in cover,
+    /// by index: the soldier's *cover master*, [`DODGE_IN_COVER`] for
+    /// anybody not named.
+    pub fn set_own_cover_dodge(&mut self, odds: Vec<f32>) {
+        self.own_cover_dodge = odds;
+    }
+
+    /// A grenade thrown (feature 75): by crew member `by` from `from` at
+    /// `at`, bursting `fuse` seconds on with `radius` and `damage` at the
+    /// centre. Nothing is rolled now; the burst is `Game::burst`, when
+    /// the fuse runs out.
+    pub fn throw(&mut self, by: usize, from: Vec2, at: Vec2, fuse: f32, radius: f32, damage: f32) {
+        self.lull = 0.0;
+        self.grenades.push(Grenade {
+            by,
+            from,
+            at,
+            left: fuse,
+            fuse,
+            radius,
+            damage,
+        });
+        self.cues.push(Cued {
+            cue: Cue::Throw,
+            at: from,
+        });
+    }
+
+    /// The fuses burnt down by `dt`: every grenade whose fuse ran out,
+    /// taken off the list in the order thrown, for the game to burst.
+    /// The flash of each is lit here.
+    pub fn tick_grenades(&mut self, dt: f32) -> Vec<Grenade> {
+        for b in &mut self.blasts {
+            b.age += dt;
+        }
+        self.blasts.retain(|b| b.age < BLAST_LIFE);
+        let mut burst = Vec::new();
+        self.grenades.retain_mut(|g| {
+            g.left -= dt;
+            if g.left > 0.0 {
+                return true;
+            }
+            burst.push(*g);
+            false
+        });
+        for g in &burst {
+            self.blasts.push(Blast {
+                pos: g.at,
+                radius: g.radius,
+                age: 0.0,
+            });
+            self.cues.push(Cued {
+                cue: Cue::Burst,
+                at: g.at,
+            });
+            self.lull = 0.0;
+        }
+        burst
+    }
+
+    /// A grenade's hit on a target, rolled now: the part off the combat
+    /// stream, the damage as given, a blast for the blood.
+    pub fn blast(&mut self, who: usize, damage: f32, by: Option<usize>) -> Hit {
+        let roll = self.rng.unit();
+        Hit {
+            who,
+            part: Part::hit_by(roll),
+            damage,
+            cut: false,
+            by,
+            blast: true,
+            roll,
+            strips: 0.0,
+        }
+    }
+
+    /// A grenade's hit on one of the targets, straight onto the hits for
+    /// the world to carry to the body.
+    pub fn blast_target(&mut self, target: usize, damage: f32, by: Option<usize>) {
+        let hit = self.blast(target, damage, by);
+        self.hits.push(hit);
+        if let Some(at) = self.targets.get(target).copied().flatten().map(|t| t.at) {
+            self.cues.push(Cued {
+                cue: Cue::Impact { on_crew: false },
+                at,
+            });
+        }
+    }
+
+    /// Whether anything is lit or on its way: a grenade thrown counts.
+    pub fn grenades_out(&self) -> bool {
+        !self.grenades.is_empty() || !self.blasts.is_empty()
+    }
+
     /// How long since the last shot or blow here, either side's, in
     /// seconds at 1x.
     pub fn lull(&self) -> f32 {
@@ -1411,24 +1870,50 @@ impl Combat {
     /// The nearest enemy a shooter standing at `from` can see, within the
     /// weapon's range: which one, the eye it is seen from — the body, or the
     /// peek beside a wall — and where it stands.
+    ///
+    /// **A taunt comes first** (feature 77): a target with one running on
+    /// it, seen, in reach and within the taunt's own radius of the
+    /// shooter, is picked ahead of any nearer target — the nearest of
+    /// them if a shooter is taunted by two.
     pub fn aim(
         &self,
         sight: &Sight,
         from: Vec2,
         stats: &WeaponStats,
     ) -> Option<(usize, Vec2, Vec2)> {
+        self.aim_marked(sight, from, stats, None)
+    }
+
+    /// [`Combat::aim`] with one target **marked** — a commander's squad
+    /// order, feature 78: the mark comes before a taunt and before any
+    /// nearer target, as long as it is seen and in reach. A mark that
+    /// cannot be shot falls through to the ordinary rule.
+    pub fn aim_marked(
+        &self,
+        sight: &Sight,
+        from: Vec2,
+        stats: &WeaponStats,
+        mark: Option<usize>,
+    ) -> Option<(usize, Vec2, Vec2)> {
         let reach = stats.reach();
-        let mut best: Option<(f32, usize, Vec2, Vec2)> = None;
+        // A taunting target within its own radius comes before any
+        // nearer one (feature 77); among equals, the nearest.
+        let mut best: Option<((bool, bool, f32), usize, Vec2, Vec2)> = None;
         for (i, target) in self.targets.iter().enumerate() {
-            let Some(at) = target.filter(|t| !t.stale).map(|t| t.at) else {
+            let Some(t) = target.filter(|t| !t.stale) else {
                 continue;
             };
+            let at = t.at;
             let d = (at - from).len();
-            if d > reach || best.is_some_and(|b| b.0 <= d) {
+            if d > reach {
+                continue;
+            }
+            let key = (mark != Some(i), !(t.taunting > 0.0 && d <= t.taunting), d);
+            if best.is_some_and(|b| b.0 <= key) {
                 continue;
             }
             if let Some(eye) = sight.sees_from(from, at) {
-                best = Some((d, i, eye, at));
+                best = Some((key, i, eye, at));
             }
         }
         best.map(|(_, i, eye, at)| (i, eye, at))
@@ -1486,13 +1971,31 @@ impl Combat {
     /// is aimed wide. The damage is not rolled now: it is the weapon's at
     /// the distance the bolt has flown when it lands.
     pub fn fire(&mut self, from: Vec2, at: Vec2, weapon: Weapon, hostile: bool, moving: bool) {
-        let stats = weapon.stats();
+        self.fire_as(from, at, weapon, hostile, moving, &Skill::NONE, None);
+    }
+
+    /// [`Combat::fire`] by a shooter with a [`Skill`] — a soldier's, or
+    /// [`Skill::NONE`] — and, for a Bim's own bolt, whose it is. The one
+    /// hit calculation: the odds are the weapon's through the skill at
+    /// the distance, times the skill's walking odds on the move, and the
+    /// bolt carries the point-blank factor to where it lands.
+    pub fn fire_as(
+        &mut self,
+        from: Vec2,
+        at: Vec2,
+        weapon: Weapon,
+        hostile: bool,
+        moving: bool,
+        skill: &Skill,
+        by: Option<usize>,
+    ) {
+        let stats = skill.stats(weapon);
         self.lull = 0.0;
         let to = at - from;
         let tiles = to.len() / TILE;
         let hits = self
             .rng
-            .chance(stats.hit_chance(tiles) * if moving { WALKING_ACCURACY } else { 1.0 });
+            .chance(stats.hit_chance(tiles) * if moving { skill.walking } else { 1.0 });
         let aim = if hits {
             at
         } else {
@@ -1517,6 +2020,8 @@ impl Combat {
             weapon,
             fired_from: from,
             hostile,
+            by,
+            point_blank: skill.point_blank,
             dodged: None,
         });
     }
@@ -1535,6 +2040,7 @@ impl Combat {
         damage: f32,
         cut: bool,
         as_shot: bool,
+        by: Option<usize>,
     ) {
         let Some(at) = self.targets.get(target).copied().flatten().map(|t| t.at) else {
             return;
@@ -1551,11 +2057,18 @@ impl Combat {
                 moving: false,
             });
         } else {
+            let roll = self.rng.unit();
             self.hits.push(Hit {
                 who: target,
-                part: Part::hit_by(self.rng.unit()),
+                part: Part::hit_by(roll),
                 damage,
                 cut,
+                by,
+                blast: false,
+                roll,
+                // A blow strips nothing: the Unmaker is a lance, not a
+                // claw, and a claw is not a lance.
+                strips: 0.0,
             });
             self.cues.push(Cued {
                 cue: Cue::Blow {
@@ -1579,11 +2092,16 @@ impl Combat {
     /// part rolled now from the combat stream. The game applies it.
     pub fn struck(&mut self, who: usize, damage: f32, cut: bool) -> Hit {
         self.lull = 0.0;
+        let roll = self.rng.unit();
         Hit {
             who,
-            part: Part::hit_by(self.rng.unit()),
+            part: Part::hit_by(roll),
             damage,
             cut,
+            by: None,
+            blast: false,
+            roll,
+            strips: 0.0,
         }
     }
 
@@ -1608,6 +2126,8 @@ impl Combat {
             .iter()
             .map(|t| t.map(|t| (t.at, t.peeking, t.dodge)))
             .collect();
+        let own_cover_dodge = &self.own_cover_dodge;
+        let bulwarks = &self.bulwarks;
         let rng = &mut self.rng;
         let mut landed: Vec<Hit> = Vec::new();
         let mut taken: Vec<Hit> = Vec::new();
@@ -1647,6 +2167,9 @@ impl Combat {
             }
             let looking_for: &[Option<(Vec2, bool, f32)>] =
                 if bolt.hostile { bodies } else { &targets };
+            // A bolt a tank turned aside with *interpose* is spent: it is
+            // never rolled onto anybody else (feature 77).
+            let mut spent = false;
             for (i, body) in looking_for.iter().enumerate() {
                 let Some((body, peeking, dodge)) = *body else {
                     continue;
@@ -1657,13 +2180,34 @@ impl Combat {
                 if let Some(t) = along(from, to, body, HIT_RADIUS)
                     && stop.is_none_or(|(s, _)| t < s)
                 {
-                    // In cover — leaning back in from a peek, or ducking
-                    // behind the sandbags between it and the shooter — the
-                    // bolt flies on past, and is not rolled for this body
-                    // again.
+                    // A tank standing between the shooter and this body,
+                    // with Bulwark on: only for one of this room's own,
+                    // so nobody shelters behind him but his own side.
+                    let shield = bolt
+                        .hostile
+                        .then(|| {
+                            bulwarks.iter().copied().find(|b| {
+                                b.who != i
+                                    && bodies.get(b.who).copied().flatten().is_some_and(
+                                        |(t, _, _)| b.shields(t, body, bolt.fired_from),
+                                    )
+                            })
+                        })
+                        .flatten();
+                    // In cover — leaning back in from a peek, ducking
+                    // behind the sandbags between it and the shooter, or
+                    // behind a tank — the bolt flies on past, and is not
+                    // rolled for this body again.
                     let bags = sight.cover_between(body, bolt.fired_from);
-                    let covered = peeking || bags.is_some();
-                    if covered && rng.chance(DODGE_IN_COVER) {
+                    let covered = peeking || bags.is_some() || shield.is_some();
+                    // Half the time — or a soldier's own odds in cover,
+                    // for one of this room's own bodies (`own_cover_dodge`).
+                    let odds = if bolt.hostile {
+                        own_cover_dodge.get(i).copied().unwrap_or(DODGE_IN_COVER)
+                    } else {
+                        DODGE_IN_COVER
+                    };
+                    if covered && rng.chance(odds) {
                         bolt.dodged = Some(i);
                         // Ducked behind sandbags rather than back in from
                         // a peek: the bags took it, at the distance flown
@@ -1673,6 +2217,21 @@ impl Combat {
                             bagged.push((tile, bolt.weapon.stats().damage_at(flown)));
                         }
                         continue;
+                    }
+                    // *Interpose*: the bolt the wall did not turn aside
+                    // lands on the wall. Rolled afresh against him —
+                    // his armour's own odds of slipping it — and gone
+                    // either way.
+                    if let Some(b) = shield.filter(|b| b.interpose) {
+                        let tank = bodies.get(b.who).copied().flatten();
+                        if let Some((_, _, tank_dodge)) = tank {
+                            bolt.dodged = Some(i);
+                            spent = true;
+                            if !(tank_dodge > 0.0 && rng.chance(tank_dodge)) {
+                                stop = Some((t, Some(b.who)));
+                            }
+                            break;
+                        }
                     }
                     // And its armour: a tier-three piece gives its wearer
                     // a chance of slipping the bolt in the open. Rolled
@@ -1685,16 +2244,35 @@ impl Combat {
                     stop = Some((t, Some(i)));
                 }
             }
+            if spent && stop.is_none() {
+                return false;
+            }
             match stop {
                 Some((t, who)) => {
                     let at = from + flight * t;
                     if let Some(who) = who {
                         let flown = (at - bolt.fired_from).len() / TILE;
+                        let stats = bolt.weapon.stats();
+                        // *Point blank*: the factor while the bolt has
+                        // flown no further than the sweet range.
+                        let close = if flown <= stats.sweet {
+                            bolt.point_blank
+                        } else {
+                            1.0
+                        };
+                        let roll = rng.unit();
                         let hit = Hit {
                             who,
-                            part: Part::hit_by(rng.unit()),
-                            damage: bolt.weapon.stats().damage_at(flown),
+                            part: Part::hit_by(roll),
+                            damage: stats.damage_at(flown) * close,
                             cut: false,
+                            by: bolt.by,
+                            blast: false,
+                            roll,
+                            // What the Unmaker takes off the armour over
+                            // the part instead of off the part; nought
+                            // for every other gun.
+                            strips: stats.strips_at(flown),
                         };
                         if bolt.hostile {
                             taken.push(hit);
@@ -1743,7 +2321,7 @@ impl Combat {
 
     /// Whether anything is in the air or lit.
     pub fn quiet(&self) -> bool {
-        self.bolts.is_empty() && self.sparks.is_empty()
+        self.bolts.is_empty() && self.sparks.is_empty() && !self.grenades_out()
     }
 
     /// The bolts and the sparks. Over the fog — a shot is always seen.
@@ -1791,8 +2369,35 @@ impl Combat {
                     );
                     list.circle(head, 6.0, BOLT_CORE_WHITE.alpha(0.95));
                 }
-                // The pistol as it has always been; a blade never flies.
-                WeaponKind::LaserPistol | WeaponKind::Schword => {
+                // The Unmaker's bolt (feature 83): a long crackling line
+                // rather than a clean one — a straight core with the
+                // discharge jagging off it either side, drawn in
+                // whichever side's colour fired it, which for a droid is
+                // always the hostile red.
+                WeaponKind::Unmaker => {
+                    let tail = head - dir * LANCE_LENGTH;
+                    list.line(tail, head, LANCE_GLOW, side.alpha(0.22));
+                    list.line(tail, head, BOLT_CORE, side.alpha(0.9));
+                    let perp = dir.perp();
+                    let mut at = tail;
+                    let mut side_of = 1.0f32;
+                    for i in 0..LANCE_KINKS {
+                        let f = (i + 1) as f32 / LANCE_KINKS as f32;
+                        // The kink's throw narrows towards the head, so
+                        // the discharge reads as coming off the tip.
+                        let throw = LANCE_THROW * (1.0 - f * 0.6) * side_of;
+                        let next = tail + dir * (LANCE_LENGTH * f) + perp * throw;
+                        list.line(at, next, 2.0, side.alpha(0.75));
+                        at = next;
+                        side_of = -side_of;
+                    }
+                    list.line(at, head, 2.0, side.alpha(0.75));
+                    list.circle(head, 7.0, side.alpha(0.5));
+                    list.circle(head, 3.5, BOLT_CORE_WHITE.alpha(0.95));
+                }
+                // The pistol as it has always been; neither a blade nor a
+                // claw ever flies.
+                WeaponKind::LaserPistol | WeaponKind::Schword | WeaponKind::Claw => {
                     let tail = head - dir * BOLT_LENGTH;
                     list.line(tail, head, BOLT_GLOW, side.alpha(0.30));
                     list.line(tail, head, BOLT_CORE + 1.5, side.alpha(0.85));
@@ -1815,8 +2420,65 @@ impl Combat {
             list.circle(spark.pos, 8.0 + 14.0 * (1.0 - t), colour.alpha(0.55 * t));
             list.circle(spark.pos, 5.0 * t, BOLT_CORE_WHITE.alpha(0.9 * t));
         }
+        // A grenade (feature 75): a dark canister with a lit fuse, lifted
+        // and shadowed while it flies, blinking faster as the fuse runs
+        // down once it lies on its tile.
+        for g in &self.grenades {
+            let pos = g.pos();
+            let flying = g.fuse - g.left < GRENADE_FLIGHT;
+            let lift = if flying {
+                let f = ((g.fuse - g.left) / GRENADE_FLIGHT).clamp(0.0, 1.0);
+                (f * std::f32::consts::PI).sin()
+            } else {
+                0.0
+            };
+            list.ellipse(
+                pos + vec2(0.0, 4.0 + 10.0 * lift),
+                vec2(12.0, 8.0) * (1.0 - 0.3 * lift),
+                0.0,
+                Color::rgba(0.0, 0.0, 0.0, 0.35),
+            );
+            let body = pos - vec2(0.0, 12.0 * lift);
+            list.circle(body, 18.0 * (1.0 + 0.3 * lift), GRENADE_SHELL);
+            list.circle(body, 11.0 * (1.0 + 0.3 * lift), GRENADE_BAND);
+            // The fuse: bright, and flashing quicker near the end.
+            let rate = 2.0 + 8.0 * (1.0 - g.left / g.fuse.max(1e-3));
+            let on = ((g.fuse - g.left) * rate * std::f32::consts::TAU).sin() > 0.0 || flying;
+            if on {
+                list.circle(body + vec2(4.0, -4.0), 5.0 + 2.0 * lift, FUSE_LIT);
+            }
+        }
+        // And a burst: a white flash swelling out to the radius and
+        // fading, with the hot core going first.
+        for b in &self.blasts {
+            let t = (b.age / BLAST_LIFE).clamp(0.0, 1.0);
+            let out = 1.0 - (1.0 - t) * (1.0 - t);
+            list.circle(
+                b.pos,
+                b.radius * 2.0 * out,
+                BLAST_GLOW.alpha(0.6 * (1.0 - t)),
+            );
+            list.ring(
+                b.pos,
+                b.radius * 2.0 * out,
+                3.0,
+                BLAST_RIM.alpha(0.8 * (1.0 - t)),
+            );
+            list.circle(
+                b.pos,
+                b.radius * 0.7 * (1.0 - t),
+                BOLT_CORE_WHITE.alpha(0.95 * (1.0 - t)),
+            );
+        }
     }
 }
+
+/// A grenade's shell and band, its fuse, and the burst's colours.
+const GRENADE_SHELL: Color = Color::rgb(0.18, 0.20, 0.16);
+const GRENADE_BAND: Color = Color::rgb(0.42, 0.45, 0.30);
+const FUSE_LIT: Color = Color::rgb(1.0, 0.85, 0.35);
+const BLAST_GLOW: Color = Color::rgb(1.0, 0.78, 0.40);
+const BLAST_RIM: Color = Color::rgb(1.0, 0.55, 0.20);
 
 /// Where along the segment `a`–`b`, as a fraction, a circle of `radius` at
 /// `centre` is first touched, if it is.
@@ -1849,7 +2511,7 @@ fn along(a: Vec2, b: Vec2, centre: Vec2, radius: f32) -> Option<f32> {
 /// either way, and outweighs the plain preference for distance
 /// ([`DISTANCE_WORTH`] a tile), which is what is left when the two
 /// weapons are a match: keep away, all else equal.
-const COVER_WORTH: f32 = 15.0;
+pub const COVER_WORTH: f32 = 15.0;
 const FIT_WORTH: f32 = 30.0;
 const DISTANCE_WORTH: f32 = 1.0;
 /// What a tile of walking costs against those: half of one, since a
@@ -1867,6 +2529,18 @@ const CHARGE_LOOK: f32 = 3.0;
 
 /// How far a dying body looks for somewhere to run to, in tiles.
 const FLEE_LOOK: f32 = 10.0;
+
+/// How far ahead a body fighting its way to a point looks for the next
+/// spot to make for, in tiles ([`Tactics::advance`], feature 84). Far
+/// enough that the cover across a corridor is a candidate, near enough
+/// that the walk between two plans is short enough to read the fight
+/// off.
+const ADVANCE_LOOK: f32 = 8.0;
+/// What a tile of ground made good towards that point is worth against
+/// the cover on the way, in the same tiles of walking every other weight
+/// here is in: cover a couple of tiles off the straight line is taken,
+/// cover half the way back is not.
+const GROUND_WORTH: f32 = 4.0;
 
 /// Where the tactics say to stand, and whether it is cover: a peek beside
 /// a wall, or close behind sandbags.
@@ -1918,6 +2592,11 @@ impl Tactics {
     /// lattice a stand is chosen from: a blade wants to stand *beside*
     /// the target, and the lattice's nearest cell can be half a tile
     /// short of reach. `None` with no target it can get near.
+    ///
+    /// **A taunt with *magnet* on it comes first** (feature 77), the same
+    /// way [`Combat::aim`] prefers one: a target taunting within its own
+    /// radius of `from` is gone for before any nearer one. A plain taunt
+    /// does not move a blade.
     pub fn charge(nav: &Nav, from: Vec2, targets: &[Option<Target>]) -> Option<Vec2> {
         let by_distance_to = |to: Vec2| {
             move |a: &Vec2, b: &Vec2| {
@@ -1929,6 +2608,19 @@ impl Tactics {
         };
         let mut order: Vec<Vec2> = targets.iter().flatten().map(|t| t.at).collect();
         order.sort_by(by_distance_to(from));
+        let pulled: Vec<Vec2> = targets
+            .iter()
+            .flatten()
+            .filter(|t| t.magnet && t.taunting > 0.0 && (t.at - from).len() <= t.taunting)
+            .map(|t| t.at)
+            .collect();
+        if !pulled.is_empty() {
+            order.retain(|at| !pulled.contains(at));
+            let mut first = pulled;
+            first.sort_by(by_distance_to(from));
+            first.extend(order);
+            order = first;
+        }
         for target in order {
             let best = nav
                 .free_cells_within(target, CHARGE_LOOK * TILE, 0.0)
@@ -1940,6 +2632,60 @@ impl Tactics {
             }
         }
         None
+    }
+
+    /// Where a body fighting its way to a point should make for next
+    /// (feature 84): the reachable free cell within [`ADVANCE_LOOK`]
+    /// tiles of `from` that gets it nearest `to`, with the cover between
+    /// it and the enemy worth [`COVER_WORTH`] tiles of the walk and a
+    /// tile of ground made good worth [`GROUND_WORTH`] of it — so a body
+    /// sent across a station goes by the barricades rather than straight
+    /// down the middle, and goes nonetheless where there are none.
+    ///
+    /// Only a cell nearer `to` than `from` is is a candidate, and never a
+    /// doorway or a cell one of its own side has taken. `None` when
+    /// nothing within the look is nearer, which is a body round a corner
+    /// from the point: the caller walks the whole way instead.
+    ///
+    /// Cover is judged against the nearest target that is up, since that
+    /// is the one the ground is being made good under; with no target at
+    /// all it is plain ground.
+    #[allow(clippy::too_many_arguments)]
+    pub fn advance(
+        sight: &Sight,
+        nav: &Nav,
+        from: Vec2,
+        to: Vec2,
+        targets: &[Option<Target>],
+        doors: &[Rect],
+        taken: &[Vec2],
+        cover_worth: f32,
+    ) -> Option<Vec2> {
+        let here = (from - to).len() / TILE;
+        let enemy = targets
+            .iter()
+            .flatten()
+            .map(|t| t.at)
+            .min_by(|a, b| (*a - from).len().total_cmp(&(*b - from).len()));
+        let in_a_doorway = |c: Vec2| doors.iter().any(|d| d.expand(door::REACH).contains(c));
+        let is_taken = |c: Vec2| taken.iter().any(|&t| (t - c).len() < TILE);
+        let mut best: Option<(f32, Vec2)> = None;
+        for c in nav.free_cells_within(from, ADVANCE_LOOK * TILE, TILE) {
+            let ground = here - (c - to).len() / TILE;
+            if ground <= 0.0 || in_a_doorway(c) || is_taken(c) || !nav.can_reach(from, c) {
+                continue;
+            }
+            let cover = match enemy {
+                Some(at) if sight.covered(c, at) => cover_worth,
+                _ => 0.0,
+            };
+            let walk = (c - from).len() / TILE * WALK_COST_PER_TILE;
+            let score = ground * GROUND_WORTH + cover - walk;
+            if best.is_none_or(|(b, _)| score > b) {
+                best = Some((score, c));
+            }
+        }
+        best.map(|(_, at)| at)
     }
 
     /// Where a body at `from`, armed with `stats`, should stand to shoot
@@ -2010,6 +2756,38 @@ impl Tactics {
         taken: &[Vec2],
         closing: bool,
     ) -> Option<Stand> {
+        Tactics::stand_scored(
+            sight,
+            nav,
+            from,
+            targets,
+            stats,
+            doors,
+            taken,
+            closing,
+            COVER_WORTH,
+        )
+    }
+
+    /// [`Tactics::stand_with_cover`] with the **worth of cover** said
+    /// rather than taken as read. Everything a body picks a stand by is
+    /// the same bar that one number, and a `cover_worth` of nought is a
+    /// body that weighs a spot by its weapon's fit and the distance
+    /// alone: it walks into the open and shoots from wherever it gets
+    /// to. That is a Trooper (feature 83, `crate::droid`), and nothing
+    /// else so far; a Warden and every Bim take the cover.
+    #[allow(clippy::too_many_arguments)]
+    pub fn stand_scored(
+        sight: &Sight,
+        nav: &Nav,
+        from: Vec2,
+        targets: &[Option<Target>],
+        stats: &WeaponStats,
+        doors: &[Rect],
+        taken: &[Vec2],
+        closing: bool,
+        cover_worth: f32,
+    ) -> Option<Stand> {
         if stats.melee {
             return Tactics::charge(nav, from, targets).map(|at| Stand { at, cover: false });
         }
@@ -2056,7 +2834,8 @@ impl Tactics {
         }));
         let mut best: Option<(f32, Stand)> = None;
         for (i, &c) in candidates.iter().enumerate() {
-            let Some((view, cover)) = Tactics::view_from(sight, c, targets, stats) else {
+            let Some((view, cover)) = Tactics::view_from(sight, c, targets, stats, cover_worth)
+            else {
                 continue;
             };
             let walk = (c - from).len() / TILE * WALK_COST_PER_TILE;
@@ -2095,6 +2874,7 @@ impl Tactics {
         c: Vec2,
         targets: &[Option<Target>],
         stats: &WeaponStats,
+        cover_worth: f32,
     ) -> Option<(f32, bool)> {
         let reach = stats.reach();
         let eyes = sight.eyes_from(c);
@@ -2126,7 +2906,7 @@ impl Tactics {
             } else {
                 continue;
             };
-            let cover = if in_cover { COVER_WORTH } else { 0.0 };
+            let cover = if in_cover { cover_worth } else { 0.0 };
             let tiles = d / TILE;
             let fit = Tactics::fit(stats, &target.weapon.stats(), tiles) * FIT_WORTH;
             let score = cover + fit + tiles * DISTANCE_WORTH;
@@ -2155,6 +2935,8 @@ mod tests {
             peeking: false,
             stale: false,
             dodge: 0.0,
+            taunting: 0.0,
+            magnet: false,
         }
     }
 
@@ -2525,16 +3307,72 @@ mod tests {
         assert!(combat.take_shots().is_empty());
     }
 
+    /// Feature 83: a droid's arms are part of the machine. Nothing may
+    /// make one, buy one, hold one, stow one or loot one, and the one
+    /// thing that holds all of that is `resource()` being `None` — the
+    /// hold, the bench, the pack and the shelves all go by the resource.
+    #[test]
+    fn no_built_in_arm_is_ever_a_thing() {
+        for kind in WeaponKind::BUILT_IN {
+            assert!(!kind.carried(), "{kind:?} is not carried");
+            assert_eq!(kind.resource(), None, "{kind:?} has no resource");
+            assert!(!WeaponKind::ALL.contains(&kind));
+            assert!(WeaponKind::EVERY.contains(&kind));
+            // Its code still reads back, so the app can name it.
+            assert_eq!(WeaponKind::from_code(kind.code()), Some(kind));
+        }
+        // And no resource code anywhere answers with one.
+        for code in 0..64 {
+            let found = WeaponKind::from_resource(code);
+            assert!(
+                found.is_none_or(|k| k.carried()),
+                "resource {code} answered {found:?}"
+            );
+        }
+        // The five carried kinds are the whole of what a body holds.
+        assert_eq!(WeaponKind::ALL.len() + WeaponKind::BUILT_IN.len(), 7);
+        assert_eq!(WeaponKind::EVERY.len(), 7);
+        for kind in WeaponKind::ALL {
+            assert!(kind.carried(), "{kind:?} is carried");
+        }
+    }
+
+    /// The Unmaker's strip, and that no other weapon has one.
+    #[test]
+    fn only_the_unmaker_strips_and_a_tier_scales_it_like_damage() {
+        for kind in WeaponKind::EVERY {
+            let stats = kind.stats();
+            if kind == WeaponKind::Unmaker {
+                assert_eq!(stats.strips, 30.0);
+                assert_eq!(stats.strips_far, 20.0);
+            } else {
+                assert_eq!(stats.strips, 0.0, "{kind:?} strips nothing");
+                assert_eq!(stats.strips_far, 0.0);
+            }
+        }
+        let one = WeaponKind::Unmaker.basic().stats();
+        let two = WeaponKind::Unmaker.at(Tier::Two).stats();
+        // The tier scales the strip by exactly what it scales the damage.
+        assert!((two.strips / one.strips - two.damage / one.damage).abs() < 1e-5);
+        assert!((two.strips - 30.0 * crate::balance::TIER_TWO_DAMAGE).abs() < 1e-4);
+        // Out to the sweet spot it strips its best; at the range, its far.
+        assert_eq!(one.strips_at(0.0), 30.0);
+        assert_eq!(one.strips_at(10.0), 30.0);
+        assert_eq!(one.strips_at(20.0), 20.0);
+        assert!((one.strips_at(15.0) - 25.0).abs() < 1e-4);
+    }
+
     #[test]
     fn the_curves_pin_the_numbers_the_guns_were_asked_for() {
         // Every kind is its own code and its own resource, both ways.
         for kind in WeaponKind::ALL {
             assert_eq!(WeaponKind::from_code(kind.code()), Some(kind));
-            assert_eq!(WeaponKind::from_resource(kind.resource()), Some(kind));
+            let resource = kind.resource().expect("a carried weapon is a resource");
+            assert_eq!(WeaponKind::from_resource(resource), Some(kind));
         }
         assert_eq!(WeaponKind::from_code(0), None);
         assert_eq!(WeaponKind::from_resource(14), None, "a helm is not a gun");
-        assert_eq!(WeaponKind::LaserPistol.resource(), 8);
+        assert_eq!(WeaponKind::LaserPistol.resource(), Some(8));
 
         // The second tuning of September 2026: the pistol's odds a tenth
         // down from the 95% and 65% it had, its damage a fifth up from 6,
@@ -2825,8 +3663,9 @@ mod tests {
             FIST_DAMAGE,
             false,
             false,
+            None,
         );
-        combat.brawl(body, 0, WeaponKind::Schword.basic(), 70.0, true, true);
+        combat.brawl(body, 0, WeaponKind::Schword.basic(), 70.0, true, true, None);
         assert!(combat.bolts.is_empty());
         let hits = combat.take_hits();
         assert_eq!(hits.len(), 1);
@@ -2937,5 +3776,123 @@ mod tests {
             hits > 140 && hits < 220,
             "{hits} of 400 on a dodging target"
         );
+    }
+
+    /// The tank's wall (feature 77): a crew member the tank stands
+    /// between and the shooter dodges like one in cover, one in front of
+    /// him or off to the side does not, an enemy never does, and with
+    /// *interpose* the bolt that is not turned aside lands on the tank.
+    #[test]
+    fn a_bulwark_shelters_the_body_behind_it_and_interposes_for_it() {
+        let (sight, _) = room_with(&[]);
+        let from = middle(2.0, 5.0);
+        let behind = middle(11.0, 5.0);
+        // The tank a tile short of the body and forty units off the line:
+        // clear of the bolt's own radius, well inside the wall's reach.
+        let tank = middle(10.0, 5.0) + vec2(0.0, 40.0);
+        let in_front = middle(9.0, 5.0);
+        let wall = |interpose| {
+            vec![Bulwark {
+                who: 1,
+                reach: 1.5,
+                interpose,
+            }]
+        };
+        // Who was hit, of four hundred bolts down the row at index 0.
+        let run = |bulwarks: Vec<Bulwark>, target: Vec2, tank: Vec2| {
+            let mut combat = Combat::new(19);
+            combat.set_bulwarks(bulwarks);
+            let bodies = [Some((target, false, 0.0)), Some((tank, false, 0.0))];
+            let mut on_target = 0;
+            let mut on_tank = 0;
+            for _ in 0..400 {
+                combat.fire(from, target, WeaponKind::LaserPistol.basic(), true, false);
+                for _ in 0..40 {
+                    combat.step(0.05, &sight, &bodies);
+                }
+                for hit in std::mem::take(&mut combat.wounds_taken) {
+                    if hit.who == 0 {
+                        on_target += 1;
+                    } else {
+                        on_tank += 1;
+                    }
+                }
+            }
+            (on_target, on_tank)
+        };
+        let (open, _) = run(Vec::new(), behind, tank);
+        assert!(open > 200, "{open} of 400 land with no wall up");
+        let (sheltered, _) = run(wall(false), behind, tank);
+        assert!(
+            sheltered > open / 3 && sheltered < open * 2 / 3,
+            "{sheltered} of {open} land through the wall"
+        );
+        // In front of him, and off to the side of him, the wall is no
+        // cover: he is not between the shooter and the body.
+        let (front, _) = run(wall(false), in_front, tank);
+        assert!(front > open * 4 / 5, "{front} of {open} in front of it");
+        let aside = middle(11.0, 8.0);
+        let (beside, _) = run(wall(false), aside, tank);
+        assert!(beside > open * 3 / 5, "{beside} of {open} beside it");
+        // *Interpose*: what the wall did not turn aside lands on the
+        // wall, and nothing at all on the body it shelters.
+        let (through, took) = run(wall(true), behind, tank);
+        assert_eq!(through, 0, "nothing reaches the body he stands for");
+        assert!(
+            took > open / 3 && took < open * 2 / 3,
+            "{took} of {open} land on the tank"
+        );
+        // And an enemy never shelters behind him: a friendly bolt looks
+        // for the targets, which know nothing of bulwarks.
+        let mut combat = Combat::new(19);
+        combat.set_bulwarks(wall(false));
+        combat.set_targets(vec![Some((behind, WeaponKind::LaserPistol.basic()))]);
+        let mut hits = 0;
+        for _ in 0..400 {
+            combat.fire(from, behind, WeaponKind::LaserPistol.basic(), false, false);
+            for _ in 0..40 {
+                combat.step(0.05, &sight, &[Some((tank, false, 0.0))]);
+            }
+            hits += combat.take_hits().len();
+        }
+        assert!(hits > 200, "{hits} of 400 land on the enemy");
+    }
+
+    /// A taunt is aimed at before any nearer target, and with *magnet* it
+    /// is charged at too — both only within its own radius and, for the
+    /// shot, in reach and in sight (feature 77).
+    #[test]
+    fn a_taunting_target_is_aimed_at_and_a_magnet_is_charged_at_first() {
+        let (sight, nav) = room_with(&[]);
+        let from = middle(2.0, 5.0);
+        let near = middle(5.0, 5.0);
+        let far = middle(12.0, 5.0);
+        let mut combat = Combat::new(23);
+        let pistol = WeaponKind::LaserPistol.basic();
+        combat.set_targets(vec![Some((near, pistol)), Some((far, pistol))]);
+        let stats = pistol.stats();
+        let aimed = |c: &Combat| c.aim(&sight, from, &stats).map(|(i, _, _)| i);
+        assert_eq!(aimed(&combat), Some(0), "the nearest without a taunt");
+        combat.set_taunting(&[0.0, 20.0 * TILE], &[false, false]);
+        assert_eq!(aimed(&combat), Some(1), "the taunt before the nearer");
+        // Out of the taunt's own radius, it pulls nobody.
+        combat.set_taunting(&[0.0, 2.0 * TILE], &[false, false]);
+        assert_eq!(aimed(&combat), Some(0));
+        // And out of the weapon's reach it is no target at all: a taunt
+        // does not make a shot possible, it only chooses between shots.
+        let outside = middle(2.0, 5.0) + vec2(stats.reach() + TILE, 0.0);
+        combat.set_targets(vec![Some((near, pistol)), Some((outside, pistol))]);
+        combat.set_taunting(&[0.0, 60.0 * TILE], &[false, false]);
+        assert_eq!(aimed(&combat), Some(0));
+        // A blade goes for the nearest until the taunt is a magnet.
+        combat.set_targets(vec![Some((near, pistol)), Some((far, pistol))]);
+        combat.set_taunting(&[0.0, 20.0 * TILE], &[false, false]);
+        let charge =
+            |c: &Combat| Tactics::charge(&nav, from, c.targets()).expect("somewhere to charge to");
+        let at = charge(&combat);
+        assert!((at - near).len() < (at - far).len(), "the nearest blade");
+        combat.set_taunting(&[0.0, 20.0 * TILE], &[false, true]);
+        let at = charge(&combat);
+        assert!((at - far).len() < (at - near).len(), "the magnet's");
     }
 }

@@ -189,8 +189,16 @@ pub fn kind_of(resource: ResourceId) -> Option<ArmourKind> {
 /// own. The room says the code (`WeaponKind::resource`, since it does
 /// not know `physics`), and this is the code looked up — one table, the
 /// room's, rather than a second one here to drift from it.
+/// A droid's built-in arm is no resource at all (feature 83) and never
+/// reaches this: nothing the hold, a bench, a pack or a loot can hold is
+/// one, which is what `WeaponKind::carried` says and
+/// `no_built_in_arm_is_ever_a_thing` pins. Asked for one anyway, the
+/// answer is `Nothing`, the way an empty slot is everywhere else.
 pub fn weapon_resource(weapon: WeaponKind) -> ResourceId {
-    ResourceId::ALL[weapon.resource() as usize]
+    let code = weapon
+        .resource()
+        .expect("a built-in arm is never a resource; see WeaponKind::carried");
+    ResourceId::ALL[code as usize]
 }
 
 /// The weapon a resource is, if it is one.

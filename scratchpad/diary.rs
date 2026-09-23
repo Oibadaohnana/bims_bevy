@@ -109,7 +109,7 @@ fn main() {
 
     let mut game = Game::new(5, 960.0, 640.0);
     for _ in 0..(4 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
     }
     for w in 0..CREW {
         let n = game.memory_len(w);
@@ -135,7 +135,7 @@ fn main() {
     }
     let mut kinds = std::collections::BTreeSet::new();
     for _ in 0..(3 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
     }
     for w in 0..CREW {
         let n = game.memory_len(w);
@@ -185,7 +185,7 @@ fn main() {
     let mut gone = false;
     for _ in 0..(3 * FRAMES_PER_DAY) {
         game.leave_alone_for_probe(PLAYER, 14.0);
-        game.update(STEP);
+        game.simulate(STEP);
         if !game.is_alive(PLAYER) {
             gone = true;
             break;
@@ -212,7 +212,7 @@ fn main() {
         game.set_schedule_slot(hour, 0);
     }
     for _ in 0..(20 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
     }
     for w in 0..CREW {
         check!(
@@ -233,7 +233,7 @@ fn main() {
     game.drag_begin(kate.x, kate.y);
     game.drag_end(0, kate.x, kate.y);
     check!("clicking the other one selects her", game.selected(0) == Some(1), format!("{:?}", game.selected(0)));
-    check!("and only her", !game.is_selected(PLAYER));
+    check!("and only her", !game.is_selected(PLAYER, 0));
     // But she still takes no orders.
     let away = game.bim_pos(PLAYER);
     check!(

@@ -70,7 +70,7 @@ fn main() {
     game.set_autonomous(false);
     let mut fouled = None;
     for _ in 0..(2 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         let p = game.bim_pos(PLAYER);
         if game.spot_mess(p.x, p.y) != 0 {
             fouled = Some((p, game.spot_mess(p.x, p.y), game.spot_mess_depth(p.x, p.y)));
@@ -112,7 +112,7 @@ fn main() {
 
     let mut went_to_bed = false;
     for _ in 0..(3 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         // JOB_SLEEP
         if game.activity(PLAYER) == 4 {
             went_to_bed = true;
@@ -135,7 +135,7 @@ fn main() {
     let mut slept = false;
     let mut lowest = f32::MAX;
     for _ in 0..(3 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         lowest = lowest.min(game.need_level(PLAYER, 0));
         if game.activity(PLAYER) == 4 {
             slept = true;
@@ -175,7 +175,7 @@ fn main() {
     let mut store_before = game.store_veg() + game.store_tofu();
     let mut carried_past = 0;
     for frame in 0..(6 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         let ripe_now = game.hydro_ripe_all();
         let store_now = game.store_veg() + game.store_tofu();
         // A tray that was ripe and is not: something came out of it.
@@ -255,7 +255,7 @@ fn main() {
         let mut nights = 0;
         let mut was_asleep = false;
         for _ in 0..(7 * FRAMES_PER_DAY) {
-            game.update(STEP);
+            game.simulate(STEP);
             worst_health = worst_health.min(game.health(PLAYER));
             let asleep = game.activity(PLAYER) == 4;
             if asleep && !was_asleep {

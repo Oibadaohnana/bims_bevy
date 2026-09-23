@@ -44,8 +44,29 @@ use crate::game::Game;
 /// tier (`World::station_keys`, a `u8` a station), the cargo grew the
 /// tier-two key and the research tree the upgrades node — tier two. 15:
 /// the world grew what every station has lost (`World::losses`) and every
-/// system left as it was left (`World::memories`) — feature 71.
-pub const SAVE_VERSION: u32 = 15;
+/// system left as it was left (`World::memories`) — feature 71. 16: the
+/// world grew the players' classes and the crew's progress through them
+/// (`World::classes`, `progress`, `undocked_once`), the deployables
+/// (`World::deployables`, `reused_kits`), the residents' experience
+/// flags, the workbench a repair, a Bim its trigger and a room its
+/// sentries — feature 74. 17: the cargo grew the grenade, a Bim its brace
+/// and its *rampage* stacks, a bolt and a hit whose they were, a room
+/// its grenades, the world when each crew member last threw
+/// (`World::last_throw`) and the residents who last hit each of them —
+/// feature 75. 18: the world grew the medics (`World::medics` — each
+/// beam's patients, the surge's charge, the field surgery), a Bim its
+/// beam flag and its surge, and a treatment whether it was bare —
+/// feature 76. 21: the world grew the machines (`World::infested` —
+/// which stations they hold, the waves left, when the next is due — and
+/// the tier, the reinforcement clock and the wave cap the probes move),
+/// a room its `droids` and a `combat::Hit` its roll and its strip —
+/// feature 83. 23: the world grew the dead lying on the stations'
+/// decks (`World::graves` — whose deck, where on it, what is still on
+/// the body and what it looked like) and the nodes the ship has been at
+/// (`World::visited`), both of them filed with the system's memory as
+/// well, and a station's room which of its bodies were laid out from a
+/// grave (`Residents::grave`) — feature 85.
+pub const SAVE_VERSION: u32 = 23;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

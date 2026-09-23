@@ -315,6 +315,102 @@ pub enum Open {
     /// is that index among the deck's (`Container::Shelf`), for the walk
     /// over; the grid is the one shelf whichever was clicked.
     Plunder(usize),
+    /// Not a window either: the engineer's deployable within reach packed
+    /// up into its pack (`Command::PackUp`), or its sentry refilled
+    /// (`Command::Refill`) — the rows on the nearby strip beside one
+    /// (feature 74). By the deployable's id.
+    PackUp(u32),
+    Refill(u32),
+}
+
+/// What the class section and the deployable rows asked for this frame
+/// (feature 74), for the screen to send through the seam.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum DeployOrder {
+    PackUp(u32),
+    Refill(u32),
+    Pick {
+        level: u32,
+        side: world::Side,
+    },
+    SetClass(world::Class),
+    /// The armourer's repair begun on the bench.
+    Repair,
+}
+
+/// A player's class as the panel shows it, a snapshot the screen hands
+/// over every frame off the world: what it is, how far along, the pick
+/// waiting if one is, the talents learnt, and whether the class may
+/// still be changed (before the first undock).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct ClassView {
+    pub class: world::Class,
+    pub level: u8,
+    pub to_next: u32,
+    pub pending: Option<(u8, world::Talent, world::Talent)>,
+    /// Every pick made, level and side, in level order — what the Skills
+    /// tree draws as taken and as given up (feature 83). The talents
+    /// themselves are `talents`, which is the same list read through the
+    /// class.
+    pub picks: Vec<(u8, world::Side)>,
+    pub talents: Vec<world::Talent>,
+    pub can_change: bool,
+    /// Whether the armourer's repair could be begun now, or why not —
+    /// `None` for a crew member without the talent.
+    pub repair: Option<Result<(), world::Refusal>>,
+    /// The soldier's rows (feature 75): grenades in the pack, seconds of
+    /// the clock until it may throw again, and whether it is braced —
+    /// `None` for anybody but a soldier.
+    pub soldier: Option<SoldierView>,
+    /// The medic's rows (feature 76) — `None` for anybody but a medic.
+    pub medic: Option<MedicView>,
+    /// The tank's rows (feature 77) — `None` for anybody but a tank.
+    pub tank: Option<TankView>,
+    /// The commander's rows (feature 78) — `None` for anybody else.
+    pub commander: Option<CommanderView>,
+}
+
+/// What the panel says of a soldier (feature 75).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct SoldierView {
+    pub grenades: u32,
+    pub cooldown: f64,
+    pub braced: bool,
+}
+
+/// What the panel says of a medic (feature 76): who the beam holds, by
+/// name; how charged the surge is, nought to one; whether the level for
+/// one has been reached; and whether one is running on the medic now.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct MedicView {
+    pub patients: Vec<String>,
+    pub charge: f32,
+    pub can_surge: bool,
+    pub surging: bool,
+}
+
+/// What the panel says of a tank (feature 77): whether the wall is up,
+/// minutes of the taunt left, seconds until it may taunt again, and
+/// whether the level for one has been reached.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct TankView {
+    pub bulwark: bool,
+    pub taunt_left: f64,
+    pub cooldown: f64,
+    pub can_taunt: bool,
+}
+
+/// What the panel says of a commander (feature 78): what his squad is
+/// under — `world::SquadKind`'s code, `None` with no order — how many
+/// are in it, minutes of the rally left, seconds until he may rally
+/// again, and whether the level for one has been reached.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct CommanderView {
+    pub squad: Option<u32>,
+    pub members: usize,
+    pub rally_left: f64,
+    pub cooldown: f64,
+    pub can_rally: bool,
 }
 
 /// A cell's pop-up: where it was asked for, which cell, whose gear, and
@@ -401,11 +497,287 @@ enum Tab {
     /// a key would open. Only on the ship's screen: research is the
     /// world's.
     Research,
+    /// The skills tree (feature 83): your own crew member's class, level
+    /// by level, with the points a level's choice leaves to spend. Only
+    /// on the ship's screen: a class is the world's.
+    Skills,
     /// The helm and the ship's facts. Only on the ship's screen, and drawn
     /// by it: the tray lays out the tabs and leaves the body to the
     /// caller, since everything on it is the world's rather than the
     /// room's.
     Ship,
+}
+
+/// How wide [`CrewPanels::side`] draws itself once somebody is picked:
+/// a part's label, its bar, its number and the trauma holding it at
+/// nothing, in one row. The width is the panel's own rather than each
+/// screen's, so the two agree and so a screen can leave the strip it
+/// anchors in the right size — the game's is [`SIDE_W`] plus its
+/// margins. Nothing is set while the panel is empty: "Click a Bim to
+/// look at it." wants a box its own size.
+pub const SIDE_W: f32 = 340.0;
+
+/// The side panel's bars — the needs', health's and the parts'. Wider
+/// than they were, because the health block under them grew and a column
+/// of bars that do not line up reads as two panels rather than one.
+const BAR_W: f32 = 140.0;
+/// The health points beside the bar: the one number on the panel a
+/// player reads in a fight, so it is the one number bigger than the
+/// type round it.
+const HEALTH_NUMBER: f32 = 16.0;
+/// What is killing it, over the block that says how fast.
+const PERIL_NAME: f32 = 15.0;
+/// How long it has at that rate — the line the whole block exists for.
+const PERIL_LEFT: f32 = 14.0;
+
+/// The frame round the peril block: the panel's own, filled and edged in
+/// the cross's red, the way the raid warning is the one red thing on the
+/// screen. Nothing else on this panel is framed, which is the point.
+fn peril_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(egui::Color32::from_rgba_unmultiplied(56, 14, 12, 220))
+        .stroke(egui::Stroke::new(1.0, theme::DYING))
+        .corner_radius(4.0)
+        .inner_margin(6.0)
+}
+
+/// What is taking a crew member down now — one of these a cause, the
+/// fastest first. Worked out from the body, since nothing in the room
+/// records a cause: `crew::perils`.
+struct Peril {
+    /// The headline, in the cross's red.
+    cause: &'static str,
+    /// How fast, spelled.
+    rate: String,
+    /// Game minutes at that rate, or `None` for a loss that is running
+    /// but cannot reach the end on its own.
+    minutes: Option<f32>,
+    /// Where the loss is coming from, worst first.
+    from: Vec<String>,
+    /// What stops it.
+    remedy: &'static str,
+}
+
+/// What is killing `w` right now, and how long it has at that rate. Two
+/// things can: the blood running out, which is every open wound at
+/// [`health::BLEED_PER_WOUND`] an hour and every untreated trauma at its
+/// own rate — `Health::update_held`'s own sum, so the number here is the
+/// number the room is actually subtracting — and extreme malnutrition,
+/// which takes [`health::HEALTH_DRAIN`] off the parts until the head and
+/// the body are both at nothing. Sorted with the fastest first: that is
+/// the one a player has to do something about.
+fn perils(game: &Game, w: usize) -> Vec<Peril> {
+    let mut out: Vec<Peril> = Vec::new();
+
+    // The blood.
+    let mut from: Vec<(f32, String)> = Vec::new();
+    let mut traumatic = false;
+    for (i, part) in health::Part::ALL.into_iter().enumerate() {
+        if let Some(trauma) = game.trauma(w, part)
+            && trauma.bleed() > 0.0
+        {
+            traumatic = true;
+            from.push((
+                trauma.bleed(),
+                peril_from(trauma_name(trauma.code()), trauma.bleed()),
+            ));
+        }
+        let wounds = game.wounds(w, part);
+        if wounds > 0 {
+            let rate = wounds as f32 * health::BLEED_PER_WOUND;
+            from.push((rate, peril_from(&peril_wounds(SLOT_NAMES[i], wounds), rate)));
+        }
+    }
+    let an_hour: f32 = from.iter().map(|(rate, _)| rate).sum();
+    if an_hour > 0.0 {
+        from.sort_by(|a, b| b.0.total_cmp(&a.0));
+        out.push(Peril {
+            cause: PERIL_BLEEDING,
+            rate: peril_rate(an_hour),
+            minutes: Some(game.blood(w) / an_hour * bims::clock::HOUR),
+            from: from.into_iter().map(|(_, line)| line).collect(),
+            remedy: if traumatic {
+                PERIL_BLEED_MEDKIT
+            } else {
+                PERIL_BLEED_BANDAGE
+            },
+        });
+    }
+
+    // And the starving. Death is the head *and* the body at nothing with
+    // nothing on either, so a part a trauma is holding down cannot be
+    // drained past it — while one of those is untreated the drain runs
+    // with no end to count to, and the block says so by leaving the
+    // countdown off rather than by inventing one.
+    if game.malnutrition(w) >= 3 {
+        let mut minutes: Option<f32> = Some(0.0);
+        for part in [health::Part::Head, health::Part::Body] {
+            if game.trauma(w, part).is_some() {
+                minutes = None;
+                break;
+            }
+            let rate = health::HEALTH_DRAIN * part.max() / health::MAX_HEALTH;
+            let left = game.part_health(w, part) / rate;
+            minutes = minutes.map(|m| m.max(left));
+        }
+        out.push(Peril {
+            cause: PERIL_STARVING,
+            rate: peril_drain(health::HEALTH_DRAIN * bims::clock::DAY),
+            minutes,
+            from: Vec::new(),
+            remedy: PERIL_STARVE_FIX,
+        });
+    }
+
+    out.sort_by(|a, b| match (a.minutes, b.minutes) {
+        (Some(a), Some(b)) => a.total_cmp(&b),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+    out
+}
+
+/// What a dead crew member died of. Nothing records it, so this reads it
+/// off the body the way `Health::is_dead` decides: no blood left is one
+/// death; the head and the body both at nothing with no trauma on either
+/// is the other, and that is starvation if it was starving and otherwise
+/// the Bim's own hand, `Health::give_up` being the only other thing that
+/// empties both parts and leaves them clean.
+fn death_line(game: &Game, w: usize) -> &'static str {
+    if game.blood(w) <= 0.0 {
+        DEATH_BLED_OUT
+    } else if game.malnutrition(w) >= 3 {
+        DEATH_STARVED
+    } else {
+        DEATH_GAVE_UP
+    }
+}
+
+/// How wide the Skills tree's detail column is: it stands to the *right*
+/// of the tree rather than under it, so picking a slot can never shove
+/// the tree up from under the pointer — the row is as tall as the tree
+/// whatever is written beside it.
+const DETAIL_WIDTH: f32 = 320.0;
+/// The gap between the tree and the column beside it.
+const SKILL_DETAIL_GAP: f32 = 16.0;
+
+/// The Skills tree's geometry: the numbered gutter down the left, a
+/// slot's box, and the gaps between them. A fixed level's box is two of
+/// [`SKILL_BOX_W`] and the gap wide; a pick level's two are one each.
+const SKILL_GUTTER: f32 = 32.0;
+const SKILL_BOX_W: f32 = 165.0;
+const SKILL_BOX_H: f32 = 30.0;
+const SKILL_GAP_X: f32 = 10.0;
+const SKILL_GAP_Y: f32 = 8.0;
+
+/// The Skills tab's type: a few points over the panels' small text,
+/// since a tree of seventy talents and what each is worth is read rather
+/// than glanced at.
+const SKILL_TEXT: f32 = 13.5;
+/// The type in a slot's box.
+const SKILL_BOX_TEXT: f32 = 13.0;
+/// The picked slot's name over the column beside the tree.
+const SKILL_NAME_TEXT: f32 = 17.0;
+
+/// How big the tree comes out: ten levels down, two slots across.
+fn skill_tree_size() -> egui::Vec2 {
+    let levels = world::class::LEVELS as f32;
+    egui::vec2(
+        SKILL_GUTTER + 2.0 * SKILL_BOX_W + SKILL_GAP_X,
+        levels * SKILL_BOX_H + (levels - 1.0) * SKILL_GAP_Y,
+    )
+}
+
+/// One slot of the Skills tree (feature 83): a fixed level's own, which
+/// comes with the level, or one of the two a pick level offers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Slot {
+    Fixed(u8),
+    Pick(u8, world::Side),
+}
+
+impl Slot {
+    /// The level it sits at.
+    fn level(self) -> u8 {
+        match self {
+            Slot::Fixed(level) | Slot::Pick(level, _) => level,
+        }
+    }
+}
+
+/// What a slot of the Skills tree is, for the crew member looking at it:
+/// what colours its box and what the line under the tree says.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SkillState {
+    /// Learnt — picked, or a fixed level reached.
+    Learnt,
+    /// The other side of a level already chosen at: gone for good.
+    GivenUp,
+    /// Reached, unchosen: a point away.
+    Open,
+    /// The level is not reached yet.
+    Locked,
+}
+
+impl SkillState {
+    /// What a slot is for the crew member the view is of: a fixed level
+    /// is learnt once reached, and a pick level's side is learnt if it
+    /// was the one chosen, given up if the other was, open if the level
+    /// is reached and nothing has been chosen at it, and locked until
+    /// the level is.
+    fn of(view: &ClassView, slot: Slot) -> SkillState {
+        let level = slot.level();
+        match slot {
+            Slot::Fixed(_) if level <= view.level => SkillState::Learnt,
+            Slot::Fixed(_) => SkillState::Locked,
+            Slot::Pick(_, side) => match taken_at(view, level) {
+                Some(chosen) if chosen == side => SkillState::Learnt,
+                Some(_) => SkillState::GivenUp,
+                None if level <= view.level => SkillState::Open,
+                None => SkillState::Locked,
+            },
+        }
+    }
+}
+
+/// Which side was chosen at a level, if the level was chosen at.
+fn taken_at(view: &ClassView, level: u8) -> Option<world::Side> {
+    view.picks
+        .iter()
+        .find(|&&(l, _)| l == level)
+        .map(|&(_, side)| side)
+}
+
+/// How many skill points are waiting: one for every pick level reached
+/// and not chosen at (feature 83). Nought for a crew member with no
+/// class, which has no levels to choose at.
+fn points_left(view: &ClassView) -> usize {
+    if view.class == world::Class::None {
+        return 0;
+    }
+    (2..=view.level)
+        .filter(|&l| world::class::is_pick_level(l) && taken_at(view, l).is_none())
+        .count()
+}
+
+/// **What a slot is worth in numbers** — the line the column beside the
+/// tree puts under a slot's name, so a choice between two talents is a
+/// choice between two figures. The words and the arithmetic are
+/// `names.rs`'s, off the rules crates' own constants: a fixed level's
+/// [`level_numbers`], a pick level's [`talent_numbers`] for its side.
+fn skill_numbers(class: world::Class, slot: Slot) -> String {
+    match slot {
+        Slot::Fixed(level) => level_numbers(class, level).unwrap_or_default(),
+        Slot::Pick(level, side) => world::class::pick_at(class, level)
+            .map(|(left, right)| {
+                talent_numbers(match side {
+                    world::Side::Left => left,
+                    world::Side::Right => right,
+                })
+            })
+            .unwrap_or_default(),
+    }
 }
 
 /// A tool the pointer is holding, picked on the Actions tab. One at a time,
@@ -647,6 +1019,9 @@ pub struct CrewPanels {
     open_group: Option<usize>,
     /// The Research tab: the node picked, whose details are under the tree.
     research_pick: Option<Node>,
+    /// The Skills tab: the slot picked, whose details are under the tree
+    /// (feature 83). Cleared when the class changes under it.
+    skill_pick: Option<Slot>,
     /// The inventory pop-up: up from the Inventory key or a container
     /// being opened, until it is shut. A recruit does not open it — a
     /// fight is not the moment for a window over the deck.
@@ -693,6 +1068,12 @@ pub struct CrewPanels {
     /// or a body down, with a name for the strip — as the screen last
     /// handed it over (`Near`). Fresh every frame: the Bim is walking.
     pub nearby: Vec<Near>,
+    /// The player's own class, as the screen last handed it over
+    /// (feature 74): drawn under the health of their own crew member.
+    pub class_view: Option<ClassView>,
+    /// What the class section and the deployable rows asked for this
+    /// frame, drained by the screen.
+    pub deploy_orders: Vec<DeployOrder>,
     /// A thing being carried across the armoury window, between frames,
     /// and one across the pack.
     locker_drag: Option<grid::Drag>,
@@ -733,6 +1114,7 @@ impl CrewPanels {
             search: String::new(),
             open_group: None,
             research_pick: None,
+            skill_pick: None,
             inventory_open: false,
             hold: None,
             open: None,
@@ -747,6 +1129,8 @@ impl CrewPanels {
             key_requested: None,
             cell_menu: None,
             nearby: Vec::new(),
+            class_view: None,
+            deploy_orders: Vec::new(),
             locker_drag: None,
             pack_drag: None,
             keys: Keys::default(),
@@ -1785,6 +2169,7 @@ impl CrewPanels {
                     self.key_requested = Some(who as u32);
                 }
                 Some(Open::Plunder(shelf)) => self.open_plunder(game, shelf),
+                Some(open @ (Open::PackUp(_) | Open::Refill(_))) => self.show(open),
                 None => {
                     if let Some(order) = item.run {
                         if later {
@@ -1828,6 +2213,150 @@ impl CrewPanels {
         });
     }
 
+    /// The class section under the health: the class and the level, the
+    /// pick waiting as two buttons with what each does behind a `?`, the
+    /// talents learnt, and — until the first undock — the class picker.
+    fn class_section(&mut self, ui: &mut egui::Ui, view: &ClassView) {
+        ui.add_space(4.0);
+        if view.can_change {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(BIM_CLASS).color(theme::MUTED));
+                for class in world::Class::ALL {
+                    if theme::toggle(ui, class == view.class, class_name(class)).clicked()
+                        && class != view.class
+                    {
+                        self.deploy_orders.push(DeployOrder::SetClass(class));
+                    }
+                }
+                theme::question_mark(ui, BIM_CLASS_NOTE);
+            });
+        }
+        if view.class == world::Class::None {
+            if !view.can_change {
+                ui.label(
+                    egui::RichText::new(class_name(view.class))
+                        .small()
+                        .color(theme::MUTED),
+                );
+            }
+            return;
+        }
+        ui.label(
+            egui::RichText::new(class_line(view.class, view.level, view.to_next))
+                .small()
+                .color(theme::INK),
+        );
+        if let Some(soldier) = view.soldier {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(grenades_line(soldier.grenades, soldier.cooldown))
+                        .small()
+                        .color(theme::INK),
+                );
+                let (word, color) = if soldier.braced {
+                    (BRACED, theme::CAUTION)
+                } else {
+                    (STAND_EASY, theme::MUTED)
+                };
+                ui.label(egui::RichText::new(word).small().color(color));
+                theme::question_mark(ui, BRACED_TIP);
+            });
+        }
+        if let Some(medic) = &view.medic {
+            ui.horizontal(|ui| {
+                let (words, color) = if medic.patients.is_empty() {
+                    (BEAM_OFF.to_string(), theme::MUTED)
+                } else {
+                    (beam_line(&medic.patients), theme::YOURS)
+                };
+                ui.label(egui::RichText::new(words).small().color(color));
+                theme::question_mark(ui, BEAM_TIP);
+            });
+            ui.horizontal(|ui| {
+                let charged = medic.can_surge && medic.charge >= 1.0;
+                ui.label(
+                    egui::RichText::new(surge_line(medic.charge, medic.can_surge))
+                        .small()
+                        .color(if charged {
+                            theme::CAUTION
+                        } else {
+                            theme::MUTED
+                        }),
+                );
+                if medic.surging {
+                    ui.label(egui::RichText::new(SURGING).small().color(theme::YOURS));
+                }
+            });
+        }
+        if let Some(tank) = view.tank {
+            ui.horizontal(|ui| {
+                let (word, color) = if tank.bulwark {
+                    (WALL_UP, theme::CAUTION)
+                } else {
+                    (WALL_DOWN, theme::MUTED)
+                };
+                ui.label(egui::RichText::new(word).small().color(color));
+                theme::question_mark(ui, WALL_TIP);
+            });
+            let taunting = tank.taunt_left > 0.0;
+            ui.label(
+                egui::RichText::new(taunt_line(tank.taunt_left, tank.cooldown, tank.can_taunt))
+                    .small()
+                    .color(if taunting { theme::WARN } else { theme::MUTED }),
+            );
+        }
+        if let Some(commander) = view.commander {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(squad_line(commander.squad, commander.members))
+                        .small()
+                        .color(if commander.squad.is_some() {
+                            theme::CAUTION
+                        } else {
+                            theme::MUTED
+                        }),
+                );
+                theme::question_mark(ui, SQUAD_TIP);
+            });
+            let rallying = commander.rally_left > 0.0;
+            ui.label(
+                egui::RichText::new(rally_line(
+                    commander.rally_left,
+                    commander.cooldown,
+                    commander.can_rally,
+                ))
+                .small()
+                .color(if rallying { theme::WARN } else { theme::MUTED }),
+            );
+        }
+        if let Some((level, left, right)) = view.pending {
+            ui.label(
+                egui::RichText::new(format!("{PICK_PENDING} level {level}"))
+                    .small()
+                    .color(theme::CAUTION),
+            );
+            ui.horizontal(|ui| {
+                for (talent, side) in [(left, world::Side::Left), (right, world::Side::Right)] {
+                    if ui.button(talent_name(talent)).clicked() {
+                        self.deploy_orders.push(DeployOrder::Pick {
+                            level: level as u32,
+                            side,
+                        });
+                    }
+                    theme::question_mark(ui, talent_tip(talent));
+                }
+            });
+        }
+        if !view.talents.is_empty() {
+            let learnt: Vec<&str> = view.talents.iter().map(|t| talent_name(*t)).collect();
+            ui.label(
+                egui::RichText::new(learnt.join(" · "))
+                    .small()
+                    .color(theme::MUTED),
+            );
+        }
+    }
+
     /// The selected crew member's panels: the bars, the health lines and
     /// the character sheet. One at a time, and only when somebody is
     /// picked: the right-hand side answers "who am I looking at", not
@@ -1845,6 +2374,7 @@ impl CrewPanels {
         };
         let w = who as usize;
         let alive = game.is_alive(w);
+        ui.set_min_width(SIDE_W);
         self.who_header(ui, who, name);
 
         // The needs. Only the first crew member's words are affordances:
@@ -1866,7 +2396,7 @@ impl CrewPanels {
                     }
                     theme::bar(
                         ui,
-                        110.0,
+                        BAR_W,
                         level,
                         if urgent { theme::WARN } else { theme::ACCENT },
                     );
@@ -1882,11 +2412,18 @@ impl CrewPanels {
         // How it is bearing up. The armour worn adds its health to the
         // body's: the blue on the end of the green is what the pieces
         // still have, and the number reads the two apart.
-        ui.add_space(4.0);
+        //
+        // This whole block is drawn bigger than the needs above it on
+        // purpose: in a fight it is the only part of the panel anybody
+        // looks at, and the question it has to answer at a glance is not
+        // "how much health" but "what is killing it and how long has it
+        // got" — which is the peril block under the bar.
+        ui.add_space(6.0);
         let points = game.health(w);
         let armour = if alive { game.armour_health(w) } else { 0.0 };
         let stage = game.malnutrition(w);
-        let hurt = stage >= 3 || !alive;
+        let perils = if alive { perils(game, w) } else { Vec::new() };
+        let hurt = stage >= 3 || !alive || !perils.is_empty();
         ui.horizontal(|ui| {
             if who == 0 {
                 theme::asks(ui, "Health", HEALTH_TIP);
@@ -1894,51 +2431,141 @@ impl CrewPanels {
                 ui.label("Health");
             }
             let total = health::MAX_HEALTH + armour;
-            theme::two_tone_bar(
+            theme::health_bar(
                 ui,
-                110.0,
+                BAR_W,
                 points / total,
                 armour / total,
                 if hurt { theme::BAD } else { theme::ACCENT },
                 theme::ARMOUR,
             );
             ui.label(
-                egui::RichText::new(if armour > 0.0 {
-                    format!("{} hp + {} hp", points.round(), armour.round())
-                } else {
-                    format!("{}", points.round())
-                })
-                .small()
-                .color(theme::MUTED),
+                egui::RichText::new(format!("{}", points.round()))
+                    .size(HEALTH_NUMBER)
+                    .strong()
+                    .color(if hurt { theme::BAD } else { theme::INK }),
             );
+            if armour > 0.0 {
+                ui.label(
+                    egui::RichText::new(format!("+{}", armour.round()))
+                        .size(HEALTH_NUMBER)
+                        .color(theme::ARMOUR),
+                );
+            }
         });
-        // What the bar is made of: the head, the body and the legs, a thin
-        // bar each, and the blood under them. Drawn for the dead too — a
-        // body with its head at nothing says how it died.
+
+        // What is taking it down, and how long it has at that rate. The
+        // one thing on this panel that is framed: it is a warning, and a
+        // warning that looks like the rows around it is not one.
+        if alive && !perils.is_empty() {
+            ui.add_space(3.0);
+            peril_frame().show(ui, |ui| {
+                ui.set_min_width(BAR_W + 60.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(PERIL_HEAD)
+                            .small()
+                            .strong()
+                            .color(theme::DYING),
+                    );
+                    theme::question_mark(ui, PERIL_TIP);
+                });
+                for peril in &perils {
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(peril.cause)
+                                .size(PERIL_NAME)
+                                .strong()
+                                .color(theme::DYING),
+                        );
+                        ui.label(
+                            egui::RichText::new(&peril.rate)
+                                .small()
+                                .color(theme::CAUTION),
+                        );
+                    });
+                    if let Some(minutes) = peril.minutes {
+                        ui.label(
+                            egui::RichText::new(peril_left(&span_text(minutes)))
+                                .size(PERIL_LEFT)
+                                .strong()
+                                .color(theme::WARN),
+                        );
+                    }
+                    for from in &peril.from {
+                        ui.label(egui::RichText::new(from).small().color(theme::INK));
+                    }
+                    ui.label(
+                        egui::RichText::new(peril.remedy)
+                            .small()
+                            .color(theme::MUTED),
+                    );
+                }
+            });
+            ui.add_space(3.0);
+        } else if alive && game.is_dying(w) {
+            // A dying state that is not bleeding — a concussion, broken
+            // ribs, a knee. It still wants a medkit, but nothing is
+            // counting down, and that is worth saying outright rather
+            // than leaving a player to guess from a bar that is not
+            // moving.
+            ui.add_space(3.0);
+            peril_frame().show(ui, |ui| {
+                ui.set_min_width(BAR_W + 60.0);
+                for part in health::Part::ALL {
+                    if let Some(trauma) = game.trauma(w, part) {
+                        ui.label(
+                            egui::RichText::new(trauma_name(trauma.code()))
+                                .size(PERIL_NAME)
+                                .strong()
+                                .color(theme::DYING),
+                        );
+                    }
+                }
+                ui.label(
+                    egui::RichText::new(PERIL_STABLE)
+                        .small()
+                        .color(theme::MUTED),
+                );
+            });
+            ui.add_space(3.0);
+        }
+
+        // What the bar is made of: the head, the body and the legs, a bar
+        // each, and the blood under them. Drawn for the dead too — a body
+        // with its head at nothing says how it died — and a part held at
+        // nothing by an untreated trauma is named in the red of the cross
+        // over its head on the deck.
         egui::Grid::new(("body", who))
-            .num_columns(3)
-            .spacing([8.0, 1.0])
+            .num_columns(4)
+            .spacing([8.0, 3.0])
             .show(ui, |ui| {
                 for (i, part) in health::Part::ALL.into_iter().enumerate() {
                     let left = game.part_health(w, part);
                     let bonus = if alive { game.part_bonus(w, part) } else { 0.0 };
                     let bleeding = alive && game.wounds(w, part) > 0;
+                    let trauma = if alive { game.trauma(w, part) } else { None };
                     ui.label(
-                        egui::RichText::new(SLOT_NAMES[i])
-                            .small()
-                            .color(if bleeding {
-                                theme::CAUTION
-                            } else {
-                                theme::MUTED
-                            }),
+                        egui::RichText::new(SLOT_NAMES[i]).color(if trauma.is_some() {
+                            theme::DYING
+                        } else if bleeding {
+                            theme::CAUTION
+                        } else {
+                            theme::MUTED
+                        }),
                     );
                     let total = part.max() + bonus;
-                    theme::thin_two_tone_bar(
+                    theme::two_tone_bar(
                         ui,
-                        110.0,
+                        BAR_W,
                         left / total,
                         bonus / total,
-                        if bleeding { theme::BAD } else { theme::ACCENT },
+                        if trauma.is_some() || bleeding {
+                            theme::BAD
+                        } else {
+                            theme::ACCENT
+                        },
                         theme::ARMOUR,
                     );
                     ui.label(
@@ -1947,29 +2574,37 @@ impl CrewPanels {
                         } else {
                             format!("{}", left.round())
                         })
-                        .small()
                         .color(theme::MUTED),
                     );
+                    // The trauma's own name beside the part it holds at
+                    // nothing, so the bar at zero and the reason it is
+                    // there are one row rather than two places.
+                    if let Some(trauma) = trauma {
+                        ui.label(
+                            egui::RichText::new(trauma_name(trauma.code()))
+                                .small()
+                                .color(theme::DYING),
+                        );
+                    }
                     ui.end_row();
                 }
                 // Red when there is less than half left, which is when the
                 // Bim starts to slow — the number alone does not say that.
                 let blood = game.blood(w) / health::MAX_BLOOD;
                 let low = blood < health::SLOWED_AT;
-                ui.label(egui::RichText::new("Blood").small().color(if low {
+                ui.label(egui::RichText::new("Blood").color(if low {
                     theme::BAD
                 } else {
                     theme::MUTED
                 }));
-                theme::thin_bar(
+                theme::bar(
                     ui,
-                    110.0,
+                    BAR_W,
                     blood,
                     if low { theme::BAD } else { theme::ACCENT },
                 );
                 ui.label(
                     egui::RichText::new(format!("{}%", (blood * 100.0).round()))
-                        .small()
                         .color(theme::MUTED),
                 );
                 ui.end_row();
@@ -1987,36 +2622,19 @@ impl CrewPanels {
             };
             ui.label(egui::RichText::new(text).small().color(color));
         };
-        // The wounds first: they are the thing that is killing it fastest.
-        let open = if alive { game.bleeding(w) } else { 0 };
-        line(
-            ui,
-            match open {
-                0 => String::new(),
-                1 => "Bleeding · 1 open wound".into(),
-                n => format!("Bleeding · {n} open wounds"),
-            },
-            true,
-            false,
-        );
+        // The open wounds and the traumas themselves are the peril block's
+        // now — it says how fast each of them is emptying the Bim, which
+        // is what a count of wounds was standing in for.
         if alive && game.is_unconscious(w) {
             ui.label(egui::RichText::new("Out cold").small().color(theme::BAD));
         }
-        // A part at nothing: the dying state on it, in red, with what it
-        // is doing under it — the line is what sends a player to the
-        // medkits. Then what treated traumas have left behind, and for
-        // how long.
+        // What each untreated trauma is *doing* to it besides the blood —
+        // the slower walk, the slower work — under the block that says
+        // what it costs. Then what treated traumas have left behind, and
+        // for how long.
         if alive {
             for part in health::Part::ALL {
                 if let Some(trauma) = game.trauma(w, part) {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Dying · {}",
-                            trauma_name(trauma.code()).to_lowercase()
-                        ))
-                        .small()
-                        .color(theme::BAD),
-                    );
                     ui.label(
                         egui::RichText::new(format!(
                             "{} Needs a medkit from a crewmate.",
@@ -2052,16 +2670,25 @@ impl CrewPanels {
             true,
             false,
         );
-        line(
-            ui,
-            if alive {
-                CONDITIONS[stage as usize].to_string()
-            } else {
-                format!("{} has died.", name(who))
-            },
-            stage > 0,
-            !alive,
-        );
+        if alive {
+            line(ui, CONDITIONS[stage as usize].to_string(), stage > 0, false);
+        } else {
+            // The dead say what of, in the red the cross over them was:
+            // a bar at nothing is not an answer, and "has died" on its
+            // own leaves a player scrolling back through the log for
+            // one.
+            ui.label(
+                egui::RichText::new(format!("{} has died.", name(who)))
+                    .size(PERIL_NAME)
+                    .strong()
+                    .color(theme::DYING),
+            );
+            ui.label(
+                egui::RichText::new(death_line(game, w))
+                    .small()
+                    .color(theme::MUTED),
+            );
+        }
         let tired = game.drowsiness(w);
         line(
             ui,
@@ -2126,6 +2753,15 @@ impl CrewPanels {
             alone >= 2,
             false,
         );
+
+        // The class (feature 74): the player's own crew member's, with its
+        // level, what the next wants, the pick waiting and the talents
+        // learnt. Only their own: a class is a slot's.
+        if who == self.player as u32
+            && let Some(view) = self.class_view.clone()
+        {
+            self.class_section(ui, &view);
+        }
 
         // The character sheet: two pages under the bars.
         ui.add_space(6.0);
@@ -2282,10 +2918,11 @@ impl CrewPanels {
             tabs.push((Tab::Actions, "Actions"));
             tabs.push((Tab::Build, "Build"));
             tabs.push((Tab::Research, "Research"));
+            tabs.push((Tab::Skills, SKILLS));
             tabs.push((Tab::Ship, "Ship"));
         } else if matches!(
             self.tab,
-            Tab::Actions | Tab::View | Tab::Build | Tab::Research | Tab::Ship
+            Tab::Actions | Tab::View | Tab::Build | Tab::Research | Tab::Skills | Tab::Ship
         ) {
             self.tab = Tab::Schedule;
         }
@@ -2355,8 +2992,16 @@ impl CrewPanels {
                     self.research(ui, actions);
                 }
             }
+            Tab::Skills => self.skills(ui),
         }
         false
+    }
+
+    /// Open the tray on the Skills tab: what a level of the player's own
+    /// (feature 83) does, rather than a window over the deck.
+    pub fn show_skills(&mut self) {
+        self.tab = Tab::Skills;
+        self.tray_open = true;
     }
 
     // --- the inventory --------------------------------------------------------
@@ -2798,6 +3443,19 @@ impl CrewPanels {
     /// Put up the window for a thing already within reach — off the
     /// nearby strip, or the Inventory key — without the walk over.
     fn show(&mut self, open: Open) {
+        // Not windows: the engineer's rows act and leave what is up as it
+        // is.
+        match open {
+            Open::PackUp(id) => {
+                self.deploy_orders.push(DeployOrder::PackUp(id));
+                return;
+            }
+            Open::Refill(id) => {
+                self.deploy_orders.push(DeployOrder::Refill(id));
+                return;
+            }
+            _ => {}
+        }
         self.open = Some(open);
         self.body = None;
         self.inventory_open = true;
@@ -3182,6 +3840,27 @@ impl CrewPanels {
                                 }
                                 if !ok && !why.is_empty() {
                                     button.on_disabled_hover_text(why);
+                                }
+                                // The armourer's repair (feature 74): an
+                                // engineer with the talent mends the damaged
+                                // piece in the first slot, greyed with the
+                                // world's own reason.
+                                if let Some(repair) =
+                                    self.class_view.as_ref().and_then(|v| v.repair)
+                                {
+                                    let (ok, why) = match repair {
+                                        Ok(()) => (true, String::new()),
+                                        Err(why) => (false, refusal(why).to_string()),
+                                    };
+                                    let button = ui
+                                        .add_enabled(ok, egui::Button::new(REPAIR))
+                                        .on_hover_text(REPAIR_TIP);
+                                    if ok && button.clicked() {
+                                        self.deploy_orders.push(DeployOrder::Repair);
+                                    }
+                                    if !ok && !why.is_empty() {
+                                        button.on_disabled_hover_text(why);
+                                    }
                                 }
                             }
                         }
@@ -4133,6 +4812,321 @@ impl CrewPanels {
             _ => "Pick a part and click where it is to go. The crew carry what it is made of from the shelves and build it; a site beyond the hull is built in a suit.".to_string(),
         };
         ui.add(egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap());
+    }
+
+    /// The skills tree (feature 83): the player's own crew member's
+    /// class, level by level down the tray — a level's own slot across
+    /// the width where it has one, and two side by side where the level
+    /// is a choice — with the levels numbered down the left and the
+    /// spine beside them lit as far as the level reached. A box is
+    /// coloured for its state: learnt, given up, open for a point, or
+    /// waiting on a level. A click picks one, and **beside** the tree the
+    /// picked slot says what it does, **what it is worth in numbers**,
+    /// what state it is in, and — for one that is open — carries the
+    /// button that spends the point. To the right rather than below,
+    /// since the tray grows upwards off the foot of the window: a column
+    /// beside the tree can say as much as it likes without the tree
+    /// moving under the pointer. The tree asks nothing of the world it
+    /// is not handed: everything here is `ClassView` and
+    /// `world::class`'s own tables, the numbers said by
+    /// [`crate::names::talent_numbers`] and
+    /// [`crate::names::level_numbers`].
+    fn skills(&mut self, ui: &mut egui::Ui) {
+        let Some(view) = self.class_view.clone() else {
+            return;
+        };
+        let tree = skill_tree_size();
+        ui.set_max_width(tree.x + SKILL_DETAIL_GAP + DETAIL_WIDTH + 8.0);
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(SKILLS)
+                    .size(SKILL_TEXT)
+                    .color(theme::MUTED),
+            );
+            theme::question_mark(ui, SKILLS_TIP);
+        });
+        let class = view.class;
+        if class == world::Class::None {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(SKILLS_NO_CLASS)
+                        .size(SKILL_TEXT)
+                        .color(theme::MUTED),
+                )
+                .wrap(),
+            );
+            return;
+        }
+        ui.label(
+            egui::RichText::new(class_line(class, view.level, view.to_next))
+                .size(SKILL_TEXT)
+                .color(theme::INK),
+        );
+        // A point a pick level reached and not chosen at.
+        let points = points_left(&view);
+        ui.label(
+            egui::RichText::new(skill_points(points))
+                .size(SKILL_TEXT)
+                .color(if points > 0 {
+                    theme::CAUTION
+                } else {
+                    theme::MUTED
+                }),
+        );
+        ui.add_space(4.0);
+
+        // Every slot of the ten levels, top to bottom, with the words
+        // that go on and under it.
+        let mut slots: Vec<(Slot, &'static str, &'static str)> = Vec::new();
+        for level in 1..=world::class::LEVELS {
+            match world::class::pick_at(class, level) {
+                Some((left, right)) => {
+                    slots.push((
+                        Slot::Pick(level, world::Side::Left),
+                        talent_name(left),
+                        talent_tip(left),
+                    ));
+                    slots.push((
+                        Slot::Pick(level, world::Side::Right),
+                        talent_name(right),
+                        talent_tip(right),
+                    ));
+                }
+                None => slots.push((
+                    Slot::Fixed(level),
+                    level_name(class, level).unwrap_or(""),
+                    level_line(class, level).unwrap_or(""),
+                )),
+            }
+        }
+        // A slot picked before the class changed under it is no slot.
+        if self
+            .skill_pick
+            .is_some_and(|slot| !slots.iter().any(|&(s, ..)| s == slot))
+        {
+            self.skill_pick = None;
+        }
+
+        let mut learn = None;
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| self.skills_tree(ui, &view, &slots));
+            ui.add_space(SKILL_DETAIL_GAP);
+            ui.vertical(|ui| {
+                ui.set_width(DETAIL_WIDTH);
+                ui.set_min_height(tree.y);
+                learn = self.skills_detail(ui, &view, &slots);
+            });
+        });
+        if let Some((level, side)) = learn {
+            self.deploy_orders.push(DeployOrder::Pick {
+                level: level as u32,
+                side,
+            });
+            // The point spent, the tree says so next frame; the slot is
+            // let go of so the column goes back to its hint.
+            self.skill_pick = None;
+        }
+    }
+
+    /// The tree itself: the spine and its numbers down the gutter, and a
+    /// box a slot, coloured for its state and lit under the pointer or
+    /// where the pick is. A click sets [`CrewPanels::skill_pick`]; the
+    /// column beside it reads that.
+    fn skills_tree(
+        &mut self,
+        ui: &mut egui::Ui,
+        view: &ClassView,
+        slots: &[(Slot, &'static str, &'static str)],
+    ) {
+        let state = |slot: Slot| SkillState::of(view, slot);
+        let size = skill_tree_size();
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        let painter = ui.painter_at(rect);
+        let row_y = |level: u8| rect.min.y + (level as f32 - 1.0) * (SKILL_BOX_H + SKILL_GAP_Y);
+        let box_of = |slot: Slot| {
+            let y = row_y(slot.level());
+            let left = rect.min.x + SKILL_GUTTER;
+            match slot {
+                Slot::Fixed(_) => egui::Rect::from_min_size(
+                    egui::pos2(left, y),
+                    egui::vec2(2.0 * SKILL_BOX_W + SKILL_GAP_X, SKILL_BOX_H),
+                ),
+                Slot::Pick(_, world::Side::Left) => egui::Rect::from_min_size(
+                    egui::pos2(left, y),
+                    egui::vec2(SKILL_BOX_W, SKILL_BOX_H),
+                ),
+                Slot::Pick(_, world::Side::Right) => egui::Rect::from_min_size(
+                    egui::pos2(left + SKILL_BOX_W + SKILL_GAP_X, y),
+                    egui::vec2(SKILL_BOX_W, SKILL_BOX_H),
+                ),
+            }
+        };
+        // The spine down the gutter, lit as far as the level reached,
+        // with the level's number beside each knot.
+        let spine = rect.min.x + SKILL_GUTTER - 8.0;
+        for level in 1..=world::class::LEVELS {
+            let y = row_y(level) + SKILL_BOX_H / 2.0;
+            let reached = level <= view.level;
+            let ink = if reached { theme::ACCENT } else { theme::LINE };
+            if level < world::class::LEVELS {
+                let next = row_y(level + 1) + SKILL_BOX_H / 2.0;
+                let on = level < view.level;
+                painter.line_segment(
+                    [egui::pos2(spine, y), egui::pos2(spine, next)],
+                    egui::Stroke::new(1.5, if on { theme::ACCENT } else { theme::LINE }),
+                );
+            }
+            painter.circle_filled(egui::pos2(spine, y), 3.0, ink);
+            painter.text(
+                egui::pos2(rect.min.x + 9.0, y),
+                egui::Align2::CENTER_CENTER,
+                level.to_string(),
+                egui::FontId::proportional(SKILL_BOX_TEXT),
+                if reached { theme::INK } else { theme::MUTED },
+            );
+        }
+        let hovered = response
+            .hover_pos()
+            .and_then(|p| slots.iter().find(|&&(s, ..)| box_of(s).contains(p)));
+        if let Some(p) = response.interact_pointer_pos()
+            && response.clicked()
+            && let Some(&(slot, ..)) = slots.iter().find(|&&(s, ..)| box_of(s).contains(p))
+        {
+            self.skill_pick = Some(slot);
+        }
+        for &(slot, label, _) in slots {
+            let b = box_of(slot);
+            let how = state(slot);
+            let (fill, edge, ink) = match how {
+                SkillState::Learnt => (theme::RAISED_ON, theme::ACCENT, theme::INK),
+                SkillState::Open => (theme::RAISED, theme::CAUTION, theme::INK),
+                SkillState::GivenUp | SkillState::Locked => {
+                    (theme::PANEL_DEEP, theme::LINE, theme::MUTED)
+                }
+            };
+            let lit = hovered.map(|&(s, ..)| s) == Some(slot) || self.skill_pick == Some(slot);
+            painter.rect(
+                b,
+                4.0,
+                fill,
+                egui::Stroke::new(
+                    if lit { 2.0 } else { 1.0 },
+                    if lit { theme::INK } else { edge },
+                ),
+                egui::StrokeKind::Inside,
+            );
+            let font = egui::FontId::proportional(SKILL_BOX_TEXT);
+            let mut job =
+                egui::text::LayoutJob::simple(label.to_string(), font, ink, b.width() - 10.0);
+            // A slot given up is struck through: the level was chosen at,
+            // and the other side of it is gone for good.
+            if how == SkillState::GivenUp {
+                for section in &mut job.sections {
+                    section.format.strikethrough = egui::Stroke::new(1.0, ink);
+                }
+            }
+            let galley = painter.layout_job(job);
+            painter.galley(
+                egui::pos2(
+                    b.center().x - galley.size().x / 2.0,
+                    b.center().y - galley.size().y / 2.0,
+                ),
+                galley,
+                ink,
+            );
+        }
+        if let Some(&(slot, label, tip)) = hovered {
+            let level = slot.level();
+            let numbers = skill_numbers(view.class, slot);
+            response
+                .clone()
+                .on_hover_text(format!("Level {level} · {label}\n{tip}\n{numbers}"));
+        }
+    }
+
+    /// What the picked slot is, beside the tree: its name, the level it
+    /// sits at, **what it is worth in numbers**, what it does in words,
+    /// what state it is in, and the button that spends the point on one
+    /// that is open. Nothing is picked and it is the hint instead.
+    fn skills_detail(
+        &mut self,
+        ui: &mut egui::Ui,
+        view: &ClassView,
+        slots: &[(Slot, &'static str, &'static str)],
+    ) -> Option<(u8, world::Side)> {
+        let picked = self
+            .skill_pick
+            .and_then(|pick| slots.iter().find(|&&(s, ..)| s == pick))
+            .copied();
+        let Some((slot, label, tip)) = picked else {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(SKILLS_HINT)
+                        .size(SKILL_TEXT)
+                        .color(theme::MUTED),
+                )
+                .wrap(),
+            );
+            return None;
+        };
+        ui.label(
+            egui::RichText::new(label)
+                .size(SKILL_NAME_TEXT)
+                .strong()
+                .color(theme::INK),
+        );
+        ui.label(
+            egui::RichText::new(skill_slot_line(
+                slot.level(),
+                matches!(slot, Slot::Pick(..)),
+            ))
+            .size(SKILL_TEXT)
+            .color(theme::MUTED),
+        );
+        ui.add_space(4.0);
+        // The figures first: what choosing this actually changes.
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(skill_numbers(view.class, slot))
+                    .size(SKILL_TEXT)
+                    .color(theme::ACCENT),
+            )
+            .wrap(),
+        );
+        ui.add_space(4.0);
+        ui.add(egui::Label::new(egui::RichText::new(tip).size(SKILL_TEXT)).wrap());
+        ui.add_space(4.0);
+        let state = SkillState::of(view, slot);
+        let words = match state {
+            SkillState::Learnt => match slot {
+                Slot::Fixed(_) => SKILL_COMES_WITH.to_string(),
+                Slot::Pick(..) => SKILL_LEARNT.to_string(),
+            },
+            SkillState::GivenUp => SKILL_GIVEN_UP.to_string(),
+            SkillState::Open => SKILL_OPEN.to_string(),
+            SkillState::Locked => skill_locked(slot.level()),
+        };
+        ui.add(
+            egui::Label::new(egui::RichText::new(words).size(SKILL_TEXT).color(
+                if state == SkillState::Open {
+                    theme::CAUTION
+                } else {
+                    theme::MUTED
+                },
+            ))
+            .wrap(),
+        );
+        if let (SkillState::Open, Slot::Pick(level, side)) = (state, slot) {
+            ui.add_space(4.0);
+            if ui
+                .button(egui::RichText::new(SKILL_LEARN).size(SKILL_TEXT))
+                .on_hover_text(SKILL_LEARN_TIP)
+                .clicked()
+            {
+                return Some((level, side));
+            }
+        }
+        None
     }
 
     /// The research tree: the nodes as boxes in columns by how deep they
@@ -5532,6 +6526,61 @@ pub fn player() -> usize {
 mod tests {
     use super::*;
 
+    /// What the peril block says is the room's own arithmetic and not a
+    /// second opinion: the rate is every open wound at
+    /// `health::BLEED_PER_WOUND` an hour plus every untreated trauma's
+    /// own `bleed()`, which is the sum `Health::update_held` subtracts,
+    /// and the countdown is the blood left divided by it.
+    #[test]
+    fn a_dying_bim_says_what_is_taking_it_down_and_how_long_it_has() {
+        let mut game = Game::new(7, 1200.0, 800.0);
+        assert!(
+            perils(&game, 0).is_empty(),
+            "a whole body is dying of nothing"
+        );
+        assert!(!game.is_dying(0));
+
+        // A leg taken to nothing: the trauma rolled on it, untreated, and
+        // one wound open besides.
+        game.wound(0, health::Part::Legs, 1_000.0);
+        let trauma = game
+            .trauma(0, health::Part::Legs)
+            .expect("a part at nothing has a trauma");
+        assert!(game.is_dying(0), "the cross hangs off this");
+        assert_eq!(game.wounds(0, health::Part::Legs), 1);
+
+        let an_hour = trauma.bleed() + health::BLEED_PER_WOUND;
+        let list = perils(&game, 0);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].cause, PERIL_BLEEDING);
+        assert_eq!(list[0].rate, peril_rate(an_hour));
+        assert_eq!(
+            list[0].minutes,
+            Some(game.blood(0) / an_hour * bims::clock::HOUR)
+        );
+        // The wound is always one of the rows; the trauma is one too
+        // whenever it is a trauma that bleeds.
+        assert!(list[0].from.contains(&peril_from(
+            &peril_wounds("Legs", 1),
+            health::BLEED_PER_WOUND
+        )));
+        assert_eq!(list[0].from.len(), if trauma.bleed() > 0.0 { 2 } else { 1 });
+        assert_eq!(
+            list[0].remedy,
+            if trauma.bleed() > 0.0 {
+                PERIL_BLEED_MEDKIT
+            } else {
+                PERIL_BLEED_BANDAGE
+            }
+        );
+
+        // And a body with no blood in it died of that, whatever else is
+        // wrong with it.
+        assert_eq!(death_line(&game, 0), DEATH_GAVE_UP);
+        game.set_blood_for_probe(0, 0.0);
+        assert_eq!(death_line(&game, 0), DEATH_BLED_OUT);
+    }
+
     /// The work list's rows are built off `work_count`, so a spot table a
     /// row short would ring nothing for the last job and nobody would
     /// notice; the target table is indexed by `manager::Stock` the same way.
@@ -5539,5 +6588,72 @@ mod tests {
     fn every_job_and_every_target_has_a_place_to_ring() {
         assert_eq!(WORK_SPOTS.len(), bims::work::Job::ALL.len());
         assert_eq!(KEEP_SPOTS.len(), Stock::ALL.len());
+    }
+
+    /// The Skills tree's rules (feature 83): a point for every pick level
+    /// reached and not chosen at, a slot learnt where it was chosen, the
+    /// other side of it given up for good, and everything above the level
+    /// reached locked. The tree draws nothing it does not read here.
+    #[test]
+    fn a_skills_tree_counts_its_points_and_says_what_every_slot_is() {
+        let view = |level: u8, picks: &[(u8, world::Side)]| ClassView {
+            class: world::Class::Engineer,
+            level,
+            picks: picks.to_vec(),
+            ..Default::default()
+        };
+        // Level one: the first is learnt, everything above it waits, and
+        // there is nothing to spend.
+        let one = view(1, &[]);
+        assert_eq!(points_left(&one), 0);
+        assert_eq!(SkillState::of(&one, Slot::Fixed(1)), SkillState::Learnt);
+        assert_eq!(SkillState::of(&one, Slot::Fixed(3)), SkillState::Locked);
+        assert_eq!(
+            SkillState::of(&one, Slot::Pick(2, world::Side::Left)),
+            SkillState::Locked
+        );
+        // Level five, nothing chosen: three pick levels behind it — two,
+        // four and five — and so three points.
+        let five = view(5, &[]);
+        assert_eq!(points_left(&five), 3);
+        assert_eq!(
+            SkillState::of(&five, Slot::Pick(2, world::Side::Left)),
+            SkillState::Open
+        );
+        assert_eq!(SkillState::of(&five, Slot::Fixed(3)), SkillState::Learnt);
+        assert_eq!(
+            SkillState::of(&five, Slot::Pick(6, world::Side::Left)),
+            SkillState::Locked
+        );
+        // One spent on the left of the second: a point fewer, that side
+        // learnt and the other gone.
+        let spent = view(5, &[(2, world::Side::Left)]);
+        assert_eq!(points_left(&spent), 2);
+        assert_eq!(
+            SkillState::of(&spent, Slot::Pick(2, world::Side::Left)),
+            SkillState::Learnt
+        );
+        assert_eq!(
+            SkillState::of(&spent, Slot::Pick(2, world::Side::Right)),
+            SkillState::GivenUp
+        );
+        // The top of the tree with every level chosen at: nothing left to
+        // spend. Seven pick levels, which is what a tenth-level run opens
+        // with.
+        let all: Vec<(u8, world::Side)> = (2..=world::class::LEVELS)
+            .filter(|&l| world::class::is_pick_level(l))
+            .map(|l| (l, world::Side::Right))
+            .collect();
+        assert_eq!(all.len(), 7);
+        assert_eq!(points_left(&view(10, &[])), 7);
+        assert_eq!(points_left(&view(10, &all)), 0);
+        // And a crew member with no class has no levels to spend at.
+        assert_eq!(
+            points_left(&ClassView {
+                level: 10,
+                ..Default::default()
+            }),
+            0
+        );
     }
 }

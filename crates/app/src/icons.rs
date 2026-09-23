@@ -43,10 +43,17 @@ const KEVLAR: Color32 = Color32::from_rgb(0x38, 0x3d, 0x47);
 const KEVLAR_YOKE: Color32 = Color32::from_rgb(0x5c, 0x64, 0x72);
 const LEGS: Color32 = Color32::from_rgb(0x3c, 0x34, 0x2c);
 const LEGS_BAND: Color32 = Color32::from_rgb(0x8c, 0x9e, 0xb8);
-// The long guns' wood and the sniper's scope, and the schword's hilt and
-// blade, in the colours the deck draws them (`character::draw_weapon`).
+// The long guns' wood, the sniper's scope and the glass in it, and the
+// schword's hilt and blade, in the colours the deck draws them
+// (`character::draw_gun`).
 const STOCK: Color32 = Color32::from_rgb(0x73, 0x4d, 0x29);
 const SCOPE: Color32 = Color32::from_rgb(0x4d, 0x57, 0x66);
+const LENS: Color32 = Color32::from_rgb(0x8c, 0xc7, 0xeb);
+/// A shade either side of [`GUN`], so the pieces of a gun hold apart at
+/// the size of a cell: the pale steel of a muzzle brake and a bipod, and
+/// the dark of a magazine, a sight rail and the vents in a handguard.
+const GUN_STEEL: Color32 = Color32::from_rgb(0x78, 0x84, 0x93);
+const GUN_DARK: Color32 = Color32::from_rgb(0x2e, 0x34, 0x3d);
 const HILT: Color32 = Color32::from_rgb(0x38, 0x38, 0x42);
 const BLADE_CORE: Color32 = Color32::from_rgb(0xfa, 0xff, 0xff);
 const BLADE_EDGE: Color32 = Color32::from_rgb(0x73, 0xf2, 0xff);
@@ -56,6 +63,15 @@ const BLADE_GLOW: Color32 = Color32::from_rgba_premultiplied(0x1c, 0x3d, 0x40, 0
 const KEY: Color32 = Color32::from_rgb(0x2a, 0x2e, 0x38);
 const KEY_EDGE: Color32 = Color32::from_rgb(0xcc, 0xa8, 0x4c);
 const KEY_TRACE: Color32 = Color32::from_rgb(0xff, 0xdb, 0x66);
+// The engineer's kits: the sack's hessian and a sentry crate's grey
+// with its barrel.
+const SACK: Color32 = Color32::from_rgb(0xb8, 0xa2, 0x70);
+const SACK_DARK: Color32 = Color32::from_rgb(0x7e, 0x6c, 0x48);
+const CRATE: Color32 = Color32::from_rgb(0x6a, 0x72, 0x7e);
+// The soldier's grenade: a dark shell with a band, and the fuse's cap.
+const SHELL: Color32 = Color32::from_rgb(0x2e, 0x33, 0x28);
+const SHELL_BAND: Color32 = Color32::from_rgb(0x6b, 0x73, 0x4c);
+const FUSE_CAP: Color32 = Color32::from_rgb(0xd8, 0xb0, 0x40);
 /// The galley's own things, which are no resource: a bowl of stew and a
 /// plate, for the Inventory tab's last rows.
 const BOWL: Color32 = Color32::from_rgb(0x9c, 0x6a, 0x48);
@@ -72,7 +88,11 @@ const SHINE: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 70);
 pub fn icon(painter: &egui::Painter, rect: Rect, item: Item) {
     match item {
         Item::Armour(piece) => armour(painter, rect, piece.kind, piece.broken()),
-        Item::Weapon(weapon) => match ResourceId::ALL.get(weapon.kind.resource() as usize) {
+        Item::Weapon(weapon) => match weapon
+            .kind
+            .resource()
+            .and_then(|c| ResourceId::ALL.get(c as usize))
+        {
             Some(&id) => resource(painter, rect, id),
             None => unknown(painter, rect),
         },
@@ -203,11 +223,14 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
             s.rect_filled(b.rect(0.28, 0.48, 0.72, 0.88), b.px(0.08), SUIT);
         }
         ResourceId::Handgun => {
-            // A pistol: the barrel, the grip, and the emitter at the
-            // muzzle.
-            s.rect_filled(b.rect(0.14, 0.34, 0.86, 0.52), b.px(0.04), GUN);
-            s.rect_filled(b.rect(0.30, 0.50, 0.50, 0.84), b.px(0.04), GUN);
-            s.circle_filled(b.at(0.82, 0.43), b.px(0.07), GUN_LIGHT);
+            // A sidearm, and drawn small: a stubby slide with the emitter
+            // at its nose and a grip under it, well inside the cell. On
+            // the deck the pistol is a third of the rifle, and it is a
+            // third of it here.
+            s.rect_filled(b.rect(0.28, 0.34, 0.78, 0.50), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.28, 0.48, 0.46, 0.76), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.33, 0.37, 0.70, 0.41), b.px(0.01), SCOPE);
+            s.circle_filled(b.at(0.79, 0.42), b.px(0.07), GUN_LIGHT);
         }
         ResourceId::Vest => {
             vest(s, b, VEST, SHADE);
@@ -277,30 +300,48 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
         }
         // The three long guns all face right like the handgun, the muzzle
         // lit, and are told apart by what the deck tells them apart by
-        // (`character::draw_weapon`): the shotgun's wide barrel and wooden
-        // stock and fore-end, the rifle's magazine under a short barrel,
-        // the sniper's length and the scope block on top.
+        // (`character::draw_gun`): the shotgun heavy and short, a wide
+        // bore over a wooden pump with the butt braced behind; the auto
+        // rifle a rifle — a vented handguard along the barrel, a magazine
+        // under the receiver, a sight rail on top and a brake on the end;
+        // the sniper the long one, with a scope and its glass, a thin
+        // barrel and a bipod under it.
         ResourceId::Shotgun => {
-            s.rect_filled(b.rect(0.06, 0.48, 0.30, 0.66), b.px(0.04), STOCK);
-            s.rect_filled(b.rect(0.24, 0.38, 0.92, 0.54), b.px(0.03), GUN);
-            s.rect_filled(b.rect(0.44, 0.52, 0.66, 0.62), b.px(0.03), STOCK);
-            s.rect_filled(b.rect(0.32, 0.52, 0.42, 0.72), b.px(0.03), GUN);
-            s.circle_filled(b.at(0.90, 0.46), b.px(0.07), GUN_LIGHT);
+            s.rect_filled(b.rect(0.04, 0.44, 0.26, 0.64), b.px(0.05), STOCK);
+            s.rect_filled(b.rect(0.22, 0.38, 0.40, 0.60), b.px(0.03), GUN);
+            s.rect_filled(b.rect(0.34, 0.38, 0.94, 0.54), b.px(0.03), GUN);
+            s.rect_filled(b.rect(0.46, 0.40, 0.70, 0.58), b.px(0.04), STOCK);
+            s.rect_filled(b.rect(0.30, 0.56, 0.40, 0.78), b.px(0.03), GUN);
+            s.circle_filled(b.at(0.91, 0.46), b.px(0.08), GUN_LIGHT);
         }
         ResourceId::AutoRifle => {
-            s.rect_filled(b.rect(0.08, 0.46, 0.26, 0.62), b.px(0.03), GUN);
-            s.rect_filled(b.rect(0.20, 0.40, 0.88, 0.52), b.px(0.03), GUN);
-            s.rect_filled(b.rect(0.30, 0.50, 0.40, 0.70), b.px(0.03), GUN);
-            s.rect_filled(b.rect(0.50, 0.50, 0.62, 0.78), b.px(0.03), SCOPE);
-            s.circle_filled(b.at(0.88, 0.46), b.px(0.06), GUN_LIGHT);
+            s.rect_filled(b.rect(0.04, 0.42, 0.24, 0.58), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.20, 0.36, 0.42, 0.58), b.px(0.03), GUN);
+            s.rect_filled(b.rect(0.40, 0.38, 0.84, 0.52), b.px(0.03), GUN);
+            for x in [0.50, 0.58, 0.66] {
+                s.rect_filled(b.rect(x, 0.40, x + 0.03, 0.50), 0.0, GUN_DARK);
+            }
+            s.rect_filled(b.rect(0.24, 0.28, 0.62, 0.36), b.px(0.02), GUN_DARK);
+            s.rect_filled(b.rect(0.30, 0.56, 0.42, 0.84), b.px(0.03), GUN_DARK);
+            s.rect_filled(b.rect(0.84, 0.36, 0.92, 0.54), b.px(0.02), GUN_STEEL);
+            s.circle_filled(b.at(0.93, 0.45), b.px(0.06), GUN_LIGHT);
         }
         ResourceId::SniperRifle => {
-            s.rect_filled(b.rect(0.04, 0.50, 0.24, 0.66), b.px(0.04), STOCK);
-            s.rect_filled(b.rect(0.18, 0.44, 0.96, 0.54), b.px(0.02), GUN);
-            s.rect_filled(b.rect(0.34, 0.30, 0.62, 0.42), b.px(0.03), SCOPE);
-            s.circle_filled(b.at(0.36, 0.36), b.px(0.05), GUN_LIGHT);
-            s.rect_filled(b.rect(0.28, 0.52, 0.38, 0.72), b.px(0.03), GUN);
-            s.circle_filled(b.at(0.94, 0.49), b.px(0.05), GUN_LIGHT);
+            s.rect_filled(b.rect(0.02, 0.46, 0.24, 0.62), b.px(0.05), STOCK);
+            s.rect_filled(b.rect(0.10, 0.41, 0.28, 0.49), b.px(0.02), STOCK);
+            s.rect_filled(b.rect(0.22, 0.44, 0.40, 0.58), b.px(0.02), GUN);
+            s.rect_filled(b.rect(0.34, 0.46, 0.96, 0.53), b.px(0.02), GUN);
+            s.rect_filled(b.rect(0.26, 0.26, 0.62, 0.38), b.px(0.03), SCOPE);
+            s.circle_filled(b.at(0.58, 0.32), b.px(0.055), LENS);
+            s.rect_filled(b.rect(0.28, 0.56, 0.38, 0.80), b.px(0.03), GUN);
+            for foot in [0.68f32, 0.84] {
+                s.line_segment(
+                    [b.at(0.76, 0.53), b.at(foot, 0.78)],
+                    Stroke::new(b.px(0.04), GUN_STEEL),
+                );
+            }
+            s.rect_filled(b.rect(0.90, 0.43, 0.96, 0.56), b.px(0.02), GUN_STEEL);
+            s.circle_filled(b.at(0.96, 0.49), b.px(0.05), GUN_LIGHT);
         }
         // The schword: a hilt at the bottom left and the blade up to the
         // right, a white core between two cyan strokes — the wide faint
@@ -327,6 +368,39 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
         // slab with its rim and trace in the theme's tier-two colour.
         ResourceId::ResearchKey => key(s, b, KEY_EDGE, KEY_TRACE),
         ResourceId::ResearchKeyTwo => key(s, b, theme::TIER_TWO, theme::TIER_TWO),
+        // The sandbag kit: three courses of sacks, the way the part is
+        // drawn on the deck.
+        ResourceId::SandbagKit => {
+            s.rect_filled(b.rect(0.10, 0.22, 0.90, 0.86), b.px(0.04), SACK_DARK);
+            for (row, y) in [0.26, 0.46, 0.66].into_iter().enumerate() {
+                let bags = if row % 2 == 0 { 3 } else { 2 };
+                let w = 0.76 / bags as f32;
+                for i in 0..bags {
+                    let x = 0.12 + w * i as f32;
+                    s.rect_filled(
+                        b.rect(x + 0.01, y, x + w - 0.01, y + 0.17),
+                        b.px(0.06),
+                        SACK,
+                    );
+                }
+            }
+        }
+        // The sentry kit: a crate with the turret's barrel and eye showing.
+        ResourceId::SentryKit => {
+            s.rect_filled(b.rect(0.12, 0.30, 0.88, 0.86), b.px(0.05), CRATE);
+            s.rect_filled(b.rect(0.12, 0.30, 0.88, 0.40), b.px(0.03), GUN);
+            s.circle_filled(b.at(0.40, 0.62), b.px(0.16), GUN);
+            s.rect_filled(b.rect(0.40, 0.57, 0.86, 0.67), b.px(0.02), GUN);
+            s.circle_filled(b.at(0.40, 0.62), b.px(0.06), GUN_LIGHT);
+        }
+        // The grenade: a round shell with a band across it and the fuse's
+        // cap and lever on top.
+        ResourceId::Grenade => {
+            s.circle_filled(b.at(0.50, 0.58), b.px(0.30), SHELL);
+            s.rect_filled(b.rect(0.22, 0.52, 0.78, 0.64), b.px(0.02), SHELL_BAND);
+            s.rect_filled(b.rect(0.42, 0.18, 0.58, 0.34), b.px(0.03), FUSE_CAP);
+            s.rect_filled(b.rect(0.56, 0.20, 0.80, 0.28), b.px(0.02), FUSE_CAP);
+        }
     }
 }
 
@@ -452,8 +526,10 @@ pub fn laid(painter: &egui::Painter, rect: Rect, item: Item, turned: bool) {
     let mut s = Sketch::default();
     let id = match item {
         Item::Armour(piece) => ResourceId::ALL.get(piece.kind.resource() as usize).copied(),
-        Item::Weapon(weapon) => ResourceId::ALL
-            .get(weapon.kind.resource() as usize)
+        Item::Weapon(weapon) => weapon
+            .kind
+            .resource()
+            .and_then(|c| ResourceId::ALL.get(c as usize))
             .copied(),
         Item::Stack(code) => ResourceId::ALL.get(code as usize).copied(),
         Item::Key(tier) => world::armour::key_resource(tier),
@@ -508,33 +584,50 @@ fn is_long(id: ResourceId) -> bool {
 fn draw_wide(s: &mut Sketch, b: &Box_, id: ResourceId) {
     match id {
         ResourceId::Handgun => {
-            s.rect_filled(b.rect(0.10, 0.28, 0.90, 0.50), b.px(0.06), GUN);
-            s.rect_filled(b.rect(0.22, 0.46, 0.40, 0.86), b.px(0.06), GUN);
-            s.circle_filled(b.at(0.88, 0.39), b.px(0.09), GUN_LIGHT);
+            // Small even laid out: the slide takes half the footprint and
+            // the rest is the air round a sidearm.
+            s.rect_filled(b.rect(0.24, 0.26, 0.80, 0.48), b.px(0.06), GUN);
+            s.rect_filled(b.rect(0.26, 0.44, 0.44, 0.86), b.px(0.06), GUN);
+            s.circle_filled(b.at(0.82, 0.37), b.px(0.09), GUN_LIGHT);
         }
         ResourceId::Shotgun => {
-            s.rect_filled(b.rect(0.03, 0.40, 0.26, 0.70), b.px(0.06), STOCK);
-            s.rect_filled(b.rect(0.20, 0.30, 0.95, 0.52), b.px(0.04), GUN);
-            s.rect_filled(b.rect(0.44, 0.50, 0.68, 0.64), b.px(0.04), STOCK);
-            s.rect_filled(b.rect(0.28, 0.50, 0.38, 0.84), b.px(0.04), GUN);
-            s.circle_filled(b.at(0.94, 0.41), b.px(0.09), GUN_LIGHT);
+            s.rect_filled(b.rect(0.02, 0.38, 0.22, 0.68), b.px(0.06), STOCK);
+            s.rect_filled(b.rect(0.18, 0.32, 0.34, 0.62), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.30, 0.32, 0.96, 0.52), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.42, 0.34, 0.66, 0.58), b.px(0.05), STOCK);
+            s.rect_filled(b.rect(0.26, 0.56, 0.36, 0.90), b.px(0.04), GUN);
+            s.circle_filled(b.at(0.94, 0.42), b.px(0.09), GUN_LIGHT);
         }
         // The one-row guns are a cell tall, so their parts take a good
         // half of the height each or they are a hair.
         ResourceId::AutoRifle => {
-            s.rect_filled(b.rect(0.02, 0.22, 0.20, 0.72), b.px(0.08), GUN);
-            s.rect_filled(b.rect(0.16, 0.28, 0.96, 0.58), b.px(0.06), GUN);
-            s.rect_filled(b.rect(0.26, 0.56, 0.35, 0.94), b.px(0.05), GUN);
-            s.rect_filled(b.rect(0.42, 0.56, 0.53, 0.98), b.px(0.05), SCOPE);
-            s.circle_filled(b.at(0.95, 0.43), b.px(0.10), GUN_LIGHT);
+            s.rect_filled(b.rect(0.01, 0.30, 0.20, 0.66), b.px(0.07), GUN);
+            s.rect_filled(b.rect(0.16, 0.24, 0.38, 0.66), b.px(0.05), GUN);
+            s.rect_filled(b.rect(0.36, 0.28, 0.82, 0.58), b.px(0.05), GUN);
+            for x in [0.46, 0.56, 0.66] {
+                s.rect_filled(b.rect(x, 0.32, x + 0.025, 0.54), 0.0, GUN_DARK);
+            }
+            s.rect_filled(b.rect(0.22, 0.14, 0.46, 0.28), b.px(0.03), GUN_DARK);
+            s.rect_filled(b.rect(0.26, 0.64, 0.38, 0.98), b.px(0.04), GUN_DARK);
+            s.rect_filled(b.rect(0.82, 0.26, 0.92, 0.60), b.px(0.03), GUN_STEEL);
+            s.circle_filled(b.at(0.94, 0.43), b.px(0.10), GUN_LIGHT);
         }
         ResourceId::SniperRifle => {
-            s.rect_filled(b.rect(0.01, 0.30, 0.18, 0.78), b.px(0.08), STOCK);
-            s.rect_filled(b.rect(0.14, 0.36, 0.97, 0.62), b.px(0.05), GUN);
-            s.rect_filled(b.rect(0.30, 0.04, 0.52, 0.34), b.px(0.05), SCOPE);
-            s.circle_filled(b.at(0.32, 0.19), b.px(0.09), GUN_LIGHT);
-            s.rect_filled(b.rect(0.22, 0.60, 0.30, 0.96), b.px(0.05), GUN);
-            s.circle_filled(b.at(0.96, 0.49), b.px(0.09), GUN_LIGHT);
+            s.rect_filled(b.rect(0.00, 0.34, 0.16, 0.74), b.px(0.07), STOCK);
+            s.rect_filled(b.rect(0.08, 0.26, 0.24, 0.40), b.px(0.03), STOCK);
+            s.rect_filled(b.rect(0.18, 0.34, 0.34, 0.64), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.30, 0.40, 0.97, 0.56), b.px(0.03), GUN);
+            s.rect_filled(b.rect(0.22, 0.12, 0.54, 0.36), b.px(0.04), SCOPE);
+            s.circle_filled(b.at(0.49, 0.24), b.px(0.10), LENS);
+            s.rect_filled(b.rect(0.24, 0.62, 0.34, 0.96), b.px(0.04), GUN);
+            for foot in [0.68f32, 0.82] {
+                s.line_segment(
+                    [b.at(0.75, 0.56), b.at(foot, 0.96)],
+                    Stroke::new(b.px(0.05), GUN_STEEL),
+                );
+            }
+            s.rect_filled(b.rect(0.90, 0.34, 0.97, 0.62), b.px(0.03), GUN_STEEL);
+            s.circle_filled(b.at(0.96, 0.48), b.px(0.09), GUN_LIGHT);
         }
         ResourceId::Schword => {
             let (foot, tip) = (b.at(0.26, 0.50), b.at(0.96, 0.50));

@@ -51,6 +51,10 @@ pub enum Cue {
     /// `player` is a player's own Bim in the crew's room, which is the
     /// one the app plays; a bot's and an enemy's are said and dropped.
     Holster { drawn: bool, player: bool },
+    /// A soldier threw a grenade (feature 75): the pin out and the throw.
+    Throw,
+    /// A grenade burst.
+    Burst,
 }
 
 /// A cue and where in the room it happened, in room units — the door's

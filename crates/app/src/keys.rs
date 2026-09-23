@@ -51,10 +51,34 @@ pub enum Action {
     Turn,
     /// Open and close the inventory of the crew member you steer.
     Inventory,
+    /// The steered crew member's class's first action (features 74 to
+    /// 77): an engineer sets a sentry up on the deck tile under the
+    /// pointer, a soldier throws a grenade at it, a medic triggers its
+    /// surge, a tank taunts. Nothing with a classless crew member
+    /// steered.
+    ClassPrimary,
+    /// Its second: an engineer lays sandbags on the tile under the
+    /// pointer, a soldier braces or stands easy, a medic beams the crew
+    /// member under the pointer, a tank puts its wall up or down.
+    ClassSecondary,
+    /// A commander calls the squad back to the deck tile under the
+    /// pointer, or to himself with the pointer on nothing (feature 78).
+    /// Nothing for any other class.
+    SquadFallBack,
+    /// A commander has the squad hold exactly where it stands.
+    SquadStandGround,
+    /// **Attack** (feature 84): arms the pointer, and the next click on
+    /// the deck puts an attack banner down there for the bots that
+    /// follow you. Pressed again with the pointer armed, or with the
+    /// banner already where you click, it is called off.
+    Attack,
+    /// **Retreat**: the bots that follow you fall back to the ship and
+    /// hold there. Pressed again, they go back to following.
+    Retreat,
 }
 
 impl Action {
-    pub const ALL: [Action; 17] = [
+    pub const ALL: [Action; 23] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -72,6 +96,12 @@ impl Action {
         Action::Recruit,
         Action::Turn,
         Action::Inventory,
+        Action::ClassPrimary,
+        Action::ClassSecondary,
+        Action::SquadFallBack,
+        Action::SquadStandGround,
+        Action::Attack,
+        Action::Retreat,
     ];
 
     /// The key it starts on.
@@ -80,7 +110,9 @@ impl Action {
         match self {
             Action::Map => Key::M,
             Action::NorthUp => Key::N,
-            Action::Follow => Key::F,
+            // F is Attack since feature 84 — the user asked for it by
+            // name — so following the camera moved to V.
+            Action::Follow => Key::V,
             Action::Pause => Key::Space,
             Action::Speed1 => Key::Num1,
             Action::Speed3 => Key::Num2,
@@ -95,6 +127,12 @@ impl Action {
             Action::Recruit => Key::R,
             Action::Turn => Key::R,
             Action::Inventory => Key::Tab,
+            Action::ClassPrimary => Key::Q,
+            Action::ClassSecondary => Key::E,
+            Action::SquadFallBack => Key::X,
+            Action::SquadStandGround => Key::Z,
+            Action::Attack => Key::F,
+            Action::Retreat => Key::T,
         }
     }
 
@@ -118,6 +156,12 @@ impl Action {
             Action::Recruit => "recruit",
             Action::Turn => "turn",
             Action::Inventory => "inventory",
+            Action::ClassPrimary => "class-primary",
+            Action::ClassSecondary => "class-secondary",
+            Action::SquadFallBack => "squad-fall-back",
+            Action::SquadStandGround => "squad-stand-ground",
+            Action::Attack => "attack",
+            Action::Retreat => "retreat",
         }
     }
 
@@ -149,6 +193,24 @@ impl Action {
                 "Turn the part in hand on the deck or in the yard, or a thing in the armoury."
             }
             Action::Inventory => "Open and close the inventory of the crew member you steer.",
+            Action::ClassPrimary => {
+                "The class's first action, by the crew member you steer: an engineer sets a sentry up on the deck tile under the pointer, out of a kit in its pack; a soldier throws a grenade at it; a medic triggers its surge; a tank taunts."
+            }
+            Action::ClassSecondary => {
+                "The class's second action: an engineer lays sandbags on the deck tile under the pointer, out of a kit in its pack; a soldier braces where it stands, or stands easy again; a medic beams the crew member under the pointer, and unlinks when pressed on the one it holds or on nobody; a tank puts its wall up, or takes it down; a commander sends the squad at the enemy under the pointer."
+            }
+            Action::SquadFallBack => {
+                "A commander calls the squad back to the deck tile under the pointer, or to himself with the pointer on nothing. Nothing for any other class."
+            }
+            Action::SquadStandGround => {
+                "A commander has the squad hold exactly where it stands. Nothing for any other class."
+            }
+            Action::Attack => {
+                "Arm the pointer — it turns red — and the next click on the deck puts an attack banner down there. The crew that follow you fight their way to it, taking the cover on the way and pushing on when nothing is in range. Press it again to think better of it, or click the banner where it already stands to call it off."
+            }
+            Action::Retreat => {
+                "The crew that follow you fall back to the ship and hold there. Press it again and they go back to keeping to your side. Nobody leaves a fight aboard the ship: cornered in your own hull they stand and shoot whatever they were told."
+            }
         }
     }
 
@@ -291,6 +353,26 @@ mod tests {
         assert_eq!(keys.key(Action::Recruit), egui::Key::R);
         assert_eq!(keys.shared_with(Action::Recruit), vec![Action::Turn]);
         assert!(keys.shared_with(Action::Map).is_empty());
+        // The class's two (features 74 and 75): Q and E, one each
+        // whatever the class, and bound to nothing else.
+        assert_eq!(keys.key(Action::ClassPrimary), egui::Key::Q);
+        assert_eq!(keys.key(Action::ClassSecondary), egui::Key::E);
+        assert!(keys.shared_with(Action::ClassPrimary).is_empty());
+        assert!(keys.shared_with(Action::ClassSecondary).is_empty());
+        // And the commander's two squad keys (feature 78): X and Z,
+        // bound to nothing else.
+        assert_eq!(keys.key(Action::SquadFallBack), egui::Key::X);
+        assert_eq!(keys.key(Action::SquadStandGround), egui::Key::Z);
+        assert!(keys.shared_with(Action::SquadFallBack).is_empty());
+        assert!(keys.shared_with(Action::SquadStandGround).is_empty());
+        // And every player's own two (feature 84): F attacks and T
+        // retreats, bound to nothing else — which is what moved the
+        // camera's Follow off F onto V.
+        assert_eq!(keys.key(Action::Attack), egui::Key::F);
+        assert_eq!(keys.key(Action::Retreat), egui::Key::T);
+        assert_eq!(keys.key(Action::Follow), egui::Key::V);
+        assert!(keys.shared_with(Action::Attack).is_empty());
+        assert!(keys.shared_with(Action::Retreat).is_empty());
         let mut changed = keys;
         changed.set(Action::Inventory, egui::Key::I);
         changed.set(Action::PanUp, egui::Key::ArrowUp);

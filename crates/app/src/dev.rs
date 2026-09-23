@@ -32,6 +32,10 @@
 //! `pistol`, `shotgun`, `rifle`, `sniper`) puts that in the crew member's
 //! hand instead of the pistol, and `BIMS_ENEMY_WEAPON=…` the same in every
 //! resident's — how a swing, a burst or a long shot is looked at.
+//! `BIMS_GRAVES=n` leaves `n` of the station's people dead where they
+//! stand and builds its room again over the bodies (feature 85), which
+//! is how the dead lying on a station's deck are looked at without
+//! fighting, flying away and coming back.
 //! `BIMS_TRADE=1` opens the simulation with the station's trade window
 //! up, which is how the cart is looked at. `BIMS_ARMOURY=1` opens it with
 //! the armoury window up, which is how the lockers' grid is looked at;
@@ -111,6 +115,14 @@ pub fn fight() -> bool {
     std::env::var("BIMS_FIGHT").as_deref() == Ok("1")
 }
 
+/// `BIMS_GRAVES=n` opens the simulation with `n` of the station
+/// alongside dead where they stand and its room built again over the
+/// bodies (feature 85) — how the dead lying on a station's deck are
+/// looked at without a fight, a flight away and a flight back.
+pub fn graves() -> Option<u32> {
+    std::env::var("BIMS_GRAVES").ok()?.parse().ok()
+}
+
 /// `BIMS_RAID=1` opens the simulation off its berth with a raider tied to
 /// the ship and its boarders on their way through the airlock — how a
 /// raid is looked at without holding a day for one; `BIMS_RAID=contact`
@@ -129,6 +141,14 @@ pub fn raid() -> Option<bool> {
 /// so on the next frame.
 pub fn lost() -> bool {
     std::env::var("BIMS_LOST").as_deref() == Ok("1")
+}
+
+/// `BIMS_DYING=n` puts `n` of the crew into a dying state — a part at
+/// nothing with its trauma untreated and wounds open on it — for looking
+/// at the red cross over a body on the deck and at the peril block under
+/// the health bar (`Session::maim_for_probe`).
+pub fn dying() -> Option<usize> {
+    std::env::var("BIMS_DYING").ok()?.trim().parse().ok()
 }
 
 /// `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member out at
@@ -285,6 +305,178 @@ pub fn bim_hair() -> (bims::character::Hair, bims::character::Shade) {
     (hair, shade)
 }
 
+/// What the setup's colour chooser starts on (feature 84) —
+/// `BIMS_BIM_TINT=<colour>`, a place in `Tint::ALL` or its name from
+/// `names.rs` (`amber`), else slot nought's own — so a run with nobody
+/// at the keyboard can pick the ring under its Bim and it be read off a
+/// screenshot.
+pub fn bim_tint() -> bims::character::Tint {
+    use bims::character::Tint;
+    let Ok(spec) = std::env::var("BIMS_BIM_TINT") else {
+        return Tint::ALL[0];
+    };
+    let word = spec.trim();
+    word.parse::<usize>()
+        .ok()
+        .or_else(|| {
+            crate::names::TINT_NAMES
+                .iter()
+                .position(|n| n.eq_ignore_ascii_case(word))
+        })
+        .and_then(|i| Tint::ALL.get(i).copied())
+        .unwrap_or(Tint::ALL[0])
+}
+
+/// What the setup's class chooser starts on — `BIMS_CLASS=<class>`, a
+/// place in `Class::ALL` or its name from `names.rs` (`engineer`), else
+/// none — so a run with nobody at the keyboard opens as an engineer
+/// (feature 74). `BIMS_CLASS` reaches the simulation and the fight too:
+/// `dev::class_crew` puts it on slot 0 of a session opened without a
+/// design phase.
+pub fn bim_class() -> world::Class {
+    let Ok(spec) = std::env::var("BIMS_CLASS") else {
+        return world::Class::None;
+    };
+    let word = spec.trim();
+    word.parse::<usize>()
+        .ok()
+        .or_else(|| {
+            crate::names::CLASS_NAMES
+                .iter()
+                .position(|n| n.eq_ignore_ascii_case(word))
+        })
+        .and_then(|i| world::Class::ALL.get(i).copied())
+        .unwrap_or_default()
+}
+
+/// `BIMS_CLASS` onto slot 0 of a session that skipped the design phase —
+/// the simulation, the fight, the tests — through the same
+/// `World::set_class` the yard's choice goes through; and `BIMS_LEVEL=n`
+/// straight to that level of it (`World::award` off the table), for
+/// looking at what a level gives — a soldier's grenades from the third.
+///
+/// `asked` is the class the command itself named — `combat_medic` and
+/// the rest, `Launch::CombatAs` (feature 79), and `combat_droids_medic`
+/// and the rest, `Launch::DroidsAs`, which is the same class put on the
+/// same slot for the machines' fight — and `Class::None` where it named
+/// none. `BIMS_CLASS` wins over it, so a `combat_tank` run can
+/// still be opened as somebody else without a different command;
+/// `BIMS_LEVEL` applies to whichever of the two it ends up being.
+///
+/// **A `combat_<class>` run opens at [`COMBAT_CLASS_LEVEL`]** — the top
+/// of the tree (feature 80): the fight is what a class is looked at in,
+/// and at the first level there is nothing of it to look at but the one
+/// key. Every level's pick is still the player's, waiting on the
+/// level-up window the moment the screen opens. `BIMS_LEVEL` says
+/// otherwise; every other launch starts at the first level as before.
+///
+/// **The engineer's sentry kit is its class's own**
+/// (`world::deploy::ENGINEER_START_SENTRIES`): a scripted fight has
+/// nobody to stand at a workbench for the minutes one takes, so the
+/// class deals the one the Q is, and nothing here has to.
+pub fn class_crew(session: &mut ship::Session, asked: world::Class) {
+    let class = match bim_class() {
+        world::Class::None => asked,
+        chosen => chosen,
+    };
+    let level = bim_level().or((asked != world::Class::None).then_some(COMBAT_CLASS_LEVEL));
+    if class != world::Class::None
+        && let Some(game) = &mut session.game
+    {
+        let _ = game.world.set_class(0, class);
+        if let Some(level) = level {
+            let want = world::class::LEVEL_XP
+                .get(level.saturating_sub(1))
+                .copied()
+                .unwrap_or(0);
+            let mut events = Vec::new();
+            game.world.award(0, want, &mut events);
+        }
+    }
+}
+
+/// The level a `combat_<class>` command opens its crew member at: the
+/// top of the tree.
+pub const COMBAT_CLASS_LEVEL: usize = world::class::LEVELS as usize;
+
+/// `BIMS_BEAM=1` links a medic's heal beam to crew member 1, stood a
+/// tile away with a wound on it, and `BIMS_BEAM=surge` triggers the
+/// surge over that (`World::beam_for_probe`, feature 76) — how the beam
+/// and the halo are looked at without hunting a crewmate with the
+/// pointer. Nothing without a medic on slot 0 (`BIMS_CLASS=medic`) and
+/// two aboard.
+pub fn beam_crew(session: &mut ship::Session) {
+    let Ok(word) = std::env::var("BIMS_BEAM") else {
+        return;
+    };
+    let word = word.trim().to_ascii_lowercase();
+    if word.is_empty() || word == "0" {
+        return;
+    }
+    if let Some(game) = &mut session.game {
+        game.world.beam_for_probe(word == "surge");
+    }
+}
+
+/// `BIMS_LEVEL`: the level slot 0's class starts at, if any.
+fn bim_level() -> Option<usize> {
+    std::env::var("BIMS_LEVEL").ok()?.trim().parse().ok()
+}
+
+/// What tier the machines come at in the `droids` probes (feature 83):
+/// `BIMS_DROID_TIER=2`, or a tier's place in `Tier::ALL`. One unless
+/// asked.
+pub fn droid_tier() -> bims::combat::Tier {
+    let Ok(spec) = std::env::var("BIMS_DROID_TIER") else {
+        return bims::combat::Tier::One;
+    };
+    spec.trim()
+        .parse::<u32>()
+        .ok()
+        .and_then(bims::combat::Tier::from_code)
+        .unwrap_or(bims::combat::Tier::One)
+}
+
+/// How big a wave the `droids` probes force: `BIMS_DROID_WAVE=32`, for
+/// the measurements the feature asks for. `None` leaves
+/// `data::DROID_WAVE_MAX` where it is.
+pub fn droid_wave_max() -> Option<u32> {
+    std::env::var("BIMS_DROID_WAVE").ok()?.trim().parse().ok()
+}
+
+/// How long the `droids` probes wait between waves, in minutes of the
+/// world's clock: `BIMS_DROID_REINFORCE=600` over the commands' own
+/// `screens::game::DROID_REINFORCE_IN_PROBE` (one). A minute is a real
+/// second at 1× and two and a half **frames** at 24×, so the countdown
+/// along the top cannot be looked at through a scripted run without
+/// lengthening it. Nought or less reads as the default.
+pub fn droid_reinforce(default: f64) -> f64 {
+    std::env::var("BIMS_DROID_REINFORCE")
+        .ok()
+        .and_then(|spec| spec.trim().parse::<f64>().ok())
+        .filter(|minutes| *minutes > 0.0)
+        .unwrap_or(default)
+}
+
+/// How many waves a held station has all told in the `droids` probes —
+/// the one aboard counted: `BIMS_DROID_WAVES=5`, over the commands' own
+/// `screens::game::DROID_WAVES_IN_PROBE` (three). Nought reads as one,
+/// since a station with no wave at all is nothing to look at.
+pub fn droid_waves(default: u32) -> u32 {
+    std::env::var("BIMS_DROID_WAVES")
+        .ok()
+        .and_then(|spec| spec.trim().parse::<u32>().ok())
+        .unwrap_or(default)
+        .max(1)
+}
+
+/// `BIMS_DROIDS=1` lays every state a machine can be drawn in out on
+/// the arena's deck — a row a kind, a column a state — for one picture
+/// of the lot (feature 83, `World::stage_droids_for_probe`).
+pub fn droid_showcase() -> bool {
+    std::env::var("BIMS_DROIDS").as_deref() == Ok("1")
+}
+
 /// What the window is called to the window system — its Wayland app id and
 /// its X11 class: `bims`, and `bims-smoke` for a run with nobody at the
 /// keyboard, so a desktop can be told where to put those and leave the
@@ -369,8 +561,14 @@ fn smoke_exit(
     // Without vsync (`present_mode`) a frame is as quick as the machine
     // draws it, and the screens step by real time, so the run is held to
     // a screen's pace here: the rest of this frame's sixtieth is slept.
+    // `BIMS_SMOKE_FREE=1` drops the pacing, so the frame time in the
+    // line below is what the machine actually took rather than a
+    // sixtieth: the one way to measure a heavy frame from a terminal.
+    // Everything that steps by real time then runs as fast as it draws,
+    // so a picture taken under it is not the picture a paced run gives.
+    let paced = std::env::var("BIMS_SMOKE_FREE").is_err();
     let period = std::time::Duration::from_secs_f64(1.0 / SMOKE_HZ);
-    if let Some(last) = *last_frame {
+    if let Some(last) = (*last_frame).filter(|_| paced) {
         let due = last + period;
         let now = std::time::Instant::now();
         if due > now {
@@ -454,12 +652,22 @@ fn scripted_input(
                     'a' => KeyCode::KeyA,
                     'c' => KeyCode::KeyC,
                     'd' => KeyCode::KeyD,
+                    'e' => KeyCode::KeyE,
                     'f' => KeyCode::KeyF,
                     'm' => KeyCode::KeyM,
                     'n' => KeyCode::KeyN,
+                    'q' => KeyCode::KeyQ,
                     'r' => KeyCode::KeyR,
                     's' => KeyCode::KeyS,
+                    // The two orders every player has (feature 84): T is
+                    // the retreat, and V is the camera's Follow that
+                    // Attack's F pushed off it.
+                    't' => KeyCode::KeyT,
+                    'v' => KeyCode::KeyV,
                     'w' => KeyCode::KeyW,
+                    // The commander's two squad keys (feature 78).
+                    'x' => KeyCode::KeyX,
+                    'z' => KeyCode::KeyZ,
                     _ => continue,
                 };
                 (code, Key::Character(ch.to_string().into()))

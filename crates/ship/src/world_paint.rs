@@ -39,7 +39,7 @@
 use bims::sight::Stance;
 use flight::Phase;
 use shipdesign::parts::{Layer, PartKind, Rotation, TILE};
-use shipdesign::{Grid, ShipDesign};
+use shipdesign::{Grid, PlacedPart, ShipDesign};
 use world::{Biome, ShipState};
 use worldgen::math::{DVec2, dvec2};
 use worldgen::{BodyKind, Node, StationKind};
@@ -78,6 +78,19 @@ const ENEMY_TINT: f32 = 0.22;
 /// aim ring (which is the icon size across), so the two never sit on each
 /// other when the helm is pointed at an enemy's station.
 const STANCE_RING: f32 = 1.3;
+
+/// Somewhere the crew have already been, on the map (feature 85): a
+/// small tick at the node's upper-left shoulder — the upper-right one is
+/// the belt's pickaxe and the settlement's pad, and under the icon is
+/// where its name is written. The pale grey the galaxy chart
+/// rings a visited star in (`lobby::preview`'s `VISITED`), written out
+/// here for the reason the enemy's red is: this crate imports neither
+/// the lobby nor the room.
+const VISITED: Color = Color::rgb(0.62, 0.70, 0.76);
+/// How far out the tick sits, as a share of the icon size, and how big
+/// it is drawn.
+const TICK_SHOULDER: f32 = 0.85;
+const TICK_SIZE: f32 = 0.5;
 
 /// What the rocks of a mining site are drawn in, by `world::Rock` code:
 /// stone, iron ore and galvum. Stone is the dull brown of the belt's icon,
@@ -545,6 +558,12 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     // on its own, the join's shift while it is docked.
     let offset = game.world.aboard.offset;
     let room_centre = (centre.0 + offset.x as f32, centre.1 + offset.y as f32);
+    // The engineer's deployables (feature 74) under the room's picture,
+    // in the room's units: sandbags on a station's tile are on the
+    // joined deck, which is the room's grid and not the ship's.
+    let mut laid = DrawList::default();
+    deployables(game, &mut laid);
+    list.append_turned(laid.shapes(), room_centre, turn);
     list.append_turned(game.world.aboard.room.shapes(), room_centre, turn);
     // The station's people, over the ship's picture: one that has come
     // through the passage is standing on this deck, and one that has not
@@ -570,6 +589,35 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
             0.0,
             Color::rgba(0.0, 0.0, 0.0, black),
         );
+    }
+}
+
+/// Every deployable in the crew's room, as a part stood on its tile:
+/// laid sandbags as the part's own picture, a sentry as the turret —
+/// its health as the ring closing on it, its eye dull once it is dry.
+/// In the room's units, which the caller turns with the room.
+fn deployables(game: &Game, list: &mut DrawList) {
+    let t = TILE as f32;
+    for (d, at) in game.world.deployables_in_room() {
+        let origin = (
+            (at.x / t).floor().max(0.0) as u32,
+            (at.y / t).floor().max(0.0) as u32,
+        );
+        let part = PlacedPart {
+            id: 0,
+            kind: PartKind::Sandbags,
+            origin,
+            rotation: Rotation::R0,
+        };
+        match d.kind {
+            world::DeployKind::Sandbags => crate::fittings::sandbags(list, &part),
+            world::DeployKind::Sentry => crate::fittings::sentry(
+                list,
+                &part,
+                d.health / world::deploy::SENTRY_HEALTH.max(1.0),
+                d.shots == 0,
+            ),
+        }
     }
 }
 
@@ -1694,6 +1742,20 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
         if game.world.station_has_key(station.id) {
             key_lights(&mut picture, &station.design, game.frame);
         }
+        // The machines' ship, tied up at the far airlock, or their
+        // lander down on the plain beyond a gate (feature 83). Drawn in
+        // the station's own frame, so it turns with the station; it is a
+        // picture and nothing else — not part of the room, not walkable,
+        // and nothing a bolt can reach.
+        if let Some((at, outward, lander)) = game.world.droid_ship(station.id) {
+            droid_ship(
+                &mut picture,
+                (at.x as f32, at.y as f32),
+                (outward.x as f32, outward.y as f32),
+                lander,
+                game.frame,
+            );
+        }
         list.append_turned_at(picture.shapes(), middle, turn, at);
         if let Some(residents) = residents {
             // Their room is the station's design plus the shift its deck
@@ -2105,6 +2167,19 @@ pub fn paint_pickaxe(list: &mut DrawList, x: f32, y: f32, size: f32) {
     disc(list, tx, ty, thick * 1.3, HEAD);
 }
 
+/// The mark that says *the crew have been here*, `size` across, centred
+/// on `(x, y)`: a tick, two strokes of the map's own line (feature 85).
+/// A shape nothing else on the map draws, since every other mark there
+/// is a ring, a disc or an icon — so a place the crew have been reads as
+/// one at a glance, whatever else is marked on it.
+pub fn paint_tick(list: &mut DrawList, x: f32, y: f32, size: f32, thin: f32) {
+    let (w, h) = (size / 2.0, size / 2.0);
+    // The short stroke down into the corner, and the long one back up.
+    let (cx, cy) = (x - 0.15 * w, y + h);
+    list.line(x - w, y + 0.25 * h, cx, cy, thin, VISITED);
+    list.line(cx, cy, x + w, y - h, thin, VISITED);
+}
+
 /// A station, `size` across, centred on `(x, y)`.
 pub fn paint_station(list: &mut DrawList, x: f32, y: f32, size: f32, kind: StationKind, thin: f32) {
     let color = station_color(Some(kind));
@@ -2397,6 +2472,26 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         ring(list, x, y, d, d, 0.0, thin * 1.5, colour.alpha(0.9));
     }
 
+    // Where the crew have already been (feature 85): a tick at the lower
+    // shoulder of every node the ship has stopped at, station and body
+    // alike, drawn over the icons and under everything the helm marks.
+    // The chart is what remembers this — `World::visited`, filed with
+    // the system when the ship jumps out — so a system met twice opens
+    // with its ticks on.
+    for &node in &game.world.visited {
+        let Some(at) = game.world.system.absolute_position(node) else {
+            continue;
+        };
+        let (x, y) = place(at);
+        paint_tick(
+            list,
+            x - TICK_SHOULDER * size,
+            y - TICK_SHOULDER * size,
+            size * TICK_SIZE,
+            thin * 1.5,
+        );
+    }
+
     // The raider, if one is about: closing, at wherever it has got to on
     // its line, or tied to the ship; an enemy's icon ringed in the enemy
     // red — the map says what is coming, and from where.
@@ -2536,4 +2631,141 @@ pub fn phase_code(game: &Game) -> u32 {
         .trip_state()
         .map(|state| state.phase.code())
         .unwrap_or(Phase::Arrived.code())
+}
+
+// --- the machines' ship (feature 83) --------------------------------------
+
+/// What a droid hull is drawn in: the machines' own gunmetal, and their
+/// sensors in the hostile bolt's red. The same palette `bims::droid`
+/// draws a machine in, said again here because this crate has no
+/// business reaching into that one's private colours.
+const DROID_HULL: Color = Color::rgb(0.18, 0.20, 0.23);
+const DROID_PLATE: Color = Color::rgb(0.28, 0.31, 0.35);
+const DROID_TRIM: Color = Color::rgb(0.44, 0.47, 0.51);
+const DROID_LIGHT: Color = Color::rgb(1.0, 0.28, 0.22);
+/// How long a droid ship is along the way it points, and how wide, in
+/// room units; and how long a collar it puts against the airlock.
+const DROID_SHIP_LONG: f32 = 9.0 * TILE as f32;
+const DROID_SHIP_WIDE: f32 = 5.0 * TILE as f32;
+const DROID_COLLAR: f32 = TILE as f32;
+/// A lander is squatter than a ship: it came down rather than across.
+const DROID_LANDER_LONG: f32 = 6.5 * TILE as f32;
+const DROID_LANDER_WIDE: f32 = 6.5 * TILE as f32;
+/// How many frames a hull light takes to pulse.
+const DROID_PULSE: u32 = 110;
+
+/// The machines' ship as seen from above, drawn into a station's own
+/// frame: `at` is where its collar meets the station's skin — or, for a
+/// lander, where it sits on the ground — and `outward` the unit step
+/// away from the station along which it lies.
+///
+/// A dark wedge of a hull with plating down it, a collar reaching back
+/// to the airlock, and three sensor lights along each flank pulsing
+/// together. Nothing of the crew's ship: no engine bells, no running
+/// lights in white, no deck. It is a shape on the skin that says *they
+/// came in that*.
+fn droid_ship(list: &mut DrawList, at: (f32, f32), outward: (f32, f32), lander: bool, frame: u32) {
+    use crate::draw::{KIND_ELLIPSE, KIND_RECT};
+    // A filled shape, the way `DrawList::rect` says it.
+    const FILLED: f32 = 0.0;
+    let span = (outward.0 * outward.0 + outward.1 * outward.1)
+        .sqrt()
+        .max(1e-6);
+    let dir = (outward.0 / span, outward.1 / span);
+    // The shape's own frame: `+x` along `outward`.
+    let rot = dir.1.atan2(dir.0);
+    let (long, wide) = if lander {
+        (DROID_LANDER_LONG, DROID_LANDER_WIDE)
+    } else {
+        (DROID_SHIP_LONG, DROID_SHIP_WIDE)
+    };
+    let out = if lander { 0.0 } else { DROID_COLLAR };
+    let mid = (
+        at.0 + dir.0 * (out + long / 2.0),
+        at.1 + dir.1 * (out + long / 2.0),
+    );
+    // The collar, reaching back to the station's skin.
+    if !lander {
+        let collar = (at.0 + dir.0 * (out / 2.0), at.1 + dir.1 * (out / 2.0));
+        list.push(
+            KIND_RECT,
+            collar.0,
+            collar.1,
+            out + 4.0,
+            TILE as f32 * 1.6,
+            rot,
+            3.0,
+            FILLED,
+            DROID_PLATE,
+        );
+    }
+    // The hull: a dark body with a lighter plate down its spine, rimmed
+    // in trim so its edge holds against any fog.
+    for (w, h, radius, colour) in [
+        (long + 6.0, wide + 6.0, 10.0, DROID_TRIM),
+        (long, wide, 9.0, DROID_HULL),
+        (long * 0.62, wide * 0.44, 6.0, DROID_PLATE),
+    ] {
+        list.push(KIND_RECT, mid.0, mid.1, w, h, rot, radius, FILLED, colour);
+    }
+    // The nose plate, at the far end from the station.
+    let nose = (mid.0 + dir.0 * (long * 0.34), mid.1 + dir.1 * (long * 0.34));
+    list.push(
+        KIND_RECT,
+        nose.0,
+        nose.1,
+        long * 0.22,
+        wide * 0.68,
+        rot,
+        6.0,
+        FILLED,
+        DROID_HULL,
+    );
+    // Three sensor lights a flank, pulsing together.
+    let t = (frame % DROID_PULSE) as f32 / DROID_PULSE as f32;
+    let lit = 0.35 + 0.45 * (t * std::f32::consts::TAU).sin().abs();
+    let across = (-dir.1, dir.0);
+    for side in [-1.0f32, 1.0] {
+        for i in 0..3 {
+            let along = (i as f32 - 1.0) * long * 0.26;
+            let off = wide * 0.46 * side;
+            let p = (
+                mid.0 + dir.0 * along + across.0 * off,
+                mid.1 + dir.1 * along + across.1 * off,
+            );
+            list.push(
+                KIND_ELLIPSE,
+                p.0,
+                p.1,
+                7.0,
+                7.0,
+                0.0,
+                0.0,
+                FILLED,
+                DROID_LIGHT.alpha(lit),
+            );
+        }
+    }
+    // A lander stands on legs; a ship at an airlock does not.
+    if lander {
+        for side in [-1.0f32, 1.0] {
+            for end in [-1.0f32, 1.0] {
+                let p = (
+                    mid.0 + dir.0 * (long * 0.34 * end) + across.0 * (wide * 0.5 * side),
+                    mid.1 + dir.1 * (long * 0.34 * end) + across.1 * (wide * 0.5 * side),
+                );
+                list.push(
+                    KIND_RECT,
+                    p.0,
+                    p.1,
+                    TILE as f32 * 0.5,
+                    TILE as f32 * 1.1,
+                    rot,
+                    3.0,
+                    FILLED,
+                    DROID_TRIM,
+                );
+            }
+        }
+    }
 }

@@ -21,6 +21,23 @@ pub const RAISED_ON: egui::Color32 = egui::Color32::from_rgb(0x4a, 0x6d, 0x5c);
 pub const LINE: egui::Color32 = egui::Color32::from_rgb(0x2a, 0x3b, 0x33);
 pub const YOURS: egui::Color32 = ACCENT;
 pub const THEIRS: egui::Color32 = INK;
+/// The attack banner and the armed pointer that puts one down (feature
+/// 84): the enemy's own red, since what both mean is a fight, and one
+/// no other mark on the deck wears.
+pub const ATTACK: egui::Color32 = egui::Color32::from_rgb(0xff, 0x5e, 0x4a);
+/// The **defend sign** over the ship while the crew are falling back to
+/// it (feature 84): the armour blue, since what it means is cover and
+/// not a fight, and the one mark on the deck the attack banner's red
+/// could never be mistaken for.
+pub const DEFEND: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);
+/// A medic's heal beam and the surge on a body (feature 76): a pale
+/// healing green, the room's own `character::SURGE`.
+pub const HEAL: egui::Color32 = egui::Color32::from_rgb(0x8c, 0xf2, 0xbf);
+/// The red of the cross over a dying Bim and of the peril block on its
+/// panel: a proper signal red rather than the palette's salmon [`BAD`],
+/// because a cross on a lit deck has to be picked out across the room
+/// rather than merely noticed once the eye is already on it.
+pub const DYING: egui::Color32 = egui::Color32::from_rgb(0xe8, 0x2a, 0x24);
 pub const SLEEP: egui::Color32 = egui::Color32::from_rgb(0x3f, 0x6e, 0xa8);
 pub const ANY: egui::Color32 = egui::Color32::from_rgb(0x4a, 0x55, 0x60);
 /// Armour: the blue on the end of a health bar, and a piece's own health
@@ -149,9 +166,9 @@ pub fn bar(ui: &mut egui::Ui, width: f32, fraction: f32, fill: egui::Color32) ->
     bar_of_height(ui, width, 8.0, &[(fraction, fill)])
 }
 
-/// The same bar half as tall, for the parts a bar is made of — the head,
-/// the body and the legs under Health — so they read as its detail and
-/// not as three more needs.
+/// The same bar half as tall, for a strip that is a detail of something
+/// rather than a thing in its own right — a job's progress along the
+/// bottom of its row.
 pub fn thin_bar(
     ui: &mut egui::Ui,
     width: f32,
@@ -176,8 +193,10 @@ pub fn two_tone_bar(
     bar_of_height(ui, width, 8.0, &[(first, fill), (second, fill2)])
 }
 
-/// The thin bar in two tones, for the parts.
-pub fn thin_two_tone_bar(
+/// Health's own bar, half again as tall as a need's and drawn in two
+/// tones like [`two_tone_bar`]. It is the one bar a player watches in a
+/// fight, so it is the one bar that is not the same size as the rest.
+pub fn health_bar(
     ui: &mut egui::Ui,
     width: f32,
     first: f32,
@@ -185,7 +204,7 @@ pub fn thin_two_tone_bar(
     fill: egui::Color32,
     fill2: egui::Color32,
 ) -> egui::Response {
-    bar_of_height(ui, width, 4.0, &[(first, fill), (second, fill2)])
+    bar_of_height(ui, width, 13.0, &[(first, fill), (second, fill2)])
 }
 
 /// The bar behind them all: the track, then each segment laid end to end
@@ -491,5 +510,289 @@ pub fn badge_over(painter: &egui::Painter, at: egui::Pos2, mark: &str, color: eg
         mark,
         egui::FontId::proportional(NAME_SIZE),
         color,
+    );
+}
+
+/// A medic's heal beam (feature 76): a line from the medic to the
+/// patient in the beam's green, a wide faint one under a bright thin
+/// one, with a pip at each end — so it reads as a beam and not as a
+/// queued walk's dashes.
+pub fn heal_beam(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, scale: f32) {
+    let wide = (5.0 * scale).clamp(2.0, 9.0);
+    let thin = (1.6 * scale).clamp(1.0, 3.0);
+    painter.line_segment(
+        [from, to],
+        egui::Stroke::new(wide, HEAL.gamma_multiply(0.22)),
+    );
+    painter.line_segment(
+        [from, to],
+        egui::Stroke::new(thin, HEAL.gamma_multiply(0.9)),
+    );
+    for end in [from, to] {
+        painter.circle_filled(end, thin * 1.8, HEAL);
+    }
+}
+
+/// The mark on a body a surge is running on (feature 76): a ring in the
+/// beam's green outside the body, wider than the deck's own halo so it
+/// reads at any zoom.
+pub fn surge_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let radius = (34.0 * scale).clamp(8.0, 40.0);
+    painter.circle_filled(at, radius, HEAL.gamma_multiply(0.10));
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new((2.0 * scale).clamp(1.0, 3.0), HEAL.gamma_multiply(0.85)),
+    );
+}
+
+/// The cross over a Bim in a dying state: a part of it at nothing with
+/// the trauma on it untreated, which is the one condition a crewmate
+/// with a medkit is the answer to. A white disc with a red cross on it,
+/// the medical sign rather than another coloured ring, because every
+/// other mark on this deck is a ring of some colour and this one has to
+/// say *that* one instead of *one of those*. Drawn over the head — the
+/// body itself stays visible — and sized off the zoom but clamped, so it
+/// is still legible with the whole station in view.
+pub fn dying_cross(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let radius = (14.0 * scale).clamp(6.0, 20.0);
+    let at = egui::pos2(at.x, at.y - (0.6 * NAME_LIFT * scale).clamp(8.0, 34.0));
+    painter.circle_filled(at, radius * 1.12, egui::Color32::from_black_alpha(90));
+    painter.circle_filled(at, radius, egui::Color32::from_rgb(0xf6, 0xf8, 0xf6));
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new((1.5 * scale).clamp(1.0, 2.5), DYING),
+    );
+    // The cross itself: an arm of the disc across and an arm down, each
+    // rounded, so it reads as the sign and not as a plus.
+    let arm = radius * 0.72;
+    let thick = radius * 0.30;
+    let round = thick * 0.5;
+    painter.rect_filled(
+        egui::Rect::from_center_size(at, egui::vec2(arm * 2.0, thick * 2.0)),
+        round,
+        DYING,
+    );
+    painter.rect_filled(
+        egui::Rect::from_center_size(at, egui::vec2(thick * 2.0, arm * 2.0)),
+        round,
+        DYING,
+    );
+}
+
+/// A tank standing as a wall (feature 77): a thick arc of shield round
+/// the body out to the bulwark's reach, in the caution colour, so a
+/// wall up reads at a glance and reads differently from a surge's ring.
+pub fn wall_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32, scale: f32) {
+    let radius = radius.max(6.0);
+    painter.circle_filled(at, radius, CAUTION.gamma_multiply(0.10));
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new((3.0 * scale).clamp(1.5, 5.0), CAUTION.gamma_multiply(0.75)),
+    );
+}
+
+/// A tank's taunt while it runs (feature 77): the radius it reaches, a
+/// dashed ring in the warning colour — the enemy inside it is shooting
+/// at him.
+pub fn taunt_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let radius = radius.max(8.0);
+    let steps = 48;
+    for i in (0..steps).step_by(2) {
+        let a = i as f32 / steps as f32 * std::f32::consts::TAU;
+        let b = (i + 1) as f32 / steps as f32 * std::f32::consts::TAU;
+        let p = |t: f32| egui::pos2(at.x + radius * t.cos(), at.y + radius * t.sin());
+        painter.line_segment(
+            [p(a), p(b)],
+            egui::Stroke::new(2.0, WARN.gamma_multiply(0.8)),
+        );
+    }
+}
+
+/// A commander's aura (feature 78): the radius it lifts every friendly
+/// Bim within, drawn faintly — it is always on, so it must not shout —
+/// as a thin ring with a wash inside it, in the crew's own colour.
+pub fn aura_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let radius = radius.max(8.0);
+    painter.circle_filled(at, radius, YOURS.gamma_multiply(0.05));
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(1.0, YOURS.gamma_multiply(0.35)),
+    );
+}
+
+/// A Bim the aura lifts (feature 78): a small open ring under it, in
+/// the same colour — enough to say "this one is in it" and no more.
+pub fn lifted_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let radius = (10.0 * scale).clamp(4.0, 16.0);
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(1.0, YOURS.gamma_multiply(0.55)),
+    );
+}
+
+/// A squad member under a commander's order (feature 78): a short
+/// bracket over its head in the caution colour, and a thread to what
+/// the order is about — the enemy it was sent at, or the tile it was
+/// called back to. `to` is `None` for stand ground, which is about
+/// nowhere but where it stands.
+pub fn squad_mark(painter: &egui::Painter, at: egui::Pos2, to: Option<egui::Pos2>, scale: f32) {
+    let r = (9.0 * scale).clamp(4.0, 14.0);
+    let stroke = egui::Stroke::new((1.5 * scale).clamp(1.0, 2.5), CAUTION.gamma_multiply(0.8));
+    painter.line_segment(
+        [
+            egui::pos2(at.x - r, at.y - r),
+            egui::pos2(at.x, at.y - r * 1.4),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(at.x, at.y - r * 1.4),
+            egui::pos2(at.x + r, at.y - r),
+        ],
+        stroke,
+    );
+    let Some(to) = to else {
+        return;
+    };
+    // A dashed thread, like the queued walks': the order has a place.
+    let step = (to - at) / 16.0;
+    for i in (0..16).step_by(2) {
+        let a = at + step * i as f32;
+        let b = at + step * (i + 1) as f32;
+        painter.line_segment([a, b], egui::Stroke::new(1.0, CAUTION.gamma_multiply(0.5)));
+    }
+}
+
+/// An **attack banner** on the deck (feature 84): a staff standing on
+/// the tile with a pennant flying off it, and a ring on the ground round
+/// its foot — the ground the crew that follow you are fighting for. Red,
+/// steady, and drawn over the deck under every body, so a banner behind
+/// a Bim is still a banner.
+pub fn attack_banner(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let h = (26.0 * scale).clamp(12.0, 40.0);
+    let w = (14.0 * scale).clamp(7.0, 22.0);
+    let stroke = egui::Stroke::new((2.0 * scale).clamp(1.2, 3.0), ATTACK);
+    let foot = at;
+    let head = egui::pos2(at.x, at.y - h);
+    painter.circle_filled(foot, w * 0.32, ATTACK.gamma_multiply(0.35));
+    painter.circle_stroke(
+        foot,
+        w * 0.55,
+        egui::Stroke::new(stroke.width * 0.8, ATTACK.gamma_multiply(0.8)),
+    );
+    painter.line_segment([foot, head], stroke);
+    // The pennant: a triangle off the top of the staff, filled faintly
+    // and outlined, so it reads at a glance and never hides a body.
+    let tip = egui::pos2(at.x + w, at.y - h * 0.78);
+    let low = egui::pos2(at.x, at.y - h * 0.56);
+    painter.add(egui::Shape::convex_polygon(
+        vec![head, tip, low],
+        ATTACK.gamma_multiply(0.45),
+        egui::Stroke::new(stroke.width * 0.7, ATTACK),
+    ));
+}
+
+/// The **defend sign** on the deck (feature 84): a shield standing on
+/// the spot a fall back gathers on — the deck just inside the ship's own
+/// airlock — with a ring on the ground round its foot, the attack
+/// banner's shape said the other way about. Blue, steady, and drawn over
+/// the deck under every body, so a crew member standing on the spot does
+/// not hide it. It is up exactly while a retreat is called, which is how
+/// the player sees at a glance that the crew are coming home and where
+/// they are coming home to.
+pub fn defend_banner(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let h = (34.0 * scale).clamp(18.0, 52.0);
+    let w = (23.0 * scale).clamp(12.0, 35.0);
+    let stroke = egui::Stroke::new((2.4 * scale).clamp(1.5, 3.6), DEFEND);
+    let foot = at;
+    painter.circle_filled(foot, w * 0.32, DEFEND.gamma_multiply(0.35));
+    painter.circle_stroke(
+        foot,
+        w * 0.55,
+        egui::Stroke::new(stroke.width * 0.8, DEFEND.gamma_multiply(0.8)),
+    );
+    // The shield: shoulders square across the top, sides falling in, a
+    // point at the bottom. Drawn as one convex polygon so it reads at
+    // any size, filled faintly and outlined.
+    let top = at.y - h;
+    let mid = at.y - h * 0.34;
+    let tip = at.y - h * 0.06;
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(at.x - w * 0.5, top),
+            egui::pos2(at.x + w * 0.5, top),
+            egui::pos2(at.x + w * 0.42, mid),
+            egui::pos2(at.x, tip),
+            egui::pos2(at.x - w * 0.42, mid),
+        ],
+        DEFEND.gamma_multiply(0.45),
+        stroke,
+    ));
+    // And the bar across it, which is what says *shield* rather than
+    // *pennant* at a glance on a small canvas.
+    painter.line_segment(
+        [
+            egui::pos2(at.x - w * 0.34, at.y - h * 0.72),
+            egui::pos2(at.x + w * 0.34, at.y - h * 0.72),
+        ],
+        egui::Stroke::new(stroke.width * 0.8, DEFEND),
+    );
+}
+
+/// The burst a soldier is aiming a grenade at (feature 75): the radius
+/// round the tile under the pointer, in canvas pixels, a faint wash and
+/// a ring — the caution colour while the world would take the throw,
+/// the warning one when it would refuse it.
+pub fn burst_ring(painter: &egui::Painter, at: egui::Pos2, radius: f32, ok: bool) {
+    let color = if ok { CAUTION } else { WARN };
+    painter.circle_filled(at, radius, color.gamma_multiply(0.12));
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(2.0, color.gamma_multiply(0.8)),
+    );
+    painter.circle_filled(at, 3.0, color);
+}
+
+/// A soldier braced (feature 80): feet planted — a base line with two
+/// struts down onto it and a chevron over them, in the caution colour.
+/// Drawn in the ability box at the foot of the screen and nowhere on the
+/// deck, where the panel's word says it.
+pub fn brace_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let r = radius.max(4.0);
+    let stroke = egui::Stroke::new((r * 0.18).clamp(1.0, 3.0), CAUTION.gamma_multiply(0.85));
+    let foot = at.y + r * 0.7;
+    painter.line_segment(
+        [egui::pos2(at.x - r, foot), egui::pos2(at.x + r, foot)],
+        stroke,
+    );
+    for side in [-1.0f32, 1.0] {
+        painter.line_segment(
+            [
+                egui::pos2(at.x + side * r * 0.2, at.y - r * 0.2),
+                egui::pos2(at.x + side * r * 0.7, foot),
+            ],
+            stroke,
+        );
+    }
+    painter.line_segment(
+        [
+            egui::pos2(at.x - r * 0.7, at.y - r * 0.25),
+            egui::pos2(at.x, at.y - r * 0.8),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(at.x, at.y - r * 0.8),
+            egui::pos2(at.x + r * 0.7, at.y - r * 0.25),
+        ],
+        stroke,
     );
 }

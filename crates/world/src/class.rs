@@ -1,4 +1,5 @@
-//! Classes: what a player's crew member is, and what it learns (feature 74).
+//! Classes: what a player's crew member is, and what it learns (features
+//! 74, 75, 76, 77 and 78).
 //!
 //! A crew member has **one class**, chosen by its player before the game
 //! opens — a [`Class`] per player slot, kept on the world with the start
@@ -7,6 +8,13 @@
 //! the level that makes, and the talents picked on the way up. A
 //! crew member nobody steers, a hire, a station's resident has
 //! [`Class::None`] and learns nothing.
+//!
+//! **A class owns abilities, never jobs or money.** Every Bim can do
+//! every job, take every errand, place every site and use every weapon,
+//! and every Bim brings the same money to the pool whatever its class.
+//! A class only adds its own abilities — its two keys and its talents —
+//! which no other class can use: [`can`] is the one rule, and it answers
+//! for an [`Ability`] and nothing else.
 //!
 //! # Experience
 //!
@@ -17,12 +25,33 @@
 //! | an enemy goes down within [`VICINITY_TILES`] | [`XP_ENEMY_DOWN`] | every classed crew member in range |
 //! | an enemy dies within it | [`XP_ENEMY_DEAD`] | the same |
 //! | a construction site finishes, or a kit is laid, by an engineer or anybody within its vicinity | [`XP_BUILT`] | that engineer alone |
+//! | a medic finishes bandaging a crewmate, or treating a crewmate's trauma | [`XP_HEALED`] | that medic alone |
+//! | an enemy's shot or blow lands on a tank | one a [`TANK_HITS_PER_XP`] | that tank alone |
+//! | a hire goes through from the slot steering a commander | [`XP_HIRE`] | that commander alone |
 //!
 //! Each enemy counts once for going down and once for dying; a crewmate
 //! or a mercenary going down gives nothing; a kit laid from a re-used one
 //! (`World::reused_kits`, a kit packed up or salvaged) gives nothing. The
 //! vicinity is measured on the deck the fight is on, between the crew
-//! member and the enemy, or the crew member and whoever built.
+//! member and the enemy, or the crew member and whoever built. The
+//! soldier has no source of its own. The medic's counts when the task
+//! finishes and the bandage or the kit is used (a field surgery too),
+//! once a task, for a crewmate — any crew member but itself,
+//! mercenaries included — and never for a non-medic doing the same.
+//!
+//! The tank's is the one source worth a fraction of a point, and
+//! experience is a whole number, so the **count** is what is kept —
+//! `hits_taken` on the Bim, saved and checksummed — and every
+//! [`TANK_HITS_PER_XP`] hits are one point, with the count starting
+//! again. A hit counts when it *lands*: after the roll and any dodge,
+//! whether his armour, a surge or his body took it. A miss, a dodge and
+//! a hit from his own side (his soldier's grenade) count for nothing,
+//! and so does a hit on anybody who is not a tank.
+//!
+//! The commander's counts when `Command::Hire` sent from the slot
+//! steering him goes through and the body joins the crew. A refused hire
+//! gives nothing, and a hire sent from anybody else's slot gives him
+//! nothing, however near he stands.
 //!
 //! # Levels
 //!
@@ -32,7 +61,9 @@
 //! once; a **pick** level ([`pick_at`]) offers two and applies neither
 //! until the player chooses — `Command::PickTalent`, only for a level
 //! reached with no pick yet, never changed after. A dead crew member's
-//! level, experience and picks die with it.
+//! level, experience and picks die with it. Every class climbs the same
+//! shape — fixed at one, three and seven, a pick at the rest
+//! ([`is_pick_level`]) — and what each level *is* is the class's.
 //!
 //! # The engineer's ten levels
 //!
@@ -49,9 +80,80 @@
 //! | 9 | *Salvage*: a destroyed sentry returns its kit to the pack | *Steady hands*: a hit no longer interrupts a deploy |
 //! | 10 | *Second sentry*: two at once | *Sentry mark III*: the tier-three factors |
 //!
+//! # The soldier's ten levels
+//!
+//! | level | left | right |
+//! |---|---|---|
+//! | 1 | *Brace* (E): holds its ground, shoots steadier | — |
+//! | 2 | *Marksman*: accuracy ×1.15 | *Point blank*: damage within the weapon's sweet range ×1.2 |
+//! | 3 | *Grenades* (Q): may throw them | — |
+//! | 4 | *Runner*: pace ×1.2 while an enemy is in sight | *Steady aim*: the walking accuracy penalty halved |
+//! | 5 | *Iron nerve*: never flees | *Cover master*: the odds in cover ×1.5 |
+//! | 6 | *Long throw*: grenade range ×1.5 | *Short fuse*: grenade fuse ×0.5 |
+//! | 7 | *Drill*: fire rate ×1.2 on every weapon | — |
+//! | 8 | *Frag*: grenade radius ×1.5 | *Quick draw*: grenade cooldown ×0.5 |
+//! | 9 | *Bruiser*: melee damage ×1.5, fists and schword | *Dug in*: dodge +10% while braced |
+//! | 10 | *Deadeye*: every weapon's far accuracy equals its near | *Rampage*: each enemy downed raises the fire rate ×1.1, up to three, until the fight ends |
+//!
+//! # The medic's ten levels
+//!
+//! | level | left | right |
+//! |---|---|---|
+//! | 1 | *Heal beam* (E): holds a crewmate's blood | — |
+//! | 2 | *Field dressing*: bandages in half the time | *Surgeon*: treats in half the time |
+//! | 3 | *Surge* (Q): may trigger it | — |
+//! | 4 | *Long beam*: beam range ×1.5 | *Strong beam*: beam blood rate ×1.5 |
+//! | 5 | *Clean hands*: a trauma it treats leaves nothing lasting | *Steady hands*: a part it treats comes back to ×1.5 of `TREATED_TO` |
+//! | 6 | *Quick charge*: the surge charges ×1.5 faster | *Long surge*: a surge lasts ×1.5 |
+//! | 7 | *Mender*: a beamed patient's parts mend at `HEALTH_RECOVER` ×10 | — |
+//! | 8 | *Self-care*: its own wounds do not bleed while it beams | *Double link*: two patients at once, each at the full rate |
+//! | 9 | *Gunner medic*: fires while beaming, at fire rate ×0.5 | *Closing surge*: a surge ending closes every open wound on the patient |
+//! | 10 | *Mass surge*: a surge covers every crew member within 3 tiles of the patient | *Field surgeon*: once a fight, treats a trauma with no medkit in half the time |
+//!
+//! # The tank's ten levels
+//!
+//! | level | left | right |
+//! |---|---|---|
+//! | 1 | armour drains at half rate on him; *Bulwark* (E) | — |
+//! | 2 | *Pack mule*: carries two loads a trip when hauling | *Plated*: armour protection ×1.5 on him |
+//! | 3 | *Taunt* (Q): may use it | — |
+//! | 4 | *Breacher*: forces locked doors in half the time | *Unmovable*: never flees, and loses no pace to low blood while his kevlar holds |
+//! | 5 | *Wide wall*: bulwark reach ×2 | *Fast wall*: bulwark pace ×1.5 |
+//! | 6 | *Loud taunt*: taunt radius ×1.5 | *Long taunt*: a taunt lasts ×1.5 |
+//! | 7 | *Iron frame*: a hit rolled on his head lands on his body | — |
+//! | 8 | *Hold fast*: his wounds do not bleed while he taunts | *Guarded*: dodge +10% while Bulwark is on |
+//! | 9 | *Interpose*: a bolt that would hit somebody he shields hits him | *Magnet*: a taunt turns every charging blade toward him |
+//! | 10 | *Fortress*: armour drain on him ×0.5 again, a quarter in all | *Rallying wall*: while he taunts, crew within 3 tiles drain at half rate too |
+//!
+//! # The commander's ten levels
+//!
+//! | level | left | right |
+//! |---|---|---|
+//! | 1 | the aura; hires at a quarter off; squad orders — attack, fall back, stand ground | — |
+//! | 2 | *Wide presence*: aura radius ×1.5 | *Strong presence*: each aura bonus ×1.5 |
+//! | 3 | *Rally* (Q): may call it | — |
+//! | 4 | *Haggler*: hires at two fifths off | *Outfitter*: a mercenary he hires arrives with one basic piece it lacks |
+//! | 5 | *Focus fire*: the squad's odds against the marked enemy ×1.15 | *Pincer*: an attack may mark two enemies, the squad split between them |
+//! | 6 | *Long rally*: a rally lasts ×1.5 | *Quick rally*: the rally cooldown ×0.5 |
+//! | 7 | *Long reach*: a squad order reaches every squad member in the room | — |
+//! | 8 | *Steady ranks*: Bims in his aura bleed ×0.75 | *Double time*: Bims in his aura walk at pace ×1.1 |
+//! | 9 | *Relentless*: an attack's mark lasts until the enemy dies, walked towards even unseen | *Grit*: during a rally, Bims in it lose no pace to wounds or traumas |
+//! | 10 | *Anchor*: the aura's bonuses double while he stands still | *Warcry*: a rally covers every friendly Bim in the room |
+//!
+//! **His aura and his rally lift every friendly Bim they reach, a
+//! player's own steered Bims included; his squad orders command only the
+//! squad** — every crew member no player is steering, the crew's own
+//! bots and the hired hands alike. See [`crate::commander`].
+//!
 //! Every multiplier is a named constant here; what each talent *does* is
-//! `crate::deploy` and the world's step. No strings: the app names the
-//! classes and the talents (`CLASS_NAMES`, `TALENT_NAMES`).
+//! `crate::deploy` and the world's step for the engineer, the room's
+//! one shooter (`bims::combat::Skill`, `World::skill_of`) for the
+//! soldier, `crate::medic` with the world's step for the medic, and
+//! `crate::tank` with the same `Skill` and the room's own bulwarks for
+//! the tank, and `crate::commander` with the same `Skill` and the room's
+//! own squad orders for the commander. No
+//! strings: the app names the classes and the talents (`CLASS_NAMES`,
+//! `TALENT_NAMES`).
 
 use crate::event::Refusal;
 
@@ -65,10 +167,26 @@ pub enum Class {
     None = 0,
     /// The engineer: sandbags, a sentry, and the workbench's friend.
     Engineer = 1,
+    /// The soldier: a line held, and grenades.
+    Soldier = 2,
+    /// The medic: a heal beam, and a surge.
+    Medic = 3,
+    /// The tank: a wall the crew shelter behind, and a taunt.
+    Tank = 4,
+    /// The commander: an aura the crew round him fight better in, orders
+    /// for the squad, and a cheaper hand at the dock.
+    Commander = 5,
 }
 
 impl Class {
-    pub const ALL: [Class; 2] = [Class::None, Class::Engineer];
+    pub const ALL: [Class; 6] = [
+        Class::None,
+        Class::Engineer,
+        Class::Soldier,
+        Class::Medic,
+        Class::Tank,
+        Class::Commander,
+    ];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -76,6 +194,72 @@ impl Class {
 
     pub fn from_code(code: u32) -> Option<Class> {
         Class::ALL.get(code as usize).copied()
+    }
+
+    /// What it wears on the deck (feature 81): the kit the room draws
+    /// over the coverall. Drawing only — `World::hand_the_room_the_outfits`
+    /// says it every step and nothing else reads it — so a class added
+    /// later wants an arm here or it looks like everybody else.
+    pub fn outfit(self) -> bims::character::Outfit {
+        use bims::character::Outfit;
+        match self {
+            Class::None => Outfit::Plain,
+            Class::Engineer => Outfit::Engineer,
+            Class::Soldier => Outfit::Soldier,
+            Class::Medic => Outfit::Medic,
+            Class::Tank => Outfit::Tank,
+            Class::Commander => Outfit::Commander,
+        }
+    }
+}
+
+/// What a class alone may do: the only thing [`can`] ever refuses for a
+/// class. Never a job, an errand, a site or a weapon.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ability {
+    /// Lay a kit, pack a deployable up, refill a sentry: the engineer's.
+    Deploy,
+    /// Hold a line: the soldier's.
+    Brace,
+    /// Throw a grenade: the soldier's.
+    Throw,
+    /// Hold a heal beam on a crewmate: the medic's.
+    Beam,
+    /// Trigger a surge: the medic's.
+    Surge,
+    /// Stand as a wall the crew behind shelter against: the tank's.
+    Bulwark,
+    /// Draw the enemy's fire onto himself: the tank's.
+    Taunt,
+    /// Send the squad — attack, fall back, stand ground: the commander's.
+    SquadOrder,
+    /// Call a rally: the commander's.
+    Rally,
+}
+
+impl Ability {
+    pub const ALL: [Ability; 9] = [
+        Ability::Deploy,
+        Ability::Brace,
+        Ability::Throw,
+        Ability::Beam,
+        Ability::Surge,
+        Ability::Bulwark,
+        Ability::Taunt,
+        Ability::SquadOrder,
+        Ability::Rally,
+    ];
+}
+
+/// Whether a class may use an ability. The one rule a class gates
+/// anything by: everything not an [`Ability`] is everybody's.
+pub fn can(class: Class, ability: Ability) -> bool {
+    match ability {
+        Ability::Deploy => class == Class::Engineer,
+        Ability::Brace | Ability::Throw => class == Class::Soldier,
+        Ability::Beam | Ability::Surge => class == Class::Medic,
+        Ability::Bulwark | Ability::Taunt => class == Class::Tank,
+        Ability::SquadOrder | Ability::Rally => class == Class::Commander,
     }
 }
 
@@ -102,14 +286,17 @@ impl Side {
     }
 }
 
-/// The engineer's talents that are picked — the seven pick levels' two
-/// each, in level order, left before right. The fixed levels (1, 3, 7)
-/// are not talents: they are the level itself, asked of `Progress::level`.
-/// Codes cross the seam and index `TALENT_NAMES` in the app.
+/// The talents that are picked — each class's seven pick levels' two
+/// each, in level order, left before right, the engineer's fourteen, then
+/// the soldier's, then the medic's, then the tank's, then the
+/// commander's. The fixed levels (1, 3, 7) are not talents: they are
+/// the level itself, asked of `Progress::level`. Codes cross the seam
+/// and index `TALENT_NAMES` in the app.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Talent {
+    // The engineer's (feature 74).
     QuickHands = 0,
     SiteForeman = 1,
     Sandbagger = 2,
@@ -124,10 +311,72 @@ pub enum Talent {
     SteadyHands = 11,
     SecondSentry = 12,
     SentryMarkThree = 13,
+    // The soldier's (feature 75).
+    Marksman = 14,
+    PointBlank = 15,
+    Runner = 16,
+    SteadyAim = 17,
+    IronNerve = 18,
+    CoverMaster = 19,
+    LongThrow = 20,
+    ShortFuse = 21,
+    Frag = 22,
+    QuickDraw = 23,
+    Bruiser = 24,
+    /// The soldier's *dug in* — the engineer's is [`Talent::DugIn`].
+    DugInBraced = 25,
+    Deadeye = 26,
+    Rampage = 27,
+    // The medic's (feature 76).
+    FieldDressing = 28,
+    Surgeon = 29,
+    LongBeam = 30,
+    StrongBeam = 31,
+    CleanHands = 32,
+    /// The medic's *steady hands* — the engineer's is [`Talent::SteadyHands`].
+    SteadyHandsMedic = 33,
+    QuickCharge = 34,
+    LongSurge = 35,
+    SelfCare = 36,
+    DoubleLink = 37,
+    GunnerMedic = 38,
+    ClosingSurge = 39,
+    MassSurge = 40,
+    FieldSurgeon = 41,
+    // The tank's (feature 77).
+    PackMule = 42,
+    Plated = 43,
+    Breacher = 44,
+    Unmovable = 45,
+    WideWall = 46,
+    FastWall = 47,
+    LoudTaunt = 48,
+    LongTaunt = 49,
+    HoldFast = 50,
+    Guarded = 51,
+    Interpose = 52,
+    Magnet = 53,
+    Fortress = 54,
+    RallyingWall = 55,
+    // The commander's (feature 78).
+    WidePresence = 56,
+    StrongPresence = 57,
+    Haggler = 58,
+    Outfitter = 59,
+    FocusFire = 60,
+    Pincer = 61,
+    LongRally = 62,
+    QuickRally = 63,
+    SteadyRanks = 64,
+    DoubleTime = 65,
+    Relentless = 66,
+    Grit = 67,
+    Anchor = 68,
+    Warcry = 69,
 }
 
 impl Talent {
-    pub const ALL: [Talent; 14] = [
+    pub const ALL: [Talent; 70] = [
         Talent::QuickHands,
         Talent::SiteForeman,
         Talent::Sandbagger,
@@ -142,6 +391,62 @@ impl Talent {
         Talent::SteadyHands,
         Talent::SecondSentry,
         Talent::SentryMarkThree,
+        Talent::Marksman,
+        Talent::PointBlank,
+        Talent::Runner,
+        Talent::SteadyAim,
+        Talent::IronNerve,
+        Talent::CoverMaster,
+        Talent::LongThrow,
+        Talent::ShortFuse,
+        Talent::Frag,
+        Talent::QuickDraw,
+        Talent::Bruiser,
+        Talent::DugInBraced,
+        Talent::Deadeye,
+        Talent::Rampage,
+        Talent::FieldDressing,
+        Talent::Surgeon,
+        Talent::LongBeam,
+        Talent::StrongBeam,
+        Talent::CleanHands,
+        Talent::SteadyHandsMedic,
+        Talent::QuickCharge,
+        Talent::LongSurge,
+        Talent::SelfCare,
+        Talent::DoubleLink,
+        Talent::GunnerMedic,
+        Talent::ClosingSurge,
+        Talent::MassSurge,
+        Talent::FieldSurgeon,
+        Talent::PackMule,
+        Talent::Plated,
+        Talent::Breacher,
+        Talent::Unmovable,
+        Talent::WideWall,
+        Talent::FastWall,
+        Talent::LoudTaunt,
+        Talent::LongTaunt,
+        Talent::HoldFast,
+        Talent::Guarded,
+        Talent::Interpose,
+        Talent::Magnet,
+        Talent::Fortress,
+        Talent::RallyingWall,
+        Talent::WidePresence,
+        Talent::StrongPresence,
+        Talent::Haggler,
+        Talent::Outfitter,
+        Talent::FocusFire,
+        Talent::Pincer,
+        Talent::LongRally,
+        Talent::QuickRally,
+        Talent::SteadyRanks,
+        Talent::DoubleTime,
+        Talent::Relentless,
+        Talent::Grit,
+        Talent::Anchor,
+        Talent::Warcry,
     ];
 
     pub fn code(self) -> u32 {
@@ -150,6 +455,21 @@ impl Talent {
 
     pub fn from_code(code: u32) -> Option<Talent> {
         Talent::ALL.get(code as usize).copied()
+    }
+
+    /// Whose talent it is.
+    pub fn class(self) -> Class {
+        if self.code() < 14 {
+            Class::Engineer
+        } else if self.code() < 28 {
+            Class::Soldier
+        } else if self.code() < 42 {
+            Class::Medic
+        } else if self.code() < 56 {
+            Class::Tank
+        } else {
+            Class::Commander
+        }
     }
 }
 
@@ -171,6 +491,8 @@ pub const XP_ENEMY_DEAD: u32 = 5;
 pub const XP_BUILT: u32 = 2;
 /// How far the vicinity reaches, in tiles.
 pub const VICINITY_TILES: f32 = 50.0;
+
+// --- the engineer's numbers (feature 74) -------------------------------------
 
 /// The level a sentry may be laid from: the engineer's third.
 pub const SENTRY_LEVEL: u8 = 3;
@@ -195,17 +517,273 @@ pub const ARMOUR_REPAIR_PER_METAL: f32 = 10.0;
 /// *Armourer*: how long the repair takes at the bench, in game minutes.
 pub const ARMOUR_REPAIR_MINUTES: u32 = 10;
 
-/// The two talents on offer at a pick level, left and right, or `None`
-/// for a fixed level and for no level at all.
-pub fn pick_at(level: u8) -> Option<(Talent, Talent)> {
-    Some(match level {
-        2 => (Talent::QuickHands, Talent::SiteForeman),
-        4 => (Talent::Sandbagger, Talent::BulkBags),
-        5 => (Talent::ArmouredSentry, Talent::DeepMagazine),
-        6 => (Talent::Armourer, Talent::FieldRefit),
-        8 => (Talent::DugIn, Talent::QuickBuild),
-        9 => (Talent::Salvage, Talent::SteadyHands),
-        10 => (Talent::SecondSentry, Talent::SentryMarkThree),
+// --- the soldier's numbers (feature 75) --------------------------------------
+
+/// What a braced soldier's odds are multiplied by.
+pub const BRACE_ACCURACY: f32 = 1.15;
+/// Grenades a soldier sets out with in its pack.
+pub const SOLDIER_START_GRENADES: u32 = 2;
+/// The level a grenade may be thrown from: the soldier's third.
+pub const GRENADE_LEVEL: u8 = 3;
+/// The level *drill* applies from: the soldier's seventh.
+pub const DRILL_LEVEL: u8 = 7;
+/// Seconds of the clock between one throw and the next.
+pub const GRENADE_COOLDOWN: f64 = 5.0;
+/// How far a grenade is thrown, in tiles.
+pub const GRENADE_RANGE: f32 = 8.0;
+/// Seconds from the throw to the burst.
+pub const GRENADE_FUSE: f32 = 2.0;
+/// How far the burst reaches, in tiles.
+pub const GRENADE_RADIUS: f32 = 2.5;
+/// What the burst does at its centre; half that at the edge.
+pub const GRENADE_DAMAGE: f32 = 40.0;
+/// *Marksman*: what the odds are multiplied by.
+pub const MARKSMAN_ACCURACY: f32 = 1.15;
+/// *Point blank*: what the damage within the sweet range is multiplied by.
+pub const POINT_BLANK_DAMAGE: f32 = 1.2;
+/// *Runner*: what the pace is multiplied by while an enemy is in sight.
+pub const RUNNER_PACE: f32 = 1.2;
+/// *Cover master*: what the odds in cover are multiplied by.
+pub const COVER_MASTER_DODGE: f32 = 1.5;
+/// *Long throw*: what the grenade range is multiplied by.
+pub const LONG_THROW_RANGE: f32 = 1.5;
+/// *Short fuse*: what the grenade fuse is multiplied by.
+pub const SHORT_FUSE_TIME: f32 = 0.5;
+/// *Drill*: what every weapon's fire rate is multiplied by.
+pub const DRILL_FIRE_RATE: f32 = 1.2;
+/// *Frag*: what the grenade radius is multiplied by.
+pub const FRAG_RADIUS: f32 = 1.5;
+/// *Quick draw*: what the grenade cooldown is multiplied by.
+pub const QUICK_DRAW_COOLDOWN: f64 = 0.5;
+/// *Bruiser*: what a blow's damage is multiplied by, fist or blade.
+pub const BRUISER_MELEE: f32 = 1.5;
+/// *Dug in* (the soldier's): what is added to the dodge while braced.
+pub const DUG_IN_DODGE: f32 = 0.10;
+/// *Rampage*: what the fire rate is multiplied by a stack.
+pub const RAMPAGE_FIRE_RATE: f32 = 1.1;
+/// *Rampage*: how many stacks at most.
+pub const RAMPAGE_STACKS: u32 = 3;
+
+/// *Steady aim*: the odds on the move, where everybody else's are
+/// `bims::combat::WALKING_ACCURACY` — the penalty halved.
+pub fn steady_aim_walking() -> f32 {
+    1.0 - (1.0 - bims::combat::WALKING_ACCURACY) / 2.0
+}
+
+// --- the medic's numbers (feature 76) ----------------------------------------
+
+/// What a medic finishing a bandage or a treatment on a crewmate is
+/// worth, to that medic.
+pub const XP_HEALED: u32 = 5;
+/// Medkits a medic sets out with in its pack, and bandages beside them.
+pub const MEDIC_START_MEDKITS: u32 = 2;
+pub const MEDIC_START_BANDAGES: u32 = 4;
+/// How far the heal beam reaches, in tiles.
+pub const HEAL_BEAM_RANGE: f32 = 6.0;
+/// Blood a beamed patient gains an hour.
+pub const HEAL_BEAM_BLOOD: f32 = 30.0;
+/// Minutes of the clock beaming a patient that qualifies — below full
+/// blood, or with a wound open — until the surge is charged.
+pub const SURGE_CHARGE_MINUTES: f64 = 40.0;
+/// Minutes of the clock a surge runs.
+pub const SURGE_MINUTES: f64 = 8.0;
+/// The level a surge may be triggered from: the medic's third.
+pub const SURGE_LEVEL: u8 = 3;
+/// The level *mender* applies from: the medic's seventh.
+pub const MENDER_LEVEL: u8 = 7;
+/// *Mender*: what a beamed patient's parts mend at, times
+/// `bims::health::HEALTH_RECOVER`.
+pub const MENDER_RECOVER: f32 = 10.0;
+/// *Field dressing*: what the medic's bandaging time is multiplied by.
+pub const FIELD_DRESSING_TIME: f32 = 0.5;
+/// *Surgeon*: what the medic's treating time is multiplied by.
+pub const SURGEON_TIME: f32 = 0.5;
+/// *Long beam*: what the beam's range is multiplied by.
+pub const LONG_BEAM_RANGE: f32 = 1.5;
+/// *Strong beam*: what the beam's blood rate is multiplied by.
+pub const STRONG_BEAM_BLOOD: f32 = 1.5;
+/// *Steady hands* (the medic's): what `bims::health::TREATED_TO` is
+/// multiplied by for a part it treats.
+pub const STEADY_HANDS_TREATED: f32 = 1.5;
+/// *Quick charge*: what the surge's charging rate is multiplied by.
+pub const QUICK_CHARGE_RATE: f64 = 1.5;
+/// *Long surge*: what a surge's minutes are multiplied by.
+pub const LONG_SURGE_TIME: f64 = 1.5;
+/// *Double link*: how many patients the beam holds at once.
+pub const DOUBLE_LINK_PATIENTS: usize = 2;
+/// *Gunner medic*: what the fire rate is multiplied by while beaming.
+pub const GUNNER_MEDIC_FIRE_RATE: f32 = 0.5;
+/// *Mass surge*: how far round the patient a surge reaches, in tiles.
+pub const MASS_SURGE_TILES: f32 = 3.0;
+/// *Field surgeon*: what a treatment with no kit takes, of the ordinary
+/// time.
+pub const FIELD_SURGEON_TIME: f32 = 0.5;
+
+// --- the tank's numbers (feature 77) -----------------------------------------
+
+/// Enemy hits landing on a tank that make one point of experience. The
+/// count itself lives on the Bim (`Game::hits_taken`), since a fifth of
+/// a point is not a whole number.
+pub const TANK_HITS_PER_XP: u32 = 5;
+/// What a piece of armour worn by a tank drains at: half the damage it
+/// takes past its protection, so a piece absorbs twice as much on him.
+/// Never doubled in the piece's own health, which moves between Bims
+/// unchanged.
+pub const TANK_DRAIN: f32 = 0.5;
+/// What a tank's pace is multiplied by while Bulwark is on.
+pub const BULWARK_PACE: f32 = 0.5;
+/// How far Bulwark reaches, in tiles: how near the tank a crew member
+/// must stand to shelter behind him, and how near the line from the
+/// shooter he must stand to be between them.
+pub const BULWARK_REACH: f32 = 1.5;
+/// The level a taunt may be used from: the tank's third.
+pub const TAUNT_LEVEL: u8 = 3;
+/// The level *iron frame* applies from: the tank's seventh.
+pub const IRON_FRAME_LEVEL: u8 = 7;
+/// Seconds of the clock between one taunt and the next.
+pub const TAUNT_COOLDOWN: f64 = 20.0;
+/// Minutes of the clock a taunt runs.
+pub const TAUNT_MINUTES: f64 = 6.0;
+/// How far a taunt reaches, in tiles.
+pub const TAUNT_RADIUS: f32 = 10.0;
+/// *Pack mule*: how many loads a haul trip carries for him.
+pub const PACK_MULE_LOADS: u32 = 2;
+/// *Plated*: what a worn piece's protection is multiplied by on him.
+pub const PLATED_PROTECTION: f32 = 1.5;
+/// *Breacher*: what forcing a locked door takes, of the ordinary time.
+pub const BREACHER_TIME: f32 = 0.5;
+/// *Wide wall*: what the bulwark's reach is multiplied by.
+pub const WIDE_WALL_REACH: f32 = 2.0;
+/// *Fast wall*: what the bulwark's pace is multiplied by.
+pub const FAST_WALL_PACE: f32 = 1.5;
+/// *Loud taunt*: what the taunt's radius is multiplied by.
+pub const LOUD_TAUNT_RADIUS: f32 = 1.5;
+/// *Long taunt*: what a taunt's minutes are multiplied by.
+pub const LONG_TAUNT_TIME: f64 = 1.5;
+/// *Guarded*: what is added to the dodge while Bulwark is on.
+pub const GUARDED_DODGE: f32 = 0.10;
+/// *Fortress*: what the tank's armour drain is multiplied by again.
+pub const FORTRESS_DRAIN: f32 = 0.5;
+/// *Rallying wall*: how far round a taunting tank it reaches, in tiles.
+pub const RALLYING_WALL_TILES: f32 = 3.0;
+/// *Rallying wall*: what a sheltered crewmate's armour drains at.
+pub const RALLYING_WALL_DRAIN: f32 = 0.5;
+
+// --- the commander's numbers (feature 78) ------------------------------------
+
+/// What a hire made from the slot steering a commander is worth, to that
+/// commander alone.
+pub const XP_HIRE: u32 = 10;
+/// How far the aura reaches, in tiles.
+pub const AURA_TILES: f32 = 8.0;
+/// *Aura*: what a Bim in it works at.
+pub const AURA_WORK: f32 = 1.1;
+/// *Aura*: what a Bim in it shoots at.
+pub const AURA_AIM: f32 = 1.1;
+/// *Aura*: how much longer a Bim in it holds its ground before it runs —
+/// [`NERVE_HOLD`] times this.
+pub const AURA_NERVE: f32 = 1.5;
+/// How long a dying body holds its ground before it runs, in seconds of
+/// the clock: nought for a body with no commander near it — which is
+/// why every Bim in the game before the commander ran the moment it was
+/// dying, and still does — and this, times the aura's [`AURA_NERVE`],
+/// for one in an aura.
+pub const NERVE_HOLD: f32 = 8.0;
+/// What a commander takes off a mercenary's fee, in whole per cent.
+pub const HIRE_DISCOUNT_PERCENT: u32 = 25;
+/// *Haggler*: what he takes off it instead.
+pub const HAGGLER_DISCOUNT_PERCENT: u32 = 40;
+/// How far a squad order reaches from the commander, in tiles; *long
+/// reach* is the whole room.
+pub const SQUAD_RANGE: f32 = 20.0;
+/// The level a rally may be called from: the commander's third.
+pub const RALLY_LEVEL: u8 = 3;
+/// The level *long reach* applies from: the commander's seventh.
+pub const LONG_REACH_LEVEL: u8 = 7;
+/// Seconds of the clock between one rally and the next.
+pub const RALLY_COOLDOWN: f64 = 30.0;
+/// Minutes of the clock a rally runs.
+pub const RALLY_MINUTES: f64 = 6.0;
+/// *Rally*: what a Bim in it shoots at. It stacks with the aura's, and
+/// nothing in it ever runs.
+pub const RALLY_AIM: f32 = 1.3;
+/// *Wide presence*: what the aura's radius is multiplied by.
+pub const WIDE_PRESENCE_RADIUS: f32 = 1.5;
+/// *Strong presence*: what each of the aura's bonuses is multiplied by —
+/// of what it adds, so a tenth becomes three twentieths
+/// ([`aura_bonus`]).
+pub const STRONG_PRESENCE: f32 = 1.5;
+/// *Anchor*: the same, again, while he stands still.
+pub const ANCHOR_BONUS: f32 = 2.0;
+/// *Focus fire*: what the squad's odds against the enemy it is attacking
+/// are multiplied by.
+pub const FOCUS_FIRE_ACCURACY: f32 = 1.15;
+/// *Pincer*: how many enemies an attack may mark at once; one without
+/// it.
+pub const PINCER_MARKS: usize = 2;
+/// *Long rally*: what a rally's minutes are multiplied by.
+pub const LONG_RALLY_TIME: f64 = 1.5;
+/// *Quick rally*: what the rally's cooldown is multiplied by.
+pub const QUICK_RALLY_COOLDOWN: f64 = 0.5;
+/// *Steady ranks*: what a Bim in the aura bleeds at.
+pub const STEADY_RANKS_BLEED: f32 = 0.75;
+/// *Double time*: what a Bim in the aura's pace is multiplied by.
+pub const DOUBLE_TIME_PACE: f32 = 1.1;
+
+/// One of the aura's bonuses through *strong presence* and *anchor*:
+/// what the bonus *adds* is multiplied, so [`AURA_WORK`]'s tenth becomes
+/// three twentieths under [`STRONG_PRESENCE`] and a fifth under both.
+/// A bonus below one — [`STEADY_RANKS_BLEED`] — deepens the same way,
+/// never past nothing.
+pub fn aura_bonus(bonus: f32, factor: f32) -> f32 {
+    (1.0 + (bonus - 1.0) * factor).max(0.0)
+}
+
+/// Whether a level is a pick level — the same shape for every class:
+/// fixed at one, three and seven, a pick at the rest.
+pub fn is_pick_level(level: u8) -> bool {
+    matches!(level, 2 | 4 | 5 | 6 | 8 | 9 | 10)
+}
+
+/// The two talents a class offers at a pick level, left and right, or
+/// `None` for a fixed level, for no level at all, and for no class.
+pub fn pick_at(class: Class, level: u8) -> Option<(Talent, Talent)> {
+    Some(match (class, level) {
+        (Class::Engineer, 2) => (Talent::QuickHands, Talent::SiteForeman),
+        (Class::Engineer, 4) => (Talent::Sandbagger, Talent::BulkBags),
+        (Class::Engineer, 5) => (Talent::ArmouredSentry, Talent::DeepMagazine),
+        (Class::Engineer, 6) => (Talent::Armourer, Talent::FieldRefit),
+        (Class::Engineer, 8) => (Talent::DugIn, Talent::QuickBuild),
+        (Class::Engineer, 9) => (Talent::Salvage, Talent::SteadyHands),
+        (Class::Engineer, 10) => (Talent::SecondSentry, Talent::SentryMarkThree),
+        (Class::Soldier, 2) => (Talent::Marksman, Talent::PointBlank),
+        (Class::Soldier, 4) => (Talent::Runner, Talent::SteadyAim),
+        (Class::Soldier, 5) => (Talent::IronNerve, Talent::CoverMaster),
+        (Class::Soldier, 6) => (Talent::LongThrow, Talent::ShortFuse),
+        (Class::Soldier, 8) => (Talent::Frag, Talent::QuickDraw),
+        (Class::Soldier, 9) => (Talent::Bruiser, Talent::DugInBraced),
+        (Class::Soldier, 10) => (Talent::Deadeye, Talent::Rampage),
+        (Class::Medic, 2) => (Talent::FieldDressing, Talent::Surgeon),
+        (Class::Medic, 4) => (Talent::LongBeam, Talent::StrongBeam),
+        (Class::Medic, 5) => (Talent::CleanHands, Talent::SteadyHandsMedic),
+        (Class::Medic, 6) => (Talent::QuickCharge, Talent::LongSurge),
+        (Class::Medic, 8) => (Talent::SelfCare, Talent::DoubleLink),
+        (Class::Medic, 9) => (Talent::GunnerMedic, Talent::ClosingSurge),
+        (Class::Medic, 10) => (Talent::MassSurge, Talent::FieldSurgeon),
+        (Class::Tank, 2) => (Talent::PackMule, Talent::Plated),
+        (Class::Tank, 4) => (Talent::Breacher, Talent::Unmovable),
+        (Class::Tank, 5) => (Talent::WideWall, Talent::FastWall),
+        (Class::Tank, 6) => (Talent::LoudTaunt, Talent::LongTaunt),
+        (Class::Tank, 8) => (Talent::HoldFast, Talent::Guarded),
+        (Class::Tank, 9) => (Talent::Interpose, Talent::Magnet),
+        (Class::Tank, 10) => (Talent::Fortress, Talent::RallyingWall),
+        (Class::Commander, 2) => (Talent::WidePresence, Talent::StrongPresence),
+        (Class::Commander, 4) => (Talent::Haggler, Talent::Outfitter),
+        (Class::Commander, 5) => (Talent::FocusFire, Talent::Pincer),
+        (Class::Commander, 6) => (Talent::LongRally, Talent::QuickRally),
+        (Class::Commander, 8) => (Talent::SteadyRanks, Talent::DoubleTime),
+        (Class::Commander, 9) => (Talent::Relentless, Talent::Grit),
+        (Class::Commander, 10) => (Talent::Anchor, Talent::Warcry),
         _ => return None,
     })
 }
@@ -215,7 +793,9 @@ pub fn level_of(xp: u32) -> u8 {
     LEVEL_XP.iter().filter(|&&need| xp >= need).count().max(1) as u8
 }
 
-/// One crew member's way through its class: what it has learnt.
+/// One crew member's way through its class: what it has learnt. The
+/// picks are a level and a side, and which talent each is depends on
+/// the class the crew member has — asked of every reading.
 #[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Progress {
@@ -249,11 +829,11 @@ impl Progress {
         ((was + 1)..=now).collect()
     }
 
-    /// Whether a talent has been picked.
-    pub fn has(&self, talent: Talent) -> bool {
+    /// Whether a talent has been picked, for a crew member of `class`.
+    pub fn has(&self, class: Class, talent: Talent) -> bool {
         self.picks
             .iter()
-            .any(|&(level, side)| talent_of(level, side) == Some(talent))
+            .any(|&(level, side)| talent_of(class, level, side) == Some(talent))
     }
 
     /// The pick made at a level, if any.
@@ -267,13 +847,13 @@ impl Progress {
     /// The lowest reached pick level with no pick yet, if any: what the
     /// panel offers, and what a level-up leaves pending.
     pub fn pending_pick(&self) -> Option<u8> {
-        (2..=self.level()).find(|&l| pick_at(l).is_some() && self.picked_at(l).is_none())
+        (2..=self.level()).find(|&l| is_pick_level(l) && self.picked_at(l).is_none())
     }
 
-    /// Choose a side at a level: a pick level, reached, not yet picked.
-    /// The talent it is, or why not.
-    pub fn pick(&mut self, level: u8, side: Side) -> Result<Talent, Refusal> {
-        let (left, right) = pick_at(level).ok_or(Refusal::NotAPickLevel)?;
+    /// Choose a side at a level for a crew member of `class`: a pick
+    /// level, reached, not yet picked. The talent it is, or why not.
+    pub fn pick(&mut self, class: Class, level: u8, side: Side) -> Result<Talent, Refusal> {
+        let (left, right) = pick_at(class, level).ok_or(Refusal::NotAPickLevel)?;
         if level > self.level() {
             return Err(Refusal::LevelNotReached);
         }
@@ -287,13 +867,39 @@ impl Progress {
             Side::Right => right,
         })
     }
+
+    /// Every talent picked, for a crew member of `class`, in level order.
+    pub fn talents(&self, class: Class) -> Vec<Talent> {
+        self.picks
+            .iter()
+            .filter_map(|&(level, side)| talent_of(class, level, side))
+            .collect()
+    }
 }
 
-/// The talent a side of a level is.
-pub fn talent_of(level: u8, side: Side) -> Option<Talent> {
-    pick_at(level).map(|(left, right)| match side {
+/// The talent a side of a level is, for a class.
+pub fn talent_of(class: Class, level: u8, side: Side) -> Option<Talent> {
+    pick_at(class, level).map(|(left, right)| match side {
         Side::Left => left,
         Side::Right => right,
+    })
+}
+
+/// The level a class's own key is learnt at: its **E** from the first
+/// level — sandbags, the brace, the beam, the wall, the squad — and its
+/// **Q** from the third for every class — a sentry, grenades, the surge,
+/// the taunt, the rally. `None` for [`Class::None`], which has no keys
+/// at all. What the two boxes at the foot of the screen grey themselves
+/// out by (feature 80).
+pub fn key_level(class: Class, primary: bool) -> Option<u8> {
+    Some(match (class, primary) {
+        (Class::None, _) => return None,
+        (_, false) => 1,
+        (Class::Engineer, true) => SENTRY_LEVEL,
+        (Class::Soldier, true) => GRENADE_LEVEL,
+        (Class::Medic, true) => SURGE_LEVEL,
+        (Class::Tank, true) => TAUNT_LEVEL,
+        (Class::Commander, true) => RALLY_LEVEL,
     })
 }
 
@@ -316,25 +922,134 @@ mod tests {
         assert_eq!(p.gain(1), vec![2]);
         assert_eq!(p.gain(600), vec![3, 4, 5]);
         assert_eq!(p.pending_pick(), Some(2));
-        assert_eq!(p.pick(3, Side::Left), Err(Refusal::NotAPickLevel));
-        assert_eq!(p.pick(6, Side::Left), Err(Refusal::LevelNotReached));
-        assert_eq!(p.pick(2, Side::Right), Ok(Talent::SiteForeman));
-        assert_eq!(p.pick(2, Side::Left), Err(Refusal::AlreadyPicked));
-        assert!(p.has(Talent::SiteForeman) && !p.has(Talent::QuickHands));
+        assert_eq!(
+            p.pick(Class::Engineer, 3, Side::Left),
+            Err(Refusal::NotAPickLevel)
+        );
+        assert_eq!(
+            p.pick(Class::Engineer, 6, Side::Left),
+            Err(Refusal::LevelNotReached)
+        );
+        assert_eq!(
+            p.pick(Class::None, 2, Side::Left),
+            Err(Refusal::NotAPickLevel),
+            "no class, no picks"
+        );
+        assert_eq!(
+            p.pick(Class::Engineer, 2, Side::Right),
+            Ok(Talent::SiteForeman)
+        );
+        assert_eq!(
+            p.pick(Class::Engineer, 2, Side::Left),
+            Err(Refusal::AlreadyPicked)
+        );
+        assert!(
+            p.has(Class::Engineer, Talent::SiteForeman)
+                && !p.has(Class::Engineer, Talent::QuickHands)
+        );
+        // The same pick read as a soldier's is the soldier's right-hand
+        // talent at that level: which talent a pick is depends on the
+        // class.
+        assert!(p.has(Class::Soldier, Talent::PointBlank));
+        assert_eq!(p.talents(Class::Soldier), vec![Talent::PointBlank]);
         assert_eq!(p.pending_pick(), Some(4));
-        let mut all = Vec::new();
-        for level in 1..=LEVELS {
-            if let Some((l, r)) = pick_at(level) {
-                all.push(l);
-                all.push(r);
+        for class in [
+            Class::Engineer,
+            Class::Soldier,
+            Class::Medic,
+            Class::Tank,
+            Class::Commander,
+        ] {
+            let mut all = Vec::new();
+            for level in 1..=LEVELS {
+                assert_eq!(pick_at(class, level).is_some(), is_pick_level(level));
+                if let Some((l, r)) = pick_at(class, level) {
+                    assert_eq!(l.class(), class);
+                    assert_eq!(r.class(), class);
+                    all.push(l);
+                    all.push(r);
+                }
             }
+            let own: Vec<Talent> = Talent::ALL
+                .into_iter()
+                .filter(|t| t.class() == class)
+                .collect();
+            assert_eq!(all, own, "every talent of {class:?} is on one pick level");
         }
-        assert_eq!(all, Talent::ALL.to_vec(), "every talent is on one pick level");
+        for level in 1..=LEVELS {
+            assert_eq!(pick_at(Class::None, level), None);
+        }
         for talent in Talent::ALL {
             assert_eq!(Talent::from_code(talent.code()), Some(talent));
         }
         for class in Class::ALL {
             assert_eq!(Class::from_code(class.code()), Some(class));
         }
+    }
+
+    #[test]
+    fn a_class_owns_its_abilities_and_nothing_else() {
+        assert!(can(Class::Engineer, Ability::Deploy));
+        assert!(!can(Class::Engineer, Ability::Brace));
+        assert!(!can(Class::Engineer, Ability::Throw));
+        assert!(!can(Class::Soldier, Ability::Deploy));
+        assert!(can(Class::Soldier, Ability::Brace));
+        assert!(can(Class::Soldier, Ability::Throw));
+        assert!(!can(Class::Soldier, Ability::Beam));
+        assert!(can(Class::Medic, Ability::Beam));
+        assert!(can(Class::Medic, Ability::Surge));
+        assert!(!can(Class::Medic, Ability::Deploy));
+        assert!(!can(Class::Medic, Ability::Throw));
+        assert!(!can(Class::Engineer, Ability::Surge));
+        assert!(can(Class::Tank, Ability::Bulwark));
+        assert!(can(Class::Tank, Ability::Taunt));
+        assert!(!can(Class::Tank, Ability::Beam));
+        assert!(!can(Class::Tank, Ability::Deploy));
+        assert!(!can(Class::Medic, Ability::Bulwark));
+        assert!(!can(Class::Soldier, Ability::Taunt));
+        assert!(can(Class::Commander, Ability::SquadOrder));
+        assert!(can(Class::Commander, Ability::Rally));
+        assert!(!can(Class::Commander, Ability::Taunt));
+        assert!(!can(Class::Commander, Ability::Deploy));
+        assert!(!can(Class::Tank, Ability::SquadOrder));
+        assert!(!can(Class::Medic, Ability::Rally));
+        for ability in Ability::ALL {
+            assert!(!can(Class::None, ability));
+        }
+        assert_eq!(Talent::FieldDressing.class(), Class::Medic);
+        assert_eq!(Talent::Rampage.class(), Class::Soldier);
+        assert_eq!(Talent::PackMule.class(), Class::Tank);
+        assert_eq!(Talent::RallyingWall.class(), Class::Tank);
+        assert_eq!(Talent::WidePresence.class(), Class::Commander);
+        assert_eq!(Talent::Warcry.class(), Class::Commander);
+        assert_eq!(steady_aim_walking(), 0.75);
+        // An aura bonus deepens by what it adds, up and down.
+        assert!((aura_bonus(AURA_WORK, STRONG_PRESENCE) - 1.15).abs() < 1e-6);
+        assert!((aura_bonus(AURA_WORK, ANCHOR_BONUS) - 1.2).abs() < 1e-6);
+        assert!((aura_bonus(STEADY_RANKS_BLEED, STRONG_PRESENCE) - 0.625).abs() < 1e-6);
+        assert_eq!(aura_bonus(0.0, 100.0), 0.0, "never past nothing");
+    }
+
+    /// Every class's own two keys are learnt at the same two levels —
+    /// the E from the first, the Q from the third — and a classless
+    /// crew member has neither.
+    #[test]
+    fn a_class_s_e_is_its_first_level_and_its_q_its_third() {
+        for class in Class::ALL {
+            if class == Class::None {
+                assert_eq!(key_level(class, true), None);
+                assert_eq!(key_level(class, false), None);
+                continue;
+            }
+            assert_eq!(key_level(class, false), Some(1), "{class:?}'s E");
+            assert_eq!(key_level(class, true), Some(3), "{class:?}'s Q");
+            // And the third is a fixed level, so nobody has to pick it.
+            assert!(!is_pick_level(3));
+        }
+        assert_eq!(key_level(Class::Engineer, true), Some(SENTRY_LEVEL));
+        assert_eq!(key_level(Class::Soldier, true), Some(GRENADE_LEVEL));
+        assert_eq!(key_level(Class::Medic, true), Some(SURGE_LEVEL));
+        assert_eq!(key_level(Class::Tank, true), Some(TAUNT_LEVEL));
+        assert_eq!(key_level(Class::Commander, true), Some(RALLY_LEVEL));
     }
 }

@@ -64,7 +64,7 @@ fn main() {
     let mut was_filth = [0.0f32; CREW];
 
     for _ in 0..(3 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         for w in 0..CREW {
             worst_urge[w] = worst_urge[w].max(game.urge(w));
             worst_discomfort[w] = worst_discomfort[w].max(game.discomfort(w));
@@ -134,7 +134,7 @@ fn main() {
     let mut extreme_runs = [0u32; CREW];
     let mut both_extreme = 0;
     for _ in 0..(2 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         let at_worst: Vec<bool> = (0..CREW).map(|w| game.urge(w) == 3).collect();
         for w in 0..CREW {
             if at_worst[w] {
@@ -170,7 +170,7 @@ fn main() {
         let mut mishaps = [0u32; CREW];
         let mut was = [0.0f32; CREW];
         for _ in 0..(7 * FRAMES_PER_DAY) {
-            game.update(STEP);
+            game.simulate(STEP);
             for w in 0..CREW {
                 worst[w] = worst[w].max(game.urge(w));
                 let own = game.bim_filth(w);

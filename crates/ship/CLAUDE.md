@@ -210,6 +210,17 @@ rounded rectangles and a disc), because a belt is a mining site — hold
 station at it and the rocks are laid out — and the map should say so
 before the crew fly there. Nothing else stands at a belt
 (`worldgen::data::parent_suits`), so the pickaxe has the belt to itself.
+**Somewhere the crew have already been gets a tick** at its *upper-left*
+shoulder — the upper-right one is the pickaxe's and the settlement's
+pad's, and under the icon is where the app writes its name
+(feature 85, `paint_tick`, `TICK_SHOULDER`, `VISITED` — a pale grey,
+and two strokes of `DrawList::line`, a shape nothing else on the map
+draws). What has been visited is the world's, not the painter's:
+`World::visited`, marked off `settle_frame` at every node the ship has
+stopped at and filed with the system when it jumps out
+(`crates/world/CLAUDE.md`, "The dead lie where they fell"). The galaxy
+chart rings a visited *star* in the same grey (`lobby::preview`), so the
+two maps agree about the colour the way they agree about the enemy's red.
 Out of the window
 (`stations`) a hostile station's far plate — the black `HULL_UNKNOWN` fog
 plate every stranger's is — gets a wash of the same red at `ENEMY_TINT`
@@ -853,3 +864,30 @@ the save: the look is on the character and the save carries that
 (version 10, `Look` a struct).
 `the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens`
 pins it, and that the checksum does not move for a hair.
+
+## A class is chosen in the yard, and the deployables are painted with the room (feature 74)
+
+`Session::crew_classes` is the players' classes in slot order, as the
+hair is: `Session::set_class(slot, class)` in the design phase keeps it
+— and leaves the pool alone: since feature 75 a class owns abilities and
+never money, so every Bim brings `money_per_bim` whatever it is, and
+`class::contribution`, `economy::starting_pool_of` and `Editor::set_pool`
+are gone — and `start_game` puts them onto the world through
+`World::set_class` right after `dress_crew` (`class_crew`); playing,
+`set_class` does nothing and the change is `Command::SetClass`.
+`Session::class_of` reads the world's while there is one.
+**`SAVE_VERSION` 16**: the world's classes, progress and deployables are
+in the file; **17** (feature 75) the grenade in the cargo, a Bim's brace
+and rampage, the room's grenades and the world's `last_throw`; **18**
+(feature 76) the world's medics — each beam's patients, the surge's
+charge and the field surgery — with a Bim's beam flag and its surge.
+`a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved`
+pins the pool untouched, each class's kit in the pack and the round trip.
+
+`world_paint::deployables` draws every deployable in the crew's room as a
+part stood on its room tile — `fittings::sandbags` (now `pub(crate)`) for
+laid sandbags, `fittings::sentry` for a turret: three feet, a drum, the
+barrel out to the right, an eye that is blue with shots and dull dry,
+and a dark ring closing over the drum as its health goes — appended
+turned with the room, under the room's own picture, since a station's
+tile is on the joined deck's grid rather than the ship's.

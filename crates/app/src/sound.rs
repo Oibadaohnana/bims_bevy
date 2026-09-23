@@ -184,6 +184,8 @@ enum Kind {
     Blow,
     /// A weapon out of its holster, or back into it.
     Holster,
+    /// A grenade going off (feature 75).
+    Burst,
     /// Not a room cue: the engines catching, off the world's events.
     EngineStart,
 }
@@ -207,6 +209,8 @@ impl Kind {
             Cue::Ricochet => Kind::Ricochet,
             Cue::Blow { .. } => Kind::Blow,
             Cue::Holster { .. } => Kind::Holster,
+            Cue::Throw => Kind::Blow,
+            Cue::Burst => Kind::Burst,
         }
     }
 
@@ -228,6 +232,8 @@ impl Kind {
             Kind::Blow => 0.1,
             // A hand changes once a step at most; the clip is half a second.
             Kind::Holster => 0.3,
+            // A grenade bursts once; two in a frame are two.
+            Kind::Burst => 0.05,
             // Undocking is said, and then departing; one ignition for both.
             Kind::EngineStart => 15.0,
         }
@@ -420,8 +426,14 @@ impl Sounds {
                     WeaponKind::Shotgun => (Clip::Shotgun, 0.7),
                     WeaponKind::AutoRifle => (Clip::Rifle, 0.35),
                     WeaponKind::SniperRifle => (Clip::Sniper, 0.6),
-                    // A blade is never fired; the room does not say it is.
-                    WeaponKind::Schword => return,
+                    // A blade is never fired, nor is a claw; the room
+                    // does not say either is.
+                    WeaponKind::Schword | WeaponKind::Claw => return,
+                    // The Unmaker has no recording of its own yet —
+                    // droid sounds are their own step — so it borrows
+                    // the sniper's report, which is the nearest thing
+                    // to a heavy single shot the box holds.
+                    WeaponKind::Unmaker => (Clip::Sniper, 0.6),
                 };
                 self.one_shot(commands, clip, level * theirs);
             }
@@ -434,6 +446,14 @@ impl Sounds {
                 }
             }
             Cue::Ricochet => self.one_shot(commands, Clip::LaserWall, 0.18),
+            // The throw is the pin and the pitch: the holster's click will
+            // do. The burst is the shotgun's report and a door giving at
+            // once — no recording of its own yet.
+            Cue::Throw => self.one_shot(commands, Clip::Holster, 0.4),
+            Cue::Burst => {
+                self.one_shot(commands, Clip::Shotgun, 1.0);
+                self.one_shot(commands, Clip::DoorForce, 0.9);
+            }
             Cue::Blow { cut, on_crew } => {
                 if cut {
                     self.one_shot(commands, Clip::Schword, 0.6);

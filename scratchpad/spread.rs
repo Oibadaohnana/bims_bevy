@@ -266,7 +266,7 @@ fn main() {
     game.send_for_probe(PLAYER, target);
     let mut patience = 0;
     for _ in 0..(40 * 60 * 60) {
-        game.update(STEP);
+        game.simulate(STEP);
         patience += 1;
         if (game.bim_pos(PLAYER) - target).len() < TILE * 0.5 || patience > 60 * 60 {
             target = if target == east_end { west } else { east_end };
@@ -321,7 +321,7 @@ fn main() {
         let mut ever_dirty = 0;
         let mut ever_grime = false;
         for f in 0..(3 * FRAMES_PER_DAY) {
-            game.update(STEP);
+            game.simulate(STEP);
             ever_dirty = ever_dirty.max(game.dirty_tiles());
             // Sweeping takes it away again, so the deck has to be read as the
             // run goes rather than at the end of it. Once a minute or so is

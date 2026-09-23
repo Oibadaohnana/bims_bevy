@@ -62,6 +62,16 @@ pub const GROUND_WINDOW: f32 = 6.0 * clock::HOUR;
 /// the lie-down, so it runs from the end of it.
 pub const SORE_LASTS: f32 = 12.0 * clock::HOUR;
 
+/// A medic's surge running on a body (feature 76): the seconds of the
+/// room's clock it has left, and whether every open wound is closed as
+/// it ends (the medic's *closing surge*).
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Surge {
+    pub left: f32,
+    pub closing: bool,
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Footprint {
     pub pos: Vec2,
@@ -103,6 +113,47 @@ pub struct Bim {
     pub lately: Vec<u32>,
     /// Seconds until it next looks for somewhere cleaner to stand.
     pub flee_wait: f32,
+    /// Holding a line (feature 75): a soldier braced where it stands —
+    /// no errands, no running, steadier shooting. Toggled by the world
+    /// (`Game::set_braced`); off again on any order that moves it
+    /// (`interrupt_for_order`) and when it goes down. Saved with the
+    /// room and in `world_checksum`.
+    pub braced: bool,
+    /// *Rampage* stacks (feature 75): each enemy this soldier downs is
+    /// one, up to `world::class::RAMPAGE_STACKS`, until the fight ends —
+    /// the world counts them and clears them. In `world_checksum`.
+    pub rampage: u32,
+    /// Holding a heal beam on somebody (feature 76): a medic linked to a
+    /// patient, as the world last said (`Game::set_beaming`). Off again
+    /// on any order to an errand (`Game::order`) and when the medic goes
+    /// down, which the world reads back and breaks the link by. In
+    /// `world_checksum` through the world's own list.
+    pub beaming: bool,
+    /// A medic's *surge* on this body (feature 76): while it runs, a hit
+    /// takes nothing — no wound, no armour drained, no trauma
+    /// (`Game::strike`). Set by the world (`Game::set_surge`), counted
+    /// down here; `closing` closes every open wound as it ends. Saved
+    /// with the room and in `world_checksum`.
+    pub surge: Option<Surge>,
+    /// Standing as a wall (feature 77): a tank with Bulwark on — half
+    /// pace, and the crew close behind him are in cover against a shot
+    /// that comes through him. Toggled by the world
+    /// (`Game::set_bulwark`), off again when he goes down. Saved with
+    /// the room and in `world_checksum`.
+    pub bulwark: bool,
+    /// How many enemy hits have landed on this body since the last point
+    /// of experience they made (feature 77): a tank turns every
+    /// `world::class::TANK_HITS_PER_XP` of them into one and starts the
+    /// count again; for anybody else it only ever climbs and is read by
+    /// nobody. Saved with the room and in `world_checksum`.
+    pub hits_taken: u32,
+    /// Seconds this body has been dying with an enemy about (feature
+    /// 78): nought until it is, counted up here and read by
+    /// `Game::is_fleeing`, which lets it run once the count passes the
+    /// hold its skill gives it — nought for everybody, and the
+    /// commander's aura's `NERVE_HOLD` for a Bim in one.
+    /// Saved with the room and in `world_checksum`.
+    pub fear: f32,
     /// Where the player sent it, held back until a door has been opened. Only
     /// ever set on [`PLAYER`]: nobody sends the other one anywhere.
     pub pending_move: Option<Vec2>,
@@ -209,6 +260,13 @@ impl Bim {
             chat_topic: 0,
             lately: Vec::new(),
             flee_wait: 0.0,
+            braced: false,
+            rampage: 0,
+            beaming: false,
+            surge: None,
+            bulwark: false,
+            hits_taken: 0,
+            fear: 0.0,
             pending_move: None,
             trail: Vec::new(),
             trail_timer: 0.0,

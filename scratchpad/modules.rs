@@ -23,6 +23,8 @@ mod door;
 mod dish;
 #[path = "../crates/game/src/draw.rs"]
 mod draw;
+#[path = "../crates/game/src/droid.rs"]
+mod droid;
 #[path = "../crates/game/src/filth.rs"]
 mod filth;
 #[path = "../crates/game/src/galley.rs"]

@@ -846,9 +846,12 @@ pub struct Room {
     /// The room moves no materials: it says a load of `units` of resource
     /// `resource` was taken off a shelf for `site`, that the load reached
     /// the site, that a load was given up short of it, or that the site was
-    /// built, and the world moves the count. `(site, resource, units)`,
-    /// `site`, `site` and `site` respectively.
-    pub picked: Vec<(u32, u32, u32)>,
+    /// built, and the world moves the count. `(site, resource, units,
+    /// who)` — the hauler with it, since how big a load a trip carries is
+    /// that crew member's (the tank's *pack mule*, feature 77) and the
+    /// world works it out again as the load is taken — then `site`,
+    /// `site` and `site`.
+    pub picked: Vec<(u32, u32, u32, usize)>,
     pub dropped: Vec<u32>,
     pub returned: Vec<u32>,
     /// The sites put together, each with who put it together — for the
@@ -944,15 +947,31 @@ pub struct Room {
     /// a couple in the classic room (`MEDKITS_AT_DAWN`).
     pub medkits: u32,
     pub medkits_used: u32,
+    /// Medkits in each Bim's **own pack**, by index: the world's word
+    /// every step (`Game::set_pack_kits`), nought for anybody it does not
+    /// name and empty in the classic room. A helper that carries one
+    /// opens that where it stands rather than walking to a cabinet for
+    /// the hold's — its own kit before a new one.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub pack_kits: Vec<u32>,
+    /// Every helper that took a kit out of its own pack since the world
+    /// last asked (`Game::take_pack_kits_used`). The world takes the
+    /// medkit out of that pack and puts it on the hold's count, since a
+    /// kit in a helper's hands is the hold's until it is spent — and
+    /// `medkits_used` takes it off again when the treatment is done.
+    /// Derived from the packs, and left out of a save with them.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub pack_kits_used: Vec<usize>,
     /// Where a kit is fetched from: the use spot of every container the
     /// world says holds one, set every step aboard (`Game::set_kit_stands`);
     /// empty in the classic room and a station's, where a kit is to hand.
     pub kit_stands: Vec<Vec2>,
     /// Every treatment finished since the game last looked — `(helper,
-    /// patient, part code)`, like `dressed`, pushed by the treat chain as
-    /// its hands come off. The game does the treating: the trauma is on
-    /// the patient's `Health`.
-    pub treated: Vec<(usize, usize, u32)>,
+    /// patient, part code, bare)`, like `dressed`, pushed by the treat
+    /// chain as its hands come off; `bare` is a medic's field surgery
+    /// with no kit (feature 76). The game does the treating: the trauma
+    /// is on the patient's `Health`.
+    pub treated: Vec<(usize, usize, u32, bool)>,
     /// Weapons lying on the deck: what a body knocked out let go of, where
     /// it fell. Each numbered from `next_weapon_down`, so a chain walking to
     /// one names it by a number that survives another being picked up.
@@ -1119,6 +1138,8 @@ impl Room {
             dressed: Vec::new(),
             medkits: MEDKITS_AT_DAWN,
             medkits_used: 0,
+            pack_kits: Vec::new(),
+            pack_kits_used: Vec::new(),
             kit_stands: Vec::new(),
             treated: Vec::new(),
             weapons_down: Vec::new(),
@@ -1292,6 +1313,8 @@ impl Room {
             dressed: Vec::new(),
             medkits: 0,
             medkits_used: 0,
+            pack_kits: Vec::new(),
+            pack_kits_used: Vec::new(),
             kit_stands: Vec::new(),
             treated: Vec::new(),
             weapons_down: Vec::new(),
@@ -2348,6 +2371,13 @@ impl Room {
     /// dishwasher brings the count back on its own.
     pub fn take_plate(&mut self) {
         self.plates = self.plates.saturating_sub(1);
+    }
+
+    /// Whether a Bim has a medkit of its own in its pack — what the world
+    /// last said (`pack_kits`). A treatment by one that has is opened
+    /// where it stands: its own kit before a new one off a shelf.
+    pub fn carries_kit(&self, who: usize) -> bool {
+        self.pack_kits.get(who).is_some_and(|&n| n > 0)
     }
 
     /// A plate back in the drawer without going through the rack: what a

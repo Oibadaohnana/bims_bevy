@@ -1,10 +1,11 @@
 //! The Esc sheet: settings and the keys.
 //!
-//! One window in the middle of the screen, five pages. The first is the
+//! One window in the middle of the screen, six pages. The first is the
 //! menu — the UI scale, a button each for the audio and the controls, and
-//! one each for saving and loading — and the other four are those, with a
-//! way back. The controls page is where every key is rebound
-//! (`crate::keys`); the save and load pages are `crate::save`'s, and what
+//! one each for saving, loading and starting the run again — and the other
+//! five are those, with a way back. The controls page is where every key is
+//! rebound (`crate::keys`); the save, load and restart pages are
+//! `crate::save`'s, and what
 //! they ask for comes back out of [`settings_sheet`] as a `Request` for
 //! the screen to carry out. Esc opens it from any
 //! screen that has one and closes it again from any page; the screens
@@ -14,7 +15,7 @@
 use bevy_egui::egui;
 
 use crate::keys::{Action, Keys};
-use crate::names::LOAD_GUEST;
+use crate::names::{LOAD_GUEST, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE};
 use crate::save::{self, Request, Saves};
 use crate::sound::Mix;
 use crate::theme;
@@ -24,10 +25,14 @@ use crate::theme;
 /// none — and `load` whether this end may read one in. A guest may not
 /// (feature 67): the host's world is the world, and a guest that loaded
 /// would be a second clock. Greyed rather than hidden, with the reason.
+/// `restart` is both at once (feature 79): there has to be a run to go
+/// back to the beginning of, and a restart is a world replaced like any
+/// other, so it is the host's to do.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Allowed {
     pub save: bool,
     pub load: bool,
+    pub restart: bool,
 }
 
 impl Allowed {
@@ -37,6 +42,17 @@ impl Allowed {
         Allowed {
             save: playing,
             load: !guest,
+            restart: playing && !guest,
+        }
+    }
+
+    /// Why a restart is greyed, where it is: no run yet, or somebody
+    /// else's world.
+    fn no_restart(self) -> &'static str {
+        if self.load {
+            RESTART_NONE
+        } else {
+            RESTART_GUEST
         }
     }
 }
@@ -51,6 +67,9 @@ pub enum Sheet {
     /// The game written out, and read back: `crate::save`'s pages.
     Save,
     Load,
+    /// The run from its beginning again (feature 79): what that means,
+    /// and the button that asks for it.
+    Restart,
 }
 
 /// The sheet, on `page`. `None` afterwards means it was closed. While the
@@ -71,6 +90,7 @@ pub fn settings_sheet(
         Sheet::Controls => "Controls",
         Sheet::Save => "Save",
         Sheet::Load => "Load",
+        Sheet::Restart => RESTART_BUTTON,
     };
     let mut request = None;
     egui::Window::new(title)
@@ -92,6 +112,10 @@ pub fn settings_sheet(
                     ui.set_min_width(360.0);
                     ui.label(egui::RichText::new(LOAD_GUEST).color(theme::MUTED));
                 }
+                back(ui, sheet);
+            }
+            Sheet::Restart => {
+                request = save::restart_page(ui, saves, allowed.restart, allowed.no_restart());
                 back(ui, sheet);
             }
         });
@@ -139,6 +163,15 @@ fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, allowed
             saves.note = None;
             saves.refresh();
             *sheet = Some(Sheet::Load);
+        }
+        // The run again from where it opened (feature 79) — a page of
+        // its own, since it asks before it throws a run away.
+        let restart = ui
+            .add_enabled(allowed.restart, egui::Button::new(RESTART_BUTTON))
+            .on_disabled_hover_text(allowed.no_restart());
+        if restart.clicked() {
+            saves.note = None;
+            *sheet = Some(Sheet::Restart);
         }
     });
     ui.add_space(8.0);

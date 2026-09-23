@@ -1,41 +1,45 @@
 #!/usr/bin/env bash
 # Every check this repo has, behind one command and one verdict.
 #
-#   ./check             the quick tier — a few minutes:
+#   ./check             the quick tier — under a minute on a warm tree:
 #                         tracked  every source file is in the git tree
 #                         fmt      cargo fmt --check
-#                         build    cargo build, the app and every crate
-#                         test     cargo test --workspace
+#                         build    cargo build --workspace
+#                         test     cargo test, bar the two slow crates
+#                         pins     bims --self-check: the design hash and
+#                                  the world checksum against their
+#                                  written-down constants
 #                         clippy   cargo clippy on the app, warnings as errors
-#                         smoke    each of the six things to run opens a
-#                                  window, draws sixty frames and exits; the
-#                                  room, the simulation and the yard are screenshotted
-#                                  into target/check/ to look at
-#   ./check full        the quick tier and then:
-#                         probes   the room's native probes, compiled fresh
-#                         flake    nix flake check
+#                         smoke    five windows open, draw sixty frames and
+#                                  exit, leaving a screenshot in target/check/
+#   ./check full        the same, deepened — every test, every window — and
+#                       then probes (the room's native probes) and flake
+#                       (nix flake check)
 #   ./check <step>...   only those steps, in that order
 #   ./check --list      the steps and what each is for
 #
-# Why this exists: a check that has to be remembered is a check that gets
-# skipped. Each step's full output goes to target/check/<step>.log and only
-# the failing lines are printed.
+# Why the quick tier leaves so much out: a check that takes ten minutes is a
+# check that gets run once a day. The measurement (warm tree, this machine)
+# was `test` 272 s of a 330 s run, and 230 s of that is `world` and `ship` —
+# 275 world tests with no slow outliers to skip, three to ten seconds each,
+# because every one of them steps the clock. So the quick tier runs the
+# other nine crates and `bims --self-check`, which pins the two numbers a
+# rules change is most likely to move, and leaves the two slow crates'
+# suites, the exhaustive sweeps (`BIMS_SWEEP=1`) and the windows that are
+# another window with a dial moved to `./check full`.
+#
+# So: `./check` before every commit; `./check full`, or at least
+# `./check test` with DEEP=1, before saying a rules change is done.
 #
 # Two things about how it runs:
 #
-#   * The toolchain comes from shell.nix. If cargo is not on PATH already —
-#     or ALSA is not where pkg-config can see it, which the app's build
-#     wants since the sound went in — the whole script re-runs itself
-#     inside `nix-shell shell.nix`, so it works the same from a bare
-#     terminal and from a direnv'd one. The smoke step runs each window
-#     through ./hidden — a headless compositor, so nothing opens on the
-#     desktop — which re-enters the shell itself for weston and the
-#     libraries winit and wgpu open at runtime.
-#   * The probes are compiled into target/probes/, never into scratchpad/.
-#     rustc failing leaves the previous binary in place, and a stale binary
-#     printing a confident pass is how three rounds of bugs got through — so
-#     a compile failure here is a step failure, and the binary that ran is
-#     always the one just built.
+#   * The toolchain comes from shell.nix: if cargo is not on PATH, or ALSA
+#     is not where pkg-config can see it, the script re-runs itself inside
+#     `nix-shell shell.nix`. The smoke step runs each window through
+#     ./hidden — a headless compositor, so nothing opens on the desktop.
+#   * The probes are compiled into target/probes/, never into scratchpad/:
+#     a stale binary printing a confident pass is how three rounds of bugs
+#     got through, so a compile failure here is a step failure.
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -43,8 +47,26 @@ if ! command -v cargo >/dev/null || ! pkg-config --exists alsa 2>/dev/null; then
   exec nix-shell shell.nix --run "./check $*"
 fi
 
-QUICK=(tracked fmt build test clippy smoke)
+QUICK=(tracked fmt build test pins clippy smoke)
 FULL=("${QUICK[@]}" probes flake)
+
+# 1 in the full tier: the test step runs every crate and asks for its
+# sweeps, and the smoke step opens every window rather than five.
+# `DEEP=1 ./check test` is one step of the full tier without the rest.
+DEEP=${DEEP:-0}
+
+# The two slow crates, left out of the quick tier's tests. Between them
+# they are 230 of the 250 seconds the workspace's tests take.
+SLOW_CRATES=(world ship)
+
+# How many windows the smoke step opens at once. Each is a compositor and a
+# Bevy of its own and spends most of its seven seconds starting up, so the
+# quick tier's five go in one batch. One, to read a run's output as it happens.
+SMOKE_AT_ONCE=${SMOKE_AT_ONCE:-5}
+
+# How long a single probe may run before the step gives up on it — so that a
+# probe which stops finishing *fails* rather than hanging the check.
+PROBE_SECONDS=${PROBE_SECONDS:-120}
 
 LOGS=target/check
 mkdir -p "$LOGS" target/probes
@@ -59,19 +81,27 @@ tracked   every file under crates/ and scratchpad/ is known to git —
           file that is only on disk is a build that cannot find its module
 fmt       cargo fmt --check
 build     cargo build --workspace: the app, and every crate it stands on
-test      cargo test --workspace: the rules crates' pinned arithmetic, the
-          designer's and lobby's geometry, and the app's tables against them
+test      cargo test: the designer's and lobby's geometry, the room, and the
+          app's tables — bar `world` and `ship`, whose suites are 230 of the
+          250 seconds the workspace's tests take and are the full tier's,
+          where `BIMS_SWEEP=1` also turns the station walk back into every
+          plan on every kind at every seed rather than a slice
+pins      bims --self-check: `design_hash` and `world_checksum` against the
+          constants in shipdesign::fixture and world::fixture, which is what
+          the quick tier's missing rules tests would most likely have caught
 clippy    cargo clippy on the app crate, with warnings as errors
-smoke     `bims game`, `simulation`, `design`, `room`, `test`, `test_planet`,
-          `combat`, `tier2_test`, `tier3_test`, `raid` and `stationbuilder`
-          (its sketches pointed at target/check/)
-          each run sixty frames in a hidden window and exit; the room, the
-          simulation, the yard, the combat dock (with its fight staged,
-          BIMS_FIGHT=1), the simulation landed on a planet (BIMS_LANDED=1)
-          and `test_planet` leave a
-          screenshot in target/check/ — a black picture is a bug no test sees
+smoke     `bims game`, `room`, `simulation`, `design` and `combat` (with its
+          fight staged, BIMS_FIGHT=1) each run sixty frames in a hidden
+          window and exit, all at once, leaving a screenshot in target/check/
+          — a black picture is a bug no test sees. The full tier adds the
+          rest: `test`, `test_planet`, the five `combat_<class>` fights,
+          `tier2_test`, `tier3_test`, `droids`, `droid_kinds` (every drawing
+          of a machine in a row), `droids_planet`, `raid`, `raided`,
+          `landed`, `stationbuilder`, and `restarted` — the Esc sheet's
+          Restart pressed on `combat` (feature 79)
 probes    every scratchpad/*.rs probe compiled fresh into target/probes/ and
-          run; a compile failure is a failure
+          run; a compile failure is a failure, and so is a probe that runs
+          past `PROBE_SECONDS` (120) rather than hanging the check
 flake     nix flake check — the build as `nix run .` sees it, from the git tree
 EOF
 }
@@ -96,15 +126,38 @@ step_build() {
 }
 
 step_test() {
-  if cargo test --workspace >"$LOGS/test.log" 2>&1; then
-    command grep -E "^test result" "$LOGS/test.log" |
-      awk '{p+=$4; f+=$6; i+=$8} END {printf "  %d passed, %d failed, %d ignored\n", p, f, i}'
+  # `world` and `ship` are the full tier's, and so are the sweeps:
+  # `BIMS_SWEEP=1` turns the station navigation walk back into every plan on
+  # every kind at every seed, which on its own is longer than the rest of the
+  # workspace's tests.
+  local args=() c
+  if [ "$DEEP" = 1 ]; then
+    export BIMS_SWEEP=1
+  else
+    for c in "${SLOW_CRATES[@]}"; do args+=(--exclude "$c"); done
+  fi
+  if cargo test --workspace ${args[@]+"${args[@]}"} >"$LOGS/test.log" 2>&1; then
+    test_counts
   else
     command grep -E "FAILED|panicked at|^error" "$LOGS/test.log" | command grep -v "^test result" | head -30 | sed 's/^/  /'
-    command grep -E "^test result" "$LOGS/test.log" |
-      awk '{p+=$4; f+=$6; i+=$8} END {printf "  %d passed, %d failed, %d ignored\n", p, f, i}'
+    test_counts
     return 1
   fi
+}
+
+# The tail of every suite's `test result:` line, added up, so a quick run
+# says out loud that it is not the whole workspace.
+test_counts() {
+  command grep -E "^test result" "$LOGS/test.log" |
+    awk '{p+=$4; f+=$6; i+=$8; s+=$12} END {printf "  %d passed, %d failed, %d ignored, %d skipped", p, f, i, s}'
+  if [ "$DEEP" = 1 ]; then echo; else echo " (${SLOW_CRATES[*]} are ./check full's)"; fi
+}
+
+step_pins() {
+  # Two numbers that have to come out identical everywhere, pinned against
+  # written-down constants: a rules change that moves one without moving the
+  # constant is what the quick tier's missing world/ship suites would catch.
+  target/debug/bims --self-check
 }
 
 step_clippy() {
@@ -113,42 +166,75 @@ step_clippy() {
   cargo clippy -p app --no-deps --all-targets -- -D warnings
 }
 
+# One window: everything about `$1` — what it is staged with, how many
+# frames it wants, what its log has to say — and its verdict line, which it
+# prints rather than returning, since the runs go several at a time.
+# Success is the marker file `smoke-<what>.ok`.
+smoke_one() {
+  local what=$1 shot frames wants
+  shot=""
+  case "$what" in room | simulation | design | test_planet | combat | landed | raided | droids | droid_kinds) shot="$LOGS/smoke-$what.png" ;; esac
+  rm -f "$shot"
+  local staged="" run="$what"
+  frames=60
+  wants=""
+  # The combat dock is screenshotted with the fight staged (the crew member
+  # inside the station's door, one of its people down the corridor), so the
+  # picture shows enemies and a bolt rather than a quiet berth.
+  [ "$what" = combat ] && staged="BIMS_FIGHT=1 "
+  # `landed` is the simulation set down on a planet, `raided` the simulation
+  # off its berth with the boarders coming through the airlock.
+  [ "$what" = landed ] && { staged="BIMS_LANDED=1 "; run=simulation; }
+  [ "$what" = raided ] && { staged="BIMS_RAID=1 "; run=simulation; }
+  # `restarted` is the Esc sheet's Restart pressed (feature 79). The clicks
+  # are where the buttons are in a 1400x900 window at 100%; the run only
+  # counts if the world actually went back, which is what `wants` looks for.
+  [ "$what" = restarted ] && {
+    staged="BIMS_KEYS=30:Escape BIMS_POINTER='60:move:673,496;62:click:673,496;90:move:562,489;92:click:562,489' "
+    run=combat
+    frames=150
+    wants="^restart: "
+  }
+  # `droid_kinds` is `droids` with every state a machine can be drawn in laid
+  # out on the arena's deck — a row a kind, a column a state (feature 83).
+  [ "$what" = droid_kinds ] && { staged="BIMS_DROIDS=1 "; run=droids; }
+  # The builder reads and writes stations/; a smoke run gets a scratch
+  # directory so it cannot touch a sketch somebody is drawing. And the saves:
+  # one each, since the runs go several at a time.
+  [ "$what" = stationbuilder ] && staged="BIMS_STATIONS_DIR=$LOGS/stations "
+  staged="${staged}BIMS_SAVES_DIR=$LOGS/saves/$what "
+  local cmd="${staged}BIMS_SMOKE_FRAMES=$frames ${shot:+BIMS_SCREENSHOT=$shot} ./hidden target/debug/bims $run"
+  if timeout 180 bash -c "$cmd" >"$LOGS/smoke-$what.log" 2>&1 &&
+    { [ -z "$shot" ] || [ -s "$shot" ]; } &&
+    { [ -z "$wants" ] || command grep -qE "$wants" "$LOGS/smoke-$what.log"; }; then
+    echo "  ok   $what${shot:+  → $shot}"
+    : >"$LOGS/smoke-$what.ok"
+  else
+    echo "  FAIL $what"
+    command grep -iE "panic|error" "$LOGS/smoke-$what.log" | head -10 | sed 's/^/       /'
+  fi
+}
+
 step_smoke() {
-  local fail=0 what shot
-  # Every run goes through ./hidden: a headless compositor of its own, so
-  # thirteen windows in a row open on nobody's desktop. It re-enters the
-  # shell itself for weston and the libraries winit and wgpu open.
-  for what in game simulation design room test test_planet combat tier2_test tier3_test raid stationbuilder landed raided; do
-    shot=""
-    case "$what" in room | simulation | design | test_planet | combat | landed | raided) shot="$LOGS/smoke-$what.png" ;; esac
-    rm -f "$shot"
-    # The combat dock is screenshotted with the fight staged (the crew
-    # member inside the station's door, one of its people down the
-    # corridor), so the picture shows enemies and a bolt rather than a
-    # quiet berth — `BIMS_FIGHT=1` is `World::stage_fight_for_probe`.
-    local staged="" run="$what"
-    [ "$what" = combat ] && staged="BIMS_FIGHT=1 "
-    # `landed` is the simulation set down on a planet — the pad, the
-    # ground and the settlement beside it — `BIMS_LANDED=1` being
-    # `World::land_for_probe`.
-    [ "$what" = landed ] && { staged="BIMS_LANDED=1 "; run=simulation; }
-    # `raided` is the simulation off its berth with a raider tied to it
-    # and the boarders coming through the airlock — `BIMS_RAID=1` being
-    # `World::raid_for_probe`.
-    [ "$what" = raided ] && { staged="BIMS_RAID=1 "; run=simulation; }
-    # The builder reads and writes stations/; a smoke run gets a scratch
-    # directory so it cannot touch a sketch somebody is drawing.
-    [ "$what" = stationbuilder ] && staged="BIMS_STATIONS_DIR=$LOGS/stations "
-    # And the saves: a scratch directory, so a smoke run cannot touch a game.
-    staged="${staged}BIMS_SAVES_DIR=$LOGS/saves "
-    local cmd="${staged}BIMS_SMOKE_FRAMES=60 ${shot:+BIMS_SCREENSHOT=$shot} ./hidden target/debug/bims $run"
-    if timeout 120 bash -c "$cmd" >"$LOGS/smoke-$what.log" 2>&1 && { [ -z "$shot" ] || [ -s "$shot" ]; }; then
-      echo "  ok   $what${shot:+  → $shot}"
-    else
-      echo "  FAIL $what"
-      command grep -iE "panic|error" "$LOGS/smoke-$what.log" | head -10 | sed 's/^/       /'
-      fail=1
-    fi
+  local fail=0 what
+  # Every run goes through ./hidden: a headless compositor of its own, so the
+  # windows open on nobody's desktop. Five windows in the quick tier — the
+  # menu, the room, the world, the yard and a fight — and every other window
+  # in the full one, since each of those is one of these with a dial moved.
+  local runs=(game room simulation design combat)
+  [ "$DEEP" = 1 ] && runs+=(test test_planet combat_engineer combat_soldier combat_medic combat_tank combat_commander tier2_test tier3_test droids droid_kinds droids_planet raid raided landed restarted stationbuilder)
+  # `SMOKE_AT_ONCE` at a time; nothing is shared — a log, a screenshot and a
+  # saves directory each. The lines are held and printed in the list's order
+  # afterwards, so the step reads as it did when it was one run after another.
+  for what in "${runs[@]}"; do
+    rm -f "$LOGS/smoke-$what.ok"
+    smoke_one "$what" >"$LOGS/smoke-$what.out" 2>&1 &
+    while [ "$(jobs -rp | wc -l)" -ge "$SMOKE_AT_ONCE" ]; do wait -n; done
+  done
+  wait
+  for what in "${runs[@]}"; do
+    cat "$LOGS/smoke-$what.out"
+    [ -f "$LOGS/smoke-$what.ok" ] || fail=1
   done
   return $fail
 }
@@ -167,8 +253,14 @@ step_probes() {
       fail=1
       continue
     fi
-    if "$bin" >"$LOGS/probe-$name.log" 2>&1; then
+    # Under a clock of its own, because a probe steps the room until
+    # something happens and a change that stops it happening is a probe that
+    # runs for ever — and a check that hangs is a check nobody runs.
+    if timeout "$PROBE_SECONDS" "$bin" >"$LOGS/probe-$name.log" 2>&1; then
       echo "  ok   $name"
+    elif [ $? = 124 ]; then
+      echo "  FAIL $name ran past ${PROBE_SECONDS}s and was stopped"
+      fail=1
     else
       echo "  FAIL $name"
       command grep -E "FAIL|panicked" "$LOGS/probe-$name.log" | head -20 | sed 's/^/       /'
@@ -193,7 +285,10 @@ usage() {
 steps=()
 case "${1:-}" in
   "") steps=("${QUICK[@]}") ;;
-  full) steps=("${FULL[@]}") ;;
+  full)
+    steps=("${FULL[@]}")
+    DEEP=1
+    ;;
   --list | -l) describe; exit 0 ;;
   -h | --help) usage ;;
   *)

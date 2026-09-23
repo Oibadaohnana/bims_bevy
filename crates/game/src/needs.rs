@@ -188,7 +188,9 @@ pub enum Urge {
 }
 
 /// Where each urge starts. Mild is well before the Bim would go of its own
-/// accord, so the fidgeting reads as a warning rather than a surprise.
+/// accord, so the bar's stage is a warning long before anything shows on the
+/// deck — the hopping itself waits for [`Urge::Extreme`], see
+/// [`Urge::fidget_chance`].
 const MILD_URGE: f32 = 0.25;
 const EXTREME_URGE: f32 = 0.001;
 
@@ -216,13 +218,16 @@ impl Urge {
         self as u32
     }
 
-    /// The chance per game minute of hopping about on the spot. Nought while
-    /// the Bim is comfortable, and it does it more the worse it gets.
+    /// The chance per game minute of hopping about on the spot. Only at the
+    /// last stage: the hopping is the sign that the Bim is out of room to
+    /// hold on, not a running commentary on a bar that is merely dropping.
+    /// A Bim at [`Urge::Mild`] or [`Urge::Medium`] carries on as normal —
+    /// it is on its way to the pan at [`URGENT`] anyway, and hopping the
+    /// whole way there made the crew look frantic for nothing.
     pub fn fidget_chance(self) -> f32 {
         match self {
-            Urge::None => 0.0,
-            Urge::Mild => 1.0 / 6.0,
-            Urge::Medium | Urge::Extreme => 1.0 / 2.0,
+            Urge::None | Urge::Mild | Urge::Medium => 0.0,
+            Urge::Extreme => 1.0 / 2.0,
         }
     }
 }

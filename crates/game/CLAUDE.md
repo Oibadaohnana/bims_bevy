@@ -445,6 +445,29 @@ deciding to eat does not lose what the player queued. A Shift on
 anything that is not an errand — a selection, a Management box —
 is the plain order.
 
+**Nobody takes a Bim off a walk the player gave it.** A chain that is
+interrupted goes onto the queue and is picked up again (`interrupt` →
+`pump_queue`); a *walk* has no chain behind it, so an interruption does
+not put anything anywhere — the route is simply gone, and the Bim ends
+up wherever the errand started it with every leg still to come walked
+from the wrong place. `on_a_given_walk(who)` is the question (a route in
+hand and no task behind it: a right-click's walk, a Shift-click's when
+its turn came, the walk back to a post), and the one errand that reaches
+*across* a Bim's own agenda asks it: `free_to_talk`, a crewmate wanting
+a word, which walks the other one to a meeting spot — and which leaves
+alone a Bim with `ordered_count(who) > 0` still waiting as well, since
+the next leg would then be walked from the talking spot. Everything a
+Bim starts on *itself* already asks `character.arrived()`
+(`consider_errand`, `flee_filth`, `return_to_post`), which is the same
+rule said the other way round. The urgent-wound doctoring at the top of
+`simulate_bim` is the deliberate exception and stays one: a Bim binding
+its own wound as it runs from a fight has a route in hand and no chain
+behind it too, and that is the one interruption the medical row is for.
+`a_crewmate_s_word_does_not_take_a_shift_chain_off_a_bim` in
+`order::tests` pins it, both halves: the chain is walked to its end, and
+a Bim standing about with nothing of the player's on it is still
+somebody to talk to.
+
 **The queued walks are drawn**: `render` threads a dashed line from where
 the Bim is bound now through every `Kind::Walk` on its queue, a pip and a
 ring at each in the ping's `ACCENT`, for the viewer's own Bim and whoever
@@ -1349,18 +1372,66 @@ prints the curves itself.
   `Game::tick_combat` (after the crew have moved, in `simulate`) sets
   `Character::set_armed(Option<WeaponKind>)` — recruited, alive, armed,
   not outside, seated, napping or out cold — which is drawing only:
-  `draw_weapon` holds **every gun in both hands, out in front**, the
-  left hand forward on the barrel and the right on the grip, the barrel
-  along the facing ahead of the head with its muzzle lit in the
-  friendly-bolt blue — the pistol short and dark, the shotgun long and
-  wide with a wooden fore-end and stock (`STOCK`), the rifle short with
-  a magazine under it, the sniper the longest with a scope block
-  (`SCOPE`) on top — and the schword a hilt (`HILT`) in the right hand
-  with the blade forward and a little raised, `draw_blade`: a white
-  core (`BLADE_CORE`) between two cyan strokes (`BLADE_EDGE`, one wide
-  and faint, one thin and bright), which is as near as a flat colour
-  gets to a glow. An armed Bim with nothing else to do stands with both
-  arms forward (`pose`, `Action::None` while armed). An armed Bim asks
+  `draw_weapon` holds **every weapon in both hands, angled across the
+  front** of the body (feature 82): `weapon_grip` puts the grip a little
+  ahead of the two arms' average (`GRIP_AHEAD`) and over towards the
+  firing shoulder (`GRIP_ACROSS`), the rear hand on it and the forward
+  hand out on the fore-end, and the gun is laid at `CARRY` (0.30 rad)
+  off the facing with its muzzle lit in the friendly-bolt blue — that
+  being the **carry**, what a Bim with nothing to shoot at holds. *A
+  little ahead* is load-bearing, and so is the short furniture behind
+  each grip: the head is drawn before the weapon, so a stock that
+  reaches back over it hides the hair, the nose and whatever the class
+  wears on its face — feature 81's sunglasses went missing under an auto
+  rifle exactly that way. **And a gun is drawn at `GUN_SCALE` (0.72) of
+  the body's own size**, in the hands and on the deck alike
+  (`draw_dropped` uses it too), because at full size down the centreline
+  a rifle is a lance longer than the figure is wide. The
+  schword is the same hold: a hilt (`HILT`) in both hands with the blade
+  forward and angled in at the same `CARRY`, `draw_blade` — a white core
+  (`BLADE_CORE`) between two cyan strokes (`BLADE_EDGE`, one wide and
+  faint, one thin and bright), which is as near as a flat colour gets to
+  a glow.
+
+  **Aiming, the gun swings onto the target, and the shot leaves the
+  muzzle** (feature 84). `Character::set_aim(Option<Vec2>)` is what the
+  weapon points at, in room units, set by `tick_combat` the step it aims
+  — beside `set_lean`, and cleared wherever that is — and
+  `Character::gun_rot` is the one angle every drawing of the weapon is
+  laid at: the carry with nothing aimed at, else the line **from the
+  grip to what is aimed at**, held within `AIM_ACROSS` (1.15 rad) of the
+  facing so a Bim firing as it walks somewhere else keeps the barrel on
+  its target without the arms wrapping round its back. `on_gun`,
+  `weapon_hands` and the blade's own line all read it, so the hands and
+  the elbows follow the gun. Then `Character::muzzle()` is the emitter
+  in room units — `muzzle_ahead(weapon)` along that barrel, the same
+  number `draw_gun` lights the eye at, `None` for a blade or a body down
+  — and **`tick_combat` fires from it** rather than from the body: the
+  aim goes on the picture first, and the shot is read off it, in the
+  aiming branch and in an execution alike, `eye` (the body, or its peek)
+  being only the fallback for a body with nothing drawn in its hands.
+  Because the barrel runs from the grip *through* the target, a bolt
+  leaving the muzzle flies exactly down it — the picture and the shot
+  are one line, which is the whole of why the angle moved. What is
+  rolled is unchanged: `Combat::fire_as` still takes the origin it is
+  given for the odds, the miss and `damage_at`, and the muzzle is under
+  a tile ahead of the body.
+
+  **The arms reaching for it are limbs, not blobs, and they go down
+  before the torso.** With the hands free an arm is one circle a side at
+  `SHOULDER_ACROSS`, which is all an arm needs to be with nothing at the
+  end of it; with a weapon up, `Character::draw_arm` runs a sleeve
+  (`SLEEVE_WIDE`, rimmed `SLEEVE_RIM`) from the shoulder on its side out
+  to that gun's own hand — `weapon_hands`, the one place that knows
+  where the two hands on a given weapon are, the rear one on the right
+  shoulder's arm — with the elbow swung out away from the body by
+  `ARM_BEND` as far as the reach falls short of `ARM_REACH`, since a
+  straight capsule to a hand a body-length away reads as a pole. They
+  are drawn **under the coverall**, right after the boots: an arm seen
+  from directly above is mostly shoulder, and laid over the torso the
+  two of them hid the body they belong to. What shows is the forearm
+  past the chest, and the head lies over an elbow rather than under one;
+  only the gun goes on top, at the end. An armed Bim asks
   `Combat::aim` for the nearest target in range that `Sight::sees_from`
   says it sees, faces it, and fires when `reload` is out — not while
   walking. The crew's goes nowhere of its own: a recruited Bim stands
@@ -1373,6 +1444,31 @@ prints the curves itself.
   start a chat with a recruited James and walk him to the talking spot,
   which is what broke `scratchpad/crew.rs` ("a recruited James never sets
   off"), and nobody talks to a Bim that is out cold.
+- **What a gun looks like is `draw_gun`, and only there.** One free
+  function takes a `Brush`, a grip and a `WeaponKind` and lays the gun
+  along the frame's `+x`; the gun in a Bim's hands and the one lying on
+  the deck where a body dropped it both go through it, so there is one
+  place to change a gun and no second copy to forget. Its `lit` argument
+  is the emitter's glow at the muzzle — a gun on the deck is cold.
+  Seen from above every piece is a block along the length, and what
+  would hang *under* the gun is canted out to the side instead: the auto
+  rifle's magazine, the sniper's two bipod legs. What tells the four
+  apart before any detail does is `gun_reach`, how far ahead of the grip
+  each one goes — the pistol 13.5 against the auto rifle's 33 and the
+  sniper's 44 — and `fore_hand` is where the forward hand sits on each.
+  Both are in the **gun's own frame**, which every drawing of it enters
+  at `GUN_SCALE` of the body's size, so the whole rack is made bigger or
+  smaller at that one knob and no block in here is renumbered for it.
+  Then the detail: the pistol a stubby slide and a butt and *nothing
+  else*, since everything a pistol has it has less of; the shotgun a
+  wide bore over a wooden pump (`STOCK`) with the butt braced behind;
+  the auto rifle a rifle — a vented handguard, a canted magazine, a
+  sight rail (`SCOPE`) down the top and a brake (`GUN_EDGE`) on the end;
+  the sniper the long one, a thin barrel out of a bipod with a cheeked
+  stock and a scope down the middle whose objective lens (`LENS`) is
+  what says *sniper* before the length does. `crates/app/src/icons.rs`
+  draws the same four from the side for a cell of the lockers, and the
+  note there points back here: change a gun in one and change it in both.
 - **The targets are the world's, and each comes with its weapon.**
   `Combat::targets` is `Vec<Option<combat::Target { at, weapon, peeking, stale, dodge
   }>>`, index for index with the other room's people (`None` for one
@@ -1515,15 +1611,21 @@ prints the curves itself.
   the gun** (`drop_weapon`, below), and the frame stops there for that
   Bim, like a nap, until the blood comes back (`OUT_AT` is **0.4**
   now). Out cold
-  it is drawn by `draw_lying`: the fallen figure in the **live** colours
-  with a slow breath and no Zs. The fallen figure (`draw_flat`, shared
+  it is drawn by `draw_lying`: the fallen figure in the **live** colours,
+  **`OUT_COLD_SCALE` (a tenth) bigger** than the dead one beside it, with
+  a slow breath and no Zs — size, colour and breath are the three things
+  that tell a body out cold from a body gone, since the shape is the one
+  figure. The fallen figure (`draw_flat`, shared
   with the dead one's `draw_fallen`) is a body **stretched out along its
   heading**, head forward: legs and boots trailing behind the hips, one
-  arm flung past the head, the other along the side, the head turned
+  arm up beside the head, the other along the side, the head turned
   onto its cheek — drawn at `FLAT_SCALE` (half) of the standing
   figure since the user asked, about a tile long and inside two
   whichever way it lies; it is the shape that says "down" at a
-  glance. A click on a body down is tested against that line
+  glance. The **limbs are short** — arms and legs drawn in towards the
+  body — because seen from directly above an arm or a leg on the deck is
+  foreshortened away, and at full reach the sprawl read as a figure
+  standing up. A click on a body down is tested against that line
   (`Character::picked_at`), boots to head at the same scale, not the
   standing circle. `scratchpad/layout.rs dead` puts both
   figures side by side. `Bim::tick_drips` drips **blood on the
@@ -1698,6 +1800,91 @@ prints the curves itself.
   `an_enemy_stands_where_its_weapon_beats_the_target_s` (combat) and
   `a_bot_with_a_shot_stands_still_and_the_player_s_bim_fires_on_the_move_at_half_the_odds`
   (game) pin the two.
+- **The bots follow a player, and a player has two orders for them**
+  (feature 84). What decides what a crewmate nobody steers does with
+  itself is one branch, `Game::bot_stand`, reached when the crew are
+  **under arms** and nothing nearer to hand has claimed the body — a
+  chain, a patient being seen to, a commander's squad order, or a post
+  its own player right-clicked for it, each of which outranks it in that
+  order. Three things in it:
+
+  * **Under arms is no longer the alarm alone.** `Game::mustered` is
+    `alarm || led()`, and `led()` is any player's own Bim alive, on the
+    deck and **recruited**, or any player's standing order something
+    other than following. So drawing your own weapon musters the crew
+    behind you — a weapon out of the pack, the armour on for a blade,
+    the errand put down, exactly as an enemy coming within
+    `ALARM_RANGE` does — and holstering it stands them down to their
+    errands again. `muster_crew` is edged on `mustered`, not on `alarm`;
+    `is_alarmed` is still the alarm proper, which is what the header
+    says and what `ALARM_HOLD` holds. `orderable` reads `mustered` too,
+    so a crewmate takes a right-click whenever it is under arms rather
+    than only in a fight.
+  * **The order is the world's, one a player slot** —
+    `game::Standing::{Follow, Attack { at }, Retreat}`, handed over every
+    step by `Game::set_standing` and never saved, like `Squad`. **Whose
+    order a bot is under is whose Bim it is nearest** (`standing_for`):
+    with one player that is the one order there is, and with several each
+    player leads the bots about them. *Follow* is the ring round the
+    nearest player that is up and in (`gather`), broken off for its own
+    `plan_stand` the moment it sees an enemy for itself — which is what
+    the alarm alone used to do. *Attack* is `assault`: anything up within
+    the weapon's reach and it fights its own stand, cover and all;
+    nothing in reach and the banner more than `BANNER_HOLD` tiles off and
+    it **pushes** (`Tactics::advance` — the reachable cell within
+    `ADVANCE_LOOK` that gets it nearest, a tile of ground made good worth
+    `GROUND_WORTH` against `COVER_WORTH` for cover from the nearest
+    target, never a doorway, never a cell of its own side's, and the
+    whole walk planned instead where nothing near is nearer, which is a
+    banner round a corner or out on a plain); nothing in reach and the
+    banner reached and it holds the ring round the banner. *Retreat* is
+    that ring round `ship_anchor()` — the deck just inside the port —
+    and, unlike a commander's *fall back*, it does **not** hold its fire
+    on the way: a crew walking home under fire that would not shoot back
+    is a crew that does not get home.
+  * **Where the ship is, is the world's word.** `ship_anchor()` reads
+    `Game::home` — `Game::set_home`, said every step from
+    `Aboard::gangway` (`crates/world/CLAUDE.md`) — and only falls back
+    to the room's own `Room::gangway`, which is right for a ship flying
+    alone and **wrong on a joined deck**: `gangway` there is the joined
+    design's first *free* airlock, and the ship's own is mated to the
+    station, so the room's answer is the station's far door at the other
+    end of the building. That is what a retreat used to walk the crew
+    out to, which is what the key looked like doing nothing at all.
+    `World::fall_back_point()` is the same spot for the app's defend
+    sign, so the mark and the walk cannot disagree.
+  * **A fall back is walked its own way** (`character::FallBack`, the
+    one thing on the body that says so). `fall_back_aboard` marks the
+    body at a **sprint** — `SPRINT_PACE`, head down, a little faster
+    than a walk — and the aim turns that into **backwards**,
+    `BACKSTEP_PACE` with the facing the enemy's, the step it finds
+    something to shoot at, so a crew member covering the retreat gives
+    ground with its gun up and one with nothing in front of it runs for
+    the airlock. In `Character::update` the facing and the feet part
+    company for it: the heading goes to the fall back's angle and the
+    body moves along `intent`, the route's own direction, with the
+    stride run backwards so the legs read as stepping back. A
+    commander's *fall back* is a sprint too, since it holds its fire.
+    The flag is cleared for every body at the top of every
+    `tick_combat` and set again below, so nothing carries over, and it
+    is `serde(skip)` for the same reason `aim` is.
+  * **The ship is the last stand.** `Game::is_aboard(p)` reads what
+    `set_foreign` said — the station's box is somebody else's and the
+    rest the ship's, or on a planet the ship's own box against the town
+    — and `cornered(who)` is aboard with a target up aboard as well.
+    A cornered body runs `plan_stand` whatever its order was, and
+    `would_flee` is false for it, so a dying crew member with the enemy
+    in its own hull stands and shoots instead of walking deeper in.
+    **A room with no foreign half is not a last stand**: the classic
+    test room and a ship flying alone have nowhere else in them, so
+    `cornered` is false there and the dying run is what it always was.
+    The other half is `flee` itself: a dying body **of the crew's side**
+    outside the ship makes for the gangway rather than merely away from
+    the enemy, where there is a way there. An enemy's people have no
+    ship and are `Tactics::flee` throughout.
+
+  `Standing` is in `world_checksum` (`crates/world/CLAUDE.md`), so all of
+  this is a command and not a click.
 - **What a station's people carry is rolled, not kept.**
   `Gear::issued_for(seed)` draws one roll off `Rng::new(seed)` against
   `ISSUE_ODDS` — pistol 0.50, shotgun 0.20, auto rifle 0.15, sniper 0.05,
@@ -1955,6 +2142,22 @@ gone; what the drop *is* — into a slot, into the hold — is decided at
 the world's end. `world::tests`'
 `two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day` is
 the chain run for real, twice over and back.
+
+## A room can be built over a grave
+
+`Game::lay_out_dead(who, at)` (feature 85) stands one of the room's
+bodies at a point — snapped to somewhere a body fits, as `adopt` snaps
+one — and kills it **outright**: `Health::give_up`, `Character::die`,
+the errand and the queue dropped, the bunk given back, and **nothing in
+anybody's diary** — `Game::die`'s `What::CrewDied` is for a death the
+room watched, and this one happened before the room existed. It is the
+world's door for laying a station's dead back on its deck when its room
+opens again (`world::memory::Grave`, `crates/world/CLAUDE.md`, "The dead
+lie where they fell"): the room is built with that many extra bodies,
+each given the coverall, the look and the gear the grave kept, and then
+laid out. The room itself remembers nothing of it — a body laid out is
+an ordinary dead body of the room, lootable and in the way like any
+other.
 
 ## A body is looted, and down is dead or out cold
 
@@ -2241,8 +2444,9 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   rest.** `medical_on_offer` answers a `Care`: `Care::Bandage(who, part)`
   for the helper's own worst wound while there is a bandage; else
   `Care::Treat(patient, part)` for the nearest crewmate dying that the
-  helper can get to, its worst-bleeding trauma, while a kit is on a shelf
-  — never the helper's own; else the crewmate bleeding most. `give_care`
+  helper can get to, its worst-bleeding trauma, while there is a kit for
+  it — one in the helper's **own pack**, else one on a shelf to walk to
+  — never the helper's own body; else the crewmate bleeding most. `give_care`
   starts either. A part somebody else is already walking to is left to
   them — a dressing and a treatment apart (`being_dressed`,
   `being_treated`), since a part being bandaged can still want its
@@ -2278,7 +2482,23 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   pins the three clocks one at a time — an enemy hidden in the heads
   (the room is under twenty tiles across), a hostile bolt fired at the
   floor, a sighting that ends — and the own wound bound regardless.
-  **The kit is fetched.** `Kind::Treat` is `GoToKit → TakeKit →
+  **Its own kit before a new one.** The world says every step how many
+  medkits each Bim carries in its **own pack** (`Game::set_pack_kits`,
+  off the packs; `Room::pack_kits`, `Room::carries_kit`), and a helper
+  that has one opens it where it stands: `GoToKit`'s target is the Bim's
+  own position — no walk to a cabinet at all — and `TakeKit` takes it
+  out of the pack rather than off the shelf, saying whose on
+  `Room::pack_kits_used` (`Game::take_pack_kits_used`). The world then
+  takes the medkit out of that pack and puts it **on the hold's count**,
+  because from the moment a kit is in a hand the counting is the shelf
+  kit's: `medkits_used` charges the hold for it when the treatment is
+  done, and `let_go` puts it back on the shelf when the chain is given
+  up for good — so a medic's own kit spent is the hold untouched and the
+  pack one down, and a treatment abandoned leaves the kit in the hold. A
+  kit in the pack counts as a kit everywhere the shelf's does:
+  `medical_on_offer` offers the treatment for it and `Game::treat` is
+  bare-handed only with neither.
+  **Otherwise the kit is fetched.** `Kind::Treat` is `GoToKit → TakeKit →
   GoToPatient → Dress`: `task::kit_stand` picks the nearest of
   `Room::kit_stands` — the use spots of every container that takes a
   medkit, `Game::set_kit_stands` from the world every step
@@ -2804,3 +3024,449 @@ probe ("Adding furniture moves everything"). `Game::look(who)` and
   for the setup's chooser: the same `draw`, off `Rng::new(0)` with the
   idle glance zeroed, so it stands still.
 - `Look` changed shape in the save (`SAVE_VERSION` 10).
+
+## One trigger for a Bim and a sentry, laid cover, and the deploy errand (feature 74)
+
+**The shooting is one rule in three places.** `combat::Trigger` is the
+reload and the burst — `tick` every step, `pull(dt, stats)` when aimed,
+`hold` when not, `pull_single` for finishing a body off — and `Bim::trigger`
+replaced the three fields that were it. `Combat::fire` rolls the hit and
+`Combat::step` the dodge, the cover and the damage, and nothing else
+does: a **sentry** (`combat::Sentry` — id, position, weapon, shots,
+`dug_in`, its own `Trigger`) is fired by `tick_combat` after the crew
+through the same `aim`/`fire`, in the crew's room only, and stands
+**after the crew on the bodies list** a hostile bolt looks for, with no
+armour and "peeking" only when dug in with sandbags anywhere on the
+line from the bolt's origin (`Sight::cover_anywhere_between`). A hit
+past the crew's count is a sentry's: `tick_combat` routes it to
+`sentry_hits` rather than `strike`, and `enemy_strike_sentry` is the
+melee case. The world sets the list every step (`set_sentries`, which
+keeps a known id's trigger) and reads back `take_sentry_shots` and
+`take_sentry_hits`.
+
+**A bolt dodged behind sandbags is in the bags.** `Combat::step` asks
+`Sight::cover_between` (was `covered`, which is now it `.is_some()`)
+and, on a dodge that was not a peek, records the tile and the damage
+on `cover_hits` — `Game::take_cover_hits`, for the world to take off a
+laid deployable's health. A sandbag *part* is asked nothing.
+
+**Cover laid at run time.** `Sight::set_laid_cover(&[Rect])` marks the
+list over the layout's (`set_cover` keeps both, `layout_cover` and
+`laid_cover`, and re-marks), a no-op when the list is what it was; a
+fresh `Sight` has none, which is why the world says it again after
+every relayout, join and unjoin. `Game::set_laid_cover`/`laid_cover`.
+
+**`Kind::Deploy { x, y, sentry }`** is a room tile: `GoToDeploySpot`
+(`deploy_stand`: the nearest of the four tiles beside it, else the tile,
+free and reachable) then `Deploy`, `rest_minutes` of `Action::Chop` with
+`effort` on it, and `Room::deployed` gets `(who, tile middle, sentry)` on
+the way out — the world owns what was laid and takes the kit from the
+pack then, so a deploy given up leaves the kit. `Game::deploy(who, tile,
+sentry, minutes)` is the order (a live one: `interrupt_for_order` and
+`drop_ordered`), `deploy_tile_ok` the tile check, `is_deploying` the
+question, and `JOB_DEPLOY` (28) the job code. **A hit drops it**: `strike`
+calls `drop_task` — suspended and not kept — unless `set_steady_hands`
+named the Bim. `set_work_factors` is `(craft, build)` a Bim, multiplied
+into `effort` in `tick_bim` for a `Kind::Craft` or `Kind::Build` on hand
+and nothing else. `Room::built` is `(site, who)` now, and `Order` grew
+`only: Option<usize>` — `craft_on_offer` skips an order that is somebody
+else's — for the armourer's repair. `Item::footprint` knows the two kits
+(23 → 2×2, 24 → 2×3).
+
+## One shooter, and the soldier's skill on it (feature 75)
+
+**A `combat::Skill` is what a Bim's talents do to the one shooter**, and
+there is still one hit calculation. The world hands the room one a Bim
+every step (`Game::set_skills`; `Skill::NONE` for anybody it does not
+name — a sentry, an enemy, the crew without a class) and it is applied
+in exactly one place each: `Skill::stats(weapon)` is the weapon's
+numbers through it — the odds multiplied and clamped to one, the far
+odds the near with *deadeye*, the trigger rate multiplied — and
+`tick_combat` reads those in place of `weapon.stats()` for the Bim's
+aim, its trigger and its shots; `Combat::fire_as` (which `fire` is, with
+`Skill::NONE` and no shooter) rolls the hit off them, uses
+`skill.walking` in place of `WALKING_ACCURACY` on the move, and puts
+`skill.point_blank` on the `Bolt`, where `Combat::step` multiplies the
+damage while the bolt has flown no further than the weapon's `sweet`;
+`Combat::set_own_cover_dodge` is each own body's odds in cover, read by
+`step` for a hostile bolt in place of `DODGE_IN_COVER`; `skill.dodge` is
+added to the armour's odds on the bodies list; `skill.melee` multiplies
+a blow's damage, fist or blade, as it is swung; `skill.pace` is
+`Game::runner`, multiplied into the pace while `sees_any` says an enemy
+is in sight; and `skill.nerve` is one of the two things that keep
+`is_fleeing` false. `Bolt` and `Hit` carry `by: Option<usize>` — the
+crew member whose bolt or blow it was, `None` for a sentry's or an
+enemy's (`brawl` takes it, `struck` says none) — for the world's
+*rampage*.
+
+**The brace is `Bim::braced`**, set by `Game::set_braced` (the walk
+halted, the errand interrupted onto the queue, the post dropped) and
+cleared by `interrupt_for_order` — so any order that moves the Bim ends
+it — and by `tick_combat` the step the Bim is down, out cold or outside.
+Braced, a Bim is armed like a recruit (`armed` says so), takes no errand
+(`pump_queue`, `consider_errand`) and never flees. `Character::set_braced`
+draws four heavy brackets round it (`BRACED`), a stance held, inside the
+recruit ring. `Bim::rampage` is the world's count, kept here so a save
+carries it; the room only reads it back (`rampage`, `set_rampage`).
+
+**The medic's beam and surge are two more things the world sets on a
+body** (feature 76). `Game::set_held(Vec<Option<health::Beamed>>)` is
+what each body's health tick runs under — `Health::update_held`: nothing
+bleeds, the blood comes back at the beam's rate (or the body's own once
+nothing is open, whichever is more) and the parts above nothing mend at
+`mend × HEALTH_RECOVER` — and a body a beam holds drips no blood on the
+deck either. `Game::set_doctoring(Vec<health::Doctoring>)` is what its
+bandaging and treating run at: `bandage` and `treat` are effort factors
+on the working step (in the `effort` product beside the engineer's, by
+the errand on hand), `bare` lets `Game::treat` start with no medkit on
+the shelf at all — `Kind::Treat { bare: true }` skips `GoToKit`, spends
+nothing and says so on `Room::treated`'s fourth field — `clean_hands`
+and `treated_to` are what `Health::treat_as` leaves and where the part
+starts again from. Every dressing and treatment that lands is a
+`game::Healed { helper, patient, with: Healing::{Bandage, Medkit, Bare} }`
+on `Game::take_healings`, for the world's experience. `Bim::beaming` is
+the medic's link as the world last set it (`Game::set_beaming`), cleared
+by `Game::order` for any errand — a walk keeps it — and by `tick_combat`
+when the medic goes down; the world reads it back and breaks the link.
+`Bim::surge` is a `bim::Surge { left, closing }` (`Game::set_surge`):
+while it runs `Game::strike` absorbs the whole of a hit and returns —
+no wound, no armour drained, no trauma — `tick_combat` counts it down,
+and a `closing` one closes every open wound as it ends.
+`Character::set_surging` draws the halo (`character::SURGE`).
+`Game::crew_at(x, y)` is the living crew member under a room point, for
+the beam's key, and `Game::sees(who, p)` the trace's question the world
+asks of the beam's line.
+
+**A grenade is `combat::Grenade`**: thrown by `Game::throw_grenade` →
+`Combat::throw` (a `Cue::Throw`), in the air for `GRENADE_FLIGHT` of its
+fuse and then on the tile with the fuse blinking quicker as it runs
+down (`Grenade::pos`, `Combat::draw`), and `Combat::tick_grenades` hands
+every one whose fuse ran out to `Game::burst` and lights a `Blast` (a
+`Cue::Burst`). The burst is one rule over four lists, in a fixed order
+so two runs on one seed roll the same: every own body up and on the
+deck, then every target standing, each within `radius` of the burst
+with `line_clear` to it (walls and shut doors, never sandbags), takes
+`damage` falling in a straight line to half at the edge, halved again
+peeking or with `cover_between` bags on the burst's side, on a part off
+the combat stream — an own body through `Game::blast` (a `strike`, no
+cut, then `Filth::splash_blood` the way a cut splashes), a target as a
+`Hit { blast: true }` for the world to carry to the other room's
+`blast`; then every sentry in it onto `sentry_hits`, and every laid
+sandbag tile in it onto `bags_blown` (`take_bags_blown`) for the world to
+take the deployable off. `Game::line_clear`, `is_deck_tile` and
+`grenades` are the readouts the world's checks use. `quiet()` counts a
+grenade out as not quiet.
+
+## The tank's wall, its armour and its hits (feature 77)
+
+The fourth class adds no new seam: it is three more fields on
+`bims::combat::Skill`, a flag and a count on `Bim`, and one new list on
+`Combat`. The world works every one of them out
+(`crates/world/CLAUDE.md`, "The tank: the wall, the taunt and the
+hits"); the room applies each in exactly one place.
+
+- **`Skill::armour_drain`** is what a worn piece's health loses of the
+  damage that gets past its protection, and `Skill::armour_protection`
+  what that protection is multiplied by (*plated*). Both are read in
+  `Game::strike` and nowhere else: the piece can take
+  `health / drain`, and only what is past *that* reaches the body — so a
+  kevlar at 20 absorbs 40 on a tank and 20 on anybody else, and **the
+  piece's stored health is never doubled**, which is what lets it move
+  between bodies unchanged. `Skill::iron_frame` is read at the top of
+  the same function: a hit rolled on the head lands on the body, so the
+  kevlar takes what the helm would have.
+- **`Skill::walk`** is the pace multiplied at all times, where
+  `Skill::pace` (*runner*) is multiplied only while an enemy is in
+  sight; both go into `tick_bim`'s pace product.
+  **`Skill::steady_pace`** picks `Health::pace_steady()` over
+  `Health::pace()` there — the blood's halving left out, the legs and
+  the traumas still counted — and only while the body's kevlar is worn
+  and unbroken. **`Skill::smash_rate`** is what `breach` heaves at a
+  locked door with (`Door::smash_at`, `smash` being it at one): the
+  progress goes faster, the heaves are heard at their own cadence.
+- **`Bim::bulwark`** is the wall up, set by `Game::set_bulwark` and
+  dropped by `tick_combat` the step the tank is down, out cold or
+  outside, like `braced`. **`Bim::hits_taken`** is how many enemy hits
+  have landed on the body since the last point of experience they made;
+  `Game::count_hit_taken` bumps it where a hit is *applied* — the
+  hostile bolts drained in `tick_combat` and `enemy_strike`'s blow — for
+  a hit with no `by`, so what one of this room's own did (a soldier's
+  grenade carries the thrower) is never one. Both are saved and the
+  world hashes them.
+- **`Combat::bulwarks`** is the walls standing among this room's own
+  bodies, said every step with the skills
+  (`Game::set_bulwarks`): a `Bulwark { who, reach, interpose }` each.
+  `Combat::step` reads them **only for a hostile bolt**, so nobody
+  shelters behind a tank but his own side: a body the wall `shields` —
+  within its reach of the tank, the tank nearer the shooter than the
+  body and within its reach of the line the bolt travels — counts as in
+  cover and dodges the bolt like a peek's or the sandbags'. With
+  *interpose* the bolt the wall did not turn aside lands on **the tank**
+  instead, rolled afresh against his own armour's odds, and either way
+  it is spent: a bolt he slips is never rerolled onto the body he stood
+  for.
+- **`Target::taunting`** is how far a taunt on that target reaches, in
+  room units (nought for none) and **`Target::magnet`** whether it pulls
+  blades; `Combat::set_taunting` sets them index for index like
+  `set_peeking`, and the world says them right after the targets every
+  step. `Combat::aim` prefers a taunting target inside its own radius
+  over any nearer one — in reach and in sight as ever, so a taunt
+  chooses between shots rather than making one possible — and
+  `Tactics::charge` puts a *magnet*'s taunt at the head of its order the
+  same way.
+
+Two things to keep straight. A taunted target still has to be **seen**:
+the bolt flies in the room the bodies are in, so a crewmate standing on
+the line between the enemy and the tank takes it, taunt or no taunt —
+which is the wall working, not the taunt failing. And `Room::picked` is
+`(site, resource, units, who)` now: the hauler goes with the load,
+because how big a load a trip carries is that crew member's (*pack
+mule*) and the world works it out again as the load is taken.
+
+## The commander's aura, and the squad's orders (feature 78)
+
+The fifth class adds no new seam either: three more fields on
+`bims::combat::Skill`, one counter on `Bim`, and one list the world sets
+every step. The world works all of it out
+(`crates/world/CLAUDE.md`, "The commander: the aura, the squad and the
+rally"); the room applies each in exactly one place.
+
+- **`Skill::effort`** is a factor on the **working steps of every
+  errand**, where the engineer's `work_factors` are a craft's and a
+  build's alone: it goes into `tick_bim`'s `effort` product last. It is
+  the one factor there that is nobody's own class's — a commander's aura
+  lifts whoever is standing in it.
+- **`Skill::nerve_hold`** is seconds a dying body holds its ground
+  before it runs. `Bim::fear` counts up in `tick_combat` while
+  `Game::would_flee` holds — everything `is_fleeing` used to be — and
+  zeroes the moment it does not; `is_fleeing` is then `would_flee &&
+  fear >= nerve_hold`. The hold is nought for everybody, so a body with
+  no commander near it runs at once exactly as it always did, and
+  `Skill::nerve` still beats the lot. `Game::fear(who)` is the readout,
+  and the world hashes it.
+- **`Skill::marked_accuracy`** is what the odds against the enemy a
+  squad order marked are multiplied by (*focus fire*), applied by
+  `Skill::stats_at(weapon, marked)` — `stats` is that with `marked`
+  false — and read in `tick_combat` **after** `aim` has said which
+  target it is. **`Skill::unhurt`** (*grit*, during a rally) drops the
+  whole of `Health::pace()`'s hurt factor, where the tank's
+  `steady_pace` drops only the blood's halving.
+- **`bims::health::Beamed::bleed`** is what the bleeding is multiplied
+  by: nought for a beam, which stops it dead, and a share for a
+  commander's *steady ranks*, which only slows it. `Beamed::HELD` is the
+  stop-it-dead entry every other caller wants.
+- **`Game::squad`** is one `Squad` a Bim (`set_squad`, `squad_for_probe`,
+  `serde(skip)` — the order itself is the world's), and
+  `Squad::None` for everybody the world does not name, **always**
+  including a Bim a player steers. `tick_combat` reads it three times:
+  `muster_squad` puts a squad member under arms whether or not the alarm
+  is up (and lets it go again when the order ends and the alarm is
+  down); `squad_stand` runs in place of the gather ring and the body's
+  own tactics — an attack is `plan_stand` with the marked target alone on
+  the list, a fall back is `gather_round` anchored on the tile rather
+  than on a player's Bim, stand ground halts the walk and plans nothing —
+  and the aim holds its fire while a fall back is still walking and
+  prefers the mark through `Combat::aim_marked`.
+- **`Combat::aim_marked`** is `aim` with one target preferred over the
+  taunt and over any nearer one, as long as it is seen and in reach; a
+  mark that cannot be shot falls through to the ordinary rule.
+  `Game::gather` is now `gather_round` with the nearest player's Bim as
+  the anchor, and `Game::take_up_arms` is the weapon-out-of-the-pack half
+  of `muster_crew`, shared with the squad's muster.
+
+Two things to keep straight. A squad order is the *world's*, so a member
+that is out of range when it is given is never in it and one that walks
+out of range afterwards stays in it — the members are fixed at the
+order. And `Game::is_standing_still(who)` is what *anchor* reads off the
+commander: it is `!is_walking()`, live, so a test that wants him still
+has to `halt_for_probe` him — `put_for_probe` moves a body without
+dropping its walk.
+
+## A class wears its own kit, and the room is only told (feature 81)
+
+`character::Outfit` — `Plain`, `Engineer`, `Soldier`, `Medic`, `Tank`,
+`Commander`, in the order `world::Class::ALL` lists the classes — is what
+a crew member's class shows on the body. It is **drawing only and the
+world's to say**: `World::hand_the_room_the_outfits` walks the crew every
+step and calls `Game::set_outfit(who, class.outfit())`, and nothing in
+the room decides it. So the crew past the players (a hire, a mercenary)
+and every one of a station's residents are `Plain`, which is what every
+Bim looked like before.
+
+- **It is left out of a save**, `serde(skip)` on `Character::outfit`, for
+  the same reason the draw buffer and a surface's settlement are: it is a
+  function of what *is* saved (`World::classes`), and the step that
+  follows a load puts it back before the first frame. No `SAVE_VERSION`,
+  no `wire::PROTOCOL`, no checksum moved for this feature.
+- **A class says itself three times over**, because there is not much of a
+  body to look at from directly above: the coverall **dyed** `DYE` (0.45)
+  of the way towards the class's colour — a *mix*, so the [`Uniform`]
+  underneath still says crew or station, and an engineer of the crew is an
+  ochre-ish blue where one ashore is an ochre-ish orange; something on the
+  **head** (`draw_class_head`, between the hair and the nose so the face
+  still shows under a peak); and something over the **chest and
+  shoulders** (`draw_class_rig`, after the arms so a pauldron caps the
+  shoulder it is strapped to and a strap crosses the vest under it).
+  A pressure suit is a pressure suit: none of the three is drawn, and
+  nothing is dyed, while `Uniform::Suit` is worn.
+- **A helm is worn over the head kit, not beside it.** With armour on the
+  head the class's own cap is left off and a band of the class's colour
+  goes across the helm instead, so a helmeted crew is still read a class
+  at a time. The soldier's **sunglasses** are the one piece nothing is
+  worn over: they go on last, over a helm as well.
+- **`Outfit::scale()` multiplies `Character::body_scale()`** — the tank
+  1.08, the soldier 1.02, the medic 0.96 — so the model differs and not
+  only the paint. Like `Look::scale`, it is a picture and never a rule:
+  `PICK_RADIUS`, `BODY_MARGIN`, the reach and the checksum are the same
+  for all.
+- `character::portrait(look, outfit, heading, list)` takes the kit now, so
+  the setup tab's chooser shows the class picked under it.
+
+A class added later wants an arm in `Class::outfit` (`crates/world/src/class.rs`),
+one in `Outfit`, and an arm in each of the two drawing functions — miss the
+last two and it looks like everybody else.
+
+## A droid is not a Bim, and the deck serves both (feature 83)
+
+`crates/game/src/droid.rs`. The endgame enemy is a machine race, and the
+first rule about it is what it is *not*: a [`Droid`] is not a `Bim` and
+has no `Character`. No needs, no sleep, no bunk, no social life, no
+memory, no schedule, no blood, no wounds, no traumas, no gear and no
+pack. What it has is a position, a heading, four parts that break, an
+arm that is part of it, and a route.
+
+**`Game::droids` is beside `bims`, and there is one body index space.**
+A droid-held station's room (`world::World::infested`,
+`crates/world/CLAUDE.md`) has `bims` **empty** and `droids` full; the
+deck's `Nav`, `Sight` and `Combat` serve both without knowing which is
+which. `Game::crew_count()` is still the Bims, `Game::droid_count()` the
+machines, and **`Game::body_count()` is the two together, the Bims
+first** — which is the index every `who` the world hands in and reads
+back is in. The handful of methods that had to learn it are the ones the
+world asks of the other room: `is_alive`, `is_down`, `is_unconscious`,
+`weapon`, `peek`, `exposed_at`, `dodge`, `body_pos`, `loot_cells`,
+`take_from_body`, `execute_body`, and `strike_droid` in place of
+`strike`. Inside the room a `who` is still a Bim's, which is why nothing
+else changed.
+
+- **The body is four parts and there is no dying.** `DroidPart` — Head,
+  Chassis, Arms, Legs, codes 0–3 — with `balance::DROID_HIT_ODDS`
+  (0.05 / 0.60 / 0.15 / 0.20, adding to one) and its own healths a kind
+  (`DroidKind::body`, `balance::{HUSK,TROOPER,WARDEN}_BODY`), every tier
+  above one multiplying all four by `ARMOUR_TIER_STEP` the way a piece of
+  armour's health climbs. **Head or Chassis at nothing is destroyed at
+  once**: no dying state, nothing comes round. Arms at nothing and a
+  gun's odds are halved (`DROID_ARMS_ACCURACY`) and a claw's damage is
+  (`DROID_ARMS_DAMAGE`) — the Unmaker counts as a gun, so its odds fall
+  and its strip does not. Legs at nothing and it cannot move and fights
+  where it stands. **A hit on a limb already at nothing lands on the
+  Chassis**, so shooting a Warden's legs off is never a way to make it
+  unkillable. A droid wears nothing, so there is no armour step on it and
+  a strip does nothing to one.
+- **The part is read off the hit's own roll.** A `combat::Hit` carries
+  `roll` — the unit draw `Part::hit_by` was read from — so a hit on a
+  droid target is read as `DroidPart::hit_by(hit.roll)` instead. One roll
+  either way, so *which kind of body a target turns out to be does not
+  move the combat stream*: a fight against machines draws exactly what a
+  fight against people draws.
+- **Two weapons are built in.** `WeaponKind::Claw = 6` and `Unmaker = 7`,
+  in `WeaponKind::BUILT_IN` and `EVERY` but **not in `ALL`**, which is now
+  *the five a body can carry*. `WeaponKind::resource()` is `Option<u32>`
+  and `None` for both, and that one thing is what keeps them out of the
+  hold, the bench, a pack and a loot — `from_resource` searches `ALL`, so
+  no code ever reads back as one. `WeaponKind::carried()` says it
+  outright and `no_built_in_arm_is_ever_a_thing` pins it.
+- **The Unmaker strips rather than wounds.** `WeaponStats::strips` /
+  `strips_far` is a two-point curve like the damage, nought for every
+  weapon but this one, and a tier scales it by exactly what it scales the
+  damage. A bolt landing puts `strips_at(flown)` on the `Hit`, and
+  `Game::strike_stripping` is where it is applied: with the struck part
+  wearing an **unbroken** piece the piece loses that much *with its own
+  protection ignored* and the part takes nothing — what the piece cannot
+  take is **lost**, not passed on — and a bare part, or one whose piece is
+  already broken, takes the plain damage the ordinary way. `Game::strike`
+  is that with a strip of nought, so every other weapon goes through the
+  code it always did. A medic's surge still takes the whole of it, and a
+  tank's *iron frame* still moves a head shot onto the body first, so the
+  strip lands on the kevlar.
+- **The step is `Game::tick_droids`, after the crew.** It is the hostile
+  half of `tick_combat` written for a body with no gear and no errands:
+  the route walked (`Droid::walk`), a stand planned every `PLAN_EVERY`
+  (`plan_droid_stand`), the doors forced (`breach_droid`), the melee
+  lock, the aim and the trigger. A droid is only ever in a **hostile**
+  room, so every shot is a `combat::Shot` for the world to fly in the
+  crew's room, exactly as a hostile Bim's is. A machine that is a wreck
+  does nothing at all.
+- **Each kind stands differently.** `Tactics::stand_scored` is
+  `stand_with_cover` with the **worth of cover said** rather than taken
+  as read, and `stand_with_cover` is it at `COVER_WORTH`. A **Warden**
+  takes the cover and peeks like a hostile Bim; a **Trooper** is scored
+  at a cover worth of *nought* — it advances in the open and fires on the
+  move, and never uses a peek, since a body shot at where it stands must
+  not be shooting from beside a wall; a **Husk** has a claw, so
+  `stand_scored` hands it straight to `Tactics::charge`. `taken` is
+  every other machine's destination, so a wave does not pile onto one
+  tile. The hunter's rule is a hostile Bim's: with nobody in sight a
+  gunner walks to where something was last seen and from then on holds or
+  closes and never gives ground.
+- **A machine is a body for the doors and an eye for the sight.** It is
+  in `update_doors`' list and in `shut_now`'s, so an unlocked door opens
+  for one walking up to it; and it is in `set_hostiles`' eyes, so a room
+  with nothing but machines sees the crew for itself. `breach_droid` is
+  `breach` for a body that is not a Bim: the nearest locked door it can
+  reach the panel of, heaved at until the lock gives. A machine never
+  locks a door, so there is no lock of its own to undo.
+- **Nothing is looted.** `loot_cells` is empty for a machine and
+  `take_from_body` refuses one, wreck or not; `execute_body` refuses it
+  too, there being no down-and-alive state to finish off. What keeps the
+  *window* from opening is the world's: the `down` list `set_visitors_down`
+  is told is false for a machine, so a click on a wreck is a click on the
+  deck.
+- **The drawing is `Droid::draw`, and nothing of the Bim's.** Built from
+  the `DrawList` primitives: dark gunmetal and steel — none of the
+  uniform colours — with the sensors in `combat::HOSTILE_BOLT`'s red. A
+  **Husk** is low and wide and crab-like: a flat hull, four short legs
+  that scuttle out of phase, two forward claws that snap shut through a
+  strike and hang and drag with the arms gone, and flat on its hull with
+  the legs gone. A **Trooper** stands: a boxy chassis wider than deep, a
+  small square sensor head with one red slit, the gun *built into the
+  right forearm* — the barrel is the arm — a stub left arm, and two legs
+  that step. A **Warden** is the heaviest: a broad chassis with shoulder
+  plates, the head recessed between them behind a sensor band, and the
+  Unmaker as a long twin-rail lance along one side with a ring at the
+  muzzle that brightens as the trigger is held. Half-widths 15, 17 and 26
+  room units, never over thirty, and all three navigate with
+  `BODY_MARGIN` and are hit at `HIT_RADIUS` like a Bim. A **spark on the
+  struck part at every hit**, and a fresh wreck spits for `WRECK_SPARKS`
+  seconds and then lies still. The Unmaker's bolt has its own look in
+  `Combat::draw`: a long crackling line, the discharge jagging off a
+  straight core in `LANCE_KINKS` steps.
+- **A wreck is its own drawing, not the standing machine shrunk.** A
+  destroyed one goes to `draw_husk_wreck`, `draw_trooper_wreck` or
+  `draw_warden_wreck` instead — the three live ones are never asked
+  about `destroyed` at all now — and each is a *broken* machine: a
+  Husk's shell split down its length with the two halves tipped apart,
+  its legs snapped off and thrown clear and one claw lying open on the
+  deck; a Trooper on its back with the chest torn open, the head
+  knocked off its socket and lying ahead of it and the gun arm snapped
+  at the elbow beside it; a Warden broken across with the skirt come
+  away aft, one shoulder plate torn clean off and the Unmaker in two
+  pieces with the muzzle ring out. Under all three is the same mess
+  (`Droid::draw_wreck_ground`, drawn before the hulk so the hulk lies
+  on top of it): the `SCORCH` burnt into the deck, the `COOLANT` run out
+  of it — a machine's answer to the blood round a body, and never the
+  Bim's red — and `SHARDS` of plate flung clear. Where every piece of
+  that lies is `Droid::scatter`, a hash of **where the machine fell**
+  (its position, its wave and its kind) rather than a roll: a drawing
+  may not touch the sparks' own stream, and a wreck has to lie the same
+  way on every frame and the same way again after a save and a load. A
+  fresh one still burns — `Droid::draw_rift` puts an `EMBER` in the
+  split, out by `EMBER_LIFE` (9 s) — and spits sparks for
+  `WRECK_SPARKS`; an old one is cold.
+  `a_wreck_is_its_own_picture_and_lies_the_same_way_every_frame` pins
+  all three against the standing machine, and `BIMS_DROIDS=1` is the
+  rack with the wrecks in its last column.
+
+The wave plan — how many machines, how many waves, when the next comes
+and which stations are held — is the world's: `crates/world/CLAUDE.md`,
+"The machines hold a station, and they come in waves".

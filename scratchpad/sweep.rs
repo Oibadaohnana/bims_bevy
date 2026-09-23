@@ -68,7 +68,7 @@ fn main() {
     let mut ever_swept = false;
     let mut cleaned_by = 0;
     for f in 0..(4 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         for w in 0..CREW {
             if game.holds_broom_for_probe(w) {
                 ever_held_broom = true;
@@ -126,7 +126,7 @@ fn main() {
     mess_up(&mut game, 20);
     let mut both_at_once = 0;
     for _ in 0..(3 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         if (0..CREW).filter(|&w| game.holds_broom_for_probe(w)).count() > 1 {
             both_at_once += 1;
         }
@@ -145,7 +145,7 @@ fn main() {
     let mut swept_before_eating = false;
     let mut ate = false;
     for _ in 0..(FRAMES_PER_DAY / 2) {
-        game.update(STEP);
+        game.simulate(STEP);
         match game.activity(PLAYER) {
             13 if !ate => swept_before_eating = true,
             1 | 10 | 12 => ate = true,
@@ -164,7 +164,7 @@ fn main() {
         let mut game = Game::new(seed, 960.0, 640.0);
         let mut worst = [f32::MAX; CREW];
         for _ in 0..(7 * FRAMES_PER_DAY) {
-            game.update(STEP);
+            game.simulate(STEP);
             for w in 0..CREW {
                 worst[w] = worst[w].min(game.health(w));
             }

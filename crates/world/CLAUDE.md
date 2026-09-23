@@ -735,7 +735,18 @@ Things that bit or would:
   `take_medkits_used`, `take_harvested_fibre`) — fibre the cold store cannot take is
   **dropped without an event**, since the room's count is set again
   from the hold next step and an event a sheaf for a full larder would
-  be noise. A dressing is the room's chain (`Game::bandage`; see
+  be noise. **A helper's own medkits are handed over beside the
+  shelf's**: the same call counts the `Medkit` stacks in each crew
+  member's pack — a medic's start kit, or one fetched out of the hold —
+  into `Game::set_pack_kits`, and a helper that carries one treats with
+  it where it stands rather than walking to a cabinet
+  (`crates/game/CLAUDE.md`, "Its own kit before a new one").
+  `bank_medicine` drains `take_pack_kits_used` the other way: the medkit
+  comes **out of that pack** and onto `cargo[Medkit]`, since from the
+  moment it is in a hand it is counted the way a kit off a shelf is —
+  and `medkits_used` takes it off again when the treatment finishes, so
+  a medic's own kit spent leaves the hold exactly as it was.
+  A dressing is the room's chain (`Game::bandage`; see
   `crates/game/CLAUDE.md`), and
   `a_crew_member_dresses_a_wound_with_a_bandage_from_the_hold` runs it
   on the playtest ship, which carries five (and two medkits, since
@@ -1518,8 +1529,14 @@ returned false for all of it. The tank is at `y0 + 4` for that reason.
 `crates/world/src/tests.rs` is the contract: it builds the room's own `Nav`
 from the layout and asks it for a route from the deck inside the port to
 every use spot and every open deck tile, for every plan on every kind — the
-hub at three seeds, the rest at two. Run
-it after moving anything in the layout; `validate` will not tell you.
+hub at three seeds, the rest at two — **when `BIMS_SWEEP=1` asks for it**,
+which `./check full` does. A route search per tile of deck over
+sixty-five layouts is longer than every other test in the workspace put
+together, so a plain run walks a slice: one seed, one kind a plan,
+cycled so every plan and every kind is still walked. Run
+it after moving anything in the layout, and run it **swept** — `BIMS_SWEEP=1
+cargo test -p world walked` — before saying a layout change is done;
+`validate` will not tell you.
 
 Knock-ons: a layout is one plan sized by plan and kind, and the seed decides only
 how many bays, shelves, tables and batteries — two seeds are two stations
@@ -2048,16 +2065,18 @@ survivors and an emptied one opens empty (`Residents::open` with nought
 is a derelict's room, and `dock_for_probe` there docks at nobody). The
 count is the *number* the room opens with, so the survivors are the
 first `n` off the seed with their own kit again, not the same bodies —
-nothing about where they stood or what they carried is kept, and the
-bodies on the deck with their packs are gone with the room.
+nothing about where a survivor stood or what it was carrying is kept.
+The *dead* are kept, though, since feature 85: see "The dead lie where
+they fell" below.
 
 **`World::memories: Vec<SystemMemory>`**, sorted by star, is every
 system the ship has jumped out of as it was left — the per-system fields
 lifted out as one struct: `hostile`, `reinforcements`, `station_keys`,
 `sites`, `plunder`, the **stations'** `lamps` (`station.is_some()`; the
 ship's own stay with the ship, which also fixed a lamp shot out at one
-system's station 3 landing on the next system's station 3), `discovered`
-and `losses`. `jump` calls `close_residents` (so the dead at a station
+system's station 3 landing on the next system's station 3), `discovered`,
+`losses`, and since feature 85 `graves` and `visited` too. `jump` calls
+`close_residents` (so the dead at a station
 within fifty tiles are counted), then `remember_system` (filed under
 `star_id`, replacing), then rebuilds `stations` and `surfaces` and asks
 `recall_system(star)`: found, the fields are put back — `discovered`
@@ -2077,6 +2096,82 @@ is the rule: `a_station_s_dead_stay_dead_when_its_room_is_closed_and_opened_agai
 `a_jump_away_and_back_finds_the_system_as_it_was_left` (every field, on
 the jumper, and the checksum), `a_mercenary_hired_is_not_there_to_hire_twice`
 (on the combat ship, as the hire test is).
+
+## The dead lie where they fell, and the map says where you have been
+
+`crates/world/src/memory.rs` again (September 2026, feature 85). The
+count above kept a garrison shot to the last from standing up again, but
+the deck it was shot on was swept: the room is built afresh at every
+open, so the crew walked back into a station an hour after a fight and
+found nothing but fewer people. Now the bodies stay.
+
+**`World::graves: Vec<Grave>`**, sorted by station and, within one
+station, in the order the bodies stood in the room, is every body lying
+on a station's deck: `x`/`y` in **the station design's own units** (what
+`Aboard::position` answers, joined or not — the offset is already off
+it), the `gear` still on it, the `look` it had and whether it was
+`hired`. The body itself is not kept: a `bims::bim::Bim` is a room's, and
+`Grave` is what a room can be built over.
+
+**One door each way.** `close_residents` walks the room it is closing
+and files *every* dead body it finds — `memory::set_graves` replaces that
+station's whole run, since the room is the whole truth about its deck —
+and `Residents::open` takes the station's graves and lays them out on the
+end of its people: `count + mercenaries + graves.len()` bodies, the
+coverall, the look and the gear put on each of the last of them, and
+`Game::lay_out_dead(who, at)` (`crates/game`) to stand it on the spot and
+kill it outright — no tick waited for, nothing in anybody's diary, the
+bunk given back. `World::open_residents` is the one call, so no open
+anywhere can forget them. **The dead are not people**: they are past the
+bunk cap, they are not fed (`RESIDENT_*_EACH` counts the living), no fee
+is priced for them, and `Residents::grave: Vec<bool>` flags them so
+`close_residents` does not count a body into `losses` a second time —
+that flag is maintained beside `down`/`fee` at the four places those
+lists grow, shrink or shift (`visit`, the hire, the dismissal, the wave
+truncation). A body laid out is `down`, `xp_down` and `xp_dead` from the
+first step, so no `EnemyDown` is said for it and nobody is paid for it
+twice. A raider's dead are the raid's: they go with the raider, as its
+plunder does, so nothing is filed for one.
+
+What the crew took off a body stays taken — the grave carries the gear
+as the room left it, so a looted pack comes back empty — and what is on
+a body is in `world_checksum` (`eat_graves`, `eat_gear`: the station,
+the position on the thousandth grid, `hired`, then what it wears, the
+gun in its hand and its pack cell by cell). The `look` is not, for the
+reason no other body's look is.
+
+**`World::visited: Vec<Node>`** is the other half: the nodes of this
+system the ship has actually been at, sorted by `node_key` the way
+`discovered` is. `mark_visited`, off the end of `settle_frame`, is the
+one door — the frame already knows what the ship is *there for*, and the
+one thing added is that it must have stopped, since a trip is in its
+target's frame from the moment it starts braking and a trip aborted
+half a brake away is nowhere anybody has been. `World::stars_visited`
+is the galaxy's half and keeps no list at all: a star jumped out of has
+a memory filed under it, and the one the ship is at is the one it is at.
+
+`ship::world_paint::paint_map` draws a **tick** at the upper-left
+shoulder of every visited node (`paint_tick`, `VISITED`,
+`TICK_SHOULDER`) — the upper-right one is a belt's pickaxe and a
+settlement's pad, and the name is written under the icon — and the
+galaxy chart rings every visited star in the same grey
+(`lobby::preview`'s `Marks::visited`, set from `stars_visited` in
+`screens/game.rs`). A tick is a shape nothing else on either map draws.
+
+`REFERENCE_CHECKSUM` moved to `0x_f766_3dcf_74a2_5cbf`; **`SAVE_VERSION`
+23**, `wire::PROTOCOL` 15. `tests_memory.rs`:
+`a_station_s_dead_lie_where_they_fell_when_its_room_opens_again` (the
+spot, the emptied pack, and counted once over two closes),
+`the_dead_stay_on_the_deck_across_a_jump_away_and_back`,
+`a_settlement_s_dead_lie_in_its_street_too` (a planet's town is a
+station like any other here, and `World::lay_graves_for_probe` —
+`BIMS_GRAVES=n` in the app — is how a fight's aftermath is staged
+without the fight), and `the_map_marks_where_the_ship_has_already_been`
+(docked, the belt held at, filed by the jump, and sorted). A spot goes
+through the room's own `f32` on the way out and back, so it returns
+within a ten-thousandth rather than exactly — inside the thousandth the
+checksum rounds to, and it settles after the first round trip rather
+than drifting.
 
 ## A station lays a few comforts, after its lamps
 
@@ -2708,3 +2803,778 @@ gets the one-row note that the desk is the way. The nearby strip lists
 an enemy's shelf within reach as "Enemy's shelf" (`PLUNDER_WINDOW`) and
 a friend's not at all. `BIMS_ARMOURY=plunder` opens the window for a
 screenshot; with `BIMS_RAID=1` that is the raider's shelf.
+
+## The engineer: a class, its levels and its deployables (feature 74)
+
+`crates/world/src/class.rs` and `deploy.rs`; the world's side is the
+"classes, experience and the engineer's deployables" `impl World` at
+the foot of `world.rs`, and `tests_engineer.rs` is every test the spec
+asked for (A to E and the hotkeys' defaults, which are `keys.rs`'s).
+
+**A class is a slot's, progress is a crew member's.** `World::classes`
+(`Class::None`/`Engineer`, one a player) is set before the game opens
+— `ship::Session::set_class` in the yard, `World::set_class` as the
+world opens — and by `Command::SetClass` until `undocked_once`, which
+the step sets the first time the state is not `Docked`; after that it is
+`Refusal::ClassLocked`. Choosing Engineer puts `ENGINEER_START_KITS`
+(three) `SandbagKit`s and `ENGINEER_START_SENTRIES` (one) `SentryKit`
+into the Bim's pack through `Game::give` (`give_engineer_kit`,
+`World::ENGINEER_START` being the two counts in one table), and choosing
+None takes them out again (`take_engineer_kit`). The sentry kit is
+dealt because a sentry kit is otherwise made at the workbench, which is
+an hour and two bars in, and the Q the class is looked at for would be
+unusable in any fight nobody stood at a bench before; a probe or a test
+that wants more than the class deals asks
+`World::give_kits_for_probe(who, kit, n)`.
+**The pool is untouched** — since feature 75 a
+class owns abilities and never money (`class::contribution` and
+`economy::starting_pool_of` are gone). `World::progress` is a
+`Progress` a crew member — `xp` and `picks: Vec<(level, Side)>` — and
+only a player's own ever gains (`award` returns early for `Class::None`);
+`casualties` resets a dead crew member's to default. **A pick is a level
+and a side, and which talent that is depends on the class**:
+`pick_at(class, level)`, `talent_of(class, level, side)`,
+`Progress::{has, pick, talents}(class, ..)` all take it, and
+`World::has_talent(who, talent)` answers only for a talent of the
+crew member's own class (`Talent::class`). `LEVEL_XP`, `level_of`,
+`is_pick_level` (the same shape for every class: fixed at one, three and
+seven), `Progress::{level, to_next, gain, picked_at, pending_pick}` are
+the rules, with every multiplier a named constant beside them
+(`QUICK_HANDS_EFFORT` … `ARMOUR_REPAIR_PER_METAL`, then the soldier's).
+`pick_talent` is the command: `NoClass` (52) without a class, then
+`Progress::pick`'s `NotAPickLevel`/`LevelNotReached`/`AlreadyPicked`. A
+`LevelUp` (68, `who`, the class's code and the level) is said once a
+level by `award`; `TalentPicked` (69) by the pick. `class::can(class,
+Ability)` is the one rule a class gates anything by — `Deploy` the
+engineer's, `Brace` and `Throw` the soldier's — and no job, errand, site
+or weapon ever asks it.
+
+**Experience is given in the step, after `visit`.** `experience`: while
+the residents' room is hostile and the rooms are joined, every resident
+that is down (dead or `is_unconscious`) or dead and not yet flagged in
+`Residents::{xp_down, xp_dead}` is `XP_ENEMY_DOWN`/`XP_ENEMY_DEAD` to
+every classed crew member within `VICINITY_TILES` (fifty) of where it
+lies on the joined deck (`Aboard::from_station` of its position;
+`in_vicinity` is the rule, alive and aboard) — so an enemy down on an
+unjoined deck is nobody's, and a crewmate down is never counted.
+`finish_build(site, who, ..)` — `Room::built` carries the builder now —
+gives `XP_BUILT` to every engineer within the vicinity of the builder
+(`award_engineers_near`), and `finish_deploy` the same at the layer,
+unless the kit was a re-used one: `World::reused_kits` counts, a crew
+member each, the kits packed up or salvaged and not laid again, and a
+deploy spends one of those first. `mercenaries` and the crew nobody
+steers have `Class::None` and are neither counted nor paid.
+
+**A deployable is a room object.** `Deployable { id, kind, owner_slot,
+deck: Ship | Station(id), tile, health, shots }` on `World::deployables`
+(id order, `next_deployable` climbing), never in the design.
+`Command::Deploy { slot, kit, x, y }` names a **room tile** of the crew's
+room — the app's `room_point` under the pointer — and `can_deploy` is
+the check the app greys a press with and the command makes: fit to act
+(`OutOfReach`), an engineer (`NotAnEngineer`), the kit in the pack
+(`NoKit`), a sentry from `SENTRY_LEVEL` (`NoSentryYet`) and under
+`sentry_limit` (`SentryLimit`, one or two with *second sentry*), and a
+tile `Game::deploy_tile_ok` takes — walkable floor, not a door, a stand
+beside it — with nothing laid on it (`CantDeployThere`). The errand is
+the room's (`Game::deploy`, `Kind::Deploy`, `crates/game/CLAUDE.md`) for
+`deploy_minutes` — the kind's, halved by *sandbagger* or *quick build* —
+and the kit leaves the pack only when `Room::deployed` says it was laid:
+`finish_deploy` reads the deck and the design tile off `Aboard::design_of`
+(the station's while the tile is in the foreign box, `Deck::Station` of
+the berth), lays it with `lay` — sandbags at `SANDBAG_HEALTH`, a sentry at
+`sentry_health`/`sentry_shots` for the owner's talents — and *bulk bags*
+a second tile of sandbags on the first free neighbour. `PackUp` and
+`Refill` want the engineer within `REACH` of it (`deployables_in_reach`);
+a pack-up is the kit back (`PackFull` if not) and one more `reused_kits`;
+a refill is `SENTRY_REFILL_METAL` out of the hold unless *field refit*.
+Events `Deployed` 70, `PackedUp` 71, `DeployableLost` 72, `Refilled` 73.
+
+**Cover is set again every step, on both rooms.** `sync_deployed_cover`
+turns every laid sandbag into a tile rect in the crew's room
+(`deployable_room_pos`: the ship's through `room_of`, a station's through
+`from_station` while docked there) and in the residents' room
+(`deployable_residents_pos`: the ship's through *their* `from_station`
+— the mirror — a station's own through `to_room`) and hands both lists
+to `Game::set_laid_cover`, which is a no-op when unchanged. It runs in
+`hand_the_room_the_engineers` before the rooms step and after every
+`join_rooms`, `relayout_room` and `unjoin_rooms`, because a fresh
+`Sight` has none; `unjoin_rooms` also drops every `Deck::Station`
+deployable (`drop_station_deployables`) — the ship's keep across
+docking, undocking, joins and unjoins.
+
+**A sentry is the room's shooter and the enemy's target.**
+`hand_the_room_the_sentries` gives the crew's room every sentry in it as a
+`bims::combat::Sentry` — its room position, `sentry_weapon` (the auto
+rifle at tier one; two from `SENTRY_MARK_TWO_LEVEL`; three with *sentry
+mark III*), its shots and whether *dug in* — and the room fires them
+after the crew; `visit` appends the same sentries **after the crew** in
+the residents' targets (`to_station` of each), so the enemy's
+nearest-target rule and their blades find them, and a melee shot nearest
+a sentry index goes to `Game::enemy_strike_sentry`. `settle_deployables`,
+after `visit`, reads back `take_sentry_shots` (off `shots`),
+`take_sentry_hits` (off `health`) and `take_cover_hits` — the bolts a
+body dodged behind laid sandbags, by room tile, off the bags' `health` —
+removes what is at nothing (`DeployableLost`), gives a destroyed sentry's
+kit back with *salvage* (a re-used kit, if the pack has room), and hands
+the sentries again. `hand_the_room_the_engineers` also sets
+`Game::set_work_factors` (*quick hands* on a craft, *site foreman* on a
+build, in the `effort` product and nowhere else) and
+`Game::set_steady_hands`.
+
+**The armourer's repair is `REPAIR_ORDER`** (1 001), the upgrade's
+pattern: `Command::Repair` (`can_repair`: the talent, `NoTalent`; a
+workbench; the bench not `busy()` — `Workbench::repair: Option<u32>` is
+the engineer, and `busy()` is it or `work` — a damaged piece alone in
+the first slot, `NoPair` otherwise; `ARMOUR_REPAIR_METAL` in the hold,
+taken at once) puts `bench.repair = Some(slot)`, `craft_orders` offers
+one `Order { recipe: REPAIR_ORDER, only: Some(slot) }` at the first
+workbench — the room's `craft_on_offer` skips an order with an `only`
+that is not the asker — and `finish_repair` puts the piece in the
+output slot with `ARMOUR_REPAIR_PER_METAL` back on it, capped at its
+tier's health (`Repaired` 74). `Workbench::takes` lets a damaged piece
+of any tier onto an empty bench for it.
+
+**What moved.** `ResourceId::SandbagKit = 23` and `SentryKit = 24`
+(`CARGO_SLOTS` 25, `RECIPES[14..=15]` at the workbench behind Workshop
+and Emitters, 61 and 885 by the labour rule, locker class, footprints
+2×2 and 2×3, sold nowhere) re-pinned every design hash, the galaxy
+checksums and `REFERENCE_CHECKSUM` (`0x_b522_21d1_8990_3e39`); the
+classes, progress, `undocked_once`, the deployables and `reused_kits`
+are hashed after the memories; **`SAVE_VERSION` 16, `wire::PROTOCOL` 9**.
+`Refusal` 41–51 are the new ones. `BIMS_CLASS=engineer` in the app puts
+the class on slot 0 of any launch, and `Q`/`E` in `BIMS_KEYS` press the
+two keys.
+
+## The soldier: the brace, the skills and the grenades (feature 75)
+
+The second class. `crates/world/src/class.rs` holds `Class::Soldier = 2`,
+its fourteen talents (`Talent` 14–27, `DugInBraced` for the soldier's
+*dug in* beside the engineer's `DugIn`) and every number
+(`BRACE_ACCURACY` … `RAMPAGE_STACKS`, `steady_aim_walking()`); the
+world's side is the "soldier" `impl World` after the deployables'
+(`skill_of`, `can_brace`/`brace`, `can_throw`/`throw`, the grenade
+getters, `hand_the_room_the_soldiers`, `settle_rampage`,
+`settle_bursts`), and `tests_soldier.rs` is every test the spec asked
+for. `set_class` to Soldier is `give_soldier_kit`: a basic auto rifle
+given and equipped (the pistol swapping into the pack) and
+`SOLDIER_START_GRENADES` grenades; back to None is `take_soldier_kit`.
+
+**The talents are one `bims::combat::Skill` a crew member, handed to the
+room every step.** `World::skill_of(who)` works it out fresh —
+`Skill::NONE` for anybody but a soldier — from the progress, the brace
+(read off the room, `Game::is_braced`) and the *rampage* stacks (the
+same): the odds multiplied by `BRACE_ACCURACY` and *marksman*, *point
+blank* on the bolt, *runner*'s pace, *steady aim*'s walking odds, *iron
+nerve*, *cover master* on `DODGE_IN_COVER`, *drill* from `DRILL_LEVEL`
+(the seventh, a fixed level), *bruiser*, *dug in* while braced,
+*deadeye*, and *rampage* as `RAMPAGE_FIRE_RATE` to the power of the
+stacks. `hand_the_room_the_soldiers` runs after the engineers', before
+the rooms step, into `Game::set_skills`; what the room does with it is
+`crates/game/CLAUDE.md` ("One shooter, and the soldier's skill on it").
+
+**The brace is the room's flag.** `Command::Brace { slot, on }` —
+`can_brace`: `NotASoldier` (53) by `class::can`, `OutOfReach` not fit to
+act — is `Game::set_braced`, and the room ends it on its own on any
+order that moves the Bim (`interrupt_for_order`) and when it goes down;
+the world only reads it (`World::is_braced`). `WorldEvent::Braced { who,
+on }` (75). It is hashed off the room like the positions, with the
+*rampage* stacks (`Game::rampage`, integers) and `World::last_throw`.
+
+**A grenade is `ResourceId::Grenade = 25`** (`CARGO_SLOTS` 26, `RECIPES[16]`
+at the armoury behind Armoury — a metal and a component, twenty minutes,
+79 by the labour rule, mass 10, locker class, 1×1, sold nowhere and
+bought anywhere; every design hash, `worldgen::REFERENCE_CHECKSUMS` and
+`REFERENCE_CHECKSUM` re-pinned). `Command::Throw { slot, x, y }` names a
+room tile like a deploy; `can_throw` refuses in this order: `OutOfReach`
+(not fit), `NotASoldier`, `NoGrenadesYet` (55, under `GRENADE_LEVEL`),
+`NoGrenade` (54), `CoolingDown` (56, `grenade_cooldown_left` off
+`last_throw` in clock minutes against `GRENADE_COOLDOWN` seconds — a
+game minute is a real second at 1×), `CantThrowThere` (59, not a deck
+tile: `Game::is_deck_tile`), `OutOfThrowRange` (57, past
+`grenade_range`), `NoLineToTile` (58, `Game::line_clear` — walls and
+shut doors, never sandbags). `throw` takes the grenade out of the pack
+at once, notes the clock and calls `Game::throw_grenade` with the fuse,
+the radius and `GRENADE_DAMAGE` — *long throw*, *short fuse*, *frag* and
+*quick draw* are the four getters. `WorldEvent::Thrown { who }` (76).
+
+**The burst is the room's, in both rooms.** `Game::burst` (on the fuse
+running out, in `tick_combat`) hits every own body and every target
+within the radius with a line from the burst — the damage falling from
+`GRENADE_DAMAGE` to half at the edge, halved again in cover from the
+burst's side, on a part off the combat stream — and every sentry and
+every laid sandbag in it. An own body is `Game::blast` (a strike, then
+`Filth::splash_blood`); a target is a `Hit { blast: true, by }` that
+`visit` carries to the residents' room as `Game::blast` there, noting
+`Residents::last_hit_by`; the sentries go out through `take_sentry_hits`
+as ever, and the bags through `Game::take_bags_blown`, which
+`settle_bursts` turns into `DeployableLost` for every sandbag deployable
+under a blown tile. `Hit` and `Bolt` carry `by: Option<usize>` (a Bim's
+own bolt or blow; `None` for a sentry's and an enemy's) for the
+*rampage*: `experience` hands back every enemy newly down with who last
+hit it, and `settle_rampage` gives that soldier a stack (up to
+`RAMPAGE_STACKS`) — or clears every stack when `enemy_standing` is
+false: the rooms unjoined, or nobody of the station's up and conscious.
+Enemies neither throw nor dodge grenades.
+
+**What moved.** `SAVE_VERSION` 17, `wire::PROTOCOL` 10, `Refusal` 52–59,
+events 75–76. The app's
+`keys::Action::{ClassPrimary, ClassSecondary}` (Q, E) replaced the
+engineer's two and dispatch by the steered class (`screens::game::class_key`);
+`BIMS_CLASS=soldier` puts the class on slot 0 of any launch.
+
+## The medic: the heal beam and the surge (feature 76)
+
+The third class. `crates/world/src/class.rs` holds `Class::Medic = 3`,
+its fourteen talents (`Talent` 28–41, `SteadyHandsMedic` for the medic's
+*steady hands* beside the engineer's `SteadyHands`) and every number
+(`XP_HEALED` … `FIELD_SURGEON_TIME`); `crates/world/src/medic.rs` is the
+state — one `Medic { patients, charge, field_surgery_used }` a crew
+member on `World::medics`, by index, an empty one for anybody who is not
+a medic — and the "medic" `impl World` after the deployables' is the
+rules (`can_beam`/`beam`, `can_surge`/`surge`, `hand_the_room_the_medics`,
+`settle_medics`, `clear_beams`, `medic_skill` and the getters).
+`tests_medic.rs` is every test the spec asked for. `set_class` to Medic
+is `give_medic_kit`: `MEDIC_START_MEDKITS` medkits and
+`MEDIC_START_BANDAGES` bandages into the pack, the pistol left in the
+hand; back to None is `take_medic_kit`. **Those kits are the ones it
+treats with**, before ever walking to a cabinet for the hold's — the
+medicine bullet under "The enemy shoots back" is the seam, and
+`a_helper_treats_with_the_kit_in_its_own_pack_before_fetching_one_off_a_shelf`
+in `tests_medic.rs` pins it.
+
+**The beam is a list of crew indices on the medic, checked every step.**
+`Command::Beam { slot, patient: Option<u32> }` links or unlinks;
+`can_beam` refuses in order: `NotAMedic` (60) by `class::can`,
+`OutOfReach` (not fit to act), then `beam_reaches` — `NotACrewmate`
+(62) for itself, for nobody, or for a body that is not a living crew
+member; `OutOfBeamRange` (63) past `beam_range` tiles or outside;
+`NoSightOfPatient` (64) with no line (`Game::sees`, the trace's rule —
+walls, shut doors and the dark). A patient past `beam_patients` (one, or
+[`class::DOUBLE_LINK_PATIENTS`] with *double link*) takes the oldest's
+place. `hand_the_room_the_medics`, stage 5 before the soldiers' skills,
+is where a link is **kept or broken**: broken whole where the room
+ended it (`Game::is_beaming` — an order to an errand, the medic down) or
+the medic is unfit, and patient by patient where `beam_reaches` no
+longer holds; a `WorldEvent::Beamed { who, patient: None }` (77) says so
+once. It then charges the surge — a step's minutes while some patient is
+under `MAX_BLOOD` or bleeding — and hands the room two things: a
+`bims::health::Beamed` a body (`Game::set_held`: the blood an hour and
+the mend factor, *mender* from `MENDER_LEVEL` at `MENDER_RECOVER`;
+*self-care* gives the medic an entry of its own at no blood rate, which
+is the "nothing bleeds" half), and a `bims::health::Doctoring` a Bim
+(`Game::set_doctoring`: *field dressing* and *surgeon* as effort factors
+on the two errands' working steps, *field surgeon* as `bare` while the
+fight's one is unused, *clean hands* and *steady hands* on what a
+treatment leaves). What a beam does to a body is the room's
+(`Health::update_held`: nothing bleeds, the blood comes back at the
+rate — or the body's own once nothing is open — and the parts above
+nothing mend faster), and the room knows nothing of who holds whom.
+
+**A medic beaming holds its fire.** `skill_of` answers `medic_skill`
+for a medic: `Skill::holds_fire` while linked, or `fire_rate ×
+GUNNER_MEDIC_FIRE_RATE` with *gunner medic*; `tick_combat` reads
+`holds_fire` where it reads the rest.
+
+**The surge is the room's timer on each body.** `Command::Surge { slot }`
+— `can_surge`: `NotAMedic`, `OutOfReach`, `NoSurgeYet` (65) under
+`SURGE_LEVEL`, `NotLinked` (67) with nobody held, `NotCharged` (66)
+under a full charge — empties the charge and sets `Game::set_surge` on
+the medic and every patient for `surge_minutes` (the room counts it down
+in seconds), a patient's with *closing surge*'s flag, and with *mass
+surge* on every other crew member within `MASS_SURGE_TILES` of a
+patient. While it runs `Game::strike` absorbs the whole of any hit —
+no wound, no armour drained, no trauma — and the room closes the
+patient's wounds as it ends when the flag is up. `WorldEvent::Surged`
+(78). Unlinking does not end one.
+
+**`settle_medics`, after the experience**, drains `Game::take_healings`
+— every dressing and treatment the room finished, with what it used —
+gives `XP_HEALED` to a medic that did one on a crewmate, marks the
+field surgery used for a bare one, and puts every medic's field surgery
+back when `enemy_standing` is false, the way `settle_rampage` clears the
+stacks.
+
+**Crew indices are all a link is**, so `clear_beams` breaks every beam
+at a hire and at a dismissal (which also removes that index's `Medic`);
+a dead crew member's beam and charge go with its progress in
+`casualties`. In `world_checksum` after `last_throw`: every medic's
+patients, charge and flag, then each body's surge off the room. **`SAVE_VERSION`
+18, `wire::PROTOCOL` 11**, `REFERENCE_CHECKSUM` = `0x_7167_1507_6824_4a02`.
+`BIMS_CLASS=medic` puts the class on slot 0 of any launch; `E` over
+another crew member links the beam (`class_key` reads
+`Game::crew_at` under the pointer).
+
+## The tank: the wall, the taunt and the hits (feature 77)
+
+The fourth class. `crates/world/src/class.rs` holds `Class::Tank = 4`,
+its fourteen talents (`Talent` 42–55) and every number
+(`TANK_HITS_PER_XP` … `RALLYING_WALL_DRAIN`);
+`crates/world/src/tank.rs` is the state — one `Tank { last_taunt }` a
+crew member on `World::tanks`, by index — and the "tank" `impl World`
+after the soldier's is the rules (`can_bulwark`/`bulwark`,
+`can_taunt`/`taunt`, `armour_drain`, `tank_skill`, `haul_load`,
+`hand_the_room_the_tanks`, `settle_tanks` and the getters).
+`tests_tank.rs` is every test the spec asked for. `set_class` to Tank is
+`give_tank_kit`: a fresh basic helm, kevlar and leg guards **on** —
+pieces of the world's, `next_piece` ids at `Where::Worn`, the way
+`outfit_for_probe` dresses a crew, so the hold's counts never move and
+the pool is untouched — with the laser pistol already in hand; back to
+None is `take_tank_kit`, which takes off the whole tier-one pieces the
+world knows are worn and leaves anything looted or fetched.
+
+**There is almost nothing to keep.** `Tank::last_taunt` is one clock
+reading and the whole of the struct: Bulwark is a flag on the *Bim*
+(`bims::bim::Bim::bulwark`, `Game::set_bulwark`), since the room is what
+has to know where the wall stands when a bolt comes through it; the
+hits are a count on the Bim too (`Game::hits_taken`), since the room is
+where a hit lands; and every talent is read afresh each step into the
+room's one `bims::combat::Skill`. All three are in `world_checksum`
+after the medics — `last_taunt` on the clock's grid, then, read off the
+room like the brace, who stands as a wall and each body's hit count —
+which moved `REFERENCE_CHECKSUM` to `0x_73f0_69d0_4be9_0a00`.
+
+**`World::skill_of` is a bag for every class now**, not the soldier's
+alone: it picks `medic_skill`, `tank_skill` or `soldier_skill` and then
+sets `armour_drain` for **everybody**, since *rallying wall* gives a
+tank's drain to the crew round him. `tank_skill` is the rest of the
+tank's: `walk` (the always-on pace factor, the bulwark's — `pace` is
+*runner*'s, applied only with an enemy in sight), `dodge` (*guarded*,
+while the wall is up), `armour_protection` (*plated*), `smash_rate`
+(*breacher*), `nerve` and `steady_pace` (*unmovable*) and `iron_frame`
+from `IRON_FRAME_LEVEL`. What each does is one place in the room —
+see `crates/game/CLAUDE.md`, "The tank's wall, its armour and its hits".
+
+**The wall is handed to the room every step.** `hand_the_room_the_tanks`,
+stage 5 before the skills (which read the flag off the room), gives the
+crew's room a `bims::combat::Bulwark { who, reach, interpose }` for
+every tank with it up **and fit to act** — so a wall goes down with the
+tank the step he does — and the room's one shooter does the rest.
+
+**The taunt is a clock reading and nothing else.** `Command::Taunt`
+notes `clock_minutes`; `is_taunting`, `taunt_left` and
+`taunt_cooldown_left` are read off it against `taunt_minutes(who)` and
+`class::TAUNT_COOLDOWN` (the grenade's cooldown arithmetic). What it
+*does* is in `visit`: the crew's taunting radii in room units and their
+*magnet* flags — worked out before the residents' room is borrowed, like
+the sentries, since the talents are the world's — go to
+`Game::set_hostiles_taunting` right after `set_hostiles_peeking`, and
+`Combat::aim` prefers a taunting target in reach and in sight over any
+nearer one. That is the room the enemies aim and charge in whoever they
+are, so a station's people, a garrison and a raider's boarders are all
+taunted by the same code. *Hold fast* rides on the medics' seam: it puts
+a `bims::health::Beamed { blood_an_hour: 0.0 }` on the tank in
+`hand_the_room_the_medics`, exactly as *self-care* does for a medic.
+
+**The experience is `settle_tanks`**, after the medics': every
+`TANK_HITS_PER_XP` hits on the Bim's count are one point and the
+remainder counts on. The room counts a hit where it *lands*
+(`Game::count_hit_taken`), so armour, a surge and the body all count and
+a miss or a dodge does not.
+
+**A haul's load is the hauler's now** (*pack mule*): `Room::picked` is
+`(site, resource, units, who)` and `finish_pick` works the load out
+again from the site's shortfall, `World::haul_load(who)` and
+`World::free` rather than reading the order's number — the order is the
+site's and the load is the crew member's. For anybody without the
+talent it is the number it always was.
+
+**What moved.** `SAVE_VERSION` 19, `wire::PROTOCOL` 12, `Refusal` 68–69
+(`NotATank`, `NoTauntYet`; a taunt within its cooldown is the grenade's
+`CoolingDown`), events 79–80 (`Bulwarked`, `Taunted`). No new resource,
+so no design hash moved. The app: `class_key` dispatches Q and E for the
+tank, `crew::TankView` is the panel's rows, `theme::wall_mark` and
+`theme::taunt_ring` are the two pictures; `BIMS_CLASS=tank` puts the
+class on slot 0 of any launch.
+
+## The commander: the aura, the squad and the rally (feature 78)
+
+The fifth class. `crates/world/src/class.rs` holds `Class::Commander = 5`,
+its fourteen talents (`Talent` 56–69) and every number (`XP_HIRE`,
+`AURA_*`, `NERVE_HOLD`, `HIRE_DISCOUNT_PERCENT` … `ANCHOR_BONUS`);
+`crates/world/src/commander.rs` is the state and
+`tests_commander.rs` every test the spec asked for. `set_class` to
+Commander gives and takes **nothing**: he sets out with the laser pistol
+every Bim is issued.
+
+**Two things are kept and no more.** One `Commander { last_rally }` a
+crew member on `World::commanders` — the taunt's arithmetic again —
+and **one** `SquadOrder { by_slot, kind, members }` for the whole world
+on `World::squad`. The aura is not kept at all: `World::aura_reaching`
+works it out every step from where the commanders stand, and it goes to
+the room through `skill_of` like every other class's numbers, so it
+follows him about with no state to keep in step.
+
+**Whom each half reaches is the rule to hold on to.** The aura and the
+rally lift **every friendly Bim** in range — a player's own steered Bim,
+the crew's bots and the hired hands alike, never an enemy and never
+himself (the rally does cover him). A **squad order commands only the
+squad**: `World::squad_members` is every crew member `who >=
+players()`, alive and on the deck, within `squad_range` (the whole room
+from `LONG_REACH_LEVEL`). `settle_squad`, at the top of
+`hand_the_room_the_squad` every step, prunes a member a player has begun
+steering and one dead or outside, and drops the whole order when the
+commander is not `fit_to_act`, when an attack's marks are all gone
+(down or dead, and dead alone with *relentless*) or when nobody is left
+under it. `take_the_ordered_out_of_squad` is the other half: a
+`Command::Crew`/`CrewLater` takes the crew member an errand names — or
+everybody the player has selected, for a move or a line — out of the
+order until the next one. `clear_squad` is called by `unjoin_rooms`, a
+hire and a dismissal, since the members are crew indices and the marks
+are residents'.
+
+**What the room is told** is one `bims::game::Squad` a crew member
+(`Game::set_squad`), handed over before the skills, which read *focus
+fire* and *stand ground* off the order. The room's side — the stand, the
+gather ring anchored on a tile, holding fire while falling back, and
+`Combat::aim_marked` — is `crates/game/CLAUDE.md`.
+
+**What the aura does** is `lift_by_aura`, at the end of `skill_of` beside
+`armour_drain`: `accuracy`, `effort` (a factor on every errand's working
+steps, the only one here that is nobody's own class's), `walk` and
+`nerve_hold` — seconds a dying body holds its ground before it runs,
+nought for everybody and `NERVE_HOLD × aura.nerve` in an aura — and,
+with a rally, `accuracy × RALLY_AIM`, `nerve` and *grit*'s `unhurt`.
+*Steady ranks* rides on the medics' seam like the tank's *hold fast*: a
+`bims::health::Beamed` with `bleed` under one, which slows the bleeding
+rather than stopping it (`Beamed::HELD` is the entry that stops it
+dead). `class::aura_bonus` is how *strong presence* and *anchor* deepen
+each bonus — what it *adds* is multiplied — and two commanders' auras
+never stack: `aura_reaching` takes the strongest by `work`.
+
+**Hiring** goes through `World::hire_fee(slot, resident)`: the fee less
+`HIRE_DISCOUNT_PERCENT` (two fifths with *haggler*) for a commander fit
+to act, rounded down to whole euros, and the plain fee for everybody
+else. `hire_offer(who, resident)` reads it for the window, so the app
+says the discounted price while a commander is steered; `hire` reads it
+for the **sending slot** and that is what goes into `Hired`, which is
+that hand's fee for the whole contract. The hire is then `XP_HIRE` to
+that commander alone, and *outfitter* puts the lowest basic piece the
+hand was missing on it out of nothing (`outfit_the_hire`, a piece of the
+world's like the tank's start), charged for at nothing.
+
+**What moved.** `SAVE_VERSION` 20, `wire::PROTOCOL` 13, `Refusal` 70–73
+(`NotACommander`, `NoRallyYet`, `NoSquadInRange`, `NoEnemyThere`; a
+rally in its cooldown is the grenade's `CoolingDown`), events 81–82
+(`Squadded`, `Rallied`). No new resource, so no design hash moved;
+`REFERENCE_CHECKSUM` = `0x_942d_d49d_a5af_7b82` (the commanders, the
+squad order and each body's `fear` hashed after the tanks). New pub
+`World::resident_at(x, y)` is the enemy under a room point, for the
+app's Attack key. The app: `class_key` dispatches Q and E for the
+commander and `squad_key` the two keys of its own —
+`keys::Action::{SquadFallBack (X), SquadStandGround (Z)}` —
+`crew::CommanderView` is the panel's rows, and `theme::{aura_ring,
+lifted_mark, squad_mark}` the three pictures. `BIMS_CLASS=commander`
+puts the class on slot 0 of any launch, and `BIMS_KEYS` knows `X` and
+`Z`.
+
+## Every player has two orders for the bots that follow them (feature 84)
+
+`crates/world/src/orders.rs` is the whole of the world's side: one
+`Standing` a player slot on `World::standing` — `Follow`, `Attack {
+tile }` or `Retreat` — and nothing else. It is **not a class's**: every
+player has these two from the first step, whatever they chose in the
+yard, and `World::can_order(slot)` asks only that they are `fit_to_act`.
+
+* **`Command::Orders { slot, order }`** is the seam, and the commander's
+  squad rule is its rule: the **same order given again** puts that
+  player's bots back to following, which is what a second press of the
+  key does. An attack wants ground under the banner —
+  `Game::is_banner_tile`, a free deck tile of the crew's room or
+  anywhere at all on a plain, where the ground beyond the deck's box is
+  walked on the body's own window — and is `Refusal::NoGroundThere` (74)
+  otherwise. `WorldEvent::Ordered { who, kind }` (86) says it, the kind
+  being `Standing::code` and nought the release.
+* **`hand_the_room_the_standing`**, in the step right after the squad's
+  hand-off, drops the order of a player no longer fit to act — down,
+  asleep, outside — and hands the room one `bims::game::Standing` a slot
+  with the attack's tile turned into room units. The squad's is handed
+  first on purpose: a commander's order to the squad is a class's and
+  outranks the standing one, which is the order the room reads them in.
+* **And it says where the ship is**, `Game::set_home` off
+  `Aboard::gangway` — the deck a few tiles inside the **ship's** own
+  airlock, in room units, `None` for a ship flying alone. A retreat
+  goes there, and the room cannot work it out for itself: its own
+  `Room::gangway` on a joined deck is the joined design's first *free*
+  airlock, and the ship's is mated to the station, so the room answers
+  the station's **far** door — which is why a retreat walked the crew
+  the length of the building away from the ship until this was said.
+  `World::fall_back_point()` is the same spot for the app, which stands
+  a blue **defend sign** (`theme::defend_banner`) on it while any player
+  has a retreat called, since a retreat has no banner of its own to put
+  down and the log's line was the only word for it. Nothing new is
+  hashed: it is a handover, like `set_foreign`.
+* **In `world_checksum`** after the squad order: the length, then each
+  order's code and an attack's tile. An order moves bodies, so two
+  clients that disagree about it disagree about where the crew are
+  standing. `REFERENCE_CHECKSUM` moved to `0x_0e55_7d58_533d_1c7e`;
+  **`SAVE_VERSION` 22, `wire::PROTOCOL` 14**.
+
+**Whose order a bot is under, and what it then does, are the room's** —
+`crates/game/CLAUDE.md`, "The bots follow a player": the bot takes the
+order of the player whose own Bim it is nearest, the crew are under arms
+whenever a player is leading them (`Game::led`, which is a player's own
+Bim recruited or a standing order given) as well as at the alarm, and
+the ship is a last stand no order takes anybody out of. The world does
+not decide any of that, because the room is what knows where everybody
+is standing.
+
+The app's half: `keys::Action::{Attack (F), Retreat (T)}` — which is
+what moved the camera's Follow onto V — `screens::game::orders_key`, the
+armed red pointer (`attack_cursor`), `theme::attack_banner` and
+`theme::defend_banner` on the deck. `tests_standing.rs` is the rule: the
+order given, said and released; the two refusals; the checksum and a
+twin; the bots under it and the player's own never; the fall back
+walking home and **arriving**; that home is the ship's own gangway and
+not the station's far door; and the two ways it is walked — backwards
+with the gun up, or a sprint with nothing to shoot at.
+
+## What a class's keys have left is the world's, and so is the level they want (feature 80)
+
+The app draws two boxes at the foot of the screen for the class's own
+two keys (the root `CLAUDE.md`, "The class's two keys have two boxes"),
+and every number on one comes from here rather than being worked out
+there. Nothing new is kept and nothing new is hashed: they are all
+readings of what the world already holds.
+
+- **`class::key_level(class, primary)`** is which level a key is learnt
+  at — every class's **E** from the first and its **Q** from the third
+  (`SENTRY_LEVEL`, `GRENADE_LEVEL`, `SURGE_LEVEL`, `TAUNT_LEVEL`,
+  `RALLY_LEVEL`, all three) — and `None` for `Class::None`, which has no
+  keys at all. `a_class_s_e_is_its_first_level_and_its_q_its_third` pins
+  the shape, and the app's own
+  `the_two_boxes_say_what_the_keys_do_and_how_many_are_left` pins that a
+  class has a box exactly where it has a key.
+- **`World::kits_of(who, kit)`** counts a kit in a crew member's pack,
+  the way `grenades_of` counts grenades, and **`World::sentries_left`**
+  is what an engineer could still lay: those kits held down to the room
+  `sentry_limit` less `sentries_of` leaves it — which is why
+  `sentries_of` is public now. Three kits at the two-sentry limit is
+  two, and one more laid is one.
+- The rest were public already: `grenades_of` and
+  `grenade_cooldown_left`, `is_braced`, `surge_charge`/`is_surging`,
+  `patients_of`/`beam_patients`, `taunt_left`/`taunt_cooldown_left`,
+  `is_bulwark`, `rally_left`/`rally_cooldown_left`, `squad_members` and
+  `World::squad`.
+
+The box never decides anything — a press still goes through
+`can_deploy`, `can_throw` and the rest, which know about the pointer as
+well — so a box that looks ready and a key the world refuses are not a
+disagreement: the box says what it can see from here, and the log says
+the rest.
+
+## A class is worn, and the room is only told (feature 81)
+
+`Class::outfit()` is the one table from a class to the kit the room draws
+over the coverall (`bims::character::Outfit`), and
+`World::hand_the_room_the_outfits` — in the step, beside the engineers'
+handover — walks the crew and calls `Game::set_outfit(who, …)` for each.
+It is **drawing only**: nothing reads it back, nothing is hashed, no
+`SAVE_VERSION` and no `wire::PROTOCOL` moved for it, and the room's field
+is `serde(skip)` because it is a function of `World::classes` — a load
+has it back on the first step.
+
+A class is a **player slot's**, so `class_of` answers `Class::None` for
+the crew past the players and they are drawn `Outfit::Plain`, which is
+what every Bim looked like before; a station's residents are never told
+at all. It is said every step rather than at `set_class`, because a class
+is also chosen in the yard, a hire shifts the crew and a restore brings a
+whole world in — and `set_outfit` writes only when the answer changed.
+The pictures themselves are `crates/game/CLAUDE.md`'s.
+
+## The machines hold a station, and they come in waves (feature 83)
+
+`crates/world/src/droid.rs` is the plan; `bims::droid` is the machine
+(`crates/game/CLAUDE.md`, "A droid is not a Bim"). **Which** stations are
+held is the crisis step's job and is not this step: here a droid station
+exists only in the probes, behind one flag — `World::infest(id)`, which
+the crisis step will call and which `Session::droids` and
+`droids_planet` call meanwhile.
+
+**A held station has no people at all.** `World::people_of` is nought
+for one and `mercenaries_of` with it, and `World::stance` is Hostile for
+one whatever the hostile list says — so the room is hostile, its bodies
+are at war, and every seam the fight already had works unchanged.
+`World::infest` reopens a room already open on that station
+(`reopen_residents`, factored out of `set_hostile`, which used the same
+machinery to arm a garrison where two residents stood), so the people
+are gone the moment the machines have it. `reopen_residents` compares
+against the room's **`crew_count`** and not `Aboard::count`, which counts
+the machines too.
+
+**`World::infested` is one `Infestation` a held station**, sorted by id
+and **in `world_checksum`** whole — how many waves are left, which is
+aboard, when the next is due, whether it has been settled and whether it
+has been cleared — beside the tier the machines come at
+(`droid_tier`), the reinforcement clock (`droid_reinforce`) and the wave
+cap (`droid_wave_max`), all three of which the probes move. It is the
+size of the fight, which is why `reinforcements` is in there too.
+
+- **The wave count is fixed at the crew's first dock and never worked
+  out again** (`Infestation::settle`, called from `droid_waves` the first
+  step the rooms are joined): `DROID_WAVES_BASE` + the calendar + half
+  the worth steps + a tenth of the levels, or whatever
+  `World::set_droid_waves_for_probe` says — the `droids` commands set
+  **three** (`screens::game::DROID_WAVES_IN_PROBE`, `BIMS_DROID_WAVES=n`
+  over it), since the formula's two at day nought is one wave landing and
+  then a cleared station, and what those commands are for is the wave
+  after the first. That dial is neither saved nor hashed, unlike the
+  other three: it is read once and what it decides —
+  `Infestation::waves_left` — is both. Wave one is aboard then,
+  stood about the station's rooms (`droid::spots_about`, free deck tiles
+  spread across the design).
+- **The wave size is worked out as each wave appears**, so a crew that
+  has grown richer between waves meets more: `DROID_WAVE_BASE` + the
+  crew + the calendar + the worth steps + a third of the levels, capped
+  at `DROID_WAVE_MAX`. **Integers only, and nothing doubles** — a crew
+  ten times as rich meets eighteen *steps* added, not ten doublings,
+  which `station::scaled` would have made it. That is deliberate:
+  `DROID_WAVE_MAX` is a **performance limit**, not a balance one, and a
+  formula that could reach it in one jump would make the cap the only
+  number that mattered.
+- **The mix is `bims::droid::mix_of`**: Wardens `n / 6`, Husks `n / 3`,
+  Troopers the rest, and `wave_kinds` orders them Wardens, Husks,
+  Troopers so a Trooper's arm is dealt by its place *among the Troopers*
+  — pistol, rifle, pistol, rifle.
+- **No reinforcement while a machine lives.** `droid_waves`, a stage of
+  the step right after `settle_residents`: with any of them standing the
+  clock is held at `None`; with none standing and waves left it is set to
+  `clock_minutes + DROID_REINFORCE_MINUTES` (two hours, a minute in the
+  probes) and the wave lands when it runs out. A wave whose time came
+  while the crew were away is aboard the moment the room opens again,
+  since the clock is the world's and not the room's, and leaving and
+  coming back resets nothing.
+- **Where a wave arrives.** At a station, `droid::arrival_airlock` — the
+  airlock **farthest from the port** (the first airlock, where the crew
+  dock; ties go to the lower index) — and the machines are posted
+  `data::ASHORE_TILES` inside it, spread round the spot in rings so a
+  wave does not land on one tile, the way `Residents::post_boarders`
+  posts a raider's. On a surface, just inside the **gate** its lander set
+  down beyond: north for an odd wave and south for an even one
+  (`droid::gate_spot`). The lander itself is drawn on the plain, which is
+  the crew's room's to draw — **a town's own room is the deck alone and
+  has no plain in it**, so the machines are posted at the gate rather
+  than beside the lander and walk in from there. That is the one place
+  this step falls short of what was asked, and it is the room geometry
+  saying so rather than a shortcut.
+  **A ring falls where it falls, and `Game::adopt_droids` snaps what
+  lands badly.** Four machines of sixteen came down in a bulkhead or out
+  in the void at the arena, where a body fits in neither: they could not
+  walk, nothing was ever in their sight, they never fired a shot, and
+  they held the wave *after* them up as well, since nothing arrives while
+  one is still standing — "the second wave does not shoot any more".
+  Every machine adopted onto a spot the nav grid says is blocked is put
+  on the nearest free cell now, exactly as `Game::adopt` puts a Bim
+  carried between rooms. `every_machine_of_a_landing_wave_stands_where_a_body_fits`
+  in `tests_droid.rs` lands two waves and asks the room of every one of
+  them. `adopt_droids` also **keeps each machine's `plan_wait`** where it
+  zeroed it: that is the stagger `build_wave` spread over `PLAN_EVERY`,
+  and every wave laid went through the adopt and lost it.
+- **A wave cleared takes the room's memory of it with it.**
+  `Residents::{down, xp_down, xp_dead, last_hit_by, fee}` are one entry a
+  **body** and `visit` only ever *grows* them, since a wave landing makes
+  the room bigger. A wave *destroyed* makes it smaller, and the arrival
+  cuts all five back to the room's Bims beside `clear_droids` — without
+  that every machine of the next wave was born already flagged down: no
+  `DroidDown` said when it was destroyed, and no experience paid for it.
+  `the_next_wave_s_machines_are_said_down_and_paid_for_like_the_first`.
+- **The ship is a picture.** `World::droid_ship(station)` is where it
+  stands in the station's own design units and which way it faces, and
+  whether it is a lander; `world_paint::droid_ship` draws it into the
+  station's frame. It is drawn **while its wave has machines alive** —
+  wave one arrived on nothing and gets none — and it is not part of the
+  room, cannot be entered and cannot be shot.
+- **Arrival raises `WorldEvent::DroidReinforcements { station }`** (code
+  83) and puts every player's speed request back to 1× once, as raid
+  contact does. The last machine of the last wave destroyed raises
+  `WorldEvent::DroidStationCleared { station }` (84) **once**, and
+  `World::droid_station_cleared(id)` answers for it afterwards — what the
+  crisis step will read.
+- **The countdown is two readings and no new state.**
+  `World::droid_wave_standing()` is `(which wave is aboard, how many are
+  still to come)` at the held station alongside and
+  `World::droid_wave_due()` how long until the next lands, in minutes of
+  the world's clock — `None` while a machine is still standing, since the
+  clock does not run then, and `None` with none left. Both are read off
+  the `Infestation` the world already keeps, the way `raid_minutes_left`
+  is read off the raid. The app draws them along the top in the raid's
+  own red frame (`screens::game::droid_warning`, `names::droids_*`): the
+  wave and how many of it are standing while the fight is on, then the
+  countdown the moment the last of them is down. That is the one number
+  the player had no way of knowing.
+
+
+### Every place that assumed a hostile body is a `Bim`
+
+The survey feature 83 asked for, done before a line was written, and what
+each one turned into. The rule that came out of it: **`Game::crew_count`
+stayed the Bims and `Game::body_count` became the index space the world
+hands over**, so a `who` inside the room is still a Bim's and only the
+handful of methods the *world* asks of the other room had to learn the
+difference.
+
+In `bims::game` (`crates/game/src/game.rs`):
+
+| assumed a `Bim` | now |
+| --- | --- |
+| `is_alive`, `is_down`, `is_unconscious` | dispatch: a machine is up or a wreck, and never out cold |
+| `weapon`, `peek`, `exposed_at`, `dodge` | dispatch; a machine's arm is a `Weapon` value and its dodge is nought |
+| `loot_cells`, `take_from_body` | empty and refused for a machine |
+| `execute_body` | refused: there is no down-and-alive state to finish off |
+| `strike(who, part, ..)` | `strike_droid(i, DroidPart, ..)` beside it, the part off `Hit::roll` |
+| `bim_pos(who)` | `body_pos(who)` |
+| `set_hostiles`' eyes (`self.bims.iter()`) | the machines are eyes too, or a room of nothing but machines never sees anybody |
+| `update_doors`' and `shut_now`'s bodies | the machines are bodies for the doors |
+| `render`'s body loop | the machines drawn after the Bims, in body order |
+| `take_crew`/`adopt` | `take_droids`/`adopt_droids` beside them |
+| `hostile_bodies`, `at_war`, `muster` | untouched: a machine is recruited by nothing and `tick_droids` reads `war` directly |
+
+In `world` (`crates/world/src/{world,crew}.rs`):
+
+| assumed a `Bim` | now |
+| --- | --- |
+| `Aboard::count`, `Aboard::position` | `body_count`, `body_pos` |
+| `visit`'s hits loop | a hit past the Bims goes to `strike_droid` |
+| `visit`'s `alive`/`weapons`/`peeking`/`dodge` lists | over `room.body_count()` |
+| `visit`'s `down` loop | over the body count, and says `DroidDown` for a machine |
+| `visit`'s `down` list for the joined deck | false for a machine: a wreck is not a body to loot |
+| `Residents::{down, xp_down, xp_dead, last_hit_by, fee}` | resized to the body count each step, since a wave landing makes the room bigger |
+| `Residents::hailable` | `fee.get(who)`: a machine has no entry and no fee |
+| `close_residents`' losses | the Bims alone |
+| `Residents::join`/`unjoin` | carry the machines across with the same shift |
+| `people_of`, `mercenaries_of` | nought at a held station |
+| `stance` | Hostile at a held station whatever the list says |
+| `set_hostile`'s reopen | `reopen_residents`, shared with `infest`, comparing against `crew_count` |
+| `experience`, `enemy_standing_at`, `enemy_dead_at` | unchanged: they ask `is_alive`/`is_unconscious`, which dispatch |
+| `take_hits`, `take_shots`, `enemy_fire`, `enemy_strike` | unchanged: a `Shot` and a `Hit` never knew whose body they were |
+
+In `app`: `resident_name(station, who)` over a machine, which now reads
+`Session::resident_droid` first and writes the kind (`names::droid_name`)
+instead of somebody's name.
+
+**The seam the machines needed taught.** `visit` hands the crew's room
+the residents' **bodies** — its Bims and then its machines, one index
+space — and reads the hits back against the same: a hit past the Bims is
+`room.strike_droid(i, DroidPart::hit_by(hit.roll), hit.damage)`, and
+everything else lands as it always did. `Aboard::count` and
+`Aboard::position` are `body_count` and `body_pos` now, so the positions,
+the exposed positions, the weapons, the peeking and the dodge lists all
+grow with a wave; `visit` resizes `down`, `xp_down`, `xp_dead`,
+`last_hit_by` and `fee` to the body count each step, since a wave landing
+makes the room bigger. `close_residents` counts the **Bims** alone — a
+machine destroyed is no loss of the station's people — and the `down`
+list the joined deck is told is false for a machine, so a click on a
+wreck is a click on the deck and the Loot window never opens on one.
+`Residents::join` and `unjoin` carry the machines across with
+`Game::take_droids`/`adopt_droids`, by the same shift the Bims take.
+
+Experience falls out unchanged: a wreck is `!is_alive` and never
+`is_unconscious`, so `World::experience` pays `XP_ENEMY_DOWN` and
+`XP_ENEMY_DEAD` together and once, which is what the feature asked for.
+
+`crates/world/src/tests_droid.rs` is the world's half — a held station
+has machines and no people, a hit reaches the one it was aimed at, a
+wreck is down and carries nothing, no reinforcement while one lives and
+one exactly a clock after the last dies, the farthest airlock, the count
+fixed at the first dock, cleared said once, the state surviving a
+leaving, the checksum noticing, and two worlds on one seed meeting the
+same machines — and `droid::tests` pins the arithmetic.

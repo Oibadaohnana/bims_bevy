@@ -24,6 +24,31 @@ plain rects and `aboard.rs` is the only place that builds one from a
 design. A second use of `shipdesign` anywhere else in `crates/game` breaks
 every probe at once.
 
+## A probe simulates; it does not draw
+
+Every probe steps the room with **`Game::simulate`**. `Game::update` is
+`simulate` *plus* `render`, and a probe that runs a week of the clock calls
+it 86 400 times a simulated day — for a picture nobody ever looks at. The
+step itself is about **two microseconds**; the picture is about **five
+hundred**, nearly all of it `Sight::light_map`, which marches the mask
+afresh for every body that has moved and composes it over every pixel the
+move touched. So rendering was ninety-nine per cent of a probe's run: the
+`./check probes` step went from ninety seconds to a hundred minutes when
+the light map went in, and `./check full` stopped being something anybody
+waited for. `crew.rs` alone was sixteen minutes, and is now six seconds.
+
+Nothing in the simulation reads what the picture works out — the mask's
+`seen` is asked for by `Game::seen_at` and by the fog's own drawing and by
+nothing else — which is why `Game::observe` is public: a probe that wants
+`seen_at` calls it itself, a step at a time, for half a microsecond.
+`scratchpad/layout.rs` is the one that still calls `update`, because
+dumping the draw buffer is the whole of what it does.
+
+`./check probes` runs each probe under `timeout PROBE_SECONDS` (120) for
+the other half of the same lesson: a probe steps the room *until something
+happens*, so a change that stops it happening is a probe that never
+returns, and a check that hangs is a check nobody runs. It should fail.
+
 ## A long-run probe's *final* reading is an accident
 
 A Bim past the rest trigger with that trigger switched off nods off where it
@@ -142,3 +167,19 @@ Pinning rather than switching autonomy off is the point: a Bim with autonomy
 off does not eat either, and a run that starves its subject is measuring
 starvation. The same reasoning applies to anything else on a multi-day clock.
 
+
+## A new `crates/game/src/*.rs` is a line in `modules.rs`, and the probes say so loudly
+
+Feature 83 added `crates/game/src/droid.rs`, and `game.rs` gained a
+`use crate::droid::…` with it. Every probe then failed to compile with
+`unresolved import crate::droid` — the shared module list had no
+`mod droid;` — and `./check probes` went red while every other step
+stayed green, since `cargo` builds the crate by its own `lib.rs` and
+never looks at `modules.rs`.
+
+That is the list above working as designed: one file to edit, and one
+failure rather than a stale binary printing a confident pass. But
+**nothing in the crate reminds you**, so the rule is worth saying
+plainly: a new module under `crates/game/src/` that anything already on
+the list reaches is a `#[path]` line here in the same commit. The only
+module deliberately left off is `aboard.rs`, for the reason above.

@@ -135,12 +135,17 @@ pub enum ResourceId {
     /// worth of emitter and action on two bars of metal. The same rules
     /// as the sandbag kit's.
     SentryKit = 24,
+    /// A soldier's grenade (feature 75, `world::class`): a bar of metal
+    /// and a component's worth of fuse, made at the armoury, carried one
+    /// to a pack cell and thrown by a soldier alone — anybody may make,
+    /// carry and trade one. Sold nowhere; a station buys one back.
+    Grenade = 25,
 }
 
 impl ResourceId {
     /// Every resource, in discriminant order. `ALL[id as usize].id == id`,
     /// which [`ResourceId::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [ResourceId; 25] = [
+    pub const ALL: [ResourceId; 26] = [
         ResourceId::Ore,
         ResourceId::Metal,
         ResourceId::Components,
@@ -166,6 +171,7 @@ impl ResourceId {
         ResourceId::ResearchKeyTwo,
         ResourceId::SandbagKit,
         ResourceId::SentryKit,
+        ResourceId::Grenade,
     ];
 
     pub fn def(self) -> &'static ResourceDef {
@@ -200,7 +206,7 @@ pub struct ResourceDef {
 /// components and the galvum that went into it, and four components weigh
 /// one metal. `shipdesign::recipes` is where those recipes live and
 /// `every_recipe_conserves_mass` there is what holds this column to them.
-pub static RESOURCES: [ResourceDef; 25] = [
+pub static RESOURCES: [ResourceDef; 26] = [
     ResourceDef {
         id: ResourceId::Ore,
         mass_per_unit: 10.0,
@@ -314,6 +320,11 @@ pub static RESOURCES: [ResourceDef; 25] = [
     ResourceDef {
         id: ResourceId::SentryKit,
         mass_per_unit: 36.0,
+    },
+    // A grenade weighs what went into it: a bar of metal and a component.
+    ResourceDef {
+        id: ResourceId::Grenade,
+        mass_per_unit: 10.0,
     },
 ];
 

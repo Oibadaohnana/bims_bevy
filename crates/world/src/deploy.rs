@@ -168,7 +168,10 @@ pub const SENTRY_SHOTS: u32 = 80;
 /// What refilling a sentry costs out of the hold.
 pub const SENTRY_REFILL_METAL: u32 = 1;
 /// Sandbag kits an engineer sets out with in its pack.
-pub const ENGINEER_START_KITS: u32 = 4;
+pub const ENGINEER_START_KITS: u32 = 3;
+/// Sentry kits it sets out with beside them: one, so the sentry its Q
+/// is can be laid without standing at a workbench first.
+pub const ENGINEER_START_SENTRIES: u32 = 1;
 /// Metal a repair at the workbench takes.
 pub const ARMOUR_REPAIR_METAL: u32 = 1;
 

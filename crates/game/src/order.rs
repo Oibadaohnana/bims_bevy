@@ -245,6 +245,11 @@ impl Game {
             && who(w) < self.crew_count() as usize
         {
             self.drop_ordered(who(w));
+            // An order to an errand ends a medic's beam (feature 76); a
+            // walk does not — a medic may walk while it holds one.
+            if !matches!(order, CrewOrder::SendTo { .. }) {
+                self.set_beaming(who(w), false);
+            }
         }
         match order {
             CrewOrder::Select { x0, y0, x1, y1 } => {
@@ -489,6 +494,7 @@ impl Game {
                 Kind::Treat {
                     patient: who(patient),
                     part: part.code(),
+                    bare: false,
                 },
                 0.0,
             ),
@@ -737,5 +743,72 @@ mod tests {
         // What is not an errand is done now, Shift or no.
         game.order_later(0, CrewOrder::Autonomous { on: true });
         assert!(game.is_autonomous());
+    }
+
+    /// A walk the player gave is not an errand, and nobody takes a Bim
+    /// off one.
+    ///
+    /// An errand interrupted goes onto the queue and is picked up again; a
+    /// *walk* interrupted is simply gone, since there is no chain behind
+    /// it to save. So a crewmate wanting a word — the one errand a Bim
+    /// starts on somebody *else* — leaves alone a Bim on a route it was
+    /// sent along, and one with Shift-clicks still waiting their turn: the
+    /// chain is walked to its end and the errands come after. A Bim
+    /// standing about with nothing of the player's on it is fair game, as
+    /// it always was.
+    #[test]
+    fn a_crewmate_s_word_does_not_take_a_shift_chain_off_a_bim() {
+        use crate::game::JOB_CHAT;
+        const DT: f32 = 1.0 / 60.0;
+        // The fifth need is `Need::Company`; spent to nothing it is the one
+        // errand that reaches across to another Bim.
+        const COMPANY: u32 = 4;
+        let lonely = || {
+            let mut game = room();
+            game.set_autonomous(true);
+            game.set_stock(4, 4, 4, 4);
+            game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+            game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+            game.order(0, CrewOrder::SelectOwn);
+            game.spend_for_probe(1, COMPANY, 0.99);
+            game
+        };
+
+        // Standing about, the word lands: this is what the rule below is
+        // measured against.
+        let mut game = lonely();
+        let mut chatted = false;
+        for _ in 0..120 {
+            game.simulate(DT);
+            chatted |= game.activity(0) == JOB_CHAT;
+        }
+        assert!(chatted, "an idle Bim is somebody to talk to");
+
+        // The same room, with a chain of Shift-clicks on it: nobody so much
+        // as asks until every leg has been walked.
+        let mut game = lonely();
+        let goal = vec2(ROOM_W * 0.7, ROOM_H * 0.15);
+        for p in [
+            vec2(ROOM_W * 0.3, ROOM_H * 0.85),
+            vec2(ROOM_W * 0.7, ROOM_H * 0.85),
+            goal,
+        ] {
+            assert_eq!(
+                game.order_later(0, CrewOrder::Move { x: p.x, y: p.y }),
+                ORDER_MOVING
+            );
+        }
+        let mut steps = 0;
+        while (game.bim_pos(0) - goal).len() > 2.0 * TILE && steps < 3000 {
+            game.simulate(DT);
+            steps += 1;
+            assert_ne!(
+                game.activity(0),
+                JOB_CHAT,
+                "taken off the chain at step {steps}"
+            );
+        }
+        assert!(steps < 3000, "walked the lot: {:?}", game.bim_pos(0));
+        assert_eq!(game.ordered_count(0), 0, "nothing left waiting");
     }
 }

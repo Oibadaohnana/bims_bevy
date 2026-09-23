@@ -197,6 +197,26 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(station as u64);
     }
     hash.eat(world.reinforcements as u64);
+    // And which stations the machines hold, in id order, with the state
+    // of each (feature 83): how many waves are left, which is aboard,
+    // when the next is due and whether it has been settled or cleared.
+    // It is the size of the fight, so two worlds that disagree about it
+    // are two different fights — the reason `reinforcements` is in here.
+    // The tier they come at and the reinforcement clock go in with them,
+    // since the probes move both.
+    hash.eat(world.infested.len() as u64);
+    for it in &world.infested {
+        hash.eat(it.station as u64);
+        hash.eat(it.waves_left as u64);
+        hash.eat(it.wave as u64);
+        hash.eat(u64::from(it.next_wave.is_some()));
+        hash.eat_rounded(it.next_wave.unwrap_or(0.0), FINE_GRID);
+        hash.eat(u64::from(it.settled));
+        hash.eat(u64::from(it.cleared));
+    }
+    hash.eat(u64::from(world.droid_tier().code()));
+    hash.eat_rounded(world.droid_reinforce_minutes(), FINE_GRID);
+    hash.eat(u64::from(world.droid_wave_max()));
     // The hired hands: who, what a month costs, when it is next due and
     // whether one is owed. A crew member that costs money is a different
     // crew from one that does not.
@@ -431,6 +451,8 @@ pub fn world_checksum(world: &World) -> u64 {
     // shelves the way they go in above: a crew that emptied a station and
     // one that did not are two different galaxies.
     eat_losses(&mut hash, &world.losses);
+    eat_graves(&mut hash, &world.graves);
+    eat_nodes(&mut hash, &world.visited);
     hash.eat(world.memories.len() as u64);
     for memory in &world.memories {
         hash.eat(memory.star as u64);
@@ -460,13 +482,10 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(lamp.tile.1 as u64);
             hash.eat_rounded(lamp.health as f64, HEALTH_GRID);
         }
-        hash.eat(memory.discovered.len() as u64);
-        for node in &memory.discovered {
-            let (kind, id) = node_key(node);
-            hash.eat(kind as u64);
-            hash.eat(id as u64);
-        }
+        eat_nodes(&mut hash, &memory.discovered);
         eat_losses(&mut hash, &memory.losses);
+        eat_graves(&mut hash, &memory.graves);
+        eat_nodes(&mut hash, &memory.visited);
     }
 
     // The classes and what each crew member has learnt, whether the
@@ -505,6 +524,123 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(n as u64);
     }
 
+    // The soldiers (feature 75): who is braced and each one's *rampage*
+    // stacks — the room's, read off it like the positions, integers — and
+    // when each crew member last threw a grenade, on the clock's grid. A
+    // soldier braced is a different fight from one standing easy.
+    let crew = world.aboard.crew_count() as usize;
+    hash.eat(crew as u64);
+    for who in 0..crew {
+        hash.eat(u64::from(world.aboard.room.is_braced(who)));
+        hash.eat(world.aboard.room.rampage(who) as u64);
+    }
+    hash.eat(world.last_throw.len() as u64);
+    for last in &world.last_throw {
+        match last {
+            Some(minutes) => {
+                hash.eat(1);
+                hash.eat_rounded(*minutes, FINE_GRID);
+            }
+            None => hash.eat(0),
+        }
+    }
+
+    // The medics (feature 76): who each beam holds, each surge's charge
+    // on the clock's grid, the field surgery this fight, and — the
+    // room's, read off it like the brace — the seconds each body's surge
+    // has left, to a hundredth. A patient held is a different fight
+    // from one bleeding.
+    hash.eat(world.medics.len() as u64);
+    for medic in &world.medics {
+        hash.eat(medic.patients.len() as u64);
+        for &p in &medic.patients {
+            hash.eat(p as u64);
+        }
+        hash.eat_rounded(medic.charge, FINE_GRID);
+        hash.eat(u64::from(medic.field_surgery_used));
+    }
+    for who in 0..crew {
+        hash.eat(u64::from(world.aboard.room.is_surging(who)));
+        hash.eat_rounded(world.aboard.room.surge_left(who) as f64, HEALTH_GRID);
+        hash.eat(u64::from(world.aboard.room.surge_closing(who)));
+    }
+
+    // The tanks (feature 77): when each last taunted, on the clock's
+    // grid, and — the room's, read off it like the brace — who stands
+    // as a wall and how many enemy hits each body has taken since its
+    // last point of experience. A wall up is a different fight.
+    hash.eat(world.tanks.len() as u64);
+    for tank in &world.tanks {
+        match tank.last_taunt {
+            Some(minutes) => {
+                hash.eat(1);
+                hash.eat_rounded(minutes, FINE_GRID);
+            }
+            None => hash.eat(0),
+        }
+    }
+    for who in 0..crew {
+        hash.eat(u64::from(world.aboard.room.is_bulwark(who)));
+        hash.eat(world.aboard.room.hits_taken(who) as u64);
+    }
+
+    // The commanders (feature 78): when each last rallied, on the
+    // clock's grid, and the one squad order the crew are under — whose
+    // it is, what it is and who is in it. A squad ordered somewhere is
+    // a different fight. The aura is not here: it is worked out afresh
+    // every step from where the commanders stand.
+    hash.eat(world.commanders.len() as u64);
+    for commander in &world.commanders {
+        match commander.last_rally {
+            Some(minutes) => {
+                hash.eat(1);
+                hash.eat_rounded(minutes, FINE_GRID);
+            }
+            None => hash.eat(0),
+        }
+    }
+    match &world.squad {
+        None => hash.eat(0),
+        Some(order) => {
+            hash.eat(1);
+            hash.eat(order.by_slot as u64);
+            hash.eat(u64::from(order.kind.code()));
+            match &order.kind {
+                crate::commander::SquadKind::Attack { enemies } => {
+                    hash.eat(enemies.len() as u64);
+                    for &enemy in enemies {
+                        hash.eat(enemy as u64);
+                    }
+                }
+                crate::commander::SquadKind::FallBack { tile } => {
+                    hash.eat(tile.0 as i64 as u64);
+                    hash.eat(tile.1 as i64 as u64);
+                }
+                crate::commander::SquadKind::StandGround => {}
+            }
+            hash.eat(order.members.len() as u64);
+            for &who in &order.members {
+                hash.eat(who as u64);
+            }
+        }
+    }
+    // And every player's standing order to the bots (feature 84,
+    // `crate::orders`): it moves bodies, so two clients that disagree
+    // about it disagree about where the crew are standing.
+    hash.eat(world.standing.len() as u64);
+    for order in &world.standing {
+        hash.eat(u64::from(order.code()));
+        if let crate::orders::Standing::Attack { tile } = order {
+            hash.eat(tile.0 as i64 as u64);
+            hash.eat(tile.1 as i64 as u64);
+        }
+    }
+    // And the seconds each body has been dying with an enemy about,
+    // which is what a commander's aura buys it (`bims::bim::Bim::fear`).
+    for who in 0..crew {
+        hash.eat_rounded(world.aboard.room.fear(who) as f64, HEALTH_GRID);
+    }
+
     hash.0
 }
 
@@ -532,6 +668,76 @@ fn eat_losses(hash: &mut Fnv, losses: &[crate::memory::Losses]) {
         hash.eat(loss.station as u64);
         hash.eat(loss.dead as u64);
         hash.eat(loss.mercenaries as u64);
+    }
+}
+
+/// A list of nodes — a chart, or where the crew have been — whole.
+fn eat_nodes(hash: &mut Fnv, nodes: &[worldgen::Node]) {
+    hash.eat(nodes.len() as u64);
+    for node in nodes {
+        let (kind, id) = node_key(node);
+        hash.eat(kind as u64);
+        hash.eat(id as u64);
+    }
+}
+
+/// The bodies lying on the stations' decks (feature 85): whose deck,
+/// where on it to a thousandth like any position, and what is still on
+/// each — a body is loot until somebody takes it, so what is on it is
+/// worth as much agreement as what is on a shelf. What it *looked* like
+/// is not in here, for the reason no other body's look is.
+fn eat_graves(hash: &mut Fnv, graves: &[crate::memory::Grave]) {
+    hash.eat(graves.len() as u64);
+    for grave in graves {
+        hash.eat(grave.station as u64);
+        hash.eat_rounded(grave.x, POSITION_GRID);
+        hash.eat_rounded(grave.y, POSITION_GRID);
+        hash.eat(u64::from(grave.hired));
+        eat_gear(hash, &grave.gear);
+    }
+}
+
+/// What is on a body: what it wears, the gun in its hand and its pack,
+/// cell by cell — integers throughout but a piece's health, to a
+/// hundredth as a piece of armour's goes in anywhere else.
+fn eat_gear(hash: &mut Fnv, gear: &bims::combat::Gear) {
+    for piece in [gear.head, gear.body, gear.legs] {
+        match piece {
+            None => hash.eat(u64::MAX),
+            Some(piece) => {
+                hash.eat(piece.kind.code() as u64);
+                hash.eat(piece.tier.code() as u64);
+                hash.eat_rounded(piece.health as f64, HEALTH_GRID);
+            }
+        }
+    }
+    match gear.weapon {
+        None => hash.eat(u64::MAX),
+        Some(weapon) => {
+            hash.eat(weapon.kind.code() as u64);
+            hash.eat(weapon.tier.code() as u64);
+        }
+    }
+    for (cell, item) in gear.pack.iter().enumerate() {
+        let Some(item) = item else { continue };
+        hash.eat(cell as u64);
+        let (kind, a, b) = item_codes(item);
+        hash.eat(kind);
+        hash.eat(a);
+        hash.eat(b);
+        hash.eat(u64::from(gear.turned[cell]));
+    }
+}
+
+/// One thing in a pack as three numbers, the way `grid::Kept::codes`
+/// gives a slot's: which of the four, then what.
+fn item_codes(item: &bims::combat::Item) -> (u64, u64, u64) {
+    use bims::combat::Item;
+    match item {
+        Item::Armour(piece) => (0, piece.kind.code() as u64, piece.tier.code() as u64),
+        Item::Weapon(weapon) => (1, weapon.kind.code() as u64, weapon.tier.code() as u64),
+        Item::Stack(code) => (2, *code as u64, 0),
+        Item::Key(tier) => (3, u64::from(*tier), 0),
     }
 }
 

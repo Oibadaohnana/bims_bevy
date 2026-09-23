@@ -1505,3 +1505,284 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
         assert!(Part::ALL.iter().all(|&p| gear.worn(p).is_none()));
     }
 }
+
+/// The classes in the design phase (features 74 and 75): a class chosen
+/// leaves the pool alone — every Bim brings the same money, whatever it
+/// is — and is what the world opens with, each with its starting kit;
+/// and the classes, the progress and a deployable laid all read back
+/// from a save the same, checksum and all.
+#[test]
+fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved() {
+    use crate::Session;
+    use world::deploy::Kit;
+    use world::{Class, Command};
+    let mut session = Session::design(
+        shipdesign::fixture::AREA,
+        100_000,
+        2,
+        0,
+        world::data::DEFAULT_SEED,
+        0,
+        ship_session_spawn(),
+        crate::Preset::Empty,
+        CANVAS.0,
+        CANVAS.1,
+    );
+    let plain = session.remaining();
+    assert_eq!(plain, 200_000);
+    assert!(session.set_class(0, Class::Engineer));
+    assert_eq!(session.class_of(0), Class::Engineer);
+    assert_eq!(session.class_of(1), Class::None);
+    assert_eq!(
+        session.remaining(),
+        plain,
+        "a class owns abilities, never money"
+    );
+    assert!(!session.set_class(0, Class::Engineer), "no change");
+    assert!(!session.set_class(5, Class::Engineer), "no such slot");
+    assert!(session.set_class(0, Class::Soldier));
+    assert_eq!(session.remaining(), plain);
+    assert!(session.set_class(1, Class::Engineer));
+    session.editor.give(shipdesign::fixture::combat_ship());
+    let hash = session.editor.hash();
+    assert!(session.accept(0, hash));
+    assert!(session.accept(1, hash));
+    assert!(session.playing());
+    let world = &session.game.as_ref().unwrap().world;
+    assert_eq!(world.class_of(0), Class::Soldier);
+    assert_eq!(world.class_of(1), Class::Engineer);
+    assert_eq!(
+        world.aboard.room.weapon(0),
+        Some(bims::combat::WeaponKind::AutoRifle.basic()),
+        "the soldier's rifle is in its hand"
+    );
+    assert_eq!(world.grenades_of(0), 2);
+    let kits = |session: &Session, who: usize| {
+        session
+            .game
+            .as_ref()
+            .unwrap()
+            .world
+            .aboard
+            .room
+            .pack(who)
+            .iter()
+            .filter(|i| **i == Some(bims::combat::Item::Stack(Kit::Sandbag.resource() as u32)))
+            .count()
+    };
+    assert_eq!(
+        kits(&session, 1),
+        world::deploy::ENGINEER_START_KITS as usize,
+        "the kits are in the pack"
+    );
+    assert_eq!(kits(&session, 0), 0);
+    assert!(
+        !session.set_class(0, Class::Engineer),
+        "playing: the command's job"
+    );
+    // A kit laid, a level reached, and the whole of it through a save.
+    {
+        let world = &mut session.game.as_mut().unwrap().world;
+        let mut events = Vec::new();
+        world.award(1, 100, &mut events);
+        assert!(events.iter().any(|e| matches!(
+            e,
+            world::WorldEvent::LevelUp {
+                who: 1,
+                level: 2,
+                ..
+            }
+        )));
+        let here = world.aboard.room.bim_pos(1);
+        let t = TILE as f32;
+        let (cx, cy) = ((here.x / t).floor() as i32, (here.y / t).floor() as i32);
+        let mut laid = false;
+        'outer: for dx in -4..=4 {
+            for dy in -4..=4 {
+                if world
+                    .can_deploy(1, Kit::Sandbag, (cx + dx, cy + dy))
+                    .is_ok()
+                {
+                    world.step(&[Command::Deploy {
+                        slot: 1,
+                        kit: Kit::Sandbag,
+                        x: cx + dx,
+                        y: cy + dy,
+                    }]);
+                    laid = true;
+                    break 'outer;
+                }
+            }
+        }
+        assert!(laid, "somewhere near the engineer to lay a kit");
+    }
+    for _ in 0..20_000 {
+        session.world_step();
+        if !session.game.as_ref().unwrap().world.deployables.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(session.game.as_ref().unwrap().world.deployables.len(), 1);
+    let text = session.save().expect("a world to save");
+    let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    let (a, b) = (
+        &session.game.as_ref().unwrap().world,
+        &back.game.as_ref().unwrap().world,
+    );
+    assert_eq!(a.checksum(), b.checksum());
+    assert_eq!(b.classes, vec![Class::Soldier, Class::Engineer]);
+    assert_eq!(b.progress_of(1).level(), 2);
+    assert_eq!(b.deployables, a.deployables);
+    assert_eq!(back.class_of(1), Class::Engineer);
+    assert_eq!(back.class_of(0), Class::Soldier);
+    assert_eq!(b.grenades_of(0), 2, "the grenades read back in the pack");
+
+    // And a medic's beam and charge, the same way (feature 76): the
+    // soldier is a medic in a fresh session, linked to the engineer,
+    // and the link and the charge read back.
+    let mut session = Session::design(
+        shipdesign::fixture::AREA,
+        100_000,
+        2,
+        0,
+        world::data::DEFAULT_SEED,
+        0,
+        ship_session_spawn(),
+        crate::Preset::Empty,
+        CANVAS.0,
+        CANVAS.1,
+    );
+    assert!(session.set_class(0, Class::Medic));
+    session.editor.give(shipdesign::fixture::combat_ship());
+    let hash = session.editor.hash();
+    assert!(session.accept(0, hash));
+    assert!(session.accept(1, hash));
+    {
+        let world = &mut session.game.as_mut().unwrap().world;
+        assert_eq!(world.class_of(0), Class::Medic);
+        assert_eq!(
+            world
+                .aboard
+                .room
+                .pack(0)
+                .iter()
+                .filter(|i| **i
+                    == Some(bims::combat::Item::Stack(
+                        physics::ResourceId::Medkit as u32
+                    )))
+                .count(),
+            2,
+            "the medkits are in the pack"
+        );
+        // Crew member 1 beside it, a wound on it, and the beam on.
+        let at = world.aboard.room.bim_pos(0) + bims::math::vec2(TILE as f32, 0.0);
+        world.aboard.room.put_for_probe(1, at);
+        world.aboard.room.wound(1, bims::health::Part::Legs, 2.0);
+        world.step(&[]);
+        world.step(&[Command::Beam {
+            slot: 0,
+            patient: Some(1),
+        }]);
+        assert_eq!(world.patients_of(0), vec![1]);
+        for _ in 0..600 {
+            world.step(&[]);
+        }
+        assert!(world.surge_charge(0) > 0.0, "charging");
+    }
+    let text = session.save().expect("a world to save");
+    let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    let (a, b) = (
+        &session.game.as_ref().unwrap().world,
+        &back.game.as_ref().unwrap().world,
+    );
+    assert_eq!(a.checksum(), b.checksum());
+    assert_eq!(b.class_of(0), Class::Medic);
+    assert_eq!(b.patients_of(0), vec![1], "the beam reads back");
+    assert_eq!(b.surge_charge(0), a.surge_charge(0));
+}
+
+/// Feature 83: a world with the machines in it round-trips through a
+/// save whole — which station they hold, which wave is aboard, when the
+/// next is due, and every machine where it stood with the damage it had.
+/// The checksum, the picture and six hundred steps on, as the round trip
+/// above asks of a world with people in it.
+#[test]
+fn a_droid_held_station_is_saved_and_read_back_whole() {
+    use crate::Session;
+    let mut session = Session::droids(
+        world::data::DEFAULT_SEED,
+        bims::combat::Tier::One,
+        1.0,
+        None,
+        3,
+        CANVAS.0,
+        CANVAS.1,
+    );
+    // Step until the wave is aboard, then knock a couple about so the
+    // save has damage and a wreck in it rather than a fresh rack.
+    for _ in 0..60 {
+        session.world_step();
+    }
+    let standing = session
+        .game
+        .as_ref()
+        .map(|g| g.world.droids_standing())
+        .unwrap_or(0);
+    assert!(standing > 2, "a wave stood up: {standing}");
+    {
+        let world = &mut session.game.as_mut().unwrap().world;
+        let room = &mut world.residents.as_mut().unwrap().aboard.room;
+        room.strike_droid(0, bims::droid::DroidPart::Chassis, 1e6);
+        room.strike_droid(1, bims::droid::DroidPart::Legs, 5.0);
+        room.strike_droid(2, bims::droid::DroidPart::Arms, 1e6);
+    }
+    session.world_step();
+
+    let text = session.save().expect("a world to save");
+    let mut back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+
+    let machines = |s: &Session| {
+        let world = &s.game.as_ref().unwrap().world;
+        let room = &world.residents.as_ref().unwrap().aboard.room;
+        (0..room.droid_count() as usize)
+            .filter_map(|i| room.droid(i))
+            .map(|d| {
+                (
+                    d.kind.code(),
+                    d.weapon.kind.code(),
+                    d.destroyed,
+                    (d.pos.x * 1000.0) as i64,
+                    (d.pos.y * 1000.0) as i64,
+                    bims::droid::DroidPart::ALL.map(|p| (d.body.health(p) * 100.0) as i64),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let waves = |s: &Session| {
+        let world = &s.game.as_ref().unwrap().world;
+        world.infested.clone()
+    };
+    let same = |a: &Session, b: &Session, when: &str| {
+        let (ga, gb) = (a.game.as_ref().unwrap(), b.game.as_ref().unwrap());
+        assert_eq!(ga.world.checksum(), gb.world.checksum(), "checksum, {when}");
+        assert_eq!(waves(a), waves(b), "which waves are left, {when}");
+        assert_eq!(machines(a), machines(b), "the machines, {when}");
+    };
+    assert!(!machines(&session).is_empty(), "there are machines to keep");
+    assert!(
+        machines(&session).iter().any(|m| m.2),
+        "and a wreck among them"
+    );
+    assert!(!waves(&session).is_empty(), "and a station held");
+    same(&session, &back, "as read back");
+    assert_eq!(
+        session.render().to_vec(),
+        back.render().to_vec(),
+        "the picture, as read back"
+    );
+    for _ in 0..600 {
+        session.world_step();
+        back.world_step();
+    }
+    same(&session, &back, "six hundred steps on");
+}

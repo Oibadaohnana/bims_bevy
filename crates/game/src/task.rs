@@ -706,10 +706,14 @@ pub enum Kind {
     /// Treating the trauma on one part of `patient` — a crewmate, never
     /// the Bim itself — with a medkit out of the room's store. The same
     /// two steps as a bandage, [`TREAT_MINUTES`] with hands on it, and
-    /// `Dress` hands the pair back on `Room::treated` instead.
+    /// `Dress` hands the pair back on `Room::treated` instead. `bare` is
+    /// a treatment with no kit at all — a medic's *field surgery*
+    /// (feature 76): straight to the patient, nothing fetched and
+    /// nothing spent.
     Treat {
         patient: usize,
         part: u32,
+        bare: bool,
     },
     /// Picking a weapon up off the deck — `Room::weapons_down`, by its id —
     /// where a body knocked out let go of it: the walk over and a moment
@@ -781,7 +785,8 @@ impl Kind {
             Kind::Build { outside: true, .. } => Step::GoToSuitLocker,
             Kind::Build { outside: false, .. } => Step::GoToSite,
             Kind::Bandage { .. } => Step::GoToPatient,
-            Kind::Treat { .. } => Step::GoToKit,
+            Kind::Treat { bare: false, .. } => Step::GoToKit,
+            Kind::Treat { bare: true, .. } => Step::GoToPatient,
             Kind::Fetch { .. } => Step::GoToDropped,
             Kind::Execute { .. } => Step::GoToVictim,
             Kind::Ferry { .. } => Step::GoToStore,
@@ -2226,20 +2231,28 @@ impl Task {
     }
 
     /// Off to treat the trauma on `part` of `patient` with a medkit — over to
-    /// wherever it stands, and [`TREAT_MINUTES`] with hands on it.
+    /// wherever it stands, and [`TREAT_MINUTES`] with hands on it. `bare`
+    /// fetches no kit and spends none — a medic's field surgery (feature
+    /// 76) — and starts at the patient.
     pub fn treat(
         who: usize,
         patient: usize,
         part: u32,
+        bare: bool,
         ch: &mut Character,
         room: &mut Room,
         maps: &Maps,
         taken: &Taken,
     ) -> Task {
+        let kind = Kind::Treat {
+            patient,
+            part,
+            bare,
+        };
         Task::starting_at(
             who,
-            Kind::Treat { patient, part },
-            Step::GoToKit,
+            kind,
+            kind.first_step(),
             TREAT_MINUTES,
             ch,
             room,
@@ -2477,12 +2490,7 @@ impl Task {
     /// length; a doze runs for as long as the Bim was told to sleep.
     fn duration(&self) -> f32 {
         match self.step {
-            Step::Doze
-            | Step::Work
-            | Step::Mine
-            | Step::Construct
-            | Step::Dress
-            | Step::Deploy => {
+            Step::Doze | Step::Work | Step::Mine | Step::Construct | Step::Dress | Step::Deploy => {
                 clock::seconds(self.rest_minutes)
             }
             step => step.duration(),
@@ -2908,11 +2916,19 @@ impl Task {
                     return;
                 }
             }
-            // The nearest container with a kit in it, or — a room with none,
-            // where the kits are simply to hand — the spot the Bim is on,
-            // so the walk is of no length and `TakeKit` follows at once.
+            // A kit of its own first: a Bim carrying one — a medic with
+            // its start kit, anybody who fetched one into its pack —
+            // opens that where it stands, so there is no walk at all.
+            // Otherwise the nearest container with a kit in it, or — a
+            // room with none, where the kits are simply to hand — the
+            // spot the Bim is on, so the walk is of no length and
+            // `TakeKit` follows at once either way.
             Step::GoToKit => {
-                self.target = kit_stand(room, maps, ch.pos).or(Some(ch.pos));
+                self.target = if room.carries_kit(self.who) {
+                    Some(ch.pos)
+                } else {
+                    kit_stand(room, maps, ch.pos).or(Some(ch.pos))
+                };
             }
             // Beside the weapon on the deck, if it still lies there. Gone —
             // somebody else picked it up since the order — and the errand is
@@ -3317,7 +3333,7 @@ impl Task {
                     && let Some(build) = site_of(room, site)
                     && let Some((resource, units)) = build.haul
                 {
-                    room.picked.push((site, resource, units));
+                    room.picked.push((site, resource, units, self.who));
                 }
                 ch.hold_main(Held::Crate);
             }
@@ -3372,11 +3388,19 @@ impl Task {
                 // a kit used. Spent here rather than in `apply_treatments`
                 // because the finished chain is let go of first, and
                 // `let_go` puts a kit still in the hands back on the shelf.
-                Kind::Treat { patient, part } => {
-                    if ch.main_held() == Held::Medkit {
+                // A bare treatment — a medic's field surgery (feature 76)
+                // — had no kit to spend.
+                Kind::Treat {
+                    patient,
+                    part,
+                    bare,
+                } => {
+                    if bare {
+                        room.treated.push((self.who, patient, part, true));
+                    } else if ch.main_held() == Held::Medkit {
                         ch.hold_main(Held::Nothing);
                         room.medkits_used += 1;
-                        room.treated.push((self.who, patient, part));
+                        room.treated.push((self.who, patient, part, false));
                     }
                 }
                 _ => {}
@@ -3384,8 +3408,21 @@ impl Task {
             // The kit is in the hands and off the shelf. The game charges the
             // hold for it only when the treatment is done; a chain given up
             // for good puts it back (`let_go`).
+            //
+            // Out of the Bim's own pack when it has one there: the room
+            // says whose (`pack_kits_used`) and the world takes it out of
+            // the pack and onto the hold's count, so that from here on
+            // there is one kind of kit in a hand and the counting is the
+            // same for both.
             TakeKit => {
-                room.medkits = room.medkits.saturating_sub(1);
+                if room.carries_kit(self.who) {
+                    if let Some(kits) = room.pack_kits.get_mut(self.who) {
+                        *kits -= 1;
+                    }
+                    room.pack_kits_used.push(self.who);
+                } else {
+                    room.medkits = room.medkits.saturating_sub(1);
+                }
                 ch.hold_main(Held::Medkit);
             }
             // The thing off the first bench, in the arms: the room says so,

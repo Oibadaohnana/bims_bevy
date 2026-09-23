@@ -47,10 +47,17 @@ fn main() {
     // --- the list itself ----------------------------------------------------
 
     let mut list = Priorities::new();
+    // Every row starts at the same number but the medical one, which starts
+    // at the top: a wound is dressed the moment there is a bandage for it
+    // unless the player says otherwise (`Priorities::new`).
     check!(
-        "every job starts at the same number",
-        Job::ALL.iter().all(|&j| list.of(j) == list.of(Job::ALL[0]))
+        "every job but the medical one starts at the same number",
+        Job::ALL
+            .iter()
+            .filter(|&&j| j != Job::Medical)
+            .all(|&j| list.of(j) == list.of(Job::Clean))
     );
+    check!("and the medical one starts at the top", list.of(Job::Medical) == HIGHEST);
     check!(
         "which is between the ends of the range",
         (HIGHEST..=LOWEST).contains(&list.of(Job::Clean)),
@@ -61,6 +68,7 @@ fn main() {
     // Round the houses and back, one off the number each time: up through
     // the top to never, and round to the bottom from there.
     let start = list.of(Job::Clean);
+    let others: Vec<u32> = Job::ALL.iter().filter(|&&j| j != Job::Clean).map(|&j| list.of(j)).collect();
     let mut seen = Vec::new();
     for _ in NEVER..=LOWEST {
         seen.push(list.cycle(Job::Clean));
@@ -73,7 +81,11 @@ fn main() {
     check!("and lands back where it began", list.of(Job::Clean) == start);
     check!(
         "cycling one job leaves the others alone",
-        Job::ALL.iter().filter(|&&j| j != Job::Clean).all(|&j| list.of(j) == start)
+        Job::ALL
+            .iter()
+            .filter(|&&j| j != Job::Clean)
+            .map(|&j| list.of(j))
+            .eq(others.iter().copied())
     );
     let mut back = Vec::new();
     for _ in NEVER..=LOWEST {
@@ -255,7 +267,7 @@ fn main() {
                 // job at the top never runs out and the one at the bottom is
                 // never simply the only thing left.
                 mess_up(&mut game, 6);
-                game.update(STEP);
+                game.simulate(STEP);
                 for w in 0..CREW {
                     worst[w] = worst[w].min(game.health(w));
                     ate[w] |= matches!(game.activity(w), JOB_MEAL | JOB_BOWL | JOB_LEFTOVERS);
@@ -293,7 +305,7 @@ fn main() {
 
     let mut game = Game::new(9, 960.0, 640.0);
     game.recruit_for_probe(1, true);
-    game.update(STEP);
+    game.simulate(STEP);
     check!(
         "nobody bleeding, no medical row on offer",
         !game.work_on_offer_for_probe(0).contains(&Job::Medical.code()),
@@ -302,7 +314,7 @@ fn main() {
     mess_up(&mut game, 20);
     let mut sweeping = false;
     for _ in 0..(20 * 60 * 60) {
-        game.update(STEP);
+        game.simulate(STEP);
         if game.activity(0) == JOB_CLEAN {
             sweeping = true;
             break;
@@ -329,7 +341,7 @@ fn main() {
     // At the bottom of the list it waits its turn: the sweep goes on.
     game.set_work_priority(Job::Medical.code(), LOWEST);
     for _ in 0..(2 * 60) {
-        game.update(STEP);
+        game.simulate(STEP);
     }
     check!(
         "with the row at the bottom, the sweep goes on",
@@ -342,7 +354,7 @@ fn main() {
         game.bleeding(0)
     );
     game.set_work_priority(Job::Medical.code(), HIGHEST);
-    game.update(STEP);
+    game.simulate(STEP);
     check!(
         "put at the top, the sweep is dropped for the dressing at once",
         game.activity(0) == game::JOB_BANDAGE,
@@ -355,7 +367,7 @@ fn main() {
     );
     let mut dressed = None;
     for f in 0..(60 * 60) {
-        game.update(STEP);
+        game.simulate(STEP);
         if game.bleeding(0) == 0 {
             dressed = Some(f);
             break;
@@ -368,7 +380,7 @@ fn main() {
     );
     let mut resumed = false;
     for _ in 0..(10 * 60) {
-        game.update(STEP);
+        game.simulate(STEP);
         if game.activity(0) == JOB_CLEAN {
             resumed = true;
             break;
@@ -423,7 +435,7 @@ fn when_the_bay_asks(set: Option<(Job, u32, Job, u32)>) -> Vec<u32> {
         // The deck is kept dirty throughout, so that when the bay does speak
         // up there is something for it to be weighed against.
         mess_up(&mut game, 6);
-        game.update(STEP);
+        game.simulate(STEP);
         let on_offer = game.work_on_offer_for_probe(0);
         if on_offer
             .iter()
@@ -449,7 +461,7 @@ fn race(set: Option<(Job, u32, Job, u32)>) -> Race {
         // Topped up as it goes: whichever job wins must not win simply by
         // being the only one still going.
         mess_up(&mut game, 6);
-        game.update(STEP);
+        game.simulate(STEP);
         for w in 0..CREW {
             match game.activity(w) {
                 JOB_MEAL | JOB_BOWL | JOB_LEFTOVERS if out.meal.is_none() => out.meal = Some(f),

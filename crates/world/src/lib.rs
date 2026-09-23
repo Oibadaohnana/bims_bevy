@@ -50,40 +50,49 @@ pub mod armour;
 pub mod build;
 pub mod checksum;
 pub mod class;
+pub mod commander;
 pub mod crew;
 pub mod data;
 pub mod deploy;
 pub mod docking;
+pub mod droid;
 pub mod event;
 pub mod fixture;
 pub mod frame;
 pub mod grid;
 pub mod jump;
+pub mod medic;
 pub mod memory;
 pub mod mercenary;
 pub mod mining;
+pub mod orders;
 pub mod plunder;
 pub mod raid;
 pub mod speed;
 pub mod station;
 pub mod surface;
+pub mod tank;
 pub mod world;
 
 pub use armour::{FetchKind, LootSource, Piece, Where};
 pub use build::{BuildSite, SiteRefusal};
 pub use checksum::world_checksum;
 pub use class::{Class, Progress, Side, Talent};
+pub use commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
 pub use deploy::{Deck, DeployKind, Deployable, Kit};
 pub use event::{Refusal, WorldEvent};
 pub use frame::Frame;
 pub use grid::{Grid, Kept, Slot, Wanted};
+pub use medic::Medic;
 pub use memory::{Losses, SystemMemory};
 pub use mining::{MiningSite, Rock, RockTile};
+pub use orders::Standing;
 pub use plunder::Plunder;
 pub use raid::{Raid, Raids, boarders_of, raider_id, raider_index};
 pub use speed::Speed;
 pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};
+pub use tank::Tank;
 pub use world::{
     Command, Power, Preview, Ship, ShipState, StartError, UPGRADE_ORDER, Upgrade, Workbench, World,
     spawn, spawn_anywhere, spawn_with_ground,
@@ -98,7 +107,13 @@ pub use flight::{Phase, PlanError, Target};
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_commander;
+#[cfg(test)]
+mod tests_droid;
+#[cfg(test)]
 mod tests_engineer;
+#[cfg(test)]
+mod tests_medic;
 #[cfg(test)]
 mod tests_memory;
 #[cfg(test)]
@@ -108,4 +123,10 @@ mod tests_plunder;
 #[cfg(test)]
 mod tests_raid;
 #[cfg(test)]
+mod tests_soldier;
+#[cfg(test)]
+mod tests_standing;
+#[cfg(test)]
 mod tests_surface;
+#[cfg(test)]
+mod tests_tank;

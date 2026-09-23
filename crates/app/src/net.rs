@@ -73,7 +73,8 @@ use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message as Frame, WebSocket};
 use wire::{ClientCtl, Closed, PeerId, PeerInfo, Refusal, ServerCtl, To, decode, encode};
 
-use bims::character::{Hair, Look, Shade};
+use bims::character::{Hair, Look, Shade, Tint};
+use world::Class;
 
 use crate::screens::builder::Settings;
 use crate::screens::designer::Message;
@@ -411,6 +412,10 @@ pub enum Packet {
         slots: Vec<PeerId>,
         names: Vec<String>,
         hair: Vec<(Hair, Shade)>,
+        /// Each slot's class, by `world::Class` code (feature 74).
+        classes: Vec<u32>,
+        /// Each slot's colour, by its place in `Tint::ALL` (feature 84).
+        tints: Vec<u8>,
     },
     /// What the player called their Bim, to everybody: on every change,
     /// and again whenever somebody joins. Empty is the app's own name for
@@ -422,6 +427,16 @@ pub enum Packet {
     /// (`character::Hair`, `Shade`), to everybody like the name: on every
     /// change and again whenever somebody joins (feature 62).
     BimHair(Hair, Shade),
+    /// Which colour the player's own Bim is ringed in
+    /// (`character::Tint`'s place in `Tint::ALL`), to everybody like the
+    /// hair: on every change and again whenever somebody joins (feature
+    /// 84). A code rather than the value, since a stranger's build may
+    /// know more colours than this one.
+    BimTint(u8),
+    /// What class the player chose for their Bim (`world::Class`'s code),
+    /// to everybody like the hair: on every change and again whenever
+    /// somebody joins (feature 74).
+    BimClass(u32),
     /// Where the player's pointer is, as a point on the ship's grid
     /// (`Session::design_point`) — the same tile on every machine
     /// whatever each has zoomed and turned — or `None` when it left the
@@ -518,6 +533,14 @@ pub struct Online {
     /// What each peer chose for their Bim's hair (`Packet::BimHair`);
     /// nothing for a peer who has not said. Dealt at Start like the names.
     pub hairs: Vec<(PeerId, (Hair, Shade))>,
+    /// What each peer chose for their Bim's colour (`Packet::BimTint`);
+    /// nothing for a peer who has not said. Dealt at Start like the
+    /// hair, and what the lobby greys a swatch by, so no two players
+    /// take the same one (feature 84).
+    pub tints: Vec<(PeerId, Tint)>,
+    /// What each peer chose for their Bim's class (`Packet::BimClass`);
+    /// nothing for a peer who has not said. Dealt at Start like the hair.
+    pub classes: Vec<(PeerId, Class)>,
     /// Where each peer's pointer is over the ship — a design point — for
     /// those whose pointer is over it. Folded in from `Packet::Cursor`
     /// as it arrives, never an event: it is a picture, not a decision.
@@ -558,6 +581,8 @@ impl Online {
         self.slots.clear();
         self.bims.clear();
         self.hairs.clear();
+        self.tints.clear();
+        self.classes.clear();
         self.cursors.clear();
         self.pending = None;
         self.sent_cursor = None;
@@ -668,6 +693,69 @@ impl Online {
         changed
     }
 
+    /// What a peer chose for their Bim's colour, if they said (feature
+    /// 84).
+    pub fn bim_tint(&self, peer: PeerId) -> Option<Tint> {
+        self.tints.iter().find(|(p, _)| *p == peer).map(|(_, t)| *t)
+    }
+
+    /// Tell the room which colour this player's Bim is ringed in. Every
+    /// change, and again when somebody joins.
+    pub fn say_bim_tint(&self, tint: Tint) {
+        self.send(To::All, &Packet::BimTint(tint.code()));
+    }
+
+    /// Which colours the **other** players in the lobby have taken, so
+    /// the chooser can grey them: a colour is one player's, which is the
+    /// whole point of it.
+    pub fn tints_taken(&self) -> Vec<Tint> {
+        let me = self.me;
+        self.tints
+            .iter()
+            .filter(|(p, _)| Some(*p) != me)
+            .map(|(_, t)| *t)
+            .collect()
+    }
+
+    /// The crew's colours in slot order, as the host deals it at Start:
+    /// what each peer said, and the slot's own of [`Tint::ALL`] for one
+    /// who said nothing. Everybody keeps the same list.
+    pub fn deal_tints(&self, slots: &[PeerId]) -> Vec<Tint> {
+        slots
+            .iter()
+            .enumerate()
+            .map(|(slot, &p)| {
+                self.bim_tint(p)
+                    .unwrap_or(Tint::ALL[slot % Tint::ALL.len()])
+            })
+            .collect()
+    }
+
+    /// What the others said their Bims' colours are, put onto the crew's
+    /// list by slot, the way [`Online::hair_said`] puts the hair. `true`
+    /// when something changed. Nothing for this player's own slot.
+    pub fn tint_said(&self, tints: &mut Vec<Tint>) -> bool {
+        let mut changed = false;
+        for (peer, said) in &self.tints {
+            let Some(slot) = self.slot_of(*peer) else {
+                continue;
+            };
+            let slot = slot as usize;
+            if tints.len() <= slot {
+                // The slots between are the dealt colours, as
+                // `deal_tints` would have dealt them.
+                for s in tints.len()..=slot {
+                    tints.push(Tint::ALL[s % Tint::ALL.len()]);
+                }
+            }
+            if tints[slot] != *said {
+                tints[slot] = *said;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Where this player's pointer is over the ship, as a design point,
     /// or `None` off it: sent to the room when it moved and `CURSOR_EVERY`
     /// has gone by since the last — or at once when it left, so nobody
@@ -698,6 +786,50 @@ impl Online {
             .collect()
     }
 
+    /// What a peer chose for their Bim's class, if they said.
+    pub fn bim_class(&self, peer: PeerId) -> Option<Class> {
+        self.classes
+            .iter()
+            .find(|(p, _)| *p == peer)
+            .map(|(_, c)| *c)
+    }
+
+    /// Tell the room what class this player's Bim is. Every change, and
+    /// again when somebody joins.
+    pub fn say_bim_class(&self, class: Class) {
+        self.send(To::All, &Packet::BimClass(class.code()));
+    }
+
+    /// The crew's classes in slot order, as the host deals them at Start:
+    /// what each peer said, and none for one who said nothing.
+    pub fn deal_classes(&self, slots: &[PeerId]) -> Vec<Class> {
+        slots
+            .iter()
+            .map(|&p| self.bim_class(p).unwrap_or_default())
+            .collect()
+    }
+
+    /// What the others said their Bims' classes are, put onto the crew's
+    /// list by slot, the way [`Online::hair_said`] puts the hair. `true`
+    /// when something changed. Nothing for this player's own slot.
+    pub fn classes_said(&self, classes: &mut Vec<Class>) -> bool {
+        let mut changed = false;
+        for (peer, said) in &self.classes {
+            let Some(slot) = self.slot_of(*peer) else {
+                continue;
+            };
+            let slot = slot as usize;
+            if classes.len() <= slot {
+                classes.resize(slot + 1, Class::None);
+            }
+            if classes[slot] != *said {
+                classes[slot] = *said;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     fn set_cursor(&mut self, peer: PeerId, at: Option<(f32, f32)>) {
         self.cursors.retain(|(p, _)| *p != peer);
         if let Some(at) = at {
@@ -710,6 +842,8 @@ impl Online {
         let keep: Vec<PeerId> = self.peers.iter().map(|p| p.id).collect();
         self.bims.retain(|(p, _)| keep.contains(p));
         self.hairs.retain(|(p, _)| keep.contains(p));
+        self.tints.retain(|(p, _)| keep.contains(p));
+        self.classes.retain(|(p, _)| keep.contains(p));
         self.cursors.retain(|(p, _)| keep.contains(p));
     }
 
@@ -833,6 +967,15 @@ impl Online {
                     Ok(Packet::BimHair(hair, shade)) => {
                         self.hairs.retain(|(p, _)| *p != from);
                         self.hairs.push((from, (hair, shade)));
+                    }
+                    Ok(Packet::BimClass(code)) => {
+                        self.classes.retain(|(p, _)| *p != from);
+                        self.classes
+                            .push((from, Class::from_code(code).unwrap_or_default()));
+                    }
+                    Ok(Packet::BimTint(code)) => {
+                        self.tints.retain(|(p, _)| *p != from);
+                        self.tints.push((from, Tint::from_code(code)));
                     }
                     Ok(packet) => events.push(Event::Packet { from, packet }),
                     Err(_) => {

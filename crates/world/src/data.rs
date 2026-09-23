@@ -325,3 +325,31 @@ pub const RAIDER_SIDE: u32 = 20;
 /// to three medkits, and so on for everything its kind stocks — a haul
 /// worth the fight, and nothing a friendly desk would not sell.
 pub const PLUNDER_STACKS_MAX: u32 = 3;
+
+// --- the droids (feature 83) ---------------------------------------------
+
+/// How many machines a wave of an infested station is, before anything
+/// about the crew is counted (`crate::droid::wave_size`): this many, one
+/// a crew member, one every [`ENEMIES_DAYS`] the game has run, one for
+/// every half of the crew's starting worth their worth has grown by, and
+/// one for every three levels the crew have between them.
+pub const DROID_WAVE_BASE: u32 = 2;
+/// The most a wave ever is. **A performance limit, not a balance one**:
+/// every machine is a body stepped, a stand scored and a line traced, and
+/// past this a wave costs more of a frame than the fight is worth. See
+/// the measurements in the root `CLAUDE.md`.
+pub const DROID_WAVE_MAX: u32 = 16;
+/// How many waves an infested station has, before the crew are counted
+/// (`crate::droid::wave_count`): this many, one every [`ENEMIES_DAYS`],
+/// one for every two halves the worth has grown by, and one for every ten
+/// levels the crew have between them. Fixed at the crew's **first dock**
+/// and never worked out again.
+pub const DROID_WAVES_BASE: u32 = 2;
+/// How long after the last machine of a wave is destroyed the next one
+/// arrives, in minutes of the world's clock — two hours. Never while one
+/// is still standing.
+pub const DROID_REINFORCE_MINUTES: f64 = 120.0;
+/// How far beyond a town's wall the machines' lander sets down, in
+/// tiles: far enough that its own picture does not overlap the gate it
+/// unloaded through.
+pub const DROID_LANDER_TILES: f64 = 7.0;

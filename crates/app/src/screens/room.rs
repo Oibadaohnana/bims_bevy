@@ -410,7 +410,6 @@ fn frame(
         .order(egui::Order::Middle)
         .show(&ctx, |ui| {
             panel_frame().show(ui, |ui| {
-                ui.set_min_width(240.0);
                 if !screen.panels.side(ui, &mut screen.game, &name) {
                     ui.label(egui::RichText::new("Click a Bim to look at it.").color(theme::MUTED));
                 }
@@ -548,6 +547,12 @@ fn frame(
         } else {
             theme::THEIRS
         };
+        // The red cross over one in a dying state, under its name: a
+        // part at nothing with the trauma on it untreated.
+        if screen.game.is_alive(who as usize) && screen.game.is_dying(who as usize) {
+            let over = view.to_canvas(Vec2::new(at.x, at.y)) + canvas.min;
+            theme::dying_cross(&painter, egui::pos2(over.x, over.y), view.scale);
+        }
         theme::name_over(&painter, egui::pos2(head.x, head.y), &name(who), color);
         let topic = screen.game.chat_topic(who as usize);
         if topic != 0 {

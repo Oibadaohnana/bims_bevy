@@ -24,6 +24,7 @@ pub mod cue;
 pub mod dish;
 pub mod door;
 pub mod draw;
+pub mod droid;
 pub mod filth;
 pub mod galley;
 pub mod game;

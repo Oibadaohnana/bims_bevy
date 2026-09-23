@@ -7,7 +7,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Eleven things to run, and each is a name rather than a flag:
+//! Twenty-three things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -24,6 +24,16 @@
 //!                    and made hostile, its people enemies, fifteen of
 //!                    them; a recruited crew member shoots at any it can
 //!                    see
+//! bims combat_<class>
+//!                    that fight with a class on the crew member you steer:
+//!                    `combat_engineer`, `combat_soldier`, `combat_medic`,
+//!                    `combat_tank`, `combat_commander` — one a class, at
+//!                    the tenth level of it with every talent still to
+//!                    choose; `BIMS_LEVEL` says otherwise
+//! bims combat_droids_<class>
+//!                    the machines' fight with that class in hand:
+//!                    `combat_droids_engineer` … `combat_droids_commander`,
+//!                    `droids` as `combat_<class>` is `combat`
 //! bims tier2_test    `combat` with everybody's kit at tier two: every gun and
 //!                    a full set of armour, crew and garrison alike
 //! bims tier3_test    the same at tier three
@@ -34,6 +44,8 @@
 //!                    a grid to sketch a station's rough shape on, saved as
 //!                    text to `stations/<name>.txt` for a plan to be
 //!                    written from
+//! bims list          every one of them printed, and what it opens, rather
+//!                    than a window: `--list`, `--help` and `-h` are it too
 //! bims --self-check  the pinned constants, checked, and the verdict printed
 //! ```
 
@@ -57,7 +69,7 @@ mod theme;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-/// Which of the eleven things this process is.
+/// Which of the twenty-three things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -69,9 +81,37 @@ pub enum Launch {
     /// friendly ground, and the ship landed at the settlement.
     TestPlanet,
     Combat,
+    /// `Combat` with a class already on the crew member you steer: the
+    /// `combat_engineer`, `combat_soldier`, `combat_medic`, `combat_tank`
+    /// and `combat_commander` commands, one a class (feature 79). The
+    /// fight is `Combat`'s own — the same ship, the same arena, the same
+    /// garrison — so what a class does in it is the only thing that
+    /// differs between two of these runs. `BIMS_CLASS` still wins over it.
+    /// It opens at `dev::COMBAT_CLASS_LEVEL` — the tenth, the top of the
+    /// tree, with every one of the seven talents still to choose
+    /// (feature 80) — and `BIMS_LEVEL` says otherwise.
+    CombatAs(world::Class),
     /// `Combat` with everybody's guns and armour at one tier, both
     /// sides: the `tier2_test` and `tier3_test` commands.
     CombatAtTier(bims::combat::Tier),
+    /// `Combat` with the arena **droid-held** instead of garrisoned
+    /// (feature 83): the same ship and the same crew, and a wave of
+    /// machines about the arena instead of its people.
+    /// `DROID_REINFORCE_MINUTES` is a minute here, so the next wave can
+    /// be watched arriving.
+    Droids,
+    /// `Droids` with a class already on the crew member you steer: the
+    /// `combat_droids_engineer` … `combat_droids_commander` commands,
+    /// one a class. It is to `Droids` exactly what [`Launch::CombatAs`]
+    /// is to `Combat` — the same ship, the same arena, the same wave and
+    /// the same two dials (`BIMS_DROID_TIER`, `BIMS_DROID_WAVE`) — so
+    /// what a class does **against the machines** is the only thing that
+    /// differs between two of these runs. The level and the engineer's
+    /// sentry kits are `CombatAs`'s as well, since both go through
+    /// `dev::class_crew`.
+    DroidsAs(world::Class),
+    /// `TestPlanet` with the town droid-held, the same shortcut.
+    DroidsPlanet,
     /// The simulation with a raid on its way: off the berth and holding,
     /// contact ten seconds in.
     Raid,
@@ -103,9 +143,143 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|room|test|test_planet|combat|tier2_test|tier3_test|raid|stationbuilder [name]|--self-check]"
+        "usage: bims [game|simulation|design|room|test|test_planet|combat|combat_<class>|tier2_test|tier3_test|droids|combat_droids_<class>|droids_planet|raid|stationbuilder [name]|list|--self-check]"
     );
+    eprintln!("       a class is one of: {}", class_words().join(", "));
+    eprintln!("       `bims list` says what each of them opens");
     std::process::exit(2)
+}
+
+/// Every command but the `combat_<class>` and `combat_droids_<class>`
+/// ones, and what it opens — the one list, printed by [`list`] and
+/// nothing else. A new command is a row here and an arm in `main`; the
+/// classes' commands are not written out, since [`class_words`] reads
+/// them off `Class::ALL`.
+const COMMANDS: [(&str, &str); 15] = [
+    (
+        "game",
+        "The whole game in order: menu, setup or lobby, world and station, ship design, then the world docked where you said",
+    ),
+    ("simulation", "Straight into the world on the playtest ship"),
+    (
+        "design",
+        "Straight into the yard, the playtest ship given, docked where the simulation docks",
+    ),
+    ("room", "The behaviour test room: Bims on a deck"),
+    (
+        "test",
+        "The simulation somewhere else each time: a random galaxy, docked at a station somebody lives on, a mercenary for hire at the dock",
+    ),
+    (
+        "test_planet",
+        "That set down on a planet: the pad, the ground and the settlement beside it",
+    ),
+    (
+        "combat",
+        "The fight: the combat ship's fourteen crew, a gun in every hand, docked at the arena and its fifteen people turned against them",
+    ),
+    (
+        "tier2_test",
+        "The fight with everybody's guns and armour at tier two, crew and garrison alike",
+    ),
+    ("tier3_test", "The same at tier three"),
+    (
+        "droids",
+        "The fight with the arena held by the machines: a wave of droids instead of its people, reinforcements a minute apart",
+    ),
+    (
+        "droids_planet",
+        "That on a planet: a town held by the machines, the ship set down at its pad",
+    ),
+    (
+        "raid",
+        "The simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in",
+    ),
+    (
+        "stationbuilder [name]",
+        "The station builder: a grid to sketch a station's rough shape on, saved as text to stations/<name>.txt",
+    ),
+    (
+        "list",
+        "This list, rather than a window: `--list`, `--help` and `-h` are it too",
+    ),
+    (
+        "--self-check",
+        "The pinned constants, checked, and the verdict printed; non-zero if the build disagrees with them",
+    ),
+];
+
+/// `bims list`: every launch option there is, and what it opens. The
+/// classes' fights — both sets, the garrison's and the machines' — are
+/// made from `Class::ALL` rather than written down, so a class added
+/// later is listed the day it exists.
+fn list() {
+    println!("bims <what>, and each of these is a what:\n");
+    // Wide enough for `combat_droids_commander`, the longest of them,
+    // and a space after it.
+    let row = |name: &str, what: &str| println!("  {name:<26}{what}");
+    for (name, what) in COMMANDS {
+        row(name, what);
+        // The classes' commands go under the fight they each are: the
+        // garrison's under `combat`, the machines' under `droids`.
+        let (prefix, fight) = match name {
+            "combat" => (COMBAT_AS, "That same fight"),
+            "droids" => (DROIDS_AS, "That same wave"),
+            _ => continue,
+        };
+        for class in world::Class::ALL {
+            if class == world::Class::None {
+                continue;
+            }
+            let word = names::class_name(class).to_ascii_lowercase();
+            let a = if word.starts_with(['a', 'e', 'i', 'o', 'u']) {
+                "an"
+            } else {
+                "a"
+            };
+            row(
+                &format!("{prefix}{word}"),
+                &format!(
+                    "{fight}, the crew member you steer {a} {word} at the tenth level (BIMS_LEVEL says otherwise)"
+                ),
+            );
+        }
+    }
+    println!(
+        "\nNothing named is `game`. The environment says the rest: BIMS_CLASS, BIMS_LEVEL,\nBIMS_FIGHT, BIMS_RAID and the others are in crates/app/src/dev.rs."
+    );
+}
+
+/// What comes before a class's name in a `combat_<class>` command.
+const COMBAT_AS: &str = "combat_";
+
+/// What comes before a class's name in a `combat_droids_<class>`
+/// command: the machines' fight with that class in hand. It starts with
+/// [`COMBAT_AS`], so it has to be tried **first** — `combat_droids_medic`
+/// read as a `combat_<class>` would be a class called `droids_medic`,
+/// which is nobody, and the run would be refused rather than opened.
+const DROIDS_AS: &str = "combat_droids_";
+
+/// The class a `combat_<class>` command names, by the name `names.rs`
+/// gives it in any case — `None` for a word no class is called. The
+/// classless `Class::None` is not one of them: there would be nothing to
+/// tell the run apart from plain `combat`.
+fn class_named(word: &str) -> Option<world::Class> {
+    world::Class::ALL
+        .into_iter()
+        .filter(|class| *class != world::Class::None)
+        .find(|class| names::class_name(*class).eq_ignore_ascii_case(word))
+}
+
+/// Every class a `combat_<class>` command takes, in the words it takes
+/// them in — read off `Class::ALL` rather than written out, so a class
+/// added later is offered by the usage line as well as accepted.
+fn class_words() -> Vec<String> {
+    world::Class::ALL
+        .into_iter()
+        .filter(|class| *class != world::Class::None)
+        .map(|class| names::class_name(class).to_ascii_lowercase())
+        .collect()
 }
 
 fn main() {
@@ -118,10 +292,31 @@ fn main() {
         Some("test_planet") => Launch::TestPlanet,
         // Accepted as a flag too, since that is how it was first asked for.
         Some("combat") | Some("--combat") => Launch::Combat,
+        // `combat_droids_medic` and the rest: the machines' fight, that
+        // class in hand. Before `combat_<class>`, which its name starts
+        // with.
+        Some(word) if word.starts_with(DROIDS_AS) => match class_named(&word[DROIDS_AS.len()..]) {
+            Some(class) => Launch::DroidsAs(class),
+            None => usage(),
+        },
+        // `combat_medic` and the rest: the same fight, that class in hand.
+        Some(word) if word.strip_prefix(COMBAT_AS).is_some() => {
+            match class_named(&word[COMBAT_AS.len()..]) {
+                Some(class) => Launch::CombatAs(class),
+                None => usage(),
+            }
+        }
+        Some("droids") => Launch::Droids,
+        Some("droids_planet") => Launch::DroidsPlanet,
         Some("tier2_test") => Launch::CombatAtTier(bims::combat::Tier::Two),
         Some("tier3_test") => Launch::CombatAtTier(bims::combat::Tier::Three),
         Some("raid") => Launch::Raid,
         Some("stationbuilder") => Launch::StationBuilder,
+        // What there is to run, printed rather than opened.
+        Some("list") | Some("--list") | Some("--help") | Some("-h") => {
+            list();
+            std::process::exit(0);
+        }
         Some("--self-check") => {
             let bits = ship::session::self_check();
             let all = ship::session::SELF_CHECK_ALL;
@@ -197,7 +392,11 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Test
         | Launch::TestPlanet
         | Launch::Combat
+        | Launch::CombatAs(_)
         | Launch::CombatAtTier(_)
+        | Launch::Droids
+        | Launch::DroidsAs(_)
+        | Launch::DroidsPlanet
         | Launch::Raid => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();
@@ -208,5 +407,56 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         }
         Launch::Room => next.set(Screen::Room),
         Launch::StationBuilder => next.set(Screen::StationBuilder),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every class but the classless one has a `combat_<class>` command,
+    /// spelled as the usage line offers it, and a word no class is called
+    /// is nobody's command — a new class is a new command with nothing
+    /// written here, since both sides read `Class::ALL`.
+    #[test]
+    fn every_class_has_a_combat_command_of_its_own() {
+        let words = class_words();
+        assert_eq!(words.len(), world::Class::ALL.len() - 1);
+        for (class, word) in world::Class::ALL
+            .into_iter()
+            .filter(|class| *class != world::Class::None)
+            .zip(&words)
+        {
+            assert_eq!(class_named(word), Some(class));
+            // The case a shell happens to type it in is not the point.
+            assert_eq!(class_named(&word.to_ascii_uppercase()), Some(class));
+        }
+        // `list` hangs the classes' rows under `combat`'s and under
+        // `droids`', so both rows it hangs them under have to be there.
+        assert!(COMMANDS.iter().any(|(name, _)| *name == "combat"));
+        assert!(COMMANDS.iter().any(|(name, _)| *name == "droids"));
+        assert_eq!(class_named("none"), None);
+        assert_eq!(class_named("cook"), None);
+        assert_eq!(class_named(""), None);
+    }
+
+    /// The machines' fight takes the same five classes, and the trap in
+    /// it is that `combat_droids_` starts with `combat_`: read as a
+    /// `combat_<class>` the word names no class at all, so `main` has to
+    /// try the longer prefix first or every one of these runs is refused.
+    #[test]
+    fn the_machines_fight_takes_a_class_too() {
+        assert!(DROIDS_AS.starts_with(COMBAT_AS));
+        for word in class_words() {
+            let command = format!("{DROIDS_AS}{word}");
+            assert_eq!(
+                class_named(&command[DROIDS_AS.len()..]),
+                class_named(&word),
+                "{command} names its class",
+            );
+            // And what the shorter prefix would have made of it: nobody.
+            assert_eq!(class_named(&command[COMBAT_AS.len()..]), None);
+        }
+        assert_eq!(class_named("droids_cook"), None);
     }
 }

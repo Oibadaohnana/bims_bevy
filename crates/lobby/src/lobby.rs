@@ -55,6 +55,10 @@ pub struct Lobby {
     /// Marks, and nothing else — see `preview::Marks`.
     pub here: Option<u32>,
     pub target: Option<u32>,
+    /// In the game: every star the crew have been to, ringed in grey
+    /// (feature 85, `World::stars_visited`). The page sets it every
+    /// frame; empty in the lobby, where the game has not started.
+    pub visited: Vec<u32>,
     pub pings: Vec<Ping>,
     /// The star whose system is in the side panel, and the system itself.
     pub inspected: Option<(u32, StarSystem)>,
@@ -83,6 +87,7 @@ impl Lobby {
             spawn: None,
             here: None,
             target: None,
+            visited: Vec::new(),
             pings: Vec::new(),
             inspected: None,
             placed: Placed::default(),
@@ -195,6 +200,7 @@ impl Lobby {
             spawn: self.spawn.map(|(star, _)| star),
             here: self.here,
             target: self.target,
+            visited: &self.visited,
             pings: &self.pings,
         };
         preview::paint(

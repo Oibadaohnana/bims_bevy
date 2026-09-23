@@ -58,20 +58,25 @@ use bims::sight::Stance;
 use crate::armour::{self, FetchKind, LootSource, Piece, Where};
 use crate::build::{self, BuildSite, SiteRefusal};
 use crate::class::{self, Class, Progress, Side, Talent};
-use crate::deploy::{self, Deck, DeployKind, Deployable, Kit};
+use crate::commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
 use crate::crew::{Aboard, Residents};
 use crate::data;
+use crate::deploy::{self, Deck, DeployKind, Deployable, Kit};
+use crate::droid::{self as droidplan, Infestation};
 use crate::event::{Refusal, WorldEvent};
 use crate::frame::{self, Frame};
 use crate::grid::{Grid, Kept, Wanted};
-use crate::memory::{self, Losses, SystemMemory};
+use crate::medic::Medic;
+use crate::memory::{self, Grave, Losses, SystemMemory};
 use crate::mercenary::{self, Hired, Offer};
 use crate::mining::{self, MiningSite};
+use crate::orders::Standing;
 use crate::plunder::{self, Plunder};
 use crate::raid::{self, Raid, Raids};
 use crate::speed::{self, Speed};
 use crate::station::{Berth, Station, enemies_of};
 use crate::surface::{self, Surface};
+use crate::tank::Tank;
 
 /// What a player can ask the world to do.
 ///
@@ -405,8 +410,9 @@ pub enum Command {
     /// Choose that player's class (feature 74, `crate::class`): what its
     /// own crew member is. Allowed until the ship first leaves its
     /// berth, refused `ClassLocked` after. An engineer sets out with
-    /// [`crate::deploy::ENGINEER_START_KITS`] sandbag kits in its pack,
-    /// and a class put back to none takes them out again.
+    /// [`crate::deploy::ENGINEER_START_KITS`] sandbag kits and
+    /// [`crate::deploy::ENGINEER_START_SENTRIES`] sentry kits in its
+    /// pack, and a class put back to none takes them out again.
     SetClass {
         slot: u32,
         class: Class,
@@ -457,6 +463,105 @@ pub enum Command {
     /// its tier's full health.
     Repair {
         slot: u32,
+    },
+    /// Brace that player's own soldier, or stand it easy (feature 75,
+    /// `crate::class`): braced, it holds where it stands — no errands,
+    /// no running, shooting at [`class::BRACE_ACCURACY`] the odds — until
+    /// this with `on` false, an order that moves it, or going down.
+    /// Refused `NotASoldier` for anybody else and `OutOfReach` for one
+    /// not fit to act.
+    Brace {
+        slot: u32,
+        on: bool,
+    },
+    /// Throw a grenade from that player's own soldier's pack at the tile
+    /// `(x, y)` of the crew's room — a room tile like a deploy's. Wants
+    /// the soldier fit to act, at [`class::GRENADE_LEVEL`], a grenade in
+    /// the pack, [`class::GRENADE_COOLDOWN`] past its last throw, and a
+    /// tile of deck within its range with nothing opaque between
+    /// (`World::can_throw`). The grenade leaves the pack at once and
+    /// bursts its fuse later.
+    Throw {
+        slot: u32,
+        x: i32,
+        y: i32,
+    },
+    /// Link that player's own medic's heal beam to crew member `patient`
+    /// — a player's Bim or a mercenary, never an enemy, never itself —
+    /// or unlink with `None` (feature 76, `crate::class`,
+    /// `crate::medic`). Wants the medic fit to act and the patient
+    /// alive, within [`class::HEAL_BEAM_RANGE`] tiles and in its sight
+    /// (`World::can_beam`). Linked, the patient's wounds and traumas do
+    /// not bleed and its blood comes back at [`class::HEAL_BEAM_BLOOD`]
+    /// an hour; the medic walks but does not fire. With *double link* a
+    /// second patient is held beside the first, and a third takes the
+    /// first's place.
+    Beam {
+        slot: u32,
+        patient: Option<u32>,
+    },
+    /// Trigger that player's own medic's surge: for
+    /// [`class::SURGE_MINUTES`] the medic and every linked patient take
+    /// nothing from any hit. Wants the medic fit to act, at
+    /// [`class::SURGE_LEVEL`], linked, and the charge full
+    /// (`World::can_surge`); the charge empties.
+    Surge {
+        slot: u32,
+    },
+    /// Stand that player's own tank as a wall, or stand it down (feature
+    /// 77, `crate::class`, `crate::tank`): with it on he walks at
+    /// [`class::BULWARK_PACE`] and a crewmate within
+    /// [`class::BULWARK_REACH`] of him that he stands between and the
+    /// shooter is in cover against the shot. Refused `NotATank` for
+    /// anybody else and `OutOfReach` for one not fit to act.
+    Bulwark {
+        slot: u32,
+        on: bool,
+    },
+    /// That player's own tank taunts: for [`class::TAUNT_MINUTES`] of
+    /// the clock every enemy within [`class::TAUNT_RADIUS`] that can see
+    /// him, with him in its weapon's reach, fires at him before any
+    /// nearer target. Wants the tank fit to act, at
+    /// [`class::TAUNT_LEVEL`], and [`class::TAUNT_COOLDOWN`] past his
+    /// last taunt (`World::can_taunt`).
+    Taunt {
+        slot: u32,
+    },
+    /// Send that player's own commander's **squad** — every crew member
+    /// no player is steering, within [`class::SQUAD_RANGE`] tiles of him
+    /// (the whole room with *long reach*) — after an enemy, back to a
+    /// tile, or to stand its ground (feature 78, `crate::class`,
+    /// `crate::commander`). Wants the commander fit to act
+    /// (`World::can_squad`) and, for an attack, an enemy of the station
+    /// alongside; a squad order works with the alarm and without it.
+    /// The same order given again releases the squad, and so does the
+    /// commander going down. It never moves, holds or aims a Bim a
+    /// player steers.
+    Squad {
+        slot: u32,
+        order: SquadAsk,
+    },
+    /// That player's own commander rallies: for
+    /// [`class::RALLY_MINUTES`] of the clock every friendly Bim in his
+    /// aura — a player's own included — shoots at
+    /// [`class::RALLY_AIM`] and does not run at all. Wants the
+    /// commander fit to act, at [`class::RALLY_LEVEL`], and
+    /// [`class::RALLY_COOLDOWN`] past his last rally
+    /// (`World::can_rally`).
+    Rally {
+        slot: u32,
+    },
+    /// That player's **standing order** to the bots that follow them
+    /// (feature 84, `crate::orders`): fight their way to a tile of the
+    /// crew's room and hold it, fall back to the ship, or go back to
+    /// keeping to the player's side. Wants the player fit to act
+    /// ([`World::can_order`]) and, for an attack, a tile of the deck.
+    /// The same order given again puts them back to following. It is not
+    /// a class's — every player has these two, whatever they are — and
+    /// it never moves a Bim a player steers.
+    Orders {
+        slot: u32,
+        order: Standing,
     },
 }
 
@@ -666,6 +771,46 @@ pub struct World {
     /// at a time — the nearest. A derelict's room has nobody in it. See
     /// [`crate::crew`].
     pub residents: Option<Residents>,
+    /// Which stations the machines hold (feature 83, [`crate::droid`]),
+    /// one [`Infestation`] each, **sorted by station id** so a checksum
+    /// over them means something. The crisis step will put stations on
+    /// this; until then the only things that do are the `droids` and
+    /// `droids_planet` probes ([`World::infest_for_probe`]). A station
+    /// here has no people at all — [`World::people_of`] is nought for one
+    /// — and the room laid out on it holds machines instead.
+    /// In `world_checksum` whole.
+    pub infested: Vec<Infestation>,
+    /// The machines standing in the residents' room, waiting to be put
+    /// there the first step it is open: a wave laid at a dock the room
+    /// is not built for yet. Drained by `settle_droids`. Not saved and
+    /// not hashed — it is empty by the end of every step it is filled in.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    droids_to_post: Vec<bims::droid::Droid>,
+    /// What tier the machines come at: one, bar the probes
+    /// (`BIMS_DROID_TIER`). In `world_checksum`, since it is the size of
+    /// the fight.
+    droid_tier: Tier,
+    /// How long after a wave is spent the next arrives, in minutes of
+    /// the world's clock: [`data::DROID_REINFORCE_MINUTES`], bar the
+    /// probes, which shorten it to a minute so a wave can be watched
+    /// arriving. In `world_checksum` for the same reason.
+    droid_reinforce: f64,
+    /// The most a wave ever is: [`data::DROID_WAVE_MAX`], bar the probes,
+    /// which raise it to measure what a bigger wave costs a frame
+    /// (`BIMS_DROID_WAVE`). In `world_checksum` with the other two.
+    droid_wave_max: u32,
+    /// A wave forced to a size by a probe (`BIMS_DROID_WAVE`), whatever
+    /// the formula and the cap say: the measurements' dial, `None` in
+    /// the game. In `world_checksum` with the rest.
+    droid_wave_forced: Option<u32>,
+    /// How many waves a held station has all told, forced by a probe
+    /// (`BIMS_DROID_WAVES`, and three on the `droids` commands) whatever
+    /// the formula says; `None` in the game. **Neither saved nor
+    /// hashed**, unlike the three above: it is read once, at the crew's
+    /// first dock, and what it decides is `Infestation::waves_left`,
+    /// which is both.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    droid_waves_forced: Option<u32>,
     /// The ship's power over its live networks, worked out from the parts
     /// once per change to them — `on_ship_changed` — rather than once a
     /// step: it is a union-find over every tile of the grid, and the
@@ -840,6 +985,22 @@ pub struct World {
     /// so a station raided stays raided. See [`crate::memory`]. In
     /// `world_checksum` whole.
     pub losses: Vec<Losses>,
+    /// Every body lying on a station of this system, by the station's id,
+    /// sorted — where it fell, what is still on it and what it looked
+    /// like (feature 85). Filed when a station's room closes
+    /// ([`World::close_residents`]) and laid back out when it opens
+    /// ([`Residents::open`]), so the dead of a fight are still on the
+    /// deck when the crew come back to it. A jump leaves them behind
+    /// with the system, and finds them again on the way back. See
+    /// [`crate::memory`]. In `world_checksum` whole.
+    pub graves: Vec<Grave>,
+    /// Which of this system's nodes the ship has actually been at —
+    /// docked, landed, or holding beside — sorted the way
+    /// [`World::discovered`] is (feature 85). What the map marks as
+    /// somewhere the crew have already been; a jump files it with the
+    /// system, so a chart of a system met twice says so. In
+    /// `world_checksum`.
+    pub visited: Vec<Node>,
     /// Every system the ship has jumped out of, as it was left: the
     /// fields above that belong to the system rather than the ship —
     /// the hostile list, the keys, the sites, the plunder, the stations'
@@ -869,6 +1030,33 @@ pub struct World {
     /// not laid again yet, by index: a deploy uses one of these before a
     /// fresh kit, and gives no experience for it. In `world_checksum`.
     pub reused_kits: Vec<u32>,
+    /// When each crew member last threw a grenade, in clock minutes, or
+    /// never (feature 75): what the throw's cooldown is read against.
+    /// In `world_checksum`.
+    pub last_throw: Vec<Option<f64>>,
+    /// Each crew member's medic state, by index (feature 76,
+    /// `crate::medic`): who its beam holds, its surge's charge, and its
+    /// field surgery this fight. Empty for anybody but a player's medic.
+    /// In `world_checksum` whole.
+    pub medics: Vec<Medic>,
+    /// Each crew member's tank state, by index (feature 77,
+    /// `crate::tank`): when he last taunted, which is the whole of it.
+    /// Empty for anybody but a player's tank. In `world_checksum`.
+    pub tanks: Vec<Tank>,
+    /// Each crew member's commander state, by index (feature 78,
+    /// `crate::commander`): when he last rallied, which is the whole of
+    /// it. Empty for anybody but a player's commander. In
+    /// `world_checksum`.
+    pub commanders: Vec<Commander>,
+    /// The one squad order the crew are under, while they are under one
+    /// (feature 78): whose it is, what it is, and which crew members it
+    /// reaches. `None` with none. In `world_checksum`.
+    pub squad: Option<SquadOrder>,
+    /// What each player's bots are under, by player slot (feature 84,
+    /// `crate::orders`): [`Standing::Follow`] for a slot that has said
+    /// nothing, which is every slot until somebody presses a key. As
+    /// long as there are players, and in `world_checksum`.
+    pub standing: Vec<Standing>,
 }
 
 /// A lamp a fight has damaged, remembered by where it hangs: which
@@ -1146,6 +1334,13 @@ impl World {
             stations,
             surfaces,
             residents: None,
+            infested: Vec::new(),
+            droids_to_post: Vec::new(),
+            droid_tier: Tier::One,
+            droid_reinforce: data::DROID_REINFORCE_MINUTES,
+            droid_wave_max: data::DROID_WAVE_MAX,
+            droid_wave_forced: None,
+            droid_waves_forced: None,
             power_budget: shipdesign::power_budget(&design_for_charge),
             discovered: Vec::new(),
             craft_targets: [0; CARGO_SLOTS],
@@ -1187,6 +1382,8 @@ impl World {
             lost: false,
             plunder: Vec::new(),
             losses: Vec::new(),
+            graves: Vec::new(),
+            visited: Vec::new(),
             memories: Vec::new(),
             classes: vec![Class::None; players as usize],
             progress: vec![Progress::default(); crew as usize],
@@ -1194,6 +1391,12 @@ impl World {
             deployables: Vec::new(),
             next_deployable: 1,
             reused_kits: vec![0; crew as usize],
+            last_throw: vec![None; crew as usize],
+            medics: vec![Medic::default(); crew as usize],
+            tanks: vec![Tank::default(); crew as usize],
+            commanders: vec![Commander::default(); crew as usize],
+            squad: None,
+            standing: vec![Standing::Follow; players as usize],
         };
 
         // Whatever armour the design was accepted carrying is so many
@@ -1282,6 +1485,13 @@ impl World {
         self.discover_along(was, now, &mut events);
         self.settle_frame(&mut events);
         self.settle_residents();
+        //    And, at a station the machines hold (feature 83), the wave
+        //    that is aboard put into the room `settle_residents` just
+        //    opened — and the clock that brings the next one. Before the
+        //    rooms are stepped, so a wave landing this step fights this
+        //    step.
+        self.settle_droids();
+        self.droid_waves(&mut events);
         self.settle_site();
 
         // 5. Crew: the room's own update, aboard, on this clock. Bims live
@@ -1334,15 +1544,39 @@ impl World {
         //    sentries on the crew's deck to be fired there. What the fight
         //    did to them is read back after `visit`.
         self.hand_the_room_the_engineers();
+        //    And what each class wears (feature 81): drawing only, said
+        //    every step because a class is chosen, a crew member joins
+        //    and a save is read without anything else telling the room.
+        self.hand_the_room_the_outfits();
+        //    And the medics' (feature 76): every beam checked and the
+        //    patients' blood held, before the soldiers' skills, since a
+        //    medic beaming holds its fire through them.
+        self.hand_the_room_the_medics(&mut events);
+        //    And the tanks' (feature 77): the walls standing among the
+        //    crew, before the skills, which read the bulwark off the room.
+        self.hand_the_room_the_tanks();
+        //    And the commander's (feature 78): the squad order pruned and
+        //    handed over, before the skills, which read *focus fire* and
+        //    *stand ground* off it.
+        self.hand_the_room_the_squad();
+        //    And every player's own two standing orders (feature 84),
+        //    which the crew's bots read after the squad's: an order to
+        //    the squad is a commander's and outranks the standing one.
+        self.hand_the_room_the_standing();
+        self.hand_the_room_the_soldiers();
         self.aboard.step();
         if let Some(residents) = &mut self.residents {
             residents.aboard.step();
         }
         self.visit(&mut events);
         self.settle_deployables(&mut events);
+        self.settle_bursts(&mut events);
         self.sync_lamps();
         self.casualties(&mut events);
-        self.experience(&mut events);
+        let downed = self.experience(&mut events);
+        self.settle_rampage(&downed);
+        self.settle_medics(&mut events);
+        self.settle_tanks(&mut events);
         self.melee_locks(&mut events);
         //    What the fight did to the raid: the boarders re-posted at the
         //    gangway after it, or all down and the raider a derelict; and
@@ -1381,8 +1615,8 @@ impl World {
         //    together — moved through the hold. Building goes through
         //    `shipdesign::materials`, out of what is aboard, and asks
         //    `World::can_modify_part` first. See `crate::build`.
-        for (site, resource, units) in self.aboard.room.take_picked() {
-            self.finish_pick(site, resource, units);
+        for (site, resource, _units, who) in self.aboard.room.take_picked() {
+            self.finish_pick(site, resource, who);
         }
         for site in self.aboard.room.take_dropped() {
             self.finish_drop(site);
@@ -1461,7 +1695,16 @@ impl World {
             | Command::Deploy { slot, .. }
             | Command::PackUp { slot, .. }
             | Command::Refill { slot, .. }
-            | Command::Repair { slot } => slot,
+            | Command::Repair { slot }
+            | Command::Brace { slot, .. }
+            | Command::Throw { slot, .. }
+            | Command::Beam { slot, .. }
+            | Command::Surge { slot }
+            | Command::Bulwark { slot, .. }
+            | Command::Taunt { slot }
+            | Command::Squad { slot, .. }
+            | Command::Rally { slot }
+            | Command::Orders { slot, .. } => slot,
         };
 
         match command {
@@ -1556,6 +1799,9 @@ impl World {
             Command::Crew { order, .. } => {
                 // A room built since the last step starts at one player.
                 self.aboard.room.set_players(self.players());
+                // A player's own order to a squad member takes it out of
+                // the squad order until the next one (feature 78).
+                self.take_the_ordered_out_of_squad(slot, order);
                 let code = self.aboard.room.order(slot, order);
                 // A walk with no way there is the one order that is said:
                 // the room's `ORDER_LOCKED` and `ORDER_NOWHERE`.
@@ -1565,6 +1811,7 @@ impl World {
             }
             Command::CrewLater { order, .. } => {
                 self.aboard.room.set_players(self.players());
+                self.take_the_ordered_out_of_squad(slot, order);
                 let code = self.aboard.room.order_later(slot, order);
                 if let Some(why) = walk_refusal(code) {
                     events.push(refused(slot, why));
@@ -1594,6 +1841,45 @@ impl World {
                     events.push(refused(slot, why));
                 }
             }
+            Command::Brace { on, .. } => match self.brace(slot, on) {
+                Ok(()) => events.push(WorldEvent::Braced { who: slot, on }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Throw { x, y, .. } => match self.throw(slot, (x, y)) {
+                Ok(()) => events.push(WorldEvent::Thrown { who: slot }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Beam { patient, .. } => match self.beam(slot, patient) {
+                Ok(()) => events.push(WorldEvent::Beamed { who: slot, patient }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Surge { .. } => match self.surge(slot) {
+                Ok(()) => events.push(WorldEvent::Surged { who: slot }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Bulwark { on, .. } => match self.bulwark(slot, on) {
+                Ok(()) => events.push(WorldEvent::Bulwarked { who: slot, on }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Taunt { .. } => match self.taunt(slot) {
+                Ok(()) => events.push(WorldEvent::Taunted { who: slot }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Squad { order, .. } => match self.squad_order(slot, order) {
+                Ok(kind) => events.push(WorldEvent::Squadded {
+                    who: slot,
+                    kind: kind.map_or(u32::MAX, |k| k.code()),
+                }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Rally { .. } => match self.rally(slot) {
+                Ok(()) => events.push(WorldEvent::Rallied { who: slot }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Orders { order, .. } => match self.give_orders(slot, order) {
+                Ok(kind) => events.push(WorldEvent::Ordered { who: slot, kind }),
+                Err(why) => events.push(refused(slot, why)),
+            },
         }
     }
 
@@ -1797,6 +2083,8 @@ impl World {
             self.lamps.retain(|d| d.station.is_none());
             self.discovered.clear();
             self.losses.clear();
+            self.graves.clear();
+            self.visited.clear();
         }
         self.site_version += 1;
         self.ship.state = ShipState::Holding;
@@ -2574,6 +2862,12 @@ impl World {
     /// opens, so a station keeps the crowd it was reached with until the
     /// ship has gone and come back.
     pub fn people_of(&self, station: &Station) -> u32 {
+        // A station the machines hold has no people at all (feature 83):
+        // whoever lived there is gone, and what the room is opened with
+        // is a wave of droids (`World::settle_droids`).
+        if self.is_droid_held(station.id) {
+            return 0;
+        }
         if station.residents() == 0 {
             return 0;
         }
@@ -2606,6 +2900,9 @@ impl World {
     /// to hire again. Asked when the room opens, like the people, so a
     /// station keeps its offer until the ship has gone and come back.
     pub fn mercenaries_of(&self, station: &Station) -> u32 {
+        if self.is_droid_held(station.id) {
+            return 0;
+        }
         if station.residents() == 0 || self.stance(station.id) == Stance::Hostile {
             return 0;
         }
@@ -2697,7 +2994,7 @@ impl World {
                 // closed the way the range closes one: its dead counted.
                 self.residents = other;
                 self.close_residents();
-                Residents::open(id, &design, count, mercs, seed, self.clock_minutes)
+                self.open_residents(id, &design, count, mercs, seed)
             }
         };
         self.drop_loads();
@@ -2765,7 +3062,12 @@ impl World {
     /// Whose a station is, to the crew: home is friendly, a station on the
     /// hostile list is hostile, and everywhere else is neutral.
     pub fn stance(&self, station: u32) -> Stance {
-        if self.hostile.binary_search(&station).is_ok() {
+        // A station the machines hold is an enemy's whatever it was
+        // before (feature 83): its room is hostile, which is the switch
+        // that puts its bodies at war.
+        if self.is_droid_held(station) {
+            Stance::Hostile
+        } else if self.hostile.binary_search(&station).is_ok() {
             Stance::Hostile
         } else if station == self.home && self.star_id == self.home_star {
             Stance::Friendly
@@ -2791,6 +3093,23 @@ impl World {
             }
             _ => {}
         }
+        self.reopen_residents(station);
+        self.apply_stances();
+        self.lay_plunder();
+    }
+
+    /// The residents' room opened again with the crowd the station now
+    /// calls for, if it is open on that station and the crowd has
+    /// changed: a stance turned hostile arms a garrison where two
+    /// residents stood, and a station taken by the machines has no
+    /// people at all (feature 83). Nothing when the count is what it
+    /// was. Docked there, the fresh room is looked into the way
+    /// `join_rooms` left it.
+    ///
+    /// The comparison is against the room's **Bims** — `crew_count`, not
+    /// `Aboard::count`, which counts the machines too — since what is
+    /// being reopened is the people.
+    fn reopen_residents(&mut self, station: u32) {
         let reopen = self
             .residents
             .as_ref()
@@ -2799,38 +3118,34 @@ impl World {
                 let s = self.station(station)?;
                 let count = self.people_of(s);
                 let mercs = self.mercenaries_of(s);
-                (count + mercs != r.aboard.count()).then(|| (s.design.clone(), s.map_seed))
+                (count + mercs != r.aboard.room.crew_count())
+                    .then(|| (s.design.clone(), s.map_seed))
             });
-        if let Some((design, seed)) = reopen {
-            // The old crowd's dead counted before the new crowd stands,
-            // and the new crowd is the fewer for them.
-            self.close_residents();
-            let (count, mercs) = self
-                .station(station)
-                .map(|s| (self.people_of(s), self.mercenaries_of(s)))
-                .unwrap_or((0, 0));
-            let mut residents =
-                Residents::open(station, &design, count, mercs, seed, self.clock_minutes);
-            // Docked there, the room is looked into the way `join_rooms`
-            // left it: its doors drawn by the joined deck and its fog the
-            // joined deck's, so the new crowd is seen where the old was.
-            if self.aboard.is_joined() && self.ship.state.station() == Some(station) {
-                residents.aboard.room.set_doors_drawn(false);
-                residents.aboard.room.set_fog(bims::sight::Fog::None);
-                if let (Some(s), Some(berth)) = (self.station(station), self.berth_at(station)) {
-                    residents.join(
-                        &self.ship.design,
-                        self.ship.dynamics.centre_of_mass,
-                        s,
-                        &berth,
-                        self.clock_minutes,
-                    );
-                }
+        let Some((design, seed)) = reopen else {
+            return;
+        };
+        // The old crowd's dead counted before the new crowd stands,
+        // and the new crowd is the fewer for them.
+        self.close_residents();
+        let (count, mercs) = self
+            .station(station)
+            .map(|s| (self.people_of(s), self.mercenaries_of(s)))
+            .unwrap_or((0, 0));
+        let mut residents = self.open_residents(station, &design, count, mercs, seed);
+        if self.aboard.is_joined() && self.ship.state.station() == Some(station) {
+            residents.aboard.room.set_doors_drawn(false);
+            residents.aboard.room.set_fog(bims::sight::Fog::None);
+            if let (Some(s), Some(berth)) = (self.station(station), self.berth_at(station)) {
+                residents.join(
+                    &self.ship.design,
+                    self.ship.dynamics.centre_of_mass,
+                    s,
+                    &berth,
+                    self.clock_minutes,
+                );
             }
-            self.residents = Some(residents);
         }
-        self.apply_stances();
-        self.lay_plunder();
+        self.residents = Some(residents);
     }
 
     /// Tell every room open on a station whose it is: the residents' room
@@ -3108,9 +3423,16 @@ impl World {
         let (visitors, down): (Vec<DVec2>, Vec<bool>) = match &self.residents {
             Some(residents) => (0..residents.aboard.count())
                 .map(|who| {
+                    // **A wreck is not a body to loot** (feature 83): a
+                    // machine carries nothing, so a click on one is a
+                    // click on the deck and the Loot window never opens
+                    // on it. Everything else that asks whether a droid
+                    // is down asks the room; this list is the click's
+                    // alone.
+                    let machine = who >= residents.aboard.room.crew_count();
                     (
                         residents.aboard.position(who),
-                        residents.aboard.room.is_down(who as usize),
+                        !machine && residents.aboard.room.is_down(who as usize),
                     )
                 })
                 .unzip(),
@@ -3161,6 +3483,24 @@ impl World {
                     .map(|p| (p, self.sentry_weapon(d.owner_slot)))
             })
             .collect();
+        // And which of the crew a taunt is running on (feature 77): the
+        // radius in room units — nought for anybody not taunting — and
+        // whether it pulls a charging blade too. Worked out here for the
+        // same reason as the sentries: the talents are the world's.
+        // This is the room the enemies aim and charge in, whoever they
+        // are — a station's people, a garrison, a raider's boarders.
+        let taunting: Vec<f32> = (0..self.aboard.crew_count())
+            .map(|who| {
+                if self.is_taunting(who) {
+                    self.taunt_radius(who) * shipdesign::TILE as f32
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let magnet: Vec<bool> = (0..self.aboard.crew_count())
+            .map(|who| self.has_talent(who, Talent::Magnet))
+            .collect();
         let Some(residents) = self.residents.as_mut().filter(|_| hostile) else {
             self.aboard.room.set_hostiles(Vec::new());
             if let Some(residents) = &mut self.residents {
@@ -3170,12 +3510,35 @@ impl World {
         };
         let shift = residents.aboard.offset;
         let room = &mut residents.aboard.room;
+        let bims = room.crew_count() as usize;
         for hit in hits {
             let who = hit.who;
-            if who >= room.crew_count() as usize || !room.is_alive(who) {
+            if who >= room.body_count() as usize || !room.is_alive(who) {
                 continue;
             }
-            room.strike(who, hit.part, hit.damage, hit.cut);
+            // A hit past the room's Bims landed on one of the machines
+            // (feature 83): a droid's four parts are not a body's three,
+            // so the part is read off the hit's own roll rather than off
+            // `hit.part`, and there is no armour step and no blood.
+            if let Some(i) = who.checked_sub(bims) {
+                let part = bims::droid::DroidPart::hit_by(hit.roll);
+                room.strike_droid(i, part, hit.damage);
+                if let Some(last) = residents.last_hit_by.get_mut(who) {
+                    *last = hit.by;
+                }
+                continue;
+            }
+            // A burst's hit splashes the deck the way a cut does (feature
+            // 75); the rest land as they always did. Whose it was is kept
+            // for the *rampage*.
+            if hit.blast {
+                room.blast(who, hit.part, hit.damage);
+            } else {
+                room.strike(who, hit.part, hit.damage, hit.cut);
+            }
+            if let Some(last) = residents.last_hit_by.get_mut(who) {
+                *last = hit.by;
+            }
         }
         // And the bodies the crew finished off where they lay: dead in
         // their own room, if still down — one that came round on the way
@@ -3192,13 +3555,36 @@ impl World {
         // shot to the head kills at the top of the body's next tick with
         // the total still well above nought, and a wound nobody dresses
         // kills without a hit landing at all. Said once each.
-        for who in 0..residents.down.len().min(room.crew_count() as usize) {
+        // A machine destroyed is one of these too: the lists are sized
+        // by the body count, so a wave landing grows them (feature 83).
+        let bodies = room.body_count() as usize;
+        residents.down.resize(bodies, false);
+        residents.xp_down.resize(bodies, false);
+        residents.xp_dead.resize(bodies, false);
+        residents.last_hit_by.resize(bodies, None);
+        residents.fee.resize(bodies, None);
+        residents.grave.resize(bodies, false);
+        let room = &mut residents.aboard.room;
+        for who in 0..residents.down.len().min(bodies) {
             let down = !room.is_alive(who);
             if down && !residents.down[who] {
                 residents.down[who] = true;
-                events.push(WorldEvent::EnemyDown {
-                    station: residents.station,
-                    who: who as u32,
+                // A machine is said as a machine: it has no name, and
+                // the log would otherwise call a wreck Sanne.
+                let machine = who
+                    .checked_sub(bims)
+                    .and_then(|i| room.droid(i))
+                    .map(|d| d.kind.code());
+                events.push(match machine {
+                    Some(kind) => WorldEvent::DroidDown {
+                        station: residents.station,
+                        who: who as u32,
+                        kind,
+                    },
+                    None => WorldEvent::EnemyDown {
+                        station: residents.station,
+                        who: who as u32,
+                    },
                 });
             }
         }
@@ -3240,6 +3626,7 @@ impl World {
         }
         room.set_hostiles(crew.clone());
         room.set_hostiles_peeking(&self.aboard.crew_peeking());
+        room.set_hostiles_taunting(&taunting, &magnet);
         // And the odds each dodges a bolt for its armour, the same way.
         let crew_dodge: Vec<f32> = (0..self.aboard.crew_count())
             .map(|who| self.aboard.room.dodge(who as usize))
@@ -3296,22 +3683,24 @@ impl World {
         }
         // And the residents for the crew, the same way: alive and on their
         // feet — one out cold is nobody's target — each with its weapon, at
-        // the peek while peeking, and which are peeking.
-        let alive: Vec<bool> = (0..room.crew_count())
+        // the peek while peeking, and which are peeking. **Every body of
+        // that room**: its Bims and then its machines (feature 83), one
+        // index space, which is what a hit past the Bims is read back
+        // against above.
+        let bodies = room.body_count();
+        let alive: Vec<bool> = (0..bodies)
             .map(|who| room.is_alive(who as usize) && !room.is_unconscious(who as usize))
             .collect();
-        let weapons: Vec<Weapon> = (0..room.crew_count())
+        let weapons: Vec<Weapon> = (0..bodies)
             .map(|who| {
                 room.weapon(who as usize)
                     .unwrap_or(WeaponKind::LaserPistol.basic())
             })
             .collect();
-        let peeking: Vec<bool> = (0..room.crew_count())
+        let peeking: Vec<bool> = (0..bodies)
             .map(|who| room.peek(who as usize).is_some())
             .collect();
-        let dodge: Vec<f32> = (0..room.crew_count())
-            .map(|who| room.dodge(who as usize))
-            .collect();
+        let dodge: Vec<f32> = (0..bodies).map(|who| room.dodge(who as usize)).collect();
         let exposed: Vec<DVec2> = (0..residents.aboard.count())
             .map(|who| residents.aboard.exposed(who))
             .collect();
@@ -3380,10 +3769,21 @@ impl World {
             if down && !self.crew_down[who] {
                 self.crew_down[who] = true;
                 events.push(WorldEvent::CrewDown { who: who as u32 });
-                // A dead crew member'"'"'s level, experience and talents die with
-                // it (feature 74).
+                // A dead crew member's level, experience and talents die with
+                // it (feature 74), and a medic's beam and charge (feature 76).
                 if let Some(progress) = self.progress.get_mut(who) {
                     *progress = Progress::default();
+                }
+                if let Some(medic) = self.medics.get_mut(who) {
+                    *medic = Medic::default();
+                }
+                // And a tank's taunt with it (feature 77), and a
+                // commander's rally (feature 78).
+                if let Some(tank) = self.tanks.get_mut(who) {
+                    *tank = Tank::default();
+                }
+                if let Some(commander) = self.commanders.get_mut(who) {
+                    *commander = Commander::default();
                 }
             }
         }
@@ -3416,9 +3816,25 @@ impl World {
         } else {
             Vec::new()
         };
+        // And what each of the crew carries in its own pack — a medic's
+        // start kit, or one somebody fetched out of the hold: a helper
+        // with a kit of its own opens that where it stands rather than
+        // walking to a cabinet for one of these.
+        let wanted = Item::Stack(ResourceId::Medkit as u32);
+        let carried: Vec<u32> = (0..self.aboard.crew_count() as usize)
+            .map(|who| {
+                self.aboard
+                    .room
+                    .pack(who)
+                    .iter()
+                    .filter(|i| **i == Some(wanted))
+                    .count() as u32
+            })
+            .collect();
         let room = &mut self.aboard.room;
         room.set_bandages(bandages);
         room.set_medkits(medkits);
+        room.set_pack_kits(carried);
         room.set_kit_stands(&stands);
         let (veg, tofu, stew) = (room.store_veg(), room.store_tofu(), room.store_stew());
         room.set_stock(veg, tofu, stew, fibre);
@@ -3445,6 +3861,9 @@ impl World {
         if !self.aboard.is_joined() {
             return;
         }
+        // A squad order marks residents of the station alongside, so it
+        // goes with the deck (feature 78).
+        self.clear_squad();
         // A room taken apart drops every errand, a load in somebody's arms
         // with it: whatever was on its way to a site is the hold's again.
         self.drop_loads();
@@ -3501,21 +3920,49 @@ impl World {
     fn close_residents(&mut self) -> Option<Residents> {
         let residents = self.residents.take()?;
         let (mut own, mut hired) = (0u32, 0u32);
-        for who in 0..residents.aboard.count() as usize {
+        // And where each of them is lying, for the room that opens next
+        // (feature 85): the bodies laid out at this open among them, so
+        // what the room says is the whole of what that station's deck
+        // holds.
+        let mut graves = Vec::new();
+        // The Bims alone: a machine destroyed is no loss of the
+        // station's people, and the waves are counted by
+        // `World::infested` rather than by `losses` (feature 83).
+        let people = residents.aboard.room.crew_count() as usize;
+        for who in 0..people {
             if residents.aboard.room.is_alive(who) {
                 continue;
             }
-            match residents.fee.get(who) {
-                Some(Some(_)) => hired += 1,
-                _ => own += 1,
+            // Not `is_alive` is dead, not out cold — one out cold wakes,
+            // and is one of the survivors rather than a grave.
+            let was_hired = matches!(residents.fee.get(who), Some(Some(_)));
+            // A body that was already lying here when the room opened is
+            // in `losses` from the day it died.
+            if !residents.grave.get(who).copied().unwrap_or(false) {
+                if was_hired {
+                    hired += 1;
+                } else {
+                    own += 1;
+                }
             }
+            let at = residents.aboard.position(who as u32);
+            graves.push(Grave {
+                station: residents.station,
+                x: at.x,
+                y: at.y,
+                gear: residents.aboard.room.gear(who),
+                look: residents.aboard.room.look(who),
+                hired: was_hired,
+            });
         }
-        // A raider's are the raid's, gone with the raider.
+        // A raider's are the raid's, gone with the raider — its dead
+        // included: there is no deck to come back to.
         if raid::raider_index(residents.station).is_none() {
             memory::amend_losses(&mut self.losses, residents.station, |l| {
                 l.dead += own;
                 l.mercenaries += hired;
             });
+            memory::set_graves(&mut self.graves, residents.station, graves);
         }
         Some(residents)
     }
@@ -3523,6 +3970,33 @@ impl World {
     /// What the station at `id` has lost to the crew.
     pub fn losses_at(&self, id: u32) -> Losses {
         memory::losses_at(&self.losses, id)
+    }
+
+    /// Every body lying on that station's deck (feature 85).
+    pub fn graves_at(&self, id: u32) -> &[Grave] {
+        memory::graves_at(&self.graves, id)
+    }
+
+    /// The station's room opened with what the station has: its people,
+    /// its hired hands and its dead. The one door, so that no open
+    /// anywhere forgets the graves.
+    fn open_residents(
+        &self,
+        station: u32,
+        design: &ShipDesign,
+        count: u32,
+        mercenaries: u32,
+        seed: u64,
+    ) -> Residents {
+        Residents::open(
+            station,
+            design,
+            count,
+            mercenaries,
+            seed,
+            self.clock_minutes,
+            self.graves_at(station),
+        )
     }
 
     /// This system as the crew leave it, filed by its star on
@@ -3546,6 +4020,8 @@ impl World {
                 .collect(),
             discovered: self.discovered.clone(),
             losses: self.losses.clone(),
+            graves: self.graves.clone(),
+            visited: self.visited.clone(),
         };
         memory::file_memory(&mut self.memories, memory);
     }
@@ -3566,6 +4042,8 @@ impl World {
         self.lamps.extend(memory.lamps);
         self.discovered = memory.discovered;
         self.losses = memory.losses;
+        self.graves = memory.graves;
+        self.visited = memory.visited;
         true
     }
 
@@ -3609,14 +4087,7 @@ impl World {
             && clearance <= data::RESIDENTS_RANGE
             && let Some(station) = self.station(id)
         {
-            self.residents = Some(Residents::open(
-                id,
-                &station.design,
-                count,
-                mercs,
-                seed,
-                self.clock_minutes,
-            ));
+            self.residents = Some(self.open_residents(id, &station.design, count, mercs, seed));
             // Whose it is: its fog is black for a stranger's, and its
             // people are ringed for an enemy's.
             self.apply_stances();
@@ -4193,16 +4664,26 @@ impl World {
             .collect()
     }
 
-    /// A Bim took a load off a shelf for `site`: as much of `units` of
-    /// `resource` as the hold has free is now in its arms — spoken for, not
-    /// moved. A site that has gone gets nothing, and the Bim carries a
-    /// crate of nothing to nowhere, which the room sorts out at its next
-    /// walk.
-    fn finish_pick(&mut self, site: u32, resource: u32, units: u32) {
+    /// A Bim took a load off a shelf for `site`: as much of `resource` as
+    /// the site is short, the **hauler's own load** ([`World::haul_load`],
+    /// twice the ordinary with *pack mule*) and what the hold has free
+    /// allow is now in its arms — spoken for, not moved. Worked out again
+    /// here rather than read off the order, since the order is the site's
+    /// and the load is the crew member's. A site that has gone gets
+    /// nothing, and the Bim carries a crate of nothing to nowhere, which
+    /// the room sorts out at its next walk.
+    fn finish_pick(&mut self, site: u32, resource: u32, who: usize) {
         let Some(resource) = ResourceId::ALL.get(resource as usize).copied() else {
             return;
         };
-        let got = units.min(self.free(resource));
+        let short = self
+            .builds
+            .iter()
+            .find(|s| s.id == site)
+            .map_or(0, |s| s.short(&self.ship.design, resource));
+        let got = short
+            .min(self.haul_load(who as u32))
+            .min(self.free(resource));
         if let Some(site) = self.builds.iter_mut().find(|s| s.id == site) {
             site.carrying[resource as usize] += got;
         }
@@ -5195,9 +5676,7 @@ impl World {
     /// out is fresh whatever went in. `None` with nothing to carry — both
     /// slots full, or nothing in the hold that would pair.
     fn bench_wants(&self) -> Option<Kept> {
-        if self.bench.free_in().is_none()
-            || self.bench.busy()
-            || !self.research.upgrades_allowed()
+        if self.bench.free_in().is_none() || self.bench.busy() || !self.research.upgrades_allowed()
         {
             return None;
         }
@@ -5922,6 +6401,19 @@ impl World {
         }
     }
 
+    /// Which of the station's people is under a point of the crew's
+    /// room, if any: what the commander's Attack key reads under the
+    /// pointer (feature 78), by the same reach a click on a body has.
+    /// `None` while the rooms are not joined.
+    pub fn resident_at(&self, x: f32, y: f32) -> Option<u32> {
+        let residents = self.residents.as_ref()?;
+        let at = bims::math::vec2(x, y);
+        (0..residents.aboard.count()).find(|&who| {
+            self.body_position(LootSource::Resident(who))
+                .is_some_and(|p| (p - at).len() <= bims::character::PICK_RADIUS)
+        })
+    }
+
     /// Whether crew member `who` stands within [`data::REACH`] tiles of a
     /// body — alive, awake, aboard, and near enough to go through its
     /// pockets. What a loot asks after the body, and what the Loot window
@@ -6197,7 +6689,10 @@ impl World {
     /// for anybody who is not a mercenary for hire. The command checks
     /// it all again when it lands.
     pub fn hire_offer(&self, who: u32, resident: u32) -> Option<Offer> {
-        let fee = self.mercenary_fee(resident)?;
+        // The fee the crew member doing the hiring would pay: a
+        // commander's is cheaper (feature 78), so the window says the
+        // discounted price while one is steered.
+        let fee = self.hire_fee(who, resident)?;
         Some(Offer {
             fee,
             in_reach: self.in_reach_of_body(who, LootSource::Resident(resident)),
@@ -6288,7 +6783,11 @@ impl World {
             events.push(refused(slot, Refusal::NoBunk));
             return;
         }
-        if !offer.affordable {
+        // The fee the *sending* slot signs for: a commander's discount
+        // is his own, and it is what goes into the contract (feature
+        // 78).
+        let fee = self.hire_fee(slot, resident).unwrap_or(offer.fee);
+        if self.money < fee {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
@@ -6313,7 +6812,9 @@ impl World {
         residents.down.remove(resident as usize);
         residents.xp_down.remove(resident as usize);
         residents.xp_dead.remove(resident as usize);
+        residents.last_hit_by.remove(resident as usize);
         residents.fee.remove(resident as usize);
+        residents.grave.remove(resident as usize);
         memory::amend_losses(&mut self.losses, station, |l| l.mercenaries += 1);
         // Into the crew's, where it stood on the deck, with its armour
         // renumbered as the world's — and its berth left behind, since
@@ -6344,17 +6845,75 @@ impl World {
         self.health.push(health::HealthState::new());
         self.crew_down.push(false);
         self.crew_locked.push(false);
+        // Crew indices are what a beam links by, so every beam is broken
+        // by a hire (feature 76); the hire's own state starts empty.
+        self.clear_beams();
+        self.medics
+            .resize(self.aboard.crew as usize, Medic::default());
+        self.tanks
+            .resize(self.aboard.crew as usize, Tank::default());
+        // And the crew's indices have moved, so the squad order — whose
+        // members are crew indices and whose marks are residents' — is
+        // called off (feature 78).
+        self.commanders
+            .resize(self.aboard.crew as usize, Commander::default());
+        self.clear_squad();
         self.ship.crew_count = self.aboard.crew;
-        self.money -= offer.fee;
+        self.money -= fee;
         self.hired.push(Hired {
             who: new_who,
-            fee: offer.fee,
+            fee,
             due: self.clock_minutes + mercenary::MONTH,
             owed: false,
         });
+        // *Outfitter* (feature 78): the hand arrives wearing the lowest
+        // basic piece it was missing, made for it and charged for at
+        // nothing.
+        if self.has_talent(slot, Talent::Outfitter) {
+            self.outfit_the_hire(new_who);
+        }
         self.on_ship_changed();
         self.mirror_pieces(events);
         events.push(WorldEvent::Hired { who: new_who });
+        // And the commander who signed it learns something by it.
+        if self.is_commander(slot) {
+            self.award(slot as usize, class::XP_HIRE, events);
+        }
+    }
+
+    /// *Outfitter*: the lowest basic piece a fresh hire is missing —
+    /// helm, then kevlar, then leg guards — made out of nothing and put
+    /// on it, a piece of the world's like the tank's own start.
+    fn outfit_the_hire(&mut self, who: u32) {
+        let missing = [
+            bims::combat::ArmourKind::BasicHelm,
+            bims::combat::ArmourKind::BasicKevlar,
+            bims::combat::ArmourKind::BasicLegs,
+        ]
+        .into_iter()
+        .find(|kind| {
+            self.aboard
+                .room
+                .gear(who as usize)
+                .worn(kind.slot())
+                .is_none()
+        });
+        let Some(kind) = missing else {
+            return;
+        };
+        let id = self.next_piece;
+        self.next_piece += 1;
+        let piece = bims::combat::Piece::new(id, kind, bims::combat::Tier::One);
+        self.pieces.push(Piece {
+            id,
+            kind,
+            tier: bims::combat::Tier::One,
+            health: piece.health,
+            at: Where::Worn { who },
+        });
+        let mut gear = self.aboard.room.gear(who as usize);
+        *gear.worn_mut(kind.slot()) = Some(piece);
+        self.aboard.room.issue(who as usize, gear);
     }
 
     /// The hired hands' months, as they fall due: paid out of the money
@@ -6421,6 +6980,21 @@ impl World {
         self.health.remove(index);
         self.crew_down.remove(index);
         self.crew_locked.remove(index);
+        // And by a dismissal, which shifts every index after it (feature
+        // 76); the dismissed one's own state goes with it.
+        self.clear_beams();
+        if index < self.medics.len() {
+            self.medics.remove(index);
+        }
+        if index < self.tanks.len() {
+            self.tanks.remove(index);
+        }
+        if index < self.commanders.len() {
+            self.commanders.remove(index);
+        }
+        // And the squad order with them (feature 78): its members are
+        // crew indices.
+        self.clear_squad();
         self.pieces.retain(
             |p| !matches!(p.at, Where::Worn { who: w } | Where::Pack { who: w, .. } if w == who),
         );
@@ -6450,7 +7024,9 @@ impl World {
             residents.down.push(false);
             residents.xp_down.push(false);
             residents.xp_dead.push(false);
+            residents.last_hit_by.push(None);
             residents.fee.push(Some(hired.fee));
+            residents.grave.push(false);
             // Back on the station's offer, if it was hired off it.
             let station = residents.station;
             memory::amend_losses(&mut self.losses, station, |l| {
@@ -6814,6 +7390,45 @@ impl World {
             self.ship.frame = now;
             events.push(WorldEvent::FrameChanged { frame: now });
         }
+        self.mark_visited();
+    }
+
+    /// Where the ship is now, marked on the chart as somewhere the crew
+    /// have been (feature 85). The frame is what says where it is —
+    /// docked at a station, set down at a settlement, holding beside a
+    /// planet or at a belt — and the one thing added here is that it must
+    /// have **stopped**: a trip is in its target's frame from the moment
+    /// it starts braking, and a trip aborted half a braking phase away is
+    /// not somewhere anybody has been.
+    fn mark_visited(&mut self) {
+        if matches!(self.ship.state, ShipState::Travelling { .. }) {
+            return;
+        }
+        let Some(node) = self.ship.frame.node() else {
+            return;
+        };
+        if self.visited.contains(&node) {
+            return;
+        }
+        self.visited.push(node);
+        // Sorted, for the reason `discover_along` sorts the chart: the
+        // checksum runs over this, and two clients must not disagree
+        // about the order.
+        self.visited.sort_by_key(node_key);
+    }
+
+    /// Every star the crew have been to, sorted — the galaxy's own
+    /// half of "where have I been" (feature 85). A star the ship has
+    /// jumped out of has a memory filed under it
+    /// ([`World::remember_system`]), and the one it is at now is the
+    /// star it is at: those two together are the whole of it, so there
+    /// is no third list to keep in step.
+    pub fn stars_visited(&self) -> Vec<u32> {
+        let mut stars: Vec<u32> = self.memories.iter().map(|m| m.star).collect();
+        if let Err(i) = stars.binary_search(&self.star_id) {
+            stars.insert(i, self.star_id);
+        }
+        stars
     }
 
     // --- readouts -----------------------------------------------------------
@@ -7254,6 +7869,74 @@ impl World {
         true
     }
 
+    /// `n` of the station alongside dead where they stand, and its room
+    /// built again over them (feature 85): what a fight the crew walked
+    /// away from leaves behind, without the fight. The bodies are the
+    /// first `n` of its people as they are standing this instant — their
+    /// spot, their kit and their face — filed as [`World::graves`] and
+    /// counted as losses, so the room that opens has that many fewer on
+    /// their feet and that many bodies on the deck. `false`, and nothing
+    /// moved, away from a berth or where nobody lives. For probes and
+    /// for `BIMS_GRAVES` in the app.
+    pub fn lay_graves_for_probe(&mut self, n: u32) -> bool {
+        let Some(id) = self.ship.state.station() else {
+            return false;
+        };
+        let Some(station) = self.station(id).cloned() else {
+            return false;
+        };
+        // The room closed first, since closing is what files the graves
+        // and it would file over these.
+        let Some(residents) = self.close_residents() else {
+            return false;
+        };
+        let people = residents.aboard.room.crew_count().min(n);
+        if people == 0 {
+            self.residents = Some(residents);
+            return false;
+        }
+        let laid: Vec<Grave> = (0..people)
+            .map(|who| {
+                let at = residents.aboard.position(who);
+                Grave {
+                    station: id,
+                    x: at.x,
+                    y: at.y,
+                    gear: residents.aboard.room.gear(who as usize),
+                    look: residents.aboard.room.look(who as usize),
+                    hired: matches!(residents.fee.get(who as usize), Some(Some(_))),
+                }
+            })
+            .collect();
+        let (own, hired) = laid.iter().fold((0, 0), |(own, hired), g| match g.hired {
+            true => (own, hired + 1),
+            false => (own + 1, hired),
+        });
+        memory::amend_losses(&mut self.losses, id, |l| {
+            l.dead += own;
+            l.mercenaries += hired;
+        });
+        memory::set_graves(&mut self.graves, id, laid);
+        let (count, mercs) = (self.people_of(&station), self.mercenaries_of(&station));
+        let mut fresh = self.open_residents(id, &station.design, count, mercs, station.map_seed);
+        if self.aboard.is_joined() && self.ship.state.station() == Some(id) {
+            fresh.aboard.room.set_doors_drawn(false);
+            fresh.aboard.room.set_fog(bims::sight::Fog::None);
+            if let (Some(s), Some(berth)) = (self.station(id).cloned(), self.berth_at(id)) {
+                fresh.join(
+                    &self.ship.design,
+                    self.ship.dynamics.centre_of_mass,
+                    &s,
+                    &berth,
+                    self.clock_minutes,
+                );
+            }
+        }
+        self.residents = Some(fresh);
+        self.apply_stances();
+        true
+    }
+
     /// A mercenary for hire at the dock whatever the roll said: the
     /// station's room opened again with [`data::TEST_MERCENARY`] of them
     /// at the least, and every friendly station from here on the same.
@@ -7274,14 +7957,8 @@ impl World {
         // Opened again with the mercenary in it, looked into as
         // `join_rooms` leaves a docked station's room.
         let (count, mercs) = (self.people_of(&station), self.mercenaries_of(&station));
-        let mut residents = Residents::open(
-            id,
-            &station.design,
-            count,
-            mercs,
-            station.map_seed,
-            self.clock_minutes,
-        );
+        let mut residents =
+            self.open_residents(id, &station.design, count, mercs, station.map_seed);
         if self.aboard.is_joined() {
             residents.aboard.room.set_doors_drawn(false);
             residents.aboard.room.set_fog(bims::sight::Fog::None);
@@ -7366,6 +8043,546 @@ pub struct Preview {
     pub docks: bool,
 }
 
+// --- the droids (feature 83) ----------------------------------------------
+//
+// `crate::droid` is the plan — how many machines, how many waves, when —
+// and `bims::droid` is the machine. This is the world's side: which
+// stations are held, laying a wave out in the residents' room, and the
+// clock that brings the next one.
+//
+// A held station's room holds **machines and no people at all**:
+// `people_of` is nought for one, and `settle_droids` fills the room it
+// opens with the wave that is aboard. Everything after that is the fight
+// as it always was — the room is hostile, its bodies are the crew's
+// targets, and `visit` carries the hits both ways — bar the one thing
+// that had to be taught: a body index past the room's Bims is one of the
+// machines (`Game::body_count`).
+
+impl World {
+    /// Whether the machines hold this station.
+    pub fn is_droid_held(&self, id: u32) -> bool {
+        self.infested.iter().any(|it| it.station == id)
+    }
+
+    /// The infestation at a station, if there is one.
+    pub fn infestation(&self, id: u32) -> Option<&Infestation> {
+        self.infested.iter().find(|it| it.station == id)
+    }
+
+    fn infestation_mut(&mut self, id: u32) -> Option<&mut Infestation> {
+        self.infested.iter_mut().find(|it| it.station == id)
+    }
+
+    /// Put a station in the machines' hands. **The crisis step's door**,
+    /// and until that step exists the probes' — `droids` and
+    /// `droids_planet` call it through `Session`. Sorted by id, since the
+    /// checksum runs over the list. Doing it twice changes nothing.
+    pub fn infest(&mut self, id: u32) {
+        if self.is_droid_held(id) {
+            return;
+        }
+        self.infested.push(Infestation::new(id));
+        self.infested.sort_by_key(|it| it.station);
+        // The station's people are gone the moment the machines have it:
+        // a room already open on it is opened again with nobody in it,
+        // the way a stance turning hostile reopens one with a garrison.
+        self.reopen_residents(id);
+        self.apply_stances();
+    }
+
+    /// Whether the last machine of the last wave at this station has been
+    /// destroyed. What the crisis step reads to know a station is won
+    /// back; false for a station the machines never held.
+    pub fn droid_station_cleared(&self, id: u32) -> bool {
+        self.infestation(id).is_some_and(|it| it.cleared)
+    }
+
+    /// What tier the machines come at. One outside the probes; the
+    /// `droids` probes read `BIMS_DROID_TIER` and set it.
+    pub fn droid_tier(&self) -> Tier {
+        self.droid_tier
+    }
+
+    /// The probes' dial: every wave from now on comes at this tier.
+    pub fn set_droid_tier_for_probe(&mut self, tier: Tier) {
+        self.droid_tier = tier;
+    }
+
+    /// How long after a wave is spent the next arrives, in minutes of
+    /// the world's clock.
+    pub fn droid_reinforce_minutes(&self) -> f64 {
+        self.droid_reinforce
+    }
+
+    /// The machines' own reinforcement clock, shortened: what the
+    /// `droids` probes set to a minute so a wave can be watched arriving
+    /// without waiting two hours of the world's clock.
+    pub fn set_droid_reinforce_minutes_for_probe(&mut self, minutes: f64) {
+        self.droid_reinforce = minutes;
+    }
+
+    /// How many machines the next wave is, worked out now: the base, the
+    /// crew, the calendar, the worth and the levels
+    /// ([`droidplan::wave_size`]). Asked as each wave appears, never
+    /// stored.
+    pub fn droid_wave_size(&self) -> u32 {
+        // The probes' dial says the size outright, since raising the cap
+        // alone never makes a wave bigger than the formula: it is there
+        // to measure what a wave of that many costs a step and a frame.
+        if let Some(forced) = self.droid_wave_forced {
+            return forced.max(1);
+        }
+        droidplan::wave_size(
+            self.aboard.crew_count(),
+            droidplan::day_steps(self.days_gone()),
+            droidplan::worth_steps(self.worth(), self.start_worth),
+            self.crew_levels(),
+        )
+        .min(self.droid_wave_max)
+        .max(1)
+    }
+
+    /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now
+    /// on is this many machines, whatever the formula and the cap say.
+    /// For the measurements feature 83 asks for, and nothing else.
+    pub fn set_droid_wave_for_probe(&mut self, n: u32) {
+        self.droid_wave_forced = Some(n.max(1));
+    }
+
+    /// The cap as it stands — [`data::DROID_WAVE_MAX`], or what a probe
+    /// has forced.
+    pub fn droid_wave_max(&self) -> u32 {
+        self.droid_wave_forced.unwrap_or(self.droid_wave_max)
+    }
+
+    /// How many waves a held station has all told, worked out now. Only
+    /// ever asked once a station, at the crew's first dock.
+    pub fn droid_wave_count(&self) -> u32 {
+        // The probes' dial says it outright, the way `droid_wave_size`
+        // takes its own: the `droids` commands are looked at for what a
+        // wave *after* the first does, and the formula's two at day
+        // nought gave one landing and then nothing.
+        if let Some(forced) = self.droid_waves_forced {
+            return forced.max(1);
+        }
+        droidplan::wave_count(
+            droidplan::day_steps(self.days_gone()),
+            droidplan::worth_steps(self.worth(), self.start_worth),
+            self.crew_levels(),
+        )
+    }
+
+    /// The probes' dial: a held station has this many waves all told,
+    /// the one aboard counted. Read at the crew's **first dock** and
+    /// never again, so it has to be set before the first step.
+    pub fn set_droid_waves_for_probe(&mut self, n: u32) {
+        self.droid_waves_forced = Some(n.max(1));
+    }
+
+    /// Which wave of machines is aboard the held station alongside and
+    /// how many are still to come after it — `None` away from one, or
+    /// before the crew's first dock has settled the count. What the
+    /// app's warning counts off.
+    pub fn droid_wave_standing(&self) -> Option<(u32, u32)> {
+        let id = self.residents.as_ref()?.station;
+        let it = self.infestation(id)?;
+        (it.wave > 0).then_some((it.wave, it.waves_left))
+    }
+
+    /// How long until the next wave lands at the held station
+    /// alongside, in minutes of the world's clock — `None` while a
+    /// machine is still standing (the clock does not run then), with
+    /// none left to come, or away from a held station. The countdown
+    /// the app shows, the way `raid_minutes_left` is the raider's.
+    pub fn droid_wave_due(&self) -> Option<f64> {
+        let id = self.residents.as_ref()?.station;
+        let it = self.infestation(id)?;
+        it.next_wave.map(|due| (due - self.clock_minutes).max(0.0))
+    }
+
+    /// The crew's class levels less one each, added up: nought for a
+    /// crew with no classes, which is what a fresh game is.
+    fn crew_levels(&self) -> u32 {
+        self.progress
+            .iter()
+            .map(|p| u32::from(p.level()).saturating_sub(1))
+            .sum()
+    }
+
+    /// Where the machines' ship stands at a held station, for the
+    /// painter: a point and the way it faces, in the **station's own
+    /// design units**, and whether it is a lander on the ground rather
+    /// than a ship at an airlock.
+    ///
+    /// `None` unless the wave aboard is one that **arrived** — wave one
+    /// was already there and came by nothing — and some of it is still
+    /// standing: the ship is drawn while its wave has droids alive and
+    /// is gone with them. It is a picture and nothing else: not part of
+    /// the room, not walkable, not a thing a bolt can reach.
+    pub fn droid_ship(&self, station: u32) -> Option<(DVec2, DVec2, bool)> {
+        let wave = self.infestation(station).map(|it| it.wave)?;
+        if wave < 2 {
+            return None;
+        }
+        let residents = self.residents.as_ref().filter(|r| r.station == station)?;
+        let room = &residents.aboard.room;
+        let alive = (0..room.droid_count() as usize)
+            .filter_map(|i| room.droid(i))
+            .any(|d| !d.destroyed && d.wave == wave);
+        if !alive {
+            return None;
+        }
+        let design = &self.station(station)?.design;
+        if crate::surface::surface_body(station).is_some() {
+            // A lander on the plain beyond the gate its wave walked in
+            // by: north for an odd wave, south for an even one.
+            let ((x, _), (_, fy)) = droidplan::gate_spot(design.build_area, wave);
+            let t = shipdesign::TILE as f64;
+            let out = data::DROID_LANDER_TILES * t;
+            let y = if fy > 0.0 {
+                // The wave walks south, so the lander is north of the
+                // wall: beyond the first row.
+                -out
+            } else {
+                design.build_area as f64 * t + out
+            };
+            return Some((dvec2(x, y), dvec2(0.0, -fy), true));
+        }
+        let port = droidplan::arrival_airlock(design)?;
+        let (fx, fy) = port.face();
+        Some((
+            dvec2(fx, fy),
+            dvec2(port.outward.0 as f64, port.outward.1 as f64),
+            false,
+        ))
+    }
+
+    /// Every state a machine can be drawn in, laid out on the arena's
+    /// deck for **one picture**: a row a kind — Husk, Trooper, Warden —
+    /// and a column a state — idle, firing or striking, arms at nothing,
+    /// legs at nothing, destroyed. Nothing in the game does this; it is
+    /// how feature 83's drawings are looked at (`BIMS_DROIDS=1`).
+    ///
+    /// The wave that was there is replaced, and the machines stand where
+    /// they are put: they are all posing, so nothing walks off the mark
+    /// while the frames run down to the shot.
+    pub fn stage_droids_for_probe(&mut self) -> bool {
+        use bims::droid::{Droid, DroidKind, DroidPart};
+        let Some(id) = self.residents.as_ref().map(|r| r.station) else {
+            return false;
+        };
+        let tier = self.droid_tier;
+        let t = shipdesign::TILE as f32;
+        // Laid out from the station's own door inwards, so the rack is
+        // beside the ship in the frame rather than across the station:
+        // the camera follows the crew member the player steers, and a
+        // showcase nobody can see is a screenshot of an empty deck.
+        let port = self
+            .station(id)
+            .and_then(|s| s.port())
+            .map(|p| {
+                let inside = droidplan::inside_of(&p, 4.0);
+                (inside.0 as f32, inside.1 as f32)
+            })
+            .unwrap_or((18.0 * t, 18.0 * t));
+        let across = 5.5 * t;
+        let down = 6.0 * t;
+        // Three rows down and five across, laid out away from the door.
+        let (x0, y0) = (port.0 - across, port.1 - down);
+        let Some(residents) = self.residents.as_mut() else {
+            return false;
+        };
+        residents.aboard.room.clear_droids();
+        for (row, kind) in DroidKind::ALL.into_iter().enumerate() {
+            for state in 0..5u32 {
+                let at = bims::math::vec2(x0 + across * state as f32, y0 + down * row as f32);
+                let mut droid = Droid::new(kind, tier, 0, 1, at, 0.0, row as u64 * 16 + 5);
+                // Every one of them stands where it is put: the arena is
+                // hostile and the crew are docked, so left to itself the
+                // whole rack would walk off to fight before the shot.
+                droid.posing = true;
+                match state {
+                    // Idle: as it comes.
+                    0 => {}
+                    // Firing, or a Husk striking: held at the instant.
+                    1 => droid.lit = true,
+                    // The arms gone: hanging, sparking, the claws dragging.
+                    2 => {
+                        droid.strike(DroidPart::Arms, droid.body.max(DroidPart::Arms));
+                    }
+                    // The legs gone: slumped, no step.
+                    3 => {
+                        droid.strike(DroidPart::Legs, droid.body.max(DroidPart::Legs));
+                    }
+                    // Destroyed: a smaller dark wreck, the sensor out.
+                    _ => droid.destroy(),
+                }
+                residents.aboard.room.add_droid(droid);
+            }
+        }
+        residents.aboard.crew = residents.aboard.room.body_count();
+        // And drawn whether or not the crew can see them: a station's
+        // room is `Fog::None`, so a body is drawn only where the world
+        // said it is in view, and a rack laid out for a picture is a
+        // picture of an empty deck without this.
+        residents.aboard.room.show_everybody_for_probe(true);
+        true
+    }
+
+    /// How many machines are standing in the residents' room.
+    pub fn droids_standing(&self) -> u32 {
+        let Some(residents) = &self.residents else {
+            return 0;
+        };
+        let room = &residents.aboard.room;
+        (0..room.droid_count() as usize)
+            .filter(|&i| room.droid(i).is_some_and(|d| !d.destroyed))
+            .count() as u32
+    }
+
+    /// The machines a wave of `n` is, built: the kinds
+    /// ([`bims::droid::wave_kinds`]) at the world's tier, each at one of
+    /// `spots` in the **residents' room's** own units, facing `facing`.
+    /// A Trooper's arm is dealt by its place among the Troopers, which is
+    /// what `wave_kinds` orders the list for.
+    fn build_wave(
+        &self,
+        n: u32,
+        wave: u32,
+        spots: &[bims::math::Vec2],
+        facing: f32,
+        seed: u64,
+    ) -> Vec<bims::droid::Droid> {
+        let tier = self.droid_tier;
+        let mut troopers = 0usize;
+        bims::droid::wave_kinds(n)
+            .into_iter()
+            .enumerate()
+            .map(|(i, kind)| {
+                let index = if kind == bims::droid::DroidKind::Trooper {
+                    let n = troopers;
+                    troopers += 1;
+                    n
+                } else {
+                    i
+                };
+                let at = spots.get(i).copied().unwrap_or(bims::math::Vec2::ZERO);
+                let mut droid = bims::droid::Droid::new(
+                    kind,
+                    tier,
+                    index,
+                    wave,
+                    at,
+                    facing,
+                    seed ^ (i as u64) << 8 ^ u64::from(wave),
+                );
+                // **Their planning is staggered**, and not for looks: a
+                // stand is scored against a lattice of every free cell
+                // within the weapon's reach of every target, and sixteen
+                // machines all planning on one frame is that walk
+                // sixteen times in one step. Spread over the plan's own
+                // period they cost a frame one apiece. Worked out from
+                // the index, not rolled, so two clients stagger alike.
+                droid.plan_wait = bims::game::PLAN_EVERY * (i as f32) / (n.max(1) as f32);
+                droid.breach_wait = droid.plan_wait;
+                droid
+            })
+            .collect()
+    }
+
+    /// The first wave, stood about the station's rooms: free deck tiles
+    /// spread across the design.
+    fn first_wave(&self, station: &Station, n: u32, wave: u32) -> Vec<bims::droid::Droid> {
+        let Some(residents) = &self.residents else {
+            return Vec::new();
+        };
+        let spots: Vec<bims::math::Vec2> = droidplan::spots_about(&station.design, n as usize)
+            .into_iter()
+            .map(|(x, y)| residents.aboard.to_room(dvec2(x, y)))
+            .collect();
+        self.build_wave(n, wave, &spots, 0.0, station.map_seed)
+    }
+
+    /// A reinforcement wave, at the airlock its ship tied up at — or, on
+    /// a surface, just inside the gate its lander set down beyond, north
+    /// for an odd wave and south for an even one.
+    fn arriving_wave(&self, station: &Station, n: u32, wave: u32) -> Vec<bims::droid::Droid> {
+        let Some(residents) = &self.residents else {
+            return Vec::new();
+        };
+        let (at, facing) = if crate::surface::surface_body(station.id).is_some() {
+            let (spot, face) = droidplan::gate_spot(station.design.build_area, wave);
+            (spot, bims::math::vec2(face.0 as f32, face.1 as f32).angle())
+        } else {
+            let Some(port) = droidplan::arrival_airlock(&station.design) else {
+                return Vec::new();
+            };
+            let spot = droidplan::inside_of(&port, data::ASHORE_TILES);
+            (
+                spot,
+                bims::math::vec2(-port.outward.0 as f32, -port.outward.1 as f32).angle(),
+            )
+        };
+        let middle = residents.aboard.to_room(dvec2(at.0, at.1));
+        // Spread them round the spot so a wave does not arrive on one
+        // tile: a ring a tile and a half across, and a second ring out
+        // past it for a wave bigger than the first will hold.
+        let t = shipdesign::TILE as f32;
+        let spots: Vec<bims::math::Vec2> = (0..n as usize)
+            .map(|i| {
+                if i == 0 {
+                    return middle;
+                }
+                let ring = ((i - 1) / 6 + 1) as f32;
+                let step = (i - 1) % 6;
+                let angle = step as f32 / 6.0 * bims::math::TAU;
+                middle + bims::math::Vec2::from_angle(angle) * (ring * t * 1.5)
+            })
+            .collect();
+        self.build_wave(n, wave, &spots, facing, station.map_seed)
+    }
+
+    /// Put the wave that is aboard into the residents' room, if the room
+    /// is open on a held station and has no machines in it yet. Called
+    /// wherever the residents' room is built afresh — opened, joined,
+    /// unjoined — since a fresh room has no machines and the ones
+    /// standing are carried across by hand.
+    fn settle_droids(&mut self) {
+        let Some(residents) = &self.residents else {
+            return;
+        };
+        let id = residents.station;
+        if !self.is_droid_held(id) {
+            return;
+        }
+        // A wave laid this step but with no room to go into yet.
+        if !self.droids_to_post.is_empty() {
+            let waiting = std::mem::take(&mut self.droids_to_post);
+            if let Some(residents) = &mut self.residents {
+                residents
+                    .aboard
+                    .room
+                    .adopt_droids(waiting, bims::math::Vec2::ZERO);
+                residents.aboard.crew = residents.aboard.room.body_count();
+            }
+            return;
+        }
+        if residents.aboard.room.droid_count() > 0 {
+            return;
+        }
+        let Some(wave) = self.infestation(id).map(|it| it.wave) else {
+            return;
+        };
+        if wave == 0 {
+            // The crew have not docked here yet, so nothing has been
+            // settled and there is nothing to lay out.
+            return;
+        }
+        let Some(station) = self.station(id).cloned() else {
+            return;
+        };
+        let n = self.droid_wave_size();
+        let droids = if wave == 1 {
+            self.first_wave(&station, n, wave)
+        } else {
+            self.arriving_wave(&station, n, wave)
+        };
+        if let Some(residents) = &mut self.residents {
+            residents
+                .aboard
+                .room
+                .adopt_droids(droids, bims::math::Vec2::ZERO);
+            residents.aboard.crew = residents.aboard.room.body_count();
+        }
+    }
+
+    /// The machines' clock, a stage of the step: the first dock settles
+    /// the wave count, the last machine of a wave starts the timer, and
+    /// the timer running out brings the next wave.
+    ///
+    /// Nothing happens while a machine is still standing — a wave is
+    /// never reinforced mid-fight — and a wave whose time came while the
+    /// crew were away is laid out the moment the room opens again, since
+    /// the timer is the world's clock and not the room's.
+    fn droid_waves(&mut self, events: &mut Vec<WorldEvent>) {
+        let Some(id) = self.residents.as_ref().map(|r| r.station) else {
+            return;
+        };
+        if !self.is_droid_held(id) {
+            return;
+        }
+        // The count is fixed at the crew's **first dock** and never
+        // worked out again.
+        if self.aboard.is_joined() && self.infestation(id).is_some_and(|it| !it.settled) {
+            let waves = self.droid_wave_count();
+            if let Some(it) = self.infestation_mut(id) {
+                it.settle(waves);
+            }
+            self.settle_droids();
+        }
+        let standing = self.droids_standing();
+        let minutes = self.clock_minutes;
+        let reinforce = self.droid_reinforce;
+        let mut arrive = false;
+        let mut cleared = false;
+        if let Some(it) = self.infestation_mut(id) {
+            if it.wave == 0 {
+                return;
+            }
+            if standing > 0 {
+                // A fight is on: the clock does not run.
+                it.next_wave = None;
+            } else if it.more_to_come() {
+                match it.next_wave {
+                    None => it.next_wave = Some(minutes + reinforce),
+                    Some(due) if minutes >= due => {
+                        it.waves_left -= 1;
+                        it.wave += 1;
+                        it.next_wave = None;
+                        arrive = true;
+                    }
+                    Some(_) => {}
+                }
+            } else if !it.cleared {
+                it.cleared = true;
+                cleared = true;
+            }
+        }
+        if arrive {
+            // The room's old wrecks go with the wave that made them:
+            // a fresh wave is a fresh deck.
+            if let Some(residents) = &mut self.residents {
+                residents.aboard.room.clear_droids();
+                // And so does what was remembered about them. The five
+                // lists are one entry a **body**, and `visit` only ever
+                // *grows* them — a wave landing makes the room bigger.
+                // A wave cleared makes it smaller, and left as they were
+                // every machine of the next wave was born already
+                // flagged down: no `DroidDown` said for it when it was
+                // destroyed, and no experience paid for it either.
+                let bims = residents.aboard.room.crew_count() as usize;
+                residents.down.truncate(bims);
+                residents.xp_down.truncate(bims);
+                residents.xp_dead.truncate(bims);
+                residents.last_hit_by.truncate(bims);
+                residents.fee.truncate(bims);
+                residents.grave.truncate(bims);
+            }
+            self.settle_droids();
+            events.push(WorldEvent::DroidReinforcements { station: id });
+            // As raid contact does: everybody back to 1x, once, so
+            // nobody is caught at 24x by a wave landing.
+            // Not a veto — anybody may raise it again.
+            for request in &mut self.speed_requests {
+                *request = Speed::Real;
+            }
+        }
+        if cleared {
+            events.push(WorldEvent::DroidStationCleared { station: id });
+        }
+    }
+}
+
 // --- classes, experience and the engineer's deployables (feature 74) -------
 //
 // `crate::class` is what a class and its progress are; `crate::deploy`
@@ -7391,13 +8608,23 @@ impl World {
         self.class_of(who) == Class::Engineer
     }
 
-    /// Whether a player's engineer has picked a talent.
-    pub fn has_talent(&self, who: u32, talent: Talent) -> bool {
-        self.is_engineer(who) && self.progress_of(who).has(talent)
+    /// Whether crew member `who` is a player's soldier (feature 75).
+    fn is_soldier(&self, who: u32) -> bool {
+        self.class_of(who) == Class::Soldier
     }
 
-    /// Choose a player's class — see [`Command::SetClass`]. The kits an
-    /// engineer sets out with go into, or come out of, its pack.
+    /// Whether a player's crew member has picked a talent — of its own
+    /// class, since a pick is a level and a side and which talent that
+    /// is depends on the class.
+    pub fn has_talent(&self, who: u32, talent: Talent) -> bool {
+        let class = self.class_of(who);
+        class == talent.class() && self.progress_of(who).has(class, talent)
+    }
+
+    /// Choose a player's class — see [`Command::SetClass`]. What a class
+    /// sets out with goes into, or comes out of, its pack: an engineer's
+    /// kits, a soldier's rifle, pistol and grenades. A change from one
+    /// class to another takes the old kit out and puts the new one in.
     pub fn set_class(&mut self, slot: u32, class: Class) -> Result<(), Refusal> {
         if slot >= self.players() || slot as usize >= self.classes.len() {
             return Err(Refusal::NotAboard);
@@ -7411,36 +8638,211 @@ impl World {
         }
         self.classes[slot as usize] = class;
         let who = slot as usize;
-        let kit = Item::Stack(ResourceId::SandbagKit as u32);
-        let room = &mut self.aboard.room;
-        match (was, class) {
-            (Class::None, Class::Engineer) => {
-                for _ in 0..deploy::ENGINEER_START_KITS {
-                    room.give(who, None, kit);
-                }
-            }
-            (Class::Engineer, Class::None) => {
-                let mut left = deploy::ENGINEER_START_KITS;
-                let pack = room.pack(who);
-                for (cell, item) in pack.iter().enumerate() {
-                    if left > 0 && *item == Some(kit) && room.take(who, cell).is_some() {
-                        left -= 1;
-                    }
-                }
-            }
-            _ => {}
+        match was {
+            Class::None => {}
+            Class::Engineer => self.take_engineer_kit(who),
+            Class::Soldier => self.take_soldier_kit(who),
+            Class::Medic => self.take_medic_kit(who),
+            Class::Tank => self.take_tank_kit(who),
+            // A commander sets out with the laser pistol every Bim is
+            // issued and nothing else, so there is nothing to take off.
+            Class::Commander => {}
+        }
+        match class {
+            Class::None => {}
+            Class::Engineer => self.give_engineer_kit(who),
+            Class::Soldier => self.give_soldier_kit(who),
+            Class::Medic => self.give_medic_kit(who),
+            Class::Tank => self.give_tank_kit(who),
+            // And brings nothing of his own but the orders he gives.
+            Class::Commander => {}
         }
         Ok(())
     }
 
+    /// The tank's start (feature 77): the laser pistol he has in hand
+    /// already, and a fresh basic helm, kevlar and leg guards on — the
+    /// world's own pieces, `next_piece` ids at `Where::Worn`, the way
+    /// `outfit_for_probe` dresses a crew. Nothing of the hold's moves:
+    /// the kit comes with him, like a soldier's rifle.
+    fn give_tank_kit(&mut self, who: usize) {
+        let mut gear = self.aboard.room.gear(who);
+        for kind in ArmourKind::ALL {
+            if gear.worn(kind.slot()).is_some() {
+                continue;
+            }
+            let id = self.next_piece;
+            self.next_piece += 1;
+            self.pieces.push(Piece {
+                at: Where::Worn { who: who as u32 },
+                ..Piece::new(id, kind, Tier::One)
+            });
+            *gear.worn_mut(kind.slot()) = Some(bims::combat::Piece::new(id, kind, Tier::One));
+        }
+        self.aboard.room.issue(who, gear);
+    }
+
+    /// And off again: every whole basic piece the tank's start put on,
+    /// off the body and off the world's list. A piece the crew member
+    /// came by some other way — looted, fetched out of the hold — is
+    /// left on, since only the tank's own were made out of nothing.
+    fn take_tank_kit(&mut self, who: usize) {
+        let mut gear = self.aboard.room.gear(who);
+        let mut gone = Vec::new();
+        for kind in ArmourKind::ALL {
+            let slot = kind.slot();
+            let Some(piece) = gear.worn(slot) else {
+                continue;
+            };
+            let ours = self
+                .pieces
+                .iter()
+                .any(|p| p.id == piece.id && p.at == Where::Worn { who: who as u32 });
+            if ours && piece.tier == Tier::One {
+                gone.push(piece.id);
+                *gear.worn_mut(slot) = None;
+            }
+        }
+        if gone.is_empty() {
+            return;
+        }
+        self.pieces.retain(|p| !gone.contains(&p.id));
+        self.aboard.room.issue(who, gear);
+    }
+
+    /// The medic's start (feature 76): the laser pistol it has in hand
+    /// already, and [`class::MEDIC_START_MEDKITS`] medkits with
+    /// [`class::MEDIC_START_BANDAGES`] bandages into the pack.
+    fn give_medic_kit(&mut self, who: usize) {
+        let room = &mut self.aboard.room;
+        for _ in 0..class::MEDIC_START_MEDKITS {
+            room.give(who, None, Item::Stack(ResourceId::Medkit as u32));
+        }
+        for _ in 0..class::MEDIC_START_BANDAGES {
+            room.give(who, None, Item::Stack(ResourceId::Bandage as u32));
+        }
+    }
+
+    /// And out again, as many of each as are still there.
+    fn take_medic_kit(&mut self, who: usize) {
+        let room = &mut self.aboard.room;
+        for (resource, count) in [
+            (ResourceId::Medkit, class::MEDIC_START_MEDKITS),
+            (ResourceId::Bandage, class::MEDIC_START_BANDAGES),
+        ] {
+            let wanted = Item::Stack(resource as u32);
+            let mut left = count;
+            let pack = room.pack(who);
+            for (cell, item) in pack.iter().enumerate() {
+                if left > 0 && *item == Some(wanted) && room.take(who, cell).is_some() {
+                    left -= 1;
+                }
+            }
+        }
+    }
+
+    /// The engineer's start: [`deploy::ENGINEER_START_KITS`] sandbag kits
+    /// into the pack and [`deploy::ENGINEER_START_SENTRIES`] sentry kits
+    /// beside them.
+    fn give_engineer_kit(&mut self, who: usize) {
+        for (kit, count) in Self::ENGINEER_START {
+            let item = Item::Stack(kit.resource() as u32);
+            for _ in 0..count {
+                self.aboard.room.give(who, None, item);
+            }
+        }
+    }
+
+    /// And out again, as many of each as are there.
+    fn take_engineer_kit(&mut self, who: usize) {
+        let room = &mut self.aboard.room;
+        for (kit, count) in Self::ENGINEER_START {
+            let item = Item::Stack(kit.resource() as u32);
+            let mut left = count;
+            let pack = room.pack(who);
+            for (cell, thing) in pack.iter().enumerate() {
+                if left > 0 && *thing == Some(item) && room.take(who, cell).is_some() {
+                    left -= 1;
+                }
+            }
+        }
+    }
+
+    /// What the engineer's class deals it, kit by kit.
+    const ENGINEER_START: [(Kit, u32); 2] = [
+        (Kit::Sandbag, deploy::ENGINEER_START_KITS),
+        (Kit::Sentry, deploy::ENGINEER_START_SENTRIES),
+    ];
+
+    /// Kits straight into a crew member's pack, for a probe: `n` of
+    /// `kit` given the way the engineer's start gives its own, and how
+    /// many of them fitted. Nothing is made and nothing is paid. The
+    /// class's own start is [`deploy::ENGINEER_START_KITS`] sandbag kits
+    /// and [`deploy::ENGINEER_START_SENTRIES`] sentry kits, so a probe
+    /// wants this only for more of either than the class deals.
+    pub fn give_kits_for_probe(&mut self, who: u32, kit: Kit, n: u32) -> u32 {
+        if who >= self.aboard.crew_count() {
+            return 0;
+        }
+        let item = Item::Stack(kit.resource() as u32);
+        (0..n)
+            .filter(|_| self.aboard.room.give(who as usize, None, item))
+            .count() as u32
+    }
+
+    /// The soldier's start (feature 75): a basic auto rifle in hand, the
+    /// laser pistol that was there into the pack, and
+    /// [`class::SOLDIER_START_GRENADES`] grenades beside it.
+    fn give_soldier_kit(&mut self, who: usize) {
+        let room = &mut self.aboard.room;
+        let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
+        if room.give(who, None, rifle) {
+            let pack = room.pack(who);
+            if let Some(cell) = pack.iter().position(|i| *i == Some(rifle)) {
+                room.equip(who, cell);
+            }
+        }
+        let grenade = Item::Stack(ResourceId::Grenade as u32);
+        for _ in 0..class::SOLDIER_START_GRENADES {
+            room.give(who, None, grenade);
+        }
+    }
+
+    /// And out again: the grenades out of the pack, the pistol back in
+    /// the hand and the rifle gone, as far as each is still there.
+    fn take_soldier_kit(&mut self, who: usize) {
+        let room = &mut self.aboard.room;
+        let grenade = Item::Stack(ResourceId::Grenade as u32);
+        let mut left = class::SOLDIER_START_GRENADES;
+        let pack = room.pack(who);
+        for (cell, item) in pack.iter().enumerate() {
+            if left > 0 && *item == Some(grenade) && room.take(who, cell).is_some() {
+                left -= 1;
+            }
+        }
+        let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
+        let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
+        if room.weapon(who) == Some(WeaponKind::AutoRifle.basic()) {
+            let pack = room.pack(who);
+            if let Some(cell) = pack.iter().position(|i| *i == Some(pistol)) {
+                room.equip(who, cell);
+            }
+        }
+        let pack = room.pack(who);
+        if let Some(cell) = pack.iter().position(|i| *i == Some(rifle)) {
+            room.take(who, cell);
+        }
+    }
+
     /// A pick — see [`Command::PickTalent`].
     fn pick_talent(&mut self, slot: u32, level: u32, side: Side, events: &mut Vec<WorldEvent>) {
-        if self.class_of(slot) == Class::None || slot as usize >= self.progress.len() {
-            events.push(refused(slot, Refusal::NotAnEngineer));
+        let class = self.class_of(slot);
+        if class == Class::None || slot as usize >= self.progress.len() {
+            events.push(refused(slot, Refusal::NoClass));
             return;
         }
         let level = u8::try_from(level).unwrap_or(u8::MAX);
-        match self.progress[slot as usize].pick(level, side) {
+        match self.progress[slot as usize].pick(class, level, side) {
             Ok(talent) => events.push(WorldEvent::TalentPicked {
                 who: slot,
                 talent: talent.code(),
@@ -7449,14 +8851,18 @@ impl World {
         }
     }
 
-    /// `xp` to one crew member: every level it reaches said.
-    pub(crate) fn award(&mut self, who: usize, xp: u32, events: &mut Vec<WorldEvent>) {
+    /// `xp` to one crew member: every level it reaches said. Public for
+    /// the probes and the tests; the game gives experience through the
+    /// step alone.
+    pub fn award(&mut self, who: usize, xp: u32, events: &mut Vec<WorldEvent>) {
         if self.class_of(who as u32) == Class::None || who >= self.progress.len() {
             return;
         }
+        let class = self.class_of(who as u32).code();
         for level in self.progress[who].gain(xp) {
             events.push(WorldEvent::LevelUp {
                 who: who as u32,
+                class,
                 level: level as u32,
             });
         }
@@ -7501,12 +8907,15 @@ impl World {
     /// while the rooms are joined — on an unjoined deck nobody is in
     /// anybody's vicinity. A crewmate or a hire going down is nobody's
     /// experience.
-    fn experience(&mut self, events: &mut Vec<WorldEvent>) {
+    /// Hands back every enemy that went down this step with who last hit
+    /// it, for the soldiers' *rampage* (`settle_rampage`).
+    fn experience(&mut self, events: &mut Vec<WorldEvent>) -> Vec<(usize, Option<usize>)> {
+        let mut downed = Vec::new();
         let Some(residents) = &self.residents else {
-            return;
+            return downed;
         };
         if self.stance(residents.station) != Stance::Hostile || !self.aboard.is_joined() {
-            return;
+            return downed;
         }
         let mut gained: Vec<(bims::math::Vec2, u32)> = Vec::new();
         let count = residents.aboard.count() as usize;
@@ -7514,12 +8923,16 @@ impl World {
             let room = &residents.aboard.room;
             let dead = !room.is_alive(who);
             let down = dead || room.is_unconscious(who);
-            let Some(at) = self.aboard.from_station(residents.aboard.position(who as u32)) else {
+            let Some(at) = self
+                .aboard
+                .from_station(residents.aboard.position(who as u32))
+            else {
                 continue;
             };
             let at = bims::math::vec2(at.x as f32, at.y as f32);
             if down && !residents.xp_down[who] {
                 gained.push((at, class::XP_ENEMY_DOWN));
+                downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
             }
             if dead && !residents.xp_dead[who] {
                 gained.push((at, class::XP_ENEMY_DEAD));
@@ -7536,6 +8949,7 @@ impl World {
         for (at, xp) in gained {
             self.award_classed_near(at, xp, events);
         }
+        downed
     }
 
     // --- the deployables ---------------------------------------------------
@@ -7671,11 +9085,34 @@ impl World {
     }
 
     /// How many sentries an engineer has standing, anywhere.
-    fn sentries_of(&self, owner: u32) -> u32 {
+    pub fn sentries_of(&self, owner: u32) -> u32 {
         self.deployables
             .iter()
             .filter(|d| d.kind == DeployKind::Sentry && d.owner_slot == owner)
             .count() as u32
+    }
+
+    /// How many of a kit a crew member carries in its pack — one a
+    /// stack, the way [`World::grenades_of`] counts grenades. What the
+    /// engineer's two boxes at the foot of the screen count (feature 80).
+    pub fn kits_of(&self, who: u32, kit: Kit) -> u32 {
+        if who >= self.aboard.crew_count() {
+            return 0;
+        }
+        let wanted = Item::Stack(kit.resource() as u32);
+        self.aboard
+            .room
+            .pack(who as usize)
+            .iter()
+            .filter(|i| **i == Some(wanted))
+            .count() as u32
+    }
+
+    /// How many more sentries an engineer could lay: the kits in its
+    /// pack, held down to the room [`World::sentry_limit`] leaves it.
+    pub fn sentries_left(&self, who: u32) -> u32 {
+        let room = self.sentry_limit(who).saturating_sub(self.sentries_of(who));
+        self.kits_of(who, Kit::Sentry).min(room)
     }
 
     /// What a deploy asks, before the errand: the slot's Bim fit to act,
@@ -7757,7 +9194,10 @@ impl World {
     fn deck_of(&self, at: bims::math::Vec2) -> (Deck, (u32, u32)) {
         let (foreign, p) = self.aboard.design_of(dvec2(at.x as f64, at.y as f64));
         let t = shipdesign::TILE as f64;
-        let tile = ((p.x / t).floor().max(0.0) as u32, (p.y / t).floor().max(0.0) as u32);
+        let tile = (
+            (p.x / t).floor().max(0.0) as u32,
+            (p.y / t).floor().max(0.0) as u32,
+        );
         let deck = match (foreign, self.ship.state.alongside()) {
             (true, Some(id)) => Deck::Station(id),
             _ => Deck::Ship,
@@ -7810,7 +9250,9 @@ impl World {
             let beside = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)]
                 .into_iter()
                 .map(|(dx, dy)| at + bims::math::vec2(dx * t, dy * t))
-                .find(|&p| self.aboard.room.deploy_tile_ok(who, p) && self.deployable_under(p).is_none());
+                .find(|&p| {
+                    self.aboard.room.deploy_tile_ok(who, p) && self.deployable_under(p).is_none()
+                });
             if let Some(p) = beside {
                 let (deck, tile) = self.deck_of(p);
                 self.lay(DeployKind::Sandbags, slot, deck, tile);
@@ -7949,6 +9391,28 @@ impl World {
         self.aboard.room.set_work_factors(factors);
         self.aboard.room.set_steady_hands(steady);
         self.sync_deployed_cover();
+        self.hand_the_room_the_sentries();
+    }
+
+    /// What each crew member's class wears (feature 81), to the room.
+    /// Drawing only: a class is a player slot's, so the crew past the
+    /// players — a hire, a mercenary — are in nothing, and a station's
+    /// residents are never told at all. Said every step because a class
+    /// is chosen in the yard, a hire shifts nobody's slot and a save
+    /// carries the classes but not the picture; `set_outfit` writes only
+    /// when the answer changed.
+    fn hand_the_room_the_outfits(&mut self) {
+        let crew = self.aboard.crew_count();
+        let outfits: Vec<bims::character::Outfit> = (0..crew)
+            .map(|who| self.class_of(who as u32).outfit())
+            .collect();
+        for (who, outfit) in outfits.into_iter().enumerate() {
+            self.aboard.room.set_outfit(who, outfit);
+        }
+    }
+
+    /// The sentries on the crew's deck, as they stand now, to the room.
+    fn hand_the_room_the_sentries(&mut self) {
         let sentries: Vec<Sentry> = self
             .deployables
             .iter()
@@ -8043,6 +9507,7 @@ impl World {
             return;
         }
         self.deployables.retain(|d| d.health > 0.0);
+        self.hand_the_room_the_sentries();
         for d in gone {
             events.push(WorldEvent::DeployableLost {
                 kind: d.kind.code(),
@@ -8068,13 +9533,14 @@ impl World {
 
     // --- the armourer's repair ---------------------------------------------
 
-    /// A repair begun at the workbench — see [`Command::Repair`].
-    fn begin_repair(&mut self, slot: u32, events: &mut Vec<WorldEvent>) -> Result<(), Refusal> {
-        if !self.fit_to_act(slot) {
-            return Err(Refusal::OutOfReach);
-        }
+    /// Whether a player's engineer could begin a repair now, or why not:
+    /// what greys the bench window's button. The command's own check.
+    pub fn can_repair(&self, slot: u32) -> Result<(), Refusal> {
         if !self.has_talent(slot, Talent::Armourer) {
             return Err(Refusal::NoTalent);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
         }
         if self.workbench().is_none() {
             return Err(Refusal::NoWorkbench);
@@ -8092,11 +9558,1652 @@ impl World {
         if self.free(ResourceId::Metal) < deploy::ARMOUR_REPAIR_METAL {
             return Err(Refusal::NotAboard);
         }
+        Ok(())
+    }
+
+    /// A repair begun at the workbench — see [`Command::Repair`].
+    fn begin_repair(&mut self, slot: u32, events: &mut Vec<WorldEvent>) -> Result<(), Refusal> {
+        self.can_repair(slot)?;
         self.ship.design.cargo[ResourceId::Metal as usize] -= deploy::ARMOUR_REPAIR_METAL;
         self.on_ship_changed();
         self.bench.repair = Some(slot);
         let _ = events;
         Ok(())
+    }
+
+    // --- the soldier: the brace, the skills and the grenades (feature 75) --
+
+    /// What a crew member shoots with over its weapon, for the room's one
+    /// shooter (`bims::combat::Skill`): a soldier's talents and its brace,
+    /// every factor `crate::class`'s constant; `Skill::NONE` for anybody
+    /// else. Worked out fresh every step, since the brace and the
+    /// *rampage* stacks move.
+    pub fn skill_of(&self, who: u32) -> bims::combat::Skill {
+        let mut skill = if self.is_medic(who) {
+            self.medic_skill(who)
+        } else if self.is_tank(who) {
+            self.tank_skill(who)
+        } else {
+            self.soldier_skill(who)
+        };
+        // How fast a worn piece drains is everybody's business, not only
+        // a tank's: *rallying wall* gives it to the crew round him
+        // (feature 77).
+        skill.armour_drain = self.armour_drain(who);
+        // And so is a commander's aura, his rally and his squad order
+        // (feature 78): they lift whatever the crew member's own class
+        // gave it, a player's own steered Bim included.
+        self.lift_by_aura(who, &mut skill);
+        skill
+    }
+
+    /// The soldier's half of [`World::skill_of`]; `Skill::NONE` for
+    /// anybody else.
+    fn soldier_skill(&self, who: u32) -> bims::combat::Skill {
+        if !self.is_soldier(who) {
+            return bims::combat::Skill::NONE;
+        }
+        let progress = self.progress_of(who);
+        let has = |talent| progress.has(Class::Soldier, talent);
+        let braced = self.aboard.room.is_braced(who as usize);
+        let mut skill = bims::combat::Skill::NONE;
+        if braced {
+            skill.accuracy *= class::BRACE_ACCURACY;
+        }
+        if has(Talent::Marksman) {
+            skill.accuracy *= class::MARKSMAN_ACCURACY;
+        }
+        if has(Talent::PointBlank) {
+            skill.point_blank = class::POINT_BLANK_DAMAGE;
+        }
+        if has(Talent::Runner) {
+            skill.pace = class::RUNNER_PACE;
+        }
+        if has(Talent::SteadyAim) {
+            skill.walking = class::steady_aim_walking();
+        }
+        if has(Talent::IronNerve) {
+            skill.nerve = true;
+        }
+        if has(Talent::CoverMaster) {
+            skill.cover_dodge = (skill.cover_dodge * class::COVER_MASTER_DODGE).min(1.0);
+        }
+        if progress.level() >= class::DRILL_LEVEL {
+            skill.fire_rate *= class::DRILL_FIRE_RATE;
+        }
+        if has(Talent::Bruiser) {
+            skill.melee = class::BRUISER_MELEE;
+        }
+        if has(Talent::DugInBraced) && braced {
+            skill.dodge = class::DUG_IN_DODGE;
+        }
+        if has(Talent::Deadeye) {
+            skill.deadeye = true;
+        }
+        if has(Talent::Rampage) {
+            let stacks = self
+                .aboard
+                .room
+                .rampage(who as usize)
+                .min(class::RAMPAGE_STACKS);
+            skill.fire_rate *= class::RAMPAGE_FIRE_RATE.powi(stacks as i32);
+        }
+        skill
+    }
+
+    /// Whether a player's soldier may brace, or why not: a soldier, and
+    /// fit to act. What the app greys the key with and [`Command::Brace`]
+    /// asks.
+    pub fn can_brace(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Brace) {
+            return Err(Refusal::NotASoldier);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        Ok(())
+    }
+
+    /// Brace, or stand easy — see [`Command::Brace`]. The room holds the
+    /// flag (`Game::set_braced`), and ends it on its own when the soldier
+    /// is ordered anywhere or goes down.
+    fn brace(&mut self, slot: u32, on: bool) -> Result<(), Refusal> {
+        self.can_brace(slot)?;
+        self.aboard.room.set_braced(slot as usize, on);
+        Ok(())
+    }
+
+    /// Whether a crew member is braced.
+    pub fn is_braced(&self, who: u32) -> bool {
+        self.aboard.room.is_braced(who as usize)
+    }
+
+    /// How far a soldier throws, in tiles: the range, half again with
+    /// *long throw*.
+    pub fn grenade_range(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::LongThrow) {
+            class::GRENADE_RANGE * class::LONG_THROW_RANGE
+        } else {
+            class::GRENADE_RANGE
+        }
+    }
+
+    /// Seconds from the throw to the burst: the fuse, halved with *short
+    /// fuse*.
+    pub fn grenade_fuse(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::ShortFuse) {
+            class::GRENADE_FUSE * class::SHORT_FUSE_TIME
+        } else {
+            class::GRENADE_FUSE
+        }
+    }
+
+    /// How far a burst reaches, in tiles: the radius, half again with
+    /// *frag*.
+    pub fn grenade_radius(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::Frag) {
+            class::GRENADE_RADIUS * class::FRAG_RADIUS
+        } else {
+            class::GRENADE_RADIUS
+        }
+    }
+
+    /// Seconds of the clock between one throw and the next: the
+    /// cooldown, halved with *quick draw*.
+    pub fn grenade_cooldown(&self, who: u32) -> f64 {
+        if self.has_talent(who, Talent::QuickDraw) {
+            class::GRENADE_COOLDOWN * class::QUICK_DRAW_COOLDOWN
+        } else {
+            class::GRENADE_COOLDOWN
+        }
+    }
+
+    /// Seconds of the clock until a crew member may throw again; nought
+    /// when it may.
+    pub fn grenade_cooldown_left(&self, who: u32) -> f64 {
+        let Some(last) = self.last_throw.get(who as usize).copied().flatten() else {
+            return 0.0;
+        };
+        // Seconds of the room's clock: a game minute is a real second at 1×
+        // (`time::MINUTES_PER_SECOND`), the way the room steps.
+        let since = (self.clock_minutes - last) / time::MINUTES_PER_SECOND;
+        (self.grenade_cooldown(who) - since).max(0.0)
+    }
+
+    /// Grenades in a crew member's pack.
+    pub fn grenades_of(&self, who: u32) -> u32 {
+        if who >= self.aboard.crew_count() {
+            return 0;
+        }
+        let wanted = Item::Stack(ResourceId::Grenade as u32);
+        self.aboard
+            .room
+            .pack(who as usize)
+            .iter()
+            .filter(|i| **i == Some(wanted))
+            .count() as u32
+    }
+
+    /// What a throw asks, in the order the refusals are said: the slot's
+    /// Bim fit to act (`OutOfReach`), a soldier (`NotASoldier`), at the
+    /// grenade level (`NoGrenadesYet`), a grenade in the pack
+    /// (`NoGrenade`), past its cooldown (`CoolingDown`), and the tile —
+    /// a room tile, like a deploy's — deck of the room (`CantThrowThere`)
+    /// within its range (`OutOfThrowRange`) with nothing opaque between
+    /// (`NoLineToTile`): walls and shut doors stop a throw, sandbags do
+    /// not. What the app greys a press with, and [`Command::Throw`]'s
+    /// own check.
+    pub fn can_throw(&self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if !class::can(self.class_of(slot), class::Ability::Throw) {
+            return Err(Refusal::NotASoldier);
+        }
+        if self.progress_of(slot).level() < class::GRENADE_LEVEL {
+            return Err(Refusal::NoGrenadesYet);
+        }
+        if self.grenades_of(slot) == 0 {
+            return Err(Refusal::NoGrenade);
+        }
+        if self.grenade_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        let t = shipdesign::TILE as f32;
+        let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
+        if !self.aboard.room.is_deck_tile(at) {
+            return Err(Refusal::CantThrowThere);
+        }
+        let from = self.aboard.room.bim_pos(slot as usize);
+        if (at - from).len() > self.grenade_range(slot) * t {
+            return Err(Refusal::OutOfThrowRange);
+        }
+        if !self.aboard.room.line_clear(from, at) {
+            return Err(Refusal::NoLineToTile);
+        }
+        Ok(())
+    }
+
+    /// The throw — see [`Command::Throw`]: the grenade out of the pack
+    /// now, the clock noted, and the room throws it with the fuse, the
+    /// radius and the damage the soldier's talents give it.
+    fn throw(&mut self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
+        self.can_throw(slot, tile)?;
+        let who = slot as usize;
+        let wanted = Item::Stack(ResourceId::Grenade as u32);
+        let cell = self
+            .aboard
+            .room
+            .pack(who)
+            .iter()
+            .position(|i| *i == Some(wanted))
+            .ok_or(Refusal::NoGrenade)?;
+        if self.aboard.room.take(who, cell).is_none() {
+            return Err(Refusal::NoGrenade);
+        }
+        if self.last_throw.len() <= who {
+            self.last_throw.resize(who + 1, None);
+        }
+        self.last_throw[who] = Some(self.clock_minutes);
+        let t = shipdesign::TILE as f32;
+        let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
+        let fuse = self.grenade_fuse(slot);
+        let radius = self.grenade_radius(slot) * t;
+        self.aboard
+            .room
+            .throw_grenade(who, at, fuse, radius, class::GRENADE_DAMAGE);
+        Ok(())
+    }
+
+    // --- the medic: the beam and the surge (feature 76) --------------------
+    //
+    // `crate::medic` is the state; this is the rules. The beam is a list
+    // of crew indices on the medic, checked every step before the rooms
+    // step and handed to the room as what it does to each body
+    // (`bims::health::Beamed`); the surge is the room's own timer on
+    // each body, set here off the medic's charge.
+
+    /// Whether crew member `who` is a player's medic.
+    fn is_medic(&self, who: u32) -> bool {
+        self.class_of(who) == Class::Medic
+    }
+
+    /// A crew member's medic state — an empty one for anybody the world
+    /// keeps none for.
+    pub fn medic_of(&self, who: u32) -> Medic {
+        self.medics.get(who as usize).cloned().unwrap_or_default()
+    }
+
+    /// The crew members a medic's beam holds, by index.
+    pub fn patients_of(&self, who: u32) -> Vec<u32> {
+        self.medic_of(who).patients
+    }
+
+    /// Whether a medic's beam holds anybody.
+    pub fn is_beaming(&self, who: u32) -> bool {
+        self.medic_of(who).is_linked()
+    }
+
+    /// The medic's state, made if the crew grew past the list.
+    fn medic_mut(&mut self, who: usize) -> &mut Medic {
+        if self.medics.len() <= who {
+            self.medics.resize(who + 1, Medic::default());
+        }
+        &mut self.medics[who]
+    }
+
+    /// What a medic shoots with (feature 76): its fire held while the
+    /// beam is linked, or at [`class::GUNNER_MEDIC_FIRE_RATE`] with
+    /// *gunner medic*; `Skill::NONE` unlinked.
+    fn medic_skill(&self, who: u32) -> bims::combat::Skill {
+        let mut skill = bims::combat::Skill::NONE;
+        if self.is_beaming(who) {
+            if self.has_talent(who, Talent::GunnerMedic) {
+                skill.fire_rate *= class::GUNNER_MEDIC_FIRE_RATE;
+            } else {
+                skill.holds_fire = true;
+            }
+        }
+        skill
+    }
+
+    /// How far a medic's beam reaches, in tiles: the range, half again
+    /// with *long beam*.
+    pub fn beam_range(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::LongBeam) {
+            class::HEAL_BEAM_RANGE * class::LONG_BEAM_RANGE
+        } else {
+            class::HEAL_BEAM_RANGE
+        }
+    }
+
+    /// Blood a beamed patient gains an hour: the rate, half again with
+    /// *strong beam*.
+    pub fn beam_blood(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::StrongBeam) {
+            class::HEAL_BEAM_BLOOD * class::STRONG_BEAM_BLOOD
+        } else {
+            class::HEAL_BEAM_BLOOD
+        }
+    }
+
+    /// How many patients a medic's beam holds at once: one, or
+    /// [`class::DOUBLE_LINK_PATIENTS`] with *double link*.
+    pub fn beam_patients(&self, who: u32) -> usize {
+        if self.has_talent(who, Talent::DoubleLink) {
+            class::DOUBLE_LINK_PATIENTS
+        } else {
+            1
+        }
+    }
+
+    /// Minutes of qualifying beaming a medic's surge wants to be full:
+    /// [`class::SURGE_CHARGE_MINUTES`], less with *quick charge*.
+    pub fn surge_charge_wanted(&self, who: u32) -> f64 {
+        if self.has_talent(who, Talent::QuickCharge) {
+            class::SURGE_CHARGE_MINUTES / class::QUICK_CHARGE_RATE
+        } else {
+            class::SURGE_CHARGE_MINUTES
+        }
+    }
+
+    /// How full a medic's surge is, nought to one.
+    pub fn surge_charge(&self, who: u32) -> f32 {
+        (self.medic_of(who).charge / self.surge_charge_wanted(who)).clamp(0.0, 1.0) as f32
+    }
+
+    /// Minutes of the clock a medic's surge runs: [`class::SURGE_MINUTES`],
+    /// half again with *long surge*.
+    pub fn surge_minutes(&self, who: u32) -> f64 {
+        if self.has_talent(who, Talent::LongSurge) {
+            class::SURGE_MINUTES * class::LONG_SURGE_TIME
+        } else {
+            class::SURGE_MINUTES
+        }
+    }
+
+    /// Seconds of the room's clock a crew member's surge has left; nought
+    /// with none running.
+    pub fn surge_left(&self, who: u32) -> f64 {
+        self.aboard.room.surge_left(who as usize) as f64
+    }
+
+    /// Whether a surge runs on a crew member.
+    pub fn is_surging(&self, who: u32) -> bool {
+        self.aboard.room.is_surging(who as usize)
+    }
+
+    /// Whether a crewmate is where a medic's beam reaches it: alive, in
+    /// the room, within the medic's range and in its sight. What a link
+    /// asks, and what keeps one.
+    fn beam_reaches(&self, medic: u32, patient: u32) -> Result<(), Refusal> {
+        let room = &self.aboard.room;
+        let (m, p) = (medic as usize, patient as usize);
+        if patient >= self.aboard.crew_count() || patient == medic || !room.is_alive(p) {
+            return Err(Refusal::NotACrewmate);
+        }
+        if room.is_outside(p) || room.is_outside(m) {
+            return Err(Refusal::OutOfBeamRange);
+        }
+        let at = room.bim_pos(p);
+        let t = shipdesign::TILE as f32;
+        if (at - room.bim_pos(m)).len() > self.beam_range(medic) * t {
+            return Err(Refusal::OutOfBeamRange);
+        }
+        if !room.sees(m, at) {
+            return Err(Refusal::NoSightOfPatient);
+        }
+        Ok(())
+    }
+
+    /// Whether a player's medic may link its beam to `patient`, or why
+    /// not, in the order the refusals are said: a medic (`NotAMedic`),
+    /// fit to act (`OutOfReach`), a living crewmate — any crew member
+    /// but itself (`NotACrewmate`) — in the room and within range
+    /// (`OutOfBeamRange`), in its sight (`NoSightOfPatient`). What the
+    /// app greys the key with and [`Command::Beam`] asks.
+    pub fn can_beam(&self, slot: u32, patient: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Beam) {
+            return Err(Refusal::NotAMedic);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        self.beam_reaches(slot, patient)
+    }
+
+    /// Link, or unlink — see [`Command::Beam`]. A patient already held is
+    /// held still; one past the beam's count takes the oldest's place.
+    fn beam(&mut self, slot: u32, patient: Option<u32>) -> Result<(), Refusal> {
+        let Some(patient) = patient else {
+            if !class::can(self.class_of(slot), class::Ability::Beam) {
+                return Err(Refusal::NotAMedic);
+            }
+            self.medic_mut(slot as usize).unlink();
+            self.aboard.room.set_beaming(slot as usize, false);
+            return Ok(());
+        };
+        self.can_beam(slot, patient)?;
+        let most = self.beam_patients(slot);
+        let medic = self.medic_mut(slot as usize);
+        if !medic.holds(patient) {
+            medic.patients.push(patient);
+            while medic.patients.len() > most {
+                medic.patients.remove(0);
+            }
+        }
+        self.aboard.room.set_beaming(slot as usize, true);
+        Ok(())
+    }
+
+    /// Whether a player's medic may trigger its surge, or why not, in
+    /// order: a medic (`NotAMedic`), fit to act (`OutOfReach`), at
+    /// [`class::SURGE_LEVEL`] (`NoSurgeYet`), linked (`NotLinked`), and
+    /// charged (`NotCharged`).
+    pub fn can_surge(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Surge) {
+            return Err(Refusal::NotAMedic);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.progress_of(slot).level() < class::SURGE_LEVEL {
+            return Err(Refusal::NoSurgeYet);
+        }
+        if !self.is_beaming(slot) {
+            return Err(Refusal::NotLinked);
+        }
+        if self.surge_charge(slot) < 1.0 {
+            return Err(Refusal::NotCharged);
+        }
+        Ok(())
+    }
+
+    /// The surge — see [`Command::Surge`]: the charge emptied, and the
+    /// room's timer set on the medic and every patient (and, with *mass
+    /// surge*, every crew member within [`class::MASS_SURGE_TILES`] of a
+    /// patient) for the medic's minutes; a patient's closes its wounds as
+    /// it ends with *closing surge*.
+    fn surge(&mut self, slot: u32) -> Result<(), Refusal> {
+        self.can_surge(slot)?;
+        let seconds = (self.surge_minutes(slot) / time::MINUTES_PER_SECOND) as f32;
+        let closing = self.has_talent(slot, Talent::ClosingSurge);
+        let patients = self.patients_of(slot);
+        let mut covered: Vec<u32> = Vec::new();
+        if self.has_talent(slot, Talent::MassSurge) {
+            let t = shipdesign::TILE as f32;
+            let room = &self.aboard.room;
+            for &p in &patients {
+                let at = room.bim_pos(p as usize);
+                for other in 0..self.aboard.crew_count() {
+                    if other != slot
+                        && !patients.contains(&other)
+                        && !covered.contains(&other)
+                        && room.is_alive(other as usize)
+                        && !room.is_outside(other as usize)
+                        && (room.bim_pos(other as usize) - at).len() <= class::MASS_SURGE_TILES * t
+                    {
+                        covered.push(other);
+                    }
+                }
+            }
+        }
+        self.medic_mut(slot as usize).charge = 0.0;
+        let room = &mut self.aboard.room;
+        room.set_surge(slot as usize, seconds, false);
+        for p in patients {
+            room.set_surge(p as usize, seconds, closing);
+        }
+        for other in covered {
+            room.set_surge(other as usize, seconds, false);
+        }
+        Ok(())
+    }
+
+    /// Slot 0 a medic beaming crew member 1, for a probe and for
+    /// `BIMS_BEAM` in the app: crew member 1 stood a tile from it with a
+    /// wound open — so the patient wants holding and the charge fills —
+    /// and the link made. With `surge` the charge is filled and the
+    /// surge triggered besides, which wants the medic at
+    /// [`class::SURGE_LEVEL`] (the caller's `BIMS_LEVEL`, or this puts
+    /// it there). `false`, and nothing moved, with fewer than two aboard
+    /// or with slot 0 no medic.
+    pub fn beam_for_probe(&mut self, surge: bool) -> bool {
+        if self.aboard.crew_count() < 2 || !self.is_medic(0) {
+            return false;
+        }
+        let at = self.aboard.room.bim_pos(0) + bims::math::vec2(shipdesign::TILE as f32, 0.0);
+        self.aboard.room.put_for_probe(1, at);
+        self.aboard.room.wound(1, bims::health::Part::Legs, 2.0);
+        self.step(&[]);
+        if self.beam(0, Some(1)).is_err() {
+            return false;
+        }
+        if surge {
+            if self.progress_of(0).level() < class::SURGE_LEVEL {
+                let want = class::LEVEL_XP[class::SURGE_LEVEL as usize - 1];
+                let mut events = Vec::new();
+                self.award(0, want, &mut events);
+            }
+            let charge = self.surge_charge_wanted(0);
+            self.medic_mut(0).charge = charge;
+            if self.surge(0).is_err() {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Every beam broken: what a change of crew indices does, since an
+    /// index is all a link is.
+    fn clear_beams(&mut self) {
+        for (who, medic) in self.medics.iter_mut().enumerate() {
+            medic.unlink();
+            self.aboard.room.set_beaming(who, false);
+        }
+    }
+
+    /// Before the rooms step: every beam checked — broken where the room
+    /// ended it (an order to an errand, the medic down), the medic unfit
+    /// to act, or a patient dead, gone from the room, out of range or
+    /// out of sight — the surge charged for a patient that qualifies,
+    /// and the room told what each body is held by
+    /// (`bims::health::Beamed`) and what each Bim's doctoring runs at
+    /// (`bims::health::Doctoring`).
+    fn hand_the_room_the_medics(&mut self, events: &mut Vec<WorldEvent>) {
+        let crew = self.aboard.crew_count() as usize;
+        if self.medics.len() < crew {
+            self.medics.resize(crew, Medic::default());
+        }
+        let mut held: Vec<Option<bims::health::Beamed>> = vec![None; crew];
+        for m in 0..crew {
+            if !self.medics[m].is_linked() {
+                continue;
+            }
+            let who = m as u32;
+            let was = self.medics[m].patients.clone();
+            let keep: Vec<u32> = if !self.aboard.room.is_beaming(m) || !self.fit_to_act(who) {
+                Vec::new()
+            } else {
+                was.iter()
+                    .copied()
+                    .filter(|&p| self.beam_reaches(who, p).is_ok())
+                    .collect()
+            };
+            if keep.is_empty() {
+                self.medics[m].unlink();
+                self.aboard.room.set_beaming(m, false);
+                events.push(WorldEvent::Beamed { who, patient: None });
+                continue;
+            }
+            self.medics[m].patients = keep.clone();
+            // The charge fills while a patient wants holding.
+            let room = &self.aboard.room;
+            let qualifies = keep.iter().any(|&p| {
+                room.blood(p as usize) < bims::health::MAX_BLOOD || room.bleeding(p as usize) > 0
+            });
+            if qualifies {
+                let wanted = self.surge_charge_wanted(who);
+                let medic = &mut self.medics[m];
+                medic.charge = (medic.charge + data::STEP_MINUTES).min(wanted);
+            }
+            let beamed = bims::health::Beamed {
+                blood_an_hour: self.beam_blood(who),
+                mend: if self.progress_of(who).level() >= class::MENDER_LEVEL {
+                    class::MENDER_RECOVER
+                } else {
+                    1.0
+                },
+                bleed: 0.0,
+            };
+            for &p in &keep {
+                // Two beams on one body: the stronger holds it.
+                let slot = &mut held[p as usize];
+                if slot.is_none_or(|h| h.blood_an_hour < beamed.blood_an_hour) {
+                    *slot = Some(beamed);
+                }
+            }
+            if self.has_talent(who, Talent::SelfCare) && held[m].is_none() {
+                held[m] = Some(bims::health::Beamed::HELD);
+            }
+        }
+        // *Hold fast* (feature 77): a taunting tank's wounds and traumas
+        // do not bleed while it runs. Nothing else a beam does — the
+        // same entry *self-care* gives a medic.
+        for who in 0..crew {
+            if held[who].is_none()
+                && self.has_talent(who as u32, Talent::HoldFast)
+                && self.is_taunting(who as u32)
+            {
+                held[who] = Some(bims::health::Beamed::HELD);
+            }
+        }
+        // *Steady ranks* (feature 78): a Bim in a commander's aura with
+        // that talent bleeds slower — slower, not not at all, so it is
+        // the same entry with the bleeding only damped, and anything
+        // that stops the bleeding outright keeps its place.
+        for who in 0..crew {
+            if held[who].is_some() {
+                continue;
+            }
+            let Some(aura) = self.aura_reaching(who as u32) else {
+                continue;
+            };
+            if aura.bleed < 1.0 {
+                held[who] = Some(bims::health::Beamed {
+                    blood_an_hour: 0.0,
+                    mend: 1.0,
+                    bleed: aura.bleed,
+                });
+            }
+        }
+        let doctoring: Vec<bims::health::Doctoring> = (0..crew as u32)
+            .map(|who| {
+                let mut d = bims::health::Doctoring::NONE;
+                if !self.is_medic(who) {
+                    return d;
+                }
+                if self.has_talent(who, Talent::FieldDressing) {
+                    d.bandage = 1.0 / class::FIELD_DRESSING_TIME;
+                }
+                if self.has_talent(who, Talent::Surgeon) {
+                    d.treat = 1.0 / class::SURGEON_TIME;
+                }
+                if self.has_talent(who, Talent::FieldSurgeon)
+                    && !self.medic_of(who).field_surgery_used
+                {
+                    d.bare = Some(1.0 / class::FIELD_SURGEON_TIME);
+                }
+                d.clean_hands = self.has_talent(who, Talent::CleanHands);
+                if self.has_talent(who, Talent::SteadyHandsMedic) {
+                    d.treated_to = bims::health::TREATED_TO * class::STEADY_HANDS_TREATED;
+                }
+                d
+            })
+            .collect();
+        self.aboard.room.set_held(held);
+        self.aboard.room.set_doctoring(doctoring);
+    }
+
+    /// After the rooms step: every dressing and treatment the room
+    /// finished — [`class::XP_HEALED`] to a medic that did one on a
+    /// crewmate, and a field surgery marked used — and the field surgery
+    /// given back when the fight ends (the rooms unjoined, or no enemy
+    /// standing), like the soldiers' *rampage*.
+    fn settle_medics(&mut self, events: &mut Vec<WorldEvent>) {
+        for healed in self.aboard.room.take_healings() {
+            if healed.with == bims::game::Healing::Bare {
+                self.medic_mut(healed.helper).field_surgery_used = true;
+            }
+            if healed.helper != healed.patient && self.is_medic(healed.helper as u32) {
+                self.award(healed.helper, class::XP_HEALED, events);
+            }
+        }
+        if !self.enemy_standing() {
+            for medic in &mut self.medics {
+                medic.field_surgery_used = false;
+            }
+        }
+    }
+
+    // --- the tank: the wall, the taunt and the hits (feature 77) -----------
+    //
+    // `crate::tank` is the state — when he last taunted, and nothing
+    // else. Bulwark is a flag on the Bim, the hits a count on it, and
+    // every talent is read afresh each step into the room's one
+    // `bims::combat::Skill`.
+
+    /// Whether crew member `who` is a player's tank.
+    fn is_tank(&self, who: u32) -> bool {
+        self.class_of(who) == Class::Tank
+    }
+
+    /// A crew member's tank state — an empty one for anybody the world
+    /// keeps none for.
+    pub fn tank_of(&self, who: u32) -> Tank {
+        self.tanks.get(who as usize).cloned().unwrap_or_default()
+    }
+
+    /// The tank's state, made if the crew grew past the list.
+    fn tank_mut(&mut self, who: usize) -> &mut Tank {
+        if self.tanks.len() <= who {
+            self.tanks.resize(who + 1, Tank::default());
+        }
+        &mut self.tanks[who]
+    }
+
+    /// What a tank fights with: the armour passive is `skill_of`'s, and
+    /// this is the rest of the talents — the wall's pace and dodge, the
+    /// plating, the iron frame, the unmoving legs and the breacher's
+    /// shoulder.
+    fn tank_skill(&self, who: u32) -> bims::combat::Skill {
+        let mut skill = bims::combat::Skill::NONE;
+        let progress = self.progress_of(who);
+        let has = |talent| progress.has(Class::Tank, talent);
+        if self.is_bulwark(who) {
+            skill.walk = self.bulwark_pace(who);
+            if has(Talent::Guarded) {
+                skill.dodge = class::GUARDED_DODGE;
+            }
+        }
+        if has(Talent::Plated) {
+            skill.armour_protection = class::PLATED_PROTECTION;
+        }
+        if has(Talent::Breacher) {
+            skill.smash_rate = 1.0 / class::BREACHER_TIME;
+        }
+        if has(Talent::Unmovable) {
+            skill.nerve = true;
+            skill.steady_pace = true;
+        }
+        if progress.level() >= class::IRON_FRAME_LEVEL {
+            skill.iron_frame = true;
+        }
+        skill
+    }
+
+    /// What a crew member's worn armour drains at, of the damage that
+    /// gets past its protection: [`class::TANK_DRAIN`] for a tank —
+    /// *fortress* again on top — [`class::RALLYING_WALL_DRAIN`] for a
+    /// crewmate within [`class::RALLYING_WALL_TILES`] of a taunting tank
+    /// with *rallying wall*, and one for everybody else.
+    pub fn armour_drain(&self, who: u32) -> f32 {
+        if self.is_tank(who) {
+            let mut drain = class::TANK_DRAIN;
+            if self.has_talent(who, Talent::Fortress) {
+                drain *= class::FORTRESS_DRAIN;
+            }
+            return drain;
+        }
+        let crew = self.aboard.crew_count();
+        let room = &self.aboard.room;
+        if who >= crew || !room.is_alive(who as usize) || room.is_outside(who as usize) {
+            return 1.0;
+        }
+        let at = room.bim_pos(who as usize);
+        let t = shipdesign::TILE as f32;
+        let sheltered = (0..crew).any(|tank| {
+            tank != who
+                && self.is_taunting(tank)
+                && self.has_talent(tank, Talent::RallyingWall)
+                && !room.is_outside(tank as usize)
+                && (room.bim_pos(tank as usize) - at).len() <= class::RALLYING_WALL_TILES * t
+        });
+        if sheltered {
+            class::RALLYING_WALL_DRAIN
+        } else {
+            1.0
+        }
+    }
+
+    /// How far a tank's bulwark reaches, in tiles: the reach, twice that
+    /// with *wide wall*.
+    pub fn bulwark_reach(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::WideWall) {
+            class::BULWARK_REACH * class::WIDE_WALL_REACH
+        } else {
+            class::BULWARK_REACH
+        }
+    }
+
+    /// What a tank's pace is multiplied by while the wall is up: half,
+    /// half again as much again with *fast wall*.
+    pub fn bulwark_pace(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::FastWall) {
+            class::BULWARK_PACE * class::FAST_WALL_PACE
+        } else {
+            class::BULWARK_PACE
+        }
+    }
+
+    /// How big a load a crew member's haul trip carries, in units:
+    /// [`data::HAUL_LOAD`], [`class::PACK_MULE_LOADS`] of it with *pack
+    /// mule*. Read as the load is taken, so it is the hauler's own.
+    pub fn haul_load(&self, who: u32) -> u32 {
+        if self.has_talent(who, Talent::PackMule) {
+            data::HAUL_LOAD * class::PACK_MULE_LOADS
+        } else {
+            data::HAUL_LOAD
+        }
+    }
+
+    /// Whether a crew member stands as a wall.
+    pub fn is_bulwark(&self, who: u32) -> bool {
+        self.aboard.room.is_bulwark(who as usize)
+    }
+
+    /// Whether a player's tank may stand as a wall, or why not: a tank
+    /// (`NotATank`), and fit to act (`OutOfReach`). What the app greys
+    /// the key with and [`Command::Bulwark`] asks.
+    pub fn can_bulwark(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Bulwark) {
+            return Err(Refusal::NotATank);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        Ok(())
+    }
+
+    /// Stand as a wall, or stand down — see [`Command::Bulwark`]. The
+    /// room holds the flag (`Game::set_bulwark`) and drops it when the
+    /// tank goes down.
+    fn bulwark(&mut self, slot: u32, on: bool) -> Result<(), Refusal> {
+        self.can_bulwark(slot)?;
+        self.aboard.room.set_bulwark(slot as usize, on);
+        Ok(())
+    }
+
+    /// Minutes of the clock a tank's taunt runs: [`class::TAUNT_MINUTES`],
+    /// half again with *long taunt*.
+    pub fn taunt_minutes(&self, who: u32) -> f64 {
+        if self.has_talent(who, Talent::LongTaunt) {
+            class::TAUNT_MINUTES * class::LONG_TAUNT_TIME
+        } else {
+            class::TAUNT_MINUTES
+        }
+    }
+
+    /// How far a tank's taunt reaches, in tiles: the radius, half again
+    /// with *loud taunt*.
+    pub fn taunt_radius(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::LoudTaunt) {
+            class::TAUNT_RADIUS * class::LOUD_TAUNT_RADIUS
+        } else {
+            class::TAUNT_RADIUS
+        }
+    }
+
+    /// Minutes of the clock a tank's taunt has left; nought with none
+    /// running.
+    pub fn taunt_left(&self, who: u32) -> f64 {
+        let Some(last) = self.tank_of(who).last_taunt else {
+            return 0.0;
+        };
+        (self.taunt_minutes(who) - (self.clock_minutes - last)).max(0.0)
+    }
+
+    /// Whether a taunt is running on a crew member.
+    pub fn is_taunting(&self, who: u32) -> bool {
+        self.taunt_left(who) > 0.0
+    }
+
+    /// Seconds of the clock until a tank may taunt again; nought when he
+    /// may. Read the way the grenade's cooldown is.
+    pub fn taunt_cooldown_left(&self, who: u32) -> f64 {
+        let Some(last) = self.tank_of(who).last_taunt else {
+            return 0.0;
+        };
+        let since = (self.clock_minutes - last) / time::MINUTES_PER_SECOND;
+        (class::TAUNT_COOLDOWN - since).max(0.0)
+    }
+
+    /// Whether a player's tank may taunt, or why not, in order: a tank
+    /// (`NotATank`), fit to act (`OutOfReach`), at
+    /// [`class::TAUNT_LEVEL`] (`NoTauntYet`), and out of the cooldown
+    /// (`CoolingDown`).
+    pub fn can_taunt(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Taunt) {
+            return Err(Refusal::NotATank);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.progress_of(slot).level() < class::TAUNT_LEVEL {
+            return Err(Refusal::NoTauntYet);
+        }
+        if self.taunt_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        Ok(())
+    }
+
+    /// The taunt — see [`Command::Taunt`]: the clock noted, which is the
+    /// whole of it. What it *does* is read off that every step, in
+    /// `hand_the_room_the_tanks`.
+    fn taunt(&mut self, slot: u32) -> Result<(), Refusal> {
+        self.can_taunt(slot)?;
+        let now = self.clock_minutes;
+        self.tank_mut(slot as usize).last_taunt = Some(now);
+        Ok(())
+    }
+
+    /// Before the rooms step: the walls standing among the crew to the
+    /// crew's room, so a bolt aimed through one is dodged like a bolt in
+    /// cover (and, with *interpose*, lands on the wall). A tank not fit
+    /// to act shelters nobody, so a wall goes down with the tank the
+    /// same step he does.
+    fn hand_the_room_the_tanks(&mut self) {
+        let crew = self.aboard.crew_count();
+        if self.tanks.len() < crew as usize {
+            self.tanks.resize(crew as usize, Tank::default());
+        }
+        let walls: Vec<bims::combat::Bulwark> = (0..crew)
+            .filter(|&who| self.is_tank(who) && self.is_bulwark(who) && self.fit_to_act(who))
+            .map(|who| bims::combat::Bulwark {
+                who: who as usize,
+                reach: self.bulwark_reach(who),
+                interpose: self.has_talent(who, Talent::Interpose),
+            })
+            .collect();
+        self.aboard.room.set_bulwarks(walls);
+    }
+
+    /// After the rooms step: every whole point of experience the enemy's
+    /// fire has made for a tank — [`class::TANK_HITS_PER_XP`] hits each,
+    /// the remainder left on the Bim to count on from.
+    fn settle_tanks(&mut self, events: &mut Vec<WorldEvent>) {
+        for who in 0..self.aboard.crew_count() {
+            if !self.is_tank(who) {
+                continue;
+            }
+            let hits = self.aboard.room.hits_taken(who as usize);
+            let points = hits / class::TANK_HITS_PER_XP;
+            if points == 0 {
+                continue;
+            }
+            self.aboard
+                .room
+                .set_hits_taken(who as usize, hits % class::TANK_HITS_PER_XP);
+            self.award(who as usize, points, events);
+        }
+    }
+
+    // --- the commander: the aura, the squad and the rally (feature 78) -----
+    //
+    // `crate::commander` is the state — when each commander last
+    // rallied, and the one squad order — and this is the rules. The
+    // aura is not kept at all: it is worked out every step from where
+    // the commanders stand and goes to the room through `skill_of`.
+    //
+    // **Whom each half reaches.** The aura and the rally lift every
+    // friendly Bim in range, a player's own steered Bim included; a
+    // squad order commands only the squad, which is every crew member
+    // no player is steering.
+
+    /// Whether crew member `who` is a player's commander.
+    fn is_commander(&self, who: u32) -> bool {
+        self.class_of(who) == Class::Commander
+    }
+
+    /// A crew member's commander state — an empty one for anybody the
+    /// world keeps none for.
+    pub fn commander_of(&self, who: u32) -> Commander {
+        self.commanders
+            .get(who as usize)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// The commander's state, made if the crew grew past the list.
+    fn commander_mut(&mut self, who: usize) -> &mut Commander {
+        if self.commanders.len() <= who {
+            self.commanders.resize(who + 1, Commander::default());
+        }
+        &mut self.commanders[who]
+    }
+
+    /// Whether a crew member is somebody a player steers: a slot's own
+    /// Bim, which no squad order ever touches.
+    fn is_steered(&self, who: u32) -> bool {
+        who < self.players()
+    }
+
+    /// Whether a crew member is on the crew's deck to be reached at all:
+    /// alive and not outside in a suit.
+    fn on_the_deck(&self, who: u32) -> bool {
+        let room = &self.aboard.room;
+        who < self.aboard.crew_count()
+            && room.is_alive(who as usize)
+            && !room.is_outside(who as usize)
+    }
+
+    /// How far a commander's aura reaches, in tiles: the radius, half
+    /// again with *wide presence*.
+    pub fn aura_radius(&self, who: u32) -> f32 {
+        if self.has_talent(who, Talent::WidePresence) {
+            class::AURA_TILES * class::WIDE_PRESENCE_RADIUS
+        } else {
+            class::AURA_TILES
+        }
+    }
+
+    /// What one commander's aura does to a Bim standing in it: every
+    /// bonus deepened together by *strong presence* and, while he
+    /// stands still, by *anchor*.
+    fn aura_cast_by(&self, who: u32) -> Aura {
+        let progress = self.progress_of(who);
+        let has = |talent| progress.has(Class::Commander, talent);
+        let mut factor = 1.0;
+        if has(Talent::StrongPresence) {
+            factor *= class::STRONG_PRESENCE;
+        }
+        if has(Talent::Anchor) && self.aboard.room.is_standing_still(who as usize) {
+            factor *= class::ANCHOR_BONUS;
+        }
+        Aura {
+            work: class::aura_bonus(class::AURA_WORK, factor),
+            aim: class::aura_bonus(class::AURA_AIM, factor),
+            nerve: class::aura_bonus(class::AURA_NERVE, factor),
+            bleed: if has(Talent::SteadyRanks) {
+                class::aura_bonus(class::STEADY_RANKS_BLEED, factor)
+            } else {
+                1.0
+            },
+            pace: if has(Talent::DoubleTime) {
+                class::aura_bonus(class::DOUBLE_TIME_PACE, factor)
+            } else {
+                1.0
+            },
+        }
+    }
+
+    /// Whether a commander's aura reaches a crew member: a commander
+    /// conscious and on the deck, the Bim on the deck too, and the two
+    /// within the aura's radius. Never himself and never an enemy —
+    /// the crew's room is the only room asked.
+    pub fn in_aura_of(&self, commander: u32, who: u32) -> bool {
+        if commander == who || !self.is_commander(commander) || !self.fit_to_act(commander) {
+            return false;
+        }
+        if !self.on_the_deck(who) || !self.on_the_deck(commander) {
+            return false;
+        }
+        let room = &self.aboard.room;
+        let gap = room.bim_pos(who as usize) - room.bim_pos(commander as usize);
+        gap.len() <= self.aura_radius(commander) * shipdesign::TILE as f32
+    }
+
+    /// The strongest aura reaching a crew member, or `None`. **Two
+    /// commanders' auras never stack**: the one whose bonuses are
+    /// deepest holds it, and the others do nothing.
+    pub fn aura_reaching(&self, who: u32) -> Option<Aura> {
+        (0..self.aboard.crew_count())
+            .filter(|&c| self.in_aura_of(c, who))
+            .map(|c| self.aura_cast_by(c))
+            .max_by(|a, b| a.work.total_cmp(&b.work))
+    }
+
+    /// Minutes of the clock a commander's rally runs:
+    /// [`class::RALLY_MINUTES`], half again with *long rally*.
+    pub fn rally_minutes(&self, who: u32) -> f64 {
+        if self.has_talent(who, Talent::LongRally) {
+            class::RALLY_MINUTES * class::LONG_RALLY_TIME
+        } else {
+            class::RALLY_MINUTES
+        }
+    }
+
+    /// Seconds of the clock between one rally and the next: halved with
+    /// *quick rally*.
+    pub fn rally_cooldown(&self, who: u32) -> f64 {
+        if self.has_talent(who, Talent::QuickRally) {
+            class::RALLY_COOLDOWN * class::QUICK_RALLY_COOLDOWN
+        } else {
+            class::RALLY_COOLDOWN
+        }
+    }
+
+    /// Minutes of the clock a commander's rally has left; nought with
+    /// none running.
+    pub fn rally_left(&self, who: u32) -> f64 {
+        let Some(last) = self.commander_of(who).last_rally else {
+            return 0.0;
+        };
+        (self.rally_minutes(who) - (self.clock_minutes - last)).max(0.0)
+    }
+
+    /// Whether a rally is running on a commander.
+    pub fn is_rallying(&self, who: u32) -> bool {
+        self.rally_left(who) > 0.0
+    }
+
+    /// Seconds of the clock until he may rally again; nought when he
+    /// may. Read the way the taunt's cooldown is.
+    pub fn rally_cooldown_left(&self, who: u32) -> f64 {
+        let Some(last) = self.commander_of(who).last_rally else {
+            return 0.0;
+        };
+        let since = (self.clock_minutes - last) / time::MINUTES_PER_SECOND;
+        (self.rally_cooldown(who) - since).max(0.0)
+    }
+
+    /// Whether a rally covers a crew member: one running on a commander
+    /// whose aura reaches it — the whole room with *warcry* — or on the
+    /// crew member itself, since a commander rallies himself too.
+    pub fn rally_reaching(&self, who: u32) -> Option<u32> {
+        (0..self.aboard.crew_count()).find(|&c| {
+            self.is_rallying(c)
+                && self.on_the_deck(who)
+                && (c == who
+                    || self.in_aura_of(c, who)
+                    || (self.has_talent(c, Talent::Warcry) && self.on_the_deck(c)))
+        })
+    }
+
+    /// Whether a player's commander may rally, or why not, in order: a
+    /// commander (`NotACommander`), fit to act (`OutOfReach`), at
+    /// [`class::RALLY_LEVEL`] (`NoRallyYet`), and out of the cooldown
+    /// (`CoolingDown`).
+    pub fn can_rally(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::Rally) {
+            return Err(Refusal::NotACommander);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        if self.progress_of(slot).level() < class::RALLY_LEVEL {
+            return Err(Refusal::NoRallyYet);
+        }
+        if self.rally_cooldown_left(slot) > 0.0 {
+            return Err(Refusal::CoolingDown);
+        }
+        Ok(())
+    }
+
+    /// The rally — see [`Command::Rally`]: the clock noted, which is the
+    /// whole of it. What it does is read off that every step, in
+    /// `skill_of`.
+    fn rally(&mut self, slot: u32) -> Result<(), Refusal> {
+        self.can_rally(slot)?;
+        let now = self.clock_minutes;
+        self.commander_mut(slot as usize).last_rally = Some(now);
+        Ok(())
+    }
+
+    // --- the two standing orders every player has (feature 84) ------------
+
+    /// Whether a player may give their bots a standing order: fit to act
+    /// — alive, awake, aboard — and nothing else. It is not a class's
+    /// ability and wants no level, no cooldown and nobody in range:
+    /// **attack** and **retreat** are the two commands every player has
+    /// from the first step, and `crate::orders` says why.
+    pub fn can_order(&self, slot: u32) -> Result<(), Refusal> {
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        Ok(())
+    }
+
+    /// The standing order — see [`Command::Orders`]. The same order
+    /// given again is the bots back to following, which is what a
+    /// second press of the key does; the code that comes back is the
+    /// order they are on now, so nought is that release.
+    fn give_orders(&mut self, slot: u32, order: Standing) -> Result<u32, Refusal> {
+        self.can_order(slot)?;
+        let t = shipdesign::TILE as f32;
+        if let Standing::Attack { tile } = order
+            && !self.aboard.room.is_banner_tile(bims::math::vec2(
+                (tile.0 as f32 + 0.5) * t,
+                (tile.1 as f32 + 0.5) * t,
+            ))
+        {
+            return Err(Refusal::NoGroundThere);
+        }
+        let players = self.players() as usize;
+        if self.standing.len() < players {
+            self.standing.resize(players, Standing::Follow);
+        }
+        let Some(mine) = self.standing.get_mut(slot as usize) else {
+            return Err(Refusal::OutOfReach);
+        };
+        *mine = if mine.same_as(order) {
+            Standing::Follow
+        } else {
+            order
+        };
+        Ok(mine.code())
+    }
+
+    /// What player `slot`'s bots are under, for the app and the tests.
+    pub fn standing_of(&self, slot: u32) -> Standing {
+        self.standing
+            .get(slot as usize)
+            .copied()
+            .unwrap_or(Standing::Follow)
+    }
+
+    /// Before the rooms step: a standing order dropped where the player
+    /// who gave it is no longer fit to act — down, asleep or outside,
+    /// the same gate the order was taken under — and then handed to the
+    /// room, one `bims::game::Standing` a player slot, an attack's tile
+    /// turned into the room's own units.
+    fn hand_the_room_the_standing(&mut self) {
+        let players = self.players() as usize;
+        if self.standing.len() != players {
+            self.standing.resize(players, Standing::Follow);
+        }
+        for slot in 0..players {
+            if !self.fit_to_act(slot as u32) {
+                self.standing[slot] = Standing::Follow;
+            }
+        }
+        let t = shipdesign::TILE as f32;
+        let said: Vec<bims::game::Standing> = self
+            .standing
+            .iter()
+            .map(|order| match *order {
+                Standing::Follow => bims::game::Standing::Follow,
+                Standing::Retreat => bims::game::Standing::Retreat,
+                Standing::Attack { tile } => bims::game::Standing::Attack {
+                    at: bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t),
+                },
+            })
+            .collect();
+        self.aboard.room.set_standing(said);
+        // And where the **ship's** own gangway is, which is where a
+        // retreat goes. The room cannot work that out for itself on a
+        // joined deck: `Room::gangway` there is the joined design's
+        // first free airlock, and the ship's own is mated to the
+        // station, so the room's answer is the station's far door —
+        // which is what used to walk a retreat out through the building
+        // instead of home. `Aboard::gangway` is the right spot, in room
+        // units, and `None` for a ship flying on its own, where the
+        // room's own answer is right.
+        let home = self
+            .aboard
+            .gangway
+            .map(|at| bims::math::vec2(at.x as f32, at.y as f32));
+        self.aboard.room.set_home(home);
+    }
+
+    /// Where a fall back gathers, in the crew's room's units (feature
+    /// 84): the deck just inside the ship's own airlock. What the app
+    /// draws the defend sign on.
+    pub fn fall_back_point(&self) -> (f32, f32) {
+        let at = self.aboard.room.fall_back_point();
+        (at.x, at.y)
+    }
+
+    /// What a commander's aura and rally do to a crew member's
+    /// shooting, working and nerve, over whatever its own class gave
+    /// it. Everything here reaches a player's own steered Bim as
+    /// readily as a bot.
+    fn lift_by_aura(&self, who: u32, skill: &mut bims::combat::Skill) {
+        if let Some(aura) = self.aura_reaching(who) {
+            skill.accuracy *= aura.aim;
+            skill.effort *= aura.work;
+            skill.walk *= aura.pace;
+            skill.nerve_hold = class::NERVE_HOLD * aura.nerve;
+        }
+        if let Some(commander) = self.rally_reaching(who) {
+            skill.accuracy *= class::RALLY_AIM;
+            skill.nerve = true;
+            if self.has_talent(commander, Talent::Grit) {
+                skill.unhurt = true;
+            }
+        }
+        // *Focus fire*: the squad's odds against the enemy its order
+        // marked, and against nobody else.
+        if let Some(order) = &self.squad
+            && order.has(who)
+            && matches!(order.kind, SquadKind::Attack { .. })
+            && self.has_talent(order.by_slot, Talent::FocusFire)
+        {
+            skill.marked_accuracy = class::FOCUS_FIRE_ACCURACY;
+        }
+        // A squad member standing its ground never runs.
+        if let Some(order) = &self.squad
+            && order.has(who)
+            && matches!(order.kind, SquadKind::StandGround)
+        {
+            skill.nerve = true;
+        }
+    }
+
+    /// How far a commander's squad orders reach, in tiles: the range,
+    /// and the whole room from [`class::LONG_REACH_LEVEL`] (*long
+    /// reach*).
+    pub fn squad_range(&self, who: u32) -> f32 {
+        if self.progress_of(who).level() >= class::LONG_REACH_LEVEL {
+            f32::MAX
+        } else {
+            class::SQUAD_RANGE
+        }
+    }
+
+    /// Whether a player's commander may send the squad, or why not: a
+    /// commander (`NotACommander`) and fit to act (`OutOfReach`).
+    pub fn can_squad(&self, slot: u32) -> Result<(), Refusal> {
+        if !class::can(self.class_of(slot), class::Ability::SquadOrder) {
+            return Err(Refusal::NotACommander);
+        }
+        if !self.fit_to_act(slot) {
+            return Err(Refusal::OutOfReach);
+        }
+        Ok(())
+    }
+
+    /// Who a commander's order would reach: every crew member no player
+    /// is steering, alive and on the deck, within his reach — lowest
+    /// index first, which is the order an attack splits the squad by.
+    pub fn squad_members(&self, slot: u32) -> Vec<u32> {
+        if !self.on_the_deck(slot) {
+            return Vec::new();
+        }
+        let room = &self.aboard.room;
+        let at = room.bim_pos(slot as usize);
+        let reach = self.squad_range(slot);
+        let t = shipdesign::TILE as f32;
+        (0..self.aboard.crew_count())
+            .filter(|&who| {
+                !self.is_steered(who)
+                    && self.on_the_deck(who)
+                    && (reach == f32::MAX || (room.bim_pos(who as usize) - at).len() <= reach * t)
+            })
+            .collect()
+    }
+
+    /// Whether that resident of the station alongside is an enemy still
+    /// standing: the rooms joined, the station hostile, and the body
+    /// alive and on its feet.
+    fn enemy_standing_at(&self, enemy: u32) -> bool {
+        let Some(residents) = &self.residents else {
+            return false;
+        };
+        if self.stance(residents.station) != Stance::Hostile || !self.aboard.is_joined() {
+            return false;
+        }
+        let room = &residents.aboard.room;
+        enemy < residents.aboard.count()
+            && room.is_alive(enemy as usize)
+            && !room.is_unconscious(enemy as usize)
+    }
+
+    /// Whether that resident is dead — what ends a *relentless* mark.
+    fn enemy_dead_at(&self, enemy: u32) -> bool {
+        let Some(residents) = &self.residents else {
+            return true;
+        };
+        enemy >= residents.aboard.count() || !residents.aboard.room.is_alive(enemy as usize)
+    }
+
+    /// The order a player's ask comes out as: an attack's enemy checked
+    /// and, with *pincer*, added beside the one already marked; a fall
+    /// back's tile the one named or, for a tile that is not deck of the
+    /// room, the commander's own.
+    fn squad_kind_of(&self, slot: u32, ask: SquadAsk) -> Result<SquadKind, Refusal> {
+        Ok(match ask {
+            SquadAsk::Attack { enemy } => {
+                if !self.enemy_standing_at(enemy) {
+                    return Err(Refusal::NoEnemyThere);
+                }
+                let mut enemies = vec![enemy];
+                if self.has_talent(slot, Talent::Pincer)
+                    && let Some(order) = &self.squad
+                    && order.by_slot == slot
+                    && let SquadKind::Attack { enemies: on } = &order.kind
+                    && !on.contains(&enemy)
+                {
+                    let mut both = on.clone();
+                    both.push(enemy);
+                    while both.len() > class::PINCER_MARKS {
+                        both.remove(0);
+                    }
+                    enemies = both;
+                }
+                SquadKind::Attack { enemies }
+            }
+            SquadAsk::FallBack { tile } => {
+                let t = shipdesign::TILE as f32;
+                let deck = tile.filter(|&(x, y)| {
+                    self.aboard
+                        .room
+                        .is_deck_tile(bims::math::vec2((x as f32 + 0.5) * t, (y as f32 + 0.5) * t))
+                });
+                SquadKind::FallBack {
+                    tile: deck.unwrap_or_else(|| {
+                        let at = self.aboard.room.bim_pos(slot as usize);
+                        ((at.x / t).floor() as i32, (at.y / t).floor() as i32)
+                    }),
+                }
+            }
+            SquadAsk::StandGround => SquadKind::StandGround,
+        })
+    }
+
+    /// A squad order — see [`Command::Squad`]. `Ok(None)` is the same
+    /// order given again, which releases the squad.
+    fn squad_order(&mut self, slot: u32, ask: SquadAsk) -> Result<Option<SquadKind>, Refusal> {
+        self.can_squad(slot)?;
+        let kind = self.squad_kind_of(slot, ask)?;
+        if let Some(order) = &self.squad
+            && order.by_slot == slot
+            && order.kind.same_as(&kind)
+        {
+            self.squad = None;
+            return Ok(None);
+        }
+        let members = self.squad_members(slot);
+        if members.is_empty() {
+            return Err(Refusal::NoSquadInRange);
+        }
+        self.squad = Some(SquadOrder {
+            by_slot: slot,
+            kind: kind.clone(),
+            members,
+        });
+        Ok(Some(kind))
+    }
+
+    /// The squad order called off, whatever it was: what a hire, a
+    /// dismissal and an unjoin do, since the members are crew indices
+    /// and the marks are residents'.
+    fn clear_squad(&mut self) {
+        self.squad = None;
+    }
+
+    /// One crew member out of the squad order until the next one: what
+    /// its own player's click order does to it.
+    fn take_out_of_squad(&mut self, who: u32) {
+        if let Some(order) = &mut self.squad {
+            order.members.retain(|&m| m != who);
+            if order.members.is_empty() {
+                self.squad = None;
+            }
+        }
+    }
+
+    /// Everybody a player's own order moved out of the squad: the crew
+    /// member an errand names, or whoever is selected for a move or a
+    /// line.
+    fn take_the_ordered_out_of_squad(&mut self, slot: u32, order: bims::order::CrewOrder) {
+        if self.squad.is_none() {
+            return;
+        }
+        if let Some(who) = order.errand_for() {
+            self.take_out_of_squad(who);
+            return;
+        }
+        if matches!(
+            order,
+            bims::order::CrewOrder::Move { .. } | bims::order::CrewOrder::Line { .. }
+        ) {
+            for who in self.aboard.room.selected_all(slot) {
+                self.take_out_of_squad(who as u32);
+            }
+        }
+    }
+
+    /// Before the rooms step: the squad order pruned — a member a
+    /// player has begun steering, one dead or outside, and the whole
+    /// order when the commander is no longer fit to act or the mark is
+    /// gone — and then handed to the room, one [`bims::game::Squad`] a
+    /// crew member.
+    fn hand_the_room_the_squad(&mut self) {
+        self.settle_squad();
+        let crew = self.aboard.crew_count() as usize;
+        let mut squad = vec![bims::game::Squad::None; crew];
+        if let Some(order) = self.squad.clone() {
+            let t = shipdesign::TILE as f32;
+            for &who in &order.members {
+                if who as usize >= crew {
+                    continue;
+                }
+                squad[who as usize] = match &order.kind {
+                    SquadKind::Attack { .. } => match order.mark_for(who) {
+                        Some(enemy) => bims::game::Squad::Attack {
+                            enemy: enemy as usize,
+                            seen: self.enemy_standing_at(enemy),
+                        },
+                        None => bims::game::Squad::None,
+                    },
+                    SquadKind::FallBack { tile } => bims::game::Squad::FallBack {
+                        at: bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t),
+                    },
+                    SquadKind::StandGround => bims::game::Squad::StandGround,
+                };
+            }
+        }
+        self.aboard.room.set_squad(squad);
+    }
+
+    /// The pruning half of the step: an order ends when the commander
+    /// goes down or dies, when an attack's marks are all gone — down or
+    /// dead, and dead alone with *relentless* — or when nobody is left
+    /// under it.
+    fn settle_squad(&mut self) {
+        if self.commanders.len() < self.aboard.crew_count() as usize {
+            self.commanders
+                .resize(self.aboard.crew_count() as usize, Commander::default());
+        }
+        let Some(order) = &self.squad else {
+            return;
+        };
+        let by = order.by_slot;
+        if !self.fit_to_act(by) || !self.is_commander(by) {
+            self.squad = None;
+            return;
+        }
+        if let SquadKind::Attack { enemies } = &order.kind {
+            let relentless = self.has_talent(by, Talent::Relentless);
+            let alive: Vec<u32> = enemies
+                .iter()
+                .copied()
+                .filter(|&e| {
+                    if relentless {
+                        !self.enemy_dead_at(e)
+                    } else {
+                        self.enemy_standing_at(e)
+                    }
+                })
+                .collect();
+            if alive.is_empty() {
+                self.squad = None;
+                return;
+            }
+            if alive.len() != enemies.len()
+                && let Some(order) = &mut self.squad
+            {
+                order.kind = SquadKind::Attack { enemies: alive };
+            }
+        }
+        let keep: Vec<u32> = self
+            .squad
+            .as_ref()
+            .map(|o| o.members.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&who| !self.is_steered(who) && self.on_the_deck(who))
+            .collect();
+        match self.squad.as_mut() {
+            Some(order) if !keep.is_empty() => order.members = keep,
+            _ => self.squad = None,
+        }
+    }
+
+    /// What a mercenary's month costs when this slot does the hiring:
+    /// the fee less [`class::HIRE_DISCOUNT_PERCENT`] for a commander fit
+    /// to act — two fifths with *haggler* — rounded down to whole euros,
+    /// and the plain fee for everybody else. Read once, as the contract
+    /// is signed: it stays that hand's fee whatever happens to him.
+    pub fn hire_fee(&self, slot: u32, resident: u32) -> Option<Money> {
+        let fee = self.mercenary_fee(resident)?;
+        if !class::can(self.class_of(slot), class::Ability::SquadOrder) || !self.fit_to_act(slot) {
+            return Some(fee);
+        }
+        let off = if self.has_talent(slot, Talent::Haggler) {
+            class::HAGGLER_DISCOUNT_PERCENT
+        } else {
+            class::HIRE_DISCOUNT_PERCENT
+        };
+        Some(fee - fee * Money::from(off) / 100)
+    }
+
+    /// Before the rooms step: every crew member's skill to the room.
+    fn hand_the_room_the_soldiers(&mut self) {
+        let crew = self.aboard.crew_count();
+        let skills: Vec<bims::combat::Skill> = (0..crew).map(|who| self.skill_of(who)).collect();
+        self.aboard.room.set_skills(skills);
+    }
+
+    /// Whether an enemy is standing in the crew's room: the rooms joined
+    /// and hostile, and one of the station's people alive and on its
+    /// feet. A *rampage* lasts while one is.
+    fn enemy_standing(&self) -> bool {
+        let Some(residents) = &self.residents else {
+            return false;
+        };
+        if self.stance(residents.station) != Stance::Hostile || !self.aboard.is_joined() {
+            return false;
+        }
+        let room = &residents.aboard.room;
+        (0..room.crew_count() as usize).any(|who| room.is_alive(who) && !room.is_unconscious(who))
+    }
+
+    /// After `visit` and the experience: what the fight did to the
+    /// soldiers' *rampage* — a stack for each enemy one of them downed,
+    /// off the residents' `last_hit_by`, and every stack gone when the
+    /// fight ends, which is the rooms unjoined or no enemy standing.
+    fn settle_rampage(&mut self, downed: &[(usize, Option<usize>)]) {
+        if !self.enemy_standing() {
+            for who in 0..self.aboard.crew_count() as usize {
+                if self.aboard.room.rampage(who) > 0 {
+                    self.aboard.room.set_rampage(who, 0);
+                }
+            }
+            return;
+        }
+        for &(_, by) in downed {
+            let Some(by) = by else {
+                continue;
+            };
+            if self.has_talent(by as u32, Talent::Rampage) {
+                let stacks = (self.aboard.room.rampage(by) + 1).min(class::RAMPAGE_STACKS);
+                self.aboard.room.set_rampage(by, stacks);
+            }
+        }
+    }
+
+    /// After `visit`: the laid sandbags a burst reached are gone, whatever
+    /// they had left (`DeployableLost`).
+    fn settle_bursts(&mut self, events: &mut Vec<WorldEvent>) {
+        let blown = self.aboard.room.take_bags_blown();
+        if blown.is_empty() {
+            return;
+        }
+        let t = shipdesign::TILE as f32;
+        let mut gone = Vec::new();
+        for (x, y) in blown {
+            let p = bims::math::vec2((x as f32 + 0.5) * t, (y as f32 + 0.5) * t);
+            if let Some((d, _)) = self
+                .deployable_under(p)
+                .filter(|(d, _)| d.kind == DeployKind::Sandbags)
+                && !gone.contains(&d.id)
+            {
+                gone.push(d.id);
+            }
+        }
+        if gone.is_empty() {
+            return;
+        }
+        self.deployables.retain(|d| !gone.contains(&d.id));
+        for _ in &gone {
+            events.push(WorldEvent::DeployableLost {
+                kind: DeployKind::Sandbags.code(),
+            });
+        }
+        self.sync_deployed_cover();
     }
 
     /// The session done: the piece into the output slot with the metal's
@@ -8118,7 +11225,6 @@ impl World {
         });
     }
 }
-
 
 fn refused(slot: u32, why: Refusal) -> WorldEvent {
     WorldEvent::Refused { slot, why }
@@ -8147,9 +11253,28 @@ fn bank_medicine(design: &mut ShipDesign, room: &mut bims::game::Game) -> bool {
     let used = room.take_bandages_used();
     let kits = room.take_medkits_used();
     let grown = room.take_harvested_fibre();
-    if used == 0 && kits == 0 && grown == 0 {
+    // A helper that opened a kit out of its own pack: the medkit leaves
+    // the pack and goes on the hold's count, since from the moment it is
+    // in a hand it is counted the way a kit off a shelf is — spent by
+    // `medkits_used` above when the treatment finishes, and put back on a
+    // shelf by `Task::let_go` when the chain is given up.
+    let wanted = Item::Stack(ResourceId::Medkit as u32);
+    let mut out_of_packs = 0;
+    for who in room.take_pack_kits_used() {
+        if who >= room.crew_count() as usize {
+            continue;
+        }
+        let cell = room.pack(who).iter().position(|i| *i == Some(wanted));
+        if let Some(cell) = cell
+            && room.take(who, cell).is_some()
+        {
+            out_of_packs += 1;
+        }
+    }
+    if used == 0 && kits == 0 && grown == 0 && out_of_packs == 0 {
         return false;
     }
+    design.cargo[ResourceId::Medkit as usize] += out_of_packs;
     let bandages = &mut design.cargo[ResourceId::Bandage as usize];
     *bandages = bandages.saturating_sub(used);
     let medkits = &mut design.cargo[ResourceId::Medkit as usize];

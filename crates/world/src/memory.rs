@@ -25,12 +25,25 @@
 //! in `world_checksum` whole and in a save: a crew that emptied a station
 //! and one that did not are two different galaxies.
 //!
-//! What is *not* remembered is the room itself — where the survivors
-//! stood, what was in their hands, the bodies on the deck with their
-//! packs. A room is built afresh at every open the way it always was;
-//! the memory is the count, the way the hold is a count and a piece of
-//! armour is only a thing while it is out of it.
+//! And [`Grave`] is where each of those dead is lying (feature 85). The
+//! count alone opened a station with its survivors on a deck that had
+//! been swept: the fight the crew had walked away from an hour before
+//! had left no mark on the place. A grave is one body — where it fell,
+//! in the station design's own units, what is still on it and what it
+//! looked like — filed by `World::close_residents` off the room it is
+//! closing and laid back out by `Residents::open`, so the dead lie where
+//! they fell for as long as the station stands. What is on the body is
+//! what was left on it: a pack the crew emptied comes back empty, and a
+//! body is never loot twice.
+//!
+//! What is *still* not remembered is the room itself — where the
+//! survivors stood, what was in their hands, half an errand. A room is
+//! built afresh at every open the way it always was; the memory is the
+//! count, the loss and the dead, the way the hold is a count and a piece
+//! of armour is only a thing while it is out of it.
 
+use bims::character::Look;
+use bims::combat::Gear;
 use worldgen::Node;
 
 use crate::mining::MiningSite;
@@ -100,6 +113,54 @@ pub fn amend_losses(losses: &mut Vec<Losses>, station: u32, change: impl FnOnce(
     }
 }
 
+/// One body lying on a station's deck (feature 85): where it fell, what
+/// is still on it and what it looked like. Kept on `World::graves`,
+/// sorted by `station` and in the order the bodies stood in the room
+/// within one station, and by star with the rest in [`SystemMemory`].
+///
+/// The body itself is not kept — a `bims::bim::Bim` is a room's, and a
+/// room is built afresh at every open. What is here is enough to lay one
+/// out again: a corpse in the right place, in the right coverall, with
+/// the gun still in its hand and whatever is left in its pack.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Grave {
+    pub station: u32,
+    /// Where it lies, in the station design's own world units — the
+    /// frame `Residents::open` lays its room out in, which is what
+    /// `crew::Aboard::position` answers in whether the rooms are joined
+    /// or not.
+    pub x: f64,
+    pub y: f64,
+    /// What is still on it: what it wore, the gun in its hand and its
+    /// pack as the crew left it. Looted once is looted for good.
+    pub gear: Gear,
+    /// What it looked like, so the same person is lying there when the
+    /// room is built again. Drawing only, and out of the checksum with
+    /// the rest of what a body looks like.
+    pub look: Look,
+    /// Whether it was one of the mercenaries who lived there rather than
+    /// one of the station's own: the coverall it is drawn in.
+    pub hired: bool,
+}
+
+/// Every grave at `station` in a list sorted by station: a run of it.
+pub fn graves_at(graves: &[Grave], station: u32) -> &[Grave] {
+    let from = graves.partition_point(|g| g.station < station);
+    let to = graves.partition_point(|g| g.station <= station);
+    &graves[from..to]
+}
+
+/// The graves at `station` replaced by `laid`, the rest left alone and
+/// the list still sorted by station. What `World::close_residents` does
+/// with the dead of the room it is closing: the room is the whole truth
+/// about that station's dead, so what it says replaces what was there.
+pub fn set_graves(graves: &mut Vec<Grave>, station: u32, laid: Vec<Grave>) {
+    let from = graves.partition_point(|g| g.station < station);
+    let to = graves.partition_point(|g| g.station <= station);
+    graves.splice(from..to, laid);
+}
+
 /// Everything a system holds that the crew have changed, as they left
 /// it: the fields of the world that belong to the system rather than the
 /// ship, lifted out when the ship jumps away and put back when it jumps
@@ -125,6 +186,11 @@ pub struct SystemMemory {
     pub discovered: Vec<Node>,
     /// `World::losses`: what each station has lost.
     pub losses: Vec<Losses>,
+    /// `World::graves`: every body lying on a station of it (feature 85).
+    pub graves: Vec<Grave>,
+    /// `World::visited`: which of the system's nodes the ship has been
+    /// at, sorted — what the map marks as somewhere the crew have been.
+    pub visited: Vec<Node>,
 }
 
 /// The memory of `star` in a sorted list.
@@ -174,5 +240,40 @@ mod tests {
         assert_eq!(losses.len(), 1, "nothing lost is no entry");
         amend_losses(&mut losses, 7, |l| l.dead += 1);
         assert_eq!(losses_at(&losses, 7).dead, 3, "losses add up");
+    }
+
+    fn grave(station: u32, x: f64) -> Grave {
+        Grave {
+            station,
+            x,
+            y: 0.0,
+            gear: Gear::default(),
+            look: Look::of(0),
+            hired: false,
+        }
+    }
+
+    #[test]
+    fn a_station_s_graves_are_a_run_of_the_list_and_are_replaced_whole() {
+        let mut graves = vec![grave(3, 1.0), grave(7, 2.0), grave(7, 3.0)];
+        assert_eq!(graves_at(&graves, 7).len(), 2);
+        assert_eq!(graves_at(&graves, 5).len(), 0);
+        // The room at 7 closes with one body on its deck: one is what
+        // that station has now, whatever it had before.
+        set_graves(&mut graves, 7, vec![grave(7, 9.0)]);
+        assert_eq!(graves.len(), 2);
+        assert_eq!(graves_at(&graves, 7)[0].x, 9.0);
+        // A station nobody had died at keeps the list sorted.
+        set_graves(&mut graves, 5, vec![grave(5, 4.0)]);
+        assert_eq!(
+            graves.iter().map(|g| g.station).collect::<Vec<_>>(),
+            vec![3, 5, 7]
+        );
+        // And one whose deck is clear drops out of it altogether.
+        set_graves(&mut graves, 5, Vec::new());
+        assert_eq!(
+            graves.iter().map(|g| g.station).collect::<Vec<_>>(),
+            vec![3, 7]
+        );
     }
 }

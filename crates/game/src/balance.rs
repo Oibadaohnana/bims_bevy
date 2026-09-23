@@ -75,6 +75,8 @@ pub const LASER_PISTOL: WeaponStats = WeaponStats {
     burst: 1,
     burst_gap: 0.0,
     melee: false,
+    strips: 0.0,
+    strips_far: 0.0,
 };
 
 /// Everything it has inside four tiles, a good deal less at ten.
@@ -90,6 +92,8 @@ pub const SHOTGUN: WeaponStats = WeaponStats {
     burst: 1,
     burst_gap: 0.0,
     melee: false,
+    strips: 0.0,
+    strips_far: 0.0,
 };
 
 /// Eight light shots in two seconds, then two seconds' recharge; full
@@ -106,6 +110,8 @@ pub const AUTO_RIFLE: WeaponStats = WeaponStats {
     burst: 8,
     burst_gap: 0.25,
     melee: false,
+    strips: 0.0,
+    strips_far: 0.0,
 };
 
 /// Nine in ten at twenty tiles, fewer at thirty-five; one shot every
@@ -122,6 +128,8 @@ pub const SNIPER_RIFLE: WeaponStats = WeaponStats {
     burst: 1,
     burst_gap: 0.0,
     melee: false,
+    strips: 0.0,
+    strips_far: 0.0,
 };
 
 /// The blade: a swing every [`MELEE_PERIOD`] within [`MELEE_RANGE`], and
@@ -138,6 +146,8 @@ pub const SCHWORD: WeaponStats = WeaponStats {
     burst: 1,
     burst_gap: 0.0,
     melee: true,
+    strips: 0.0,
+    strips_far: 0.0,
 };
 
 // ---- The armour ----
@@ -182,3 +192,71 @@ pub const ARMOUR_TIER_STEP: f32 = 1.5;
 /// The odds a bolt reaching a body is dodged for each whole tier-three
 /// piece it wears, combined across the pieces (`Gear::dodge`).
 pub const TIER_THREE_DODGE: f32 = 0.10;
+
+// ---- The droids (feature 83) ----
+//
+// A droid is not a Bim: its arms are built in, and so is its body. The
+// two weapons here are never made, never bought and never carried — they
+// are part of the machine — and the four part healths below are the
+// machine's, not `crate::health`'s. See `crate::droid`.
+
+/// The Husk's claws: a snap within [`MELEE_RANGE`] every
+/// [`MELEE_PERIOD`], and the wound is a crush rather than a cut, so it
+/// does not bleed the way a blade's does.
+pub const CLAW: WeaponStats = WeaponStats {
+    range: MELEE_RANGE,
+    sweet: MELEE_RANGE,
+    accuracy: 1.0,
+    accuracy_far: 1.0,
+    damage: 20.0,
+    damage_far: 20.0,
+    speed: 0.0,
+    fire_rate: 1.0 / MELEE_PERIOD,
+    burst: 1,
+    burst_gap: 0.0,
+    melee: true,
+    strips: 0.0,
+    strips_far: 0.0,
+};
+
+/// The Warden's lance: it does little to a body and a great deal to what
+/// the body is wearing. A bolt that reaches a part in unbroken armour
+/// takes [`WeaponStats::strips`] off the **piece**, its protection
+/// ignored, and the part itself takes nothing; a bare part takes the
+/// plain damage. See `crate::combat::Combat::strip`.
+pub const UNMAKER: WeaponStats = WeaponStats {
+    range: 20.0,
+    sweet: 10.0,
+    accuracy: 0.8,
+    accuracy_far: 0.55,
+    damage: 6.0,
+    damage_far: 4.0,
+    speed: 25.0,
+    fire_rate: 0.5,
+    burst: 1,
+    burst_gap: 0.0,
+    melee: false,
+    strips: 30.0,
+    strips_far: 20.0,
+};
+
+/// What each of a droid's four parts has at tier one — head, chassis,
+/// arms, legs, in `crate::droid::DroidPart::ALL` order. Every tier above
+/// one multiplies all four by [`ARMOUR_TIER_STEP`], the way a piece of
+/// armour's health climbs.
+pub const HUSK_BODY: [f32; 4] = [8.0, 40.0, 12.0, 15.0];
+pub const TROOPER_BODY: [f32; 4] = [10.0, 60.0, 15.0, 20.0];
+pub const WARDEN_BODY: [f32; 4] = [20.0, 120.0, 25.0, 30.0];
+
+/// The odds a hit lands on each of the four. They add to one.
+pub const DROID_HIT_ODDS: [f32; 4] = [0.05, 0.60, 0.15, 0.20];
+
+/// What a droid with its arms shot away fires and strikes at: a gun's
+/// odds and a claw's damage, halved. The Unmaker counts as a gun.
+pub const DROID_ARMS_ACCURACY: f32 = 0.5;
+pub const DROID_ARMS_DAMAGE: f32 = 0.5;
+
+/// What each kind walks at, as a share of a Bim's marching pace.
+pub const HUSK_PACE: f32 = 1.3;
+pub const TROOPER_PACE: f32 = 1.0;
+pub const WARDEN_PACE: f32 = 0.8;

@@ -42,7 +42,7 @@ fn main() {
         let mut arrived = [false; CREW];
         let mut frames = 0;
         for _ in 0..(20 * 60 * 60) {
-            game.update(STEP);
+            game.simulate(STEP);
             frames += 1;
             if (game.bim_pos(1) - game.bim_pos(0)).len() < 20.0 {
                 ever_overlapped = true;
@@ -91,7 +91,7 @@ fn main() {
     let mut game = Game::new(4, 960.0, 640.0);
     let mut slowed_by_sleeper = 0;
     for _ in 0..(3 * FRAMES_PER_DAY) {
-        game.update(STEP);
+        game.simulate(STEP);
         for w in 0..CREW {
             let other = 1 - w;
             let touching = (game.bim_pos(other) - game.bim_pos(w)).len() < 38.0;
@@ -108,7 +108,7 @@ fn main() {
         let mut game = Game::new(seed, 960.0, 640.0);
         let mut worst = [f32::MAX; CREW];
         for _ in 0..(7 * FRAMES_PER_DAY) {
-            game.update(STEP);
+            game.simulate(STEP);
             for w in 0..CREW {
                 worst[w] = worst[w].min(game.health(w));
             }
@@ -154,7 +154,7 @@ fn walk_time(in_the_way: bool) -> f32 {
     game.send_for_probe(0, right);
 
     for f in 0..(60 * 60) {
-        game.update(STEP);
+        game.simulate(STEP);
         if (game.bim_pos(0) - right).len() < 12.0 {
             return f as f32 * STEP;
         }

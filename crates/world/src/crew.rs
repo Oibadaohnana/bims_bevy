@@ -44,6 +44,7 @@ use worldgen::math::{DVec2, dvec2};
 
 use crate::data;
 use crate::docking::Joined;
+use crate::memory::Grave;
 use crate::station::{Berth, Station};
 
 /// A world step, in the room's own unit: real seconds at 1x.
@@ -586,19 +587,23 @@ impl Aboard {
         self.room.render();
     }
 
-    /// How many are simulated. Not always the crew count — see the module
-    /// note.
+    /// How many bodies are simulated. Not always the crew count — see
+    /// the module note — and, at a station the machines hold, the Bims
+    /// **and the machines** (feature 83, `bims::droid`): one index
+    /// space, the Bims first, which is what the world hands the other
+    /// room as its targets and reads its hits back against.
     pub fn count(&self) -> u32 {
-        self.room.crew_count()
+        self.room.body_count()
     }
 
     /// Where one of them is, in the **ship's** design world units — the
-    /// room's, less the ship's offset into it.
+    /// room's, less the ship's offset into it. A machine's position as
+    /// readily as a Bim's.
     pub fn position(&self, who: u32) -> DVec2 {
         if who >= self.count() {
             return DVec2::ZERO;
         }
-        let p = self.room.bim_pos(who as usize);
+        let p = self.room.body_pos(who as usize);
         dvec2(p.x as f64, p.y as f64).sub(self.offset)
     }
 
@@ -702,11 +707,21 @@ pub struct Residents {
     /// enemy counts once for each (feature 74, `crate::class`).
     pub xp_down: Vec<bool>,
     pub xp_dead: Vec<bool>,
+    /// Which crew member last landed a hit on each of them, by index —
+    /// a bolt's, a blow's or a burst's shooter, `None` for a sentry's —
+    /// so the soldier's *rampage* knows who downed whom (feature 75).
+    pub last_hit_by: Vec<Option<usize>>,
     /// Which of them are mercenaries for hire, by index, and what a month
     /// of each costs (`crate::mercenary::priced`); `None` for one of the
     /// station's own. Derived from the seed and the crew's worth when the
     /// room opens, like the gear, so nothing new is hashed.
     pub fee: Vec<Option<Money>>,
+    /// Which of them were laid out dead when the room opened, by index
+    /// (feature 85): a body the station already had, out of
+    /// `World::graves`, rather than somebody who died while this room was
+    /// open. Its death is already in `World::losses`, so
+    /// `World::close_residents` must not count it a second time.
+    pub grave: Vec<bool>,
 }
 
 impl Residents {
@@ -731,11 +746,15 @@ impl Residents {
         mercenaries: u32,
         seed: u64,
         minutes: f64,
+        graves: &[Grave],
     ) -> Residents {
         let bunks = design.count(shipdesign::PartKind::Bunk).max(1);
         let count = count.min(bunks);
         let mercenaries = mercenaries.min(bunks - count);
-        let mut aboard = Aboard::new(design, count + mercenaries, seed);
+        // And the dead this station has already (feature 85), on the end:
+        // bodies, not people, so the bunks have nothing to say about how
+        // many of them there are.
+        let mut aboard = Aboard::new(design, count + mercenaries + graves.len() as u32, seed);
         aboard.room.wind_clock(minutes as f32);
         // Looked at from outside: the crew see none of it, and nobody in
         // it is drawn, until the ship docks and the rooms are joined.
@@ -746,7 +765,7 @@ impl Residents {
         // time it is reached, and `world_checksum` has nothing new to
         // hash: the kind is a function of what it already holds.
         let mut fee = vec![None; aboard.count() as usize];
-        for who in 0..aboard.count() {
+        for who in 0..count + mercenaries {
             if who < count {
                 aboard.room.set_uniform(who as usize, Uniform::Station);
                 aboard
@@ -764,10 +783,29 @@ impl Residents {
                 fee[who as usize] = Some(crate::mercenary::priced(merc_seed, &gear));
             }
         }
+        // The dead this station already has, laid where they fell
+        // (feature 85): the coverall they wore, what was left on them and
+        // the face they had, and then the body put down on the spot the
+        // grave names. Their deaths are the station's losses already, so
+        // nothing here is counted again.
+        for (n, grave) in graves.iter().enumerate() {
+            let who = (count + mercenaries) as usize + n;
+            let uniform = if grave.hired {
+                Uniform::Mercenary
+            } else {
+                Uniform::Station
+            };
+            aboard.room.set_uniform(who, uniform);
+            aboard.room.set_look(who, grave.look);
+            aboard.room.issue(who, grave.gear);
+            aboard
+                .room
+                .lay_out_dead(who, vec2(grave.x as f32, grave.y as f32));
+        }
         // Their own manager's goals, a head each — the crew's Management tab
         // is the crew's, and reaches nobody ashore — and a larder already
-        // at them, since they have been living here.
-        let each = aboard.count();
+        // at them, since they have been living here. The dead eat nothing.
+        let each = count + mercenaries;
         let (veg, tofu, stew) = (
             data::RESIDENT_VEG_EACH * each,
             data::RESIDENT_TOFU_EACH * each,
@@ -789,14 +827,24 @@ impl Residents {
         if crate::surface::surface_body(station).is_some() {
             aboard.room.set_daylight(Some(ground_of(design)));
         }
-        let down = vec![false; aboard.count() as usize];
+        // A body laid out is down already, and the crew were paid for it
+        // the day they shot it: flagged on all three, so nothing is said
+        // about it again and nobody is paid twice.
+        let mut down = vec![false; aboard.count() as usize];
+        let mut grave = vec![false; aboard.count() as usize];
+        for who in (count + mercenaries) as usize..aboard.count() as usize {
+            down[who] = true;
+            grave[who] = true;
+        }
         Residents {
             station,
             aboard,
             xp_down: down.clone(),
             xp_dead: down.clone(),
+            last_hit_by: vec![None; down.len()],
             down,
             fee,
+            grave,
         }
     }
 
@@ -820,6 +868,10 @@ impl Residents {
         };
         let seed = station.map_seed ^ 0x5A17;
         let everybody = self.aboard.room.take_crew();
+        // And the machines with them (feature 83): a fresh room has none,
+        // and a wave standing at the door does not vanish because the
+        // crew docked. They are shifted the way `adopt` shifts the Bims.
+        let machines = self.aboard.room.take_droids();
         // The station's people watch their own airlock: the tile just
         // inside its door, in this room's units — the station's design
         // plus the shift its deck took — so a crew member coming through
@@ -833,6 +885,12 @@ impl Residents {
             )
         });
         let mut fresh = Aboard::mirrored(joined, ship, everybody, seed, minutes);
+        // The machines across, by the same shift the Bims took.
+        let shift = fresh.offset;
+        fresh
+            .room
+            .adopt_droids(machines, vec2(shift.x as f32, shift.y as f32));
+        fresh.crew = fresh.room.body_count();
         let watched = inside.map(|p| fresh.to_room(p));
         fresh.room.set_watched(watched);
         // A town's ground under the sky again: the station's own area,
@@ -855,11 +913,15 @@ impl Residents {
         let offset = self.aboard.offset;
         let seed = station.map_seed ^ 0x5A17;
         let everybody = self.aboard.room.take_crew();
+        let machines = self.aboard.room.take_droids();
         let layout = bims::aboard::layout_of(&station.design);
         let (w, h) = (layout.bounds.width(), layout.bounds.height());
         let mut room = Room::with_layout(layout, seed, &[], w, h);
-        let count = everybody.len() as u32;
         room.adopt(everybody, vec2(-offset.x as f32, -offset.y as f32));
+        // And the machines back off the joined deck onto the station's
+        // own, by the same shift (feature 83).
+        room.adopt_droids(machines, vec2(-offset.x as f32, -offset.y as f32));
+        let count = room.body_count();
         room.wind_clock(minutes as f32);
         room.render();
         // A town's own ground under the sky again, as at the open.
@@ -959,9 +1021,13 @@ impl Residents {
     /// Which of them may be spoken to — a mercenary for hire, alive and on
     /// its feet — index for index, for the joined deck's
     /// `Game::set_visitors_hailable`.
+    /// A machine is never one: `fee` is short of the body count until
+    /// `visit` grows it, and a body with no entry has no fee.
     pub fn hailable(&self) -> Vec<bool> {
         (0..self.aboard.count() as usize)
-            .map(|who| self.fee[who].is_some() && !self.aboard.room.is_down(who))
+            .map(|who| {
+                self.fee.get(who).copied().flatten().is_some() && !self.aboard.room.is_down(who)
+            })
             .collect()
     }
 }

@@ -2211,8 +2211,10 @@ const SACK_DARK: Color = Color::rgb(0.46, 0.41, 0.28);
 
 /// A tile of sandbags: three courses of rounded bags, each course
 /// staggered half a bag on the one below, over a dark ground so the
-/// seams read, and a rope tie across the top course.
-fn sandbags(list: &mut DrawList, part: &PlacedPart) {
+/// seams read, and a rope tie across the top course. The engineer's
+/// laid sandbags are drawn with it too (`world_paint::deployables`), as
+/// a part stood on the tile.
+pub(crate) fn sandbags(list: &mut DrawList, part: &PlacedPart) {
     let (local, across, along) = Local::of(part);
     let (w, h) = (across - 8.0, along - 8.0);
     local.push(list, KIND_RECT, 0.0, 0.0, w, h, 4.0, 0.0, SACK_DARK);
@@ -2246,6 +2248,98 @@ fn sandbags(list: &mut DrawList, part: &PlacedPart) {
         0.0,
         0.0,
         SACK_DARK,
+    );
+}
+
+// --- the engineer's sentry (feature 74) ------------------------------------
+
+/// The turret's grey and the eye it aims with.
+const SENTRY: Color = Color::rgb(0.40, 0.44, 0.50);
+const SENTRY_DARK: Color = Color::rgb(0.24, 0.26, 0.30);
+const SENTRY_EYE: Color = Color::rgb(0.40, 0.72, 1.0);
+const SENTRY_DRY: Color = Color::rgb(0.55, 0.40, 0.30);
+
+/// A sentry on its tile: a squat base on three feet, the turret's drum
+/// on it with the rifle's barrel out to the right, and an eye that is
+/// blue while it has shots and dull when it is dry. `health` is nought
+/// to one, for the dark ring that grows as it is shot up.
+pub(crate) fn sentry(list: &mut DrawList, part: &PlacedPart, health: f32, dry: bool) {
+    let (local, across, along) = Local::of(part);
+    let side = across.min(along);
+    // The feet, three round pads.
+    for (u, v) in [(-0.30, 0.26), (0.30, 0.26), (0.0, -0.34)] {
+        local.push(
+            list,
+            KIND_ELLIPSE,
+            u * side,
+            v * side,
+            side * 0.22,
+            side * 0.22,
+            0.0,
+            0.0,
+            SENTRY_DARK,
+        );
+    }
+    // The base, and the drum on it.
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        side * 0.62,
+        side * 0.62,
+        0.0,
+        0.0,
+        SENTRY_DARK,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        side * 0.46,
+        side * 0.46,
+        0.0,
+        0.0,
+        SENTRY,
+    );
+    // What it has taken: a dark ring closing over the drum.
+    let hurt = (1.0 - health.clamp(0.0, 1.0)) * side * 0.46;
+    if hurt > 0.5 {
+        local.push(
+            list,
+            KIND_ELLIPSE,
+            0.0,
+            0.0,
+            hurt,
+            hurt,
+            0.0,
+            0.0,
+            SENTRY_DARK,
+        );
+    }
+    // The barrel, out to the right, and the eye.
+    local.push(
+        list,
+        KIND_RECT,
+        side * 0.30,
+        0.0,
+        side * 0.42,
+        side * 0.10,
+        0.0,
+        0.0,
+        GUNMETAL,
+    );
+    local.push(
+        list,
+        KIND_ELLIPSE,
+        0.0,
+        0.0,
+        side * 0.14,
+        side * 0.14,
+        0.0,
+        0.0,
+        if dry { SENTRY_DRY } else { SENTRY_EYE },
     );
 }
 

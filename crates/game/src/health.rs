@@ -124,6 +124,64 @@ pub enum Trauma {
     CrushedLeftLeg = 9,
 }
 
+/// A body held by a medic's heal beam (feature 76, `world::class`):
+/// what the beam does to it this step. Nothing on it bleeds — the open
+/// wounds and the untreated traumas stay, and lose no blood — and the
+/// blood comes back at `blood_an_hour` (the body's own rate instead
+/// once nothing is open, if that is more), never above [`MAX_BLOOD`];
+/// the parts above nothing mend at `mend` times [`HEALTH_RECOVER`]
+/// (the medic's *mender*), one for the ordinary rate. The world works
+/// it out from the medic's talents and hands it to the room every step
+/// (`Game::set_held`); the room applies it and knows nothing else.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Beamed {
+    pub blood_an_hour: f32,
+    pub mend: f32,
+    /// What the bleeding is multiplied by: nought for a beam, which
+    /// stops it dead, and a share of it for a commander's *steady ranks*
+    /// (feature 78), which only slows it.
+    pub bleed: f32,
+}
+
+impl Beamed {
+    /// A hold that stops the bleeding and does nothing else: what a
+    /// beam is without *mender*, and what *self-care*, *hold fast* and
+    /// the like give.
+    pub const HELD: Beamed = Beamed {
+        blood_an_hour: 0.0,
+        mend: 1.0,
+        bleed: 0.0,
+    };
+}
+
+/// What a Bim's doctoring runs at (feature 76): the world's word, by
+/// index, off the medic's talents — `bandage` and `treat` are effort
+/// factors on the working step of each errand (two is half the time);
+/// `bare` is whether it may treat a trauma with no medkit to hand, and
+/// at what effort (the medic's *field surgeon*); `clean_hands` whether
+/// a trauma it treats leaves nothing lasting; and `treated_to` where a
+/// part it treats starts again from, a share of the part's base
+/// ([`TREATED_TO`] for anybody else). [`Doctoring::NONE`] for everybody
+/// the world does not name.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Doctoring {
+    pub bandage: f32,
+    pub treat: f32,
+    pub bare: Option<f32>,
+    pub clean_hands: bool,
+    pub treated_to: f32,
+}
+
+impl Doctoring {
+    pub const NONE: Doctoring = Doctoring {
+        bandage: 1.0,
+        treat: 1.0,
+        bare: None,
+        clean_hands: false,
+        treated_to: TREATED_TO,
+    };
+}
+
 /// What a treated trauma leaves behind for a while: the trauma's
 /// [`Trauma::after`] pace and effort, for `left` more game minutes.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -327,8 +385,10 @@ const MEND_RATE: f32 = 3.0;
 
 /// Health goes from full to nothing in a day of extreme malnutrition, and
 /// takes two days of eating properly to come back.
-const HEALTH_DRAIN: f32 = MAX_HEALTH / DAY;
-const HEALTH_RECOVER: f32 = MAX_HEALTH / (2.0 * DAY);
+/// Public so the panel can say how long a starving Bim has: it is the
+/// one rate on the body the app cannot work out from anything else.
+pub const HEALTH_DRAIN: f32 = MAX_HEALTH / DAY;
+pub const HEALTH_RECOVER: f32 = MAX_HEALTH / (2.0 * DAY);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -557,8 +617,19 @@ impl Health {
     /// of its usual pace: the legs it has left, the blood, and what every
     /// trauma on it — untreated, or treated and lasting — costs.
     pub fn pace(&self) -> f32 {
+        self.pace_at(true)
+    }
+
+    /// [`Health::pace`] with the halving for low blood left out: the
+    /// tank's *unmovable*, while its kevlar holds (feature 77). The
+    /// legs, the traumas and what they leave behind still count.
+    pub fn pace_steady(&self) -> f32 {
+        self.pace_at(false)
+    }
+
+    fn pace_at(&self, blood_counts: bool) -> f32 {
         let legs = LEG_LOST_PACE.powi(self.legs_lost as i32);
-        let blood = if self.blood < MAX_BLOOD * SLOWED_AT {
+        let blood = if blood_counts && self.blood < MAX_BLOOD * SLOWED_AT {
             0.5
         } else {
             1.0
@@ -618,13 +689,23 @@ impl Health {
     /// and what the trauma leaves behind ([`Trauma::after`]) starts its
     /// clock. The trauma treated, or `None` with nothing on that part.
     pub fn treat(&mut self, part: Part) -> Option<Trauma> {
+        self.treat_as(part, false, TREATED_TO)
+    }
+
+    /// [`Health::treat`] by a medic's hands (feature 76): the part starts
+    /// again from `to` of its base, and with `clean` nothing lasting is
+    /// left behind (*clean hands*).
+    pub fn treat_as(&mut self, part: Part, clean: bool, to: f32) -> Option<Trauma> {
         let i = part as usize;
         let trauma = self.traumas[i].take()?;
         self.parts[i] = if part == Part::Legs && self.legs_lost >= 2 {
             0.0
         } else {
-            part.max() * TREATED_TO
+            (part.max() * to).min(part.max())
         };
+        if clean {
+            return Some(trauma);
+        }
         if let Some((_, _, minutes)) = trauma.after() {
             self.lasting.push(Lasting {
                 trauma,
@@ -668,6 +749,19 @@ impl Health {
     /// malnutrition is meant to be. Sleeplessness plainly does not, so that one
     /// only counts waking minutes.
     pub fn update(&mut self, minutes: f32, food: f32, rest: f32, resting: bool) {
+        self.update_held(minutes, food, rest, resting, None);
+    }
+
+    /// [`Health::update`] with the body held by a medic's beam, or not —
+    /// see [`Beamed`] (feature 76).
+    pub fn update_held(
+        &mut self,
+        minutes: f32,
+        food: f32,
+        rest: f32,
+        resting: bool,
+        held: Option<Beamed>,
+    ) {
         // Nothing comes back from nothing. Health mends on its own while the
         // Bim is fed, and without this the bar taken to zero by anything
         // *sudden* — a Bim hurting itself, a Bim giving up — is back above
@@ -683,13 +777,16 @@ impl Health {
         // tick is what says so.
         let open = self.bleeding();
         let trauma: f32 = self.traumas.iter().flatten().map(|t| t.bleed()).sum();
-        let an_hour = open as f32 * BLEED_PER_WOUND + trauma;
-        if an_hour > 0.0 {
-            let loss = an_hour / HOUR * minutes;
-            self.blood = (self.blood - loss).max(0.0);
-        } else {
-            self.blood = (self.blood + BLOOD_RECOVER * minutes).min(MAX_BLOOD);
-        }
+        // What a hold does to the bleeding: a beam stops it outright, a
+        // commander's *steady ranks* only slows it, and nothing holding
+        // it leaves it whole.
+        let an_hour = (open as f32 * BLEED_PER_WOUND + trauma) * held.map_or(1.0, |h| h.bleed);
+        // What comes back an hour: the hold's rate — or the body's own
+        // once nothing is open, whichever is more.
+        let back = held.map_or(0.0, |h| h.blood_an_hour / HOUR);
+        let own = if an_hour > 0.0 { 0.0 } else { BLOOD_RECOVER };
+        self.blood =
+            (self.blood + (back.max(own) - an_hour / HOUR) * minutes).clamp(0.0, MAX_BLOOD);
         // What a treated trauma left behind runs out on its own clock.
         for l in &mut self.lasting {
             l.left -= minutes;
@@ -711,7 +808,8 @@ impl Health {
         let change = if self.stage() == Malnutrition::Extreme {
             -HEALTH_DRAIN
         } else if self.starved <= 0.0 {
-            HEALTH_RECOVER
+            // A beam with *mender* on it mends the parts faster.
+            HEALTH_RECOVER * held.map_or(1.0, |h| h.mend)
         } else {
             // Malnourished but not yet starving outright: no worse, no better.
             0.0

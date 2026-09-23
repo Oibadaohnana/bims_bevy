@@ -253,6 +253,14 @@ impl Door {
     /// the lock gives — the door is unlocked, and opens for whoever is
     /// there. Says so: a heave every [`HEAVE_EVERY`], and the door going.
     pub fn smash(&mut self, by: usize, dt: f32) -> Option<Cue> {
+        self.smash_at(by, dt, 1.0)
+    }
+
+    /// [`Door::smash`] by a body that forces doors at `rate` times the
+    /// ordinary speed — a tank's *breacher*, feature 77. The heaving is
+    /// heard at its own cadence whatever the rate; only the progress
+    /// goes faster.
+    pub fn smash_at(&mut self, by: usize, dt: f32, rate: f32) -> Option<Cue> {
         if !self.locked {
             self.smash = None;
             return None;
@@ -266,7 +274,7 @@ impl Door {
         if smash.by != by {
             return None;
         }
-        smash.done += dt;
+        smash.done += dt * rate;
         smash.since_heave += dt;
         if smash.done >= time {
             self.unlock();

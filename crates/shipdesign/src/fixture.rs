@@ -38,7 +38,7 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// hashing differently, and a test that compares two computed values would
 /// pass happily while both were wrong. Update them only when the reference
 /// design itself is meant to change.
-pub const REFERENCE_HASH: [u64; 2] = [0x2760_6d43_490b_1d5d, 0x976e_412e_4bc4_be76];
+pub const REFERENCE_HASH: [u64; 2] = [0x8738_8ed2_db1c_edad, 0xa0b3_ee44_78bc_88d6];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -349,7 +349,7 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// target that hashed the simulation's ship differently would start a
 /// different simulation. Update it only when the ship below is meant to
 /// change.
-pub const PLAYTEST_HASH: u64 = 0x3099_3509_dff4_4e3c;
+pub const PLAYTEST_HASH: u64 = 0x24cc_7ccb_9d40_5ffc;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the

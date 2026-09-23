@@ -233,6 +233,9 @@ pub fn trade_price(resource: ResourceId) -> Money {
         // two metal, two components and an emitter with an hour on them.
         ResourceId::SandbagKit => 61,
         ResourceId::SentryKit => 885,
+        // The soldier's grenade, at the armoury: a metal and a component
+        // with twenty minutes on them.
+        ResourceId::Grenade => 79,
     }
 }
 
@@ -268,7 +271,8 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::SniperRifle
         | ResourceId::Schword
         | ResourceId::SandbagKit
-        | ResourceId::SentryKit => Storage::Locker,
+        | ResourceId::SentryKit
+        | ResourceId::Grenade => Storage::Locker,
         ResourceId::ResearchKey | ResourceId::ResearchKeyTwo => Storage::Research,
     }
 }
@@ -350,6 +354,8 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         // The engineer's kits: a sack of sandbags, a sentry's crate.
         ResourceId::SandbagKit => Footprint::new(2, 2),
         ResourceId::SentryKit => Footprint::new(2, 3),
+        // A grenade, one to a cell.
+        ResourceId::Grenade => Footprint::new(1, 1),
         // The food: a crate of vegetables, a block of tofu.
         ResourceId::Vegetable => Footprint::new(1, 2),
         ResourceId::Tofu => Footprint::new(4, 4),
@@ -386,7 +392,8 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         | ResourceId::ResearchKey
         | ResourceId::ResearchKeyTwo
         | ResourceId::SandbagKit
-        | ResourceId::SentryKit => 1,
+        | ResourceId::SentryKit
+        | ResourceId::Grenade => 1,
     }
 }
 

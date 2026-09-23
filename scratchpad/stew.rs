@@ -69,7 +69,7 @@ fn main() {
     let mut seen_cooking = false;
     let mut first_at = None;
     for frame in 0..(6 * FRAMES_PER_HOUR) {
-        game.update(STEP);
+        game.simulate(STEP);
         if game.activity(0) == game::JOB_STEW || game.activity(1) == game::JOB_STEW {
             seen_cooking = true;
         }
@@ -95,7 +95,7 @@ fn main() {
 
     let mut at_target = None;
     for frame in 0..(12 * FRAMES_PER_HOUR) {
-        game.update(STEP);
+        game.simulate(STEP);
         if game.store_stew() >= 2 {
             at_target = Some(frame);
             break;
@@ -108,7 +108,7 @@ fn main() {
     // Give it a while: nothing should push the count past the target.
     let mut most = game.store_stew();
     for _ in 0..(6 * FRAMES_PER_HOUR) {
-        game.update(STEP);
+        game.simulate(STEP);
         most = most.max(game.store_stew());
     }
     check!("nobody cooks a third", most <= 2, most);
@@ -130,7 +130,7 @@ fn main() {
     let mut on_shelf_at_start = stew_before;
     let mut fewest = stew_before;
     for _ in 0..(4 * FRAMES_PER_HOUR) {
-        game.update(STEP);
+        game.simulate(STEP);
         if warmed {
             fewest = fewest.min(game.store_stew());
         } else if game.activity(0) == game::JOB_REHEAT {
