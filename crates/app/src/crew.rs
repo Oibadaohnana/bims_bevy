@@ -367,9 +367,9 @@ pub struct ClassView {
     /// Whether the armourer's repair could be begun now, or why not —
     /// `None` for a crew member without the talent.
     pub repair: Option<Result<(), world::Refusal>>,
-    /// The soldier's rows (feature 75): grenades in the pack, seconds of
-    /// the clock until it may throw again, and whether it is braced —
-    /// `None` for anybody but a soldier.
+    /// The soldier's rows (feature 75): grenade charges in the pack,
+    /// seconds of the clock until the next comes back (feature 90), and
+    /// whether it is braced — `None` for anybody but a soldier.
     pub soldier: Option<SoldierView>,
     /// The medic's rows (feature 76) — `None` for anybody but a medic.
     pub medic: Option<MedicView>,
@@ -2645,8 +2645,9 @@ impl CrewPanels {
                     }
                     ui.end_row();
                 }
-                // Red when there is less than half left, which is when the
-                // Bim starts to slow — the number alone does not say that.
+                // Red from `SLOWED_AT` down, which is where the Bim starts
+                // to slow — the number alone does not say that, and half
+                // of it again is where it goes out cold (feature 89).
                 let blood = game.blood(w) / health::MAX_BLOOD;
                 let low = blood < health::SLOWED_AT;
                 ui.label(egui::RichText::new("Blood").color(if low {
@@ -5902,6 +5903,13 @@ impl CrewPanels {
                     } else {
                         egui::RichText::new(name)
                     });
+                    // The one row whose number does not reach the whole
+                    // crew: a bot never stands at a bench (feature 89).
+                    let row = if job == bims::work::Job::Craft as u32 {
+                        row.on_hover_text(WORK_CRAFT_TIP)
+                    } else {
+                        row
+                    };
                     // A colour a level, so the list reads at a glance: hot at
                     // the top, cooling down the range, and a red cross for a
                     // job the crew are never to do. The box is painted by hand

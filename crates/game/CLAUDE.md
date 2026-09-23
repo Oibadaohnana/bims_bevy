@@ -663,6 +663,22 @@ is already walking over to dress is left to them.
 `a_crewmate_bleeding_is_dressed_by_whoever_is_free` in `game::tests` pin
 it, and `scratchpad/priority.rs` has a section.
 
+**`Job::Craft` is the one row a bot never takes** (feature 89).
+`craft_on_offer` asks `Game::is_bot(who)` — `hostile_bodies || !is_player`,
+the same question `medical_on_offer` asks — and an **open** order (one
+with no `only`) is offered to a player's own Bim alone, whatever the
+Craft row is set to. Standing at a bench is the player's work: the
+smelter, the workbench, the armoury and the drug lab all go the same
+way, since the room knows a bench only by `Bench::kind` and the rule is
+about who is standing there rather than about which bench it is. An
+order *named* for one Bim (`Order::only`, an engineer's armour repair at
+the workbench) is still that Bim's, bot or not — the world keeps such an
+order posted until it is finished, so a bot refusing its own would leave
+the bench held for ever. Everything else a bot did it still does: it
+plants, cuts, sweeps, cooks, hauls, ferries, mines, builds, mans the
+helm, doctors and shoots. `a_bot_never_stands_at_a_bench_and_a_player_s_bim_does`
+in `game::tests` pins both halves.
+
 An **activity code** (`JOB_*` in `game.rs`, what `activity()` and the
 agenda say a Bim is doing) is the same shape one table over: appended after
 the last, and named in `job_name` and `activity_line` in `names.rs`, both
@@ -694,8 +710,8 @@ five), takes the damage off that part and opens a **wound** there; the
 legs at nothing is a leg lost and the leg health started again, twice is
 none left and `NO_LEGS_PACE`. Every open wound bleeds `BLEED_PER_WOUND`
 (10) of `MAX_BLOOD` (100) an hour until `bandage(part)` closes every wound
-on that part; under `SLOWED_AT` (half) the Bim walks at half pace, under
-`OUT_AT` (0.3) it is `unconscious()`, at nothing it is dead, and the blood
+on that part; under `SLOWED_AT` (three quarters) the Bim walks at half pace, under
+`OUT_AT` (**half**, feature 89) it is `unconscious()`, at nothing it is dead, and the blood
 comes back over two days once nothing is open. A head shot at pistol
 damage kills — not at the hit but at the top of the body's next tick, with
 `points()` still in the sixties, which is why the world reads a death off
@@ -1609,8 +1625,9 @@ prints the curves itself.
   differing from `Character::is_unconscious()` is `knock_out(out)` —
   going out `interrupt`s the errand onto the queue first **and drops
   the gun** (`drop_weapon`, below), and the frame stops there for that
-  Bim, like a nap, until the blood comes back (`OUT_AT` is **0.4**
-  now). Out cold
+  Bim, like a nap, until the blood comes back (`OUT_AT` is **half its
+  blood** since feature 89, with `SLOWED_AT`'s half pace moved up to
+  three quarters so the band above it is still walked). Out cold
   it is drawn by `draw_lying`: the fallen figure in the **live** colours,
   **`OUT_COLD_SCALE` (a tenth) bigger** than the dead one beside it, with
   a slow breath and no Zs — size, colour and breath are the three things
@@ -2605,7 +2622,9 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   `visit`), so `aim`/`melee_with`/`sees_any` never pick one, and
   `tick_combat`'s `bodies` for a hostile bolt leave it out too, so a bolt
   already flying passes over it. A Bim bleeding towards nothing therefore
-  goes out cold at 40% blood, is left alone, and dies of the blood alone
+  goes out cold at **half** its blood (feature 89: the line was 40%, and
+  the crew are meant to be out of a fight before they are dead), is left
+  alone, and dies of the blood alone
   — which is how most of a fight's dead die now, and why
   `one_on_one` in the world tests uses `Game::kill_for_probe` (health
   `give_up`) rather than a head shot.

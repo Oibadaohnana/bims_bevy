@@ -39,9 +39,10 @@
 //! in **units**: a shot opens one, a cut ([`CUT_WOUND`]) three, so a
 //! blade bleeds three times what a bolt does and a bandage still closes
 //! the lot on a part at once. An untreated trauma bleeds beside the
-//! wounds, [`HEAVY_BLEED`] or [`SLOW_BLEED`] an hour. Under half, the Bim
-//! walks at half its pace; under [`OUT_AT`], it is out cold where it
-//! stands; at nothing it is dead. A bandage ([`Health::bandage`]) closes
+//! wounds, [`HEAVY_BLEED`] or [`SLOW_BLEED`] an hour. Under
+//! [`SLOWED_AT`] — three quarters — the Bim walks at half its pace;
+//! under [`OUT_AT`], which is **half its blood**, it is out cold where
+//! it stands and nothing aims at it any more; at nothing it is dead. A bandage ([`Health::bandage`]) closes
 //! every wound on one part, and blood comes back on its own once nothing
 //! is open and no trauma bleeds. Armour stands in front of all of this —
 //! a worn piece takes a hit before the part does, and only what gets
@@ -62,9 +63,12 @@ pub const BLEED_PER_WOUND: f32 = 10.0;
 pub const CUT_WOUND: u32 = 3;
 
 /// Below this share of its blood the Bim walks at half its pace, and
-/// below the second it is out cold.
-pub const SLOWED_AT: f32 = 0.5;
-pub const OUT_AT: f32 = 0.4;
+/// below the second it is out cold. **Half its blood is where it goes
+/// out** (feature 89) — a body that far gone is out of the fight, and
+/// nothing aims at it while it lies there (`world::crew::Aboard::crew_ashore`)
+/// — so the slowed band sits above that, from three quarters down.
+pub const SLOWED_AT: f32 = 0.75;
+pub const OUT_AT: f32 = 0.5;
 
 /// How fast blood comes back once nothing is bleeding: from nothing to
 /// full in two days, the same as health.
@@ -1001,13 +1005,20 @@ mod tests {
                 h.shot(Part::Body, 1.0, false, 0.0);
             }
             assert_eq!(h.bleeding(), 10);
-            h.update(HOUR * 0.5, 1.0, 1.0, false);
-            assert!((h.blood() - 50.0).abs() < 1e-3, "{}", h.blood());
-            assert_eq!(h.pace(), 1.0, "half is not under half");
+            // A quarter of an hour is a quarter of its blood gone: three
+            // quarters left, which is not *under* three quarters.
+            h.update(HOUR * 0.25, 1.0, 1.0, false);
+            assert!((h.blood() - 75.0).abs() < 1e-3, "{}", h.blood());
+            assert_eq!(h.pace(), 1.0, "three quarters is not under it");
             h.update(1.0, 1.0, 1.0, false);
             assert_eq!(h.pace(), 0.5);
             assert!(!h.unconscious());
-            h.update(HOUR * 0.25, 1.0, 1.0, false);
+            // Half an hour and half its blood: the line it goes out at
+            // (feature 89), and it is not under it yet.
+            h.update(HOUR * 0.25 - 1.0, 1.0, 1.0, false);
+            assert!((h.blood() - 50.0).abs() < 1e-3, "{}", h.blood());
+            assert!(!h.unconscious(), "half is not under half");
+            h.update(1.0, 1.0, 1.0, false);
             assert!(h.unconscious(), "{}", h.blood());
             assert!(!h.is_dead());
             assert!(h.bandage(Part::Body));

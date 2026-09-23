@@ -383,7 +383,11 @@ impl Aboard {
     /// Where the crew stand, as the station's people would find them: in
     /// the station's own design units, one an index, `None` for one that
     /// is dead, out cold — a body down is nobody's target — or outside in
-    /// a suit. On the ship's own deck too, since September 2026: the
+    /// a suit. **Out cold is half its blood** since feature 89
+    /// (`bims::health::OUT_AT`), so a crew member that bleeds past the
+    /// line drops out of every enemy's list the same step: nobody aims
+    /// at it, nobody walks to it, and a hostile room forgets where it
+    /// was (`Game::set_hostiles` clears that slot's `last_seen`). On the ship's own deck too, since September 2026: the
     /// residents' room holds the ship as well (`Residents::join`), so its
     /// people can walk the passage after a crew member that runs aboard.
     /// What a hostile station's room is handed as its targets, so

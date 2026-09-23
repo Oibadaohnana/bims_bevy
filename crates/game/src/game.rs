@@ -5704,7 +5704,7 @@ impl Game {
             return None;
         }
         if self.bims[who].character.is_recruited() {
-            let bot = self.hostile_bodies || !self.is_player(who);
+            let bot = self.is_bot(who);
             let quiet = self.bims[who].locked.is_none()
                 && self.bims[who].blow.is_none()
                 && !self
@@ -5883,10 +5883,22 @@ impl Game {
     /// The first order whose bench is free and reachable, or none. First in
     /// the world's order, which is the recipe table's — so a smelt is picked
     /// over an emitter when both want doing and both benches stand free.
+    ///
+    /// **A bot never stands at a bench** (feature 89): an open order — the
+    /// smelter, the workbench, the armoury, the drug lab — is the
+    /// players' own work, and a Bim no player steers passes it over
+    /// whatever the Craft row says. It plants, sweeps, cooks, hauls and
+    /// shoots as it always did. An order *named* for one Bim is still
+    /// that Bim's, bot or not, since it is a thing already begun rather
+    /// than the ship's standing want: an engineer's armour repair at the
+    /// workbench (feature 74) would otherwise sit on the bench for ever.
     fn craft_on_offer(&self, who: usize) -> Option<Order> {
         self.orders.iter().copied().find(|order| {
-            order.only.is_none_or(|only| only == who)
-                && self.room.benches.get(order.bench).is_some()
+            let mine = match order.only {
+                Some(only) => only == who,
+                None => !self.is_bot(who),
+            };
+            mine && self.room.benches.get(order.bench).is_some()
                 && self.can_begin(
                     who,
                     Kind::Craft {
@@ -7187,6 +7199,17 @@ impl Game {
     /// than by its own lights, and never a bot.
     pub fn is_player(&self, who: usize) -> bool {
         who < self.players
+    }
+
+    /// The other side of [`Game::is_player`]: a Bim that runs on its own
+    /// lights. Every body of a room whose bodies are hostile is one —
+    /// a station's people answer to nobody at this keyboard, so the
+    /// first of them is no more a player's than the last. What decides
+    /// whether a crewmate is doctored of its own accord
+    /// (`medical_on_offer`) and, since feature 89, whether it will stand
+    /// at a bench at all (`craft_on_offer`).
+    pub fn is_bot(&self, who: usize) -> bool {
+        self.hostile_bodies || !self.is_player(who)
     }
 
     /// Whose eyes the picture is drawn for — `render` rings that player's
@@ -10245,7 +10268,7 @@ impl Game {
             if (self.bims[who].character.pos - dropped.at).len() > 2.0 * TILE {
                 continue;
             }
-            let bot = self.hostile_bodies || !self.is_player(who);
+            let bot = self.is_bot(who);
             let gear = &mut self.bims[who].gear;
             let hand_first = bot && gear.weapon.is_none();
             if hand_first {
@@ -10289,7 +10312,7 @@ impl Game {
     /// enemy about — it is running — and not while it is under arms at a
     /// post the player gave it.
     fn fetch_own_weapon(&mut self, who: usize) {
-        let bot = self.hostile_bodies || !self.is_player(who);
+        let bot = self.is_bot(who);
         let bim = &self.bims[who];
         if !bot
             || bim.gear.weapon.is_some()
@@ -13090,8 +13113,26 @@ mod tests {
         assert_eq!(game.weapon(0), None, "the player's waits to be told");
         assert_eq!(game.weapons_down().len(), 1);
         let d = game.weapons_down()[0];
-        // Somewhere off the body's own tile: the walk to it moves.
-        game.put_for_probe(0, d.at + vec2(4.0 * TILE, 0.0));
+        // Somewhere off the body's own tile, with a way back to it: the
+        // walk has to move. Which way is free depends on where the gun
+        // fell — a flung thing is a roll, and a roll moves whenever
+        // anything else in the room does — so take the first side that
+        // works rather than assuming east.
+        let mut stand = None;
+        for off in [
+            vec2(4.0 * TILE, 0.0),
+            vec2(-4.0 * TILE, 0.0),
+            vec2(0.0, 4.0 * TILE),
+            vec2(0.0, -4.0 * TILE),
+        ] {
+            let p = game.put_for_probe(0, d.at + off);
+            if (p - d.at).len() > TILE && game.can_reach_for_probe(0, d.at) {
+                stand = Some(p);
+                break;
+            }
+        }
+        let stand = stand.expect("somewhere to stand a walk away from the gun");
+        assert!((stand - d.at).len() > TILE);
         assert_eq!(game.hit_at(d.at.x + 3.0, d.at.y - 2.0), HIT_DROPPED);
         assert_eq!(game.hit_dropped(), d.id);
         // The hover asks the same reach and notes nothing.

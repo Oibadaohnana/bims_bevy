@@ -4852,6 +4852,65 @@ fn an_order_wants_the_inputs_aboard_and_the_bench_powered() {
     );
 }
 
+/// Standing at a bench is the player's own Bim's work and nobody else's
+/// (feature 89). With a crew of two and one player, an order for metal
+/// is on offer to slot 0 and never to the crewmate behind it, whatever
+/// the Craft row says; and the smelt that gets done is done by slot 0.
+/// The rest of the work list is untouched — the crewmate still has the
+/// cooking, the bay and the deck on offer.
+#[test]
+fn a_bot_never_stands_at_a_bench_and_a_player_s_bim_does() {
+    use bims::game::JOB_CRAFT;
+    use bims::work::Job;
+    use shipdesign::fixture::playtest_ship;
+    let mut world = crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
+    without_dressings(&mut world);
+    world.know_everything_for_probe();
+    let metal = world.ship.design.carrying(ResourceId::Metal);
+    world.set_craft_target(ResourceId::Metal, metal + 1);
+    assert_eq!(world.craft_orders().len(), 1, "the smelter is asked for");
+    // One step to hand the order over, and the room says who it is for.
+    world.step(&[]);
+    let room = &world.aboard.room;
+    assert_eq!(room.crew_count(), 2);
+    assert!(
+        room.work_on_offer_for_probe(0).contains(&Job::Craft.code()),
+        "the player's own is offered the bench"
+    );
+    assert!(
+        !room.work_on_offer_for_probe(1).contains(&Job::Craft.code()),
+        "and the bot is not"
+    );
+    // It is the bench and nothing else: the crewmate is still offered
+    // everything it was, which on a ship at its berth is the deck, the
+    // bay and the galley as they come round.
+    let bot_rows = room.work_on_offer_for_probe(1);
+    assert!(
+        bot_rows.iter().all(|&job| job != Job::Craft.code()),
+        "{bot_rows:?}"
+    );
+
+    // And over a morning the smelt is slot 0's from end to end.
+    let mut crafted = false;
+    for _ in 0..(4 * 60 * 60) {
+        let events = world.step(&[]);
+        assert_ne!(
+            world.aboard.room.activity(1),
+            JOB_CRAFT,
+            "the crewmate never stood at a bench"
+        );
+        if events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Crafted { recipe: 0 }))
+        {
+            crafted = true;
+            break;
+        }
+    }
+    assert!(crafted, "no metal was made in four hours");
+    assert_eq!(world.ship.design.carrying(ResourceId::Metal), metal + 1);
+}
+
 // --- a walk outside ----------------------------------------------------------
 
 /// A belt of the spawn system, or of a system that has one: what a walk
@@ -9237,6 +9296,68 @@ fn a_hostile_station_notices_a_boarding_at_its_airlock_with_nobody_looking() {
     }
     assert!(seen, "seen at the door, with nobody's eyes");
     assert_eq!(believed(&world)[0], None, "the one still aboard is not");
+}
+
+/// **Half its blood is where a crew member goes out, and a body that far
+/// gone is nobody's target** (feature 89). A crew member ashore at a
+/// hostile station is believed where it stands; bled to just over half
+/// it is still on its feet and still believed; bled a drop under half it
+/// is out cold, and the station's people forget it the same step — the
+/// slot goes `None`, which is what `aim`, `melee_with` and the tactics
+/// all read. The band above it — half pace under three quarters — is
+/// pinned in `bims::health`'s own tests.
+#[test]
+fn a_crew_member_under_half_its_blood_is_out_cold_and_nobody_s_target() {
+    use bims::health::{MAX_BLOOD, OUT_AT};
+    let mut world = basic();
+    let station = world.ship.state.station().unwrap();
+    world.set_hostile(station, true);
+    world.step(&[]);
+    let who = send_a_crew_member_ashore(&mut world);
+    let believed = |world: &World| {
+        world
+            .residents
+            .as_ref()
+            .unwrap()
+            .aboard
+            .room
+            .believed_for_probe()[who as usize]
+    };
+    let mut seen = false;
+    for _ in 0..LEAVING {
+        world.step(&[]);
+        if believed(&world).is_some() {
+            seen = true;
+            break;
+        }
+    }
+    assert!(seen, "the station's people have it in their sight");
+
+    // Half its blood is the line: a drop above it and it is still up.
+    let body = who as usize;
+    world.aboard.room.set_blood_for_probe(body, OUT_AT + 0.01);
+    world.step(&[]);
+    assert!(
+        !world.aboard.room.is_unconscious(body),
+        "just over half is still up at {}",
+        world.aboard.room.blood(body)
+    );
+    assert!(believed(&world).is_some(), "and still somebody's target");
+
+    // And a drop under it: out cold, and gone from the list the station's
+    // people shoot at.
+    world.aboard.room.set_blood_for_probe(body, OUT_AT - 0.01);
+    world.step(&[]);
+    assert!(
+        world.aboard.room.is_unconscious(body),
+        "under half its blood is out cold at {}",
+        world.aboard.room.blood(body)
+    );
+    assert!(
+        world.aboard.room.blood(body) > MAX_BLOOD * 0.45,
+        "and nowhere near dead"
+    );
+    assert_eq!(believed(&world), None, "a body down is nobody's target");
 }
 
 /// A hostile station's person lying out cold is finished off on the
