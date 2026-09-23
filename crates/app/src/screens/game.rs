@@ -544,6 +544,12 @@ fn open(
             if crate::dev::carry() {
                 session.carry_for_probe();
             }
+            // And the dressings each of them carries (feature 87): after
+            // the wounded, so a Bim asked for one with a wound on it has
+            // something to bind it with.
+            if let Some(n) = crate::dev::bandages() {
+                session.bandages_for_probe(n);
+            }
             // A weapon asked for by name goes into the hand in place of
             // whatever was issued, the rest of the gear kept: the crew
             // member's, or every resident's; and armour asked for goes on
@@ -4104,6 +4110,7 @@ fn body_of(world: &world::World, who: usize, source: world::LootSource) -> Optio
     Some(Body {
         cells: world.loot_cells(source)?,
         turned: world.loot_turned(source)?,
+        counts: world.loot_counts(source)?,
         down: world.is_down(source),
         reach: world.in_reach_of_body(who as u32, source),
     })

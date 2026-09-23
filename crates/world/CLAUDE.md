@@ -726,16 +726,20 @@ Things that bit or would:
   about thirty-three at nine — with both bodies
   `put_for_probe` each step so nobody walks off the mark.
 - **The hold's medicine is handed to the room every step, and read
-  back after it.** Stage 5 sets the bandages and the **medkits** to hand
+  back after it.** Stage 5 sets the **medkits** to hand
   and the fibre on the cold store's shelf from the hold
-  (`hand_the_room_the_hold_s_medicine` — `Game::set_bandages`,
+  (`hand_the_room_the_hold_s_medicine` —
   `set_medkits`, `set_stock` with the hold's `Fibre`) before the room
   steps, and after it takes what was used off and puts what was grown
-  in (`take_the_room_s_medicine`: `take_bandages_used`,
+  in (`take_the_room_s_medicine`:
   `take_medkits_used`, `take_harvested_fibre`) — fibre the cold store cannot take is
   **dropped without an event**, since the room's count is set again
   from the hold next step and an event a sheaf for a full larder would
-  be noise. **A helper's own medkits are handed over beside the
+  be noise. **The bandages are not in that handover any more** (feature
+  87): a dressing is a thing in a pack, put there by
+  `World::restock_bandages` and spent out of the pack by the room, so
+  no count crosses either way — see "The dressings are carried" below.
+  **A helper's own medkits are handed over beside the
   shelf's**: the same call counts the `Medkit` stacks in each crew
   member's pack — a medic's start kit, or one fetched out of the hold —
   into `Game::set_pack_kits`, and a helper that carries one treats with
@@ -748,11 +752,13 @@ Things that bit or would:
   a medic's own kit spent leaves the hold exactly as it was.
   A dressing is the room's chain (`Game::bandage`; see
   `crates/game/CLAUDE.md`), and
-  `a_crew_member_dresses_a_wound_with_a_bandage_from_the_hold` runs it
+  `a_wound_is_dressed_with_a_bandage_from_the_hold_and_a_treatment_fetches_the_kit`
+  runs it
   on the playtest ship, which carries five (and two medkits, since
   September 2026 — a re-pin of `PLAYTEST_HASH`). The residents' room
-  gets `data::RESIDENT_BANDAGES` and `RESIDENT_MEDKITS` at open and no
-  hold behind it — a count its
+  deals `data::RESIDENT_BANDAGES` into **each of its living people's
+  packs** and gets `RESIDENT_MEDKITS` on its shelf at open, with no
+  hold behind either — what its
   people spend on each other of their own accord now that the room has
   a Medical job (`Game::medical_on_offer`, `crates/game/CLAUDE.md`), but
   only once the fight is over: a recruited Bim takes no errand of its
@@ -990,7 +996,7 @@ of the class so many rows of it (`PartDef::capacity` in cells — a shelf
 60; `crates/shipdesign/CLAUDE.md`), and every thing kept there covers
 its `economy::footprint` — a pistol 1×2, an auto rifle 1×7, a shotgun
 2×5, a sniper rifle 1×10, a schword 1×5; a helm 2×4, kevlar 4×4, leg
-guards 3×2; a suit 3×3, a medkit 2×2, a bandage 1×1; a crate of
+guards 3×2; a suit 3×3, a medkit 2×2, a box of dressings 2×2 and five to a stack (feature 87); a crate of
 vegetables 1×2, a block of tofu 4×4, the materials 1×1 — the way a
 survival game's inventory is laid out. **Goods that stack cover a
 footprint a stack** (`economy::stack_size`: ten ore, twenty components,
@@ -3664,3 +3670,56 @@ every body's `carrying` is hashed after `fear` — **`REFERENCE_CHECKSUM`
 `theme::{carry_mark, fall_back_mark, stand_ground_mark, affected_ring,
 rallied_mark}`, and the Hire window naming a field medic
 (`names::FIELD_MEDIC`).
+
+## The dressings are carried, and the Management tab says how many (feature 87)
+
+A bandage used to be a number the world handed the room off the hold and
+read back after the step. It is a **thing in a pack** now — the room's
+half is `crates/game/CLAUDE.md`, "A bandage is a thing in a pack" — and
+the world's side is three small pieces and no new state at all.
+
+- **`manager::Stock::Bandages = 4`** is the one target that is nobody's
+  shelf: how many dressings *each* crew member is to have in its own
+  pack. It rides the `CrewOrder::StockTarget` the food's targets ride,
+  so the Management tab's box crosses the seam as a command like any
+  other, and `Manager` keeps it beside the four — `BANDAGES_CARRIED`
+  (3) at dawn rather than nought, unlike the stew and the fibre: a crew
+  with nothing to bind a wound with bleeds out the first time anybody is
+  shot, and a hold with no bandages in it restocks nobody, so nothing
+  moves on a ship that carries none.
+- **`World::restock_bandages`**, a step before the hold's medicine is
+  handed over, fills every crew member's pack back up to that number,
+  **one dressing a step and out of combat only** (`Game::calm`, the
+  room's own twenty seconds). Nobody walks for it — it is bookkeeping,
+  the way the hold's medicine is handed over without an errand — and it
+  conjures nothing: the unit comes off `cargo[Bandage]` and off the
+  locker grid together, the way a fetch takes one. The player's own Bim
+  is filled like the bots, since the dressing a player winds comes out
+  of the player's own pack.
+- **The stacks reach the seam in three places.** A `Stow` of a box moves
+  the **whole** stack (`Gear::units` of the cell, `has_room` asked for
+  that many); a `Fetch`, a `Plunder` and the restock top up a box that
+  has room before taking a cell of their own
+  (`Gear::stack_with_room`); and a `Loot` of one takes what the cell
+  held (`Game::body_units` asked before `take_from_body`, which empties
+  it) and puts back on the body whatever would not fit.
+  `Game::loot_counts` / `World::loot_counts` are the same numbers for
+  the Loot window.
+
+**Nothing new is hashed, and `REFERENCE_CHECKSUM` did not move.**
+`world_checksum` never hashed a crew member's pack — a piece is in it by
+id and cell, a gun by the hold's list, and a stack not at all — and the
+one place `eat_gear` runs is a station's graves, where the cell's count
+now goes in beside its `turned`. A grave's box of dressings is part of
+what the crew took or left. **`SAVE_VERSION` 25** and
+**`wire::PROTOCOL` 17** did move: `Gear` grew `count`, `Room` lost
+`bandages`/`bandages_used`, `Manager` grew `bandages`, and `CrewOrder`
+grew `BandageAll` (the *Bandage all wounds* row, `Game::bandage_all`).
+
+`the_crew_fill_their_packs_with_dressings_out_of_the_hold` in `tests.rs`
+is the restock, the hold running out and the stow of a whole box;
+`a_wound_is_dressed_with_a_bandage_from_the_hold_and_a_treatment_fetches_the_kit`
+is the dressing through the seam. **`without_dressings(&mut world)`** is
+the helper every test that lays a pack out by hand or counts the lockers
+says first: the target to nought and every pack emptied, so a box of
+dressings is not sitting in the cell the test wants.

@@ -902,10 +902,21 @@ impl Piece {
     }
 }
 
-/// One thing in a pack cell: a piece of armour, a weapon, one unit of a
+/// `ResourceId::Bandage`'s code, said here because this crate does not
+/// know `physics` and the room spends a dressing out of a pack itself
+/// (feature 87). Pinned against the real one by the world's tests.
+pub const BANDAGE_CODE: u32 = 13;
+
+/// How many dressings are in one box — one pack cell, one footprint of a
+/// locker (`economy::stack_size(Bandage)`).
+pub const BANDAGES_A_BOX: u32 = 5;
+
+/// One thing in a pack cell: a piece of armour, a weapon, a stack of a
 /// resource by its `ResourceId` code (a bandage, a medkit — the world
 /// knows what the number is; the room only carries it), or a research
 /// key of a tier, which is the one thing that takes more than a cell.
+/// How many are in the stack is the *cell's* (`Gear::count`), not the
+/// item's, so two cells of dressings are the same `Item`.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Item {
@@ -940,8 +951,8 @@ impl Item {
             7 | 9 => (3, 3),
             // The pistol.
             8 => (1, 2),
-            // A medkit.
-            10 => (2, 2),
+            // A medkit, and a box of dressings beside it (feature 87).
+            10 | 13 => (2, 2),
             // The helm, the kevlar, the leg guards.
             14 => (2, 4),
             15 => (4, 4),
@@ -959,6 +970,25 @@ impl Item {
             24 => (2, 3),
             _ => (1, 1),
         }
+    }
+
+    /// How many of it go in one pack cell — one footprint's worth
+    /// (`economy::stack_size`, said again here by resource code the way
+    /// [`Item::footprint`] is, and pinned against that table by the
+    /// world's tests). One for everything but a box of dressings, which
+    /// holds [`BANDAGES_A_BOX`] (feature 87): the materials and the food
+    /// stack on a shelf but never in a pack, since nobody walks about
+    /// with ten blocks of tofu on their back.
+    pub fn stack_limit(&self) -> u32 {
+        match self {
+            Item::Stack(BANDAGE_CODE) => BANDAGES_A_BOX,
+            _ => 1,
+        }
+    }
+
+    /// Whether two things go in the same cell: the same stackable thing.
+    pub fn stacks_with(&self, other: Item) -> bool {
+        *self == other && self.stack_limit() > 1
     }
 
     /// How many rows it takes unturned — what a desk's slot asks of a key.
@@ -1044,6 +1074,14 @@ pub struct Gear {
     /// nothing is kept.
     #[cfg_attr(feature = "serde", serde(with = "pack_cells"))]
     pub turned: [bool; PACK_CELLS],
+    /// How many are in each cell's stack (feature 87), up to the item's
+    /// [`Item::stack_limit`] — five dressings in a box, one of
+    /// everything else. **Nought reads as one**: every cell filled
+    /// before there were stacks says nought there, and so does every
+    /// `pack[cell] = Some(item)` written by hand, so ask
+    /// [`Gear::units`] rather than this.
+    #[cfg_attr(feature = "serde", serde(with = "pack_cells"))]
+    pub count: [u32; PACK_CELLS],
 }
 
 /// The pack's two arrays in a save: serde derives nothing for an array
@@ -1086,6 +1124,7 @@ impl Default for Gear {
             weapon: None,
             pack: [None; PACK_CELLS],
             turned: [false; PACK_CELLS],
+            count: [0; PACK_CELLS],
         }
     }
 }
@@ -1296,24 +1335,88 @@ impl Gear {
         self.first_fit(item).map(|(cell, _)| cell)
     }
 
+    /// How many are in the cell's stack: nought for an empty cell, and
+    /// **one wherever something is kept and the count was never set** —
+    /// see [`Gear::count`].
+    pub fn units(&self, cell: usize) -> u32 {
+        let head = self.head_of(cell);
+        match self.pack.get(head) {
+            Some(Some(_)) => self.count.get(head).copied().unwrap_or(0).max(1),
+            _ => 0,
+        }
+    }
+
+    /// How many more of `item` that cell would take: nought unless it
+    /// holds the same stackable thing (feature 87).
+    pub fn room_in(&self, cell: usize, item: Item) -> u32 {
+        match self.pack.get(cell) {
+            Some(Some(kept)) if kept.stacks_with(item) => {
+                item.stack_limit().saturating_sub(self.units(cell))
+            }
+            _ => 0,
+        }
+    }
+
+    /// The cell a stack of `item` would be topped up into: the first one
+    /// holding the same thing with room left. `None` for a thing that
+    /// does not stack, or one with no half-full cell to join.
+    pub fn stack_with_room(&self, item: Item) -> Option<usize> {
+        (item.stack_limit() > 1)
+            .then(|| (0..PACK_CELLS).find(|&c| self.room_in(c, item) > 0))
+            .flatten()
+    }
+
     /// Lay `item` with its corner in `cell`, the way round it fits —
     /// unturned if it can. `false`, and nothing changed, when it would
-    /// not lie there.
+    /// not lie there. One of it: [`Gear::put_many`] lays a stack.
     pub fn put(&mut self, cell: usize, item: Item) -> bool {
+        self.put_many(cell, item, 1)
+    }
+
+    /// [`Gear::put`] with a count: `n` of `item` in the cell, capped at
+    /// what the thing stacks to. A cell that already holds the same
+    /// stackable thing is **topped up** rather than refused, as far as
+    /// it goes.
+    pub fn put_many(&mut self, cell: usize, item: Item, n: u32) -> bool {
+        if cell >= PACK_CELLS || n == 0 {
+            return false;
+        }
+        if self.room_in(cell, item) > 0 {
+            self.count[cell] = self.units(cell) + n.min(self.room_in(cell, item));
+            return true;
+        }
         let Some(turned) = self.fit_at(cell, item) else {
             return false;
         };
         self.pack[cell] = Some(item);
         self.turned[cell] = turned;
+        self.count[cell] = n.min(item.stack_limit());
         true
     }
 
-    /// Take the thing kept in `cell`, or reaching over it, out of the pack.
+    /// Take the thing kept in `cell`, or reaching over it, out of the
+    /// pack — the **whole** stack, however many are in it.
     pub fn take_out(&mut self, cell: usize) -> Option<Item> {
         let head = self.head_of(cell);
         let item = self.pack.get_mut(head)?.take()?;
         self.turned[head] = false;
+        self.count[head] = 0;
         Some(item)
+    }
+
+    /// Take **one** out of the cell's stack, the cell emptied when it was
+    /// the last (feature 87): what spending a dressing does.
+    pub fn take_one(&mut self, cell: usize) -> Option<Item> {
+        let head = self.head_of(cell);
+        let item = (*self.pack.get(head)?)?;
+        match self.units(head) {
+            0 => None,
+            1 => self.take_out(head),
+            many => {
+                self.count[head] = many - 1;
+                Some(item)
+            }
+        }
     }
 
     /// Move the thing kept in `cell` so its corner is in `to`, turned or
@@ -1324,14 +1427,56 @@ impl Gear {
         let Some(item) = self.pack.get(head).copied().flatten() else {
             return false;
         };
-        if to >= PACK_CELLS || !self.fits_turned(to, item, turned, Some(head)) {
+        if to >= PACK_CELLS {
             return false;
         }
+        // Onto a cell holding the same stackable thing: the two stacks
+        // are poured together as far as the limit, and whatever is left
+        // stays where it was (feature 87). Asked before `fits_turned`,
+        // which would refuse a cell with something already in it.
+        if self.room_in(to, item) > 0 && to != head {
+            let room = self.room_in(to, item);
+            let moved = self.units(head).min(room);
+            self.count[to] = self.units(to) + moved;
+            let left = self.units(head) - moved;
+            if left == 0 {
+                self.pack[head] = None;
+                self.turned[head] = false;
+                self.count[head] = 0;
+            } else {
+                self.count[head] = left;
+            }
+            return true;
+        }
+        if !self.fits_turned(to, item, turned, Some(head)) {
+            return false;
+        }
+        let units = self.units(head);
         self.pack[head] = None;
         self.turned[head] = false;
+        self.count[head] = 0;
         self.pack[to] = Some(item);
         self.turned[to] = turned;
+        self.count[to] = units;
         true
+    }
+
+    /// How many of `item` are in the pack all told — every cell's stack
+    /// added up. What says whether a Bim has a dressing on it.
+    pub fn units_of(&self, item: Item) -> u32 {
+        (0..PACK_CELLS)
+            .filter(|&c| self.pack[c] == Some(item))
+            .map(|c| self.units(c))
+            .sum()
+    }
+
+    /// The cell one of `item` would be spent out of: the **emptiest**
+    /// stack, so the pack is tidied by using it rather than left with
+    /// part-boxes everywhere.
+    pub fn stack_to_spend(&self, item: Item) -> Option<usize> {
+        (0..PACK_CELLS)
+            .filter(|&c| self.pack[c] == Some(item))
+            .min_by_key(|&c| self.units(c))
     }
 }
 
@@ -3026,7 +3171,8 @@ mod tests {
             assert_eq!(rifle.footprint(), (1, 7));
             assert_eq!(rifle.laid(true), (7, 1));
             assert_eq!(schword.footprint(), (1, 5));
-            assert_eq!(bandage.footprint(), (1, 1));
+            // A box of dressings is a medkit's square since feature 87.
+            assert_eq!(bandage.footprint(), (2, 2));
             assert!(gear.fits(0, key));
             assert!(
                 !gear.fits(bottom, key),

@@ -479,12 +479,20 @@ fn frame(
                 let can = body_in_room(game, who, LootSource::Crew(body))
                     .is_some_and(|b| b.down && b.reach)
                     && game.gear(who).free_cell().is_some();
-                if can
-                    && let Some(cell) = LootCell::from_code(cell)
-                    && let Some(item) = game.take_from_body(body as usize, cell)
-                {
-                    game.give(who, None, item);
+                if can && let Some(cell) = LootCell::from_code(cell) {
+                    // The whole stack goes (feature 87): a box of
+                    // dressings is five, not one.
+                    let units = game.body_units(body as usize, cell).max(1);
+                    if let Some(item) = game.take_from_body(body as usize, cell) {
+                        let went = game.give_stack(who, item, units);
+                        if went < units {
+                            game.give_stack(body as usize, item, units - went);
+                        }
+                    }
                 }
+            }
+            GearOrder::BandageAll { who } => {
+                game.bandage_all(who as usize, who as usize);
             }
             GearOrder::Stow { .. }
             | GearOrder::StowOnBench { .. }
@@ -606,6 +614,7 @@ fn body_in_room(game: &Game, who: usize, source: LootSource) -> Option<Body> {
     Some(Body {
         cells: game.loot_cells(body),
         turned: game.gear(body).turned,
+        counts: game.loot_counts(body),
         down: game.is_down(body),
         reach: game.is_alive(who) && !game.is_unconscious(who) && near,
     })

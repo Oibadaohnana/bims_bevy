@@ -40,6 +40,29 @@ fn basic() -> World {
     world_with(flyer(2), REFERENCE_MONEY, 2)
 }
 
+/// **No dressings on anybody, and none asked for** (feature 87): every
+/// crew member starts with a box in the first cells of its pack that
+/// fits one, and fills back up out of the hold out of combat. That is
+/// exactly what a test which lays a pack out by hand, counts the
+/// lockers or pins the hold's `Bandage` count does not want in the way,
+/// so it says so at the top and the restock leaves everybody alone.
+pub(crate) fn without_dressings(world: &mut World) {
+    world
+        .aboard
+        .room
+        .set_target(bims::manager::Stock::Bandages, 0);
+    for who in 0..world.aboard.room.crew_count() as usize {
+        world.aboard.room.set_bandages_for_probe(who, 0);
+    }
+    // And none in the hold either: a dock or an undock builds the room
+    // afresh with the manager's own numbers back — the food's targets
+    // reset the same way — so an empty hold is what actually holds the
+    // packs empty across one. A test that wants dressings aboard puts
+    // them back after this and does not dock.
+    world.ship.design.cargo[ResourceId::Bandage as usize] = 0;
+    world.on_ship_changed();
+}
+
 /// [`basic`] with Kate a crewmate nobody steers rather than a second
 /// player's own: one player, two crew. What a test of the crew under the
 /// alarm wants — a player's own is never mustered (`bims::order`).
@@ -2182,6 +2205,8 @@ fn a_fetch_takes_the_slot_asked_for_and_a_stow_wants_a_run_of_cells() {
     use bims::combat::{Item, WeaponKind};
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    // The dressings every Bim carries are out of the way (feature 87).
+    without_dressings(&mut world);
     world.ship.design.cargo[ResourceId::AutoRifle as usize] += 1;
     world.on_ship_changed();
     lockers_agree(&world);
@@ -2228,11 +2253,13 @@ fn a_fetch_takes_the_slot_asked_for_and_a_stow_wants_a_run_of_cells() {
     let pack = world.aboard.room.pack(0);
     assert!(pack.contains(&Some(Item::Weapon(WeaponKind::AutoRifle.basic()))));
 
-    // Fill the grid to the cell with bandages, then take seven out of
-    // slots on seven different rows and columns: seven cells free, and
-    // no run of seven among them.
+    // Fill the grid to the cell with grenades — one to a cell and no
+    // stacking, where a box of dressings is four cells and five of them
+    // since feature 87 — then take seven out of slots on seven
+    // different rows and columns: seven cells free, and no run of seven
+    // among them.
     let spare = world.ship.design.spare(Storage::Locker);
-    world.ship.design.cargo[ResourceId::Bandage as usize] += spare;
+    world.ship.design.cargo[ResourceId::Grenade as usize] += spare;
     world.on_ship_changed();
     assert_eq!(world.ship.design.spare(Storage::Locker), 0);
     lockers_agree(&world);
@@ -2243,7 +2270,7 @@ fn a_fetch_takes_the_slot_asked_for_and_a_stow_wants_a_run_of_cells() {
         .unwrap()
         .slots
         .iter()
-        .filter(|s| s.kept == Kept::Stack(ResourceId::Bandage))
+        .filter(|s| s.kept == Kept::Stack(ResourceId::Grenade))
     {
         if taken.iter().all(|&(x, y)| x != s.x && y != s.y) {
             taken.push((s.x, s.y));
@@ -4699,6 +4726,8 @@ fn a_target_for_metal_has_a_bim_smelt_ore_at_the_bench() {
     use bims::game::JOB_CRAFT;
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    // The dressings every Bim carries are out of the way (feature 87).
+    without_dressings(&mut world);
     world.know_everything_for_probe();
     let ore = world.ship.design.carrying(ResourceId::Ore);
     let metal = world.ship.design.carrying(ResourceId::Metal);
@@ -5301,6 +5330,8 @@ fn a_target_for_a_handgun_runs_the_whole_chain_from_the_hold() {
     use shipdesign::fixture::playtest_ship;
     let budget = Budget::new(10_000_000);
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    // The dressings every Bim carries are out of the way (feature 87).
+    without_dressings(&mut world);
     world.know_everything_for_probe();
     // An armoury amidships on a branch of its own off the spine.
     let mut design = world.ship.design.clone();
@@ -5379,11 +5410,12 @@ fn a_target_for_a_handgun_runs_the_whole_chain_from_the_hold() {
     // In cells, since the lockers are a grid: the suit's nine, the
     // helm's eight, the kevlar's sixteen and the leg guards' six, the
     // shotgun's ten, the rifle's seven, the sniper's ten and the
-    // schword's five, the handgun's two — seventy-three — a cell a
-    // bandage and four a medkit. And every one of them lies in a slot.
+    // schword's five, the handgun's two — seventy-three — four a box of
+    // dressings, five to a box (feature 87), and four a medkit. And
+    // every one of them lies in a slot.
     assert_eq!(
         world.ship.design.stored(Storage::Locker),
-        73 + bandages + 4 * medkits
+        73 + 4 * bandages.div_ceil(5) + 4 * medkits
     );
     assert_eq!(
         world.grid(Storage::Locker).unwrap().covered(),
@@ -5458,6 +5490,8 @@ fn a_site_on_the_deck_is_hauled_to_and_built_by_the_crew() {
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::Layer;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    // The dressings every Bim carries are out of the way (feature 87).
+    without_dressings(&mut world);
     let metal = world.ship.design.carrying(ResourceId::Metal);
     let parts = world.ship.design.parts.len();
     let mass = world.ship.dynamics.mass.get();
@@ -6723,9 +6757,15 @@ fn a_hostile_station_s_people_take_arms_and_are_armed_off_its_seed() {
             residents + world.mercenaries_of(station)
         );
         for who in 0..residents {
-            let issued = Gear::issued_for(seed ^ who as u64);
+            let mut issued = Gear::issued_for(seed ^ who as u64);
             assert!(issued.weapon.is_some(), "every resident carries something");
             assert_eq!(ashore.aboard.room.weapon(who as usize), issued.weapon);
+            // And a couple of dressings in the pack beside it since
+            // feature 87 — the roll is the weapon's and the armour's.
+            let cell = issued
+                .free_cell_for(bims::game::BANDAGE)
+                .expect("a fresh pack has room for a box");
+            issued.put_many(cell, bims::game::BANDAGE, data::RESIDENT_BANDAGES);
             assert_eq!(ashore.aboard.room.gear(who as usize), issued);
         }
     }
@@ -7252,9 +7292,11 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
     }
 }
 
-/// A bandage is the hold's: the crew member dresses a wound of their own
-/// with one, and the hold's count comes down by one when the wound is
-/// closed. The playtest ship carries a few from the first minute.
+/// A bandage is a thing in a pack since feature 87: the crew member
+/// fills up out of the hold out of combat, dresses a wound of their own
+/// with one of its own dressings, and the hold pays for it — the pack is
+/// topped up again next step, so what falls by one is the hold and the
+/// packs added up. The playtest ship carries a few from the first minute.
 /// A treatment aboard fetches its kit from a cabinet that holds one — the
 /// armoury or the drug lab on the combat ship, whose spots the world
 /// hands the room every step (`Game::set_kit_stands`) — and the hold pays
@@ -7268,8 +7310,26 @@ fn a_wound_is_dressed_with_a_bandage_from_the_hold_and_a_treatment_fetches_the_k
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         let bandages = world.ship.design.carrying(ResourceId::Bandage);
         assert!(bandages > 0, "the playtest ship carries bandages");
-        world.step(&[]);
-        assert_eq!(world.aboard.room.bandages(), bandages, "the room is told");
+        // The restock fills the pack out of the hold, one a step, out of
+        // combat: the two added up never move on their own.
+        let wanted = world
+            .aboard
+            .room
+            .target(bims::manager::Stock::Bandages)
+            .min(bandages);
+        for _ in 0..(wanted + 1) {
+            world.step(&[]);
+        }
+        assert_eq!(
+            world.aboard.room.bandages_of(0),
+            wanted,
+            "the crew member carries what the Management tab asks for"
+        );
+        assert_eq!(
+            world.ship.design.carrying(ResourceId::Bandage) + wanted,
+            bandages,
+            "and they came out of the hold"
+        );
 
         assert!(
             !world.aboard.room.wound(0, Part::Body, 12.0).leg_lost,
@@ -7283,13 +7343,16 @@ fn a_wound_is_dressed_with_a_bandage_from_the_hold_and_a_treatment_fetches_the_k
             budget -= 1;
         }
         assert_eq!(world.aboard.room.bleeding(0), 0, "the wound is closed");
+        // A step or two later the pack is full again and the hold is one
+        // lighter: the dressing was spent, whichever pocket it came from.
+        for _ in 0..3 {
+            world.step(&[]);
+        }
         assert_eq!(
-            world.ship.design.carrying(ResourceId::Bandage),
+            world.ship.design.carrying(ResourceId::Bandage) + world.aboard.room.bandages_of(0),
             bandages - 1,
-            "and the bandage came off the hold"
+            "and the dressing is gone for good"
         );
-        world.step(&[]);
-        assert_eq!(world.aboard.room.bandages(), bandages - 1);
         // A part with nothing open on it is not worth a bandage.
         assert!(!world.aboard.room.bandage(0, 0, Part::Body));
     }
@@ -7874,6 +7937,72 @@ fn armoury(world: &World) -> (usize, bims::math::Vec2) {
     (i, spot)
 }
 
+/// Feature 87: a dressing is a thing in a pack and the Management tab
+/// says how many each of the crew is to carry. Out of combat they fill
+/// themselves up out of the hold, one a step, whoever they are — a
+/// player's own and the bots alike — and a box stowed back into the
+/// lockers puts the whole five in at once.
+#[test]
+fn the_crew_fill_their_packs_with_dressings_out_of_the_hold() {
+    use bims::manager::Stock;
+    use shipdesign::fixture::playtest_ship;
+    let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
+    let aboard = world.ship.design.carrying(ResourceId::Bandage);
+    assert!(aboard >= 5, "the playtest ship carries a few: {aboard}");
+    // Nobody carrying and nobody asking, then the hold's own back: this
+    // test is about the filling, so it starts from empty packs.
+    without_dressings(&mut world);
+    world.ship.design.cargo[ResourceId::Bandage as usize] = aboard;
+    world.on_ship_changed();
+    // Two apiece: the hold pays for all four, one a step.
+    world.aboard.room.set_target(Stock::Bandages, 2);
+    for _ in 0..8 {
+        world.step(&[]);
+    }
+    assert_eq!(world.aboard.room.bandages_of(0), 2, "the player's own");
+    assert_eq!(world.aboard.room.bandages_of(1), 2, "and the bot");
+    assert_eq!(
+        world.ship.design.carrying(ResourceId::Bandage),
+        aboard - 4,
+        "out of the hold"
+    );
+    lockers_agree(&world);
+    // Asked for more than there is: the hold empties and nobody is given
+    // what is not there.
+    world.aboard.room.set_target(Stock::Bandages, 9);
+    for _ in 0..40 {
+        world.step(&[]);
+    }
+    assert_eq!(world.ship.design.carrying(ResourceId::Bandage), 0);
+    assert_eq!(
+        world.aboard.room.bandages_of(0) + world.aboard.room.bandages_of(1),
+        aboard,
+        "every dressing aboard is on somebody"
+    );
+    lockers_agree(&world);
+    // A box stowed back is five at once, not one — and the restock does
+    // not take it straight out again while the target is unmet, so the
+    // target comes down first.
+    world.aboard.room.set_target(Stock::Bandages, 0);
+    let carried = world.aboard.room.bandages_of(0);
+    let cell = world
+        .aboard
+        .room
+        .gear(0)
+        .stack_to_spend(bims::game::BANDAGE)
+        .expect("a box on it");
+    let units = world.aboard.room.gear(0).units(cell);
+    at_the_armoury(&mut world, 0);
+    world.step(&[Command::Stow {
+        slot: 0,
+        who: 0,
+        cell: cell as u32,
+    }]);
+    assert_eq!(world.ship.design.carrying(ResourceId::Bandage), units);
+    assert_eq!(world.aboard.room.bandages_of(0), carried - units);
+    lockers_agree(&world);
+}
+
 /// Stand a crew member at the armoury this instant, for the reach check.
 /// Before every command that wants it: the Bim goes off about its errands
 /// between steps, and a command lands before the room moves.
@@ -7938,6 +8067,8 @@ fn pieces_and_guns_agree_with_the_hold_and_every_weapon_is_a_locker_resource() {
         use bims::health::Part;
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        // The dressings every Bim carries are out of the way (feature 87).
+        without_dressings(&mut world);
         assert_eq!(world.ship.design.carrying(ResourceId::Helm), 1);
         assert_eq!(world.pieces.len(), 3);
         assert_eq!(world.next_piece, 4);
@@ -8051,6 +8182,7 @@ fn pieces_and_guns_agree_with_the_hold_and_every_weapon_is_a_locker_resource() {
         use bims::combat::{Item, Tier, WeaponKind};
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        without_dressings(&mut world);
         assert_eq!(world.guns.len(), 4, "{:?}", world.guns);
         assert!(world.guns.iter().all(|g| g.tier == Tier::One));
         guns_agree(&world);
@@ -8156,6 +8288,8 @@ fn a_shot_on_the_head_is_taken_by_the_helm_first_and_a_stowed_piece_keeps_its_he
         use bims::health::Part;
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        // The dressings every Bim carries are out of the way (feature 87).
+        without_dressings(&mut world);
         at_the_armoury(&mut world, 0);
         world.step(&[Command::Fetch {
             slot: 0,
@@ -8264,6 +8398,7 @@ fn a_shot_on_the_head_is_taken_by_the_helm_first_and_a_stowed_piece_keeps_its_he
         use bims::health::Part;
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        without_dressings(&mut world);
         world.know_everything_for_probe();
         assert!(world.ship.design.carrying(ResourceId::Metal) >= 2);
         assert!(world.powered(PartKind::Workbench));
@@ -8383,6 +8518,8 @@ fn a_fetch_or_a_stow_wants_the_bim_in_reach_and_room_to_put_it() {
     use bims::game::Container;
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    // The dressings every Bim carries are out of the way (feature 87).
+    without_dressings(&mut world);
     let (bench, _) = armoury(&world);
     assert!(world.container_takes(Container::Bench(bench), ResourceId::Helm));
     assert!(world.container_takes(Container::Bench(bench), ResourceId::Bandage));
@@ -8420,10 +8557,14 @@ fn a_fetch_or_a_stow_wants_the_bim_in_reach_and_room_to_put_it() {
     assert!(world.aboard.room.pack(0).iter().all(|c| c.is_none()));
 
     // At the armoury: in reach, and the cells fill from the hold — the
-    // three pieces, the suit and the five bandages — and the tenth is
-    // refused.
+    // three pieces, the suit, a box of dressings and then medkits until
+    // the pack has no square left for another.
     at_the_armoury(&mut world, 0);
     assert!(world.in_reach(0, ResourceId::Helm));
+    // The dressings `without_dressings` took out of the hold, put back:
+    // five of them, which is one box since feature 87 and not five cells.
+    world.ship.design.cargo[ResourceId::Bandage as usize] = 5;
+    world.on_ship_changed();
     let bandages = world.ship.design.carrying(ResourceId::Bandage);
     assert_eq!(bandages, 5);
     assert_eq!(world.ship.design.carrying(ResourceId::Suit), 1);
@@ -8456,41 +8597,49 @@ fn a_fetch_or_a_stow_wants_the_bim_in_reach_and_room_to_put_it() {
             kind: crate::FetchKind::Resource(ResourceId::Bandage as u32),
         });
     }
-    // And a medkit put aboard by hand for the tenth.
-    world.ship.design.cargo[ResourceId::Medkit as usize] += 1;
+    // And medkits after them — two by two and nothing stacks — put
+    // aboard by hand, until the pack has no square left: whatever does
+    // not fit is `PackFull`.
+    world.ship.design.cargo[ResourceId::Medkit as usize] += 6;
     world.on_ship_changed();
-    commands.push(Command::Fetch {
-        slot: 0,
-        who: 0,
-        kind: crate::FetchKind::Resource(ResourceId::Medkit as u32),
-    });
+    for _ in 0..6 {
+        commands.push(Command::Fetch {
+            slot: 0,
+            who: 0,
+            kind: crate::FetchKind::Resource(ResourceId::Medkit as u32),
+        });
+    }
     let events = world.step(&commands);
     let refused: Vec<&WorldEvent> = events
         .iter()
         .filter(|e| matches!(e, WorldEvent::Refused { .. }))
         .collect();
-    assert_eq!(
-        refused,
-        vec![&WorldEvent::Refused {
-            slot: 0,
-            why: Refusal::PackFull
-        }]
+    assert!(!refused.is_empty(), "the pack fills up: {events:?}");
+    assert!(
+        refused.iter().all(|e| matches!(
+            e,
+            WorldEvent::Refused {
+                why: Refusal::PackFull,
+                ..
+            }
+        )),
+        "{refused:?}"
     );
-    // Forty-four of the fifty cells taken — the kevlar four square at the
-    // top left, the helm beside it, the suit under the helm, the leg
-    // guards down the last two columns — and what is left is the bottom
-    // row and a cell or two above it: no two-by-two hole for the medkit.
-    // The bandages are wherever a cell was free.
+    // The kevlar four square at the top left, the helm beside it, the
+    // suit under the helm, the leg guards down the last two columns, one
+    // box of dressings and as many medkits as would lie — and no
+    // two-by-two hole left for another.
     let pack = world.aboard.room.pack(0);
     let medkit = bims::combat::Item::Stack(ResourceId::Medkit as u32);
     assert!(world.aboard.room.gear(0).free_cell_for(medkit).is_none());
-    let bandages: Vec<usize> = pack
+    let boxes: Vec<usize> = pack
         .iter()
         .enumerate()
         .filter(|(_, c)| **c == Some(bims::combat::Item::Stack(ResourceId::Bandage as u32)))
         .map(|(i, _)| i)
         .collect();
-    assert_eq!(bandages.len(), 5, "{pack:?}");
+    assert_eq!(boxes.len(), 1, "five to a box: {pack:?}");
+    assert_eq!(world.aboard.room.gear(0).units(boxes[0]), 5);
     let kevlar_cell = 0;
     assert!(matches!(
         pack[kevlar_cell],
@@ -8533,19 +8682,20 @@ fn a_fetch_or_a_stow_wants_the_bim_in_reach_and_room_to_put_it() {
     let events = world.step(&[Command::Equip {
         slot: 0,
         who: 0,
-        cell: bandages[0] as u32,
+        cell: boxes[0] as u32,
     }]);
     assert!(events.contains(&WorldEvent::Refused {
         slot: 0,
         why: Refusal::NotAboard
     }));
 
-    // A stow from the helm is out of reach; at the armoury a bandage goes
-    // back, and once the lockers are full the next is refused.
+    // A stow from the helm is out of reach; at the armoury the box of
+    // dressings goes back — **all five of it** (feature 87) — and once
+    // the lockers are full the next thing is refused.
     let events = world.step(&[Command::Stow {
         slot: 0,
         who: 0,
-        cell: bandages[0] as u32,
+        cell: boxes[0] as u32,
     }]);
     assert!(events.contains(&WorldEvent::Refused {
         slot: 0,
@@ -8555,26 +8705,35 @@ fn a_fetch_or_a_stow_wants_the_bim_in_reach_and_room_to_put_it() {
     let events = world.step(&[Command::Stow {
         slot: 0,
         who: 0,
-        cell: bandages[0] as u32,
+        cell: boxes[0] as u32,
     }]);
     assert!(events.contains(&WorldEvent::Stowed { who: 0 }));
-    assert_eq!(world.ship.design.carrying(ResourceId::Bandage), 1);
+    assert_eq!(world.ship.design.carrying(ResourceId::Bandage), 5);
+    // The suit is the next thing in the pack to try to put away.
+    let suit = bims::combat::Item::Stack(ResourceId::Suit as u32);
+    let kit_cell = world
+        .aboard
+        .room
+        .pack(0)
+        .iter()
+        .position(|c| *c == Some(suit))
+        .expect("the suit is still on its back");
     let lockers = world.ship.design.capacity(Storage::Locker);
     let stored = world.ship.design.stored(Storage::Locker);
-    world.ship.design.cargo[ResourceId::Medkit as usize] += lockers - stored;
+    world.ship.design.cargo[ResourceId::Grenade as usize] += lockers - stored;
     world.on_ship_changed();
     at_the_armoury(&mut world, 0);
     let events = world.step(&[Command::Stow {
         slot: 0,
         who: 0,
-        cell: bandages[1] as u32,
+        cell: kit_cell as u32,
     }]);
     assert!(events.contains(&WorldEvent::Refused {
         slot: 0,
         why: Refusal::NoRoom
     }));
     assert!(
-        world.aboard.room.pack(0)[bandages[1]].is_some(),
+        world.aboard.room.pack(0)[kit_cell].is_some(),
         "left in the pack"
     );
     pieces_agree(&world);
@@ -9347,6 +9506,8 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
         use shipdesign::fixture::playtest_ship;
         use shipdesign::research::Node;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        // The dressings every Bim carries are out of the way (feature 87).
+        without_dressings(&mut world);
         assert_eq!(world.key_at_the_dock(), 1, "the spawn always has a key");
         assert!(world.research_desk_aboard());
         assert!(world.research_desk_powered());
@@ -9798,7 +9959,10 @@ fn a_key_is_taken_at_a_hostile_dock_while_they_stand() {
     use shipdesign::fixture::playtest_ship;
     use worldgen::StationKind;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    // The dressings every Bim carries are out of the way (feature 87).
+    without_dressings(&mut world);
     let mut twin = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    without_dressings(&mut twin);
     let enemy = world
         .stations
         .iter()
@@ -10096,6 +10260,8 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         use bims::combat::{Item, Tier, WeaponKind};
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        // The dressings every Bim carries are out of the way (feature 87).
+        without_dressings(&mut world);
         world.undock_for_probe();
         world.ship.design.cargo[ResourceId::Handgun as usize] += 2;
         upgrades_known(&mut world);
@@ -10265,6 +10431,7 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         use bims::combat::{ArmourKind, Item, Tier};
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        without_dressings(&mut world);
         world.undock_for_probe();
         upgrades_known(&mut world);
         world.ship.design.cargo[ResourceId::Handgun as usize] += 2;
@@ -10324,12 +10491,14 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         // The pistols are still a pair, waiting their turn.
         assert_eq!(world.ship.design.carrying(ResourceId::Handgun), 2);
 
-        // The lockers filled to the last cell with bandages — a bandage is
-        // one cell, so the count fills the grid exactly — so once the day
-        // of work is done the helm waits on the bench: nothing is carried
-        // to a locker with no room for it, and nothing is lost.
+        // The lockers filled to the last cell with grenades — a grenade
+        // is one cell and does not stack, where a box of dressings is
+        // four cells and five of them (feature 87), so the count fills
+        // the grid exactly — so once the day of work is done the helm
+        // waits on the bench: nothing is carried to a locker with no
+        // room for it, and nothing is lost.
         let spare = world.ship.design.spare(Storage::Locker);
-        world.ship.design.cargo[ResourceId::Bandage as usize] += spare;
+        world.ship.design.cargo[ResourceId::Grenade as usize] += spare;
         world.on_ship_changed();
         assert_eq!(world.ship.design.spare(Storage::Locker), 0);
         let (said, upgraded) = run_until(&mut world, 4 * 24, &|w| w.bench.work.is_none());
@@ -10359,7 +10528,7 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         pieces_agree(&world);
 
         // Room made, it is carried back, and the pistols follow.
-        world.ship.design.cargo[ResourceId::Bandage as usize] = 0;
+        world.ship.design.cargo[ResourceId::Grenade as usize] = 0;
         world.on_ship_changed();
         let (_, landed) = run_until(&mut world, 4, &|w| {
             in_hold(w, ArmourKind::BasicHelm).len() == 2

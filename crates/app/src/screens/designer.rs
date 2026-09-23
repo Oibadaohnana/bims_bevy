@@ -499,6 +499,13 @@ impl Net {
                         Order::Gear(GearOrder::Plunder { who, id }) => {
                             Command::Plunder { slot, who, id }
                         }
+                        // The row on a box of dressings (feature 87): it
+                        // binds its own wounds, which is an order to the
+                        // room like any other.
+                        Order::Gear(GearOrder::BandageAll { who }) => Command::Crew {
+                            slot,
+                            order: bims::order::CrewOrder::BandageAll { who, patient: who },
+                        },
                         Order::Research(ResearchOrder::Begin(node)) => {
                             Command::Research { slot, node }
                         }

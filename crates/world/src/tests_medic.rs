@@ -143,15 +143,11 @@ fn empty_pack_of_kits(world: &mut World, who: usize) {
     world.step(&[]);
 }
 
+/// How many **units** of a resource are in a pack — the stacks added up
+/// since feature 87, where a box of dressings is five in one cell.
 fn count_in_pack(world: &World, who: usize, resource: ResourceId) -> usize {
     let wanted = Item::Stack(resource as u32);
-    world
-        .aboard
-        .room
-        .pack(who)
-        .iter()
-        .filter(|i| **i == Some(wanted))
-        .count()
+    world.aboard.room.gear(who).units_of(wanted) as usize
 }
 
 /// A bandage ordered on `patient`'s part by `who`, and the steps until

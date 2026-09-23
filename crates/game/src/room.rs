@@ -146,9 +146,11 @@ const SHELF_FULL: f32 = (START_VEG + START_TOFU) as f32;
 pub const PLATE_DRAWER: u32 = 40;
 pub const START_PLATES: u32 = 20;
 
-/// Bandages the classic room starts with, so `bims room` can try the
-/// dressing without a drug lab. Aboard, the count is the hold's and the
-/// world sets it — see `Room::bandages`.
+/// Dressings every Bim starts out **carrying**, so `bims room` can try
+/// the dressing without a drug lab. Since feature 87 a bandage is a thing
+/// in a pack and nothing else: there is no count on a shelf anywhere, and
+/// aboard it is `World::restock_bandages` that fills a pack out of the
+/// hold rather than a number the world hands over.
 pub const BANDAGES_AT_DAWN: u32 = 3;
 
 /// Medkits the classic room starts with, the same way: a trauma can be
@@ -929,12 +931,6 @@ pub struct Room {
     /// bay's picture of the shelf, the hold is the record.
     pub harvested_fibre: u32,
 
-    /// Bandages to hand. Aboard, the world sets it every step off the hold
-    /// (`Game::set_bandages`) and takes back what was used
-    /// (`Game::take_bandages_used`); the classic room starts with a few so
-    /// the chain can be tried there.
-    pub bandages: u32,
-    pub bandages_used: u32,
     /// Every dressing finished since the game last looked — `(helper,
     /// patient, part code)`, pushed by the bandage chain as its hands come
     /// off the patient. The game drains it after everybody has moved and
@@ -1133,8 +1129,6 @@ impl Room {
             stew: 0,
             fibre: 0,
             harvested_fibre: 0,
-            bandages: BANDAGES_AT_DAWN,
-            bandages_used: 0,
             dressed: Vec::new(),
             medkits: MEDKITS_AT_DAWN,
             medkits_used: 0,
@@ -1306,10 +1300,6 @@ impl Room {
             stew: 0,
             fibre: 0,
             harvested_fibre: 0,
-            // None until the world says: aboard, the bandages are the
-            // hold's, and a design carries them on its manifest.
-            bandages: 0,
-            bandages_used: 0,
             dressed: Vec::new(),
             medkits: 0,
             medkits_used: 0,

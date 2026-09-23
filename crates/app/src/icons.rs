@@ -266,10 +266,18 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
             s.rect_filled(b.rect(0.26, 0.44, 0.74, 0.56), b.px(0.02), SHADE);
         }
         ResourceId::Bandage => {
-            // A roll, seen end on beside its tail.
-            s.rect_filled(b.rect(0.16, 0.40, 0.84, 0.60), b.px(0.10), BANDAGE);
-            s.circle_filled(b.at(0.30, 0.50), b.px(0.16), BANDAGE);
-            s.circle_stroke(b.at(0.30, 0.50), b.px(0.08), Stroke::new(b.px(0.03), SHADE));
+            // A box of dressings since feature 87: two rolls, the one
+            // behind a little higher, each seen end on beside its tail —
+            // a cell of them is five, and one roll read as one bandage.
+            for (dy, ex) in [(-0.16, 0.76), (0.10, 0.84)] {
+                s.rect_filled(b.rect(0.16, 0.42 + dy, ex, 0.58 + dy), b.px(0.08), BANDAGE);
+                s.circle_filled(b.at(0.30, 0.50 + dy), b.px(0.14), BANDAGE);
+                s.circle_stroke(
+                    b.at(0.30, 0.50 + dy),
+                    b.px(0.07),
+                    Stroke::new(b.px(0.03), SHADE),
+                );
+            }
         }
         ResourceId::Helm => {
             // A cap: the dome and the brim.

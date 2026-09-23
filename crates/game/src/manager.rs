@@ -1,7 +1,8 @@
 //! What the player has told the place to keep in stock.
 //!
-//! Four numbers — vegetables, blocks of tofu, pots of stew and fibre in the
-//! cold store — and everything automated reads its target off this rather
+//! Five numbers — vegetables, blocks of tofu, pots of stew and fibre in the
+//! cold store, and the dressings each Bim is to carry — and everything
+//! automated reads its target off this rather
 //! than being told separately. The hydroponic bay plants to the first two
 //! and the fourth; the galley cooks to the third, one stew out of a
 //! vegetable and a block of tofu, and puts it in the cold store beside
@@ -33,7 +34,14 @@ const STEW_AT_DAWN: u32 = 0;
 /// move.
 const FIBRE_AT_DAWN: u32 = 0;
 
-/// Which of the four a caller means. The codes cross the boundary —
+/// How many dressings every Bim is asked to carry to begin with
+/// (feature 87). Not nought, unlike the stew and the fibre: a crew with
+/// no bandage on them is a crew that bleeds out the first time anybody
+/// is shot, and the hold is where they come from — a ship with none in
+/// it restocks nobody and nothing moves.
+const BANDAGES_CARRIED: u32 = 3;
+
+/// Which of the five a caller means. The codes cross the boundary —
 /// `Game::target(kind)` and `Game::set_target(kind, n)` — so they are
 /// fixed, and appended to rather than reordered.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -43,10 +51,20 @@ pub enum Stock {
     Tofu = 1,
     Stew = 2,
     Fibre = 3,
+    /// The one target that is not a shelf's: how many dressings each
+    /// crew member is to have **in its own pack**, topped up out of the
+    /// hold out of combat (`World::restock_bandages`, feature 87).
+    Bandages = 4,
 }
 
 impl Stock {
-    pub const ALL: [Stock; 4] = [Stock::Veg, Stock::Tofu, Stock::Stew, Stock::Fibre];
+    pub const ALL: [Stock; 5] = [
+        Stock::Veg,
+        Stock::Tofu,
+        Stock::Stew,
+        Stock::Fibre,
+        Stock::Bandages,
+    ];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -63,6 +81,7 @@ pub struct Manager {
     tofu: u32,
     stew: u32,
     fibre: u32,
+    bandages: u32,
 }
 
 impl Manager {
@@ -72,6 +91,7 @@ impl Manager {
             tofu: TOFU_AT_DAWN,
             stew: STEW_AT_DAWN,
             fibre: FIBRE_AT_DAWN,
+            bandages: BANDAGES_CARRIED,
         }
     }
 
@@ -81,6 +101,7 @@ impl Manager {
             Stock::Tofu => self.tofu,
             Stock::Stew => self.stew,
             Stock::Fibre => self.fibre,
+            Stock::Bandages => self.bandages,
         }
     }
 
@@ -90,6 +111,7 @@ impl Manager {
             Stock::Tofu => &mut self.tofu,
             Stock::Stew => &mut self.stew,
             Stock::Fibre => &mut self.fibre,
+            Stock::Bandages => &mut self.bandages,
         };
         *slot = count.min(MOST);
     }
@@ -108,6 +130,11 @@ impl Manager {
 
     pub fn fibre(&self) -> u32 {
         self.fibre
+    }
+
+    /// How many dressings each Bim is to carry (feature 87).
+    pub fn bandages(&self) -> u32 {
+        self.bandages
     }
 
     /// The three the bay grows, at once, which is how the bay asks:

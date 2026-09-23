@@ -740,6 +740,10 @@ fn eat_gear(hash: &mut Fnv, gear: &bims::combat::Gear) {
         hash.eat(a);
         hash.eat(b);
         hash.eat(u64::from(gear.turned[cell]));
+        // How many are in the cell's stack (feature 87): five dressings
+        // in a box are not one, and `units` reads a count never set as
+        // the one it is.
+        hash.eat(gear.units(cell) as u64);
     }
 }
 

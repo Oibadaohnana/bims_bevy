@@ -793,6 +793,14 @@ impl Residents {
                 medic[who as usize] = is_medic;
                 fee[who as usize] = Some(crate::mercenary::priced_as(merc_seed, &gear, is_medic));
             }
+            // And a couple of dressings in its pack, so it can bind a
+            // wound of its own (feature 87). The world keeps no hold for
+            // a station and nobody restocks them, so this is all they
+            // ever have while the room is open — and it is the living
+            // alone: the graves below carry whatever was left on them.
+            aboard
+                .room
+                .give_stack(who as usize, bims::game::BANDAGE, data::RESIDENT_BANDAGES);
         }
         // The dead this station already has, laid where they fell
         // (feature 85): the coverall they wore, what was left on them and
@@ -827,10 +835,6 @@ impl Residents {
         aboard.room.set_target(Stock::Stew, stew);
         // No fibre: the residents grow none unasked, and nobody asks.
         aboard.room.set_stock(veg, tofu, stew, 0);
-        // A couple of bandages in the station's locker, so its people can
-        // dress a wound of their own. The world keeps no hold for a
-        // station, so this is the count for as long as the room is open.
-        aboard.room.set_bandages(data::RESIDENT_BANDAGES);
         aboard.room.set_medkits(data::RESIDENT_MEDKITS);
         aboard.room.render();
         // A town is under a sky: its whole ground is lit by day, whatever
@@ -959,7 +963,7 @@ impl Residents {
     /// and the indices are kept (`adopt` keeps the order).
     fn replace_room(&mut self, mut fresh: Aboard) {
         let old = &self.aboard.room;
-        for which in [Stock::Veg, Stock::Tofu, Stock::Stew, Stock::Fibre] {
+        for which in Stock::ALL {
             fresh.room.set_target(which, old.target(which));
         }
         fresh.room.set_stock(
@@ -968,7 +972,8 @@ impl Residents {
             old.store_stew(),
             old.store_fibre(),
         );
-        fresh.room.set_bandages(old.bandages());
+        // The dressings go with the bodies: since feature 87 they are in
+        // the packs, and `adopt` carries a Bim's gear into the new room.
         fresh.room.set_medkits(old.medkits());
         fresh.room.set_fog(old.fog());
         fresh.room.set_doors_drawn(old.doors_drawn());

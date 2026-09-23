@@ -1548,6 +1548,10 @@ impl World {
         //    first (feature 86), so the count the room is handed below
         //    is the one it will treat with this step.
         self.restock_field_medics();
+        //    And every crew member fills its pack back up with dressings
+        //    out of the hold out of combat (feature 87): a bandage is a
+        //    thing now, spent out of the pack of whoever winds it.
+        self.restock_bandages();
         self.hand_the_room_the_hold_s_medicine();
         let eva = self.eva_offer();
         self.aboard.room.set_eva(eva);
@@ -3820,17 +3824,16 @@ impl World {
     }
 
     /// The hold's medicine, put on the room's shelves before it steps:
-    /// the bandages and the medkits to hand are the hold's `Bandage` and
-    /// `Medkit` counts, and the fibre on the cold store's shelf is the
-    /// hold's `Fibre` count, since the hold keeps all three and the room
-    /// keeps none aboard. The store's
-    /// food is the room's own and is handed back unchanged.
+    /// the medkits to hand are the hold's `Medkit` count and the fibre on
+    /// the cold store's shelf its `Fibre` count, since the hold keeps
+    /// both and the room keeps neither aboard. The store's
+    /// food is the room's own and is handed back unchanged. **The
+    /// bandages are not here** (feature 87): a dressing is a thing in a
+    /// pack, put there by [`World::restock_bandages`] and spent out of
+    /// the pack by the room, so no count crosses either way.
     fn hand_the_room_the_hold_s_medicine(&mut self) {
         let design = &self.ship.design;
-        let (bandages, fibre) = (
-            design.carrying(ResourceId::Bandage),
-            design.carrying(ResourceId::Fibre),
-        );
+        let fibre = design.carrying(ResourceId::Fibre);
         let medkits = design.carrying(ResourceId::Medkit);
         // And where a kit is fetched from: the use spot of every container
         // that takes one — a locker-class cabinet, a shelf — so the walk
@@ -3862,7 +3865,6 @@ impl World {
             })
             .collect();
         let room = &mut self.aboard.room;
-        room.set_bandages(bandages);
         room.set_medkits(medkits);
         room.set_pack_kits(carried);
         room.set_kit_stands(&stands);
@@ -6112,7 +6114,11 @@ impl World {
             events.push(refused(slot, Refusal::OutOfReach));
             return;
         }
-        if !self.has_room(resource, 1) {
+        // The whole stack goes (feature 87): a cell of five dressings is
+        // five, not one, so the hold has to have room for the lot.
+        let gear = self.aboard.room.gear(who as usize);
+        let units = gear.units(gear.head_of(cell as usize)).max(1);
+        if !self.has_room(resource, units) {
             events.push(refused(slot, Refusal::NoRoom));
             return;
         }
@@ -6134,7 +6140,7 @@ impl World {
             Item::Weapon(gun) => self.guns.push(gun),
             Item::Stack(_) | Item::Key(_) => {}
         }
-        self.ship.design.cargo[resource as usize] += 1;
+        self.ship.design.cargo[resource as usize] += units;
         self.on_ship_changed();
         events.push(WorldEvent::Stowed { who });
     }
@@ -6256,9 +6262,13 @@ impl World {
             (None, Some(g)) => Item::Weapon(g),
             (None, None) => armour::item_of(resource),
         };
-        // The first cell the thing fits: a key wants two, one over the
-        // other.
-        let Some(cell) = self.aboard.room.gear(who as usize).free_cell_for(item) else {
+        // A box with room in it first (feature 87), then the first cell
+        // the thing fits: a key wants two, one over the other.
+        let gear = self.aboard.room.gear(who as usize);
+        let cell = gear
+            .stack_with_room(item)
+            .or_else(|| gear.free_cell_for(item));
+        let Some(cell) = cell else {
             events.push(refused(slot, Refusal::PackFull));
             return;
         };
@@ -6408,6 +6418,13 @@ impl World {
         Some(room.gear(who).turned)
     }
 
+    /// How many are in each of a body's loot cells (feature 87), for the
+    /// window's numbers — a box of dressings is five.
+    pub fn loot_counts(&self, source: LootSource) -> Option<[u32; LOOT_CELLS]> {
+        let (room, who) = self.body_room(source)?;
+        Some(room.loot_counts(who))
+    }
+
     /// Where a body lies, in the crew's room's units — the ones
     /// `Game::send_to` and the pointer speak — so the looter can be walked
     /// to it: one of the crew where it stands on the deck, or one of the
@@ -6497,6 +6514,16 @@ impl World {
             events.push(refused(slot, Refusal::PackFull));
             return;
         };
+        // How many are in the cell — a box of dressings is five (feature
+        // 87) — asked before the cell is emptied.
+        let units = match source {
+            LootSource::Crew(body) => self.aboard.room.body_units(body as usize, cell),
+            LootSource::Resident(body) => self
+                .residents
+                .as_ref()
+                .map_or(0, |r| r.aboard.room.body_units(body as usize, cell)),
+        }
+        .max(1);
         let taken = match source {
             LootSource::Crew(body) => self.aboard.room.take_from_body(body as usize, cell),
             LootSource::Resident(body) => self
@@ -6527,9 +6554,24 @@ impl World {
             }
             _ => taken,
         };
-        // The cell was free an instant ago and nothing has moved since.
-        let given = self.aboard.room.give(who as usize, Some(free), item);
-        debug_assert!(given, "the free cell took it");
+        // The cell was free an instant ago and nothing has moved since;
+        // a stack goes into a box with room before it takes one of its
+        // own, and whatever will not fit is left on the body's cell —
+        // `give_stack` says how many went (feature 87).
+        let went = self.aboard.room.give_stack(who as usize, item, units);
+        if went < units {
+            let left = units - went;
+            match source {
+                LootSource::Crew(body) => {
+                    self.aboard.room.give_stack(body as usize, item, left);
+                }
+                LootSource::Resident(body) => {
+                    if let Some(r) = self.residents.as_mut() {
+                        r.aboard.room.give_stack(body as usize, item, left);
+                    }
+                }
+            }
+        }
         self.mirror_pieces(events);
         events.push(WorldEvent::Looted {
             who,
@@ -6666,20 +6708,19 @@ impl World {
             return;
         }
         let item = armour::item_of(resource);
-        if self
-            .aboard
-            .room
-            .gear(who as usize)
-            .free_cell_for(item)
-            .is_none()
-        {
+        let room_for = |gear: &bims::combat::Gear| {
+            gear.stack_with_room(item)
+                .or_else(|| gear.free_cell_for(item))
+        };
+        if room_for(&self.aboard.room.gear(who as usize)).is_none() {
             events.push(refused(slot, Refusal::PackFull));
             return;
         }
-        // One to a cell until the pack is full or the stack is gone; the
-        // shelf gives up exactly what the pack took.
+        // One to a cell — or into a box that has room (feature 87) —
+        // until the pack is full or the stack is gone; the shelf gives
+        // up exactly what the pack took.
         let mut taken = 0;
-        while let Some(cell) = self.aboard.room.gear(who as usize).free_cell_for(item) {
+        while let Some(cell) = room_for(&self.aboard.room.gear(who as usize)) {
             let on_shelf = self
                 .plunder
                 .iter()
@@ -8774,9 +8815,8 @@ impl World {
         for _ in 0..class::MEDIC_START_MEDKITS {
             room.give(who, None, Item::Stack(ResourceId::Medkit as u32));
         }
-        for _ in 0..class::MEDIC_START_BANDAGES {
-            room.give(who, None, Item::Stack(ResourceId::Bandage as u32));
-        }
+        // The dressings go in boxes of five since feature 87.
+        room.give_stack(who, bims::game::BANDAGE, class::MEDIC_START_BANDAGES);
     }
 
     /// A hired field medic's start (feature 86):
@@ -8797,14 +8837,9 @@ impl World {
             (ResourceId::Medkit, class::MEDIC_START_MEDKITS),
             (ResourceId::Bandage, class::MEDIC_START_BANDAGES),
         ] {
-            let wanted = Item::Stack(resource as u32);
-            let mut left = count;
-            let pack = room.pack(who);
-            for (cell, item) in pack.iter().enumerate() {
-                if left > 0 && *item == Some(wanted) && room.take(who, cell).is_some() {
-                    left -= 1;
-                }
-            }
+            // By unit, not by cell: five dressings go in one box
+            // (feature 87), and taking the box would take the lot.
+            room.take_stack(who, Item::Stack(resource as u32), count);
         }
     }
 
@@ -10421,6 +10456,47 @@ impl World {
         }
     }
 
+    // --- the dressings a crew member carries (feature 87) ------------------
+
+    /// **Every** crew member fills its pack back up to the Management
+    /// tab's number out of the hold, one dressing a step (feature 87) —
+    /// the player's own Bim as well as the bots, since a bandage is spent
+    /// out of the pack of whoever winds it and the player's hands need
+    /// one as much as anybody's. **Out of combat only**, the room's own
+    /// `calm`: twenty seconds with nothing fired, the enemy out of sight
+    /// and out of reach. Nobody walks for it — it is bookkeeping, like
+    /// the hold's medicine handed over every step — and it conjures
+    /// nothing: a hold with no bandages in it restocks nobody, which is
+    /// what the drug lab is for.
+    fn restock_bandages(&mut self) {
+        let wanted = self.aboard.room.target(bims::manager::Stock::Bandages);
+        if wanted == 0 || !self.aboard.room.calm() {
+            return;
+        }
+        for who in 0..self.aboard.crew_count() as usize {
+            if !self.aboard.room.is_alive(who)
+                || self.aboard.room.is_unconscious(who)
+                || self.aboard.room.is_outside(who)
+                || self.aboard.room.bandages_of(who) >= wanted
+                || self.free(ResourceId::Bandage) == 0
+            {
+                continue;
+            }
+            if self.aboard.room.give_stack(who, bims::game::BANDAGE, 1) == 0 {
+                continue;
+            }
+            // Out of the hold, the count and the grid together, the way
+            // a fetch takes one.
+            self.ship.design.cargo[ResourceId::Bandage as usize] =
+                self.ship.design.cargo[ResourceId::Bandage as usize].saturating_sub(1);
+            let class = storage(ResourceId::Bandage);
+            if let Some(grid) = self.grid_mut(class) {
+                grid.remove(ResourceId::Bandage, 1, None);
+            }
+            self.on_ship_changed();
+        }
+    }
+
     /// Whether a crew member may carry at all (feature 86): a medic of
     /// the class, or a hired field medic. A commander's hands are as
     /// good as a medic's, but the carry is the medic's trade and the
@@ -11531,7 +11607,7 @@ fn walk_refusal(code: u32) -> Option<Refusal> {
 }
 
 /// What a room banked since last asked, folded into the hold: the
-/// bandages and medkits used off their counts, the fibre harvested onto the shelf as far
+/// medkits used off the count, the fibre harvested onto the shelf as far
 /// as it has room. `true` when anything moved, so the caller knows to run
 /// `on_ship_changed`. Asked of the crew's room every step
 /// (`take_the_room_s_medicine`), and of a room about to be thrown away —
@@ -11539,7 +11615,6 @@ fn walk_refusal(code: u32) -> Option<Refusal> {
 /// have been taken out of it, since giving up an errand is what puts the
 /// sheaf in somebody's hands into the store.
 fn bank_medicine(design: &mut ShipDesign, room: &mut bims::game::Game) -> bool {
-    let used = room.take_bandages_used();
     let kits = room.take_medkits_used();
     let grown = room.take_harvested_fibre();
     // A helper that opened a kit out of its own pack: the medkit leaves
@@ -11560,12 +11635,10 @@ fn bank_medicine(design: &mut ShipDesign, room: &mut bims::game::Game) -> bool {
             out_of_packs += 1;
         }
     }
-    if used == 0 && kits == 0 && grown == 0 && out_of_packs == 0 {
+    if kits == 0 && grown == 0 && out_of_packs == 0 {
         return false;
     }
     design.cargo[ResourceId::Medkit as usize] += out_of_packs;
-    let bandages = &mut design.cargo[ResourceId::Bandage as usize];
-    *bandages = bandages.saturating_sub(used);
     let medkits = &mut design.cargo[ResourceId::Medkit as usize];
     *medkits = medkits.saturating_sub(kits);
     // By area: a stack of fibre is one cell, so a cell spare is a stack

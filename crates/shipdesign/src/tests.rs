@@ -941,14 +941,15 @@ fn buying_fills_the_right_hold_and_a_sale_hands_back_what_the_goods_cost() {
         // one by two.
         assert_eq!(full.stored(Storage::ColdStore), 3 * 16 + 2 * 2);
         // The lockers count cells, and a suit folded is three by three of
-        // them; a bandage is one, and either fits by area while it fits.
+        // them; a box of dressings is two by two and holds five (feature
+        // 87), so eleven cells spare take two boxes and not three.
         let suited = bought(&full, &budget, ResourceId::Suit, 1);
         assert_eq!(suited.stored(Storage::Locker), 9);
         assert_eq!(suited.spare(Storage::Locker), 2 * GRID_COLS - 9);
         assert!(suited.has_room(ResourceId::Suit, 1));
         assert!(!suited.has_room(ResourceId::Suit, 2));
-        assert!(suited.has_room(ResourceId::Bandage, 11));
-        assert!(!suited.has_room(ResourceId::Bandage, 12));
+        assert!(suited.has_room(ResourceId::Bandage, 10));
+        assert!(!suited.has_room(ResourceId::Bandage, 11));
         assert_eq!(suited.most_of(ResourceId::Suit), 2);
         assert_eq!(suited.most_of(ResourceId::SniperRifle), 2);
         assert_eq!(suited.most_of(ResourceId::Ore), 1000, "ten to a stack");

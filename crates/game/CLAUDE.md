@@ -2319,7 +2319,7 @@ The pictures are functions of the fixture's index or rect:
 `burner_of`/`hob_scale_of`/`knob_of` as functions of the hob's rect. A new picture for a fixture
 goes in as a function of its rect first, and the room's own state on top.
 
-## Fibre is a crop, a bandage is a count, and the dressing is a walk to a crewmate
+## Fibre is a crop, a bandage is a thing in a pack, and the dressing is a walk to a crewmate
 
 `hydro::Crop::Fibre = 3` is the third thing the bay grows — a paler,
 taller stalk in `STRAW`, ripe in a `DAY` — and the one nobody eats: the
@@ -2340,10 +2340,34 @@ bumps both, `let_go` included, since a harvest given up short of the
 store is still a harvest — and `Game::set_stock(veg, tofu, stew, fibre)`
 puts the hold's number back on the shelf every step. A sheaf in the hands
 is drawn as greens (`Held::Vegetable`); `Task::lifted` is what the store
-goes by. `Room::bandages` is the other count: `BANDAGES_AT_DAWN` (3) in
-the classic room so `bims room` can try it, nought aboard until the world
-says (`Game::set_bandages` off the hold every step,
-`take_bandages_used()` back off it).
+goes by.
+
+**A bandage is a thing in a pack, and there is no count anywhere else**
+(feature 87). `Room::bandages`/`bandages_used` are **gone**: a dressing
+is `bims::game::BANDAGE` — `Item::Stack(combat::BANDAGE_CODE)`, code 13
+said here because this crate does not know `physics` — kept in a Bim's
+own `Gear`, **five to a box** (`Item::stack_limit`,
+`combat::BANDAGES_A_BOX`) over a two-by-two footprint. `Game::bandages_of(who)`
+is how many that Bim carries, `Game::give_stack`/`take_stack` put them
+in and out by the unit, and `spend_bandage` is the one place one is
+spent: the **emptiest** box first, so a pack tidies itself by being
+used. The classic room deals every Bim `BANDAGES_AT_DAWN` (3) at
+`Game::new` so `bims room` can try the chain; aboard it is
+`World::restock_bandages` that fills a pack out of the hold, and a
+station's people are dealt `data::RESIDENT_BANDAGES` when their room
+opens. Nothing crosses the seam as a number any more — the world hands
+the room no bandage count and reads none back.
+
+**The pack stacks now, and the count is the cell's.** `Gear::count` is
+a `u32` a cell beside `pack` and `turned` — **nought reads as one**, so
+every `gear.pack[c] = Some(item)` written by hand is still one of it —
+and `Gear::units(cell)` is the one accessor. `put_many`, `take_one`,
+`room_in`, `stack_with_room`, `stack_to_spend` and `units_of` are the
+rest; `put` is `put_many(.., 1)`, `take_out` takes the **whole** stack
+and `rearrange` pours one box into another where the two are the same
+thing with room, whatever is left staying where it was. A stack is the
+one thing in a pack that stacks: the materials and the food stack on a
+shelf and never on a back.
 
 `Kind::Bandage { patient, part }` is the chain — `part` a `health::Part`
 code, carried as a number because the room never reads it — two steps,
@@ -2374,11 +2398,11 @@ are not like the other chains:
   `(helper, patient, part)` onto `Room::dressed` — the helper too,
   because by the time the game looks its chain is finished and gone —
   and `Game::apply_dressings`, after everybody has moved, closes the
-  part's wounds (`Health::bandage`), takes a bandage off the count and
-  refreshes the blotch, only if the patient is alive, the two are within
-  two tiles (or one and the same) and a bandage is still to hand. A
-  patient that walked off, or a hold the world emptied since the order,
-  is ten minutes lost and nothing else.
+  part's wounds (`Health::bandage`), takes a dressing out of **the
+  helper's own pack** and refreshes the blotch, only if the patient is
+  alive, the two are within two tiles (or one and the same) and the
+  helper is still carrying one. A patient that walked off, or a pack
+  emptied since the order, is ten minutes lost and nothing else.
 - **`JOB_BANDAGE = 22`** is its code for `activity` and the agenda; it
   holds no `Exclusive` and no `Fixture`, so two crew can dress two parts
   of one patient at once.
@@ -2390,9 +2414,20 @@ are not like the other chains:
   dressing and holds its fire the way any walk does.
   `winding_a_bandage_holsters_the_weapon_and_it_is_drawn_again_after`
   pins it.
+- **Every wound at once is `Game::bandage_all(who, patient)`** (feature
+  87): the worst part now and the rest queued behind it through
+  `Game::order_later`, one dressing a part and no more than the pack
+  has dressings for. What `CrewOrder::BandageAll` sends — the row on a
+  box of dressings in the inventory — and, the other half of the same
+  call, what a Bim running from a fight reaches for by itself: the
+  fleeing branch of `tick_combat` calls it the step nothing can see the
+  body (`Combat::sees_any`), for the crew's side only, since an enemy's
+  run seals itself in and binds out of its own pockets
+  (`seal_and_bind`). Nobody already being walked over to is touched.
 
-`a_bandage_is_walked_over_and_closes_the_wounds_on_one_part` and
-`a_fibre_target_has_the_bay_grow_fibre_into_the_store` in `game::tests`
+`a_bandage_is_walked_over_and_closes_the_wounds_on_one_part`,
+`a_dressing_comes_out_of_the_pack_and_a_bim_out_of_sight_binds_every_wound`
+and `a_fibre_target_has_the_bay_grow_fibre_into_the_store` in `game::tests`
 pin both — the second at frame rate, because **`simulate(1.0)` cannot
 walk a Bim**: a one-second step overshoots every waypoint and the body
 marches for ever, which is what `unstick` then sees every second. The

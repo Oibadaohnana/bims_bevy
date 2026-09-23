@@ -66,7 +66,7 @@ use crate::game::Game;
 /// (`World::visited`), both of them filed with the system's memory as
 /// well, and a station's room which of its bodies were laid out from a
 /// grave (`Residents::grave`) — feature 85.
-pub const SAVE_VERSION: u32 = 24;
+pub const SAVE_VERSION: u32 = 25;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -38,6 +38,10 @@ use crate::task::{self, Kind, SLEEP_MINUTES, Saved, Task};
 use crate::work::{self, Job, Priorities};
 
 const TRAIL: Color = ACCENT;
+
+/// A box of dressings as a pack item (feature 87): what a Bim binds a
+/// wound with, and the one thing in a pack that stacks.
+pub const BANDAGE: Item = Item::Stack(crate::combat::BANDAGE_CODE);
 const MARQUEE_EDGE: Color = ACCENT;
 const MARQUEE_FILL: Color = Color::rgba(0.50, 0.82, 0.66, 0.10);
 
@@ -1001,7 +1005,7 @@ impl Game {
         // Drawn *between* the Bims rather than all up front: every roll in
         // the room is drawn from one stream, and the order the first few are
         // drawn in is what every seed-pinned probe was pinned against.
-        Game::with_room(
+        let mut game = Game::with_room(
             room,
             rng,
             seed,
@@ -1014,7 +1018,43 @@ impl Game {
             },
             width,
             height,
-        )
+        );
+        // A box of dressings apiece, so `bims room` can try the bandage
+        // chain without a drug lab (feature 87: there is no count on a
+        // shelf any more, only what a Bim carries). It draws nothing off
+        // any stream, so every seeded probe is where it was.
+        for who in 0..game.bims.len() {
+            game.give_stack(who, BANDAGE, room::BANDAGES_AT_DAWN);
+        }
+        game
+    }
+
+    /// Put `n` of a stackable thing in a Bim's pack, boxes as full as
+    /// the thing stacks, as far as the pack has room (feature 87). What
+    /// the classic room deals its dressings with and what the world's
+    /// restock tops a pack up by; the number that actually went in.
+    pub fn give_stack(&mut self, who: usize, item: Item, n: u32) -> u32 {
+        let mut left = n;
+        while left > 0 {
+            let Some(bim) = self.bims.get_mut(who) else {
+                break;
+            };
+            let cell = bim
+                .gear
+                .stack_with_room(item)
+                .or_else(|| bim.gear.free_cell_for(item));
+            let Some(cell) = cell else { break };
+            let fits = match bim.gear.room_in(cell, item) {
+                0 => item.stack_limit(),
+                spare => spare,
+            }
+            .min(left);
+            if !bim.gear.put_many(cell, item, fits) {
+                break;
+            }
+            left -= fits;
+        }
+        n - left
     }
 
     /// A game in a room laid out from elsewhere — a ship design, through
@@ -1185,9 +1225,9 @@ impl Game {
     /// needs, its health, its diary, where it stands — and not what it was
     /// in the middle of, because the thing it was walking to is in another
     /// room now. The room is left standing, empty, so what the leaving
-    /// banked in it — a sheaf of fibre that was in somebody's hands, a
-    /// bandage used — can still be read off it (`take_harvested_fibre`,
-    /// `take_bandages_used`) before it is dropped.
+    /// banked in it — a sheaf of fibre that was in somebody's hands —
+    /// can still be read off it (`take_harvested_fibre`) before it is
+    /// dropped.
     /// How many bunks the room has — the stand-in for a layout with none
     /// not counted. What a hire asks before `adopt`: a hire wants a bunk
     /// to spare, though a crew past the bunks is carried (the `combat`
@@ -1889,6 +1929,17 @@ impl Game {
                 // view is the dressing put down and the run taken up again.
                 let from = self.bims[who].character.pos;
                 let seen = self.combat.sees_any(&self.room.sight, from);
+                // Out of danger with a box of dressings on it, it binds
+                // **every** wound rather than the one (feature 87): the
+                // worst part now and the rest queued behind it, which is
+                // the *Bandage all wounds* the pop-up offers. Only the
+                // crew's — an enemy's run seals itself in and binds out
+                // of its own pockets (`seal_and_bind`).
+                let dressing = dressing
+                    || (!seen
+                        && !self.hostile_bodies
+                        && !self.is_being_seen_to(who)
+                        && self.bandage_all(who, who));
                 if !dressing || seen {
                     if dressing {
                         self.interrupt(who);
@@ -5702,8 +5753,9 @@ impl Game {
                 .filter(|&p| self.bims[patient].health.wounds(p) > 0)
                 .max_by_key(|&p| self.bims[patient].health.wounds(p))
         };
-        // Its own wound first, while there is a bandage for it.
-        if self.room.bandages > 0
+        // Its own wound first, while it is carrying a dressing for it
+        // (feature 87: a bandage comes out of the helper's own pack).
+        if self.bandages_of(who) > 0
             && let Some(part) = worst_part(who)
         {
             return Some(Care::Bandage(who, part));
@@ -5738,7 +5790,7 @@ impl Game {
                 return Some(Care::Treat(patient, part));
             }
         }
-        if self.room.bandages == 0 {
+        if self.bandages_of(who) == 0 {
             return None;
         }
         let patient = (0..self.bims.len())
@@ -9660,7 +9712,7 @@ impl Game {
     // --- dressing a wound ----------------------------------------------------
 
     /// Send `who` to dress `part` of `patient` — itself, or a crewmate —
-    /// with one of the room's bandages: the walk to the patient and ten
+    /// with a dressing out of its own pack: the walk to the patient and ten
     /// minutes with hands on it, and the wounds on that part closed when
     /// the hands come off (`apply_dressings`). The player's order, from the
     /// inventory or the menu on a body; it displaces whatever the Bim was
@@ -9683,7 +9735,7 @@ impl Game {
             // first step with the helper's own errand already shoved
             // aside.
             || self.bims[patient].character.is_outside()
-            || self.room.bandages == 0
+            || self.bandages_of(who) == 0
             || self.bims[patient].health.wounds(part) == 0
         {
             return false;
@@ -9712,12 +9764,12 @@ impl Game {
     }
 
     /// Every dressing the chains finished this step, done: the wounds on
-    /// the part closed, a bandage off the count, the blotch off the body.
-    /// Only where the helper is still beside the patient — within two
-    /// tiles, or is the patient — and a bandage is still to hand: a patient
-    /// that walked off mid-dressing, or a store the world emptied since the
-    /// order, is ten minutes lost and nothing else. A patient dead in the
-    /// meantime is past dressing.
+    /// the part closed, one dressing out of the helper's pack, the blotch
+    /// off the body. Only where the helper is still beside the patient —
+    /// within two tiles, or is the patient — and it is still carrying a
+    /// dressing: a patient that walked off mid-dressing, or a pack
+    /// emptied since the order, is ten minutes lost and nothing else. A
+    /// patient dead in the meantime is past dressing.
     fn apply_dressings(&mut self) {
         for (helper, patient, part) in core::mem::take(&mut self.room.dressed) {
             let Some(part) = Part::from_code(part) else {
@@ -9730,19 +9782,24 @@ impl Game {
                 continue;
             }
             let apart = (self.bims[helper].character.pos - self.bims[patient].character.pos).len();
-            if (helper != patient && apart > 2.0 * TILE) || self.room.bandages == 0 {
+            if (helper != patient && apart > 2.0 * TILE) || self.bandages_of(helper) == 0 {
                 continue;
             }
             let bim = &mut self.bims[patient];
             if bim.health.bandage(part) {
-                self.room.bandages -= 1;
-                self.room.bandages_used += 1;
+                let wounds = Part::ALL.map(|p| bim.health.wounds(p) > 0);
+                bim.character.set_wounds(wounds);
+                // Out of the helper's own pack (feature 87), the box
+                // emptied when it was the last one in it.
+                self.spend_bandage(helper);
                 self.healings.push(Healed {
                     helper,
                     patient,
                     with: Healing::Bandage,
                 });
+                continue;
             }
+            let bim = &mut self.bims[patient];
             let wounds = Part::ALL.map(|p| bim.health.wounds(p) > 0);
             bim.character.set_wounds(wounds);
         }
@@ -9754,20 +9811,86 @@ impl Game {
         std::mem::take(&mut self.healings)
     }
 
-    /// Bandages to hand. Aboard, the hold's count, set by the world every
-    /// step; in the classic room, what it started with less what was used.
-    pub fn bandages(&self) -> u32 {
-        self.room.bandages
+    /// How many dressings that Bim has **in its own pack** (feature 87).
+    /// There is no count on a shelf any more: a bandage is a thing, and
+    /// the one a Bim binds a wound with is the one it is carrying.
+    pub fn bandages_of(&self, who: usize) -> u32 {
+        self.bims
+            .get(who)
+            .map_or(0, |bim| bim.gear.units_of(BANDAGE))
     }
 
-    pub fn set_bandages(&mut self, n: u32) {
-        self.room.bandages = n;
+    /// Leave exactly `n` dressings in that Bim's pack: every box taken
+    /// out and `n` dealt again. For the tests and the probes, which
+    /// want a Bim carrying one and not a boxful.
+    pub fn set_bandages_for_probe(&mut self, who: usize, n: u32) {
+        let Some(bim) = self.bims.get_mut(who) else {
+            return;
+        };
+        for cell in 0..PACK_CELLS {
+            if bim.gear.pack[cell] == Some(BANDAGE) {
+                bim.gear.take_out(cell);
+            }
+        }
+        self.give_stack(who, BANDAGE, n);
     }
 
-    /// Bandages used up since the last call, for the world to take off
-    /// the hold.
-    pub fn take_bandages_used(&mut self) -> u32 {
-        core::mem::take(&mut self.room.bandages_used)
+    /// Spend one out of that Bim's pack: the emptiest box first, so the
+    /// pack tidies itself by being used. `false` when it carries none.
+    fn spend_bandage(&mut self, who: usize) -> bool {
+        let Some(bim) = self.bims.get_mut(who) else {
+            return false;
+        };
+        let Some(cell) = bim.gear.stack_to_spend(BANDAGE) else {
+            return false;
+        };
+        bim.gear.take_one(cell).is_some()
+    }
+
+    /// The part of `patient` worth dressing next: the one bleeding most,
+    /// or `None` for a body with nothing open on it.
+    pub fn worst_wound(&self, patient: usize) -> Option<Part> {
+        let bim = self.bims.get(patient)?;
+        Part::ALL
+            .into_iter()
+            .filter(|&p| bim.health.wounds(p) > 0)
+            .max_by_key(|&p| bim.health.wounds(p))
+    }
+
+    /// **Bandage every wound on one body** (feature 87): the worst part
+    /// now and the rest queued behind it, the way a Shift-click queues
+    /// orders — one dressing a part, out of `who`'s own pack, for as
+    /// many parts as it has dressings for. What the pop-up on a box of
+    /// dressings sends, and what a Bim that has run out of the fight
+    /// reaches for. `false` when nothing was started at all.
+    pub fn bandage_all(&mut self, who: usize, patient: usize) -> bool {
+        if who >= self.bims.len() || patient >= self.bims.len() {
+            return false;
+        }
+        let mut parts: Vec<Part> = Part::ALL
+            .into_iter()
+            .filter(|&p| self.bims[patient].health.wounds(p) > 0)
+            .collect();
+        parts.sort_by_key(|&p| core::cmp::Reverse(self.bims[patient].health.wounds(p)));
+        // No more than there are dressings for: the rest would be ten
+        // minutes' walking with nothing in hand at the end of it.
+        parts.truncate(self.bandages_of(who) as usize);
+        let mut started = false;
+        for part in parts {
+            if !started {
+                started = self.bandage(who, patient, part);
+                continue;
+            }
+            self.order_later(
+                0,
+                crate::order::CrewOrder::Bandage {
+                    who: who as u32,
+                    patient: patient as u32,
+                    part,
+                },
+            );
+        }
+        started
     }
 
     // --- treating a dying state ---------------------------------------------
@@ -10397,10 +10520,36 @@ impl Game {
         let Some(bim) = self.bims.get_mut(who) else {
             return false;
         };
-        let Some(cell) = cell.or_else(|| bim.gear.free_cell_for(item)) else {
+        // A stackable thing joins a box that has room before it asks for
+        // a cell of its own (feature 87): five dressings go where one
+        // does.
+        let cell = cell
+            .or_else(|| bim.gear.stack_with_room(item))
+            .or_else(|| bim.gear.free_cell_for(item));
+        let Some(cell) = cell else {
             return false;
         };
         bim.gear.put(cell, item)
+    }
+
+    /// Take up to `n` of a stackable thing out of a Bim's pack, the
+    /// emptiest box first (feature 87); how many actually came out.
+    /// The other half of [`Game::give_stack`].
+    pub fn take_stack(&mut self, who: usize, item: Item, n: u32) -> u32 {
+        let mut gone = 0;
+        while gone < n {
+            let Some(bim) = self.bims.get_mut(who) else {
+                break;
+            };
+            let Some(cell) = bim.gear.stack_to_spend(item) else {
+                break;
+            };
+            if bim.gear.take_one(cell).is_none() {
+                break;
+            }
+            gone += 1;
+        }
+        gone
     }
 
     /// Move a thing across a Bim's pack: the one kept in `cell` — or
@@ -10545,6 +10694,36 @@ impl Game {
     /// looter's pack (`give`), and reach is its check. Refused, `None`,
     /// for a Bim that is alive and awake — a crewmate that came round is
     /// no longer a body — and for an empty cell. The picture follows.
+    /// How many are in one of a body's loot cells (feature 87): the
+    /// stack in a pack cell, one for a worn piece or the weapon, nought
+    /// for an empty cell or a body nothing comes off. Asked **before**
+    /// [`Game::take_from_body`], which takes the whole stack.
+    pub fn body_units(&self, who: usize, cell: LootCell) -> u32 {
+        if self.droid_at(who).is_some() || !self.is_down(who) {
+            return 0;
+        }
+        let gear = &self.bims[who].gear;
+        match cell {
+            LootCell::Pack(cell) => gear.units(cell as usize),
+            LootCell::Head => u32::from(gear.head.is_some()),
+            LootCell::Body => u32::from(gear.body.is_some()),
+            LootCell::Legs => u32::from(gear.legs.is_some()),
+            LootCell::Weapon => u32::from(gear.weapon.is_some()),
+        }
+    }
+
+    /// How many are in each of a body's loot cells, for the window's
+    /// numbers — [`Game::loot_cells`]'s counts, index for index.
+    pub fn loot_counts(&self, who: usize) -> [u32; LOOT_CELLS] {
+        let mut counts = [0; LOOT_CELLS];
+        for (i, count) in counts.iter_mut().enumerate() {
+            if let Some(cell) = LootCell::from_code(i as u32) {
+                *count = self.body_units(who, cell);
+            }
+        }
+        counts
+    }
+
     pub fn take_from_body(&mut self, who: usize, cell: LootCell) -> Option<Item> {
         // Nothing comes off a machine, wreck or not (feature 83).
         if self.droid_at(who).is_some() {
@@ -11428,6 +11607,18 @@ mod tests {
         Game::new(3, ROOM_W, ROOM_H)
     }
 
+    /// The classic room with nobody's dressings in the way (feature 87):
+    /// every Bim starts with a box of them in the first cells its
+    /// footprint fits, which is exactly where a test that lays a pack
+    /// out by hand wants to put something else.
+    fn room_with_bare_packs() -> Game {
+        let mut game = room();
+        for who in 0..game.crew_count() as usize {
+            game.set_bandages_for_probe(who, 0);
+        }
+        game
+    }
+
     /// A bunk is one Bim's. The classic room starts with bunk `i` Bim `i`'s;
     /// the player may give either to either, and whoever had it loses it.
     /// A Bim with no bunk lies down on the deck where it stands — for the
@@ -11803,7 +11994,7 @@ mod tests {
             JOB_CLEAN,
             "sweeping within twenty minutes"
         );
-        let had = game.bandages();
+        let had = game.bandages_of(who);
         assert!(had > 0);
 
         // Shot mid-sweep with the medical row taken down to the middle —
@@ -11837,7 +12028,7 @@ mod tests {
             steps += 1;
         }
         assert_eq!(game.bleeding(who), 0, "dressed within the hour");
-        assert_eq!(game.bandages(), had - 1);
+        assert_eq!(game.bandages_of(who), had - 1);
         // Nothing to dress: the row is off the list again, and the sweep
         // is picked back up.
         assert!(
@@ -11910,7 +12101,7 @@ mod tests {
                 None,
                 "a patient out cold is nobody's doctor"
             );
-            let had = game.bandages();
+            let had = game.bandages_of(0);
             // The walk over and ten minutes on the body, then the legs: two
             // dressings, well inside the hour.
             let mut steps = 0;
@@ -11919,7 +12110,7 @@ mod tests {
                 steps += 1;
             }
             assert_eq!(game.bleeding(1), 0, "dressed within the hour");
-            assert_eq!(game.bandages(), had - 2);
+            assert_eq!(game.bandages_of(0), had - 2);
             assert!(game.is_alive(1));
             assert!(
                 !game
@@ -12128,7 +12319,7 @@ mod tests {
         let unseen = james + vec2((ALARM_RANGE - 5.0) * TILE, 0.0);
         game.set_hostiles(vec![Some((unseen, WeaponKind::LaserPistol.basic()))]);
         assert!(!game.wound(1, Part::Body, 4.0).leg_lost);
-        let had = game.bandages();
+        let had = game.bandages_of(1);
         for _ in 0..30 {
             game.simulate(DT);
         }
@@ -12148,7 +12339,7 @@ mod tests {
             steps += 1;
         }
         assert_eq!(game.bleeding(1), 0, "dressed within the hour");
-        assert_eq!(game.bandages(), had - 1);
+        assert_eq!(game.bandages_of(1), had - 1);
         for _ in 0..30 {
             game.simulate(DT);
         }
@@ -12165,7 +12356,7 @@ mod tests {
         game.put_for_probe(0, vec2(ROOM_W * 0.55, ROOM_H * 0.5));
         game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
         game.recruit_for_probe(1, true);
-        let had = game.bandages();
+        let had = game.bandages_of(0);
         assert!(!game.wound(1, Part::Body, 12.0).leg_lost);
         assert!(game.bandage(0, 1, Part::Body));
         for _ in 0..30 {
@@ -12179,7 +12370,7 @@ mod tests {
             steps += 1;
         }
         assert_eq!(game.bleeding(1), 0, "dressed where she moved to");
-        assert_eq!(game.bandages(), had - 1);
+        assert_eq!(game.bandages_of(0), had - 1);
         let apart = (game.bim_pos(0) - game.bim_pos(1)).len();
         assert!(apart <= 2.0 * TILE, "{apart}");
 
@@ -12207,7 +12398,7 @@ mod tests {
             steps += 1;
         }
         assert_eq!(game.bleeding(1), 0, "caught and dressed");
-        assert_eq!(game.bandages(), had - 2);
+        assert_eq!(game.bandages_of(0), had - 2);
         assert!(game.is_dying(1), "and still wants a kit");
     }
 
@@ -12828,7 +13019,7 @@ mod tests {
 
     #[test]
     fn a_bim_knocked_out_drops_its_gun_and_a_bot_comes_back_for_it() {
-        let mut game = room();
+        let mut game = room_with_bare_packs();
         game.set_autonomous(false);
         game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
         game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
@@ -13070,6 +13261,9 @@ mod tests {
             // to dress him.
             game.issue(0, Gear::default());
             game.issue(1, Gear::default());
+            // A fresh gear has an empty pack, and a dressing comes out
+            // of the binder's own pack (feature 87).
+            game.set_bandages_for_probe(1, room::BANDAGES_AT_DAWN);
             game.recruit_for_probe(0, true);
             let pistol = WeaponKind::LaserPistol.basic();
             let quiet_steps = (CALM_AFTER / DT) as usize + 5;
@@ -13290,6 +13484,96 @@ mod tests {
         assert!(!game.is_alive(1), "bled out");
     }
 
+    /// Feature 87: a dressing is a thing in a pack, five to a box, and
+    /// it is the **binder's own** that is spent. *Bandage all wounds*
+    /// dresses the worst part now and queues the rest behind it; and a
+    /// Bim running from a fight reaches for it itself the moment nothing
+    /// can see it.
+    #[test]
+    fn a_dressing_comes_out_of_the_pack_and_a_bim_out_of_sight_binds_every_wound() {
+        // --- one box, five dressings, and the pack is what is spent ---
+        {
+            let mut game = room_with_bare_packs();
+            game.set_autonomous(false);
+            game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
+            assert_eq!(game.bandages_of(0), 0, "nothing to bind with");
+            assert!(!game.wound(0, Part::Body, 4.0).leg_lost);
+            assert!(!game.bandage(0, 0, Part::Body), "and so nothing is bound");
+            // Seven of them: a full box and a part one, two cells.
+            assert_eq!(game.give_stack(0, BANDAGE, 7), 7);
+            assert_eq!(game.bandages_of(0), 7);
+            let boxes = game.pack(0).iter().filter(|c| **c == Some(BANDAGE)).count();
+            assert_eq!(boxes, 2, "five to a box");
+            assert!(game.bandage(0, 0, Part::Body));
+            let mut steps = 0;
+            while game.bleeding(0) > 0 && steps < 60 * 30 {
+                game.simulate(DT);
+                steps += 1;
+            }
+            assert_eq!(game.bleeding(0), 0, "bound");
+            assert_eq!(game.bandages_of(0), 6, "one dressing out of the pack");
+            // The emptiest box first, so the pack tidies itself.
+            assert_eq!(
+                game.pack(0).iter().filter(|c| **c == Some(BANDAGE)).count(),
+                2
+            );
+        }
+
+        // --- bandage all wounds: the worst now, the rest queued ---
+        {
+            let mut game = room();
+            game.set_autonomous(false);
+            game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
+            game.set_bandages_for_probe(0, 5);
+            assert!(!game.wound(0, Part::Head, 2.0).leg_lost);
+            assert!(!game.wound(0, Part::Body, 4.0).leg_lost);
+            assert!(!game.wound(0, Part::Legs, 3.0).leg_lost);
+            assert_eq!(game.bleeding(0), 3, "three parts open");
+            assert!(game.bandage_all(0, 0));
+            assert_eq!(game.activity(0), JOB_BANDAGE);
+            assert_eq!(game.ordered_count(0), 2, "the other two wait their turn");
+            let mut steps = 0;
+            while game.bleeding(0) > 0 && steps < 60 * 90 {
+                game.simulate(DT);
+                steps += 1;
+            }
+            assert_eq!(game.bleeding(0), 0, "every wound closed");
+            assert_eq!(game.bandages_of(0), 2, "three dressings spent");
+            // Nothing open: the row does nothing at all.
+            assert!(!game.bandage_all(0, 0));
+        }
+
+        // --- out of the enemy's sight, a runner binds its own ---
+        {
+            let mut game = room();
+            game.set_autonomous(false);
+            let james = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
+            game.put_for_probe(1, vec2(ROOM_W * 0.5, ROOM_H * 0.5));
+            game.set_bandages_for_probe(1, 5);
+            // Kate shot to a dying state, with wounds open on two parts,
+            // and an enemy beyond the walls: out of her sight, so she
+            // binds where she stands.
+            assert!(game.wound(1, Part::Body, Part::Body.max()).trauma.is_some());
+            assert!(!game.wound(1, Part::Legs, 3.0).leg_lost);
+            game.take_hits();
+            let pistol = WeaponKind::LaserPistol.basic();
+            let far = james + vec2(25.0 * TILE, 0.0);
+            game.set_hostiles(vec![Some((far, pistol))]);
+            for _ in 0..10 {
+                game.simulate(DT);
+            }
+            assert!(game.is_dying(1) && game.is_fleeing(1), "she runs");
+            let mut steps = 0;
+            while game.bleeding(1) > 0 && steps < 60 * 90 {
+                game.simulate(DT);
+                steps += 1;
+            }
+            assert_eq!(game.bleeding(1), 0, "she bound every wound herself");
+            assert!(game.bandages_of(1) < 5, "out of her own pack");
+            assert!(game.is_dying(1), "and still wants a kit");
+        }
+    }
+
     #[test]
     fn a_bandage_is_walked_over_closes_one_part_and_holsters_the_weapon_while_wound() {
         // --- a_bandage_is_walked_over_and_closes_the_wounds_on_one_part ---
@@ -13301,7 +13585,7 @@ mod tests {
             game.put_for_probe(0, vec2(ROOM_W * 0.55, ROOM_H * 0.5));
             game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
             game.recruit_for_probe(1, true);
-            let had = game.bandages();
+            let had = game.bandages_of(0);
             assert!(had > 0, "the classic room starts with some");
             assert!(
                 !game.bandage(0, 1, Part::Body),
@@ -13325,9 +13609,7 @@ mod tests {
             }
             assert_eq!(game.bleeding(1), 0, "dressed within the hour");
             assert_eq!(game.wounds(1, Part::Body), 0);
-            assert_eq!(game.bandages(), had - 1);
-            assert_eq!(game.take_bandages_used(), 1);
-            assert_eq!(game.take_bandages_used(), 0, "drained");
+            assert_eq!(game.bandages_of(0), had - 1);
             assert!(game.is_alive(1));
             // Beside the patient, not on it.
             let apart = (game.bim_pos(0) - game.bim_pos(1)).len();
@@ -13335,7 +13617,7 @@ mod tests {
             assert_eq!(game.activity(0), 0, "the errand is over");
 
             // Its own wounds, on the spot, and the count runs out.
-            game.set_bandages(1);
+            game.set_bandages_for_probe(0, 1);
             game.wound(0, Part::Legs, 3.0);
             assert!(game.bandage(0, 0, Part::Legs));
             let mut steps = 0;
@@ -13344,7 +13626,7 @@ mod tests {
                 steps += 1;
             }
             assert_eq!(game.bleeding(0), 0);
-            assert_eq!(game.bandages(), 0);
+            assert_eq!(game.bandages_of(0), 0);
             game.wound(0, Part::Legs, 3.0);
             assert!(!game.bandage(0, 0, Part::Legs), "none left");
         }
@@ -14223,7 +14505,7 @@ mod tests {
 
     #[test]
     fn a_vest_takes_a_hit_first_and_its_protection_lifts_when_it_breaks() {
-        let mut game = room();
+        let mut game = room_with_bare_packs();
         game.set_autonomous(false);
         game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
         let vest = Piece::new(7, ArmourKind::BasicKevlar, Tier::One);
@@ -14294,7 +14576,7 @@ mod tests {
     fn equipping_swaps_with_what_is_worn_and_give_and_take_round_trip() {
         // --- equipping_swaps_with_what_is_worn_and_a_weapon_with_the_weapon ---
         {
-            let mut game = room();
+            let mut game = room_with_bare_packs();
             let helm = Piece::new(1, ArmourKind::BasicHelm, Tier::One);
             let other = Piece {
                 health: 4.0,
@@ -14342,7 +14624,7 @@ mod tests {
 
         // --- give_and_take_round_trip_and_a_broken_piece_is_only_ever_discarded ---
         {
-            let mut game = room();
+            let mut game = room_with_bare_packs();
             let legs = Piece {
                 health: 3.5,
                 ..Piece::new(9, ArmourKind::BasicLegs, Tier::One)
@@ -14461,7 +14743,7 @@ mod tests {
 
     #[test]
     fn looting_strips_a_worn_helm_with_its_damage_and_an_awake_bim_is_refused() {
-        let mut game = room();
+        let mut game = room_with_bare_packs();
         game.set_autonomous(false);
         game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
         let helm = Piece {

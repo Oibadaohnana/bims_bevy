@@ -2644,11 +2644,23 @@ until the tray is already worked.
 place is told to keep up, with what there is and a *keep at least this
 many* beside it. Four rows — **vegetables**, **tofu**, **stew** and
 **fibre**, all in the cold store — and each is a standing order: below the
-mark the work goes on the crew's list by itself (a tray planted and the
+mark the work goes on the crew.s list by itself (a tray planted and the
 harvest carried for the first two and the last, a pot cooked for the
 shelf for the third), and at the mark it comes off. **0 means never**, and
-stew and fibre start there on purpose. The food-units dial with its
-two-to-one split, which this used to be, is gone: a target is a count of
+stew and fibre start there on purpose.
+
+**A fifth row is not a shelf's: bandages.** A dressing is a thing a Bim
+carries — five to a box, two cells by two — and the row says how many
+**each of the crew keeps in their own pack**, three to begin with. Out of
+combat every one of them tops itself up out of the hold, one at a time,
+with nobody walking anywhere for it; the bot you have never spoken to
+and the Bim you steer alike, since a wound is bound with a dressing out
+of the binder's own pack. Set it higher before a fight and lower to keep
+the hold full; a ship with no bandages aboard fills nobody, which is
+what the drug lab is for.
+
+The food-units dial with its
+two-to-one split, which the targets used to be, is gone: a target is a count of
 the thing itself.
 
 The same rows are **what is aboard**: what it is, how many there are, and
@@ -3071,7 +3083,9 @@ Bim's back, a three-by-three grid of cells that each hold one thing — a
 piece of armour, a weapon, or one unit of anything else. Beside each
 armour slot is the count of open wounds on that part of the body and a
 **Bandage** button — see the next section — and under the lot, how many
-bandages there are to hand.
+dressings the Bim you steer has in its own pack. A box of dressings is
+two cells by two and holds five, with the count in its corner;
+right-click it for **Bandage all wounds**.
 
 **Inventories are grids**, and every container aboard is looked at the
 same way. Click the **armoury** (or the drug lab — either opens the
@@ -3162,8 +3176,9 @@ people you shot to that state; with the enemy gone it stops where it is
 and waits for the medkit. **A crewmate that is merely hurt runs too** —
 bleeding from a wound, or down to half its blood — rather than walking
 up to the guns for a firing spot the way a whole one does: it gets out
-of the enemy's sight, binds its own wound there if there is a bandage
-to hand, and comes back into the fight dressed. It stops for anybody
+of the enemy's sight and, out of it, **binds every wound it has** out of
+its own pack — the same *Bandage all wounds* the box in the inventory
+offers — and comes back into the fight dressed. It stops for anybody
 you send over with a bandage or a kit, once they are nearly at it. Your
 own Bim goes where you send it, hurt or not, and the station's people
 fight on wounded: only dying makes those two run. And a body **out cold
@@ -3247,8 +3262,17 @@ dented helm in the lockers, with its health under it in the grid. Taking
 "a helm" out of the lockers takes the least damaged one there; selling
 one sells the most damaged.
 
-A **bandage** closes every wound on one part. There are two ways to order
-one, and both go through the crew member you steer:
+A **bandage** is a thing a Bim carries, not a number on a shelf: a **box
+of dressings** takes two cells by two of a pack and holds **five**, and
+the one that gets used is the one in the pack of whoever winds it. How
+many each of the crew keeps on them is a row on the **Management** tab —
+three to begin with — and out of combat they fill themselves back up out
+of the hold, one at a time, with nobody walking anywhere for it. A crew
+member with an empty pack cannot bind anything, however many are in the
+lockers.
+
+A bandage closes every wound on one part. There are three ways to order
+one, and all of them go through the crew member you steer:
 
 - **From the inventory** — the tab, or the pop-up that opens on
   recruiting — for whoever is shown: each armour slot's row says how many
@@ -3256,20 +3280,25 @@ one, and both go through the crew member you steer:
   there is one and a bandage to hand.
 - **Right-click a Bim** on the deck, yourself or a crewmate, and the menu
   is the three parts — *Bandage the head · 2 wounds* — each greyed with a
-  reason when there is nothing open there, no bandage aboard, or your Bim
-  is in no state to walk over. A crewmate out cold gets a **Loot** row
+  reason when there is nothing open there, no bandage in the pack, or your Bim
+  is in no state to walk over, with **Bandage all wounds** under them. A crewmate out cold gets a **Loot** row
   under them as well; a dead one, or a station's person down in the
   corridor, has only that — see [Combat mode](#combat-mode-and-the-inventory).
+- **Right-click a box of dressings** in the inventory: **Bandage all
+  wounds** dresses the worst part now and queues the rest behind it, one
+  dressing a part. That is the same thing a Bim that has run out of a
+  fight does for itself the moment nothing can see it — see the flight
+  above.
 
 Either way your Bim walks to the patient (a tile off, or nowhere if it is
 dressing itself) and spends **ten minutes** with its hands on the part;
-*Dressing a wound* is on its agenda, and the bandage comes off the count
+*Dressing a wound* is on its agenda, and the dressing comes out of its pack
 when the ten minutes are up — provided the patient is still alive and
 within reach, since a patient that walked off is ten minutes lost. A
-bandage on a part with nothing open is refused outright as a waste. The
-bandages are the hold's: the playtest ship carries five, an orbital or a
+bandage on a part with nothing open is refused outright as a waste. Where
+the dressings come from is the hold: the playtest ship carries five, an orbital or a
 refinery sells them, and the **drug lab** makes one out of two fibre. The
-test room starts with three of its own so `bims room` can try it. The crew
+test room deals every Bim three of its own so `bims room` can try it. The crew
 dress each other **on their own** as well — the **Medical** row on the Work tab
 is that, and at priority 1 it interrupts whatever they are doing; see [Work
 priorities](#work-priorities).

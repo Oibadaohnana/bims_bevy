@@ -206,6 +206,9 @@ pub struct Body {
     /// Which way round the thing kept in each pack cell lies — the
     /// body's `Gear::turned`.
     pub turned: [bool; PACK_CELLS],
+    /// How many are in each cell (feature 87): the body's
+    /// `Game::loot_counts`, a box of dressings five.
+    pub counts: [u32; LOOT_CELLS],
     /// Still dead or out cold. A crewmate that came round is no longer a
     /// body, and the window shuts on it.
     pub down: bool,
@@ -284,6 +287,11 @@ pub enum GearOrder {
     /// Take the stack that is slot `id` of the enemy's shelf into `who`'s
     /// pack, as far as it goes — `Command::Plunder`.
     Plunder { who: u32, id: u32 },
+    /// Bind **every** open wound on `who` out of its own pack (feature
+    /// 87) — the row on a box of dressings in the inventory. The worst
+    /// part now and the rest queued behind it, through
+    /// `CrewOrder::BandageAll`.
+    BandageAll { who: u32 },
 }
 
 /// Something within reach of the Bim shown, for the nearby strip: the
@@ -452,10 +460,11 @@ enum HoldCell {
     Stack(ResourceId),
 }
 
-/// Which fixture answers each of the four targets: the bay grows the
-/// first two and the last, the hob makes the third. Indexed by
-/// `manager::Stock`.
-const KEEP_SPOTS: [u32; 4] = [SPOT_BAY, SPOT_BAY, SPOT_HOB, SPOT_BAY];
+/// Which fixture answers each of the five targets: the bay grows the
+/// first two and the fourth, the hob makes the third, and the dressings
+/// each Bim carries (feature 87) have no fixture at all — nobody walks
+/// anywhere for them. Indexed by `manager::Stock`.
+const KEEP_SPOTS: [u32; 5] = [SPOT_BAY, SPOT_BAY, SPOT_HOB, SPOT_BAY, SPOT_NOTHING];
 
 /// Which fixture each job on the work list is about, so resting on a row
 /// rings the place it happens — every fixture of that kind, since a row
@@ -1884,7 +1893,8 @@ impl CrewPanels {
                 // patient may be anybody alive; the hands are always the
                 // player's.
                 let patient = game.hit_bim();
-                let bandages = game.bandages();
+                // Out of the helper's own pack (feature 87).
+                let bandages = game.bandages_of(who);
                 let out = game.is_unconscious(who) || game.is_outside(who);
                 let patient_out = game.is_outside(patient);
                 for (i, part) in health::Part::ALL.into_iter().enumerate() {
@@ -1910,7 +1920,31 @@ impl CrewPanels {
                         },
                     ));
                 }
-                items.push(Item::note("Bandages", format!("{bandages} to hand")));
+                // And the lot at once (feature 87): the worst part now
+                // and the rest queued behind it.
+                let open = health::Part::ALL
+                    .into_iter()
+                    .any(|part| game.wounds(patient, part) > 0);
+                items.push(Item::run(
+                    BANDAGE_ALL_ROW.to_string(),
+                    if bandages == 0 {
+                        NO_BANDAGE.to_string()
+                    } else if !open {
+                        BANDAGE_ALL_WHOLE.to_string()
+                    } else if out {
+                        HELPER_OUT.to_string()
+                    } else if patient_out {
+                        PATIENT_OUT.to_string()
+                    } else {
+                        BANDAGE_ALL_HINT.to_string()
+                    },
+                    bandages == 0 || out || patient_out || !open,
+                    CrewOrder::BandageAll {
+                        who: who as u32,
+                        patient: patient as u32,
+                    },
+                ));
+                items.push(Item::note("Bandages", format!("{bandages} in the pack")));
                 // A part at nothing: the dying state on it, and a medkit
                 // in somebody else's hands the only way out. The player's
                 // Bim treats a crewmate; for the player's own, the nearest
@@ -3061,7 +3095,9 @@ impl CrewPanels {
     ) {
         let gear = game.gear(who);
         let alive = game.is_alive(who);
-        let bandages = game.bandages();
+        // The hands are the player's whoever is shown, so the dressing
+        // comes out of the player's own pack (feature 87).
+        let bandages = game.bandages_of(self.player);
         // The hands are the player's whoever is shown, so the button is
         // greyed for the same reasons the menu on a body is: the player's
         // Bim dead, out cold or outside, or the patient outside. The room
@@ -3229,7 +3265,12 @@ impl CrewPanels {
                 let fits = |i: usize, x: usize, y: usize, turned: bool| -> bool {
                     heads.get(i).is_some_and(|&head| {
                         gear.pack[head].is_some_and(|item| {
-                            gear.fits_turned(y * PACK_COLS + x, item, turned, Some(head))
+                            let to = y * PACK_COLS + x;
+                            // Onto a box of the same thing with room in
+                            // it, or into a run of free cells (feature
+                            // 87) — the rule `Gear::rearrange` applies.
+                            (to != head && gear.room_in(to, item) > 0)
+                                || gear.fits_turned(to, item, turned, Some(head))
                         })
                     })
                 };
@@ -3298,7 +3339,7 @@ impl CrewPanels {
         });
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(format!("Bandages: {bandages}"))
+                egui::RichText::new(format!("Bandages to hand: {bandages}"))
                     .small()
                     .color(if bandages > 0 {
                         theme::INK
@@ -4123,10 +4164,15 @@ impl CrewPanels {
         };
         let cells: Vec<Option<Cell>> = body.cells[PACK_CELLS..]
             .iter()
-            .map(|slot| slot.map(|item| cell_of(item, 1)))
+            .enumerate()
+            .map(|(i, slot)| slot.map(|item| cell_of(item, body.counts[PACK_CELLS + i].max(1))))
             .collect();
         let worn_cells = cells.as_slice();
-        let (things, heads) = laid_things(&body.cells[..PACK_CELLS], &body.turned);
+        let (things, heads) = laid_things(
+            &body.cells[..PACK_CELLS],
+            &body.turned,
+            &body.counts[..PACK_CELLS],
+        );
         let reach = body.reach;
         let mut open = true;
         let mut pack = grid::Moved::default();
@@ -4452,6 +4498,29 @@ impl CrewPanels {
                                 who: who32,
                                 cell: cell32,
                             },
+                        ));
+                    }
+                    // A box of dressings binds wounds (feature 87): the
+                    // worst part now and the rest queued behind it, out
+                    // of this very pack, which is what a Bim that has
+                    // run out of a fight reaches for by itself.
+                    PackItem::Stack(code) if code == bims::combat::BANDAGE_CODE => {
+                        let open = health::Part::ALL
+                            .into_iter()
+                            .any(|part| alive && game.wounds(who, part) > 0);
+                        rows.push((
+                            theme::Row::new(
+                                BANDAGE_ALL_ROW,
+                                if !alive {
+                                    "not any more"
+                                } else if open {
+                                    BANDAGE_ALL_HINT
+                                } else {
+                                    BANDAGE_ALL_WHOLE
+                                },
+                                !alive || !open,
+                            ),
+                            GearOrder::BandageAll { who: who32 },
                         ));
                     }
                     PackItem::Stack(_) | PackItem::Key(_) => {}
@@ -5942,6 +6011,9 @@ impl CrewPanels {
                 );
             }
         }
+        // Whose pack the dressings row counts: the Bim the panels are
+        // about (feature 87).
+        let shown = self.inventory_who(game);
         egui::Grid::new("stock")
             .num_columns(4)
             .spacing([12.0, 2.0])
@@ -5990,6 +6062,33 @@ impl CrewPanels {
                     // the stew target the hob's, so resting on the cell rings
                     // the place that answers it.
                     self.points(&input, KEEP_SPOTS[which as usize]);
+                    ui.end_row();
+                }
+                // Then the one target that is nobody's shelf (feature
+                // 87): how many dressings every crew member keeps in its
+                // own pack. What is held is the Bim shown carrying, since
+                // the number is one order for the whole crew and each of
+                // them fills up to it out of the hold.
+                {
+                    let held = game.bandages_of(shown);
+                    let a = theme::asks(ui, BANDAGES_ROW, BANDAGES_TARGET_TIP);
+                    let b = ui.label(held.to_string());
+                    let c = ui.label(BANDAGES_KEPT_IN);
+                    let mut target = game.target(Stock::Bandages);
+                    let input = ui.add(
+                        egui::DragValue::new(&mut target)
+                            .range(0..=manager::MOST)
+                            .speed(0.2),
+                    );
+                    if input.changed() {
+                        self.crew_orders.push(CrewOrder::StockTarget {
+                            which: Stock::Bandages,
+                            count: target,
+                        });
+                    }
+                    for r in [&a, &b, &c, &input] {
+                        self.points(r, KEEP_SPOTS[Stock::Bandages as usize]);
+                    }
                     ui.end_row();
                 }
                 // Then what the benches make, on the ship: the same kind of
@@ -6434,10 +6533,16 @@ fn grid_things(grid: &Grid, hold: &Hold) -> (Vec<grid::Laid>, Vec<u32>) {
 /// same order. The same for a body's pack in the Loot window, off the
 /// body's cells and which of them are turned.
 fn pack_things(gear: &bims::combat::Gear) -> (Vec<grid::Laid>, Vec<usize>) {
-    laid_things(&gear.pack, &gear.turned)
+    laid_things(&gear.pack, &gear.turned, &gear.count)
 }
 
-fn laid_things(pack: &[Option<PackItem>], turned: &[bool]) -> (Vec<grid::Laid>, Vec<usize>) {
+/// `counts` is how many are in each cell's stack (feature 87) —
+/// `Gear::count`, where nought reads as one.
+fn laid_things(
+    pack: &[Option<PackItem>],
+    turned: &[bool],
+    counts: &[u32],
+) -> (Vec<grid::Laid>, Vec<usize>) {
     let mut things = Vec::new();
     let mut heads = Vec::new();
     for (cell, item) in pack.iter().enumerate().take(PACK_CELLS) {
@@ -6452,7 +6557,7 @@ fn laid_things(pack: &[Option<PackItem>], turned: &[bool]) -> (Vec<grid::Laid>, 
             cols,
             rows,
             turned,
-            cell: cell_of(item, 1),
+            cell: cell_of(item, counts.get(cell).copied().unwrap_or(1).max(1)),
         });
         heads.push(cell);
     }
@@ -6547,7 +6652,7 @@ fn bandage_words(wounds: u32, bandages: u32) -> (String, &'static str) {
     let hint = if wounds == 0 {
         "nothing open on it — a bandage here would be a bandage wasted"
     } else if bandages == 0 {
-        "no bandages — the drug lab makes them out of fibre"
+        NO_BANDAGE
     } else {
         "closes every wound on it — ten minutes with hands on"
     };

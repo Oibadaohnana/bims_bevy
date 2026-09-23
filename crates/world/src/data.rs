@@ -79,10 +79,11 @@ pub const RESIDENTS_RANGE: f64 = 50.0 * shipdesign::TILE as f64;
 pub const RESIDENT_VEG_EACH: u32 = 100;
 pub const RESIDENT_TOFU_EACH: u32 = 50;
 pub const RESIDENT_STEW_EACH: u32 = 2;
-/// Bandages in a station's locker when its room opens — for the whole
-/// room, not a head — so its people can dress a wound the crew gave them.
-/// A station has no hold the world keeps, so this is all there ever is
-/// while the room is open.
+/// Dressings every one of a station's people carries **in its own pack**
+/// when its room opens (feature 87: a bandage is a thing, and there is no
+/// count on a shelf anywhere), so it can bind a wound the crew gave it. A
+/// station has no hold the world keeps and nobody restocks it, so this is
+/// all there ever is while the room is open.
 pub const RESIDENT_BANDAGES: u32 = 2;
 
 /// And medkits, the same way: enough to treat one of their own that the

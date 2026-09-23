@@ -605,6 +605,23 @@ impl Session {
         }
     }
 
+    /// `n` dressings in **every** crew member's pack (feature 87), for
+    /// `BIMS_BANDAGES=n`: the carry target set to `n` as well, so the
+    /// restock keeps it there, and the boxes dealt at once rather than
+    /// one a step — a box holds five, so `BIMS_BANDAGES=7` is a full box
+    /// beside a part one. The hold is not charged: it is a staging, and
+    /// a ship carries five.
+    pub fn bandages_for_probe(&mut self, n: u32) {
+        let Some(game) = self.game.as_mut() else {
+            return;
+        };
+        let room = &mut game.world.aboard.room;
+        room.set_target(bims::manager::Stock::Bandages, n);
+        for who in 0..room.crew_count() as usize {
+            room.set_bandages_for_probe(who, n);
+        }
+    }
+
     /// Crew member 1 taken out cold and carried by the field medic —
     /// `BIMS_CARRY=1` — for looking at a body in somebody's arms. The
     /// carrier is the last of the crew, which is where

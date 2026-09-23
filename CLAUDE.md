@@ -119,6 +119,14 @@ BIMS_CARRY=1 bims combat` is a body in the arms (the Carry box lit, with
 no count on it, is what says so), and `BIMS_FIGHT=1 BIMS_FIELD_MEDIC=1
 BIMS_DYING=2 BIMS_SMOKE_FRAMES=600` is one going and fetching for
 itself. `G` is the carry's key in `BIMS_KEYS`.
+**`BIMS_BANDAGES=n`** puts `n` dressings in **every** crew member's pack
+and sets the Management tab's carry number to `n` (feature 87), rather
+than waiting for the restock to fill the packs a step at a time: five go
+in one box over two cells by two, so `BIMS_BANDAGES=7` is a full box
+beside a part one, which is how the count in a cell's corner is looked
+at — `BIMS_ARMOURY=1 BIMS_BANDAGES=7` on the simulation, or
+`BIMS_FIGHT=1 BIMS_BANDAGES=7 BIMS_DYING=2` for a crew that binds its
+own wounds as it runs.
 `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
 round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1

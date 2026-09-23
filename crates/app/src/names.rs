@@ -2456,7 +2456,20 @@ pub const DEATH_GAVE_UP: &str = "Gave up.";
 
 pub const PERIL_TIP: &str = "What is taking this Bim down right now, and how long it has at that rate. Blood runs out through every open wound — ten an hour each — and through every untreated trauma that bleeds, and at nothing left the Bim is dead; a medkit ends a trauma, a bandage closes the wounds on a part. Extreme malnutrition is the other one: it takes health off the head, the body and the legs until the head and the body are both at nothing. The countdown assumes nothing changes — a bandage, a medkit or a meal moves it at once.";
 
-pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a body — the head, the body or the legs — and stops the bleeding there. Order one here, or right-click a Bim on the deck, and the crew member you steer walks over and dresses it, ten minutes with hands on. Bandages are made at the drug lab out of fibre, or bought where a station sells them.";
+pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a body — the head, the body or the legs — and stops the bleeding there. Order one here, or right-click a Bim on the deck, and the crew member you steer walks over and dresses it, ten minutes with hands on. The dressing comes out of that Bim's own pack: five to a box, and the Management tab says how many each of the crew keeps on them. Bandages are made at the drug lab out of fibre, or bought where a station sells them.";
+
+/// Feature 87: the dressings are in the pack, and a box of them has a
+/// row of its own.
+pub const NO_BANDAGE: &str = "no bandages in the pack — the Management tab says how many to carry";
+pub const BANDAGE_ALL_HINT: &str =
+    "one dressing a wounded part, the worst first and the rest queued behind it";
+pub const BANDAGE_ALL_ROW: &str = "Bandage all wounds";
+pub const BANDAGE_ALL_WHOLE: &str = "nothing open on this Bim";
+/// The Management tab's row for how many dressings each of the crew is
+/// to carry, and where they are kept.
+pub const BANDAGES_ROW: &str = "Bandages";
+pub const BANDAGES_KEPT_IN: &str = "Each pack";
+pub const BANDAGES_TARGET_TIP: &str = "How many dressings every crew member keeps in their own pack. Out of combat they top themselves up out of the hold, one at a time — nobody walks for it — and a wound is bound with a dressing out of the binder's own pack. Five go in one box, and a box takes two cells by two.";
 
 /// Why a Bandage row is greyed when the helper cannot do it: the crew
 /// member you steer is dead, out cold, or outside in a suit.

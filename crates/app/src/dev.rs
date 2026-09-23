@@ -168,6 +168,17 @@ pub fn carry() -> bool {
     std::env::var("BIMS_CARRY").as_deref() == Ok("1")
 }
 
+/// `BIMS_BANDAGES=n` puts `n` dressings in **every** crew member's pack
+/// and sets the Management tab's carry target to `n` (feature 87) — for
+/// looking at a box of them in the inventory, and at what a crew that
+/// binds its own wounds does in a fight, without waiting for the restock
+/// to fill the packs a step at a time. Five go in one box, so
+/// `BIMS_BANDAGES=7` is a full box beside a part one
+/// (`Session::bandages_for_probe`).
+pub fn bandages() -> Option<u32> {
+    std::env::var("BIMS_BANDAGES").ok()?.trim().parse().ok()
+}
+
 /// `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member out at
 /// open and leaves the next one failing — how a lamp out, the dark round
 /// it and a failing lamp's flicker are looked at without a fight that

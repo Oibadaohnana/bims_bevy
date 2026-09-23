@@ -347,10 +347,12 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         ResourceId::Helm => Footprint::new(2, 4),
         ResourceId::LegGuard => Footprint::new(3, 2),
         ResourceId::Vest => Footprint::new(3, 3),
-        // The suit folded, a medkit's case, a bandage rolled.
+        // The suit folded, a medkit's case, and a box of dressings — a
+        // bandage is gauze and tape the size of a medkit's case
+        // (feature 87), and five of them go in one box (`stack_size`).
         ResourceId::Suit => Footprint::new(3, 3),
         ResourceId::Medkit => Footprint::new(2, 2),
-        ResourceId::Bandage => Footprint::new(1, 1),
+        ResourceId::Bandage => Footprint::new(2, 2),
         // The engineer's kits: a sack of sandbags, a sentry's crate.
         ResourceId::SandbagKit => Footprint::new(2, 2),
         ResourceId::SentryKit => Footprint::new(2, 3),
@@ -376,12 +378,14 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         ResourceId::Galvum | ResourceId::Emitter => 5,
         // The food, by the crate.
         ResourceId::Vegetable | ResourceId::Tofu => 10,
+        // The dressings, by the box: five to a footprint (feature 87), so
+        // one 2x2 of a pack or a locker holds a fight's worth of them.
+        ResourceId::Bandage => 5,
         // Everything worn, held or dressed with is one to a footprint.
         ResourceId::Suit
         | ResourceId::Handgun
         | ResourceId::Vest
         | ResourceId::Medkit
-        | ResourceId::Bandage
         | ResourceId::Helm
         | ResourceId::Kevlar
         | ResourceId::LegGuard

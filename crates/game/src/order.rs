@@ -107,6 +107,13 @@ pub enum CrewOrder {
         patient: u32,
         part: Part,
     },
+    /// Dress **every** open wound on `patient`, out of `who`'s own pack
+    /// (feature 87): the worst part now and the rest queued behind it.
+    /// What the pop-up on a box of dressings sends.
+    BandageAll {
+        who: u32,
+        patient: u32,
+    },
     /// Treat the trauma on that part of `patient` with a medkit.
     Treat {
         who: u32,
@@ -204,6 +211,7 @@ impl CrewOrder {
             | CrewOrder::UseToilet { who }
             | CrewOrder::Rest { who, .. }
             | CrewOrder::Bandage { who, .. }
+            | CrewOrder::BandageAll { who, .. }
             | CrewOrder::Treat { who, .. }
             | CrewOrder::ToggleFridge { who, .. }
             | CrewOrder::ToggleStove { who, .. }
@@ -333,6 +341,13 @@ impl Game {
                 if who(w) < self.crew_count() as usize && who(patient) < self.crew_count() as usize
                 {
                     self.bandage(who(w), who(patient), part);
+                }
+                0
+            }
+            CrewOrder::BandageAll { who: w, patient } => {
+                if who(w) < self.crew_count() as usize && who(patient) < self.crew_count() as usize
+                {
+                    self.bandage_all(who(w), who(patient));
                 }
                 0
             }
@@ -485,6 +500,9 @@ impl Game {
                 },
                 0.0,
             ),
+            // A whole body queues one dressing a part itself, so with
+            // Shift it is the plain order given when its turn comes.
+            CrewOrder::BandageAll { .. } => return self.order(slot, order),
             CrewOrder::Treat {
                 who: w,
                 patient,
