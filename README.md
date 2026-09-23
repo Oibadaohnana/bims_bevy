@@ -1642,6 +1642,19 @@ one thing in the arms at a time, from the lockers to the bench and back.
   `nix run .#jammer` opens the crew inside an infested system two hops
   from the origin, with the jammer standing and a wave aboard.
 
+- **The front** is the ring of systems just outside the infection, and it
+  is a place to trade in rather than a warning to read. A system three
+  hops or fewer from the edge is on it, and the nearer it is the more it
+  shows: **weapons, armour, medkits and bandages** cost and fetch fifteen
+  per cent over the odds on the edge itself, ten two hops out and five
+  three hops out, while the ore, the metal and the groceries are priced
+  as they are anywhere. Nobody's shelf stocks a gun, so for those the
+  front is felt as what a desk **pays**: a crew selling its kit a hop
+  from the machines is paid over the odds for it. The trade window says
+  so outright when you are at such a desk. And there is **one more hand
+  for hire** at every station on the front — people are on the move where
+  the machines are coming, and armed.
+
 ### Classes and levels
 
 Each player picks a **class** for their crew member — **None**,

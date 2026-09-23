@@ -33,6 +33,56 @@ pub const SPREAD_BP: Money = 1_000;
 /// way: a local bias is in `-MAX_BIAS..=MAX_BIAS`.
 pub const MAX_BIAS: i8 = 15;
 
+/// The most anything outside this crate ever adds to a station's own
+/// lean, per cent — the **front premium** of feature 94, which
+/// `world::data`'s `FRONT_BIAS * FRONT_HOPS` comes to. It is written
+/// down here because [`quote`] has to hold its promise (`bid < ask`, and
+/// nothing quoted at nothing) over the **sum**, not over the roll alone,
+/// and the test below is what pins that; `world`'s own test pins that
+/// its two numbers do not exceed it.
+pub const MAX_FRONT_BIAS: i32 = 15;
+
+/// Whether a resource is **war goods**: a weapon, a piece of armour, a
+/// medkit or a bandage. What a desk near the front charges over the odds
+/// for (feature 94) — the one place that list is written down, as a
+/// `match` with a row a resource so a resource added to `physics` is a
+/// compile error here rather than a thing quietly priced as groceries.
+///
+/// The class charges — a sandbag kit, a sentry kit, a grenade — are
+/// **not** on it: since features 88 and 90 those are abilities that come
+/// back on a cooldown rather than things a desk stocks, and nobody's
+/// shelf sells one.
+pub fn war_goods(resource: ResourceId) -> bool {
+    match resource {
+        // The five weapons a hand holds.
+        ResourceId::Handgun
+        | ResourceId::Shotgun
+        | ResourceId::AutoRifle
+        | ResourceId::SniperRifle
+        | ResourceId::Schword => true,
+        // What is worn into a fight. The pressure suit is not armour: it
+        // is for going outside, and a war does not make it dearer.
+        ResourceId::Vest | ResourceId::Helm | ResourceId::Kevlar | ResourceId::LegGuard => true,
+        // And what patches up what those two did.
+        ResourceId::Medkit | ResourceId::Bandage => true,
+        ResourceId::Ore
+        | ResourceId::Metal
+        | ResourceId::Components
+        | ResourceId::Vegetable
+        | ResourceId::Tofu
+        | ResourceId::Galvum
+        | ResourceId::Emitter
+        | ResourceId::Suit
+        | ResourceId::Rock
+        | ResourceId::Fibre
+        | ResourceId::ResearchKey
+        | ResourceId::ResearchKeyTwo
+        | ResourceId::SandbagKit
+        | ResourceId::SentryKit
+        | ResourceId::Grenade => false,
+    }
+}
+
 /// What kind of desk quotes: the station kinds that keep one, and the
 /// settlement on a planet's surface, which is a station of its own kind
 /// to a market whatever plan it is built on. A derelict has no market —
@@ -240,7 +290,10 @@ mod tests {
     fn the_bid_is_under_the_ask_everywhere() {
         for kind in MarketKind::ALL {
             for &resource in ResourceId::ALL.iter() {
-                for bias in (-MAX_BIAS as i32 - 5)..=(MAX_BIAS as i32 + 5) {
+                // Out to the **largest possible sum**: the station's own
+                // roll plus the front premium the world adds on top of
+                // it (feature 94), and a little beyond either way.
+                for bias in (-MAX_BIAS as i32 - 5)..=(MAX_BIAS as i32 + MAX_FRONT_BIAS + 5) {
                     let q = quote(kind, bias, resource);
                     assert!(
                         q.bid < q.ask,
@@ -314,6 +367,49 @@ mod tests {
         }
         assert!(kind_bias(Relay, ResourceId::Vegetable) > kind_bias(Relay, ResourceId::Ore));
         assert!(kind_bias(Relay, ResourceId::Bandage) > kind_bias(Relay, ResourceId::Ore));
+    }
+
+    /// What the front premium is charged on: a weapon, a piece of
+    /// armour, a medkit or a bandage, and nothing else (feature 94).
+    #[test]
+    fn war_goods_are_the_guns_the_armour_and_the_medicine() {
+        for resource in [
+            ResourceId::Handgun,
+            ResourceId::Shotgun,
+            ResourceId::AutoRifle,
+            ResourceId::SniperRifle,
+            ResourceId::Schword,
+            ResourceId::Vest,
+            ResourceId::Helm,
+            ResourceId::Kevlar,
+            ResourceId::LegGuard,
+            ResourceId::Medkit,
+            ResourceId::Bandage,
+        ] {
+            assert!(war_goods(resource), "{resource:?} is war goods");
+        }
+        for resource in [
+            ResourceId::Ore,
+            ResourceId::Metal,
+            ResourceId::Components,
+            ResourceId::Vegetable,
+            ResourceId::Tofu,
+            ResourceId::Galvum,
+            ResourceId::Emitter,
+            ResourceId::Suit,
+            ResourceId::Rock,
+            ResourceId::Fibre,
+            ResourceId::ResearchKey,
+            ResourceId::ResearchKeyTwo,
+            ResourceId::SandbagKit,
+            ResourceId::SentryKit,
+            ResourceId::Grenade,
+        ] {
+            assert!(!war_goods(resource), "{resource:?} is not war goods");
+        }
+        // Eleven of them, and the table covers every resource there is.
+        let all = ResourceId::ALL.iter().filter(|&&r| war_goods(r)).count();
+        assert_eq!(all, 11, "the war goods");
     }
 
     /// A market quotes through its own bias, and the plain one at none.

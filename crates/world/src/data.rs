@@ -391,3 +391,34 @@ pub const DROID_ORIGIN_MIN_HOPS: u16 = 8;
 /// push *towards* where the machines began, and a radius of one would be
 /// one system in the whole galaxy.
 pub const DROID_TIER_THREE_HOPS: u16 = 2;
+
+// --- the front (feature 94) ----------------------------------------------
+//
+// The crisis has an edge, and the systems just outside it are the front.
+// How far outside is `World::front` — the hops from the origin less the
+// radius the infection has reached by today — and everything here is read
+// off that one number: what a desk charges for a gun, and how many hands
+// are for hire.
+
+/// How far outside the infection a system still counts as the front, in
+/// hops. Three, so a crew have a band of systems to trade and hire in
+/// rather than one, and so that the band moves past them at a hop every
+/// [`DROID_SPREAD_DAYS`] the way the infection does.
+pub const FRONT_HOPS: u16 = 3;
+/// How much a hop nearer the front adds to a desk's lean on a weapon, a
+/// piece of armour, a medkit or a bandage, in per cent of the book. The
+/// system on the edge of the infection pays `FRONT_BIAS * FRONT_HOPS`
+/// — fifteen per cent — over the roll, and the one three hops out five.
+pub const FRONT_BIAS: i32 = 5;
+
+// --- defending a town (feature 94) ---------------------------------------
+
+/// How long after the crew set down at a threatened town the first wave
+/// of machines lands, in minutes of the world's clock. An hour: long
+/// enough to walk the town, talk to the desk and hire what is for hire
+/// before the shooting starts.
+pub const DEFENSE_DELAY_MINUTES: f64 = 60.0;
+/// What share of a defended town's surviving people join the crew, in per
+/// cent, when the last wave is destroyed. A fifth, rounded down, and never
+/// fewer than one while there is anybody but the guard left to come.
+pub const DEFENSE_JOIN_PERCENT: u32 = 20;

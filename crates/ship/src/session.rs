@@ -1069,15 +1069,12 @@ impl Session {
     /// costs bought and what one fetches sold — at the design phase's
     /// spawn station, or the station the ship is docked at. `None`
     /// anywhere else, and at a derelict, which keeps no desk: the panels
-    /// show a dash. The rule is `economy::market`; this only asks.
+    /// show a dash. The rule is `World::quote` — the one place a price
+    /// is worked out, front premium and all (feature 94); this only asks.
     pub fn quote(&self, resource: ResourceId) -> Option<Quote> {
         match &self.game {
             Some(g) => match g.world.ship.state {
-                world::ShipState::Docked { station } => g
-                    .world
-                    .station(station)
-                    .and_then(|s| s.market())
-                    .map(|desk| desk.quote(resource)),
+                world::ShipState::Docked { station } => g.world.quote(station, resource),
                 _ => None,
             },
             None => self
@@ -1304,6 +1301,20 @@ impl Session {
         self.game
             .as_ref()
             .is_some_and(|g| g.world.at_the_desk(slot))
+    }
+
+    /// How near the front the desk the ship is tied up at is, in hops —
+    /// `None` away from a berth and at a desk too far out for it to
+    /// matter (feature 94). What the trade window says a **front
+    /// premium** off: the guns, the armour and the medicine here are
+    /// dearer than the book, and the player should be told which it is
+    /// before they wonder at the price.
+    pub fn front_premium(&self) -> Option<u16> {
+        let g = self.game.as_ref()?;
+        let world::ShipState::Docked { station } = g.world.ship.state else {
+            return None;
+        };
+        g.world.front_at(station)
     }
 
     // --- the map ----------------------------------------------------------

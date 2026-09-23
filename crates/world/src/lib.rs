@@ -117,6 +117,8 @@ mod tests_droid;
 #[cfg(test)]
 mod tests_engineer;
 #[cfg(test)]
+mod tests_front;
+#[cfg(test)]
 mod tests_jammer;
 #[cfg(test)]
 mod tests_medic;

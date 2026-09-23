@@ -3976,6 +3976,13 @@ fn trade_window(
                     }
                 });
             }
+            // A desk inside the front charges over the odds for what a
+            // fight is fought with (feature 94). Said outright, with the
+            // underlined word carrying what it is charged on, since a
+            // price that has moved and no word for why is a bug report.
+            if let Some(hops) = session.front_premium() {
+                theme::asks(ui, &front_premium(hops), FRONT_PREMIUM_TIP);
+            }
             ui.add_space(4.0);
             // What is aboard to sell is what no construction site has
             // claimed, which is the rule `Sell` is judged by.

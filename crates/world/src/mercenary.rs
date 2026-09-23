@@ -131,7 +131,13 @@ pub struct Offer {
 /// every half of the start worth the worth has grown by, plus one on a
 /// roll of [`MERCENARY_CHANCE`] off the seed, never more than
 /// [`MERCENARIES_MAX`]. Whole euros in, whole number out.
-pub fn how_many(worth: Money, start_worth: Money, seed: u64) -> u32 {
+///
+/// `near_front` is feature 94's: a station inside `data::FRONT_HOPS` of
+/// the infection — or a town the crew defended — has **one more** hand
+/// for hire, people being on the move and armed where the machines are
+/// coming. Still never more than [`MERCENARIES_MAX`], so at the cap the
+/// front adds nothing.
+pub fn how_many(worth: Money, start_worth: Money, seed: u64, near_front: bool) -> u32 {
     let step = start_worth / 2;
     let grown = if step == 0 || worth <= start_worth {
         0
@@ -139,7 +145,7 @@ pub fn how_many(worth: Money, start_worth: Money, seed: u64) -> u32 {
         ((worth - start_worth) / step).min(MERCENARIES_MAX as Money) as u32
     };
     let rolled = Rng::new(seed ^ 0x_4D45_5243).chance(MERCENARY_CHANCE) as u32;
-    (grown + rolled).min(MERCENARIES_MAX)
+    (grown + rolled + u32::from(near_front)).min(MERCENARIES_MAX)
 }
 
 /// A month of that kit, before the variance: the weapon's fee and every
@@ -271,13 +277,28 @@ mod tests {
         let start = 100_000;
         let mut ones = 0;
         for seed in 0..100u64 {
-            let n = how_many(start, start, seed);
+            let n = how_many(start, start, seed, false);
             assert!(n <= 1, "{n} at the start worth");
             ones += n;
         }
         assert!((20..=60).contains(&ones), "{ones} of a hundred stations");
-        assert!(how_many(2 * start, start, 3) >= 2);
-        assert_eq!(how_many(100 * start, start, 3), MERCENARIES_MAX);
-        assert!(how_many(start, 0, 3) <= 1, "nothing to grow by");
+        assert!(how_many(2 * start, start, 3, false) >= 2);
+        assert_eq!(how_many(100 * start, start, 3, false), MERCENARIES_MAX);
+        assert!(how_many(start, 0, 3, false) <= 1, "nothing to grow by");
+    }
+
+    /// Near the front there is one more hand for hire, and never more
+    /// than the most (feature 94).
+    #[test]
+    fn the_front_finds_one_more_hand_and_never_over_the_cap() {
+        let start = 100_000;
+        for seed in 0..100u64 {
+            let away = how_many(start, start, seed, false);
+            let front = how_many(start, start, seed, true);
+            assert_eq!(front, (away + 1).min(MERCENARIES_MAX), "seed {seed}");
+            assert!(front <= MERCENARIES_MAX);
+        }
+        // At the cap the front adds nothing at all.
+        assert_eq!(how_many(100 * start, start, 3, true), MERCENARIES_MAX);
     }
 }

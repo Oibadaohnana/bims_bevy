@@ -4039,3 +4039,65 @@ measurements the root `CLAUDE.md` carries; the save's half is
 **Not in this step**: the Machine Heart; stopping or reversing the spread;
 what infested systems do to prices or hiring elsewhere; droids attacking a
 friendly town.
+
+## The front: prices and mercenaries near the infection (feature 94)
+
+The crisis is a disc on the lane graph, and its **edge** is a place: the
+systems just outside it are where the machines are coming next, and that
+is felt at the desk and in the hiring hall before it is felt at the
+airlock. Like the spread itself, **none of it is state** — two readings
+off the day and the hop table the crisis already keeps, saved nowhere and
+hashed nowhere.
+
+- **`World::crisis_radius()`** is how far the infection has spread by
+  today, in hops: the largest `n` with `crisis_first_day +
+  DROID_SPREAD_DAYS * n` on or before `days_gone()`, and `None` before
+  the first day, when the machines hold nothing at all.
+- **`World::front(star)`** is how far a star is *outside* that disc —
+  one for a star on the edge, and up. `None` before the first day, for a
+  star already theirs, and for one the lanes do not reach.
+- **`World::front_at(station)`** is the same for a station's desk, and
+  `None` past `data::FRONT_HOPS` (3). The station is an argument rather
+  than the system because a station can carry a front of its own.
+
+**The premium is on war goods and nothing else.**
+`World::front_bias(station, resource)` is `data::FRONT_BIAS` (5) ×
+(`FRONT_HOPS + 1 − d`) — fifteen per cent on the edge of the infection,
+ten two hops out, five three hops out, nothing beyond — for a resource
+`economy::market::war_goods` says yes to: the five weapons, the four
+pieces of armour, the medkit and the bandage. That list is a `match` with
+a row a resource in `economy`, so a resource added to `physics` is a
+compile error there rather than a thing quietly priced as groceries; the
+class charges (a sandbag kit, a sentry kit, a grenade) are **not** on it,
+since features 88 and 90 made those abilities on a cooldown rather than
+things a desk stocks.
+
+**`World::quote(station, resource)` is the one place a price is worked
+out**, and the premium is added to the station's own rolled lean inside
+it: `buy`, `sell` and `ship::Session::quote` — which is every panel and
+the trade window — all go through it, so nothing can show one price and
+charge another. `None` where there is no desk: a derelict, a raider, a
+station the machines hold. The sum can exceed `market::MAX_BIAS`, which
+is why `economy::market::MAX_FRONT_BIAS` is written down there and
+`quote`'s own "the bid is under the ask everywhere" test runs out to
+`MAX_BIAS + MAX_FRONT_BIAS`; `tests_front.rs` pins that the world's two
+numbers stay inside it.
+
+Nobody's shelf stocks a weapon or a piece of armour
+(`StationKind::sells`), so the direction the front is *felt* in for those
+is the **bid**: a crew selling its kit a hop from the machines is paid
+over the odds. Medkits and bandages are stocked, so both sides move.
+
+**One more hand for hire.** `mercenary::how_many` takes a `near_front`
+now — `World::mercenaries_of` passes `front_at(station).is_some()` — and
+adds one, still capped at `MERCENARIES_MAX`. Nothing new is hashed: how
+many a station has was always a function of the seed and the worth when
+the room opens, and the day is one more thing it is a function of.
+
+The app's half is one line in the trade window (`names::front_premium`,
+`FRONT_PREMIUM_TIP`, through `theme::asks` so the underlined words carry
+what it is charged on) off `Session::front_premium()`.
+`BIMS_CRISIS_DAY=0 BIMS_TRADE=1 bims crisis` is the picture: the origin
+already red two hops off, the line under the desk's own, and the guns,
+the armour and the medicine dearer with the ore and the metal unmoved.
+`tests_front.rs` is the rule.

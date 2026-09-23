@@ -38,6 +38,7 @@
 //! hold into the hull and back — `shipdesign::materials` is that contract —
 //! and change the centre of mass and the inertia without changing the total.
 
+use economy::market::{self, Quote};
 use economy::{Money, Storage, footprint, storage};
 use flight::{Dynamics, Phase, Plan, PlanError, Target, angle};
 use physics::ResourceId;
@@ -3013,7 +3014,11 @@ impl World {
         if station.residents() == 0 || self.stance(station.id) == Stance::Hostile {
             return 0;
         }
-        mercenary::how_many(self.worth(), self.start_worth, station.map_seed)
+        // And one more inside the front (feature 94), which is what a
+        // system with the machines a few hops off looks like from the
+        // hiring hall: people on the move, and armed.
+        let near_front = self.front_at(station.id).is_some();
+        mercenary::how_many(self.worth(), self.start_worth, station.map_seed, near_front)
             .max(self.least_mercenaries)
             .saturating_sub(self.losses_at(station.id).mercenaries)
     }
@@ -5314,6 +5319,51 @@ impl World {
 
     // --- trading ------------------------------------------------------------
 
+    /// How near the front this station's desk is, in hops — `None` for
+    /// one too far out for it to matter, and for every station before the
+    /// machines hold anything (feature 94).
+    ///
+    /// The system's own front ([`World::front`]). The station is an
+    /// argument rather than the system because a station can carry a
+    /// front of its own: see feature 94's held town.
+    pub fn front_at(&self, _station: u32) -> Option<u16> {
+        let hops = self.front(self.star_id)?;
+        (hops <= data::FRONT_HOPS).then_some(hops)
+    }
+
+    /// What this station's desk adds to its own lean on `resource`, per
+    /// cent: [`data::FRONT_BIAS`] a hop inside [`data::FRONT_HOPS`], on
+    /// war goods alone (`economy::market::war_goods`) and nought on
+    /// everything else. Fifteen on the edge of the infection, five three
+    /// hops out.
+    pub fn front_bias(&self, station: u32, resource: ResourceId) -> i32 {
+        if !market::war_goods(resource) {
+            return 0;
+        }
+        let Some(hops) = self.front_at(station) else {
+            return 0;
+        };
+        data::FRONT_BIAS * i32::from(data::FRONT_HOPS + 1 - hops)
+    }
+
+    /// **The one place a price is quoted.** What the desk at `station`
+    /// asks for one unit of `resource` and what it bids for one — the
+    /// station's kind and its own rolled lean through `economy::market`,
+    /// with the front premium added on top. `None` where there is no desk
+    /// at all: a derelict, a raider, a station the machines hold.
+    ///
+    /// Every quote in the game goes through here — `buy`, `sell`, and
+    /// `ship::Session::quote` for the panels — so that nothing can show
+    /// one price and charge another.
+    pub fn quote(&self, station: u32, resource: ResourceId) -> Option<Quote> {
+        if self.is_droid_held(station) {
+            return None;
+        }
+        let desk = self.station(station)?.market()?;
+        let bias = desk.bias.of(resource) + self.front_bias(station, resource);
+        Some(market::quote(desk.kind, bias, resource))
+    }
+
     fn buy(&mut self, slot: u32, resource: ResourceId, units: u32, events: &mut Vec<WorldEvent>) {
         let ShipState::Docked { station } = self.ship.state else {
             events.push(refused(slot, Refusal::NotDocked));
@@ -5326,16 +5376,16 @@ impl World {
             events.push(refused(slot, Refusal::NoMarket));
             return;
         }
-        let Some(desk) = self
+        let Some(quote) = self
             .station(station)
             .filter(|s| s.stock.sells(resource))
-            .and_then(|s| s.market())
+            .and_then(|_| self.quote(station, resource))
         else {
             events.push(refused(slot, Refusal::NotSoldHere));
             return;
         };
-        // At the desk's ask — `economy::market`, never the book.
-        let Ok(value) = desk.quote(resource).cost(units) else {
+        // At the desk's ask — `World::quote`, never the book.
+        let Ok(value) = quote.cost(units) else {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         };
@@ -5374,7 +5424,7 @@ impl World {
             events.push(refused(slot, Refusal::NoMarket));
             return;
         }
-        let Some(desk) = self.station(station).and_then(|s| s.market()) else {
+        let Some(quote) = self.quote(station, resource) else {
             events.push(refused(slot, Refusal::NoMarket));
             return;
         };
@@ -5394,7 +5444,7 @@ impl World {
         }
         // At the desk's bid, which is under its ask: what was bought here
         // and sold straight back has lost money.
-        let Ok(value) = desk.quote(resource).fetches(units) else {
+        let Ok(value) = quote.fetches(units) else {
             events.push(refused(slot, Refusal::SumTooBig));
             return;
         };
@@ -8359,6 +8409,44 @@ impl World {
         (0..self.droid_hops.len() as u32)
             .filter(|&star| self.infested(star))
             .collect()
+    }
+
+    // --- the front (feature 94) -------------------------------------------
+    //
+    // The infection is a disc on the lane graph: every star within
+    // `radius` hops of the origin has fallen, and the rest have not. The
+    // **front** is how far outside that disc a star still is — one hop
+    // out is the edge, and the edge is where a gun is dear and a
+    // mercenary is easy to find. Both numbers are arithmetic off the day
+    // and the hop table, like the spread itself: nothing is saved, and
+    // two clients that agree about the day agree about the front.
+
+    /// How far the infection has spread from the origin by today, in
+    /// hops: the largest `n` with `crisis_first_day + DROID_SPREAD_DAYS *
+    /// n` on or before the day gone. `None` before the first day, when
+    /// the machines hold nothing at all.
+    pub fn crisis_radius(&self) -> Option<u16> {
+        let days = self.days_gone();
+        if days < self.crisis_first_day {
+            return None;
+        }
+        let spread = data::DROID_SPREAD_DAYS.max(1);
+        Some(((days - self.crisis_first_day) / spread).min(u16::MAX as u32) as u16)
+    }
+
+    /// How far this star is outside the infection, in hops — one for a
+    /// star on the edge of it, and up. `None` before the machines hold
+    /// anything, for a star they already hold, and for one the lanes do
+    /// not reach, which is never theirs and so never has a front.
+    ///
+    /// Derived, never saved: the day and the hop table are all of it.
+    pub fn front(&self, star: u32) -> Option<u16> {
+        let radius = self.crisis_radius()?;
+        let hops = self.hops_from_origin(star);
+        if hops == u16::MAX || hops <= radius {
+            return None;
+        }
+        Some(hops - radius)
     }
 
     /// The day the origin turns, as this world counts it. The probes'

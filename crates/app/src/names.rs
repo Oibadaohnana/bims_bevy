@@ -3174,6 +3174,19 @@ pub const NOT_AT_DESK: &str = "Nobody of yours is at the trading desk";
 pub const WALK_TO_DESK: &str = "Walk over";
 pub const TRADE_ROW: &str = "Trade";
 
+/// The trade window's line at a desk near the front (feature 94): the
+/// guns, the armour and the medicine here are dearer than they are
+/// anywhere quieter, and how much dearer is how near the machines are.
+/// `front_premium` takes the hops.
+pub const FRONT_PREMIUM_TIP: &str =
+    "Weapons, armour, medkits and bandages are dearer this near the machines.";
+pub fn front_premium(hops: u16) -> String {
+    match hops {
+        1 => "Front prices · the infection is one hop away".to_string(),
+        n => format!("Front prices · the infection is {n} hops away"),
+    }
+}
+
 /// The cart under the trade rows: nothing is bought or sold until it is
 /// confirmed, and these are its words — the empty cart, which way the
 /// money goes, what is left after, the two buttons, and why it cannot go.
