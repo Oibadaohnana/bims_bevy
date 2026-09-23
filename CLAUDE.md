@@ -252,6 +252,22 @@ nothing of yours is still running (`pgrep -af "sleep "`, the task list)
 before saying you are done. Leave the other agents' processes alone —
 the live list of who else is at work is `agents.sh status`.
 
+**And it is committing what you changed.** The last thing a session does,
+after the number is back and the shells are shut, is **commit its own
+work**: `git add` the files *you* touched — named one by one, never `git
+add -A`, `git commit -a` or a bare `.`, since the tree holds the other
+agents' half-finished edits as well as yours — and commit them with the
+**task number the player gave you in the prompt** at the front of the
+message and a line saying what the change was: `86. medics carry the
+wounded off the deck`. A new file wants the same `git add` it wanted
+anyway (see "New files need `git add`"). Nothing else: no `git stash`,
+`checkout`, `reset` or `rebase`, which would take somebody else's work
+with them, and no push. If the work is unfinished or a test you owe is
+red, commit it all the same and say so in the message — one numbered
+commit a session is what makes a task's changes findable afterwards, and
+an agent that leaves its work uncommitted leaves the next one guessing
+which lines in the tree are whose.
+
 ## It is a workspace, and the app is one crate of eleven
 
 Everything is under `crates/`. `app` is the **one binary**: Bevy, egui, the
