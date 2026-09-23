@@ -66,6 +66,7 @@ use crate::droid::{self as droidplan, Infestation};
 use crate::event::{Refusal, WorldEvent};
 use crate::frame::{self, Frame};
 use crate::grid::{Grid, Kept, Wanted};
+use crate::jammer;
 use crate::medic::Medic;
 use crate::memory::{self, Grave, Losses, SystemMemory};
 use crate::mercenary::{self, Hired, Offer};
@@ -796,10 +797,13 @@ pub struct World {
     /// not hashed — it is empty by the end of every step it is filled in.
     #[cfg_attr(feature = "serde", serde(skip))]
     droids_to_post: Vec<bims::droid::Droid>,
-    /// What tier the machines come at: one, bar the probes
-    /// (`BIMS_DROID_TIER`). In `world_checksum`, since it is the size of
-    /// the fight.
-    droid_tier: Tier,
+    /// The probes' override of what tier the machines come at
+    /// (`BIMS_DROID_TIER`). `None` — the game's own — leaves it to how far
+    /// the system is from the origin (feature 93,
+    /// [`World::droid_tier`], [`data::DROID_TIER_THREE_HOPS`]). What
+    /// `world_checksum` eats is the answer rather than this, since it is
+    /// the size of the fight.
+    droid_tier: Option<Tier>,
     /// How long after a wave is spent the next arrives, in minutes of
     /// the world's clock: [`data::DROID_REINFORCE_MINUTES`], bar the
     /// probes, which shorten it to a minute so a wave can be watched
@@ -1382,7 +1386,7 @@ impl World {
             residents: None,
             infested: Vec::new(),
             droids_to_post: Vec::new(),
-            droid_tier: Tier::One,
+            droid_tier: None,
             droid_reinforce: data::DROID_REINFORCE_MINUTES,
             droid_wave_max: data::DROID_WAVE_MAX,
             droid_wave_forced: None,
@@ -1454,6 +1458,11 @@ impl World {
         world.settle_pieces();
         world.settle_guns();
         world.settle_grids();
+        // And the machines' jammer, if this system is already theirs —
+        // which only a probe that wound the clock forward can arrange,
+        // but the rule is the rule (feature 93). Before the chart below,
+        // so the station is on it.
+        world.settle_jammer();
         // The whole system, charted. The crew picked this dock off the
         // lobby's chart of this very system — every planet and every station
         // on it — and a map that then hid what they had just been looking at
@@ -2077,6 +2086,21 @@ impl World {
             events.push(refused(slot, Refusal::NoSuchStar));
             return;
         }
+        // A jump is one hop, and only down a lane (feature 93). The chart
+        // draws the shortest route to anywhere and the Jump button
+        // charges for its first step, so this is what a player meets by
+        // sending a jump from somewhere else.
+        if !self.laned_to(star) {
+            events.push(refused(slot, Refusal::NoLane));
+            return;
+        }
+        // And the machines' jammer holds the way **inward** shut: towards
+        // the star they began at. Sideways and outward are open, and
+        // flying *into* an infested system never is refused.
+        if self.jammed_step(self.star_id, star) {
+            events.push(refused(slot, Refusal::Jammed));
+            return;
+        }
         if self.under_construction() {
             events.push(refused(slot, Refusal::UnderConstruction));
             return;
@@ -2125,7 +2149,6 @@ impl World {
             events.push(WorldEvent::JumpFailed);
             return false;
         };
-        let at = crate::jump::landing_point(&system);
         // The system left behind, as it was left — its station's room
         // closed first, so its dead are counted — filed under its star.
         self.close_residents();
@@ -2165,6 +2188,11 @@ impl World {
             // its own the first step after the arrival.
             self.infested.clear();
         }
+        // The machines' jammer goes in **before** the landing point is
+        // picked (feature 93), so the two are never the same spot and the
+        // ship does not arrive inside the station it came to destroy.
+        self.settle_jammer();
+        let at = crate::jump::landing_point(&self.system);
         self.site_version += 1;
         self.ship.state = ShipState::Holding;
         self.ship.destination_set_by = None;
@@ -7302,7 +7330,10 @@ impl World {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         };
-        let tier = self.station_keys[at];
+        // `.get`, not an index: a derived jammer station (feature 93) is
+        // appended to `stations` and its key with it, but a list recalled
+        // from a memory filed before it existed is one short.
+        let tier = self.station_keys.get(at).copied().unwrap_or(0);
         if tier == 0 || self.station_desk().is_none() {
             events.push(refused(slot, Refusal::NoKey));
             return;
@@ -8291,6 +8322,11 @@ impl World {
     /// carries only the origin; and by the probes that move the origin.
     pub fn settle_crisis(&mut self) {
         self.droid_hops = self.galaxy().hops_from(self.droid_origin);
+        // The hop table is what says whether this system is theirs, so
+        // the jammer is settled behind it — and this is the call every
+        // load goes through (`ship::Game::resume`), which is what keeps a
+        // derived jammer out of a save (feature 93).
+        self.settle_jammer();
     }
 
     /// The day this star turns, counting from the day the world opened:
@@ -8376,6 +8412,21 @@ impl World {
         self.galaxy().hops_from(self.star_id)
     }
 
+    /// The `jammer` probe's dial: every station of this system into the
+    /// machines' hands at once, the derived jammer laid first, without
+    /// waiting for the crew to be off the berth the way
+    /// [`World::spread_crisis`] does. The one thing it is short of is the
+    /// docked guard, which is the whole point: the probe opens with the
+    /// crew tied up at a held station.
+    pub fn infest_here_for_probe(&mut self) {
+        self.settle_jammer();
+        let mut ids: Vec<u32> = self.stations.iter().map(|s| s.id).collect();
+        ids.extend(self.surfaces.iter().map(|s| s.id));
+        for id in ids {
+            self.infest(id);
+        }
+    }
+
     /// The crisis, applied to the system the ship is in: every station of
     /// it, orbital or town, goes into the machines' hands.
     ///
@@ -8398,6 +8449,13 @@ impl World {
         if !self.infested(self.star_id) {
             return;
         }
+        // A system with no orbital station of its own gets the machines'
+        // own (feature 93) — **before** the wait for the crew to leave the
+        // berth, since `World::jammer_station` names it the moment the
+        // system is theirs and a name with no station behind it is a
+        // helm that cannot say whose jammer is shut. It stands out in
+        // space; laying it does nothing to the deck the crew are on.
+        self.settle_jammer();
         if matches!(
             self.ship.state,
             ShipState::Docked { .. } | ShipState::CastingOff { .. }
@@ -8427,14 +8485,157 @@ impl World {
         events.push(WorldEvent::Infested { star: self.star_id });
     }
 
-    /// What tier the machines come at. One outside the probes; the
-    /// `droids` probes read `BIMS_DROID_TIER` and set it.
-    pub fn droid_tier(&self) -> Tier {
-        self.droid_tier
+    // --- the jammer (feature 93) ------------------------------------------
+    //
+    // A jump goes one hop and only down a lane, and an infested system
+    // holds the lanes *inward* shut while its jammer stands. Which station
+    // the jammer is on is decided here and nowhere else; what it is built
+    // out of when the system has no station of its own is `crate::jammer`.
+
+    /// How many lane hops a star is from the machines' origin, and
+    /// [`u16::MAX`] for one the lanes do not reach. The table the crisis
+    /// is read off ([`World::infested_on`]) and the number the jam
+    /// compares: inward is fewer.
+    pub fn hops_from_origin(&self, star: u32) -> u16 {
+        self.droid_hops
+            .get(star as usize)
+            .copied()
+            .unwrap_or(u16::MAX)
     }
 
-    /// The probes' dial: every wave from now on comes at this tier.
-    pub fn set_droid_tier_for_probe(&mut self, tier: Tier) {
+    /// Which station in this system holds the machines' jammer, or `None`
+    /// when the system is not infested.
+    ///
+    /// The **orbital station with the lowest id**, a derived jammer
+    /// excluded from the running — and, when the system has no orbital
+    /// station at all, the derived one ([`crate::jammer`]), which
+    /// [`World::settle_jammer`] has already put in the system by the time
+    /// anybody asks. A town on a planet's surface is never it: a system
+    /// may have no orbit worth the name, and the jammer has to be
+    /// somewhere in every infested one.
+    pub fn jammer_station(&self) -> Option<u32> {
+        if !self.infested(self.star_id) {
+            return None;
+        }
+        self.stations
+            .iter()
+            .map(|s| s.id)
+            .filter(|&id| !jammer::is_derived(id))
+            .min()
+            .or_else(|| Some(jammer::jammer_id(self.star_id)))
+    }
+
+    /// Whether the lanes inward are shut: the system is infested and its
+    /// jammer station has not been cleared. What
+    /// [`Refusal::Jammed`] is said off.
+    pub fn jammed(&self) -> bool {
+        self.jammer_station()
+            .is_some_and(|id| !self.droid_station_cleared(id))
+    }
+
+    /// Whether a jump from `from` to `to` would be turned back by a
+    /// jammer: `from` infested, and `to` nearer the machines' origin than
+    /// `from` is. For the system the ship is in the live answer is used —
+    /// a jammer the crew have brought down is down — and for any other
+    /// star the jammer is taken to be standing, which is what the chart
+    /// draws along a route.
+    pub fn jammed_step(&self, from: u32, to: u32) -> bool {
+        let standing = if from == self.star_id {
+            self.jammed()
+        } else {
+            self.infested(from)
+        };
+        standing && self.hops_from_origin(to) < self.hops_from_origin(from)
+    }
+
+    /// The shortest way from the star the ship is at to another, both ends
+    /// in it — `worldgen::Galaxy::route`, which is breadth-first with ties
+    /// to the lower star id. What the chart draws and counts hops off, and
+    /// what the Jump button charges the first step of.
+    pub fn route_to(&self, star: u32) -> Option<Vec<u32>> {
+        self.galaxy().route(self.star_id, star)
+    }
+
+    /// Whether a lane joins the star the ship is at to this one: what a
+    /// jump wants, and what the chart lights up round the ship.
+    pub fn laned_to(&self, star: u32) -> bool {
+        self.galaxy().lanes(self.star_id).contains(&star)
+    }
+
+    /// The stars a jump could reach from here, in id order: the lanes out
+    /// of the ship's own star. For the chart.
+    pub fn reachable_stars(&self) -> Vec<u32> {
+        self.galaxy().lanes(self.star_id).to_vec()
+    }
+
+    /// The derived jammer station put into this system, or taken out of
+    /// it. **The one place either happens**, and it is called wherever a
+    /// system is settled: at the start, at a jump, at every load
+    /// ([`World::settle_crisis`]) and the step a system falls to the
+    /// crisis.
+    ///
+    /// A derived jammer is never saved: whatever a save carried is thrown
+    /// away here and rolled again off the star's own stream, so the
+    /// station is the seed's rather than an old build's. What is saved is
+    /// what happened to it — its `Infestation`, filed by station id like
+    /// any other station's.
+    ///
+    /// It is **charted the moment it is laid**, the way the crisis itself
+    /// is not a secret: a jammer the crew cannot find is a system they
+    /// cannot leave.
+    pub fn settle_jammer(&mut self) {
+        let derived = jammer::jammer_id(self.star_id);
+        let wanted =
+            self.infested(self.star_id) && !self.stations.iter().any(|s| !jammer::is_derived(s.id));
+        let had = self.stations.iter().any(|s| s.id == derived);
+        if wanted && had {
+            return;
+        }
+        // Out it comes — from the system, the station list and the keys
+        // beside it, which are indexed alongside the stations. A derived
+        // jammer is always the last of them, its id being past everything
+        // the generator numbers, so the keys are simply cut back to the
+        // stations: a memory or a save that carried one leaves an extra
+        // entry behind otherwise.
+        self.system.stations.retain(|s| !jammer::is_derived(s.id));
+        self.stations.retain(|s| !jammer::is_derived(s.id));
+        self.station_keys.truncate(self.stations.len());
+        self.discovered
+            .retain(|n| !matches!(n, Node::Station(id) if jammer::is_derived(*id)));
+        if !wanted {
+            return;
+        }
+        let blueprint = jammer::blueprint(&self.system, self.galaxy_seed, self.star_id);
+        let at = blueprint.position;
+        self.system.stations.push(blueprint.clone());
+        // Its id is bigger than anything the generator numbers, so the end
+        // of the list is id order and the keys stay in step.
+        self.stations.push(Station::build(&blueprint, at));
+        self.station_keys.push(0);
+        self.discovered.push(Node::Station(derived));
+        self.discovered.sort_by_key(node_key);
+        self.discovered.dedup();
+    }
+
+    /// What tier the machines come at (feature 93): **tier three within
+    /// [`data::DROID_TIER_THREE_HOPS`] hops of the origin** and tier one
+    /// anywhere else, until there is a general rule for what tier an enemy
+    /// carries. `BIMS_DROID_TIER` overrides it in the probes, which is the
+    /// only thing that does.
+    pub fn droid_tier(&self) -> Tier {
+        if let Some(tier) = self.droid_tier {
+            return tier;
+        }
+        if self.hops_from_origin(self.star_id) <= data::DROID_TIER_THREE_HOPS {
+            Tier::Three
+        } else {
+            Tier::One
+        }
+    }
+
+    /// The probes' dial: every wave from now on comes at this tier, or
+    /// `None` to put the distance rule back.
+    pub fn set_droid_tier_for_probe(&mut self, tier: Option<Tier>) {
         self.droid_tier = tier;
     }
 
@@ -8601,7 +8802,7 @@ impl World {
         let Some(id) = self.residents.as_ref().map(|r| r.station) else {
             return false;
         };
-        let tier = self.droid_tier;
+        let tier = self.droid_tier();
         let t = shipdesign::TILE as f32;
         // Laid out from the station's own door inwards, so the rack is
         // beside the ship in the frame rather than across the station:
@@ -8683,7 +8884,7 @@ impl World {
         facing: f32,
         seed: u64,
     ) -> Vec<bims::droid::Droid> {
-        let tier = self.droid_tier;
+        let tier = self.droid_tier();
         let mut troopers = 0usize;
         bims::droid::wave_kinds(n)
             .into_iter()

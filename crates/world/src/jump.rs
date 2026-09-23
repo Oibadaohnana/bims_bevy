@@ -38,18 +38,27 @@ use crate::data;
 /// past sixty-four rings the last candidate is taken whatever is near it,
 /// which no generated system comes anywhere near needing.
 pub fn landing_point(system: &StarSystem) -> DVec2 {
+    clear_point(system, 1, 0.0)
+}
+
+/// The same search from a stated first ring and with every bearing turned
+/// by `turn` radians: what [`landing_point`] is, and what the machines'
+/// derived jammer station stands on (`crate::jammer`), which wants a point
+/// as clear as a landing's but **not the landing's own**. Sixty-four rings
+/// out from `first_ring`, sixteen bearings a ring.
+pub fn clear_point(system: &StarSystem, first_ring: u32, turn: f64) -> DVec2 {
     let nodes: Vec<DVec2> = system
         .nodes()
         .into_iter()
         .filter_map(|n| system.absolute_position(n))
         .collect();
     let mut last = DVec2::ZERO;
-    for ring in 1..=64u32 {
+    for ring in first_ring..first_ring.saturating_add(64) {
         let radius = data::JUMP_CLEARANCE * ring as f64;
         for i in 0..16u32 {
             // Off the bearing a little each ring, so the candidates do not
             // line up along sixteen spokes.
-            let a = (i as f64 + 0.5 * (ring % 2) as f64) * std::f64::consts::TAU / 16.0;
+            let a = (i as f64 + 0.5 * (ring % 2) as f64) * std::f64::consts::TAU / 16.0 + turn;
             let at = dvec2(radius * a.sin(), radius * a.cos());
             last = at;
             if nodes.iter().all(|n| n.distance(at) >= data::JUMP_CLEARANCE) {

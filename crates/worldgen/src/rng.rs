@@ -71,6 +71,14 @@ pub enum Purpose {
     /// it — but its own stream all the same, so that moving the crisis
     /// never moves a raid.
     DroidOrigin = 12,
+    /// The station the machines put their jammer on in a system with no
+    /// orbital station of its own to take it (feature 93,
+    /// `world::jammer`): where it stands, which plan it is built on, its
+    /// map seed and its shelf. The world's, like the origin — the
+    /// generator draws nothing from it and the galaxy checksum never sees
+    /// it — and its own stream, so that a jammer never moves a raid or the
+    /// machines' origin.
+    Jammer = 13,
 }
 
 /// SplitMix64's finalizer. Takes a counter-ish input to a well-spread output,

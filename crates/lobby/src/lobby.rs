@@ -63,6 +63,16 @@ pub struct Lobby {
     /// (feature 92, `World::infested_stars`). The page sets it every
     /// frame; empty in the lobby, where the crisis has not begun.
     pub infested: Vec<u32>,
+    /// In the game: the stars one charge of the hyperdrive could reach
+    /// from `here` (feature 93, `World::reachable_stars`). The page sets
+    /// it every frame; empty in the lobby.
+    pub reachable: Vec<u32>,
+    /// In the game: the shortest route from `here` to the picked star,
+    /// both ends in it, and which of its steps a jammer shuts —
+    /// `jammed.len()` is one short of `route.len()`. Empty with nothing
+    /// picked.
+    pub route: Vec<u32>,
+    pub jammed: Vec<bool>,
     pub pings: Vec<Ping>,
     /// The star whose system is in the side panel, and the system itself.
     pub inspected: Option<(u32, StarSystem)>,
@@ -93,6 +103,9 @@ impl Lobby {
             target: None,
             visited: Vec::new(),
             infested: Vec::new(),
+            reachable: Vec::new(),
+            route: Vec::new(),
+            jammed: Vec::new(),
             pings: Vec::new(),
             inspected: None,
             placed: Placed::default(),
@@ -207,6 +220,9 @@ impl Lobby {
             target: self.target,
             visited: &self.visited,
             infested: &self.infested,
+            reachable: &self.reachable,
+            route: &self.route,
+            jammed: &self.jammed,
             pings: &self.pings,
         };
         preview::paint(

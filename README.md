@@ -45,6 +45,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | the same on a planet: a town held by the machines, the ship set down at its pad, and their lander coming down on the plain beyond a gate |
 | `nix run .#raid` | `cargo run -- raid` | the simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in — the warning, the raider on the map and closing at its own pace, then the boarding |
 | `nix run .#crisis` | `cargo run -- crisis` | the simulation **a day before the machines appear**: a random galaxy and a random dock as `test` deals them, the clock wound to the eve of `DROID_FIRST_DAY`, and the crisis's origin forced two hyperlane hops from the crew's own star. Open the galaxy chart and the first star turns red while you watch; the crew's own system follows ten days later, and the day any star is due is written under its name when it is picked. `BIMS_CRISIS_DAY=n` moves the day the first one turns, and the clock opens a day short of whatever it says |
+| `nix run .#jammer` | `cargo run -- jammer` | the crew **inside an infested system**, two hyperlane hops from where the machines began: every station of it in their hands, a wave aboard the one the ship is tied to, and the system's **jammer** standing — so the chart's route inward is barred in red, a jump that way is refused, and the machines come at tier three because of how near the origin they are. `BIMS_DROID_TIER=1` brings them at tier one instead |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 
 Whichever of them you open, **Esc → Restart → Start again** puts the run back
@@ -708,7 +709,19 @@ after fusion power. On the map, **Galaxy view** swaps the system for the
 galaxy the lobby showed: the star the ship is at is ringed in green, and
 the strip lists what its system holds — every planet and station, the
 hostile ones in red. Click another star and the strip lists what *that*
-one holds, and **Jump** charges the drive for it: twenty seconds, holding
+one holds.
+
+**A jump follows the hyperlanes, one hop a charge.** The lanes out of the
+star the ship is at are lit on the chart, and the stars they reach are
+ringed: those are where a charge can take it. Pick any star, near or far,
+and the chart draws the **shortest route** to it along the lanes and the
+strip says how many hops it is — and **Jump** charges the drive for the
+*first* star down that route, not for the one you picked. So getting
+across a galaxy is a chain of jumps with a system to look at, hold in, be
+raided in or be trapped in at every step of it, rather than one charge
+from anywhere to anywhere.
+
+The charge itself is what it was: twenty seconds, holding
 still, away from any berth (docked, the station's people are aboard; under
 way, the ship is flying), and then the ship is in that system, in empty
 space, pointing the way it was, with only what its own sensors reach on
@@ -1604,10 +1617,30 @@ one thing in the arms at a time, from the lockers to the bench and back.
   **cleared** stays cleared: the crisis never re-arms it. The flip waits
   for the crew to leave, so a system whose day comes while you are docked
   in it turns the moment you cast off rather than emptying the deck under
-  your feet. **Jumping is untouched** — the hyperdrive still reaches any
-  star on the chart, and the lanes are what the machines crawl along, not
-  a road anybody flies.
+  your feet.
   `nix run .#crisis` opens the simulation on the eve of it.
+
+- **The jammer** is what makes an infested system a corner rather than a
+  place to fly past. Every one of them has exactly one — the orbital
+  station with the lowest number, or, where a system has no orbital
+  station at all, one the machines built themselves out in the dark — and
+  while it stands, **the lanes inward are shut**: a jump to a star
+  *nearer* the machines' origin than this one is refused. Sideways and
+  outward are open, and flying *into* an infested system is never
+  refused. So pushing towards where the machines began is a one-way door
+  each time, and the way back opens only by boarding the jammer station
+  and destroying every wave on it — once cleared it stays cleared, through
+  a save, a load and every later spread. The chart says which station
+  holds it and bars in red every step of a route a jammer would turn
+  back; the strip at the helm says whether the system you are in is
+  jammed.
+
+  **And the machines get harder the nearer their origin you are**: within
+  two hops of it every wave comes at **tier three**, with tier-three arms
+  and tier-three armour, where the rest of the galaxy meets them at tier
+  one.
+  `nix run .#jammer` opens the crew inside an infested system two hops
+  from the origin, with the jammer standing and a wave aboard.
 
 ### Classes and levels
 

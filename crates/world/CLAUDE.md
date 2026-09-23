@@ -3949,3 +3949,93 @@ set_day_for_probe}` under it.
 freely, the Machine Heart, the jammer, stopping or reversing the spread,
 what an infested system does to prices or to hiring elsewhere, and droids
 attacking a friendly town.
+
+## Jumping along lanes, and the jammer (feature 93)
+
+The crisis crawls along the hyperlanes; this is the step that makes the
+**crew** crawl along them too, and then shuts one direction of them.
+
+**A charge is one hop, and only down a lane.** `begin_jump` refuses a star
+`World::laned_to` says no lane reaches with `Refusal::NoLane` (78) —
+after `SameStar` and `NoSuchStar`, which are better answers — and the
+charge, the landing point and Abort are untouched. Nothing chains: one
+jump a charge, as before. `World::route_to(star)` is
+`worldgen::Galaxy::route` asked from where the ship is (breadth-first,
+each star reached from the **lowest-numbered** of the nearest ones, so
+the same route comes out of every build), `World::reachable_stars` is
+the lanes out of here, and the app's chart draws both — the reachable
+lanes bright over the faint web, the route as a chain — and the **Jump
+button charges for `route[1]`**, not for the star picked.
+
+**The jammer is one station a system, and `World::jammer_station` is the
+only place it is decided**: the **orbital station with the lowest id**, a
+derived one excluded from the running, and where a system has no orbital
+station at all the derived one (`crate::jammer`). A town on a planet's
+surface is never it — a system may have no orbit worth the name, and
+every infested system has to have exactly one. `None` in a system the
+machines have not got.
+
+**While it stands, the lanes inward are shut.** `World::jammed()` is "this
+system is infested and its jammer is not cleared";
+`World::jammed_step(from, to)` is that plus `to` being **fewer hops from
+the origin** than `from` (`World::hops_from_origin`, off the crisis's own
+`droid_hops`), and `begin_jump` says `Refusal::Jammed` (79) for it.
+Sideways and outward are accepted, and a jump **into** an infested system
+is never refused: getting in is free and getting back out the way you came
+is not. `jammed_step` asked about the system the ship is in uses the live
+answer, and about any other star assumes the jammer is standing, which is
+what the chart bars along a route. Clearing the station lifts the jam for
+good — the `Infestation`'s `cleared` flag is saved and hashed like any
+station's, so a save, a load and every later spread leave it down.
+
+**A derived jammer is rolled, never saved.** `crate::jammer`: id
+`JAMMER_BASE | star` (`0x1000_0000`, clear of the generator's, of
+`RAIDER_BASE` and of `SURFACE_BASE`), kind `Relay` — "deep space, on its
+own, listening" is what the machines have made of it — `hostile`, its
+plan, map seed, shelf and **position** off `Purpose::Jammer` (13) from
+the galaxy seed and the star. The position is `jump::clear_point`, which
+is `landing_point` generalised: the same ring search from a stated first
+ring and with every bearing turned, so the jammer stands well outside a
+landing's ring and half a sub-step off every bearing one would try, and
+the two can never come out the same point.
+
+**`World::settle_jammer` is the one door**, and it both lays it and takes
+it away: whatever a save or a memory carried is stripped from
+`self.system.stations`, `self.stations`, `self.station_keys` (truncated —
+the derived station is always last, its id being past everything the
+generator numbers) and `self.discovered`, and then it is rolled again if
+the system wants one. It is called from `World::start`, from `jump`
+**before the landing point is picked** (so the ship never arrives inside
+it), from `spread_crisis` before anything is infested, and from
+`settle_crisis`, which is the call every load goes through
+(`ship::Game::resume`). The station is **charted the moment it is laid**,
+the way the crisis is not a secret: a jammer the crew cannot find is a
+system they cannot leave.
+
+**What tier the machines come at is a reading now.** `World::droid_tier`
+is **tier three within `data::DROID_TIER_THREE_HOPS` (2) hops of the
+origin** and tier one everywhere else, until there is a general rule for
+what tier an enemy carries; `World::droid_tier` the field became
+`Option<Tier>` and holds the probes' override alone
+(`set_droid_tier_for_probe(Some(..))`, `BIMS_DROID_TIER`). The checksum
+eats the **answer**, as it did before, so it is a function of the origin
+and the star and two clients agree without exchanging a word.
+
+**What moved.** `Refusal` 78–79, `Purpose::Jammer = 13`, **`SAVE_VERSION`
+29, `wire::PROTOCOL` 21** (the relay wants redeploying). No checksum
+moved: at a start the spawn is nowhere near the origin, so `droid_tier()`
+is `Tier::One` as the field was, and a system that is not infested has no
+jammer in it. `tests_jammer.rs` is the rule — the lane, the route, the
+three ways out of a jammed system, a jump into one, the cleared station
+staying down through a load and a further spread, exactly one jammer a
+system, the derived one standing clear and rolling the same on two
+clients, the tier by distance, and two worlds jammed and freed alike to
+the checksum — with `jammers_over_ten_seeds` (`#[ignore]`) printing the
+measurements the root `CLAUDE.md` carries; the save's half is
+`save_round_trip_keeps_a_jammer_down_and_rolls_the_derived_one_again` in
+`crates/ship`. The probe is `nix run .#jammer`,
+`Session::jammer_for_probe`.
+
+**Not in this step**: the Machine Heart; stopping or reversing the spread;
+what infested systems do to prices or hiring elsewhere; droids attacking a
+friendly town.

@@ -853,6 +853,19 @@ fn jumper() -> ShipDesign {
     design
 }
 
+/// A star a jump from here can actually reach: the lowest-numbered lane
+/// out of the star the ship is at. Since feature 93 a charge is **one hop
+/// and only down a lane**, so every test that jumps picks its target
+/// through this rather than by counting ids.
+pub(crate) fn laned_star(world: &World) -> u32 {
+    world
+        .galaxy()
+        .lanes(world.star_id)
+        .first()
+        .copied()
+        .expect("the lane graph is one connected web")
+}
+
 /// A jump is another system altogether: the drive charges for its twenty
 /// seconds and the ship is then holding in empty space round another star,
 /// with the old system's stations, people, chart and site left behind and
@@ -862,7 +875,7 @@ fn jumper() -> ShipDesign {
 fn a_charged_hyperdrive_puts_the_ship_in_another_system() {
     let mut world = world_with(jumper(), REFERENCE_MONEY, 2);
     let from = world.star_id;
-    let to = (from + 1) % world.galaxy().stars.len() as u32;
+    let to = laned_star(&world);
     let money = world.money;
     let cargo = world.ship.design.cargo;
     let heading = world.ship.heading;

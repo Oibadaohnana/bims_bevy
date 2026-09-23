@@ -261,6 +261,11 @@
             what = "crisis";
             about = "The simulation a day before the machines appear, their origin two hyperlane hops off";
           };
+          bims-jammer = runFor {
+            name = "bims-jammer";
+            what = "jammer";
+            about = "The crew in an infested system two hops from the origin: the jammer standing, a wave aboard, the lanes inward shut";
+          };
         }
         # The machines' fight, one build a class as well: `droids` is to
         # `combat_droids_<class>` what `combat` is to `combat_<class>`,
@@ -298,6 +303,7 @@
             bims-tier3-test
             bims-raid
             bims-crisis
+            bims-jammer
             bims-stationbuilder
             bims-server
             ;
@@ -327,6 +333,9 @@
       # way, contact ten seconds in;
       # `.#crisis` is it a day before the machines appear, their origin two
       # hyperlane hops off, so the first star turns red while you watch;
+      # `.#jammer` is one step on from that: the crew in an infested system
+      # two hops from the origin, its jammer standing and a wave aboard, so
+      # the lanes inward are shut and the chart says so;
       # saves beside the working tree rather than inside the store;
       # `.#server` is the relay the game finds its crew through, run on
       # the server box rather than a desk.
@@ -355,6 +364,7 @@
           droids_planet = app built.bims-droids-planet "A town on a planet held by the machines, the ship set down at its pad";
           raid = app built.bims-raid "The simulation holding in open space with a raid on its way, contact ten seconds in";
           crisis = app built.bims-crisis "The simulation a day before the machines appear, their origin two hyperlane hops off";
+          jammer = app built.bims-jammer "The crew in an infested system two hops from the origin: the jammer standing, a wave aboard, the lanes inward shut";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           server = app built.bims-server "The relay: rooms by code, and bytes passed between the players in one — what runs at bims.buggly.de";
           default = game;

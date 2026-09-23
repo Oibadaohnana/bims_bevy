@@ -184,3 +184,27 @@ component from star nought, a neighbour never more than one hop further
 off, and the seed deciding it — and `the_checksum_notices_a_lane` that
 dropping one moves the number. How far a galaxy runs in hops, and what
 that means for the crisis, is measured in the root `CLAUDE.md`.
+
+## A route along the lanes, and how its ties are broken
+
+`Galaxy::route(from, to)` (feature 93) is the shortest chain of lanes
+between two stars, both ends in it — `[from]` for the star itself, `None`
+only for a star this galaxy has not got, the graph being one piece. It is
+the same breadth-first walk `hops_from` is, kept separate because a route
+wants the chain and the hop table wants the distances.
+
+**Ties go to the lower star id**, and the rule is written down once: each
+layer of the walk is taken in **ascending id order** and a star's lanes
+are already sorted, so a star is first reached from the lowest-numbered
+of the stars one hop nearer the start. That makes the route a function of
+the graph alone — the same on every build, on every machine and in both
+directions' own sense — which matters because `world` draws it on the
+chart and charges a jump for its first step, and two clients that drew
+different routes would disagree about where a jump goes.
+`a_route_is_the_shortest_chain_of_lanes_and_the_same_every_time` and
+`a_tie_goes_to_the_lower_star` pin both halves.
+
+`Purpose::Jammer = 13` is the world's, like `DroidOrigin`: the station
+the machines put in a system with no orbital station of its own
+(`world::jammer`). The generator draws nothing from it and the galaxy
+checksum never sees it.

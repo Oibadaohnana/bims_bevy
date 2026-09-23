@@ -60,6 +60,7 @@ pub mod event;
 pub mod fixture;
 pub mod frame;
 pub mod grid;
+pub mod jammer;
 pub mod jump;
 pub mod medic;
 pub mod memory;
@@ -83,6 +84,7 @@ pub use deploy::{Deck, DeployKind, Deployable, Kit};
 pub use event::{Refusal, WorldEvent};
 pub use frame::Frame;
 pub use grid::{Grid, Kept, Slot, Wanted};
+pub use jammer::{JAMMER_BASE, jammer_id, jammer_star};
 pub use medic::Medic;
 pub use memory::{Losses, SystemMemory};
 pub use mining::{MiningSite, Rock, RockTile};
@@ -114,6 +116,8 @@ mod tests_crisis;
 mod tests_droid;
 #[cfg(test)]
 mod tests_engineer;
+#[cfg(test)]
+mod tests_jammer;
 #[cfg(test)]
 mod tests_medic;
 #[cfg(test)]

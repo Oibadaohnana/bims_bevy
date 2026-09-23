@@ -75,8 +75,14 @@ use crate::game::Game;
 /// filed alongside the rest of its memory) — feature 92. The hop table
 /// from the origin is **not** in the file: it is derived from the galaxy
 /// and the origin, and `Game::resume` works it out again
-/// (`World::settle_crisis`) on every read.
-pub const SAVE_VERSION: u32 = 28;
+/// (`World::settle_crisis`) on every read. 29: the jammer (feature 93) —
+/// what tier the machines come at is a *reading* now, off how far the
+/// system is from the origin, and `World::droid_tier` is an
+/// `Option<Tier>` holding the probes' override alone. The machines' own
+/// **derived jammer station** is not in the file either: it is rolled off
+/// the star's own stream, and `settle_crisis` lays it again
+/// (`World::settle_jammer`) on every read.
+pub const SAVE_VERSION: u32 = 29;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

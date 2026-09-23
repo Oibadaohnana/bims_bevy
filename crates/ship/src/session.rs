@@ -349,9 +349,11 @@ impl Session {
     /// The `droids` command (feature 83): [`Session::combat`] with the
     /// arena **droid-held** instead of garrisoned. The ship, the crew and
     /// the guns are `combat`'s own; the arena's people are gone and a
-    /// wave of machines stands about it instead, at `tier`, with the
-    /// reinforcement clock shortened to `reinforce` minutes so the next
-    /// wave can be watched arriving rather than waited two hours for.
+    /// wave of machines stands about it instead, at `tier` — `None`
+    /// leaving it to how far the system is from the machines' origin
+    /// (feature 93, `World::droid_tier`) — with the reinforcement clock
+    /// shortened to `reinforce` minutes so the next wave can be watched
+    /// arriving rather than waited two hours for.
     ///
     /// Turning the dock hostile is `combat`'s doing and is left as it is:
     /// a held station is hostile whatever the list says
@@ -359,7 +361,7 @@ impl Session {
     /// the machines the moment `World::people_of` reads nought for it.
     pub fn droids(
         seed: u64,
-        tier: bims::combat::Tier,
+        tier: Option<bims::combat::Tier>,
         reinforce: f64,
         wave_max: Option<u32>,
         waves: u32,
@@ -427,9 +429,53 @@ impl Session {
         true
     }
 
+    /// The `jammer` command (feature 93): the crew **in** an infested
+    /// system [`CRISIS_HOPS`] hops from the machines' origin, its jammer
+    /// standing and one wave of machines aboard the station they are tied
+    /// up at.
+    ///
+    /// It is `crisis_for_probe`'s origin with the clock wound past the
+    /// day this system falls rather than a day short of the first — so
+    /// the chart is red here and the lanes inward are shut — and then
+    /// every station of the system into the machines' hands at once
+    /// (`World::infest_here_for_probe`), since the crisis's own flip
+    /// waits for the crew to be off the berth and the probe wants them on
+    /// one. Two hops is also inside
+    /// [`world::data::DROID_TIER_THREE_HOPS`], so the wave comes at tier
+    /// three unless `tier` says otherwise.
+    ///
+    /// `false` in the design phase, or where the lanes are too short for
+    /// the hop count.
+    pub fn jammer_for_probe(
+        &mut self,
+        tier: Option<bims::combat::Tier>,
+        reinforce: f64,
+        waves: u32,
+    ) -> bool {
+        let first_day = world::data::DROID_FIRST_DAY;
+        if !self.crisis_for_probe(first_day) {
+            return false;
+        }
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let world = &mut game.world;
+        // The day this system's own flip is due, and one more so it is
+        // certainly past: `infested` is "the day has come".
+        let due = world.infested_on(world.star_id);
+        world.set_day_for_probe(due.saturating_add(1));
+        world.set_droid_tier_for_probe(tier);
+        world.set_droid_reinforce_minutes_for_probe(reinforce);
+        // Before `infest_here_for_probe`, since a station's wave count is
+        // fixed at the crew's first dock and never worked out again.
+        world.set_droid_waves_for_probe(waves);
+        world.infest_here_for_probe();
+        true
+    }
+
     pub fn infest_the_dock_for_probe(
         &mut self,
-        tier: bims::combat::Tier,
+        tier: Option<bims::combat::Tier>,
         reinforce: f64,
         waves: u32,
     ) -> bool {

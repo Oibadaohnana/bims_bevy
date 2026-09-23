@@ -233,6 +233,20 @@ pub struct Marks<'a> {
     /// — the crisis is not a secret, and a star nobody has ever been to
     /// shows as plainly as one they live at. Empty in the lobby.
     pub infested: &'a [u32],
+    /// The stars a jump could reach from `here` in one charge (feature
+    /// 93, `World::reachable_stars`): the lanes out of the ship's own
+    /// star, drawn bright over the faint web, with a small ring on each
+    /// star at their far end. Empty in the lobby, where there is no ship.
+    pub reachable: &'a [u32],
+    /// The shortest route from `here` to the picked star, in order and
+    /// both ends in it (feature 93, `World::route_to`), drawn as a chain
+    /// of bright segments over the web. Empty where nothing is picked.
+    pub route: &'a [u32],
+    /// Which steps of `route` a jammer would turn back — one `bool` a
+    /// **step**, so `jammed.len()` is `route.len() - 1`. A jammed step is
+    /// drawn in the enemy's red and barred across its middle, so a route
+    /// that cannot be flown says where it stops.
+    pub jammed: &'a [bool],
     pub pings: &'a [Ping],
 }
 
@@ -253,6 +267,15 @@ const LANE: Color = Color::rgba(0.42, 0.52, 0.58, 0.28);
 /// rather than drawn: a hairline web at the fit and a hairline web zoomed
 /// right in.
 const LANE_WIDTH: f32 = 0.7;
+/// A lane a jump could take this charge, and the chain of them a route
+/// is: the hyperdrive's own violet, the colour the picked star is ringed
+/// in, so what the Jump button will do reads as one thing.
+const REACHABLE: Color = Color::rgb(0.62, 0.42, 0.86);
+/// How wide a lit lane is drawn. Over a pixel, where the web is under
+/// one, so a reachable lane is a line rather than a brighter hair.
+const REACHABLE_WIDTH: f32 = 1.6;
+/// A step of a route a jammer would turn back.
+const JAMMED: Color = crate::draw::ENEMY;
 /// A star the machines hold: the enemy's red, which is the colour a
 /// hostile station is ringed in on every other screen.
 const INFESTED: Color = crate::draw::ENEMY;
@@ -331,6 +354,59 @@ pub fn paint(
                 continue;
             }
             list.line(x0, y0, x1, y1, LANE_WIDTH, LANE);
+        }
+    }
+
+    // Over the web, the lanes out of the ship's own star: where a charge
+    // could take it this jump (feature 93).
+    if let Some(from) = marks.here.and_then(|id| stars.get(id as usize)) {
+        let (x0, y0) = preview.to_screen(from.position.x, from.position.y);
+        for star in marks
+            .reachable
+            .iter()
+            .filter_map(|&id| stars.get(id as usize))
+        {
+            let (x1, y1) = preview.to_screen(star.position.x, star.position.y);
+            if !preview.on_canvas(x0, y0, 8.0) && !preview.on_canvas(x1, y1, 8.0) {
+                continue;
+            }
+            list.line(x0, y0, x1, y1, REACHABLE_WIDTH, REACHABLE.alpha(0.55));
+            list.push(
+                crate::draw::KIND_ELLIPSE,
+                x1,
+                y1,
+                9.0,
+                9.0,
+                0.0,
+                0.0,
+                1.2,
+                REACHABLE.alpha(0.8),
+            );
+        }
+    }
+
+    // And the route to the picked star, step by step: bright where it can
+    // be flown, the enemy's red and barred where a jammer shuts it.
+    for (step, pair) in marks.route.windows(2).enumerate() {
+        let (Some(a), Some(b)) = (stars.get(pair[0] as usize), stars.get(pair[1] as usize)) else {
+            continue;
+        };
+        let (x0, y0) = preview.to_screen(a.position.x, a.position.y);
+        let (x1, y1) = preview.to_screen(b.position.x, b.position.y);
+        if !preview.on_canvas(x0, y0, 8.0) && !preview.on_canvas(x1, y1, 8.0) {
+            continue;
+        }
+        let shut = marks.jammed.get(step).copied().unwrap_or(false);
+        let colour = if shut { JAMMED } else { REACHABLE };
+        list.line(x0, y0, x1, y1, REACHABLE_WIDTH, colour);
+        if shut {
+            // A bar across the middle of the step, square to it: the one
+            // mark on this map that says "not this way".
+            let (mx, my) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+            let (dx, dy) = (x1 - x0, y1 - y0);
+            let len = (dx * dx + dy * dy).sqrt().max(1e-3);
+            let (px, py) = (-dy / len * 5.0, dx / len * 5.0);
+            list.line(mx - px, my - py, mx + px, my + py, 2.0, JAMMED);
         }
     }
 

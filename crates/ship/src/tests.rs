@@ -1442,6 +1442,50 @@ fn save_round_trip_keeps_key_tiers() {
     assert_eq!(world.research.done.len(), shipdesign::research::NODES);
 }
 
+/// A jammer brought down stays down through a save and a load, and the
+/// derived station the machines put in a system with no orbit of its own
+/// is **not in the file**: it is rolled again off the star's own stream
+/// when the world is read back (feature 93, `World::settle_jammer`, which
+/// `settle_crisis` calls and `Game::resume` calls in turn).
+#[test]
+fn save_round_trip_keeps_a_jammer_down_and_rolls_the_derived_one_again() {
+    use crate::Session;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    let world = &mut session.game.as_mut().unwrap().world;
+    // The machines began here, so this system is theirs from day nought.
+    let here = world.star_id;
+    world.set_droid_origin_for_probe(here);
+    world.set_crisis_first_day_for_probe(0);
+    assert!(world.infested(here));
+    assert!(world.jammed(), "and its jammer stands");
+
+    // The station it stands on, cleared: the last machine of the last
+    // wave destroyed, which is what the crisis step records.
+    let station = world.jammer_station().expect("infested");
+    world.infest(station);
+    world
+        .infested
+        .iter_mut()
+        .find(|it| it.station == station)
+        .unwrap()
+        .cleared = true;
+    assert!(!world.jammed());
+    let checksum = world.checksum();
+
+    let text = session.save().expect("a world to save");
+    assert!(
+        !text.contains(&format!("{}", world::jammer_id(here))),
+        "a derived jammer is never written to the file"
+    );
+    let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    let world = &back.game.as_ref().unwrap().world;
+    assert_eq!(world.droid_origin(), here);
+    assert!(world.infested(here), "the hop table is worked out again");
+    assert_eq!(world.jammer_station(), Some(station));
+    assert!(!world.jammed(), "and it is still down");
+    assert_eq!(world.checksum(), checksum);
+}
+
 /// `tier2_test` and `tier3_test` are the `combat` session with everybody's
 /// kit at that tier: every crew member's gun at it, its kind as `combat`
 /// dealt it, and a full set of armour at it — pieces of the world's, worn
@@ -1711,7 +1755,7 @@ fn a_droid_held_station_is_saved_and_read_back_whole() {
     use crate::Session;
     let mut session = Session::droids(
         world::data::DEFAULT_SEED,
-        bims::combat::Tier::One,
+        Some(bims::combat::Tier::One),
         1.0,
         None,
         3,

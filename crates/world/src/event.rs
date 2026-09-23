@@ -530,6 +530,15 @@ pub enum Refusal {
     NotHurt = 76,
     /// A carry of a body that is already in somebody's arms.
     AlreadyCarried = 77,
+    /// A jump to a star the hyperlanes do not join to this one (feature
+    /// 93). A charge is one hop, and only down a lane: the chart draws
+    /// the route, and the Jump button charges for its first step.
+    NoLane = 78,
+    /// A jump **inward** — to a star fewer hops from the machines' origin
+    /// than this one — out of an infested system whose jammer still
+    /// stands (feature 93, `crate::jammer`). Sideways and outward are
+    /// accepted, and flying *into* an infested system never is refused.
+    Jammed = 79,
 }
 
 impl Refusal {

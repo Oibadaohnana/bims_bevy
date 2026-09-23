@@ -476,7 +476,11 @@ fn open(
             // `test_planet` is the same roll made among the systems with
             // friendly ground, since the ship is then set down on it.
             let (seed, spawn) = match *launch {
-                Launch::Test | Launch::TestPlanet | Launch::DroidsPlanet | Launch::Crisis => {
+                Launch::Test
+                | Launch::TestPlanet
+                | Launch::DroidsPlanet
+                | Launch::Crisis
+                | Launch::Jammer => {
                     let seed = super::room::rand_seed();
                     let roll = super::room::rand_seed();
                     let pick = match *launch {
@@ -537,7 +541,11 @@ fn open(
                     size.x,
                     size.y,
                 ),
-                Launch::Test | Launch::TestPlanet | Launch::DroidsPlanet | Launch::Crisis => {
+                Launch::Test
+                | Launch::TestPlanet
+                | Launch::DroidsPlanet
+                | Launch::Crisis
+                | Launch::Jammer => {
                     let design = shipdesign::fixture::combat_ship();
                     let mut session =
                         Session::simulate_on(design, 1, seed, 0, spawn, size.x, size.y);
@@ -548,6 +556,19 @@ fn open(
                     // (feature 92).
                     if *launch == Launch::Crisis {
                         session.crisis_for_probe(crate::dev::crisis_day());
+                    }
+                    // `jammer` is one step on from that (feature 93): the
+                    // clock wound past the day this system falls, every
+                    // station of it in the machines' hands, and the crew
+                    // tied up at one of them with a wave aboard — so the
+                    // jam on the chart and the wave on the deck are the
+                    // same picture.
+                    if *launch == Launch::Jammer {
+                        session.jammer_for_probe(
+                            crate::dev::droid_tier(),
+                            crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                            crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                        );
                     }
                     if matches!(*launch, Launch::TestPlanet | Launch::DroidsPlanet) {
                         session.land_for_probe();
@@ -1315,6 +1336,29 @@ fn frame(
             .as_ref()
             .map(|g| g.world.infested_stars())
             .unwrap_or_default();
+        // And where a charge could take the ship (feature 93): the lanes
+        // out of its own star lit, and the route to the picked one drawn
+        // step by step with any jammed step barred.
+        chart.reachable = session
+            .game
+            .as_ref()
+            .map(|g| g.world.reachable_stars())
+            .unwrap_or_default();
+        let plotted = session
+            .game
+            .as_ref()
+            .zip(screen.picked_star)
+            .and_then(|(g, star)| g.world.route_to(star).map(|route| (g, route)));
+        (chart.route, chart.jammed) = match plotted {
+            Some((g, route)) => {
+                let jammed = route
+                    .windows(2)
+                    .map(|pair| g.world.jammed_step(pair[0], pair[1]))
+                    .collect();
+                (route, jammed)
+            }
+            None => (Vec::new(), Vec::new()),
+        };
         if canvas.size() != screen.galaxy_size {
             screen.galaxy_size = canvas.size();
             chart.preview.resize(canvas.size().x, canvas.size().y);
@@ -3412,6 +3456,30 @@ fn crisis_line(ui: &mut egui::Ui, world: &world::World, star: u32) {
     ui.label(egui::RichText::new(words).small().color(colour));
 }
 
+/// Whether the machines' jammer holds this system's lanes shut, and which
+/// station it stands on (feature 93). One line, under the crisis's own on
+/// the chart's panel and on the helm's strip, and nothing at all in a
+/// system the machines have not got.
+fn jammer_line(ui: &mut egui::Ui, world: &world::World) {
+    let Some(station) = world.jammer_station() else {
+        return;
+    };
+    let name = world
+        .system
+        .station(station)
+        .map(|s| station_name(s.name))
+        .unwrap_or_else(|| "a station".to_string());
+    let (words, colour) = if world.jammed() {
+        (
+            format!("Jammed · the lanes inward are shut from {name}"),
+            theme::BAD,
+        )
+    } else {
+        (format!("Jammer down · {name} is cleared"), theme::ACCENT)
+    };
+    ui.label(egui::RichText::new(words).small().color(colour));
+}
+
 /// One system's contents, as rows: each body by its numeral and kind, each
 /// station by its name, kind and side. What the chart says a star holds —
 /// the star the ship is at, or the one picked — off the generator, the way
@@ -3498,6 +3566,7 @@ fn chart_panel(
     ui.label(egui::RichText::new("Here").small().color(theme::MUTED));
     ui.label(egui::RichText::new(name_of(here)).strong());
     crisis_line(ui, &game.world, here);
+    jammer_line(ui, &game.world);
     system_contents(ui, &base_of(here), &game.world.system);
 
     ui.add_space(4.0);
@@ -3513,12 +3582,62 @@ fn chart_panel(
                     ui.label(egui::RichText::new("Looking…").color(theme::MUTED));
                 }
             }
+            // The route along the lanes, which is what a jump follows now
+            // (feature 93): how many hops, the next star down it, and
+            // whether a jammer shuts the first step.
+            let route = game.world.route_to(star);
+            let next = route.as_ref().and_then(|r| r.get(1).copied());
+            ui.add_space(2.0);
+            match &route {
+                Some(r) if r.len() > 1 => {
+                    let hops = r.len() - 1;
+                    let word = if hops == 1 { "hop" } else { "hops" };
+                    ui.label(
+                        egui::RichText::new(format!("{hops} {word} along the lanes"))
+                            .small()
+                            .color(theme::MUTED),
+                    );
+                    if let Some(next) = next {
+                        ui.label(
+                            egui::RichText::new(format!("Next: {}", base_of(next)))
+                                .small()
+                                .color(theme::HYPER),
+                        );
+                    }
+                    let shut = r
+                        .windows(2)
+                        .filter(|pair| game.world.jammed_step(pair[0], pair[1]))
+                        .count();
+                    if shut > 0 {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{shut} of the route's steps {} shut by a jammer",
+                                if shut == 1 { "is" } else { "are" }
+                            ))
+                            .small()
+                            .color(theme::BAD),
+                        );
+                    }
+                }
+                _ => {
+                    ui.label(
+                        egui::RichText::new("No lane route to that star.")
+                            .small()
+                            .color(theme::BAD),
+                    );
+                }
+            }
             let state = game.world.ship.state.code();
             let ready = game.world.hyperdrive_ready();
+            let jammed = next.is_some_and(|next| game.world.jammed_step(here, next));
             let why = if !ready {
                 Some("No working hyperdrive: one bolted to an engine, on a live cable.")
             } else if state != 1 {
                 Some("A jump wants the ship holding on its own, away from any berth.")
+            } else if next.is_none() {
+                Some("The lanes do not reach that star.")
+            } else if jammed {
+                Some("The machines' jammer holds this system's lanes inward shut.")
             } else {
                 None
             };
@@ -3526,11 +3645,19 @@ fn chart_panel(
                 ui.label(egui::RichText::new(why).small().color(theme::WARN));
             }
             ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(why.is_none() && !walking, egui::Button::new("Jump"))
-                    .clicked()
+                // The charge is for the route's **first** star, not the
+                // one picked: a jump is one hop.
+                let button = ui.add_enabled(
+                    why.is_none() && !walking,
+                    egui::Button::new(match next {
+                        Some(next) if next != star => format!("Jump to {}", base_of(next)),
+                        _ => "Jump".to_string(),
+                    }),
+                );
+                if button.clicked()
+                    && let Some(next) = next
                 {
-                    press = Some(HelmOrder::Jump(star));
+                    press = Some(HelmOrder::Jump(next));
                 }
                 if ui.button("Clear").clicked() {
                     *chart.picked = None;

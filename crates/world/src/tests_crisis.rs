@@ -274,9 +274,9 @@ fn a_system_overrun_while_the_crew_were_away_remembers_none_of_its_people() {
 
     // Away to another star, and the crisis takes the one behind them.
     world.undock_for_probe();
-    let elsewhere = (0..world.galaxy().stars.len() as u32)
-        .find(|&s| s != home_star)
-        .unwrap();
+    // A star a lane joins to this one: a jump goes one hop (feature 93),
+    // and the lanes are symmetric, so the way back is a jump too.
+    let elsewhere = crate::tests::laned_star(&world);
     jump_to(&mut world, elsewhere);
     world.set_droid_origin_for_probe(home_star);
     world.set_crisis_first_day_for_probe(0);

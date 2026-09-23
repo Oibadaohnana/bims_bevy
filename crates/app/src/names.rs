@@ -593,6 +593,10 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotCarrying => "only a medic carries somebody, and only one at a time",
         Refusal::NotHurt => "they are on their feet and can walk out themselves",
         Refusal::AlreadyCarried => "somebody has them already",
+        Refusal::NoLane => "no hyperlane runs from here to there — jump along the route",
+        Refusal::Jammed => {
+            "the machines' jammer holds this system's lanes shut — clear it, or jump outward"
+        }
     }
 }
 

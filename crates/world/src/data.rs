@@ -377,3 +377,17 @@ pub const DROID_SPREAD_DAYS: u32 = 5;
 /// before it is at the door. A galaxy too small to put one that far away
 /// puts it as far as it has (`crate::droid::origin`).
 pub const DROID_ORIGIN_MIN_HOPS: u16 = 8;
+
+// --- the jammer, and how hard the machines are (feature 93) --------------
+
+/// How near the machines' origin a system has to be for its machines to
+/// come at **tier three**, in hops: this many or fewer. Everywhere else
+/// they come at tier one, until there is a general rule for what tier an
+/// enemy carries. `World::droid_tier` is where it is read, and
+/// `BIMS_DROID_TIER` is what overrides it in the probes.
+///
+/// Two rather than one because the origin itself is a star the crew will
+/// hardly ever reach: what this is for is the fight getting harder as they
+/// push *towards* where the machines began, and a radius of one would be
+/// one system in the whole galaxy.
+pub const DROID_TIER_THREE_HOPS: u16 = 2;

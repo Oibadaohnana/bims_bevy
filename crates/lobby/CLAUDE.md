@@ -90,3 +90,23 @@ draws, in the colour a hostile station is ringed in everywhere else. It
 goes over the star and the `visited` ring and **under** the page's own
 picks, so the star the ship is at still reads as that; and it is drawn
 for a star charted or not, since the crisis is not a secret.
+
+## The lanes out of here are lit, and a route is drawn along them
+
+Feature 93, and two more `Marks` the page sets every frame. `reachable`
+is `World::reachable_stars` — the lanes out of the star the ship is at,
+which is where one charge of the hyperdrive can take it — drawn over the
+faint web as a `REACHABLE_WIDTH` (1.6px) line in the hyperdrive's violet
+with a small ring on the star at its far end; `route` is
+`World::route_to(picked)`, the shortest chain of lanes to the star the
+page has picked, drawn step by step in the same violet, with `jammed` —
+one `bool` a **step**, so it is one shorter than `route` — saying which
+of them a jammer would turn back (`World::jammed_step`): those are the
+enemy's red with a bar across the middle, square to the step, which is
+the one mark on this map that says *not this way*.
+
+Both are drawn **after** the web and **before** the stars, so a lit lane
+never hides a star and never reads as brighter than a mark. The violet is
+`TARGET`'s own value: the picked star is ringed in it, and the route that
+reaches it should read as the same thing. Empty in the lobby proper,
+where there is no ship and nothing to jump.

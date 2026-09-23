@@ -333,7 +333,7 @@ fn a_settlement_s_dead_lie_in_its_street_too() {
 fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
     let from = world.star_id;
-    let to = (from + 1) % world.galaxy().stars.len() as u32;
+    let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");
 
     // What the crew did here: turned the spawn's people against them,
@@ -528,7 +528,7 @@ fn a_mercenary_hired_is_not_there_to_hire_twice() {
 fn the_dead_stay_on_the_deck_across_a_jump_away_and_back() {
     let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
     let from = world.star_id;
-    let to = (from + 1) % world.galaxy().stars.len() as u32;
+    let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");
     world.set_hostile(station, true);
     world
@@ -584,7 +584,7 @@ fn the_map_marks_where_the_ship_has_already_been() {
     use worldgen::Node;
     let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
     let from = world.star_id;
-    let to = (from + 1) % world.galaxy().stars.len() as u32;
+    let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");
     world.step(&[]);
     assert!(

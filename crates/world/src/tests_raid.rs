@@ -530,8 +530,7 @@ fn a_raid_is_cancelled_by_a_completed_jump() {
     let minutes = minutes_out(&events);
     // The charge is twenty minutes, the raider half an hour out.
     assert!((data::JUMP_CHARGE_MINUTES as u32) < minutes);
-    let from = world.star_id;
-    let to = (from + 1) % world.galaxy().stars.len() as u32;
+    let to = crate::tests::laned_star(&world);
     world.man_the_helm_for_probe(0);
     let events = world.step(&[Command::Jump { slot: 0, star: to }]);
     assert!(

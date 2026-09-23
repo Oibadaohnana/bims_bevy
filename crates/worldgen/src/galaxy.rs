@@ -250,6 +250,57 @@ impl Galaxy {
         hops
     }
 
+    /// The shortest way from one star to another along the lanes, both
+    /// ends in it: `[from]` for the star itself, and `None` when either
+    /// star is not this galaxy's or the lanes do not join them — which,
+    /// [`weave`] leaving one connected graph, is only the former.
+    ///
+    /// Breadth-first, which is the shortest path when every lane is one
+    /// hop, and **ties go to the lower star id**: each layer of the walk
+    /// is taken in ascending id order and a star's lanes are sorted, so
+    /// the star a route steps through on the way to any other is the
+    /// lowest-numbered of the nearest ones, and the same route comes out
+    /// of every build on every machine. Feature 93: the chart draws it,
+    /// and a jump follows its first step.
+    pub fn route(&self, from: u32, to: u32) -> Option<Vec<u32>> {
+        if self.star(from).is_none() || self.star(to).is_none() {
+            return None;
+        }
+        if from == to {
+            return Some(vec![from]);
+        }
+        // `came[star]` is the star it was first reached from; the start is
+        // its own, which is what stops the walk back.
+        let mut came: Vec<u32> = vec![u32::MAX; self.stars.len()];
+        came[from as usize] = from;
+        let mut layer = vec![from];
+        while !layer.is_empty() && came[to as usize] == u32::MAX {
+            let mut next_layer: Vec<u32> = Vec::new();
+            for &at in &layer {
+                for &next in self.lanes(at) {
+                    if came[next as usize] != u32::MAX {
+                        continue;
+                    }
+                    came[next as usize] = at;
+                    next_layer.push(next);
+                }
+            }
+            next_layer.sort_unstable();
+            layer = next_layer;
+        }
+        if came[to as usize] == u32::MAX {
+            return None;
+        }
+        let mut route = vec![to];
+        let mut at = to;
+        while at != from {
+            at = came[at as usize];
+            route.push(at);
+        }
+        route.reverse();
+        Some(route)
+    }
+
     pub fn star(&self, id: u32) -> Option<&Star> {
         self.stars.get(id as usize).filter(|s| s.id == id)
     }
@@ -783,6 +834,75 @@ mod tests {
         // hop table of nothing but unreachable.
         assert!(a.lanes(STAR_COUNT).is_empty());
         assert!(a.hops_from(STAR_COUNT).iter().all(|&h| h == u16::MAX));
+    }
+
+    /// A route is the shortest way along the lanes, it is a real chain of
+    /// lanes, and it is the same every time (feature 93).
+    #[test]
+    fn a_route_is_the_shortest_chain_of_lanes_and_the_same_every_time() {
+        let g = Galaxy::new(77, GalaxyType::Spiral);
+        let hops = g.hops_from(0);
+        for to in [0u32, 1, 9, 100, 512, STAR_COUNT - 1] {
+            let route = g.route(0, to).expect("one connected web");
+            assert_eq!(route.first().copied(), Some(0));
+            assert_eq!(route.last().copied(), Some(to));
+            // As long as the hop table says, both ends counted.
+            assert_eq!(route.len() as u16, hops[to as usize] + 1, "star {to}");
+            // Every step is a lane, and no star is walked through twice.
+            for pair in route.windows(2) {
+                assert!(
+                    g.lanes(pair[0]).contains(&pair[1]),
+                    "{} to {} is not a lane",
+                    pair[0],
+                    pair[1]
+                );
+            }
+            let mut seen = route.clone();
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), route.len(), "star {to}: a route doubles back");
+            // The same answer whoever asks, and the same from a galaxy
+            // built again off the same seed.
+            assert_eq!(
+                g.route(0, to),
+                Galaxy::new(77, GalaxyType::Spiral).route(0, to)
+            );
+        }
+        // A star this galaxy has not got is nowhere to go and nowhere to
+        // come from.
+        assert_eq!(g.route(0, STAR_COUNT), None);
+        assert_eq!(g.route(STAR_COUNT, 0), None);
+        // The star itself is a route of one.
+        assert_eq!(g.route(5, 5), Some(vec![5]));
+        // A lane is a route of two, whichever end it is asked from.
+        let neighbour = g.lanes(5)[0];
+        assert_eq!(g.route(5, neighbour), Some(vec![5, neighbour]));
+        assert_eq!(g.route(neighbour, 5), Some(vec![neighbour, 5]));
+    }
+
+    /// The tie-break, written down: a star is stepped to from the
+    /// **lowest-numbered** of the stars nearest the start that reach it.
+    #[test]
+    fn a_tie_goes_to_the_lower_star() {
+        let g = Galaxy::new(77, GalaxyType::Round);
+        let hops = g.hops_from(0);
+        for to in 0..g.stars.len() as u32 {
+            let route = g.route(0, to).unwrap();
+            if route.len() < 3 {
+                continue;
+            }
+            let before = route[route.len() - 2];
+            // Every star one hop nearer the start than `to` and laned to
+            // it is a candidate; the route takes the lowest.
+            let lowest = g
+                .lanes(to)
+                .iter()
+                .copied()
+                .filter(|&s| hops[s as usize] + 1 == hops[to as usize])
+                .min()
+                .unwrap();
+            assert_eq!(before, lowest, "star {to}");
+        }
     }
 
     /// The graph is in the checksum, so moving one lane moves the number —

@@ -557,7 +557,7 @@ fn two_worlds_on_one_seed_meet_the_same_machines() {
 #[test]
 fn the_probes_dials_move_the_tier_and_the_cap() {
     let (mut world, _) = held_arena();
-    world.set_droid_tier_for_probe(Tier::Three);
+    world.set_droid_tier_for_probe(Some(Tier::Three));
     world.set_droid_wave_for_probe(3);
     let n = open_the_room(&mut world);
     assert!(n <= 3, "the cap holds: {n}");

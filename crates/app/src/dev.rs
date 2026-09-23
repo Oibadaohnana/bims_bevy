@@ -471,17 +471,15 @@ fn bim_level() -> Option<usize> {
 }
 
 /// What tier the machines come at in the `droids` probes (feature 83):
-/// `BIMS_DROID_TIER=2`, or a tier's place in `Tier::ALL`. One unless
-/// asked.
-pub fn droid_tier() -> bims::combat::Tier {
-    let Ok(spec) = std::env::var("BIMS_DROID_TIER") else {
-        return bims::combat::Tier::One;
-    };
+/// `BIMS_DROID_TIER=2`, or a tier's place in `Tier::ALL`. `None` — unset,
+/// or a word that is no tier — leaves it to how far the system is from
+/// the machines' origin (feature 93, `World::droid_tier`).
+pub fn droid_tier() -> Option<bims::combat::Tier> {
+    let spec = std::env::var("BIMS_DROID_TIER").ok()?;
     spec.trim()
         .parse::<u32>()
         .ok()
         .and_then(bims::combat::Tier::from_code)
-        .unwrap_or(bims::combat::Tier::One)
 }
 
 /// How big a wave the `droids` probes force: `BIMS_DROID_WAVE=32`, for

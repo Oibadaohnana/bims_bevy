@@ -925,3 +925,31 @@ is the save's half: the origin and the first day are in the file, the hop
 table is not — `Game::resume` calls `World::settle_crisis` for every load,
 restart and guest — so a world read back has to report the same infested
 set and the same checksum. **`SAVE_VERSION` 28.**
+
+## The `jammer` command is the crisis with the crew inside it (feature 93)
+
+`Session::jammer_for_probe(tier, reinforce, waves)` is `nix run .#jammer`:
+`crisis_for_probe(DROID_FIRST_DAY)` first — the same random galaxy, the
+same random dock, the origin `CRISIS_HOPS` (2) lane hops off — and then
+the clock wound **past** the day this system falls
+(`World::infested_on(star_id)` plus one) rather than a day short of the
+first, so the chart is red *here* and the lanes inward are shut; then
+every station of the system into the machines' hands at once
+(`World::infest_here_for_probe`), since the crisis's own flip waits for
+the crew to be off the berth and the point of this command is the crew
+**on** one, with a wave aboard and the reinforcement clock at a minute.
+
+Two hops is also inside `world::data::DROID_TIER_THREE_HOPS`, so the wave
+comes at **tier three** unless `BIMS_DROID_TIER` says otherwise — which
+is the distance rule (feature 93) doing its work, not a dial.
+`Session::droids` and `infest_the_dock_for_probe` take an
+`Option<Tier>` for the same reason: `None` is the distance rule, and the
+probes' dial is the only thing that overrides it.
+
+**`SAVE_VERSION` 29**: `World::droid_tier` is an `Option<Tier>` holding
+the override alone, and the machines' **derived jammer station** is not
+in the file at all — `Game::resume`'s `settle_crisis` rolls it again off
+the star's own stream (`World::settle_jammer`).
+`save_round_trip_keeps_a_jammer_down_and_rolls_the_derived_one_again` in
+`tests.rs` pins both: a cleared jammer stays down, and the file never
+mentions the derived station's id.

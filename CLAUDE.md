@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-twenty-four things to run, and each is a name rather than a flag — and
+twenty-five things to run, and each is a name rather than a flag — and
 `cargo run -- list` prints every one of them with a line each, which is
 the build's own answer where this table is a copy:
 
@@ -29,6 +29,7 @@ the build's own answer where this table is a copy:
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
 | `nix run .#raid` | `cargo run -- raid` | the simulation **off its berth, holding in open space, with a raid on its way**: the next raid brought forward to ten minutes of the clock — ten seconds at 1× — so contact comes as you watch, the raider closing at its own pace after it (`Session::raid_coming_for_probe`, `World::raid_coming_for_probe`; `RAID_IN_MINUTES` in `screens/game.rs`). Where `BIMS_RAID=contact` opens with the raider already on the radar, this is the warning arriving |
 | `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it starts (feature 92): `test`'s own random galaxy and random dock, the clock wound to the eve of `DROID_FIRST_DAY` (ten) and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight — so the first star turns red on the galaxy chart within a day of the clock rather than forty, and the crew's own system ten days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the first star turns and the clock opens a day short of whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
+| `nix run .#jammer` | `cargo run -- jammer` | the **jammer** (feature 93): `crisis`'s own random galaxy, random dock and origin **two hops off**, with the clock wound *past* the day this system falls rather than a day short of the first — so the crew open **inside** an infested system, every station of it in the machines' hands (`Session::jammer_for_probe`, `World::infest_here_for_probe`), a wave aboard the one they are tied up at and `DROID_REINFORCE_MINUTES` a minute. Two things are looked at from here. The **jam**: the chart lights the lanes out of the ship's star in the hyperdrive's violet, draws the route to whatever star is picked along them, and **bars in red every step of it a jammer would turn back** — a jump *inward*, towards where the machines began, is refused while the jammer station stands (`Refusal::Jammed`), and the panel says which station holds it. And the **tier**: two hops is inside `DROID_TIER_THREE_HOPS`, so the machines come at **tier three** without a dial. `BIMS_DROID_TIER=1` says otherwise, and `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE` are `droids`' own |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -147,6 +148,12 @@ the clock opens a day short of whatever it says — so the dial is about
 what the *rest* of the galaxy's days come out at (five a hop after it)
 rather than about how long to wait. `BIMS_CRISIS_DAY=0 bims crisis` opens
 with the origin already red on the chart, two hops from the crew.
+**`BIMS_DROID_TIER`** is the one dial the `jammer` command changes the
+meaning of (feature 93): unset is no longer "tier one" but **the
+distance rule** — tier three within `DROID_TIER_THREE_HOPS` (two) hops
+of the machines' origin and tier one beyond — so `BIMS_DROID_TIER=1 bims
+jammer` is the way to see a wave that is *not* at tier three, and
+`bims droids` is unmoved, its arena being nowhere near the origin.
 `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
 round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1
@@ -287,6 +294,35 @@ season rather than a raid, and a crew that flies *away* from it buys
 itself years. If it ever wants to be faster, the number to move is
 `DROID_SPREAD_DAYS`, not `LANE_NEIGHBOURS`: a fourth lane a star cuts the
 hop count hard and makes the galaxy a fortnight wide.
+
+## How many systems the machines have to build a jammer in (feature 93)
+
+Every infested system has exactly one jammer, on the orbital station with
+the lowest id — and where a system has no orbital station at all the
+machines put one there themselves (`world::jammer`). How often that is,
+and how far the crew start from the origin, over ten galaxy seeds —
+`cargo test --release -p world -- --ignored --nocapture
+jammers_over_ten_seeds` (`tests_jammer::jammers_over_ten_seeds`), which
+takes the origin the way `World::start` takes it, from the dock
+`spawn_anywhere` picks:
+
+| | min | median | max |
+| --- | --- | --- | --- |
+| systems needing a derived jammer, of a thousand | 380 | ~400 | 421 |
+| the same as a share | 38% | 40% | 42% |
+| hops from the crew's own star to the origin | 19 | ~35 | 69 |
+
+Two things fall out of it. **Two systems in five have no station of their
+own**, which is a lot more than "the odd one" — so the derived jammer is
+the ordinary case and not a corner, and it had to be a real station with
+a hull the crew can dock at and fight through rather than a marker. And
+**the crew start between nineteen and sixty-nine hops from the origin**,
+where the roll's own floor is eight (`DROID_ORIGIN_MIN_HOPS`): a galaxy
+is about a hundred and twenty hops across and its arms are long, so a
+roll that only asks for eight lands far further off than eight in
+practice. The jam is therefore about the crew choosing to push *towards*
+the machines and finding the way back shut behind them, not about the
+crisis arriving and trapping them where they are.
 
 ## `AGENTS` is how many of you there are — read it first
 
