@@ -81,6 +81,22 @@ pub fn pick_ground(seed: u64, galaxy: u32, roll: u64) -> Option<(u32, u32)> {
 /// after the first, which is a run somebody can sit through.
 pub const CRISIS_HOPS: u16 = 2;
 
+/// A planet with a town the ship can set down at, as the map writes it:
+/// which body, whose the town is, and where the icon is drawn.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct LandingSite {
+    pub node: Node,
+    /// Its people are enemies.
+    pub hostile: bool,
+    /// The machines are one hop away and it is next (feature 94):
+    /// `World::town_threatened`.
+    pub threatened: bool,
+    /// The crew defended it and held it: it stays friendly for good.
+    pub held: bool,
+    /// Where the map draws it, in the camera's units about the ship.
+    pub at: (f32, f32),
+}
+
 pub struct Session {
     pub editor: Editor,
     /// The game, once there is one. `None` for the whole of the design
@@ -470,6 +486,51 @@ impl Session {
         // fixed at the crew's first dock and never worked out again.
         world.set_droid_waves_for_probe(waves);
         world.infest_here_for_probe();
+        true
+    }
+
+    /// The `defense` command (feature 94): the `test_planet` run — a
+    /// random galaxy, a system with friendly ground, the ship set down at
+    /// the town — with **the town threatened**, so the machines come for
+    /// it while the crew are standing in it.
+    ///
+    /// Threatened is `World::front(star) == Some(1)`: the machines hold
+    /// the star next door and this one is next. So the crisis's first
+    /// day is wound to nought and the origin forced **one** hyperlane hop
+    /// off — where the roll's own floor is eight, and where `crisis`'s
+    /// own two would be a system merely near the front rather than on it.
+    /// The system's own flip is then `DROID_SPREAD_DAYS` (five days of
+    /// the clock) away, which is plenty of room for a fight.
+    ///
+    /// Both clocks are the caller's, and the command cuts both to a
+    /// minute: the first wave lands a minute after the landing rather
+    /// than an hour, and the next a minute after the last of one is
+    /// destroyed.
+    ///
+    /// Called **after** `land_for_probe`, since what starts an attack is
+    /// the crew being on the pad at a threatened town.
+    pub fn defense_for_probe(&mut self, delay: f64, reinforce: f64, waves: u32) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let world = &mut game.world;
+        // A star exactly one hop off, else the nearest there is.
+        let hops = world.start_star_hops_for_probe();
+        let pick = hops.iter().position(|&h| h == 1).or_else(|| {
+            hops.iter()
+                .enumerate()
+                .filter(|&(_, &h)| h != u16::MAX && h > 0)
+                .min_by_key(|&(_, &h)| h)
+                .map(|(i, _)| i)
+        });
+        let Some(origin) = pick else {
+            return false;
+        };
+        world.set_crisis_first_day_for_probe(0);
+        world.set_droid_origin_for_probe(origin as u32);
+        world.set_defense_delay_for_probe(delay);
+        world.set_droid_reinforce_minutes_for_probe(reinforce);
+        world.set_droid_waves_for_probe(waves);
         true
     }
 
@@ -1361,7 +1422,7 @@ impl Session {
     /// of the map in words as well as by its pad. The rule for which
     /// planets is the world's (`World::surface`); the stance is
     /// `World::stance` of the settlement.
-    pub fn landing_sites(&self) -> Vec<(Node, bool, (f32, f32))> {
+    pub fn landing_sites(&self) -> Vec<LandingSite> {
         let Some(game) = &self.game else {
             return Vec::new();
         };
@@ -1371,10 +1432,23 @@ impl Session {
             .filter_map(|&node| {
                 let Node::Body(body) = node else { return None };
                 let surface = game.world.surface(body)?;
-                let hostile = game.world.stance(surface.id) == bims::sight::Stance::Hostile;
-                Some((node, hostile, game.map_spot(node)?))
+                Some(LandingSite {
+                    node,
+                    hostile: game.world.stance(surface.id) == bims::sight::Stance::Hostile,
+                    threatened: game.world.town_threatened(surface.id),
+                    held: game.world.town_held(surface.id),
+                    at: game.map_spot(node)?,
+                })
             })
             .collect()
+    }
+
+    /// Whether the crew are standing in a town the machines are
+    /// attacking (feature 94), for the warning along the top.
+    pub fn defending_a_town(&self) -> bool {
+        self.game
+            .as_ref()
+            .is_some_and(|g| g.world.defense_here().is_some())
     }
 
     /// Where a node sits in the discovered list, if it is there.

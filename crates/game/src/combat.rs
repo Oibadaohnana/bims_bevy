@@ -1746,6 +1746,21 @@ pub struct Combat {
     /// whoever the world says they are; `None` for one that is down.
     /// Empty in peace.
     targets: Vec<Option<Target>>,
+    /// **The machines' own targets** (feature 94), for the one fight
+    /// that is not one room against another: a town the crew are
+    /// defending, where the droids are in the residents' room *with* the
+    /// people they came for. Empty everywhere else, and then the
+    /// machines read [`Combat::targets`] like everybody else.
+    ///
+    /// The front [`Combat::machines_cross`] of it are the world's —
+    /// across the seam, in the crew's room, shot at with a recorded
+    /// [`Shot`] the way a hostile room's people shoot — and the rest are
+    /// **this room's own bodies**, by index `i - machines_cross`, which
+    /// a machine shoots at with a hostile bolt that flies here.
+    #[cfg_attr(feature = "serde", serde(default))]
+    machines: Vec<Option<Target>>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    machines_cross: usize,
     pub bolts: Vec<Bolt>,
     sparks: Vec<Spark>,
     /// The grenades in the air and lying with their fuses burning
@@ -1801,6 +1816,8 @@ impl Combat {
     pub fn new(seed: u64) -> Combat {
         Combat {
             targets: Vec::new(),
+            machines: Vec::new(),
+            machines_cross: 0,
             bolts: Vec::new(),
             sparks: Vec::new(),
             grenades: Vec::new(),
@@ -1898,6 +1915,59 @@ impl Combat {
 
     pub fn targets(&self) -> &[Option<Target>] {
         &self.targets
+    }
+
+    /// The machines' own targets (feature 94): the world's across the
+    /// seam first, then this room's own bodies. An empty list is the
+    /// ordinary case — one room against another — and then the machines
+    /// shoot at [`Combat::targets`] like everybody else.
+    pub fn set_machine_targets(&mut self, targets: Vec<Option<(Vec2, Weapon)>>, cross: usize) {
+        self.machines_cross = cross.min(targets.len());
+        self.machines = targets
+            .into_iter()
+            .map(|t| {
+                t.map(|(at, weapon)| Target {
+                    at,
+                    weapon,
+                    peeking: false,
+                    stale: false,
+                    dodge: 0.0,
+                    taunting: 0.0,
+                    magnet: false,
+                })
+            })
+            .collect();
+    }
+
+    /// Which of the machines' targets are beliefs rather than sightings
+    /// — [`Combat::set_stale`] for the other list.
+    pub fn set_machine_stale(&mut self, stale: &[bool]) {
+        for (i, target) in self.machines.iter_mut().enumerate() {
+            if let Some(t) = target {
+                t.stale = stale.get(i).copied().unwrap_or(false);
+            }
+        }
+    }
+
+    /// What a machine aims at: its own list where the world has given it
+    /// one, else the room's.
+    pub fn machine_targets(&self) -> &[Option<Target>] {
+        if self.machines.is_empty() {
+            &self.targets
+        } else {
+            &self.machines
+        }
+    }
+
+    /// How many of [`Combat::machine_targets`] are across the seam: an
+    /// index below it is the world's to deliver a shot to, and one at or
+    /// above it is a body of this room, `i - machine_cross()`.
+    pub fn machine_cross(&self) -> usize {
+        if self.machines.is_empty() {
+            self.targets.len()
+        } else {
+            self.machines_cross
+        }
     }
 
     /// Where the targets stand, for the tactics.
@@ -2089,11 +2159,24 @@ impl Combat {
         stats: &WeaponStats,
         mark: Option<usize>,
     ) -> Option<(usize, Vec2, Vec2)> {
+        Combat::aim_among(&self.targets, sight, from, stats, mark)
+    }
+
+    /// [`Combat::aim_marked`] over a target list of the caller's — what
+    /// a machine aims with, since it has a list of its own in a town the
+    /// crew are defending (feature 94).
+    pub fn aim_among(
+        targets: &[Option<Target>],
+        sight: &Sight,
+        from: Vec2,
+        stats: &WeaponStats,
+        mark: Option<usize>,
+    ) -> Option<(usize, Vec2, Vec2)> {
         let reach = stats.reach();
         // A taunting target within its own radius comes before any
         // nearer one (feature 77); among equals, the nearest.
         let mut best: Option<((bool, bool, f32), usize, Vec2, Vec2)> = None;
-        for (i, target) in self.targets.iter().enumerate() {
+        for (i, target) in targets.iter().enumerate() {
             let Some(t) = target.filter(|t| !t.stale) else {
                 continue;
             };
@@ -2129,9 +2212,19 @@ impl Combat {
     /// a gun, since a gunner is locked by a blade at its throat and not by
     /// a pistol beside it. See the module note.
     pub fn melee_with(&self, sight: &Sight, from: Vec2, own: &WeaponStats) -> Option<usize> {
+        Combat::melee_among(&self.targets, sight, from, own)
+    }
+
+    /// [`Combat::melee_with`] over a target list of the caller's.
+    pub fn melee_among(
+        targets: &[Option<Target>],
+        sight: &Sight,
+        from: Vec2,
+        own: &WeaponStats,
+    ) -> Option<usize> {
         let reach = MELEE_RANGE * TILE;
         let mut best: Option<(f32, usize)> = None;
-        for (i, target) in self.targets.iter().enumerate() {
+        for (i, target) in targets.iter().enumerate() {
             let Some(t) = target.filter(|t| !t.stale) else {
                 continue;
             };
@@ -2152,7 +2245,12 @@ impl Combat {
     /// Whether the target with that index is still within a blade's reach
     /// of a body at `from`: what a [`Blow`] asks when its swing ends.
     pub fn within_reach(&self, from: Vec2, target: usize) -> bool {
-        self.targets
+        Combat::within_reach_among(&self.targets, from, target)
+    }
+
+    /// [`Combat::within_reach`] over a target list of the caller's.
+    pub fn within_reach_among(targets: &[Option<Target>], from: Vec2, target: usize) -> bool {
+        targets
             .get(target)
             .copied()
             .flatten()
@@ -2241,6 +2339,24 @@ impl Combat {
         let Some(at) = self.targets.get(target).copied().flatten().map(|t| t.at) else {
             return;
         };
+        self.brawl_at(from, target, at, weapon, damage, cut, as_shot, by);
+    }
+
+    /// [`Combat::brawl`] with the target's position handed in rather
+    /// than looked up, for a body swinging at a list of its own — a
+    /// machine in a town the crew are defending (feature 94).
+    #[allow(clippy::too_many_arguments)]
+    pub fn brawl_at(
+        &mut self,
+        from: Vec2,
+        target: usize,
+        at: Vec2,
+        weapon: Weapon,
+        damage: f32,
+        cut: bool,
+        as_shot: bool,
+        by: Option<usize>,
+    ) {
         self.lull = 0.0;
         if as_shot {
             self.shots.push(Shot {

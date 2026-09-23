@@ -70,7 +70,7 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// with the droids' other dials — the hop table is derived from the
 /// origin and the galaxy and is not in there — and the machines' hold on
 /// a system's stations filed with the rest of that system's memory.
-pub const REFERENCE_CHECKSUM: u64 = 0x_3d19_a6e0_51f2_fdfa;
+pub const REFERENCE_CHECKSUM: u64 = 0x_262b_281e_2a67_eae9;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

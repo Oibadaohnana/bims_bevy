@@ -62,6 +62,7 @@ use crate::class::{self, Charge, Class, Progress, Side, Talent};
 use crate::commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
 use crate::crew::{Aboard, Residents};
 use crate::data;
+use crate::defense::{self, Defense};
 use crate::deploy::{self, Deck, DeployKind, Deployable, Kit};
 use crate::droid::{self as droidplan, Infestation};
 use crate::event::{Refusal, WorldEvent};
@@ -847,6 +848,23 @@ pub struct World {
     /// `world_checksum` with the droids' other dials, since it is when
     /// the whole galaxy falls.
     crisis_first_day: u32,
+    /// The towns the machines are attacking and the crew are defending
+    /// (feature 94), by station id, sorted — one [`Defense`] a town the
+    /// crew have ever landed at while it was threatened, kept for good
+    /// so a fight paused by a take-off is resumed where it stood. Saved
+    /// and in `world_checksum`.
+    defenses: Vec<Defense>,
+    /// The towns the crew **held**: the last machine of the last wave
+    /// destroyed. Sorted station ids, saved and in `world_checksum` —
+    /// a held town stays friendly, trades and hires even after its
+    /// system has fallen, so the crisis reads this before it flips one.
+    held_towns: Vec<u32>,
+    /// How long after the crew land at a threatened town the first wave
+    /// comes, in minutes of the world's clock:
+    /// [`data::DEFENSE_DELAY_MINUTES`], bar the `defense` probe. Saved
+    /// and in `world_checksum` beside the machines' own dials, since
+    /// when a wave lands is the fight.
+    defense_delay: f64,
     /// The ship's power over its live networks, worked out from the parts
     /// once per change to them — `on_ship_changed` — rather than once a
     /// step: it is a union-find over every tile of the grid, and the
@@ -1395,6 +1413,9 @@ impl World {
             droid_origin,
             droid_hops,
             crisis_first_day: data::DROID_FIRST_DAY,
+            defenses: Vec::new(),
+            held_towns: Vec::new(),
+            defense_delay: data::DEFENSE_DELAY_MINUTES,
             power_budget: shipdesign::power_budget(&design_for_charge),
             discovered: Vec::new(),
             craft_targets: [0; CARGO_SLOTS],
@@ -1556,6 +1577,12 @@ impl World {
         self.spread_crisis(&mut events);
         self.settle_droids();
         self.droid_waves(&mut events);
+        //    And, at a **threatened town the crew have landed at**
+        //    (feature 94), the same clock again for a fight that is the
+        //    town's rather than the machines': the first wave an hour
+        //    after the landing, the next after each is destroyed, and the
+        //    whole of it held where it stands while the ship is away.
+        self.defense_waves(&mut events);
         self.settle_site();
 
         // 5. Crew: the room's own update, aboard, on this clock. Bims live
@@ -3580,6 +3607,19 @@ impl World {
             .residents
             .as_ref()
             .is_some_and(|r| self.stance(r.station) == Stance::Hostile);
+        // **And the one fight that is not one room against another**
+        // (feature 94): a town the crew are defending, where the
+        // machines stand in the residents' room with the town's own
+        // people. The station stays friendly throughout — its people are
+        // never the crew's targets and never shoot at them — so what is
+        // exchanged across the seam is the machines alone, and what
+        // happens between the machines and the townsfolk happens inside
+        // that one room and never crosses.
+        let defending = self.defense_here().is_some()
+            && self
+                .residents
+                .as_ref()
+                .is_some_and(|r| Some(r.station) == self.ship.state.station());
         let hits = self.aboard.room.take_hits();
         let executed = self.aboard.room.take_executed();
         // The engineers' sentries (feature 74), for the residents to be
@@ -3613,10 +3653,12 @@ impl World {
         let magnet: Vec<bool> = (0..self.aboard.crew_count())
             .map(|who| self.has_talent(who, Talent::Magnet))
             .collect();
-        let Some(residents) = self.residents.as_mut().filter(|_| hostile) else {
+        let Some(residents) = self.residents.as_mut().filter(|_| hostile || defending) else {
             self.aboard.room.set_hostiles(Vec::new());
             if let Some(residents) = &mut self.residents {
                 residents.aboard.room.set_hostiles(Vec::new());
+                residents.aboard.room.clear_machine_hostiles();
+                residents.aboard.room.set_sheltering(&[]);
             }
             return;
         };
@@ -3737,14 +3779,77 @@ impl World {
                 (bims::math::vec2(at.x as f32, at.y as f32), weapon)
             }));
         }
-        room.set_hostiles(crew.clone());
-        room.set_hostiles_peeking(&self.aboard.crew_peeking());
-        room.set_hostiles_taunting(&taunting, &magnet);
-        // And the odds each dodges a bolt for its armour, the same way.
-        let crew_dodge: Vec<f32> = (0..self.aboard.crew_count())
-            .map(|who| self.aboard.room.dodge(who as usize))
-            .collect();
-        room.set_hostiles_dodge(&crew_dodge);
+        if defending {
+            // **The town's own fight** (feature 94). Its people shoot
+            // the machines *in their own room* and nothing else: the
+            // crew are friends and are not on their list at all, which
+            // is what "the townsfolk's hits reach droids" means — a
+            // bolt of theirs flies here and lands here.
+            let machines = room.droid_count() as usize;
+            let at_machines: Vec<Option<(bims::math::Vec2, Weapon)>> = (0..machines)
+                .map(|i| {
+                    room.droid(i)
+                        .filter(|d| !d.destroyed)
+                        .map(|d| (d.pos, d.weapon))
+                })
+                .collect();
+            let machine_peek: Vec<bool> = (0..machines)
+                .map(|i| room.droid(i).is_some_and(|d| d.peek.is_some()))
+                .collect();
+            room.set_hostiles(at_machines);
+            room.set_hostiles_peeking(&machine_peek);
+            // And **the machines' own list**: the crew across the seam
+            // first — shot at with a recorded `Shot` the world flies on
+            // the joined deck — then the town's people, shot at with a
+            // bolt that flies in this room and lands on the body.
+            let mut theirs = crew.clone();
+            let cross = theirs.len();
+            for who in 0..bims {
+                theirs.push((room.is_alive(who) && !room.is_unconscious(who)).then(|| {
+                    (
+                        room.exposed_at(who),
+                        room.weapon(who).unwrap_or(WeaponKind::LaserPistol.basic()),
+                    )
+                }));
+            }
+            room.set_machine_hostiles(theirs, cross);
+            // And who takes arms: **the guard and any mercenaries**.
+            // Everybody else walks into the nearest house and stays
+            // there until the attack is over.
+            let sheltering: Vec<bool> = (0..bims)
+                .map(|who| {
+                    who != surface::GUARD as usize
+                        && residents.fee.get(who).copied().flatten().is_none()
+                })
+                .collect();
+            let room = &mut residents.aboard.room;
+            room.set_sheltering(&sheltering);
+        } else {
+            room.set_hostiles(crew.clone());
+            room.set_hostiles_peeking(&self.aboard.crew_peeking());
+            room.set_hostiles_taunting(&taunting, &magnet);
+            // And the odds each dodges a bolt for its armour, the same way.
+            let crew_dodge: Vec<f32> = (0..self.aboard.crew_count())
+                .map(|who| self.aboard.room.dodge(who as usize))
+                .collect();
+            room.set_hostiles_dodge(&crew_dodge);
+            room.clear_machine_hostiles();
+            room.set_sheltering(&[]);
+        }
+        let room = &mut residents.aboard.room;
+        // **What the town's people did to the machines stays in the
+        // room** (feature 94): their bolts and their blows are ordinary
+        // friendly `Hit`s on this room's own target list, which is the
+        // machines by droid index, so they are delivered to the machine
+        // they were aimed at without crossing anywhere.
+        let own = room.take_hits();
+        for hit in own {
+            room.strike_droid(
+                hit.who,
+                bims::droid::DroidPart::hit_by(hit.roll),
+                hit.damage,
+            );
+        }
         let shots = room.take_shots();
         if let Some((origin, ex, ey)) = self.aboard.station_frame {
             // A point of the residents' room onto the joined deck: its
@@ -3801,8 +3906,20 @@ impl World {
         // index space, which is what a hit past the Bims is read back
         // against above.
         let bodies = room.body_count();
+        let town_bims = room.crew_count();
         let alive: Vec<bool> = (0..bodies)
-            .map(|who| room.is_alive(who as usize) && !room.is_unconscious(who as usize))
+            .map(|who| {
+                // **The crew's targets are the machines only** while a
+                // town is being defended (feature 94): its people are
+                // friends, so they are handed over as nobody's target
+                // and the crew never aim at one. The index space is
+                // still the whole room's, which is what a hit read back
+                // past the Bims relies on.
+                if defending && who < town_bims {
+                    return false;
+                }
+                room.is_alive(who as usize) && !room.is_unconscious(who as usize)
+            })
             .collect();
         let weapons: Vec<Weapon> = (0..bodies)
             .map(|who| {
@@ -5323,11 +5440,16 @@ impl World {
     /// one too far out for it to matter, and for every station before the
     /// machines hold anything (feature 94).
     ///
-    /// The system's own front ([`World::front`]). The station is an
-    /// argument rather than the system because a station can carry a
-    /// front of its own: see feature 94's held town.
-    pub fn front_at(&self, _station: u32) -> Option<u16> {
-        let hops = self.front(self.star_id)?;
+    /// The system's own front ([`World::front`]), bar one case: a **town
+    /// the crew defended and held** counts as one hop out whatever the
+    /// chart says, since its system has fallen round it and it is the
+    /// last friendly desk inside the infection.
+    pub fn front_at(&self, station: u32) -> Option<u16> {
+        let hops = if self.town_held(station) {
+            1
+        } else {
+            self.front(self.star_id)?
+        };
         (hops <= data::FRONT_HOPS).then_some(hops)
     }
 
@@ -6998,6 +7120,97 @@ impl World {
         }
     }
 
+    /// Move one of the station's people out of its room and into the
+    /// crew's, at the spot it stands on, with its worn armour renumbered
+    /// as pieces of the world's under fresh ids. What a **hire** and a
+    /// townsperson **joining** after a defence (feature 94) both do; the
+    /// money, the contract and the kit are the caller's, and so is
+    /// `on_ship_changed`/`mirror_pieces` afterwards.
+    ///
+    /// `for_hire` says which of the station's losses to count it against
+    /// — a mercenary gone from its offer, or one of its own people gone
+    /// from the town — so the room opens again with the right crowd
+    /// either way.
+    ///
+    /// Answers the crew index it took and whether it was a field medic,
+    /// or `None` with no station's room open.
+    fn take_resident_aboard(&mut self, resident: u32, for_hire: bool) -> Option<(u32, bool)> {
+        let at = self.body_position(LootSource::Resident(resident))?;
+        let residents = self.residents.as_mut()?;
+        if resident >= residents.aboard.room.crew_count() {
+            return None;
+        }
+        // Out of the station's room — and off its crowd for good: the
+        // station remembers one fewer ([`World::losses`]).
+        let station = residents.station;
+        let mut everybody = residents.aboard.room.take_crew();
+        let mut body = everybody.remove(resident as usize);
+        residents
+            .aboard
+            .room
+            .adopt(everybody, bims::math::Vec2::ZERO);
+        residents.aboard.crew = residents.aboard.room.crew_count();
+        residents.down.remove(resident as usize);
+        residents.xp_down.remove(resident as usize);
+        residents.xp_dead.remove(resident as usize);
+        residents.last_hit_by.remove(resident as usize);
+        residents.fee.remove(resident as usize);
+        let was_medic = residents.medic.remove(resident as usize);
+        residents.grave.remove(resident as usize);
+        memory::amend_losses(&mut self.losses, station, |l| {
+            if for_hire {
+                l.mercenaries += 1;
+            } else {
+                l.dead += 1;
+            }
+        });
+        // Into the crew's, where it stood on the deck, with its armour
+        // renumbered as the world's — and its berth left behind, since
+        // that was the station's: `adopt` gives it the first bunk spare,
+        // and a body with none sleeps on the deck under the usual rules.
+        let new_who = self.aboard.crew_count();
+        body.bed = None;
+        let mut gear = body.gear;
+        for part in Part::ALL {
+            if let Some(worn) = gear.worn_mut(part) {
+                let id = self.next_piece;
+                self.next_piece += 1;
+                self.pieces.push(Piece {
+                    id,
+                    kind: worn.kind,
+                    tier: worn.tier,
+                    health: worn.health,
+                    at: Where::Worn { who: new_who },
+                });
+                worn.id = id;
+            }
+        }
+        body.character.stand_at(at);
+        self.aboard.room.adopt(vec![body], bims::math::Vec2::ZERO);
+        self.aboard.crew = self.aboard.room.crew_count();
+        // `issue` puts the renumbered pieces on and redraws the body.
+        self.aboard.room.issue(new_who as usize, gear);
+        self.health.push(health::HealthState::new());
+        self.crew_down.push(false);
+        self.crew_locked.push(false);
+        // Crew indices are what a beam links by, so every beam is broken
+        // by one arriving (feature 76); the new hand's state starts empty.
+        self.clear_beams();
+        self.clear_carries();
+        self.medics
+            .resize(self.aboard.crew as usize, Medic::default());
+        self.tanks
+            .resize(self.aboard.crew as usize, Tank::default());
+        // And the crew's indices have moved, so the squad order — whose
+        // members are crew indices and whose marks are residents' — is
+        // called off (feature 78).
+        self.commanders
+            .resize(self.aboard.crew as usize, Commander::default());
+        self.clear_squad();
+        self.ship.crew_count = self.aboard.crew;
+        Some((new_who, was_medic))
+    }
+
     fn hire(&mut self, slot: u32, who: u32, resident: u32, events: &mut Vec<WorldEvent>) {
         let Some(offer) = self.hire_offer(who, resident) else {
             events.push(refused(slot, Refusal::NotForHire));
@@ -7027,76 +7240,10 @@ impl World {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
-        let Some(at) = self.body_position(LootSource::Resident(resident)) else {
+        let Some((new_who, hire_is_medic)) = self.take_resident_aboard(resident, true) else {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         };
-        let Some(residents) = self.residents.as_mut() else {
-            events.push(refused(slot, Refusal::NotDocked));
-            return;
-        };
-        // Out of the station's room — and off its offer for good: the
-        // station remembers one fewer for hire ([`World::losses`]).
-        let station = residents.station;
-        let mut everybody = residents.aboard.room.take_crew();
-        let mut body = everybody.remove(resident as usize);
-        residents
-            .aboard
-            .room
-            .adopt(everybody, bims::math::Vec2::ZERO);
-        residents.aboard.crew = residents.aboard.room.crew_count();
-        residents.down.remove(resident as usize);
-        residents.xp_down.remove(resident as usize);
-        residents.xp_dead.remove(resident as usize);
-        residents.last_hit_by.remove(resident as usize);
-        residents.fee.remove(resident as usize);
-        let hire_is_medic = residents.medic.remove(resident as usize);
-        residents.grave.remove(resident as usize);
-        memory::amend_losses(&mut self.losses, station, |l| l.mercenaries += 1);
-        // Into the crew's, where it stood on the deck, with its armour
-        // renumbered as the world's — and its berth left behind, since
-        // that was the station's: `adopt` gives it the bunk the offer
-        // promised, the first one spare.
-        let new_who = self.aboard.crew_count();
-        body.bed = None;
-        let mut gear = body.gear;
-        for part in Part::ALL {
-            if let Some(worn) = gear.worn_mut(part) {
-                let id = self.next_piece;
-                self.next_piece += 1;
-                self.pieces.push(Piece {
-                    id,
-                    kind: worn.kind,
-                    tier: worn.tier,
-                    health: worn.health,
-                    at: Where::Worn { who: new_who },
-                });
-                worn.id = id;
-            }
-        }
-        body.character.stand_at(at);
-        self.aboard.room.adopt(vec![body], bims::math::Vec2::ZERO);
-        self.aboard.crew = self.aboard.room.crew_count();
-        // `issue` puts the renumbered pieces on and redraws the body.
-        self.aboard.room.issue(new_who as usize, gear);
-        self.health.push(health::HealthState::new());
-        self.crew_down.push(false);
-        self.crew_locked.push(false);
-        // Crew indices are what a beam links by, so every beam is broken
-        // by a hire (feature 76); the hire's own state starts empty.
-        self.clear_beams();
-        self.clear_carries();
-        self.medics
-            .resize(self.aboard.crew as usize, Medic::default());
-        self.tanks
-            .resize(self.aboard.crew as usize, Tank::default());
-        // And the crew's indices have moved, so the squad order — whose
-        // members are crew indices and whose marks are residents' — is
-        // called off (feature 78).
-        self.commanders
-            .resize(self.aboard.crew as usize, Commander::default());
-        self.clear_squad();
-        self.ship.crew_count = self.aboard.crew;
         self.money -= fee;
         self.hired.push(Hired {
             who: new_who,
@@ -8333,6 +8480,20 @@ impl World {
         if self.is_droid_held(id) {
             return;
         }
+        // **A town the crew held is never taken** (feature 94): the
+        // machines came for it once and were destroyed, and after that
+        // the system falling round it changes nothing — it goes on
+        // friendly, trading and hiring, inside the infection.
+        if self.town_held(id) {
+            return;
+        }
+        // A town with a defence still running has **lost** it: the day
+        // came while the crew were away with waves left, or its last
+        // person is dead. Either way the fight is over and the machines
+        // have the place.
+        if let Some(d) = self.defense_mut(id) {
+            d.lost = true;
+        }
         self.infested.push(Infestation::new(id));
         self.infested.sort_by_key(|it| it.station);
         // The station's people are gone the moment the machines have it:
@@ -8839,8 +9000,14 @@ impl World {
     /// is gone with them. It is a picture and nothing else: not part of
     /// the room, not walkable, not a thing a bolt can reach.
     pub fn droid_ship(&self, station: u32) -> Option<(DVec2, DVec2, bool)> {
-        let wave = self.infestation(station).map(|it| it.wave)?;
-        if wave < 2 {
+        // A held station's wave, or a defended town's (feature 94),
+        // whose every wave **arrives** — there is no wave one already on
+        // the ground — so its lander is drawn from the first.
+        let (wave, from) = match self.infestation(station) {
+            Some(it) => (it.wave, 2),
+            None => (self.defense(station).map(|d| d.wave)?, 1),
+        };
+        if wave < from {
             return None;
         }
         let residents = self.residents.as_ref().filter(|r| r.station == station)?;
@@ -9200,6 +9367,319 @@ impl World {
         if cleared {
             events.push(WorldEvent::DroidStationCleared { station: id });
         }
+    }
+
+    // --- defending a town (feature 94) --------------------------------------
+    //
+    // A friendly town one hop outside the infection is **threatened**, and
+    // the first time the crew set down at one the machines come for it an
+    // hour later. What makes it different from every other fight in the
+    // game is that it happens **inside one room**: the town's people and
+    // the machines are both in the residents' room, and the crew are in
+    // theirs. So three target lists rather than two — the crew's (the
+    // machines alone), the town's (the machines alone) and the machines'
+    // own (the crew *and* the town) — and the hits between the two sides
+    // in the residents' room never cross the seam at all.
+
+    /// Whether this station is a **town under threat**: a friendly town
+    /// on a planet's surface in a system one hop outside the infection
+    /// ([`World::front`]). Derived, never saved — a town threatened today
+    /// is overrun in five days and threatened no longer.
+    ///
+    /// A town the machines already hold is not threatened but taken, and
+    /// one the crew **held** ([`World::town_held`]) is never threatened
+    /// again: its fight is over.
+    pub fn town_threatened(&self, station: u32) -> bool {
+        if surface::surface_body(station).is_none() {
+            return false;
+        }
+        if self.is_droid_held(station) || self.town_held(station) {
+            return false;
+        }
+        if self.stance(station) == Stance::Hostile {
+            return false;
+        }
+        self.front(self.star_id) == Some(1)
+    }
+
+    /// Whether the crew have held this town: the last machine of the last
+    /// wave destroyed. A held town stays friendly for good — the crisis
+    /// never flips one — and goes on trading and hiring inside the
+    /// infection.
+    pub fn town_held(&self, station: u32) -> bool {
+        self.held_towns.binary_search(&station).is_ok()
+    }
+
+    /// Every town the crew have held, in station order.
+    pub fn held_towns(&self) -> &[u32] {
+        &self.held_towns
+    }
+
+    /// The attack on that town, if there has ever been one.
+    pub fn defense(&self, station: u32) -> Option<&Defense> {
+        self.defenses.iter().find(|d| d.station == station)
+    }
+
+    fn defense_mut(&mut self, station: u32) -> Option<&mut Defense> {
+        self.defenses.iter_mut().find(|d| d.station == station)
+    }
+
+    /// Every attack the world is keeping, in station order — the
+    /// checksum's, and the save's.
+    pub fn defenses(&self) -> &[Defense] {
+        &self.defenses
+    }
+
+    /// The attack on the town the ship is **standing in**, still running:
+    /// `None` away from one, at one that was never attacked, and at one
+    /// whose fight is over either way. What the step and `visit` read to
+    /// know the town's own fight is on.
+    pub fn defense_here(&self) -> Option<&Defense> {
+        let station = self.ship.state.station()?;
+        surface::surface_body(station)?;
+        if !self.aboard.is_joined() {
+            return None;
+        }
+        self.defense(station).filter(|d| !d.over())
+    }
+
+    /// How long until the next wave lands on the town the crew are
+    /// defending, in minutes of the world's clock — `None` while a
+    /// machine is still standing, with none left to come, and away from
+    /// an attack. What the app counts down along the top.
+    pub fn defense_wave_due(&self) -> Option<f64> {
+        self.defense_here()?.next_in
+    }
+
+    /// Which wave of machines is on the town's ground and how many are
+    /// still to come after it — `None` away from an attack, and before
+    /// the first wave has landed.
+    pub fn defense_wave_standing(&self) -> Option<(u32, u32)> {
+        let d = self.defense_here()?;
+        (d.wave > 0).then_some((d.wave, d.waves_left))
+    }
+
+    /// How long after the crew land at a threatened town the first wave
+    /// comes, in minutes of the world's clock.
+    pub fn defense_delay_minutes(&self) -> f64 {
+        self.defense_delay
+    }
+
+    /// The `defense` probe's dial: the wait before the first wave, in
+    /// minutes of the world's clock.
+    pub fn set_defense_delay_for_probe(&mut self, minutes: f64) {
+        self.defense_delay = minutes;
+    }
+
+    /// The attack's stage of the step, right after the machines' own.
+    ///
+    /// Everything about it waits for the crew: the first landing starts
+    /// it, the count is fixed then, the clock runs only while the ship is
+    /// on the pad, and taking off leaves it exactly where it stood.
+    fn defense_waves(&mut self, events: &mut Vec<WorldEvent>) {
+        let Some(id) = self
+            .ship
+            .state
+            .station()
+            .filter(|_| self.aboard.is_joined())
+            .filter(|&id| surface::surface_body(id).is_some())
+        else {
+            return;
+        };
+        // The first landing at a threatened town is what starts it, and
+        // it starts once: a town attacked and left is attacked still.
+        if self.defense(id).is_none() {
+            if !self.town_threatened(id) {
+                return;
+            }
+            let mut fresh = Defense::new(id);
+            fresh.next_in = Some(self.defense_delay);
+            let at = self.defenses.partition_point(|d| d.station < id);
+            self.defenses.insert(at, fresh);
+        }
+        if self.defense(id).is_some_and(|d| d.over()) {
+            return;
+        }
+        // The count is worked out once, at that same first landing.
+        if self.defense(id).is_some_and(|d| !d.settled) {
+            let waves = self.droid_wave_count();
+            if let Some(d) = self.defense_mut(id) {
+                d.settle(waves);
+            }
+        }
+        // **Every one of the town's people dead is the town lost**, wave
+        // or no wave: there is nobody left to defend.
+        if self.town_is_dead(id) {
+            if let Some(d) = self.defense_mut(id) {
+                d.lost = true;
+            }
+            // The town falls as any station does: the machines have it,
+            // and `infest` reopens its room with them in it.
+            self.infest(id);
+            return;
+        }
+        // **A wave the crew left behind is put back where it stood.** A
+        // town's room is built afresh at every landing, so the machines
+        // on the ground have to be laid again — as many of them as were
+        // still up, and not the wave at full strength, or a fight could
+        // be won or lost by taking off and landing again.
+        let fresh_room = self
+            .residents
+            .as_ref()
+            .is_some_and(|r| r.station == id && r.aboard.room.droid_count() == 0);
+        let left_standing = self.defense(id).map_or(0, |d| d.standing);
+        if fresh_room && left_standing > 0 {
+            self.settle_defense_droids(id, left_standing);
+        }
+        let standing = self.droids_standing();
+        if let Some(d) = self.defense_mut(id) {
+            d.standing = standing;
+        }
+        let step = data::STEP_MINUTES;
+        let reinforce = self.droid_reinforce;
+        let mut arrive = false;
+        let mut won = false;
+        if let Some(d) = self.defense_mut(id) {
+            if standing > 0 {
+                // A fight is on: the clock does not run.
+                d.next_in = None;
+            } else if d.wave == 0 || d.more_to_come() {
+                match d.next_in {
+                    None => d.next_in = Some(reinforce),
+                    Some(left) if left <= step => {
+                        if d.wave > 0 {
+                            d.waves_left -= 1;
+                        }
+                        d.wave += 1;
+                        d.next_in = None;
+                        arrive = true;
+                    }
+                    Some(left) => d.next_in = Some(left - step),
+                }
+            } else if !d.won {
+                d.won = true;
+                won = true;
+            }
+        }
+        if arrive {
+            self.clear_wrecks();
+            let n = self.droid_wave_size();
+            self.settle_defense_droids(id, n);
+            if let Some(d) = self.defense_mut(id) {
+                d.standing = n;
+            }
+            events.push(WorldEvent::DroidReinforcements { station: id });
+            for request in &mut self.speed_requests {
+                *request = Speed::Real;
+            }
+        }
+        if won {
+            let at = self.held_towns.partition_point(|&s| s < id);
+            self.held_towns.insert(at, id);
+            events.push(WorldEvent::TownHeld { station: id });
+            self.townsfolk_join(id, events);
+        }
+    }
+
+    /// Whether every one of the town's own people is dead — the
+    /// mercenaries are nobody's townsfolk and are not counted, and a
+    /// town whose room is not open answers false, since nothing is
+    /// known about it.
+    fn town_is_dead(&self, station: u32) -> bool {
+        let Some(residents) = self.residents.as_ref().filter(|r| r.station == station) else {
+            return false;
+        };
+        let bims = residents.aboard.room.crew_count() as usize;
+        if bims == 0 {
+            return false;
+        }
+        (0..bims)
+            .filter(|&who| !residents.is_mercenary(who))
+            .all(|who| !residents.aboard.room.is_alive(who))
+    }
+
+    /// The old wave's wrecks off the deck, and what the room remembered
+    /// about them cut back to its Bims — the arrival half of
+    /// [`World::droid_waves`], shared with the town's.
+    fn clear_wrecks(&mut self) {
+        let Some(residents) = &mut self.residents else {
+            return;
+        };
+        residents.aboard.room.clear_droids();
+        let bims = residents.aboard.room.crew_count() as usize;
+        residents.down.truncate(bims);
+        residents.xp_down.truncate(bims);
+        residents.xp_dead.truncate(bims);
+        residents.last_hit_by.truncate(bims);
+        residents.fee.truncate(bims);
+        residents.medic.truncate(bims);
+        residents.grave.truncate(bims);
+    }
+
+    /// A wave onto the town's ground: the droid step's own arrival, at
+    /// the gate its lander set down beyond, north for an odd wave and
+    /// south for an even one.
+    fn settle_defense_droids(&mut self, id: u32, n: u32) {
+        let Some(wave) = self.defense(id).map(|d| d.wave) else {
+            return;
+        };
+        if wave == 0 || n == 0 {
+            return;
+        }
+        let Some(station) = self.station(id).cloned() else {
+            return;
+        };
+        let droids = self.arriving_wave(&station, n, wave);
+        if let Some(residents) = &mut self.residents {
+            residents
+                .aboard
+                .room
+                .adopt_droids(droids, bims::math::Vec2::ZERO);
+            residents.aboard.crew = residents.aboard.room.body_count();
+        }
+    }
+
+    /// The town is held: the survivors who go with the crew.
+    ///
+    /// The larger of one and a fifth of the town's own people still
+    /// alive, never more than the survivors other than the guard, taken
+    /// **lowest index first and never the guard** — and each moved out
+    /// of the residents' room into the crew's the way a hire is, with no
+    /// contract, no wages and no bunk asked for: a classless crew bot
+    /// like any other, which sleeps on the deck under the ordinary rules
+    /// if there is no bunk spare. They keep what they carry and any
+    /// wounds they have; nothing is issued.
+    fn townsfolk_join(&mut self, station: u32, events: &mut Vec<WorldEvent>) {
+        let Some(residents) = self.residents.as_ref().filter(|r| r.station == station) else {
+            return;
+        };
+        let bims = residents.aboard.room.crew_count() as usize;
+        let living: Vec<u32> = (0..bims)
+            .filter(|&who| !residents.is_mercenary(who))
+            .filter(|&who| residents.aboard.room.is_alive(who))
+            .map(|who| who as u32)
+            .collect();
+        let guard_alive = living.first() == Some(&(surface::GUARD as u32));
+        let want = defense::joiners(living.len() as u32, guard_alive);
+        // Lowest index first, never the guard.
+        let mut going: Vec<u32> = living
+            .into_iter()
+            .filter(|&who| who != surface::GUARD as u32)
+            .take(want as usize)
+            .collect();
+        if going.is_empty() {
+            return;
+        }
+        // Taken highest index first, so that removing one does not move
+        // the index of the next.
+        going.sort_unstable();
+        let count = going.len() as u32;
+        for who in going.into_iter().rev() {
+            self.take_resident_aboard(who, false);
+        }
+        self.on_ship_changed();
+        self.mirror_pieces(events);
+        events.push(WorldEvent::TownsfolkJoined { count });
     }
 }
 

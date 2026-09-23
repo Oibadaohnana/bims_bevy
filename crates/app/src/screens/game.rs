@@ -82,6 +82,14 @@ const DROID_REINFORCE_IN_PROBE: f64 = 1.0;
 /// otherwise.
 const DROID_WAVES_IN_PROBE: u32 = 3;
 
+/// How long the `defense` command waits between the crew setting down at
+/// a threatened town and the first wave, in minutes of the world's clock
+/// (feature 94): a minute, where the game's own is
+/// `data::DEFENSE_DELAY_MINUTES` (an hour) — the same shortcut as the
+/// machines' reinforcement clock, and for the same reason.
+/// `BIMS_DEFENSE_DELAY=n` says otherwise.
+const DEFENSE_DELAY_IN_PROBE: f64 = 1.0;
+
 /// What the map writes over the ship, before where it is.
 const HERE_TAG: &str = "You";
 /// How far above the ship's mark on the map its words sit: clear of the
@@ -94,6 +102,10 @@ const HERE_LIFT: f32 = 36.0;
 /// (`26 * 1.3 / 2`, about 17) and the reticle's south tick when the ship is
 /// docked at the planet's station, with a line of type to spare.
 const LAND_TAG: &str = "land";
+/// And what a town on the front is tagged instead (feature 94): one the
+/// machines are a hop from, and one the crew held against them.
+const TOWN_THREATENED_TAG: &str = "threatened";
+const TOWN_HELD_TAG: &str = "held";
 const LAND_DROP: f32 = 38.0;
 
 /// How near a click has to come to a map icon to count as picking it, in
@@ -479,12 +491,15 @@ fn open(
                 Launch::Test
                 | Launch::TestPlanet
                 | Launch::DroidsPlanet
+                | Launch::Defense
                 | Launch::Crisis
                 | Launch::Jammer => {
                     let seed = super::room::rand_seed();
                     let roll = super::room::rand_seed();
                     let pick = match *launch {
-                        Launch::TestPlanet | Launch::DroidsPlanet => ship::session::pick_ground,
+                        Launch::TestPlanet | Launch::DroidsPlanet | Launch::Defense => {
+                            ship::session::pick_ground
+                        }
                         // `crisis` is `test`: a dock somebody lives on,
                         // so there are people for the machines to take.
                         _ => ship::session::pick_dock,
@@ -544,6 +559,7 @@ fn open(
                 Launch::Test
                 | Launch::TestPlanet
                 | Launch::DroidsPlanet
+                | Launch::Defense
                 | Launch::Crisis
                 | Launch::Jammer => {
                     let design = shipdesign::fixture::combat_ship();
@@ -570,8 +586,29 @@ fn open(
                             crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
                         );
                     }
-                    if matches!(*launch, Launch::TestPlanet | Launch::DroidsPlanet) {
+                    if matches!(
+                        *launch,
+                        Launch::TestPlanet | Launch::DroidsPlanet | Launch::Defense
+                    ) {
                         session.land_for_probe();
+                    }
+                    // `defense` is that with the town **threatened**
+                    // (feature 94): the machines' origin one hop off, so
+                    // a wave lands outside a gate a minute after the
+                    // landing and the town's own people fight beside the
+                    // crew. After the landing, since what starts an
+                    // attack is the crew being on the pad.
+                    if *launch == Launch::Defense {
+                        if let (Some(n), Some(game)) =
+                            (crate::dev::droid_wave_max(), session.game.as_mut())
+                        {
+                            game.world.set_droid_wave_for_probe(n);
+                        }
+                        session.defense_for_probe(
+                            crate::dev::defense_delay(DEFENSE_DELAY_IN_PROBE),
+                            crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                            crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                        );
                     }
                     // `droids_planet` is that with the town held: the
                     // settlement's own people gone and the machines in
@@ -2642,14 +2679,27 @@ fn frame(
             // so that it can be landed on is said in words as well as by
             // the pad the map draws at its shoulder. Under the icon, where
             // the ship's own words — over it — cannot land on them.
-            for (node, hostile, (x, y)) in session.landing_sites() {
+            for site in session.landing_sites() {
+                let (x, y) = site.at;
                 let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
                 let at = egui::pos2(at.x, at.y + LAND_DROP);
-                let colour = if hostile { theme::BAD } else { theme::LAND };
+                // A town the machines are one hop from is said in the
+                // enemy's red with a word of its own (feature 94), since
+                // "land" is not what the player wants to read about it;
+                // one the crew held says so instead.
+                let (colour, tag) = if site.hostile {
+                    (theme::BAD, LAND_TAG)
+                } else if site.threatened {
+                    (theme::BAD, TOWN_THREATENED_TAG)
+                } else if site.held {
+                    (theme::ACCENT, TOWN_HELD_TAG)
+                } else {
+                    (theme::LAND, LAND_TAG)
+                };
                 theme::name_over(
                     &painter,
                     at,
-                    &format!("{} · {LAND_TAG}", node_name(session, node)),
+                    &format!("{} · {tag}", node_name(session, site.node)),
                     colour,
                 );
             }
@@ -3787,6 +3837,31 @@ fn describe_aim(session: &Session, aimed: Option<Aim>) -> String {
 /// station nobody holds, and nothing once the last wave is spent bar the
 /// one line saying so.
 fn droid_warning(ui: &mut egui::Ui, world: &world::World) {
+    // A **town under attack** (feature 94) says the same three things in
+    // the same frame: the fight is the same fight, and the player wants
+    // the same number out of it. Before the first wave has landed there
+    // is a wave on its way and none on the ground, which is the one
+    // reading a held station never has.
+    if let Some(defending) = world.defense_here() {
+        let waves = defending.wave + defending.waves_left;
+        let standing = world.droids_standing();
+        let words = if standing > 0 {
+            droids_standing(defending.wave, waves, standing)
+        } else if let Some(due) = defending.next_in {
+            droids_next_wave(&crate::format::in_words(due), defending.wave + 1, waves)
+        } else if defending.wave > 0 && defending.waves_left == 0 {
+            DROIDS_CLEARED.into()
+        } else {
+            droids_standing(defending.wave.max(1), waves.max(1), 0)
+        };
+        raid_frame().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(words).strong().color(theme::BAD));
+                theme::question_mark(ui, DEFENSE_TIP);
+            });
+        });
+        return;
+    }
     let Some((wave, left)) = world.droid_wave_standing() else {
         return;
     };

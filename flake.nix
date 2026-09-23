@@ -266,6 +266,11 @@
             what = "jammer";
             about = "The crew in an infested system two hops from the origin: the jammer standing, a wave aboard, the lanes inward shut";
           };
+          bims-defense = runFor {
+            name = "bims-defense";
+            what = "defense";
+            about = "A town with the machines one hop off: the crew set down at its pad, and a wave landing outside a gate a minute later";
+          };
         }
         # The machines' fight, one build a class as well: `droids` is to
         # `combat_droids_<class>` what `combat` is to `combat_<class>`,
@@ -365,6 +370,7 @@
           raid = app built.bims-raid "The simulation holding in open space with a raid on its way, contact ten seconds in";
           crisis = app built.bims-crisis "The simulation a day before the machines appear, their origin two hyperlane hops off";
           jammer = app built.bims-jammer "The crew in an infested system two hops from the origin: the jammer standing, a wave aboard, the lanes inward shut";
+          defense = app built.bims-defense "A town with the machines one hop off: the crew set down at its pad, and a wave landing outside a gate a minute later";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           server = app built.bims-server "The relay: rooms by code, and bytes passed between the players in one — what runs at bims.buggly.de";
           default = game;

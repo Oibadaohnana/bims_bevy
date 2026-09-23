@@ -32,7 +32,7 @@ use crate::room::{
     ROOM_W, Room, Switch, TILE, WARN,
 };
 use crate::schedule::{IGNORE_ABOVE, Schedule, Slot, WAKE_AT};
-use crate::sight::{Fog, Stance};
+use crate::sight::{Fog, Sight, Stance};
 use crate::social;
 use crate::task::{self, Kind, SLEEP_MINUTES, Saved, Task};
 use crate::work::{self, Job, Priorities};
@@ -478,6 +478,54 @@ struct Seen {
     at: Vec2,
     weapon: Weapon,
     ago: f32,
+}
+
+/// What a side of a fight believes about the targets it was handed, and
+/// which of those beliefs are stale: a target any of `eyes` can see, or
+/// one within [`AIRLOCK_WATCH`] of `watched`, is known where it stands
+/// and remembered there; one nobody sees is believed where it was last
+/// seen, with the weapon the world says it carries now; one the world no
+/// longer names is forgotten outright. `seen` is the side's memory, kept
+/// between steps and aged in `simulate`.
+///
+/// Two sides keep one: a hostile room's people about the crew
+/// (`Game::last_seen`), and the machines about their own targets when the
+/// world has given them a list of their own (`Game::machine_seen`,
+/// feature 94).
+fn believe(
+    seen: &mut Vec<Option<Seen>>,
+    sight: &Sight,
+    watched: Option<Vec2>,
+    eyes: &[Vec2],
+    at: Vec<Option<(Vec2, Weapon)>>,
+) -> (Vec<Option<(Vec2, Weapon)>>, Vec<bool>) {
+    seen.resize(at.len(), None);
+    let mut believed = Vec::with_capacity(at.len());
+    let mut stale = Vec::with_capacity(at.len());
+    for (i, target) in at.into_iter().enumerate() {
+        let mut in_sight = false;
+        match target {
+            None => seen[i] = None,
+            Some((p, weapon)) => {
+                in_sight = watched.is_some_and(|w| (w - p).len() <= AIRLOCK_WATCH * TILE)
+                    || eyes.iter().any(|&eye| sight.sees_from(eye, p).is_some());
+                if in_sight {
+                    seen[i] = Some(Seen {
+                        at: p,
+                        weapon,
+                        ago: 0.0,
+                    });
+                } else if let Some(was) = seen[i].as_mut() {
+                    // The weapon it carries is known whether or not it is
+                    // in sight — the world says — and the tactics read it.
+                    was.weapon = weapon;
+                }
+            }
+        }
+        believed.push(seen[i].map(|s| (s.at, s.weapon)));
+        stale.push(!in_sight);
+    }
+    (believed, stale)
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -966,6 +1014,18 @@ pub struct Game {
     /// ago. Index for index with `set_hostiles`; `None` for one never
     /// seen, down, or forgotten. See `set_hostiles`.
     last_seen: Vec<Option<Seen>>,
+    /// What the **machines** in this room believe about each of their
+    /// own targets (feature 94): `last_seen` for the list they read when
+    /// the world has given them one of their own — a town the crew are
+    /// defending, where the droids are in the room with the people they
+    /// came for. Empty everywhere else.
+    machine_seen: Vec<Option<Seen>>,
+    /// Which of this room's own bodies **shelter** rather than fight
+    /// (feature 94): a townsperson who is neither the guard nor a
+    /// mercenary, while the machines are on the town. Not mustered by
+    /// the alarm, and posted indoors at the nearest bunk. Empty
+    /// everywhere else, which is everybody fighting as they always did.
+    sheltering: Vec<bool>,
     /// The picture, left out of a save: `render` draws it again.
     #[cfg_attr(feature = "serde", serde(skip))]
     list: DrawList,
@@ -1203,6 +1263,8 @@ impl Game {
             hit_dropped: 0,
             hover_dropped: None,
             last_seen: Vec::new(),
+            machine_seen: Vec::new(),
+            sheltering: Vec::new(),
             list: DrawList::new(),
             bodies_from: 0,
             view_scale: 1.0,
@@ -1614,7 +1676,11 @@ impl Game {
         self.carry_the_carried();
         // A belief about where the crew are ages, and is given up after a
         // minute unseen.
-        for seen in self.last_seen.iter_mut() {
+        for seen in self
+            .last_seen
+            .iter_mut()
+            .chain(self.machine_seen.iter_mut())
+        {
             if let Some(s) = seen.as_mut() {
                 s.ago += dt;
                 if s.ago > FORGET_AFTER {
@@ -2031,7 +2097,11 @@ impl Game {
                 // (feature 78) — and never reaches a Bim a player
                 // steers, which the world sees to.
                 self.squad_stand(who, dt, &stats, squad);
-            } else if mustered && !seen_to && !self.is_player(who) && !holds_post {
+            } else if mustered
+                && !seen_to
+                && (!self.is_player(who) || self.under_attack())
+                && !holds_post
+            {
                 // A bot under arms with nothing else claiming it: its
                 // player's standing order, and its own tactics inside
                 // that (feature 84).
@@ -2182,9 +2252,17 @@ impl Game {
             }
         }
         // The machines, after the crew (feature 83): the same fight, a
-        // different body. They are only ever in a hostile room, so
-        // everything they do is recorded rather than flown.
-        self.tick_droids(dt, war);
+        // different body. In a hostile room everything they do is
+        // recorded rather than flown; in a town the crew are defending
+        // (feature 94) what they do to the town's own people flies here.
+        //
+        // **Their war is their own list's**, not the room's: the town's
+        // room is friendly, so `war` is false in it and the machines
+        // would stand about doing nothing. Everywhere else the two are
+        // the same question, `machine_targets` being the room's own list
+        // unless the world gave the machines one.
+        let machine_war = self.combat.machine_targets().iter().any(|t| t.is_some());
+        self.tick_droids(dt, war || machine_war);
         // The grenades (feature 75): the fuses burn down, and each that
         // runs out bursts on everything round it.
         for grenade in self.combat.tick_grenades(dt) {
@@ -2321,8 +2399,14 @@ impl Game {
     /// again. The player's own is left as the player has it: recruiting
     /// it is the player's.
     fn muster_crew(&mut self, alarm: bool) {
+        let attacked = self.under_attack();
         for who in 0..self.bims.len() {
-            if self.is_player(who) || !self.bims[who].is_alive() {
+            if (self.is_player(who) && !attacked) || !self.bims[who].is_alive() {
+                continue;
+            }
+            // A townsperson sheltering from the machines takes no arms
+            // and keeps the post that put it indoors (feature 94).
+            if self.sheltering.get(who).copied().unwrap_or(false) {
                 continue;
             }
             if alarm {
@@ -2504,23 +2588,59 @@ impl Game {
             self.breach_droid(i, dt);
             let from = self.droids[i].pos;
 
+            // Whose the machines' targets are, and where the list turns
+            // from the world's into this room's own (feature 94): in
+            // every room but a town under attack these are the room's
+            // one list and its whole length, and the code below reads
+            // exactly as it did.
+            let cross = self.combat.machine_cross();
+
             // A swing that has been swung lands now, on the target it
             // was aimed at if that one is still within reach.
-            if let Some(blow) = self.droids[i].blow.take_if(|b| b.left <= 0.0)
-                && self.combat.within_reach(from, blow.target)
-            {
-                self.combat
-                    .brawl(from, blow.target, weapon, blow.damage, blow.cut, true, None);
+            if let Some(blow) = self.droids[i].blow.take_if(|b| b.left <= 0.0) {
+                if blow.target < cross {
+                    // Across the seam: a melee `Shot` for the world to
+                    // carry, if the target is still within reach.
+                    let at = self
+                        .combat
+                        .machine_targets()
+                        .get(blow.target)
+                        .copied()
+                        .flatten()
+                        .filter(|t| (t.at - from).len() <= MELEE_RANGE * TILE)
+                        .map(|t| t.at);
+                    if let Some(at) = at {
+                        self.combat.brawl_at(
+                            from,
+                            blow.target,
+                            at,
+                            weapon,
+                            blow.damage,
+                            blow.cut,
+                            true,
+                            None,
+                        );
+                    }
+                } else {
+                    // A body of this room (feature 94): the blow lands
+                    // here, and `enemy_strike` re-checks the reach.
+                    self.enemy_strike(from, blow.target - cross, blow.damage, blow.cut);
+                }
             }
 
             // A melee first: locked, it neither aims nor fires.
-            let locked = self.combat.melee_with(&self.room.sight, from, &stats);
+            let locked = Combat::melee_among(
+                self.combat.machine_targets(),
+                &self.room.sight,
+                from,
+                &stats,
+            );
             self.droids[i].locked = locked;
             if let Some(enemy) = locked {
                 self.droids[i].trigger.hold();
                 self.droids[i].peek = None;
                 self.droids[i].charging(dt, false);
-                if let Some(at) = self.combat.targets()[enemy].map(|t| t.at) {
+                if let Some(at) = self.combat.machine_targets()[enemy].map(|t| t.at) {
                     self.droids[i].face((at - from).angle());
                 }
                 if self.droids[i].melee_timer <= 0.0 {
@@ -2552,7 +2672,13 @@ impl Game {
                 self.droids[i].charging(dt, false);
                 continue;
             }
-            let Some((_, eye, at)) = self.combat.aim(&self.room.sight, from, &stats) else {
+            let Some((mark, eye, at)) = Combat::aim_among(
+                self.combat.machine_targets(),
+                &self.room.sight,
+                from,
+                &stats,
+                None,
+            ) else {
                 self.droids[i].trigger.hold();
                 self.droids[i].peek = None;
                 self.droids[i].charging(dt, false);
@@ -2586,7 +2712,17 @@ impl Game {
             self.droids[i].charging(dt, true);
             if self.droids[i].trigger.pull(dt, &stats) {
                 self.droids[i].fired();
-                self.combat.shoot(eye, at, weapon, walking);
+                if mark < cross {
+                    // Across the seam, as a machine's shot always was:
+                    // recorded here and flown by the world in the crew's
+                    // room, where the body it is aimed at actually is.
+                    self.combat.shoot(eye, at, weapon, walking);
+                } else {
+                    // At one of this room's own bodies (feature 94): the
+                    // bolt flies **here**, hostile, and `Combat::step`
+                    // finds the townsperson it was aimed at.
+                    self.combat.fire(eye, at, weapon, true, walking);
+                }
             }
         }
     }
@@ -2607,7 +2743,10 @@ impl Game {
         }
         let from = self.droids[i].pos;
         let nav = self.maps.for_body(false, self.room.bath.is_open());
-        let targets = self.combat.targets().to_vec();
+        // The machines' own list where the world gave them one (feature
+        // 94) — a town the crew are defending, where the people they came
+        // for are in the room with them — else the room's.
+        let targets = self.combat.machine_targets().to_vec();
         let nobody_in_sight = targets.iter().flatten().all(|t| t.stale);
         // The hunter's rule, as a hostile Bim's: with nobody in sight a
         // gunner walks to where something was last seen, and from then
@@ -2673,7 +2812,8 @@ impl Game {
         // it stops where it is and shoots — except a Trooper, which
         // advances in the open and fires as it walks.
         let advances = !self.droids[i].kind.takes_cover();
-        let has_a_shot = !stats.melee && self.combat.aim(&self.room.sight, from, stats).is_some();
+        let has_a_shot = !stats.melee
+            && Combat::aim_among(&targets, &self.room.sight, from, stats, None).is_some();
         if has_a_shot && !stand.cover && !advances {
             if self.droids[i].is_walking() {
                 self.droids[i].halt();
@@ -3257,7 +3397,10 @@ impl Game {
         if self.is_field_medic(who) && self.rescue(who, dt) {
             return;
         }
-        if self.cornered(who) {
+        // A town's defender has no player to gather round and nowhere
+        // to fall back to (feature 94): it is defending the place it
+        // lives in, so it picks its own stand and fights.
+        if self.under_attack() || self.cornered(who) {
             self.plan_stand(who, dt, stats, None);
             return;
         }
@@ -8335,7 +8478,6 @@ impl Game {
             self.combat.set_targets(at);
             return;
         }
-        self.last_seen.resize(at.len(), None);
         // Every one of this room's own bodies that can look: the Bims up
         // and awake, and the machines that are not wrecks (feature 83) —
         // a droid-held station has nothing but the machines, so leaving
@@ -8347,38 +8489,124 @@ impl Game {
             .map(|b| b.character.pos)
             .chain(self.droids.iter().filter(|d| !d.destroyed).map(|d| d.pos))
             .collect();
-        let mut believed = Vec::with_capacity(at.len());
-        let mut stale = Vec::with_capacity(at.len());
-        for (i, target) in at.into_iter().enumerate() {
-            let mut seen = false;
-            match target {
-                None => self.last_seen[i] = None,
-                Some((p, weapon)) => {
-                    seen = self
-                        .watched
-                        .is_some_and(|w| (w - p).len() <= AIRLOCK_WATCH * TILE)
-                        || eyes
-                            .iter()
-                            .any(|&eye| self.room.sight.sees_from(eye, p).is_some());
-                    if seen {
-                        self.last_seen[i] = Some(Seen {
-                            at: p,
-                            weapon,
-                            ago: 0.0,
-                        });
-                    } else if let Some(seen) = self.last_seen[i].as_mut() {
-                        // The weapon it carries is known whether or not it
-                        // is in sight — the world says — and the tactics
-                        // read it.
-                        seen.weapon = weapon;
-                    }
-                }
-            }
-            believed.push(self.last_seen[i].map(|s| (s.at, s.weapon)));
-            stale.push(!seen);
-        }
+        let watched = self.watched;
+        let (believed, stale) = believe(&mut self.last_seen, &self.room.sight, watched, &eyes, at);
         self.combat.set_targets(believed);
         self.combat.set_stale(&stale);
+    }
+
+    /// **The machines' own targets** (feature 94), for the one fight
+    /// that is not one room against another: a town the crew are
+    /// defending, where the droids stand in the residents' room with the
+    /// people they came for. The front `cross` of the list are the
+    /// world's across the seam — the crew, shot at with a recorded
+    /// [`crate::combat::Shot`] as a hostile room's people shoot — and
+    /// the rest are **this room's own bodies** by index, shot at with a
+    /// hostile bolt that flies here and lands on the body.
+    ///
+    /// The machines keep a belief of their own, the way a hostile room's
+    /// people keep one about the crew: eyes are the machines' alone,
+    /// since the town's people are not on their side and do not spot for
+    /// them, and nothing here is watched.
+    pub fn set_machine_hostiles(&mut self, at: Vec<Option<(Vec2, Weapon)>>, cross: usize) {
+        let eyes: Vec<Vec2> = self
+            .droids
+            .iter()
+            .filter(|d| !d.destroyed)
+            .map(|d| d.pos)
+            .collect();
+        let (believed, stale) = believe(&mut self.machine_seen, &self.room.sight, None, &eyes, at);
+        self.combat.set_machine_targets(believed, cross);
+        self.combat.set_machine_stale(&stale);
+    }
+
+    /// The machines read the room's own target list again: what every
+    /// room but a town under attack does.
+    pub fn clear_machine_hostiles(&mut self) {
+        self.machine_seen.clear();
+        self.combat.set_machine_targets(Vec::new(), 0);
+    }
+
+    /// Which of this room's own bodies **shelter** rather than fight
+    /// (feature 94): a townsperson who is neither the guard nor a
+    /// mercenary while the machines are on the town. Said every step by
+    /// the world; an empty list is everybody fighting, which is every
+    /// other room.
+    ///
+    /// One newly told to shelter is walked **into the nearest house** —
+    /// the bunk nearest it, which in a town is inside one — and *posted*
+    /// there, so it goes on living (it eats, it sleeps, it comes back to
+    /// the post afterwards) and never takes arms: the alarm's
+    /// `muster_crew` leaves it alone, so it holds no weapon and is
+    /// nobody's shooter. One told to stop takes its post off and is
+    /// mustered again like anybody else the next step.
+    pub fn set_sheltering(&mut self, sheltering: &[bool]) {
+        if sheltering.is_empty() {
+            if self.sheltering.is_empty() {
+                return;
+            }
+            // The attack is over: everybody's post comes off and the
+            // next step musters them like anybody else.
+            for who in 0..self.bims.len().min(self.sheltering.len()) {
+                if self.sheltering[who] && self.bims[who].is_alive() {
+                    self.bims[who].character.set_post(None);
+                }
+            }
+            self.sheltering.clear();
+            return;
+        }
+        self.sheltering.resize(self.bims.len(), false);
+        for who in 0..self.bims.len() {
+            let want = sheltering.get(who).copied().unwrap_or(false);
+            let was = self.sheltering[who];
+            self.sheltering[who] = want;
+            if !self.bims[who].is_alive() {
+                continue;
+            }
+            if !want {
+                if was {
+                    self.bims[who].character.set_post(None);
+                }
+                continue;
+            }
+            // Posted once, and again if anything took the post away —
+            // the alarm coming up before the world said who shelters,
+            // an order, a room built afresh.
+            if self.bims[who].character.post().is_some() {
+                continue;
+            }
+            self.bims[who].character.set_recruited(false);
+            if let Some(at) = self.nearest_shelter(who) {
+                self.post_at(who, at);
+            }
+        }
+    }
+
+    /// The nearest bunk to a body, in room units — the house it runs
+    /// into. `None` in a room with no bunks at all, and then a body told
+    /// to shelter simply stands down rather than fighting.
+    fn nearest_shelter(&self, who: usize) -> Option<Vec2> {
+        let from = self.bims.get(who)?.character.pos;
+        self.room
+            .beds
+            .iter()
+            .map(|b| b.frame.center())
+            .min_by(|a, b| (*a - from).len().total_cmp(&(*b - from).len()))
+    }
+
+    /// Whether this body is sheltering from an attack (feature 94).
+    pub fn is_sheltering(&self, who: usize) -> bool {
+        self.sheltering.get(who).copied().unwrap_or(false)
+    }
+
+    /// Whether the world has told this room who shelters — a town under
+    /// attack (feature 94), and nothing else. While it has, **every body
+    /// that is not sheltering takes arms**, body nought included: a
+    /// station's room has no player in it, and `players` is never under
+    /// one, so the guard would otherwise be skipped as a player's own and
+    /// stand there unarmed while the machines walked in.
+    fn under_attack(&self) -> bool {
+        !self.sheltering.is_empty()
     }
 
     /// A spot this room's people have eyes on whatever they are doing,

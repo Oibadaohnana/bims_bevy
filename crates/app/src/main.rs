@@ -7,7 +7,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Twenty-five things to run, and each is a name rather than a flag:
+//! Twenty-six things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -46,6 +46,10 @@
 //! bims jammer        the crew in an infested system two hops from the
 //!                    machines' origin: the jammer standing, a wave aboard,
 //!                    and the lanes inward shut
+//! bims defense       a town on a planet with the machines one hop away: the
+//!                    crew set down at its pad, a wave landing outside a gate
+//!                    a minute later, and the town's own guard fighting beside
+//!                    them
 //! bims stationbuilder [name]
 //!                    a grid to sketch a station's rough shape on, saved as
 //!                    text to `stations/<name>.txt` for a plan to be
@@ -75,7 +79,7 @@ mod theme;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-/// Which of the twenty-five things this process is.
+/// Which of the twenty-six things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
@@ -118,6 +122,12 @@ pub enum Launch {
     DroidsAs(world::Class),
     /// `TestPlanet` with the town droid-held, the same shortcut.
     DroidsPlanet,
+    /// `TestPlanet` with the town **threatened** (feature 94): the
+    /// machines' origin one hyperlane hop off, so the town is next and a
+    /// wave lands outside a gate `DEFENSE_DELAY_MINUTES` after the crew
+    /// set down. That wait and `DROID_REINFORCE_MINUTES` are both a
+    /// minute here, so the whole fight is watched rather than waited for.
+    Defense,
     /// The simulation with a raid on its way: off the berth and holding,
     /// contact ten seconds in.
     Raid,
@@ -163,7 +173,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|room|test|test_planet|combat|combat_<class>|tier2_test|tier3_test|droids|combat_droids_<class>|droids_planet|raid|crisis|jammer|stationbuilder [name]|list|--self-check]"
+        "usage: bims [game|simulation|design|room|test|test_planet|combat|combat_<class>|tier2_test|tier3_test|droids|combat_droids_<class>|droids_planet|raid|crisis|jammer|defense|stationbuilder [name]|list|--self-check]"
     );
     eprintln!("       a class is one of: {}", class_words().join(", "));
     eprintln!("       `bims list` says what each of them opens");
@@ -175,7 +185,7 @@ fn usage() -> ! {
 /// nothing else. A new command is a row here and an arm in `main`; the
 /// classes' commands are not written out, since [`class_words`] reads
 /// them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 17] = [
+const COMMANDS: [(&str, &str); 18] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, ship design, then the world docked where you said",
@@ -222,6 +232,10 @@ const COMMANDS: [(&str, &str); 17] = [
     (
         "jammer",
         "The crew in an infested system two hops from the machines' origin: the jammer standing, a wave aboard, the lanes inward shut",
+    ),
+    (
+        "defense",
+        "A town on a planet with the machines one hop away: the crew set down at its pad, and a wave landing outside a gate a minute later",
     ),
     (
         "stationbuilder [name]",
@@ -341,6 +355,7 @@ fn main() {
         Some("raid") => Launch::Raid,
         Some("crisis") => Launch::Crisis,
         Some("jammer") => Launch::Jammer,
+        Some("defense") => Launch::Defense,
         Some("stationbuilder") => Launch::StationBuilder,
         // What there is to run, printed rather than opened.
         Some("list") | Some("--list") | Some("--help") | Some("-h") => {
@@ -429,7 +444,8 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::DroidsPlanet
         | Launch::Raid
         | Launch::Crisis
-        | Launch::Jammer => next.set(Screen::Game),
+        | Launch::Jammer
+        | Launch::Defense => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();
             settings.seed = world::data::DEFAULT_SEED;

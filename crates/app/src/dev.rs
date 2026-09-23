@@ -503,6 +503,20 @@ pub fn droid_reinforce(default: f64) -> f64 {
         .unwrap_or(default)
 }
 
+/// How long the `defense` command waits between the crew landing at a
+/// threatened town and the first wave, in minutes of the world's clock:
+/// `BIMS_DEFENSE_DELAY=30` over the command's own
+/// `screens::game::DEFENSE_DELAY_IN_PROBE` (one), where the game's own
+/// is `world::data::DEFENSE_DELAY_MINUTES` (an hour). Nought or less
+/// reads as the default.
+pub fn defense_delay(default: f64) -> f64 {
+    std::env::var("BIMS_DEFENSE_DELAY")
+        .ok()
+        .and_then(|spec| spec.trim().parse::<f64>().ok())
+        .filter(|minutes| *minutes > 0.0)
+        .unwrap_or(default)
+}
+
 /// Which day the machines' first star turns on in the `crisis` command
 /// (feature 92): `BIMS_CRISIS_DAY=3` over `data::DROID_FIRST_DAY` (ten).
 /// The clock opens a day short of it whatever it is

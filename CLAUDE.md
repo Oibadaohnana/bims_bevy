@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-twenty-five things to run, and each is a name rather than a flag — and
+twenty-six things to run, and each is a name rather than a flag — and
 `cargo run -- list` prints every one of them with a line each, which is
 the build's own answer where this table is a copy:
 
@@ -30,6 +30,7 @@ the build's own answer where this table is a copy:
 | `nix run .#raid` | `cargo run -- raid` | the simulation **off its berth, holding in open space, with a raid on its way**: the next raid brought forward to ten minutes of the clock — ten seconds at 1× — so contact comes as you watch, the raider closing at its own pace after it (`Session::raid_coming_for_probe`, `World::raid_coming_for_probe`; `RAID_IN_MINUTES` in `screens/game.rs`). Where `BIMS_RAID=contact` opens with the raider already on the radar, this is the warning arriving |
 | `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it starts (feature 92): `test`'s own random galaxy and random dock, the clock wound to the eve of `DROID_FIRST_DAY` (ten) and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight — so the first star turns red on the galaxy chart within a day of the clock rather than forty, and the crew's own system ten days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the first star turns and the clock opens a day short of whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
 | `nix run .#jammer` | `cargo run -- jammer` | the **jammer** (feature 93): `crisis`'s own random galaxy, random dock and origin **two hops off**, with the clock wound *past* the day this system falls rather than a day short of the first — so the crew open **inside** an infested system, every station of it in the machines' hands (`Session::jammer_for_probe`, `World::infest_here_for_probe`), a wave aboard the one they are tied up at and `DROID_REINFORCE_MINUTES` a minute. Two things are looked at from here. The **jam**: the chart lights the lanes out of the ship's star in the hyperdrive's violet, draws the route to whatever star is picked along them, and **bars in red every step of it a jammer would turn back** — a jump *inward*, towards where the machines began, is refused while the jammer station stands (`Refusal::Jammed`), and the panel says which station holds it. And the **tier**: two hops is inside `DROID_TIER_THREE_HOPS`, so the machines come at **tier three** without a dial. `BIMS_DROID_TIER=1` says otherwise, and `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE` are `droids`' own |
+| `nix run .#defense` | `cargo run -- defense` | **defending a town** (feature 94): `test_planet`'s own random galaxy and roll — the ship set down at a settlement whose people are friendly — with the machines' origin forced **one hyperlane hop off** and the crisis's first day wound to nought, so the town's system is on the **front** (`World::front` of it is one) and the town is *threatened*. The map says so under its planet's icon, in the enemy's red, where it would otherwise say *land*. A minute after the landing (`DEFENSE_DELAY_MINUTES`, an hour in the game, `BIMS_DEFENSE_DELAY=n` over the command's own minute) a wave sets down outside a gate and walks in, and the red line along the top counts it the way it counts a held station's. The fight is the one that happens **inside one room**: the town's **guard and its mercenaries** take arms and fight the machines where they stand, everybody else walks into the nearest house and stays there, the crew never aim at a townsperson and the machines aim at both. Hold the last wave and the town is **held** — friendly for good, trading and hiring even after its system falls, its map tag *held* — and some of its people join the crew; lift off and the attack waits exactly where it stood. `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE`/`BIMS_DROID_WAVE` are `droids`' own (`Session::defense_for_probe`) |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -154,6 +155,13 @@ distance rule** — tier three within `DROID_TIER_THREE_HOPS` (two) hops
 of the machines' origin and tier one beyond — so `BIMS_DROID_TIER=1 bims
 jammer` is the way to see a wave that is *not* at tier three, and
 `bims droids` is unmoved, its arena being nowhere near the origin.
+**`BIMS_DEFENSE_DELAY=n`** is the `defense` command's own (feature 94):
+how long after the crew set down at a threatened town the first wave
+lands, in minutes of the clock, where the command's own is a minute and
+the game's own is `DEFENSE_DELAY_MINUTES` (an hour). Raise it to look at
+the hour the crew have to walk the town, trade and hire before the
+shooting starts; `BIMS_DROID_WAVES=1 bims defense` is a fight that can
+be held to the end in one sitting.
 `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
 round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1

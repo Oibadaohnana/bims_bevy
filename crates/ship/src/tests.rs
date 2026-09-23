@@ -1486,6 +1486,73 @@ fn save_round_trip_keeps_a_jammer_down_and_rolls_the_derived_one_again() {
     assert_eq!(world.checksum(), checksum);
 }
 
+/// A town the crew held against the machines stays held through a save
+/// and a load, and so does an attack still running (feature 94): both
+/// are in the file, so a world read back is the same fight at the same
+/// point of it and the same checksum.
+#[test]
+fn save_round_trip_keeps_a_held_town_and_an_attack_under_way() {
+    use crate::Session;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    // The town threatened — the machines a hop off — and the crew set
+    // down at it, so an attack is laid down at the first step.
+    assert!(
+        session.defense_for_probe(world::data::STEP_MINUTES * 4.0, 1.0, 1),
+        "a star one hop off"
+    );
+    let world = &mut session.game.as_mut().unwrap().world;
+    if !world.land_for_probe() {
+        return;
+    }
+    let id = world.ship.state.alongside().expect("landed");
+    if !world.town_threatened(id) {
+        // The roll put an enemy's town on this planet; nothing to hold.
+        return;
+    }
+    for _ in 0..40 {
+        world.step(&[]);
+        if world.droids_standing() > 0 {
+            break;
+        }
+    }
+    let attacking = world.defense(id).cloned().expect("an attack");
+    assert!(attacking.settled);
+    let checksum = world.checksum();
+
+    let text = session.save().expect("a world to save");
+    let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    let world = &back.game.as_ref().unwrap().world;
+    assert_eq!(world.defense(id), Some(&attacking), "the attack moved");
+    assert_eq!(world.checksum(), checksum);
+
+    // And a town held: the flag and the front price it carries survive.
+    let world = &mut session.game.as_mut().unwrap().world;
+    if let Some(residents) = world.residents.as_mut() {
+        let room = &mut residents.aboard.room;
+        for i in 0..room.droid_count() as usize {
+            for _ in 0..60 {
+                room.strike_droid(i, bims::droid::DroidPart::Chassis, 100.0);
+            }
+        }
+    }
+    for _ in 0..20 {
+        world.step(&[]);
+        if world.town_held(id) {
+            break;
+        }
+    }
+    if !world.town_held(id) {
+        return;
+    }
+    let checksum = world.checksum();
+    let text = session.save().expect("a world to save");
+    let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    let world = &back.game.as_ref().unwrap().world;
+    assert!(world.town_held(id), "a held town was forgotten");
+    assert_eq!(world.front_at(id), Some(1), "and it is still on the front");
+    assert_eq!(world.checksum(), checksum);
+}
+
 /// `tier2_test` and `tier3_test` are the `combat` session with everybody's
 /// kit at that tier: every crew member's gun at it, its kind as `combat`
 /// dealt it, and a full set of armour at it — pieces of the world's, worn

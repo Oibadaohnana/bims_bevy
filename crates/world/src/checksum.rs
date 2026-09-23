@@ -223,6 +223,32 @@ pub fn world_checksum(world: &World) -> u64 {
     // about those two numbers agree about every star in the galaxy.
     hash.eat(u64::from(world.droid_origin()));
     hash.eat(u64::from(world.crisis_first_day()));
+    // And the towns the crew are defending (feature 94): which wave is on
+    // the ground, how many are still to come, how long until the next
+    // lands, how many machines are standing, and whether it was held or
+    // lost. It is a fight the same way an infestation is, and the wait
+    // before the first wave goes in beside it, the way the reinforcement
+    // clock goes in beside the machines' own.
+    hash.eat(world.defenses().len() as u64);
+    for d in world.defenses() {
+        hash.eat(u64::from(d.station));
+        hash.eat(u64::from(d.waves_left));
+        hash.eat(u64::from(d.wave));
+        hash.eat(u64::from(d.next_in.is_some()));
+        hash.eat_rounded(d.next_in.unwrap_or(0.0), FINE_GRID);
+        hash.eat(u64::from(d.standing));
+        hash.eat(u64::from(d.settled));
+        hash.eat(u64::from(d.won));
+        hash.eat(u64::from(d.lost));
+    }
+    hash.eat_rounded(world.defense_delay_minutes(), FINE_GRID);
+    // And the towns they held: a held town stays friendly for good, so
+    // two worlds that disagree about one disagree about whether a
+    // settlement inside the infection still trades.
+    hash.eat(world.held_towns().len() as u64);
+    for &station in world.held_towns() {
+        hash.eat(u64::from(station));
+    }
     // The hired hands: who, what a month costs, when it is next due and
     // whether one is owed. A crew member that costs money is a different
     // crew from one that does not.

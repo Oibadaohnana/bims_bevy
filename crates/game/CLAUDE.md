@@ -3617,3 +3617,51 @@ reason either signature moved.
 
 The command, the contract, the medkits and the restock are the world's —
 `crates/world/CLAUDE.md`, "A medic carries a body out".
+
+## The machines have a list of their own, and some bodies shelter (feature 94)
+
+Every fight before this one was one room against another: one
+`Combat::targets` a room, shared by every body in it, and a bolt flying in
+the crew's room alone. A **town the crew are defending** is not that — the
+machines and the town's own people stand in the residents' room together —
+so two things were added, both of them empty and inert everywhere else.
+
+- **`Combat::machines`**, the machines' own target list, with
+  `Combat::machines_cross` saying where it turns from the world's (the
+  crew, across the seam) into **this room's own bodies** (by index
+  `i - cross`). `Combat::machine_targets()` falls back to `targets` when
+  the world has given them none, and `machine_cross()` to its whole
+  length — so in every other room `tick_droids` reads exactly what it
+  read before. `Game::set_machine_hostiles(at, cross)` sets it with a
+  belief of the machines' own (`Game::machine_seen`, `last_seen` for
+  their list; `believe` is the one function both go through now), and
+  `clear_machine_hostiles` puts it back.
+- **The routing is the index.** In `tick_droids`, a shot or a blow at a
+  target below `cross` is the `Shot` it always was, for the world to fly
+  in the crew's room; at or above it, the bolt **flies here** hostile
+  (`Combat::fire(.., true, ..)`, which `Combat::step` lands on this
+  room's own bodies) and a blow goes through `Game::enemy_strike`, which
+  re-checks the reach. `Combat::aim_among`, `melee_among`,
+  `within_reach_among` and `brawl_at` are the existing rules over a
+  target slice the caller names; the old methods are those over
+  `self.targets`.
+- **Their war is their own list's.** `tick_combat` passes
+  `war || machine_war` to `tick_droids`, `machine_war` being any machine
+  target at all — because a town's room is *friendly*, so `war`
+  (`hostile_bodies && …`) is false in it and the machines would stand
+  about doing nothing.
+- **`Game::sheltering`** is which of this room's own bodies take no part:
+  `Game::set_sheltering(&[bool])`, said every step by the world, posts a
+  body newly told to shelter at the **nearest bunk** — the nearest house
+  — and `muster_crew` leaves it alone, so the alarm never arms it.
+  `Game::under_attack()` is "the world has said who shelters", and it
+  does two more things while it holds: `muster_crew` musters body nought
+  as well (a station's room has no player in it, and `players` is never
+  under one, so the **guard** would otherwise be skipped as a player's
+  own and stand there unarmed), and `bot_stand` goes straight to
+  `plan_stand` — a town's defender has no player to gather round and
+  nowhere to fall back to.
+
+Neither list is anybody's but the world's: the room decides nothing about
+who is on which side. The world's half is `crates/world/CLAUDE.md`,
+"Defending a town".

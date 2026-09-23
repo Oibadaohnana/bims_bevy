@@ -298,6 +298,14 @@ pub enum WorldEvent {
     /// that it is clear of the fight, or by the world when one of the
     /// two went down.
     Carried { who: u32, patient: Option<u32> },
+    /// The crew **held a town** against the machines (feature 94): the
+    /// last machine of the last wave destroyed at the settlement it
+    /// names. Said once, ever, for a town — a held town is never
+    /// attacked again, and the crisis never flips it.
+    TownHeld { station: u32 },
+    /// And some of the town's survivors went with them: how many, said
+    /// once, right after [`WorldEvent::TownHeld`].
+    TownsfolkJoined { count: u32 },
 }
 
 /// Why a command did nothing.
@@ -637,6 +645,8 @@ impl WorldEvent {
             } => 87,
             WorldEvent::Carried { patient: None, .. } => 88,
             WorldEvent::Infested { .. } => 89,
+            WorldEvent::TownHeld { .. } => 90,
+            WorldEvent::TownsfolkJoined { .. } => 91,
         }
     }
 
@@ -651,7 +661,9 @@ impl WorldEvent {
             | WorldEvent::Undocking { slot } => slot as i64,
             WorldEvent::Docking { station }
             | WorldEvent::DroidReinforcements { station }
-            | WorldEvent::DroidStationCleared { station } => station as i64,
+            | WorldEvent::DroidStationCleared { station }
+            | WorldEvent::TownHeld { station } => station as i64,
+            WorldEvent::TownsfolkJoined { count } => count as i64,
             WorldEvent::Crafted { recipe } | WorldEvent::CraftLost { recipe } => recipe as i64,
             WorldEvent::Mined { rock, ore, galvum } => {
                 (rock + 1_000 * ore + 1_000_000 * galvum) as i64

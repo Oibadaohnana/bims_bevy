@@ -1051,6 +1051,14 @@ impl Residents {
             })
             .collect()
     }
+
+    /// Whether that body is a **mercenary** living among the station's
+    /// people rather than one of them: it has a fee (feature 94's
+    /// defence counts the town's own people and not the hands for hire).
+    /// A machine has no entry and is never one.
+    pub fn is_mercenary(&self, who: usize) -> bool {
+        self.fee.get(who).copied().flatten().is_some()
+    }
 }
 
 impl core::fmt::Debug for Residents {

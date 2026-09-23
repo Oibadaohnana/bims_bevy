@@ -53,6 +53,7 @@ pub mod class;
 pub mod commander;
 pub mod crew;
 pub mod data;
+pub mod defense;
 pub mod deploy;
 pub mod docking;
 pub mod droid;
@@ -80,6 +81,7 @@ pub use build::{BuildSite, SiteRefusal};
 pub use checksum::world_checksum;
 pub use class::{Charge, Class, Progress, Side, Talent};
 pub use commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
+pub use defense::Defense;
 pub use deploy::{Deck, DeployKind, Deployable, Kit};
 pub use event::{Refusal, WorldEvent};
 pub use frame::Frame;
@@ -112,6 +114,8 @@ mod tests;
 mod tests_commander;
 #[cfg(test)]
 mod tests_crisis;
+#[cfg(test)]
+mod tests_defense;
 #[cfg(test)]
 mod tests_droid;
 #[cfg(test)]

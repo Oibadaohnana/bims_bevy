@@ -953,3 +953,31 @@ the star's own stream (`World::settle_jammer`).
 `save_round_trip_keeps_a_jammer_down_and_rolls_the_derived_one_again` in
 `tests.rs` pins both: a cleared jammer stays down, and the file never
 mentions the derived station's id.
+
+## The `defense` command, and a town on the map (feature 94)
+
+`Session::defense_for_probe(delay, reinforce, waves)` is `nix run
+.#defense`: the `test_planet` run — a random galaxy, a system with
+friendly ground, the ship set down at the town — with the machines' origin
+forced **one** hyperlane hop off and the crisis's first day wound to
+nought, so `World::front(star)` is one and the town is *threatened*. Both
+clocks are cut to a minute by the command, so the first wave lands a
+minute after the landing rather than an hour. It is called **after**
+`land_for_probe`, since what starts an attack is the crew being on the pad.
+
+One hop rather than `CRISIS_HOPS`' two: two is a system near the front,
+and only one is a town the machines are coming for next.
+
+`Session::landing_sites` answers a `LandingSite` now rather than a tuple —
+the node, whose the town is, whether it is **threatened**, whether the
+crew **held** it, and where the map draws it — so the app can write
+`threatened` in the enemy's red or `held` in the accent where it would
+otherwise write `land`. `Session::front_premium()` and
+`Session::defending_a_town()` are the other two readings the app takes:
+the first for the trade window's line about a desk near the front, the
+second for the red warning over a town under attack.
+
+**`SAVE_VERSION` 30**: `World::defenses` and `World::held_towns` are in
+the file, so a fight paused by a take-off and a town held both survive a
+load — `save_round_trip_keeps_a_held_town_and_an_attack_under_way` in
+`tests.rs`.

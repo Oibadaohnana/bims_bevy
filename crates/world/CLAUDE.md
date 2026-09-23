@@ -4101,3 +4101,110 @@ what it is charged on) off `Session::front_premium()`.
 already red two hops off, the line under the desk's own, and the guns,
 the armour and the medicine dearer with the ore and the metal unmoved.
 `tests_front.rs` is the rule.
+
+## Defending a town (feature 94)
+
+The one fight in the game that happens **inside one room**. Everything
+else is two rooms exchanging targets across the seam — the crew's and a
+hostile station's — and here the machines and the town's own people are
+in the *same* room, the residents', while the crew are in theirs. So
+there are three target lists rather than two, and the hits between the
+two sides in that one room never cross anywhere.
+
+**Threatened is derived, and it is the front's.**
+`World::town_threatened(station)` is a friendly town on a planet's
+surface in a system the infection is **one hop** from
+(`World::front(star_id) == Some(1)`), not already the machines', and not
+one the crew have already held. Nothing is saved for it; the day and the
+hop table say. The system map tags such a town `threatened` in the
+enemy's red where it would otherwise say `land`, and a town the crew held
+`held`.
+
+**The attack is `World::defenses`**, one `crate::defense::Defense` a town
+the crew have ever landed at while it was threatened, saved and in
+`world_checksum`. What it holds is the schedule — which wave is on the
+ground, how many are still to come, how long until the next, how many
+machines are still standing, and whether it was won or lost. Three things
+about it that differ from the droid step's own `Infestation`:
+
+- **The clock is minutes left, not a minute of the clock.** `next_in`
+  counts down in `defense_waves`, and `defense_waves` runs only while the
+  ship is on the pad — so **taking off pauses the attack** and landing
+  again resumes it where it stood. An absolute reading would have the
+  whole schedule run while the ship was away.
+- **The wave on the ground is put back.** A town's room is built afresh at
+  every landing, so `Defense::standing` is how many machines were still
+  up when the world last looked, and the first step of the next landing
+  lays exactly that many at the gate. Laying the wave again at full
+  strength would be a fight that could be won or lost by leaving.
+- **Every wave arrives.** There is no wave one already standing the way a
+  held station has one: the first lands `data::DEFENSE_DELAY_MINUTES` (an
+  hour) after the crew set down — time to walk the town, trade and hire —
+  and the rest `DROID_REINFORCE_MINUTES` after the last machine of the one
+  before dies. The count and the size are the droid step's own formulas.
+
+**The room is told three things and works the rest out.** In `visit`,
+when `World::defense_here()` is `Some`:
+
+- the **crew's** targets are the machines alone — the whole body index
+  space is handed over as ever, with every one of the town's Bims marked
+  not alive, so the crew never aim at a townsperson and a hit read back
+  past the Bims still lands on the machine it was meant for;
+- the **town's** targets are the machines in its own room, by droid
+  index, and since its room is friendly (`set_hostile_bodies(false)`)
+  its bolts **fly there** and its hits come back as ordinary friendly
+  `Hit`s, which `visit` delivers to the droid they were aimed at —
+  `room.take_hits()` of the *residents'* room, the one place that is
+  drained;
+- the **machines'** own list (`Game::set_machine_hostiles`, feature 94):
+  the crew across the seam first and the town's people after them, with
+  `cross` saying where the list turns. A machine shooting at an index
+  below `cross` records a `Shot` for the world to fly on the joined deck,
+  as it always did; at one above, it fires a hostile bolt **in the
+  residents' room** and `Combat::step` finds the townsperson.
+- and **who shelters** (`Game::set_sheltering`): everybody of the town's
+  own but the guard (`surface::GUARD`) and the mercenaries. A sheltering
+  body is posted at the nearest bunk — the nearest house — and left out
+  of the alarm's muster, so it holds no weapon and fights nobody.
+
+**Won** is the last machine of the last wave destroyed:
+`WorldEvent::TownHeld` (code 90) said once, the station onto
+`World::held_towns` (saved and hashed), and **`World::infest` refuses a
+held town for ever** — so the crisis taking the system round it leaves it
+friendly, trading and hiring. `World::front_at` reads a held town as one
+hop out whatever the chart says, since it is then the last friendly desk
+inside the infection.
+
+**And some of its people go with the crew.** `defense::joiners` is the
+larger of one and `survivors × DEFENSE_JOIN_PERCENT (20) / 100` rounded
+down, never more than the survivors other than the guard — so a town with
+nobody left, or only the guard, sends none. Who: the lowest indices,
+never the guard and never a mercenary. Each goes through
+`World::take_resident_aboard(who, for_hire: false)` — the block lifted
+out of `World::hire` — which is the hire's own move **without** the bunk
+check, the fee, the `Hired` row and the kit: a classless crew bot like
+any other, taking no player slot, keeping what it carries and any wounds
+it has, and sleeping on the deck under `GROUND_SLEEP` if there is no
+bunk. `WorldEvent::TownsfolkJoined { count }` (91) once.
+
+**Lost** is either every one of the town's own people dead
+(`World::town_is_dead`, the mercenaries not counted) or the system's day
+coming while the crew are away with waves left — and in both cases the
+town falls through `World::infest` like any other station, which marks
+the `Defense` lost on the way past. While the crew are *at* the town the
+crisis's flip waits anyway: `spread_crisis` does nothing while the rooms
+are joined, and a landing is a dock.
+
+**What moved.** `Refusal` none, events 90–91, `REFERENCE_CHECKSUM` =
+`0x_262b_281e_2a67_eae9`, **`SAVE_VERSION` 30, `wire::PROTOCOL` 22** (the
+relay wants redeploying). New `data` constants `DEFENSE_DELAY_MINUTES`
+(60) and `DEFENSE_JOIN_PERCENT` (20) beside the front's. The probe is
+`nix run .#defense` — `Session::defense_for_probe`, the origin one hop off
+and both clocks a minute — with `BIMS_DEFENSE_DELAY` over the first.
+`tests_defense.rs` is the rule and
+`save_round_trip_keeps_a_held_town_and_an_attack_under_way` in
+`crates/ship` the save.
+
+**Not in this step**: the Machine Heart; stopping the spread; attacks on
+orbital stations; droids raiding the ship; a second ship following the
+first.

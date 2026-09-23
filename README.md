@@ -46,6 +46,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#raid` | `cargo run -- raid` | the simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in — the warning, the raider on the map and closing at its own pace, then the boarding |
 | `nix run .#crisis` | `cargo run -- crisis` | the simulation **a day before the machines appear**: a random galaxy and a random dock as `test` deals them, the clock wound to the eve of `DROID_FIRST_DAY`, and the crisis's origin forced two hyperlane hops from the crew's own star. Open the galaxy chart and the first star turns red while you watch; the crew's own system follows ten days later, and the day any star is due is written under its name when it is picked. `BIMS_CRISIS_DAY=n` moves the day the first one turns, and the clock opens a day short of whatever it says |
 | `nix run .#jammer` | `cargo run -- jammer` | the crew **inside an infested system**, two hyperlane hops from where the machines began: every station of it in their hands, a wave aboard the one the ship is tied to, and the system's **jammer** standing — so the chart's route inward is barred in red, a jump that way is refused, and the machines come at tier three because of how near the origin they are. `BIMS_DROID_TIER=1` brings them at tier one instead |
+| `nix run .#defense` | `cargo run -- defense` | **a town worth defending**: the ship set down at a friendly settlement with the machines one hyperlane hop away, so the town is next. A minute after the landing a wave sets down outside a gate and walks in; the town's guard and whatever mercenaries live there take arms, everybody else goes indoors, and the red line along the top counts the wave the way it counts a held station's. Hold the last wave and the town is yours to keep. `BIMS_DEFENSE_DELAY=n` is the wait before the first wave and `BIMS_DROID_WAVES=1` a fight short enough to finish |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 
 Whichever of them you open, **Esc → Restart → Start again** puts the run back
@@ -1654,6 +1655,25 @@ one thing in the arms at a time, from the lockers to the bench and back.
   so outright when you are at such a desk. And there is **one more hand
   for hire** at every station on the front — people are on the move where
   the machines are coming, and armed.
+
+- **Defending a town** is what the front is *for*. A friendly settlement
+  whose system is one hop outside the infection is **threatened**, and
+  the map says so under its planet's name. Set down at one and the
+  machines come for it: an hour later a wave lands outside a gate and
+  walks in, and another after each is destroyed. It is the one fight with
+  somebody else on your side — the town's **guard** and whatever
+  **mercenaries** live there take arms and fight beside you, everybody
+  else walks into the nearest house and stays there, and the machines
+  come for the townsfolk as readily as for you. **Lift off and the attack
+  waits exactly where it stood**; land again and it carries on. Let the
+  last wave be destroyed and the town is **held**: it stays friendly for
+  good — trading and hiring even after its own system falls to the
+  crisis, the one friendly desk left inside it — and **some of its people
+  join your crew**, a fifth of the survivors, never the guard, as
+  classless hands who draw no wages and sleep on the deck if there is no
+  bunk for them. Let every one of its people die, or fly away and let its
+  system's day come, and it falls like any other place.
+  `nix run .#defense` opens a town with the machines a minute away.
 
 ### Classes and levels
 

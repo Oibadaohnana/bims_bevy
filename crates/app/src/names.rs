@@ -1864,6 +1864,16 @@ pub const STATE_NAMES: [&str; 7] = [
 pub const DROID_REINFORCEMENTS: &str = "Another wave of machines has landed.";
 pub const DROID_CLEARED: &str = "The last of the machines is down.";
 
+/// Defending a town (feature 94): the town held, and who came with the
+/// crew afterwards.
+pub const TOWN_HELD: &str = "The town is held. The machines are destroyed.";
+pub fn townsfolk_joined(count: u32) -> String {
+    match count {
+        1 => "One of the town's people joins the crew.".to_string(),
+        n => format!("{n} of the town's people join the crew."),
+    }
+}
+
 /// What each of the three is called, indexed by
 /// `bims::droid::DroidKind::code`; `0` is no machine at all. A droid
 /// has no name of its own — it is a machine, not somebody — so the log
@@ -2228,6 +2238,8 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             patient: Some(p),
         } => format!("{} has {} in their arms.", who(w), who(p)),
         WorldEvent::Carried { who: w, .. } => format!("{} sets them down.", who(w)),
+        WorldEvent::TownHeld { .. } => TOWN_HELD.into(),
+        WorldEvent::TownsfolkJoined { count } => townsfolk_joined(count),
     })
 }
 
@@ -3240,6 +3252,10 @@ pub fn droids_next_wave(span: &str, wave: u32, waves: u32) -> String {
 }
 pub const DROIDS_CLEARED: &str = "MACHINES — the last wave is down";
 pub const DROIDS_TIP: &str = "The station is held by the machines, and they come in waves. How many waves there are was fixed the first time you docked here and never changes; how big each one is, is worked out as it appears, so a richer crew meets more of them. No wave arrives while a machine of the last one is still standing — the countdown starts when the last of them is destroyed — and the next comes in through the airlock farthest from your own, or through a gate of the town on a planet. Everybody's speed goes back to 1× when one lands.";
+
+/// The same warning over a town the crew are defending (feature 94):
+/// the fight is the machines', but the town's people are in it too.
+pub const DEFENSE_TIP: &str = "The machines are coming for this town, and they land outside a gate a wave at a time. The town's guard and whatever mercenaries live here fight them; everybody else goes indoors and stays there. Hold the last wave and the town is yours to keep — it stays friendly and goes on trading even after its system falls, and some of its people will join your crew. Lift off and the attack waits where it stood; leave the town to it and it falls like any other.";
 
 pub const RAID_TIP: &str = "A hostile ship is closing on yours and will tie up alongside. Its boarders come for the ship through your airlock, which is locked in their face the moment they arrive: they have to force it — half a minute of heaving, the bar over the door — and you may unlock it from its panel yourself to meet them in the passage. Everybody's speed was put back to 1× when it came onto the radar; leaving before it arrives loses it.";
 
