@@ -147,6 +147,25 @@ pub struct Bim {
     /// count again; for anybody else it only ever climbs and is read by
     /// nobody. Saved with the room and in `world_checksum`.
     pub hits_taken: u32,
+    /// The crewmate this body carries in its arms (feature 86): a medic
+    /// — the class, or a hired field medic — that has picked up somebody
+    /// unconscious or hurt to take them out of the fire. Set by
+    /// [`crate::game::Game::take_up`], put down by `set_down`, and
+    /// dropped the moment either of the two goes down. While it runs the
+    /// carried body is stood where the carrier stands and walks nowhere
+    /// of its own, and the carrier holds its fire and walks at
+    /// [`crate::game::CARRY_PACE`]: both its arms are full. Saved with
+    /// the room and in `world_checksum`.
+    pub carrying: Option<usize>,
+    /// Whether this body is a **field medic** (feature 86): a mercenary
+    /// hired for the job, with none of the medic class's talents, whose
+    /// business under arms is to fetch the fallen out of the fire and
+    /// treat them where it is quiet, and who otherwise keeps to the far
+    /// end of its weapon's reach. Set by the world every step
+    /// (`Game::set_field_medic`) off `world::mercenary::Hired::medic`,
+    /// the way the squad's orders are, and so neither saved here nor
+    /// hashed.
+    pub field_medic: bool,
     /// Seconds this body has been dying with an enemy about (feature
     /// 78): nought until it is, counted up here and read by
     /// `Game::is_fleeing`, which lets it run once the count passes the
@@ -266,6 +285,8 @@ impl Bim {
             surge: None,
             bulwark: false,
             hits_taken: 0,
+            carrying: None,
+            field_medic: false,
             fear: 0.0,
             pending_move: None,
             trail: Vec::new(),

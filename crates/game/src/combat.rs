@@ -2513,7 +2513,15 @@ fn along(a: Vec2, b: Vec2, centre: Vec2, radius: f32) -> Option<f32> {
 /// weapons are a match: keep away, all else equal.
 pub const COVER_WORTH: f32 = 15.0;
 const FIT_WORTH: f32 = 30.0;
-const DISTANCE_WORTH: f32 = 1.0;
+pub const DISTANCE_WORTH: f32 = 1.0;
+/// What a tile of distance is worth to a body whose business is to be
+/// **out of the fight** (feature 86): a field medic, which keeps to the
+/// far end of its weapon's reach so that it is still standing when
+/// somebody needs fetching. Six tiles of walking a tile of distance, so
+/// it walks the length of its reach for it and still ducks behind cover
+/// within a couple of tiles of as far back as it can get
+/// ([`COVER_WORTH`] over this is two and a half tiles).
+pub const KEEP_BACK_WORTH: f32 = 6.0;
 /// What a tile of walking costs against those: half of one, since a
 /// stand is worth getting to.
 const WALK_COST_PER_TILE: f32 = 0.5;
@@ -2726,7 +2734,18 @@ impl Tactics {
         stats: &WeaponStats,
         doors: &[Rect],
     ) -> Option<Vec2> {
-        Tactics::stand_with_cover(sight, nav, from, targets, stats, doors, &[], false).map(|s| s.at)
+        Tactics::stand_with_cover(
+            sight,
+            nav,
+            from,
+            targets,
+            stats,
+            doors,
+            &[],
+            false,
+            DISTANCE_WORTH,
+        )
+        .map(|s| s.at)
     }
 
     /// [`Tactics::stand`], and whether the stand it picked is cover — the
@@ -2746,6 +2765,13 @@ impl Tactics {
     /// hunted again, and walked that loop for ever without ever coming
     /// through the door. Everybody else is scored as they were: a rifle
     /// with its target in sight walks off to its range.
+    ///
+    /// `distance_worth` is what a tile of distance from the target is
+    /// worth against the cover and the fit — [`DISTANCE_WORTH`] for
+    /// everybody, and [`KEEP_BACK_WORTH`] for a field medic (feature
+    /// 86), which is the one body that would rather be out of the fight
+    /// than in it.
+    #[allow(clippy::too_many_arguments)]
     pub fn stand_with_cover(
         sight: &Sight,
         nav: &Nav,
@@ -2755,6 +2781,7 @@ impl Tactics {
         doors: &[Rect],
         taken: &[Vec2],
         closing: bool,
+        distance_worth: f32,
     ) -> Option<Stand> {
         Tactics::stand_scored(
             sight,
@@ -2766,6 +2793,7 @@ impl Tactics {
             taken,
             closing,
             COVER_WORTH,
+            distance_worth,
         )
     }
 
@@ -2787,6 +2815,7 @@ impl Tactics {
         taken: &[Vec2],
         closing: bool,
         cover_worth: f32,
+        distance_worth: f32,
     ) -> Option<Stand> {
         if stats.melee {
             return Tactics::charge(nav, from, targets).map(|at| Stand { at, cover: false });
@@ -2834,7 +2863,8 @@ impl Tactics {
         }));
         let mut best: Option<(f32, Stand)> = None;
         for (i, &c) in candidates.iter().enumerate() {
-            let Some((view, cover)) = Tactics::view_from(sight, c, targets, stats, cover_worth)
+            let Some((view, cover)) =
+                Tactics::view_from(sight, c, targets, stats, cover_worth, distance_worth)
             else {
                 continue;
             };
@@ -2875,6 +2905,7 @@ impl Tactics {
         targets: &[Option<Target>],
         stats: &WeaponStats,
         cover_worth: f32,
+        distance_worth: f32,
     ) -> Option<(f32, bool)> {
         let reach = stats.reach();
         let eyes = sight.eyes_from(c);
@@ -2909,7 +2940,7 @@ impl Tactics {
             let cover = if in_cover { cover_worth } else { 0.0 };
             let tiles = d / TILE;
             let fit = Tactics::fit(stats, &target.weapon.stats(), tiles) * FIT_WORTH;
-            let score = cover + fit + tiles * DISTANCE_WORTH;
+            let score = cover + fit + tiles * distance_worth;
             if best.is_none_or(|(b, _)| score > b) {
                 best = Some((score, in_cover));
             }
@@ -3529,6 +3560,7 @@ mod tests {
                     &[],
                     taken,
                     false,
+                    DISTANCE_WORTH,
                 )
                 .expect("somewhere to shoot from")
             };

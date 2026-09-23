@@ -289,6 +289,12 @@ pub enum WorldEvent {
     /// player's crew member, and `crate::Standing`'s code — nought for
     /// the order called off, which is the bots back to following.
     Ordered { who: u32, kind: u32 },
+    /// A medic took a crewmate up into its arms, or set one down
+    /// (feature 86): who is carrying, and whom — `None` for the body
+    /// set down, whether by the player, by the medic's own judgement
+    /// that it is clear of the fight, or by the world when one of the
+    /// two went down.
+    Carried { who: u32, patient: Option<u32> },
 }
 
 /// Why a command did nothing.
@@ -515,6 +521,16 @@ pub enum Refusal {
     /// An attack banner put down on something that is not deck of the
     /// crew's room (feature 84).
     NoGroundThere = 74,
+    /// A carry by a crew member that is neither a medic of the class
+    /// nor a hired field medic (feature 86), or a set down by one that
+    /// is carrying nobody.
+    NotCarrying = 75,
+    /// A carry of a body that wants none: whole, on its feet and awake.
+    /// A crewmate is picked up to be taken out of the fire, not to be
+    /// moved about.
+    NotHurt = 76,
+    /// A carry of a body that is already in somebody's arms.
+    AlreadyCarried = 77,
 }
 
 impl Refusal {
@@ -609,6 +625,10 @@ impl WorldEvent {
             WorldEvent::DroidStationCleared { .. } => 84,
             WorldEvent::DroidDown { .. } => 85,
             WorldEvent::Ordered { .. } => 86,
+            WorldEvent::Carried {
+                patient: Some(_), ..
+            } => 87,
+            WorldEvent::Carried { patient: None, .. } => 88,
         }
     }
 
@@ -654,6 +674,12 @@ impl WorldEvent {
             WorldEvent::Looted { who, source_kind } => (who + 10 * source_kind) as i64,
             // The body in the tens, likewise.
             WorldEvent::Executed { who, resident } => (who + 10 * resident) as i64,
+            // The one carried in the **hundreds**, the carrier in the
+            // units, and the carrier alone for a set down, whose line
+            // names nobody else (feature 86). The hundreds rather than
+            // the tens the rows above use: the `combat` command sails
+            // with fourteen.
+            WorldEvent::Carried { who, patient } => (who + 100 * patient.unwrap_or(0)) as i64,
             // The fee in the hundreds: a crew is never a hundred.
             WorldEvent::MercenaryPaid { who, fee } => (who as i64) + 100 * (fee as i64),
             WorldEvent::Health { who, .. }

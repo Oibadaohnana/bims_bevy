@@ -50,6 +50,22 @@ pub const MERCENARY_CHANCE: f64 = 0.4;
 /// How far a fee is moved off the kit's price, either way, at most.
 pub const VARIANCE_PERCENT: u64 = 15;
 
+/// The odds a mercenary for hire is a **field medic** (feature 86):
+/// somebody whose trade is fetching the fallen out of the fire and
+/// patching them up where it is quiet. About a third of them, so a
+/// station with one for hire usually has a gun and a station with three
+/// usually has a medic among them.
+pub const MEDIC_CHANCE: f64 = 0.35;
+/// What a field medic asks on top of the kit, a month, in euros. The
+/// trade rather than the gear: a field medic carries a pistol like
+/// anybody else, and what is being paid for is that it walks into the
+/// fire for somebody who cannot walk out.
+pub const MEDIC_FEE: Money = 4_000;
+/// How many medkits a hired field medic brings with it. Two, as the
+/// user asked: enough to get two crew members out of a dying state
+/// before it has to go back to the hold for more.
+pub const MEDIC_MEDKITS: u32 = 2;
+
 /// A month of a mercenary carrying that weapon, in euros. Tier one is the
 /// pistol, tier two the shotgun, the auto rifle and the schword, tier
 /// three the sniper rifle.
@@ -80,6 +96,14 @@ pub struct Hired {
     /// A month fell due that the money did not cover, said once; the
     /// hand walks off at the next berth unless it is paid first.
     pub owed: bool,
+    /// Whether this one is a **field medic** (feature 86): hired for
+    /// the job of fetching the fallen out of the fire and treating them,
+    /// with none of the medic class's talents. It is kept on the
+    /// contract rather than on the body because it is what was hired,
+    /// and it is what the world hands the room every step
+    /// (`bims::game::Game::set_field_medic`). In `world_checksum` with
+    /// the rest of the row.
+    pub medic: bool,
 }
 
 /// What a hire would come to, for a window to show before the command
@@ -97,6 +121,9 @@ pub struct Offer {
     pub bunk: bool,
     /// Whether the ship is tied up at the station the body lives on.
     pub docked: bool,
+    /// Whether the body is a field medic (feature 86), so the window can
+    /// say what it is being asked to pay the premium for.
+    pub medic: bool,
 }
 
 /// How many mercenaries a station with `seed` has for hire against a
@@ -137,10 +164,28 @@ pub fn fee_of(gear: &Gear) -> Money {
 /// way off `seed`, in whole percent, so the same mercenary asks the same
 /// every time and no two ask quite alike. Whole euros.
 pub fn priced(seed: u64, gear: &Gear) -> Money {
+    priced_as(seed, gear, false)
+}
+
+/// [`priced`] with the trade said: a **field medic** asks [`MEDIC_FEE`]
+/// on top of the kit, and the variance is rolled over the sum, so the
+/// same medic asks the same every time. The roll is drawn from the same
+/// stream in the same order either way, so which mercenary is a medic
+/// moves nobody else's price.
+pub fn priced_as(seed: u64, gear: &Gear, medic: bool) -> Money {
     let mut rng = Rng::new(seed ^ 0x_5052_4943_45);
     let span = 2 * VARIANCE_PERCENT + 1;
     let percent = 100 - VARIANCE_PERCENT + rng.below(span as u32) as u64;
-    fee_of(gear) * percent / 100
+    let kit = fee_of(gear) + if medic { MEDIC_FEE } else { 0 };
+    kit * percent / 100
+}
+
+/// Whether the mercenary rolled off `seed` is a field medic (feature
+/// 86): one roll of [`MEDIC_CHANCE`] off a stream of its own, so it is
+/// a function of the seed like the gear and the price and the world
+/// derives it when the room opens rather than keeping it.
+pub fn is_medic(seed: u64) -> bool {
+    Rng::new(seed ^ 0x_4D45_4449_43).chance(MEDIC_CHANCE)
 }
 
 /// The seed a station's mercenary number `n` is rolled off: the station's
@@ -196,6 +241,27 @@ mod tests {
             "the variance is used: {low}..{high}"
         );
         assert_eq!(priced(7, &heavy), priced(7, &heavy), "the same every time");
+    }
+
+    /// A field medic asks the kit and the trade's premium on top, and
+    /// about a third of the hands for hire are one.
+    #[test]
+    fn a_field_medic_asks_for_the_trade_on_top_of_the_kit() {
+        let pistol = Gear {
+            weapon: Some(WeaponKind::LaserPistol.basic()),
+            ..Gear::default()
+        };
+        for seed in 0..50u64 {
+            let plain = priced_as(seed, &pistol, false);
+            let medic = priced_as(seed, &pistol, true);
+            assert!(medic > plain, "{medic} over {plain}");
+            // The same percentage over the bigger sum, so the ratio is
+            // the sums' whatever the roll.
+            assert_eq!(medic * 2_000 / 6_000, plain, "seed {seed}");
+        }
+        let medics = (0..200u64).filter(|&s| is_medic(s)).count();
+        assert!((50..=110).contains(&medics), "{medics} of two hundred");
+        assert_eq!(is_medic(3), is_medic(3), "the same every time");
     }
 
     /// At the start worth a station has one or none; a crew twice as

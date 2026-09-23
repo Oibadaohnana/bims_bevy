@@ -590,6 +590,40 @@ impl Session {
         }
     }
 
+    /// The last `n` of the crew made **field medics** (feature 86), for
+    /// `BIMS_FIELD_MEDIC=n`: the contract and the two medkits, and
+    /// nothing else — the last of the crew rather than the first, since
+    /// slot 0 is the player's own and a field medic is a bot's trade.
+    /// See `World::field_medic_for_probe`.
+    pub fn field_medics_for_probe(&mut self, n: usize) {
+        let Some(game) = self.game.as_mut() else {
+            return;
+        };
+        let crew = game.world.aboard.crew_count();
+        for i in 0..(n as u32).min(crew.saturating_sub(1)) {
+            game.world.field_medic_for_probe(crew - 1 - i);
+        }
+    }
+
+    /// Crew member 1 taken out cold and carried by the field medic —
+    /// `BIMS_CARRY=1` — for looking at a body in somebody's arms. The
+    /// carrier is the last of the crew, which is where
+    /// `field_medics_for_probe` puts one.
+    pub fn carry_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let crew = game.world.aboard.crew_count();
+        if crew < 2 {
+            return false;
+        }
+        let carrier = (0..crew)
+            .find(|&who| game.world.can_lift(who))
+            .unwrap_or(crew - 1);
+        let patient = if carrier == 1 { 0 } else { 1 };
+        game.world.carry_for_probe(carrier, patient)
+    }
+
     /// Shoot the `n` lamps nearest the crew member out, and leave the
     /// next failing — see `World::shoot_lamps_for_probe`.
     pub fn shoot_lamps_for_probe(&mut self, n: usize) {

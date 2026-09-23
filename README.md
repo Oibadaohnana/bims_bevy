@@ -1298,6 +1298,27 @@ and at the next berth they walk off — back into the station's room, for
 hire again when you can afford them. The `test` command always has one
 for hire at its dock, and its ship has bunks to spare.
 
+**About a third of them are field medics** (feature 86), and the Hire
+window says so at the top before it says what they carry. A field medic
+is hired for its trade and not for its gun: **four thousand a month** on
+top of the kit, and for it you get somebody whose whole business in a
+fight is your crew. It has **none of a medic's own skills** — no beam,
+no surge, no class at all — and what it does instead is this:
+
+* it keeps to the **far end of its weapon's reach** and shoots from
+  there, so it is still standing when somebody needs fetching;
+* the moment a crew member goes down within about eighteen tiles — out
+  cold, or in a dying state — it goes and **picks them up**, walks them
+  clear of the fight at six tenths pace with its fire held, sets them
+  down somewhere nothing can see them, and **treats them there**;
+* it arrives with **two medkits** in its pack and fills back up out of
+  the hold between fights — or the moment it has spent its last one and
+  is standing somewhere safe. It conjures nothing: a hold with no
+  medkits in it is a field medic with none either.
+
+Before anybody is down it is an ordinary crew member with a gun, and it
+eats, sleeps and works like the rest.
+
 ### The trading desk
 
 Every station keeps a **trading desk** just inside its port — a wooden
@@ -1598,9 +1619,24 @@ wall, a commander's rally and attack order — and both are rebindable on
 the Controls page as one pair,
 not one a class. The **commander** has two keys more, his alone: **X**
 calls the squad back and **Z** has it stand its ground, and both do
-nothing for any other class. With a classless crew member steered the
-keys do
+nothing for any other class. The **medic** has one of his own: **G**
+picks a crewmate up and sets them down. With a classless crew member
+steered the keys do
 nothing; a press the world refuses says why in the log.
+
+**Every ability has a box at the foot of the screen**, one a key: the
+key in its corner, the picture in the middle, how many are left in the
+other, and the name under it. A commander has four of them — rally,
+attack, fall back, stand ground — and a medic three, the carry beside
+its surge and beam; everybody else has the two. **Resting on a box rings
+the Bims that cast would reach** on the deck: the crew a rally would
+lift, the squad each of the three squad orders commands, the patients a
+beam holds, whoever a carry could pick up. It is the panels' own rule —
+resting on a row rings what it names — asked of an ability instead of a
+fixture, and it is how you see what an order is about *before* you give
+it. While a rally is actually running, the Bims it lifts wear its own
+chevron rather than the aura's plain ring, so a rally called is told
+from an aura standing there all along.
 
 **Experience** comes from six things and nothing else: an enemy going
 down within fifty tiles is 10 to every classed crew member in range, an
@@ -1792,9 +1828,23 @@ drained, no trauma, the whole of it absorbed. The charge empties;
 unlinking does not end a surge already running on the patient. A ring
 round the body says who is surging.
 
+**The carry** is `G`, from the first level and with no talent behind it
+(feature 86): the crewmate under the pointer picked up into the medic's
+arms — out cold, in a dying state, or bleeding — and carried out of the
+fire. With the pointer on nobody it takes up the nearest it could, so
+the key is worth pressing in the middle of a fight without aiming it.
+Carrying, the medic walks at **six tenths** of its pace and **fires
+nothing**: both its hands are the carry. `G` again sets the body down
+where it stands, and treating it there is what comes next — a crewmate
+is doctored only in the calm, so carrying somebody somewhere quiet is
+also what makes treating them possible. A body in somebody's arms walks
+nowhere of its own, and the carry is let go the moment either of the two
+goes down. A crew member on its feet and whole is nobody's to carry: the
+key is for getting somebody *out*, not for moving the crew about.
+
 | level | left | right |
 | --- | --- | --- |
-| 1 | **Heal beam** | — |
+| 1 | **Heal beam**; **carry** | — |
 | 2 | **Field dressing** — bandages in half the time | **Surgeon** — treats in half the time |
 | 3 | **Surge** — may trigger it | — |
 | 4 | **Long beam** — beam range ×1.5 | **Strong beam** — beam blood rate ×1.5 |
@@ -3081,8 +3131,10 @@ one in five the legs — and takes the weapon's damage *at the distance it
 flew* off that part alone; a blow in a melee, a fist's twenty or a
 schword's thirty-five, lands the same way, on a part rolled where it lands.
 A part at nothing is not death any more: it is a **dying state**, rolled
-for the part the moment it goes, and the panel says it in red under the
-bars — *Dying · skull fracture* — with what it is doing under that. The
+for the part the moment it goes. The panel names it in red beside the
+part's own bar at zero — *Head · 0 · Skull fracture* — the block above
+says what it is costing in blood and how long that leaves it, and a
+**red cross** stands over the body on the deck. The
 head's three are a **heavy concussion** (a quarter slower walking and
 working), a **skull fracture** (losing ten blood every quarter hour) and
 **cranial trauma** (half as fast, and five blood a quarter hour); the
@@ -3141,9 +3193,34 @@ coverall or the boots while that part has a wound open, **blood on the deck**
 under a Bim that is bleeding — a drop every second or so a wound, and a drop is
 a stain like any other: the tile reads **Blood** under the pointer, the broom
 takes it up, and it counts against the deck the way a mess does (see
-[Mess](#mess)) — "Bleeding · n open wounds" under the bars,
-the blood bar in red once it is low enough to slow it, and every hit and
-every crew member down written in the log.
+[Mess](#mess)) — the blood bar in red once it is low enough to slow it,
+and every hit and every crew member down written in the log.
+
+**The panel says what the Bim is dying of, and how long it has.** Under
+the health bar is a framed block naming the thing that is taking it
+down now: **Blood loss**, with what it is losing an hour, **how long
+that leaves it** — the blood it has left divided by the rate, so it
+moves the instant a bandage or a medkit does — and the list it is made
+of, worst first, each with its own share: *Fractured femur · 40 an
+hour*, *Legs · 2 open wounds · 20 an hour*. Under that is what stops
+it. **Starvation** is the other one the block names, at the last stage
+of malnutrition where health drains of itself, with the same countdown.
+The block is graded the way the deck is: red, headed *Dying of*, for a
+body in a dying state or starving — the two a medkit or a meal is the
+answer to — and amber, headed *Losing*, for one that is merely bleeding
+through wounds a bandage closes, since a scratch that would empty it in
+ten hours is worth a number rather than a fright. A part a trauma holds
+at nothing names that trauma in its own row, beside the bar at zero.
+And a Bim that has died says what of — *Bled out*, *Starved*, *Gave
+up* — read off the body, since that is how the game decides it too.
+
+**A Bim in a dying state wears a red cross**, a white disc with a
+medical cross on it, over its head on the deck. It is the one thing out
+there that is not another coloured ring, and it means exactly one
+thing: a part of that body is at nothing with its trauma untreated, and
+only a crewmate with a medkit ends it. It goes when the medkit lands —
+and it is never over a body that has died, since nothing can be done
+for one.
 
 **Armour is worn over all of that**, one piece a part — a helm, kevlar,
 leg guards (*Armour* under *What the ship will make* says what each is
@@ -3152,8 +3229,9 @@ dark plate over the coverall with the yoke still showing, darker boots
 with a band across the shin. A piece has a **health** of its own that is
 added to the part's — the body at 75 in a 20-health kevlar reads 95, and
 the Bim's bar 100 → 120 — and it is drawn as a **blue bar on the end of
-the green one**, the number reading `100 hp + 20 hp`, on the crew sheet's
-big bar and on each part's thin one alike. A hit on that part goes to
+the green one**, on the crew sheet's big bar and on each part's own
+alike — the big bar's number reading `100` with a blue `+20` beside it,
+a part's `75 + 20`. A hit on that part goes to
 the piece **first**: its **protection** comes off the damage before
 anything else, so a shot that does no more than the protection does
 nothing at all — no wound — and what is left drains the piece; only what

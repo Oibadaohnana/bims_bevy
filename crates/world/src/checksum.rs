@@ -226,6 +226,10 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(hired.fee);
         hash.eat_rounded(hired.due, FINE_GRID);
         hash.eat(hired.owed as u64);
+        // And what was hired (feature 86): a field medic fights and
+        // walks differently, so two clients that disagree about it
+        // disagree about where a body is standing.
+        hash.eat(hired.medic as u64);
     }
 
     // The armour: every piece, what it has left and where it is. A piece
@@ -639,6 +643,16 @@ pub fn world_checksum(world: &World) -> u64 {
     // which is what a commander's aura buys it (`bims::bim::Bim::fear`).
     for who in 0..crew {
         hash.eat_rounded(world.aboard.room.fear(who) as f64, HEALTH_GRID);
+    }
+    // And who has whom in their arms (feature 86): a carry stands one
+    // body where another walks and holds both their fire, so it is as
+    // much a position as a walk is. `u64::MAX` for empty arms, the way
+    // an empty slot goes in everywhere else.
+    for who in 0..crew {
+        match world.aboard.room.carrying(who as usize) {
+            None => hash.eat(u64::MAX),
+            Some(patient) => hash.eat(patient as u64),
+        }
     }
 
     hash.0

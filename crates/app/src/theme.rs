@@ -669,6 +669,152 @@ pub fn squad_mark(painter: &egui::Painter, at: egui::Pos2, to: Option<egui::Pos2
     }
 }
 
+/// A commander's **fall back** (feature 86, for the ability box and the
+/// deck): two chevrons pointing back at a bar — the order to give
+/// ground to a line. Laid out in a box `radius` from the middle, the way
+/// every other box mark is.
+pub fn fall_back_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let stroke = egui::Stroke::new((radius * 0.16).clamp(1.0, 3.0), CAUTION);
+    // The line held, on the left.
+    painter.line_segment(
+        [
+            egui::pos2(at.x - radius, at.y - radius * 0.8),
+            egui::pos2(at.x - radius, at.y + radius * 0.8),
+        ],
+        stroke,
+    );
+    // And two chevrons walking back to it.
+    for n in 0..2 {
+        let x = at.x + radius * (0.1 + 0.55 * n as f32);
+        painter.line_segment(
+            [
+                egui::pos2(x, at.y - radius * 0.6),
+                egui::pos2(x - radius * 0.45, at.y),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                egui::pos2(x - radius * 0.45, at.y),
+                egui::pos2(x, at.y + radius * 0.6),
+            ],
+            stroke,
+        );
+    }
+}
+
+/// A commander's **stand ground** (feature 86): a body's bracket planted
+/// on a line — hold exactly where you are. The bracket is the squad
+/// mark's own shape, so the two read as one family.
+pub fn stand_ground_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let stroke = egui::Stroke::new((radius * 0.16).clamp(1.0, 3.0), CAUTION);
+    let base = at.y + radius * 0.7;
+    painter.line_segment(
+        [
+            egui::pos2(at.x - radius, base),
+            egui::pos2(at.x + radius, base),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(at.x - radius * 0.7, at.y - radius * 0.2),
+            egui::pos2(at.x, at.y - radius * 0.8),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(at.x, at.y - radius * 0.8),
+            egui::pos2(at.x + radius * 0.7, at.y - radius * 0.2),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(at.x, at.y - radius * 0.8),
+            egui::pos2(at.x, base),
+        ],
+        stroke,
+    );
+}
+
+/// A medic's **carry** (feature 86): a body lying across two arms — a
+/// capsule with a bar under each end of it, which is a stretcher seen
+/// from above and reads as one at box size.
+pub fn carry_mark(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
+    let stroke = egui::Stroke::new((radius * 0.16).clamp(1.0, 3.0), HEAL);
+    let body = egui::Rect::from_center_size(
+        egui::pos2(at.x, at.y - radius * 0.2),
+        egui::vec2(radius * 1.7, radius * 0.7),
+    );
+    painter.rect_filled(body, radius * 0.35, HEAL.gamma_multiply(0.55));
+    painter.circle_filled(
+        egui::pos2(body.min.x + radius * 0.1, body.center().y),
+        radius * 0.3,
+        HEAL,
+    );
+    // The two arms under it.
+    for n in 0..2 {
+        let y = at.y + radius * (0.45 + 0.35 * n as f32);
+        painter.line_segment(
+            [
+                egui::pos2(at.x - radius * 0.9, y),
+                egui::pos2(at.x + radius * 0.9, y),
+            ],
+            stroke,
+        );
+    }
+}
+
+/// A Bim a cast of the commander's is **working on** (feature 86): a
+/// ring on the ground under it, brighter than [`lifted_mark`]'s and in
+/// the caution colour the squad's bracket is in, drawn while the
+/// pointer rests on the box for that cast. It is the panels' rule said
+/// on the deck — resting on a row rings what it names — and it is what
+/// answers "who does this reach".
+pub fn affected_ring(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let radius = (13.0 * scale).clamp(6.0, 20.0);
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new((2.0 * scale).clamp(1.2, 3.0), CAUTION),
+    );
+    painter.circle_stroke(
+        at,
+        radius * 0.7,
+        egui::Stroke::new(1.0, CAUTION.gamma_multiply(0.45)),
+    );
+}
+
+/// A Bim a **rally** is lifting (feature 86): the aura's own ring with a
+/// chevron over it, so a rally running is told from the aura standing.
+/// Drawn in place of [`lifted_mark`] for as long as the rally does.
+pub fn rallied_mark(painter: &egui::Painter, at: egui::Pos2, scale: f32) {
+    let radius = (10.0 * scale).clamp(4.0, 16.0);
+    painter.circle_stroke(
+        at,
+        radius,
+        egui::Stroke::new(1.0, YOURS.gamma_multiply(0.9)),
+    );
+    let r = radius * 0.8;
+    let stroke = egui::Stroke::new((1.4 * scale).clamp(1.0, 2.4), YOURS);
+    painter.line_segment(
+        [
+            egui::pos2(at.x - r, at.y - radius * 0.9),
+            egui::pos2(at.x, at.y - radius * 1.5),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(at.x, at.y - radius * 1.5),
+            egui::pos2(at.x + r, at.y - radius * 0.9),
+        ],
+        stroke,
+    );
+}
+
 /// An **attack banner** on the deck (feature 84): a staff standing on
 /// the tile with a pennant flying off it, and a ring on the ground round
 /// its foot — the ground the crew that follow you are fighting for. Red,

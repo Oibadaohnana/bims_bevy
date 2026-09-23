@@ -591,6 +591,9 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoSquadInRange => "nobody of the squad is near enough to hear it",
         Refusal::NoEnemyThere => "there is no enemy under the pointer",
         Refusal::NoGroundThere => "there is no ground to attack there",
+        Refusal::NotCarrying => "only a medic carries somebody, and only one at a time",
+        Refusal::NotHurt => "they are on their feet and can walk out themselves",
+        Refusal::AlreadyCarried => "somebody has them already",
     }
 }
 
@@ -769,6 +772,18 @@ pub fn ability_tip(class: world::Class, primary: bool) -> &'static str {
         .map(|pair| pair[usize::from(!primary)])
         .unwrap_or("")
 }
+/// The boxes past the class's own two (feature 86): the commander's
+/// other two squad orders, which had keys and no box until now, and the
+/// medic's carry. Named off the [`crate::keys::Action`] rather than off
+/// a class's pair, since these are one class's each and a pair has no
+/// room for a third.
+pub const FALL_BACK: &str = "Fall back";
+pub const FALL_BACK_TIP: &str = "Call the squad back to the deck tile under the pointer, or to yourself with the pointer on nothing. They hold their fire and walk, and hold the ring round the spot when they get there. The number is how many are in the squad.";
+pub const STAND_GROUND: &str = "Stand ground";
+pub const STAND_GROUND_TIP: &str = "The squad holds exactly where it stands — no walk to cover, no running — shooting whatever it can see. The number is how many are in the squad.";
+pub const CARRY: &str = "Carry";
+pub const CARRY_TIP: &str = "Pick the crewmate under the pointer up — out cold, dying, or bleeding — and carry them out of the fire. You hold your fire and walk slowly while you do. The key again sets them down, and treating them is what comes next. The number is how many near you are worth fetching.";
+
 /// The line under a box whose level is not reached yet.
 pub fn ability_locked(level: u8) -> String {
     format!("Level {level}")
@@ -1611,6 +1626,10 @@ pub fn rally_refused(why: world::Refusal) -> String {
 pub fn orders_refused(why: world::Refusal) -> String {
     format!("Cannot order the crew: {}.", refusal(why))
 }
+/// And the carry's (feature 86).
+pub fn carry_refused(why: world::Refusal) -> String {
+    format!("Cannot carry: {}.", refusal(why))
+}
 /// What the crew that follow you are under, for the strip over the
 /// canvas — nothing at all while they are simply following, since the
 /// ring round your Bim already says so.
@@ -2140,6 +2159,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             2 => format!("{} called the crew back to the ship.", who(w)),
             _ => format!("{}'s crew are following again.", who(w)),
         },
+        WorldEvent::Carried {
+            who: w,
+            patient: Some(p),
+        } => format!("{} has {} in their arms.", who(w), who(p)),
+        WorldEvent::Carried { who: w, .. } => format!("{} sets them down.", who(w)),
     })
 }
 
@@ -2372,8 +2396,15 @@ pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar
 // at and how long it has at that rate. The words are here; the sums are
 // `crew::perils`, off the room's own constants.
 
-/// The headline over the block, when there is one.
+/// The headline over the block. The first is for a body in a dying
+/// state or starving — the red one, the one the cross on the deck
+/// marks, the one a medkit or a meal is the answer to. The second is
+/// for a body that is only losing blood through wounds a bandage
+/// closes: the same block and the same countdown, in the caution
+/// colour, because a scratch that would empty it in ten hours is worth
+/// a number and not a fright.
 pub const PERIL_HEAD: &str = "DYING OF";
+pub const PERIL_HEAD_HURT: &str = "LOSING";
 /// A body losing blood faster than it makes it: the wounds and the
 /// untreated traumas together.
 pub const PERIL_BLEEDING: &str = "Blood loss";
@@ -3048,6 +3079,9 @@ pub const HIRE_WINDOW: &str = "Hire";
 pub const HIRE_ROW: &str = "Hire — see the terms";
 pub const HIRE_BUTTON: &str = "Hire";
 pub const HIRE_TIP: &str = "A mercenary lives at a friendly station and is for hire: the fee is a month of them, paid now and again every month after out of the crew's money, and it is what they carry — a heavier gun and a piece of armour each cost more. Hiring wants the Bim shown within two tiles of them (opening this walks it over), the money for the first month, and a free bunk aboard. A month the money will not cover has them walk off at the next berth, for hire again.";
+/// A mercenary hired for its trade rather than its gun (feature 86).
+pub const FIELD_MEDIC: &str = "Field medic";
+pub const FIELD_MEDIC_TIP: &str = "A field medic is hired to save your crew, not to win the fight. Under arms it keeps to the far end of its weapon's reach, fetches whoever goes down out of the fire — in its arms, at half pace, holding its fire — sets them down where it is quiet, and treats them there. It sets out with two medkits and fills up out of the hold between fights. It has none of a medic's own skills: the premium on the month is the trade.";
 pub const NO_BUNK_HINT: &str = "no bunk aboard for one more";
 pub const BROKE_HINT: &str = "not the money for the first month";
 pub const MERCENARY_MARK: &str = "?";

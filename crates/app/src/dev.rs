@@ -151,6 +151,23 @@ pub fn dying() -> Option<usize> {
     std::env::var("BIMS_DYING").ok()?.trim().parse().ok()
 }
 
+/// `BIMS_FIELD_MEDIC=n` makes the last `n` of the crew **hired field
+/// medics** (feature 86): the contract, the two medkits, and no money
+/// taken — for looking at what one does in a fight without flying to a
+/// station and hiring one (`Session::field_medics_for_probe`).
+pub fn field_medics() -> Option<usize> {
+    std::env::var("BIMS_FIELD_MEDIC").ok()?.trim().parse().ok()
+}
+
+/// `BIMS_CARRY=1` takes a crew member out cold and puts it in a medic's
+/// arms — for looking at a body being carried off the deck without
+/// waiting for a fight to put one there (`Session::carry_for_probe`).
+/// Wants somebody who may carry: a medic of the class (`BIMS_CLASS=medic`)
+/// or a hired one (`BIMS_FIELD_MEDIC=1`).
+pub fn carry() -> bool {
+    std::env::var("BIMS_CARRY").as_deref() == Ok("1")
+}
+
 /// `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member out at
 /// open and leaves the next one failing — how a lamp out, the dark round
 /// it and a failing lamp's flicker are looked at without a fight that

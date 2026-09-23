@@ -54,7 +54,7 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// `crate::memory`): the graves after the losses — whose deck, where on
 /// it and what is still on the body — and the nodes the ship has been
 /// at after them, both for the live system and inside every memory.
-pub const REFERENCE_CHECKSUM: u64 = 0x_f766_3dcf_74a2_5cbf;
+pub const REFERENCE_CHECKSUM: u64 = 0x_3721_d0ad_d6ef_9c6f;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

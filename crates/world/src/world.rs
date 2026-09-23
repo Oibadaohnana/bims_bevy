@@ -563,6 +563,21 @@ pub enum Command {
         slot: u32,
         order: Standing,
     },
+    /// Take crew member `who` up into that player's own **medic's**
+    /// arms, or set down whatever it is carrying with `None` (feature
+    /// 86, [`crate::mercenary`]). Wants the carrier fit to act and
+    /// either a medic of the class or a hired field medic
+    /// ([`World::can_carry`]); the body has to be a crewmate that is out
+    /// cold, in a dying state or bleeding, within
+    /// [`bims::game::CARRY_REACH`] tiles, and in nobody else's arms. Carried,
+    /// a body walks nowhere of its own and the carrier holds its fire
+    /// and walks at [`bims::game::CARRY_PACE`] — the point of it being
+    /// to get somebody out of the fire and treat them where it is
+    /// quiet. A set down with empty arms does nothing and says so.
+    Carry {
+        slot: u32,
+        who: Option<u32>,
+    },
 }
 
 /// What the ship is doing.
@@ -1529,6 +1544,10 @@ impl World {
         //    is the hold's count — the room keeps neither of its own
         //    aboard. What the room used and what it grew are read back
         //    after the step, below.
+        //    A hired field medic fills its pack back up out of the hold
+        //    first (feature 86), so the count the room is handed below
+        //    is the one it will treat with this step.
+        self.restock_field_medics();
         self.hand_the_room_the_hold_s_medicine();
         let eva = self.eva_offer();
         self.aboard.room.set_eva(eva);
@@ -1552,6 +1571,11 @@ impl World {
         //    patients' blood held, before the soldiers' skills, since a
         //    medic beaming holds its fire through them.
         self.hand_the_room_the_medics(&mut events);
+        //    And which crew members are hired **field medics** (feature
+        //    86), whose business under arms is the fallen: said every
+        //    step like the squad's orders, since it is the contract that
+        //    knows and a save reads the contract back.
+        self.hand_the_room_the_field_medics();
         //    And the tanks' (feature 77): the walls standing among the
         //    crew, before the skills, which read the bulwark off the room.
         self.hand_the_room_the_tanks();
@@ -1704,6 +1728,7 @@ impl World {
             | Command::Taunt { slot }
             | Command::Squad { slot, .. }
             | Command::Rally { slot }
+            | Command::Carry { slot, .. }
             | Command::Orders { slot, .. } => slot,
         };
 
@@ -1878,6 +1903,10 @@ impl World {
             },
             Command::Orders { order, .. } => match self.give_orders(slot, order) {
                 Ok(kind) => events.push(WorldEvent::Ordered { who: slot, kind }),
+                Err(why) => events.push(refused(slot, why)),
+            },
+            Command::Carry { who, .. } => match self.carry(slot, who) {
+                Ok(patient) => events.push(WorldEvent::Carried { who: slot, patient }),
                 Err(why) => events.push(refused(slot, why)),
             },
         }
@@ -3563,6 +3592,7 @@ impl World {
         residents.xp_dead.resize(bodies, false);
         residents.last_hit_by.resize(bodies, None);
         residents.fee.resize(bodies, None);
+        residents.medic.resize(bodies, false);
         residents.grave.resize(bodies, false);
         let room = &mut residents.aboard.room;
         for who in 0..residents.down.len().min(bodies) {
@@ -6699,7 +6729,19 @@ impl World {
             affordable: self.money >= fee,
             bunk: (self.aboard.crew_count() as usize) < self.aboard.room.bed_count(),
             docked: self.residents.as_ref().map(|r| r.station) == self.ship.state.station(),
+            medic: self.mercenary_is_medic(resident),
         })
+    }
+
+    /// Whether that resident of the station whose room is open is a
+    /// **field medic** for hire (feature 86). False for one of the
+    /// station's own, for a plain gun for hire, and for no such body.
+    pub fn mercenary_is_medic(&self, resident: u32) -> bool {
+        self.residents
+            .as_ref()
+            .and_then(|r| r.medic.get(resident as usize))
+            .copied()
+            .unwrap_or(false)
     }
 
     /// A month of every hired hand, as the world keeps it — for the crew
@@ -6814,6 +6856,7 @@ impl World {
         residents.xp_dead.remove(resident as usize);
         residents.last_hit_by.remove(resident as usize);
         residents.fee.remove(resident as usize);
+        let hire_is_medic = residents.medic.remove(resident as usize);
         residents.grave.remove(resident as usize);
         memory::amend_losses(&mut self.losses, station, |l| l.mercenaries += 1);
         // Into the crew's, where it stood on the deck, with its armour
@@ -6848,6 +6891,7 @@ impl World {
         // Crew indices are what a beam links by, so every beam is broken
         // by a hire (feature 76); the hire's own state starts empty.
         self.clear_beams();
+        self.clear_carries();
         self.medics
             .resize(self.aboard.crew as usize, Medic::default());
         self.tanks
@@ -6865,7 +6909,16 @@ impl World {
             fee,
             due: self.clock_minutes + mercenary::MONTH,
             owed: false,
+            medic: hire_is_medic,
         });
+        // A field medic arrives with its own kit (feature 86):
+        // `mercenary::MEDIC_MEDKITS` in its pack, the way a medic of the
+        // class sets out with `class::MEDIC_START_MEDKITS`. They are the
+        // hold's medicine from the moment the room is handed the packs,
+        // so nothing else has to know where they came from.
+        if hire_is_medic {
+            self.give_field_medic_kit(new_who);
+        }
         // *Outfitter* (feature 78): the hand arrives wearing the lowest
         // basic piece it was missing, made for it and charged for at
         // nothing.
@@ -6983,6 +7036,7 @@ impl World {
         // And by a dismissal, which shifts every index after it (feature
         // 76); the dismissed one's own state goes with it.
         self.clear_beams();
+        self.clear_carries();
         if index < self.medics.len() {
             self.medics.remove(index);
         }
@@ -7026,6 +7080,7 @@ impl World {
             residents.xp_dead.push(false);
             residents.last_hit_by.push(None);
             residents.fee.push(Some(hired.fee));
+            residents.medic.push(hired.medic);
             residents.grave.push(false);
             // Back on the station's offer, if it was hired off it.
             let station = residents.station;
@@ -8566,6 +8621,7 @@ impl World {
                 residents.xp_dead.truncate(bims);
                 residents.last_hit_by.truncate(bims);
                 residents.fee.truncate(bims);
+                residents.medic.truncate(bims);
                 residents.grave.truncate(bims);
             }
             self.settle_droids();
@@ -8720,6 +8776,17 @@ impl World {
         }
         for _ in 0..class::MEDIC_START_BANDAGES {
             room.give(who, None, Item::Stack(ResourceId::Bandage as u32));
+        }
+    }
+
+    /// A hired field medic's start (feature 86):
+    /// [`mercenary::MEDIC_MEDKITS`] medkits in its pack and nothing
+    /// else. No bandages — it is not the class, and the two kits are
+    /// what the user asked it to turn up with.
+    fn give_field_medic_kit(&mut self, who: u32) {
+        let room = &mut self.aboard.room;
+        for _ in 0..mercenary::MEDIC_MEDKITS {
+            room.give(who as usize, None, Item::Stack(ResourceId::Medkit as u32));
         }
     }
 
@@ -10060,6 +10127,49 @@ impl World {
         Ok(())
     }
 
+    /// Crew member `who` made a **field medic** with nothing else about
+    /// the world touched, for a probe and for `BIMS_FIELD_MEDIC=n` in
+    /// the app (feature 86): the contract written as a hire writes one,
+    /// the kits put in its pack, and no money taken — the fight the
+    /// probe wants to look at is what it does, not what it cost. False
+    /// with no such crew member, or with one that is hired already.
+    pub fn field_medic_for_probe(&mut self, who: u32) -> bool {
+        if who >= self.aboard.crew_count() || self.hired.iter().any(|h| h.who == who) {
+            return false;
+        }
+        self.hired.push(Hired {
+            who,
+            fee: 0,
+            due: self.clock_minutes + mercenary::MONTH,
+            owed: false,
+            medic: true,
+        });
+        self.give_field_medic_kit(who);
+        true
+    }
+
+    /// Crew member `carrier` with crew member `patient` in its arms, the
+    /// patient taken out cold first so there is something to carry and
+    /// the two stood beside each other — `BIMS_CARRY=1`, for looking at
+    /// a body being carried off the deck without staging a fight and
+    /// waiting for somebody to go down. False if it would not go.
+    pub fn carry_for_probe(&mut self, carrier: u32, patient: u32) -> bool {
+        if carrier >= self.aboard.crew_count() || patient >= self.aboard.crew_count() {
+            return false;
+        }
+        // Beside the carrier, and bled past the line so it is out cold
+        // and worth fetching.
+        let at = self.aboard.room.bim_pos(carrier as usize)
+            + bims::math::vec2(shipdesign::TILE as f32 * 0.8, 0.0);
+        self.aboard.room.put_for_probe(patient as usize, at);
+        self.aboard
+            .room
+            .wound(patient as usize, bims::health::Part::Legs, 1000.0);
+        self.aboard.room.set_blood_for_probe(patient as usize, 0.2);
+        self.step(&[]);
+        self.aboard.room.take_up(carrier as usize, patient as usize)
+    }
+
     /// Slot 0 a medic beaming crew member 1, for a probe and for
     /// `BIMS_BEAM` in the app: crew member 1 stood a tile from it with a
     /// wound open — so the patient wants holding and the charge fills —
@@ -10223,6 +10333,185 @@ impl World {
             .collect();
         self.aboard.room.set_held(held);
         self.aboard.room.set_doctoring(doctoring);
+    }
+
+    // --- the field medics (feature 86) -------------------------------------
+
+    /// Whether that crew member is a hired **field medic**: a mercenary
+    /// taken on for the job of fetching the fallen out of the fire and
+    /// treating them, with none of the medic class's talents. It is the
+    /// contract that says so ([`mercenary::Hired::medic`]), not the
+    /// body, so a hand let go and hired again by somebody else is a
+    /// field medic to them too.
+    pub fn is_field_medic(&self, who: u32) -> bool {
+        self.hired.iter().any(|h| h.who == who && h.medic)
+    }
+
+    /// Every crew member's trade said to the room, every step: the room
+    /// reads it in [`bims::game::Game::bot_stand`] and in the stand it
+    /// picks, and keeps none of it in a save.
+    fn hand_the_room_the_field_medics(&mut self) {
+        for who in 0..self.aboard.crew_count() {
+            let medic = self.is_field_medic(who);
+            self.aboard.room.set_field_medic(who as usize, medic);
+        }
+    }
+
+    /// A hired field medic fills its pack back up out of the hold, one
+    /// kit a step (feature 86): **out of combat** — the room's own
+    /// `calm`, twenty seconds with nothing fired and the enemy out of
+    /// sight and out of reach — or, whatever the fight is doing,
+    /// **once it has spent its last kit** and is standing somewhere
+    /// clear of it, which is where the carry takes it anyway.
+    ///
+    /// It is bookkeeping and not an errand: the medic is aboard with a
+    /// cabinet to hand, and the room is already handed the hold's
+    /// medicine every step without anybody walking for it. What it will
+    /// not do is conjure one — the hold has to have a medkit free — so
+    /// a crew out of medkits has a medic out of medkits.
+    fn restock_field_medics(&mut self) {
+        if self.hired.iter().all(|h| !h.medic) {
+            return;
+        }
+        let wanted = Item::Stack(ResourceId::Medkit as u32);
+        let calm = self.aboard.room.calm();
+        for i in 0..self.hired.len() {
+            let hired = self.hired[i];
+            if !hired.medic || hired.who >= self.aboard.crew_count() {
+                continue;
+            }
+            let who = hired.who as usize;
+            if !self.aboard.room.is_alive(who)
+                || self.aboard.room.is_unconscious(who)
+                || self.aboard.room.is_outside(who)
+            {
+                continue;
+            }
+            let carried = self
+                .aboard
+                .room
+                .pack(who)
+                .iter()
+                .filter(|item| **item == Some(wanted))
+                .count() as u32;
+            if carried >= mercenary::MEDIC_MEDKITS {
+                continue;
+            }
+            if !calm && !(carried == 0 && self.aboard.room.is_out_of_harm(who)) {
+                continue;
+            }
+            if self.free(ResourceId::Medkit) == 0 {
+                continue;
+            }
+            let Some(cell) = self.aboard.room.gear(who).free_cell_for(wanted) else {
+                continue;
+            };
+            if !self.aboard.room.give(who, Some(cell), wanted) {
+                continue;
+            }
+            // Out of the hold, the count and the grid together, the way
+            // a fetch takes one.
+            self.ship.design.cargo[ResourceId::Medkit as usize] =
+                self.ship.design.cargo[ResourceId::Medkit as usize].saturating_sub(1);
+            let class = storage(ResourceId::Medkit);
+            if let Some(grid) = self.grid_mut(class) {
+                grid.remove(ResourceId::Medkit, 1, None);
+            }
+            self.on_ship_changed();
+        }
+    }
+
+    /// Whether a crew member may carry at all (feature 86): a medic of
+    /// the class, or a hired field medic. A commander's hands are as
+    /// good as a medic's, but the carry is the medic's trade and the
+    /// user asked for it as one.
+    pub fn can_lift(&self, who: u32) -> bool {
+        self.class_of(who) == Class::Medic || self.is_field_medic(who)
+    }
+
+    /// Whom that crew member has in its arms, if anybody — the room's
+    /// own answer, for the app's picture and for the tests.
+    pub fn carrying_of(&self, who: u32) -> Option<u32> {
+        self.aboard.room.carrying(who as usize).map(|p| p as u32)
+    }
+
+    /// Every crewmate `who` could pick up from where it stands (feature
+    /// 86), lowest index first: what the carry's box counts, and what
+    /// the deck rings while the pointer rests on it. Empty for anybody
+    /// that is not a medic of some kind.
+    pub fn carryable_near(&self, who: u32) -> Vec<u32> {
+        if !self.can_lift(who) {
+            return Vec::new();
+        }
+        (0..self.aboard.crew_count())
+            .filter(|&p| self.can_carry(who, p).is_ok())
+            .collect()
+    }
+
+    /// Whether `who` could take `patient` up this instant — see
+    /// [`Command::Carry`]. The refusals in order: not a medic of any
+    /// kind ([`Refusal::NotCarrying`]), unfit to act or out of reach
+    /// ([`Refusal::OutOfReach`]), not a crewmate or itself
+    /// ([`Refusal::NotACrewmate`]), in somebody's arms already
+    /// ([`Refusal::AlreadyCarried`]), and a body that wants no carrying
+    /// ([`Refusal::NotHurt`]). What the app greys the key with, and what
+    /// the command asks again when it lands.
+    pub fn can_carry(&self, who: u32, patient: u32) -> Result<(), Refusal> {
+        if !self.can_lift(who) {
+            return Err(Refusal::NotCarrying);
+        }
+        if !self.fit_to_act(who) {
+            return Err(Refusal::OutOfReach);
+        }
+        if patient == who || patient >= self.aboard.crew_count() {
+            return Err(Refusal::NotACrewmate);
+        }
+        let room = &self.aboard.room;
+        if room.is_carried(patient as usize) {
+            return Err(Refusal::AlreadyCarried);
+        }
+        if !room.needs_rescue(patient as usize) {
+            return Err(Refusal::NotHurt);
+        }
+        if !room.can_take_up(who as usize, patient as usize) {
+            return Err(Refusal::OutOfReach);
+        }
+        Ok(())
+    }
+
+    /// The carry — see [`Command::Carry`]: the body taken up, or
+    /// whatever is in the arms set down. Hands back whom it picked up,
+    /// `None` for a set down; a set down with empty arms is
+    /// [`Refusal::NotCarrying`], so the key says something either way.
+    fn carry(&mut self, who: u32, patient: Option<u32>) -> Result<Option<u32>, Refusal> {
+        let Some(patient) = patient else {
+            if !self.can_lift(who) {
+                return Err(Refusal::NotCarrying);
+            }
+            return match self.aboard.room.set_down(who as usize) {
+                Some(_) => Ok(None),
+                None => Err(Refusal::NotCarrying),
+            };
+        };
+        // Pressed on the one already in its arms: that is a set down.
+        if self.carrying_of(who) == Some(patient) {
+            self.aboard.room.set_down(who as usize);
+            return Ok(None);
+        }
+        self.can_carry(who, patient)?;
+        if !self.aboard.room.take_up(who as usize, patient as usize) {
+            return Err(Refusal::OutOfReach);
+        }
+        Ok(Some(patient))
+    }
+
+    /// Every carry let go: the crew's indices are about to move — a
+    /// hire, a dismissal — and an index is the whole of what an arm
+    /// holds, exactly as a beam's link is.
+    fn clear_carries(&mut self) {
+        for who in 0..self.aboard.crew_count() as usize {
+            self.aboard.room.set_down(who);
+        }
     }
 
     /// After the rooms step: every dressing and treatment the room

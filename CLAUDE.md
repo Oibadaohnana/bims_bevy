@@ -98,7 +98,28 @@ they stand** and builds its room again over the bodies (feature 85,
 `World::lay_graves_for_probe`), for looking at the dead lying on a
 station's deck without fighting, flying away and coming back —
 `BIMS_GRAVES=4 BIMS_ZOOM=0.6` is the aftermath from far enough off to
-see it. `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
+see it. `BIMS_DYING=n` puts `n` of the crew **in a dying state** — a
+part of each taken to nothing, so its trauma is rolled and untreated,
+and wounds open on it besides (`Session::maim_for_probe`, a different
+part each so a crew of three shows three different traumas) — for
+looking at the **red cross** over a body on the deck and at the **peril
+block** under the health bar; the player's own Bim is left out of it
+unless `n` reaches the whole crew, so the picture is taken from
+somebody still walking about (`BIMS_FIGHT=1 BIMS_DYING=3` on `combat`).
+`BIMS_FIELD_MEDIC=n` makes the **last `n` of the crew hired field
+medics** (feature 86, `Session::field_medics_for_probe`) — the contract
+and the two medkits, no money taken — the last rather than the first
+since slot 0 is the player's own and the rescue is a *bot's* branch
+(`Game::bot_stand`), and `BIMS_CARRY=1` takes a crew member out cold and
+puts it in the arms of somebody who may carry, for looking at a body
+being carried off the deck without waiting for a fight to put one there.
+Both want **more than one aboard**, so they are `combat`'s and not the
+simulation's, which sails with a crew of one: `BIMS_CLASS=medic
+BIMS_CARRY=1 bims combat` is a body in the arms (the Carry box lit, with
+no count on it, is what says so), and `BIMS_FIGHT=1 BIMS_FIELD_MEDIC=1
+BIMS_DYING=2 BIMS_SMOKE_FRAMES=600` is one going and fetching for
+itself. `G` is the carry's key in `BIMS_KEYS`.
+`BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
 round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1
 BIMS_LAMPS_OUT=3` is the lobby dark). `BIMS_CLASS=engineer` (a name from
@@ -449,6 +470,35 @@ Things about that which are easy to get wrong:
   middle, and a turned thing is drawn upright into a `Sketch` — the
   shapes gathered rather than painted — and turned a quarter, since a
   painter cannot turn a shape once it has it.
+- **The health block says what the Bim is dying *of*, not only how much
+  is left.** The bars on the right-hand panel are the biggest thing on
+  it (`crew::BAR_W`, `theme::health_bar`, `crew::HEALTH_NUMBER`), and
+  under them is the **peril block** — `crew::perils`, one `Peril` a
+  cause with the rate, the countdown at that rate, where the loss is
+  coming from and what stops it. Two things can kill a body and the
+  block works both out **from the body**, since nothing records a
+  cause: the blood, which is every open wound at
+  `health::BLEED_PER_WOUND` an hour plus every untreated trauma's own
+  `bleed()` — `Health::update_held`'s own sum, so the number on the
+  panel is the number the room subtracts — and extreme malnutrition at
+  `health::HEALTH_DRAIN`, whose countdown is left off while a trauma
+  holds the head or the body at nothing, because death there is the two
+  of them empty *and clean*. The block is graded: red and "DYING OF"
+  for a body in a dying state or starving, the caution colour and
+  "LOSING" for one that is only bleeding through wounds a bandage
+  closes — a scratch that would empty it in ten hours is worth a number
+  and not a fright. A part a trauma holds at nothing names that trauma
+  in its own row, and the dead say what of (`crew::death_line`, read
+  off the body the way `Health::is_dead` decides). The words are
+  `names::PERIL_*` and `names::DEATH_*`.
+- **A Bim in a dying state wears a red cross on the deck.**
+  `theme::dying_cross` — a white disc with a medical cross on it rather
+  than another coloured ring, because every other mark out there is a
+  ring of some colour and this one has to say *that* one. Drawn over
+  the head in both screens (`screens::game`, `screens::room`) off
+  `Game::is_dying`, and for the **living only**: a trauma stays on a
+  corpse, and a cross over one would be asking for a medkit nothing can
+  be done with. `BIMS_DYING=n` is how it is looked at.
 - **A highlight is not a tooltip.** Resting on a row that names a fixture
   rings it on the deck (`CrewPanels::points`); nothing pops up. The ring is
   worked out afresh every frame from what is hovered, so a panel folding

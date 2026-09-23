@@ -716,6 +716,12 @@ pub struct Residents {
     /// station's own. Derived from the seed and the crew's worth when the
     /// room opens, like the gear, so nothing new is hashed.
     pub fee: Vec<Option<Money>>,
+    /// Which of the mercenaries for hire are **field medics** (feature
+    /// 86), by index — false for one of the station's own and for a
+    /// plain gun for hire. Derived from the seed when the room opens
+    /// (`crate::mercenary::is_medic`), like the gear and the price, so
+    /// nothing new is hashed.
+    pub medic: Vec<bool>,
     /// Which of them were laid out dead when the room opened, by index
     /// (feature 85): a body the station already had, out of
     /// `World::graves`, rather than somebody who died while this room was
@@ -765,6 +771,7 @@ impl Residents {
         // time it is reached, and `world_checksum` has nothing new to
         // hash: the kind is a function of what it already holds.
         let mut fee = vec![None; aboard.count() as usize];
+        let mut medic = vec![false; aboard.count() as usize];
         for who in 0..count + mercenaries {
             if who < count {
                 aboard.room.set_uniform(who as usize, Uniform::Station);
@@ -780,7 +787,11 @@ impl Residents {
                 let gear = Gear::hired_for(merc_seed, 1_000 * (who + 1));
                 aboard.room.set_uniform(who as usize, Uniform::Mercenary);
                 aboard.room.issue(who as usize, gear);
-                fee[who as usize] = Some(crate::mercenary::priced(merc_seed, &gear));
+                // And its trade (feature 86): a field medic asks the
+                // premium on top of the kit.
+                let is_medic = crate::mercenary::is_medic(merc_seed);
+                medic[who as usize] = is_medic;
+                fee[who as usize] = Some(crate::mercenary::priced_as(merc_seed, &gear, is_medic));
             }
         }
         // The dead this station already has, laid where they fell
@@ -844,6 +855,7 @@ impl Residents {
             last_hit_by: vec![None; down.len()],
             down,
             fee,
+            medic,
             grave,
         }
     }

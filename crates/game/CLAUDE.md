@@ -3470,3 +3470,49 @@ else changed.
 The wave plan — how many machines, how many waves, when the next comes
 and which stations are held — is the world's: `crates/world/CLAUDE.md`,
 "The machines hold a station, and they come in waves".
+
+## A body in somebody's arms (feature 86)
+
+A medic can pick a crewmate up and carry it out of the fire. Two fields
+on `Bim` and one pass at the end of the step:
+
+- **`Bim::carrying`** is whom this body has in its arms (saved, and in
+  `world_checksum`); **`Bim::field_medic`** is whether it is a hired one,
+  said by the world every step like `Squad` and neither saved nor hashed.
+- **`Game::carry_the_carried`** runs in `simulate` **after**
+  `separate_under_arms` — before it, the shove would push the body out
+  of the arms it was just put in — standing each carried body a third of
+  a tile ahead of its carrier's facing and letting go of any carry that
+  can no longer hold: a carrier dead, out cold or outside, or a body that
+  died in the arms. `separate_under_arms` skips both of a carrying pair.
+- **`Game::{can_take_up, take_up, set_down}`** are the rule, and
+  `carrying`/`carried_by`/`is_carried` the readouts — `carried_by` is
+  derived by a scan rather than kept, since a crew is a handful of bodies
+  and one truth about a carry is one thing to put back when an index
+  moves. `needs_rescue(who)` is what a body has to be to be worth
+  fetching: alive, on the deck, and out cold, dying, or bleeding through
+  a wound nobody has dressed.
+- A carrier **holds its fire** (the `armed` test in `tick_combat`) and
+  walks at `CARRY_PACE`, multiplied into `tick_bim`'s pace product; a
+  carried body shoots nothing either.
+
+**A field medic's own branch is `Game::rescue`**, the first thing
+`bot_stand` tries, ahead of the last stand and of the player's standing
+order. Carrying and clear of the fight (`Game::out_of_harm`: no target
+up within `RESCUE_CLEAR` tiles **and** nothing a body there could see) it
+sets the body down, and the medical row takes it from there — doctoring
+a crewmate wants the calm (`Game::calm`), which is exactly what it has
+walked to. Carrying and still in it, it runs `Tactics::flee` with the
+body in its arms. Carrying nobody, `Game::worth_fetching` is the nearest
+crewmate within `RESCUE_LOOK` that is **out cold or dying** — a body
+merely bleeding is on its feet and can walk itself out — in nobody's
+arms, still in the fire, and reachable. Nothing to fetch and it falls
+through to the rest of `bot_stand` and fights, which is where the other
+half of the trade shows: `plan_stand` hands `Tactics::stand_with_cover`
+`combat::KEEP_BACK_WORTH` instead of `DISTANCE_WORTH` for a field medic,
+so it stands at the far end of its reach. That `distance_worth` is a new
+last argument on `stand_with_cover` and `stand_scored`, and is the only
+reason either signature moved.
+
+The command, the contract, the medkits and the restock are the world's —
+`crates/world/CLAUDE.md`, "A medic carries a body out".

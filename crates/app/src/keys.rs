@@ -75,10 +75,16 @@ pub enum Action {
     /// **Retreat**: the bots that follow you fall back to the ship and
     /// hold there. Pressed again, they go back to following.
     Retreat,
+    /// **Carry** (feature 86): a medic takes the crewmate under the
+    /// pointer up into its arms — out cold, dying or bleeding — to
+    /// walk them out of the fire, and sets down whoever it is carrying
+    /// when pressed again. Nothing for anybody but a medic of the class
+    /// or a hired field medic.
+    Carry,
 }
 
 impl Action {
-    pub const ALL: [Action; 23] = [
+    pub const ALL: [Action; 24] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -102,6 +108,7 @@ impl Action {
         Action::SquadStandGround,
         Action::Attack,
         Action::Retreat,
+        Action::Carry,
     ];
 
     /// The key it starts on.
@@ -133,6 +140,7 @@ impl Action {
             Action::SquadStandGround => Key::Z,
             Action::Attack => Key::F,
             Action::Retreat => Key::T,
+            Action::Carry => Key::G,
         }
     }
 
@@ -162,6 +170,7 @@ impl Action {
             Action::SquadStandGround => "squad-stand-ground",
             Action::Attack => "attack",
             Action::Retreat => "retreat",
+            Action::Carry => "carry",
         }
     }
 
@@ -210,6 +219,9 @@ impl Action {
             }
             Action::Retreat => {
                 "The crew that follow you fall back to the ship and hold there. Press it again and they go back to keeping to your side. Nobody leaves a fight aboard the ship: cornered in your own hull they stand and shoot whatever they were told."
+            }
+            Action::Carry => {
+                "A medic picks the crewmate under the pointer up — out cold, dying or bleeding — and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and treat them where it is quiet. Nothing for anybody but a medic or a hired field medic."
             }
         }
     }
@@ -373,6 +385,9 @@ mod tests {
         assert_eq!(keys.key(Action::Follow), egui::Key::V);
         assert!(keys.shared_with(Action::Attack).is_empty());
         assert!(keys.shared_with(Action::Retreat).is_empty());
+        // And the medic's carry (feature 86): G, bound to nothing else.
+        assert_eq!(keys.key(Action::Carry), egui::Key::G);
+        assert!(keys.shared_with(Action::Carry).is_empty());
         let mut changed = keys;
         changed.set(Action::Inventory, egui::Key::I);
         changed.set(Action::PanUp, egui::Key::ArrowUp);

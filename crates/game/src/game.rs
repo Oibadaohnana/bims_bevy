@@ -226,6 +226,26 @@ pub const GATHER_SLACK: f32 = 1.0;
 /// wider than the gather ring itself, so a bot settled in the ring is
 /// not shoved on towards the middle of it every plan.
 pub const BANNER_HOLD: f32 = 3.0;
+/// What a Bim with a crewmate in its arms walks at (feature 86): both
+/// arms full, so a little over half pace. The carry is meant to be a
+/// choice — the ground given to fetch somebody out is ground the medic
+/// has to make good again.
+pub const CARRY_PACE: f32 = 0.6;
+/// How near a medic has to stand to pick a body up, in tiles. A body's
+/// width and a bit: near enough that it is a reach rather than a walk,
+/// wide enough that the two are not shoved apart by
+/// [`Game::separate_under_arms`] the step before.
+pub const CARRY_REACH: f32 = 1.6;
+/// How far a **field medic** looks for somebody to fetch out, in tiles
+/// (feature 86). About a compartment: it goes for the fallen it can see
+/// its way to rather than across the whole station, which is what the
+/// rest of the crew are for.
+pub const RESCUE_LOOK: f32 = 18.0;
+/// How far off the fight a field medic carries a body before it sets it
+/// down, in tiles: out of the nearest enemy's sight is the real test
+/// (`Game::out_of_harm`), and this is the fallback where nothing can be
+/// seen at all.
+pub const RESCUE_CLEAR: f32 = 12.0;
 /// Where several selected crew go for one right-click, in tiles off the
 /// point, in crew order: the point itself, then a ring round it a body's
 /// width out, so an order for a squad is a huddle and not a stack.
@@ -1550,6 +1570,10 @@ impl Game {
         // Under arms, bodies do not stack: whoever is recruited is pushed
         // apart from whoever else is, after everybody has moved.
         self.separate_under_arms();
+        // And a body in somebody's arms goes where the arms went
+        // (feature 86), after the shoving rather than before it, or it
+        // would be pushed out of them again.
+        self.carry_the_carried();
         // A belief about where the crew are ages, and is given up after a
         // minute unseen.
         for seen in self.last_seen.iter_mut() {
@@ -1812,6 +1836,9 @@ impl Game {
                 self.bims[who].fear = 0.0;
             }
             let fleeing = self.is_fleeing(who);
+            // In somebody's arms (feature 86): it goes where they go and
+            // shoots nothing on the way.
+            let carried = self.is_carried(who);
             // Finishing a body off draws the weapon whether or not the Bim
             // is under arms: the body it is at, while the hands are at it.
             let executing = self.bims[who]
@@ -1829,7 +1856,12 @@ impl Game {
                 && !dressing
                 && !fleeing
                 // A medic beaming holds its fire (feature 76).
-                && !skill.holds_fire;
+                && !skill.holds_fire
+                // And so does one with a crewmate in its arms (feature
+                // 86): both hands are the carry.
+                && bim.carrying.is_none()
+                // A body being carried shoots nothing either.
+                && !carried;
             let weapon = bim.gear.weapon.filter(|_| armed);
             // The hand changing is heard: the weapon coming out, or going
             // back. Said for everybody; the app plays a player's own.
@@ -2587,6 +2619,7 @@ impl Game {
             &taken,
             closing,
             cover_worth,
+            crate::combat::DISTANCE_WORTH,
         ) else {
             return;
         };
@@ -2787,6 +2820,14 @@ impl Game {
             &doorways,
             &taken,
             closing,
+            // A field medic weighs distance heavily and so stands at the
+            // far end of its reach (feature 86); everybody else takes
+            // the plain preference for distance.
+            if self.is_field_medic(who) {
+                crate::combat::KEEP_BACK_WORTH
+            } else {
+                crate::combat::DISTANCE_WORTH
+            },
         ) else {
             return;
         };
@@ -3162,6 +3203,15 @@ impl Game {
     /// claimed it (feature 84). The last stand first, then a dying run,
     /// then whatever its player's standing order is.
     fn bot_stand(&mut self, who: usize, dt: f32, stats: &WeaponStats) {
+        // A field medic's business is the fallen (feature 86), and it
+        // comes before the last stand and before its player's standing
+        // order: a body bleeding out on the deck waits for neither. With
+        // nobody to fetch it falls through to the rest of this and
+        // fights — from the far end of its reach, which is `plan_stand`'s
+        // own doing.
+        if self.is_field_medic(who) && self.rescue(who, dt) {
+            return;
+        }
         if self.cornered(who) {
             self.plan_stand(who, dt, stats, None);
             return;
@@ -3181,6 +3231,124 @@ impl Game {
                 }
             }
         }
+    }
+
+    /// Whether a point of the deck is out of the fight (feature 86): no
+    /// target still up within [`RESCUE_CLEAR`] tiles of it, and nothing
+    /// a body standing there could see. Both, because an enemy round the
+    /// corner three tiles off is danger a line of sight says nothing
+    /// about, and one across the hall in plain view is danger the
+    /// distance says nothing about.
+    fn out_of_harm(&self, at: Vec2) -> bool {
+        let near = self
+            .combat
+            .targets()
+            .iter()
+            .flatten()
+            .any(|t| (t.at - at).len() <= RESCUE_CLEAR * TILE);
+        !near && !self.combat.sees_any(&self.room.sight, at)
+    }
+
+    /// Whether a body stands clear of the fight (feature 86): what
+    /// [`Game::out_of_harm`] says of where it is. The world asks it of a
+    /// field medic that has run dry, since a medic with no kit left is
+    /// worth filling up again the moment it is somewhere safe to.
+    pub fn is_out_of_harm(&self, who: usize) -> bool {
+        self.bims
+            .get(who)
+            .is_some_and(|b| self.out_of_harm(b.character.pos))
+    }
+
+    /// The crewmate a field medic would go for: the nearest within
+    /// [`RESCUE_LOOK`] that is out cold or in a dying state, is in
+    /// nobody's arms already, still stands in the fire, and can be
+    /// walked to. A body merely bleeding is the medical row's — it is
+    /// on its feet and can walk itself out — and carrying one would be
+    /// taking a crew member out of the fight for it.
+    fn worth_fetching(&self, who: usize) -> Option<usize> {
+        let from = self.bims[who].character.pos;
+        let nav = self.maps.for_body(false, self.room.bath.is_open());
+        let mut best: Option<(f32, usize)> = None;
+        for other in 0..self.bims.len() {
+            if other == who || !self.needs_rescue(other) || self.is_carried(other) {
+                continue;
+            }
+            let down =
+                self.bims[other].character.is_unconscious() || self.bims[other].health.dying();
+            if !down || self.bims[other].carrying.is_some() {
+                continue;
+            }
+            let at = self.bims[other].character.pos;
+            if self.out_of_harm(at) {
+                continue;
+            }
+            let gap = (at - from).len();
+            if gap > RESCUE_LOOK * TILE || !nav.can_reach(from, at) {
+                continue;
+            }
+            if best.is_none_or(|(b, _)| gap < b) {
+                best = Some((gap, other));
+            }
+        }
+        best.map(|(_, other)| other)
+    }
+
+    /// A field medic's own branch of [`Game::bot_stand`] (feature 86):
+    /// carry whoever is in its arms clear of the fight and set them
+    /// down there — the medical row takes over from that point, since
+    /// doctoring wants the calm and the calm is what it has just walked
+    /// to — else go and fetch the nearest crewmate down. Whether it
+    /// claimed the body this step; `false` is "nothing to do", and the
+    /// ordinary bot's stand follows.
+    fn rescue(&mut self, who: usize, dt: f32) -> bool {
+        if self.carrying(who).is_some() {
+            let here = self.bims[who].character.pos;
+            if self.out_of_harm(here) {
+                self.set_down(who);
+                return true;
+            }
+            // Away from the enemy, on its own plan clock: the dying
+            // body's own run, walked with somebody in its arms.
+            self.bims[who].plan_wait -= dt;
+            if self.bims[who].plan_wait <= 0.0 {
+                self.bims[who].plan_wait = PLAN_EVERY;
+                let nav = self.maps.for_body(false, self.room.bath.is_open());
+                let targets = self.combat.targets().to_vec();
+                if let Some(to) = Tactics::flee(nav, here, &targets) {
+                    let going = self.bims[who].character.destination().unwrap_or(here);
+                    if (to - going).len() > TILE {
+                        let route = nav.path(here, to);
+                        if !route.is_empty() {
+                            self.bims[who].character.follow_path(route);
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+        let Some(patient) = self.worth_fetching(who) else {
+            return false;
+        };
+        if self.can_take_up(who, patient) {
+            self.take_up(who, patient);
+            return true;
+        }
+        // Over to it, on the plan clock like every other walk under
+        // arms; the patient is a body that may have been dragged or
+        // shot since, so the route is planned afresh each time.
+        self.bims[who].plan_wait -= dt;
+        if self.bims[who].plan_wait <= 0.0 {
+            self.bims[who].plan_wait = PLAN_EVERY;
+            let from = self.bims[who].character.pos;
+            let at = self.bims[patient].character.pos;
+            let nav = self.maps.for_body(false, self.room.bath.is_open());
+            let to = nav.nearest_free(at);
+            let route = nav.path(from, to);
+            if !route.is_empty() {
+                self.bims[who].character.follow_path(route);
+            }
+        }
+        true
     }
 
     /// An **attack banner**: the bot fights its way to the point its
@@ -3489,7 +3657,13 @@ impl Game {
             * self.bims[who].solitude.stage().works_at()
             * self.crowding(who)
             * self.runner(who)
-            * self.skill(who).walk;
+            * self.skill(who).walk
+            // A crewmate in the arms is a load (feature 86).
+            * if self.bims[who].carrying.is_some() {
+                CARRY_PACE
+            } else {
+                1.0
+            };
         self.bims[who].character.set_pace(pace);
         if self.bims[who].health.is_dead() {
             self.die(who);
@@ -3988,8 +4162,14 @@ impl Game {
                 && !b.character.is_outside()
                 && !b.character.is_unconscious()
         };
+        // A body in somebody's arms is where the arms put it (feature
+        // 86), so neither it nor its carrier is shoved off the other.
+        let carried: Vec<bool> = (0..n).map(|w| self.is_carried(w)).collect();
         for a in 0..n {
             for b in (a + 1)..n {
+                if carried[a] || carried[b] {
+                    continue;
+                }
                 if !up(&self.bims[a]) || !up(&self.bims[b]) {
                     continue;
                 }
@@ -8797,6 +8977,142 @@ impl Game {
             .get(who)
             .and_then(|b| b.surge)
             .is_some_and(|s| s.closing)
+    }
+
+    // --- carrying a body out of the fire (feature 86) ----------------------
+
+    /// Whom `who` has in its arms, if anybody.
+    pub fn carrying(&self, who: usize) -> Option<usize> {
+        self.bims.get(who).and_then(|b| b.carrying)
+    }
+
+    /// Who is carrying `who`, if anybody. Derived rather than kept: a
+    /// crew is a handful of bodies, and one truth about a carry is one
+    /// thing to put back when an index moves.
+    pub fn carried_by(&self, who: usize) -> Option<usize> {
+        self.bims.iter().position(|b| b.carrying == Some(who))
+    }
+
+    /// Whether `who` is in somebody's arms.
+    pub fn is_carried(&self, who: usize) -> bool {
+        self.carried_by(who).is_some()
+    }
+
+    /// Whether a body is worth fetching out of the fire: alive, on this
+    /// deck, and either out cold, in a dying state, or bleeding through
+    /// a wound nobody has dressed. The hurt as well as the unconscious,
+    /// because a crew member that is still on its feet and losing blood
+    /// is the one a medic can actually save.
+    pub fn needs_rescue(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| {
+            b.is_alive()
+                && !b.character.is_outside()
+                && (b.character.is_unconscious() || b.health.dying() || b.health.bleeding() > 0)
+        })
+    }
+
+    /// Whether `who` could pick `patient` up this instant: `who` alive,
+    /// awake, on the deck and with its arms free, `patient` somebody
+    /// else who [`Game::needs_rescue`] and is in nobody's arms already,
+    /// and the two within [`CARRY_REACH`] of one another. The world asks
+    /// this before it sends the order and the room asks it again as the
+    /// order lands.
+    pub fn can_take_up(&self, who: usize, patient: usize) -> bool {
+        if who == patient || who >= self.bims.len() || patient >= self.bims.len() {
+            return false;
+        }
+        let carrier = &self.bims[who];
+        if !carrier.is_alive()
+            || carrier.character.is_unconscious()
+            || carrier.character.is_outside()
+            || carrier.carrying.is_some()
+        {
+            return false;
+        }
+        if !self.needs_rescue(patient) || self.is_carried(patient) {
+            return false;
+        }
+        // Nobody carries a carrier: the arms at the end of the chain
+        // would be holding two bodies.
+        if self.bims[patient].carrying.is_some() {
+            return false;
+        }
+        let gap = (self.bims[patient].character.pos - carrier.character.pos).len();
+        gap <= CARRY_REACH * TILE
+    }
+
+    /// Pick a crewmate up: whatever the carrier was on is put down onto
+    /// its queue, its walk dropped, and the body in its arms stops
+    /// walking anywhere of its own from this step. Whether it happened.
+    pub fn take_up(&mut self, who: usize, patient: usize) -> bool {
+        if !self.can_take_up(who, patient) {
+            return false;
+        }
+        // The one being carried is off whatever it was doing, and so is
+        // the medic: both its arms are the carry now.
+        self.interrupt(patient);
+        self.bims[patient].pending_move = None;
+        self.bims[patient].character.halt();
+        self.bims[patient].character.set_post(None);
+        self.bims[patient].character.set_falling_back(None);
+        self.bims[who].carrying = Some(patient);
+        true
+    }
+
+    /// Set down whatever `who` is carrying, where it stands: who it was,
+    /// or `None` for empty arms. The body is put on the nearest free
+    /// spot beside the carrier so that the two do not stand inside each
+    /// other.
+    pub fn set_down(&mut self, who: usize) -> Option<usize> {
+        let patient = self.bims.get_mut(who)?.carrying.take()?;
+        let here = self.bims[who].character.pos;
+        let nav = self.maps.for_body(false, self.room.bath.is_open());
+        let beside = nav.nearest_free(here + Vec2::from_angle(self.combat.roll() * TAU) * TILE);
+        self.bims[patient].character.stand_at(beside);
+        self.bims[patient].character.halt();
+        Some(patient)
+    }
+
+    /// Whether this body is a field medic, as the world last said.
+    pub fn is_field_medic(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.field_medic)
+    }
+
+    /// The world's word that a crew member is a hired field medic
+    /// (feature 86): said every step, the way the squad's orders are,
+    /// since it is the world that keeps the contract.
+    pub fn set_field_medic(&mut self, who: usize, on: bool) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.field_medic = on;
+        }
+    }
+
+    /// Every carried body stood where its carrier stands, and every
+    /// carry that can no longer hold let go: a carrier dead, out cold or
+    /// outside, or a body that has died in its arms. Run at the end of
+    /// the step, after everybody has moved and after
+    /// [`Game::separate_under_arms`], so the body ends the step in the
+    /// carrier's arms rather than a frame behind them.
+    fn carry_the_carried(&mut self) {
+        for who in 0..self.bims.len() {
+            let Some(patient) = self.bims[who].carrying else {
+                continue;
+            };
+            let carrier_up = self.bims[who].is_alive()
+                && !self.bims[who].character.is_unconscious()
+                && !self.bims[who].character.is_outside();
+            if !carrier_up || patient >= self.bims.len() || !self.bims[patient].is_alive() {
+                self.set_down(who);
+                continue;
+            }
+            // In the arms: at the carrier's own spot, a little ahead of
+            // it so the two read as one body carrying another rather
+            // than as two standing in the same place.
+            let at = self.bims[who].character.pos
+                + Vec2::from_angle(self.bims[who].character.heading) * (0.35 * TILE);
+            self.bims[patient].character.halt();
+            self.bims[patient].character.stand_at(at);
+        }
     }
 
     /// The living crew member under a room point, if any: a click's

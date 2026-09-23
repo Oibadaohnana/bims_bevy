@@ -535,6 +535,15 @@ fn open(
             if let Some(n) = crate::dev::dying() {
                 session.maim_for_probe(n);
             }
+            // The hired field medics (feature 86), and a body in one's
+            // arms: after the wounded, so a medic can be asked for on a
+            // deck that already has somebody to fetch.
+            if let Some(n) = crate::dev::field_medics() {
+                session.field_medics_for_probe(n);
+            }
+            if crate::dev::carry() {
+                session.carry_for_probe();
+            }
             // A weapon asked for by name goes into the hand in place of
             // whatever was issued, the rest of the gear kept: the crew
             // member's, or every resident's; and armour asked for goes on
@@ -1753,6 +1762,25 @@ fn frame(
                     orders.extend(order);
                     screen.log.extend(line);
                 }
+                // The medic's carry (feature 86): the crewmate under the
+                // pointer up into its arms, or — with its arms already
+                // full, or with the pointer on nobody — set down. With
+                // nobody under the pointer and nobody in its arms it
+                // takes up the nearest it could, so the key is worth
+                // pressing without aiming it in the middle of a fight.
+                if keys_now.pressed(i, Action::Carry)
+                    && let Some(game) = &session.game
+                {
+                    let slot = screen.net.slot;
+                    let under = on_canvas
+                        .filter(|_| !map_up)
+                        .map(|p| session.room_point(p.x, p.y))
+                        .and_then(|(rx, ry)| game.world.aboard.room.crew_at(rx, ry))
+                        .map(|who| who as u32);
+                    let (order, line) = carry_key(&game.world, slot, under);
+                    orders.extend(order);
+                    screen.log.extend(line);
+                }
                 // And every player's own two (feature 84). **Attack**
                 // arms the pointer rather than doing anything: the
                 // banner goes down on the click after it, below, so
@@ -2193,9 +2221,16 @@ fn frame(
     // The two boxes at the foot of the canvas: what the class's own keys
     // do, how many are left and what each of them is (feature 80).
     // Nothing for a classless crew member, which has no keys.
+    // And whom the box the pointer rests on would reach (feature 86),
+    // for the ring on the deck below — worked out afresh every frame off
+    // what is hovered, the way the panels' highlight is, so a bar that
+    // folds away under the pointer cannot leave one lit.
+    let mut cast_reaches: Vec<u32> = Vec::new();
     if let Some(game) = &session.game {
         let boxes = ability_boxes(&game.world, local, &keys_now);
-        ability_bar(&ctx, canvas, &boxes);
+        if let Some(action) = ability_bar(&ctx, canvas, &boxes) {
+            cast_reaches = affected_by(&game.world, local, action);
+        }
     }
 
     if !screen.log.is_empty() {
@@ -2276,6 +2311,7 @@ fn frame(
                 in_reach: offer.in_reach,
                 affordable: offer.affordable,
                 bunk: offer.bunk,
+                medic: offer.medic,
             })
         });
         // The station's key: the desk's row walked the Bim over, and the
@@ -2628,12 +2664,29 @@ fn frame(
             };
             theme::aura_ring(&painter, at, game.world.aura_radius(who) * t * view.scale);
         }
+        // A Bim the aura lifts, and — while a rally runs over it
+        // (feature 86) — the rally's own mark in its place, so a rally
+        // called is told from the aura standing there all along.
+        let rallying = (0..crew).any(|who| {
+            game.world.class_of(who) == world::Class::Commander && game.world.rally_left(who) > 0.0
+        });
         for who in 0..crew {
             if game.world.aura_reaching(who).is_none() {
                 continue;
             }
             if let Some(at) = on_screen(who) {
-                theme::lifted_mark(&painter, at, view.scale);
+                if rallying {
+                    theme::rallied_mark(&painter, at, view.scale);
+                } else {
+                    theme::lifted_mark(&painter, at, view.scale);
+                }
+            }
+        }
+        // And whom the ability box under the pointer would reach: the
+        // ring is the answer to "who does this cast take in".
+        for &who in &cast_reaches {
+            if let Some(at) = on_screen(who) {
+                theme::affected_ring(&painter, at, view.scale);
             }
         }
         if let Some(order) = &game.world.squad {
@@ -4161,6 +4214,13 @@ enum Mark {
     Wall,
     Rally,
     Squad,
+    /// The commander's other two squad orders (feature 86), which had
+    /// keys and no box until the user asked for all of his abilities to
+    /// be shown.
+    FallBack,
+    StandGround,
+    /// The medic's carry (feature 86).
+    Carry,
 }
 
 /// One of the two boxes at the foot of the screen (feature 80): what one
@@ -4191,6 +4251,9 @@ struct AbilityBox {
     short: bool,
     /// The level it is learnt at, where the crew member is not there yet.
     locked: Option<u8>,
+    /// The key this box is for (feature 86), so the frame can ask the
+    /// world **who the cast would reach** while the pointer rests on it.
+    action: Action,
 }
 
 impl AbilityBox {
@@ -4203,7 +4266,29 @@ impl AbilityBox {
     }
 }
 
-/// The two boxes for the class `slot` steers, primary (Q) first. Empty
+/// Every key the class `slot` steers has a box for, in the order they
+/// are laid out: Q and E for everybody, and past them whatever else that
+/// class has a key of its own for (feature 86) — the commander's fall
+/// back and stand ground, which had keys and no boxes, and the medic's
+/// carry. A crew member with no class has no keys and no boxes.
+fn ability_keys(world: &world::World, slot: u32) -> Vec<Action> {
+    use world::Class;
+    let class = world.class_of(slot);
+    let mut keys = match class {
+        Class::None => return Vec::new(),
+        _ => vec![Action::ClassPrimary, Action::ClassSecondary],
+    };
+    if class == Class::Commander {
+        keys.push(Action::SquadFallBack);
+        keys.push(Action::SquadStandGround);
+    }
+    if world.can_lift(slot) {
+        keys.push(Action::Carry);
+    }
+    keys
+}
+
+/// The boxes for the class `slot` steers, primary (Q) first. Empty
 /// for a classless crew member, which has no keys.
 fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox> {
     use world::Class;
@@ -4212,107 +4297,162 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
         return Vec::new();
     }
     let level = world.progress_of(slot).level();
-    [true, false]
+    ability_keys(world, slot)
         .into_iter()
-        .map(|primary| {
-            let action = if primary {
-                Action::ClassPrimary
-            } else {
-                Action::ClassSecondary
+        .map(|action| {
+            let primary = action == Action::ClassPrimary;
+            // The keys past Q and E are gated by the same level their
+            // own class's E is, being the same order sent by another
+            // name; the carry is nobody's level at all.
+            let wants = match action {
+                Action::Carry => 1,
+                Action::ClassPrimary => world::class::key_level(class, true).unwrap_or(1),
+                _ => world::class::key_level(class, false).unwrap_or(1),
             };
-            let wants = world::class::key_level(class, primary).unwrap_or(1);
-            let (mark, count, cooldown, charge, on, short) = match (class, primary) {
-                (Class::Engineer, true) => {
-                    let left = world.sentries_left(slot);
-                    (
-                        Mark::Thing(ResourceId::SentryKit),
-                        Some(left),
+            // The three keys of their own first, since they are one
+            // class's each and read off the world rather than off the
+            // (class, primary) pair below.
+            let extra = match action {
+                Action::SquadFallBack | Action::SquadStandGround => {
+                    let running = world.squad.as_ref().is_some_and(|o| {
+                        o.by_slot == slot
+                            && o.kind.code() == u32::from(action == Action::SquadStandGround) + 1
+                    });
+                    Some((
+                        if action == Action::SquadFallBack {
+                            Mark::FallBack
+                        } else {
+                            Mark::StandGround
+                        },
+                        Some(world.squad_members(slot).len() as u32),
                         0.0,
                         None,
+                        running,
                         false,
-                        left == 0,
-                    )
+                    ))
                 }
-                (Class::Engineer, false) => {
-                    let kits = world.kits_of(slot, world::Kit::Sandbag);
-                    (
-                        Mark::Thing(ResourceId::SandbagKit),
-                        Some(kits),
+                Action::Carry => {
+                    // Carrying, the box counts nothing: a nought in the
+                    // corner reads as "nothing to do", and what the key
+                    // does now is set this one down. Empty-handed it is
+                    // how many are near enough to pick up.
+                    let carrying = world.carrying_of(slot).is_some();
+                    let near = world.carryable_near(slot).len() as u32;
+                    Some((
+                        Mark::Carry,
+                        (!carrying).then_some(near),
                         0.0,
                         None,
-                        false,
-                        kits == 0,
-                    )
+                        carrying,
+                        !carrying && near == 0,
+                    ))
                 }
-                (Class::Soldier, true) => {
-                    let held = world.grenades_of(slot);
-                    (
-                        Mark::Thing(ResourceId::Grenade),
-                        Some(held),
-                        world.grenade_cooldown_left(slot),
+                _ => None,
+            };
+            let (mark, count, cooldown, charge, on, short) = if let Some(extra) = extra {
+                extra
+            } else {
+                match (class, primary) {
+                    (Class::Engineer, true) => {
+                        let left = world.sentries_left(slot);
+                        (
+                            Mark::Thing(ResourceId::SentryKit),
+                            Some(left),
+                            0.0,
+                            None,
+                            false,
+                            left == 0,
+                        )
+                    }
+                    (Class::Engineer, false) => {
+                        let kits = world.kits_of(slot, world::Kit::Sandbag);
+                        (
+                            Mark::Thing(ResourceId::SandbagKit),
+                            Some(kits),
+                            0.0,
+                            None,
+                            false,
+                            kits == 0,
+                        )
+                    }
+                    (Class::Soldier, true) => {
+                        let held = world.grenades_of(slot);
+                        (
+                            Mark::Thing(ResourceId::Grenade),
+                            Some(held),
+                            world.grenade_cooldown_left(slot),
+                            None,
+                            false,
+                            held == 0,
+                        )
+                    }
+                    (Class::Soldier, false) => {
+                        (Mark::Brace, None, 0.0, None, world.is_braced(slot), false)
+                    }
+                    (Class::Medic, true) => {
+                        let charge = world.surge_charge(slot);
+                        (
+                            Mark::Surge,
+                            None,
+                            0.0,
+                            Some(charge),
+                            world.is_surging(slot),
+                            charge < 1.0,
+                        )
+                    }
+                    (Class::Medic, false) => {
+                        let held = world.patients_of(slot).len();
+                        (
+                            Mark::Beam,
+                            Some(world.beam_patients(slot).saturating_sub(held) as u32),
+                            0.0,
+                            None,
+                            held > 0,
+                            false,
+                        )
+                    }
+                    (Class::Tank, true) => (
+                        Mark::Taunt,
                         None,
-                        false,
-                        held == 0,
-                    )
-                }
-                (Class::Soldier, false) => {
-                    (Mark::Brace, None, 0.0, None, world.is_braced(slot), false)
-                }
-                (Class::Medic, true) => {
-                    let charge = world.surge_charge(slot);
-                    (
-                        Mark::Surge,
+                        world.taunt_cooldown_left(slot),
                         None,
+                        world.taunt_left(slot) > 0.0,
+                        false,
+                    ),
+                    (Class::Tank, false) => {
+                        (Mark::Wall, None, 0.0, None, world.is_bulwark(slot), false)
+                    }
+                    (Class::Commander, true) => (
+                        Mark::Rally,
+                        None,
+                        world.rally_cooldown_left(slot),
+                        None,
+                        world.rally_left(slot) > 0.0,
+                        false,
+                    ),
+                    (Class::Commander, false) => (
+                        Mark::Squad,
+                        Some(world.squad_members(slot).len() as u32),
                         0.0,
-                        Some(charge),
-                        world.is_surging(slot),
-                        charge < 1.0,
-                    )
-                }
-                (Class::Medic, false) => {
-                    let held = world.patients_of(slot).len();
-                    (
-                        Mark::Beam,
-                        Some(world.beam_patients(slot).saturating_sub(held) as u32),
-                        0.0,
                         None,
-                        held > 0,
+                        world.squad.as_ref().is_some_and(|o| o.by_slot == slot),
                         false,
-                    )
+                    ),
+                    (Class::None, _) => (Mark::Brace, None, 0.0, None, false, false),
                 }
-                (Class::Tank, true) => (
-                    Mark::Taunt,
-                    None,
-                    world.taunt_cooldown_left(slot),
-                    None,
-                    world.taunt_left(slot) > 0.0,
-                    false,
-                ),
-                (Class::Tank, false) => {
-                    (Mark::Wall, None, 0.0, None, world.is_bulwark(slot), false)
+            };
+            let (name, tip) = match action {
+                Action::SquadFallBack => (crate::names::FALL_BACK, crate::names::FALL_BACK_TIP),
+                Action::SquadStandGround => {
+                    (crate::names::STAND_GROUND, crate::names::STAND_GROUND_TIP)
                 }
-                (Class::Commander, true) => (
-                    Mark::Rally,
-                    None,
-                    world.rally_cooldown_left(slot),
-                    None,
-                    world.rally_left(slot) > 0.0,
-                    false,
-                ),
-                (Class::Commander, false) => (
-                    Mark::Squad,
-                    Some(world.squad_members(slot).len() as u32),
-                    0.0,
-                    None,
-                    world.squad.as_ref().is_some_and(|o| o.by_slot == slot),
-                    false,
-                ),
-                (Class::None, _) => (Mark::Brace, None, 0.0, None, false, false),
+                Action::Carry => (crate::names::CARRY, crate::names::CARRY_TIP),
+                _ => (ability_name(class, primary), ability_tip(class, primary)),
             };
             AbilityBox {
                 key: keys.key(action).name().to_string(),
-                name: ability_name(class, primary),
-                tip: ability_tip(class, primary),
+                name,
+                tip,
                 mark,
                 count,
                 cooldown,
@@ -4320,6 +4460,7 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                 on,
                 short,
                 locked: (level < wants).then_some(wants),
+                action,
             }
         })
         .collect()
@@ -4334,9 +4475,53 @@ const ABILITY_SIDE: f32 = 54.0;
 /// last frame's, the way the trip strip's is — egui's own anchoring
 /// reads the same memory — so the first frame guesses and every frame
 /// after is exact.
-fn ability_bar(ctx: &egui::Context, canvas: crate::shapes::Rect, boxes: &[AbilityBox]) {
+/// Whom a cast of `slot`'s would reach, by crew index (feature 86) —
+/// what the deck rings while the pointer rests on that key's box, which
+/// is the panels' own rule (resting on a row rings what it names) said
+/// about an ability instead of a fixture.
+///
+/// The commander's are the point of it: his **rally** lifts every
+/// friendly Bim in his aura, and each of his three **squad** keys
+/// commands the same squad — every crew member nobody is steering,
+/// within his range. The medic's beam and surge name their patients,
+/// and the carry names everybody near enough to pick up. The rest reach
+/// enemies or nobody, and ring nothing.
+fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
+    use world::Class;
+    let class = world.class_of(slot);
+    match (class, action) {
+        // The rally: every friendly Bim in his aura, and **himself** —
+        // `aura_reaching` leaves a commander out of his own aura, and
+        // the rally is the one thing that covers him.
+        (Class::Commander, Action::ClassPrimary) => (0..world.aboard.crew_count())
+            .filter(|&who| who == slot || world.aura_reaching(who).is_some())
+            .collect(),
+        (
+            Class::Commander,
+            Action::ClassSecondary | Action::SquadFallBack | Action::SquadStandGround,
+        ) => world.squad_members(slot),
+        (Class::Medic, Action::ClassPrimary) => {
+            let mut held = world.patients_of(slot);
+            held.push(slot);
+            held.sort_unstable();
+            held
+        }
+        (Class::Medic, Action::ClassSecondary) => world.patients_of(slot),
+        (_, Action::Carry) => match world.carrying_of(slot) {
+            Some(patient) => vec![patient],
+            None => world.carryable_near(slot),
+        },
+        _ => Vec::new(),
+    }
+}
+
+fn ability_bar(
+    ctx: &egui::Context,
+    canvas: crate::shapes::Rect,
+    boxes: &[AbilityBox],
+) -> Option<Action> {
     if boxes.is_empty() {
-        return;
+        return None;
     }
     let id = egui::Id::new("game-abilities");
     let rect_of = |id| ctx.memory(|m| m.area_rect(id));
@@ -4346,6 +4531,7 @@ fn ability_bar(ctx: &egui::Context, canvas: crate::shapes::Rect, boxes: &[Abilit
         .max(tray + 8.0)
         .min(canvas.max.x - 10.0 - size.x);
     let y = canvas.max.y - 10.0 - size.y;
+    let mut hovered = None;
     egui::Area::new(id)
         .fixed_pos(egui::pos2(x, y))
         .order(egui::Order::Middle)
@@ -4353,18 +4539,23 @@ fn ability_bar(ctx: &egui::Context, canvas: crate::shapes::Rect, boxes: &[Abilit
             panel_frame().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     for one in boxes {
-                        ability_box(ui, one);
+                        if ability_box(ui, one) {
+                            hovered = Some(one.action);
+                        }
                     }
                 });
             });
         });
+    hovered
 }
 
 /// One box: the key in the corner, the picture in the middle, what is
 /// left in the other corner, and the name under it. Resting on it says
 /// what the key does — a box is a control, so it carries its own words
 /// rather than an underlined one beside it.
-fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) {
+/// Whether the pointer is resting on it — what the deck rings the cast's
+/// own Bims by (feature 86).
+fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         let (rect, response) =
@@ -4414,6 +4605,9 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) {
                 Some(egui::pos2(middle.x, inner.min.y)),
                 radius / 9.0,
             ),
+            Mark::FallBack => theme::fall_back_mark(painter, middle, radius),
+            Mark::StandGround => theme::stand_ground_mark(painter, middle, radius),
+            Mark::Carry => theme::carry_mark(painter, middle, radius),
         }
         if !ready {
             painter.rect_filled(rect, 4.0, theme::PANEL_DEEP.gamma_multiply(0.62));
@@ -4474,8 +4668,11 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) {
         } else {
             theme::MUTED
         }));
+        let resting = response.hovered();
         response.on_hover_text(one.tip);
-    });
+        resting
+    })
+    .inner
 }
 
 /// What the class's two keys do for the crew member `slot` steers
@@ -4616,9 +4813,43 @@ fn orders_key(
     }
 }
 
+/// The medic's carry key (feature 86), the same shape as the rest: the
+/// order if the world would take it, and the log's line if it would not.
+/// `under` is the crew member under the pointer, if any.
+///
+/// * arms full, and it is a set down, wherever the pointer is — which
+///   is the key's second press and the whole of how a body is put back
+///   on the deck;
+/// * arms free and somebody under the pointer, and it is that one;
+/// * arms free and nobody under the pointer, and it is the nearest
+///   worth fetching (`World::carryable_near`), so the key is worth
+///   pressing in a fight without aiming it — and the world's own reason
+///   when there is nobody at all.
+fn carry_key(
+    world: &world::World,
+    slot: u32,
+    under: Option<u32>,
+) -> (Option<Order>, Option<String>) {
+    if !world.can_lift(slot) {
+        return (None, Some(carry_refused(Refusal::NotCarrying)));
+    }
+    if world.carrying_of(slot).is_some() {
+        return (Some(Order::Carry(None)), None);
+    }
+    let patient = under.or_else(|| world.carryable_near(slot).first().copied());
+    let Some(patient) = patient else {
+        return (None, Some(carry_refused(Refusal::NotHurt)));
+    };
+    match world.can_carry(slot, patient) {
+        Ok(()) => (Some(Order::Carry(Some(patient))), None),
+        Err(why) => (None, Some(carry_refused(why))),
+    }
+}
+
 #[cfg(test)]
 mod class_key_tests {
     use super::*;
+    use crate::names;
     use shipdesign::fixture::flyer;
     use world::fixture::{REFERENCE_MONEY, simulation_world};
 
@@ -5002,8 +5233,11 @@ mod class_key_tests {
         assert_eq!(boxes[0].locked, None);
         assert!(boxes[0].ready());
 
-        // Every class has a name and a tip on both boxes, and the
-        // primary one is the level-three key for all of them.
+        // Every class has a name and a tip on every box, and the
+        // primary one is the level-three key for all of them. A class
+        // with keys of its own past Q and E has a box for each of
+        // them (feature 86): the commander's two other squad orders,
+        // and the medic's carry.
         for class in world::Class::ALL {
             if class == world::Class::None {
                 continue;
@@ -5011,7 +5245,12 @@ mod class_key_tests {
             let mut world = simulation_world(flyer(1), REFERENCE_MONEY, 1);
             assert_eq!(world.set_class(0, class), Ok(()));
             let boxes = ability_boxes(&world, 0, &keys);
-            assert_eq!(boxes.len(), 2, "{class:?}");
+            let wanted = match class {
+                world::Class::Commander => 4,
+                world::Class::Medic => 3,
+                _ => 2,
+            };
+            assert_eq!(boxes.len(), wanted, "{class:?}");
             assert!(
                 boxes
                     .iter()
@@ -5019,6 +5258,57 @@ mod class_key_tests {
             );
             assert_eq!(boxes[0].locked, Some(3), "{class:?}'s Q is its third");
             assert_eq!(boxes[1].locked, None, "{class:?}'s E is its first");
+            // And the keys are the Controls page's own, in the order
+            // the bar lays them out.
+            let named: Vec<&str> = boxes.iter().map(|b| b.name).collect();
+            if class == world::Class::Commander {
+                assert_eq!(
+                    named,
+                    vec!["Rally", "Squad", names::FALL_BACK, names::STAND_GROUND]
+                );
+                assert_eq!(boxes[2].key, "X");
+                assert_eq!(boxes[3].key, "Z");
+                // All four say how many of the squad they reach.
+                assert!(boxes[1..].iter().all(|b| b.count.is_some()));
+            }
+            if class == world::Class::Medic {
+                assert_eq!(named, vec!["Surge", "Heal beam", names::CARRY]);
+                assert_eq!(boxes[2].key, "G");
+                assert_eq!(boxes[2].locked, None, "the carry wants no level");
+            }
         }
+    }
+
+    /// Resting on a box says whom the cast would reach (feature 86):
+    /// a commander's rally the crew in his aura, each of his three
+    /// squad keys the squad, and nobody else's anybody at all.
+    #[test]
+    fn a_box_says_which_bims_its_cast_reaches() {
+        let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 1);
+        assert_eq!(world.set_class(0, world::Class::Commander), Ok(()));
+        // The squad is every crew member nobody steers within his
+        // range, and all three of his squad keys reach exactly it —
+        // which is the point of the ring: the three are one order under
+        // three names.
+        world.step(&[]);
+        let squad = world.squad_members(0);
+        assert!(squad.iter().all(|&w| w != 0), "never a steered Bim");
+        for action in [
+            Action::ClassSecondary,
+            Action::SquadFallBack,
+            Action::SquadStandGround,
+        ] {
+            assert_eq!(affected_by(&world, 0, action), squad, "{action:?}");
+        }
+        // The rally reaches whoever stands in the aura, the commander
+        // among them — the whole of a small room, which is what a test
+        // room is.
+        let lifted = affected_by(&world, 0, Action::ClassPrimary);
+        assert!(lifted.contains(&0), "the aura covers him: {lifted:?}");
+        // An engineer's keys reach nobody: they are laid on the deck.
+        let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 1);
+        assert_eq!(world.set_class(0, world::Class::Engineer), Ok(()));
+        assert!(affected_by(&world, 0, Action::ClassPrimary).is_empty());
+        assert!(affected_by(&world, 0, Action::ClassSecondary).is_empty());
     }
 }

@@ -200,6 +200,9 @@ pub enum Order {
     /// Every player's own standing order to the bots that follow them —
     /// `Command::Orders`, the F and T keys (feature 84).
     Orders(world::Standing),
+    /// A medic taking a crewmate up into its arms, or setting one
+    /// down with `None` — `Command::Carry`, the G key (feature 86).
+    Carry(Option<u32>),
 }
 
 /// What the other end said about a message.
@@ -529,6 +532,7 @@ impl Net {
                         Order::Squad(order) => Command::Squad { slot, order },
                         Order::Rally => Command::Rally { slot },
                         Order::Orders(order) => Command::Orders { slot, order },
+                        Order::Carry(who) => Command::Carry { slot, who },
                         Order::Gear(GearOrder::StowOnBench { who, cell }) => {
                             Command::StowOnBench { slot, who, cell }
                         }

@@ -190,6 +190,9 @@ pub struct Terms {
     pub in_reach: bool,
     pub affordable: bool,
     pub bunk: bool,
+    /// Whether this one is a **field medic** (feature 86): hired to
+    /// fetch the fallen out of the fire and treat them, not to shoot.
+    pub medic: bool,
 }
 
 /// The body the Loot window is over, as the panels see it: a snapshot the
@@ -530,13 +533,25 @@ const PERIL_NAME: f32 = 15.0;
 /// How long it has at that rate — the line the whole block exists for.
 const PERIL_LEFT: f32 = 14.0;
 
-/// The frame round the peril block: the panel's own, filled and edged in
-/// the cross's red, the way the raid warning is the one red thing on the
-/// screen. Nothing else on this panel is framed, which is the point.
-fn peril_frame() -> egui::Frame {
+/// The frame round the peril block: the panel's own, filled and edged —
+/// in the cross's red for a body that is `grave`, in the caution colour
+/// for one that is only bleeding. Nothing else on this panel is framed,
+/// which is the point.
+fn peril_frame(grave: bool) -> egui::Frame {
+    let (fill, edge) = if grave {
+        (
+            egui::Color32::from_rgba_unmultiplied(56, 14, 12, 220),
+            theme::DYING,
+        )
+    } else {
+        (
+            egui::Color32::from_rgba_unmultiplied(48, 38, 18, 220),
+            theme::CAUTION,
+        )
+    };
     egui::Frame::new()
-        .fill(egui::Color32::from_rgba_unmultiplied(56, 14, 12, 220))
-        .stroke(egui::Stroke::new(1.0, theme::DYING))
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0, edge))
         .corner_radius(4.0)
         .inner_margin(6.0)
 }
@@ -2457,16 +2472,26 @@ impl CrewPanels {
         // What is taking it down, and how long it has at that rate. The
         // one thing on this panel that is framed: it is a warning, and a
         // warning that looks like the rows around it is not one.
+        //
+        // Graded by what a player would have to do about it. A dying
+        // state or extreme malnutrition is the red block, the one the
+        // cross on the deck marks, and wants a medkit or a meal; a body
+        // that is only losing blood through wounds a bandage closes
+        // gets the same block and the same countdown in the caution
+        // colour, since a scratch that would empty it in ten hours is
+        // worth a number and not a fright.
+        let grave = alive && (game.is_dying(w) || stage >= 3);
+        let peril_ink = if grave { theme::DYING } else { theme::CAUTION };
         if alive && !perils.is_empty() {
             ui.add_space(3.0);
-            peril_frame().show(ui, |ui| {
+            peril_frame(grave).show(ui, |ui| {
                 ui.set_min_width(BAR_W + 60.0);
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(PERIL_HEAD)
+                        egui::RichText::new(if grave { PERIL_HEAD } else { PERIL_HEAD_HURT })
                             .small()
                             .strong()
-                            .color(theme::DYING),
+                            .color(peril_ink),
                     );
                     theme::question_mark(ui, PERIL_TIP);
                 });
@@ -2477,7 +2502,7 @@ impl CrewPanels {
                             egui::RichText::new(peril.cause)
                                 .size(PERIL_NAME)
                                 .strong()
-                                .color(theme::DYING),
+                                .color(peril_ink),
                         );
                         ui.label(
                             egui::RichText::new(&peril.rate)
@@ -2490,7 +2515,7 @@ impl CrewPanels {
                             egui::RichText::new(peril_left(&span_text(minutes)))
                                 .size(PERIL_LEFT)
                                 .strong()
-                                .color(theme::WARN),
+                                .color(if grave { theme::WARN } else { theme::CAUTION }),
                         );
                     }
                     for from in &peril.from {
@@ -2511,7 +2536,7 @@ impl CrewPanels {
             // than leaving a player to guess from a bar that is not
             // moving.
             ui.add_space(3.0);
-            peril_frame().show(ui, |ui| {
+            peril_frame(true).show(ui, |ui| {
                 ui.set_min_width(BAR_W + 60.0);
                 for part in health::Part::ALL {
                     if let Some(trauma) = game.trauma(w, part) {
@@ -4006,6 +4031,17 @@ impl CrewPanels {
             .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
             .frame(crate::screens::room::panel_frame())
             .show(ctx, |ui| {
+                // The trade first, where there is one to name (feature
+                // 86): a field medic is hired for what it does and not
+                // for the gun it carries, and the premium on the month
+                // below is that and nothing else.
+                if terms.medic {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(FIELD_MEDIC).strong().color(theme::HEAL));
+                        theme::question_mark(ui, FIELD_MEDIC_TIP);
+                    });
+                    ui.add_space(4.0);
+                }
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Carries").small().color(theme::MUTED));
                     theme::question_mark(ui, HIRE_TIP);

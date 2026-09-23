@@ -1242,3 +1242,196 @@ fn a_medic_s_state_dies_with_it_and_a_game_with_a_medic_reads_the_same_twice() {
     };
     assert_eq!(run(), run());
 }
+
+// --- carrying a body out of the fire, and the field medic (feature 86) ---
+
+/// A medic takes a crewmate that is out cold up into its arms, walks it
+/// somewhere else and sets it down there: the body goes where the arms
+/// go, walks nowhere of its own, and is left on the deck where it was
+/// put down.
+#[test]
+fn a_medic_carries_a_crewmate_that_is_out_cold_and_sets_it_down_again() {
+    let mut world = medic();
+    // Crew member 1 bled past the line: out cold, and worth fetching.
+    world.aboard.room.wound(1, Part::Legs, 1000.0);
+    world.aboard.room.set_blood_for_probe(1, OUT_AT * 0.5);
+    world.step(&[]);
+    assert!(world.aboard.room.is_unconscious(1), "out cold");
+    assert_eq!(world.can_carry(0, 1), Ok(()));
+
+    let events = world.step(&[Command::Carry {
+        slot: 0,
+        who: Some(1),
+    }]);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::Carried {
+                who: 0,
+                patient: Some(1)
+            }
+        )),
+        "{events:?}"
+    );
+    assert_eq!(world.carrying_of(0), Some(1));
+
+    // The arms go, and the body goes with them: the medic is walked a
+    // few tiles off and the two are still within a body's width.
+    let from = world.aboard.room.bim_pos(0);
+    let to = from + vec2(4.0 * TILE, 0.0);
+    world.aboard.room.put_for_probe(0, to);
+    world.step(&[]);
+    let gap = (world.aboard.room.bim_pos(1) - world.aboard.room.bim_pos(0)).len();
+    assert!(gap <= TILE, "carried along: {gap}");
+
+    // And set down, where the medic stands and not back where it fell.
+    let events = world.step(&[Command::Carry { slot: 0, who: None }]);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::Carried {
+                who: 0,
+                patient: None
+            }
+        )),
+        "{events:?}"
+    );
+    assert_eq!(world.carrying_of(0), None);
+    let left = world.aboard.room.bim_pos(1);
+    assert!(
+        (left - from).len() > 3.0 * TILE,
+        "set down where it was carried to, not where it fell"
+    );
+    // A second set down with empty arms says so rather than doing
+    // nothing quietly.
+    let events = world.step(&[Command::Carry { slot: 0, who: None }]);
+    assert!(refused_with(&events, Refusal::NotCarrying), "{events:?}");
+}
+
+/// Who may carry whom: a medic and a hired field medic, a body that
+/// wants fetching, and one pair of arms to a body.
+#[test]
+fn only_a_medic_carries_and_only_somebody_worth_fetching() {
+    let mut world = simulation_world(combat_ship(), REFERENCE_MONEY, 3);
+    hold_still(&mut world);
+    beside(&mut world, 1, 0);
+    // Nobody is a medic yet: the key does nothing for anybody.
+    assert_eq!(world.can_carry(0, 1), Err(Refusal::NotCarrying));
+    assert_eq!(world.set_class(0, Class::Medic), Ok(()));
+    // A crewmate on its feet and whole is nobody's to carry.
+    assert_eq!(world.can_carry(0, 1), Err(Refusal::NotHurt));
+    // Itself, never.
+    assert_eq!(world.can_carry(0, 0), Err(Refusal::NotACrewmate));
+    // A wound is enough — the user asked for the hurt as well as the
+    // unconscious.
+    world.aboard.room.wound(1, Part::Body, 4.0);
+    world.step(&[]);
+    assert_eq!(world.can_carry(0, 1), Ok(()));
+    // Too far off, and it is out of reach.
+    let far = world.aboard.room.bim_pos(0) + vec2(6.0 * TILE, 0.0);
+    world.aboard.room.put_for_probe(1, far);
+    world.step(&[]);
+    assert_eq!(world.can_carry(0, 1), Err(Refusal::OutOfReach));
+    beside(&mut world, 1, 0);
+    // And a body already in somebody's arms is not picked up twice: a
+    // second medic stood on the patient's other side.
+    assert_eq!(world.set_class(2, Class::Medic), Ok(()));
+    let other = world.aboard.room.bim_pos(1) + vec2(TILE * 0.5, 0.0);
+    world.aboard.room.put_for_probe(2, other);
+    world.step(&[Command::Carry {
+        slot: 0,
+        who: Some(1),
+    }]);
+    assert_eq!(world.carrying_of(0), Some(1));
+    assert_eq!(world.can_carry(2, 1), Err(Refusal::AlreadyCarried));
+}
+
+/// A hired field medic turns up with two medkits in its pack, is not a
+/// medic of the class, and fills its pack back up out of the hold once
+/// it has spent one.
+#[test]
+fn a_field_medic_brings_two_medkits_and_fills_up_again_out_of_combat() {
+    let mut world = basic();
+    hold_still(&mut world);
+    assert!(world.field_medic_for_probe(1), "hired");
+    assert!(world.is_field_medic(1));
+    assert!(world.can_lift(1), "and may carry");
+    // None of the class's own: no talents, and no class.
+    assert_eq!(world.class_of(1), Class::None);
+
+    let kits = |world: &World| {
+        let wanted = Item::Stack(ResourceId::Medkit as u32);
+        world
+            .aboard
+            .room
+            .pack(1)
+            .iter()
+            .filter(|i| **i == Some(wanted))
+            .count() as u32
+    };
+    assert_eq!(kits(&world), crate::mercenary::MEDIC_MEDKITS);
+
+    // One spent: the room is quiet, so the next step puts one back and
+    // the hold is one down.
+    let held = world.ship.design.carrying(ResourceId::Medkit);
+    assert!(held > 0, "the combat ship carries medkits");
+    let cell = world
+        .aboard
+        .room
+        .pack(1)
+        .iter()
+        .position(|i| *i == Some(Item::Stack(ResourceId::Medkit as u32)))
+        .expect("a kit in the pack");
+    world.aboard.room.take(1, cell);
+    assert_eq!(kits(&world), crate::mercenary::MEDIC_MEDKITS - 1);
+    world.step(&[]);
+    assert_eq!(kits(&world), crate::mercenary::MEDIC_MEDKITS, "filled up");
+    assert_eq!(
+        world.ship.design.carrying(ResourceId::Medkit),
+        held - 1,
+        "out of the hold"
+    );
+}
+
+/// A field medic under arms goes for a crewmate that is down, picks it
+/// up and carries it away from the fight.
+#[test]
+fn a_field_medic_fetches_a_crewmate_that_is_down_out_of_the_fire() {
+    // One player and three aboard, so the medic is a **bot**: the
+    // rescue is `Game::bot_stand`'s branch, and a Bim a player steers
+    // never runs it.
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 3);
+    let station = world.ship.state.station().expect("docked");
+    world.set_hostile(station, true);
+    // The staged fight puts an enemy on the deck a few tiles inside the
+    // station's door with a crew member recruited against it, which is
+    // what makes the body worth fetching rather than already clear.
+    world.stage_fight_for_probe();
+    world.step(&[]);
+    let medic = 2;
+    assert!(world.field_medic_for_probe(medic));
+    // Crew member 1 down beside the fight, and the medic a few tiles
+    // off it rather than back aboard the ship — a field medic looks
+    // `RESCUE_LOOK` tiles for somebody, not across the whole station.
+    let fight = world.aboard.room.bim_pos(0);
+    world.aboard.room.put_for_probe(1, fight + vec2(TILE, 0.0));
+    world
+        .aboard
+        .room
+        .put_for_probe(2, fight + vec2(-3.0 * TILE, 0.0));
+    world.aboard.room.wound(1, Part::Legs, 1000.0);
+    world.aboard.room.set_blood_for_probe(1, OUT_AT * 0.5);
+    world.step(&[]);
+    assert!(world.aboard.room.is_unconscious(1), "down");
+
+    // A few minutes of the clock: long enough to walk over and reach.
+    let mut fetched = false;
+    for _ in 0..(5 * STEPS_A_MINUTE) {
+        world.step(&[]);
+        if world.carrying_of(medic) == Some(1) {
+            fetched = true;
+            break;
+        }
+    }
+    assert!(fetched, "the field medic went and got it");
+}

@@ -3578,3 +3578,89 @@ one exactly a clock after the last dies, the farthest airlock, the count
 fixed at the first dock, cleared said once, the state surviving a
 leaving, the checksum noticing, and two worlds on one seed meeting the
 same machines — and `droid::tests` pins the arithmetic.
+
+## A medic carries a body out, and a field medic is hired for it (feature 86)
+
+Two halves of one thing: **a medic can pick a crewmate up**, and **a
+mercenary can be hired whose whole trade that is**.
+
+**The carry is the room's, and it is two fields on a body.**
+`bims::bim::Bim::carrying` is whom a body has in its arms and
+`Bim::field_medic` whether it is a hired one (the first saved and
+hashed, the second said by the world every step like the squad's
+orders). `Game::{can_take_up, take_up, set_down, carrying, carried_by,
+is_carried, needs_rescue}` are the whole of the rule, and
+`Game::carry_the_carried` — at the end of every `simulate`, **after**
+`separate_under_arms`, or the shove would push the body out of the arms
+again — stands each carried body where its carrier stands and lets go of
+any carry that can no longer hold (a carrier down, out cold or outside;
+a body that died in the arms). A carrier `holds_fire` and walks at
+`game::CARRY_PACE` (0.6): both its hands are the carry. A carried body
+shoots nothing and walks nowhere of its own.
+
+**The world's side is one command and one getter.**
+`Command::Carry { slot, who: Option<u32> }` — `None` sets down —
+`World::{can_carry, can_lift, carrying_of, carryable_near}`, and
+`WorldEvent::Carried { who, patient }` (87 picked up, 88 set down).
+`can_lift` is the gate: **a medic of the class, or a hired field
+medic**, and nobody else. The refusals are `NotCarrying` (75, not a
+medic of any kind, or a set down with empty arms), `NotHurt` (76, a body
+on its feet and whole — a carry is for getting somebody *out*, not for
+moving the crew about) and `AlreadyCarried` (77), with `OutOfReach` and
+`NotACrewmate` doing their usual work. `clear_carries` goes beside
+`clear_beams` at a hire and a dismissal, since an index is the whole of
+what an arm holds.
+
+**A field medic is a mercenary with a trade.** `mercenary::is_medic`
+rolls it off the same seed the gear and the price come off
+(`MEDIC_CHANCE`, about a third), `Residents::medic` is the derived list
+beside `fee` — maintained at the same four places — `priced_as` adds
+`MEDIC_FEE` (4 000 a month) before the variance, and `Hired::medic` is
+what the contract remembers. A hire of one is `give_field_medic_kit`:
+`mercenary::MEDIC_MEDKITS` (two) medkits in its pack, no bandages and no
+class — it has **none of the medic's talents**, which is what the user
+asked for. `World::is_field_medic` reads the contract and
+`hand_the_room_the_field_medics` says it to the room every step.
+
+**What it does under arms is `Game::bot_stand`'s first branch**,
+`Game::rescue`, ahead of the last stand and ahead of its player's
+standing order:
+
+* carrying somebody — clear of the fight (`Game::out_of_harm`: no target
+  up within `RESCUE_CLEAR` tiles **and** nothing a body there could see)
+  and it sets them down, and the ordinary medical row takes over, since
+  doctoring a crewmate wants the calm and the calm is what it has just
+  walked to; not clear, and it runs `Tactics::flee` with the body in its
+  arms;
+* carrying nobody — the nearest crewmate within `RESCUE_LOOK` (18 tiles)
+  that is **out cold or dying**, is not already in somebody's arms, is
+  still in the fire and can be walked to (`Game::worth_fetching`), and it
+  goes and gets it. A body merely bleeding is left to the medical row:
+  it is on its feet and can walk itself out.
+* nothing to fetch, and it falls through and fights — **from the far end
+  of its reach**. That is `plan_stand` passing
+  `combat::KEEP_BACK_WORTH` (6) as the stand's `distance_worth` in place
+  of `DISTANCE_WORTH` (1), which is a new last argument on
+  `Tactics::{stand_with_cover, stand_scored}` and is the only reason
+  either signature moved.
+
+**The restock is `World::restock_field_medics`**, a step before the
+hold's medicine is handed over: one kit out of the hold into the pack
+per step while the pack is short of two, **out of combat**
+(`Game::calm`) or — whatever the fight is doing — once it has spent its
+last kit and is standing somewhere clear (`Game::is_out_of_harm`). It is
+bookkeeping and not an errand, the way the hold's medicine is handed to
+the room without anybody walking for it; it conjures nothing, so a crew
+out of medkits has a medic out of medkits.
+
+**What moved.** `Refusal` 75–77, events 87–88, `Hired` grew a field and
+every body's `carrying` is hashed after `fear` — **`REFERENCE_CHECKSUM`
+= `0x_3721_d0ad_d6ef_9c6f`**, **`SAVE_VERSION` 24**, **`wire::PROTOCOL`
+16** (the relay wants redeploying). New probes:
+`World::{field_medic_for_probe, carry_for_probe}` and
+`Session::{field_medics_for_probe, carry_for_probe}`, behind
+`BIMS_FIELD_MEDIC=n` and `BIMS_CARRY=1`. The app: `keys::Action::Carry`
+(**G**), `screens::game::{carry_key, ability_keys, affected_by}`,
+`theme::{carry_mark, fall_back_mark, stand_ground_mark, affected_ring,
+rallied_mark}`, and the Hire window naming a field medic
+(`names::FIELD_MEDIC`).
