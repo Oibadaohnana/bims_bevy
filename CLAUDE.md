@@ -134,6 +134,12 @@ scripted run cannot walk itself into — no charge in hand and the whole
 wait ahead — so the seconds in the corner of the two boxes at the foot
 of the canvas (`59s` for the sentry, `44s` for the bags) are a
 screenshot rather than a pointer hunting a Bim that is walking away.
+**`BIMS_GRENADES=n`** is that dial for the soldier's **grenade
+charges** (feature 90): since a grenade is a charge on a cooldown like
+a kit — two of them, thirty seconds each, and **no class makes
+anything to use a skill** — `BIMS_GRENADES=0 bims combat_soldier` is
+the `29s` in the corner of the Q box, and `BIMS_GRENADES=1` a soldier
+with one throw in hand and the next on its way.
 `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
 round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1

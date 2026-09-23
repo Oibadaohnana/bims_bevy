@@ -189,6 +189,15 @@ pub fn kits() -> Option<u32> {
     std::env::var("BIMS_KITS").ok()?.trim().parse().ok()
 }
 
+/// `BIMS_GRENADES=n` is the same for the soldier's grenade charges
+/// (feature 90): exactly `n` in every crew member's pack with the
+/// cooldown started afresh, so `BIMS_GRENADES=0 bims combat_soldier` is
+/// the `29s` in the corner of the Q box rather than a pointer hunting a
+/// tile to throw at (`Session::grenades_for_probe`).
+pub fn grenades() -> Option<u32> {
+    std::env::var("BIMS_GRENADES").ok()?.trim().parse().ok()
+}
+
 /// `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member out at
 /// open and leaves the next one failing — how a lamp out, the dark round
 /// it and a failing lamp's flicker are looked at without a fight that

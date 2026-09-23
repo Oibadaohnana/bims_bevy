@@ -36,11 +36,13 @@
 //! [`SANDBAG_CHARGES`] dressings' worth of sandbag kits (one more with
 //! *extra bags*) at [`SANDBAG_COOLDOWN`] a charge, and
 //! [`SENTRY_CHARGES`] sentry kit at [`SENTRY_COOLDOWN`] (two with
-//! *second sentry*). `World::restock_kits` runs every step: while an
-//! engineer holds fewer kits of a kind than its charges, a cooldown
-//! runs, and when it runs out one kit goes into the pack — which is what
-//! "the skill cooldown dropping to nought" means here, since the kit in
-//! the pack is what the ability spends.
+//! *second sentry*). `World::restock_charges` runs every step — for the
+//! soldier's grenades too since feature 90, a kit being one
+//! [`crate::class::Charge`] among three: while an engineer holds fewer
+//! kits of a kind than its charges, a cooldown runs, and when it runs
+//! out one kit goes into the pack — which is what "the skill cooldown
+//! dropping to nought" means here, since the kit in the pack is what
+//! the ability spends.
 //!
 //! **The sentry charges are also the world limit.** Laying a sentry with
 //! as many standing as the engineer has charges **destroys the oldest**

@@ -237,7 +237,7 @@ fn a_medic_sets_out_with_its_kit_the_pool_is_unchanged_and_anyone_still_doctors(
     assert_eq!(world.set_class(0, Class::Medic), Ok(()));
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     assert_eq!(count_in_pack(&world, 0, ResourceId::Medkit), 0);
-    assert_eq!(world.grenades_of(0), class::SOLDIER_START_GRENADES);
+    assert_eq!(world.grenades_of(0), class::GRENADE_CHARGES);
     assert_eq!(world.money, money);
     // Anybody bandages and treats: a soldier and a classless Bim alike.
     assert_eq!(world.set_class(1, Class::None), Ok(()));

@@ -60,7 +60,12 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// `World::kit_timers`, when each engineer's next charge of each kit is
 /// due, is hashed after the re-used kits, since a charge in the pack is a
 /// sentry that can be laid and one still cooling down is not.
-pub const REFERENCE_CHECKSUM: u64 = 0x_e136_a3b4_7e94_cdcd;
+/// And again when **every** class's ability became a charge on a
+/// cooldown (feature 90, `crate::class::Charge`): those kit timers and
+/// the soldier's `last_throw` are one `World::charge_timers` now — the
+/// two kits and the grenade, in charge order, in the kits' old place —
+/// so the soldiers' block is the brace and the *rampage* stacks alone.
+pub const REFERENCE_CHECKSUM: u64 = 0x_3a43_a3fe_a913_4b6f;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

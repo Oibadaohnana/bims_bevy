@@ -880,7 +880,9 @@ are gone — and `start_game` puts them onto the world through
 in the file; **17** (feature 75) the grenade in the cargo, a Bim's brace
 and rampage, the room's grenades and the world's `last_throw`; **18**
 (feature 76) the world's medics — each beam's patients, the surge's
-charge and the field surgery — with a Bim's beam flag and its surge.
+charge and the field surgery — with a Bim's beam flag and its surge;
+**27** (feature 90) the kits' cooldowns and that `last_throw` as one
+`World::charge_timers`, a grenade being a charge like a kit.
 `a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved`
 pins the pool untouched, each class's kit in the pack and the round trip.
 

@@ -57,7 +57,7 @@ use bims::sight::Stance;
 
 use crate::armour::{self, FetchKind, LootSource, Piece, Where};
 use crate::build::{self, BuildSite, SiteRefusal};
-use crate::class::{self, Class, Progress, Side, Talent};
+use crate::class::{self, Charge, Class, Progress, Side, Talent};
 use crate::commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
 use crate::crew::{Aboard, Residents};
 use crate::data;
@@ -469,8 +469,10 @@ pub enum Command {
     },
     /// Throw a grenade from that player's own soldier's pack at the tile
     /// `(x, y)` of the crew's room — a room tile like a deploy's. Wants
-    /// the soldier fit to act, at [`class::GRENADE_LEVEL`], a grenade in
-    /// the pack, [`class::GRENADE_COOLDOWN`] past its last throw, and a
+    /// the soldier fit to act, at [`class::GRENADE_LEVEL`], a grenade
+    /// charge in the pack — which is the whole of the cooldown since
+    /// feature 90: two go one after the other and each comes back
+    /// [`class::GRENADE_COOLDOWN`] seconds after it is thrown — and a
     /// tile of deck within its range with nothing opaque between
     /// (`World::can_throw`). The grenade leaves the pack at once and
     /// bursts its fuse later.
@@ -1038,16 +1040,13 @@ pub struct World {
     /// not laid again yet, by index: a deploy uses one of these before a
     /// fresh kit, and gives no experience for it. In `world_checksum`.
     pub reused_kits: Vec<u32>,
-    /// When the cooldown on each crew member's next charge of each kit
-    /// began, in clock minutes, or `None` for one not running (feature
-    /// 88) — one entry a [`Kit`], by its code. `World::restock_kits`
-    /// keeps it, and it is in `world_checksum`: a charge waiting is a
-    /// different fight from one in the pack.
-    pub kit_timers: Vec<[Option<f64>; Kit::ALL.len()]>,
-    /// When each crew member last threw a grenade, in clock minutes, or
-    /// never (feature 75): what the throw's cooldown is read against.
-    /// In `world_checksum`.
-    pub last_throw: Vec<Option<f64>>,
+    /// When the cooldown on each crew member's next of each
+    /// [`class::Charge`] began, in clock minutes, or `None` for one not
+    /// running (features 88 and 90) — one entry a charge, by its code:
+    /// the engineer's two kits and the soldier's grenade.
+    /// `World::restock_charges` keeps it, and it is in `world_checksum`:
+    /// a charge waiting is a different fight from one in the pack.
+    pub charge_timers: Vec<[Option<f64>; Charge::ALL.len()]>,
     /// Each crew member's medic state, by index (feature 76,
     /// `crate::medic`): who its beam holds, its surge's charge, and its
     /// field surgery this fight. Empty for anybody but a player's medic.
@@ -1405,8 +1404,7 @@ impl World {
             deployables: Vec::new(),
             next_deployable: 1,
             reused_kits: vec![0; crew as usize],
-            kit_timers: vec![[None; Kit::ALL.len()]; crew as usize],
-            last_throw: vec![None; crew as usize],
+            charge_timers: vec![[None; Charge::ALL.len()]; crew as usize],
             medics: vec![Medic::default(); crew as usize],
             tanks: vec![Tank::default(); crew as usize],
             commanders: vec![Commander::default(); crew as usize],
@@ -1566,10 +1564,11 @@ impl World {
         //    fire, the sandbags laid as cover on both rooms, and the
         //    sentries on the crew's deck to be fired there. What the fight
         //    did to them is read back after `visit`.
-        //    And an engineer's charges: a spent sandbag or sentry comes
-        //    back into its pack on its own cooldown (feature 88), before
-        //    the boxes at the foot of the screen are read.
-        self.restock_kits();
+        //    And every class's charges: a spent sandbag, sentry or
+        //    grenade comes back into its pack on its own cooldown
+        //    (features 88 and 90), before the boxes at the foot of the
+        //    screen are read.
+        self.restock_charges();
         self.hand_the_room_the_engineers();
         //    And what each class wears (feature 81): drawing only, said
         //    every step because a class is chosen, a crew member joins
@@ -8894,35 +8893,49 @@ impl World {
             .count() as u32
     }
 
-    /// **Exactly** `n` of every kit in every crew member's pack, for a
-    /// probe (feature 88): what is there taken out and `n` put back, and
-    /// each cooldown started afresh — so `n` of nought is an engineer
-    /// with no charges and the full wait ahead of it, which is the one
-    /// state a scripted run cannot walk itself into. `BIMS_KITS=n`.
-    pub fn set_kits_for_probe(&mut self, n: u32) {
+    /// **Exactly** `n` of one charge in every crew member's pack, for a
+    /// probe (features 88 and 90): what is there taken out and `n` put
+    /// back, and that cooldown started afresh — so `n` of nought is a
+    /// class with no charges and the full wait ahead of it, which is the
+    /// one state a scripted run cannot walk itself into. `BIMS_KITS=n`
+    /// and `BIMS_GRENADES=n`.
+    pub fn set_charges_for_probe(&mut self, charge: Charge, n: u32) {
+        let c = charge.code() as usize;
         for who in 0..self.aboard.crew_count() as usize {
-            for kit in Kit::ALL {
-                let item = Item::Stack(kit.resource() as u32);
-                let pack = self.aboard.room.pack(who);
-                for (cell, thing) in pack.iter().enumerate() {
-                    if *thing == Some(item) {
-                        self.aboard.room.take(who, cell);
-                    }
-                }
-                for _ in 0..n {
-                    self.aboard.room.give(who, None, item);
+            let item = Item::Stack(charge.resource() as u32);
+            let pack = self.aboard.room.pack(who);
+            for (cell, thing) in pack.iter().enumerate() {
+                if *thing == Some(item) {
+                    self.aboard.room.take(who, cell);
                 }
             }
-            if self.kit_timers.len() <= who {
-                self.kit_timers.resize(who + 1, [None; Kit::ALL.len()]);
+            for _ in 0..n {
+                self.aboard.room.give(who, None, item);
             }
-            self.kit_timers[who] = [Some(self.clock_minutes); Kit::ALL.len()];
+            if self.charge_timers.len() <= who {
+                self.charge_timers
+                    .resize(who + 1, [None; Charge::ALL.len()]);
+            }
+            self.charge_timers[who][c] = Some(self.clock_minutes);
         }
     }
 
+    /// The engineer's two, both at `n`: `BIMS_KITS=n`.
+    pub fn set_kits_for_probe(&mut self, n: u32) {
+        for kit in Kit::ALL {
+            self.set_charges_for_probe(Charge::of_kit(kit), n);
+        }
+    }
+
+    /// The soldier's grenades at `n`, the same way: `BIMS_GRENADES=n`.
+    pub fn set_grenades_for_probe(&mut self, n: u32) {
+        self.set_charges_for_probe(Charge::Grenade, n);
+    }
+
     /// The soldier's start (feature 75): a basic auto rifle in hand, the
-    /// laser pistol that was there into the pack, and
-    /// [`class::SOLDIER_START_GRENADES`] grenades beside it.
+    /// laser pistol that was there into the pack, and its
+    /// [`class::GRENADE_CHARGES`] grenades beside it — which is what the
+    /// cooldown fills it back up to (feature 90).
     fn give_soldier_kit(&mut self, who: usize) {
         let room = &mut self.aboard.room;
         let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
@@ -8933,7 +8946,7 @@ impl World {
             }
         }
         let grenade = Item::Stack(ResourceId::Grenade as u32);
-        for _ in 0..class::SOLDIER_START_GRENADES {
+        for _ in 0..class::GRENADE_CHARGES {
             room.give(who, None, grenade);
         }
     }
@@ -8943,7 +8956,7 @@ impl World {
     fn take_soldier_kit(&mut self, who: usize) {
         let room = &mut self.aboard.room;
         let grenade = Item::Stack(ResourceId::Grenade as u32);
-        let mut left = class::SOLDIER_START_GRENADES;
+        let mut left = class::GRENADE_CHARGES;
         let pack = room.pack(who);
         for (cell, item) in pack.iter().enumerate() {
             if left > 0 && *item == Some(grenade) && room.take(who, cell).is_some() {
@@ -9226,18 +9239,23 @@ impl World {
         }
     }
 
-    /// **Charges** of a kit an engineer has (feature 88): how many kits
-    /// of that kind its pack fills back up to, one at a time on
-    /// [`World::kit_cooldown`]. Nought for anybody who is not an
-    /// engineer, and nought for a sentry under [`class::SENTRY_LEVEL`].
+    /// **Charges** a crew member has of one thing its class spends
+    /// (features 88 and 90): how many of it its pack fills back up to,
+    /// one at a time on [`World::charge_cooldown`]. Nought for anybody
+    /// of another class, and nought under the level the ability is
+    /// learnt at — a charge nothing can spend does not come back.
+    ///
     /// For a sentry it is also the **world limit**: one more laid
     /// destroys that engineer's oldest.
-    pub fn kit_charges(&self, who: u32, kit: Kit) -> u32 {
-        if !self.is_engineer(who) {
+    pub fn charges(&self, who: u32, charge: Charge) -> u32 {
+        if self.class_of(who) != charge.class() {
             return 0;
         }
-        match kit {
-            Kit::Sandbag => {
+        if self.progress_of(who).level() < charge.level() {
+            return 0;
+        }
+        match charge {
+            Charge::Sandbag => {
                 deploy::SANDBAG_CHARGES
                     + if self.has_talent(who, Talent::ExtraBags) {
                         class::EXTRA_BAGS_CHARGES
@@ -9245,41 +9263,76 @@ impl World {
                         0
                     }
             }
-            Kit::Sentry => {
-                if self.progress_of(who).level() < class::SENTRY_LEVEL {
-                    0
-                } else if self.has_talent(who, Talent::SecondSentry) {
+            Charge::Sentry => {
+                if self.has_talent(who, Talent::SecondSentry) {
                     class::SECOND_SENTRY_CHARGES
                 } else {
                     deploy::SENTRY_CHARGES
                 }
             }
+            Charge::Grenade => class::GRENADE_CHARGES,
         }
     }
 
-    /// Seconds of the clock one charge of a kit takes to come back.
-    pub fn kit_cooldown(kit: Kit) -> f64 {
-        match kit {
-            Kit::Sandbag => deploy::SANDBAG_COOLDOWN,
-            Kit::Sentry => deploy::SENTRY_COOLDOWN,
+    /// Seconds of the clock one spent charge takes to come back — the
+    /// kind's own, and a talent's factor on it: *quick draw* halves the
+    /// grenade's.
+    pub fn charge_cooldown(&self, who: u32, charge: Charge) -> f64 {
+        match charge {
+            Charge::Sandbag => deploy::SANDBAG_COOLDOWN,
+            Charge::Sentry => deploy::SENTRY_COOLDOWN,
+            Charge::Grenade => {
+                if self.has_talent(who, Talent::QuickDraw) {
+                    class::GRENADE_COOLDOWN * class::QUICK_DRAW_COOLDOWN
+                } else {
+                    class::GRENADE_COOLDOWN
+                }
+            }
         }
     }
 
-    /// Seconds of the clock until the next charge of a kit lands in that
-    /// engineer's pack; nought when the pack is already at its charges —
-    /// or when the cooldown has run out and the kit is waiting on room.
-    pub fn kit_cooldown_left(&self, who: u32, kit: Kit) -> f64 {
+    /// Seconds of the clock until the next charge lands in that crew
+    /// member's pack; nought when the pack is already at its charges —
+    /// or when the cooldown has run out and the charge is waiting on room.
+    pub fn charge_cooldown_left(&self, who: u32, charge: Charge) -> f64 {
         let Some(began) = self
-            .kit_timers
+            .charge_timers
             .get(who as usize)
-            .and_then(|t| t[kit.code() as usize])
+            .and_then(|t| t[charge.code() as usize])
         else {
             return 0.0;
         };
-        // Seconds of the room's clock, the grenade cooldown's arithmetic:
-        // a game minute is a real second at 1×.
+        // Seconds of the room's clock: a game minute is a real second at
+        // 1× (`time::MINUTES_PER_SECOND`), the way the room steps.
         let since = (self.clock_minutes - began) / time::MINUTES_PER_SECOND;
-        (World::kit_cooldown(kit) - since).max(0.0)
+        (self.charge_cooldown(who, charge) - since).max(0.0)
+    }
+
+    /// How many of a charge a crew member carries in its pack — one a
+    /// stack, since none of the three stacks in a cell. What the boxes
+    /// at the foot of the screen count (feature 80).
+    pub fn charges_of(&self, who: u32, charge: Charge) -> u32 {
+        if who >= self.aboard.crew_count() {
+            return 0;
+        }
+        let wanted = Item::Stack(charge.resource() as u32);
+        self.aboard
+            .room
+            .pack(who as usize)
+            .iter()
+            .filter(|i| **i == Some(wanted))
+            .count() as u32
+    }
+
+    /// The engineer's charges of a kit: [`World::charges`] by another
+    /// name, which is what the deploy's rules ask.
+    pub fn kit_charges(&self, who: u32, kit: Kit) -> u32 {
+        self.charges(who, Charge::of_kit(kit))
+    }
+
+    /// Seconds until that engineer's next kit of a kind.
+    pub fn kit_cooldown_left(&self, who: u32, kit: Kit) -> f64 {
+        self.charge_cooldown_left(who, Charge::of_kit(kit))
     }
 
     /// How many sentries an engineer may have standing: its sentry
@@ -9300,16 +9353,7 @@ impl World {
     /// stack, the way [`World::grenades_of`] counts grenades. What the
     /// engineer's two boxes at the foot of the screen count (feature 80).
     pub fn kits_of(&self, who: u32, kit: Kit) -> u32 {
-        if who >= self.aboard.crew_count() {
-            return 0;
-        }
-        let wanted = Item::Stack(kit.resource() as u32);
-        self.aboard
-            .room
-            .pack(who as usize)
-            .iter()
-            .filter(|i| **i == Some(wanted))
-            .count() as u32
+        self.charges_of(who, Charge::of_kit(kit))
     }
 
     /// How many sentries an engineer could lay now: the kits in its pack
@@ -9320,41 +9364,42 @@ impl World {
         self.kits_of(who, Kit::Sentry)
     }
 
-    /// Every engineer's packs filled back up to its [`World::kit_charges`]
-    /// on the kinds' cooldowns (feature 88), a step of the world's clock
-    /// at a time: a charge's cooldown runs whenever the pack is short,
-    /// and when it runs out one kit goes in. In combat as out of it —
-    /// this is an ability's cooldown and not the dressings' restock — and
-    /// nothing is conjured out of the hold: a kit is the ability.
-    fn restock_kits(&mut self) {
+    /// Every class's packs filled back up to their [`World::charges`] on
+    /// the kinds' cooldowns (features 88 and 90), a step of the world's
+    /// clock at a time: a charge's cooldown runs whenever the pack is
+    /// short, and when it runs out one goes in. In combat as out of it —
+    /// this is an ability's cooldown and not the dressings' restock —
+    /// and nothing is conjured out of the hold: the charge **is** the
+    /// ability, and no class makes or buys one.
+    fn restock_charges(&mut self) {
         let crew = self.aboard.crew_count() as usize;
-        if self.kit_timers.len() < crew {
-            self.kit_timers.resize(crew, [None; Kit::ALL.len()]);
+        if self.charge_timers.len() < crew {
+            self.charge_timers.resize(crew, [None; Charge::ALL.len()]);
         }
         let now = self.clock_minutes;
         for who in 0..crew {
-            for kit in Kit::ALL {
-                let k = kit.code() as usize;
-                let charges = self.kit_charges(who as u32, kit);
-                let held = self.kits_of(who as u32, kit);
+            for charge in Charge::ALL {
+                let c = charge.code() as usize;
+                let charges = self.charges(who as u32, charge);
+                let held = self.charges_of(who as u32, charge);
                 if held >= charges || !self.aboard.room.is_alive(who) {
-                    self.kit_timers[who][k] = None;
+                    self.charge_timers[who][c] = None;
                     continue;
                 }
-                let Some(began) = self.kit_timers[who][k] else {
-                    self.kit_timers[who][k] = Some(now);
+                let Some(began) = self.charge_timers[who][c] else {
+                    self.charge_timers[who][c] = Some(now);
                     continue;
                 };
                 let since = (now - began) / time::MINUTES_PER_SECOND;
-                if since < World::kit_cooldown(kit) {
+                if since < self.charge_cooldown(who as u32, charge) {
                     continue;
                 }
                 // The charge is up. A pack with nowhere to put it keeps
-                // the timer where it is and the kit lands the step room
+                // the timer where it is and the thing lands the step room
                 // is made, the way the grids keep an overflow unplaced.
-                let item = Item::Stack(kit.resource() as u32);
+                let item = Item::Stack(charge.resource() as u32);
                 if self.aboard.room.give(who, None, item) {
-                    self.kit_timers[who][k] = (held + 1 < charges).then_some(now);
+                    self.charge_timers[who][c] = (held + 1 < charges).then_some(now);
                 }
             }
         }
@@ -9935,46 +9980,29 @@ impl World {
         }
     }
 
-    /// Seconds of the clock between one throw and the next: the
-    /// cooldown, halved with *quick draw*.
+    /// Seconds of the clock one spent grenade charge takes to come back
+    /// into the pack (feature 90): the cooldown, halved with *quick
+    /// draw*.
     pub fn grenade_cooldown(&self, who: u32) -> f64 {
-        if self.has_talent(who, Talent::QuickDraw) {
-            class::GRENADE_COOLDOWN * class::QUICK_DRAW_COOLDOWN
-        } else {
-            class::GRENADE_COOLDOWN
-        }
+        self.charge_cooldown(who, Charge::Grenade)
     }
 
-    /// Seconds of the clock until a crew member may throw again; nought
-    /// when it may.
+    /// Seconds of the clock until the soldier's next grenade lands in
+    /// its pack; nought when it is already at its charges.
     pub fn grenade_cooldown_left(&self, who: u32) -> f64 {
-        let Some(last) = self.last_throw.get(who as usize).copied().flatten() else {
-            return 0.0;
-        };
-        // Seconds of the room's clock: a game minute is a real second at 1×
-        // (`time::MINUTES_PER_SECOND`), the way the room steps.
-        let since = (self.clock_minutes - last) / time::MINUTES_PER_SECOND;
-        (self.grenade_cooldown(who) - since).max(0.0)
+        self.charge_cooldown_left(who, Charge::Grenade)
     }
 
-    /// Grenades in a crew member's pack.
+    /// Grenades in a crew member's pack: its charges in hand.
     pub fn grenades_of(&self, who: u32) -> u32 {
-        if who >= self.aboard.crew_count() {
-            return 0;
-        }
-        let wanted = Item::Stack(ResourceId::Grenade as u32);
-        self.aboard
-            .room
-            .pack(who as usize)
-            .iter()
-            .filter(|i| **i == Some(wanted))
-            .count() as u32
+        self.charges_of(who, Charge::Grenade)
     }
 
     /// What a throw asks, in the order the refusals are said: the slot's
     /// Bim fit to act (`OutOfReach`), a soldier (`NotASoldier`), at the
     /// grenade level (`NoGrenadesYet`), a grenade in the pack
-    /// (`NoGrenade`), past its cooldown (`CoolingDown`), and the tile —
+    /// (`NoGrenade` — the charge **is** the cooldown since feature 90, so
+    /// both charges may go one after the other), and the tile —
     /// a room tile, like a deploy's — deck of the room (`CantThrowThere`)
     /// within its range (`OutOfThrowRange`) with nothing opaque between
     /// (`NoLineToTile`): walls and shut doors stop a throw, sandbags do
@@ -9993,9 +10021,6 @@ impl World {
         if self.grenades_of(slot) == 0 {
             return Err(Refusal::NoGrenade);
         }
-        if self.grenade_cooldown_left(slot) > 0.0 {
-            return Err(Refusal::CoolingDown);
-        }
         let t = shipdesign::TILE as f32;
         let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
         if !self.aboard.room.is_deck_tile(at) {
@@ -10012,8 +10037,10 @@ impl World {
     }
 
     /// The throw — see [`Command::Throw`]: the grenade out of the pack
-    /// now, the clock noted, and the room throws it with the fuse, the
-    /// radius and the damage the soldier's talents give it.
+    /// now, and the room throws it with the fuse, the radius and the
+    /// damage the soldier's talents give it. Nothing is noted down: the
+    /// charge is gone, so `restock_charges` starts its cooldown the next
+    /// step, the way a laid kit's starts (feature 90).
     fn throw(&mut self, slot: u32, tile: (i32, i32)) -> Result<(), Refusal> {
         self.can_throw(slot, tile)?;
         let who = slot as usize;
@@ -10028,10 +10055,6 @@ impl World {
         if self.aboard.room.take(who, cell).is_none() {
             return Err(Refusal::NoGrenade);
         }
-        if self.last_throw.len() <= who {
-            self.last_throw.resize(who + 1, None);
-        }
-        self.last_throw[who] = Some(self.clock_minutes);
         let t = shipdesign::TILE as f32;
         let at = bims::math::vec2((tile.0 as f32 + 0.5) * t, (tile.1 as f32 + 0.5) * t);
         let fuse = self.grenade_fuse(slot);

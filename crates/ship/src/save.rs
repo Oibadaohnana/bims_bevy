@@ -52,7 +52,8 @@ use crate::game::Game;
 /// sentries — feature 74. 17: the cargo grew the grenade, a Bim its brace
 /// and its *rampage* stacks, a bolt and a hit whose they were, a room
 /// its grenades, the world when each crew member last threw
-/// (`World::last_throw`) and the residents who last hit each of them —
+/// (`World::last_throw`, one entry of `charge_timers` since 27) and the
+/// residents who last hit each of them —
 /// feature 75. 18: the world grew the medics (`World::medics` — each
 /// beam's patients, the surge's charge, the field surgery), a Bim its
 /// beam flag and its surge, and a treatment whether it was bare —
@@ -65,8 +66,11 @@ use crate::game::Game;
 /// the body and what it looked like) and the nodes the ship has been at
 /// (`World::visited`), both of them filed with the system's memory as
 /// well, and a station's room which of its bodies were laid out from a
-/// grave (`Residents::grave`) — feature 85.
-pub const SAVE_VERSION: u32 = 26;
+/// grave (`Residents::grave`) — feature 85. 27: the kits' cooldowns and
+/// the soldier's last throw became **one** list of charge timers
+/// (`World::charge_timers`, one entry a `class::Charge`), since a
+/// grenade is a charge on a cooldown like a kit — feature 90.
+pub const SAVE_VERSION: u32 = 27;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

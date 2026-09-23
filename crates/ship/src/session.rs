@@ -633,6 +633,14 @@ impl Session {
         }
     }
 
+    /// Exactly `n` grenade charges in every pack (feature 90), for
+    /// `BIMS_GRENADES=n`, the cooldown started afresh the same way.
+    pub fn grenades_for_probe(&mut self, n: u32) {
+        if let Some(game) = self.game.as_mut() {
+            game.world.set_grenades_for_probe(n);
+        }
+    }
+
     /// Crew member 1 taken out cold and carried by the field medic —
     /// `BIMS_CARRY=1` — for looking at a body in somebody's arms. The
     /// carrier is the last of the crew, which is where

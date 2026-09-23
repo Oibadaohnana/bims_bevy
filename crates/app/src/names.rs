@@ -569,9 +569,9 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoTalent => "the engineer has not learnt that",
         Refusal::NoClass => "a crew member with no class has no talents to pick",
         Refusal::NotASoldier => "only a soldier does that",
-        Refusal::NoGrenade => "there is no grenade in the pack",
+        Refusal::NoGrenade => "no grenade charge in the pack: the next is still coming back",
         Refusal::NoGrenadesYet => "grenades want the soldier's third level",
-        Refusal::CoolingDown => "the last throw is too recent",
+        Refusal::CoolingDown => "that skill is still cooling down",
         Refusal::OutOfThrowRange => "that tile is out of throwing range",
         Refusal::NoLineToTile => "there is a wall or a shut door in the way",
         Refusal::CantThrowThere => "that tile is not deck",
@@ -707,7 +707,7 @@ pub const CLASS_NAMES: [&str; 6] = ["None", "Engineer", "Soldier", "Medic", "Tan
 pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
     "Lays sandbags for cover (E) and, from the third level, a sentry that shoots for itself (Q); packs either up again; mends armour at the workbench once it has learnt to. Sets out with three sandbag kits and one sentry kit.",
-    "Braces to hold a line (E) — steadier shooting, never running, no errands until stood easy — and from the third level throws grenades (Q). Sets out with an auto rifle in hand, the pistol in the pack, and two grenades.",
+    "Braces to hold a line (E) — steadier shooting, never running, no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
     "Holds a crewmate up with the heal beam (E) — their wounds stop bleeding and their blood comes back — and from the third level shields them both with a surge (Q), which takes every hit for eight minutes. Fires nothing while the beam is on. Sets out with the pistol, two medkits and four bandages.",
     "Stands as a wall (E) — half pace, and the crew close behind him are in cover against anything shot through him — and from the third level taunts (Q), so every enemy that can see him shoots at him and nobody else for six minutes. His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
     "Lifts every friendly Bim within eight tiles of him — yours as well as the crew's — a tenth faster at work, a tenth steadier with a gun, and slower to run; and orders the squad, which is every crew member nobody is steering: attack the enemy under the pointer (E), fall back to a tile (X), stand ground (Z). From the third level he rallies (Q). Hires a mercenary at a quarter off. Sets out with the pistol.",
@@ -919,8 +919,8 @@ pub const TALENT_TIPS: [&str; 70] = [
     "Half again the odds of a bolt missing in cover.",
     "Grenades thrown half again as far.",
     "A grenade's fuse half as long.",
-    "Every weapon's fire rate up by a fifth — the seventh level's, not a pick.",
     "A grenade's burst half again as wide.",
+    "A thrown grenade's charge comes back in half the time.",
     "Fists and the schword hit half again as hard.",
     "Ten per cent more chance of slipping a bolt while braced.",
     "Every weapon's odds at the edge of its range are its odds up close.",
@@ -1241,7 +1241,7 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             fig(c::GRENADE_DAMAGE as f64)
         ),
         T::QuickDraw => format!(
-            "Seconds between throws {} ({})",
+            "Seconds a grenade charge takes to come back {} ({})",
             step(
                 c::GRENADE_COOLDOWN,
                 c::GRENADE_COOLDOWN * c::QUICK_DRAW_COOLDOWN,
@@ -1543,13 +1543,13 @@ pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
             pc(0.6 * c::BRACE_ACCURACY as f64)
         ),
         (world::Class::Soldier, 3) => format!(
-            "{} grenades to start: thrown {} tiles, a {}-second fuse, a {}-tile burst doing {} at the centre and half that at the edge, {} seconds between throws",
-            c::SOLDIER_START_GRENADES,
+            "{} grenade charges, each back {} seconds after it is thrown: thrown {} tiles, a {}-second fuse, a {}-tile burst doing {} at the centre and half that at the edge",
+            c::GRENADE_CHARGES,
+            fig(c::GRENADE_COOLDOWN),
             fig(c::GRENADE_RANGE as f64),
             fig(c::GRENADE_FUSE as f64),
             fig(c::GRENADE_RADIUS as f64),
-            fig(c::GRENADE_DAMAGE as f64),
-            fig(c::GRENADE_COOLDOWN)
+            fig(c::GRENADE_DAMAGE as f64)
         ),
         (world::Class::Soldier, 7) => {
             format!("Every weapon's fire rate {}", by(c::DRILL_FIRE_RATE as f64))
@@ -1765,13 +1765,15 @@ pub fn surge_line(charge: f32, level_enough: bool) -> String {
         format!("Surge {:.0}%", charge * 100.0)
     }
 }
+/// The soldier's grenade row: the charges in the pack and, while one is
+/// still coming back, how long the next is (feature 90).
 pub fn grenades_line(carried: u32, cooldown: f64) -> String {
     let count = match carried {
         1 => "1 grenade".to_string(),
         n => format!("{n} grenades"),
     };
     if cooldown > 0.0 {
-        format!("{count} — ready in {cooldown:.0} s")
+        format!("{count} — next in {cooldown:.0} s")
     } else {
         count
     }
@@ -2436,7 +2438,7 @@ pub fn need_tip(need: usize) -> &'static str {
     }
 }
 
-pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar: a shot takes its damage off whichever it lands on, and the head or the body at nothing is death. The legs at nothing is a leg lost. Every hit opens a wound that bleeds until it is dressed — the Blood bar underneath — and below half blood the Bim is slow, below a third out cold, at nothing dead. Only the worst stage of malnutrition costs health of itself, and eating properly walks it back. The lines underneath name whatever is wrong. The blue on the end of a bar is armour: a worn piece adds what it has left to the part, takes every hit first — its protection comes off the damage before anything else, and the rest drains the piece — and only what the piece cannot take reaches the body. At nothing it is broken: still worn, doing nothing, worth nothing put away — discard it and make another.";
+pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar: a shot takes its damage off whichever it lands on, and the head or the body at nothing is death. The legs at nothing is a leg lost. Every hit opens a wound that bleeds until it is dressed — the Blood bar underneath — and below three quarters of its blood the Bim is slow, below half it is out cold where it stands — nothing aims at a body that far gone — and at nothing it is dead. Only the worst stage of malnutrition costs health of itself, and eating properly walks it back. The lines underneath name whatever is wrong. The blue on the end of a bar is armour: a worn piece adds what it has left to the part, takes every hit first — its protection comes off the damage before anything else, and the rest drains the piece — and only what the piece cannot take reaches the body. At nothing it is broken: still worn, doing nothing, worth nothing put away — discard it and make another.";
 
 // --- what is killing it -----------------------------------------------------
 //
@@ -2869,6 +2871,11 @@ pub const WORK_NAMES: [&str; 10] = [
     "Medical",
 ];
 
+/// The note on the *Making things* row: standing at a bench is your own
+/// Bim's work, and the number on the row only ever says when it gets
+/// round to it (feature 89).
+pub const WORK_CRAFT_TIP: &str = "Only the Bim you steer stands at a bench — the smelter, the workbench, the armoury, the drug lab. The rest of the crew plant, cut, sweep, cook, haul, mine, build, doctor and fight, whatever this number says.";
+
 pub const IDLE_HINT: &str = "Click a fixture for its menu · 1 or drag to select · right-click the floor to move · r to recruit";
 
 // --- arms and armour ------------------------------------------------------------
@@ -3027,7 +3034,7 @@ pub const ITEM_TIPS: [&str; 26] = [
     "A tier-two research key: an artifact off a hostile station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the upgrades node, which wants it and no other.",
     "A sandbag kit: a bar of metal at the workbench. An engineer lays it on a deck tile as a barricade to duck behind — E, over the tile.",
     "A sentry kit: two bars of metal, two components and an emitter at the workbench. An engineer of the third level sets it up as a turret with an auto rifle's aim — Q, over the tile.",
-    "A grenade: a bar of metal and a component at the armoury. Anybody carries one; a soldier of the third level throws it — Q, over the tile — and it bursts on everything within two and a half tiles, friend and foe alike, two seconds on.",
+    "A grenade: a soldier of the third level carries two of them as charges and throws one — Q, over the tile — and it bursts on everything within two and a half tiles, friend and foe alike, two seconds on. A thrown one comes back into the pack thirty seconds later; nobody has to make one, though the armoury still can, out of a bar of metal and a component.",
 ];
 
 pub fn item_tip(id: ResourceId) -> &'static str {
@@ -3472,7 +3479,7 @@ mod tests {
             assert_eq!(taunt_line(0.0, 7.2, true), "Taunt ready in 7 s");
             assert_eq!(taunt_line(4.0, 12.0, true), "Taunting — 4 min left");
             assert_eq!(grenades_line(1, 0.0), "1 grenade");
-            assert_eq!(grenades_line(2, 3.4), "2 grenades — ready in 3 s");
+            assert_eq!(grenades_line(2, 3.4), "2 grenades — next in 3 s");
             assert_eq!(beam_line(&[]), BEAM_OFF);
             assert_eq!(beam_line(&["Kate".to_string()]), "Beaming Kate");
             assert_eq!(

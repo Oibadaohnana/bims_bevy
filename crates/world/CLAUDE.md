@@ -3057,7 +3057,8 @@ act — is `Game::set_braced`, and the room ends it on its own on any
 order that moves the Bim (`interrupt_for_order`) and when it goes down;
 the world only reads it (`World::is_braced`). `WorldEvent::Braced { who,
 on }` (75). It is hashed off the room like the positions, with the
-*rampage* stacks (`Game::rampage`, integers) and `World::last_throw`.
+*rampage* stacks (`Game::rampage`, integers) and — until feature 90 made
+it one entry of `World::charge_timers` — `World::last_throw`.
 
 **A grenade is `ResourceId::Grenade = 25`** (`CARGO_SLOTS` 26, `RECIPES[16]`
 at the armoury behind Armoury — a metal and a component, twenty minutes,
@@ -3068,7 +3069,9 @@ room tile like a deploy; `can_throw` refuses in this order: `OutOfReach`
 (not fit), `NotASoldier`, `NoGrenadesYet` (55, under `GRENADE_LEVEL`),
 `NoGrenade` (54), `CoolingDown` (56, `grenade_cooldown_left` off
 `last_throw` in clock minutes against `GRENADE_COOLDOWN` seconds — a
-game minute is a real second at 1×), `CantThrowThere` (59, not a deck
+game minute is a real second at 1×; **gone at feature 90**, where the
+charge in the pack is the whole of the gate and the cooldown is what
+brings it back), `CantThrowThere` (59, not a deck
 tile: `Game::is_deck_tile`), `OutOfThrowRange` (57, past
 `grenade_range`), `NoLineToTile` (58, `Game::line_clear` — walls and
 shut doors, never sandbags). `throw` takes the grenade out of the pack
@@ -3100,6 +3103,63 @@ events 75–76. The app's
 `keys::Action::{ClassPrimary, ClassSecondary}` (Q, E) replaced the
 engineer's two and dispatch by the steered class (`screens::game::class_key`);
 `BIMS_CLASS=soldier` puts the class on slot 0 of any launch.
+
+### A grenade is a charge, and every class's supply is one list (feature 90)
+
+Feature 88 took the crafting out of the engineer's abilities; this one
+says the same of every class, and the soldier's grenade was the one
+left. **`class::Charge`** is the thing now — `Sandbag = 0`, `Sentry = 1`,
+`Grenade = 2`, codes across the seam like everything else, with
+`resource()`, `class()`, `level()` (the level its ability is learnt at)
+and `of_kit`/`kit` to and from `deploy::Kit` — and the world keeps
+**one** list for the lot: `World::charge_timers`, a
+`[Option<f64>; Charge::ALL.len()]` a crew member, which replaced
+`kit_timers` **and** `last_throw` together.
+
+- **`World::charges(who, charge)`** is how many of it the pack fills
+  back up to: nought for a crew member of another class (`Charge::class`)
+  and nought under `Charge::level`, else the engineer's two kits as
+  feature 88 had them and `class::GRENADE_CHARGES` (**two**) grenades.
+  **`World::charge_cooldown(who, charge)`** is what one takes to come
+  back — 45 and 60 seconds for the kits, `class::GRENADE_COOLDOWN`
+  (**thirty**, five before) for a grenade, halved by *quick draw*, which
+  is what that talent now means. `charges_of` counts what is in the
+  pack, `charge_cooldown_left` reads the timer, and `kit_charges`,
+  `kit_cooldown_left`, `kits_of`, `grenades_of`, `grenade_cooldown` and
+  `grenade_cooldown_left` are all thin wrappers so nothing that asked
+  the old questions had to change.
+- **`World::restock_charges`** (was `restock_kits`) is the one loop, a
+  step before `hand_the_room_the_engineers`, over every crew member and
+  every charge. A soldier's grenades come back exactly the way an
+  engineer's kits do: in combat as out of it, one at a time, nothing out
+  of the hold.
+- **The charge is the whole of the gate.** `can_throw` no longer refuses
+  `CoolingDown` and `throw` notes nothing down — the grenade leaving the
+  pack is what starts the cooldown, on the next step, the way a kit laid
+  does — so **both charges may be thrown one after the other** and the
+  wait is for them coming back. `Refusal::CoolingDown` is the tank's and
+  the commander's now.
+- The soldier still **sets out with** `GRENADE_CHARGES` grenades
+  (`give_soldier_kit`, `take_soldier_kit`), whatever its level, the way
+  an engineer sets out with its sentry charge before the third level.
+  The `Grenade` recipe, price and footprint are **left alone**, as
+  feature 88 left the kits': removing a `ResourceId` would move every
+  design hash and galaxy checksum, and a grenade is still craftable and
+  lootable even though no soldier needs one made.
+
+**What moved.** `world_checksum` eats `charge_timers` where it ate
+`kit_timers` (the soldiers' block is the brace and the *rampage* stacks
+alone now) — `REFERENCE_CHECKSUM` = `0x_3a43_a3fe_a913_4b6f` —
+**`SAVE_VERSION` 27, `wire::PROTOCOL` 19** (the relay wants
+redeploying). The dial is `World::set_charges_for_probe(charge, n)`,
+with `set_kits_for_probe(n)` (both kits) and `set_grenades_for_probe(n)`
+over it → `Session::grenades_for_probe` → **`BIMS_GRENADES=n`**. The
+app: the Q box counts the charges and shows the seconds only with none
+left, the way the engineer's two boxes do. `tests_soldier.rs`'s
+`a_grenade_wants_a_line_a_range_and_a_cooldown` is the charges and the
+refusals, and
+`long_throw_short_fuse_frag_and_quick_draw_are_the_grenade_s_numbers`
+the halved recharge.
 
 ## The medic: the heal beam and the surge (feature 76)
 

@@ -77,7 +77,7 @@ pub mod world;
 pub use armour::{FetchKind, LootSource, Piece, Where};
 pub use build::{BuildSite, SiteRefusal};
 pub use checksum::world_checksum;
-pub use class::{Class, Progress, Side, Talent};
+pub use class::{Charge, Class, Progress, Side, Talent};
 pub use commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
 pub use deploy::{Deck, DeployKind, Deployable, Kit};
 pub use event::{Refusal, WorldEvent};

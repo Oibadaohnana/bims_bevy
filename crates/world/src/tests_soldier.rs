@@ -406,7 +406,7 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
     );
     let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
     assert!(world.aboard.room.pack(0).contains(&Some(pistol)));
-    assert_eq!(grenades(&world, 0), class::SOLDIER_START_GRENADES);
+    assert_eq!(grenades(&world, 0), class::GRENADE_CHARGES);
     assert_eq!(world.set_class(1, Class::Engineer), Ok(()));
     let kit = Item::Stack(ResourceId::SandbagKit as u32);
     assert_eq!(
@@ -642,19 +642,34 @@ fn every_reason_a_throw_is_refused() {
         "{events:?}"
     );
     assert_eq!(grenades(&world, 0), 1, "the grenade left the pack at once");
-    assert_eq!(world.can_throw(0, tile), Err(Refusal::CoolingDown));
+    // The charge is the whole of the gate (feature 90): the second one
+    // goes straight after the first, and the wait is for the charges
+    // coming back rather than between throws.
+    assert_eq!(world.can_throw(0, tile), Ok(()));
     let left = world.grenade_cooldown_left(0);
     assert!(left > 0.0 && left <= class::GRENADE_COOLDOWN, "{left}");
+    throw(&mut world, 0, tile);
+    assert_eq!(grenades(&world, 0), 0, "both charges thrown");
     let events = throw(&mut world, 0, tile);
-    assert!(refused_with(&events, Refusal::CoolingDown));
-    assert_eq!(grenades(&world, 0), 1);
-    // Five seconds of the clock on, it may again.
+    assert!(refused_with(&events, Refusal::NoGrenade));
+    assert_eq!(world.can_throw(0, tile), Err(Refusal::NoGrenade));
+    // Thirty seconds of the clock on, one charge is back; thirty more
+    // and it is at its two again.
     let steps = (class::GRENADE_COOLDOWN / SECONDS_A_STEP).ceil() as u32;
     for _ in 0..steps {
         world.step(&[]);
     }
-    assert_eq!(world.grenade_cooldown_left(0), 0.0);
+    assert_eq!(grenades(&world, 0), 1, "one charge back");
     assert_eq!(world.can_throw(0, tile), Ok(()));
+    for _ in 0..steps {
+        world.step(&[]);
+    }
+    assert_eq!(grenades(&world, 0), class::GRENADE_CHARGES);
+    assert_eq!(
+        world.grenade_cooldown_left(0),
+        0.0,
+        "nothing running at its charges"
+    );
 }
 
 #[test]
@@ -1151,7 +1166,7 @@ fn long_throw_short_fuse_frag_and_quick_draw_are_the_grenade_s_numbers() {
     );
     assert_eq!(world.grenade_radius(0), class::GRENADE_RADIUS);
     // And the throw carries them: a short fuse bursts in half the steps,
-    // and the cooldown is over in half the time.
+    // and a charge thrown comes back in half the time.
     let tile = open_run(&world, 0, 3)[2];
     throw(&mut world, 0, tile);
     let g = world.aboard.room.grenades()[0];
@@ -1159,11 +1174,14 @@ fn long_throw_short_fuse_frag_and_quick_draw_are_the_grenade_s_numbers() {
     let steps = run_until_burst(&mut world);
     let want = (g.fuse / SECONDS_A_STEP as f32).round() as u32;
     assert!((steps as i64 - want as i64).abs() <= 2, "{steps} vs {want}");
+    throw(&mut world, 0, tile);
+    assert_eq!(grenades(&world, 0), 0, "both charges thrown");
     let half =
         (class::GRENADE_COOLDOWN * class::QUICK_DRAW_COOLDOWN / SECONDS_A_STEP).ceil() as u32;
-    for _ in steps..half {
+    for _ in 0..=half {
         world.step(&[]);
     }
+    assert!(grenades(&world, 0) >= 1, "a charge back in half the time");
     assert_eq!(world.can_throw(0, tile), Ok(()));
     // Nothing of it for the crewmate.
     assert_eq!(world.grenade_range(1), class::GRENADE_RANGE);

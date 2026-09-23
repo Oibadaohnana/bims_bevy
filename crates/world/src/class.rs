@@ -16,6 +16,20 @@
 //! which no other class can use: [`can`] is the one rule, and it answers
 //! for an [`Ability`] and nothing else.
 //!
+//! # Nothing is crafted for an ability (feature 90)
+//!
+//! What an ability spends is a [`Charge`]: a thing the class brings in
+//! its pack that comes back on a cooldown of its own. A player never
+//! stands at a bench or at a dock to use a skill — the engineer's
+//! sandbags and sentry since feature 88, the soldier's grenades since
+//! this one ([`GRENADE_CHARGES`] of them at [`GRENADE_COOLDOWN`] a
+//! charge) — and what a class added later spends goes in [`Charge`]
+//! beside them. The abilities that spend nothing are held instead of
+//! thrown — a brace, a beam, a bulwark, a squad order — and the ones
+//! that are neither wait out a cooldown of their own: the tank's taunt
+//! at [`TAUNT_COOLDOWN`], the commander's rally at [`RALLY_COOLDOWN`],
+//! the medic's surge on its charge.
+//!
 //! # Experience
 //!
 //! Three things give it, and nothing else:
@@ -86,7 +100,7 @@
 //! |---|---|---|
 //! | 1 | *Brace* (E): holds its ground, shoots steadier | — |
 //! | 2 | *Marksman*: accuracy ×1.15 | *Point blank*: damage within the weapon's sweet range ×1.2 |
-//! | 3 | *Grenades* (Q): may throw them | — |
+//! | 3 | *Grenades* (Q): two charges, 30 seconds each | — |
 //! | 4 | *Runner*: pace ×1.2 while an enemy is in sight | *Steady aim*: the walking accuracy penalty halved |
 //! | 5 | *Iron nerve*: never flees | *Cover master*: the odds in cover ×1.5 |
 //! | 6 | *Long throw*: grenade range ×1.5 | *Short fuse*: grenade fuse ×0.5 |
@@ -155,7 +169,9 @@
 //! strings: the app names the classes and the talents (`CLASS_NAMES`,
 //! `TALENT_NAMES`).
 
+use crate::deploy::Kit;
 use crate::event::Refusal;
+use physics::ResourceId;
 
 /// What a crew member is. Codes cross the seam and are never renumbered.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -260,6 +276,88 @@ pub fn can(class: Class, ability: Ability) -> bool {
         Ability::Beam | Ability::Surge => class == Class::Medic,
         Ability::Bulwark | Ability::Taunt => class == Class::Tank,
         Ability::SquadOrder | Ability::Rally => class == Class::Commander,
+    }
+}
+
+/// What an ability **spends**: a thing in the pack that comes back on a
+/// cooldown of its own rather than being made at a bench or bought at a
+/// dock (features 88 and 90). **No class crafts for its abilities**: a
+/// class brings its charges with it, spends them, and waits — the
+/// engineer's two kits, the soldier's grenade, and whatever a class
+/// added later spends.
+///
+/// The number of charges and the seconds one takes to come back are
+/// [`World::charges`](crate::World::charges) and
+/// [`World::charge_cooldown`](crate::World::charge_cooldown), since both
+/// are a level and a talent away from the constants here;
+/// `World::restock_charges` is the one step that fills a pack back up.
+///
+/// Codes cross the seam and are never renumbered.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Charge {
+    /// The engineer's sandbag kit.
+    Sandbag = 0,
+    /// The engineer's sentry kit.
+    Sentry = 1,
+    /// The soldier's grenade (feature 90).
+    Grenade = 2,
+}
+
+impl Charge {
+    pub const ALL: [Charge; 3] = [Charge::Sandbag, Charge::Sentry, Charge::Grenade];
+
+    pub fn code(self) -> u32 {
+        self as u32
+    }
+
+    pub fn from_code(code: u32) -> Option<Charge> {
+        Charge::ALL.get(code as usize).copied()
+    }
+
+    /// The thing it is in a pack.
+    pub fn resource(self) -> ResourceId {
+        match self {
+            Charge::Sandbag => ResourceId::SandbagKit,
+            Charge::Sentry => ResourceId::SentryKit,
+            Charge::Grenade => ResourceId::Grenade,
+        }
+    }
+
+    /// The one class that spends it.
+    pub fn class(self) -> Class {
+        match self {
+            Charge::Sandbag | Charge::Sentry => Class::Engineer,
+            Charge::Grenade => Class::Soldier,
+        }
+    }
+
+    /// The level it may be spent from: a class's ability level, since a
+    /// charge nothing can spend yet does not come back either.
+    pub fn level(self) -> u8 {
+        match self {
+            Charge::Sandbag => 1,
+            Charge::Sentry => SENTRY_LEVEL,
+            Charge::Grenade => GRENADE_LEVEL,
+        }
+    }
+
+    /// The engineer's kit it is, if it is one.
+    pub fn kit(self) -> Option<Kit> {
+        match self {
+            Charge::Sandbag => Some(Kit::Sandbag),
+            Charge::Sentry => Some(Kit::Sentry),
+            Charge::Grenade => None,
+        }
+    }
+
+    /// The charge an engineer's kit is.
+    pub fn of_kit(kit: Kit) -> Charge {
+        match kit {
+            Kit::Sandbag => Charge::Sandbag,
+            Kit::Sentry => Charge::Sentry,
+        }
     }
 }
 
@@ -543,14 +641,19 @@ pub const ARMOUR_REPAIR_MINUTES: u32 = 10;
 
 /// What a braced soldier's odds are multiplied by.
 pub const BRACE_ACCURACY: f32 = 1.15;
-/// Grenades a soldier sets out with in its pack.
-pub const SOLDIER_START_GRENADES: u32 = 2;
+/// **Grenade charges** a soldier has (feature 90): how many grenades its
+/// pack fills back up to on [`GRENADE_COOLDOWN`] a charge, and what it
+/// sets out with. A soldier makes none and buys none — see [`Charge`].
+pub const GRENADE_CHARGES: u32 = 2;
 /// The level a grenade may be thrown from: the soldier's third.
 pub const GRENADE_LEVEL: u8 = 3;
 /// The level *drill* applies from: the soldier's seventh.
 pub const DRILL_LEVEL: u8 = 7;
-/// Seconds of the clock between one throw and the next.
-pub const GRENADE_COOLDOWN: f64 = 5.0;
+/// Seconds of the clock one spent grenade charge takes to come back into
+/// the pack (feature 90). Two charges are thrown one after the other and
+/// then waited for, the way the engineer's kits are: the cooldown is the
+/// supply, and nothing gates a throw but a grenade in the pack.
+pub const GRENADE_COOLDOWN: f64 = 30.0;
 /// How far a grenade is thrown, in tiles.
 pub const GRENADE_RANGE: f32 = 8.0;
 /// Seconds from the throw to the burst.
@@ -575,7 +678,7 @@ pub const SHORT_FUSE_TIME: f32 = 0.5;
 pub const DRILL_FIRE_RATE: f32 = 1.2;
 /// *Frag*: what the grenade radius is multiplied by.
 pub const FRAG_RADIUS: f32 = 1.5;
-/// *Quick draw*: what the grenade cooldown is multiplied by.
+/// *Quick draw*: what the grenade charge's cooldown is multiplied by.
 pub const QUICK_DRAW_COOLDOWN: f64 = 0.5;
 /// *Bruiser*: what a blow's damage is multiplied by, fist or blade.
 pub const BRUISER_MELEE: f32 = 1.5;

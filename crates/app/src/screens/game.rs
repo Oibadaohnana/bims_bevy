@@ -556,6 +556,12 @@ fn open(
             if let Some(n) = crate::dev::kits() {
                 session.kits_for_probe(n);
             }
+            // And the soldier's grenade charges (feature 90), the same
+            // way: nought is an empty pack with the thirty seconds
+            // running.
+            if let Some(n) = crate::dev::grenades() {
+                session.grenades_for_probe(n);
+            }
             // A weapon asked for by name goes into the hand in place of
             // whatever was issued, the rest of the gear kept: the crew
             // member's, or every resident's; and armour asked for goes on
@@ -4395,12 +4401,19 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                             kits == 0,
                         )
                     }
+                    // The grenade is a charge like the two kits since
+                    // feature 90: the box counts what is in the pack and
+                    // says the seconds only with none left.
                     (Class::Soldier, true) => {
                         let held = world.grenades_of(slot);
                         (
                             Mark::Thing(ResourceId::Grenade),
                             Some(held),
-                            world.grenade_cooldown_left(slot),
+                            if held == 0 {
+                                world.grenade_cooldown_left(slot)
+                            } else {
+                                0.0
+                            },
                             None,
                             false,
                             held == 0,
@@ -5238,20 +5251,22 @@ mod class_key_tests {
         // pack; the brace is there from the first and says when it is on.
         let boxes = ability_boxes(&world, 1, &keys);
         assert_eq!(boxes[0].name, "Grenade");
-        assert_eq!(boxes[0].count, Some(world::class::SOLDIER_START_GRENADES));
+        assert_eq!(boxes[0].count, Some(world::class::GRENADE_CHARGES));
         assert_eq!(boxes[0].locked, Some(world::class::GRENADE_LEVEL));
         assert_eq!(boxes[1].name, "Brace");
         assert!(boxes[1].ready() && !boxes[1].on);
         world.step(&[world::Command::Brace { slot: 1, on: true }]);
         assert!(ability_boxes(&world, 1, &keys)[1].on, "braced now");
 
-        // The level opens the locked one, and a throw puts it in its
-        // cooldown — which is the box saying no, not the level.
+        // The level opens the locked one, and the charges thrown put it
+        // out — which is the box saying no, not the level (feature 90:
+        // the seconds show only with none in the pack).
         let mut events = Vec::new();
         world.award(1, world::class::LEVEL_XP[2], &mut events);
         let boxes = ability_boxes(&world, 1, &keys);
         assert_eq!(boxes[0].locked, None);
         assert!(boxes[0].ready());
+        assert_eq!(boxes[0].cooldown, 0.0, "a charge in hand says no seconds");
 
         // Every class has a name and a tip on every box, and the
         // primary one is the level-three key for all of them. A class

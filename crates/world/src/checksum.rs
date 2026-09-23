@@ -526,11 +526,12 @@ pub fn world_checksum(world: &World) -> u64 {
     for &n in &world.reused_kits {
         hash.eat(n as u64);
     }
-    // And when each engineer's next charge of each kit is due, on the
-    // clock's grid (feature 88): a charge in the pack is a sentry that can
-    // be laid and one still cooling down is not.
-    hash.eat(world.kit_timers.len() as u64);
-    for timers in &world.kit_timers {
+    // And when each crew member's next charge of each kind is due, on
+    // the clock's grid (features 88 and 90): a charge in the pack is a
+    // sentry that can be laid or a grenade that can be thrown, and one
+    // still cooling down is not.
+    hash.eat(world.charge_timers.len() as u64);
+    for timers in &world.charge_timers {
         for began in timers {
             match began {
                 Some(minutes) => {
@@ -543,24 +544,15 @@ pub fn world_checksum(world: &World) -> u64 {
     }
 
     // The soldiers (feature 75): who is braced and each one's *rampage*
-    // stacks — the room's, read off it like the positions, integers — and
-    // when each crew member last threw a grenade, on the clock's grid. A
-    // soldier braced is a different fight from one standing easy.
+    // stacks — the room's, read off it like the positions, integers. A
+    // soldier braced is a different fight from one standing easy. When
+    // its next grenade is due went in with the charges above (feature
+    // 90), where the engineer's kits' cooldowns are.
     let crew = world.aboard.crew_count() as usize;
     hash.eat(crew as u64);
     for who in 0..crew {
         hash.eat(u64::from(world.aboard.room.is_braced(who)));
         hash.eat(world.aboard.room.rampage(who) as u64);
-    }
-    hash.eat(world.last_throw.len() as u64);
-    for last in &world.last_throw {
-        match last {
-            Some(minutes) => {
-                hash.eat(1);
-                hash.eat_rounded(*minutes, FINE_GRID);
-            }
-            None => hash.eat(0),
-        }
     }
 
     // The medics (feature 76): who each beam holds, each surge's charge
