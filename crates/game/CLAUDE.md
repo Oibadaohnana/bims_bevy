@@ -3808,3 +3808,36 @@ The Unmaker's lance is as feature 83 drew it.
 `BIMS_FREEZE=n+f` (`crates/app/src/dev.rs`) pauses the game `f` frames
 after the n-th shot or blow the crew's room hears — `down:n+f` after the
 n-th machine destroyed — which is how these are caught in a screenshot.
+
+**Every constant feature 98 added, in one place** (real seconds, room
+units, and alphas as drawn):
+
+| where | constant | value |
+| --- | --- | --- |
+| `fx.rs` | `CORE_WHITE`, `CORE_TINT`, `CORE_HEAT` | (0.92, 0.97, 1.0), 0.4, 2.4 — the laser core |
+| `fx.rs` | `TIER_WIDTH`, `TIER_HEAT` | 0.15, 0.35 a tier above the first |
+| `fx.rs` | `MUZZLE_PISTOL`/`_SHOTGUN`/`_AUTO`/`_SNIPER` | (life, size): (0.08, 5), (0.11, 8), (0.06, 4), (0.14, 9) |
+| `fx.rs` | `MUZZLE_RAY`, `MUZZLE_SPIKE` | 12, 16 |
+| `fx.rs` | `IMPACT_LIFE`, `IMPACT_RAYS` | 0.15, 3 |
+| `fx.rs` | `SCORCH_LIFE`, `SCORCH_HOT`, `SCORCH_SIZE`, `SCORCH_MERGE` | 4.0, 0.35, (13, 7), 6 |
+| `fx.rs` | `SCORCH`, `SCORCH_WARM` | rgba(0.035, 0.03, 0.025, 0.55), rgba(1.0, 0.52, 0.22, 0.5) |
+| `fx.rs` | `BEAM_LINGER` | 0.25 |
+| `fx.rs` | `STRUCK_LIFE`, `STRUCK` | 0.22, (1.0, 0.95, 0.85) |
+| `fx.rs` | `CUT_LIFE`, `CUT_ARC`, `CUT_REACH` | 0.16, 100°, 46 |
+| `fx.rs` | `BURST_FLASH`, `BURST_SPARK_LIFE`, `BURST_DEBRIS_FLIGHT`, `BURST_LIFE` | 0.22, 0.65, 0.35, 1.6 |
+| `fx.rs` | `BURST_SPARKS`, `BURST_DEBRIS` | 14, 7 |
+| `fx.rs` | `BURST_HOT`, `BURST_SPARK`, `BURST_SPARK_HEAT` | (1.0, 0.72, 0.38), (1.0, 0.82, 0.48), 2.0 |
+| `fx.rs` | `DEBRIS_PLATE`, `DEBRIS_DARK` | (0.33, 0.36, 0.40), (0.15, 0.16, 0.18) |
+| `fx.rs` | `FIRST_FRAME` | 1/60 |
+| `fx.rs` | `FLARE_CAP`, `SCORCH_CAP`, `STRUCK_CAP`, `BURST_CAP` | 160, 40, 32, 8 |
+| `combat.rs` | `PELLET_LENGTH` (was 14), `PELLET_CORE`, `PELLET_FAN`, `PELLET_FAN_GROW`, `PELLET_FAN_MAX`, `PELLET_STAGGER` | 8, 1.5, 2, 0.06, 15, [5, 1, 8, 0, 4] |
+| `combat.rs` | `PULSE_LEAD`, `PULSE_GAP`, `PULSE_TAIL`, `PULSE_CORE` | 13, 5, 6, 1.2 |
+| `combat.rs` | `BEAM_CORE` | 1.5 |
+| `character.rs` | `BLADE_TINT`, `BLADE_HEAT` | 0.35, 1.9 |
+| `droid.rs` | `SPARK_HEAT` | 1.6 |
+| `draw.rs` | `SOFT_LAYERS` | [(1.25, 0.30), (1.0, 0.35), (0.75, 0.45)] |
+| `ship/world_paint.rs` | `WALL_SHADE`, `WALL_SHADE_COLOUR` | [(0.10, 0.16), (0.24, 0.09), (0.42, 0.05)], (0.0, 0.01, 0.03) |
+
+Gone with it: `combat::{BOLT_CORE_TINT, BOLT_CORE_HEAT, PELLET, TRACER,
+STREAK, TRACER_LENGTH}` (the core is `fx::CORE_TINT`/`CORE_HEAT` now, the
+orange, yellow and white-blue tints are the side's colour).

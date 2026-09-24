@@ -1012,15 +1012,21 @@ load — `save_round_trip_keeps_a_held_town_and_an_attack_under_way` in
 
 `world_paint::wall_shade` lays a soft dark band on the deck along the
 inner side of every `Wall` and `OutsideWall` — `WALL_SHADE`, three bands
-stacked, darkest against the wall and gone a third of a tile out — so a
-room reads as walls standing round a floor. `hull_tiles` draws it between
-the floor and the objects, so fixtures and everything the room draws
-stand on it; it is the same for the ship, a station and a town (on the
-ground every tile that is not a wall, a door, an airlock or a corner
-piece takes it). A **run** of tiles along one wall is one band, not a
-band a tile: a pass over the parts marks the walls, and one over the
-tiles finds the runs, every frame, since the design can change. Nothing
-any rule reads.
+stacked, a quarter darker against the wall and gone four tenths of a
+tile out — so a room reads as walls standing round a floor. It is drawn
+**over the fog**, first thing after `DrawList::mark_fog` in `paint_ship`
+(the ship's, then every station's, which `stations` hands back apart)
+and under the shots: the app lays the light map over the deck as
+darkness *and added lamplight*, so a band under it was washed back out
+in any lit room (measured: two levels of 255 on a station's deck,
+against ten over the fog). Over the fog it also darkens whatever stands
+against the wall — a body, a counter — which is how a wall's shade falls
+anyway. It is the same for the ship, a station and a town (on the ground
+every tile that is not a wall, a door, an airlock or a corner piece
+takes it). A **run** of tiles along one wall is one band, not a band a
+tile: a pass over the parts marks the walls, and one over the tiles
+finds the runs, every frame, since the design can change. Nothing any
+rule reads.
 
 `Session::age_effects(real)` is the other half of `bims::fx`
 (`crates/game/CLAUDE.md`, "The fight's passing lights"): the window's

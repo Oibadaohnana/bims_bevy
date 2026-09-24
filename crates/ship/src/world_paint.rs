@@ -458,7 +458,7 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     // The plain the town stands on, under it and the ship: the ground
     // beyond the deck, and the fog over what the crew have not seen of it.
     plain(game, list);
-    let (visitors, visitors_over) = stations(game, list);
+    let (visitors, visitors_over, station_shade) = stations(game, list);
 
     // The ship, drawn in its own frame — design units about the design's
     // origin, the grid it was laid out in — and turned with it at the end.
@@ -560,6 +560,14 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     // people, and under what both rooms draw over their fog — the shots,
     // which are always seen whatever they fly through, and the rings.
     list.mark_fog();
+    // First over the fog, the shade along the walls (feature 98): under it
+    // the light map's lamplight, which is added, washes a darkened deck
+    // back out, so it goes on top — over whatever stands against a wall
+    // too, the way a wall's shade falls — and under the shots.
+    let mut walls = DrawList::default();
+    wall_shade(&mut walls, design, &grid, false);
+    list.append_turned(walls.shapes(), centre, turn);
+    list.append(station_shade.shapes());
     list.append_turned(over_fog, room_centre, turn);
     list.append(visitors_over.shapes());
     // The electricity overlay, over the lot — the room's fixtures included,
@@ -1411,11 +1419,6 @@ fn hull_tiles(
         if terrain.is_some() && layer != Layer::Object {
             continue;
         }
-        // The shade along the walls goes on the floor, under everything
-        // that stands on it (feature 98).
-        if layer == Layer::Object {
-            wall_shade(list, design, grid, terrain.is_some());
-        }
         for part in &design.parts {
             if part.layer() != layer || skip.contains(&part.id) {
                 continue;
@@ -1462,9 +1465,9 @@ fn hull_tiles(
 
 /// The shade along the inner side of the walls (feature 98): how deep
 /// each band reaches onto the deck, as a share of a tile, and how dark it
-/// is. Stacked, they are darkest against the wall and gone a third of a
-/// tile out — a soft edge, not a line.
-const WALL_SHADE: [(f32, f32); 3] = [(0.08, 0.10), (0.18, 0.06), (0.32, 0.035)];
+/// is. Stacked, they are darkest against the wall — a quarter darker —
+/// and gone four tenths of a tile out: a soft edge, not a line.
+const WALL_SHADE: [(f32, f32); 3] = [(0.10, 0.16), (0.24, 0.09), (0.42, 0.05)];
 const WALL_SHADE_COLOUR: Color = Color::rgb(0.0, 0.01, 0.03);
 
 /// The shade along the inner side of every wall (feature 98): a soft dark
@@ -1615,10 +1618,12 @@ fn electricity(list: &mut DrawList, design: &ShipDesign, grid: &Grid) {
 /// Returns the residents' bodies, placed and turned like the rest but not
 /// drawn: the caller paints them over the ship, since they can be on it —
 /// and, apart, what their room draws over its fog, which the caller
-/// paints over the crew's fog.
-fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList) {
+/// paints over the crew's fog — and the shade along every station's walls,
+/// which the caller paints over the fog as well (feature 98).
+fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList, DrawList) {
     let mut lifted = DrawList::default();
     let mut lifted_over = DrawList::default();
+    let mut shade = DrawList::default();
     let here = game.world.ship.position();
     let turn = game.camera_turn() as f32;
     let docked = game.world.ship.state.alongside();
@@ -1751,6 +1756,11 @@ fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList) {
             );
         }
         list.append_turned_at(picture.shapes(), middle, turn, at);
+        // The shade along its walls, apart: it goes over the fog with the
+        // ship's (`wall_shade`).
+        let mut walls = DrawList::default();
+        wall_shade(&mut walls, &station.design, &grid, terrain.is_some());
+        shade.append_turned_at(walls.shapes(), middle, turn, at);
         if let Some(residents) = residents {
             // Their room is the station's design plus the shift its deck
             // took with the ship on it, so its picture turns about the
@@ -1802,7 +1812,7 @@ fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList) {
         );
         paint_station(list, at.0, at.1, hull * 0.8, world::raid::RAIDER_KIND, 6.0);
     }
-    (lifted, lifted_over)
+    (lifted, lifted_over, shade)
 }
 
 /// Where one of a station's residents lands in the camera's units, for the
