@@ -796,7 +796,7 @@ mod tests {
         ];
         buf.replay(&rect, View::PIXELS);
         let parts = buf.into_parts();
-        assert!(parts.colors.iter().any(|c| *c == [3.0, 2.0, 1.0, 1.0]));
+        assert!(parts.colors.contains(&[3.0, 2.0, 1.0, 1.0]));
         assert_eq!(parts.positions.len(), parts.colors.len());
     }
 }
