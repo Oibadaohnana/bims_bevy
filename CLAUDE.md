@@ -421,7 +421,14 @@ about two and a half times white's light. Everything at or under white is
 made exactly as egui made it — through `Color32`, rounded to the byte —
 and blended premultiplied as egui blends, clipped to egui's own scissor.
 A canvas inside a panel is still egui's, and an emissive colour there is
-white.
+white. `draw::Color::glowing(by)` is how a painter says it, and **the one
+emissive thing in the game so far is the pistol bolt's core**
+(`combat.rs`, `BOLT_CORE_TINT`, `BOLT_CORE_HEAT`): its white pulled
+towards the side's colour and made 2.4 times as bright, so the core is
+drawn white-hot and the air round it glows blue for the crew and red for
+the enemy. `BIMS_FIGHT=1 BIMS_WEAPON=pistol BIMS_ENEMY_WEAPON=pistol bims
+combat` is where it is looked at, and
+`the_pistol_bolt_s_core_is_the_one_thing_brighter_than_white` pins it.
 
 **`BIMS_BLOOM=0`** takes the bloom off and the HDR target with it — the
 window's own eight bits, as before — for comparing the two and for a GPU

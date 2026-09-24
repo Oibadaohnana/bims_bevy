@@ -172,6 +172,14 @@ const SPARK_LIFE: f32 = 0.18;
 pub const FRIENDLY_BOLT: Color = Color::rgb(0.40, 0.72, 1.0);
 pub const HOSTILE_BOLT: Color = Color::rgb(1.0, 0.28, 0.22);
 const BOLT_CORE_WHITE: Color = Color::rgb(0.92, 0.97, 1.0);
+/// The pistol's core is **emissive** (feature 97), the one thing in the game
+/// that is so far: its white pulled `BOLT_CORE_TINT` of the way towards
+/// the side's colour, then `BOLT_CORE_HEAT` times as bright — past white,
+/// so the app draws the core white-hot and its bloom lights the air round
+/// it blue for the crew and red for the enemy. A picture only: nothing
+/// the fight reads is a colour.
+const BOLT_CORE_TINT: f32 = 0.4;
+const BOLT_CORE_HEAT: f32 = 2.4;
 const PELLET: Color = Color::rgb(1.0, 0.62, 0.25);
 const TRACER: Color = Color::rgb(1.0, 0.92, 0.35);
 const STREAK: Color = Color::rgb(0.80, 0.92, 1.0);
@@ -2720,7 +2728,8 @@ impl Combat {
                         tail + dir * (BOLT_LENGTH * 0.35),
                         head,
                         BOLT_CORE,
-                        BOLT_CORE_WHITE,
+                        side.mix(BOLT_CORE_WHITE, 1.0 - BOLT_CORE_TINT)
+                            .glowing(BOLT_CORE_HEAT),
                     );
                 }
             }

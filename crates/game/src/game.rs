@@ -15152,4 +15152,33 @@ mod tests {
         assert_eq!(over_too, over);
         assert_eq!([deck, bodies].concat(), under);
     }
+
+    /// The pistol bolt's core is the one emissive colour in the picture
+    /// (feature 97): with a bolt in flight there is a channel past one over
+    /// the fog and nowhere under it, and with none there is none at all.
+    #[test]
+    fn the_pistol_bolt_s_core_is_the_one_thing_brighter_than_white() {
+        let emissive = |part: &[f32]| {
+            part.chunks_exact(crate::draw::STRIDE)
+                .any(|s| s[8] > 1.0 || s[9] > 1.0 || s[10] > 1.0)
+        };
+        let mut game = room();
+        game.set_autonomous(false);
+        game.render();
+        assert!(!emissive(game.shapes()), "nothing glows before a shot");
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        let near = kate + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((near, WeaponKind::LaserPistol.basic()))]);
+        for _ in 0..(60 * 10) {
+            if !game.combat.bolts.is_empty() {
+                break;
+            }
+            game.simulate(DT);
+        }
+        assert_eq!(game.combat.bolts[0].weapon.kind, WeaponKind::LaserPistol);
+        game.render();
+        let (under, over) = game.shapes_fog_split();
+        assert!(emissive(over), "the core glows");
+        assert!(!emissive(under), "and nothing under the fog does");
+    }
 }

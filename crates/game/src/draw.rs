@@ -45,6 +45,20 @@ impl Color {
         Color { a, ..self }
     }
 
+    /// This colour `by` times as bright, alpha kept: past one, it is
+    /// **emissive** — brighter than white, which the app's canvas draws
+    /// white-hot and its bloom lights the air round in the colour's own
+    /// hue (feature 97). Every channel is multiplied in the sRGB encoding
+    /// the colours are written in.
+    pub fn glowing(self, by: f32) -> Color {
+        Color {
+            r: self.r * by,
+            g: self.g * by,
+            b: self.b * by,
+            a: self.a,
+        }
+    }
+
     /// So much of the way from this colour to `other`, alpha included:
     /// a tint mixed with a side's colour.
     pub fn mix(self, other: Color, t: f32) -> Color {
