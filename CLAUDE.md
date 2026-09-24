@@ -20,12 +20,12 @@ the build's own answer where this table is a copy:
 | `nix run .#room` | `cargo run -- room` | the behaviour test room — Bims on a deck |
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member (four bunks to spare) and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement the way `BIMS_LANDED=1` lands the simulation (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
-| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **fourteen crew** (`COMBAT_CREW`: five at the bunks, nine standing on the deck), a gun in every hand — the five kinds dealt round — docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — `ARENA_GARRISON`, fifteen, whatever the crew's worth — and a recruited crew member draws its weapon and shoots at any it can see. The **last two of the fourteen are hired field medics** (`session::COMBAT_MEDICS`, feature 86: the contract at no fee and the two medkits), so a crew member shot down is carried out of the fire and treated rather than left where it fell — every command built on `combat` has them too. `Session::combat` is all of it; `--combat` is taken too |
+| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the five kinds dealt round — docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — `ARENA_GARRISON`, sixteen (`ENEMIES_MAX`, which sixteen crew put up by the formula alone), whatever the crew's worth — and a recruited crew member draws its weapon and shoots at any it can see. The **last four of the sixteen are hired field medics** (`session::COMBAT_MEDICS`, feature 86: the contract at no fee and a medic's four medkits and ten bandages), so a crew member shot down is carried out of the fire and treated rather than left where it fell — every command built on `combat` has them too. `Session::combat` is all of it; `--combat` is taken too |
 | `nix run .#combat_engineer` … `#combat_commander` | `cargo run -- combat_medic` | that **same fight with the class in hand** (feature 79, `Launch::CombatAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs, since it is `Session::combat`'s own ship, arena and garrison with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the **tenth level** (`dev::COMBAT_CLASS_LEVEL`, feature 80) with all seven of the class's talents still to choose, so the tray opens on the **Skills** tab (feature 83) with seven points to spend and the whole tree is the player's to walk down; `BIMS_LEVEL=n` says otherwise. The **engineer of such a run has the charges its class deals it** (`world::deploy::SENTRY_CHARGES`, one, beside `SANDBAG_CHARGES`, three): since feature 88 a kit is not made at all — it is a charge that comes back into the pack on a cooldown — so the class brings its own and `dev.rs` no longer has to. The parsing is `main.rs::class_named`, and `bims list` prints the lot |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `combat` with **everybody's kit at tier two** — every crew member's gun at it (its kind as `combat` dealt it) and a fresh helm, kevlar and leg guards at it on, pieces of the world's, and every one of the garrison the same, its pieces the room's own (`Session::combat_at_tier`, `World::outfit_for_probe`) — so the fight is looked at with nothing at tier one on either side. `BIMS_FIGHT=1` stages it as it stages `combat`, the resident's pistol kept at its tier |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
-| `nix run .#droids` | `cargo run -- droids` | the **machines** (feature 83): `combat`'s own fight — the combat ship, its fourteen crew, a gun in every hand — at an arena the **droids hold** instead of its garrison. Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, sized by `droid::wave_size` (the base, the crew, the calendar, the worth and the levels, added — never doubled — and capped at `DROID_WAVE_MAX`). `DROID_REINFORCE_MINUTES` is **one minute** here rather than two hours, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`) |
-| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same wave with the class in hand** (`Launch::DroidsAs`), which is to `droids` exactly what `combat_<class>` is to `combat`: the same combat ship, the same fourteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top through the same `dev::class_crew` — so what a class does **against the machines** is the one thing two of these runs differ by. The tenth level, the Skills tab with its seven points, the engineer's own charges and `BIMS_CLASS`/`BIMS_LEVEL` over the lot are `combat_<class>`'s own, since it is the one call. The parsing is the trap: `combat_droids_` starts with `combat_`, so `main.rs` tries the longer prefix first (`DROIDS_AS` before `COMBAT_AS`) or the word reads as a class nobody is called |
+| `nix run .#droids` | `cargo run -- droids` | the **machines** (feature 83): `combat`'s own fight — the combat ship, its sixteen crew, a gun in every hand — at an arena the **droids hold** instead of its garrison. Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, sized by `droid::wave_size` (the base, the crew, the calendar, the worth and the levels, added — never doubled — and capped at `DROID_WAVE_MAX`). `DROID_REINFORCE_MINUTES` is **one minute** here rather than two hours, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`) |
+| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same wave with the class in hand** (`Launch::DroidsAs`), which is to `droids` exactly what `combat_<class>` is to `combat`: the same combat ship, the same sixteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top through the same `dev::class_crew` — so what a class does **against the machines** is the one thing two of these runs differ by. The tenth level, the Skills tab with its seven points, the engineer's own charges and `BIMS_CLASS`/`BIMS_LEVEL` over the lot are `combat_<class>`'s own, since it is the one call. The parsing is the trap: `combat_droids_` starts with `combat_`, so `main.rs` tries the longer prefix first (`DROIDS_AS` before `COMBAT_AS`) or the word reads as a class nobody is called |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
 | `nix run .#raid` | `cargo run -- raid` | the simulation **off its berth, holding in open space, with a raid on its way**: the next raid brought forward to ten minutes of the clock — ten seconds at 1× — so contact comes as you watch, the raider closing at its own pace after it (`Session::raid_coming_for_probe`, `World::raid_coming_for_probe`; `RAID_IN_MINUTES` in `screens/game.rs`). Where `BIMS_RAID=contact` opens with the raider already on the radar, this is the warning arriving |
 | `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it starts (feature 92): `test`'s own random galaxy and random dock, the clock wound to the eve of `DROID_FIRST_DAY` (ten) and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight — so the first star turns red on the galaxy chart within a day of the clock rather than forty, and the crew's own system ten days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the first star turns and the clock opens a day short of whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
@@ -109,15 +109,15 @@ unless `n` reaches the whole crew, so the picture is taken from
 somebody still walking about (`BIMS_FIGHT=1 BIMS_DYING=3` on `combat`).
 `BIMS_FIELD_MEDIC=n` makes the **last `n` of the crew hired field
 medics** (feature 86, `Session::field_medics_for_probe`) — the contract
-and the two medkits, no money taken — the last rather than the first
-since slot 0 is the player's own and the rescue is a *bot's* branch
-(`Game::bot_stand`). **`combat` already sails with two of them**
-(`session::COMBAT_MEDICS`), and so does everything built on it — the
-tier tests, `droids`, the `combat_<class>` and `combat_droids_<class>`
-runs — since a fight with nobody who may carry is a fight where a body
-down stays where it fell; the dial asks for the same crew members from
-the same end, so setting it over those two changes nothing and setting
-it higher reaches further up the crew. `BIMS_CARRY=1` takes a crew member out cold and
+and a medic's charges of medicine, no money taken — the last rather
+than the first since slot 0 is the player's own and the rescue is a
+*bot's* branch (`Game::bot_stand`). **`combat` already sails with four
+of them** (`session::COMBAT_MEDICS`), and so does everything built on
+it — the tier tests, `droids`, the `combat_<class>` and
+`combat_droids_<class>` runs — since a fight with nobody who may carry
+is a fight where a body down stays where it fell; the dial asks for the
+same crew members from the same end, so setting it at four or under
+changes nothing and setting it higher reaches further up the crew. `BIMS_CARRY=1` takes a crew member out cold and
 puts it in the arms of somebody who may carry, for looking at a body
 being carried off the deck without waiting for a fight to put one there.
 Both want **more than one aboard**, so they are `combat`'s and not the
@@ -126,14 +126,21 @@ BIMS_CARRY=1 bims combat` is a body in the arms (the Carry box lit, with
 no count on it, is what says so), and `BIMS_FIGHT=1 BIMS_FIELD_MEDIC=1
 BIMS_DYING=2 BIMS_SMOKE_FRAMES=600` is one going and fetching for
 itself. `G` is the carry's key in `BIMS_KEYS`.
-**`BIMS_BANDAGES=n`** puts `n` dressings in **every** crew member's pack
-and sets the Management tab's carry number to `n` (feature 87), rather
-than waiting for the restock to fill the packs a step at a time: five go
-in one box over two cells by two, so `BIMS_BANDAGES=7` is a full box
-beside a part one, which is how the count in a cell's corner is looked
-at — `BIMS_ARMOURY=1 BIMS_BANDAGES=7` on the simulation, or
-`BIMS_FIGHT=1 BIMS_BANDAGES=7 BIMS_DYING=2` for a crew that binds its
-own wounds as it runs.
+**`BIMS_BANDAGES=n`** puts exactly `n` dressings in **every** crew
+member's pack and starts the bandage cooldown afresh, and
+**`BIMS_MEDKITS=n`** the same for the medkit: since the medicine became
+**everybody's charges** — a medkit and five bandages each, a medic four
+and ten, back a minute and thirty seconds of the clock after each is
+used (`class::Charge::{Medkit, Bandage}`, `crates/world/CLAUDE.md`,
+"The medicine is everybody's charges") — nought is the empty box at
+the foot of the canvas with its **sweep** running, and `BIMS_BANDAGES=2`
+a part stock with the **ring** round its count filling. Five go in one
+box over two cells by two, so `BIMS_BANDAGES=7` is a full box beside a
+part one, which is how the count in a cell's corner is looked at —
+`BIMS_ARMOURY=1 BIMS_BANDAGES=7` on the simulation, or `BIMS_FIGHT=1
+BIMS_BANDAGES=7 BIMS_DYING=2` for a crew that binds its own wounds as it
+runs; `BIMS_MEDKITS=0 BIMS_BANDAGES=2 bims combat` is the two medicine
+boxes' two states in one picture.
 **`BIMS_KITS=n`** does the same for the engineer's two **charges**
 (feature 88): exactly `n` of each kit in every pack and both cooldowns
 started afresh. `BIMS_KITS=0 bims combat_engineer` is the one state a
@@ -923,6 +930,23 @@ Things about that which are easy to get wrong:
   grenade, so a box and what the key does are one picture. The box
   never decides anything: `class_key` is still what the press goes
   through, and it knows about the pointer as well.
+  **Past a rule at the right-hand end are the medicine's two boxes**,
+  which every crew member has whatever its class — a classless one has
+  them alone — `medicine_boxes`: the medkit and the bandages it carries,
+  both charges since the medicine became everybody's
+  (`crates/world/CLAUDE.md`, "The medicine is everybody's charges"). No
+  key casts them (`AbilityBox::action` is `None`). **A cooldown is
+  drawn the way Dota 2 draws one**, on every box that has one: with
+  nothing left, the share still to come is laid dark over the whole box
+  and swept back clockwise from twelve o'clock as it runs out
+  (`cooldown_sweep`, a fan from the middle through the corners, with a
+  hand) and the seconds in the middle; with some left and the next on
+  its way, the count sits on a disc in the corner and a **ring** round
+  the disc fills clockwise (`recharge_badge`). `Face::charges` is the
+  reading for any stock of charges — the engineer's kits, the grenade
+  and the medicine alike — off `World::{charges, charges_of,
+  charge_cooldown, charge_cooldown_left}`; the taunt and the rally sweep
+  over their own whole cooldown.
 - **Every ability says on the deck what it is doing, on the Bim doing
   it** (feature 91, `screens/game.rs`'s overlay block). The rule is that
   a box at the foot of the canvas is the *player's own* readout and a

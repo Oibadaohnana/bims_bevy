@@ -1313,10 +1313,10 @@ no surge, no class at all — and what it does instead is this:
   cold, or in a dying state — it goes and **picks them up**, walks them
   clear of the fight at six tenths pace with its fire held, sets them
   down somewhere nothing can see them, and **treats them there**;
-* it arrives with **two medkits** in its pack and fills back up out of
-  the hold between fights — or the moment it has spent its last one and
-  is standing somewhere safe. It conjures nothing: a hold with no
-  medkits in it is a field medic with none either.
+* it carries a **medic's medicine** — four medkits and ten bandages, where
+  anybody else carries one and five — and each one it spends comes back
+  into its pack on the same cooldown as anybody's (see *Medkits and
+  bandages are charges* under *Getting hurt*).
 
 Before anybody is down it is an ordinary crew member with a gun, and it
 eats, sleeps and works like the rest.
@@ -1889,7 +1889,8 @@ no enemy is standing in the room.
 
 The third class (feature 76): a crewmate held up, and a shield over the
 pair of them. A medic sets out with the **laser pistol** in hand as
-everybody does, and **two medkits and four bandages** in its pack. Its
+everybody does, and carries **four medkits and ten bandages** where
+anybody else carries one and five, each coming back on the same cooldown. Its
 own source of experience is the only one any class has: **5** every time
 it finishes bandaging a crewmate or treating a crewmate's trauma with a
 medkit — a crewmate being any crew member but itself, mercenaries
@@ -3358,12 +3359,26 @@ one sells the most damaged.
 
 A **bandage** is a thing a Bim carries, not a number on a shelf: a **box
 of dressings** takes two cells by two of a pack and holds **five**, and
-the one that gets used is the one in the pack of whoever winds it. How
-many each of the crew keeps on them is a row on the **Management** tab —
-three to begin with — and out of combat they fill themselves back up out
-of the hold, one at a time, with nobody walking anywhere for it. A crew
-member with an empty pack cannot bind anything, however many are in the
-lockers.
+the one that gets used is the one in the pack of whoever winds it.
+
+### Medkits and bandages are charges
+
+Nobody fills a pack out of the hold any more, and nobody walks to a
+cabinet for a kit. **Every crew member carries one medkit and five
+bandages**, whatever its class — a **medic**, of the class or a hired
+field medic, carries **four and ten** — and each one used **comes back
+into the pack on its own**: a medkit a minute of the clock after it
+was spent, a bandage thirty seconds after, one at a time, in a fight as
+out of one. Two boxes at the foot of the screen, past a rule beside the
+class's own, say how many your Bim has: the count sits on a disc in the
+corner, and while the next is on its way a **ring** round the disc
+fills clockwise; with none left the whole box goes dark and the dark
+**sweeps back clockwise from twelve o'clock** as the wait runs out, with
+the seconds in the middle — the way Dota 2 shows a skill coming back,
+and the way every cooldown on that bar is drawn now. A medkit or a box
+of dressings cannot be put in the hold — it would only come back — and
+a crew member with an empty pack cannot bind or treat anything, however
+many are in the lockers.
 
 A bandage closes every wound on one part. There are three ways to order
 one, and all of them go through the crew member you steer:
@@ -3389,9 +3404,7 @@ dressing itself) and spends **ten minutes** with its hands on the part;
 *Dressing a wound* is on its agenda, and the dressing comes out of its pack
 when the ten minutes are up — provided the patient is still alive and
 within reach, since a patient that walked off is ten minutes lost. A
-bandage on a part with nothing open is refused outright as a waste. Where
-the dressings come from is the hold: the playtest ship carries five, an orbital or a
-refinery sells them, and the **drug lab** makes one out of two fibre. The
+bandage on a part with nothing open is refused outright as a waste. The
 test room deals every Bim three of its own so `bims room` can try it. The crew
 dress each other **on their own** as well — the **Medical** row on the Work tab
 is that, and at priority 1 it interrupts whatever they are doing; see [Work
@@ -3403,12 +3416,11 @@ Bandage one on the inventory, *Treat the head · skull fracture* on the
 menu on a body — and the hands are your Bim's for a crewmate; for your
 own, since **nobody treats their own**, the nearest crewmate that is free
 walks over instead, and the row says who. Twenty minutes with hands on
-the part, *Treating a trauma* on the agenda, the medkit off the hold when
-they come off, and the part starts again from half. The patient holds
-still while the helper walks over. The medkits are the hold's: the
-playtest ship carries two, every lived-in station sells them, and the
-**armoury** makes one out of vegetables and a component; the test room
-starts with two. The crew treat each other on their own too — a dying
+the part, *Treating a trauma* on the agenda, the kit opened where the
+helper stands and gone from its pack when the hands come off, and the
+part starts again from half — a treatment given up before then keeps its
+kit. The patient holds still while the helper walks over. The test room
+starts with two on a shelf. The crew treat each other on their own too — a dying
 crewmate comes before any wound on the Medical row.
 
 ## Needs, and the day they make

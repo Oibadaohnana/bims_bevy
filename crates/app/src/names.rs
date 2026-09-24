@@ -2535,7 +2535,8 @@ pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a bod
 
 /// Feature 87: the dressings are in the pack, and a box of them has a
 /// row of its own.
-pub const NO_BANDAGE: &str = "no bandages in the pack — each comes back thirty seconds after it was used";
+pub const NO_BANDAGE: &str =
+    "no bandages in the pack — each comes back thirty seconds after it was used";
 /// Why a Treat row is greyed when the helper has no medkit: a medkit is a
 /// charge in each crew member's own pack.
 pub const NO_MEDKIT: &str = "no medkit in the pack — a spent one comes back a minute later";
@@ -3291,6 +3292,34 @@ mod tests {
         assert!(memory_line(30, 1).unwrap().starts_with("Ada died"));
         set_crew_names(&[]);
         assert_eq!(crew_name(1), "Kate");
+    }
+
+    /// The medicine's words spell the numbers out — one medkit and five
+    /// bandages, a medic's four and ten, a minute and thirty seconds —
+    /// so a change to the rules' numbers has to come here as well.
+    #[test]
+    fn the_medicine_s_words_say_the_rules_numbers() {
+        use world::class as c;
+        assert_eq!(
+            (c::MEDKIT_CHARGES, c::MEDIC_MEDKIT_CHARGES),
+            (1, 4),
+            "{MEDKIT_BOX_TIP}"
+        );
+        assert_eq!(
+            (c::BANDAGE_CHARGES, c::MEDIC_BANDAGE_CHARGES),
+            (5, 10),
+            "{BANDAGE_BOX_TIP}"
+        );
+        assert_eq!((c::MEDKIT_COOLDOWN, c::BANDAGE_COOLDOWN), (60.0, 30.0));
+        for words in [MEDKIT_BOX_TIP, NO_MEDKIT, FIELD_MEDIC_TIP] {
+            assert!(
+                words.contains("minute") || words.contains("four"),
+                "{words}"
+            );
+        }
+        for words in [BANDAGE_BOX_TIP, NO_BANDAGE, BANDAGE_TIP] {
+            assert!(words.contains("thirty seconds"), "{words}");
+        }
     }
 
     #[test]

@@ -3819,14 +3819,12 @@ standing order:
   `Tactics::{stand_with_cover, stand_scored}` and is the only reason
   either signature moved.
 
-**The restock is `World::restock_field_medics`**, a step before the
-hold's medicine is handed over: one kit out of the hold into the pack
-per step while the pack is short of two, **out of combat**
-(`Game::calm`) or — whatever the fight is doing — once it has spent its
-last kit and is standing somewhere clear (`Game::is_out_of_harm`). It is
-bookkeeping and not an errand, the way the hold's medicine is handed to
-the room without anybody walking for it; it conjures nothing, so a crew
-out of medkits has a medic out of medkits.
+**The restock was `World::restock_field_medics`** — a kit out of the
+hold into the pack out of combat — and **it is gone**: a field medic's
+medicine is a medic's charges now, four medkits and ten bandages that
+come back on the cooldown like anybody's (see "The medicine is
+everybody's charges" below). `give_field_medic_kit` is `fill_medicine`,
+topping the pack up to them at the hire.
 
 **What moved.** `Refusal` 75–77, events 87–88, `Hired` grew a field and
 every body's `carrying` is hashed after `fear` — **`REFERENCE_CHECKSUM`
@@ -3841,6 +3839,12 @@ rallied_mark}`, and the Hire window naming a field medic
 (`names::FIELD_MEDIC`).
 
 ## The dressings are carried, and the Management tab says how many (feature 87)
+
+> **Since the medicine became everybody's charges** (next section) the
+> restock below, the Management tab's number and the stow of a box are
+> gone: a pack is filled by the bandage cooldown, never out of the hold,
+> and a box of dressings cannot be stowed. The stacks in the pack are as
+> this section says.
 
 A bandage used to be a number the world handed the room off the hold and
 read back after the step. It is a **thing in a pack** now — the room's
@@ -3892,6 +3896,76 @@ is the dressing through the seam. **`without_dressings(&mut world)`** is
 the helper every test that lays a pack out by hand or counts the lockers
 says first: the target to nought and every pack emptied, so a box of
 dressings is not sitting in the cell the test wants.
+
+## The medicine is everybody's charges
+
+The user's words: get rid of medkits — they have a cooldown and charges
+for every Bim now, and so do the bandages; a medkit and five bandages
+for everybody, a medic four and ten, the same recharge. So **a medkit
+and a bandage are two more `class::Charge`s** — `Medkit = 3`,
+`Bandage = 4`, codes across the seam — and they are **everybody's**:
+`Charge::everybody` (`Charge::MEDICINE`), whose `class()` answers
+`Class::None` meaning *any*. The machinery is the one features 88 and
+90 built, so everything that asked about charges asks about these too:
+
+- **`World::charges`** is `class::MEDKIT_CHARGES` (1) and
+  `BANDAGE_CHARGES` (5) for anybody, `MEDIC_MEDKIT_CHARGES` (4) and
+  `MEDIC_BANDAGE_CHARGES` (10) for a medic **of either kind** —
+  `can_lift`, the class or a hired field medic, since the trade is the
+  medicine. **`charge_cooldown`** is `MEDKIT_COOLDOWN` (60 s of the
+  clock) and `BANDAGE_COOLDOWN` (30 s), the same for a medic.
+  **`charges_of` counts by the unit** (`Gear::units_of`), since five
+  dressings lie in one box; a kit or a grenade is one a cell as before.
+- **`restock_charges`** fills a short pack one charge a cooldown, in
+  combat as out of it. **`fill_medicine(who)`** tops a pack up at once
+  instead: every crew member at `World::start`, a hand joining
+  (`take_resident_aboard`, a hire or a recruit), a medic's class
+  (`give_medic_kit`) and contract (`give_field_medic_kit`);
+  `take_medic_kit` takes the pack back down to everybody's.
+- **Nothing is the hold's.** `restock_bandages` and
+  `restock_field_medics` are gone; `hand_the_room_the_hold_s_medicine`
+  sets the room's shelf to **nought** and no kit stands, and hands it
+  each crew member's own medkits (`set_pack_kits`, which leaves out one
+  already in that Bim's hands). A treatment is opened where the helper
+  stands, and **the kit leaves the pack when the treatment is done** —
+  `settle_medics`, off `Healed { with: Medkit }` — not when it is taken
+  up, so a treatment given up for a shot (`care_gives_way`) has put
+  nothing anywhere and the kit is still in the pack. `bank_medicine`
+  only drains the room's counts now; `take_medkits_used` and
+  `take_pack_kits_used` mean nothing to the world.
+- **A charge stays in its pack**: `stow` refuses a medkit or a bandage
+  with `Refusal::ChargeKept` (81) — one stowed would be one more in the
+  hold every cooldown for nothing. A kit fetched out of the hold is
+  still a kit, and bought ones still sit there; the recipe, the trade
+  and the playtest ship's cargo were left alone, since taking a
+  resource off a shelf moves every galaxy checksum.
+- **A charge is not worth**: `World::worth` leaves every charge in a
+  pack out, so spending a bandage does not shrink the enemies scaled on
+  it.
+- **`medicine_off_for_probe`** (a serde-skipped flag, never hashed) is a
+  test's: no medicine dealt or come back, so `without_dressings` empties
+  the packs of both and they stay empty.
+
+The combat command sails with **four** field medics
+(`session::COMBAT_MEDICS`) in a crew of **sixteen** (`COMBAT_CREW`), the
+two the user asked for added rather than two guns traded for them — and
+sixteen crew put up `ENEMIES_MAX` by the garrison's formula alone, so
+`data::ARENA_GARRISON` is that cap now, sixteen.
+
+**What moved.** `charge_timers` is five a crew member and the packs
+hold medicine from the first step — **`REFERENCE_CHECKSUM` =
+`0x_da4f_9df9_1693_e8d2`**, **`SAVE_VERSION` 32**, **`wire::PROTOCOL`
+24** (the relay wants redeploying). The dials are `BIMS_MEDKITS=n` and
+`BIMS_BANDAGES=n` (`set_charges_for_probe`). `tests_medic.rs` pins it:
+`everybody_carries_a_medkit_and_five_bandages_that_come_back_on_their_cooldowns`,
+`a_helper_treats_with_the_kit_in_its_own_pack_and_the_hold_is_never_touched`,
+`a_field_medic_carries_a_medic_s_medicine_and_a_spent_kit_comes_back_on_the_cooldown`;
+and `tests.rs`'s
+`a_wound_is_dressed_and_a_trauma_treated_out_of_the_helper_s_own_charges`
+and `the_packs_fill_on_the_cooldown_and_never_out_of_the_hold`. The
+residents are **unchanged**: a station's people still get
+`RESIDENT_BANDAGES` in their packs and `RESIDENT_MEDKITS` on their shelf
+at open, and nothing of theirs comes back.
 
 ## The crisis: an origin, a hop count and a day (feature 92)
 

@@ -427,10 +427,7 @@ fn everybody_carries_a_medkit_and_five_bandages_that_come_back_on_their_cooldown
     let dressings = world.ship.design.carrying(ResourceId::Bandage);
     // Two dressings spent: they come back one at a time, thirty seconds
     // of the clock apiece — a game minute is a second of it.
-    world
-        .aboard
-        .room
-        .take_stack(0, bims::game::BANDAGE, 2);
+    world.aboard.room.take_stack(0, bims::game::BANDAGE, 2);
     world.step(&[]);
     assert_eq!(
         world.charges_of(0, Charge::Bandage),
@@ -450,7 +447,10 @@ fn everybody_carries_a_medkit_and_five_bandages_that_come_back_on_their_cooldown
         class::BANDAGE_CHARGES - 1,
         "one back"
     );
-    assert!(world.charge_cooldown_left(0, Charge::Bandage) > 0.0, "and the next under way");
+    assert!(
+        world.charge_cooldown_left(0, Charge::Bandage) > 0.0,
+        "and the next under way"
+    );
     for _ in 0..a_charge {
         world.step(&[]);
     }
@@ -1503,7 +1503,11 @@ fn a_field_medic_carries_a_medic_s_medicine_and_a_spent_kit_comes_back_on_the_co
         .room
         .take_stack(1, Item::Stack(ResourceId::Medkit as u32), 1);
     world.step(&[]);
-    assert_eq!(kits(&world), class::MEDIC_MEDKIT_CHARGES - 1, "not out of the hold");
+    assert_eq!(
+        kits(&world),
+        class::MEDIC_MEDKIT_CHARGES - 1,
+        "not out of the hold"
+    );
     assert!(world.charge_cooldown_left(1, Charge::Medkit) > 0.0);
     for _ in 0..(class::MEDKIT_COOLDOWN as u32 * STEPS_A_MINUTE + 2) {
         world.step(&[]);

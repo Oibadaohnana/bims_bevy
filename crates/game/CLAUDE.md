@@ -2574,17 +2574,22 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   that has one opens it where it stands: `GoToKit`'s target is the Bim's
   own position — no walk to a cabinet at all — and `TakeKit` takes it
   out of the pack rather than off the shelf, saying whose on
-  `Room::pack_kits_used` (`Game::take_pack_kits_used`). The world then
-  takes the medkit out of that pack and puts it **on the hold's count**,
-  because from the moment a kit is in a hand the counting is the shelf
-  kit's: `medkits_used` charges the hold for it when the treatment is
-  done, and `let_go` puts it back on the shelf when the chain is given
-  up for good — so a medic's own kit spent is the hold untouched and the
-  pack one down, and a treatment abandoned leaves the kit in the hold. A
-  kit in the pack counts as a kit everywhere the shelf's does:
-  `medical_on_offer` offers the treatment for it and `Game::treat` is
-  bare-handed only with neither.
-  **Otherwise the kit is fetched.** `Kind::Treat` is `GoToKit → TakeKit →
+  `Room::pack_kits_used` (`Game::take_pack_kits_used`). **Since the
+  medicine became everybody's charges** (`crates/world/CLAUDE.md`, "The
+  medicine is everybody's charges") that is every kit aboard: the world
+  sets the shelf to nought and hands no kit stands, and it takes the
+  kit out of the helper's pack **when the treatment is done** (off
+  `Healed { with: Medkit }`) rather than at `TakeKit` — so until then
+  the pack still holds the kit in the hands, and `set_pack_kits` leaves
+  one out for a Bim whose hands hold `Held::Medkit`, or a second
+  treatment would be offered on the same kit. A treatment given up puts
+  the kit "back on the shelf" in `let_go`, which the world sets to
+  nought again next step, and the pack never lost it. A kit in the pack
+  counts as a kit everywhere the shelf's does: `medical_on_offer` offers
+  the treatment for it and `Game::treat` is bare-handed only with
+  neither.
+  **Otherwise the kit is fetched** — in the classic room and a
+  station's, which still keep a shelf. `Kind::Treat` is `GoToKit → TakeKit →
   GoToPatient → Dress`: `task::kit_stand` picks the nearest of
   `Room::kit_stands` — the use spots of every container that takes a
   medkit, `Game::set_kit_stands` from the world every step

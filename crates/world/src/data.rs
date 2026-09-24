@@ -121,11 +121,13 @@ pub const ENEMIES_MAX: u32 = 16;
 pub const ARENA_SIDE: u32 = 72;
 pub const ARENA_BUNK_COLUMNS: u32 = 4;
 /// The garrison the arena arms whenever it is hostile, whatever the crew's
-/// number and worth: `World::reinforcements` is set by the `combat`
-/// command to make [`crate::station::enemies_of`] up to this, so a crew
-/// of sixteen (`shipdesign::fixture::COMBAT_CREW`) meets fifteen. Under
-/// [`ENEMIES_MAX`], so every one of them has a bunk.
-pub const ARENA_GARRISON: u32 = 15;
+/// worth: `World::reinforcements` is set by the `combat` command to make
+/// [`crate::station::enemies_of`] up to this. It was fifteen against a
+/// crew of fourteen; the crew grew by two field medics
+/// (`shipdesign::fixture::COMBAT_CREW`, sixteen), and sixteen crew put up
+/// [`ENEMIES_MAX`] by the formula alone — reinforcements only ever add —
+/// so the arena's garrison is the cap, and every one of them has a bunk.
+pub const ARENA_GARRISON: u32 = ENEMIES_MAX;
 
 /// How many mercenaries the `test` command's dock has for hire at the
 /// least, whatever the roll said (`World::mercenary_for_probe`): one, so

@@ -1553,37 +1553,44 @@ fn save_round_trip_keeps_a_held_town_and_an_attack_under_way() {
     assert_eq!(world.checksum(), checksum);
 }
 
-/// The `combat` session sails with two hired field medics at the back of
-/// the crew (`session::COMBAT_MEDICS`): the last two of the fourteen, on
-/// a contract that costs nothing, each with the two medkits the trade
-/// brings and each able to pick a crewmate up. Without them nobody in
-/// the fight may carry, and a crew member shot down lies where it fell.
+/// The `combat` session sails with four hired field medics at the back of
+/// the crew (`session::COMBAT_MEDICS`): the last four of the sixteen, on
+/// a contract that costs nothing, each with a medic's charges of medicine
+/// — four medkits and ten bandages — and each able to pick a crewmate
+/// up. Without them nobody in the fight may carry, and a crew member shot
+/// down lies where it fell. Everybody else carries everybody's one and
+/// five.
 #[test]
-fn the_fight_sails_with_two_hired_field_medics_at_the_back_of_the_crew() {
+fn the_fight_sails_with_four_hired_field_medics_at_the_back_of_the_crew() {
     use crate::session::{COMBAT_MEDICS, Session};
+    use world::Charge;
+    use world::class::{
+        BANDAGE_CHARGES, MEDIC_BANDAGE_CHARGES, MEDIC_MEDKIT_CHARGES, MEDKIT_CHARGES,
+    };
 
     let session = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
     let world = &session.game.as_ref().unwrap().world;
     let crew = world.aboard.crew_count();
     assert_eq!(crew, shipdesign::fixture::COMBAT_CREW);
+    assert_eq!(COMBAT_MEDICS, 4);
     let medics: Vec<u32> = (0..crew).filter(|&w| world.is_field_medic(w)).collect();
     let want: Vec<u32> = (crew - COMBAT_MEDICS as u32..crew).collect();
-    assert_eq!(medics, want, "the last two, slot 0 being the player's own");
+    assert_eq!(medics, want, "the last four, slot 0 being the player's own");
+    for who in 0..crew {
+        let (kits, dressings) = if medics.contains(&who) {
+            (MEDIC_MEDKIT_CHARGES, MEDIC_BANDAGE_CHARGES)
+        } else {
+            (MEDKIT_CHARGES, BANDAGE_CHARGES)
+        };
+        assert_eq!(world.charges_of(who, Charge::Medkit), kits, "crew {who}");
+        assert_eq!(
+            world.charges_of(who, Charge::Bandage),
+            dressings,
+            "crew {who}"
+        );
+    }
     for &who in &medics {
         assert!(world.can_lift(who), "a field medic may carry");
-        let kit = bims::combat::Item::Stack(physics::ResourceId::Medkit as u32);
-        let carried = world
-            .aboard
-            .room
-            .pack(who as usize)
-            .iter()
-            .filter(|cell| **cell == Some(kit))
-            .count() as u32;
-        assert_eq!(
-            carried,
-            world::mercenary::MEDIC_MEDKITS,
-            "crew {who} carries the trade's medkits"
-        );
         // The contract is a hire with nothing to pay: a probe's fight
         // must not go broke a month in.
         let hired = world
@@ -1825,8 +1832,8 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
                         physics::ResourceId::Medkit as u32
                     )))
                 .count(),
-            2,
-            "the medkits are in the pack"
+            world::class::MEDIC_MEDKIT_CHARGES as usize,
+            "a medic's medkits are in the pack"
         );
         // Crew member 1 beside it, a wound on it, and the beam on.
         let at = world.aboard.room.bim_pos(0) + bims::math::vec2(TILE as f32, 0.0);

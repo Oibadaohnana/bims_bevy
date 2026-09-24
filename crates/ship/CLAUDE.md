@@ -402,11 +402,13 @@ aboard, one of them the player — and the `test` command uses it on the
 combat ship with one crew member so a mercenary hired at the dock has a
 bunk; `Session::combat` is the fight (`crates/world/CLAUDE.md`'s arena),
 `Session::mercenary_for_probe` the `test` command's hired hand.
-**The fight sails with `session::COMBAT_MEDICS` (two) hired field
-medics**, the last two of the fourteen — `field_medics_for_probe`, the
-contract at no fee and the two medkits — since a fight with nobody who
-may carry is a fight where a body down stays where it fell and the
-whole of feature 86 never runs. They are inherited by everything built
+**The fight sails with `session::COMBAT_MEDICS` (four) hired field
+medics**, the last four of the sixteen — `field_medics_for_probe`, the
+contract at no fee and a medic's four medkits and ten bandages — since
+a fight with nobody who may carry is a fight where a body down stays
+where it fell and the whole of feature 86 never runs. It was two of
+fourteen; the user asked for two more, and the crew grew by them.
+They are inherited by everything built
 on `combat`: `tier2_test`, `tier3_test`, `droids`, and the
 `combat_<class>` and `combat_droids_<class>` runs. `BIMS_FIELD_MEDIC=n`
 asks for the same crew members from the same end, so setting it over

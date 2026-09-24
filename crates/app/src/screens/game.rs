@@ -5296,7 +5296,10 @@ fn recharge_badge(painter: &egui::Painter, at: egui::Pos2, recharge: Option<f32>
             at + egui::vec2(a.sin(), -a.cos()) * ring
         })
         .collect();
-    painter.add(egui::Shape::line(arc, egui::Stroke::new(2.0, theme::ACCENT)));
+    painter.add(egui::Shape::line(
+        arc,
+        egui::Stroke::new(2.0, theme::ACCENT),
+    ));
 }
 
 /// What the class's two keys do for the crew member `slot` steers
@@ -5831,6 +5834,49 @@ mod class_key_tests {
     /// class's own keys named, the key each is bound to, how many are
     /// left, and the level the locked one wants — all read off the world
     /// rather than kept, and the same pairing `class_key` dispatches by.
+    #[test]
+    fn everybody_has_the_medicine_s_two_boxes_and_a_spent_charge_sweeps() {
+        use world::Charge;
+        use world::class::{BANDAGE_CHARGES, MEDKIT_CHARGES};
+        let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
+        // A classless crew member has no keys, but it has its medicine.
+        let boxes = medicine_boxes(&world, 1);
+        assert_eq!(boxes.len(), 2);
+        assert_eq!(
+            (boxes[0].name, boxes[1].name),
+            (names::MEDKIT_BOX, names::BANDAGE_BOX)
+        );
+        assert_eq!(boxes[0].count, Some(MEDKIT_CHARGES));
+        assert_eq!(boxes[1].count, Some(BANDAGE_CHARGES));
+        assert!(boxes.iter().all(|b| b.action.is_none() && b.key.is_empty()));
+        assert!(
+            boxes
+                .iter()
+                .all(|b| b.cooldown == 0.0 && b.recharge.is_none())
+        );
+        assert!(medicine_boxes(&world, 9).is_empty(), "nobody there");
+        // None left: the whole box swept, over the whole of the cooldown.
+        world.set_charges_for_probe(Charge::Medkit, 0);
+        world.step(&[]);
+        let medkit = &medicine_boxes(&world, 1)[0];
+        assert!(medkit.short && !medkit.ready());
+        assert_eq!(medkit.cooldown_whole, world::class::MEDKIT_COOLDOWN);
+        assert!(medkit.cooldown > 0.0 && medkit.cooldown <= medkit.cooldown_whole);
+        assert!(medkit.recharge.is_none(), "the sweep says it, not the ring");
+        // Some left and the next on its way: ready, no seconds, and the
+        // ring round the count part way.
+        world.set_charges_for_probe(Charge::Bandage, 2);
+        for _ in 0..600 {
+            world.step(&[]);
+        }
+        let dressings = &medicine_boxes(&world, 1)[1];
+        assert_eq!(dressings.count, Some(2));
+        assert!(dressings.ready());
+        assert_eq!(dressings.cooldown, 0.0);
+        let share = dressings.recharge.expect("the ring");
+        assert!(share > 0.0 && share < 1.0, "{share}");
+    }
+
     #[test]
     fn the_two_boxes_say_what_the_keys_do_and_how_many_are_left() {
         let keys = Keys::default();

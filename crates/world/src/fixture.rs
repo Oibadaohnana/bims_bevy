@@ -70,7 +70,10 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// with the droids' other dials — the hop table is derived from the
 /// origin and the galaxy and is not in there — and the machines' hold on
 /// a system's stations filed with the rest of that system's memory.
-pub const REFERENCE_CHECKSUM: u64 = 0x_00fd_e444_a606_d8d2;
+/// And again when the medicine became everybody's charges on a cooldown
+/// (`crate::class::Charge::{Medkit, Bandage}`): `World::charge_timers` is
+/// five a crew member, and the hold no longer fills anybody's pack.
+pub const REFERENCE_CHECKSUM: u64 = 0x_da4f_9df9_1693_e8d2;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

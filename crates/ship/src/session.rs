@@ -306,7 +306,7 @@ impl Session {
     /// hand, `WeaponKind::ALL`'s order (pistol, shotgun, auto rifle, sniper
     /// rifle, schword) dealt down the crew and round again, docked at the
     /// spawn rebuilt as the arena (`World::arena_dock_for_probe`) and that
-    /// made hostile: its people enemies, `ARENA_GARRISON` (fifteen) of
+    /// made hostile: its people enemies, `ARENA_GARRISON` (sixteen) of
     /// them. Nothing is recruited: whom to send in is the player's.
     pub fn combat(seed: u64, width: f32, height: f32) -> Session {
         use bims::combat::WeaponKind;
