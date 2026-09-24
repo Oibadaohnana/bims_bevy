@@ -216,9 +216,15 @@ fn main() {
 
     let mut game = Game::new(6, 960.0, 640.0);
     // Nobody decides anything for themselves: what is measured here is a walk
-    // and nothing else. Recruited, so neither wanders off it either.
+    // and nothing else. Recruited, so neither wanders off it either — but
+    // **not slot 0**, because since feature 84 recruiting the player's own Bim
+    // means the player is *leading*: it musters the bots, and a mustered bot
+    // gathers round its player (`Game::led`, `bot_stand`). That put a second
+    // pair of boots on the band, walking it in step with the first, which is
+    // the one thing this section is not measuring. Slot 0 is marching
+    // throughout and needs no holding still.
     game.set_autonomous(false);
-    for w in 0..CREW {
+    for w in 1..CREW {
         game.recruit_for_probe(w, true);
     }
     // Along the open middle of the deck. The room is `room::ROOM_W` wide, not
@@ -235,11 +241,15 @@ fn main() {
     // row: the route is smoothed, the push-out nudges it, and it settles a
     // whole tile below where it was sent. A band one row deep missed the lane
     // entirely and the walk crossed nothing but clean deck.
+    // The westmost point actually fouled, kept so the trail can be read from
+    // somewhere that is not the band itself — see the sampling below.
+    let mut band_west = f32::MAX;
     for x in (260..480).step_by(TILE as usize) {
         for y in (360..520).step_by(TILE as usize) {
             let at = vec2(x as f32, y as f32);
             if game.spot_at(at.x, at.y) == room::SPOT_DECK && game.can_reach_for_probe(PLAYER, at) {
                 game.foul_for_probe(at);
+                band_west = band_west.min(at.x);
             }
         }
     }
@@ -295,13 +305,29 @@ fn main() {
     );
     // The trail is fainter than what it came off, tile for tile: what spreads
     // is a share, so nothing downstream is ever as bad as its source.
+    //
+    // Read a whole tile clear of the band's own westmost column, and not up to
+    // the coordinate the band was fouled *at*. A filth tile is `TILE` across
+    // and the grid is laid from the room's corner rather than from nought, so
+    // a point twenty units west of a fouled one is still inside it: x=244 and
+    // x=260 were one cell, the sample read the band's own -100 back, and the
+    // probe called the source its own trail. `band_west - TILE` is in a
+    // strictly more westerly column wherever the grid happens to start.
+    let trail_end = (band_west - TILE) as i32;
     let mut worst_trail = 0.0f32;
-    for x in (140..280).step_by(TILE as usize / 2) {
+    for x in (140..=trail_end).step_by(TILE as usize / 2) {
         worst_trail = worst_trail.max(BASELINE - game.tile_filth(vec2(x as f32, 420.0)));
     }
+    // A band that moved west would leave nothing to read and the check below
+    // would pass on an empty loop.
+    check!(
+        "there is deck west of the band to read the trail off",
+        trail_end >= 140,
+        trail_end
+    );
     check!(
         "and what it carried out is fainter than the band",
-        worst_trail < 110.0,
+        worst_trail > 0.0 && worst_trail < 110.0,
         format!("{worst_trail:.1}")
     );
 

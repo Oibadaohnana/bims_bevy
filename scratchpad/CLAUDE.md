@@ -61,6 +61,23 @@ Assert the low-water mark, not the last sample. Same family as the layout note
 above: when a long-run probe starts failing after an unrelated change, ask
 first whether the thing you asserted was ever stable.
 
+## Three seeds is not a sample
+
+`social.rs` asked whether a Bim left alone past thirteen days gives up by
+running three seeds for three days and requiring two of the three to die. At
+three per cent an hour a three-day run ends in a give-up about five times in
+six — so "at least two of three" is wrong roughly once in thirteen triples,
+and 3/13/23 happened to be such a triple. The probe had been red on it for as
+long as anybody had looked, and the mechanic was never broken: a hundred seeds
+give 83 deaths in three days and 96 in five, which is what the arithmetic says.
+
+Work the margin out before writing the threshold. Sixteen seeds with half of
+them asked for is three standard deviations; three seeds with two asked for is
+a coin toss dressed up as an assertion. `spread.rs` says the same thing about
+its twenty laps and for the same reason. And print the reading beside the
+verdict — `13 of 16` is a number the next change can be compared against, and
+`FAIL` on its own is not.
+
 ## Looking at the room without a window
 
 `scratchpad/layout.rs` dumps one frame of the real draw buffer as SVG and takes
@@ -85,9 +102,29 @@ it. A probe that picks a corridor that way gets `nav.path` returning empty,
 while claiming to measure a walk.
 
 `Game::put_for_probe` snaps through `nav.nearest_free` and `send_for_probe`
-returns false when there was no route. Check it. And recruit both Bims first —
-that takes away the wander but not the walk, so what is left is only the thing
-under test.
+returns false when there was no route. Check it. And recruit the *other* Bims
+first — that takes away the wander but not the walk, so what is left is only
+the thing under test.
+
+## Never recruit slot 0 to hold a probe still
+
+Recruiting used to mean no more than "stands where it is until told", and
+three probes recruited the whole crew on that understanding. Feature 84 gave
+the word a second meaning: recruiting the **player's own** Bim is what says
+the player is *leading*. `Game::led` reads slot 0's recruitment, `led` musters
+the bots, and a mustered bot with nothing else claiming it gathers round its
+player (`bot_stand` → `gather`) — so the other Bim turns round and walks after
+the one being measured. `separate_under_arms` is the other half: it shoves
+every pair of **recruited** bodies apart to `CREW_CLEARANCE`, so two recruited
+Bims can no longer touch at all.
+
+`crowding.rs` staged a head-on meeting that way and measured neither: crew 1
+followed crew 0 instead of walking at it, the shove kept them thirty-eight
+units apart, and all twelve seeds read as *stuck* — "the crew pass through
+each other" looked dead when it was only unstageable. Recruit `1..CREW` and
+leave slot 0 alone: a Bim already marching follows its route whether it is
+recruited or not, so slot 0 never needed it. The reading came straight back to
+the 6.40s/6.73s this file has always quoted.
 
 ## "Blocked" and "asleep" look the same from outside
 
@@ -112,7 +149,7 @@ comparison means something: 6.40s clear, 6.73s through the other.
 ## Staging a walk over a particular tile
 
 `scratchpad/spread.rs` had to walk a Bim through fouled deck to see the dirt
-move, and two things made that harder than it looks. Both are worth knowing
+move, and three things made that harder than it looks. All are worth knowing
 before writing any probe that turns on *where* a Bim goes.
 
 - **Ordering a Bim to `y` does not put it on that row.** Route smoothing, the
@@ -126,9 +163,19 @@ before writing any probe that turns on *where* a Bim goes.
   fresh route every frame: it never moves, and the lap counter climbs happily
   the whole time. Turn round on arrival, measured as a distance from the
   target, with a frame budget as the backstop.
+- **A filth tile is `TILE` across and the grid is not laid from nought.**
+  `Filth::cell` measures from the room interior's own corner, so two x values
+  twenty units apart are usually the same cell and sometimes not. The probe
+  fouled a band from x=260 east and then read its trail from x=140 to 280 —
+  and 244, 260 and 270 were all one cell, so the "trail" it read back was the
+  band's own -100 and the check that the trail is fainter than its source
+  failed on the source. Read a comparison a **whole `TILE`** clear of the
+  thing compared against (`band_west - TILE`, kept off the fouling loop) and
+  assert the sample range is not empty, or the loop quietly reads nothing and
+  the check passes on a default.
 
-Neither failure says anything. The probe runs, the assertions are checked, and
-the answer is simply wrong.
+None of those failures says anything. The probe runs, the assertions are
+checked, and the answer is simply wrong.
 
 ## A priority is not measurable by watching who does what
 

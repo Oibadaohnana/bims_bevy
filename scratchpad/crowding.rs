@@ -16,6 +16,26 @@ use math::{Vec2, vec2};
 const STEP: f32 = 1.0 / 60.0;
 const FRAMES_PER_DAY: u32 = 24 * 60 * 60;
 
+/// Stop the crew wandering off a staged walk — **every one but the player's
+/// own**, which is the whole of the difference feature 84 made here.
+///
+/// Recruiting used to mean no more than "stands still until told". It now
+/// means the player is *leading*: `Game::led` is true the moment slot 0 is
+/// recruited, which musters the bots, and a mustered bot with no other claim
+/// on it gathers round its player (`bot_stand` → `gather`). Recruiting both
+/// therefore turned a head-on meeting into crew 1 turning round and
+/// following crew 0 across the room — and `separate_under_arms` shoves every
+/// pair of *recruited* bodies apart, so the two never touched either. The
+/// probe measured neither passing nor crowding and every seed read as stuck.
+///
+/// Slot 0 does not need it: it is marching the whole way, and a Bim under
+/// way follows its route whether it is recruited or not.
+fn hold_the_others_still(game: &mut Game) {
+    for w in 1..CREW {
+        game.recruit_for_probe(w, true);
+    }
+}
+
 fn main() {
     let mut fails = 0;
     macro_rules! check {
@@ -34,9 +54,7 @@ fn main() {
     for seed in 1..=12u64 {
         let mut game = Game::new(seed, 960.0, 640.0);
         game.set_autonomous(false);
-        for w in 0..CREW {
-            game.recruit_for_probe(w, true);
-        }
+        hold_the_others_still(&mut game);
         let (left, right) = stage_meeting(&mut game);
 
         let mut arrived = [false; CREW];
@@ -132,9 +150,7 @@ fn main() {
 fn walk_time(in_the_way: bool) -> f32 {
     let mut game = Game::new(21, 960.0, 640.0);
     game.set_autonomous(false);
-    for w in 0..CREW {
-        game.recruit_for_probe(w, true);
-    }
+    hold_the_others_still(&mut game);
     let (left, right) = stage_meeting(&mut game);
     // Crew 0 walks the run; crew 1 either stands in the middle of it or well
     // off it, where it cannot be brushed past.

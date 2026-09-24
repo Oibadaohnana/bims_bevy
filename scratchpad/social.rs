@@ -284,8 +284,21 @@ fn main() {
 
     // --- and past ten days it ends ------------------------------------------
 
+    // Sixteen seeds and not three, because this is the one reading here that
+    // is a *roll* and not arithmetic, and three of anything at these odds is a
+    // coin toss dressed up as an assertion.
+    //
+    // Three per cent an hour is a median of about a day, so a run of three
+    // days ends in a give-up roughly five times in six — measured over a
+    // hundred seeds it is 83, and over five days 96. Asked of three seeds,
+    // "at least two of them" therefore fails about once every thirteen
+    // triples, and 3/13/23 were such a triple: two of them lasted the three
+    // days and the probe called the feature dead. Sixteen with half of them
+    // asked for is three standard deviations of margin, and the number it
+    // prints is the reading rather than the verdict.
+    const SEEDS: u64 = 16;
     let mut died = 0;
-    for seed in [3, 13, 23] {
+    for seed in 1..=SEEDS {
         let mut game = Game::new(seed, 960.0, 640.0);
         for _ in 0..(3 * FRAMES_PER_DAY) {
             game.leave_alone_for_probe(PLAYER, 13.5);
@@ -296,10 +309,12 @@ fn main() {
             }
         }
     }
-    // Three per cent an hour is a median of about a day, so surviving three of
-    // them is a one-in-a-thousand run: all three lasting would mean the roll
-    // is not happening at all.
-    check!("past thirteen days alone, a Bim gives up", died >= 2, format!("{died} of 3"));
+    check!(
+        "past thirteen days alone, a Bim gives up",
+        died >= 9,
+        format!("{died} of {SEEDS}")
+    );
+    println!("       {died} of {SEEDS} gave up inside three days");
 
     // --- and the tenth longer ------------------------------------------------
     //
@@ -324,14 +339,18 @@ fn main() {
 /// Frames for one Bim to walk a fixed line across the open deck, with its
 /// solitude clock pinned at `days`.
 ///
-/// Both crew are recruited and autonomy is off, so nothing else moves and
-/// nothing else is being measured. The clock is still pinned every frame —
+/// Autonomy is off and every crew member but the walker is recruited, so
+/// nothing else moves and nothing else is being measured. **Not the walker
+/// itself**: since feature 84 recruiting slot 0 means the player is leading,
+/// which musters the bots and sends them walking after it (`Game::led`,
+/// `bot_stand`) — a second body on the same line, which is a crowding
+/// reading and not a loneliness one. The clock is still pinned every frame —
 /// `bear_the_solitude` runs before the errand half of the frame and is not
 /// gated on autonomy, which is exactly what makes this readable.
 fn timed_walk(days: f32) -> u32 {
     let mut game = Game::new(6, 960.0, 640.0);
     game.set_autonomous(false);
-    for w in 0..CREW {
+    for w in 1..CREW {
         game.recruit_for_probe(w, true);
     }
     let from = game.put_for_probe(PLAYER, vec2(180.0, 420.0));
