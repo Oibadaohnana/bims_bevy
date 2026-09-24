@@ -20,7 +20,7 @@ the build's own answer where this table is a copy:
 | `nix run .#room` | `cargo run -- room` | the behaviour test room — Bims on a deck |
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member (four bunks to spare) and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement the way `BIMS_LANDED=1` lands the simulation (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
-| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **fourteen crew** (`COMBAT_CREW`: five at the bunks, nine standing on the deck), a gun in every hand — the five kinds dealt round — docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — `ARENA_GARRISON`, fifteen, whatever the crew's worth — and a recruited crew member draws its weapon and shoots at any it can see. `Session::combat` is all of it; `--combat` is taken too |
+| `nix run .#combat` | `cargo run -- combat` | the fight: the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **fourteen crew** (`COMBAT_CREW`: five at the bunks, nine standing on the deck), a gun in every hand — the five kinds dealt round — docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across with bunks for a garrison) and made **hostile**: its people are enemies — `ARENA_GARRISON`, fifteen, whatever the crew's worth — and a recruited crew member draws its weapon and shoots at any it can see. The **last two of the fourteen are hired field medics** (`session::COMBAT_MEDICS`, feature 86: the contract at no fee and the two medkits), so a crew member shot down is carried out of the fire and treated rather than left where it fell — every command built on `combat` has them too. `Session::combat` is all of it; `--combat` is taken too |
 | `nix run .#combat_engineer` … `#combat_commander` | `cargo run -- combat_medic` | that **same fight with the class in hand** (feature 79, `Launch::CombatAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs, since it is `Session::combat`'s own ship, arena and garrison with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the **tenth level** (`dev::COMBAT_CLASS_LEVEL`, feature 80) with all seven of the class's talents still to choose, so the tray opens on the **Skills** tab (feature 83) with seven points to spend and the whole tree is the player's to walk down; `BIMS_LEVEL=n` says otherwise. The **engineer of such a run has the charges its class deals it** (`world::deploy::SENTRY_CHARGES`, one, beside `SANDBAG_CHARGES`, three): since feature 88 a kit is not made at all — it is a charge that comes back into the pack on a cooldown — so the class brings its own and `dev.rs` no longer has to. The parsing is `main.rs::class_named`, and `bims list` prints the lot |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `combat` with **everybody's kit at tier two** — every crew member's gun at it (its kind as `combat` dealt it) and a fresh helm, kevlar and leg guards at it on, pieces of the world's, and every one of the garrison the same, its pieces the room's own (`Session::combat_at_tier`, `World::outfit_for_probe`) — so the fight is looked at with nothing at tier one on either side. `BIMS_FIGHT=1` stages it as it stages `combat`, the resident's pistol kept at its tier |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
@@ -111,7 +111,13 @@ somebody still walking about (`BIMS_FIGHT=1 BIMS_DYING=3` on `combat`).
 medics** (feature 86, `Session::field_medics_for_probe`) — the contract
 and the two medkits, no money taken — the last rather than the first
 since slot 0 is the player's own and the rescue is a *bot's* branch
-(`Game::bot_stand`), and `BIMS_CARRY=1` takes a crew member out cold and
+(`Game::bot_stand`). **`combat` already sails with two of them**
+(`session::COMBAT_MEDICS`), and so does everything built on it — the
+tier tests, `droids`, the `combat_<class>` and `combat_droids_<class>`
+runs — since a fight with nobody who may carry is a fight where a body
+down stays where it fell; the dial asks for the same crew members from
+the same end, so setting it over those two changes nothing and setting
+it higher reaches further up the crew. `BIMS_CARRY=1` takes a crew member out cold and
 puts it in the arms of somebody who may carry, for looking at a body
 being carried off the deck without waiting for a fight to put one there.
 Both want **more than one aboard**, so they are `combat`'s and not the
@@ -554,7 +560,15 @@ Things about that which are easy to get wrong:
   calls them back to the ship — a blue **defend sign**
   (`theme::defend_banner`) stands on the spot they gather on, the deck
   just inside the ship's own airlock, for as long as the order does;
-  either key again lets them follow again,
+  **either key again lets them follow again** — F with a banner already
+  down takes that banner up rather than arming the pointer for another
+  one, which is the only press there is that does it: the world reads
+  the *same* order given again as a release and "the same order" means
+  the same **tile**, so a second banner anywhere else is a fresh attack
+  and a crew left under one after a fight stands at it for ever, taking
+  no errand (`screens::game::attack_key`); a banner **goes with the
+  deck it stands on**, so a dock, an undock, a landing or a lift-off
+  puts the crew back to following of its own accord —
   and Esc or a right-click puts the armed pointer away. That is what
   moved the camera's Follow onto **V**. Tab is the
   Inventory action: it opens and shuts the crew member's inventory —

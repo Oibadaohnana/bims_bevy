@@ -338,3 +338,61 @@ fn a_bot_falling_back_gives_ground_backwards_and_sprints_with_nothing_in_sight()
     }
     assert!(walked, "and it got home");
 }
+
+/// A banner is a tile of the crew's own room, and that room is built
+/// afresh at every dock, undock, landing and lift-off — so an attack
+/// order has to survive neither the deck changing under it nor the
+/// player trying to take it up afterwards. Two rules, both of them the
+/// same bug found from opposite ends:
+///
+/// * the order is **dropped** the step its tile is no longer ground,
+///   rather than leaving the crew under arms at a spot that is nowhere;
+/// * and **a release is never refused for its ground**, since the only
+///   press there is that takes a banner up is the same order given
+///   again, and asking a release for its ground refused exactly the
+///   crew who needed it.
+#[test]
+fn a_banner_is_dropped_when_its_ground_goes_and_a_release_never_wants_any() {
+    let mut world = crewed();
+    world.step(&[]);
+    let tile = banner_tiles(&world, 1)[0];
+    world.step(&[Command::Orders {
+        slot: 0,
+        order: Standing::Attack { tile },
+    }]);
+    assert_eq!(world.standing_of(0), Standing::Attack { tile });
+
+    // A release wants no ground of its own: the tile is put somewhere
+    // there is none and the same order given again still lets them go.
+    world.standing[0] = Standing::Attack {
+        tile: (-9_000, -9_000),
+    };
+    let events = world.step(&[Command::Orders {
+        slot: 0,
+        order: Standing::Attack {
+            tile: (-9_000, -9_000),
+        },
+    }]);
+    assert!(
+        !refused_with(&events, Refusal::NoGroundThere),
+        "a release is not asked for ground: {events:?}"
+    );
+    assert_eq!(world.standing_of(0), Standing::Follow, "let go");
+
+    // And the step alone drops a banner whose ground has gone, which is
+    // what an undock does to one put down on a station's deck.
+    world.step(&[Command::Orders {
+        slot: 0,
+        order: Standing::Attack { tile },
+    }]);
+    assert_eq!(world.standing_of(0), Standing::Attack { tile });
+    world.standing[0] = Standing::Attack {
+        tile: (-9_000, -9_000),
+    };
+    world.step(&[]);
+    assert_eq!(
+        world.standing_of(0),
+        Standing::Follow,
+        "the ground went, so the order did"
+    );
+}

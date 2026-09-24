@@ -12174,28 +12174,44 @@ impl World {
     /// order they are on now, so nought is that release.
     fn give_orders(&mut self, slot: u32, order: Standing) -> Result<u32, Refusal> {
         self.can_order(slot)?;
-        let t = shipdesign::TILE as f32;
-        if let Standing::Attack { tile } = order
-            && !self.aboard.room.is_banner_tile(bims::math::vec2(
-                (tile.0 as f32 + 0.5) * t,
-                (tile.1 as f32 + 0.5) * t,
-            ))
-        {
-            return Err(Refusal::NoGroundThere);
-        }
         let players = self.players() as usize;
         if self.standing.len() < players {
             self.standing.resize(players, Standing::Follow);
         }
-        let Some(mine) = self.standing.get_mut(slot as usize) else {
+        let Some(&mine) = self.standing.get(slot as usize) else {
             return Err(Refusal::OutOfReach);
         };
-        *mine = if mine.same_as(order) {
-            Standing::Follow
-        } else {
-            order
+        // **A release is never refused for its ground.** The ground is
+        // asked about a banner being *put down*: an attack wants a tile
+        // of the deck under it. Asked of the same order given again —
+        // which is the only press there is that takes a banner up — it
+        // refused the one thing the crew needed, since a banner on a
+        // station's deck is on no tile of the crew's room once the ship
+        // has cast off, and they stood under arms at it for ever.
+        if mine.same_as(order) {
+            self.standing[slot as usize] = Standing::Follow;
+            return Ok(Standing::Follow.code());
+        }
+        if !self.ground_for(order) {
+            return Err(Refusal::NoGroundThere);
+        }
+        self.standing[slot as usize] = order;
+        Ok(order.code())
+    }
+
+    /// Whether an order has ground under it: an attack's tile is a tile
+    /// of the crew's room (the deck, a joined station's deck, or
+    /// anywhere at all out on a plain — [`bims::game::Game::is_banner_tile`]),
+    /// and every other order wants nothing.
+    fn ground_for(&self, order: Standing) -> bool {
+        let Standing::Attack { tile } = order else {
+            return true;
         };
-        Ok(mine.code())
+        let t = shipdesign::TILE as f32;
+        self.aboard.room.is_banner_tile(bims::math::vec2(
+            (tile.0 as f32 + 0.5) * t,
+            (tile.1 as f32 + 0.5) * t,
+        ))
     }
 
     /// What player `slot`'s bots are under, for the app and the tests.
@@ -12208,16 +12224,22 @@ impl World {
 
     /// Before the rooms step: a standing order dropped where the player
     /// who gave it is no longer fit to act — down, asleep or outside,
-    /// the same gate the order was taken under — and then handed to the
-    /// room, one `bims::game::Standing` a player slot, an attack's tile
-    /// turned into the room's own units.
+    /// the same gate the order was taken under — **or where an attack's
+    /// tile is no longer a tile of the crew's room**, which is every
+    /// dock, undock, landing and lift-off, since a banner is a tile of
+    /// the deck the crew walk and that deck is built afresh at each of
+    /// them. Without it the crew stood under arms at a tile that was
+    /// nowhere — the station's deck, a ship's length astern — taking no
+    /// errand and never arriving. Then the lot is handed to the room,
+    /// one `bims::game::Standing` a player slot, an attack's tile turned
+    /// into the room's own units.
     fn hand_the_room_the_standing(&mut self) {
         let players = self.players() as usize;
         if self.standing.len() != players {
             self.standing.resize(players, Standing::Follow);
         }
         for slot in 0..players {
-            if !self.fit_to_act(slot as u32) {
+            if !self.fit_to_act(slot as u32) || !self.ground_for(self.standing[slot]) {
                 self.standing[slot] = Standing::Follow;
             }
         }

@@ -81,6 +81,17 @@ pub fn pick_ground(seed: u64, galaxy: u32, roll: u64) -> Option<(u32, u32)> {
 /// after the first, which is a run somebody can sit through.
 pub const CRISIS_HOPS: u16 = 2;
 
+/// How many **hired field medics** the `combat` command's crew carries
+/// (feature 86) — [`Session::combat`], and so every fight built on it:
+/// `tier2_test`, `tier3_test`, `droids`, and the `combat_<class>` and
+/// `combat_droids_<class>` runs.
+///
+/// Two, and the last two of the fourteen. One would be a rescue that
+/// stops the moment it is the one shot; two is a pair that fetch for
+/// each other, which is the state the carry was written for — and it
+/// is what `BIMS_FIELD_MEDIC=2` staged by hand before this.
+pub const COMBAT_MEDICS: usize = 2;
+
 /// A planet with a town the ship can set down at, as the map writes it:
 /// which body, whose the town is, and where the icon is drawn.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -344,6 +355,17 @@ impl Session {
             list: DrawList::new(),
         };
         session.make_dock_hostile();
+        // And **two hired field medics** at the back of the crew
+        // (feature 86): the last two of the fourteen, on a contract that
+        // costs nothing, with the two medkits the trade brings. The
+        // fight is where a body goes down, and without a medic in it
+        // nobody ever carries one off the deck — so the test fight has
+        // the pair that makes that half of the game happen at all. They
+        // are the *last* two because slot 0 is the player's own and a
+        // rescue is a bot's branch (`Game::bot_stand`); `BIMS_FIELD_MEDIC`
+        // asks for the same crew members, so a run that sets it over
+        // these finds them hired already and changes nothing.
+        session.field_medics_for_probe(COMBAT_MEDICS);
         session.dress_crew();
         session
     }

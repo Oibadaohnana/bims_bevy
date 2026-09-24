@@ -1402,19 +1402,29 @@ impl Game {
     }
 
     pub fn take_crew(&mut self) -> Vec<Bim> {
-        // The war and the alarm end with the room: both are mustered on
+        // The war and the muster end with the room: both are mustered on
         // their edge, and a fresh room starts at peace, so a body carried
         // over recruited would stand under arms with nothing to let it go
         // — the crew the whole flight after a hostile dock, a station's
         // people after the ship has gone. Stood down here, the new room
-        // musters them again the step an enemy is in range.
+        // musters them again the step an enemy is in range, or the step
+        // it reads a player's standing order.
+        //
+        // **It is `mustered` and not `alarm`**, since feature 84: the
+        // alarm is only one of the two things that put the crew under
+        // arms, and a crew led by a player — or by a squad order, whose
+        // `squad_armed` is rebuilt empty in the new room and so can
+        // never let anybody go — was carried over recruited with the
+        // edge already spent.
         if self.at_war {
             self.at_war = false;
             self.muster(false);
         }
-        if self.alarm {
+        if self.alarm || self.mustered {
             self.alarm = false;
+            self.mustered = false;
             self.muster_crew(false);
+            self.squad_armed.clear();
         }
         for bim in &mut self.bims {
             if let Some(task) = bim.task.take() {
@@ -14384,6 +14394,40 @@ mod tests {
             game.simulate(DT);
         }
         assert!(!game.is_alarmed(), "the hold ran out");
+    }
+
+    /// A room taken apart stands the crew down whether the **alarm** or
+    /// a **player leading them** put them under arms (feature 84): both
+    /// go through `mustered`, and `take_crew` used to reset the alarm
+    /// alone — so a crew mustered by a player's drawn weapon, or by a
+    /// squad order, was carried into the fresh room still recruited with
+    /// the edge already spent and nothing left to let them go. Recruited
+    /// and not mustered is a Bim that does nothing at all: no errand, no
+    /// queue, and not even the bots' own stand.
+    #[test]
+    fn a_room_taken_apart_stands_down_a_crew_a_player_was_leading() {
+        let mut game = room();
+        game.set_autonomous(false);
+        // No alarm anywhere near: the player draws its own weapon, which
+        // is `led()` and musters the rest behind it.
+        game.toggle_recruited(0);
+        for _ in 0..4 {
+            game.simulate(DT);
+        }
+        assert!(!game.is_alarmed(), "nobody is shooting at anybody");
+        assert!(game.is_mustered(), "the crew are led");
+        assert!(game.bims[1].character.is_recruited(), "Kate under arms");
+
+        let crew = game.take_crew();
+        assert!(!game.is_mustered(), "the room is at peace again");
+        assert!(
+            !crew[1].character.is_recruited(),
+            "and Kate goes to the next room with nothing on her"
+        );
+        assert!(
+            crew[0].character.is_recruited(),
+            "the player's own is the player's, here as everywhere"
+        );
     }
 
     /// Under the alarm a crew member that sees no enemy keeps to the

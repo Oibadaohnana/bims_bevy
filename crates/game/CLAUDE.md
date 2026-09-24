@@ -1715,12 +1715,24 @@ prints the curves itself.
   room under `set_autonomous(false)` — the chat walks him — so a test
   reads `bim_pos(0)` rather than where it put him. **Both musters are
   on an edge, and a room is thrown away at every dock and undock**, so
-  `take_crew` stands the war and the alarm down first: a body carried
-  into a fresh room — which starts at peace — still recruited had
-  nothing to let it go, and the crew flew home from a hostile dock in
-  combat mode. The new room musters them again the step an enemy is in
-  range. `casting_off_from_a_hostile_station_stands_the_crew_down` in
-  the world's tests.
+  `take_crew` stands the war and the **muster** down first: a body
+  carried into a fresh room — which starts at peace — still recruited
+  had nothing to let it go, and the crew flew home from a hostile dock
+  in combat mode. The new room musters them again the step an enemy is
+  in range, or the step it reads a player's standing order.
+  **It is `mustered` and not `alarm`**, and it was the alarm alone from
+  feature 84 — which split the two — until this was found: a crew mustered by a player
+  leading them rather than by an enemy — a weapon drawn, an attack
+  banner down — went through with `alarm` false and the edge already
+  spent, and so did a squad's, whose `squad_armed` is rebuilt empty in
+  the new room and can therefore never let anybody go either.
+  **Recruited and not mustered is a body that does nothing at all**:
+  `consider_errand` and `pump_queue` both bow out for it and
+  `bot_stand` is not reached, so it stands where it was put for ever.
+  `casting_off_from_a_hostile_station_stands_the_crew_down` in the
+  world's tests is the alarm's half and
+  `a_room_taken_apart_stands_down_a_crew_a_player_was_leading` here is
+  the other.
 - **Sandbags are low cover.** `PartKind::Sandbags` is half a body's
   height since September 2026: `blocks_movement: false`, so the nav grid
   walks over it and (`blocks_sight` following) a line of sight goes over

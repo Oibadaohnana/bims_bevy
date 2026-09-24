@@ -1553,6 +1553,49 @@ fn save_round_trip_keeps_a_held_town_and_an_attack_under_way() {
     assert_eq!(world.checksum(), checksum);
 }
 
+/// The `combat` session sails with two hired field medics at the back of
+/// the crew (`session::COMBAT_MEDICS`): the last two of the fourteen, on
+/// a contract that costs nothing, each with the two medkits the trade
+/// brings and each able to pick a crewmate up. Without them nobody in
+/// the fight may carry, and a crew member shot down lies where it fell.
+#[test]
+fn the_fight_sails_with_two_hired_field_medics_at_the_back_of_the_crew() {
+    use crate::session::{COMBAT_MEDICS, Session};
+
+    let session = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
+    let world = &session.game.as_ref().unwrap().world;
+    let crew = world.aboard.crew_count();
+    assert_eq!(crew, shipdesign::fixture::COMBAT_CREW);
+    let medics: Vec<u32> = (0..crew).filter(|&w| world.is_field_medic(w)).collect();
+    let want: Vec<u32> = (crew - COMBAT_MEDICS as u32..crew).collect();
+    assert_eq!(medics, want, "the last two, slot 0 being the player's own");
+    for &who in &medics {
+        assert!(world.can_lift(who), "a field medic may carry");
+        let kit = bims::combat::Item::Stack(physics::ResourceId::Medkit as u32);
+        let carried = world
+            .aboard
+            .room
+            .pack(who as usize)
+            .iter()
+            .filter(|cell| **cell == Some(kit))
+            .count() as u32;
+        assert_eq!(
+            carried,
+            world::mercenary::MEDIC_MEDKITS,
+            "crew {who} carries the trade's medkits"
+        );
+        // The contract is a hire with nothing to pay: a probe's fight
+        // must not go broke a month in.
+        let hired = world
+            .hired
+            .iter()
+            .find(|h| h.who == who)
+            .expect("on the crew's books");
+        assert!(hired.medic);
+        assert_eq!(hired.fee, 0);
+    }
+}
+
 /// `tier2_test` and `tier3_test` are the `combat` session with everybody's
 /// kit at that tier: every crew member's gun at it, its kind as `combat`
 /// dealt it, and a full set of armour at it — pieces of the world's, worn

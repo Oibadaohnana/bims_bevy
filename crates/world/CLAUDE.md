@@ -3443,11 +3443,20 @@ yard, and `World::can_order(slot)` asks only that they are `fit_to_act`.
   anywhere at all on a plain, where the ground beyond the deck's box is
   walked on the body's own window — and is `Refusal::NoGroundThere` (74)
   otherwise. `WorldEvent::Ordered { who, kind }` (86) says it, the kind
-  being `Standing::code` and nought the release.
+  being `Standing::code` and nought the release. **A release is never
+  asked for ground** (`World::ground_for`, checked after `same_as` and
+  not before it): the ground is a question about a banner being *put
+  down*, and a banner on a station's deck is on no tile of the crew's
+  room the moment the ship has cast off — so asking it of a release
+  refused the one press that takes a banner up, and the crew stood under
+  arms at it for ever.
 * **`hand_the_room_the_standing`**, in the step right after the squad's
   hand-off, drops the order of a player no longer fit to act — down,
-  asleep, outside — and hands the room one `bims::game::Standing` a slot
-  with the attack's tile turned into room units. The squad's is handed
+  asleep, outside — **and any attack whose tile is no longer ground**,
+  which is every dock, undock, landing and lift-off, since a banner is a
+  tile of the deck the crew walk and that deck is built afresh at each
+  of them; then hands the room one `bims::game::Standing` a slot with
+  the attack's tile turned into room units. The squad's is handed
   first on purpose: a commander's order to the squad is a class's and
   outranks the standing one, which is the order the room reads them in.
 * **And it says where the ship is**, `Game::set_home` off
@@ -3479,14 +3488,18 @@ not decide any of that, because the room is what knows where everybody
 is standing.
 
 The app's half: `keys::Action::{Attack (F), Retreat (T)}` — which is
-what moved the camera's Follow onto V — `screens::game::orders_key`, the
+what moved the camera's Follow onto V — `screens::game::orders_key` and
+`screens::game::attack_key` (which is what makes F over a banner a
+release rather than a second banner), the
 armed red pointer (`attack_cursor`), `theme::attack_banner` and
 `theme::defend_banner` on the deck. `tests_standing.rs` is the rule: the
 order given, said and released; the two refusals; the checksum and a
 twin; the bots under it and the player's own never; the fall back
 walking home and **arriving**; that home is the ship's own gangway and
-not the station's far door; and the two ways it is walked — backwards
-with the gun up, or a sprint with nothing to shoot at.
+not the station's far door; the two ways it is walked — backwards
+with the gun up, or a sprint with nothing to shoot at; and
+`a_banner_is_dropped_when_its_ground_goes_and_a_release_never_wants_any`,
+the two halves of the banner that could not be taken up.
 
 ## What a class's keys have left is the world's, and so is the level they want (feature 80)
 

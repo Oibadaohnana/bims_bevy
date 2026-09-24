@@ -1877,8 +1877,28 @@ fn frame(
                 // banner goes down on the click after it, below, so
                 // that the player picks the ground. Pressed while the
                 // pointer is already armed, it is thought better of.
+                //
+                // **With a banner already down it is the banner taken
+                // up**, which is the key's second press and the only
+                // way there is to it: the world reads the *same* order
+                // given again as a release (`Standing::same_as`), and
+                // the same order means the same *tile* — a second
+                // banner anywhere else is a fresh attack, so a crew
+                // left under one after a fight would stand under arms
+                // at it for ever, taking no errand.
                 if keys_now.pressed(i, Action::Attack) {
-                    screen.aiming_attack = !screen.aiming_attack && !map_up;
+                    let standing = session
+                        .game
+                        .as_ref()
+                        .map(|game| game.world.standing_of(screen.net.slot))
+                        .unwrap_or_default();
+                    let (release, armed) = attack_key(standing, screen.aiming_attack, map_up);
+                    screen.aiming_attack = armed;
+                    if let (Some(order), Some(game)) = (release, &session.game) {
+                        let (order, line) = orders_key(&game.world, screen.net.slot, order);
+                        orders.extend(order);
+                        screen.log.extend(line);
+                    }
                 }
                 // **Retreat** is the order itself: there is nothing to
                 // point at, since the ship is where they go.
@@ -5149,6 +5169,31 @@ fn orders_key(
     }
 }
 
+/// What the **Attack** key does (feature 84), given the player's
+/// standing order and whether the pointer is already armed: the order to
+/// give — always a release, never a fresh banner — and what the pointer
+/// is armed to afterwards.
+///
+/// Three cases. A banner already down and the pointer at rest: the
+/// banner is **taken up**, since the world reads the same order given
+/// again as a release ([`world::Standing::same_as`]) and *the same
+/// order* means the same **tile** — a second banner anywhere else is a
+/// fresh attack, so without this there is no press that ever lets the
+/// crew go and they stand under arms at the banner for ever, taking no
+/// errand. The pointer already armed: thought better of. Anything else:
+/// armed, so the click after it picks the ground — unless the map is up,
+/// which has no deck to put a banner on.
+fn attack_key(
+    standing: world::Standing,
+    armed: bool,
+    map_up: bool,
+) -> (Option<world::Standing>, bool) {
+    match standing {
+        world::Standing::Attack { .. } if !armed => (Some(standing), false),
+        _ => (None, !armed && !map_up),
+    }
+}
+
 /// The medic's carry key (feature 86), the same shape as the rest: the
 /// order if the world would take it, and the log's line if it would not.
 /// `under` is the crew member under the pointer, if any.
@@ -5648,5 +5693,35 @@ mod class_key_tests {
         assert_eq!(world.set_class(0, world::Class::Engineer), Ok(()));
         assert!(affected_by(&world, 0, Action::ClassPrimary).is_empty());
         assert!(affected_by(&world, 0, Action::ClassSecondary).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod attack_key_tests {
+    use super::*;
+
+    /// The Attack key arms the pointer with nothing down, thinks better
+    /// of it while armed, and — the half that was missing — **takes the
+    /// banner up** when one is already down, which is the only press
+    /// there is that lets the crew go back to their errands.
+    #[test]
+    fn the_attack_key_arms_the_pointer_and_takes_a_banner_back_up() {
+        use world::Standing;
+        // Nothing down: armed, so the click after it picks the ground.
+        assert_eq!(attack_key(Standing::Follow, false, false), (None, true));
+        // Armed already: thought better of, and nothing given.
+        assert_eq!(attack_key(Standing::Follow, true, false), (None, false));
+        // The map is up, which has no deck to put a banner on.
+        assert_eq!(attack_key(Standing::Follow, false, true), (None, false));
+        // A banner down: the same order back, which the world reads as
+        // a release — and the pointer is left at rest rather than armed
+        // for a second banner nobody could take up.
+        let order = Standing::Attack { tile: (7, 9) };
+        assert_eq!(attack_key(order, false, false), (Some(order), false));
+        // Armed over a banner, it is still only thought better of: the
+        // click is already on its way to a fresh tile.
+        assert_eq!(attack_key(order, true, false), (None, false));
+        // A retreat is the Retreat key's to call off, not this one's.
+        assert_eq!(attack_key(Standing::Retreat, false, false), (None, true));
     }
 }
