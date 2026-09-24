@@ -2522,8 +2522,29 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   player's own recruited Bim never does, being the player's. The whole
   doctoring errand is holstered (`dressing` in `tick_combat` covers the
   walk now), which is also what keeps the tactics off it.
-  **A crewmate is doctored only in the calm** (since September 2026):
-  `Game::calm` is three things at once — `Combat::lull()` (seconds
+  **A crewmate is doctored where it lies out of harm** (since September
+  2026): the room's calm, *or* the patient itself out of the fight —
+  `Game::out_of_harm` of where it lies, no target up within
+  `RESCUE_CLEAR` (12) tiles of it and nothing that could see it there,
+  the same test a field medic sets a body down by. It was the room's calm
+  alone, and a fight in waves is never calm from the first machine to the
+  last: a body carried clear lay there untreated until the whole station
+  was cleared, and "the bots only tend the wounded once the last enemy is
+  dead" was the user's report. **In a fight one helper goes to a
+  patient** — a patient somebody else is already walking to is theirs,
+  every part of it (not counting its own self-dressing) — since a part
+  apiece, the calm's rule, took nine bots off the line at the first lull
+  for three patients; in the calm, a part apiece as before. And **a bot
+  puts its doctoring down the moment it has a shot**
+  (`Game::care_gives_way`, at the top of each body's turn in
+  `tick_combat`): a recruited body nobody steers, with a `Bandage` or a
+  `Treat` in hand — its own wound or a crewmate's — and a gun's shot in
+  reach (`Combat::aim`) or, for a blade, an enemy in sight has the chain
+  `abandon`ed for good (a kit in its hands goes back on the shelf) and is
+  armed that same step. It began with nothing in its sight and used to
+  wind on for the ten minutes with a target in front of it. Never a
+  player's own Bim, a body on the run, or a medic whose beam holds its
+  fire anyway. `Game::calm` itself is three things at once — `Combat::lull()` (seconds
   since anything was fired or landed in this room, either side's: `fire`,
   `shoot`, `brawl` and `struck` set it to nought, `Combat::age` counts
   it up every step of `tick_combat`, `f32::MAX` in a fresh room) at
@@ -2533,19 +2554,22 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   airlock's eyes counting) at least `CALM_AFTER`; and no enemy within
   `CALM_RANGE` (20) tiles of any of them (`enemy_within`, against the
   targets as handed — the crew's room knows every enemy's position, a
-  hostile room its beliefs). `medical_on_offer` asks it **after** the
-  helper's own bandage and before either kind of care for anybody else,
-  so a wound of its own is still dressed on the spot whenever it has
-  nothing in its own sight, and a crewmate is walked over to only when
-  the fight has gone quiet — not the fight's end, which nobody in the
-  room can know, but twenty seconds of it. Both rooms' people, so a
-  hostile station's stop patching each other under fire too. The
-  player's explicit `bandage`/`treat` orders are not gated: the menu is
-  the player's call.
-  `a_crewmate_is_doctored_only_twenty_seconds_after_the_last_shot_sighting_and_enemy_near`
-  pins the three clocks one at a time — an enemy hidden in the heads
-  (the room is under twenty tiles across), a hostile bolt fired at the
-  floor, a sighting that ends — and the own wound bound regardless.
+  hostile room its beliefs). `medical_on_offer` asks the two **after**
+  the helper's own bandage and before either kind of care for anybody
+  else (`can_get_to`), so a wound of its own is still dressed on the
+  spot whenever it has nothing in its own sight. The world still asks
+  the calm alone for the packs' restock (`restock_bandages`,
+  `restock_field_medics`). Both rooms' people, so a hostile station's
+  stop patching each other under fire too. The player's explicit
+  `bandage`/`treat` orders are not gated: the menu is the player's call.
+  `a_crewmate_is_doctored_where_it_lies_out_of_harm_whatever_the_room_s_clocks_say`
+  pins it — an enemy hidden in the heads holds the helper back (the
+  room is under twenty tiles across, the enemy inside `RESCUE_CLEAR` of
+  the patient), a hostile bolt fired a moment ago and a sighting that has
+  ended do not — and the own wound bound regardless;
+  `in_a_fight_one_helper_goes_to_a_patient_and_in_the_calm_one_a_part`
+  the helper count; `a_bot_puts_its_dressing_down_the_moment_it_has_a_shot`
+  the dressing given up for a shot.
   **Its own kit before a new one.** The world says every step how many
   medkits each Bim carries in its **own pack** (`Game::set_pack_kits`,
   off the packs; `Room::pack_kits`, `Room::carries_kit`), and a helper
@@ -2586,11 +2610,11 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   and `Character::halt`ed — a dying Bim walking its errands had the
   helper arrive at an empty spot, twenty minutes lost and the walk
   begun again, for as long as it kept walking. Not while it flees.
-- **A Bim dying runs from the fight, and does not shoot.**
+- **A Bim dying runs from the fight — a crew member shooting back as it
+  goes, an enemy with its weapon holstered.**
   `Game::is_fleeing(who)`: dying, on its feet on the deck, and any target
   the world named is `Some`. In `tick_combat` that comes before arming:
-  the weapon stays in the hand but is holstered (`set_armed(None)`), the
-  burst, lock, blow and peek are dropped, and `flee(who, dt)` runs on the
+  the lock, blow and peek are dropped, and `flee(who, dt)` runs on the
   `plan_wait` clock — `Tactics::flee(nav, from, targets)`: the enemy is
   one place, the **average of every target up**, and the best cell is the
   reachable one within `FLEE_LOOK` (10) tiles furthest from it less
@@ -2600,8 +2624,21 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   hostile room's people (a resident shot to a dying state runs from the
   crew). `pump_queue`, `consider_errand` and `flee_filth` skip a fleeing
   Bim like a recruited one; the enemy gone, it stops where it is and the
-  queue picks up. `a_dying_bim_runs_from_where_the_enemy_are_and_does_not_shoot`
-  pins both Bims.
+  queue picks up. **The crew's run is a fighting withdrawal** (since
+  September 2026; `shoot_on_the_run`): a crew member with a gun keeps it
+  drawn, aims from its own eyes at whatever `Combat::aim` gives it —
+  never a peek — and fires on the move at the walking odds, the walk a
+  **backing** one ([`FallBack::Backwards`], the fall back's: the face on
+  the target, the feet on the route, at `BACKSTEP_PACE`); standing, it
+  squares up. It used to holster for the whole run, and a crew member
+  with a broken leg walking off from an enemy in plain view without a
+  shot was the user's "the bots sometimes won't fire and walk somewhere
+  instead". A blade has nothing to do on the run and stays sheathed, the
+  hands on a bandage hold the fire, and **an enemy's people still run
+  silent** — their run seals itself in instead.
+  `a_dying_crew_member_backs_away_from_the_enemy_shooting_as_it_goes`
+  pins the crew's run, and the end of
+  `a_crew_member_merely_hurt_fights_on_and_runs_only_dying` an enemy's.
   **Dying, and nothing short of it** (since September 2026): a crew
   member merely hurt — `Health::is_hurt`: an open wound, blood under
   `SLOWED_AT` — stands its ground and shoots on, whoever it is. For a
@@ -3637,8 +3674,9 @@ on `Bim` and one pass at the end of the step:
 order. Carrying and clear of the fight (`Game::out_of_harm`: no target
 up within `RESCUE_CLEAR` tiles **and** nothing a body there could see) it
 sets the body down, and the medical row takes it from there — doctoring
-a crewmate wants the calm (`Game::calm`), which is exactly what it has
-walked to. Carrying and still in it, it runs `Tactics::flee` with the
+a crewmate wants it out of harm (or the room calm), which is exactly
+where it has been carried, so the treatment starts there and then
+rather than when the fight is over. Carrying and still in it, it runs `Tactics::flee` with the
 body in its arms. Carrying nobody, `Game::worth_fetching` is the nearest
 crewmate within `RESCUE_LOOK` that is **out cold or dying** — a body
 merely bleeding is on its feet and can walk itself out — in nobody's

@@ -3802,8 +3802,10 @@ standing order:
 * carrying somebody — clear of the fight (`Game::out_of_harm`: no target
   up within `RESCUE_CLEAR` tiles **and** nothing a body there could see)
   and it sets them down, and the ordinary medical row takes over, since
-  doctoring a crewmate wants the calm and the calm is what it has just
-  walked to; not clear, and it runs `Tactics::flee` with the body in its
+  doctoring a crewmate wants it out of harm (or the room calm) and out
+  of harm is where it has just been carried — so it is treated there and
+  then, fight or no fight (`crates/game/CLAUDE.md`, "A crewmate is
+  doctored where it lies out of harm"); not clear, and it runs `Tactics::flee` with the body in its
   arms;
 * carrying nobody — the nearest crewmate within `RESCUE_LOOK` (18 tiles)
   that is **out cold or dying**, is not already in somebody's arms, is

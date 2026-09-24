@@ -311,6 +311,16 @@ fn five_enemy_hits_are_one_point_of_experience_and_the_count_starts_again() {
     }
     assert_eq!(hits_taken(&world, 0), before, "his own soldier's burst");
     // And a crew member that is not a tank gains nothing from being hit.
+    // The crew held still for it and the tank stood off the line: a
+    // crewmate lying out of harm is dressed in a fight now rather than
+    // twenty seconds after it, so the burst's wounds have the three of
+    // them walking over to one another, and a body between the gun and
+    // the crewmate takes its bolts.
+    hold_still(&mut world);
+    world
+        .aboard
+        .room
+        .put_for_probe(0, at + vec2(0.0, 3.0 * TILE));
     let landed = shoot_at(&mut world, 1, 20);
     assert!(landed > 0, "the bolts landed on the crewmate");
     assert!(world.aboard.room.hits_taken(1) > 0, "the count is kept");
