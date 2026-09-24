@@ -641,7 +641,7 @@ fn the_ground_beyond_the_town_is_a_plain_the_crew_walk_out_on_and_back() {
         "a route out onto the plain"
     );
     let mut arrived = false;
-    for i in 0..20_000 {
+    for _ in 0..20_000 {
         world.step(&[]);
         let at = room_pos(&world);
         if (at - far).len() < 1.5 * tile as f32 {
@@ -663,7 +663,7 @@ fn the_ground_beyond_the_town_is_a_plain_the_crew_walk_out_on_and_back() {
     // Back to the pad: the way in is the same walk the other way.
     assert!(world.aboard.room.walk_to(0, from));
     let mut home = false;
-    for i in 0..20_000 {
+    for _ in 0..20_000 {
         world.step(&[]);
         let at = room_pos(&world);
         if (at - from).len() < 1.5 * tile as f32 {
