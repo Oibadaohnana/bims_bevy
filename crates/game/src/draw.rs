@@ -23,6 +23,13 @@ pub const KIND_TRIANGLE: f32 = 2.0;
 /// A `line` width of zero means fill; anything greater strokes the outline.
 const FILLED: f32 = 0.0;
 
+/// A soft ellipse's three layers ([`DrawList::soft_ellipse`]): how much
+/// bigger than the size asked for each is, and what share of the colour's
+/// alpha it is drawn at. Stacked they make the colour's own alpha in the
+/// middle — `1 − (1 − 0.3a)(1 − 0.35a)(1 − 0.45a)`, 0.205 for an `a` of
+/// 0.2 — and fade out past the edge instead of stopping at it.
+pub const SOFT_LAYERS: [(f32, f32); 3] = [(1.25, 0.30), (1.0, 0.35), (0.75, 0.45)];
+
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Color {
@@ -128,6 +135,17 @@ impl DrawList {
 
     pub fn ellipse(&mut self, center: Vec2, size: Vec2, rot: f32, c: Color) {
         self.push(KIND_ELLIPSE, center, size, rot, 0.0, FILLED, c);
+    }
+
+    /// A **soft** ellipse (feature 98): the same `size` and the same
+    /// darkness in the middle as one [`DrawList::ellipse`] of `c`, but
+    /// feathered out past its edge — three ellipses one over another,
+    /// [`SOFT_LAYERS`], the widest the faintest. What a drop shadow is
+    /// drawn with, since the format has no blur.
+    pub fn soft_ellipse(&mut self, center: Vec2, size: Vec2, rot: f32, c: Color) {
+        for (grow, share) in SOFT_LAYERS {
+            self.ellipse(center, size * grow, rot, c.alpha(c.a * share));
+        }
     }
 
     pub fn circle(&mut self, center: Vec2, diameter: f32, c: Color) {

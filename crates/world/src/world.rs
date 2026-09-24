@@ -1072,6 +1072,13 @@ pub struct World {
     /// `World::restock_charges` keeps it, and it is in `world_checksum`:
     /// a charge waiting is a different fight from one in the pack.
     pub charge_timers: Vec<[Option<f64>; Charge::ALL.len()]>,
+    /// A probe's switch: the medicine — everybody's medkit and bandage
+    /// charges — neither dealt nor come back, so a test that lays a pack
+    /// out cell by cell, or counts the hold, is not handed a box of
+    /// dressings in the middle of it (`without_dressings` in the tests).
+    /// Never set in a game, so neither saved nor hashed.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    medicine_off: bool,
     /// Each crew member's medic state, by index (feature 76,
     /// `crate::medic`): who its beam holds, its surge's charge, and its
     /// field surgery this fight. Empty for anybody but a player's medic.
@@ -1445,6 +1452,7 @@ impl World {
             next_deployable: 1,
             reused_kits: vec![0; crew as usize],
             charge_timers: vec![[None; Charge::ALL.len()]; crew as usize],
+            medicine_off: false,
             medics: vec![Medic::default(); crew as usize],
             tanks: vec![Tank::default(); crew as usize],
             commanders: vec![Commander::default(); crew as usize],
@@ -1475,6 +1483,11 @@ impl World {
         // whoever lives there already up and about.
         world.dock_at(station_id);
         world.settle_residents();
+        // Every crew member sets out with its medicine in the pack: a
+        // medkit and a box of bandages, which the cooldowns keep it at.
+        for who in 0..world.aboard.crew_count() {
+            world.fill_medicine(who);
+        }
         // What the crew set out with, for the enemies to be scaled
         // against — the **same** sum `worth` gives from then on, the
         // starting pool included, so unspent money is never counted as
@@ -1597,19 +1610,11 @@ impl World {
         self.aboard.room.set_ferries(ferries);
         let orders = self.craft_orders();
         self.aboard.room.set_craft_orders(orders);
-        //    The sickbay's shelf is the hold's too: the bandages to hand
-        //    are the hold's count, and the fibre on the cold store's shelf
-        //    is the hold's count — the room keeps neither of its own
-        //    aboard. What the room used and what it grew are read back
-        //    after the step, below.
-        //    A hired field medic fills its pack back up out of the hold
-        //    first (feature 86), so the count the room is handed below
-        //    is the one it will treat with this step.
-        self.restock_field_medics();
-        //    And every crew member fills its pack back up with dressings
-        //    out of the hold out of combat (feature 87): a bandage is a
-        //    thing now, spent out of the pack of whoever winds it.
-        self.restock_bandages();
+        //    The medicine is what each crew member carries, and nothing
+        //    of the hold's: the room is told how many medkits are in each
+        //    pack, and no shelf. The packs themselves are filled back up
+        //    by `restock_charges` below, a medkit and a bandage being
+        //    everybody's charges.
         self.hand_the_room_the_hold_s_medicine();
         //    And the construction sites, what each still wants, and who may
         //    go out to one beyond the hull. What the room did about them is
@@ -1624,8 +1629,9 @@ impl World {
         //    did to them is read back after `visit`.
         //    And every class's charges: a spent sandbag, sentry or
         //    grenade comes back into its pack on its own cooldown
-        //    (features 88 and 90), before the boxes at the foot of the
-        //    screen are read.
+        //    (features 88 and 90), and everybody's medkit and bandages
+        //    the same way, before the boxes at the foot of the screen
+        //    are read.
         self.restock_charges();
         self.hand_the_room_the_engineers();
         //    And what each class wears (feature 81): drawing only, said
@@ -3002,8 +3008,14 @@ impl World {
                             weapon.tier.code(),
                         ));
                     }
+                    // A charge in a pack is not property: it came back by
+                    // itself and will again, so a crew that has spent its
+                    // bandages is no poorer and the enemies scaled on
+                    // the worth do not shrink with every wound bound.
                     Some(Item::Stack(code)) => {
-                        if let Some(&id) = ResourceId::ALL.get(code as usize) {
+                        if let Some(&id) = ResourceId::ALL.get(code as usize)
+                            && Charge::of_resource(id).is_none()
+                        {
                             sum = sum.saturating_add(trade_price(id).saturating_mul(units.max(1)));
                         }
                     }
@@ -3187,7 +3199,7 @@ impl World {
         // errand is given up — into the hold before the room is dropped.
         let mut old = std::mem::replace(&mut self.aboard, Aboard::new(&self.ship.design, 1, 0));
         let crew = old.room.take_crew();
-        let banked = bank_medicine(&mut self.ship.design, &mut old.room);
+        bank_medicine(&mut old.room);
         // On a planet, the ground beyond the town.
         let terrain = surface::surface_body(id)
             .and_then(|body| self.surface(body))
@@ -3237,9 +3249,6 @@ impl World {
         // And the laid sandbags onto both fresh rooms (feature 74).
         self.sync_deployed_cover();
         self.lay_plunder();
-        if banked {
-            self.on_ship_changed();
-        }
     }
 
     /// Whose a station is, to the crew: home is friendly, a station on the
@@ -4063,50 +4072,25 @@ impl World {
         }
     }
 
-    /// The hold's medicine, put on the room's shelves before it steps:
-    /// the medkits to hand are the hold's `Medkit` count and the fibre on
-    /// the cold store's shelf its `Fibre` count, since the hold keeps
-    /// both and the room keeps neither aboard. The store's
-    /// food is the room's own and is handed back unchanged. **The
-    /// bandages are not here** (feature 87): a dressing is a thing in a
-    /// pack, put there by [`World::restock_bandages`] and spent out of
-    /// the pack by the room, so no count crosses either way.
+    /// The medicine, told to the room before it steps. **None of it is
+    /// the hold's**: a medkit is a charge in its carrier's pack like a
+    /// dressing (see [`class::Charge`]), so the room's shelf is set to
+    /// nought, there is no cabinet to walk to, and each crew member's
+    /// own medkits are the count it treats with — opened where the
+    /// helper stands. The kit leaves the pack when the treatment is done
+    /// (`settle_medics`), not when it is taken up, so a treatment given
+    /// up for a shot puts nothing back anywhere. A dressing is spent out
+    /// of the pack by the room itself, so no count of those crosses. The
+    /// fibre on the cold store's shelf is nought; the store's food is
+    /// the room's own and is handed back unchanged.
     fn hand_the_room_the_hold_s_medicine(&mut self) {
-        let design = &self.ship.design;
-        let medkits = design.carrying(ResourceId::Medkit);
-        // And where a kit is fetched from: the use spot of every container
-        // that takes one — a locker-class cabinet, a shelf — so the walk
-        // to the kit is a walk to a real cabinet. Only while there are any:
-        // a stand with nothing on the shelf is nowhere to go.
-        let stands: Vec<bims::math::Vec2> = if medkits > 0 {
-            self.aboard
-                .containers()
-                .into_iter()
-                .filter(|&c| self.container_takes(c, ResourceId::Medkit))
-                .filter_map(|c| self.aboard.room.container_spot(c))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        // And what each of the crew carries in its own pack — a medic's
-        // start kit, or one somebody fetched out of the hold: a helper
-        // with a kit of its own opens that where it stands rather than
-        // walking to a cabinet for one of these.
-        let wanted = Item::Stack(ResourceId::Medkit as u32);
-        let carried: Vec<u32> = (0..self.aboard.crew_count() as usize)
-            .map(|who| {
-                self.aboard
-                    .room
-                    .pack(who)
-                    .iter()
-                    .filter(|i| **i == Some(wanted))
-                    .count() as u32
-            })
+        let carried: Vec<u32> = (0..self.aboard.crew_count())
+            .map(|who| self.charges_of(who, Charge::Medkit))
             .collect();
         let room = &mut self.aboard.room;
-        room.set_medkits(medkits);
+        room.set_medkits(0);
         room.set_pack_kits(carried);
-        room.set_kit_stands(&stands);
+        room.set_kit_stands(&[]);
         let (veg, tofu, stew) = (room.store_veg(), room.store_tofu(), room.store_stew());
         // Nothing grows fibre any more (feature 95): the drug lab rolls no
         // dressings and there is no such resource, so the bay is handed
@@ -4114,18 +4098,10 @@ impl World {
         room.set_stock(veg, tofu, stew, 0);
     }
 
-    /// What the room did with its medicine this step, moved through the
-    /// hold: every bandage used comes off the count, and every sheaf of
-    /// fibre the bay grew goes in, as much as the cold store has room for.
-    /// Fibre the store cannot take is lost — dropped, and nothing said:
-    /// the shelf is already full of food the crew would rather keep, and
-    /// an event for every sheaf a full larder turned away would be noise
-    /// every step of a good harvest. The count is set again next step
-    /// from the hold, so the room's shelf agrees.
+    /// What the room did with its medicine this step, drained: nothing
+    /// of it is the hold's any more (see [`bank_medicine`]).
     fn take_the_room_s_medicine(&mut self) {
-        if bank_medicine(&mut self.ship.design, &mut self.aboard.room) {
-            self.on_ship_changed();
-        }
+        bank_medicine(&mut self.aboard.room);
     }
 
     /// Under way again: the ship's room is the ship's alone. The residents
@@ -4145,7 +4121,7 @@ impl World {
         // As at the join: the crew out first, then what that banked.
         let mut old = std::mem::replace(&mut self.aboard, Aboard::new(&self.ship.design, 1, 0));
         let crew = old.room.take_crew();
-        let banked = bank_medicine(&mut self.ship.design, &mut old.room);
+        bank_medicine(&mut old.room);
         self.aboard = old.unjoined(crew, &self.ship.design, seed, self.clock_minutes);
         // The ship alone is under its own roof: a fresh room has no
         // daylight, and this says so where a landing said the other.
@@ -4172,9 +4148,6 @@ impl World {
         // again on the next step, since a fresh `Sight` has none.
         self.drop_station_deployables();
         self.sync_deployed_cover();
-        if banked {
-            self.on_ship_changed();
-        }
     }
 
     /// The nearest station, and how far the ship is from its hull.
@@ -6319,6 +6292,12 @@ impl World {
             events.push(refused(slot, Refusal::NotAboard));
             return;
         };
+        // The medicine is a charge the cooldown fills the pack back up
+        // with, so one stowed would be one conjured into the hold.
+        if Charge::of_resource(resource).is_some_and(Charge::everybody) {
+            events.push(refused(slot, Refusal::ChargeKept));
+            return;
+        }
         if !self.in_reach(who, resource) {
             events.push(refused(slot, Refusal::OutOfReach));
             return;
@@ -7148,6 +7127,11 @@ impl World {
             .resize(self.aboard.crew as usize, Commander::default());
         self.clear_squad();
         self.ship.crew_count = self.aboard.crew;
+        // And its medicine, the crew's own from now on: whatever it
+        // carried topped up to everybody's charges at once, a joiner not
+        // being made to wait out the cooldowns for what the rest set out
+        // with. A field medic's more is its contract's, after this.
+        self.fill_medicine(new_who);
         Some((new_who, was_medic))
     }
 
@@ -9730,38 +9714,60 @@ impl World {
     }
 
     /// The medic's start (feature 76): the laser pistol it has in hand
-    /// already, and [`class::MEDIC_START_MEDKITS`] medkits with
-    /// [`class::MEDIC_START_BANDAGES`] bandages into the pack.
+    /// already, and its medicine topped up to a medic's charges —
+    /// [`class::MEDIC_MEDKIT_CHARGES`] medkits and
+    /// [`class::MEDIC_BANDAGE_CHARGES`] bandages — at once.
     fn give_medic_kit(&mut self, who: usize) {
-        let room = &mut self.aboard.room;
-        for _ in 0..class::MEDIC_START_MEDKITS {
-            room.give(who, None, Item::Stack(ResourceId::Medkit as u32));
-        }
-        // The dressings go in boxes of five since feature 87.
-        room.give_stack(who, bims::game::BANDAGE, class::MEDIC_START_BANDAGES);
+        self.fill_medicine(who as u32);
     }
 
-    /// A hired field medic's start (feature 86):
-    /// [`mercenary::MEDIC_MEDKITS`] medkits in its pack and nothing
-    /// else. No bandages — it is not the class, and the two kits are
-    /// what the user asked it to turn up with.
+    /// A hired field medic's start (feature 86): a medic's charges of
+    /// medicine, the same as the class's — the trade is the medicine,
+    /// and it has none of the class's talents.
     fn give_field_medic_kit(&mut self, who: u32) {
-        let room = &mut self.aboard.room;
-        for _ in 0..mercenary::MEDIC_MEDKITS {
-            room.give(who as usize, None, Item::Stack(ResourceId::Medkit as u32));
-        }
+        self.fill_medicine(who);
     }
 
-    /// And out again, as many of each as are still there.
+    /// And out again: the pack taken down to everybody's charges, as far
+    /// as it holds more than that — the medic's extra went with the
+    /// class, and what it had already spent is spent.
     fn take_medic_kit(&mut self, who: usize) {
-        let room = &mut self.aboard.room;
-        for (resource, count) in [
-            (ResourceId::Medkit, class::MEDIC_START_MEDKITS),
-            (ResourceId::Bandage, class::MEDIC_START_BANDAGES),
-        ] {
+        for charge in Charge::MEDICINE {
+            let over = self
+                .charges_of(who as u32, charge)
+                .saturating_sub(self.charges(who as u32, charge));
             // By unit, not by cell: five dressings go in one box
             // (feature 87), and taking the box would take the lot.
-            room.take_stack(who, Item::Stack(resource as u32), count);
+            let item = Item::Stack(charge.resource() as u32);
+            self.aboard.room.take_stack(who, item, over);
+        }
+    }
+
+    /// Everybody's medicine switched off, for a probe: no medkit or
+    /// bandage charge dealt from now on and none come back, so what is in
+    /// the packs is exactly what the probe leaves there — a pack laid out
+    /// cell by cell, a helper with no kit anywhere. What is in the packs
+    /// already stays. Neither saved nor hashed; never set in a game.
+    pub fn medicine_off_for_probe(&mut self) {
+        self.medicine_off = true;
+    }
+
+    /// Crew member `who`'s medicine topped up to its charges **at once**
+    /// — a medkit and five bandages, a medic's four and ten — rather than
+    /// a charge a cooldown: what the crew set out with, what a hand
+    /// joining brings, what a medic's class or contract adds. As far as
+    /// the pack has room; the cooldowns bring the rest. Nothing with the
+    /// medicine switched off for a probe.
+    fn fill_medicine(&mut self, who: u32) {
+        if self.medicine_off || who >= self.aboard.crew_count() {
+            return;
+        }
+        for charge in Charge::MEDICINE {
+            let short = self
+                .charges(who, charge)
+                .saturating_sub(self.charges_of(who, charge));
+            let item = Item::Stack(charge.resource() as u32);
+            self.aboard.room.give_stack(who as usize, item, short);
         }
     }
 
@@ -10181,7 +10187,20 @@ impl World {
     ///
     /// For a sentry it is also the **world limit**: one more laid
     /// destroys that engineer's oldest.
+    ///
+    /// The medicine is everybody's whatever the class: a medkit and five
+    /// bandages, and a medic — of the class, or hired as a field medic —
+    /// four and ten.
     pub fn charges(&self, who: u32, charge: Charge) -> u32 {
+        if charge.everybody() {
+            let medic = self.can_lift(who);
+            return match (charge, medic) {
+                (Charge::Medkit, false) => class::MEDKIT_CHARGES,
+                (Charge::Medkit, true) => class::MEDIC_MEDKIT_CHARGES,
+                (_, false) => class::BANDAGE_CHARGES,
+                (_, true) => class::MEDIC_BANDAGE_CHARGES,
+            };
+        }
         if self.class_of(who) != charge.class() {
             return 0;
         }
@@ -10205,6 +10224,7 @@ impl World {
                 }
             }
             Charge::Grenade => class::GRENADE_CHARGES,
+            Charge::Medkit | Charge::Bandage => 0,
         }
     }
 
@@ -10222,6 +10242,8 @@ impl World {
                     class::GRENADE_COOLDOWN
                 }
             }
+            Charge::Medkit => class::MEDKIT_COOLDOWN,
+            Charge::Bandage => class::BANDAGE_COOLDOWN,
         }
     }
 
@@ -10242,20 +10264,16 @@ impl World {
         (self.charge_cooldown(who, charge) - since).max(0.0)
     }
 
-    /// How many of a charge a crew member carries in its pack — one a
-    /// stack, since none of the three stacks in a cell. What the boxes
-    /// at the foot of the screen count (feature 80).
+    /// How many of a charge a crew member carries in its pack, by the
+    /// unit: a kit or a grenade is one a cell, and a box of dressings is
+    /// as many as are in it. What the boxes at the foot of the screen
+    /// count (feature 80).
     pub fn charges_of(&self, who: u32, charge: Charge) -> u32 {
         if who >= self.aboard.crew_count() {
             return 0;
         }
         let wanted = Item::Stack(charge.resource() as u32);
-        self.aboard
-            .room
-            .pack(who as usize)
-            .iter()
-            .filter(|i| **i == Some(wanted))
-            .count() as u32
+        self.aboard.room.gear(who as usize).units_of(wanted)
     }
 
     /// The engineer's charges of a kit: [`World::charges`] by another
@@ -10304,7 +10322,9 @@ impl World {
     /// short, and when it runs out one goes in. In combat as out of it —
     /// this is an ability's cooldown and not the dressings' restock —
     /// and nothing is conjured out of the hold: the charge **is** the
-    /// ability, and no class makes or buys one.
+    /// ability, and no class makes or buys one. The medicine the same
+    /// way, for everybody: a medkit a minute and a dressing every thirty
+    /// seconds of the clock until the pack is back at its charges.
     fn restock_charges(&mut self) {
         let crew = self.aboard.crew_count() as usize;
         if self.charge_timers.len() < crew {
@@ -10314,6 +10334,10 @@ impl World {
         for who in 0..crew {
             for charge in Charge::ALL {
                 let c = charge.code() as usize;
+                if self.medicine_off && charge.everybody() {
+                    self.charge_timers[who][c] = None;
+                    continue;
+                }
                 let charges = self.charges(who as u32, charge);
                 let held = self.charges_of(who as u32, charge);
                 if held >= charges || !self.aboard.room.is_alive(who) {
@@ -11481,111 +11505,6 @@ impl World {
         }
     }
 
-    /// A hired field medic fills its pack back up out of the hold, one
-    /// kit a step (feature 86): **out of combat** — the room's own
-    /// `calm`, twenty seconds with nothing fired and the enemy out of
-    /// sight and out of reach — or, whatever the fight is doing,
-    /// **once it has spent its last kit** and is standing somewhere
-    /// clear of it, which is where the carry takes it anyway.
-    ///
-    /// It is bookkeeping and not an errand: the medic is aboard with a
-    /// cabinet to hand, and the room is already handed the hold's
-    /// medicine every step without anybody walking for it. What it will
-    /// not do is conjure one — the hold has to have a medkit free — so
-    /// a crew out of medkits has a medic out of medkits.
-    fn restock_field_medics(&mut self) {
-        if self.hired.iter().all(|h| !h.medic) {
-            return;
-        }
-        let wanted = Item::Stack(ResourceId::Medkit as u32);
-        let calm = self.aboard.room.calm();
-        for i in 0..self.hired.len() {
-            let hired = self.hired[i];
-            if !hired.medic || hired.who >= self.aboard.crew_count() {
-                continue;
-            }
-            let who = hired.who as usize;
-            if !self.aboard.room.is_alive(who)
-                || self.aboard.room.is_unconscious(who)
-                || self.aboard.room.is_outside(who)
-            {
-                continue;
-            }
-            let carried = self
-                .aboard
-                .room
-                .pack(who)
-                .iter()
-                .filter(|item| **item == Some(wanted))
-                .count() as u32;
-            if carried >= mercenary::MEDIC_MEDKITS {
-                continue;
-            }
-            if !calm && !(carried == 0 && self.aboard.room.is_out_of_harm(who)) {
-                continue;
-            }
-            if self.ship.design.carrying(ResourceId::Medkit) == 0 {
-                continue;
-            }
-            let Some(cell) = self.aboard.room.gear(who).free_cell_for(wanted) else {
-                continue;
-            };
-            if !self.aboard.room.give(who, Some(cell), wanted) {
-                continue;
-            }
-            // Out of the hold, the count and the grid together, the way
-            // a fetch takes one.
-            self.ship.design.cargo[ResourceId::Medkit as usize] =
-                self.ship.design.cargo[ResourceId::Medkit as usize].saturating_sub(1);
-            let class = storage(ResourceId::Medkit);
-            if let Some(grid) = self.grid_mut(class) {
-                grid.remove(ResourceId::Medkit, 1, None);
-            }
-            self.on_ship_changed();
-        }
-    }
-
-    // --- the dressings a crew member carries (feature 87) ------------------
-
-    /// **Every** crew member fills its pack back up to the Management
-    /// tab's number out of the hold, one dressing a step (feature 87) —
-    /// the player's own Bim as well as the bots, since a bandage is spent
-    /// out of the pack of whoever winds it and the player's hands need
-    /// one as much as anybody's. **Out of combat only**, the room's own
-    /// `calm`: twenty seconds with nothing fired, the enemy out of sight
-    /// and out of reach. Nobody walks for it — it is bookkeeping, like
-    /// the hold's medicine handed over every step — and it conjures
-    /// nothing: a hold with no bandages in it restocks nobody, which is
-    /// what the drug lab is for.
-    fn restock_bandages(&mut self) {
-        let wanted = self.aboard.room.target(bims::manager::Stock::Bandages);
-        if wanted == 0 || !self.aboard.room.calm() {
-            return;
-        }
-        for who in 0..self.aboard.crew_count() as usize {
-            if !self.aboard.room.is_alive(who)
-                || self.aboard.room.is_unconscious(who)
-                || self.aboard.room.is_outside(who)
-                || self.aboard.room.bandages_of(who) >= wanted
-                || self.ship.design.carrying(ResourceId::Bandage) == 0
-            {
-                continue;
-            }
-            if self.aboard.room.give_stack(who, bims::game::BANDAGE, 1) == 0 {
-                continue;
-            }
-            // Out of the hold, the count and the grid together, the way
-            // a fetch takes one.
-            self.ship.design.cargo[ResourceId::Bandage as usize] =
-                self.ship.design.cargo[ResourceId::Bandage as usize].saturating_sub(1);
-            let class = storage(ResourceId::Bandage);
-            if let Some(grid) = self.grid_mut(class) {
-                grid.remove(ResourceId::Bandage, 1, None);
-            }
-            self.on_ship_changed();
-        }
-    }
-
     /// Whether a crew member may carry at all (feature 86): a medic of
     /// the class, or a hired field medic. A commander's hands are as
     /// good as a medic's, but the carry is the medic's trade and the
@@ -11688,6 +11607,16 @@ impl World {
         for healed in self.aboard.room.take_healings() {
             if healed.with == bims::game::Healing::Bare {
                 self.medic_mut(healed.helper).field_surgery_used = true;
+            }
+            // A treatment done with a kit spends the helper's own charge:
+            // out of its pack now, and the cooldown brings another. Only
+            // now, and not when the kit was taken up, so one given up for
+            // a shot is still in the pack and nothing had to be put back.
+            if healed.with == bims::game::Healing::Medkit
+                && healed.helper < self.aboard.crew_count() as usize
+            {
+                let kit = Item::Stack(ResourceId::Medkit as u32);
+                self.aboard.room.take_stack(healed.helper, kit, 1);
             }
             if healed.helper != healed.patient && self.is_medic(healed.helper as u32) {
                 self.award(healed.helper, class::XP_HEALED, events);
@@ -12704,45 +12633,24 @@ fn walk_refusal(code: u32) -> Option<Refusal> {
     }
 }
 
-/// What a room banked since last asked, folded into the hold: the
-/// medkits used off the count, the fibre harvested onto the shelf as far
-/// as it has room. `true` when anything moved, so the caller knows to run
-/// `on_ship_changed`. Asked of the crew's room every step
-/// (`take_the_room_s_medicine`), and of a room about to be thrown away —
-/// a docking or a casting off replaces the whole room — *after* the crew
-/// have been taken out of it, since giving up an errand is what puts the
-/// sheaf in somebody's hands into the store.
-fn bank_medicine(design: &mut ShipDesign, room: &mut bims::game::Game) -> bool {
-    let kits = room.take_medkits_used();
+/// What a room banked since last asked, drained: the fibre and the
+/// medkits it counted. Nothing of it reaches the hold any more — there is
+/// no fibre resource, and a medkit is a charge in a pack — but the room
+/// keeps counting, and a count nobody drains only grows. Asked of the
+/// crew's room every step (`take_the_room_s_medicine`), and of a room
+/// about to be thrown away — a docking or a casting off replaces the
+/// whole room — *after* the crew have been taken out of it.
+fn bank_medicine(room: &mut bims::game::Game) {
     // Whatever the bay grew of what nobody eats is dropped: there is no
     // fibre resource since the money rework (feature 95), and the room is
     // handed nought of it every step so it never plants any.
     let _ = room.take_harvested_fibre();
-    // A helper that opened a kit out of its own pack: the medkit leaves
-    // the pack and goes on the hold's count, since from the moment it is
-    // in a hand it is counted the way a kit off a shelf is — spent by
-    // `medkits_used` above when the treatment finishes, and put back on a
-    // shelf by `Task::let_go` when the chain is given up.
-    let wanted = Item::Stack(ResourceId::Medkit as u32);
-    let mut out_of_packs = 0;
-    for who in room.take_pack_kits_used() {
-        if who >= room.crew_count() as usize {
-            continue;
-        }
-        let cell = room.pack(who).iter().position(|i| *i == Some(wanted));
-        if let Some(cell) = cell
-            && room.take(who, cell).is_some()
-        {
-            out_of_packs += 1;
-        }
-    }
-    if kits == 0 && out_of_packs == 0 {
-        return false;
-    }
-    design.cargo[ResourceId::Medkit as usize] += out_of_packs;
-    let medkits = &mut design.cargo[ResourceId::Medkit as usize];
-    *medkits = medkits.saturating_sub(kits);
-    true
+    // And the medkits the room counted opened and used are nobody's
+    // business but its own now: every kit is a charge in its helper's
+    // pack, which `settle_medics` takes out when the treatment is done,
+    // and the hold never had a hand in it. Drained so neither list grows.
+    let _ = room.take_medkits_used();
+    let _ = room.take_pack_kits_used();
 }
 
 /// A total order over nodes, for keeping [`World::discovered`] sorted.

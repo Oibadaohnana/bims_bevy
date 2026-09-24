@@ -122,6 +122,7 @@ use crate::balance;
 use crate::cue::{Cue, Cued};
 use crate::door;
 use crate::draw::{Color, DrawList};
+use crate::fx::{self, Fx};
 use crate::health::Part;
 use crate::math::{Rect, Vec2, vec2};
 use crate::nav::Nav;
@@ -151,38 +152,54 @@ const LANCE_GLOW: f32 = 9.0;
 const LANCE_KINKS: usize = 5;
 const LANCE_THROW: f32 = 5.0;
 
-/// How long a pistol's bolt is drawn, in room units, and how thick.
+/// **Every gun is a laser** (feature 98), drawn in one language: a core
+/// past white that blooms (`crate::fx::laser`, feature 97's emissive), in
+/// the side's colour — the crew's blue, the enemy's red, whatever the gun
+/// — and the guns told apart by **shape, length, thickness and rhythm**,
+/// never by hue. A tier above the first draws a little thicker and a
+/// little hotter (`crate::fx::tier_look`). A picture only: nothing the
+/// fight reads is a colour or a length here.
+///
+/// The pistol: one short clean bolt, as long and as thick as this.
 const BOLT_LENGTH: f32 = 24.0;
 const BOLT_CORE: f32 = 2.0;
 const BOLT_GLOW: f32 = 6.0;
-/// The shotgun's pellets: five short ones fanned about the flight.
+/// The shotgun: a spread of five short pulses that opens as it flies —
+/// `PELLET_FAN` room units either side of the flight at the muzzle, a
+/// further `PELLET_FAN_GROW` a unit flown, out to `PELLET_FAN_MAX` — each
+/// set back along the flight by its own `PELLET_STAGGER`, so five of them
+/// read as a scatter rather than a comb. The bolt is one bolt, drawn five
+/// times.
 const PELLETS: usize = 5;
-const PELLET_LENGTH: f32 = 14.0;
+const PELLET_LENGTH: f32 = 8.0;
+const PELLET_CORE: f32 = 1.5;
 const PELLET_SPREAD: f32 = 6.0 * (std::f32::consts::PI / 180.0);
-/// The rifle's tracer, short and thin, and the sniper's streak, long.
-const TRACER_LENGTH: f32 = 26.0;
+const PELLET_FAN: f32 = 2.0;
+const PELLET_FAN_GROW: f32 = 0.06;
+const PELLET_FAN_MAX: f32 = 15.0;
+const PELLET_STAGGER: [f32; PELLETS] = [5.0, 1.0, 8.0, 0.0, 4.0];
+/// The auto rifle: thin rapid pulses — a dash, a gap and a shorter dash
+/// behind it, so eight of them in the air read as a stutter.
+const PULSE_LEAD: f32 = 13.0;
+const PULSE_GAP: f32 = 5.0;
+const PULSE_TAIL: f32 = 6.0;
+const PULSE_CORE: f32 = 1.2;
+/// The sniper: a beam from the muzzle to the bolt, faint where it left
+/// and bright over the last `STREAK_LENGTH` to the head, which hangs in
+/// the air a moment after it lands (`crate::fx::BEAM_LINGER`).
 const STREAK_LENGTH: f32 = 90.0;
+const BEAM_CORE: f32 = 1.5;
 
-/// How long the flash where a bolt lands lasts, in seconds.
+/// How long the flash where a bolt lands lasts, in seconds — the fight's
+/// own, on the simulation's clock, and drawn only for a host that ages no
+/// effects of its own (`crate::fx`); the rest see the fx flash instead.
 const SPARK_LIFE: f32 = 0.18;
 
 /// Friendly fire is blue and an enemy's is red — always, so a glance at
-/// the air says who is shooting whom. The other guns' colours are mixed
-/// with the side's, so the tint still says whose it is.
+/// the air says who is shooting whom.
 pub const FRIENDLY_BOLT: Color = Color::rgb(0.40, 0.72, 1.0);
 pub const HOSTILE_BOLT: Color = Color::rgb(1.0, 0.28, 0.22);
 const BOLT_CORE_WHITE: Color = Color::rgb(0.92, 0.97, 1.0);
-/// The pistol's core is **emissive** (feature 97), the one thing in the game
-/// that is so far: its white pulled `BOLT_CORE_TINT` of the way towards
-/// the side's colour, then `BOLT_CORE_HEAT` times as bright — past white,
-/// so the app draws the core white-hot and its bloom lights the air round
-/// it blue for the crew and red for the enemy. A picture only: nothing
-/// the fight reads is a colour.
-const BOLT_CORE_TINT: f32 = 0.4;
-const BOLT_CORE_HEAT: f32 = 2.4;
-const PELLET: Color = Color::rgb(1.0, 0.62, 0.25);
-const TRACER: Color = Color::rgb(1.0, 0.92, 0.35);
-const STREAK: Color = Color::rgb(0.80, 0.92, 1.0);
 
 /// What a Bim can shoot with. The discriminants are the codes the app
 /// names, written out so a reordering cannot renumber anything; `0` is
@@ -1818,11 +1835,18 @@ pub struct Combat {
     /// crewmate (`Game::calm`). Aged by [`Combat::age`], every step.
     lull: f32,
     rng: Rng,
+    /// The passing lights of the fight (feature 98): the muzzles, the
+    /// flashes, the scorches, the beams, the cuts, the parts struck and
+    /// the machines bursting — drawing only, on the host's own clock, and
+    /// never saved. See `crate::fx`.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub fx: Fx,
 }
 
 impl Combat {
     pub fn new(seed: u64) -> Combat {
         Combat {
+            fx: Fx::default(),
             targets: Vec::new(),
             machines: Vec::new(),
             machines_cross: 0,
@@ -2313,6 +2337,14 @@ impl Combat {
             },
             at: from,
         });
+        // The muzzle glows where the shot left — for our own side. A
+        // hostile shooter lit its own muzzle where its body stands
+        // (`Game::lit_muzzle`): mostly in another room, where `from` here
+        // is only the seam's point for it, and a machine's shot leaves
+        // from its middle rather than from its gun.
+        if !hostile {
+            self.fx.muzzle(from, dir, weapon, false);
+        }
         self.bolts.push(Bolt {
             pos: from,
             vel: dir * stats.pace(),
@@ -2397,6 +2429,11 @@ impl Combat {
                 },
                 at,
             });
+            // A blade's blow glows where it cut (feature 98); a fist or a
+            // claw lands with nothing to light.
+            if cut {
+                self.fx.cut(from, at, weapon, false);
+            }
         }
     }
 
@@ -2449,6 +2486,7 @@ impl Combat {
         let own_cover_dodge = &self.own_cover_dodge;
         let bulwarks = &self.bulwarks;
         let rng = &mut self.rng;
+        let fx = &mut self.fx;
         let mut landed: Vec<Hit> = Vec::new();
         let mut taken: Vec<Hit> = Vec::new();
         let mut sparks: Vec<Spark> = Vec::new();
@@ -2621,13 +2659,25 @@ impl Combat {
                         age: 0.0,
                         hostile: bolt.hostile,
                     });
+                    // The picture's own flash, on the host's clock — and a
+                    // scorch where a wall or a lamp stopped it.
+                    fx.landed(
+                        bolt.fired_from,
+                        at,
+                        bolt.vel,
+                        bolt.weapon,
+                        bolt.hostile,
+                        who.is_some(),
+                    );
                     false
                 }
                 None => {
                     bolt.pos = to;
                     bolt.left -= span;
                     if bolt.left <= 0.0 {
-                        // Spent: it fades where it got to, without a flash.
+                        // Spent: it fades where it got to, without a flash
+                        // — a sniper's beam hanging a moment after it.
+                        fx.spent(bolt.fired_from, bolt.pos, bolt.weapon, bolt.hostile);
                         return false;
                     }
                     true
@@ -2647,50 +2697,98 @@ impl Combat {
         self.bolts.is_empty() && self.sparks.is_empty() && !self.grenades_out()
     }
 
-    /// The bolts and the sparks. Over the fog — a shot is always seen.
-    /// Each gun's shot has a look of its own, and an enemy's keeps the red
-    /// mixed in so the tint still says whose it is.
+    /// The bolts, the passing lights round them (`crate::fx`) and the
+    /// grenades. Over the fog — a shot is always seen. Every gun is a
+    /// laser in its side's colour, and each has a shape of its own.
     pub fn draw(&self, list: &mut DrawList) {
         for bolt in &self.bolts {
             let dir = bolt.vel.normalize_or_zero();
             let head = bolt.pos;
-            let side = if bolt.hostile {
-                HOSTILE_BOLT
-            } else {
-                FRIENDLY_BOLT
-            };
+            let hostile = bolt.hostile;
+            let side = if hostile { HOSTILE_BOLT } else { FRIENDLY_BOLT };
+            let (w, h) = fx::tier_look(bolt.weapon.tier);
+            let heat = fx::CORE_HEAT + h;
             match bolt.weapon.kind {
                 WeaponKind::Shotgun => {
-                    // A fan of pellets about the flight, the outer ones
-                    // trailing a little.
-                    let pellet = side.mix(PELLET, 0.7);
-                    for i in 0..PELLETS {
+                    // A spread of short pulses about the flight, opening
+                    // the further it has come.
+                    let flown = (head - bolt.fired_from).len();
+                    let fan = (PELLET_FAN + flown * PELLET_FAN_GROW).min(PELLET_FAN_MAX);
+                    for (i, back) in PELLET_STAGGER.iter().enumerate() {
                         let f = (i as f32 - (PELLETS as f32 - 1.0) * 0.5)
                             / ((PELLETS - 1) as f32 * 0.5);
                         let d = dir.rotate(f * PELLET_SPREAD);
-                        let tip = head - dir * (f.abs() * 6.0) + dir.perp() * (f * 7.0);
-                        list.line(tip - d * PELLET_LENGTH, tip, 3.0, pellet.alpha(0.9));
-                        list.circle(tip, 3.5, BOLT_CORE_WHITE.alpha(0.8));
+                        let tip = head - dir * *back + dir.perp() * (f * fan);
+                        fx::laser(
+                            list,
+                            tip - d * PELLET_LENGTH,
+                            tip,
+                            3.5 * w,
+                            PELLET_CORE * w,
+                            hostile,
+                            heat,
+                            1.0,
+                        );
                     }
                 }
                 WeaponKind::AutoRifle => {
-                    let tracer = side.mix(TRACER, 0.65);
-                    let tail = head - dir * TRACER_LENGTH;
-                    list.line(tail, head, 5.0, tracer.alpha(0.35));
-                    list.line(tail, head, 2.0, tracer.alpha(0.95));
-                    list.circle(head, 3.0, BOLT_CORE_WHITE.alpha(0.9));
+                    // Thin, and in two: a dash with a shorter one behind.
+                    let lead = head - dir * PULSE_LEAD;
+                    fx::laser(
+                        list,
+                        lead,
+                        head,
+                        3.5 * w,
+                        PULSE_CORE * w,
+                        hostile,
+                        heat,
+                        1.0,
+                    );
+                    let trail = lead - dir * PULSE_GAP;
+                    fx::laser(
+                        list,
+                        trail - dir * PULSE_TAIL,
+                        trail,
+                        3.0 * w,
+                        PULSE_CORE * w,
+                        hostile,
+                        heat,
+                        0.6,
+                    );
                 }
                 WeaponKind::SniperRifle => {
-                    let streak = side.mix(STREAK, 0.6);
-                    let tail = head - dir * STREAK_LENGTH;
-                    list.line(tail, head, 6.0, streak.alpha(0.18));
-                    list.line(
-                        tail + dir * (STREAK_LENGTH * 0.3),
+                    // The beam, tied to the bolt: from the muzzle it left
+                    // — faint there, stronger along the way — to the last
+                    // stretch, bright, and the head brightest.
+                    let span = (head - bolt.fired_from).len();
+                    let bright = STREAK_LENGTH.min(span);
+                    let mid = head - dir * bright;
+                    if span > bright {
+                        let half = bolt.fired_from.lerp(mid, 0.5);
+                        let faint = BEAM_CORE * 0.6 * w;
+                        fx::laser(
+                            list,
+                            bolt.fired_from,
+                            half,
+                            4.0 * w,
+                            faint,
+                            hostile,
+                            1.4 + h,
+                            0.3,
+                        );
+                        fx::laser(list, half, mid, 4.0 * w, faint, hostile, 1.7 + h, 0.55);
+                    }
+                    fx::laser(
+                        list,
+                        mid,
                         head,
-                        2.0,
-                        streak.alpha(0.9),
+                        6.0 * w,
+                        BEAM_CORE * w,
+                        hostile,
+                        heat + 0.4,
+                        1.0,
                     );
-                    list.circle(head, 6.0, BOLT_CORE_WHITE.alpha(0.95));
+                    list.circle(head, 5.0 * w, fx::hot(hostile, heat + 0.4));
                 }
                 // The Unmaker's bolt (feature 83): a long crackling line
                 // rather than a clean one — a straight core with the
@@ -2718,31 +2816,37 @@ impl Combat {
                     list.circle(head, 7.0, side.alpha(0.5));
                     list.circle(head, 3.5, BOLT_CORE_WHITE.alpha(0.95));
                 }
-                // The pistol as it has always been; neither a blade nor a
+                // The pistol: the short clean bolt it has always been, its
+                // core the emissive one (feature 97). Neither a blade nor a
                 // claw ever flies.
                 WeaponKind::LaserPistol | WeaponKind::Schword | WeaponKind::Claw => {
                     let tail = head - dir * BOLT_LENGTH;
-                    list.line(tail, head, BOLT_GLOW, side.alpha(0.30));
-                    list.line(tail, head, BOLT_CORE + 1.5, side.alpha(0.85));
+                    list.line(tail, head, BOLT_GLOW * w, side.alpha(0.30));
+                    list.line(tail, head, (BOLT_CORE + 1.5) * w, side.alpha(0.85));
                     list.line(
                         tail + dir * (BOLT_LENGTH * 0.35),
                         head,
-                        BOLT_CORE,
-                        side.mix(BOLT_CORE_WHITE, 1.0 - BOLT_CORE_TINT)
-                            .glowing(BOLT_CORE_HEAT),
+                        BOLT_CORE * w,
+                        fx::hot(hostile, heat),
                     );
                 }
             }
         }
-        for spark in &self.sparks {
-            let t = 1.0 - spark.age / SPARK_LIFE;
-            let colour = if spark.hostile {
-                HOSTILE_BOLT
-            } else {
-                FRIENDLY_BOLT
-            };
-            list.circle(spark.pos, 8.0 + 14.0 * (1.0 - t), colour.alpha(0.55 * t));
-            list.circle(spark.pos, 5.0 * t, BOLT_CORE_WHITE.alpha(0.9 * t));
+        // Where the bolts ended: the fight's own flash for a host that ages
+        // no effects, the passing lights for one that does.
+        if self.fx.is_on() {
+            self.fx.draw_air(list);
+        } else {
+            for spark in &self.sparks {
+                let t = 1.0 - spark.age / SPARK_LIFE;
+                let colour = if spark.hostile {
+                    HOSTILE_BOLT
+                } else {
+                    FRIENDLY_BOLT
+                };
+                list.circle(spark.pos, 8.0 + 14.0 * (1.0 - t), colour.alpha(0.55 * t));
+                list.circle(spark.pos, 5.0 * t, BOLT_CORE_WHITE.alpha(0.9 * t));
+            }
         }
         // A grenade (feature 75): a dark canister with a lit fuse, lifted
         // and shadowed while it flies, blinking faster as the fuse runs

@@ -1989,3 +1989,50 @@ fn the_crisis_is_saved_and_the_hop_table_is_worked_out_again() {
         back.game.as_ref().unwrap().world.checksum(),
     );
 }
+
+/// The fight's passing lights (feature 98) are the host's picture and
+/// nothing else. A session nobody ages records none, in either room; one
+/// aged every frame lights the crew's muzzles and flashes in the crew's
+/// room and the enemy's muzzle in the station's, over their fog — and the
+/// two stay **the same world**, checksum for checksum, which is what a
+/// game with company rests on: a guest that draws them and a host that
+/// does not must never part.
+#[test]
+fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone() {
+    use crate::Session;
+    let staged = || {
+        let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+        assert!(session.stage_fight_for_probe(), "a fight to look at");
+        session
+    };
+    let lights = |s: &Session| {
+        let world = &s.game.as_ref().unwrap().world;
+        let crew = world.aboard.room.fx_count_for_probe();
+        let residents = world
+            .residents
+            .as_ref()
+            .map(|r| r.aboard.room.fx_count_for_probe())
+            .unwrap_or((false, 0));
+        (crew, residents)
+    };
+    let mut plain = staged();
+    let mut lit = staged();
+    let (mut crew_most, mut residents_most) = (0, 0);
+    for _ in 0..600 {
+        plain.world_step();
+        lit.world_step();
+        lit.age_effects(1.0 / 60.0);
+        let ((_, crew), (_, residents)) = lights(&lit);
+        crew_most = crew_most.max(crew);
+        residents_most = residents_most.max(residents);
+    }
+    assert_eq!(lights(&plain), ((false, 0), (false, 0)), "nobody aged them");
+    assert!(crew_most > 0, "the crew's muzzles and flashes");
+    assert!(residents_most > 0, "the enemy's muzzle, in its own room");
+    let checksum = |s: &Session| s.game.as_ref().unwrap().world.checksum();
+    assert_eq!(
+        checksum(&plain),
+        checksum(&lit),
+        "the same world, lit or not"
+    );
+}

@@ -81,8 +81,10 @@ use crate::game::Game;
 /// `Option<Tier>` holding the probes' override alone. The machines' own
 /// **derived jammer station** is not in the file either: it is rolled off
 /// the star's own stream, and `settle_crisis` lays it again
-/// (`World::settle_jammer`) on every read.
-pub const SAVE_VERSION: u32 = 31;
+/// (`World::settle_jammer`) on every read. 32: the medicine is two more
+/// charges (`class::Charge::Medkit` and `Bandage`, everybody's), so
+/// every crew member's entry of `World::charge_timers` is five long.
+pub const SAVE_VERSION: u32 = 32;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

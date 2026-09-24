@@ -1005,3 +1005,24 @@ second for the red warning over a town under attack.
 the file, so a fight paused by a take-off and a town held both survive a
 load — `save_round_trip_keeps_a_held_town_and_an_attack_under_way` in
 `tests.rs`.
+
+## The walls cast a shade, and the fight's lights are aged here (feature 98)
+
+`world_paint::wall_shade` lays a soft dark band on the deck along the
+inner side of every `Wall` and `OutsideWall` — `WALL_SHADE`, three bands
+stacked, darkest against the wall and gone a third of a tile out — so a
+room reads as walls standing round a floor. `hull_tiles` draws it between
+the floor and the objects, so fixtures and everything the room draws
+stand on it; it is the same for the ship, a station and a town (on the
+ground every tile that is not a wall, a door, an airlock or a corner
+piece takes it). A **run** of tiles along one wall is one band, not a
+band a tile: a pass over the parts marks the walls, and one over the
+tiles finds the runs, every frame, since the design can change. Nothing
+any rule reads.
+
+`Session::age_effects(real)` is the other half of `bims::fx`
+(`crates/game/CLAUDE.md`, "The fight's passing lights"): the window's
+frame time, nought while paused, handed to the crew's room and the
+station's (`Game::fade`). The game screen calls it once a frame (the
+test room calls `Game::fade` on its own room); a session nobody calls it
+on — every test here — draws the fight exactly as it did before.

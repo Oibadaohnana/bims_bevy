@@ -243,6 +243,10 @@ pub struct GameScreen {
     /// applied without asking the host — a divergence on purpose, for
     /// looking at the resync. Taken once it has fired.
     desync_at: Option<u64>,
+    /// `BIMS_FREEZE` (feature 98): the shots still to be heard in the
+    /// crew's room and the frames after the last of them before the game
+    /// pauses itself. Taken once it has fired.
+    freeze: Option<crate::dev::Freeze>,
     /// Seconds of black left over the canvas: a landing ends in it — the
     /// planet has filled the window and the settlement is being laid out —
     /// and it lifts once the ground is there. Nought nearly always.
@@ -655,11 +659,15 @@ fn open(
             if crate::dev::carry() {
                 session.carry_for_probe();
             }
-            // And the dressings each of them carries (feature 87): after
-            // the wounded, so a Bim asked for one with a wound on it has
-            // something to bind it with.
+            // And the dressings and medkits each of them carries — the
+            // medicine charges: after the wounded, so a Bim asked for one
+            // with a wound on it has something to bind it with, and a
+            // nought is the empty box with its sweep running.
             if let Some(n) = crate::dev::bandages() {
                 session.bandages_for_probe(n);
+            }
+            if let Some(n) = crate::dev::medkits() {
+                session.medkits_for_probe(n);
             }
             // And the engineer's charges (feature 88): nought is the
             // empty pack with both cooldowns running, which is what the
@@ -786,6 +794,7 @@ impl GameScreen {
             resyncing: false,
             answered: Vec::new(),
             desync_at: crate::dev::desync_at(),
+            freeze: crate::dev::freeze_at_shot(),
             blackout: 0.0,
             skills_prompt: true,
             heals: Heals::default(),
@@ -802,6 +811,7 @@ impl GameScreen {
         next.net.wire = self.net.wire.take();
         next.log = std::mem::take(&mut self.log);
         next.desync_at = None;
+        next.freeze = None;
         next
     }
 }
@@ -1085,12 +1095,26 @@ fn frame(
             println!("diverged: {at}");
         }
     }
+    // The fight's passing lights age on this window's own clock — real
+    // seconds at any speed, held still while the game is paused (feature
+    // 98) — on the host and a guest alike.
+    let running = session
+        .game
+        .as_ref()
+        .is_some_and(|g| g.world.effective_speed().multiplier() > 0);
+    session.age_effects(if running { dt as f32 } else { 0.0 });
     // What just happened. An event is a thing that happened once, so the
     // list is drained after it is read.
     if let Some(game) = &mut session.game {
         for event in game.events.drain(..) {
             if let Some(line) = event_line(event) {
                 screen.log.push(line);
+            }
+            if let Some(freeze) = screen.freeze.as_mut()
+                && freeze.downs
+                && matches!(event, WorldEvent::DroidDown { .. })
+            {
+                freeze.left = freeze.left.saturating_sub(1);
             }
             // The engines catch as the ship pushes off its berth, or as a
             // trip begins from a hold; `Sounds` plays one ignition for
@@ -1127,6 +1151,15 @@ fn frame(
         // beside it while the decks are joined — its doors and its galley
         // are on the same picture.
         for cued in game.world.aboard.room.take_cues() {
+            if let Some(freeze) = screen.freeze.as_mut()
+                && !freeze.downs
+                && matches!(
+                    cued.cue,
+                    bims::cue::Cue::Shot { .. } | bims::cue::Cue::Blow { .. }
+                )
+            {
+                freeze.left = freeze.left.saturating_sub(1);
+            }
             sounds.play(&mut commands, cued);
         }
         if let Some(residents) = game.world.residents.as_mut() {
@@ -1162,6 +1195,21 @@ fn frame(
     // Everything that changes the ship or the crew goes through the seam
     // as an order, gathered here and sent below.
     let mut orders: Vec<Order> = Vec::new();
+    // `BIMS_FREEZE`: the pause the `||` button gives, so many frames
+    // after the shot that was asked for.
+    match screen.freeze {
+        Some(freeze) if freeze.left == 0 && freeze.frames == 0 => {
+            orders.push(Order::Speed(Speed::Paused));
+            screen.freeze = None;
+        }
+        Some(freeze) if freeze.left == 0 => {
+            screen.freeze = Some(crate::dev::Freeze {
+                frames: freeze.frames - 1,
+                ..freeze
+            });
+        }
+        _ => {}
+    }
 
     // The crew's panels, built once there is a room to read, and rebuilt
     // for whoever is there now: a docking brings the station's residents
@@ -2331,7 +2379,10 @@ fn frame(
 
     // The two boxes at the foot of the canvas: what the class's own keys
     // do, how many are left and what each of them is (feature 80).
-    // Nothing for a classless crew member, which has no keys.
+    // Nothing for a classless crew member, which has no keys — but
+    // everybody has the medicine's two past them, the medkit and the
+    // bandages it carries, with their cooldowns swept the way Dota 2
+    // sweeps a skill's.
     // And whom the box the pointer rests on would reach (feature 86),
     // for the ring on the deck below — worked out afresh every frame off
     // what is hovered, the way the panels' highlight is, so a bar that
@@ -2339,7 +2390,8 @@ fn frame(
     let mut cast_reaches: Vec<u32> = Vec::new();
     if let Some(game) = &session.game {
         let boxes = ability_boxes(&game.world, local, &keys_now);
-        if let Some(action) = ability_bar(&ctx, canvas, &boxes) {
+        let medicine = medicine_boxes(&game.world, local);
+        if let Some(action) = ability_bar(&ctx, canvas, &boxes, &medicine) {
             cast_reaches = affected_by(&game.world, local, action);
         }
     }
@@ -4615,6 +4667,16 @@ struct AbilityBox {
     /// Seconds of the clock until it may be used again; nought when it
     /// may.
     cooldown: f64,
+    /// The whole of that cooldown, in the same seconds: what the sweep
+    /// over the picture is a share of, the way Dota 2 draws a skill
+    /// coming back. Nought where there is nothing to sweep.
+    cooldown_whole: f64,
+    /// For a stock of charges that is neither full nor empty, how far
+    /// the next one has come back, nought to one: the ring round the
+    /// count in the corner. `None` when it is full, when it is empty —
+    /// the sweep over the whole box says it then — and for anything that
+    /// is not a stock of charges.
+    recharge: Option<f32>,
     /// How charged it is, nought to one — the medic's surge alone.
     charge: Option<f32>,
     /// Whether it is running now: braced, the wall up, a beam held, a
@@ -4628,7 +4690,106 @@ struct AbilityBox {
     locked: Option<u8>,
     /// The key this box is for (feature 86), so the frame can ask the
     /// world **who the cast would reach** while the pointer rests on it.
-    action: Action,
+    /// `None` for the medicine's two, which no key casts.
+    action: Option<Action>,
+}
+
+/// What one box shows, short of its key and its words: what
+/// `ability_boxes` works out for each key and `medicine_boxes` for the
+/// two stocks of medicine. See [`AbilityBox`] for each field.
+struct Face {
+    mark: Mark,
+    count: Option<u32>,
+    cooldown: f64,
+    cooldown_whole: f64,
+    recharge: Option<f32>,
+    charge: Option<f32>,
+    on: bool,
+    short: bool,
+}
+
+impl Face {
+    /// The picture and nothing else about it.
+    fn of(mark: Mark) -> Face {
+        Face {
+            mark,
+            count: None,
+            cooldown: 0.0,
+            cooldown_whole: 0.0,
+            recharge: None,
+            charge: None,
+            on: false,
+            short: false,
+        }
+    }
+
+    /// A stock of charges: how many are in the pack, and the cooldown
+    /// told the way Dota 2 tells one — **with none left**, the seconds
+    /// until the next lands swept over the whole box; with some left and
+    /// the next on its way, how far it has come back, for the ring round
+    /// the count. A box with a charge in it is ready whatever the
+    /// cooldown is doing, so the seconds are shown only when they are
+    /// what is actually in the way.
+    fn charges(world: &world::World, slot: u32, charge: world::Charge, mark: Mark) -> Face {
+        let held = world.charges_of(slot, charge);
+        let whole = world.charge_cooldown(slot, charge);
+        let left = world.charge_cooldown_left(slot, charge);
+        let mut face = Face {
+            count: Some(held),
+            short: held == 0,
+            ..Face::of(mark)
+        };
+        if held == 0 {
+            face.cooldown = left;
+            face.cooldown_whole = whole;
+        } else if held < world.charges(slot, charge) && left > 0.0 && whole > 0.0 {
+            face.recharge = Some((1.0 - left / whole).clamp(0.0, 1.0) as f32);
+        }
+        face
+    }
+}
+
+/// The medicine's two boxes (a medkit and the bandages), which every
+/// crew member has whatever its class, beside the class's own: the
+/// charges in the pack, the sweep while none is left, and the ring while
+/// the next is coming back. No key casts either, so neither is `ready`
+/// for anything but the look of it.
+fn medicine_boxes(world: &world::World, slot: u32) -> Vec<AbilityBox> {
+    if slot >= world.aboard.crew_count() {
+        return Vec::new();
+    }
+    [
+        (
+            world::Charge::Medkit,
+            crate::names::MEDKIT_BOX,
+            crate::names::MEDKIT_BOX_TIP,
+        ),
+        (
+            world::Charge::Bandage,
+            crate::names::BANDAGE_BOX,
+            crate::names::BANDAGE_BOX_TIP,
+        ),
+    ]
+    .into_iter()
+    .map(|(charge, name, tip)| {
+        let face = Face::charges(world, slot, charge, Mark::Thing(charge.resource()));
+        AbilityBox {
+            key: String::new(),
+            name,
+            tip,
+            mark: face.mark,
+            count: face.count,
+            cooldown: face.cooldown,
+            cooldown_whole: face.cooldown_whole,
+            recharge: face.recharge,
+            charge: face.charge,
+            on: face.on,
+            short: face.short,
+            locked: None,
+            action: None,
+        }
+    })
+    .collect()
 }
 
 impl AbilityBox {
@@ -4693,18 +4854,15 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                         o.by_slot == slot
                             && o.kind.code() == u32::from(action == Action::SquadStandGround) + 1
                     });
-                    Some((
-                        if action == Action::SquadFallBack {
+                    Some(Face {
+                        count: Some(world.squad_members(slot).len() as u32),
+                        on: running,
+                        ..Face::of(if action == Action::SquadFallBack {
                             Mark::FallBack
                         } else {
                             Mark::StandGround
-                        },
-                        Some(world.squad_members(slot).len() as u32),
-                        0.0,
-                        None,
-                        running,
-                        false,
-                    ))
+                        })
+                    })
                 }
                 Action::Carry => {
                     // Carrying, the box counts nothing: a nought in the
@@ -4713,130 +4871,87 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                     // how many are near enough to pick up.
                     let carrying = world.carrying_of(slot).is_some();
                     let near = world.carryable_near(slot).len() as u32;
-                    Some((
-                        Mark::Carry,
-                        (!carrying).then_some(near),
-                        0.0,
-                        None,
-                        carrying,
-                        !carrying && near == 0,
-                    ))
+                    Some(Face {
+                        count: (!carrying).then_some(near),
+                        on: carrying,
+                        short: !carrying && near == 0,
+                        ..Face::of(Mark::Carry)
+                    })
                 }
                 _ => None,
             };
-            let (mark, count, cooldown, charge, on, short) = if let Some(extra) = extra {
+            let face = if let Some(extra) = extra {
                 extra
             } else {
                 match (class, primary) {
-                    // The two boxes count the charges in the pack and,
-                    // **with none left**, show how long until the next
-                    // one lands (feature 88). The cooldown runs whenever
-                    // the pack is short of its charges, but a box with a
-                    // charge in it is ready whatever the cooldown is
-                    // doing, and `ready` reads the cooldown as a bar to
-                    // the key — so the seconds are shown only when they
-                    // are what is actually in the way.
-                    (Class::Engineer, true) => {
-                        let left = world.sentries_left(slot);
-                        (
-                            Mark::Thing(ResourceId::SentryKit),
-                            Some(left),
-                            if left == 0 {
-                                world.kit_cooldown_left(slot, world::Kit::Sentry)
-                            } else {
-                                0.0
-                            },
-                            None,
-                            false,
-                            left == 0,
-                        )
-                    }
-                    (Class::Engineer, false) => {
-                        let kits = world.kits_of(slot, world::Kit::Sandbag);
-                        (
-                            Mark::Thing(ResourceId::SandbagKit),
-                            Some(kits),
-                            if kits == 0 {
-                                world.kit_cooldown_left(slot, world::Kit::Sandbag)
-                            } else {
-                                0.0
-                            },
-                            None,
-                            false,
-                            kits == 0,
-                        )
-                    }
-                    // The grenade is a charge like the two kits since
-                    // feature 90: the box counts what is in the pack and
-                    // says the seconds only with none left.
-                    (Class::Soldier, true) => {
-                        let held = world.grenades_of(slot);
-                        (
-                            Mark::Thing(ResourceId::Grenade),
-                            Some(held),
-                            if held == 0 {
-                                world.grenade_cooldown_left(slot)
-                            } else {
-                                0.0
-                            },
-                            None,
-                            false,
-                            held == 0,
-                        )
-                    }
-                    (Class::Soldier, false) => {
-                        (Mark::Brace, None, 0.0, None, world.is_braced(slot), false)
-                    }
+                    // The engineer's two boxes and the soldier's grenade
+                    // count the charges in the pack (features 88 and 90)
+                    // and, **with none left**, sweep the seconds until
+                    // the next one lands; with some left and the next
+                    // on its way, the ring round the count fills instead.
+                    (Class::Engineer, true) => Face::charges(
+                        world,
+                        slot,
+                        world::Charge::Sentry,
+                        Mark::Thing(ResourceId::SentryKit),
+                    ),
+                    (Class::Engineer, false) => Face::charges(
+                        world,
+                        slot,
+                        world::Charge::Sandbag,
+                        Mark::Thing(ResourceId::SandbagKit),
+                    ),
+                    (Class::Soldier, true) => Face::charges(
+                        world,
+                        slot,
+                        world::Charge::Grenade,
+                        Mark::Thing(ResourceId::Grenade),
+                    ),
+                    (Class::Soldier, false) => Face {
+                        on: world.is_braced(slot),
+                        ..Face::of(Mark::Brace)
+                    },
                     (Class::Medic, true) => {
                         let charge = world.surge_charge(slot);
-                        (
-                            Mark::Surge,
-                            None,
-                            0.0,
-                            Some(charge),
-                            world.is_surging(slot),
-                            charge < 1.0,
-                        )
+                        Face {
+                            charge: Some(charge),
+                            on: world.is_surging(slot),
+                            short: charge < 1.0,
+                            ..Face::of(Mark::Surge)
+                        }
                     }
                     (Class::Medic, false) => {
                         let held = world.patients_of(slot).len();
-                        (
-                            Mark::Beam,
-                            Some(world.beam_patients(slot).saturating_sub(held) as u32),
-                            0.0,
-                            None,
-                            held > 0,
-                            false,
-                        )
+                        Face {
+                            count: Some(world.beam_patients(slot).saturating_sub(held) as u32),
+                            on: held > 0,
+                            ..Face::of(Mark::Beam)
+                        }
                     }
-                    (Class::Tank, true) => (
-                        Mark::Taunt,
-                        None,
-                        world.taunt_cooldown_left(slot),
-                        None,
-                        world.taunt_left(slot) > 0.0,
-                        false,
-                    ),
-                    (Class::Tank, false) => {
-                        (Mark::Wall, None, 0.0, None, world.is_bulwark(slot), false)
-                    }
-                    (Class::Commander, true) => (
-                        Mark::Rally,
-                        None,
-                        world.rally_cooldown_left(slot),
-                        None,
-                        world.rally_left(slot) > 0.0,
-                        false,
-                    ),
-                    (Class::Commander, false) => (
-                        Mark::Squad,
-                        Some(world.squad_members(slot).len() as u32),
-                        0.0,
-                        None,
-                        world.squad.as_ref().is_some_and(|o| o.by_slot == slot),
-                        false,
-                    ),
-                    (Class::None, _) => (Mark::Brace, None, 0.0, None, false, false),
+                    // The two cooldowns that are not charges sweep the
+                    // same way, over the whole of their own length.
+                    (Class::Tank, true) => Face {
+                        cooldown: world.taunt_cooldown_left(slot),
+                        cooldown_whole: world::class::TAUNT_COOLDOWN,
+                        on: world.taunt_left(slot) > 0.0,
+                        ..Face::of(Mark::Taunt)
+                    },
+                    (Class::Tank, false) => Face {
+                        on: world.is_bulwark(slot),
+                        ..Face::of(Mark::Wall)
+                    },
+                    (Class::Commander, true) => Face {
+                        cooldown: world.rally_cooldown_left(slot),
+                        cooldown_whole: world.rally_cooldown(slot),
+                        on: world.rally_left(slot) > 0.0,
+                        ..Face::of(Mark::Rally)
+                    },
+                    (Class::Commander, false) => Face {
+                        count: Some(world.squad_members(slot).len() as u32),
+                        on: world.squad.as_ref().is_some_and(|o| o.by_slot == slot),
+                        ..Face::of(Mark::Squad)
+                    },
+                    (Class::None, _) => Face::of(Mark::Brace),
                 }
             };
             let (name, tip) = match action {
@@ -4851,14 +4966,16 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
                 key: keys.key(action).name().to_string(),
                 name,
                 tip,
-                mark,
-                count,
-                cooldown,
-                charge,
-                on,
-                short,
+                mark: face.mark,
+                count: face.count,
+                cooldown: face.cooldown,
+                cooldown_whole: face.cooldown_whole,
+                recharge: face.recharge,
+                charge: face.charge,
+                on: face.on,
+                short: face.short,
                 locked: (level < wants).then_some(wants),
-                action,
+                action: Some(action),
             }
         })
         .collect()
@@ -4913,12 +5030,15 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
     }
 }
 
+/// The medicine's two boxes go at the right-hand end, past a rule, so
+/// the class's keys are one group and what everybody carries another.
 fn ability_bar(
     ctx: &egui::Context,
     canvas: crate::shapes::Rect,
     boxes: &[AbilityBox],
+    medicine: &[AbilityBox],
 ) -> Option<Action> {
-    if boxes.is_empty() {
+    if boxes.is_empty() && medicine.is_empty() {
         return None;
     }
     let id = egui::Id::new("game-abilities");
@@ -4938,8 +5058,14 @@ fn ability_bar(
                 ui.horizontal(|ui| {
                     for one in boxes {
                         if ability_box(ui, one) {
-                            hovered = Some(one.action);
+                            hovered = one.action;
                         }
+                    }
+                    if !boxes.is_empty() && !medicine.is_empty() {
+                        ui.separator();
+                    }
+                    for one in medicine {
+                        ability_box(ui, one);
                     }
                 });
             });
@@ -5007,8 +5133,16 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
             Mark::StandGround => theme::stand_ground_mark(painter, middle, radius),
             Mark::Carry => theme::carry_mark(painter, middle, radius),
         }
-        if !ready {
-            painter.rect_filled(rect, 4.0, theme::PANEL_DEEP.gamma_multiply(0.62));
+        // Off, the box goes dark — and a cooldown goes dark the way Dota
+        // 2 draws one: only the share still to come, swept back
+        // clockwise from twelve o'clock as it runs out, so how long is
+        // left is read off the picture before the seconds.
+        let shade = theme::PANEL_DEEP.gamma_multiply(0.62);
+        if one.locked.is_none() && one.cooldown > 0.0 && one.cooldown_whole > 0.0 {
+            let left = (one.cooldown / one.cooldown_whole).clamp(0.0, 1.0) as f32;
+            cooldown_sweep(painter, rect, left, theme::PANEL_DEEP.gamma_multiply(0.85));
+        } else if !ready {
+            painter.rect_filled(rect, 4.0, shade);
         }
         painter.rect_stroke(
             rect,
@@ -5025,15 +5159,31 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
             if ready { theme::INK } else { theme::MUTED },
         );
         // What is left, in the bottom right — nothing where nothing is
-        // counted.
+        // counted. A stock of charges (a thing out of the pack: a kit, a
+        // grenade, the medicine) has its count on a disc of its own, and
+        // the ring round the disc fills clockwise while the next charge
+        // comes back — Dota 2's charge counter.
         if let Some(count) = one.count {
-            painter.text(
-                rect.max - egui::vec2(4.0, 3.0),
-                egui::Align2::RIGHT_BOTTOM,
-                format!("{count}"),
-                egui::FontId::proportional(15.0),
-                if count == 0 { theme::MUTED } else { theme::INK },
-            );
+            let ink = if count == 0 { theme::MUTED } else { theme::INK };
+            if matches!(one.mark, Mark::Thing(_)) {
+                let at = rect.max - egui::vec2(CHARGE_BADGE + 2.0, CHARGE_BADGE + 2.0);
+                recharge_badge(painter, at, one.recharge);
+                painter.text(
+                    at,
+                    egui::Align2::CENTER_CENTER,
+                    format!("{count}"),
+                    egui::FontId::proportional(12.0),
+                    ink,
+                );
+            } else {
+                painter.text(
+                    rect.max - egui::vec2(4.0, 3.0),
+                    egui::Align2::RIGHT_BOTTOM,
+                    format!("{count}"),
+                    egui::FontId::proportional(15.0),
+                    ink,
+                );
+            }
         }
         // The surge's charge, as a bar along the foot.
         if let Some(charge) = one.charge {
@@ -5053,6 +5203,14 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
             None
         };
         if let Some((words, color)) = over {
+            // A shadow under the words, since they sit over the picture.
+            painter.text(
+                middle + egui::vec2(1.0, 1.0),
+                egui::Align2::CENTER_CENTER,
+                &words,
+                egui::FontId::proportional(13.0),
+                theme::PANEL_DEEP,
+            );
             painter.text(
                 middle,
                 egui::Align2::CENTER_CENTER,
@@ -5071,6 +5229,74 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
         resting
     })
     .inner
+}
+
+/// The radius of the disc a stock of charges is counted on, in the
+/// bottom right of its box.
+const CHARGE_BADGE: f32 = 8.0;
+
+/// Dota 2's clock over a box on cooldown: `left` of a whole turn still
+/// to come, laid dark from where the sweep has got to round clockwise
+/// to twelve o'clock, so the lit part grows clockwise from the top as
+/// the cooldown runs out. A fan from the middle of the box out to its
+/// edge — through the corners the sweep has not passed yet, since
+/// between two of them the edge is straight and the fan is exact — so
+/// the corners go dark with the rest. A thin line marks the hand.
+fn cooldown_sweep(painter: &egui::Painter, rect: egui::Rect, left: f32, shade: egui::Color32) {
+    use std::f32::consts::{FRAC_PI_4, TAU};
+    if left <= 0.0 {
+        return;
+    }
+    let middle = rect.center();
+    let half = rect.size() / 2.0;
+    // Where a ray from the middle at `a` (clockwise from straight up)
+    // leaves the box.
+    let edge = |a: f32| {
+        let way = egui::vec2(a.sin(), -a.cos());
+        let reach = (half.x / way.x.abs().max(1e-6)).min(half.y / way.y.abs().max(1e-6));
+        middle + way * reach
+    };
+    let from = (1.0 - left.min(1.0)) * TAU;
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(middle, shade);
+    mesh.colored_vertex(edge(from), shade);
+    for corner in [1.0, 3.0, 5.0, 7.0].map(|k| k * FRAC_PI_4) {
+        if corner > from {
+            mesh.colored_vertex(edge(corner), shade);
+        }
+    }
+    mesh.colored_vertex(edge(TAU), shade);
+    for i in 1..mesh.vertices.len() as u32 - 1 {
+        mesh.add_triangle(0, i, i + 1);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+    if left < 1.0 {
+        painter.line_segment(
+            [middle, edge(from)],
+            egui::Stroke::new(1.0, theme::INK.gamma_multiply(0.45)),
+        );
+    }
+}
+
+/// The disc a stock of charges is counted on, and — while the next
+/// charge is coming back — the ring round it filling clockwise from
+/// twelve o'clock by `recharge`, over a faint track of the whole ring.
+fn recharge_badge(painter: &egui::Painter, at: egui::Pos2, recharge: Option<f32>) {
+    use std::f32::consts::TAU;
+    painter.circle_filled(at, CHARGE_BADGE, theme::PANEL_DEEP.gamma_multiply(0.9));
+    let Some(share) = recharge else {
+        return;
+    };
+    let ring = CHARGE_BADGE + 1.5;
+    painter.circle_stroke(at, ring, egui::Stroke::new(2.0, theme::LINE));
+    let steps = ((share * 32.0).ceil() as usize).max(1);
+    let arc: Vec<egui::Pos2> = (0..=steps)
+        .map(|i| {
+            let a = share * TAU * i as f32 / steps as f32;
+            at + egui::vec2(a.sin(), -a.cos()) * ring
+        })
+        .collect();
+    painter.add(egui::Shape::line(arc, egui::Stroke::new(2.0, theme::ACCENT)));
 }
 
 /// What the class's two keys do for the crew member `slot` steers

@@ -3135,11 +3135,11 @@ impl Task {
             // hold for it only when the treatment is done; a chain given up
             // for good puts it back (`let_go`).
             //
-            // Out of the Bim's own pack when it has one there: the room
-            // says whose (`pack_kits_used`) and the world takes it out of
-            // the pack and onto the hold's count, so that from here on
-            // there is one kind of kit in a hand and the counting is the
-            // same for both.
+            // Out of the Bim's own pack when it has one there — which
+            // aboard is every kit, a medkit being a charge in the pack:
+            // the room says whose (`pack_kits_used`), and the world takes
+            // the kit out of the pack when the treatment is done rather
+            // than now, so a chain given up leaves it where it was.
             TakeKit => {
                 if room.carries_kit(self.who) {
                     if let Some(kits) = room.pack_kits.get_mut(self.who) {

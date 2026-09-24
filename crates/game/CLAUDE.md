@@ -1535,12 +1535,10 @@ prints the curves itself.
   for `Game::take_wounds_taken()` — the world logs `CrewHit` off that,
   it does not apply it. The **part** is rolled the instant the bolt
   reaches the body, `Part::hit_by(rng.unit())` off the combat stream.
-  Each gun's bolt has a look of its own in `Combat::draw` — the pistol's
-  dash as before, the shotgun a fan of five short orange pellets
-  (`PELLETS`, `PELLET_SPREAD` ±6°, one bolt drawn five times), the rifle
-  a short thin yellow tracer, the sniper a long thin white-blue streak
-  with a bright head — each tinted towards the side's colour with
-  `Color::mix` (added to `draw.rs` for it), so red still says whose.
+  Each gun's bolt has a look of its own in `Combat::draw`, and since
+  feature 98 **every one is a laser in its side's colour** — see "The
+  fight's passing lights" at the end of this file for the shapes, the
+  muzzles, the flashes and the scorches.
 - **A peek exposes the peek.** When `aim` answers with an eye that is
   not the body — `Sight::eyes_from`'s peek beside a wall — `Bim::peek`
   is that eye and `Character::set_lean(Some(eye))` draws the body at
@@ -3738,3 +3736,70 @@ so two things were added, both of them empty and inert everywhere else.
 Neither list is anybody's but the world's: the room decides nothing about
 who is on which side. The world's half is `crates/world/CLAUDE.md`,
 "Defending a town".
+
+## The fight's passing lights (feature 98)
+
+`crates/game/src/fx.rs`, held as `Combat::fx` (`serde(skip)`). **Every
+gun is a laser**, drawn in one language: a core past white that blooms
+(`fx::laser`, `fx::hot`, feature 97's emissive), in the side's colour —
+`FRIENDLY_BOLT` blue for the crew, `HOSTILE_BOLT` red for the enemy,
+whatever the gun — and the guns told apart by **shape, length, thickness
+and rhythm**: the pistol one short clean bolt, the shotgun five short
+pulses whose spread opens as it flies (`PELLET_FAN*`, `PELLET_STAGGER`),
+the auto rifle a thin dash with a shorter one behind (`PULSE_*`), the
+sniper a beam from the muzzle to the bolt, faint where it left and bright
+over the last `STREAK_LENGTH`. A tier above the first is `TIER_WIDTH`
+thicker and `TIER_HEAT` hotter (`fx::tier_look`), never another colour.
+The Unmaker's lance is as feature 83 drew it.
+
+- **The lights are the host's, on the host's clock.** `Game::fade(real)`
+  (`Session::age_effects`, called once a frame by both screens with the
+  window's frame time, nought while paused) ages them in **real
+  seconds** and switches recording on. A room nobody fades records
+  nothing — every test, probe and server — and draws what it drew before
+  this feature: the sim-time spark where a bolt lands and the whole-body
+  hit flash (`HIT_FLASH`), which `Combat::draw` and `Game::render` fall
+  back to when `Fx::is_on` is false. That is also why the save round
+  trip's picture comparison still holds: neither session is faded.
+- **Nothing the simulation reads.** Spawning is a push onto a capped
+  list; no rule, no roll, no checksum reads one back, and which way a
+  spark flies is `fx::scatter` (a hash), never the combat stream.
+  `the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone`
+  in `crates/ship/src/tests.rs` steps a lit and an unlit session side by
+  side and asserts the same checksum.
+- **A fresh effect is aged by at most `FIRST_FRAME`** (a sixtieth) in the
+  frame it was spawned in: a long frame — the first of a run, a hitch —
+  would otherwise age a four-frame flash out before it was ever drawn.
+- **Where each is spawned.** The muzzle: `Combat::fire_as` for our own
+  side, at the `from` it is given (the muzzle, feature 84); an enemy's is
+  lit where its **body** is by `Game::lit_muzzle` — a hostile room's Bim
+  beside its `combat.shoot`, a machine at `Droid::muzzle` (the end of the
+  arm it is drawn with, not the eye its shot is traced from) — because
+  the bolt itself flies in another room from a seam point. The flash, the
+  scorch (not on a body) and the sniper's lingering beam:
+  `Combat::step` where a bolt stops (`Fx::landed`); a bolt that flies out
+  its range leaves only the sniper's beam (`Fx::spent`). The cut: a
+  blade's blow, `Combat::brawl_at` for ours and `Game::enemy_strike` for
+  theirs. The flash on the **part** struck: `Game::strike_stripping`
+  (`Character::part_mark` says where head, body and legs are drawn) and
+  `Game::strike_droid` (`Droid::part_mark`), which also bursts a machine
+  the instant its head or chassis goes.
+- **Where each is drawn.** Scorches after the filth, under the bodies
+  (`Fx::draw_ground`); a part's flash right after the body it is on, so
+  it follows the body; a machine's thrown plates after the machines
+  (`Fx::draw_debris`, cold, non-emissive); everything else over the fog
+  with the bolts (`Fx::draw_air` from `Combat::draw`).
+- **The blade and the emitter take the side too.** A schword in a hand
+  has its core lit past white in its edge's colour (`BLADE_TINT`,
+  `BLADE_HEAT`; the crew's cyan, an enemy's red) and one on the deck is
+  cold; `draw_gun`'s emitter glow is `Option<Color>`, red on an enemy's
+  gun. A machine's sparks are `SPARK_HEAT` past white.
+- **Shadows are soft.** `DrawList::soft_ellipse` (`SOFT_LAYERS`, three
+  ellipses) under every Bim standing or lying and every machine, the same
+  darkness in the middle as the old single ellipse. The shade along the
+  inside of the walls is the ship painter's (`world_paint::wall_shade`,
+  `crates/ship`).
+
+`BIMS_FREEZE=n+f` (`crates/app/src/dev.rs`) pauses the game `f` frames
+after the n-th shot or blow the crew's room hears — `down:n+f` after the
+n-th machine destroyed — which is how these are caught in a screenshot.

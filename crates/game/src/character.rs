@@ -234,12 +234,18 @@ const AIM_ACROSS: f32 = 1.15;
 /// and reads as a lance.
 const GUN_SCALE: f32 = 0.72;
 /// The schword: a hilt, and a blade with a white core and a cyan laser
-/// edge — two strokes, one wide and faint, one thin and bright, which is
-/// as near as a flat colour gets to a glow. The swing is the same blade
-/// swept through an arc in front of the body.
+/// edge — two strokes, one wide and faint, one thin and bright. The swing
+/// is the same blade swept through an arc in front of the body. In a
+/// hand the core is lit (feature 98): pulled `BLADE_TINT` of the way
+/// towards the edge's colour — the crew's cyan or the enemy's red — and
+/// `BLADE_HEAT` times as bright, past white, so the bloom makes the glow
+/// the two strokes were standing in for. A little cooler than a bolt's
+/// core, since a blade is lit the whole time it is held.
 const HILT: Color = Color::rgb(0.22, 0.22, 0.26);
 const BLADE_CORE: Color = Color::rgb(0.98, 1.0, 1.0);
 pub const BLADE_EDGE: Color = Color::rgb(0.45, 0.95, 1.0);
+const BLADE_TINT: f32 = 0.35;
+const BLADE_HEAT: f32 = 1.9;
 /// How long a swing or a punch takes, in seconds — a number of the
 /// fight, kept in `crate::balance` since the blow lands when the animation
 /// ends (`crate::combat::Blow`) — and how wide a swing sweeps: a hundred
@@ -2092,6 +2098,24 @@ impl Character {
         Some(self.drawn_at() + (at * self.body_scale()).rotate(self.heading))
     }
 
+    /// Where a hit on `part` shows and how big (feature 98's flash on the
+    /// part struck), in room units: the head, the middle of the coverall
+    /// behind it, and the legs trailing under the body — the standing
+    /// figure's own places, turned with it and at its scale. Drawing only.
+    pub fn part_mark(&self, part: crate::health::Part) -> (Vec2, f32) {
+        use crate::health::Part;
+        let (local, radius) = match part {
+            Part::Head => (vec2(2.5, 0.0), 6.5),
+            Part::Body => (vec2(-4.0, 0.0), 9.0),
+            Part::Legs => (vec2(-12.0, 0.0), 6.5),
+        };
+        let scale = self.body_scale();
+        (
+            self.drawn_at() + (local * scale).rotate(self.heading),
+            radius * scale,
+        )
+    }
+
     /// How far through its sweep a swing is, nought to one.
     fn swing_through(&self) -> f32 {
         clamp(self.action_phase / SWING_TIME, 0.0, 1.0)
@@ -2146,9 +2170,10 @@ impl Character {
         // has not moved, and nothing but the picture knows.
         let pos = self.drawn_at();
 
-        // Cast under the body and turned with it, so the halo always fits.
-        // It pulls in and darkens as the Bim leaves the deck.
-        list.ellipse(
+        // Cast under the body and turned with it, so the halo always fits,
+        // and soft at its edge (feature 98). It pulls in and darkens as the
+        // Bim leaves the deck.
+        list.soft_ellipse(
             pos + vec2(0.0, (4.5 + 7.0 * hop) * self.body_scale()),
             vec2(28.0, 36.0) * self.body_scale() * (1.0 - 0.22 * hop),
             self.heading,
@@ -2494,7 +2519,7 @@ impl Character {
     fn draw_flat(&self, list: &mut DrawList, scale: f32, colours: (Color, Color, Color, Color)) {
         let (shirt, sleeve, skin, hair) = colours;
         let scale = scale * FLAT_SCALE;
-        list.ellipse(
+        list.soft_ellipse(
             self.pos + vec2(3.0, 5.0) * FLAT_SCALE,
             vec2(68.0, 36.0) * self.body_scale() * FLAT_SCALE,
             self.heading,
@@ -2788,13 +2813,16 @@ impl Character {
         let blade = scale * GUN_SCALE;
         if weapon == WeaponKind::Schword {
             let hilt = grip + vec2(2.0, 0.0);
+            // In a hand the edge is lit, in its side's colour: the crew's
+            // cyan, the enemy's red (feature 98).
+            let edge = if self.hostile { ENEMY } else { BLADE_EDGE };
             if self.action == Action::Swing {
                 // Swept across in front of the body, from the left to
                 // the right, the blade along the arc's radius.
                 let angle = SWING_ARC * (self.swing_through() - 0.5);
                 let base = to_world(vec2(6.0, 0.0));
                 let dir = Vec2::from_angle(rot + angle);
-                draw_blade(list, base + dir * 4.0, dir, 36.0 * blade);
+                draw_blade(list, base + dir * 4.0, dir, 36.0 * blade, edge, true);
                 // The arc behind it, fading: where the blade has been.
                 let steps = 6;
                 for i in 0..steps {
@@ -2809,7 +2837,7 @@ impl Character {
                         base + d * (14.0 * blade),
                         base + d * (40.0 * blade),
                         5.0,
-                        BLADE_EDGE.alpha(0.25 * fade),
+                        edge.alpha(0.25 * fade),
                     );
                 }
             } else {
@@ -2817,7 +2845,7 @@ impl Character {
                 // forward and a little raised — angled in across the front
                 // the way every gun is ([`Character::gun_rot`]).
                 let dir = Vec2::from_angle(rot + self.gun_rot(grip));
-                draw_blade(list, to_world(hilt), dir, 34.0 * blade);
+                draw_blade(list, to_world(hilt), dir, 34.0 * blade, edge, true);
             }
             return;
         }
@@ -2825,7 +2853,8 @@ impl Character {
         // it, so its silhouette runs unbroken along its own line and what
         // shows of a hand is the half of it round the far side.
         let mut b = list.brush(to_world(grip), rot + self.gun_rot(grip), blade);
-        draw_gun(&mut b, Vec2::ZERO, weapon, true);
+        let lit = if self.hostile { ENEMY } else { GUN_LIT };
+        draw_gun(&mut b, Vec2::ZERO, weapon, Some(lit));
     }
 }
 
@@ -2880,13 +2909,14 @@ fn gun_reach(weapon: WeaponKind) -> f32 {
 /// running forward along the frame's `+x`. The hands are not here: this
 /// is the gun itself, so the one in a Bim's hands and the one lying on
 /// the deck where a body dropped it are the same gun, and there is one
-/// place to change what a gun looks like. `lit` puts the emitter's glow
-/// at the muzzle — a gun on the deck is cold.
+/// place to change what a gun looks like. `lit` is the emitter's glow at
+/// the muzzle, in the side's colour — the crew's blue, an enemy's red
+/// (feature 98) — and `None` for a gun on the deck, which is cold.
 ///
 /// Seen from above, so every piece is a block along the length and the
 /// things that would hang under the gun are canted out to the side
 /// instead: the rifle's magazine, the sniper's bipod legs.
-fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: bool) {
+fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: Option<Color>) {
     // A piece of the gun: a block with a rim a shade lighter round it,
     // so each piece holds its own edge against any deck colour.
     let part = |b: &mut Brush, at: Vec2, size: Vec2, rot: f32, c: Color| {
@@ -2896,22 +2926,22 @@ fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: bool) {
     // The muzzle: the emitter's eye, and the glow round it when the gun
     // is in a hand rather than on the deck.
     let muzzle = |b: &mut Brush, at: f32, size: f32| {
-        if !lit {
+        let Some(glow) = lit else {
             return;
-        }
+        };
         b.ellipse(
             grip + vec2(at, 0.0),
             vec2(size * 2.8, size * 2.8),
             0.0,
-            GUN_LIT.alpha(0.14),
+            glow.alpha(0.14),
         );
         b.ellipse(
             grip + vec2(at, 0.0),
             vec2(size * 1.7, size * 1.7),
             0.0,
-            GUN_LIT.alpha(0.38),
+            glow.alpha(0.38),
         );
-        b.ellipse(grip + vec2(at, 0.0), vec2(size, size), 0.0, GUN_LIT);
+        b.ellipse(grip + vec2(at, 0.0), vec2(size, size), 0.0, glow);
     };
     match weapon {
         WeaponKind::LaserPistol => {
@@ -3321,21 +3351,37 @@ pub fn draw_dropped(list: &mut DrawList, at: Vec2, weapon: WeaponKind) {
     );
     if weapon == WeaponKind::Schword {
         let dir = Vec2::from_angle(ASKEW);
-        draw_blade(list, at - dir * (14.0 * s), dir, 30.0 * s);
+        draw_blade(
+            list,
+            at - dir * (14.0 * s),
+            dir,
+            30.0 * s,
+            BLADE_EDGE,
+            false,
+        );
         return;
     }
     let mut b = list.brush(at, ASKEW, s);
-    draw_gun(&mut b, vec2(-reach * 0.5, 0.0), weapon, false);
+    draw_gun(&mut b, vec2(-reach * 0.5, 0.0), weapon, None);
 }
 
-fn draw_blade(list: &mut DrawList, hilt: Vec2, dir: Vec2, length: f32) {
+/// A schword's blade from its hilt along `dir`, its edge in `edge`: two
+/// strokes of it round a white core. `lit` — the blade in a hand — pulls
+/// the core towards the edge's colour and past white (feature 98), so it
+/// blooms like a shot does; one on the deck is cold.
+fn draw_blade(list: &mut DrawList, hilt: Vec2, dir: Vec2, length: f32, edge: Color, lit: bool) {
     let rot = dir.angle();
     let s = BODY_SCALE;
     let tip = hilt + dir * length;
     let start = hilt + dir * (7.0 * s);
-    list.line(start, tip, 10.0 * s, BLADE_EDGE.alpha(0.22));
-    list.line(start, tip, 4.5 * s, BLADE_EDGE.alpha(0.85));
-    list.line(start, tip, 2.0 * s, BLADE_CORE);
+    list.line(start, tip, 10.0 * s, edge.alpha(0.22));
+    list.line(start, tip, 4.5 * s, edge.alpha(0.85));
+    let core = if lit {
+        edge.mix(BLADE_CORE, 1.0 - BLADE_TINT).glowing(BLADE_HEAT)
+    } else {
+        BLADE_CORE
+    };
+    list.line(start, tip, 2.0 * s, core);
     list.rect(hilt + dir * (2.0 * s), vec2(9.0, 4.0) * s, rot, 1.0, HILT);
     list.rect(
         hilt + dir * (7.0 * s),

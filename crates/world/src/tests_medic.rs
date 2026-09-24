@@ -221,22 +221,41 @@ fn a_medic_sets_out_with_its_kit_the_pool_is_unchanged_and_anyone_still_doctors(
         Some(WeaponKind::LaserPistol.basic()),
         "the pistol stays in hand"
     );
+    // A medic's medicine: four medkits and ten bandages, where anybody
+    // else carries everybody's one and five.
     assert_eq!(
         count_in_pack(&world, 0, ResourceId::Medkit),
-        class::MEDIC_START_MEDKITS as usize
+        class::MEDIC_MEDKIT_CHARGES as usize
     );
     assert_eq!(
         count_in_pack(&world, 0, ResourceId::Bandage),
-        class::MEDIC_START_BANDAGES as usize
+        class::MEDIC_BANDAGE_CHARGES as usize
     );
-    assert_eq!(count_in_pack(&world, 1, ResourceId::Medkit), 0);
-    // Back to none takes them out; on to a soldier swaps the kits.
+    assert_eq!(
+        count_in_pack(&world, 1, ResourceId::Medkit),
+        class::MEDKIT_CHARGES as usize
+    );
+    assert_eq!(
+        count_in_pack(&world, 1, ResourceId::Bandage),
+        class::BANDAGE_CHARGES as usize
+    );
+    // Back to none takes the medic's extra out and leaves everybody's;
+    // on to a soldier the same, and the grenades beside them.
     assert_eq!(world.set_class(0, Class::None), Ok(()));
-    assert_eq!(count_in_pack(&world, 0, ResourceId::Medkit), 0);
-    assert_eq!(count_in_pack(&world, 0, ResourceId::Bandage), 0);
+    assert_eq!(
+        count_in_pack(&world, 0, ResourceId::Medkit),
+        class::MEDKIT_CHARGES as usize
+    );
+    assert_eq!(
+        count_in_pack(&world, 0, ResourceId::Bandage),
+        class::BANDAGE_CHARGES as usize
+    );
     assert_eq!(world.set_class(0, Class::Medic), Ok(()));
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
-    assert_eq!(count_in_pack(&world, 0, ResourceId::Medkit), 0);
+    assert_eq!(
+        count_in_pack(&world, 0, ResourceId::Medkit),
+        class::MEDKIT_CHARGES as usize
+    );
     assert_eq!(world.grenades_of(0), class::GRENADE_CHARGES);
     assert_eq!(world.money, money);
     // Anybody bandages and treats: a soldier and a classless Bim alike.
@@ -322,43 +341,148 @@ fn a_medic_earns_five_for_a_finished_bandage_or_treatment_on_a_crewmate_and_noth
 }
 
 #[test]
-fn a_helper_treats_with_the_kit_in_its_own_pack_before_fetching_one_off_a_shelf() {
-    // Its own kit: the pack is one down, the hold is untouched, and the
-    // medic never leaves the patient's side for a cabinet.
+fn a_helper_treats_with_the_kit_in_its_own_pack_and_the_hold_is_never_touched() {
+    // Its own kit: opened where it stands, the pack one down once the
+    // treatment is done, and the hold untouched — the medic never leaves
+    // the patient's side for a cabinet.
     let mut world = medic();
     let hold = world.ship.design.carrying(ResourceId::Medkit);
     let carried = count_in_pack(&world, 0, ResourceId::Medkit);
     assert!(hold > 0 && carried > 0, "kits both places");
     make_dying(&mut world, 1);
     let stood = world.aboard.room.bim_pos(0);
-    let own = treat_and_wait(&mut world, 0, 1, Part::Body).expect("treated");
+    assert!(treat_and_wait(&mut world, 0, 1, Part::Body).is_some());
     let went = (world.aboard.room.bim_pos(0) - stood).len();
     assert_eq!(count_in_pack(&world, 0, ResourceId::Medkit), carried - 1);
     assert_eq!(world.ship.design.carrying(ResourceId::Medkit), hold);
     assert!(went <= 2.0 * TILE, "stayed put: {went}");
-    // The same medic with an empty pack walks to a cabinet for one of
-    // the hold's, which takes longer and costs the hold a kit.
+    // A treatment given up before it is done leaves the kit in the pack:
+    // it is spent when the hands come off the patient, not when it is
+    // taken up.
     let mut world = medic();
-    empty_pack_of_kits(&mut world, 0);
     make_dying(&mut world, 1);
-    let from_shelf = treat_and_wait(&mut world, 0, 1, Part::Body).expect("treated");
-    assert_eq!(count_in_pack(&world, 0, ResourceId::Medkit), 0);
-    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), hold - 1);
-    assert!(
-        own < from_shelf,
-        "its own kit is the quicker: {own} against {from_shelf}"
-    );
-    // And a pack kit is a kit when the hold has none: no field surgery
-    // asked for, nothing off the hold, and the pack one down.
+    world.step(&[Command::Crew {
+        slot: 0,
+        order: CrewOrder::Treat {
+            who: 0,
+            patient: 1,
+            part: Part::Body,
+        },
+    }]);
+    for _ in 0..(2 * STEPS_A_MINUTE) {
+        world.step(&[]);
+    }
+    assert!(world.aboard.room.is_dying(1), "not done yet");
+    let far = world.aboard.room.bim_pos(0) + vec2(4.0 * TILE, 0.0);
+    world.step(&[Command::Crew {
+        slot: 0,
+        order: CrewOrder::SendTo {
+            who: 0,
+            x: far.x,
+            y: far.y,
+        },
+    }]);
+    for _ in 0..(2 * STEPS_A_MINUTE) {
+        world.step(&[]);
+    }
+    assert_eq!(count_in_pack(&world, 0, ResourceId::Medkit), carried);
+    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), hold);
+    // An empty pack is no kit, whatever the hold has: there is no shelf
+    // to walk to, and without *field surgeon* the order is refused.
     let mut world = medic();
-    world.ship.design.cargo[ResourceId::Medkit as usize] = 0;
+    world.medicine_off_for_probe();
+    empty_pack_of_kits(&mut world, 0);
     world.step(&[]);
     assert_eq!(world.aboard.room.medkits(), 0, "no shelf to walk to");
     assert!(!world.has_talent(0, Talent::FieldSurgeon));
     make_dying(&mut world, 1);
-    assert!(treat_and_wait(&mut world, 0, 1, Part::Body).is_some());
-    assert_eq!(count_in_pack(&world, 0, ResourceId::Medkit), carried - 1);
-    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), 0);
+    assert!(
+        !world.aboard.room.treat(0, 1, Part::Body),
+        "nothing to treat with"
+    );
+    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), hold);
+}
+
+/// Everybody's medicine: every crew member sets out with a medkit and
+/// five bandages whatever its class; a spent one comes back into the
+/// pack on its own cooldown — a dressing every thirty seconds of the
+/// clock, one at a time — and never out of the hold; and neither can be
+/// stowed there, or the cooldown would be a tap.
+#[test]
+fn everybody_carries_a_medkit_and_five_bandages_that_come_back_on_their_cooldowns() {
+    use crate::class::Charge;
+    let mut world = basic();
+    hold_still(&mut world);
+    for who in 0..world.aboard.crew_count() {
+        assert_eq!(world.charges(who, Charge::Medkit), class::MEDKIT_CHARGES);
+        assert_eq!(world.charges(who, Charge::Bandage), class::BANDAGE_CHARGES);
+        assert_eq!(world.charges_of(who, Charge::Medkit), class::MEDKIT_CHARGES);
+        assert_eq!(
+            world.charges_of(who, Charge::Bandage),
+            class::BANDAGE_CHARGES
+        );
+        assert_eq!(world.charge_cooldown_left(who, Charge::Bandage), 0.0);
+    }
+    let kits = world.ship.design.carrying(ResourceId::Medkit);
+    let dressings = world.ship.design.carrying(ResourceId::Bandage);
+    // Two dressings spent: they come back one at a time, thirty seconds
+    // of the clock apiece — a game minute is a second of it.
+    world
+        .aboard
+        .room
+        .take_stack(0, bims::game::BANDAGE, 2);
+    world.step(&[]);
+    assert_eq!(
+        world.charges_of(0, Charge::Bandage),
+        class::BANDAGE_CHARGES - 2
+    );
+    let left = world.charge_cooldown_left(0, Charge::Bandage);
+    assert!(
+        left > class::BANDAGE_COOLDOWN - 1.0 && left <= class::BANDAGE_COOLDOWN,
+        "{left}"
+    );
+    let a_charge = class::BANDAGE_COOLDOWN as u32 * STEPS_A_MINUTE + 2;
+    for _ in 0..a_charge {
+        world.step(&[]);
+    }
+    assert_eq!(
+        world.charges_of(0, Charge::Bandage),
+        class::BANDAGE_CHARGES - 1,
+        "one back"
+    );
+    assert!(world.charge_cooldown_left(0, Charge::Bandage) > 0.0, "and the next under way");
+    for _ in 0..a_charge {
+        world.step(&[]);
+    }
+    assert_eq!(world.charges_of(0, Charge::Bandage), class::BANDAGE_CHARGES);
+    assert_eq!(world.charge_cooldown_left(0, Charge::Bandage), 0.0, "full");
+    // Nothing of it came out of the hold.
+    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), kits);
+    assert_eq!(world.ship.design.carrying(ResourceId::Bandage), dressings);
+    // And the medicine stays in the pack: a stow of either is refused.
+    for resource in [ResourceId::Medkit, ResourceId::Bandage] {
+        let cell = world
+            .aboard
+            .room
+            .pack(0)
+            .iter()
+            .position(|i| *i == Some(Item::Stack(resource as u32)))
+            .expect("in the pack") as u32;
+        let events = world.step(&[Command::Stow {
+            slot: 0,
+            who: 0,
+            cell,
+        }]);
+        assert!(
+            events.contains(&WorldEvent::Refused {
+                slot: 0,
+                why: Refusal::ChargeKept
+            }),
+            "{resource:?}: {events:?}"
+        );
+    }
+    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), kits);
+    assert_eq!(world.charges_of(0, Charge::Medkit), class::MEDKIT_CHARGES);
 }
 
 #[test]
@@ -1121,7 +1245,8 @@ fn mass_surge_covers_the_crew_round_the_patient_and_field_surgeon_treats_without
     assert!(kits > 0);
     world.ship.design.cargo[ResourceId::Medkit as usize] = 0;
     // The medic's own kit is a kit: no medkit anywhere means its pack
-    // emptied of them as well as the hold.
+    // emptied of them, and none coming back on the cooldown.
+    world.medicine_off_for_probe();
     empty_pack_of_kits(&mut world, 0);
     world.step(&[]);
     assert_eq!(world.aboard.room.medkits(), 0);
@@ -1158,8 +1283,11 @@ fn mass_surge_covers_the_crew_round_the_patient_and_field_surgeon_treats_without
     world.ship.design.cargo[ResourceId::Medkit as usize] = 0;
     world.step(&[]);
     make_dying(&mut world, 0);
-    // The crewmate carries none of its own either: a helper's pack is
-    // the first place a kit is looked for.
+    // The crewmate's own kit spent, and none coming back: a helper's
+    // pack is the only place a kit is.
+    world.medicine_off_for_probe();
+    empty_pack_of_kits(&mut world, 1);
+    world.step(&[]);
     assert_eq!(count_in_pack(&world, 1, ResourceId::Medkit), 0);
     assert!(!world.aboard.room.treat(1, 0, Part::Body));
 }
@@ -1169,6 +1297,8 @@ fn field_surgeon_is_once_a_fight_and_comes_back_when_it_ends() {
     let mut world = medic();
     pick(&mut world, 0, Talent::FieldSurgeon);
     world.ship.design.cargo[ResourceId::Medkit as usize] = 0;
+    // The packs are emptied below, and no medkit comes back into them.
+    world.medicine_off_for_probe();
     // A fight: the dock hostile with one of its people standing.
     assert!(world.stage_fight_for_probe());
     let ashore = world.residents.as_mut().unwrap();
@@ -1342,51 +1472,44 @@ fn only_a_medic_carries_and_only_somebody_worth_fetching() {
     assert_eq!(world.can_carry(2, 1), Err(Refusal::AlreadyCarried));
 }
 
-/// A hired field medic turns up with two medkits in its pack, is not a
-/// medic of the class, and fills its pack back up out of the hold once
-/// it has spent one.
+/// A hired field medic carries a medic's medicine — four medkits and ten
+/// bandages, where it carried everybody's one and five before the
+/// contract — is not a medic of the class, and a kit it spends comes
+/// back on the cooldown and not out of the hold.
 #[test]
-fn a_field_medic_brings_two_medkits_and_fills_up_again_out_of_combat() {
+fn a_field_medic_carries_a_medic_s_medicine_and_a_spent_kit_comes_back_on_the_cooldown() {
+    use crate::class::Charge;
     let mut world = basic();
     hold_still(&mut world);
+    let kits = |world: &World| count_in_pack(world, 1, ResourceId::Medkit) as u32;
+    assert_eq!(kits(&world), class::MEDKIT_CHARGES, "everybody's");
     assert!(world.field_medic_for_probe(1), "hired");
     assert!(world.is_field_medic(1));
     assert!(world.can_lift(1), "and may carry");
     // None of the class's own: no talents, and no class.
     assert_eq!(world.class_of(1), Class::None);
+    assert_eq!(kits(&world), class::MEDIC_MEDKIT_CHARGES);
+    assert_eq!(
+        count_in_pack(&world, 1, ResourceId::Bandage),
+        class::MEDIC_BANDAGE_CHARGES as usize
+    );
 
-    let kits = |world: &World| {
-        let wanted = Item::Stack(ResourceId::Medkit as u32);
-        world
-            .aboard
-            .room
-            .pack(1)
-            .iter()
-            .filter(|i| **i == Some(wanted))
-            .count() as u32
-    };
-    assert_eq!(kits(&world), crate::mercenary::MEDIC_MEDKITS);
-
-    // One spent: the room is quiet, so the next step puts one back and
-    // the hold is one down.
+    // One spent: nothing comes out of the hold, and a minute of the
+    // clock later the cooldown has put it back.
     let held = world.ship.design.carrying(ResourceId::Medkit);
     assert!(held > 0, "the combat ship carries medkits");
-    let cell = world
+    world
         .aboard
         .room
-        .pack(1)
-        .iter()
-        .position(|i| *i == Some(Item::Stack(ResourceId::Medkit as u32)))
-        .expect("a kit in the pack");
-    world.aboard.room.take(1, cell);
-    assert_eq!(kits(&world), crate::mercenary::MEDIC_MEDKITS - 1);
+        .take_stack(1, Item::Stack(ResourceId::Medkit as u32), 1);
     world.step(&[]);
-    assert_eq!(kits(&world), crate::mercenary::MEDIC_MEDKITS, "filled up");
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Medkit),
-        held - 1,
-        "out of the hold"
-    );
+    assert_eq!(kits(&world), class::MEDIC_MEDKIT_CHARGES - 1, "not out of the hold");
+    assert!(world.charge_cooldown_left(1, Charge::Medkit) > 0.0);
+    for _ in 0..(class::MEDKIT_COOLDOWN as u32 * STEPS_A_MINUTE + 2) {
+        world.step(&[]);
+    }
+    assert_eq!(kits(&world), class::MEDIC_MEDKIT_CHARGES, "back");
+    assert_eq!(world.ship.design.carrying(ResourceId::Medkit), held);
 }
 
 /// A field medic under arms goes for a crewmate that is down, picks it

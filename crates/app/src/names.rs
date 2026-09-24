@@ -589,6 +589,9 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotEnoughMoney => {
             "there is not enough money left for it — earn some, or call another site off"
         }
+        Refusal::ChargeKept => {
+            "medkits and bandages stay in the pack: they come back there on their own cooldown"
+        }
     }
 }
 
@@ -704,7 +707,7 @@ pub const CLASS_TIPS: [&str; 6] = [
     "No class: learns nothing.",
     "Lays sandbags for cover (E) and, from the third level, a sentry that shoots for itself (Q); packs either up again; mends armour at the workbench once it has learnt to. Sets out with three sandbag kits and one sentry kit.",
     "Braces to hold a line (E) — steadier shooting, never running, no errands until stood easy — and from the third level throws grenades (Q), two charges of them, each back thirty seconds after it is thrown. Sets out with an auto rifle in hand and the pistol in the pack.",
-    "Holds a crewmate up with the heal beam (E) — their wounds stop bleeding and their blood comes back — and from the third level shields them both with a surge (Q), which takes every hit for eight minutes. Fires nothing while the beam is on. Sets out with the pistol, two medkits and four bandages.",
+    "Holds a crewmate up with the heal beam (E) — their wounds stop bleeding and their blood comes back — and from the third level shields them both with a surge (Q), which takes every hit for eight minutes. Fires nothing while the beam is on. Carries four medkits and ten bandages where anybody else carries one and five, each coming back on the same cooldown as theirs.",
     "Stands as a wall (E) — half pace, and the crew close behind him are in cover against anything shot through him — and from the third level taunts (Q), so every enemy that can see him shoots at him and nobody else for six minutes. His armour drains at half rate, so the same kevlar takes twice as much on him. Sets out with the pistol and a basic helm, kevlar and leg guards on.",
     "Lifts every friendly Bim within eight tiles of him — yours as well as the crew's — a tenth faster at work, a tenth steadier with a gun, and slower to run; and orders the squad, which is every crew member nobody is steering: attack the enemy under the pointer (E), fall back to a tile (X), stand ground (Z). From the third level he rallies (Q). Hires a mercenary at a quarter off. Sets out with the pistol.",
 ];
@@ -778,6 +781,14 @@ pub const STAND_GROUND: &str = "Stand ground";
 pub const STAND_GROUND_TIP: &str = "The squad holds exactly where it stands — no walk to cover, no running — shooting whatever it can see. The number is how many are in the squad.";
 pub const CARRY: &str = "Carry";
 pub const CARRY_TIP: &str = "Pick the crewmate under the pointer up — out cold, dying, or bleeding — and carry them out of the fire. You hold your fire and walk slowly while you do. The key again sets them down, and treating them is what comes next. The number is how many near you are worth fetching.";
+
+/// The two medicine boxes beside the class's own, which every crew
+/// member has whatever its class: a medkit and the bandages are charges
+/// that come back into the pack on their own cooldowns.
+pub const MEDKIT_BOX: &str = "Medkit";
+pub const MEDKIT_BOX_TIP: &str = "Medkits in your pack. A medkit is the one thing that gets a crewmate out of a dying state — treat them from the crew panel or right-click them on the deck. Everybody carries one, a medic four; a spent one comes back into the pack a minute later, and the ring round the number is the next one on its way.";
+pub const BANDAGE_BOX: &str = "Bandages";
+pub const BANDAGE_BOX_TIP: &str = "Dressings in your pack. One closes every wound on a part of a body and stops the bleeding there. Everybody carries five, a medic ten; each spent one comes back thirty seconds later, and the ring round the number is the next one on its way.";
 
 /// The line under a box whose level is not reached yet.
 pub fn ability_locked(level: u8) -> String {
@@ -1545,11 +1556,13 @@ pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
             format!("Every weapon's fire rate {}", by(c::DRILL_FIRE_RATE as f64))
         }
         (world::Class::Medic, 1) => format!(
-            "The beam reaches {} tiles and gives back {} blood an hour. {} medkits and {} bandages to start",
+            "The beam reaches {} tiles and gives back {} blood an hour. {} medkits and {} bandages carried, where anybody else carries {} and {}",
             fig(c::HEAL_BEAM_RANGE as f64),
             fig(c::HEAL_BEAM_BLOOD as f64),
-            c::MEDIC_START_MEDKITS,
-            c::MEDIC_START_BANDAGES
+            c::MEDIC_MEDKIT_CHARGES,
+            c::MEDIC_BANDAGE_CHARGES,
+            c::MEDKIT_CHARGES,
+            c::BANDAGE_CHARGES
         ),
         (world::Class::Medic, 3) => format!(
             "The surge charges over {} game minutes of beaming a patient that needs it, and runs {}",
@@ -2518,20 +2531,18 @@ pub const DEATH_GAVE_UP: &str = "Gave up.";
 
 pub const PERIL_TIP: &str = "What is taking this Bim down right now, and how long it has at that rate. Blood runs out through every open wound — ten an hour each — and through every untreated trauma that bleeds, and at nothing left the Bim is dead; a medkit ends a trauma, a bandage closes the wounds on a part. Extreme malnutrition is the other one: it takes health off the head, the body and the legs until the head and the body are both at nothing. The countdown assumes nothing changes — a bandage, a medkit or a meal moves it at once.";
 
-pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a body — the head, the body or the legs — and stops the bleeding there. Order one here, or right-click a Bim on the deck, and the crew member you steer walks over and dresses it, ten minutes with hands on. The dressing comes out of that Bim's own pack: five to a box, and the Management tab says how many each of the crew keeps on them. Bandages are made at the drug lab out of fibre, or bought where a station sells them.";
+pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a body — the head, the body or the legs — and stops the bleeding there. Order one here, or right-click a Bim on the deck, and the crew member you steer walks over and dresses it, ten minutes with hands on. The dressing comes out of that Bim's own pack, five to a box: everybody carries five, a medic ten, and each one used comes back into the pack thirty seconds later — the Bandages box at the foot of the screen counts them and sweeps the wait.";
 
 /// Feature 87: the dressings are in the pack, and a box of them has a
 /// row of its own.
-pub const NO_BANDAGE: &str = "no bandages in the pack — the Management tab says how many to carry";
+pub const NO_BANDAGE: &str = "no bandages in the pack — each comes back thirty seconds after it was used";
+/// Why a Treat row is greyed when the helper has no medkit: a medkit is a
+/// charge in each crew member's own pack.
+pub const NO_MEDKIT: &str = "no medkit in the pack — a spent one comes back a minute later";
 pub const BANDAGE_ALL_HINT: &str =
     "one dressing a wounded part, the worst first and the rest queued behind it";
 pub const BANDAGE_ALL_ROW: &str = "Bandage all wounds";
 pub const BANDAGE_ALL_WHOLE: &str = "nothing open on this Bim";
-/// The Management tab's row for how many dressings each of the crew is
-/// to carry, and where they are kept.
-pub const BANDAGES_ROW: &str = "Bandages";
-pub const BANDAGES_KEPT_IN: &str = "Each pack";
-pub const BANDAGES_TARGET_TIP: &str = "How many dressings every crew member keeps in their own pack. Out of combat they top themselves up out of the hold, one at a time — nobody walks for it — and a wound is bound with a dressing out of the binder's own pack. Five go in one box, and a box takes two cells by two.";
 
 /// Why a Bandage row is greyed when the helper cannot do it: the crew
 /// member you steer is dead, out cold, or outside in a suit.
@@ -3023,8 +3034,8 @@ pub const ITEM_TIPS: [&str; 18] = [
     "A block of tofu, pressed from soy.",
     "A pressure suit, for a walk outside.",
     "A laser handgun. Bought at a desk that trades in weapons.",
-    "A medkit: two vegetables at the drug lab, the one thing the crew still make.",
-    "A bandage. Closes every wound on one part of a body. Five to a box.",
+    "A medkit, the one thing that gets a crewmate out of a dying state. Everybody carries one, a medic four, and a spent one comes back into the pack a minute later.",
+    "A bandage. Closes every wound on one part of a body. Five to a box: everybody carries five, a medic ten, each back thirty seconds after it is used.",
     "A basic helm, for the head. Bought at a desk that trades in armour.",
     "Basic kevlar, for the body. Bought at a desk that trades in armour.",
     "Basic leg guards. Bought at a desk that trades in armour.",
@@ -3142,7 +3153,7 @@ pub const HIRE_BUTTON: &str = "Hire";
 pub const HIRE_TIP: &str = "A mercenary lives at a friendly station and is for hire: the fee is a month of them, paid now and again every month after out of the crew's money, and it is what they carry — a heavier gun and a piece of armour each cost more. Hiring wants the Bim shown within two tiles of them (opening this walks it over), the money for the first month, and a free bunk aboard. A month the money will not cover has them walk off at the next berth, for hire again.";
 /// A mercenary hired for its trade rather than its gun (feature 86).
 pub const FIELD_MEDIC: &str = "Field medic";
-pub const FIELD_MEDIC_TIP: &str = "A field medic is hired to save your crew, not to win the fight. Under arms it keeps to the far end of its weapon's reach, fetches whoever goes down out of the fire — in its arms, at half pace, holding its fire — sets them down where it is quiet, and treats them there. It sets out with two medkits and fills up out of the hold between fights. It has none of a medic's own skills: the premium on the month is the trade.";
+pub const FIELD_MEDIC_TIP: &str = "A field medic is hired to save your crew, not to win the fight. Under arms it keeps to the far end of its weapon's reach, fetches whoever goes down out of the fire — in its arms, at half pace, holding its fire — sets them down where it is quiet, and treats them there. It carries a medic's four medkits and ten bandages, each coming back on the same cooldown as anybody's. It has none of a medic's own skills: the premium on the month is the trade.";
 pub const NO_BUNK_HINT: &str = "no bunk aboard for one more";
 pub const BROKE_HINT: &str = "not the money for the first month";
 pub const MERCENARY_MARK: &str = "?";

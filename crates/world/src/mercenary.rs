@@ -61,10 +61,9 @@ pub const MEDIC_CHANCE: f64 = 0.35;
 /// anybody else, and what is being paid for is that it walks into the
 /// fire for somebody who cannot walk out.
 pub const MEDIC_FEE: Money = 4_000;
-/// How many medkits a hired field medic brings with it. Two, as the
-/// user asked: enough to get two crew members out of a dying state
-/// before it has to go back to the hold for more.
-pub const MEDIC_MEDKITS: u32 = 2;
+// What a field medic carries is a medic's charges of medicine —
+// `class::MEDIC_MEDKIT_CHARGES` and `class::MEDIC_BANDAGE_CHARGES` — the
+// same as the class's, filled at the hire and on the cooldowns after.
 
 /// A month of a mercenary carrying that weapon, in euros. Tier one is the
 /// pistol, tier two the shotgun, the auto rifle and the schword, tier

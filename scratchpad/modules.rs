@@ -27,6 +27,8 @@ mod draw;
 mod droid;
 #[path = "../crates/game/src/filth.rs"]
 mod filth;
+#[path = "../crates/game/src/fx.rs"]
+mod fx;
 #[path = "../crates/game/src/galley.rs"]
 mod galley;
 #[path = "../crates/game/src/game.rs"]

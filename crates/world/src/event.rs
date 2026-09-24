@@ -552,6 +552,11 @@ pub enum Refusal {
     /// (feature 95, `crate::build`). The site stands and waits; money
     /// earned or a site cancelled lets it go on.
     NotEnoughMoney = 80,
+    /// A stow of a medkit or a bandage: those are everybody's charges
+    /// (`class::Charge::everybody`), which come back into the pack on a
+    /// cooldown of their own — one put in the hold would be one more
+    /// every minute for nothing, so they stay where they are.
+    ChargeKept = 81,
 }
 
 impl Refusal {

@@ -791,11 +791,12 @@ pub fn playtest_ship() -> ShipDesign {
 pub const COMBAT_BERTHS: u32 = 5;
 
 /// How many crew the `combat` command puts aboard it: the first
-/// [`COMBAT_BERTHS`] at their bunks, the other nine standing on the deck
+/// [`COMBAT_BERTHS`] at their bunks, the other eleven standing on the deck
 /// (`bims::aboard::starts`) — a squad rather than a handful, for a fight
-/// with a garrison of `world::data::ARENA_GARRISON`. More than the ship
+/// with a garrison of `world::data::ARENA_GARRISON`, the last four of it
+/// hired field medics (`ship::session::COMBAT_MEDICS`). More than the ship
 /// sleeps, which the validator would say and the command does not ask it.
-pub const COMBAT_CREW: u32 = 14;
+pub const COMBAT_CREW: u32 = 16;
 
 /// Where [`combat_ship`] puts its four extra bunks: on the bridge, the one
 /// compartment with room for them — the main deck's aft rows are two deep

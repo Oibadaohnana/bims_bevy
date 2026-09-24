@@ -1938,7 +1938,6 @@ impl CrewPanels {
                 // Bim treats a crewmate; for the player's own, the nearest
                 // crewmate that is free is sent, since nobody treats
                 // their own.
-                let medkits = game.medkits();
                 let dying: Vec<(usize, health::Part, bims::health::Trauma)> = health::Part::ALL
                     .into_iter()
                     .enumerate()
@@ -1946,10 +1945,12 @@ impl CrewPanels {
                     .collect();
                 if !dying.is_empty() {
                     let helper = treat_helper(game, who, patient);
+                    // Out of the helper's own pack: a medkit is a charge.
+                    let medkits = helper.map_or(0, |h| kits_to_hand(game, h));
                     for (i, part, trauma) in dying {
                         let can = helper.is_some() && medkits > 0 && !patient_out;
-                        let hint = if medkits == 0 {
-                            "no medkits — the armoury makes them".to_string()
+                        let hint = if helper.is_some() && medkits == 0 {
+                            NO_MEDKIT.to_string()
                         } else if patient_out {
                             PATIENT_OUT.to_string()
                         } else if let Some(h) = helper {
@@ -1980,7 +1981,11 @@ impl CrewPanels {
                             },
                         ));
                     }
-                    items.push(Item::note("Medkits", format!("{medkits} to hand")));
+                    let whose = match helper {
+                        Some(h) if h != who => format!("{medkits} in {}'s pack", name(h as u32)),
+                        _ => format!("{medkits} in the pack"),
+                    };
+                    items.push(Item::note("Medkits", whose));
                 }
                 // Out cold, a crewmate is a body as well as a patient: the
                 // Loot row sits beside the bandages, and which the player
@@ -3092,7 +3097,6 @@ impl CrewPanels {
         let patient_out = alive && game.is_outside(who);
         let mut dress: Option<health::Part> = None;
         let mut treat: Option<(usize, health::Part)> = None;
-        let medkits = game.medkits();
         // A blade within reach is the state that changes what the gun in
         // the slot is worth, so it is said in the header rather than
         // beside the numbers: the numbers do not apply while it lasts.
@@ -3192,9 +3196,11 @@ impl CrewPanels {
                                     .color(theme::BAD),
                                 );
                                 let helper = treat_helper(game, self.player, who);
+                                // Out of the helper's own pack: a medkit is a charge.
+                                let medkits = helper.map_or(0, |h| kits_to_hand(game, h));
                                 let can = helper.is_some() && medkits > 0 && !patient_out;
-                                let hint = if medkits == 0 {
-                                    "no medkits — the armoury makes them".to_string()
+                                let hint = if helper.is_some() && medkits == 0 {
+                                    NO_MEDKIT.to_string()
                                 } else if patient_out {
                                     PATIENT_OUT.to_string()
                                 } else if let Some(h) = helper {
@@ -5928,9 +5934,6 @@ impl CrewPanels {
                 );
             }
         }
-        // Whose pack the dressings row counts: the Bim the panels are
-        // about (feature 87).
-        let shown = self.inventory_who(game);
         egui::Grid::new("stock")
             .num_columns(4)
             .spacing([12.0, 2.0])
@@ -5981,33 +5984,9 @@ impl CrewPanels {
                     self.points(&input, KEEP_SPOTS[which as usize]);
                     ui.end_row();
                 }
-                // Then the one target that is nobody's shelf (feature
-                // 87): how many dressings every crew member keeps in its
-                // own pack. What is held is the Bim shown carrying, since
-                // the number is one order for the whole crew and each of
-                // them fills up to it out of the hold.
-                {
-                    let held = game.bandages_of(shown);
-                    let a = theme::asks(ui, BANDAGES_ROW, BANDAGES_TARGET_TIP);
-                    let b = ui.label(held.to_string());
-                    let c = ui.label(BANDAGES_KEPT_IN);
-                    let mut target = game.target(Stock::Bandages);
-                    let input = ui.add(
-                        egui::DragValue::new(&mut target)
-                            .range(0..=manager::MOST)
-                            .speed(0.2),
-                    );
-                    if input.changed() {
-                        self.crew_orders.push(CrewOrder::StockTarget {
-                            which: Stock::Bandages,
-                            count: target,
-                        });
-                    }
-                    for r in [&a, &b, &c, &input] {
-                        self.points(r, KEEP_SPOTS[Stock::Bandages as usize]);
-                    }
-                    ui.end_row();
-                }
+                // There is no row for the dressings any more: a bandage is
+                // everybody's charge, carried and come back on a cooldown,
+                // and nobody fills a pack out of the hold to a target.
                 // Then what the benches make, on the ship: the same kind of
                 // standing order, kept in the hold rather than the cold
                 // store, and answered by the smelter and the workbench.
@@ -6548,14 +6527,29 @@ fn treat_helper(game: &Game, player: usize, patient: usize) -> Option<usize> {
     if patient != player {
         return up(player).then_some(player);
     }
+    // The nearest crewmate with a medkit to hand, since a medkit is a
+    // charge in each one's own pack; the nearest at all when nobody has
+    // one, so the row can say whose pack is empty.
     let at = game.bim_pos(patient);
-    (0..game.crew_count() as usize)
-        .filter(|&h| h != patient && up(h))
-        .min_by(|&a, &b| {
-            (game.bim_pos(a) - at)
-                .len()
-                .total_cmp(&(game.bim_pos(b) - at).len())
-        })
+    let nearest = |with_kit: bool| {
+        (0..game.crew_count() as usize)
+            .filter(|&h| h != patient && up(h) && (!with_kit || kits_to_hand(game, h) > 0))
+            .min_by(|&a, &b| {
+                (game.bim_pos(a) - at)
+                    .len()
+                    .total_cmp(&(game.bim_pos(b) - at).len())
+            })
+    };
+    nearest(true).or_else(|| nearest(false))
+}
+
+/// The medkits `who` could treat with: the ones in its own pack — a
+/// medkit is a charge every crew member carries — and any on the room's
+/// shelf, which aboard is none and in the test room is the few it opens
+/// with. The room's own rule for whether a treatment has a kit.
+fn kits_to_hand(game: &Game, who: usize) -> u32 {
+    let kit = PackItem::Stack(ResourceId::Medkit as u32);
+    game.medkits() + game.gear(who).units_of(kit)
 }
 
 /// The two words beside a Bandage button, or under a menu row: how many

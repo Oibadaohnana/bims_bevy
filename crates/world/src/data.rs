@@ -123,7 +123,7 @@ pub const ARENA_BUNK_COLUMNS: u32 = 4;
 /// The garrison the arena arms whenever it is hostile, whatever the crew's
 /// number and worth: `World::reinforcements` is set by the `combat`
 /// command to make [`crate::station::enemies_of`] up to this, so a crew
-/// of fourteen (`shipdesign::fixture::COMBAT_CREW`) meets fifteen. Under
+/// of sixteen (`shipdesign::fixture::COMBAT_CREW`) meets fifteen. Under
 /// [`ENEMIES_MAX`], so every one of them has a bunk.
 pub const ARENA_GARRISON: u32 = 15;
 

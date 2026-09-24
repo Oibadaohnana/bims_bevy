@@ -79,6 +79,9 @@ const SENSOR: Color = crate::combat::HOSTILE_BOLT;
 const SENSOR_OUT: Color = Color::rgb(0.24, 0.13, 0.12);
 /// What flies off a struck part, and what a wreck throws for a while.
 const SPARK: Color = Color::rgb(1.0, 0.86, 0.48);
+/// And how far past white those sparks are drawn: hot metal, so they glow
+/// (feature 98) — a little, since a wreck throws them for seconds.
+const SPARK_HEAT: f32 = 1.6;
 /// The shadow under the machine.
 const SHADOW: Color = Color::rgba(0.0, 0.0, 0.0, 0.24);
 /// The scorch a wreck burns into the deck it fell on — under everything,
@@ -552,6 +555,41 @@ impl Droid {
         }
     }
 
+    /// Where a hit on `part` shows and how big (feature 98's flash on the
+    /// part struck), in room units: the same place its sparks fly from,
+    /// turned with the machine. Drawing only.
+    pub fn part_mark(&self, part: DroidPart) -> (Vec2, f32) {
+        let w = self.kind.half_width();
+        let radius = match part {
+            DroidPart::Head => w * 0.35,
+            DroidPart::Chassis => w * 0.6,
+            DroidPart::Arms | DroidPart::Legs => w * 0.32,
+        };
+        (self.pos + self.part_at(part).rotate(self.heading), radius)
+    }
+
+    /// Where the arm it is built with ends, in room units: the muzzle its
+    /// own drawing puts at the end of a Trooper's forearm or a Warden's
+    /// lance, arms gone or not — where a shot's glow is lit (feature 98).
+    /// The shot itself is traced from the eye, as it always was; this is
+    /// the picture's.
+    pub fn muzzle(&self) -> Vec2 {
+        let droop = if self.body.gone(DroidPart::Arms) {
+            1.0
+        } else {
+            0.0
+        };
+        let local = match self.kind {
+            DroidKind::Trooper => {
+                let shoulder = vec2(3.0, 11.0);
+                shoulder + vec2(13.0 - droop * 9.0, 2.0 + droop * 7.0) + vec2(6.0, 0.0)
+            }
+            DroidKind::Warden => vec2(30.0 - droop * 10.0, 14.0 + droop * 8.0),
+            DroidKind::Husk => vec2(self.kind.half_width(), 0.0),
+        };
+        self.pos + local.rotate(self.heading)
+    }
+
     fn spark_on(&mut self, part: DroidPart) {
         let at = self.part_at(part);
         for _ in 0..SPARK_COUNT {
@@ -689,9 +727,10 @@ impl Droid {
     /// hair, no clothes, no armour layers, no held item.
     pub fn draw(&self, list: &mut DrawList) {
         let scale = if self.destroyed { 0.88 } else { 1.0 };
-        // A wreck casts less of a shadow, being flatter and smaller.
+        // A soft shadow (feature 98), and a wreck casts less of one, being
+        // flatter and smaller.
         let w = self.kind.half_width();
-        list.ellipse(
+        list.soft_ellipse(
             self.pos + vec2(0.0, w * 0.22),
             vec2(w * 1.7, w * 1.9) * scale,
             self.heading,
@@ -718,7 +757,7 @@ impl Droid {
             }
         }
         for (at, t, _) in sparks {
-            list.circle(at, 2.0 + 3.0 * t, SPARK.alpha(0.9 * t));
+            list.circle(at, 2.0 + 3.0 * t, SPARK.glowing(SPARK_HEAT).alpha(0.9 * t));
         }
     }
 

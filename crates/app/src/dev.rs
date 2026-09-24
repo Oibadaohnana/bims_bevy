@@ -31,6 +31,10 @@
 //! `pistol`, `shotgun`, `rifle`, `sniper`) puts that in the crew member's
 //! hand instead of the pistol, and `BIMS_ENEMY_WEAPON=…` the same in every
 //! resident's — how a swing, a burst or a long shot is looked at.
+//! `BIMS_FREEZE=n+f` pauses the game `f` frames after the `n`th shot or
+//! blow, and `BIMS_FREEZE=down:n+f` after the `n`th machine destroyed
+//! ([`freeze_at_shot`]) — how a muzzle's glow or a machine bursting is
+//! caught in a screenshot.
 //! `BIMS_GRAVES=n` leaves `n` of the station's people dead where they
 //! stand and builds its room again over the bodies (feature 85), which
 //! is how the dead lying on a station's deck are looked at without
@@ -165,15 +169,24 @@ pub fn carry() -> bool {
     std::env::var("BIMS_CARRY").as_deref() == Ok("1")
 }
 
-/// `BIMS_BANDAGES=n` puts `n` dressings in **every** crew member's pack
-/// and sets the Management tab's carry target to `n` (feature 87) — for
-/// looking at a box of them in the inventory, and at what a crew that
-/// binds its own wounds does in a fight, without waiting for the restock
-/// to fill the packs a step at a time. Five go in one box, so
+/// `BIMS_BANDAGES=n` puts exactly `n` dressings in **every** crew
+/// member's pack and starts the bandage cooldown afresh — a dressing is
+/// everybody's charge — for looking at a box of them in the inventory,
+/// at the bandage box's sweep at the foot of the canvas (`0` is an empty
+/// pack with the whole thirty seconds ahead), and at what a crew short
+/// of dressings does in a fight. Five go in one box, so
 /// `BIMS_BANDAGES=7` is a full box beside a part one
 /// (`Session::bandages_for_probe`).
 pub fn bandages() -> Option<u32> {
     std::env::var("BIMS_BANDAGES").ok()?.trim().parse().ok()
+}
+
+/// `BIMS_MEDKITS=n` is the same for the medkit charge: exactly `n` in
+/// every pack and its minute's cooldown started afresh
+/// (`Session::medkits_for_probe`) — `0` is the medkit box dark with the
+/// sweep going round it.
+pub fn medkits() -> Option<u32> {
+    std::env::var("BIMS_MEDKITS").ok()?.trim().parse().ok()
 }
 
 /// `BIMS_KITS=n` puts exactly `n` of **each** of the engineer's two kits
@@ -550,6 +563,38 @@ pub fn droid_waves(default: u32) -> u32 {
         .and_then(|spec| spec.trim().parse::<u32>().ok())
         .unwrap_or(default)
         .max(1)
+}
+
+/// `BIMS_FREEZE=n` pauses the game the frame after the crew's room hears
+/// its `n`th shot or blow, and `BIMS_FREEZE=n+f` `f` frames later
+/// (feature 98) — how a muzzle's glow, a bolt in the air, a cut or the
+/// flash where a bolt landed is caught in a screenshot, since each is a
+/// handful of frames long and the fight's own timing moves from run to
+/// run. A pause holds the passing lights where they are, so the picture
+/// taken later is that instant. `BIMS_FREEZE=down:n+f` counts machines
+/// destroyed instead (`WorldEvent::DroidDown`), for a machine bursting.
+pub fn freeze_at_shot() -> Option<Freeze> {
+    let value = std::env::var("BIMS_FREEZE").ok()?;
+    let (downs, value) = match value.strip_prefix("down:") {
+        Some(rest) => (true, rest),
+        None => (false, value.as_str()),
+    };
+    let (count, frames) = value.split_once('+').unwrap_or((value, "0"));
+    Some(Freeze {
+        downs,
+        left: count.parse().ok()?,
+        frames: frames.parse().ok()?,
+    })
+}
+
+/// `BIMS_FREEZE`, read: what is counted — shots and blows heard in the
+/// crew's room, or machines destroyed — how many are still to come, and
+/// the frames after the last before the game pauses itself.
+#[derive(Clone, Copy, Debug)]
+pub struct Freeze {
+    pub downs: bool,
+    pub left: u32,
+    pub frames: u32,
 }
 
 /// `BIMS_DROIDS=1` lays every state a machine can be drawn in out on

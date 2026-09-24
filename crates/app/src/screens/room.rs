@@ -145,6 +145,9 @@ fn frame(
     if screen.backlog > SIM_STEP * MAX_STEPS_PER_FRAME as f32 {
         screen.backlog = 0.0; // gave up catching up
     }
+    // The fight's passing lights on the window's clock, still while
+    // paused (feature 98).
+    screen.game.fade(if screen.speed > 0 { dt } else { 0.0 });
     // What the steps sounded like, and the deck's own hum under it: the
     // test room is a ship's deck.
     for cued in screen.game.take_cues() {

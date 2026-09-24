@@ -26,6 +26,7 @@ pub mod door;
 pub mod draw;
 pub mod droid;
 pub mod filth;
+pub mod fx;
 pub mod galley;
 pub mod game;
 pub mod health;

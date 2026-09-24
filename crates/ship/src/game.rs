@@ -194,7 +194,7 @@ impl Game {
     }
 
     /// [`Game::start`] with `crew` aboard, of whom `players` are players —
-    /// see `World::start_with_crew`. The `combat` command's fourteen.
+    /// see `World::start_with_crew`. The `combat` command's sixteen.
     #[allow(clippy::too_many_arguments)]
     pub fn start_with_crew(
         design: ShipDesign,

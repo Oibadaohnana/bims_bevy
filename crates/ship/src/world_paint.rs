@@ -1411,6 +1411,11 @@ fn hull_tiles(
         if terrain.is_some() && layer != Layer::Object {
             continue;
         }
+        // The shade along the walls goes on the floor, under everything
+        // that stands on it (feature 98).
+        if layer == Layer::Object {
+            wall_shade(list, design, grid, terrain.is_some());
+        }
         for part in &design.parts {
             if part.layer() != layer || skip.contains(&part.id) {
                 continue;
@@ -1450,6 +1455,99 @@ fn hull_tiles(
                     0.0,
                     color,
                 );
+            }
+        }
+    }
+}
+
+/// The shade along the inner side of the walls (feature 98): how deep
+/// each band reaches onto the deck, as a share of a tile, and how dark it
+/// is. Stacked, they are darkest against the wall and gone a third of a
+/// tile out — a soft edge, not a line.
+const WALL_SHADE: [(f32, f32); 3] = [(0.08, 0.10), (0.18, 0.06), (0.32, 0.035)];
+const WALL_SHADE_COLOUR: Color = Color::rgb(0.0, 0.01, 0.03);
+
+/// The shade along the inner side of every wall (feature 98): a soft dark
+/// band on the deck against each wall, so a room reads as walls standing
+/// round a floor rather than as tiles laid flat. A run of tiles along one
+/// wall is one band — a rect a run, not a tile — and nothing is shaded
+/// that is a wall, a door, an airlock or a corner piece, or that has no
+/// floor (open space); on the ground (`ground`) every tile that is not
+/// one of those is a floor. Worked out from the design every frame, a
+/// pass over the parts and one over the tiles: a picture, and nothing any
+/// rule reads.
+fn wall_shade(list: &mut DrawList, design: &ShipDesign, grid: &Grid, ground: bool) {
+    const WALL: u8 = 1;
+    const NEITHER: u8 = 2;
+    let side = grid.side() as i32;
+    let mut class = vec![0u8; (side * side) as usize];
+    for part in &design.parts {
+        let mark = match part.kind {
+            PartKind::Wall | PartKind::OutsideWall => WALL,
+            PartKind::Door
+            | PartKind::Airlock
+            | PartKind::DiagonalWall
+            | PartKind::DiagonalOutsideWall => NEITHER,
+            _ => continue,
+        };
+        for (x, y) in part.tiles() {
+            let (x, y) = (x as i32, y as i32);
+            if x < side && y < side {
+                class[(y * side + x) as usize] = mark;
+            }
+        }
+    }
+    let at = |x: i32, y: i32| {
+        if x < 0 || y < 0 || x >= side || y >= side {
+            NEITHER
+        } else {
+            class[(y * side + x) as usize]
+        }
+    };
+    let shaded = |x: i32, y: i32, dx: i32, dy: i32| {
+        at(x, y) == 0 && at(x + dx, y + dy) == WALL && (ground || grid.has_floor((x, y)))
+    };
+    let t = TILE as f32;
+    // A wall above, below, to the left and to the right: a run goes along
+    // the wall, so along x for one above or below.
+    for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
+        let along_x = dx == 0;
+        let toward = (dx + dy) as f32;
+        for across in 0..side {
+            let tile = |along: i32| {
+                if along_x {
+                    (along, across)
+                } else {
+                    (across, along)
+                }
+            };
+            let mut along = 0;
+            while along < side {
+                let (x, y) = tile(along);
+                if !shaded(x, y, dx, dy) {
+                    along += 1;
+                    continue;
+                }
+                let start = along;
+                while along < side && {
+                    let (x, y) = tile(along);
+                    shaded(x, y, dx, dy)
+                } {
+                    along += 1;
+                }
+                let length = (along - start) as f32 * t;
+                let middle = (start + along) as f32 * 0.5 * t;
+                let row = (across as f32 + 0.5) * t;
+                for (depth, alpha) in WALL_SHADE {
+                    let d = depth * t;
+                    let edge = row + toward * (t - d) * 0.5;
+                    let colour = WALL_SHADE_COLOUR.alpha(alpha);
+                    if along_x {
+                        list.rect(middle, edge, length, d, 0.0, colour);
+                    } else {
+                        list.rect(edge, middle, d, length, 0.0, colour);
+                    }
+                }
             }
         }
     }

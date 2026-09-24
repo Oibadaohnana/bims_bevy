@@ -24,7 +24,13 @@
 //! sandbags and sentry since feature 88, the soldier's grenades since
 //! this one ([`GRENADE_CHARGES`] of them at [`GRENADE_COOLDOWN`] a
 //! charge) — and what a class added later spends goes in [`Charge`]
-//! beside them. The abilities that spend nothing are held instead of
+//! beside them. **So does the medicine**: every crew member, whatever
+//! its class, carries [`MEDKIT_CHARGES`] medkit and [`BANDAGE_CHARGES`]
+//! bandages that come back on [`MEDKIT_COOLDOWN`] and
+//! [`BANDAGE_COOLDOWN`] a charge — a medic of either kind
+//! [`MEDIC_MEDKIT_CHARGES`] and [`MEDIC_BANDAGE_CHARGES`] — and nothing
+//! is fetched out of the hold for a wound any more. The abilities that
+//! spend nothing are held instead of
 //! thrown — a brace, a beam, a bulwark, a squad order — and the ones
 //! that are neither wait out a cooldown of their own: the tank's taunt
 //! at [`TAUNT_COOLDOWN`], the commander's rally at [`RALLY_COOLDOWN`],
@@ -292,6 +298,12 @@ pub fn can(class: Class, ability: Ability) -> bool {
 /// are a level and a talent away from the constants here;
 /// `World::restock_charges` is the one step that fills a pack back up.
 ///
+/// **The medicine is two more**: a medkit and a bandage are
+/// everybody's charges rather than a class's — [`Charge::everybody`] —
+/// so a wound is dressed and a trauma treated out of what the crew
+/// member carries, and what it carries comes back on its own cooldown
+/// rather than out of the hold.
+///
 /// Codes cross the seam and are never renumbered.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
@@ -303,10 +315,23 @@ pub enum Charge {
     Sentry = 1,
     /// The soldier's grenade (feature 90).
     Grenade = 2,
+    /// A medkit, everybody's.
+    Medkit = 3,
+    /// A bandage, everybody's: one dressing a charge, five to a box.
+    Bandage = 4,
 }
 
 impl Charge {
-    pub const ALL: [Charge; 3] = [Charge::Sandbag, Charge::Sentry, Charge::Grenade];
+    pub const ALL: [Charge; 5] = [
+        Charge::Sandbag,
+        Charge::Sentry,
+        Charge::Grenade,
+        Charge::Medkit,
+        Charge::Bandage,
+    ];
+
+    /// The two every crew member carries, whatever its class.
+    pub const MEDICINE: [Charge; 2] = [Charge::Medkit, Charge::Bandage];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -322,22 +347,38 @@ impl Charge {
             Charge::Sandbag => ResourceId::SandbagKit,
             Charge::Sentry => ResourceId::SentryKit,
             Charge::Grenade => ResourceId::Grenade,
+            Charge::Medkit => ResourceId::Medkit,
+            Charge::Bandage => ResourceId::Bandage,
         }
     }
 
-    /// The one class that spends it.
+    /// The charge a resource in a pack is, if it is one.
+    pub fn of_resource(resource: ResourceId) -> Option<Charge> {
+        Charge::ALL.into_iter().find(|c| c.resource() == resource)
+    }
+
+    /// The one class that spends it — [`Class::None`] for the medicine,
+    /// which is not nobody's but **everybody's** ([`Charge::everybody`]).
     pub fn class(self) -> Class {
         match self {
             Charge::Sandbag | Charge::Sentry => Class::Engineer,
             Charge::Grenade => Class::Soldier,
+            Charge::Medkit | Charge::Bandage => Class::None,
         }
     }
 
+    /// Whether every crew member carries it, whatever its class: the
+    /// medkit and the bandage.
+    pub fn everybody(self) -> bool {
+        matches!(self, Charge::Medkit | Charge::Bandage)
+    }
+
     /// The level it may be spent from: a class's ability level, since a
-    /// charge nothing can spend yet does not come back either.
+    /// charge nothing can spend yet does not come back either. The
+    /// medicine from the first.
     pub fn level(self) -> u8 {
         match self {
-            Charge::Sandbag => 1,
+            Charge::Sandbag | Charge::Medkit | Charge::Bandage => 1,
             Charge::Sentry => SENTRY_LEVEL,
             Charge::Grenade => GRENADE_LEVEL,
         }
@@ -348,7 +389,7 @@ impl Charge {
         match self {
             Charge::Sandbag => Some(Kit::Sandbag),
             Charge::Sentry => Some(Kit::Sentry),
-            Charge::Grenade => None,
+            Charge::Grenade | Charge::Medkit | Charge::Bandage => None,
         }
     }
 
@@ -637,6 +678,26 @@ pub const ARMOUR_REPAIR_HEALTH: f32 = 10.0;
 /// *Armourer*: how long the repair takes at the bench, in game minutes.
 pub const ARMOUR_REPAIR_MINUTES: u32 = 10;
 
+// --- the medicine, everybody's --------------------------------------------
+
+/// **Medkit charges** every crew member carries, whatever its class: how
+/// many its pack fills back up to on [`MEDKIT_COOLDOWN`] a charge, and
+/// what it sets out with. A trauma is treated out of the helper's own
+/// pack and nobody fetches a kit out of the hold for one — see
+/// [`Charge`].
+pub const MEDKIT_CHARGES: u32 = 1;
+/// **Bandage charges**, the same way: one dressing a charge, five of
+/// them to a box in the pack, on [`BANDAGE_COOLDOWN`] each.
+pub const BANDAGE_CHARGES: u32 = 5;
+/// What a **medic** carries instead — a medic of the class and a hired
+/// field medic alike, since the medicine is the trade either way.
+pub const MEDIC_MEDKIT_CHARGES: u32 = 4;
+pub const MEDIC_BANDAGE_CHARGES: u32 = 10;
+/// Seconds of the clock one spent medkit takes to come back into the
+/// pack, and one spent bandage — a medic's no faster than anybody's.
+pub const MEDKIT_COOLDOWN: f64 = 60.0;
+pub const BANDAGE_COOLDOWN: f64 = 30.0;
+
 // --- the soldier's numbers (feature 75) --------------------------------------
 
 /// What a braced soldier's odds are multiplied by.
@@ -700,9 +761,6 @@ pub fn steady_aim_walking() -> f32 {
 /// What a medic finishing a bandage or a treatment on a crewmate is
 /// worth, to that medic.
 pub const XP_HEALED: u32 = 5;
-/// Medkits a medic sets out with in its pack, and bandages beside them.
-pub const MEDIC_START_MEDKITS: u32 = 2;
-pub const MEDIC_START_BANDAGES: u32 = 4;
 /// How far the heal beam reaches, in tiles.
 pub const HEAL_BEAM_RANGE: f32 = 6.0;
 /// Blood a beamed patient gains an hour.

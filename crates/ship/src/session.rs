@@ -86,11 +86,13 @@ pub const CRISIS_HOPS: u16 = 2;
 /// `tier2_test`, `tier3_test`, `droids`, and the `combat_<class>` and
 /// `combat_droids_<class>` runs.
 ///
-/// Two, and the last two of the fourteen. One would be a rescue that
-/// stops the moment it is the one shot; two is a pair that fetch for
-/// each other, which is the state the carry was written for — and it
-/// is what `BIMS_FIELD_MEDIC=2` staged by hand before this.
-pub const COMBAT_MEDICS: usize = 2;
+/// Four, and the last four of the sixteen. One would be a rescue that
+/// stops the moment it is the one shot; two was a pair that fetch for
+/// each other, which is the state the carry was written for; and the
+/// user asked for two more on top of those — the crew grew by the two
+/// rather than trading two of its guns for them — so a fight with
+/// people going down on both flanks has somebody free for each.
+pub const COMBAT_MEDICS: usize = 4;
 
 /// A planet with a town the ship can set down at, as the map writes it:
 /// which body, whose the town is, and where the icon is drawn.
@@ -299,7 +301,7 @@ impl Session {
 
     /// The `combat` command's session: the simulation's spawn for `seed`,
     /// on the combat ship (`shipdesign::fixture::combat_ship`) with a crew
-    /// of `COMBAT_CREW` (fourteen: five at the bunks, nine on the deck) —
+    /// of `COMBAT_CREW` (sixteen: five at the bunks, eleven on the deck) —
     /// the first the player, the rest crew nobody steers — a gun in every
     /// hand, `WeaponKind::ALL`'s order (pistol, shotgun, auto rifle, sniper
     /// rifle, schword) dealt down the crew and round again, docked at the
@@ -355,16 +357,17 @@ impl Session {
             list: DrawList::new(),
         };
         session.make_dock_hostile();
-        // And **two hired field medics** at the back of the crew
-        // (feature 86): the last two of the fourteen, on a contract that
-        // costs nothing, with the two medkits the trade brings. The
-        // fight is where a body goes down, and without a medic in it
-        // nobody ever carries one off the deck — so the test fight has
-        // the pair that makes that half of the game happen at all. They
-        // are the *last* two because slot 0 is the player's own and a
-        // rescue is a bot's branch (`Game::bot_stand`); `BIMS_FIELD_MEDIC`
-        // asks for the same crew members, so a run that sets it over
-        // these finds them hired already and changes nothing.
+        // And **four hired field medics** at the back of the crew
+        // (feature 86, `COMBAT_MEDICS`): the last four of the sixteen,
+        // on a contract that costs nothing, with a medic's charges of
+        // medicine. The fight is where a body goes down, and without a
+        // medic in it nobody ever carries one off the deck — so the test
+        // fight has the medics that make that half of the game happen at
+        // all. They are the *last* four because slot 0 is the player's
+        // own and a rescue is a bot's branch (`Game::bot_stand`);
+        // `BIMS_FIELD_MEDIC` asks for the same crew members, so a run
+        // that sets it over these finds them hired already and changes
+        // nothing.
         session.field_medics_for_probe(COMBAT_MEDICS);
         session.dress_crew();
         session
@@ -774,20 +777,24 @@ impl Session {
         }
     }
 
-    /// `n` dressings in **every** crew member's pack (feature 87), for
-    /// `BIMS_BANDAGES=n`: the carry target set to `n` as well, so the
-    /// restock keeps it there, and the boxes dealt at once rather than
-    /// one a step — a box holds five, so `BIMS_BANDAGES=7` is a full box
-    /// beside a part one. The hold is not charged: it is a staging, and
-    /// a ship carries five.
+    /// Exactly `n` dressings in **every** crew member's pack, for
+    /// `BIMS_BANDAGES=n`, with the bandage cooldown started afresh — a
+    /// dressing is everybody's charge, so `BIMS_BANDAGES=0` is the whole
+    /// wait ahead and the sweep over the bandage box at the foot of the
+    /// canvas, and `BIMS_BANDAGES=2` a part box with the next on its way.
+    /// A box holds five, so `BIMS_BANDAGES=7` is a full box beside a
+    /// part one (the cooldown brings nothing over the charges).
     pub fn bandages_for_probe(&mut self, n: u32) {
-        let Some(game) = self.game.as_mut() else {
-            return;
-        };
-        let room = &mut game.world.aboard.room;
-        room.set_target(bims::manager::Stock::Bandages, n);
-        for who in 0..room.crew_count() as usize {
-            room.set_bandages_for_probe(who, n);
+        if let Some(game) = self.game.as_mut() {
+            game.world.set_charges_for_probe(world::Charge::Bandage, n);
+        }
+    }
+
+    /// Exactly `n` medkits in every crew member's pack, for
+    /// `BIMS_MEDKITS=n`, the medkit cooldown started afresh the same way.
+    pub fn medkits_for_probe(&mut self, n: u32) {
+        if let Some(game) = self.game.as_mut() {
+            game.world.set_charges_for_probe(world::Charge::Medkit, n);
         }
     }
 
@@ -993,6 +1000,22 @@ impl Session {
         self.editor.view.fit(width, height);
         if let Some(game) = &mut self.game {
             game.fit(width, height);
+        }
+    }
+
+    /// Age the fight's passing lights — the muzzles, the flashes, the
+    /// scorches, the beams, the cuts, a machine bursting (feature 98,
+    /// `bims::fx`) — by `real` seconds of the window's own frame, and
+    /// switch them on, in the room aboard and the station's alike. Nought
+    /// while the game is paused, so a paused frame is a still picture.
+    /// Drawing only: nothing the world reads, and nothing a guest has to
+    /// agree with the host about.
+    pub fn age_effects(&mut self, real: f32) {
+        if let Some(game) = &mut self.game {
+            game.world.aboard.room.fade(real);
+            if let Some(residents) = &mut game.world.residents {
+                residents.aboard.room.fade(real);
+            }
         }
     }
 

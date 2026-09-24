@@ -166,6 +166,14 @@ the game's own is `DEFENSE_DELAY_MINUTES` (an hour). Raise it to look at
 the hour the crew have to walk the town, trade and hire before the
 shooting starts; `BIMS_DROID_WAVES=1 bims defense` is a fight that can
 be held to the end in one sitting.
+**`BIMS_FREEZE=n+f`** pauses the game `f` frames after the crew's room
+hears its `n`th shot or blow, and **`BIMS_FREEZE=down:n+f`** after the
+`n`th machine destroyed (feature 98): a muzzle's glow, a bolt's flash
+and a cut are a handful of frames each and a fight's timing moves from
+run to run, so a frame count cannot catch one — and a pause holds the
+passing lights still, so the screenshot taken later is that instant.
+`BIMS_FIGHT=1 BIMS_WEAPON=sniper BIMS_ENEMY_WEAPON=sniper
+BIMS_FREEZE=2+1 bims simulation` is two beams crossing.
 `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
 round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1

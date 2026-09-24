@@ -1591,6 +1591,15 @@ impl Game {
         self.render();
     }
 
+    /// Age the fight's passing lights by `dt` **real** seconds — the
+    /// host's frame, nought while the game is paused — and switch them on
+    /// for this room (feature 98, `crate::fx`). Drawing only: a host that
+    /// never calls it gets the picture the room always drew, and nothing
+    /// the simulation reads is touched.
+    pub fn fade(&mut self, dt: f32) {
+        self.combat.fx.age(dt);
+    }
+
     /// The simulation alone, without drawing it. What the ship game calls
     /// aboard — up to twenty-four times a frame at its top speed, where a
     /// picture of every step but the last would be a picture nobody sees.
@@ -1783,6 +1792,15 @@ impl Game {
         } else {
             eye
         }
+    }
+
+    /// An enemy's muzzle glowing where its body stands (feature 98): a
+    /// hostile room's Bim recording a shot for the world to fly, or a
+    /// machine firing. The bolt flies elsewhere — the crew's room, or
+    /// from the machine's eye — so its own `fire_as` lights nothing, and
+    /// the glow is the shooter's room's. Drawing only.
+    fn lit_muzzle(&mut self, muzzle: Vec2, at: Vec2, weapon: Weapon) {
+        self.combat.fx.muzzle(muzzle, at - muzzle, weapon, true);
     }
 
     fn tick_combat(&mut self, dt: f32) {
@@ -2074,6 +2092,7 @@ impl Game {
                 } else if bim.trigger.pull_single(&stats) {
                     let muzzle = self.shot_from(who, from);
                     if self.hostile_bodies {
+                        self.lit_muzzle(muzzle, at, weapon);
                         self.combat.shoot(muzzle, at, weapon, false);
                     } else {
                         self.combat
@@ -2250,6 +2269,7 @@ impl Game {
                 // with nothing drawn in its hands.
                 let muzzle = self.shot_from(who, eye);
                 if self.hostile_bodies {
+                    self.lit_muzzle(muzzle, at, weapon);
                     self.combat.shoot(muzzle, at, weapon, walking);
                 } else {
                     self.combat
@@ -2718,6 +2738,10 @@ impl Game {
             self.droids[i].charging(dt, true);
             if self.droids[i].trigger.pull(dt, &stats) {
                 self.droids[i].fired();
+                // The glow at the gun it is built with, not at the eye
+                // the shot is traced from (feature 98).
+                let muzzle = self.droids[i].muzzle();
+                self.lit_muzzle(muzzle, at, weapon);
                 if mark < cross {
                     // Across the seam, as a machine's shot always was:
                     // recorded here and flown by the world in the crew's
@@ -7463,12 +7487,19 @@ impl Game {
             return false;
         };
         let was = droid.destroyed;
-        droid.strike(part, damage);
+        let struck = droid.strike(part, damage);
+        let (at, size, gone) = (droid.pos, droid.kind.half_width(), !was && droid.destroyed);
+        // The flash on the part it struck, and a machine bursting apart
+        // where it has just gone (feature 98) — drawing only.
+        if let Some(struck) = struck {
+            self.combat.fx.struck(self.bims.len() + i, struck.code());
+        }
         // A machine that has just gone throws its wreck onto the deck's
         // noise the way a bolt landing does: the fight is not quiet with
         // one falling over.
-        if !was && droid.destroyed {
+        if gone {
             self.combat.lull_break();
+            self.combat.fx.burst(at, size);
         }
         true
     }
@@ -8716,6 +8747,12 @@ impl Game {
             cue: Cue::Blow { cut, on_crew: true },
             at,
         });
+        // An enemy blade's cut glows round the swinger, in the enemy's red
+        // (feature 98). Only a blade cuts, so it is a schword's.
+        if cut {
+            let blade = crate::combat::WeaponKind::Schword.basic();
+            self.combat.fx.cut(from, at, blade, true);
+        }
         true
     }
 
@@ -9058,6 +9095,13 @@ impl Game {
     #[allow(dead_code)]
     pub fn combat_quiet_for_probe(&self) -> bool {
         self.combat.quiet()
+    }
+
+    /// Whether the fight's passing lights are on in this room and how
+    /// many are alive (feature 98), for the tests.
+    #[allow(dead_code)]
+    pub fn fx_count_for_probe(&self) -> (bool, usize) {
+        (self.combat.fx.is_on(), self.combat.fx.count())
     }
 
     /// How fast a Bim is walking, as a fraction of its usual pace, for
@@ -9744,6 +9788,7 @@ impl Game {
             bim.hit_flash = HIT_FLASH;
             if bim.surge.is_some() {
                 out.absorbed = damage;
+                self.combat.fx.struck(who, part.code());
                 return out;
             }
             let mut broke = None;
@@ -9751,6 +9796,7 @@ impl Game {
                 // Protection ignored, and the rest of the strip lost
                 // with the piece: the lance unmakes the armour and does
                 // nothing to what is under it.
+                self.combat.fx.struck(who, part.code());
                 piece.health = (piece.health - strips).max(0.0);
                 if piece.broken() {
                     broke = Some(piece.kind);
@@ -9783,6 +9829,8 @@ impl Game {
         };
         let bim = &mut self.bims[who];
         bim.hit_flash = HIT_FLASH;
+        // And the picture's flash, on the part it struck (feature 98).
+        self.combat.fx.struck(who, part.code());
         // A medic's surge on it takes the whole of the hit (feature 76):
         // no wound, no armour drained, no trauma — the flash and nothing
         // else.
@@ -10263,18 +10311,29 @@ impl Game {
     }
 
     /// How many medkits each Bim carries in its **own pack**, by index —
-    /// a medic's start kit, or one fetched out of the hold — the world's
-    /// word every step. A helper that carries one treats with it where it
-    /// stands rather than walking to a cabinet for the hold's: its own
-    /// kit before a new one.
-    pub fn set_pack_kits(&mut self, kits: Vec<u32>) {
+    /// its medkit charges, the world's word every step. A helper that
+    /// carries one treats with it where it stands rather than walking to
+    /// a cabinet: its own kit before a new one. A kit already in that
+    /// Bim's hands is not counted again — the world takes it out of the
+    /// pack only when the treatment is done, so until then the pack still
+    /// holds the one being carried to the patient.
+    pub fn set_pack_kits(&mut self, mut kits: Vec<u32>) {
+        for (who, n) in kits.iter_mut().enumerate() {
+            if self
+                .bims
+                .get(who)
+                .is_some_and(|b| b.character.main_held() == Held::Medkit)
+            {
+                *n = n.saturating_sub(1);
+            }
+        }
         self.room.pack_kits = kits;
     }
 
     /// Every helper that opened a kit out of its own pack since the last
-    /// call, for the world to take the medkit out of that pack and put it
-    /// on the hold's count — a kit in a helper's hands is the hold's
-    /// until [`Game::take_medkits_used`] says it was spent.
+    /// call. The world drains it and does nothing more with it: a kit
+    /// stays in its pack until the treatment is done, and the world
+    /// takes it out then, off the finished treatment (`take_healings`).
     pub fn take_pack_kits_used(&mut self) -> Vec<usize> {
         core::mem::take(&mut self.room.pack_kits_used)
     }
@@ -11620,6 +11679,9 @@ impl Game {
         self.room.draw(&mut self.list);
         // On the deck, under everything: the Bim walks over its own mess.
         self.room.filth.draw(&mut self.list);
+        // And the scorches the bolts left on the walls and the deck
+        // (feature 98), with the mess.
+        self.combat.fx.draw_ground(&mut self.list);
 
         // The path fades out behind each Bim, so the shape of a wander is
         // visible. Both trails are the same colour: they are the shape of the
@@ -11692,11 +11754,22 @@ impl Game {
         // Bodies in crew order, so who is drawn on top of whom does not
         // change as they walk past each other — and only the ones in view:
         // a station's people behind a bulkhead are not drawn at all.
+        let fx = &self.combat.fx;
         for (who, bim) in self.bims.iter().enumerate() {
             if self.body_seen(who) {
                 bim.character.draw(&mut self.list, self.viewer);
-                // A shot that landed: a flash on the body, gone in a blink.
-                if bim.hit_flash > 0.0 {
+                // A shot that landed: a flash on the part it struck, on the
+                // host's clock (feature 98) — or, for a host that ages no
+                // effects, the room's own flash over the whole body, gone
+                // in a blink of the simulation's.
+                if fx.is_on() {
+                    for (part, t) in fx.struck_on(who) {
+                        if let Some(part) = Part::from_code(part) {
+                            let (at, radius) = bim.character.part_mark(part);
+                            crate::fx::draw_struck(&mut self.list, at, radius, t);
+                        }
+                    }
+                } else if bim.hit_flash > 0.0 {
                     let t = bim.hit_flash / HIT_FLASH;
                     let at = bim.character.drawn_at();
                     self.list
@@ -11710,10 +11783,20 @@ impl Game {
         // `body_seen` is asked with that. A wreck is drawn like anything
         // else that is down: it lies where it fell.
         for i in 0..self.droids.len() {
-            if self.body_seen(self.bims.len() + i) {
+            let body = self.bims.len() + i;
+            if self.body_seen(body) {
                 self.droids[i].draw(&mut self.list);
+                for (part, t) in fx.struck_on(body) {
+                    if let Some(part) = DroidPart::from_code(part) {
+                        let (at, radius) = self.droids[i].part_mark(part);
+                        crate::fx::draw_struck(&mut self.list, at, radius, t);
+                    }
+                }
             }
         }
+        // The plates a machine threw bursting apart (feature 98), landing
+        // among the bodies.
+        fx.draw_debris(&mut self.list);
         // Bedding and bunk rails go over the Bim, so getting into bed puts it
         // under the covers rather than on top of them.
         self.room.draw_over(&mut self.list);
@@ -15409,9 +15492,11 @@ mod tests {
         assert_eq!([deck, bodies].concat(), under);
     }
 
-    /// The pistol bolt's core is the one emissive colour in the picture
-    /// (feature 97): with a bolt in flight there is a channel past one over
-    /// the fog and nowhere under it, and with none there is none at all.
+    /// The pistol bolt's core is the one emissive colour in a pistol fight
+    /// (feature 97) a host ages no passing lights in: with a bolt in flight
+    /// there is a channel past one over the fog and nowhere under it, and
+    /// with none there is none at all. (A blade in a hand and a machine's
+    /// sparks glow too since feature 98, and neither is in this room.)
     #[test]
     fn the_pistol_bolt_s_core_is_the_one_thing_brighter_than_white() {
         let emissive = |part: &[f32]| {
@@ -15436,5 +15521,65 @@ mod tests {
         let (under, over) = game.shapes_fog_split();
         assert!(emissive(over), "the core glows");
         assert!(!emissive(under), "and nothing under the fog does");
+    }
+
+    /// The fight's passing lights (feature 98), in a room a host ages:
+    /// a part struck flashes where the part is and the room's own flash
+    /// over the whole body stands aside; a machine destroyed bursts, and
+    /// one only struck does not; and a room nobody ages records nothing
+    /// and draws the old flash — the picture every test and probe sees.
+    #[test]
+    fn a_room_a_host_ages_flashes_the_part_struck_and_bursts_a_machine() {
+        use crate::droid::{Droid, DroidKind, DroidPart};
+        let flash_over_body = |game: &Game| {
+            let at = game.bims[1].character.drawn_at();
+            game.shapes().chunks_exact(crate::draw::STRIDE).any(|s| {
+                (vec2(s[1], s[2]) - at).len() < 1.0 && s[3] >= 42.0 && (s[8] - HIT.r).abs() < 1e-6
+            })
+        };
+        // Nobody ages it: nothing recorded, and the whole-body flash.
+        let mut plain = room();
+        plain.set_autonomous(false);
+        plain.strike(1, Part::Head, 1.0, false);
+        plain.render();
+        assert_eq!(plain.fx_count_for_probe(), (false, 0));
+        assert!(flash_over_body(&plain), "the room's own flash");
+
+        // A host ages it: the part's flash, and not the body's.
+        let mut lit = room();
+        lit.set_autonomous(false);
+        lit.fade(0.0);
+        lit.strike(1, Part::Head, 1.0, false);
+        lit.render();
+        assert_eq!(lit.fx_count_for_probe(), (true, 1));
+        assert!(!flash_over_body(&lit), "the part flashes instead");
+        let (head, _) = lit.bims[1].character.part_mark(Part::Head);
+        assert!(
+            lit.shapes()
+                .chunks_exact(crate::draw::STRIDE)
+                .any(|s| (vec2(s[1], s[2]) - head).len() < 1e-3),
+            "a flash where the head is"
+        );
+        // Real seconds, not the simulation's: a minute of steps leaves
+        // it, a quarter of a second of frames takes it.
+        for _ in 0..60 {
+            lit.simulate(DT);
+        }
+        assert_eq!(lit.fx_count_for_probe().1, 1, "the steps do not age it");
+        lit.fade(DT);
+        lit.fade(0.25);
+        assert_eq!(lit.fx_count_for_probe().1, 0, "the frames do");
+
+        // A machine: struck, a flash; destroyed, a burst beside it.
+        let at = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+        let i = lit.add_droid(Droid::new(DroidKind::Trooper, Tier::One, 0, 1, at, 0.0, 5))
+            - lit.crew_count() as usize;
+        lit.strike_droid(i, DroidPart::Arms, 1.0);
+        assert_eq!(lit.fx_count_for_probe().1, 1, "a flash on its arm");
+        lit.strike_droid(i, DroidPart::Chassis, 10_000.0);
+        assert!(lit.droids()[i].destroyed);
+        assert_eq!(lit.fx_count_for_probe().1, 3, "a flash and a burst");
+        lit.strike_droid(i, DroidPart::Chassis, 10_000.0);
+        assert_eq!(lit.fx_count_for_probe().1, 3, "a wreck takes nothing more");
     }
 }
