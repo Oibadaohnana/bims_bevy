@@ -44,6 +44,11 @@
 //! it starts or stops — how a sound is *heard* from a terminal, where a
 //! hidden window has no speaker anybody is listening to.
 //!
+//! `BIMS_PERF=1` says where the frame went ([`crate::perf`]): the parts of
+//! it are timed and printed as a table beside the "ms a frame" line when
+//! the run exits. It wants `BIMS_SMOKE_FREE=1` with it, a paced frame
+//! being a sixtieth however heavy it is.
+//!
 //! `BIMS_AUTO=create` and `BIMS_AUTO=join:<code>` play the lobby and the
 //! yard with nobody at the keyboard, against the relay `BIMS_SERVER` names
 //! — how a game with company is looked at from a terminal ([`auto`]).
@@ -640,6 +645,13 @@ fn smoke_exit(
         }
     }
     *last_frame = Some(std::time::Instant::now());
+    // The first frames are Bevy coming up, the canvas being fitted and
+    // the room being laid out: `BIMS_PERF` throws them away and starts
+    // its timers again here, so what it prints is a frame of the game
+    // running rather than a frame of it opening (feature 96).
+    if crate::perf::wanted() && frames.0 == crate::perf::WARMUP {
+        crate::perf::begin(frames.0);
+    }
     if frames.0 + 30 >= limit
         && !*shot_taken
         && let Ok(path) = std::env::var("BIMS_SCREENSHOT")
@@ -664,6 +676,9 @@ fn smoke_exit(
             window.width(),
             window.height()
         );
+        for line in crate::perf::report(frames.0) {
+            println!("{line}");
+        }
         exit.write(AppExit::Success);
     }
 }
@@ -710,6 +725,7 @@ fn scripted_input(
             "2" => (KeyCode::Digit2, Key::Character("2".into())),
             "3" => (KeyCode::Digit3, Key::Character("3".into())),
             "4" => (KeyCode::Digit4, Key::Character("4".into())),
+            "5" => (KeyCode::Digit5, Key::Character("5".into())),
             other if other.len() == 1 => {
                 let ch = other.chars().next().unwrap().to_ascii_lowercase();
                 let code = match ch {

@@ -203,6 +203,12 @@ one, which is how they are looked at in a short run.
 holds itself to, so the "ms a frame" it prints is what the machine
 actually took rather than a sixtieth — the one way to measure a heavy
 frame from a terminal, and what the droid waves were measured with.
+**`BIMS_PERF=1`** says where that frame went (feature 96): the world's
+steps, the panels' layout, the shape buffer, the tessellation and the
+words over it, each timed and printed as a table when the run exits, with
+what is left over for Bevy and egui — *Where a frame goes* below is what
+it is for and what it said. The two go together, since a paced frame is a
+sixtieth however heavy it is.
 `BIMS_SOUND_LOG=1` prints
 every clip as it is played and every bed as it fades up or out, which is
 how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_FIGHT=1 BIMS_SMOKE_FRAMES=900 bims
@@ -278,6 +284,89 @@ machines in it draws in the same nine milliseconds, and sixty-four of
 them add about one. So sixteen is not where the cap has to be — it is
 where it is until somebody has a reason to move it, and the reason will
 be how a fight *plays* rather than what it costs.
+
+## Where a frame goes, and what a fight cost (feature 96)
+
+**`BIMS_PERF=1` times the named parts of a frame** and a smoke run prints
+what they came to when it exits, beside the frame time it already prints
+(`crates/app/src/perf.rs`). It is a dev dial like the rest: off — which is
+every ordinary run — a scope is an atomic load and a branch, so the
+normal build carries no clock. The first `perf::WARMUP` (100) frames are
+thrown away and the timers started again after them, since a window's
+first frames are Bevy coming up, the canvas being fitted and the room
+being laid out. The measurement is
+
+    BIMS_PERF=1 BIMS_SMOKE_FREE=1 BIMS_SMOKE_FRAMES=400 \
+      ./hidden target/release/bims <command>
+
+— `BIMS_SMOKE_FREE` being what drops the sixtieth-of-a-second pacing, so
+the number is what the machine took. The report is a tree: `frame` is the
+screen's whole system and the rows under it are parts of it, so what is
+left between `frame` and the wall clock is **Bevy and egui** — input,
+egui's own tessellation of the panels, and the meshes handed to the GPU —
+which is not ours to put a scope inside of, and is the one thing here that
+could not be measured from within. The render thread is pipelined with the
+app thread besides, so that row is the app side of it and not the GPU's.
+
+**What a fight's frame was made of**, `combat` in a release build on this
+machine, 1400x900, before anything was changed:
+
+| part | ms a frame | share |
+| --- | --- | --- |
+| the shape buffer (`Session::render`) | 4.27 | 47% |
+| tessellation (`shapes.rs`, 15 300 shapes) | 2.10 | 23% |
+| bevy and egui | 1.97 | 21% |
+| the panels' layout | 0.30 | 3% |
+| the world's steps | 0.37 | 4% |
+| everything else on the screen | 0.18 | 2% |
+
+So **the picture is the frame and the simulation is not**: at 1× the
+world's steps are a twenty-fifth of it, and even at 48× on the simulation
+they are 2.4 ms against the picture's 3.6. Inside the shape buffer, the
+crew's **room's own draw** was 2.37 ms of the 4.27 and `world_paint` 1.23
+— and inside the room, `Sight::light_map` was 2.3 of that 2.37, against
+0.05 ms in the simulation. That is the shape of it: one crew member marches
+one fan of rays, fourteen march fourteen, and `combat` and `droids` are the
+two commands with fourteen.
+
+**What was done about it** is the march, and nothing else — the same
+pixels, the same picture. `Sight::march` takes its callback **by type**
+rather than as a `&mut dyn FnMut`: it is called once a *pixel*, some
+hundreds of thousands of times for one pair of eyes on a station's deck,
+and an indirect call there was a third of the cost. The `RAYS` (4096)
+directions are worked out **once** into a table rather than two trig calls
+a ray, eight thousand of them for every eye that moved half a pixel. And
+`seen` is cleared with `fill` rather than a loop. Nothing about the rule
+moved: `sight::tests::the_light_map_is_the_same_picture_it_was` pins both
+planes of a marched room by hash, and the numbers in it were read off the
+**old** march.
+
+| command | before | after |
+| --- | --- | --- |
+| `simulation` (docked, 1×) | 3.9 ms | 3.9 ms |
+| `simulation` at 24× | 6.9 ms | 6.4 ms |
+| `simulation` at 48× | 8.8 ms | 8.1 ms |
+| the galaxy chart open | 7.3 ms | 7.3 ms |
+| `design` | 4.5 ms | 4.5 ms |
+| **`combat`** | **9.4 ms** | **7.8 ms** |
+| **`droids`** | **9.3 ms** | **7.2 ms** |
+
+Three runs each of the two fights and two of the rest, the median; the
+same machine and the same build bar the one file. The crew of one is
+unmoved because one fan of rays was never the cost, and the designer and
+the chart draw no room at all.
+
+**Two things left standing, measured and not fixed**, since the task was
+the largest cost and not every cost. The **galaxy chart** costs 4.81 ms a
+frame in `canvas ui` — 64% of that screen's frame — which is the block at
+the top of the chart's arm in `screens/game.rs` walking every star of the
+galaxy for what is visited, what is infested and what is reachable, every
+frame, and plotting the route again with it; none of that changes between
+frames unless the ship moves or the pick does. And the **tessellation**,
+2.1 ms, is now the largest single row of a fight's frame: 15 300 shapes
+and 183 000 floats a frame, most of them the docked station's hull, which
+is rebuilt from nothing every frame though it only moves when the camera
+does.
 
 ## How fast the crisis crosses a galaxy (feature 92)
 

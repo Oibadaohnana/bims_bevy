@@ -69,6 +69,7 @@ mod icons;
 mod keys;
 mod names;
 mod net;
+mod perf;
 mod save;
 mod screens;
 mod settings;

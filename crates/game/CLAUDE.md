@@ -2937,6 +2937,26 @@ laid over it. Two things:
   game's. The lamps' own pictures (`fittings::wall_light`, flush to its
   wall; `standing_light`) draw no halo: the map is the light. `Fog::All`
   is unchanged: tiles, black.
+- **The march is the most expensive thing in a fight's frame, and it is
+  not to be made cheaper by marching less** (feature 96). Measured in a
+  release build, `bims combat` — fourteen crew on a joined deck —
+  `Sight::light_map` was **2.3 ms of a 9.2 ms frame**, against 0.05 ms in
+  the simulation, whose crew is one: a body whose eyes moved half a map
+  pixel is marched again, and a fight is fourteen bodies moving. Nearly
+  all of it is the ray walk itself, some six hundred thousand pixel steps
+  for one pair of eyes on a station's deck — so what was made cheaper is
+  the **step**: `Sight::march` takes its callback by type rather than as a
+  `&mut dyn FnMut` (an indirect call a pixel was a third of it), the
+  `RAYS` directions are a table worked out once rather than two trig calls
+  a ray, and `seen` is cleared with `fill`. **`RAYS` is not the knob**:
+  four thousand rays are one pixel apart eighty tiles out, and a deck's
+  own march is unbounded by range — a body sees as far as the walls let
+  it — so a hundred-tile arena is already at the edge of what 4096 covers
+  and fewer would streak. `the_light_map_is_the_same_picture_it_was` in
+  `sight::tests` hashes both planes of a marched room and pins them, and
+  the numbers in it were read off the march as it stood *before* any of
+  this: a speed-up that moves a pixel fails it. The frame it bought is in
+  the root `CLAUDE.md`, "Where a frame goes".
 
 ## A field is a bay at half pace, outdoors
 

@@ -1482,7 +1482,7 @@ impl Sight {
                     Some(light.reach),
                     &self.fixed,
                     through_soft,
-                    &mut |i, _, d| {
+                    |i, _, d| {
                         let (x, y) = (i % w, i / w);
                         if x < x0 || x >= x1 || y < y0 || y >= y1 {
                             return;
@@ -1599,13 +1599,18 @@ impl Sight {
     /// room units — until the ray meets an opaque cell of `cells` (one
     /// that is furniture, `soft`, too, unless `through_soft`), leaves the
     /// grid, or has gone `reach`. The walk itself is [`march_rays`].
-    fn march(
+    ///
+    /// `f` is taken by type and not as a `&mut dyn FnMut`: it is called
+    /// once a *pixel* — some hundreds of thousands of times for one pair
+    /// of eyes on a station's deck — and an indirect call there was a
+    /// third of what a fight's frame cost (feature 96).
+    fn march<F: FnMut(usize, (i32, i32), f32)>(
         &self,
         from: Vec2,
         reach: Option<f32>,
         cells: &[Cell],
         through_soft: bool,
-        f: &mut dyn FnMut(usize, (i32, i32), f32),
+        mut f: F,
     ) {
         let (w, h) = self.map_dims();
         let (w, h) = (w as i32, h as i32);
@@ -1644,9 +1649,7 @@ impl Sight {
     /// March one body's eyes over the cells as they are, into `seen`,
     /// and say which pixels it reached as a box.
     fn view_of(&self, body: Vec2, eyes: &[Eye], seen: &mut [bool]) -> Option<Box> {
-        for s in seen.iter_mut() {
-            *s = false;
-        }
+        seen.fill(false);
         let range = DARK_RANGE * self.tile;
         let w = self.map_dims().0;
         let mut reached: Option<Box> = None;
@@ -1654,7 +1657,7 @@ impl Sight {
             // A peek adds only what lies past its wall; the body's own eyes
             // everything. The dark rule is measured from the body, as the
             // trace measures it.
-            self.march(eye.at, self.range, &self.cells, false, &mut |i, tile, _| {
+            self.march(eye.at, self.range, &self.cells, false, |i, tile, _| {
                 if !seen[i]
                     && eye.admits(tile)
                     && (self.light_field[i] > 0
@@ -1849,6 +1852,26 @@ impl Sight {
 /// and integer arithmetic bar one add a step. The deck's light map and
 /// the plain's picture (`terrain::Plane::picture`) are both marched by
 /// this, so their shadows have the same edges.
+/// The [`RAYS`] directions a fan is walked along, worked out once.
+///
+/// They are the same four thousand angles every time — the fan is a
+/// constant — and a body's eyes on a station's deck are marched some
+/// hundreds of thousands of pixels, so the two trig calls a ray were
+/// eight thousand of them for every eye that moved half a pixel
+/// (feature 96). The table is a tenth of the cost of the march it saves
+/// and is built the first time anything is marched.
+fn ray_directions() -> &'static [(f32, f32)] {
+    static DIRS: std::sync::OnceLock<Vec<(f32, f32)>> = std::sync::OnceLock::new();
+    DIRS.get_or_init(|| {
+        (0..RAYS)
+            .map(|r| {
+                let a = r as f32 / RAYS as f32 * core::f32::consts::TAU;
+                (a.cos(), a.sin())
+            })
+            .collect()
+    })
+}
+
 pub(crate) fn march_rays(
     from: (f32, f32),
     far: f32,
@@ -1861,9 +1884,7 @@ pub(crate) fn march_rays(
     let (ox, oy) = from;
     let (w, h) = dims;
     let shift = MAP_PX_PER_TILE.trailing_zeros();
-    for r in 0..RAYS {
-        let a = r as f32 / RAYS as f32 * core::f32::consts::TAU;
-        let (dx, dy) = (a.cos(), a.sin());
+    for &(dx, dy) in ray_directions() {
         let mut x = ox.floor() as i32;
         let mut y = oy.floor() as i32;
         let step_x: i32 = if dx > 0.0 { 1 } else { -1 };
@@ -1932,6 +1953,57 @@ mod tests {
     use super::*;
 
     const TILE: f32 = 52.0;
+
+    /// The light map is a **picture**, and a change made to march it
+    /// faster must not move a pixel of it (feature 96). A walled room
+    /// with a doorway, two lamps and a body in it, marched: the two
+    /// planes are hashed and the numbers written down. Nothing about
+    /// what the map *means* is asserted here — the tests above do that
+    /// — only that it is the map it was.
+    #[test]
+    fn the_light_map_is_the_same_picture_it_was() {
+        let room = Rect::from_min_size(Vec2::ZERO, vec2(16.0 * TILE, 10.0 * TILE));
+        // A wall down the middle with one tile of doorway in it, so the
+        // rays are stopped, turn a corner and fan out past it.
+        let wall: Vec<Rect> = (0..10)
+            .filter(|y| *y != 4)
+            .map(|y| Rect::from_min_size(vec2(8.0 * TILE, y as f32 * TILE), vec2(TILE, TILE)))
+            .collect();
+        let mut sight = Sight::new(room, room, TILE, &wall, &[room]);
+        sight.set_lights(&[
+            Light {
+                at: middle(3.0, 2.0),
+                reach: 7.0 * TILE,
+            },
+            Light {
+                at: middle(12.0, 7.0),
+                reach: 9.0 * TILE,
+            },
+        ]);
+        assert!(sight.light_map(&[middle(4.0, 4.0), middle(13.0, 2.0)]));
+        let map = sight.map();
+        assert_eq!((map.width, map.height), (16 * 8, 10 * 8));
+        let hash = |plane: &[u8]| -> u64 {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for &b in plane {
+                h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            h
+        };
+        assert_eq!(hash(&map.alpha), ALPHA_PINNED, "the darkness moved");
+        assert_eq!(hash(&map.glow), GLOW_PINNED, "the lamplight moved");
+        // And a second call with nobody moved changes nothing at all.
+        let version = map.version;
+        assert!(!sight.light_map(&[middle(4.0, 4.0), middle(13.0, 2.0)]));
+        assert_eq!(sight.map().version, version);
+    }
+
+    /// The two planes of [`the_light_map_is_the_same_picture_it_was`],
+    /// hashed. They are not a rule — they are what the march came out at
+    /// — so a change that moves them on purpose writes the new numbers
+    /// down and says in its commit what moved.
+    const ALPHA_PINNED: u64 = 8_708_404_861_411_554_907;
+    const GLOW_PINNED: u64 = 18_347_543_318_836_694_730;
 
     fn middle(x: f32, y: f32) -> Vec2 {
         vec2((x + 0.5) * TILE, (y + 0.5) * TILE)

@@ -37,6 +37,12 @@ fn setup(mut commands: Commands) {
 /// layer — clipped to the rect, so a canvas inside a panel stays inside it
 /// and one beside the panels stays out of them.
 pub fn paint_shapes(painter: &egui::Painter, rect: Rect, view: View, shapes: &[f32]) {
+    let _timed = crate::perf::scope(crate::perf::Phase::Tessellate);
+    crate::perf::tally(
+        crate::perf::Count::Shapes,
+        (shapes.len() / crate::shapes::STRIDE) as u64,
+    );
+    crate::perf::tally(crate::perf::Count::Floats, shapes.len() as u64);
     let mut buf = ShapeBuf::new(rect, painter.pixels_per_point());
     buf.replay(shapes, view);
     if buf.is_empty() {

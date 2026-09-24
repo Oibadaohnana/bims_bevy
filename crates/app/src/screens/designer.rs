@@ -709,6 +709,7 @@ fn frame(
     mut commands: Commands,
     mut online: ResMut<Online>,
 ) -> Result {
+    let _timed = crate::perf::scope(crate::perf::Phase::Frame);
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
     let session = &mut session.0;
@@ -1250,7 +1251,11 @@ fn frame(
         },
     };
     let painter = canvas_painter(&ctx, canvas);
-    paint_shapes(&painter, canvas, view, session.render());
+    let shapes = {
+        let _timed = crate::perf::scope(crate::perf::Phase::Render);
+        session.render()
+    };
+    paint_shapes(&painter, canvas, view, shapes);
     // The others' pointers over the grid, each in its player's colour
     // with their Bim's name, where the tile they are over is on this
     // screen.

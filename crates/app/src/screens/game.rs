@@ -855,6 +855,9 @@ fn frame(
     // screen runs — held as an option rather than assumed.
     beginning: Option<Res<Beginning>>,
 ) -> Result {
+    // `BIMS_PERF`: where the frame goes (feature 96). Nothing at all
+    // without it.
+    let _timed = crate::perf::scope(crate::perf::Phase::Frame);
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
     let session = &mut session.0;
@@ -868,6 +871,7 @@ fn frame(
     // guest's ask is applied and goes round; on a guest the host's applied
     // orders and its steps are what the world is made of. The host gone
     // is the end of company: the clock is this window's from here.
+    let wire_timed = crate::perf::scope(crate::perf::Phase::Wire);
     for event in online.drain(now) {
         match event {
             Event::Packet { from, packet } => match packet {
@@ -996,6 +1000,8 @@ fn frame(
         session.dress_crew();
     }
 
+    drop(wire_timed);
+
     if session.game.is_none() {
         // A world that never opened — a spawn the galaxy has not got.
         egui::CentralPanel::default().show(&mut root, |ui| {
@@ -1025,11 +1031,15 @@ fn frame(
             .unwrap_or(0) as f64;
         screen.backlog += dt * session.steps_per_second() * times;
         let before = session.game.as_ref().map_or(0, |g| g.world.steps);
-        while screen.backlog >= 1.0 && steps < MAX_STEPS_PER_FRAME {
-            session.world_step();
-            screen.backlog -= 1.0;
-            steps += 1;
+        {
+            let _timed = crate::perf::scope(crate::perf::Phase::Step);
+            while screen.backlog >= 1.0 && steps < MAX_STEPS_PER_FRAME {
+                session.world_step();
+                screen.backlog -= 1.0;
+                steps += 1;
+            }
         }
+        crate::perf::tally(crate::perf::Count::Steps, steps as u64);
         if screen.backlog > MAX_STEPS_PER_FRAME as f64 {
             screen.backlog = 0.0; // gave up catching up
         }
@@ -1144,6 +1154,7 @@ fn frame(
             sounds.want(Bed::Engine);
         }
     }
+    let prep_timed = crate::perf::scope(crate::perf::Phase::Prep);
     let local = screen.net.slot;
     // Everything that changes the ship or the crew goes through the seam
     // as an order, gathered here and sent below.
@@ -1256,6 +1267,8 @@ fn frame(
         }
     }
 
+    drop(prep_timed);
+
     // --- an order on its way to the helm ---------------------------------------
     // The strip at the top walked the crew member to the seat; the order
     // goes through the frame they get there, and the post is lifted once
@@ -1283,6 +1296,7 @@ fn frame(
         }
     }
 
+    let canvas_timed = crate::perf::scope(crate::perf::Phase::Canvas);
     // --- the canvas ------------------------------------------------------------
     let canvas = rect_of(root.available_rect_before_wrap());
     let size = canvas.size();
@@ -1964,6 +1978,8 @@ fn frame(
         screen.net.order(session, order);
     }
 
+    drop(canvas_timed);
+    let panels_timed = crate::perf::scope(crate::perf::Phase::Panels);
     // --- the left stack: items, the readout, the pointer, the agendas ----------
     let game = session.game.as_ref().unwrap();
     let view_name = match game.mode {
@@ -2529,6 +2545,8 @@ fn frame(
         None => {}
     }
 
+    drop(panels_timed);
+
     // --- painting ------------------------------------------------------------------
     let view = View {
         scale: session.view_scale(),
@@ -2538,11 +2556,17 @@ fn frame(
         },
     };
     let painter = canvas_painter(&ctx, canvas);
+    // Everything painted over the shapes — names, marks, the numbers —
+    // is timed as one (feature 96); it starts once the buffer is down.
+    let mut overlay_timed = None;
     if galaxy_up && let Some(chart) = &screen.galaxy {
         // The chart in place of the map: the lobby's picture, in pixels,
         // and the names of the star the ship is at and the one picked over
         // them, since the buffer holds no words.
-        chart.paint(&mut screen.galaxy_list);
+        {
+            let _timed = crate::perf::scope(crate::perf::Phase::Render);
+            chart.paint(&mut screen.galaxy_list);
+        }
         paint_shapes(&painter, canvas, View::PIXELS, screen.galaxy_list.shapes());
         for (star, color, tag) in [
             (chart.here, theme::YOURS, "here"),
@@ -2560,7 +2584,12 @@ fn frame(
             }
         }
     } else {
-        paint_shapes(&painter, canvas, view, session.render());
+        let shapes = {
+            let _timed = crate::perf::scope(crate::perf::Phase::Render);
+            session.render()
+        };
+        paint_shapes(&painter, canvas, view, shapes);
+        overlay_timed = Some(crate::perf::scope(crate::perf::Phase::Overlay));
         // Where you are, in words, over the reticle the map draws round the
         // ship — `You`, and the berth or the place — in the colour the
         // player's own things are, the way the chart tags the star the ship
@@ -3047,6 +3076,7 @@ fn frame(
             egui::Color32::from_black_alpha((alpha * 255.0) as u8),
         );
     }
+    drop(overlay_timed);
     let _ = now;
     Ok(())
 }
