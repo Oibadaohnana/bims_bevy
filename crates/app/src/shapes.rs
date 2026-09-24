@@ -3,9 +3,11 @@
 //! Every painter in the workspace — the room's, the designer's, the lobby's
 //! — writes the same twelve floats a shape: kind, centre, size, rotation,
 //! corner radius, line width and a colour. The browser used to replay that
-//! onto a canvas; this replays it into one mesh, which egui draws with the
-//! rest of the frame, clipped to the canvas it belongs to. The field order
-//! is the one thing shared with the painters, and it is in
+//! onto a canvas; this replays it into one mesh, clipped to the canvas it
+//! belongs to — a Bevy mesh for the world's canvas between the panels
+//! (`scene.rs`, where the bloom is) and an egui mesh for a canvas inside a
+//! panel (the lobby's galaxy and diagram, the setup's portrait). The field
+//! order is the one thing shared with the painters, and it is in
 //! `crates/game/src/draw.rs`.
 //!
 //! Shapes come in **world units** under a view — a scale and an offset that
@@ -15,12 +17,17 @@
 //! pointer reading thinks.
 //!
 //! Every edge is **feathered**: the way epaint draws its own shapes, and
-//! the only anti-aliasing there is, because bevy_egui paints into the
-//! window's unsampled target and so no multisampling reaches it. A filled
-//! shape is drawn half a pixel small with a ramp round it from its colour
-//! to nothing a pixel wide; a stroke is a band with a ramp down each side;
-//! and a stroke thinner than a pixel is drawn a pixel wide and that much
-//! fainter, so a seam at a low zoom fades rather than flickers.
+//! the only anti-aliasing there is — egui paints into the window's
+//! unsampled target, and the world's camera runs without multisampling so
+//! that its picture is the one egui drew. A filled shape is drawn half a
+//! pixel small with a ramp round it from its colour to nothing a pixel
+//! wide; a stroke is a band with a ramp down each side; and a stroke
+//! thinner than a pixel is drawn a pixel wide and that much fainter, so a
+//! seam at a low zoom fades rather than flickers.
+//!
+//! A colour is sRGB, nought to one, as it always was — and a channel may
+//! go **past one**: that is an emissive colour, brighter than white, and
+//! the one thing the bloom picks up ([`Paint`]).
 
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -78,14 +85,80 @@ impl Rect {
     }
 }
 
-/// The far side of a feather ramp: nothing at all, premultiplied, so the
-/// ramp is a fade of the shape's own colour rather than a fade to black.
-const CLEAR: egui::Color32 = egui::Color32::TRANSPARENT;
+/// A vertex's colour: **premultiplied and sRGB-encoded**, what an egui
+/// vertex carries, as floats rather than bytes. A colour at or under white
+/// is made exactly as egui made it — through `Color32`, rounded to the
+/// byte — so the world's canvas, which Bevy draws now, is the picture egui
+/// drew to the bit. A colour with a channel **past one** is emissive: it
+/// is kept as the float it is, premultiplied the same way, and the
+/// canvas's shader carries the sRGB curve on past white for it
+/// (`canvas.wgsl`), which is what lifts it over the bloom's threshold.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Paint(pub [f32; 4]);
 
-/// Triangles with a colour at every corner: an egui mesh in the making.
-/// Positions are window points; the canvas's origin is added on the way in.
+impl Paint {
+    /// Nothing, premultiplied: the far side of a feather ramp, so the ramp
+    /// is a fade of the shape's own colour rather than a fade to black.
+    pub const CLEAR: Paint = Paint([0.0; 4]);
+
+    /// A shape's colour as the painters write it: straight sRGB and an
+    /// alpha.
+    pub fn of(r: f32, g: f32, b: f32, a: f32) -> Paint {
+        // `as u8` saturates, which is what egui was always handed.
+        let byte = |v: f32| (v * 255.0).round() as u8;
+        if r > 1.0 || g > 1.0 || b > 1.0 {
+            let a = byte(a) as f32 / 255.0;
+            return Paint([r.max(0.0) * a, g.max(0.0) * a, b.max(0.0) * a, a]);
+        }
+        Paint::from(egui::Color32::from_rgba_unmultiplied(
+            byte(r),
+            byte(g),
+            byte(b),
+            byte(a),
+        ))
+    }
+
+    /// Whether a channel is brighter than white — premultiplied, brighter
+    /// than its own alpha.
+    pub fn is_emissive(self) -> bool {
+        self.0[..3].iter().any(|&c| c > self.0[3])
+    }
+
+    /// So much fainter: `Color32::gamma_multiply`, rounding and all, for a
+    /// colour egui could hold, and the plain product for one it could not.
+    fn faded(self, by: f32) -> Paint {
+        if self.is_emissive() {
+            Paint(self.0.map(|c| c * by))
+        } else {
+            Paint::from(self.color32().gamma_multiply(by))
+        }
+    }
+
+    /// As egui's bytes: an emissive channel held at the alpha, which is as
+    /// bright as a premultiplied byte can say.
+    pub fn color32(self) -> egui::Color32 {
+        let [r, g, b, a] = self.0;
+        let byte = |v: f32| (v * 255.0).round() as u8;
+        let a = byte(a);
+        let channel = |v: f32| byte(v).min(a);
+        egui::Color32::from_rgba_premultiplied(channel(r), channel(g), channel(b), a)
+    }
+}
+
+impl From<egui::Color32> for Paint {
+    fn from(c: egui::Color32) -> Paint {
+        Paint(c.to_array().map(|v| v as f32 / 255.0))
+    }
+}
+
+/// Triangles with a colour at every corner: a mesh in the making, for the
+/// world's canvas ([`ShapeBuf::into_parts`]) or for egui
+/// ([`ShapeBuf::into_shape`]). Positions are window points, z nought; the
+/// canvas's origin is added on the way in.
 pub struct ShapeBuf {
-    mesh: egui::Mesh,
+    positions: Vec<[f32; 3]>,
+    colors: Vec<[f32; 4]>,
+    indices: Vec<u32>,
     origin: Vec2,
     clip: Rect,
     /// One physical pixel, in points: the width of the ramp along every
@@ -93,11 +166,20 @@ pub struct ShapeBuf {
     feather: f32,
 }
 
+/// What a [`ShapeBuf`] comes to for Bevy: a mesh's three arrays.
+pub struct Parts {
+    pub positions: Vec<[f32; 3]>,
+    pub colors: Vec<[f32; 4]>,
+    pub indices: Vec<u32>,
+}
+
 impl ShapeBuf {
     /// A buffer for a canvas at `clip`, on a display with `pixels_per_point`.
     pub fn new(clip: Rect, pixels_per_point: f32) -> ShapeBuf {
         ShapeBuf {
-            mesh: egui::Mesh::default(),
+            positions: Vec::new(),
+            colors: Vec::new(),
+            indices: Vec::new(),
             origin: clip.min,
             clip,
             feather: if pixels_per_point > 0.0 {
@@ -109,26 +191,47 @@ impl ShapeBuf {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.mesh.indices.is_empty()
+        self.indices.is_empty()
     }
 
+    /// The triangles as one egui shape, for a canvas inside a panel.
     pub fn into_shape(self) -> egui::Shape {
-        egui::Shape::mesh(self.mesh)
+        let mut mesh = egui::Mesh {
+            indices: self.indices,
+            ..Default::default()
+        };
+        mesh.vertices = self
+            .positions
+            .iter()
+            .zip(&self.colors)
+            .map(|(p, c)| egui::epaint::Vertex {
+                pos: egui::pos2(p[0], p[1]),
+                uv: egui::epaint::WHITE_UV,
+                color: Paint(*c).color32(),
+            })
+            .collect();
+        egui::Shape::mesh(mesh)
     }
 
-    fn vertex(&mut self, canvas: Vec2, color: egui::Color32) -> u32 {
-        let i = self.mesh.vertices.len() as u32;
+    /// The triangles as a mesh's arrays, for the world's canvas.
+    pub fn into_parts(self) -> Parts {
+        Parts {
+            positions: self.positions,
+            colors: self.colors,
+            indices: self.indices,
+        }
+    }
+
+    fn vertex(&mut self, canvas: Vec2, color: Paint) -> u32 {
+        let i = self.positions.len() as u32;
         let p = canvas + self.origin;
-        self.mesh.vertices.push(egui::epaint::Vertex {
-            pos: egui::pos2(p.x, p.y),
-            uv: egui::epaint::WHITE_UV,
-            color,
-        });
+        self.positions.push([p.x, p.y, 0.0]);
+        self.colors.push(color.0);
         i
     }
 
     /// A convex polygon, as a fan.
-    fn fan(&mut self, points: &[Vec2], color: egui::Color32) {
+    fn fan(&mut self, points: &[Vec2], color: Paint) {
         if points.len() < 3 {
             return;
         }
@@ -136,19 +239,19 @@ impl ShapeBuf {
         let mut prev = self.vertex(points[1], color);
         for &p in &points[2..] {
             let here = self.vertex(p, color);
-            self.mesh.indices.extend_from_slice(&[first, prev, here]);
+            self.indices.extend_from_slice(&[first, prev, here]);
             prev = here;
         }
     }
 
     /// The band between two rings of the same length, each ring its own
     /// colour: an outline, or one side of a feather ramp.
-    fn band(&mut self, outer: &[Vec2], oc: egui::Color32, inner: &[Vec2], ic: egui::Color32) {
+    fn band(&mut self, outer: &[Vec2], oc: Paint, inner: &[Vec2], ic: Paint) {
         let n = outer.len().min(inner.len());
         if n < 2 {
             return;
         }
-        let base = self.mesh.vertices.len() as u32;
+        let base = self.positions.len() as u32;
         for i in 0..n {
             self.vertex(outer[i], oc);
             self.vertex(inner[i], ic);
@@ -157,16 +260,14 @@ impl ShapeBuf {
             let j = (i + 1) % n as u32;
             let (o, in_) = (base + 2 * i, base + 2 * i + 1);
             let (oj, inj) = (base + 2 * j, base + 2 * j + 1);
-            self.mesh
-                .indices
-                .extend_from_slice(&[o, oj, inj, o, inj, in_]);
+            self.indices.extend_from_slice(&[o, oj, inj, o, inj, in_]);
         }
     }
 
     /// A convex polygon, filled, with its edge feathered. `extent` is the
     /// shape's narrowest width: a shape narrower than the feather gets a
     /// ramp that narrow, so a dot is never pulled inside out.
-    fn fill(&mut self, points: &[Vec2], color: egui::Color32, extent: f32) {
+    fn fill(&mut self, points: &[Vec2], color: Paint, extent: f32) {
         if points.len() < 3 {
             return;
         }
@@ -179,13 +280,13 @@ impl ShapeBuf {
         let inner = offset(points, &normals, -f / 2.0);
         let outer = offset(points, &normals, f / 2.0);
         self.fan(&inner, color);
-        self.band(&outer, CLEAR, &inner, color);
+        self.band(&outer, Paint::CLEAR, &inner, color);
     }
 
     /// The band between two rings, feathered along both edges: a stroke.
     /// The rings are the stroke's own edges — the caller has already put
     /// them half a line either side of the path.
-    fn stroke(&mut self, outer: &[Vec2], inner: &[Vec2], color: egui::Color32) {
+    fn stroke(&mut self, outer: &[Vec2], inner: &[Vec2], color: Paint) {
         if outer.len().min(inner.len()) < 2 {
             return;
         }
@@ -196,24 +297,30 @@ impl ShapeBuf {
         // The inner ring's normals point out of the hole, into the stroke.
         let inner_out = offset(inner, &ni, f);
         let inner_in = offset(inner, &ni, -f);
-        self.band(&outer_out, CLEAR, &outer_in, color);
+        self.band(&outer_out, Paint::CLEAR, &outer_in, color);
         self.band(&outer_in, color, &inner_out, color);
-        self.band(&inner_out, color, &inner_in, CLEAR);
+        self.band(&inner_out, color, &inner_in, Paint::CLEAR);
     }
 
     /// A stroke's width and colour as drawn: one thinner than a pixel is
     /// drawn a pixel wide and fainter by the same ratio, so it fades
     /// rather than breaking up.
-    fn thin(&self, line: f32, color: egui::Color32) -> (f32, egui::Color32) {
+    fn thin(&self, line: f32, color: Paint) -> (f32, Paint) {
         if line >= self.feather {
             (line, color)
         } else {
-            (self.feather, color.gamma_multiply(line / self.feather))
+            (self.feather, color.faded(line / self.feather))
         }
     }
 
     /// Replay `shapes` — twelve floats each, in world units under `view`.
     pub fn replay(&mut self, shapes: &[f32], view: View) {
+        // About what a shape comes to, so the arrays grow once rather than
+        // a dozen times over a docked station's fifteen thousand.
+        let reserve = shapes.len() / STRIDE * 16;
+        self.positions.reserve(reserve);
+        self.colors.reserve(reserve);
+        self.indices.reserve(reserve * 2);
         let clip = Rect::new(Vec2::ZERO, self.clip.size());
         for s in shapes.as_chunks::<STRIDE>().0 {
             let kind = s[0];
@@ -227,7 +334,7 @@ impl ShapeBuf {
                 continue;
             }
             // Past the canvas by more than its own size, nothing of it can
-            // show. egui clips the rest.
+            // show. The canvas's clip takes the rest.
             let reach = size.max_element() + line + 1.0;
             if centre.x + reach < clip.min.x
                 || centre.x - reach > clip.max.x
@@ -236,12 +343,7 @@ impl ShapeBuf {
             {
                 continue;
             }
-            let color = egui::Color32::from_rgba_unmultiplied(
-                (s[8] * 255.0).round() as u8,
-                (s[9] * 255.0).round() as u8,
-                (s[10] * 255.0).round() as u8,
-                (a * 255.0).round() as u8,
-            );
+            let color = Paint::of(s[8], s[9], s[10], a);
             if kind == KIND_ELLIPSE {
                 self.ellipse(centre, size, rot, line, color);
             } else if kind == KIND_TRIANGLE {
@@ -252,7 +354,7 @@ impl ShapeBuf {
         }
     }
 
-    fn ellipse(&mut self, centre: Vec2, size: Vec2, rot: f32, line: f32, color: egui::Color32) {
+    fn ellipse(&mut self, centre: Vec2, size: Vec2, rot: f32, line: f32, color: Paint) {
         let r = size / 2.0;
         let n = segments(r.max_element() + line);
         if line > 0.0 {
@@ -274,7 +376,7 @@ impl ShapeBuf {
     }
 
     /// The bottom-left half of the box, as the painters define it.
-    fn triangle(&mut self, centre: Vec2, size: Vec2, rot: f32, line: f32, color: egui::Color32) {
+    fn triangle(&mut self, centre: Vec2, size: Vec2, rot: f32, line: f32, color: Paint) {
         let half = size / 2.0;
         let pts = [
             turned(Vec2::new(-half.x, -half.y), rot) + centre,
@@ -303,15 +405,7 @@ impl ShapeBuf {
         }
     }
 
-    fn rect(
-        &mut self,
-        centre: Vec2,
-        size: Vec2,
-        rot: f32,
-        radius: f32,
-        line: f32,
-        color: egui::Color32,
-    ) {
+    fn rect(&mut self, centre: Vec2, size: Vec2, rot: f32, radius: f32, line: f32, color: Paint) {
         let half = size / 2.0;
         if line > 0.0 {
             let (line, color) = self.thin(line, color);
@@ -476,6 +570,19 @@ mod tests {
 
     const KIND_RECT: f32 = 0.0;
 
+    /// The buffer's corners as egui would have been handed them.
+    fn vertices(buf: &ShapeBuf) -> Vec<egui::epaint::Vertex> {
+        buf.positions
+            .iter()
+            .zip(&buf.colors)
+            .map(|(p, c)| egui::epaint::Vertex {
+                pos: egui::pos2(p[0], p[1]),
+                uv: egui::epaint::WHITE_UV,
+                color: Paint(*c).color32(),
+            })
+            .collect()
+    }
+
     #[test]
     fn the_stride_is_the_painters() {
         assert_eq!(STRIDE, bims::draw::STRIDE);
@@ -493,16 +600,14 @@ mod tests {
         buf.replay(&inside, View::PIXELS);
         // The two triangles of the rect, and two along each of its four
         // edges for the ramp.
-        assert_eq!(buf.mesh.indices.len(), 6 + 4 * 6);
+        assert_eq!(buf.indices.len(), 6 + 4 * 6);
         // The canvas's origin goes onto every corner, and the solid corner
         // is half a pixel in from the rect's own.
-        assert_eq!(buf.mesh.vertices[0].pos, egui::pos2(55.5, 55.5));
-        assert_eq!(buf.mesh.vertices[0].color.a(), 255);
+        assert_eq!(vertices(&buf)[0].pos, egui::pos2(55.5, 55.5));
+        assert_eq!(vertices(&buf)[0].color.a(), 255);
         // The ramp's far edge is half a pixel out, and nothing at all.
-        let out = buf
-            .mesh
-            .vertices
-            .iter()
+        let out = vertices(&buf)
+            .into_iter()
             .find(|v| v.pos == egui::pos2(54.5, 54.5))
             .expect("the ramp's outer corner");
         assert_eq!(out.color, egui::Color32::TRANSPARENT);
@@ -550,7 +655,7 @@ mod tests {
             // Every vertex sits on the stroke's two edges or half a pixel
             // either side of them, never at the centre; the ones furthest in
             // and out are the clear ends of the ramps.
-            for v in &buf.mesh.vertices {
+            for v in &vertices(&buf) {
                 let d = ((v.pos.x - 50.0).powi(2) + (v.pos.y - 50.0).powi(2)).sqrt();
                 let r = [18.5f32, 19.5, 20.5, 21.5]
                     .into_iter()
@@ -569,14 +674,13 @@ mod tests {
                 KIND_RECT, 50.0, 50.0, 40.0, 40.0, 0.0, 0.0, 0.25, 1.0, 1.0, 1.0, 1.0,
             ];
             buf.replay(&hair, View::PIXELS);
-            let solid = buf.mesh.vertices.iter().map(|v| v.color.a()).max().unwrap();
+            let solid = vertices(&buf).iter().map(|v| v.color.a()).max().unwrap();
             assert!(solid > 0 && solid < 128, "{solid}");
             // A pixel wide about the path at 30: the ramps meet on it, solid,
             // and reach nothing half a pixel either side.
             let at = |x: f32| {
-                buf.mesh
-                    .vertices
-                    .iter()
+                vertices(&buf)
+                    .into_iter()
                     .find(|v| (v.pos.x - x).abs() < 0.01)
                     .map(|v| v.color.a())
             };
@@ -607,7 +711,7 @@ mod tests {
             // Nothing lands deep inside the triangle: its middle, the centroid
             // of (30,30) (30,70) (70,70), is well off every edge.
             let (cx, cy) = (130.0 / 3.0, 170.0 / 3.0);
-            for v in &buf.mesh.vertices {
+            for v in &vertices(&buf) {
                 let d = ((v.pos.x - cx).powi(2) + (v.pos.y - cy).powi(2)).sqrt();
                 assert!(d > 6.0, "{:?}", v.pos);
             }
@@ -660,5 +764,39 @@ mod tests {
         };
         let world = Vec2::new(3.0, 4.0);
         assert_eq!(view.to_world(view.to_canvas(world)), world);
+    }
+
+    /// A colour at or under white is what egui made of it, to the byte,
+    /// and fades as egui faded one — so the world's canvas, drawn by Bevy
+    /// now, is the picture egui drew. A colour with a channel past one is
+    /// kept past one for the bloom, and held at white where it has to be
+    /// egui's bytes (feature 97).
+    #[test]
+    fn a_plain_colour_is_egui_s_to_the_byte_and_an_emissive_one_is_kept() {
+        let plain = Paint::of(0.4, 0.72, 1.0, 0.5);
+        let eguis = egui::Color32::from_rgba_unmultiplied(102, 184, 255, 128);
+        assert_eq!(plain.color32(), eguis);
+        assert!(!plain.is_emissive());
+        assert_eq!(plain.faded(0.3).color32(), eguis.gamma_multiply(0.3));
+
+        let hot = Paint::of(2.0, 1.5, 0.5, 1.0);
+        assert!(hot.is_emissive());
+        assert_eq!(hot.0, [2.0, 1.5, 0.5, 1.0]);
+        assert_eq!(hot.color32(), egui::Color32::from_rgb(255, 255, 128));
+        // Half as opaque: premultiplied like any other, and still past its
+        // alpha, so still emissive.
+        let half = Paint::of(2.0, 1.5, 0.5, 0.5);
+        assert!(half.is_emissive());
+        assert!((half.0[0] - 2.0 * 128.0 / 255.0).abs() < 1e-6);
+
+        // And through the buffer to the mesh untouched.
+        let mut buf = ShapeBuf::new(Rect::new(Vec2::ZERO, Vec2::splat(100.0)), 1.0);
+        let rect = [
+            KIND_RECT, 50.0, 50.0, 10.0, 10.0, 0.0, 0.0, 0.0, 3.0, 2.0, 1.0, 1.0,
+        ];
+        buf.replay(&rect, View::PIXELS);
+        let parts = buf.into_parts();
+        assert!(parts.colors.iter().any(|c| *c == [3.0, 2.0, 1.0, 1.0]));
+        assert_eq!(parts.positions.len(), parts.colors.len());
     }
 }

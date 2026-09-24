@@ -4,10 +4,12 @@
 //! its own view and its own shape buffer. The room's screen has one, the
 //! whole of the window between the panels; the lobby's World tab has two,
 //! the galaxy and the system diagram, laid out inside an egui panel like
-//! any other widget. Each is tessellated into an egui mesh and painted on
-//! whichever layer the screen says — the background for a canvas between
-//! the panels, the panel's own for one inside it — and egui clips it to
-//! the rectangle. Bevy draws nothing but the clear colour.
+//! any other widget. The canvas **between** the panels is Bevy's — a mesh
+//! a layer on the one camera, under egui and under the bloom
+//! (`scene::WorldCanvas`, feature 97) — and a canvas **inside** a panel is
+//! egui's, tessellated into an egui mesh on the panel's own layer by
+//! [`paint_shapes`], since a Bevy mesh under a panel's opaque fill is a
+//! mesh nobody sees. Either is clipped to its rectangle.
 //!
 //! The pointer is read out of egui rather than out of Bevy's input, so that
 //! a click on a panel is the panel's and a click beside it is the canvas's
@@ -19,30 +21,11 @@ use bevy_egui::egui;
 
 use crate::shapes::{Rect, ShapeBuf, View};
 
-pub struct CanvasPlugin;
-
-impl Plugin for CanvasPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup);
-    }
-}
-
-/// The one camera: it clears the window to the void, and egui draws on it.
-/// Nothing else is ever spawned.
-fn setup(mut commands: Commands) {
-    commands.spawn((Camera2d, bevy_egui::PrimaryEguiContext));
-}
-
 /// Paint `shapes`, in world units under `view`, into `rect` on `painter`'s
-/// layer — clipped to the rect, so a canvas inside a panel stays inside it
-/// and one beside the panels stays out of them.
+/// layer — clipped to the rect, so a canvas inside a panel stays inside
+/// it. For a canvas inside a panel: the one between the panels is
+/// `scene::WorldCanvas::shapes`.
 pub fn paint_shapes(painter: &egui::Painter, rect: Rect, view: View, shapes: &[f32]) {
-    let _timed = crate::perf::scope(crate::perf::Phase::Tessellate);
-    crate::perf::tally(
-        crate::perf::Count::Shapes,
-        (shapes.len() / crate::shapes::STRIDE) as u64,
-    );
-    crate::perf::tally(crate::perf::Count::Floats, shapes.len() as u64);
     let mut buf = ShapeBuf::new(rect, painter.pixels_per_point());
     buf.replay(shapes, view);
     if buf.is_empty() {
@@ -54,7 +37,8 @@ pub fn paint_shapes(painter: &egui::Painter, rect: Rect, view: View, shapes: &[f
 }
 
 /// The background layer, clipped to a canvas: where a screen whose canvas
-/// is the window between the panels paints, and puts its words after.
+/// is the window between the panels puts its words, over the canvas's
+/// picture.
 pub fn canvas_painter(ctx: &egui::Context, rect: Rect) -> egui::Painter {
     ctx.layer_painter(egui::LayerId::background())
         .with_clip_rect(egui_rect(rect))

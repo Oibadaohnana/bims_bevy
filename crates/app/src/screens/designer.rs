@@ -29,12 +29,13 @@ use shipdesign::validate::Severity;
 use world::Speed;
 use world::world::Command;
 
-use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui, zoom_factor};
+use crate::canvas::{Pointer, canvas_painter, rect_of, root_ui, zoom_factor};
 use crate::crew::{GearOrder, ResearchOrder};
 use crate::format::euros;
 use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::net::{Event, Online, Packet, Wire};
+use crate::scene::WorldCanvas;
 use crate::settings::{Allowed, Sheet, settings_sheet};
 use crate::shapes::View;
 use crate::sound::Sounds;
@@ -708,6 +709,8 @@ fn frame(
     mut bindings: ResMut<Keys>,
     mut commands: Commands,
     mut online: ResMut<Online>,
+    // The canvas between the panels, which Bevy draws (feature 97).
+    mut world_canvas: WorldCanvas,
 ) -> Result {
     let _timed = crate::perf::scope(crate::perf::Phase::Frame);
     let ctx = contexts.ctx_mut()?.clone();
@@ -1255,7 +1258,7 @@ fn frame(
         let _timed = crate::perf::scope(crate::perf::Phase::Render);
         session.render()
     };
-    paint_shapes(&painter, canvas, view, shapes);
+    world_canvas.shapes(&ctx, canvas, view, shapes);
     // The others' pointers over the grid, each in its player's colour
     // with their Bim's name, where the tile they are over is on this
     // screen.

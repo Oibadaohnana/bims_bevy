@@ -998,6 +998,14 @@ pub struct Game {
     /// floats, for a host that has to lift them over a picture of its
     /// own. See `render` and `shapes_split`.
     bodies_from: usize,
+    /// Where in `list` the fog's place is, in floats: after the bodies
+    /// and the bedding and before the shots, the rings and the marquee.
+    /// Under `Fog::All` the fog is drawn there in the list; under
+    /// `Fog::Crew` the host lays its smooth fog there itself, which it can
+    /// only do if it knows where — see `shapes_fog_split`. A picture, so
+    /// left out of a save like the list.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    fog_from: usize,
 
     /// Maps the fixed-size room onto whatever canvas the host has. The host
     /// applies this before replaying the draw list, and inverts it to turn
@@ -1229,6 +1237,7 @@ impl Game {
             sheltering: Vec::new(),
             list: DrawList::new(),
             bodies_from: 0,
+            fog_from: 0,
             view_scale: 1.0,
             view_offset: Vec2::ZERO,
             players: 1,
@@ -11601,6 +11610,7 @@ impl Game {
         }
         // The shots, over the fog: a bolt is always seen, whatever it
         // flies through.
+        self.fog_from = self.list.len();
         self.combat.draw(&mut self.list);
 
         // Night falls over the whole room at once.
@@ -11676,6 +11686,27 @@ impl Game {
     /// the station's people follow aboard.
     pub fn shapes_split(&self) -> (&[f32], &[f32]) {
         self.list.data().split_at(self.bodies_from)
+    }
+
+    /// The same frame cut where the fog goes: everything the fog lies over
+    /// — the deck, the bodies, the bedding — and everything over the fog —
+    /// the shots, the night, the rings, the marquee. For a host that draws
+    /// the smooth fog itself (`Fog::Crew`): its fog goes between the two,
+    /// so a bolt is seen whatever it flies through.
+    pub fn shapes_fog_split(&self) -> (&[f32], &[f32]) {
+        let data = self.list.data();
+        data.split_at(self.fog_from.min(data.len()))
+    }
+
+    /// [`Game::shapes_split`] with its second half cut where the fog goes:
+    /// the deck, the bodies under the fog, and what is over the fog.
+    pub fn shapes_in_three(&self) -> (&[f32], &[f32], &[f32]) {
+        let data = self.list.data();
+        let bodies = self.bodies_from.min(data.len());
+        let fog = self.fog_from.clamp(bodies, data.len());
+        let (deck, rest) = data.split_at(bodies);
+        let (under, over) = rest.split_at(fog - bodies);
+        (deck, under, over)
     }
 }
 
@@ -15088,5 +15119,37 @@ mod tests {
         game.bims[0].needs.spend(Need::Hygiene, 0.3);
         game.bims[0].needs.soiled(0.45);
         assert!((game.need_level(0, Need::Hygiene as u32) - 0.25).abs() < 1e-6);
+    }
+
+    /// The host lays its smooth fog between the room's picture and what
+    /// the room draws over its fog (feature 97): a bolt in flight is in
+    /// the second half, so it is seen whatever it flies through, and the
+    /// halves are the whole picture, in order — the three-way cut too.
+    #[test]
+    fn a_bolt_in_flight_is_drawn_over_the_fog() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        let near = kate + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((near, WeaponKind::LaserPistol.basic()))]);
+        for _ in 0..(60 * 10) {
+            if !game.combat.bolts.is_empty() {
+                break;
+            }
+            game.simulate(DT);
+        }
+        assert!(!game.combat.bolts.is_empty(), "somebody fired");
+        game.render();
+        let (under, over) = game.shapes_fog_split();
+        assert_eq!([under, over].concat(), game.shapes());
+        let head = game.combat.bolts[0].pos;
+        let at_the_bolt = |part: &[f32]| {
+            part.chunks_exact(crate::draw::STRIDE)
+                .any(|s| (vec2(s[1], s[2]) - head).len() < TILE)
+        };
+        assert!(at_the_bolt(over), "the bolt is over the fog");
+        let (deck, bodies, over_too) = game.shapes_in_three();
+        assert_eq!(over_too, over);
+        assert_eq!([deck, bodies].concat(), under);
     }
 }

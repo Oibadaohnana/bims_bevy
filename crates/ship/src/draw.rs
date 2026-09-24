@@ -52,22 +52,43 @@ impl Color {
 #[derive(Default)]
 pub struct DrawList {
     data: Vec<f32>,
+    /// Where in `data` the host lays its smooth fog, in floats: the
+    /// crew's light map goes over everything before it and under
+    /// everything after — the shots, the rings, the overlays. `None` for a
+    /// picture with no fog in it, which is all of it under whatever the
+    /// host lays over.
+    fog_at: Option<usize>,
 }
 
 impl DrawList {
     pub fn new() -> DrawList {
         DrawList {
             data: Vec::with_capacity(4096 * STRIDE),
+            fog_at: None,
         }
     }
 
     pub fn clear(&mut self) {
         self.data.clear();
+        self.fog_at = None;
     }
 
     /// The shapes as the app will read them.
     pub fn shapes(&self) -> &[f32] {
         &self.data
+    }
+
+    /// Here is where the host's fog goes: what is pushed after this is
+    /// drawn over it.
+    pub fn mark_fog(&mut self) {
+        self.fog_at = Some(self.data.len());
+    }
+
+    /// The shapes cut where the fog goes: what it lies over, and what is
+    /// drawn over it — nothing, for a picture with no fog.
+    pub fn fog_split(&self) -> (&[f32], &[f32]) {
+        self.data
+            .split_at(self.fog_at.unwrap_or(self.data.len()).min(self.data.len()))
     }
 
     /// Every shape of `shapes` — this format, any buffer — as it is. What

@@ -1034,6 +1034,15 @@ impl Session {
         self.list.shapes()
     }
 
+    /// The buffer [`Session::render`] last built, cut where the host's
+    /// smooth fog goes: what the fog lies over, and what is drawn over it
+    /// — the shots, which are always seen, the rings and the overlays. The
+    /// second half is empty for a picture with no fog in it: the yard, the
+    /// map.
+    pub fn fog_split(&self) -> (&[f32], &[f32]) {
+        self.list.fog_split()
+    }
+
     // --- the camera -------------------------------------------------------
     //
     // One transform for both halves, so the app has one paint loop rather

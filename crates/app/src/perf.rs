@@ -17,10 +17,18 @@
 //!
 //! The report is a tree, since the scopes nest: `frame` is the screen's
 //! whole system and the rows under it are parts of it, so they sum to a
-//! little under it and the rest is the screen's own arithmetic. What is
-//! left between `frame` and the wall clock is Bevy and egui — input,
-//! egui's own tessellation of the panels, and handing the meshes to the
-//! GPU — which is not ours to put a scope inside of.
+//! little under it and the rest is the screen's own arithmetic. `canvas to
+//! bevy` is beside it: the world canvas's layers handed to Bevy's meshes
+//! after egui's pass (`scene::sync`, feature 97). What is left between
+//! those and the wall clock is Bevy and egui — input, egui's own
+//! tessellation of the panels, and handing the meshes to the GPU, the
+//! canvas's among them — which is not ours to put a scope inside of.
+//!
+//! Under it the **GPU's** side, where the device has timestamp queries:
+//! Bevy's render diagnostics time its own passes — the main pass the
+//! world canvas is drawn in, the bloom, the copy to the window — and the
+//! report prints each one's average. egui's pass is not timed by Bevy and
+//! is not among them.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -42,10 +50,11 @@ pub enum Phase {
     Render,
     Tessellate,
     Overlay,
+    Upload,
 }
 
 impl Phase {
-    pub const ALL: [Phase; 9] = [
+    pub const ALL: [Phase; 10] = [
         Phase::Frame,
         Phase::Wire,
         Phase::Step,
@@ -55,6 +64,7 @@ impl Phase {
         Phase::Render,
         Phase::Tessellate,
         Phase::Overlay,
+        Phase::Upload,
     ];
 
     /// What the row is called, and how deep it sits under `frame`.
@@ -69,6 +79,9 @@ impl Phase {
             Phase::Render => ("shape buffer", 1),
             Phase::Tessellate => ("tessellate", 1),
             Phase::Overlay => ("overlay words", 1),
+            // Outside the screen's system: the canvas's layers handed to
+            // Bevy as meshes (`scene::sync`), after egui's pass.
+            Phase::Upload => ("canvas to bevy", 0),
         }
     }
 }
@@ -152,6 +165,28 @@ pub fn tally(what: Count, n: u64) {
     }
 }
 
+/// What the GPU took for each of Bevy's timed passes, as its render
+/// diagnostics read it back (feature 97): the pass's name, and the sum
+/// and count of the readings since the warm-up. The render thread runs a
+/// frame behind the app's and on its own clock, so these are **beside**
+/// the table above rather than a part of any row in it.
+static GPU: std::sync::Mutex<Vec<(String, f64, u64)>> = std::sync::Mutex::new(Vec::new());
+
+/// One reading of what a pass took on the GPU, in milliseconds.
+pub fn gpu(pass: &str, ms: f64) {
+    if !recording() {
+        return;
+    }
+    let mut passes = GPU.lock().unwrap();
+    match passes.iter_mut().find(|(name, _, _)| name == pass) {
+        Some((_, sum, n)) => {
+            *sum += ms;
+            *n += 1;
+        }
+        None => passes.push((pass.to_string(), ms, 1)),
+    }
+}
+
 /// The report, as the lines a smoke run prints. `wall_ms` is what the
 /// whole run took by the clock, so the share is of a real frame rather
 /// than of the part of it that is ours.
@@ -174,34 +209,44 @@ pub fn report(at_frame: u32) -> Vec<String> {
         "perf: {:<20}{:>10}{:>10}{:>8}",
         "part", "total ms", "ms/frame", "share"
     ));
-    let mut named = 0.0;
-    for phase in Phase::ALL {
-        let ms = NANOS[phase as usize].load(Ordering::Relaxed) as f64 / 1.0e6;
-        let (name, depth) = phase.row();
-        if depth > 0 {
-            named += ms;
-        }
-        lines.push(format!(
-            "perf: {:<20}{:>10.1}{:>10.3}{:>7.1}%",
-            format!("{:indent$}{name}", "", indent = depth * 2),
-            ms,
-            ms / frames,
-            100.0 * ms / wall_ms.max(1.0e-9),
-        ));
-    }
-    let frame_ms = NANOS[Phase::Frame as usize].load(Ordering::Relaxed) as f64 / 1.0e6;
-    for (name, ms) in [
-        ("  the screen's own", (frame_ms - named).max(0.0)),
-        ("bevy and egui", (wall_ms - frame_ms).max(0.0)),
-    ] {
-        lines.push(format!(
+    let row = |name: &str, ms: f64| {
+        format!(
             "perf: {:<20}{:>10.1}{:>10.3}{:>7.1}%",
             name,
             ms,
             ms / frames,
             100.0 * ms / wall_ms.max(1.0e-9),
-        ));
+        )
+    };
+    let ms_of = |phase: Phase| NANOS[phase as usize].load(Ordering::Relaxed) as f64 / 1.0e6;
+    // `frame` and the rows under it, then what the screen did besides;
+    // then what is timed beside the screen's system, and what is left.
+    let mut named = 0.0;
+    for phase in Phase::ALL {
+        let (name, depth) = phase.row();
+        if phase == Phase::Frame || depth > 0 {
+            let ms = ms_of(phase);
+            if depth > 0 {
+                named += ms;
+            }
+            lines.push(row(
+                &format!("{:indent$}{name}", "", indent = depth * 2),
+                ms,
+            ));
+        }
     }
+    let frame_ms = ms_of(Phase::Frame);
+    lines.push(row("  the screen's own", (frame_ms - named).max(0.0)));
+    let mut beside = 0.0;
+    for phase in Phase::ALL {
+        let (name, depth) = phase.row();
+        if phase != Phase::Frame && depth == 0 {
+            let ms = ms_of(phase);
+            beside += ms;
+            lines.push(row(name, ms));
+        }
+    }
+    lines.push(row("bevy and egui", (wall_ms - frame_ms - beside).max(0.0)));
     for what in Count::ALL {
         let n = TALLY[what as usize].load(Ordering::Relaxed) as f64;
         lines.push(format!(
@@ -209,6 +254,16 @@ pub fn report(at_frame: u32) -> Vec<String> {
             what.row(),
             n,
             n / frames
+        ));
+    }
+    // The GPU's side, where the device can time it: Bevy's own spans —
+    // the main pass the canvas is drawn in, the bloom, the copy to the
+    // window. egui's pass is not one of them.
+    for (pass, sum, n) in GPU.lock().unwrap().iter() {
+        lines.push(format!(
+            "perf: gpu {:<28}{:>8.3} ms a frame ({n} readings)",
+            pass,
+            sum / (*n).max(1) as f64
         ));
     }
     lines

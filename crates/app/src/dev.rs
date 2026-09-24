@@ -610,6 +610,11 @@ impl Plugin for DevPlugin {
         if smoke_frames().is_some() {
             app.add_plugins(FrameTimeDiagnosticsPlugin::default())
                 .add_systems(Update, smoke_exit);
+            // The GPU's time for each of Bevy's passes, for `BIMS_PERF`
+            // (feature 97): timestamp queries, where the device has them.
+            if crate::perf::wanted() {
+                app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+            }
         }
         if std::env::var("BIMS_POINTER").is_ok() || std::env::var("BIMS_KEYS").is_ok() {
             app.add_systems(Update, scripted_input);
@@ -617,6 +622,7 @@ impl Plugin for DevPlugin {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn smoke_exit(
     mut commands: Commands,
     frames: Res<FrameCount>,
@@ -625,6 +631,7 @@ fn smoke_exit(
     mut exit: MessageWriter<AppExit>,
     mut shot_taken: Local<bool>,
     mut last_frame: Local<Option<std::time::Instant>>,
+    mut gpu_seen: Local<std::collections::HashMap<String, std::time::Instant>>,
 ) {
     let Some(limit) = smoke_frames() else { return };
     // Without vsync (`present_mode`) a frame is as quick as the machine
@@ -651,6 +658,27 @@ fn smoke_exit(
     // running rather than a frame of it opening (feature 96).
     if crate::perf::wanted() && frames.0 == crate::perf::WARMUP {
         crate::perf::begin(frames.0);
+    }
+    // What the GPU took for each timed pass, a reading at a time as the
+    // render diagnostics bring them back (feature 97) — a reading is
+    // counted once, by the moment it was taken.
+    if crate::perf::wanted() {
+        for diagnostic in diagnostics.iter() {
+            let path = diagnostic.path().as_str();
+            let Some(pass) = path
+                .strip_prefix("render/")
+                .and_then(|p| p.strip_suffix("/elapsed_gpu"))
+            else {
+                continue;
+            };
+            let Some(reading) = diagnostic.measurement() else {
+                continue;
+            };
+            if gpu_seen.get(path) != Some(&reading.time) {
+                gpu_seen.insert(path.to_string(), reading.time);
+                crate::perf::gpu(pass, reading.value);
+            }
+        }
     }
     if frames.0 + 30 >= limit
         && !*shot_taken

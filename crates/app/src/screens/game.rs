@@ -28,7 +28,7 @@ use world::{Refusal, ShipState, Speed, Where, WorldEvent};
 use worldgen::Node;
 
 use super::designer::{Cart, Net, Order, ShipSession, trade_rows};
-use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui, zoom_factor};
+use crate::canvas::{Pointer, canvas_painter, rect_of, root_ui, zoom_factor};
 use crate::crew::{
     Actions, Body, CLICK_SLOP, Craft, CrewPanels, GearOrder, Hold, Near, Open, ResearchView, Tool,
     UpgradeView,
@@ -38,6 +38,7 @@ use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::net::{CHECK_EVERY, Event, Online, Packet};
 use crate::save::{Beginning, Request};
+use crate::scene::WorldCanvas;
 use crate::screens::room::{panel_frame, tray_frame};
 use crate::settings::{Allowed, Sheet, settings_sheet};
 use crate::shapes::View;
@@ -854,6 +855,8 @@ fn frame(
     // None where there was no world to keep, which is nowhere this
     // screen runs — held as an option rather than assumed.
     beginning: Option<Res<Beginning>>,
+    // The canvas between the panels, which Bevy draws (feature 97).
+    mut world_canvas: WorldCanvas,
 ) -> Result {
     // `BIMS_PERF`: where the frame goes (feature 96). Nothing at all
     // without it.
@@ -2567,7 +2570,7 @@ fn frame(
             let _timed = crate::perf::scope(crate::perf::Phase::Render);
             chart.paint(&mut screen.galaxy_list);
         }
-        paint_shapes(&painter, canvas, View::PIXELS, screen.galaxy_list.shapes());
+        world_canvas.shapes(&ctx, canvas, View::PIXELS, screen.galaxy_list.shapes());
         for (star, color, tag) in [
             (chart.here, theme::YOURS, "here"),
             (screen.picked_star, theme::HYPER, "picked"),
@@ -2584,11 +2587,13 @@ fn frame(
             }
         }
     } else {
-        let shapes = {
+        {
             let _timed = crate::perf::scope(crate::perf::Phase::Render);
-            session.render()
-        };
-        paint_shapes(&painter, canvas, view, shapes);
+            session.render();
+        }
+        // The world under the fog now; what goes over the fog — the
+        // shots, the rings — once the fog is down (feature 97).
+        world_canvas.shapes(&ctx, canvas, view, session.fog_split().0);
         overlay_timed = Some(crate::perf::scope(crate::perf::Phase::Overlay));
         // Where you are, in words, over the reticle the map draws round the
         // ship — `You`, and the berth or the place — in the colour the
@@ -2658,20 +2663,27 @@ fn frame(
                         }),
                     })
                     .collect();
-                screen
-                    .plain_fog
-                    .entry(key)
-                    .or_default()
-                    .paint_pieces(&ctx, &painter, map, &pieces);
+                screen.plain_fog.entry(key).or_default().paint_pieces(
+                    &mut world_canvas,
+                    &ctx,
+                    canvas,
+                    map,
+                    &pieces,
+                );
             }
             if let Some((map, corners)) = session.light_map() {
                 let corners = corners.map(|(x, y)| {
                     let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
                     egui::pos2(at.x, at.y)
                 });
-                screen.fog.paint(&ctx, &painter, map, corners);
+                screen
+                    .fog
+                    .paint(&mut world_canvas, &ctx, canvas, map, corners);
             }
         }
+        // And over the fog: a bolt is always seen, whatever it flies
+        // through.
+        world_canvas.shapes(&ctx, canvas, view, session.fog_split().1);
     }
 
     // And the red crosshair while the attack key has the pointer armed

@@ -458,7 +458,7 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     // The plain the town stands on, under it and the ship: the ground
     // beyond the deck, and the fog over what the crew have not seen of it.
     plain(game, list);
-    let visitors = stations(game, list);
+    let (visitors, visitors_over) = stations(game, list);
 
     // The ship, drawn in its own frame — design units about the design's
     // origin, the grid it was laid out in — and turned with it at the end.
@@ -550,11 +550,18 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     let mut laid = DrawList::default();
     deployables(game, &mut laid);
     list.append_turned(laid.shapes(), room_centre, turn);
-    list.append_turned(game.world.aboard.room.shapes(), room_centre, turn);
+    let (under_fog, over_fog) = game.world.aboard.room.shapes_fog_split();
+    list.append_turned(under_fog, room_centre, turn);
     // The station's people, over the ship's picture: one that has come
     // through the passage is standing on this deck, and one that has not
     // is on the station's, where nothing of the ship's is drawn.
     list.append(visitors.shapes());
+    // The host's smooth fog goes here: over the crew and the station's
+    // people, and under what both rooms draw over their fog — the shots,
+    // which are always seen whatever they fly through, and the rings.
+    list.mark_fog();
+    list.append_turned(over_fog, room_centre, turn);
+    list.append(visitors_over.shapes());
     // The electricity overlay, over the lot — the room's fixtures included,
     // since a galley that draws power is rung as much as a reactor is — in
     // the ship's frame and turned with it like the hull.
@@ -1508,9 +1515,12 @@ fn electricity(list: &mut DrawList, design: &ShipDesign, grid: &Grid) {
 /// are drawn open.
 ///
 /// Returns the residents' bodies, placed and turned like the rest but not
-/// drawn: the caller paints them over the ship, since they can be on it.
-fn stations(game: &Game, list: &mut DrawList) -> DrawList {
+/// drawn: the caller paints them over the ship, since they can be on it —
+/// and, apart, what their room draws over its fog, which the caller
+/// paints over the crew's fog.
+fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList) {
     let mut lifted = DrawList::default();
+    let mut lifted_over = DrawList::default();
     let here = game.world.ship.position();
     let turn = game.camera_turn() as f32;
     let docked = game.world.ship.state.alongside();
@@ -1649,7 +1659,7 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
             // station's middle where that middle is in the room.
             let shift = residents.aboard.offset;
             let pivot = (middle.0 + shift.x as f32, middle.1 + shift.y as f32);
-            let (deck, bodies) = residents.aboard.room.shapes_split();
+            let (deck, bodies, over) = residents.aboard.room.shapes_in_three();
             list.append_turned_at(deck, pivot, turn, at);
             // Their people go to the caller, to be drawn over the ship:
             // the ship's hull and its room aboard are painted after the
@@ -1657,6 +1667,9 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
             // the passage would otherwise be under the ship's deck — a
             // name over an empty tile.
             lifted.append_turned_at(bodies, pivot, turn, at);
+            // And what their room draws over its fog — their shots —
+            // apart, to go over the crew's fog with the crew's own.
+            lifted_over.append_turned_at(over, pivot, turn, at);
         }
     }
     // A raider closing on the ship: on the radar and nothing more, so a
@@ -1691,7 +1704,7 @@ fn stations(game: &Game, list: &mut DrawList) -> DrawList {
         );
         paint_station(list, at.0, at.1, hull * 0.8, world::raid::RAIDER_KIND, 6.0);
     }
-    lifted
+    (lifted, lifted_over)
 }
 
 /// Where one of a station's residents lands in the camera's units, for the

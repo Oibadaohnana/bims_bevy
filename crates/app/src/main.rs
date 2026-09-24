@@ -2,7 +2,8 @@
 //!
 //! The one binary. It opens a window, and every frame it asks whichever
 //! screen is up to step its simulation, lay out its panels and paint its
-//! shapes; the shapes go into one mesh (`canvas.rs`) and the panels are egui.
+//! shapes; the world's shapes go into Bevy meshes under a bloom
+//! (`scene.rs`) and the panels and the words are egui.
 //! Nothing in here decides anything about the game — the room, the rules,
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
@@ -71,6 +72,7 @@ mod names;
 mod net;
 mod perf;
 mod save;
+mod scene;
 mod screens;
 mod settings;
 mod shapes;
@@ -413,7 +415,7 @@ fn main() {
     .init_resource::<net::Online>()
     .init_state::<Screen>()
     .add_plugins((
-        canvas::CanvasPlugin,
+        scene::ScenePlugin,
         dev::DevPlugin,
         sound::SoundPlugin,
         theme::ThemePlugin,

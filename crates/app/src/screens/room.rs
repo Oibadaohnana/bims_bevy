@@ -13,11 +13,12 @@ use bims::order::CrewOrder;
 use bims::room::{HIT_DOOR, HIT_DROPPED, HIT_SHIP_DOOR, TILE};
 use world::LootSource;
 
-use crate::canvas::{Pointer, canvas_painter, paint_shapes, rect_of, root_ui};
+use crate::canvas::{Pointer, canvas_painter, rect_of, root_ui};
 use crate::crew::{Body, CLICK_SLOP, CrewPanels, GearOrder, Near, Open};
 use crate::format::{clock_text, span_text};
 use crate::keys::{Action, Keys};
 use crate::names::*;
+use crate::scene::WorldCanvas;
 use crate::shapes::View;
 use crate::sound::{Bed, Sounds};
 use crate::{Screen, theme};
@@ -123,6 +124,8 @@ fn frame(
     mut sounds: ResMut<Sounds>,
     bindings: Res<Keys>,
     mut commands: Commands,
+    // The canvas between the panels, which Bevy draws (feature 97).
+    mut world_canvas: WorldCanvas,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let screen = &mut *screen;
@@ -512,7 +515,9 @@ fn frame(
     // --- painting --------------------------------------------------------------
     screen.game.render();
     let painter = canvas_painter(&ctx, canvas);
-    paint_shapes(&painter, canvas, view, screen.game.shapes());
+    // The room under its fog, the fog, and what the room draws over it —
+    // the shots, the night, the rings — in that order (feature 97).
+    world_canvas.shapes(&ctx, canvas, view, screen.game.shapes_fog_split().0);
     // The smooth fog over the deck, as the room's light map through the
     // room's own scale and offset.
     if let Some(map) = screen.game.light_map() {
@@ -528,8 +533,11 @@ fn frame(
             let at = view.to_canvas(p) + canvas.min;
             egui::pos2(at.x, at.y)
         });
-        screen.fog.paint(&ctx, &painter, map, corners);
+        screen
+            .fog
+            .paint(&mut world_canvas, &ctx, canvas, map, corners);
     }
+    world_canvas.shapes(&ctx, canvas, view, screen.game.shapes_fog_split().1);
 
     // The bunks' tags, across the middle of each: whose it is, or that it
     // is nobody's (feature 61). Under the names, so a sleeper's own stays

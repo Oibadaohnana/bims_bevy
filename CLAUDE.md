@@ -208,7 +208,15 @@ steps, the panels' layout, the shape buffer, the tessellation and the
 words over it, each timed and printed as a table when the run exits, with
 what is left over for Bevy and egui — *Where a frame goes* below is what
 it is for and what it said. The two go together, since a paced frame is a
-sixtieth however heavy it is.
+sixtieth however heavy it is. Under the table it prints the **GPU's**
+time for each pass Bevy times itself — the main pass the world's canvas
+is drawn in, the bloom, the copy to the window (`perf: gpu …`, off
+Bevy's `RenderDiagnosticsPlugin`, which `BIMS_PERF` adds) — where the
+device has timestamp queries; egui's pass is not one of them.
+**`BIMS_BLOOM=0`** turns the bloom off and the HDR target with it
+(feature 97, *Bloom* below): the same picture drawn the same way with
+the glow and nothing else taken out, which is how the two are compared
+— and what a GPU that would rather not is given.
 `BIMS_SOUND_LOG=1` prints
 every clip as it is played and every bed as it fades up or out, which is
 how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_FIGHT=1 BIMS_SMOKE_FRAMES=900 bims
@@ -367,6 +375,105 @@ frames unless the ship moves or the pick does. And the **tessellation**,
 and 183 000 floats a frame, most of them the docked station's hull, which
 is rebuilt from nothing every frame though it only moves when the camera
 does.
+
+## Bloom, and the world's canvas drawn by Bevy (feature 97)
+
+Real bloom — Bevy's own, on an HDR camera — over the world's canvas, and
+nothing else. It wanted the canvas moved out of egui, because **nothing
+egui draws can be bloomed**: bevy_egui paints straight into the camera's
+target in a pass of its own, after the main pass, and its vertex colours
+are bytes, so no egui colour is ever past white. So the canvas between
+the panels is a stack of Bevy meshes now (`crates/app/src/scene.rs`),
+and the panels, the words and the pointer are egui's as they were — the
+pointer untouched, since it is still read out of the one egui context on
+the one camera. One frame reaches the window in this order:
+
+1. **The main pass**: the canvas's layers in the order the screen painted
+   them — `WorldCanvas::shapes` for shapes, `FogTexture::paint` for a
+   fog picture — each a `Mesh2d` a z apart. On the game screen that is
+   the world *under* the fog, the plain's fog and the light map, then the
+   world *over* the fog: the shots, the rings, the marquee
+   (`Session::fog_split`, `crates/ship/CLAUDE.md`). A shot is over the
+   fog **now**; under egui it was under it, the fog being laid over the
+   whole buffer.
+2. **The bloom**, `Bloom` with `BloomCompositeMode::Additive`, threshold
+   `BLOOM_THRESHOLD` (1.0) and intensity `BLOOM_INTENSITY` — the named
+   constants at the top of `scene.rs`, the one place. **Additive** is the
+   point: the energy-conserving mode mixes the whole picture towards the
+   blurred one and would dim every wall whether anything glowed or not,
+   and with the threshold at white a pixel no glow reaches gets nought
+   added. Only a colour **past one** is over it — an emissive one.
+3. **No tonemapping**: `Tonemapping::None` (a `Camera2d`'s own default),
+   so the pass returns before it binds anything — no palette shift, no
+   lookup table wanted, and no pink image from a missing
+   `tonemapping_luts`. Past-white is clipped to white on the way out.
+4. **egui**, pinned after the whole post-process by `egui_after_bloom`,
+   an empty system in the render schedule: bevy_egui orders its 2D pass
+   after the main pass and after `bevy_ui`'s, and there is no `bevy_ui`
+   in this build, so without the pin its pass was free to run before the
+   bloom — and the glow would have been laid over the panels.
+
+**An emissive colour is a channel past one**, in the same sRGB floats a
+painter always wrote: `shapes::Paint` keeps it, and the canvas's shader
+(`canvas.wgsl`, egui's own fragment arithmetic over again, so a layer is
+the picture egui drew) carries the sRGB curve on past white, so 1.5 is
+about two and a half times white's light. Everything at or under white is
+made exactly as egui made it — through `Color32`, rounded to the byte —
+and blended premultiplied as egui blends, clipped to egui's own scissor.
+A canvas inside a panel is still egui's, and an emissive colour there is
+white.
+
+**`BIMS_BLOOM=0`** takes the bloom off and the HDR target with it — the
+window's own eight bits, as before — for comparing the two and for a GPU
+that would rather not.
+
+**What the picture was checked against.** A paused frame of `combat`,
+`droids` at thirty-two, the galaxy chart and the yard, taken with the
+build before this and with this, pixel by pixel. With the bloom off,
+46–84 pixels of the 1.26 million differ, by one or two levels in 255: the
+same picture. With the bloom on and nothing emissive on the screen,
+12 000–62 000 pixels differ by **one** level, none to 600 by two (two
+more by six in the yard), and ten by fourteen — the one-level ones along translucent edges, where the float
+target keeps what an eight-bit one rounds after every blend, and the ten
+on the edge of a single icon in the inventory panel, egui's `SHINE`
+(`icons.rs`, white over alpha seventy — *additive*), which the old target
+clamped part way through the blend and the float one clamps at the end.
+No glow and no shift in the palette: the bloom picks up nothing that is
+not emissive.
+
+**The features are the ones the app already had.** `2d_bevy_render`
+brings `bevy_post_process` (the bloom), `bevy_sprite_render`
+(`Mesh2d`, `Material2d`), `bevy_core_pipeline` (`Core2d`, `Tonemapping`)
+and `bevy_render` (`Hdr` is `bevy_camera`'s, the render diagnostics
+`bevy_render`'s); nothing was added to `Cargo.toml`. Not enabled, and not
+wanted: `tonemapping_luts` (and the `ktx2`/`zstd` it needs), `smaa_luts`,
+`bevy_ui_render`.
+
+What it cost, a frame, unpaced, release, this machine (a Ryzen 7 3700X
+and a Navi 32 Radeon, RX 7700 XT or 7800 XT), 1400x900 — the median of five runs each,
+the three builds taken in turn so a drift in the machine lands on all of
+them alike:
+
+| | before (egui) | bloom on | `BIMS_BLOOM=0` | GPU: bloom | GPU: main pass |
+| --- | --- | --- | --- | --- | --- |
+| `combat` | 7.77 ms | 7.73 ms | 7.14 ms | 0.243 ms | 0.113 ms |
+| `droids`, `BIMS_DROID_WAVE=32` | 7.24 ms | 7.15 ms | 7.05 ms | 0.243 ms | 0.113 ms |
+| the galaxy chart | 7.34 ms | 7.55 ms | 7.50 ms | 0.243 ms | 0.046 ms |
+| `design` | 4.41 ms | 4.08 ms | 3.87 ms | 0.243 ms | 0.043 ms |
+
+Three things to read off it. **The frame is the CPU's**, and the bloom is
+not on the CPU at all: it is a quarter of a millisecond of the GPU's,
+the same on every screen since it is a pass over the whole window, and
+Bevy renders on its own thread a frame behind the app's, so it shows on
+the wall clock only as noise — a fight's five runs spread 7.0 to 8.5 ms.
+**The tessellation is where it always was** (2 ms in a fight): what moved
+is who is handed the triangles — `scene::sync`, 0.005 ms, hands Bevy the
+arrays without a copy, and the copy into the vertex buffer is the render
+thread's, where egui's copy of the same mesh used to be. And **the GPU
+column is the new picture's alone**: egui's pass has no timestamps, so
+what the old canvas cost the GPU is not a number anybody has.
+`BIMS_PERF=1` prints these rows (`perf: gpu …`) — the measurement is the
+one feature 96 describes, run with `BIMS_BLOOM=0` and without.
 
 ## How fast the crisis crosses a galaxy (feature 92)
 
@@ -576,22 +683,32 @@ Things about that which are easy to get wrong:
   step the simulation, lay the panels out, read the pointer, paint the
   shapes, put the words on top. `Screen` in `main.rs` is the state machine
   and each screen's plugin runs only in its state.
-- **The shape buffer is drawn by egui**, not by a Bevy mesh:
-  `shapes.rs` tessellates the twelve floats a shape into an `egui::Mesh`,
-  and `canvas::paint_shapes` adds it to a painter clipped to the canvas —
-  the background layer for a canvas between the panels, the panel's own
-  painter for one inside it (the lobby's galaxy and diagram). Bevy draws the
-  clear colour and nothing else. This matters because egui panels paint an
-  opaque fill: a Bevy mesh under a `CentralPanel` is a mesh nobody sees,
-  which is how the galaxy preview was blank for a build.
-- **Anti-aliasing is feathering, in `shapes.rs`, and nothing else.**
-  bevy_egui paints into the window's *unsampled* target, so a camera's
-  `Msaa` never reaches the mesh; every edge is instead ramped a pixel wide
-  from its colour to transparent the way epaint draws its own shapes, and a
-  stroke thinner than a pixel is drawn a pixel wide and fainter. The pixel
-  is `painter.pixels_per_point()`, so it stays one device pixel under any
-  UI scale. A new kind of shape has to go through `fill` or `stroke` there,
-  or it comes out jagged beside everything else.
+- **The canvas between the panels is Bevy's; a canvas inside a panel is
+  egui's** (feature 97, *Bloom* below). `shapes.rs` tessellates the twelve
+  floats a shape into triangles either way. For the world's canvas — the
+  deck, the map, the chart, the yard, the test room — a screen hands them
+  to `scene::WorldCanvas` (`world_canvas.shapes(..)`, a system parameter
+  of the three screens that have one), which makes each call a **layer**:
+  a `Mesh2d` on the one camera, a z apart in the order painted, under
+  egui and under the bloom. For a canvas inside a panel — the lobby's
+  galaxy and diagram, the setup's portrait — `canvas::paint_shapes` adds
+  an `egui::Mesh` to the panel's own painter as before, **because egui
+  panels paint an opaque fill**: a Bevy mesh under a panel is a mesh
+  nobody sees, which is how the galaxy preview was blank for a build. So
+  nothing under a panel may be moved to Bevy, and the world's canvas works
+  only because nothing egui paints over it is opaque — the floating
+  panels over the deck are translucent, and it shows through them as it
+  always did. The **words** over the deck are still egui's, painted after
+  on the background layer (`canvas::canvas_painter`), so they are over
+  everything the canvas draws.
+- **Anti-aliasing is feathering, in `shapes.rs`, and nothing else.** The
+  camera is `Msaa::Off` and egui paints into the window's *unsampled*
+  target anyway, so every edge is ramped a pixel wide from its colour to
+  transparent the way epaint draws its own shapes, and a stroke thinner
+  than a pixel is drawn a pixel wide and fainter. The pixel is
+  `pixels_per_point()`, so it stays one device pixel under any UI scale.
+  A new kind of shape has to go through `fill` or `stroke` there, or it
+  comes out jagged beside everything else.
 - **The Esc sheet is `settings.rs`**: six pages in one window — the
   menu (the UI scale, a button each for Audio and Controls, and Save,
   Load and Restart), the audio page (`sound::Mix`: master, effects, ambience,

@@ -2929,10 +2929,13 @@ laid over it. Two things:
   beside it is 0.3 ms. `Game::light_map()` hands it to the host; the
   shape buffer cannot carry it, so `crates/app/src/fogmap.rs` composes
   the two bytes into one premultiplied pixel (black under `LAMPLIGHT`),
-  uploads the changed box with `set_partial` when it holds the version
-  before (else the lot) and draws one textured quad, filtered, over the
-  shapes and under the words, its corners the map's through the screen's
-  transform — the room's scale on the room screen,
+  writes the changed box into a Bevy image when it holds the version
+  before (else the lot) and draws one textured quad, filtered, on the
+  world's canvas — **between** the two halves of the room's picture that
+  `Game::shapes_fog_split` cuts at `fog_from` (feature 97): over the
+  deck, the bodies and the bedding, under the shots, the night, the rings
+  and the marquee, and under every word — its corners the map's through
+  the screen's transform — the room's scale on the room screen,
   `world_paint::light_map_on_screen` (the crew's names' arithmetic) on the
   game's. The lamps' own pictures (`fittings::wall_light`, flush to its
   wall; `standing_light`) draw no halo: the map is the light. `Fog::All`

@@ -646,6 +646,21 @@ blur to read across the seam) is never drawn. The app keeps a
 the room lets the chunk go) and `FogTexture::paint_pieces` draws a
 list of pieces of one texture; `paint` is one whole piece.
 
+**Where the fog goes in the picture is the painter's to say** (feature
+97). The app lays the fog as a layer of the world's canvas between two
+halves of the shape buffer, and the cut is `DrawList::mark_fog`, set by
+`paint_ship` at one place: after the crew's room *under* its fog
+(`bims::game::Game::shapes_fog_split`, cut at the room's own `fog_from`)
+and the station's people who have come aboard, before what both rooms
+draw over their fog — their shots, rings and marquee — and before the
+electricity overlay and the blackout. `stations` hands those two halves
+of the residents' room back apart (`Game::shapes_in_three`) for exactly
+that. `Session::fog_split` is the cut the app reads after `render`; a
+picture with no mark — the yard, the map — is all under it, and the
+second half is empty. **Before this the fog was laid over the whole
+buffer**, so a bolt flying through fog was under it, whatever the room's
+own comment said ("a bolt is always seen"); a shot is over the fog now.
+
 **A lamp's glass shows what the fight did to it.** `fittings::lamp_face`
 is drawn over each light part after the hull (`world_paint::lamp_faces`,
 in `paint_ship` for the ship's and in `stations` for a station's) from
