@@ -90,15 +90,16 @@ pins      bims --self-check: `design_hash` and `world_checksum` against the
           constants in shipdesign::fixture and world::fixture, which is what
           the quick tier's missing rules tests would most likely have caught
 clippy    cargo clippy on the app crate, with warnings as errors
-smoke     `bims game`, `room`, `simulation`, `design` and `combat` (with its
-          fight staged, BIMS_FIGHT=1) each run sixty frames in a hidden
-          window and exit, all at once, leaving a screenshot in target/check/
-          — a black picture is a bug no test sees. The full tier adds the
-          rest: `test`, `test_planet`, the five `combat_<class>` fights,
-          `tier2_test`, `tier3_test`, `droids`, `droid_kinds` (every drawing
-          of a machine in a row), `droids_planet`, `raid`, `raided`,
+smoke     `bims game`, `room`, `simulation`, `design` and `droids` (the
+          fight: a wave of machines on the arena's deck) each run sixty
+          frames in a hidden window and exit, all at once, leaving a
+          screenshot in target/check/ — a black picture is a bug no test
+          sees. The full tier adds the rest: `test`, `test_planet`, the five
+          `combat_droids_<class>` fights, `tier2_test`, `tier3_test`,
+          `droid_kinds` (every drawing of a machine in a row),
+          `droids_planet`, `raided` (the old game's raid, BIMS_RAID=1),
           `landed`, `stationbuilder`, and `restarted` — the Esc sheet's
-          Restart pressed on `combat` (feature 79)
+          Restart pressed on `droids` (feature 79)
 probes    every scratchpad/*.rs probe compiled fresh into target/probes/ and
           run; a compile failure is a failure, and so is a probe that runs
           past `PROBE_SECONDS` (120) rather than hanging the check
@@ -173,15 +174,11 @@ step_clippy() {
 smoke_one() {
   local what=$1 shot frames wants
   shot=""
-  case "$what" in room | simulation | design | test_planet | combat | landed | raided | droids | droid_kinds) shot="$LOGS/smoke-$what.png" ;; esac
+  case "$what" in room | simulation | design | test_planet | landed | raided | droids | droid_kinds) shot="$LOGS/smoke-$what.png" ;; esac
   rm -f "$shot"
   local staged="" run="$what"
   frames=60
   wants=""
-  # The combat dock is screenshotted with the fight staged (the crew member
-  # inside the station's door, one of its people down the corridor), so the
-  # picture shows enemies and a bolt rather than a quiet berth.
-  [ "$what" = combat ] && staged="BIMS_FIGHT=1 "
   # `landed` is the simulation set down on a planet, `raided` the simulation
   # off its berth with the boarders coming through the airlock.
   [ "$what" = landed ] && { staged="BIMS_LANDED=1 "; run=simulation; }
@@ -191,7 +188,7 @@ smoke_one() {
   # counts if the world actually went back, which is what `wants` looks for.
   [ "$what" = restarted ] && {
     staged="BIMS_KEYS=30:Escape BIMS_POINTER='60:move:673,496;62:click:673,496;90:move:562,489;92:click:562,489' "
-    run=combat
+    run=droids
     frames=150
     wants="^restart: "
   }
@@ -221,8 +218,9 @@ step_smoke() {
   # windows open on nobody's desktop. Five windows in the quick tier — the
   # menu, the room, the world, the yard and a fight — and every other window
   # in the full one, since each of those is one of these with a dial moved.
-  local runs=(game room simulation design combat)
-  [ "$DEEP" = 1 ] && runs+=(test test_planet combat_engineer combat_soldier combat_medic combat_tank combat_commander tier2_test tier3_test droids droid_kinds droids_planet raid raided landed restarted stationbuilder)
+  # The fight is `droids`: every enemy is a machine since feature 102.
+  local runs=(game room simulation design droids)
+  [ "$DEEP" = 1 ] && runs+=(test test_planet combat_droids_engineer combat_droids_soldier combat_droids_medic combat_droids_tank combat_droids_commander tier2_test tier3_test droid_kinds droids_planet raided landed restarted stationbuilder)
   # `SMOKE_AT_ONCE` at a time; nothing is shared — a log, a screenshot and a
   # saves directory each. The lines are held and printed in the list's order
   # afterwards, so the step reads as it did when it was one run after another.

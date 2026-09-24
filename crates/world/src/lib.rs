@@ -135,6 +135,8 @@ mod tests_plunder;
 #[cfg(test)]
 mod tests_raid;
 #[cfg(test)]
+mod tests_run;
+#[cfg(test)]
 mod tests_soldier;
 #[cfg(test)]
 mod tests_standing;

@@ -592,6 +592,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::ChargeKept => {
             "medkits and bandages stay in the pack: they come back there on their own cooldown"
         }
+        Refusal::NoShipyard => "nothing is built onto the ship on a run",
     }
 }
 
@@ -1824,6 +1825,7 @@ pub fn tint_name(tint: bims::character::Tint) -> &'static str {
 pub fn site_refusal_line(why: world::SiteRefusal) -> String {
     match why {
         world::SiteRefusal::UnderWay => "Nothing is built while the ship is moving.".into(),
+        world::SiteRefusal::NoShipyard => "Nothing is built onto the ship on a run.".into(),
         world::SiteRefusal::WontFit(code) => edit_line(code).into(),
         world::SiteRefusal::Fault(code) => issue_line(code)
             .map(|line| format!("It would go, but then: {line}"))

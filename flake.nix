@@ -13,8 +13,8 @@
 
       eachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
-      # The classes a `combat_<class>` command is spelled with — feature
-      # 79, `world::Class::ALL` bar the classless one, in the words
+      # The classes a `combat_droids_<class>` command is spelled with —
+      # features 79 and 83, `world::Class::ALL` bar the classless one, in the words
       # `names::CLASS_NAMES` gives them. A class added to the game is a
       # name added here; `bims list` is the build's own answer, and
       # `./check` opens each of these, so a drift is a red step rather
@@ -28,17 +28,10 @@
       ];
 
       # What a class's command says it opens, in one place, since the
-      # package and the app each say it. "an engineer", "a tank".
-      combatAbout =
-        class:
-        let
-          a = if builtins.elem (builtins.substring 0 1 class) [ "a" "e" "i" "o" "u" ] then "an" else "a";
-        in
-        "The fight with the crew member you steer ${a} ${class}";
-
-      # And the same sentence for the machines' fight, which is the same
-      # class in the same slot with a wave of droids holding the arena
-      # instead of its garrison.
+      # package and the app each say it. "an engineer", "a tank". The
+      # machines' fight is the only one since every enemy is a machine
+      # (feature 102): the `combat_<class>` commands were the human
+      # garrison's, and went with it.
       droidsAbout =
         class:
         let
@@ -207,59 +200,30 @@
             before = ''export BIMS_STATIONS_DIR="''${BIMS_STATIONS_DIR:-$PWD/stations}"'';
             about = "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           };
-          bims-combat = runFor {
-            name = "bims-combat";
-            what = "combat";
-            about = "The simulation docked at a hostile station, the people living there enemies";
-          };
-        }
-        # That same fight, one build a class, so a class is looked at in
-        # the fight it is for without a `BIMS_CLASS` in front of the
-        # command (feature 79). The list is written here rather than read
-        # off `Class::ALL`, since nix cannot ask the binary; `bims list`
-        # is what always agrees with the build.
-        // nixpkgs.lib.listToAttrs (
-          map
-            (class: {
-              name = "bims-combat-${class}";
-              value = runFor {
-                name = "bims-combat-${class}";
-                what = "combat_${class}";
-                about = combatAbout class;
-              };
-            })
-            combatClasses
-        )
-        // {
           bims-tier2-test = runFor {
             name = "bims-tier2-test";
             what = "tier2_test";
-            about = "The fight with everybody's guns and armour at tier two, crew and garrison alike";
+            about = "The fight with everybody's guns and armour at tier two, and the machines at it too";
           };
           bims-tier3-test = runFor {
             name = "bims-tier3-test";
             what = "tier3_test";
-            about = "The fight with everybody's guns and armour at tier three, crew and garrison alike";
+            about = "The fight with everybody's guns and armour at tier three, and the machines at it too";
           };
           bims-droids = runFor {
             name = "bims-droids";
             what = "droids";
-            about = "The fight with the arena held by the machines: a wave of droids instead of its people";
+            about = "The fight: the combat ship's crew at an arena the machines hold, a wave of droids about it";
           };
           bims-droids-planet = runFor {
             name = "bims-droids-planet";
             what = "droids_planet";
             about = "A town on a planet held by the machines, the ship set down at its pad";
           };
-          bims-raid = runFor {
-            name = "bims-raid";
-            what = "raid";
-            about = "The simulation holding in open space with a raid on its way, contact ten seconds in";
-          };
           bims-crisis = runFor {
             name = "bims-crisis";
             what = "crisis";
-            about = "The simulation a day before the machines appear, their origin two hyperlane hops off";
+            about = "The simulation a day before the crisis first spreads, its origin two hyperlane hops off";
           };
           bims-jammer = runFor {
             name = "bims-jammer";
@@ -272,9 +236,11 @@
             about = "A town with the machines one hop off: the crew set down at its pad, and a wave landing outside a gate a minute later";
           };
         }
-        # The machines' fight, one build a class as well: `droids` is to
-        # `combat_droids_<class>` what `combat` is to `combat_<class>`,
-        # and the same list of classes says which builds there are.
+        # The machines' fight, one build a class, so a class is looked at
+        # in the fight it is for without a `BIMS_CLASS` in front of the
+        # command (feature 79). The list is written here rather than read
+        # off `Class::ALL`, since nix cannot ask the binary; `bims list` is
+        # what always agrees with the build.
         // nixpkgs.lib.listToAttrs (
           map
             (class: {
@@ -303,10 +269,9 @@
             bims-room
             bims-test
             bims-test-planet
-            bims-combat
+            bims-droids
             bims-tier2-test
             bims-tier3-test
-            bims-raid
             bims-crisis
             bims-jammer
             bims-stationbuilder
@@ -314,9 +279,8 @@
             ;
           default = built.bims;
         }
-        # One package a class's fight as well (feature 79), and one a
-        # class's fight against the machines.
-        // nixpkgs.lib.getAttrs (map (class: "bims-combat-${class}") combatClasses) built
+        # One package a class's fight against the machines as well
+        # (feature 79).
         // nixpkgs.lib.getAttrs (map (class: "bims-droids-${class}") combatClasses) built
       );
 
@@ -325,19 +289,17 @@
       # to the world on a prebuilt ship; `.#design` skips to the yard with
       # that ship given; `.#room` is the behaviour test room; `.#test` is the
       # simulation somewhere else each time; `.#test_planet` is that set down
-      # on a planet; `.#combat` is the simulation at a hostile station, and
-      # `.#combat_engineer` … `.#combat_commander` are that same fight with
-      # the crew member you steer that class;
-      # `.#tier2_test` and `.#tier3_test` are that fight with every gun and
-      # every piece of armour at that tier, both sides;
-      # `.#droids` is that fight with the arena held by the machines,
-      # `.#combat_droids_engineer` … `.#combat_droids_commander` that
-      # same wave with the crew member you steer that class, and
+      # on a planet; `.#droids` is the fight, at an arena the machines
+      # hold — every enemy is one since feature 102, so the human
+      # garrison's `.#combat` and `.#combat_<class>` and the `.#raid` are
+      # gone — `.#combat_droids_engineer` … `.#combat_droids_commander`
+      # that same wave with the crew member you steer that class, and
       # `.#droids_planet` a town on a planet held by them;
-      # `.#raid` is the simulation holding in open space with a raid on its
-      # way, contact ten seconds in;
-      # `.#crisis` is it a day before the machines appear, their origin two
-      # hyperlane hops off, so the first star turns red while you watch;
+      # `.#tier2_test` and `.#tier3_test` are the fight with every gun and
+      # every piece of armour at that tier, both sides;
+      # `.#crisis` is the simulation a day before the crisis first spreads,
+      # its origin two hyperlane hops off, so the next stars turn red
+      # while you watch;
       # `.#jammer` is one step on from that: the crew in an infested system
       # two hops from the origin, its jammer standing and a wave aboard, so
       # the lanes inward are shut and the chart says so;
@@ -356,35 +318,23 @@
           };
         in
         rec {
-          game = app built.bims-game "Play Bims — menu, lobby, world, ship, then the game";
+          game = app built.bims-game "Play Bims — menu, lobby, world, then the run on the default ship";
           simulation = app built.bims-simulation "Straight into the game world on the playtest ship";
           design = app built.bims-design "Straight into the yard, the playtest ship given, docked where the simulation docks";
           room = app built.bims-room "The behaviour test room — Bims on a deck";
           test = app built.bims-test "Docked at a random station in a random galaxy, on the playtest ship";
           test_planet = app built.bims-test-planet "Set down on a planet in a random galaxy, on the playtest ship";
-          combat = app built.bims-combat "The simulation docked at a hostile station, the people living there enemies";
-          tier2_test = app built.bims-tier2-test "The fight with everybody's guns and armour at tier two, crew and garrison alike";
-          tier3_test = app built.bims-tier3-test "The fight with everybody's guns and armour at tier three, crew and garrison alike";
-          droids = app built.bims-droids "The fight with the arena held by the machines: a wave of droids instead of its people";
+          tier2_test = app built.bims-tier2-test "The fight with everybody's guns and armour at tier two, and the machines at it too";
+          tier3_test = app built.bims-tier3-test "The fight with everybody's guns and armour at tier three, and the machines at it too";
+          droids = app built.bims-droids "The fight: the combat ship's crew at an arena the machines hold, a wave of droids about it";
           droids_planet = app built.bims-droids-planet "A town on a planet held by the machines, the ship set down at its pad";
-          raid = app built.bims-raid "The simulation holding in open space with a raid on its way, contact ten seconds in";
-          crisis = app built.bims-crisis "The simulation a day before the machines appear, their origin two hyperlane hops off";
+          crisis = app built.bims-crisis "The simulation a day before the crisis first spreads, its origin two hyperlane hops off";
           jammer = app built.bims-jammer "The crew in an infested system two hops from the origin: the jammer standing, a wave aboard, the lanes inward shut";
           defense = app built.bims-defense "A town with the machines one hop off: the crew set down at its pad, and a wave landing outside a gate a minute later";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           server = app built.bims-server "The relay: rooms by code, and bytes passed between the players in one — what runs at bims.buggly.de";
           default = game;
         }
-        # `.#combat_medic` and the rest: that same fight, the crew member
-        # you steer that class (feature 79).
-        // nixpkgs.lib.listToAttrs (
-          map
-            (class: {
-              name = "combat_${class}";
-              value = app built."bims-combat-${class}" (combatAbout class);
-            })
-            combatClasses
-        )
         # `.#combat_droids_medic` and the rest: the machines' fight, the
         # crew member you steer that class.
         // nixpkgs.lib.listToAttrs (

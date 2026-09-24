@@ -204,6 +204,7 @@ fn boarders_are_counted_like_a_garrison_to_a_lower_cap() {
     // And a raid is rolled at the clock's day: the same crew, thirty
     // days on, are boarded by four rather than three.
     let mut world = basic();
+    world.set_human_foes_enabled(true);
     holding_out(&mut world);
     world.clock_minutes = time::minutes(30.0);
     assert_eq!(world.days_gone(), 30);
@@ -294,6 +295,7 @@ fn a_raid_staged_to_come_in_ten_minutes_makes_contact_on_the_tenth() {
 #[test]
 fn a_raid_arrives_while_holding_and_the_boarders_come_for_the_ship() {
     let mut world = basic();
+    world.set_human_foes_enabled(true);
     holding_out(&mut world);
     assert!(world.raids.left_home, "the crew have left home");
     world.request_speed(0, Speed::Top);
@@ -465,6 +467,7 @@ fn a_raid_arrives_while_holding_and_the_boarders_come_for_the_ship() {
 #[test]
 fn a_raid_is_cancelled_by_leaving() {
     let mut world = basic();
+    world.set_human_foes_enabled(true);
     holding_out(&mut world);
     world.raid_now_for_probe();
     let events = until_contact(&mut world, 120);
@@ -524,6 +527,7 @@ fn a_raid_is_cancelled_by_a_completed_jump() {
         .unwrap_or_else(|e| panic!("{kind:?} at {origin:?}: {e:?}"));
     }
     let mut world = simulation_world(design, REFERENCE_MONEY, 2);
+    world.set_human_foes_enabled(true);
     holding_out(&mut world);
     world.raid_now_for_probe();
     let events = until_contact(&mut world, 120);
@@ -570,6 +574,7 @@ fn a_raid_is_cancelled_by_a_completed_jump() {
 fn warning_time_grows_with_sensors() {
     let warning = |design: ShipDesign| {
         let mut world = simulation_world(design, REFERENCE_MONEY, 2);
+        world.set_human_foes_enabled(true);
         holding_out(&mut world);
         world.raid_now_for_probe();
         let events = until_contact(&mut world, 120);
@@ -620,7 +625,9 @@ fn warning_time_grows_with_sensors() {
 #[test]
 fn two_runs_on_one_seed_raid_at_the_same_minutes_with_the_same_boarders() {
     let mut a = basic();
+    a.set_human_foes_enabled(true);
     let mut b = basic();
+    b.set_human_foes_enabled(true);
     let there = Target::Point(a.ship.position().add(dvec2(40_000.0, 15_000.0)));
     for world in [&mut a, &mut b] {
         set_off(world, 0, there);
@@ -668,6 +675,7 @@ fn two_runs_on_one_seed_raid_at_the_same_minutes_with_the_same_boarders() {
 #[test]
 fn a_repelled_raider_is_a_derelict_until_the_ship_casts_off() {
     let mut world = basic();
+    world.set_human_foes_enabled(true);
     holding_out(&mut world);
     let frame = world.ship.frame;
     world.raid_now_for_probe();
@@ -733,6 +741,7 @@ fn a_repelled_raider_is_a_derelict_until_the_ship_casts_off() {
 #[test]
 fn a_lost_fight_reaches_the_end_screen() {
     let mut world = basic();
+    world.set_human_foes_enabled(true);
     assert!(!world.lost);
     world.aboard.room.kill_for_probe(0);
     let events = world.step(&[]);
@@ -751,6 +760,7 @@ fn a_lost_fight_reaches_the_end_screen() {
     assert_eq!(WorldEvent::CrewLost.code(), 63);
     // And a world with everybody down from a raid says the same.
     let mut raided = basic();
+    raided.set_human_foes_enabled(true);
     holding_out(&mut raided);
     raided.raid_now_for_probe();
     let events = until_contact(&mut raided, 120);

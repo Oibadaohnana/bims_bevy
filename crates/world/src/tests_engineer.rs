@@ -357,6 +357,8 @@ fn an_enemy_down_on_an_unjoined_deck_and_one_seen_by_a_classless_crew_is_nothing
 #[test]
 fn a_site_finished_and_a_kit_laid_are_the_engineer_s_and_a_re_used_kit_is_not() {
     let mut world = engineer();
+    // A site is a part built onto the ship: the old game's (feature 102).
+    world.set_shipyard_enabled(true);
     let before = world.progress_of(0).xp;
     // A site of James's own, and one Kate finishes beside him.
     let here = world.aboard.room.bim_pos(1);

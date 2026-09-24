@@ -557,6 +557,10 @@ pub enum Refusal {
     /// cooldown of their own — one put in the hold would be one more
     /// every minute for nothing, so they stay where they are.
     ChargeKept = 81,
+    /// A construction site placed in a run (feature 102): the ship is the
+    /// default one and nothing is built onto it but a class's
+    /// deployables (`World::shipyard_enabled`).
+    NoShipyard = 82,
 }
 
 impl Refusal {

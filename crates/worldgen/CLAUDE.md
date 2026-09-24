@@ -114,6 +114,11 @@ workspace (`crates/world/CLAUDE.md`).
 
 ## A station's side is rolled here, and the enemy's are together in one corner
 
+> **Since feature 102** the world reads none of this as a stance — every
+> human is friendly in a run — but the roll stays: it is in the galaxy
+> checksum, and it is still where the tier-two research keys lie
+> (`world::station::key_tier`).
+
 `StationBlueprint::hostile` is `data::HOSTILE_SHARE` (0.3) of the stations
 somebody lives on, rolled in `furnish` off `base.branch(0x_484f_5354_0000_0000
 ^ id)` — its own branch, so the count does not change when a neighbour

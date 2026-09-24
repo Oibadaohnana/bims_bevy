@@ -257,6 +257,13 @@ pub struct Bim {
     pub sealed_in: Option<usize>,
     /// Seconds towards the next wound bound while sealed in.
     pub bind_timer: f32,
+    /// A station's person's peacetime round (feature 102): its role and
+    /// the stops it walks, dealt by the world when the site's room opens
+    /// (`Game::set_role`). `None` for the crew and for anybody the world
+    /// dealt none. Walked only with the needs off
+    /// (`Game::keep_to_routine`), and carried with the body through
+    /// `take_crew` and `adopt` like its post.
+    pub routine: Option<crate::routine::Routine>,
 }
 
 /// The years the crew were born in. Everyone aboard is somewhere between
@@ -318,6 +325,7 @@ impl Bim {
             seal: None,
             sealed_in: None,
             bind_timer: 0.0,
+            routine: None,
         }
     }
 

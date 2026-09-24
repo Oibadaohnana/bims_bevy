@@ -605,6 +605,7 @@ fn trading_wants_somebody_at_the_desk_and_a_station_only_sells_what_its_kind_sel
     // --- trading_wants_somebody_at_the_station_s_desk ---
     {
         let mut world = basic();
+        world.set_shipyard_enabled(true);
         assert!(
             !world.aboard.room.desks().is_empty(),
             "a desk on the joined deck"
@@ -666,6 +667,7 @@ fn trading_wants_somebody_at_the_desk_and_a_station_only_sells_what_its_kind_sel
         )
         .expect("a shelf on bare deck");
         let mut world = world_with(design, 1_000_000, 2);
+        world.set_shipyard_enabled(true);
         let ShipState::Docked { station } = world.ship.state else {
             panic!("a world opens docked");
         };
@@ -1427,6 +1429,7 @@ fn a_confirm_under_way_is_a_redirect_the_later_one_wins_and_one_that_cannot_be_f
 #[test]
 fn buying_costs_money_and_makes_the_ship_heavier() {
     let mut world = world_with(flyer(2), 100_000, 2);
+    world.set_shipyard_enabled(true);
     // Somewhere to put it first: the flyer has a cold store and no racking
     // at all.
     world.ship.design = apply(
@@ -1563,6 +1566,7 @@ fn a_derelict_has_no_market_and_every_other_station_quotes() {
 #[test]
 fn what_cannot_be_paid_for_or_stowed_is_refused() {
     let mut world = world_with(flyer(2), 100, 2);
+    world.set_shipyard_enabled(true);
     assert!(world.man_the_desk_for_probe(0), "a desk to trade at");
     // No money. A staple, which every shelf carries: whether the spawn
     // rolled anything else is the generator's business, not this
@@ -2728,6 +2732,9 @@ fn the_checksum_notices_every_kind_of_change() {
     // --- the_checksum_notices_a_stance_change ---
     {
         let mut world = basic();
+        // The generator's hostile stations, which a run never meets
+        // (feature 102).
+        world.set_human_foes_enabled(true);
         let was = world.checksum();
         let station_id = world.residents.as_ref().unwrap().station;
         world.set_hostile(station_id, true);
@@ -3102,6 +3109,7 @@ fn a_bim_aboard_showers_for_a_day_s_grime_or_for_soiling_itself() {
         use bims::game::JOB_SHOWER;
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        world.set_needs_enabled(true);
         // `Need::ALL`'s index of the washing need, as `spend_for_probe` counts.
         const WASHING: u32 = 5;
         let room = &mut world.aboard.room;
@@ -3132,6 +3140,7 @@ fn a_bim_aboard_showers_for_a_day_s_grime_or_for_soiling_itself() {
         use bims::game::JOB_SHOWER;
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        world.set_needs_enabled(true);
         const RESTROOM: u32 = 2;
         const WASHING: u32 = 5;
         let room = &mut world.aboard.room;
@@ -4534,6 +4543,7 @@ fn ship_lamps(world: &World) -> Vec<((u32, u32), bims::sight::Lamp)> {
 fn a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power_is_back() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    world.set_needs_enabled(true);
     world.know_everything_for_probe();
     let lamps = ship_lamps(&world);
     assert_eq!(lamps.len(), 7);
@@ -4752,6 +4762,8 @@ fn two_runs_on_one_seed_spoil_the_same_amount() {
         simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1),
     ];
     for world in &mut worlds {
+        // Food spoils where somebody eats it (feature 102).
+        world.set_needs_enabled(true);
         // Under the ship's draw of 287 (feature 95 took the smelter's 40
         // with the smelter), so the batteries are flat and it browns out.
         world.throttle_reactors_for_probe(200.0);
@@ -4957,6 +4969,7 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::Layer;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    world.set_shipyard_enabled(true);
     // The dressings every Bim carries are out of the way (feature 87).
     without_dressings(&mut world);
     let money = world.money;
@@ -5037,6 +5050,7 @@ fn a_site_on_the_deck_is_paid_for_and_built_by_the_crew() {
 fn a_site_waits_while_the_pool_cannot_cover_it() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    world.set_shipyard_enabled(true);
     without_dressings(&mut world);
     let price = PartKind::Wall.def().price;
     // Just short of one wall.
@@ -5097,6 +5111,8 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::Layer;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    world.set_shipyard_enabled(true);
+    world.set_radiation_enabled(true);
     world.undock_for_probe();
     without_dressings(&mut world);
     let money = world.money;
@@ -5165,6 +5181,7 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
 fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    world.set_shipyard_enabled(true);
     let money = world.money;
     let place = |slot: u32| Command::PlaceSite {
         slot,
@@ -5292,6 +5309,7 @@ fn a_site_is_refused_where_the_designer_would_have_refused_it() {
     use shipdesign::EditError;
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    world.set_shipyard_enabled(true);
     // On the hob itself: something is standing there.
     let hob = world
         .ship
@@ -5543,6 +5561,8 @@ fn every_bay_aboard_is_worked_and_one_the_crew_build_is_a_bay_like_the_first() {
         }
         let design = with_two.expect("somewhere on the playtest ship a second bay fits");
         let mut world = simulation_world(design, data::SIMULATION_MONEY, 1);
+        world.set_needs_enabled(true);
+        world.set_shipyard_enabled(true);
         let room = &mut world.aboard.room;
         assert_eq!(room.hydro_bays(), 2);
 
@@ -5586,6 +5606,8 @@ fn every_bay_aboard_is_worked_and_one_the_crew_build_is_a_bay_like_the_first() {
         use bims::room::HIT_HYDRO;
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        world.set_needs_enabled(true);
+        world.set_shipyard_enabled(true);
         assert_eq!(world.aboard.room.hydro_bays(), 1, "the ship's own, docked");
         // Somewhere on the deck the site is allowed.
         let area = world.ship.design.build_area;
@@ -5707,6 +5729,8 @@ fn a_second_galley_is_cooked_in_at_the_same_time() {
         design = placed.unwrap_or_else(|| panic!("nowhere on the playtest ship for a {kind:?}"));
     }
     let mut world = simulation_world(design, data::SIMULATION_MONEY, 2);
+    world.set_needs_enabled(true);
+    world.set_shipyard_enabled(true);
     let room = &mut world.aboard.room;
     room.select_group(0, 1);
     // Both starving this instant: the food need spent to nothing.
@@ -8227,7 +8251,9 @@ fn an_unconscious_crewmate_is_looted_and_an_awake_one_is_refused() {
     use bims::health::Part;
     let tile = shipdesign::TILE as f32;
     let mut world = basic();
+    world.set_needs_enabled(true);
     let mut twin = basic();
+    twin.set_needs_enabled(true);
     // The packs empty of their medicine, so the helm goes in cell 0.
     without_dressings(&mut world);
     without_dressings(&mut twin);
@@ -8867,6 +8893,7 @@ fn a_resident_down_in_the_fight_is_looted_of_its_weapon_and_its_helm() {
     use bims::combat::{ArmourKind, Item, LootCell, Piece};
     use bims::health::Part;
     let mut world = with_a_crewmate();
+    world.set_human_foes_enabled(true);
     // James's pack empty, the medicine too, so the loot lies in its
     // first cells.
     without_dressings(&mut world);
@@ -9014,6 +9041,7 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
         use shipdesign::fixture::playtest_ship;
         use shipdesign::research::Node;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        world.set_shipyard_enabled(true);
         // The dressings every Bim carries are out of the way (feature 87).
         without_dressings(&mut world);
         assert_eq!(world.key_at_the_dock(), 1, "the spawn always has a key");
@@ -9263,6 +9291,7 @@ fn a_key_is_taken_ashore_and_consumed_and_the_benches_wait_on_research() {
         use shipdesign::fixture::playtest_ship;
         use shipdesign::research::Node;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        world.set_shipyard_enabled(true);
         assert!(world.powered(PartKind::DrugLab));
         // Medicine is known from the first day, so the one recipe left is
         // on offer at once: a medkit out of the vegetables at the drug lab.
@@ -9465,9 +9494,11 @@ fn a_key_is_taken_at_a_hostile_dock_while_they_stand() {
     use shipdesign::fixture::playtest_ship;
     use worldgen::StationKind;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    world.set_human_foes_enabled(true);
     // The dressings every Bim carries are out of the way (feature 87).
     without_dressings(&mut world);
     let mut twin = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    twin.set_human_foes_enabled(true);
     without_dressings(&mut twin);
     let enemy = world
         .stations
@@ -10419,6 +10450,9 @@ fn a_landable_body_has_a_settlement_and_the_world_finds_it_as_a_station() {
         !world.surfaces.is_empty(),
         "the spawn system should have a planet to land on"
     );
+    // The towns' own stance roll, which a run never meets (feature 102).
+    let mut world = world;
+    world.set_human_foes_enabled(true);
     for surface in &world.surfaces {
         assert_eq!(surface.id, surface_id(surface.body));
         assert_eq!(surface_body(surface.id), Some(surface.body));
@@ -10578,6 +10612,8 @@ fn a_ship_holding_over_a_planet_lands_on_the_pad_and_lifts_off_straight_up() {
     use crate::surface::{GUARD, guard_post, surface_id};
     use worldgen::Node;
     let mut world = basic();
+    world.set_shipyard_enabled(true);
+    world.set_needs_enabled(true);
     let Some(planet) = over_a_planet(&mut world) else {
         eprintln!("the spawn system has no planet to land on");
         return;
@@ -10743,6 +10779,7 @@ fn after_a_fight_at_a_hostile_dock_the_alarm_comes_down_and_the_crew_sleep() {
     use bims::combat::{Gear, WeaponKind};
     use bims::game::{ALARM_HOLD, JOB_SLEEP};
     let mut world = with_a_crewmate();
+    world.set_needs_enabled(true);
     assert!(world.stage_fight_for_probe());
     world.aboard.room.issue(
         0,

@@ -299,7 +299,74 @@ impl Session {
         session
     }
 
-    /// The `combat` command's session: the simulation's spawn for `seed`,
+    /// A run (feature 102): what the `game` command's setup or lobby
+    /// opens once Start is pressed — **no design phase**. The world opens
+    /// straight away, docked at the station the lobby picked, on the
+    /// **default ship** — the playtest ship the `simulation` command
+    /// flies ([`shipdesign::fixture::playtest_ship`]) — with the crew's
+    /// shared pool at `money_per_bim` a player's Bim
+    /// ([`world::data::START_MONEY_PER_BIM`] unless the lobby said
+    /// otherwise), nothing added for a crew of one. `classes` are the
+    /// players' choices, slot by slot, put on as the world opens.
+    ///
+    /// Every machine of a lobby stands the same session up from the same
+    /// numbers, which is what made the design phase's last Accept open
+    /// one world on all of them; with no Accept the numbers alone do.
+    /// With no spawn — or one the galaxy has not got — there is no game,
+    /// and [`Session::spawn_ok`] says so for the screen that says so.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run(
+        money_per_bim: Money,
+        players: u32,
+        local_slot: u32,
+        seed: u64,
+        galaxy: u32,
+        spawn: Option<(u32, u32)>,
+        classes: &[Class],
+        width: f32,
+        height: f32,
+    ) -> Session {
+        let players = players.max(1);
+        let local_slot = local_slot.min(players - 1);
+        let design = shipdesign::fixture::playtest_ship();
+        let editor = Editor::settled(design.clone(), players, local_slot, width, height);
+        let money = money_per_bim.saturating_mul(Money::from(players));
+        let game = spawn.and_then(|(star, station)| {
+            Game::start(
+                design,
+                money,
+                players,
+                local_slot,
+                seed,
+                galaxy_type(galaxy),
+                star,
+                station,
+                width,
+                height,
+            )
+        });
+        let mut session = Session {
+            editor,
+            game,
+            seed,
+            galaxy,
+            spawn,
+            crew_names: Vec::new(),
+            crew_hair: Vec::new(),
+            crew_tints: Vec::new(),
+            crew_classes: classes.iter().copied().take(players as usize).collect(),
+            list: DrawList::new(),
+        };
+        session.class_crew();
+        session.dress_crew();
+        session
+    }
+
+    /// The fight's ship, crew and arena, before the machines have the
+    /// arena: what [`Session::droids`] is built on. It was the `combat`
+    /// command's whole session — the arena's own people turned against
+    /// the crew — until every enemy was a machine (feature 102) and the
+    /// command went. The simulation's spawn for `seed`,
     /// on the combat ship (`shipdesign::fixture::combat_ship`) with a crew
     /// of `COMBAT_CREW` (sixteen: five at the bunks, eleven on the deck) —
     /// the first the player, the rest crew nobody steers — a gun in every
@@ -387,6 +454,30 @@ impl Session {
         session
     }
 
+    /// The `tier2_test` and `tier3_test` commands since every enemy is a
+    /// machine (feature 102): [`Session::droids`] with the machines at
+    /// `tier` and every crew member's gun and a full set of armour at it
+    /// too (`World::outfit_for_probe`, which finds no people in a held
+    /// station to dress). The machines' fight with nothing at tier one on
+    /// either side.
+    #[allow(clippy::too_many_arguments)]
+    pub fn droids_at_tier(
+        seed: u64,
+        tier: bims::combat::Tier,
+        reinforce: f64,
+        wave_max: Option<u32>,
+        waves: u32,
+        width: f32,
+        height: f32,
+    ) -> Session {
+        let mut session =
+            Session::droids(seed, Some(tier), reinforce, wave_max, waves, width, height);
+        if let Some(game) = session.game.as_mut() {
+            game.world.outfit_for_probe(tier);
+        }
+        session
+    }
+
     /// The `droids` command (feature 83): [`Session::combat`] with the
     /// arena **droid-held** instead of garrisoned. The ship, the crew and
     /// the guns are `combat`'s own; the arena's people are gone and a
@@ -431,17 +522,20 @@ impl Session {
     }
 
     /// The `crisis` command (feature 92): this world put a day short of
-    /// the machines appearing, with the origin forced [`CRISIS_HOPS`]
+    /// the crisis's first spread, with the origin forced [`CRISIS_HOPS`]
     /// hyperlane hops from the crew's own star.
     ///
     /// Both halves are the point. The origin is rolled at least
     /// `DROID_ORIGIN_MIN_HOPS` (eight) away, which is forty days of the
     /// clock before the crisis is anywhere near the crew; two hops is ten,
     /// and the chart shows the whole of it spreading rather than one red
-    /// star on the far rim. And the clock opens on the day *before*
-    /// `first_day`, whatever the dial says it is, so the origin turns
-    /// within a day of the clock — a real minute at 24× — rather than ten.
-    /// The crew's own system follows two flips later.
+    /// star on the far rim. The origin is the machines' from `first_day`
+    /// — nought in every run, since feature 102 the crisis is there from
+    /// the start — and the clock opens on the day *before* the first
+    /// ring round it turns, `first_day` and `DROID_SPREAD_DAYS` on, so
+    /// the origin is red on the chart and the stars next to it turn
+    /// within a day of the clock — a real minute at 24× — rather than
+    /// five. The crew's own system follows five days after that.
     ///
     /// `false` in the design phase, or where the lanes are too short for
     /// the hop count, which no real galaxy is.
@@ -466,7 +560,11 @@ impl Session {
         };
         world.set_crisis_first_day_for_probe(first_day);
         world.set_droid_origin_for_probe(origin as u32);
-        world.set_day_for_probe(first_day.saturating_sub(1));
+        // A day short of the first ring past the origin (feature 102: the
+        // origin itself is theirs from the day it turns, which in a run is
+        // the day the world opens).
+        let ring = first_day.saturating_add(world::data::DROID_SPREAD_DAYS);
+        world.set_day_for_probe(ring.saturating_sub(1));
         true
     }
 
@@ -493,8 +591,8 @@ impl Session {
         reinforce: f64,
         waves: u32,
     ) -> bool {
-        let first_day = world::data::DROID_FIRST_DAY;
-        if !self.crisis_for_probe(first_day) {
+        // The crisis from day nought, as in every run (feature 102).
+        if !self.crisis_for_probe(0) {
             return false;
         }
         let Some(game) = self.game.as_mut() else {
@@ -1157,14 +1255,15 @@ impl Session {
 
     /// Whether the station the ship is at sells `resource`: the design
     /// phase's spawn station, or the one the ship is docked at — and false
-    /// anywhere else, since there is nobody to buy from.
+    /// anywhere else, since there is nobody to buy from. Playing, and only
+    /// what a run may buy at all (`World::buyable`, feature 102): gear.
     pub fn sold_here(&self, resource: ResourceId) -> bool {
         match &self.game {
             Some(g) => match g.world.ship.state {
                 world::ShipState::Docked { station } => g
                     .world
                     .station(station)
-                    .is_some_and(|s| s.stock.sells(resource)),
+                    .is_some_and(|s| s.stock.sells(resource) && g.world.buyable(resource)),
                 _ => false,
             },
             None => self.editor.sells(resource),

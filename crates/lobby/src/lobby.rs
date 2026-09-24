@@ -17,17 +17,19 @@
 //! comparison of "reported as having a station" against "what inspecting it
 //! lists" is a comparison of two paths rather than of one path with itself.
 //!
-//! # A crew cannot start at an enemy's
+//! # Every human is friendly, so a crew may start at any station
 //!
-//! Some of the stations somebody lives on are hostile
-//! (`StationBlueprint::hostile`): docked there the crew are the enemy and
-//! the people aboard shoot. The map still shows the star as having a
-//! station — it does, and it is somewhere to fly to — but the start has to
-//! be somewhere else, so `can_start` is kept beside `has_station`, and the
-//! two ways a start gets picked ([`Lobby::random_start`] and
-//! [`Lobby::can_start_at`], which the page asks before it offers "Start
-//! here") both refuse a hostile station. The rule is here rather than on the
-//! page so that a page and a server agree about it.
+//! Some stations used to be hostile (`StationBlueprint::hostile`): docked
+//! there the crew were the enemy and the people aboard shot, and the start
+//! had to be somewhere else. **Since feature 102 every human is friendly**
+//! and every enemy is a machine: the generator still rolls the flag — it is
+//! where the tier-two research keys lie, and it is in the galaxy checksum —
+//! but nothing reads it as a stance, the world included. So `can_start` is
+//! `has_station` again, the two ways a start gets picked
+//! ([`Lobby::random_start`] and [`Lobby::can_start_at`], which the page asks
+//! before it offers "Start here") refuse nothing but a station that is not
+//! there, and the diagram rings no station in the enemy's red. The rule is
+//! here rather than on the page so that a page and a server agree about it.
 
 use worldgen::{Galaxy, GalaxyType, StarSystem};
 
@@ -85,10 +87,8 @@ impl Lobby {
         let galaxy = Galaxy::new(seed, galaxy_type);
         let systems = galaxy.every_system();
         let has_station = systems.iter().map(|s| !s.stations.is_empty()).collect();
-        let can_start = systems
-            .iter()
-            .map(|s| s.stations.iter().any(|st| !st.hostile))
-            .collect();
+        // Any station at all, since no human is hostile (feature 102).
+        let can_start = systems.iter().map(|s| !s.stations.is_empty()).collect();
         let checksum = worldgen::galaxy_checksum(&galaxy, &systems);
         let preview = Preview::new(width, height, &galaxy.stars);
         Lobby {
@@ -136,31 +136,30 @@ impl Lobby {
         self.inspected = self.galaxy.system(star).map(|s| (star, s));
     }
 
-    /// Whether a station of the inspected system is somebody else's: ringed
-    /// in red on the diagram, and not somewhere a crew can start. `false`
-    /// when nothing is inspected or the id is not a station of it.
-    pub fn station_hostile(&self, station: u32) -> bool {
-        self.inspected
-            .as_ref()
-            .and_then(|(_, system)| system.station(station))
-            .is_some_and(|s| s.hostile)
+    /// Whether a station of the inspected system is somebody else's:
+    /// ringed in red on the diagram, and not somewhere a crew can start.
+    /// **Never, since feature 102**: every human is friendly, whatever the
+    /// generator rolled. Kept as the question the page asks, so the page
+    /// needs no second rule.
+    pub fn station_hostile(&self, _station: u32) -> bool {
+        false
     }
 
-    /// Whether the game may start at this station of this star: it exists,
-    /// and it is not hostile. The page asks before it offers "Start here",
-    /// and a start handed in from elsewhere is checked the same way.
+    /// Whether the game may start at this station of this star: it exists.
+    /// It used to have to be friendly as well; every human is since
+    /// feature 102. The page asks before it offers "Start here", and a
+    /// start handed in from elsewhere is checked the same way.
     ///
     /// Generates the system rather than reading the inspected one, because
     /// the star asked about is not always the one open in the panel.
     pub fn can_start_at(&self, star: u32, station: u32) -> bool {
         self.galaxy
             .system(star)
-            .and_then(|s| s.station(station).map(|st| !st.hostile))
-            .unwrap_or(false)
+            .is_some_and(|s| s.station(station).is_some())
     }
 
     /// A random start: a star that can be started at, and one of its
-    /// stations that is not hostile. `roll` is the page's own randomness —
+    /// stations. `roll` is the page's own randomness —
     /// the star off the low word, the station off the high one, which is
     /// how the page picked before the rule moved here. `None` only in a
     /// galaxy with nowhere to start at all.
@@ -173,12 +172,7 @@ impl Lobby {
         }
         let star = stars[(roll % stars.len() as u64) as usize];
         let system = self.galaxy.system(star)?;
-        let open: Vec<u32> = system
-            .stations
-            .iter()
-            .filter(|st| !st.hostile)
-            .map(|st| st.id)
-            .collect();
+        let open: Vec<u32> = system.stations.iter().map(|st| st.id).collect();
         if open.is_empty() {
             return None;
         }

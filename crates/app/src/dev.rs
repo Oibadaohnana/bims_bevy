@@ -127,7 +127,9 @@ pub fn graves() -> Option<u32> {
 /// `BIMS_RAID=1` opens the simulation off its berth with a raider tied to
 /// the ship and its boarders on their way through the airlock — how a
 /// raid is looked at without holding a day for one; `BIMS_RAID=contact`
-/// opens it with the raider on the radar and closing, for the map.
+/// opens it with the raider on the radar and closing, for the map. A raid
+/// is the old game's (feature 102): asking for one switches the world's
+/// human foes on (`World::raid_for_probe`), since a run has none.
 /// Whether one was asked for, and whether it is to dock.
 pub fn raid() -> Option<bool> {
     match std::env::var("BIMS_RAID").as_deref() {
@@ -298,14 +300,15 @@ pub fn smoke_frames() -> Option<u32> {
         .and_then(|v| v.parse().ok())
 }
 
-/// `BIMS_AUTO` plays the lobby and the yard with nobody at the keyboard,
+/// `BIMS_AUTO` plays the lobby with nobody at the keyboard,
 /// which is how a game with company is looked at from a terminal — two
 /// windows against a relay, `BIMS_SERVER` naming it. `BIMS_AUTO=create`
 /// opens a lobby at the menu and prints `lobby: <code>` when the relay
 /// deals one; `BIMS_AUTO=join:<code>` walks into it. Then the host, once
 /// `BIMS_AUTO_PLAYERS` (default 2) are in the lobby, picks a random start
-/// and presses Start, and every window presses Accept a second into the
-/// yard, so the world opens on all of them. With it on, the game prints
+/// and presses Start, and the run opens on all of them — straight into
+/// the world since feature 102, with no yard to accept in (the `design`
+/// command still presses Accept a second in). With it on, the game prints
 /// `checksum: <steps> <hash>` at every checksum a guest matched, and
 /// `desync` if one did not.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -425,15 +428,14 @@ pub fn bim_class() -> world::Class {
 /// straight to that level of it (`World::award` off the table), for
 /// looking at what a level gives — a soldier's grenades from the third.
 ///
-/// `asked` is the class the command itself named — `combat_medic` and
-/// the rest, `Launch::CombatAs` (feature 79), and `combat_droids_medic`
-/// and the rest, `Launch::DroidsAs`, which is the same class put on the
-/// same slot for the machines' fight — and `Class::None` where it named
-/// none. `BIMS_CLASS` wins over it, so a `combat_tank` run can
-/// still be opened as somebody else without a different command;
-/// `BIMS_LEVEL` applies to whichever of the two it ends up being.
+/// `asked` is the class the command itself named — `combat_droids_medic`
+/// and the rest, `Launch::DroidsAs` (features 79 and 83) — and
+/// `Class::None` where it named none. `BIMS_CLASS` wins over it, so a
+/// `combat_droids_tank` run can still be opened as somebody else without
+/// a different command; `BIMS_LEVEL` applies to whichever of the two it
+/// ends up being.
 ///
-/// **A `combat_<class>` run opens at [`COMBAT_CLASS_LEVEL`]** — the top
+/// **A `combat_droids_<class>` run opens at [`COMBAT_CLASS_LEVEL`]** — the top
 /// of the tree (feature 80): the fight is what a class is looked at in,
 /// and at the first level there is nothing of it to look at but the one
 /// key. Every level's pick is still the player's, waiting on the
@@ -465,8 +467,8 @@ pub fn class_crew(session: &mut ship::Session, asked: world::Class) {
     }
 }
 
-/// The level a `combat_<class>` command opens its crew member at: the
-/// top of the tree.
+/// The level a `combat_droids_<class>` command opens its crew member at:
+/// the top of the tree.
 pub const COMBAT_CLASS_LEVEL: usize = world::class::LEVELS as usize;
 
 /// `BIMS_BEAM=1` links a medic's heal beam to crew member 1, stood a
@@ -540,17 +542,18 @@ pub fn defense_delay(default: f64) -> f64 {
         .unwrap_or(default)
 }
 
-/// Which day the machines' first star turns on in the `crisis` command
-/// (feature 92): `BIMS_CRISIS_DAY=3` over `data::DROID_FIRST_DAY` (ten).
-/// The clock opens a day short of it whatever it is
-/// (`Session::crisis_for_probe`), so the dial is not about how long to
-/// wait — it is about what the *rest* of the galaxy's days come out at,
-/// since every other star is five days a hop after this one.
+/// Which day the machines' origin turns on in the `crisis` command
+/// (feature 92): `BIMS_CRISIS_DAY=3` over nought, which is every run's
+/// since the crisis is there from the start (feature 102). The clock
+/// opens a day short of the first ring round the origin turning, whatever
+/// it is (`Session::crisis_for_probe`), so the dial is not about how long
+/// to wait — it is about what the *rest* of the galaxy's days come out
+/// at, since every other star is five days a hop after this one.
 pub fn crisis_day() -> u32 {
     std::env::var("BIMS_CRISIS_DAY")
         .ok()
         .and_then(|spec| spec.trim().parse::<u32>().ok())
-        .unwrap_or(world::data::DROID_FIRST_DAY)
+        .unwrap_or(0)
 }
 
 /// How many waves a held station has all told in the `droids` probes —

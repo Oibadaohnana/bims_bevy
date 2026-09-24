@@ -332,6 +332,7 @@ fn a_settlement_s_dead_lie_in_its_street_too() {
 #[test]
 fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
+    world.set_human_foes_enabled(true);
     let from = world.star_id;
     let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");

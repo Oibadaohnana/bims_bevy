@@ -73,7 +73,10 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// And again when the medicine became everybody's charges on a cooldown
 /// (`crate::class::Charge::{Medkit, Bandage}`): `World::charge_timers` is
 /// five a crew member, and the hold no longer fills anybody's pack.
-pub const REFERENCE_CHECKSUM: u64 = 0x_da4f_9df9_1693_e8d2;
+/// And again for a run (feature 102): the world's four switches hashed at
+/// the end, the hostile list empty with every human friendly, the crisis
+/// there from day nought, and the room's needs standing still.
+pub const REFERENCE_CHECKSUM: u64 = 0x_d44a_c0d9_6b8b_b6d1;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

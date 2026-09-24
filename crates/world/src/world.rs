@@ -834,11 +834,10 @@ pub struct World {
     /// save carries the origin and not this.
     #[cfg_attr(feature = "serde", serde(skip))]
     droid_hops: Vec<u16>,
-    /// The day the origin turns: [`data::DROID_FIRST_DAY`], bar the
-    /// `crisis` probe (`BIMS_CRISIS_DAY`), which brings it forward so a
-    /// flip is watched rather than waited ten days for. In
-    /// `world_checksum` with the droids' other dials, since it is when
-    /// the whole galaxy falls.
+    /// The day the origin turns: **nought** — the crisis is there from
+    /// the start (feature 102) — bar the `crisis` probe
+    /// (`BIMS_CRISIS_DAY`), which moves it. In `world_checksum` with the
+    /// droids' other dials, since it is when the whole galaxy falls.
     crisis_first_day: u32,
     /// The towns the machines are attacking and the crew are defending
     /// (feature 94), by station id, sorted — one [`Defense`] a town the
@@ -1102,6 +1101,39 @@ pub struct World {
     /// nothing, which is every slot until somebody presses a key. As
     /// long as there are players, and in `world_checksum`.
     pub standing: Vec<Standing>,
+    /// Whether the Bims have needs at all (feature 102): food, rest, the
+    /// heads, company, washing and the deck round them draining and
+    /// sending anybody on an errand, the food spoiling, the bays grown
+    /// and tended, the bunks slept in and counted against a hire. **Off
+    /// in every run** — the crew's and every station's and town's people
+    /// alike, who walk a scripted round instead (`bims::routine`) — and on
+    /// only for the tests that are about needs. The classic room, which
+    /// is not a world, keeps its own on. Told to every room every step,
+    /// since a room is built afresh at every dock and undock. Saved and in
+    /// `world_checksum`.
+    needs_enabled: bool,
+    /// Whether any human is ever the crew's enemy (feature 102): the
+    /// stations and towns the generator rolled hostile turned against
+    /// them, raiders coming for the ship, an enemy's shelf plundered and a
+    /// station's dead looted. **Off in every run** — every human is
+    /// friendly and every enemy is a machine — and on only for the tests
+    /// of those things. A probe that makes a station hostile by hand
+    /// ([`World::set_hostile`], the arena the `droids` command is built
+    /// on) still does. Saved and in `world_checksum`.
+    human_foes_enabled: bool,
+    /// Whether a walk outside doses anybody (feature 102): off in every
+    /// run, so radiation sickness is never applied and nothing about a
+    /// wall shields anybody; on only for the tests of the dose. Saved and
+    /// in `world_checksum`.
+    radiation_enabled: bool,
+    /// Whether the crew build onto their ship and buy what the ship lives
+    /// on (feature 102): a construction site placed, and the goods on a
+    /// station's shelf — food, suits, medicine — bought. **Off in every
+    /// run**: the ship is the default one and stays it, bar the class
+    /// deployables, and a desk sells the crew gear and nothing else. On
+    /// only for the tests of building and of the shelf. Saved and in
+    /// `world_checksum`.
+    shipyard_enabled: bool,
 }
 
 /// A lamp a fight has damaged, remembered by where it hangs: which
@@ -1335,16 +1367,15 @@ impl World {
         // enemy's, and the lobby does not offer one, but a world handed
         // one is a world that opens at home rather than one that opens
         // under fire. Sorted, since `stance` binary-searches it.
-        let mut hostile: Vec<u32> = stations
-            .iter()
-            .filter(|s| s.hostile && s.id != station_id)
-            .map(|s| s.id)
-            .collect();
+        //
+        // **Every human is friendly in a run** (feature 102): the list
+        // opens empty, and the generator's roll is put on it only when the
+        // human foes are switched on ([`World::set_human_foes_enabled`]),
+        // which only the tests of them do.
+        let hostile: Vec<u32> = Vec::new();
         // And the planets' settlements, rolled here rather than by the
-        // generator (`crate::surface`), on the same list.
+        // generator (`crate::surface`).
         let surfaces = Surface::all_of(&system, seed);
-        hostile.extend(surfaces.iter().filter(|s| s.hostile).map(|s| s.id));
-        hostile.sort_unstable();
 
         // Where the machines began, and how far every star is from it
         // (feature 92). Rolled here, off the galaxy still in hand: the
@@ -1398,7 +1429,10 @@ impl World {
             droid_waves_forced: None,
             droid_origin,
             droid_hops,
-            crisis_first_day: data::DROID_FIRST_DAY,
+            // The crisis is there from day nought (feature 102): the
+            // origin is the machines' the moment the run opens, and every
+            // star due by then with it.
+            crisis_first_day: 0,
             defenses: Vec::new(),
             held_towns: Vec::new(),
             defense_delay: data::DEFENSE_DELAY_MINUTES,
@@ -1458,6 +1492,12 @@ impl World {
             commanders: vec![Commander::default(); crew as usize],
             squad: None,
             standing: vec![Standing::Follow; players as usize],
+            // Feature 102: a run has none of these. The tests that are
+            // about them switch them on (`set_needs_enabled` and the rest).
+            needs_enabled: false,
+            human_foes_enabled: false,
+            radiation_enabled: false,
+            shipyard_enabled: false,
         };
 
         // Whatever armour the design was accepted carrying is so many
@@ -1493,6 +1533,9 @@ impl World {
         // starting pool included, so unspent money is never counted as
         // growth (feature 95).
         world.start_worth = world.worth();
+        // And the rooms told there are no needs (feature 102) before the
+        // first frame asks anything of them, rather than at the first step.
+        world.hand_the_rooms_the_needs();
         Ok(world)
     }
 
@@ -1600,6 +1643,9 @@ impl World {
         //    afresh at every dock and undock and starts at one, so it is
         //    told every step, before it moves anybody (`bims::order`).
         self.aboard.room.set_players(self.players());
+        //    And whether anybody has needs (feature 102), for the same
+        //    reason: off in a run, for the crew and the station's people.
+        self.hand_the_rooms_the_needs();
         //    And what the benches are wanted for, worked out fresh from the
         //    hold, the targets and the power; then, after the step, what
         //    they finished, moved through the hold.
@@ -2164,15 +2210,7 @@ impl World {
         // The system arrived at: as the crew left it, if they have been
         // here, else as the generator rolled it.
         if !self.recall_system(star) {
-            let mut hostile: Vec<u32> = self
-                .stations
-                .iter()
-                .filter(|s| s.hostile)
-                .map(|s| s.id)
-                .chain(self.surfaces.iter().filter(|s| s.hostile).map(|s| s.id))
-                .collect();
-            hostile.sort_unstable();
-            self.hostile = hostile;
+            self.hostile = self.rolled_hostile();
             self.station_keys = self.stations.iter().map(|s| s.key).collect();
             self.reinforcements = 0;
             self.plunder.clear();
@@ -2638,7 +2676,13 @@ impl World {
         match self.raids.state.clone() {
             Raid::Quiet => {
                 let minute = self.clock_minutes.floor() as u64;
-                if !self.raids.left_home || minute < self.raids.due || !self.holding() {
+                // No raider ever comes with every human friendly
+                // (feature 102): the schedule stands and nothing is due.
+                if !self.human_foes_enabled
+                    || !self.raids.left_home
+                    || minute < self.raids.due
+                    || !self.holding()
+                {
                     return;
                 }
                 // A ship with no port has nothing a raider can dock by: no
@@ -2860,6 +2904,9 @@ impl World {
     /// `BIMS_RAID=1` and `BIMS_RAID=contact` in the app. `None`, and
     /// nothing moved, when the ship has no port for a raider to dock by.
     pub fn raid_for_probe(&mut self, dock: bool) -> Option<Vec<WorldEvent>> {
+        // A raid is the old game's (feature 102): asked for, it switches
+        // the human foes on, and nothing else of them.
+        self.human_foes_enabled = true;
         self.hold_off_for_probe()?;
         self.raid_now_for_probe();
         let mut events = Vec::new();
@@ -2913,6 +2960,8 @@ impl World {
     /// command in the app. False, and nothing moved, when the ship has
     /// no port for a raider to dock by.
     pub fn raid_coming_for_probe(&mut self, minutes: u64) -> bool {
+        // As `raid_for_probe`: a raid asked for is the human foes on.
+        self.human_foes_enabled = true;
         if self.hold_off_for_probe().is_none() {
             return false;
         }
@@ -3235,8 +3284,12 @@ impl World {
                 &berth,
                 self.clock_minutes,
             );
-            // A settlement's guard takes up its post on the ground.
-            residents.post_guard(station);
+            // A settlement's guard takes up its post on the ground — with
+            // the needs on. Off, it walks its round between the gates
+            // instead (feature 102, `bims::routine`).
+            if self.needs_enabled {
+                residents.post_guard(station);
+            }
             // And a raider's boarders come for the ship: posted at the
             // gangway, they walk the passage onto its deck.
             if raid::raider_index(id).is_some() {
@@ -3266,6 +3319,106 @@ impl World {
         } else {
             Stance::Neutral
         }
+    }
+
+    // --- what a run has switched off (feature 102) ------------------------
+
+    /// Whether the Bims have needs: see the field.
+    pub fn needs_enabled(&self) -> bool {
+        self.needs_enabled
+    }
+
+    /// Switch the needs on or off, for the crew's room and every station's
+    /// alike — the tests that are about needs switch them on. Told to the
+    /// rooms that stand at once, and to every room every step after.
+    pub fn set_needs_enabled(&mut self, on: bool) {
+        self.needs_enabled = on;
+        self.hand_the_rooms_the_needs();
+    }
+
+    /// Every room open told whether its Bims have needs: the crew's, and
+    /// the station's people's. Every step, and at a switch.
+    fn hand_the_rooms_the_needs(&mut self) {
+        let on = self.needs_enabled;
+        self.aboard.room.set_needs_enabled(on);
+        if let Some(residents) = &mut self.residents {
+            residents.aboard.room.set_needs_enabled(on);
+        }
+    }
+
+    /// Whether any human is ever the crew's enemy: see the field.
+    pub fn human_foes_enabled(&self) -> bool {
+        self.human_foes_enabled
+    }
+
+    /// Switch the human foes on or off — the tests of hostile stations,
+    /// raids, plunder and looting switch them on. On, this system's
+    /// stations and towns are put on the hostile list as the generator
+    /// rolled them (home excepted, as ever), the way a jump to it would
+    /// have, and the rooms open are told; off, the list is left as it
+    /// stands for a probe's own [`World::set_hostile`] and nothing new
+    /// comes on it.
+    pub fn set_human_foes_enabled(&mut self, on: bool) {
+        self.human_foes_enabled = on;
+        if !on {
+            return;
+        }
+        for id in self.rolled_hostile() {
+            if self.hostile.binary_search(&id).is_err() {
+                self.set_hostile(id, true);
+            }
+        }
+    }
+
+    /// The stations and towns of this system the generator rolled hostile,
+    /// sorted — home excepted while the ship is at home's star — or none
+    /// at all with the human foes off, which is every run (feature 102).
+    fn rolled_hostile(&self) -> Vec<u32> {
+        if !self.human_foes_enabled {
+            return Vec::new();
+        }
+        let at_home = self.star_id == self.home_star;
+        let mut hostile: Vec<u32> = self
+            .stations
+            .iter()
+            .filter(|s| s.hostile && !(at_home && s.id == self.home))
+            .map(|s| s.id)
+            .chain(self.surfaces.iter().filter(|s| s.hostile).map(|s| s.id))
+            .collect();
+        hostile.sort_unstable();
+        hostile
+    }
+
+    /// Whether a walk outside doses anybody: see the field.
+    pub fn radiation_enabled(&self) -> bool {
+        self.radiation_enabled
+    }
+
+    /// Switch the dose on or off — the tests of the suit's dose switch it
+    /// on.
+    pub fn set_radiation_enabled(&mut self, on: bool) {
+        self.radiation_enabled = on;
+    }
+
+    /// Whether the crew build onto their ship and buy what it lives on:
+    /// see the field.
+    pub fn shipyard_enabled(&self) -> bool {
+        self.shipyard_enabled
+    }
+
+    /// Switch the shipyard on or off — the tests of building and of the
+    /// shelf switch it on.
+    pub fn set_shipyard_enabled(&mut self, on: bool) {
+        self.shipyard_enabled = on;
+    }
+
+    /// Whether this resource can be **bought** in a run at all, whatever a
+    /// desk stocks (feature 102): gear — the guns and the armour, at every
+    /// tier — and nothing else with the shipyard off, since what the ship
+    /// lives on is what it set out with. Everything with it on. A sale is
+    /// never refused on this: a desk still buys whatever it buys.
+    pub fn buyable(&self, resource: ResourceId) -> bool {
+        self.shipyard_enabled || economy::tiered(resource)
     }
 
     /// Make a station's people enemies, or not. The rooms that are open
@@ -4139,7 +4292,9 @@ impl World {
             // settlement's guard back at its post.
             if let Some(station) = &station {
                 residents.unjoin(station, minutes);
-                residents.post_guard(station);
+                if self.needs_enabled {
+                    residents.post_guard(station);
+                }
             }
         }
         self.restore_lamps();
@@ -4235,7 +4390,7 @@ impl World {
         mercenaries: u32,
         seed: u64,
     ) -> Residents {
-        Residents::open(
+        let mut residents = Residents::open(
             station,
             design,
             count,
@@ -4243,7 +4398,19 @@ impl World {
             seed,
             self.clock_minutes,
             self.graves_at(station),
-        )
+        );
+        // And their peacetime rounds (feature 102), dealt the moment the
+        // site's people are: walked only with the needs off, but dealt
+        // either way so a switch thrown later finds them. Not to an
+        // enemy's garrison — which only a probe's `set_hostile` or the
+        // human foes switched on can make, since every human is friendly
+        // in a run — whose people are under arms and have no peace.
+        if self.stance(station) != Stance::Hostile
+            && let Some(site) = self.station(station)
+        {
+            residents.deal_roles(site);
+        }
+        residents
     }
 
     /// This system as the crew leave it, filed by its star on
@@ -4466,7 +4633,8 @@ impl World {
             self.sync_lamp_power();
         }
         self.sync_bay_power();
-        if self.powered(PartKind::ColdStore) {
+        // Nothing spoils with the needs off (feature 102): nobody eats it.
+        if self.powered(PartKind::ColdStore) || !self.needs_enabled {
             self.cold_store_out = 0;
         } else {
             self.cold_store_out += 1;
@@ -4758,6 +4926,12 @@ impl World {
         origin: (u32, u32),
         rotation: Rotation,
     ) -> Result<(), SiteRefusal> {
+        // Nothing is built onto the ship in a run (feature 102): it is the
+        // default ship and stays it. The class deployables are not parts
+        // and do not come through here.
+        if !self.shipyard_enabled {
+            return Err(SiteRefusal::NoShipyard);
+        }
         if !self.at_rest() {
             return Err(SiteRefusal::UnderWay);
         }
@@ -4800,6 +4974,10 @@ impl World {
             Ok(()) => {}
             Err(SiteRefusal::UnderWay) => {
                 events.push(refused(slot, Refusal::UnderWay));
+                return;
+            }
+            Err(SiteRefusal::NoShipyard) => {
+                events.push(refused(slot, Refusal::NoShipyard));
                 return;
             }
             Err(SiteRefusal::NotResearched(_)) => {
@@ -5035,7 +5213,9 @@ impl World {
     /// server catching up on an hour lands where a browser did.
     fn run_health(&mut self, events: &mut Vec<WorldEvent>) {
         for who in 0..self.health.len() {
-            let exposure = if self.aboard.room.is_outside(who) {
+            // Never dosed in a run (feature 102): radiation sickness is
+            // not applied, and nothing about a wall shields anybody.
+            let exposure = if self.radiation_enabled && self.aboard.room.is_outside(who) {
                 health::Exposure::Exposed {
                     intensity: data::SUIT_INTENSITY,
                 }
@@ -5373,6 +5553,12 @@ impl World {
         // not a shop. The same answer a derelict's sale gets.
         if self.is_droid_held(station) {
             events.push(refused(slot, Refusal::NoMarket));
+            return;
+        }
+        // What the ship lives on is not for sale in a run (feature 102):
+        // gear, and nothing else.
+        if !self.buyable(resource) {
+            events.push(refused(slot, Refusal::NotSoldHere));
             return;
         }
         // Every tier is on sale (feature 95), so what is asked for is a
@@ -6686,6 +6872,13 @@ impl World {
         cell: u32,
         events: &mut Vec<WorldEvent>,
     ) {
+        // A station's people are nobody's to loot with every human
+        // friendly (feature 102): their dead are left as they lie. A
+        // crewmate down is still the crew's own to take a gun off.
+        if !self.human_foes_enabled && matches!(source, LootSource::Resident(_)) {
+            events.push(refused(slot, Refusal::NotHostile));
+            return;
+        }
         let Some(cell) = LootCell::from_code(cell) else {
             events.push(refused(slot, Refusal::NotAboard));
             return;
@@ -6850,7 +7043,12 @@ impl World {
         let Some(id) = self.ship.state.station() else {
             return;
         };
-        if !self.aboard.is_joined() || self.stance(id) != Stance::Hostile {
+        // No shelf is ever an enemy's with every human friendly (feature
+        // 102).
+        if !self.human_foes_enabled
+            || !self.aboard.is_joined()
+            || self.stance(id) != Stance::Hostile
+        {
             return;
         }
         // And nothing on a station the machines hold (feature 92): the
@@ -6881,7 +7079,7 @@ impl World {
             events.push(refused(slot, Refusal::NotDocked));
             return;
         };
-        if self.stance(station) != Stance::Hostile {
+        if !self.human_foes_enabled || self.stance(station) != Stance::Hostile {
             events.push(refused(slot, Refusal::NotHostile));
             return;
         }
@@ -6962,7 +7160,10 @@ impl World {
             fee,
             in_reach: self.in_reach_of_body(who, LootSource::Resident(resident)),
             affordable: self.money >= fee,
-            bunk: (self.aboard.crew_count() as usize) < self.aboard.room.bed_count(),
+            // A bunk is furniture with the needs off (feature 102), and
+            // puts no cap on the crew.
+            bunk: !self.needs_enabled
+                || (self.aboard.crew_count() as usize) < self.aboard.room.bed_count(),
             docked: self.residents.as_ref().map(|r| r.station) == self.ship.state.station(),
             medic: self.mercenary_is_medic(resident),
         })
@@ -7107,6 +7308,8 @@ impl World {
         body.character.stand_at(at);
         self.aboard.room.adopt(vec![body], bims::math::Vec2::ZERO);
         self.aboard.crew = self.aboard.room.crew_count();
+        // Crew now, and the crew keep no station's round (feature 102).
+        self.aboard.room.clear_routine(new_who as usize);
         // `issue` puts the renumbered pieces on and redraws the body.
         self.aboard.room.issue(new_who as usize, gear);
         self.health.push(health::HealthState::new());
@@ -8071,10 +8274,13 @@ impl World {
         let Some(port) = self.station(station).and_then(|s| s.port()) else {
             return false;
         };
+        // People to stage it with: a station the machines hold has none
+        // (feature 102 made the machines' arena *the* fight, and body
+        // nought of its room is a droid).
         if !self
             .residents
             .as_ref()
-            .is_some_and(|r| r.aboard.count() > 0)
+            .is_some_and(|r| r.aboard.room.crew_count() > 0)
         {
             return false;
         }
@@ -8444,9 +8650,10 @@ impl World {
     }
 
     /// The day this star turns, counting from the day the world opened:
-    /// [`data::DROID_FIRST_DAY`] plus [`data::DROID_SPREAD_DAYS`] a hop
-    /// from the origin, and [`u32::MAX`] — never — for a star the lanes
-    /// do not reach. What the chart says when a star is picked.
+    /// the crisis's first day — nought in a run (feature 102) — plus
+    /// [`data::DROID_SPREAD_DAYS`] a hop from the origin, and
+    /// [`u32::MAX`] — never — for a star the lanes do not reach. What the
+    /// chart says when a star is picked.
     pub fn infested_on(&self, star: u32) -> u32 {
         let hops = self
             .droid_hops
@@ -8520,8 +8727,8 @@ impl World {
     }
 
     /// The `crisis` probe's dial (`BIMS_CRISIS_DAY`): the origin turns on
-    /// this day instead of [`data::DROID_FIRST_DAY`], and every other star
-    /// five days a hop after it.
+    /// this day instead of day nought, and every other star five days a
+    /// hop after it.
     pub fn set_crisis_first_day_for_probe(&mut self, day: u32) {
         self.crisis_first_day = day;
     }

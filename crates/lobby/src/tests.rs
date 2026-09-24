@@ -46,40 +46,36 @@ fn has_station_and_can_start_are_what_generating_the_system_says() {
         }
     }
 
-    // --- can_start_is_has_station_less_the_hostile_ones ---
+    // --- can_start_is_has_station (feature 102: no human is hostile) ---
     {
         for &t in &GalaxyType::ALL {
             let lobby = lobby(t);
             let galaxy = reference(t);
             assert_eq!(lobby.can_start.len(), galaxy.stars.len());
-            let mut only_hostile = 0;
             for star in &galaxy.stars {
                 let system = galaxy.system(star.id).unwrap();
-                let open = system.stations.iter().any(|s| !s.hostile);
                 assert_eq!(
-                    lobby.can_start[star.id as usize], open,
+                    lobby.can_start[star.id as usize],
+                    !system.stations.is_empty(),
                     "{t:?} star {}",
                     star.id
                 );
-                if lobby.can_start[star.id as usize] {
-                    assert!(lobby.has_station[star.id as usize]);
-                }
-                only_hostile += usize::from(!open && !system.stations.is_empty());
+                assert_eq!(
+                    lobby.can_start[star.id as usize],
+                    lobby.has_station[star.id as usize]
+                );
             }
-            assert!(
-                only_hostile > 0,
-                "{t:?}: no star held entirely by the enemy"
-            );
         }
     }
 }
 
-/// The two ways a start is picked both refuse a hostile station, and
-/// `station_hostile` says of the inspected system what the blueprint says.
+/// Every human is friendly (feature 102): the two ways a start is picked
+/// take any station there is — one the generator rolled hostile among
+/// them — and `station_hostile` says so of none.
 #[test]
-fn a_start_is_never_at_a_hostile_station() {
+fn a_start_may_be_at_any_station_since_no_human_is_hostile() {
     let mut lobby = lobby(GalaxyType::Spiral);
-    let mut hostile_seen = 0;
+    let mut rolled_hostile = 0;
     for roll in (0..2_000u64).map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15)) {
         let (star, station) = lobby.random_start(roll).expect("somewhere to start");
         assert!(lobby.can_start_at(star, station), "{star}/{station}");
@@ -87,16 +83,14 @@ fn a_start_is_never_at_a_hostile_station() {
         assert!(!lobby.station_hostile(station));
         let (_, system) = lobby.inspected.as_ref().unwrap();
         for st in &system.stations {
-            assert_eq!(lobby.station_hostile(st.id), st.hostile);
-            if st.hostile {
-                assert!(!lobby.can_start_at(star, st.id));
-                hostile_seen += 1;
-            }
+            assert!(!lobby.station_hostile(st.id));
+            assert!(lobby.can_start_at(star, st.id));
+            rolled_hostile += usize::from(st.hostile);
         }
     }
     assert!(
-        hostile_seen > 0,
-        "no hostile station in two thousand systems"
+        rolled_hostile > 0,
+        "no station the generator rolled hostile in two thousand systems"
     );
     // Nothing inspected, or a station that is not there, is not hostile.
     lobby.inspect(crate::NONE);
@@ -105,28 +99,27 @@ fn a_start_is_never_at_a_hostile_station() {
     assert!(!lobby.can_start_at(0, crate::NONE));
 }
 
-/// The diagram rings every hostile station of the inspected system in the
-/// enemy red, and nothing else in it.
+/// The diagram rings no station in the enemy red, one the generator
+/// rolled hostile included: no human is the enemy (feature 102).
 #[test]
-fn the_diagram_rings_the_hostile_stations() {
+fn the_diagram_rings_no_station_as_the_enemy_s() {
     use crate::draw::{ENEMY, STRIDE};
     let mut lobby = lobby(GalaxyType::Round);
     let mut list = crate::draw::DrawList::new();
-    let mut ringed = 0;
+    let mut rolled = 0;
     for star in 0..lobby.galaxy.stars.len() as u32 {
         lobby.inspect(star);
         lobby.paint_system(280.0, 240.0, &mut list);
         let (_, system) = lobby.inspected.as_ref().unwrap();
-        let hostile = system.stations.iter().filter(|s| s.hostile).count();
+        rolled += system.stations.iter().filter(|s| s.hostile).count();
         let red = list
             .shapes()
             .chunks(STRIDE)
             .filter(|s| s[8] == ENEMY.r && s[9] == ENEMY.g && s[10] == ENEMY.b)
             .count();
-        assert_eq!(red, hostile, "star {star}");
-        ringed += hostile;
+        assert_eq!(red, 0, "star {star}");
     }
-    assert!(ringed > 0);
+    assert!(rolled > 0);
 }
 
 /// The designations alone would get this wrong, which is why the cache

@@ -349,7 +349,8 @@ fn an_infested_system_has_exactly_one_jammer_station() {
         assert_ne!(world.jammer_station(), Some(surface.id));
     }
     // And nothing at all in a system the machines have not got.
-    world.set_crisis_first_day_for_probe(data::DROID_FIRST_DAY);
+    // A crisis ten days off, so day nought has nothing of it.
+    world.set_crisis_first_day_for_probe(10);
     wind_to(&mut world, 0);
     assert!(!world.infested(here));
     assert_eq!(world.jammer_station(), None);
@@ -431,7 +432,8 @@ fn a_system_with_no_station_gets_the_machines_own() {
     );
 
     // And it goes away again the moment the system is not theirs.
-    world.set_crisis_first_day_for_probe(data::DROID_FIRST_DAY);
+    // A crisis ten days off, so day nought has nothing of it.
+    world.set_crisis_first_day_for_probe(10);
     wind_to(&mut world, 0);
     world.settle_jammer();
     assert!(world.station(id).is_none());

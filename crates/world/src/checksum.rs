@@ -693,6 +693,13 @@ pub fn world_checksum(world: &World) -> u64 {
         }
     }
 
+    // What the run has switched off (feature 102): two clients that
+    // disagreed about any of the four would be playing two games.
+    hash.eat(u64::from(world.needs_enabled()));
+    hash.eat(u64::from(world.human_foes_enabled()));
+    hash.eat(u64::from(world.radiation_enabled()));
+    hash.eat(u64::from(world.shipyard_enabled()));
+
     hash.0
 }
 

@@ -842,6 +842,9 @@ pub struct Actions {
     /// sites already begun (feature 95); the sites laid out; and — going
     /// the other way — the sites to be called off.
     pub at_rest: bool,
+    /// Whether anything is built onto the ship at all (feature 102,
+    /// `World::shipyard_enabled`): off in a run, and the Build tab with it.
+    pub shipyard: bool,
     pub free_money: economy::Money,
     pub sites: Vec<Site>,
     pub cancel: Vec<u32>,
@@ -2966,9 +2969,14 @@ impl CrewPanels {
             (Tab::Management, "Management"),
             (Tab::Inventory, "Inventory"),
         ];
-        if actions.is_some() {
+        if let Some(actions) = actions.as_deref() {
             tabs.push((Tab::View, "View"));
-            tabs.push((Tab::Build, "Build"));
+            // Nothing is built onto the ship in a run (feature 102).
+            if actions.shipyard {
+                tabs.push((Tab::Build, "Build"));
+            } else if self.tab == Tab::Build {
+                self.tab = Tab::View;
+            }
             tabs.push((Tab::Research, "Research"));
             tabs.push((Tab::Skills, SKILLS));
             tabs.push((Tab::Ship, "Ship"));

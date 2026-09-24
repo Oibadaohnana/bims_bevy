@@ -844,6 +844,8 @@ fn the_blueprint_asks_the_world_once_a_tile_and_finds_a_site_under_the_pointer()
     use shipdesign::parts::{PartKind, Rotation};
     use world::world::Command;
     let mut game = game();
+    // A site is a part built onto the ship: the old game's (feature 102).
+    game.world.set_shipyard_enabled(true);
     assert!(game.ghost_check().is_none(), "no tool in hand");
     game.set_placing(Some((PartKind::Wall, Rotation::R0)));
     assert!(game.ghost_check().is_none(), "no tile under the pointer");
@@ -2042,4 +2044,88 @@ fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone()
         checksum(&lit),
         "the same world, lit or not"
     );
+}
+
+/// A run (feature 102): the `game` flow's Start opens the world straight
+/// away — no design phase — docked at the station the lobby picked, on
+/// the default ship (the playtest ship the simulation flies), with five
+/// thousand a player's Bim in the one pool and nothing added for going
+/// alone; the classes on, and every machine of a lobby the same world.
+#[test]
+fn a_run_opens_docked_on_the_default_ship_with_five_thousand_a_bim() {
+    use crate::session::Session;
+    use world::data::START_MONEY_PER_BIM;
+    let galaxy = worldgen::Galaxy::new(world::data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
+    let spawn = world::spawn(&galaxy);
+    assert!(spawn.is_some());
+    for players in 1..=4u32 {
+        let classes = [world::Class::Medic, world::Class::Soldier];
+        let session = Session::run(
+            START_MONEY_PER_BIM,
+            players,
+            0,
+            world::data::DEFAULT_SEED,
+            0,
+            spawn,
+            &classes,
+            CANVAS.0,
+            CANVAS.1,
+        );
+        assert!(session.spawn_ok());
+        assert!(session.playing(), "no design phase in front of a run");
+        let world = &session.game.as_ref().expect("the world opened").world;
+        assert_eq!(
+            world.money,
+            START_MONEY_PER_BIM * u64::from(players),
+            "{players} players"
+        );
+        assert_eq!(
+            shipdesign::design_hash(&world.ship.design),
+            shipdesign::design_hash(&shipdesign::fixture::playtest_ship()),
+            "the default ship"
+        );
+        assert_eq!(
+            world.ship.state,
+            world::ShipState::Docked {
+                station: spawn.unwrap().1
+            }
+        );
+        assert_eq!(world.aboard.crew_count(), players);
+        assert!(!world.needs_enabled() && !world.human_foes_enabled());
+        assert!(!world.shipyard_enabled() && !world.radiation_enabled());
+        assert_eq!(world.class_of(0), world::Class::Medic);
+        if players > 1 {
+            assert_eq!(world.class_of(1), world::Class::Soldier);
+        }
+        // Every seat of a lobby stands up the same world from the same
+        // numbers.
+        let guest = Session::run(
+            START_MONEY_PER_BIM,
+            players,
+            players - 1,
+            world::data::DEFAULT_SEED,
+            0,
+            spawn,
+            &classes,
+            CANVAS.0,
+            CANVAS.1,
+        );
+        assert_eq!(
+            guest.game.as_ref().unwrap().world.checksum(),
+            world.checksum()
+        );
+    }
+    // Nowhere to start is no game, never a game somewhere else.
+    let lost = Session::run(
+        START_MONEY_PER_BIM,
+        1,
+        0,
+        world::data::DEFAULT_SEED,
+        0,
+        None,
+        &[],
+        CANVAS.0,
+        CANVAS.1,
+    );
+    assert!(lost.game.is_none() && !lost.spawn_ok());
 }

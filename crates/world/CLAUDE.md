@@ -3969,6 +3969,10 @@ at open, and nothing of theirs comes back.
 
 ## The crisis: an origin, a hop count and a day (feature 92)
 
+> **Since feature 102 the first day is nought**: the crisis is there from
+> the start, and `DROID_FIRST_DAY` below is no longer read. See "A run" at
+> the end of this file.
+
 Feature 83 built the machines and left "which stations are held" to a
 later step. This is that step, and the thing to hold on to is that the
 **rule has no state at all**:
@@ -4335,3 +4339,51 @@ along the way and the money rework moved most at once:
 - `tests_money.rs` is the new file: what a crew are worth, the bounty,
   and where the gear is sold. The construction half of it is in
   `tests.rs` beside the other building tests.
+
+## A run: four switches, the crisis from day nought, and a station's routine (feature 102)
+
+The first step of the roguelike redesign (the root `CLAUDE.md`, "A run")
+switched the old game off rather than deleting it. Four fields on `World`,
+saved and hashed after everything else in `world_checksum`, **all off from
+`World::start`**, each with a setter the tests call right after they build
+their world:
+
+- `needs_enabled` — told to every room every step
+  (`hand_the_rooms_the_needs`). Off, the food in a dark cold store does not
+  spoil (`run_brownout` holds `cold_store_out` at nought), a town's guard is
+  not posted (`post_guard` only with it on — the guard walks its round),
+  and a hire is never refused for want of a bunk (`hire_offer`'s `bunk`).
+- `human_foes_enabled` — `rolled_hostile` is the generator's hostility for
+  this system, home excepted, and empty with it off, which is what
+  `World::start` and the never-been-here branch of a jump put on the list;
+  `set_human_foes_enabled(true)` puts the roll back, the way a test of a
+  hostile station wants it. Off, the raid schedule never falls due
+  (`run_raid`'s quiet arm), `lay_plunder` lays nothing and `Command::Plunder`
+  and a `Command::Loot` of a resident are refused `NotHostile`.
+  `set_hostile` itself is untouched — the arena `droids` fights at is made
+  hostile by it before the machines take it — and `raid_for_probe` and
+  `raid_coming_for_probe` switch the foes on, since they ask for a raid.
+- `radiation_enabled` — stage eight doses nobody with it off.
+- `shipyard_enabled` — `can_place_site` answers `SiteRefusal::NoShipyard`
+  first (`Refusal::NoShipyard`, 82), and `World::buyable` is gear alone, so
+  `buy` refuses the rest `NotSoldHere` before anything else is asked.
+
+**The crisis is there from day nought**: `crisis_first_day` opens at
+nought, so the origin is infested at the start and `front` has a value from
+the first step; a system due is the machines' whole the moment the crew are
+in it (the flip, the jammer, the waves), exactly as the stateless rule
+always said. `DROID_FIRST_DAY` is no longer read — the tests that used it
+as a probe's dial write their own day — and the measurements in the root
+`CLAUDE.md` (*How fast the crisis crosses a galaxy*) are ten days early
+now: the whole galaxy is theirs by day 480 to 715.
+
+**A station's people are dealt a round** as their room opens —
+`open_residents` calls `Residents::deal_roles` unless the station is
+hostile then — off `map_seed` and the body's index (`bims::routine::deal`:
+a town's first its guard, a trading station's first its trader, the rest
+rolled, a mercenary a civilian), the town's two gates added to the guard's
+ways in (`surface::gates`, off the wall's own constants). A body taken
+aboard — a hire, a townsperson joining — loses its round
+(`take_resident_aboard` → `Game::clear_routine`). The residents' room is
+not in the checksum, so the rounds are not either; `tests_run.rs` pins that
+two runs on one seed walk them alike, position for position.

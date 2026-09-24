@@ -39,6 +39,7 @@ pub mod needs;
 pub mod order;
 pub mod rng;
 pub mod room;
+pub mod routine;
 pub mod schedule;
 pub mod sight;
 pub mod social;

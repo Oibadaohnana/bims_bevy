@@ -211,9 +211,16 @@ pub const DEFAULT_SEED: u64 = 0x_5749_4e44_4f57_0001;
 
 /// What the simulation's crew have in hand when it opens. A placeholder, in
 /// whole euros: enough to buy a hold of something at the first station and
-/// not so much that money stops mattering. The game proper gets what the
-/// design phase left of the pool instead.
+/// not so much that money stops mattering. The game proper starts on
+/// [`START_MONEY_PER_BIM`] instead.
 pub const SIMULATION_MONEY: Money = 50_000;
+
+/// What each player's Bim brings to a run, in whole euros, into the one
+/// pool the crew share (feature 102): a run is time and money, and this is
+/// the money. A crew of three sets out with fifteen thousand, a crew of one
+/// with five — nothing added for going alone. The lobby's default, and
+/// what `ship::Session::run` opens the world with.
+pub const START_MONEY_PER_BIM: Money = 5_000;
 
 /// How long putting a part together takes, in game minutes: this much
 /// whatever it is, plus this much per hundred euros of the part's price.
@@ -356,14 +363,20 @@ pub const DROID_LANDER_TILES: f64 = 7.0;
 // --- the crisis (feature 92) ---------------------------------------------
 //
 // The machines appear at one star and spread a hyperlane hop at a time.
-// The rule is three numbers and no state: a star is infested on
-// `DROID_FIRST_DAY + DROID_SPREAD_DAYS * hops` and every day after, where
-// `hops` is its lane distance from the origin (`worldgen::Galaxy::lanes`).
-// Nothing is rolled per tick, nothing accumulates, and two clients that
-// agree about the day and the graph agree about the whole galaxy.
+// The rule is two numbers and no state: a star is infested on
+// `DROID_SPREAD_DAYS * hops` and every day after, where `hops` is its lane
+// distance from the origin (`worldgen::Galaxy::lanes`). **The crisis is
+// there from day nought** (feature 102): the origin is theirs when a run
+// opens, and every system due by then is infested as if the spread had
+// already run. Nothing is rolled per tick, nothing accumulates, and two
+// clients that agree about the day and the graph agree about the whole
+// galaxy.
 
-/// The day the origin turns: the first star the machines hold. Nothing is
-/// infested before it, whatever the graph says.
+/// The day the origin used to turn, before the crisis was there from the
+/// start (feature 102). **No longer read**: a run opens with the origin
+/// already the machines' (`World::start`), and the probes move the day
+/// with `World::set_crisis_first_day_for_probe`. Step three of the
+/// roguelike redesign deletes it.
 pub const DROID_FIRST_DAY: u32 = 10;
 /// How many days the crisis takes to cross one hyperlane hop. At three
 /// lanes a star the galaxy is some thirty hops across, so this is what

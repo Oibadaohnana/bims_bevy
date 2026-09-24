@@ -84,7 +84,11 @@ use crate::game::Game;
 /// (`World::settle_jammer`) on every read. 32: the medicine is two more
 /// charges (`class::Charge::Medkit` and `Bandage`, everybody's), so
 /// every crew member's entry of `World::charge_timers` is five long.
-pub const SAVE_VERSION: u32 = 32;
+/// 33: a run (feature 102) — the world's four switches (`needs_enabled`,
+/// `human_foes_enabled`, `radiation_enabled`, `shipyard_enabled`), the
+/// room's `needs_enabled`, and a station's person's round on its `Bim`
+/// with a `lingering` flag on its character.
+pub const SAVE_VERSION: u32 = 33;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

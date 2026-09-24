@@ -855,6 +855,10 @@ pub struct Character {
     /// While scripted, the Bim does nothing of its own accord — a task is
     /// driving it, and it stands still between instructions.
     scripted: bool,
+    /// Standing a while at a stop of its round (feature 102,
+    /// `crate::routine`): it holds still there rather than wander off,
+    /// the way a posted body does. Set and cleared by the round alone.
+    lingering: bool,
     /// A direction to turn to on the spot, used between scripted steps.
     face_target: Option<f32>,
     seated: bool,
@@ -990,6 +994,7 @@ impl Character {
             select_pulse: 0.0,
             tint: None,
             scripted: false,
+            lingering: false,
             face_target: None,
             seated: false,
             main: Held::Nothing,
@@ -1126,6 +1131,16 @@ impl Character {
 
     pub fn is_scripted(&self) -> bool {
         self.scripted
+    }
+
+    /// Stand still at a stop of the round rather than wander (feature
+    /// 102): see [`crate::routine`].
+    pub fn set_lingering(&mut self, on: bool) {
+        self.lingering = on;
+    }
+
+    pub fn is_lingering(&self) -> bool {
+        self.lingering
     }
 
     /// Turn on the spot to face `angle`.
@@ -1679,7 +1694,7 @@ impl Character {
             self.hold_still()
         } else if self.activity == Activity::Marching {
             self.follow_order()
-        } else if self.scripted || self.recruited || self.post.is_some() {
+        } else if self.scripted || self.recruited || self.post.is_some() || self.lingering {
             // Recruited, or posted somewhere, it waits to be told. The wander
             // is the one thing it does unprompted, so that is the one thing
             // being under orders takes away.

@@ -208,9 +208,8 @@ fn candidates(hops: &[u16], least: u16) -> Vec<u32> {
 /// world opened: `first + DROID_SPREAD_DAYS * hops`, and [`u32::MAX`] —
 /// never — for a star the lanes do not reach.
 ///
-/// `first` is [`data::DROID_FIRST_DAY`] in the game; the `crisis` probe
-/// moves it (`BIMS_CRISIS_DAY`) so a flip can be watched rather than
-/// waited ten days for.
+/// `first` is nought in the game — the crisis is there from the start
+/// (feature 102) — and the `crisis` probe moves it (`BIMS_CRISIS_DAY`).
 pub fn turns_on(first: u32, hops: u16) -> u32 {
     if hops == u16::MAX {
         return u32::MAX;

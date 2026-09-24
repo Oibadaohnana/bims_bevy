@@ -25,8 +25,8 @@ rm -rf "$out"
 mkdir -p "$out/saves"
 out=$(realpath "$out")
 
-# The world opens about frame 100 (lobby, Start, a second in the yard,
-# Accept) and runs a step a frame at 1x; the guest is given more frames
+# The world opens about frame 100 (lobby, Start — straight into the run
+# since feature 102) and runs a step a frame at 1x; the guest is given more frames
 # than the host, or the host's picture says "has left".
 case $scenario in
   desync)

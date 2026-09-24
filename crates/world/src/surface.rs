@@ -139,6 +139,20 @@ pub fn guard_post() -> DVec2 {
     )
 }
 
+/// The two gates in a town's wall, in the surface's design units: the
+/// middle of each opening, a couple of tiles inside the wall (feature 102)
+/// — the ways in a town's guard walks between, since a gate is a gap in
+/// the wall rather than a fixture the room knows. Read off the plan's own
+/// constants, so every town has them where its wall has them.
+pub fn gates() -> [DVec2; 2] {
+    let t = TILE as f64;
+    let x = (GATE_X0 as f64 + GATE_WIDTH as f64 * 0.5) * t;
+    [
+        dvec2(x, (FIRST as f64 + 2.5) * t),
+        dvec2(x, (LAST as f64 - 1.5) * t),
+    ]
+}
+
 /// One landable body's settlement, as rolled: its seed, its side and its
 /// shelf, and its station once it has been built.
 #[derive(Debug)]

@@ -104,30 +104,26 @@ fn the_origin_is_far_off_and_the_day_a_star_turns_is_its_hops() {
     // The same galaxy started from the same dock puts them in the same place.
     assert_eq!(basic().droid_origin(), origin);
 
-    // Nothing is infested before the first day, whatever the graph says.
+    // The origin is the machines' from day nought (feature 102), and
+    // nothing else is.
     let mut world = world;
-    world.set_day_for_probe(data::DROID_FIRST_DAY - 1);
-    assert_eq!(world.days_gone(), data::DROID_FIRST_DAY - 1);
-    assert!(
-        (0..galaxy.stars.len() as u32).all(|s| !world.infested(s)),
-        "nothing turns before day {}",
-        data::DROID_FIRST_DAY
-    );
-    // The origin turns on the first day, and nothing else does.
-    world.set_day_for_probe(data::DROID_FIRST_DAY);
+    assert_eq!(world.crisis_first_day(), 0);
+    assert_eq!(world.days_gone(), 0);
     assert!(world.infested(origin));
-    assert_eq!(world.infested_on(origin), data::DROID_FIRST_DAY);
+    assert_eq!(world.infested_on(origin), 0);
     let origin_hops = galaxy.hops_from(origin);
     for star in 0..galaxy.stars.len() as u32 {
         assert_eq!(world.infested(star), origin_hops[star as usize] == 0);
     }
-    // And a star n hops out turns on 10 + 5n, and not the day before.
+    // And a star n hops out turns on 5n, and not the day before.
     for star in 0..galaxy.stars.len() as u32 {
         let n = origin_hops[star as usize];
-        let day = data::DROID_FIRST_DAY + data::DROID_SPREAD_DAYS * u32::from(n);
+        let day = data::DROID_SPREAD_DAYS * u32::from(n);
         assert_eq!(world.infested_on(star), day, "star {star}, {n} hops out");
-        world.set_day_for_probe(day - 1);
-        assert!(!world.infested(star), "star {star} the day before");
+        if day > 0 {
+            world.set_day_for_probe(day - 1);
+            assert!(!world.infested(star), "star {star} the day before");
+        }
         world.set_day_for_probe(day);
         assert!(world.infested(star), "star {star} on its day");
         // Cheap enough for a handful; the arithmetic is the same for all.
@@ -138,6 +134,18 @@ fn the_origin_is_far_off_and_the_day_a_star_turns_is_its_hops() {
     // A star the galaxy has not got never turns.
     assert_eq!(world.infested_on(galaxy.stars.len() as u32), u32::MAX);
     assert!(!world.infested(galaxy.stars.len() as u32));
+
+    // The probes' dial moves the whole of it: a first day of ten, and
+    // nothing is theirs the day before, whatever the graph says.
+    world.set_crisis_first_day_for_probe(10);
+    world.set_day_for_probe(9);
+    assert!(
+        (0..galaxy.stars.len() as u32).all(|s| !world.infested(s)),
+        "nothing turns before the day the dial names"
+    );
+    world.set_day_for_probe(10);
+    assert!(world.infested(origin));
+    assert_eq!(world.infested_on(origin), 10);
 }
 
 /// Two builds of one galaxy count the same hops, and the day the whole of
@@ -321,7 +329,7 @@ fn two_worlds_on_one_seed_fall_to_the_machines_alike() {
     assert_ne!(before, world_checksum(&a));
     // As it notices the day the first star turns.
     let before = world_checksum(&b);
-    b.set_crisis_first_day_for_probe(data::DROID_FIRST_DAY);
+    b.set_crisis_first_day_for_probe(3);
     assert_ne!(before, world_checksum(&b));
 }
 
@@ -350,7 +358,8 @@ fn crisis_spread_over_ten_seeds() {
             .collect();
         hops.sort_unstable();
         let furthest = *hops.last().unwrap();
-        let day = droid::turns_on(data::DROID_FIRST_DAY, furthest);
+        // From day nought, as every run since feature 102.
+        let day = droid::turns_on(0, furthest);
         worst_day = worst_day.max(day);
         worst_hops = worst_hops.max(furthest);
         println!(

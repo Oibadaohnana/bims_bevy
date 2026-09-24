@@ -11,12 +11,67 @@ and the deck goes dark at night.
 **You steer one of them.** James takes orders; Kate does not. See
 [The crew](#the-crew).
 
-Beside it there is a ship to design and a system to fly it round. The lobby
-starts a [design phase](#the-ship-designer); accepting the design starts
-[the game](#the-game) — one star system, the ship docked at a station in it,
-and one clock everything runs on. The crew are aboard it from the first
-step — one per player, each at their own bunk — and they are the same Bims
-as in the room, living the same life on the ship you designed.
+**Bims is becoming a roguelike top-down co-op shooter: humans against
+machines.** The crew fly one default ship from site to site, fight the
+droid crisis, and decide together on the galaxy map where to go next; time
+and money are the only resources. [A run](#a-run) is what that looks like
+so far — the first of three steps, which switched off what the new game
+does not use and put the run on its new footing.
+
+The lobby starts [the game](#the-game) straight away — one star system,
+the default ship docked at the station you picked, and one clock everything
+runs on. The crew are aboard it from the first step, one per player. The
+[ship designer](#the-ship-designer) is still there, behind the `design`
+command, but a run no longer passes through it.
+
+## A run
+
+What a run is since the first step of the roguelike redesign (feature 102).
+**Nothing was deleted**: the old game is still in the code, switched off,
+and the tests for it switch it back on; the next two steps build the
+travel-and-mission loop and then take the dead code out.
+
+- **The start.** Start menu, setup or a lobby, the galaxy and a station to
+  start at — and then the run: docked at that station on the **default
+  ship** (the playtest ship `nix run .#simulation` flies), with **5 000 a
+  player's Bim** in the one pool the crew share and nothing added for going
+  alone. The setup tab's money row defaults to it; the ship-size row is
+  gone, since there is no ship to lay out.
+- **No needs.** Nobody eats, sleeps, goes to the heads, chats, washes or
+  minds the mess, the crew and every station's people alike; nothing
+  spoils, nobody starves, the bays are not tended and the bunks, the galley,
+  the heads, the shower, the bay and the cold store are furniture — no menu
+  opens on them. A bunk puts no cap on the crew, so a mercenary is hired
+  whatever the bunks say. `nix run .#room` still has every need, as it
+  always did.
+- **No radiation.** A walk outside doses nobody.
+- **Every human is friendly, and every enemy is a machine.** No station
+  or town is ever hostile, no raider comes, no enemy's shelf is plundered
+  and a station's dead are not looted. The fights are the machines':
+  `nix run .#droids` is the fight, and the `combat`, `combat_<class>` and
+  `raid` commands are gone.
+- **The crisis is there from day nought.** The machines' origin is theirs
+  the moment the run opens, eight hops or more from the crew, and every
+  system due by then with it — its jammer standing and its stations held —
+  and it spreads a hyperlane hop every five days from there.
+- **Gear and time.** A station's desk sells guns and armour at every tier
+  and nothing the ship lives on — no food, no suits, no medicine, which
+  are charges anyway — and nothing is built onto the ship but a class's
+  sandbags and sentries. Research, the workbench and the drug lab work as
+  they did.
+- **A station's people keep a routine.** With no needs to send them
+  anywhere, each is dealt a role when their station's room opens — a
+  **guard** walks between the airlocks, or a town's gates and its pad; a
+  **trader** stands at the trading desk and steps away from it now and
+  then; a **worker** goes between two or three of the benches, research
+  desks and shelves; a **civilian** strolls between rooms and stops in
+  each — and a round worked out from that station's own fixtures, so every
+  station and town the generator makes has one. A role the site has not
+  got the fixtures for wanders between spots of open deck instead, or
+  open ground on a planet. On an alert they fight or take shelter as they
+  always did, and go back to their round when it is over. Every choice is
+  off the station's seed and the world's step, so two players' clients
+  walk the same rounds.
 
 ## Running it
 
@@ -24,34 +79,31 @@ as in the room, living the same life on the ship you designed.
 nix run .
 ```
 
-That builds the game and opens it. There are twenty-three things to run, and each is
+That builds the game and opens it. There are nineteen things to run, and each is
 a name rather than a flag — `cargo run -- list` (or `bims list`) prints them
 all with a line each, and is the build's own answer rather than this table's:
 
 | command | `cargo run` | opens |
 | --- | --- | --- |
-| `nix run .` or `nix run .#game` | `cargo run -- game` | the whole game, in order: the start menu, setup or a lobby, the world and a station to start at, the ship design, then the world docked where you said |
+| `nix run .` or `nix run .#game` | `cargo run -- game` | the whole game, in order: the start menu, setup or a lobby, the world and a station to start at, then [the run](#a-run) — docked where you said on the default ship, 5 000 a Bim in the pool |
 | `nix run .#simulation` | `cargo run -- simulation` | straight into the world on a prebuilt playtest ship, docked at a station |
 | `nix run .#design` | `cargo run -- design` | straight into the ship design, the playtest ship given, docked where the simulation docks |
 | `nix run .#room` | `cargo run -- room` | the behaviour test room — the Bims on a deck |
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock and bunks to spare for one |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
-| `nix run .#combat` | `cargo run -- combat` | the fight: the combat ship — fourteen crew, a gun in every hand — docked at the spawn rebuilt as the arena and made hostile, its people enemies, fifteen of them; a recruited crew member shoots at any it can see |
-| `nix run .#combat_engineer` … `#combat_commander` | `cargo run -- combat_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the garrison `combat`'s own, so two of these runs differ by the class and nothing else. It starts at the **tenth level** with every one of the class's seven talents still to choose, so the tray opens on the **Skills** tab with seven points to spend; `BIMS_LEVEL=3` opens it at that level instead, and `BIMS_CLASS` still overrides the command |
-| `nix run .#tier2_test` | `cargo run -- tier2_test` | `combat` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the garrison's the same — nothing at tier one on either side |
+| `nix run .#droids` | `cargo run -- droids` | **the fight**: the combat ship — sixteen crew, a gun in every hand, four of them hired field medics — docked at the arena, which the **machines** hold: a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at the far airlock a minute later. Every enemy is a machine since [a run](#a-run) became one, so the `combat` command that turned the arena's people against the crew — which would be this exactly — is gone |
+| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the wave `droids`' own, so two of these runs differ by the class and nothing else. It starts at the **tenth level** with every one of the class's seven talents still to choose, so the tray opens on the **Skills** tab with seven points to spend; `BIMS_LEVEL=3` opens it at that level instead, and `BIMS_CLASS` still overrides the command |
+| `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the machines at tier two — nothing at tier one on either side |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
-| `nix run .#droids` | `cargo run -- droids` | that same fight against the **machines** instead of people: the arena is droid-held, its own people gone, and a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at the far airlock a minute later |
-| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that same fight against the machines **with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander, at the tenth level with every talent still to choose — the ship, the arena and the wave are `droids`' own, so two of these runs differ by the class and nothing else |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | the same on a planet: a town held by the machines, the ship set down at its pad, and their lander coming down on the plain beyond a gate |
-| `nix run .#raid` | `cargo run -- raid` | the simulation off its berth, holding in open space, with a raid on its way: contact ten seconds in — the warning, the raider on the map and closing at its own pace, then the boarding |
-| `nix run .#crisis` | `cargo run -- crisis` | the simulation **a day before the machines appear**: a random galaxy and a random dock as `test` deals them, the clock wound to the eve of `DROID_FIRST_DAY`, and the crisis's origin forced two hyperlane hops from the crew's own star. Open the galaxy chart and the first star turns red while you watch; the crew's own system follows ten days later, and the day any star is due is written under its name when it is picked. `BIMS_CRISIS_DAY=n` moves the day the first one turns, and the clock opens a day short of whatever it says |
+| `nix run .#crisis` | `cargo run -- crisis` | the simulation **a day before the crisis first spreads**: a random galaxy and a random dock as `test` deals them, and the crisis's origin forced two hyperlane hops from the crew's own star — theirs from day nought, as in every run — with the clock wound to the eve of the day the stars next to it turn. Open the galaxy chart: the origin is red, the next ring turns red while you watch, and the crew's own system follows five days later; the day any star is due is written under its name when it is picked. `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the rest with it |
 | `nix run .#jammer` | `cargo run -- jammer` | the crew **inside an infested system**, two hyperlane hops from where the machines began: every station of it in their hands, a wave aboard the one the ship is tied to, and the system's **jammer** standing — so the chart's route inward is barred in red, a jump that way is refused, and the machines come at tier three because of how near the origin they are. `BIMS_DROID_TIER=1` brings them at tier one instead |
 | `nix run .#defense` | `cargo run -- defense` | **a town worth defending**: the ship set down at a friendly settlement with the machines one hyperlane hop away, so the town is next. A minute after the landing a wave sets down outside a gate and walks in; the town's guard and whatever mercenaries live there take arms, everybody else goes indoors, and the red line along the top counts the wave the way it counts a held station's. Hold the last wave and the town is yours to keep. `BIMS_DEFENSE_DELAY=n` is the wait before the first wave and `BIMS_DROID_WAVES=1` a fight short enough to finish |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 
 Whichever of them you open, **Esc → Restart → Start again** puts the run back
-to the situation it opened in — the fight as it was dealt, the raid still on
-its way, the game the yard started — without leaving the window; the end
+to the situation it opened in — the fight as it was dealt, the run as the
+lobby started it — without leaving the window; the end
 screen, when the crew are down, offers the same as *Start again*. Nothing on
 disk is touched by it, and a saved game is still there to load.
 
@@ -99,10 +151,11 @@ in the first one as host, the rest open and waiting. Across the top, the room
 code, set like something you read out to somebody. On the right, the same
 tabbed tool the setup screen uses:
 
-- **Game setup** — the money each Bim brings at €50 000, €100 000 or
-  €200 000, and the ship you start with at 30 × 30, 40 × 40 or 60 × 60 tiles.
-  €100 000 and 40 × 40 unless you say otherwise. Nobody starts with stores:
-  everybody's money goes into **one pool** and the designer spends that.
+- **Game setup** — the money each Bim brings at €2 500, €5 000 or
+  €10 000, €5 000 unless you say otherwise. Nobody starts with stores:
+  everybody's money goes into **one pool**, and [the run](#a-run) opens on
+  the default ship with it. There is no ship size to pick any more: a run
+  is always the default ship.
 - **World** — which galaxy, and where in it the game starts. A **seed** —
   any whole number up to a `u64`, typed in decimal, with **New seed** to
   draw one — and a **galaxy type**: two-arm spiral, spiral, elliptical or
@@ -111,14 +164,13 @@ tabbed tool the setup screen uses:
   open its system on the right — the star at the middle, its planets and
   belts on their orbits, its stations as squares, each named with its kind
   and the body it hangs off. A system with a station usually has more —
-  up to six, two of a kind allowed — and about three in ten of the ones
-  somebody lives on are **hostile**: the people there are enemies, the
-  diagram rings their square in red, the station list says so, and a
-  crew cannot start at one. Stars with no station are dimmed, since the
-  game cannot start there; they can still be looked at. **Start here** on
-  a station makes it the pending start, marked on the map and named in
-  the tab's header; **Random start** picks one anywhere that is not an
-  enemy's. A new seed or a new type is a new galaxy and forgets the start.
+  up to six, two of a kind allowed. No station's people are enemies — every
+  human is friendly in a run — so a crew may start at any of them. Stars
+  with no station are dimmed, since the game cannot start there; they can
+  still be looked at. **Start here** on a station makes it the pending
+  start, marked on the map and named in the tab's header; **Random start**
+  picks one anywhere. A new seed or a new type is a new galaxy and forgets
+  the start.
 
   No distances, no travel times, nothing about what a station is like: the
   lobby is where a start is chosen, not where a system is explored.
@@ -204,7 +256,11 @@ way a load is. A game of one loads as it always did.
 
 ## The ship designer
 
-The lobby's **Start** goes here: the whole crew laying out **one ship**
+> **Not in a run any more** (feature 102, [A run](#a-run)): the lobby's
+> Start opens the run on the default ship, and the yard is the `design`
+> command's alone. What follows is the yard as it still is.
+
+The lobby's **Start** used to go here: the whole crew laying out **one ship**
 together, on a tile grid, before anybody is aboard. It is not a command of its
 own any more — a design phase with no lobby in front of it has no station to
 start at, and the page says so rather than picking one: opened without a star
@@ -668,6 +724,9 @@ you can lift from the panel.
 
 ### Raiders
 
+> **Off in a run** (feature 102, [A run](#a-run)): every human is friendly, so no raider comes. `BIMS_RAID=1`
+> still stages one, switching the old game's human foes on to do it.
+
 Hostile ships come to you. Every day to three days, while the ship is
 **holding** — stopped, tied to nothing, charging nothing — a **raider**
 appears at the edge of the radar and closes on the ship in a straight
@@ -985,6 +1044,9 @@ does nothing to a Bim outside: the walk is what brings it in.
 
 ### Building, aboard
 
+> **Off in a run** (feature 102, [A run](#a-run)): nothing is built onto the ship but a class's sandbags and
+> sentries, and the Build tab is not shown.
+
 The ship goes on being built after the design phase — by the crew, paid
 for out of the crew's money, and nothing is instant. The **Build** tab at
 the bottom left is the palette: the parts by category — *Structure* for
@@ -1175,6 +1237,11 @@ the bottom right.
 
 ### Trading
 
+> **In a run** (feature 102, [A run](#a-run)) a desk sells the crew
+> **gear** — guns and armour, every tier — and nothing else: the food,
+> the suits and the medicine on its shelf are greyed out. It still buys
+> whatever it buys.
+
 **Money only works while docked**, because a station is where there is somebody
 to buy from. Holding station beside one is not docked — that wants an airlock —
 and out between them the pool buys nothing at all. Supply is unlimited; what
@@ -1275,6 +1342,10 @@ its kind leans and the trades it rolled — a theme would replace the roll,
 not the ceiling.
 
 ### Mercenaries
+
+> **In a run** (feature 102, [A run](#a-run)) every station's people are
+> friendly and a bunk is furniture, so a mercenary is hired whatever the
+> bunks say.
 
 At a station whose people are not your enemies there may be a **mercenary**
 living among them: a body in an olive coverall rather than the station's
@@ -1591,16 +1662,18 @@ one thing in the arms at a time, from the lockers to the bench and back.
   than a dice roll. Every galaxy is webbed with **hyperlanes** — each
   star joined to its three nearest neighbours, and whatever else it takes
   to leave one connected graph, drawn faintly under the stars on the
-  galaxy chart. On day ten the machines appear at **one star**, rolled at
-  the start of the game at least eight lane hops from wherever the crew
-  began, and from there the infestation spreads **one hop every five
-  days**. That is the whole rule: a star is theirs from
-  `day 10 + 5 × hops` onwards, so two players in one game agree about the
+  galaxy chart. **From day nought** the machines hold **one star**,
+  rolled at the start of the game at least eight lane hops from wherever
+  the crew began, and from there the infestation spreads **one hop every
+  five days**. That is the whole rule: a star is theirs from
+  `5 × hops` days onwards, so two players in one game agree about the
   whole galaxy without a word passing between them, and the chart can say
   under any star you pick exactly which day it is due. At three lanes a
   star a galaxy runs a hundred-odd hops across, so the last star in it
-  falls somewhere around **day 500 to 725** — the crisis is a season, not
-  a raid.
+  falls somewhere around **day 480 to 715** — the crisis is a season, not
+  a raid. (It used to hold off until day ten; since feature 102 it is
+  there when the run opens, and a system due by then is the machines'
+  whole the moment you arrive in it.)
 
   **An infested system is the machines'**: every station in it, orbital
   or town, its people gone, nothing to trade, nobody to hire, no shelf to
@@ -3424,6 +3497,10 @@ starts with two on a shelf. The crew treat each other on their own too — a dyi
 crewmate comes before any wound on the Medical row.
 
 ## Needs, and the day they make
+
+> **Off in a run** (feature 102, [A run](#a-run)): nobody's needs drain or send anybody anywhere — the crew's
+> and every station's people's. Everything from here to *The heads* is the
+> behaviour test room (`nix run .#room`), which keeps every one of them.
 
 Four levels run a Bim's day, shown down the right-hand side of the deck for
 whichever of the crew is selected: **Rest**, **Food**, **Restroom** and

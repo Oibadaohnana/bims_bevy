@@ -3841,3 +3841,45 @@ units, and alphas as drawn):
 Gone with it: `combat::{BOLT_CORE_TINT, BOLT_CORE_HEAT, PELLET, TRACER,
 STREAK, TRACER_LENGTH}` (the core is `fx::CORE_TINT`/`CORE_HEAT` now, the
 orange, yellow and white-blue tints are the side's colour).
+
+## The needs are a switch, and a station's people walk a round (feature 102)
+
+**`Game::needs_enabled` is the whole life sim behind one bool** — on in
+the classic room, which is why `bims room` and every probe are what they
+were, and switched off by the world for every room of a run
+(`World::needs_enabled`, told every step, since a room is built afresh at
+every dock). Off, `tick_bim` does none of what a need does: no nod-off roll
+(so the stream is not drawn), no `Needs::update` and no `scrub`, no
+`mind_the_mess`, no poisoning and no loneliness, and the timetable sends
+nobody to bed (`simulate` still asks `Schedule::due`, since asking is what
+re-arms it). `Health::update_held` is **still called**, with a fed and
+rested body — the blood, the wounds, the traumas and the mending run
+through it, and a fight needs every one of them. `consider_errand` starts
+no need's errand, `work_on_offer` drops the cook, the two bay rows and the
+broom, the bays are not stepped, `judge_the_food` is not asked, bunks are
+not dealt (`settle_bunks`), and `hit_at` answers `HIT_NONE` over the galley,
+the bunks, the heads, the shower, the bay and the broom locker, so a
+fixture that only served a need is furniture. The medical row, the helm,
+the benches, the carries and the sites are untouched.
+
+**`crate::routine` is a station's people's peace.** A `Routine` rides on
+the `Bim` (so `take_crew`/`adopt` carry it — `adopt` shifts its stops with
+the body): a `Role`, the stops (a point and the minutes to stand there),
+which one it is making for and how long it has left at it. It is planned
+**once** by `Game::set_role(who, role, gates, seed)` off the room's own
+fixture lists (`routine::Anchors::of`: the airlocks and any gates the world
+names, the trading desks, the benches and research desks and shelves as
+work, the bunks and showers and the rest as rooms, and a lattice of
+reachable open deck), with every choice off `seed` through its own `Rng` —
+never the room's stream, which every seeded probe is pinned to. A role
+whose fixtures are missing falls back on a wander over the open deck
+(`Routine::fallback`). `Game::keep_to_routine`, at the end of `tick_bim`,
+walks it — **only with the needs off, and only while the body is its own**:
+up, awake, not recruited, not posted (which is how sheltering and a guard
+post read), not braced, running, carrying or on an errand; otherwise the
+wait is dropped and the stop is walked to again when it is free. Standing
+at a stop is `Character::set_lingering`, the same hold-still a post gets,
+so the body does not wander off its stop. A stop with no route is passed
+over for the next, one a step. The world deals the roles
+(`Residents::deal_roles`, via `routine::deal`) — and not to an enemy's
+garrison, which is under arms and has no peace.

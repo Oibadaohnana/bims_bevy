@@ -31,13 +31,14 @@ use crate::shapes::View;
 use crate::{Screen, theme};
 
 /// What each of the crew brings, in whole euros. It all goes into one pool.
-const MONEY: [(&str, u64); 3] = [("Lean", 50_000), ("Standard", 100_000), ("Full", 200_000)];
-
-/// Starting ship, in tiles a side.
-const SHIPS: [(&str, u32, &str); 3] = [
-    ("Small", 30, "30 × 30"),
-    ("Standard", 40, "40 × 40"),
-    ("Large", 60, "60 × 60"),
+/// A run sets out on the default ship with nothing else to spend it on but
+/// gear and time (feature 102), so the standard is
+/// `world::data::START_MONEY_PER_BIM` and the other two are half and
+/// double it.
+const MONEY: [(&str, u64); 3] = [
+    ("Lean", world::data::START_MONEY_PER_BIM / 2),
+    ("Standard", world::data::START_MONEY_PER_BIM),
+    ("Full", world::data::START_MONEY_PER_BIM * 2),
 ];
 
 /// The shape of the galaxy, by `worldgen::GalaxyType`.
@@ -48,7 +49,11 @@ const GALAXIES: [(&str, &str); 4] = [
     ("Round", "Dense in the middle"),
 ];
 
-const DEFAULT_MONEY: u64 = 100_000;
+const DEFAULT_MONEY: u64 = world::data::START_MONEY_PER_BIM;
+/// The yard's build area, which the `game` flow no longer opens (feature
+/// 102): kept on the settings and the wire for the `design` command, and
+/// no longer offered on the setup tab, since a run is always the default
+/// ship.
 const DEFAULT_SHIP: u32 = 40;
 const DEFAULT_GALAXY: u32 = 0;
 
@@ -482,8 +487,14 @@ fn frame(
                         }
                     }
                     settings.tints[mine] = screen.bim_tint;
-                    commands.insert_resource(crate::screens::designer::Start(settings.clone()));
-                    go = Some(Screen::Design);
+                    // Straight into the run, as the host does at its own
+                    // Start (feature 102): the same numbers, the same world.
+                    let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
+                    go = Some(crate::screens::designer::start_run(
+                        &mut commands,
+                        settings,
+                        size,
+                    ));
                 }
                 // The host loaded a game: its world, whole, is this end's
                 // now, and the game screen opens round it as it does for
@@ -776,11 +787,10 @@ fn frame(
     }
 
     if start && lobby_start_refusal(settings, online).is_none() {
-        // Start hands the game over to the designer. What crosses is the
-        // numbers and nothing else: the money each Bim brings, the build
-        // area in tiles, how many players there are, which slot you are,
-        // the seed, the galaxy type, and the star and station the game
-        // starts at.
+        // Start opens the run. What crosses is the numbers and nothing
+        // else: the money each Bim brings, how many players there are,
+        // which slot you are, the seed, the galaxy type, and the star and
+        // station the game starts at.
         // With company, the crew are dealt in join order — the host slot 0
         // — and everybody is told: the same Start on every machine.
         if online.is_online() {
@@ -821,8 +831,14 @@ fn frame(
             settings.classes = vec![screen.bim_class];
             settings.tints = vec![screen.bim_tint];
         }
-        commands.insert_resource(crate::screens::designer::Start(settings.clone()));
-        go = Some(Screen::Design);
+        // Straight into the run (feature 102): no design phase, the default
+        // ship docked at the station picked.
+        let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
+        go = Some(crate::screens::designer::start_run(
+            &mut commands,
+            settings,
+            size,
+        ));
     }
     if let Some(screen) = go {
         next.set(screen);
@@ -877,14 +893,6 @@ fn tool(
                 editable,
                 &MONEY.map(|(label, amount)| (label, euros(amount), amount)),
                 &mut settings.money_per_bim,
-            );
-            choice_row(
-                ui,
-                "Ship size",
-                "Tiles a side",
-                editable,
-                &SHIPS.map(|(label, tiles, sub)| (label, sub.to_string(), tiles)),
-                &mut settings.ship,
             );
             // The player's own crew member's name: everybody's to type,
             // host or guest, since each names their own.

@@ -674,6 +674,63 @@ fn open(
     }
 }
 
+/// A run from the lobby's settings (feature 102): what Start does now that
+/// the design phase is gone from the `game` flow. The session opens
+/// straight onto the world — the default ship docked at the station the
+/// lobby picked, `money_per_bim` a player's Bim in the pool
+/// (`Session::run`) — with the names, the hair, the colours and the
+/// classes the lobby dealt, and the screen to go to is handed back: the
+/// game, or the lost screen when there is nowhere to start. Every machine
+/// of a lobby calls this with the same numbers, the host at its own Start
+/// and every guest at the host's, so the worlds are one world.
+pub fn start_run(commands: &mut Commands, s: &Settings, size: Vec2) -> Screen {
+    let mut session = Session::run(
+        s.money_per_bim,
+        s.players,
+        s.slot,
+        s.seed,
+        s.galaxy,
+        s.spawn,
+        &s.classes,
+        size.x,
+        size.y,
+    );
+    session.crew_names = s.names.clone();
+    crate::names::set_crew_names(&session.crew_names);
+    session.crew_hair = s.hair.clone();
+    session.crew_tints = s.tints.clone();
+    session.dress_crew();
+    let ok = session.spawn_ok() && session.game.is_some();
+    commands.remove_resource::<Start>();
+    if ok {
+        commands.insert_resource(ShipSession(session));
+        return Screen::Game;
+    }
+    let lost = match s.spawn {
+        None => "The lobby did not say which station to start at.".into(),
+        Some((star, station)) => {
+            format!("There is no station {station} at star {star} in this galaxy.")
+        }
+    };
+    commands.insert_resource(DesignerScreen {
+        net: Net {
+            slot: s.slot,
+            players: s.players.max(1),
+            wire: None,
+        },
+        gone: Vec::new(),
+        auto_accepted: false,
+        said: None,
+        cart: Cart::new(),
+        pan_from: None,
+        sheet: None,
+        saves: crate::save::Saves::default(),
+        size: Vec2::ZERO,
+        lost,
+    });
+    Screen::Lost
+}
+
 /// Nowhere to start. Shown instead of the design phase when the lobby
 /// named no station, or one the galaxy has not got. The way back is the
 /// whole of it: the lobby is where a start is chosen.

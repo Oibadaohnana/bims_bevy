@@ -53,6 +53,8 @@ mod order;
 mod rng;
 #[path = "../crates/game/src/room.rs"]
 mod room;
+#[path = "../crates/game/src/routine.rs"]
+mod routine;
 #[path = "../crates/game/src/schedule.rs"]
 mod schedule;
 #[path = "../crates/game/src/sight.rs"]

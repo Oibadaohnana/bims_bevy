@@ -63,11 +63,6 @@ const LOG_LINES: usize = 4;
 const BLACKOUT_HOLD: f32 = 1.4;
 const BLACKOUT_FADE: f32 = 0.6;
 
-/// How far into the `raid` command the raid makes contact, in minutes of
-/// the world's clock — ten seconds at 1×, since a minute of the clock is
-/// a real second (`time::MINUTES_PER_SECOND`).
-const RAID_IN_MINUTES: u64 = 10;
-
 /// How long the `droids` probes wait between waves, in minutes of the
 /// world's clock: a minute, a second at 1x, where the game's own is
 /// `data::DROID_REINFORCE_MINUTES` (two hours). The shortcut feature 83
@@ -475,13 +470,7 @@ fn open(
                 }
                 _ => (world::data::DEFAULT_SEED, None),
             };
-            // The `combat` command is the fight: the combat ship's fourteen
-            // crew, a gun in every hand, docked at the spawn rebuilt as the
-            // arena and turned against them — its people enemies, fifteen
-            // of them — so a recruited crew member has somebody to
-            // shoot at and somewhere to do it. `Session::combat` is all of
-            // that; `BIMS_FIGHT` stages the two a few tiles apart on top.
-            // The `test` command is on the combat ship too, with one crew
+            // The `test` command is on the combat ship, with one crew
             // member — four bunks to spare — and a mercenary for hire at
             // the dock whatever the roll said, so a hire can be looked at.
             // The `test_planet` command is that landed: the ship set down
@@ -489,31 +478,30 @@ fn open(
             // `BIMS_LANDED=1` sets the simulation down — the mercenary asked
             // for first, since the ask holds for every friendly room opened
             // after it, the settlement's included.
-            // The `raid` command is the simulation off its berth, holding
-            // in open space with a raid on its way: contact `RAID_IN_MINUTES`
-            // of the clock in — ten seconds at 1× — and the raider then
-            // closing at its own pace, so the warning, the map and the
-            // boarding are watched from the start rather than staged.
-            // `tier2_test` and `tier3_test` are `combat` with everybody's
-            // guns and armour at that tier, crew and garrison alike
-            // (`Session::combat_at_tier`).
-            // A `combat_<class>` command is the fight itself, with the
-            // class below put on the crew member you steer: the ship,
-            // the arena and the garrison are `combat`'s, so two of those
-            // runs differ by the class and nothing else (feature 79).
+            // `tier2_test` and `tier3_test` are `droids` with everybody's
+            // guns and armour at that tier, and the machines at it too
+            // (`Session::droids_at_tier`): every enemy is a machine since
+            // feature 102, so the human garrison they used to dress is
+            // gone, and with it the `combat`, `combat_<class>` and `raid`
+            // commands.
             let mut session = match *launch {
-                Launch::Combat | Launch::CombatAs(_) => Session::combat(seed, size.x, size.y),
-                Launch::CombatAtTier(tier) => Session::combat_at_tier(seed, tier, size.x, size.y),
-                // The `droids` command is the fight with the arena held
-                // by the machines (feature 83): the same ship, the same
-                // crew and the same guns, and a wave of droids about the
-                // arena instead of its garrison. `BIMS_DROID_TIER` is
-                // what tier they come at and `BIMS_DROID_WAVE` how big a
-                // wave may be, for the measurements.
-                // `combat_droids_<class>` is that same wave with the
-                // class below in hand, exactly as `combat_<class>` is
-                // `combat`'s own fight with one: the ship, the arena,
-                // the wave and both dials are `droids`'.
+                Launch::DroidsAtTier(tier) => Session::droids_at_tier(
+                    seed,
+                    tier,
+                    crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                    crate::dev::droid_wave_max(),
+                    crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                    size.x,
+                    size.y,
+                ),
+                // The `droids` command is the fight (feature 83): the
+                // combat ship, its crew and its guns, and a wave of droids
+                // about the arena. `BIMS_DROID_TIER` is what tier they
+                // come at and `BIMS_DROID_WAVE` how big a wave may be, for
+                // the measurements. `combat_droids_<class>` is that same
+                // wave with the class below in hand: the ship, the arena,
+                // the wave and both dials are `droids`', so two of those
+                // runs differ by the class and nothing else (feature 79).
                 Launch::Droids | Launch::DroidsAs(_) => Session::droids(
                     seed,
                     crate::dev::droid_tier(),
@@ -594,18 +582,13 @@ fn open(
                     }
                     session
                 }
-                Launch::Raid => {
-                    let mut session = Session::simulate(seed, 0, spawn, size.x, size.y);
-                    session.raid_coming_for_probe(RAID_IN_MINUTES);
-                    session
-                }
                 _ => Session::simulate(seed, 0, spawn, size.x, size.y),
             };
             // The class onto slot 0 first — the command's own, or
             // `BIMS_CLASS` over it — before anything that leaves the
             // berth, since the class locks at the first undock.
             let asked = match *launch {
-                Launch::CombatAs(class) | Launch::DroidsAs(class) => class,
+                Launch::DroidsAs(class) => class,
                 _ => world::Class::None,
             };
             crate::dev::class_crew(&mut session, asked);
@@ -1458,6 +1441,10 @@ fn frame(
         crafts: crafts(session),
         keep: Vec::new(),
         at_rest: session.game.as_ref().is_some_and(|g| g.world.at_rest()),
+        shipyard: session
+            .game
+            .as_ref()
+            .is_some_and(|g| g.world.shipyard_enabled()),
         free_money: session
             .game
             .as_ref()

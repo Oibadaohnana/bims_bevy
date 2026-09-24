@@ -33,6 +33,7 @@ fn refused(events: &[WorldEvent], why: Refusal) -> bool {
 #[test]
 fn an_enemy_s_shelf_is_laid_out_once_and_a_stack_comes_off_it_into_the_pack() {
     let mut world = basic();
+    world.set_human_foes_enabled(true);
     let station = world.ship.state.station().expect("docked at the spawn");
     let shelves = world.station_shelves();
     assert!(
@@ -205,7 +206,9 @@ fn an_enemy_s_shelf_is_laid_out_once_and_a_stack_comes_off_it_into_the_pack() {
 #[test]
 fn two_worlds_on_one_seed_find_the_same_shelf() {
     let mut a = basic();
+    a.set_human_foes_enabled(true);
     let mut b = basic();
+    b.set_human_foes_enabled(true);
     let station = a.ship.state.station().unwrap();
     a.set_hostile(station, true);
     b.set_hostile(station, true);

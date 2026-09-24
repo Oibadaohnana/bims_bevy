@@ -120,4 +120,7 @@ pub enum SiteRefusal {
     /// research tree — `shipdesign::research::node_of_part` — is not
     /// researched. The code is the node's.
     NotResearched(u32),
+    /// Nothing is built onto the ship in a run (feature 102): the shipyard
+    /// is switched off (`World::shipyard_enabled`).
+    NoShipyard,
 }

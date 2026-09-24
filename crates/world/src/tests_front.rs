@@ -36,27 +36,31 @@ fn origin_at(world: &mut World, hops: u16) -> bool {
     true
 }
 
-/// The front is nothing before the first day, one hop out on the edge of
-/// the infection, and it counts down as the infection spreads.
+/// The front is nothing before the first day — which only the probes'
+/// dial puts anywhere but day nought (feature 102) — one hop out on the
+/// edge of the infection, and it counts down as the infection spreads.
 #[test]
-fn the_front_is_none_before_day_ten_and_follows_the_day() {
+fn the_front_is_there_from_day_nought_and_follows_the_day() {
     let mut world = basic();
     let galaxy = world.galaxy();
     let origin = world.droid_origin();
     let out = galaxy.hops_from(origin);
 
-    // Before the first day the machines hold nothing, so nowhere is the
-    // front — not even the origin's own system.
-    world.set_day_for_probe(data::DROID_FIRST_DAY - 1);
+    // A crisis wound ten days off holds nothing before its day, so nowhere
+    // is the front — not even the origin's own system.
+    world.set_crisis_first_day_for_probe(10);
+    world.set_day_for_probe(9);
     assert_eq!(world.crisis_radius(), None);
     assert_eq!(world.front(origin), None);
     for star in 0..galaxy.stars.len() as u32 {
         assert_eq!(world.front(star), None, "star {star} before the first day");
     }
 
-    // On the first day the origin is theirs — an infested star has no
-    // front — and every other star is its own hop count out.
-    world.set_day_for_probe(data::DROID_FIRST_DAY);
+    // Every run's crisis is there from day nought: the origin is theirs —
+    // an infested star has no front — and every other star is its own
+    // hop count out.
+    world.set_crisis_first_day_for_probe(0);
+    world.set_day_for_probe(0);
     assert_eq!(world.crisis_radius(), Some(0));
     assert_eq!(world.front(origin), None, "the origin is theirs");
     let one = (0..galaxy.stars.len() as u32)
@@ -66,7 +70,7 @@ fn the_front_is_none_before_day_ten_and_follows_the_day() {
 
     // Five days on the infection has taken that ring, so the star one hop
     // out is theirs and the star two hops out is the edge.
-    world.set_day_for_probe(data::DROID_FIRST_DAY + data::DROID_SPREAD_DAYS);
+    world.set_day_for_probe(data::DROID_SPREAD_DAYS);
     assert_eq!(world.crisis_radius(), Some(1));
     assert_eq!(world.front(one), None, "one hop out has fallen");
     for star in 0..galaxy.stars.len().min(60) as u32 {
@@ -84,7 +88,7 @@ fn the_front_is_none_before_day_ten_and_follows_the_day() {
 
     // And the radius is the arithmetic it says it is, day after day.
     for day in 0..40u32 {
-        world.set_day_for_probe(data::DROID_FIRST_DAY + day);
+        world.set_day_for_probe(day);
         assert_eq!(
             world.crisis_radius(),
             Some((day / data::DROID_SPREAD_DAYS) as u16),
@@ -154,6 +158,7 @@ fn a_desk_near_the_front_leans_on_the_guns_the_armour_and_the_medicine() {
 #[test]
 fn every_quote_path_agrees_and_a_sale_pays_the_front_price() {
     let mut world = basic();
+    world.set_shipyard_enabled(true);
     let home = world.home;
     let desk = world.station(home).unwrap().market().unwrap();
 

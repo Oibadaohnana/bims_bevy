@@ -985,6 +985,44 @@ impl Residents {
         self.aboard = fresh;
     }
 
+    /// Every one of the station's people dealt a peacetime role and the
+    /// round that goes with it (feature 102, `bims::routine`), off the
+    /// station's own seed and the body's place — so the same station deals
+    /// the same people the same rounds every time it is reached, and two
+    /// clients agree. A town's first is its guard and walks between its
+    /// gates and its pad; the first of a station that trades stands at the
+    /// desk; the rest are rolled, and a mercenary for hire strolls, being
+    /// nobody's hand yet. Called once, when the room is opened: the rounds
+    /// go with the bodies through every join and unjoin after
+    /// (`Game::adopt`). A machine and the dead are dealt nothing.
+    pub fn deal_roles(&mut self, station: &Station) {
+        use bims::routine::{Role, deal};
+        let town = station.plan == crate::station::Plan::Surface;
+        let gates: Vec<bims::math::Vec2> = if town {
+            crate::surface::gates()
+                .into_iter()
+                .map(|g| self.aboard.to_room(g))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let trades = !self.aboard.room.desks().is_empty();
+        let seed = station.map_seed ^ 0x_524f_5554_494e_4500;
+        let people = self.aboard.room.crew_count() as usize;
+        for who in 0..people {
+            if self.grave.get(who).copied().unwrap_or(false) || !self.aboard.room.is_alive(who) {
+                continue;
+            }
+            let role = if self.is_mercenary(who) {
+                Role::Civilian
+            } else {
+                deal(who as u32, seed, trades, town)
+            };
+            let own = seed.wrapping_add((who as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+            self.aboard.room.set_role(who, role, &gates, own);
+        }
+    }
+
     /// A settlement's guard to its post: the first of its people, sent to
     /// stand at [`crate::surface::GUARD_POST`] outside the watch house —
     /// a post, so it goes off to eat and sleep and comes back to it

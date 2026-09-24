@@ -33,6 +33,13 @@ parses the constants **out of `fixture.rs`** rather than carrying a copy.
 
 ## A crew cannot start at an enemy's
 
+> **Since feature 102 every human is friendly**: the roll below is still
+> made, but nothing reads it as a stance. `can_start` is `has_station`,
+> `station_hostile` answers false, the diagram rings nothing, and the tests
+> are `a_start_may_be_at_any_station_since_no_human_is_hostile` and
+> `the_diagram_rings_no_station_as_the_enemy_s`. What follows is the rule
+> as it was.
+
 About three in ten of the stations somebody lives on are hostile
 (`StationBlueprint::hostile`, rolled in `worldgen`; a derelict never is).
 The star still counts as having a station — it is somewhere to fly to — so
