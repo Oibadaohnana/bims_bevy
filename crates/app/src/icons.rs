@@ -64,11 +64,6 @@ const CRATE: Color32 = Color32::from_rgb(0x6a, 0x72, 0x7e);
 const SHELL: Color32 = Color32::from_rgb(0x2e, 0x33, 0x28);
 const SHELL_BAND: Color32 = Color32::from_rgb(0x6b, 0x73, 0x4c);
 const FUSE_CAP: Color32 = Color32::from_rgb(0xd8, 0xb0, 0x40);
-/// The galley's own things, which are no resource: a bowl of stew and a
-/// plate, for the Inventory tab's last rows.
-const BOWL: Color32 = Color32::from_rgb(0x9c, 0x6a, 0x48);
-const STEW: Color32 = Color32::from_rgb(0xc8, 0x78, 0x3c);
-const PLATE: Color32 = Color32::from_rgb(0xe8, 0xec, 0xf0);
 /// The crack across a broken piece: the same light stroke the deck draws.
 const CRACK: Color32 = Color32::from_rgb(0xe8, 0xf0, 0xf4);
 /// A darker edge on a light shape, so it does not vanish on a pale cell.
@@ -386,36 +381,6 @@ pub fn cell(ui: &mut egui::Ui, paint: impl FnOnce(&egui::Painter, Rect)) -> egui
     response
 }
 
-/// A bowl of stew: the bowl, seen a little from above, and the stew in it
-/// with a piece of each thing it is made of.
-pub fn stew(painter: &egui::Painter, rect: Rect) {
-    let b = Box_::new(rect);
-    painter.add(egui::Shape::convex_polygon(
-        b.poly(&[(0.12, 0.46), (0.88, 0.46), (0.74, 0.84), (0.26, 0.84)]),
-        BOWL,
-        Stroke::new(b.px(0.04), SHADE),
-    ));
-    painter.add(egui::Shape::ellipse_filled(
-        b.at(0.50, 0.46),
-        vec2(b.px(0.38), b.px(0.13)),
-        STEW,
-    ));
-    painter.circle_filled(b.at(0.40, 0.44), b.px(0.05), VEG);
-    painter.circle_filled(b.at(0.60, 0.48), b.px(0.05), TOFU);
-}
-
-/// A plate: a disc with the rim marked.
-pub fn plate(painter: &egui::Painter, rect: Rect) {
-    let b = Box_::new(rect);
-    painter.circle(
-        b.at(0.50, 0.50),
-        b.px(0.38),
-        PLATE,
-        Stroke::new(b.px(0.04), SHADE),
-    );
-    painter.circle_stroke(b.at(0.50, 0.50), b.px(0.24), Stroke::new(b.px(0.03), SHADE));
-}
-
 /// A thing the app has no picture of: a resource code from a newer rules
 /// crate. A plain box, so the cell is at least seen to be full.
 fn unknown(painter: &egui::Painter, rect: Rect) {
@@ -728,8 +693,6 @@ mod tests {
         icon(&painter, rect, Item::Key(1));
         icon(&painter, rect, Item::Key(2));
         icon(&painter, rect, Item::Key(9));
-        stew(&painter, rect);
-        plate(&painter, rect);
         // And laid over a footprint, either way round: the long guns on
         // their own drawings, the rest square in the middle.
         let long = Rect::from_min_size(pos2(10.0, 10.0), vec2(240.0, 24.0));

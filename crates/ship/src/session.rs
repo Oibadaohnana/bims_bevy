@@ -11,7 +11,6 @@
 //!
 //! Nothing here decides anything. It asks `shipdesign` and `world`.
 
-use flight::Target;
 use physics::{Facing, ResourceId};
 use shipdesign::market::{Bias, Market, Quote};
 use shipdesign::parts::{Layer, PartKind, footprint};
@@ -372,9 +371,8 @@ impl Session {
     /// the first the player, the rest crew nobody steers — a gun in every
     /// hand, `WeaponKind::ALL`'s order (pistol, shotgun, auto rifle, sniper
     /// rifle, schword) dealt down the crew and round again, docked at the
-    /// spawn rebuilt as the arena (`World::arena_dock_for_probe`) and that
-    /// made hostile: its people enemies, `ARENA_GARRISON` (sixteen) of
-    /// them. Nothing is recruited: whom to send in is the player's.
+    /// spawn rebuilt as the arena (`World::arena_dock_for_probe`). Nothing
+    /// is recruited: whom to send in is the player's.
     pub fn combat(seed: u64, width: f32, height: f32) -> Session {
         use bims::combat::WeaponKind;
         use shipdesign::fixture::{COMBAT_CREW, combat_ship};
@@ -423,7 +421,6 @@ impl Session {
             crew_classes: Vec::new(),
             list: DrawList::new(),
         };
-        session.make_dock_hostile();
         // And **four hired field medics** at the back of the crew
         // (feature 86, `COMBAT_MEDICS`): the last four of the sixteen,
         // on a contract that costs nothing, with a medic's charges of
@@ -437,20 +434,6 @@ impl Session {
         // nothing.
         session.field_medics_for_probe(COMBAT_MEDICS);
         session.dress_crew();
-        session
-    }
-
-    /// The `tier2_test` and `tier3_test` commands: [`Session::combat`]
-    /// with everybody's kit at `tier` — every crew member's gun at it and
-    /// a full set of armour at it on, and the garrison's the same
-    /// (`World::outfit_for_probe`, after the dock is hostile so the
-    /// garrison is the crowd that is dressed). The fight with nothing at
-    /// tier one on either side.
-    pub fn combat_at_tier(seed: u64, tier: bims::combat::Tier, width: f32, height: f32) -> Session {
-        let mut session = Session::combat(seed, width, height);
-        if let Some(game) = session.game.as_mut() {
-            game.world.outfit_for_probe(tier);
-        }
         session
     }
 
@@ -485,12 +468,9 @@ impl Session {
     /// leaving it to how far the system is from the machines' origin
     /// (feature 93, `World::droid_tier`) — with the reinforcement clock
     /// shortened to `reinforce` minutes so the next wave can be watched
-    /// arriving rather than waited two hours for.
-    ///
-    /// Turning the dock hostile is `combat`'s doing and is left as it is:
-    /// a held station is hostile whatever the list says
-    /// (`World::stance`), and the garrison it opened with is replaced by
-    /// the machines the moment `World::people_of` reads nought for it.
+    /// arriving rather than waited two hours for. A held station is
+    /// hostile of itself (`World::stance`), so nothing has to turn the
+    /// dock against the crew first.
     pub fn droids(
         seed: u64,
         tier: Option<bims::combat::Tier>,
@@ -760,18 +740,11 @@ impl Session {
             .is_some_and(|system| system.station(station).is_some())
     }
 
-    /// The ship set down on the system's first planet with ground, without
-    /// the descent — see `World::land_for_probe`. What `BIMS_LANDED=1` does.
+    /// The ship set down at the settlement of the system's first planet
+    /// with ground — see `World::land_for_probe`. What the planet commands
+    /// and `BIMS_AFIELD=1` do.
     pub fn land_for_probe(&mut self) -> bool {
         self.game.as_mut().is_some_and(|g| g.world.land_for_probe())
-    }
-
-    /// The ship over the system's first planet with ground, its landing
-    /// just begun — see `World::landing_for_probe`. What `BIMS_LANDING=1` does.
-    pub fn landing_for_probe(&mut self, done: f64) -> bool {
-        self.game
-            .as_mut()
-            .is_some_and(|g| g.world.landing_for_probe(done))
     }
 
     /// A mercenary for hire at the dock whatever the roll said — see
@@ -818,44 +791,12 @@ impl Session {
         true
     }
 
-    /// Stage a fight at the dock — see `World::stage_fight_for_probe`.
-    pub fn stage_fight_for_probe(&mut self) -> bool {
-        self.game
-            .as_mut()
-            .is_some_and(|g| g.world.stage_fight_for_probe())
-    }
-
     /// `n` of the station alongside dead where they stand, the room
     /// built again over the bodies — see `World::lay_graves_for_probe`.
     pub fn lay_graves_for_probe(&mut self, n: u32) -> bool {
         self.game
             .as_mut()
             .is_some_and(|g| g.world.lay_graves_for_probe(n))
-    }
-
-    /// A raid: contact made, and with `dock` the raider tied to the ship
-    /// and its boarders on their way — see `World::raid_for_probe`; what
-    /// it said goes into the log.
-    pub fn raid_for_probe(&mut self, dock: bool) -> bool {
-        let Some(game) = self.game.as_mut() else {
-            return false;
-        };
-        match game.world.raid_for_probe(dock) {
-            Some(events) => {
-                game.events.extend(events);
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// A raid on its way: the ship off its berth holding in open space
-    /// and the next raid due `minutes` of the clock from now — see
-    /// `World::raid_coming_for_probe`. The `raid` command.
-    pub fn raid_coming_for_probe(&mut self, minutes: u64) -> bool {
-        self.game
-            .as_mut()
-            .is_some_and(|g| g.world.raid_coming_for_probe(minutes))
     }
 
     /// Everybody of the crew shot where they stand — the end of the run,
@@ -978,20 +919,6 @@ impl Session {
         if let Some(game) = self.game.as_mut() {
             game.world.shoot_lamps_for_probe(n);
         }
-    }
-
-    /// Make the station the ship is tied to an enemy's: what the `combat`
-    /// command does to the simulation's dock. False with no world, or
-    /// away from a berth.
-    pub fn make_dock_hostile(&mut self) -> bool {
-        let Some(game) = &mut self.game else {
-            return false;
-        };
-        let Some(station) = game.world.ship.state.station() else {
-            return false;
-        };
-        game.world.set_hostile(station, true);
-        true
     }
 
     /// The simulation's spawn for the seed and type the session opened
@@ -1179,7 +1106,6 @@ impl Session {
                 }
                 game.frame = game.frame.wrapping_add(1);
                 game.tick_airlock();
-                game.stream_sky();
                 game.follow_player();
                 game.hold_view_to_the_ground();
                 game.picture_the_plain();
@@ -1486,16 +1412,6 @@ impl Session {
         }
     }
 
-    /// Every bunk of the ship's, where its middle lands in the camera's
-    /// units and whose it is — `world_paint::bunk_labels`, for the name
-    /// the host writes on each. Empty before there is a world.
-    pub fn bunk_labels(&self) -> Vec<world_paint::BunkLabel> {
-        match &self.game {
-            Some(game) => world_paint::bunk_labels(game),
-            None => Vec::new(),
-        }
-    }
-
     /// How many residents are being simulated. Nought away from any
     /// station, and nought at a derelict. Docked or not, they are in the
     /// station's own room.
@@ -1584,21 +1500,10 @@ impl Session {
 
     // --- the map ----------------------------------------------------------
     //
-    // Only what the crew have found. Undiscovered things are not in the list
-    // at all rather than being in it and hidden.
+    // Only what the crew have found. Undiscovered things are not on it at
+    // all rather than being on it and hidden.
 
-    pub fn map_node(&self, i: usize) -> Option<Node> {
-        self.game.as_ref()?.world.discovered.get(i).copied()
-    }
-
-    /// Where the `i`th thing on the map is, or `None` when the crew have not
-    /// found anything with that index.
-    pub fn map_position(&self, i: usize) -> Option<worldgen::math::DVec2> {
-        let game = self.game.as_ref()?;
-        game.world.system.absolute_position(self.map_node(i)?)
-    }
-
-    /// What sort of thing the `i`th discovered thing is: a
+    /// What sort of thing a discovered thing is: a
     /// `worldgen::BodyKind` or `StationKind` discriminant, read against the
     /// app's name table for the node's kind.
     pub fn map_type(&self, node: Node) -> u32 {
@@ -1645,39 +1550,6 @@ impl Session {
                 })
             })
             .collect()
-    }
-
-    /// Whether the crew are standing in a town the machines are
-    /// attacking (feature 94), for the warning along the top.
-    pub fn defending_a_town(&self) -> bool {
-        self.game
-            .as_ref()
-            .is_some_and(|g| g.world.defense_here().is_some())
-    }
-
-    /// Where a node sits in the discovered list, if it is there.
-    pub fn map_index_of(&self, node: Node) -> Option<usize> {
-        self.game
-            .as_ref()?
-            .world
-            .discovered
-            .iter()
-            .position(|&n| n == node)
-    }
-
-    /// Quote a trip to a node or a point. Worked out for the **local player
-    /// only** and never a command: two players hovering over different
-    /// planets must not be an argument about where the ship is going.
-    pub fn preview(&mut self, target: Target) {
-        if let Some(game) = &mut self.game {
-            game.preview(target);
-        }
-    }
-
-    pub fn clear_preview(&mut self) {
-        if let Some(game) = &mut self.game {
-            game.clear_preview();
-        }
     }
 
     // --- the two views ----------------------------------------------------

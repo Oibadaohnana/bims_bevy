@@ -1,24 +1,23 @@
-//! The crew's panels: everything on a screen that is about the Bims rather
-//! than about the deck they are standing on. Shared by the room and the
-//! ship, which run the same room — aboard, stepped by the world.
+//! The crew's panels: everything on the game screen that is about the Bims
+//! rather than about the deck they are standing on — the room aboard,
+//! stepped by the world.
 //!
-//! One copy on purpose: the selected crew member's needs and health and
-//! diary, the agendas, the tray with the timetable, the work list and the
-//! management row, the fixture menus, and the tooltips everything hangs
-//! off. What is *not* here is the canvas and the pointer, because those are
-//! each screen's own — the room fits the deck to a window and the ship turns
-//! it with the hull — and the screen hands the room its coordinates.
+//! The selected crew member's health and diary, the agendas, the tray with
+//! the work list and the management row, the fixture menus, and the
+//! tooltips everything hangs off. What is *not* here is the canvas and the
+//! pointer, because those are the screen's own — the ship turns the deck
+//! with the hull — and the screen hands the room its coordinates.
 //!
 //! # Tooltips are asked for, never stumbled into
 //!
 //! Every tooltip hangs off an affordance: a word underlined with
 //! [`theme::asks`], or a `?` from [`theme::question_mark`]. Never a row, a
-//! bar or a panel — a player crossing the needs panel on the way to the deck
-//! should get nothing.
+//! bar or a panel — a player crossing the health panel on the way to the
+//! deck should get nothing.
 //!
 //! # A highlight is not a tooltip
 //!
-//! Resting on a management row rings the fixture it names on the deck.
+//! Resting on a work row rings the fixture it names on the deck.
 //! Nothing pops up, nothing is said, and the ring is gone the moment the
 //! pointer moves — [`CrewPanels::points`] is the mechanism, and it hangs off
 //! a whole row on purpose, because every row is about exactly one place.
@@ -30,42 +29,29 @@
 //! The pack, the worn slots and the container windows are grids
 //! (`crate::grid`), and what a click on a cell asks for — put this on, put
 //! it away, take that out — is a [`GearOrder`] left on
-//! [`CrewPanels::orders`] for the screen to send: on the ship through the
-//! seam as a `world::Command`, since the hold is the world's and every
-//! player's ship has to agree about what is in it; in the test room, which
-//! has no hold, straight to the room. The hold itself comes the other way
-//! as a [`Hold`] snapshot the ship's screen sets every frame, and it is
-//! `None` in the room, which is how the container windows know they have
-//! nothing to show there.
+//! [`CrewPanels::orders`] for the screen to send through the seam as a
+//! `world::Command`, since the hold is the world's and every player's ship
+//! has to agree about what is in it. The hold itself comes the other way
+//! as a [`Hold`] snapshot the screen sets every frame. The station's
+//! shelves on a joined deck are told from the ship's by
+//! `Hold::station_shelves`: they are not the hold's, and a click on one
+//! opens nothing.
 //!
 //! A body is handed in the same way. The Loot window is a grid over what
-//! a dead or unconscious Bim has on it, and what it shows, whether the Bim
-//! is still down and whether the looter is within reach come as a [`Body`]
-//! snapshot the screen sets every frame *after* the fixture menu has run,
-//! since the menu is what opens the window — on the ship off the world,
-//! which is the only thing that can see one of a hostile station's people
-//! lying in its own room; in the test room off the room itself. Taking is
-//! an order like the rest, `GearOrder::Loot`, and the walk over to the
-//! body is the screen's too (`walk`), for the same reason: where a resident
-//! lies is the world's to say.
-//!
-//! An enemy's shelf is the third: a raider's, or a hostile station's,
-//! laid out by the world as loot the moment the rooms join
-//! (`world::plunder`), and drawn here as a lockers' grid nothing can be
-//! moved on — a [`Shelf`] snapshot the screen sets every frame, `None`
-//! at a friend's or away from a berth, which shuts the window. The
-//! station's shelves are told from the ship's by `Hold::station_shelves`:
-//! a click on one at an enemy's opens this window, at a friend's a note
-//! that the desk is the way. Taking is `GearOrder::Plunder`, a stack at
-//! a time as far as the pack goes.
+//! a dead or unconscious crewmate has on it, and what it shows, whether the
+//! Bim is still down and whether the looter is within reach come as a
+//! [`Body`] snapshot the screen sets every frame *after* the fixture menu
+//! has run, since the menu is what opens the window. Taking is an order
+//! like the rest, `GearOrder::Loot`, and the walk over to the body is the
+//! screen's too (`walk`), since where a body lies is the world's to say —
+//! the same walk takes the Bim to a mercenary the Hire row is open on.
 
 use bevy_egui::egui;
 use bims::combat::{Item as PackItem, LOOT_CELLS, PACK_CELLS, PACK_COLS, PACK_ROWS, Piece};
 use bims::game::{Container, Game};
-use bims::manager::Stock;
 use bims::order::CrewOrder;
 use bims::room::*;
-use bims::{bim, door, health, manager, schedule, task};
+use bims::{door, health};
 use physics::ResourceId;
 use ship::game::Overlay;
 use shipdesign::parts::PartKind;
@@ -115,9 +101,8 @@ fn container_dims(class: Storage) -> (usize, usize) {
 /// while one is open.
 const CONTAINER_AT: egui::Vec2 = egui::vec2(290.0, 60.0);
 
-/// The hold, as the panels see it: a snapshot the ship's screen hands
-/// over every frame, and `None` in the test room, which has no hold.
-/// Counts and reach are by `ResourceId`; the pieces are the armour in the
+/// The hold, as the panels see it: a snapshot the screen hands over
+/// every frame, `None` only before the world has opened. Counts and reach are by `ResourceId`; the pieces are the armour in the
 /// hold, one entry a piece; the class fills are by `Storage`.
 #[derive(Clone, Default)]
 pub struct Hold {
@@ -145,8 +130,8 @@ pub struct Hold {
     pub station_desk: Option<usize>,
     pub station_key: u8,
     /// Which shelves on the deck are the station's, while docked —
-    /// `World::station_shelves`: not the hold's, and an enemy's to
-    /// plunder.
+    /// `World::station_shelves`: not the hold's, so a click on one opens
+    /// no window and the nearby strip leaves them out.
     pub station_shelves: Vec<usize>,
     /// The workbench with the slots, if one is aboard — `World::bench` —
     /// as its window draws it.
@@ -187,7 +172,6 @@ pub struct Terms {
     pub gear: bims::combat::Gear,
     pub in_reach: bool,
     pub affordable: bool,
-    pub bunk: bool,
     /// Whether this one is a **field medic** (feature 86): hired to
     /// fetch the fallen out of the fire and treat them, not to shoot.
     pub medic: bool,
@@ -215,24 +199,8 @@ pub struct Body {
     pub reach: bool,
 }
 
-/// An enemy's shelf, as the Plunder window sees it: a snapshot the
-/// screen hands over every frame while the ship is tied to an enemy's —
-/// `World::plunder_alongside` — and `None` otherwise, which shuts the
-/// window. Stacks only: nobody's shelf stocks armour or guns.
-#[derive(Clone)]
-pub struct Shelf {
-    pub grid: Grid,
-    /// Its size in cells, the station's shelves' capacity.
-    pub capacity: u32,
-    /// Whether the Bim whose inventory is shown stands within reach of
-    /// one of the station's shelves, alive and awake —
-    /// `World::shelf_ashore_in_reach`.
-    pub reach: bool,
-}
-
 /// What a row or a ctrl-click asked for, about somebody's gear. The
-/// screen sends it: on the ship as the matching `world::Command`, in the
-/// room straight to the `Game`.
+/// screen sends it as the matching `world::Command`.
 #[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum GearOrder {
     /// Put what is in a pack cell into a container.
@@ -275,16 +243,10 @@ pub enum GearOrder {
     /// Hire the mercenary that is that resident of the station, `who`
     /// doing the hiring — `Command::Hire`.
     Hire { who: u32, resident: u32 },
-    /// Finish off the resident lying out cold, `who` doing it —
-    /// `Command::Execute`.
-    Execute { who: u32, resident: u32 },
     /// Take the research key off the station's desk into `who`'s pack —
     /// `Command::TakeKey`. Sent by the screen once `who` is within reach
     /// of the desk, after the desk's row walked them there.
     TakeKey { who: u32 },
-    /// Take the stack that is slot `id` of the enemy's shelf into `who`'s
-    /// pack, as far as it goes — `Command::Plunder`.
-    Plunder { who: u32, id: u32 },
     /// Bind **every** open wound on `who` out of its own pack (feature
     /// 87) — the row on a box of dressings in the inventory. The worst
     /// part now and the rest queued behind it, through
@@ -307,11 +269,6 @@ pub enum Open {
     Container(Container),
     Loot(LootSource),
     Hire(u32),
-    /// Not a window either: the Kill row on one of the station's people
-    /// lying out cold — `Command::Execute` through `GearOrder::Execute`,
-    /// the Bim shown walking over to shoot it where it lies, or to cut it
-    /// from beside it with a blade.
-    Kill(u32),
     /// Not a window of the panels' own: the Trade row walks the Bim to
     /// the desk and asks the screen for the trade window
     /// (`CrewPanels::trade_requested`).
@@ -320,10 +277,6 @@ pub enum Open {
     /// the Bim shown to it and asks the screen for the key
     /// (`CrewPanels::key_requested`).
     Key(usize),
-    /// The Plunder window over the enemy's shelf: the station's shelf that
-    /// is that index among the deck's (`Container::Shelf`), for the walk
-    /// over; the grid is the one shelf whichever was clicked.
-    Plunder(usize),
     /// Not a window either: the engineer.s deployable within reach packed
     /// up into its pack (`Command::PackUp`) — the row on the nearby strip
     /// beside one (feature 74). By the deployable.s id. There is no
@@ -441,8 +394,6 @@ enum Source {
     /// A cell of the open Loot window, by its `LootCell` code; whose body
     /// is the window's.
     Loot(u32),
-    /// A slot of the enemy's shelf in the Plunder window, by its id.
-    Plunder(u32),
     /// One of the workbench's three slots.
     Bench(u32),
 }
@@ -455,12 +406,6 @@ enum HoldCell {
     Slot(Storage, u32),
     Stack(ResourceId),
 }
-
-/// Which fixture answers each of the five targets: the bay grows the
-/// first two and the fourth, the hob makes the third, and the dressings
-/// each Bim carries (feature 87) have no fixture at all — nobody walks
-/// anywhere for them. Indexed by `manager::Stock`.
-const KEEP_SPOTS: [u32; 5] = [SPOT_BAY, SPOT_BAY, SPOT_HOB, SPOT_BAY, SPOT_NOTHING];
 
 /// Which fixture each job on the work list is about, so resting on a row
 /// rings the place it happens — every fixture of that kind, since a row
@@ -484,33 +429,27 @@ const WORK_SPOTS: [u32; 9] = [
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
-    Schedule,
     Work,
     Management,
     /// What the selected crew member has on it: the armour slots and
-    /// the weapon, with its numbers. On both screens.
+    /// the weapon, with its numbers.
     Inventory,
     /// What the ship view is drawn to show over the ship: the plain deck,
-    /// or the electricity. Only on the ship's screen, like Actions.
+    /// or the electricity.
     View,
-    /// Things the player does with the pointer on the crew's behalf. Only
-    /// on the ship's screen: the room has no outside.
     /// Parts to lay out for the crew to build, by category, with a search
-    /// box over them; and the sites laid out so far. Only on the ship's
-    /// screen: the room is not a ship.
+    /// box over them; and the sites laid out so far. Only while the
+    /// shipyard is on (feature 102).
     Build,
     /// The research tree: what the crew know, what the AI is on, and what
-    /// a key would open. Only on the ship's screen: research is the
-    /// world's.
+    /// a key would open.
     Research,
     /// The skills tree (feature 83): your own crew member's class, level
-    /// by level, with the points a level's choice leaves to spend. Only
-    /// on the ship's screen: a class is the world's.
+    /// by level, with the points a level's choice leaves to spend.
     Skills,
-    /// The helm and the ship's facts. Only on the ship's screen, and drawn
-    /// by it: the tray lays out the tabs and leaves the body to the
-    /// caller, since everything on it is the world's rather than the
-    /// room's.
+    /// The ship's facts, drawn by the screen: the tray lays out the tabs
+    /// and leaves the body to the caller, since everything on it is the
+    /// world's rather than the room's.
     Ship,
 }
 
@@ -523,9 +462,9 @@ enum Tab {
 /// look at it." wants a box its own size.
 pub const SIDE_W: f32 = 340.0;
 
-/// The side panel's bars — the needs', health's and the parts'. Wider
-/// than they were, because the health block under them grew and a column
-/// of bars that do not line up reads as two panels rather than one.
+/// The side panel's bars — health's, the parts' and the blood's. Wide,
+/// because the health block round them is, and a column of bars that do
+/// not line up reads as two panels rather than one.
 const BAR_W: f32 = 140.0;
 /// The health points beside the bar: the one number on the panel a
 /// player reads in a fight, so it is the one number bigger than the
@@ -559,9 +498,8 @@ fn peril_frame(grave: bool) -> egui::Frame {
         .inner_margin(6.0)
 }
 
-/// What is taking a crew member down now — one of these a cause, the
-/// fastest first. Worked out from the body, since nothing in the room
-/// records a cause: `crew::perils`.
+/// What is taking a crew member down now. Worked out from the body, since
+/// nothing in the room records a cause: `crew::perils`.
 struct Peril {
     /// The headline, in the cross's red.
     cause: &'static str,
@@ -576,14 +514,12 @@ struct Peril {
     remedy: &'static str,
 }
 
-/// What is killing `w` right now, and how long it has at that rate. Two
-/// things can: the blood running out, which is every open wound at
+/// What is killing `w` right now, and how long it has at that rate: the
+/// blood running out, which is every open wound at
 /// [`health::BLEED_PER_WOUND`] an hour and every untreated trauma at its
 /// own rate — `Health::update_held`'s own sum, so the number here is the
-/// number the room is actually subtracting — and extreme malnutrition,
-/// which takes [`health::HEALTH_DRAIN`] off the parts until the head and
-/// the body are both at nothing. Sorted with the fastest first: that is
-/// the one a player has to do something about.
+/// number the room is actually subtracting. A list, empty or of one, so
+/// the block can go on drawing whatever else is ever found to kill a Bim.
 fn perils(game: &Game, w: usize) -> Vec<Peril> {
     let mut out: Vec<Peril> = Vec::new();
 
@@ -621,54 +557,20 @@ fn perils(game: &Game, w: usize) -> Vec<Peril> {
             },
         });
     }
-
-    // And the starving. Death is the head *and* the body at nothing with
-    // nothing on either, so a part a trauma is holding down cannot be
-    // drained past it — while one of those is untreated the drain runs
-    // with no end to count to, and the block says so by leaving the
-    // countdown off rather than by inventing one.
-    if game.malnutrition(w) >= 3 {
-        let mut minutes: Option<f32> = Some(0.0);
-        for part in [health::Part::Head, health::Part::Body] {
-            if game.trauma(w, part).is_some() {
-                minutes = None;
-                break;
-            }
-            let rate = health::HEALTH_DRAIN * part.max() / health::MAX_HEALTH;
-            let left = game.part_health(w, part) / rate;
-            minutes = minutes.map(|m| m.max(left));
-        }
-        out.push(Peril {
-            cause: PERIL_STARVING,
-            rate: peril_drain(health::HEALTH_DRAIN * bims::clock::DAY),
-            minutes,
-            from: Vec::new(),
-            remedy: PERIL_STARVE_FIX,
-        });
-    }
-
-    out.sort_by(|a, b| match (a.minutes, b.minutes) {
-        (Some(a), Some(b)) => a.total_cmp(&b),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    });
     out
 }
 
 /// What a dead crew member died of. Nothing records it, so this reads it
-/// off the body the way `Health::is_dead` decides: no blood left is one
-/// death; the head and the body both at nothing with no trauma on either
-/// is the other, and that is starvation if it was starving and otherwise
-/// the Bim's own hand, `Health::give_up` being the only other thing that
-/// empties both parts and leaves them clean.
+/// off the body the way `Health::is_dead` decides: no blood left is the
+/// death a fight deals. The other — the head and the body both at nothing
+/// with no trauma on either — no fight leaves, since a part a fight takes
+/// to nothing always has a trauma on it; it is a body killed outright, a
+/// crew member left behind or a probe's, and is said as nothing more.
 fn death_line(game: &Game, w: usize) -> &'static str {
     if game.blood(w) <= 0.0 {
         DEATH_BLED_OUT
-    } else if game.malnutrition(w) >= 3 {
-        DEATH_STARVED
     } else {
-        DEATH_GAVE_UP
+        DEATH_OTHER
     }
 }
 
@@ -956,14 +858,14 @@ pub struct Menu {
     fresh: bool,
 }
 
-/// What a menu row does when it is clicked: an order to the room, sent the
-/// way the screen sends one — through the seam on the ship, straight to
-/// the room in the test room — that walks the player's Bim over to do it.
+/// What a menu row does when it is clicked: an order to the room, sent
+/// through the seam the way the screen sends one, that walks the player's
+/// Bim over to do it.
 type Errand = CrewOrder;
 
 /// One row of a fixture's menu: an errand for the Bim, or a window to
-/// open — the cold store's "Open", a body's "Loot" — which is the panels'
-/// to do rather than the room's.
+/// open — a body's "Loot", a mercenary's "Hire" — which is the panels' to
+/// do rather than the room's.
 struct Item {
     label: String,
     hint: String,
@@ -1017,9 +919,6 @@ pub struct CrewPanels {
     tab: Tab,
     /// The tool the pointer is holding, if any. See [`Tool`].
     pub tool: Option<Tool>,
-    brush: u32,
-    /// Whether a drag across the timetable is under way.
-    painting: bool,
     /// The character sheet's page, per crew member: `true` for the diary.
     diary_open: Vec<bool>,
     sort: Option<Sort>,
@@ -1041,8 +940,7 @@ pub struct CrewPanels {
     /// being opened, until it is shut. A recruit does not open it — a
     /// fight is not the moment for a window over the deck.
     inventory_open: bool,
-    /// The hold, as the ship's screen last handed it over; `None` in the
-    /// room. See the module note.
+    /// The hold, as the screen last handed it over. See the module note.
     pub hold: Option<Hold>,
     /// The window that is up beside the inventory, if one is — a
     /// container's or a body's — and the rect it took this frame, which is
@@ -1053,21 +951,14 @@ pub struct CrewPanels {
     /// over; `None` while none is open, or once the Bim is gone. See the
     /// module note.
     pub body: Option<Body>,
-    /// Whether the station alongside is an enemy's, the world's word every
-    /// frame: what puts the Kill row on a downed visitor's menu. Only an
-    /// enemy's people are finished off; the command refuses the rest.
-    pub enemies_alongside: bool,
-    /// The body the Loot row just opened the window on: the screen walks
-    /// the Bim shown over to it and takes this. See the module note.
+    /// The body the Loot row just opened the window on, or the mercenary
+    /// the Hire row did: the screen walks the Bim shown over to it and
+    /// takes this. See the module note.
     pub walk: Option<LootSource>,
     /// The mercenary's terms the Hire window is over, as the screen last
     /// handed them; `None` while none is open, or once the body is no
     /// longer for hire — hired, or the rooms parted — which shuts it.
     pub terms: Option<Terms>,
-    /// The enemy's shelf the Plunder window is over, as the screen last
-    /// handed it; `None` at a friend's or away from a berth, which shuts
-    /// it. See the module note.
-    pub shelf: Option<Shelf>,
     /// The Trade row was picked: the screen opens the trade window and
     /// takes this.
     pub trade_requested: bool,
@@ -1100,10 +991,9 @@ pub struct CrewPanels {
     /// screen to send. Drained by it.
     pub orders: Vec<GearOrder>,
     /// What the menus and the Management tab asked of the room this frame
-    /// — `bims::order::CrewOrder`s — for the screen to send: through the
-    /// seam on the ship, straight to the room in the test room. Nothing in
-    /// here reaches into the room itself, since the crew's positions are
-    /// every player's to agree on (feature 59).
+    /// — `bims::order::CrewOrder`s — for the screen to send through the
+    /// seam. Nothing in here reaches into the room itself, since the
+    /// crew's positions are every player's to agree on (feature 59).
     pub crew_orders: Vec<CrewOrder>,
     /// The same, given with Shift held: to wait their turn behind what
     /// the crew member is on (feature 69) — `Game::order_later`,
@@ -1117,10 +1007,8 @@ impl CrewPanels {
             player,
             crew_count,
             tray_open: true,
-            tab: Tab::Schedule,
+            tab: Tab::Inventory,
             tool: None,
-            brush: 1,
-            painting: false,
             diary_open: vec![false; crew_count as usize],
             sort: Some(Sort::Up),
             ringed: SPOT_NOTHING,
@@ -1135,10 +1023,8 @@ impl CrewPanels {
             open: None,
             container_rect: None,
             body: None,
-            enemies_alongside: false,
             walk: None,
             terms: None,
-            shelf: None,
             trade_requested: false,
             upgrade_requested: false,
             key_requested: None,
@@ -1201,12 +1087,10 @@ impl CrewPanels {
     // --- fixture menus ------------------------------------------------------
 
     /// A click landed on a fixture: its menu opens at the pointer — or,
-    /// for a container on the ship, its window. A workstation is a
-    /// container when its part keeps a class of goods (the armoury and
-    /// the drug lab are lockers; the smelter keeps nothing and has no
-    /// menu either), a shelf always is; the cold store keeps its menu,
-    /// which has an "Open" row. Nothing is a container in the test room,
-    /// which has no hold.
+    /// for a container, its window. A workstation is a container when its
+    /// part keeps a class of goods (the armoury and the drug lab are
+    /// lockers), a shelf of the ship's always is; the cold store answers
+    /// no click and is opened from the nearby strip.
     pub fn open_menu(&mut self, fixture: u32, at: egui::Pos2, game: &mut Game) {
         let container = match fixture {
             HIT_BENCH if self.hold.is_some() => {
@@ -1219,23 +1103,19 @@ impl CrewPanels {
                     // its three slots, and a window for them.
                     .or((workbench == Some(bench)).then_some(Container::Bench(bench)))
             }
-            // The ship's own shelves are the hold's; the station's are an
-            // enemy's to plunder, or a friend's to buy from across the desk,
-            // which the menu says.
+            // The ship's own shelves are the hold's; the station's are not,
+            // and a click on one opens nothing — what a station sells is
+            // bought across its desk.
             HIT_SHELF if self.hold.is_some() => {
                 let shelf = game.hit_shelf();
                 let ashore = self
                     .hold
                     .as_ref()
                     .is_some_and(|h| h.station_shelves.contains(&shelf));
-                if !ashore {
-                    Some(Container::Shelf(shelf))
-                } else if self.shelf.is_some() {
-                    self.open_plunder(game, shelf);
+                if ashore {
                     return;
-                } else {
-                    None
                 }
+                Some(Container::Shelf(shelf))
             }
             // The ship's own research desk is a container — the key's slot;
             // the station's has a row instead.
@@ -1284,25 +1164,13 @@ impl CrewPanels {
 
     /// Open a container's window by name, the way a click on it would:
     /// `BIMS_ARMOURY=1` (or `armoury`) the first bench aboard whose part
-    /// is an armoury, `storage` the first shelf, `fridge` the first cold
-    /// store, `workbench` the workbench with the slots, `plunder` the
-    /// enemy's shelf — the first of the station's shelves on the joined
-    /// deck, and the window shuts itself at a friend's. Nothing, on a
-    /// ship without one.
+    /// is an armoury, `storage` the first shelf, `workbench` the workbench
+    /// with the slots. Nothing, on a ship without one.
     pub fn open_named(&mut self, game: &mut Game, what: &str) {
-        if what == "plunder" {
-            if let Some(&shelf) = self.hold.as_ref().and_then(|h| h.station_shelves.first()) {
-                self.open_plunder(game, shelf);
-            }
-            return;
-        }
         let container = match what {
             "storage" => game
                 .container_frame(Container::Shelf(0))
                 .map(|_| Container::Shelf(0)),
-            "fridge" => game
-                .container_frame(Container::Fridge(0))
-                .map(|_| Container::Fridge(0)),
             "workbench" => self
                 .hold
                 .as_ref()
@@ -1317,31 +1185,9 @@ impl CrewPanels {
         }
     }
 
-    /// Open the Plunder window on the enemy's shelf — `shelf` the one
-    /// clicked, among the deck's — and the inventory pop-up beside it,
-    /// and walk the Bim shown to that shelf's use spot, the way a
-    /// container's window opens.
-    fn open_plunder(&mut self, game: &mut Game, shelf: usize) {
-        let who = self.inventory_who(game);
-        if let Some(spot) = game.container_spot(Container::Shelf(shelf))
-            && game.is_alive(who)
-        {
-            self.crew_orders.push(CrewOrder::SendTo {
-                who: who as u32,
-                x: spot.x,
-                y: spot.y,
-            });
-        }
-        self.open = Some(Open::Plunder(shelf));
-        self.inventory_open = true;
-        self.menu = None;
-        self.cell_menu = None;
-    }
-
     /// Open the Loot window on a body, and the inventory pop-up beside it,
     /// the way a container's opens — except that the walk over is left
-    /// to the screen (`walk`): where one of the station's people lies is
-    /// the world's to say, not the room's.
+    /// to the screen (`walk`): where a body lies is the world's to say.
     pub fn open_loot(&mut self, source: LootSource) {
         self.open = Some(Open::Loot(source));
         self.walk = Some(source);
@@ -1352,22 +1198,16 @@ impl CrewPanels {
     }
 
     /// The body under a plain left click, if a body is what was clicked:
-    /// a dead crewmate (`HIT_BODY`), one out cold (`HIT_BIM` with the Bim
-    /// down), or one of the station's people the world marked down
-    /// (`HIT_VISITOR`, down). A click on one opens its inventory straight
-    /// off — the Loot window, the way the row would — rather than a menu;
-    /// the right-click keeps the rows. `None` for anything else.
+    /// a dead crewmate (`HIT_BODY`) or one out cold (`HIT_BIM` with the
+    /// Bim down). A click on one opens its inventory straight off — the
+    /// Loot window, the way the row would — rather than a menu; the
+    /// right-click keeps the rows. `None` for anything else.
     pub fn body_under_click(&self, game: &Game, fixture: u32) -> Option<LootSource> {
         match fixture {
             HIT_BODY => Some(LootSource::Crew(game.hit_body() as u32)),
             HIT_BIM => {
                 let who = game.hit_bim();
                 game.is_down(who).then_some(LootSource::Crew(who as u32))
-            }
-            HIT_VISITOR => {
-                let body = game.hit_visitor();
-                game.visitor_down(body)
-                    .then_some(LootSource::Resident(body as u32))
             }
             _ => None,
         }
@@ -1426,18 +1266,6 @@ impl CrewPanels {
         true
     }
 
-    /// Who has the run of a shared part of the ship, or `None` for nobody.
-    /// The room counts from 1 so that 0 can mean "free"; this turns that
-    /// back into a name, and into `None` when it is the player's own Bim —
-    /// being told you cannot cook because you are already cooking is no
-    /// help.
-    fn held_by(&self, code: u32, name: &dyn Fn(u32) -> String) -> Option<String> {
-        if code == 0 || code as usize - 1 == self.player {
-            return None;
-        }
-        Some(name(code - 1))
-    }
-
     /// Build the rows for the fixture that was clicked. Nothing here is
     /// remote: every item walks the Bim over to do it by hand. Nor does
     /// anything wait for the Bim to be free — a new errand takes over, and
@@ -1447,253 +1275,8 @@ impl CrewPanels {
         let who = self.player;
         let busy = game.is_busy(who);
         let takes_over: Option<&str> = busy.then_some("takes over — the rest waits its turn");
-        // The fixture the click landed on, of each kind — there may be
-        // several of any of them — and who has it. A meal is kept from
-        // starting only when no galley at all is free.
-        let (hob, fridge, washer) = (game.hit_hob(), game.hit_fridge(), game.hit_dishwasher());
-        let (bath, shower_i, locker) = (game.hit_bath(), game.hit_shower(), game.hit_locker());
-        let galley = self.held_by(game.galley_busy_by(who), name);
-        let hob_held = self.held_by(game.hob_held_by(hob), name);
-        let fridge_held = self.held_by(game.fridge_held_by(fridge), name);
-        let washer_held = self.held_by(game.dishwasher_held_by(washer), name);
-        let heads = self.held_by(game.heads_held_by(bath), name);
-        let shower = self.held_by(game.shower_held_by(shower_i), name);
-        let in_galley = |g: &Option<String>| g.as_ref().map(|n| format!("{n} is in the galley"));
         let mut items = Vec::new();
         match fixture {
-            HIT_FRIDGE => {
-                let veg = game.store_veg();
-                let tofu = game.store_tofu();
-                let no_stew = veg < 2;
-                let no_bowl = tofu < 1 || veg < 1;
-                items.push(Item::note(
-                    "Cold store",
-                    format!(
-                        "{veg} veg, {tofu} tofu, {} stew ready — keeping {}, {} and {}",
-                        game.store_stew(),
-                        game.target(Stock::Veg),
-                        game.target(Stock::Tofu),
-                        game.target(Stock::Stew)
-                    ),
-                ));
-                items.push(Item::run(
-                    "Make a stew",
-                    in_galley(&galley).unwrap_or_else(|| {
-                        if no_stew {
-                            "needs two vegetables".into()
-                        } else {
-                            takes_over
-                                .unwrap_or("two vegetables, chopped and cooked")
-                                .into()
-                        }
-                    }),
-                    no_stew || galley.is_some(),
-                    CrewOrder::Cook {
-                        who: who as u32,
-                        dish: Dish::Stew,
-                    },
-                ));
-                items.push(Item::run(
-                    "Make a bowl",
-                    in_galley(&galley).unwrap_or_else(|| {
-                        if no_bowl {
-                            "needs a block of tofu and a salad".into()
-                        } else {
-                            takes_over
-                                .unwrap_or("tofu chopped in with the salad, no cooking")
-                                .into()
-                        }
-                    }),
-                    no_bowl || galley.is_some(),
-                    CrewOrder::Cook {
-                        who: who as u32,
-                        dish: Dish::Bowl,
-                    },
-                ));
-                items.push(Item::run(
-                    if game.fridge_is_open(fridge) {
-                        "Close door"
-                    } else {
-                        "Open door"
-                    },
-                    in_galley(&fridge_held)
-                        .unwrap_or_else(|| takes_over.unwrap_or("the Bim walks over to it").into()),
-                    fridge_held.is_some(),
-                    CrewOrder::ToggleFridge {
-                        who: who as u32,
-                        fridge: fridge as u32,
-                    },
-                ));
-                // On the ship the cold store is a container as well: its
-                // window is the hold's cold class, the way the armoury's
-                // is the lockers.
-                if self.hold.is_some() {
-                    items.push(Item::opens(
-                        "Open",
-                        "what is in it, a cell a thing — the Bim walks over to reach in",
-                        Open::Container(Container::Fridge(fridge)),
-                    ));
-                }
-            }
-            HIT_STOVE => {
-                let left = game.pot_servings(hob);
-                if left > 0 {
-                    let capacity = game.pot_capacity();
-                    items.push(Item::run(
-                        "Eat from the pot",
-                        in_galley(&galley).unwrap_or_else(|| {
-                            takes_over.map(|s| s.to_string()).unwrap_or_else(|| {
-                                format!("{left} of {capacity} helpings left — no cooking")
-                            })
-                        }),
-                        galley.is_some(),
-                        CrewOrder::EatLeftovers { who: who as u32 },
-                    ));
-                }
-                let no_stock = game.store_veg() < 1 || game.store_tofu() < 1;
-                let ready = game.store_stew();
-                let keeping = game.target(Stock::Stew);
-                items.push(Item::run(
-                    "Cook a stew for the store",
-                    in_galley(&galley).unwrap_or_else(|| {
-                        if no_stock {
-                            "needs a vegetable and a block of tofu".into()
-                        } else {
-                            takes_over
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| format!("{ready} ready — keeping {keeping}"))
-                        }
-                    }),
-                    no_stock || galley.is_some(),
-                    CrewOrder::MakeStew { who: who as u32 },
-                ));
-                let idle_left = game.stove_idle_left(hob);
-                items.push(Item::run(
-                    if game.stove_is_on(hob) {
-                        "Turn off"
-                    } else {
-                        "Turn on"
-                    },
-                    in_galley(&hob_held).unwrap_or_else(|| {
-                        takes_over.map(|s| s.to_string()).unwrap_or_else(|| {
-                            if idle_left > 0.0 {
-                                format!("left on — cuts out in {}", span_text(idle_left))
-                            } else {
-                                "the Bim walks over to it".into()
-                            }
-                        })
-                    }),
-                    hob_held.is_some(),
-                    CrewOrder::ToggleStove {
-                        who: who as u32,
-                        hob: hob as u32,
-                    },
-                ));
-            }
-            HIT_DISHWASHER => {
-                let loaded = game.dishwasher_loaded(washer);
-                let capacity = game.dishwasher_capacity();
-                let left = game.dishwasher_cycle_left(washer);
-                let now = game.clock_minutes();
-                if left > 0.0 {
-                    items.push(Item::note(
-                        "Running",
-                        format!(
-                            "{} left — done at {}",
-                            span_text(left),
-                            clock_text(now + left)
-                        ),
-                    ));
-                }
-                items.push(Item::run(
-                    "Run now",
-                    in_galley(&washer_held).unwrap_or_else(|| {
-                        if left > 0.0 {
-                            "already running".into()
-                        } else if loaded == 0 {
-                            "nothing in it".into()
-                        } else {
-                            takes_over.map(|s| s.to_string()).unwrap_or_else(|| {
-                                format!(
-                                    "{loaded} of {capacity} stowed — the Bim goes and presses it"
-                                )
-                            })
-                        }
-                    }),
-                    left > 0.0 || loaded == 0 || washer_held.is_some(),
-                    CrewOrder::RunDishwasher {
-                        who: who as u32,
-                        washer: washer as u32,
-                    },
-                ));
-            }
-            HIT_SHOWER => {
-                let can = game.can_shower(who);
-                items.push(Item::run(
-                    "Take a shower",
-                    shower
-                        .as_ref()
-                        .map(|n| format!("{n} is in it"))
-                        .unwrap_or_else(|| {
-                            if can {
-                                takes_over.unwrap_or("and come out clean").into()
-                            } else {
-                                "can't get to it".into()
-                            }
-                        }),
-                    !can || shower.is_some(),
-                    CrewOrder::TakeShower { who: who as u32 },
-                ));
-            }
-            HIT_TOILET => {
-                let can = game.can_use_toilet(who);
-                items.push(Item::run(
-                    "Use",
-                    heads
-                        .as_ref()
-                        .map(|n| format!("{n} is in there"))
-                        .unwrap_or_else(|| {
-                            if can {
-                                takes_over.unwrap_or("and wash at the basin after").into()
-                            } else {
-                                "can't get to it — the door is locked".into()
-                            }
-                        }),
-                    !can || heads.is_some(),
-                    CrewOrder::UseToilet { who: who as u32 },
-                ));
-            }
-            HIT_DOOR => {
-                let open = game.door_is_open();
-                let locked = game.door_is_locked();
-                let in_there = heads.as_ref().map(|n| format!("{n} is in there"));
-                items.push(Item::run(
-                    if open { "Close door" } else { "Open door" },
-                    in_there.clone().unwrap_or_else(|| {
-                        if locked {
-                            "unlock it first".into()
-                        } else {
-                            takes_over.unwrap_or("the Bim walks over to it").into()
-                        }
-                    }),
-                    locked || heads.is_some(),
-                    CrewOrder::ToggleDoor { who: who as u32 },
-                ));
-                items.push(Item::run(
-                    if locked { "Unlock" } else { "Lock" },
-                    in_there.unwrap_or_else(|| {
-                        takes_over
-                            .unwrap_or(if locked {
-                                "at the panel"
-                            } else {
-                                "shuts it as well"
-                            })
-                            .into()
-                    }),
-                    heads.is_some(),
-                    CrewOrder::ToggleDoorLock { who: who as u32 },
-                ));
-            }
             HIT_SHIP_DOOR => {
                 // A powered door in a bulkhead: "Open" holds it open,
                 // "Close" hands it back to itself, and a locked door is a
@@ -1745,137 +1328,6 @@ impl CrewPanels {
                         },
                     },
                 ));
-            }
-            HIT_LOCKER => {
-                let dirty = game.dirty_tiles();
-                let broom = self.held_by(game.broom_held_by(locker), name);
-                items.push(Item::run(
-                    "Sweep up",
-                    broom
-                        .as_ref()
-                        .map(|n| format!("{n} has the broom"))
-                        .unwrap_or_else(|| {
-                            if dirty == 0 {
-                                "the deck is clean".into()
-                            } else {
-                                takes_over.map(|s| s.to_string()).unwrap_or_else(|| {
-                                    format!(
-                                        "{dirty} patch{} of deck want it",
-                                        if dirty == 1 { "" } else { "es" }
-                                    )
-                                })
-                            }
-                        }),
-                    dirty == 0 || broom.is_some(),
-                    CrewOrder::SweepUp { who: who as u32 },
-                ));
-            }
-            HIT_HYDRO => {
-                // The bay the click landed on: each has its own trays, its
-                // own switch and its own standing order.
-                let bay = game.hit_bay();
-                let spots = game.hydro_spots();
-                let automated = game.hydro_automated(bay);
-                let asleep = game.hydro_hibernating(bay);
-                // A field in a town's soil has nothing to plug in, so a
-                // brownout is never its trouble: the menu is headed Field
-                // and the power line is left out.
-                let field = game.hydro_is_field(bay);
-                let unpowered = !field && !game.hydro_powered(bay);
-                let forced = game.hydro_forced(bay);
-                let ripe = game.hydro_ripe(bay);
-                let mut growing = 0;
-                let mut furthest: f32 = 0.0;
-                for i in 0..spots {
-                    if game.hydro_crop(bay, i) == 0 {
-                        continue;
-                    }
-                    growing += 1;
-                    furthest = furthest.max(game.hydro_growth(bay, i));
-                }
-                let along = if ripe > 0 || growing == 0 {
-                    String::new()
-                } else {
-                    format!(", furthest {}% grown", (furthest * 100.0).round())
-                };
-                items.push(Item::note(
-                    if field { "Field" } else { "Trays" },
-                    format!(
-                        "{growing} of {spots} planted{}",
-                        if ripe > 0 {
-                            format!(", {ripe} ready to lift")
-                        } else {
-                            along
-                        }
-                    ),
-                ));
-                items.push(Item::note(
-                    "Store",
-                    format!(
-                        "{} veg, {} tofu, {} fibre — keeping {}, {} and {}",
-                        game.store_veg(),
-                        game.store_tofu(),
-                        game.store_fibre(),
-                        game.target(Stock::Veg),
-                        game.target(Stock::Tofu),
-                        game.target(Stock::Fibre)
-                    ),
-                ));
-                items.push(Item::run(
-                    if automated {
-                        "Stop automating"
-                    } else {
-                        "Automate"
-                    },
-                    if unpowered {
-                        "no power — holding what is planted"
-                    } else if automated {
-                        if asleep {
-                            "at target — holding what is planted"
-                        } else {
-                            "following the manager's target"
-                        }
-                    } else {
-                        "grow whatever the store is short of"
-                    },
-                    false,
-                    CrewOrder::HydroAutomated {
-                        bay: bay as u32,
-                        on: !automated,
-                    },
-                ));
-                for (code, label, what) in [
-                    (1, "Plant greens in every tray", "two of these in a stew"),
-                    (
-                        2,
-                        "Plant soy in every tray",
-                        "a day and a half, and it presses into tofu",
-                    ),
-                    (
-                        3,
-                        "Plant fibre in every tray",
-                        "a day, and two of it make a bandage at the drug lab",
-                    ),
-                ] {
-                    let on = forced == code;
-                    items.push(Item::run(
-                        if on {
-                            format!("{label} ✓")
-                        } else {
-                            label.to_string()
-                        },
-                        if on {
-                            "standing order — click to lift it".to_string()
-                        } else {
-                            format!("no matter the target · {what}")
-                        },
-                        false,
-                        CrewOrder::HydroForced {
-                            bay: bay as u32,
-                            code: if on { 0 } else { code },
-                        },
-                    ));
-                }
             }
             HIT_BIM => {
                 // A body on the deck — the player's own, or a crewmate: a
@@ -2004,10 +1456,8 @@ impl CrewPanels {
                     ));
                 }
             }
-            // A dead crew member, or one of a hostile station's people
-            // lying in its own room: nothing to dress, and the one row is
-            // the Loot window. A resident is named as the world's names
-            // run — the crew first, then the station's people.
+            // A dead crew member: nothing to dress, and the one row is the
+            // Loot window.
             HIT_BODY => {
                 let body = game.hit_body() as u32;
                 items.push(Item::opens(
@@ -2016,37 +1466,13 @@ impl CrewPanels {
                     Open::Loot(LootSource::Crew(body)),
                 ));
             }
+            // One of the station's people, on its feet and hailable: a
+            // mercenary for hire. What it asks is the world's to say — the
+            // window reads it. A resident down has no row: what it had on
+            // it is its own.
             HIT_VISITOR => {
                 let body = game.hit_visitor() as u32;
-                if game.visitor_down(body as usize) {
-                    items.push(Item::opens(
-                        LOOT_ROW,
-                        format!("{} — everything on the body", name(self.crew_count + body)),
-                        Open::Loot(LootSource::Resident(body)),
-                    ));
-                    // And, at an enemy's station, the end of it: the Bim
-                    // shown walks over and shoots it where it lies, or cuts
-                    // it from beside it with a blade. Greyed with nothing in
-                    // hand; the command checks the rest.
-                    if self.enemies_alongside {
-                        let armed = game.weapon(who).is_some();
-                        items.push(if armed {
-                            Item::opens(
-                                KILL_ROW,
-                                format!(
-                                    "{} — {}",
-                                    name(self.crew_count + body),
-                                    kill_hint(game.weapon(who).map(|w| w.kind))
-                                ),
-                                Open::Kill(body),
-                            )
-                        } else {
-                            Item::note(KILL_ROW, KILL_UNARMED.to_string())
-                        });
-                    }
-                } else {
-                    // On its feet and hailable: a mercenary for hire. What
-                    // it asks is the world's to say — the window reads it.
+                if !game.visitor_down(body as usize) {
                     items.push(Item::opens(
                         HIRE_ROW,
                         format!(
@@ -2062,11 +1488,6 @@ impl CrewPanels {
             // Bim shown, and the gun under the pointer is ringed on the deck
             // (`Game::set_hover_dropped`).
             HIT_DROPPED => {}
-            // A friend's shelf on the joined deck — an enemy's opens the
-            // Plunder window instead of a menu: the desk is the way.
-            HIT_SHELF => {
-                items.push(Item::note(SHELF_ASHORE_ROW, SHELF_ASHORE_HINT.into()));
-            }
             HIT_DESK => {
                 // A station's trading desk: the one row walks the Bim shown
                 // over and puts the trade window up.
@@ -2086,62 +1507,6 @@ impl CrewPanels {
                     items.push(Item::opens(key_row(key), KEY_ROW_HINT, Open::Key(desk)));
                 } else {
                     items.push(Item::note(KEY_ROW, NO_KEY_ROW_HINT.into()));
-                }
-            }
-            // A bunk is one crew member's. The Bim shown — the selected one,
-            // else the player's own — may be given it, or give it up; Nap
-            // and Sleep are offered to the player's own on its own bunk,
-            // since that is the only bunk it would go to.
-            HIT_BED => {
-                let bed = game.hit_bed();
-                let shown = self.inventory_who(game);
-                let owner = game.bed_owner(bed);
-                let whose = match owner {
-                    Some(o) if o == shown => BED_OWN_HINT.to_string(),
-                    Some(o) => format!("{}'s", name(o as u32)),
-                    None => BED_NOBODY_S.to_string(),
-                };
-                items.push(Item::note("Bunk", whose));
-                if !game.bed_assignable(bed) {
-                    items.push(Item::note(BED_ASSIGN_ROW, BED_FOREIGN_HINT.to_string()));
-                } else if owner == Some(shown) {
-                    items.push(Item::run(
-                        BED_UNASSIGN_ROW,
-                        BED_UNASSIGN_HINT,
-                        false,
-                        CrewOrder::AssignBed {
-                            who: shown as u32,
-                            bed: bims::order::NO_BED,
-                        },
-                    ));
-                } else {
-                    items.push(Item::run(
-                        format!("{BED_ASSIGN_ROW} {}", name(shown as u32)),
-                        BED_ASSIGN_HINT,
-                        false,
-                        CrewOrder::AssignBed {
-                            who: shown as u32,
-                            bed: bed as u32,
-                        },
-                    ));
-                }
-                if owner == Some(who) {
-                    let now = game.clock_minutes();
-                    for (minutes, label) in
-                        [(task::NAP_MINUTES, "Nap"), (task::SLEEP_MINUTES, "Sleep")]
-                    {
-                        items.push(Item::run(
-                            format!("{label} — {}", span_text(minutes)),
-                            takes_over.map(|s| s.to_string()).unwrap_or_else(|| {
-                                format!("up around {}", clock_text(now + minutes))
-                            }),
-                            false,
-                            CrewOrder::Rest {
-                                who: who as u32,
-                                minutes,
-                            },
-                        ));
-                    }
                 }
             }
             _ => {}
@@ -2187,10 +1552,6 @@ impl CrewPanels {
                 Some(Open::Container(container)) => self.open_container(game, container),
                 Some(Open::Loot(source)) => self.open_loot(source),
                 Some(Open::Hire(resident)) => self.open_hire(resident),
-                Some(Open::Kill(resident)) => {
-                    let who = self.inventory_who(game) as u32;
-                    self.orders.push(GearOrder::Execute { who, resident });
-                }
                 Some(Open::Trade(desk)) => {
                     if let Some(spot) = game.desk_spot(desk) {
                         let who = self.inventory_who(game) as u32;
@@ -2213,7 +1574,6 @@ impl CrewPanels {
                     }
                     self.key_requested = Some(who as u32);
                 }
-                Some(Open::Plunder(shelf)) => self.open_plunder(game, shelf),
                 Some(open @ Open::PackUp(_)) => self.show(open),
                 None => {
                     if let Some(order) = item.run {
@@ -2402,8 +1762,8 @@ impl CrewPanels {
         }
     }
 
-    /// The selected crew member's panels: the bars, the health lines and
-    /// the character sheet. One at a time, and only when somebody is
+    /// The selected crew member's panels: the health bars, the health lines
+    /// and the character sheet. One at a time, and only when somebody is
     /// picked: the right-hand side answers "who am I looking at", not
     /// "what is everybody up to". `true` when something was drawn.
     pub fn side(
@@ -2422,53 +1782,20 @@ impl CrewPanels {
         ui.set_min_width(SIDE_W);
         self.who_header(ui, who, name);
 
-        // The needs. Only the first crew member's words are affordances:
-        // the explanation is the same for everybody and two sets of
-        // underlines down one edge of the screen is noise, not help.
-        egui::Grid::new(("needs", who))
-            .num_columns(3)
-            .spacing([8.0, 3.0])
-            .show(ui, |ui| {
-                for i in 0..game.need_count() {
-                    let label = NEED_NAMES.get(i as usize).copied().unwrap_or("Need");
-                    let level = game.need_level(w, i);
-                    let urgent = game.need_trigger_on(i) && level < game.need_trigger(i);
-                    let color = if urgent { theme::WARN } else { theme::INK };
-                    if who == 0 {
-                        theme::asks(ui, label, need_tip(i as usize));
-                    } else {
-                        ui.label(egui::RichText::new(label).color(color));
-                    }
-                    theme::bar(
-                        ui,
-                        BAR_W,
-                        level,
-                        if urgent { theme::WARN } else { theme::ACCENT },
-                    );
-                    ui.label(
-                        egui::RichText::new(format!("{}%", (level * 100.0).round()))
-                            .small()
-                            .color(theme::MUTED),
-                    );
-                    ui.end_row();
-                }
-            });
-
         // How it is bearing up. The armour worn adds its health to the
         // body's: the blue on the end of the green is what the pieces
         // still have, and the number reads the two apart.
         //
-        // This whole block is drawn bigger than the needs above it on
-        // purpose: in a fight it is the only part of the panel anybody
-        // looks at, and the question it has to answer at a glance is not
-        // "how much health" but "what is killing it and how long has it
-        // got" — which is the peril block under the bar.
+        // This whole block is drawn big on purpose: in a fight it is the
+        // only part of the panel anybody looks at, and the question it has
+        // to answer at a glance is not "how much health" but "what is
+        // killing it and how long has it got" — which is the peril block
+        // under the bar.
         ui.add_space(6.0);
         let points = game.health(w);
         let armour = if alive { game.armour_health(w) } else { 0.0 };
-        let stage = game.malnutrition(w);
         let perils = if alive { perils(game, w) } else { Vec::new() };
-        let hurt = stage >= 3 || !alive || !perils.is_empty();
+        let hurt = !alive || !perils.is_empty();
         ui.horizontal(|ui| {
             if who == 0 {
                 theme::asks(ui, "Health", HEALTH_TIP);
@@ -2504,13 +1831,12 @@ impl CrewPanels {
         // warning that looks like the rows around it is not one.
         //
         // Graded by what a player would have to do about it. A dying
-        // state or extreme malnutrition is the red block, the one the
-        // cross on the deck marks, and wants a medkit or a meal; a body
-        // that is only losing blood through wounds a bandage closes
-        // gets the same block and the same countdown in the caution
-        // colour, since a scratch that would empty it in ten hours is
-        // worth a number and not a fright.
-        let grave = alive && (game.is_dying(w) || stage >= 3);
+        // state is the red block, the one the cross on the deck marks, and
+        // wants a medkit; a body that is only losing blood through wounds
+        // a bandage closes gets the same block and the same countdown in
+        // the caution colour, since a scratch that would empty it in ten
+        // hours is worth a number and not a fright.
+        let grave = alive && game.is_dying(w);
         let peril_ink = if grave { theme::DYING } else { theme::CAUTION };
         if alive && !perils.is_empty() {
             ui.add_space(3.0);
@@ -2726,9 +2052,7 @@ impl CrewPanels {
             true,
             false,
         );
-        if alive {
-            line(ui, CONDITIONS[stage as usize].to_string(), stage > 0, false);
-        } else {
+        if !alive {
             // The dead say what of, in the red the cross over them was:
             // a bar at nothing is not an answer, and "has died" on its
             // own leaves a player scrolling back through the log for
@@ -2745,71 +2069,6 @@ impl CrewPanels {
                     .color(theme::MUTED),
             );
         }
-        let tired = game.drowsiness(w);
-        line(
-            ui,
-            if alive {
-                DROWSINESS[tired as usize].into()
-            } else {
-                String::new()
-            },
-            tired > 0,
-            false,
-        );
-        // Both of these are stages reached by a clock rather than levels,
-        // so the bars above cannot show them.
-        let urge = if alive { game.urge(w) } else { 0 };
-        line(ui, URGES[urge as usize].into(), urge >= 2, false);
-        let mess = if alive { game.discomfort(w) } else { 0 };
-        line(ui, DISCOMFORTS[mess as usize].into(), mess >= 2, false);
-        let ill = if alive { game.poisoning(w) } else { 0.0 };
-        line(
-            ui,
-            if ill > 0.0 {
-                format!("Food poisoning · {} hours to go", ill.ceil())
-            } else {
-                String::new()
-            },
-            ill > 0.0,
-            false,
-        );
-        // No bunk, and sore from the deck: both the bunk's business — click
-        // one to give it — so the tip hangs off a `?` beside the line.
-        let no_bed = alive && game.bed_of(w).is_none();
-        if no_bed {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(NO_BED_LINE)
-                        .small()
-                        .color(theme::CAUTION),
-                );
-                theme::question_mark(ui, SORE_TIP);
-            });
-        }
-        let sore = if alive { game.soreness(w) } else { 0.0 };
-        line(
-            ui,
-            if sore > 0.0 {
-                format!("{SORE_LINE} · {} hours to go", sore.ceil())
-            } else {
-                String::new()
-            },
-            sore > 0.0,
-            false,
-        );
-        let alone = if alive { game.loneliness(w) } else { 0 };
-        let days = game.days_alone(w).floor();
-        line(
-            ui,
-            if alone > 0 {
-                format!("{} · {days} days", LONELINESS[alone as usize])
-            } else {
-                String::new()
-            },
-            alone >= 2,
-            false,
-        );
-
         // The class (feature 74): the player's own crew member's, with its
         // level, what the next wants, the pick waiting and the talents
         // learnt. Only their own: a class is a slot's.
@@ -2950,12 +2209,12 @@ impl CrewPanels {
 
     // --- the tray ---------------------------------------------------------------
 
-    /// Bottom-left, three tabs — seven on the ship, where there is a view
-    /// to pick, actions to take outside, parts to build and a helm — and it
-    /// folds away. Docked, a Station button sits with the tabs: not a tab
-    /// but a press, which the screen answers with the trade window. True
-    /// when the Ship tab is open, whose body the caller draws under the
-    /// tabs itself.
+    /// Bottom-left, the tabs — the work list, the management row and the
+    /// inventory, then the view to pick, the parts to build while there is
+    /// a shipyard, the research, the skills and the ship — and it folds
+    /// away. Docked, a Station button sits with the tabs: not a tab but a
+    /// press, which the screen answers with the trade window. True when the
+    /// Ship tab is open, whose body the caller draws under the tabs itself.
     pub fn tray(
         &mut self,
         ui: &mut egui::Ui,
@@ -2964,7 +2223,6 @@ impl CrewPanels {
         name: &dyn Fn(u32) -> String,
     ) -> bool {
         let mut tabs = vec![
-            (Tab::Schedule, "Schedule"),
             (Tab::Work, "Work"),
             (Tab::Management, "Management"),
             (Tab::Inventory, "Inventory"),
@@ -2984,7 +2242,7 @@ impl CrewPanels {
             self.tab,
             Tab::View | Tab::Build | Tab::Research | Tab::Skills | Tab::Ship
         ) {
-            self.tab = Tab::Schedule;
+            self.tab = Tab::Inventory;
         }
         let docked = actions.as_ref().is_some_and(|a| a.docked);
         let mut station = false;
@@ -3025,7 +2283,6 @@ impl CrewPanels {
         ui.separator();
         match self.tab {
             Tab::Ship => return true,
-            Tab::Schedule => self.schedule(ui, game),
             Tab::Work => self.work(ui, game),
             Tab::Management => self.management(ui, game, actions),
             Tab::Inventory => {
@@ -3547,7 +2804,7 @@ impl CrewPanels {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .frame(crate::screens::room::panel_frame());
+            .frame(crate::theme::panel_frame());
         let window = match self.container_rect {
             Some(rect) => window.fixed_pos(egui::pos2(rect.max.x + 10.0, rect.min.y)),
             None => window.anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 60.0)),
@@ -3671,7 +2928,7 @@ impl CrewPanels {
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
-            .frame(crate::screens::room::panel_frame())
+            .frame(crate::theme::panel_frame())
             .show(ctx, |ui| {
                 strip = nearby_strip(ui, &nearby, showing);
                 ui.horizontal(|ui| {
@@ -3857,7 +3114,7 @@ impl CrewPanels {
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
-            .frame(crate::screens::room::panel_frame())
+            .frame(crate::theme::panel_frame())
             .show(ctx, |ui| {
                 // Wide enough for the hint's line: with nothing wider than
                 // the three cells the window would wrap it to nothing.
@@ -4037,8 +3294,8 @@ impl CrewPanels {
     /// the weapon and every piece worn, which is what the fee is — and a
     /// month's fee, with the button that sends the hire through the seam
     /// (`GearOrder::Hire`). Greyed, with the reason, while the Bim shown
-    /// is out of reach (the row walked it over), the money is short, or
-    /// there is no bunk aboard. Shut by its cross, by Escape, by the hire
+    /// is out of reach (the row walked it over) or the money is short.
+    /// Shut by its cross, by Escape, by the hire
     /// going through, or by the body no longer being for hire — the rooms
     /// parted. Call once a frame after the screen has set
     /// [`CrewPanels::terms`], in the Loot window's place.
@@ -4060,7 +3317,7 @@ impl CrewPanels {
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
-            .frame(crate::screens::room::panel_frame())
+            .frame(crate::theme::panel_frame())
             .show(ctx, |ui| {
                 // The trade first, where there is one to name (feature
                 // 86): a field medic is hired for what it does and not
@@ -4090,8 +3347,6 @@ impl CrewPanels {
                 });
                 let hint = if !terms.in_reach {
                     Some(format!("{} — {REACH_HINT}", name(who as u32)))
-                } else if !terms.bunk {
-                    Some(NO_BUNK_HINT.to_string())
                 } else if !terms.affordable {
                     Some(BROKE_HINT.to_string())
                 } else {
@@ -4131,7 +3386,7 @@ impl CrewPanels {
     /// it into the pack of the Bim shown; right-click for the row. Shut
     /// by its cross, by Escape, by the Bim getting up (a crewmate that
     /// came round is no longer a body), or by the body going away under
-    /// it — the rooms parting. Call once a frame after the tray, after
+    /// it. Call once a frame after the tray, after
     /// [`CrewPanels::container_window`] and after the screen has set
     /// [`CrewPanels::body`], and before [`CrewPanels::inventory_window`],
     /// which sits beside it.
@@ -4147,11 +3402,14 @@ impl CrewPanels {
             self.open = None;
             return;
         }
-        let who = self.inventory_who(game);
-        let whose = match source {
-            LootSource::Crew(body) => name(body),
-            LootSource::Resident(body) => name(self.crew_count + body),
+        // A crewmate's body, and only a crewmate's: what one of the
+        // station's people had on it is its own.
+        let LootSource::Crew(whose) = source else {
+            self.open = None;
+            return;
         };
+        let who = self.inventory_who(game);
+        let whose = name(whose);
         let cells: Vec<Option<Cell>> = body.cells[PACK_CELLS..]
             .iter()
             .enumerate()
@@ -4177,7 +3435,7 @@ impl CrewPanels {
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
-            .frame(crate::screens::room::panel_frame())
+            .frame(crate::theme::panel_frame())
             .show(ctx, |ui| {
                 strip = nearby_strip(ui, &nearby, showing);
                 ui.horizontal(|ui| {
@@ -4276,141 +3534,6 @@ impl CrewPanels {
                 });
             }
         }
-    }
-
-    /// The Plunder window: the enemy's shelf as a lockers' grid nothing
-    /// can be moved on — looked at and taken from, not tidied. Ctrl-click
-    /// a stack to take it into the pack of the Bim shown, as far as the
-    /// pack goes; right-click for the row. Shuts when the shelf is gone:
-    /// the rooms parted, or the station no longer an enemy's. Call once
-    /// a frame after the menu, like the Loot window.
-    pub fn plunder_window(
-        &mut self,
-        ctx: &egui::Context,
-        game: &Game,
-        name: &dyn Fn(u32) -> String,
-    ) {
-        let Some(Open::Plunder(_)) = self.open else {
-            return;
-        };
-        let Some(shelf) = self.shelf.as_ref() else {
-            self.open = None;
-            return;
-        };
-        let who = self.inventory_who(game);
-        let cols = shipdesign::GRID_COLS as usize;
-        let rows = Grid::rows(shelf.capacity) as usize;
-        let blocked = rows * cols - shelf.capacity as usize;
-        let (things, slots) = grid_things(&shelf.grid, &Hold::default());
-        let reach = shelf.reach;
-        let mut open = true;
-        let mut moved = grid::Moved::default();
-        let mut no_drag = None;
-        let mut strip = None;
-        let (nearby, showing) = (self.nearby.clone(), self.open);
-        let never = |_: usize, _: usize, _: usize, _: bool| false;
-        let response = egui::Window::new(PLUNDER_WINDOW)
-            .id(egui::Id::new("plunder-window"))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::LEFT_TOP, CONTAINER_AT)
-            .frame(crate::screens::room::panel_frame())
-            .show(ctx, |ui| {
-                strip = nearby_strip(ui, &nearby, showing);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(if things.is_empty() {
-                            "Bare — everything is off it".to_string()
-                        } else {
-                            format!("{} on the enemy's shelf", stacks_text(things.len()))
-                        })
-                        .small()
-                        .color(theme::MUTED),
-                    );
-                    theme::question_mark(ui, PLUNDER_TIP);
-                });
-                moved = grid::lockers(
-                    ui,
-                    cols,
-                    rows,
-                    blocked,
-                    container_cell(Storage::Locker),
-                    &things,
-                    &mut no_drag,
-                    &never,
-                    self.keys.key(Action::Turn),
-                    false,
-                );
-                let hint = if reach {
-                    format!(
-                        "Ctrl-click takes the stack into {}'s pack, as far as it goes · right-click for the row",
-                        name(who as u32)
-                    )
-                } else {
-                    format!(
-                        "{} is not within reach — walk over first; clicking the shelf sends the Bim",
-                        name(who as u32)
-                    )
-                };
-                ui.add(
-                    egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap(),
-                );
-            });
-        if let Some(response) = response {
-            self.container_rect = Some(response.response.rect);
-        }
-        if !open {
-            self.open = None;
-        }
-        self.follow_strip(strip);
-        // The pointer on a stack: a right-click is the row, a ctrl-click
-        // the quick take — or the row, when the take cannot go, so the
-        // reason is read rather than guessed at.
-        if let Some((i, at)) = moved.right_clicked
-            && let Some(&id) = slots.get(i)
-        {
-            self.cell_menu = Some(CellMenu {
-                at,
-                from: Source::Plunder(id),
-                who,
-                fresh: true,
-            });
-        }
-        if let Some((i, at)) = moved.ctrl_clicked
-            && let Some(&id) = slots.get(i)
-        {
-            if self.can_plunder(game, who).is_ok() {
-                self.orders.push(GearOrder::Plunder {
-                    who: who as u32,
-                    id,
-                });
-            } else {
-                self.cell_menu = Some(CellMenu {
-                    at,
-                    from: Source::Plunder(id),
-                    who,
-                    fresh: true,
-                });
-            }
-        }
-    }
-
-    /// Whether a stack on the enemy's shelf can come into `who`'s pack
-    /// now, or why not: the shelf still there, reach, and a free cell.
-    /// The world checks the same things again when the command lands;
-    /// this is so the row can say so first.
-    fn can_plunder(&self, game: &Game, who: usize) -> Result<(), String> {
-        let Some(shelf) = &self.shelf else {
-            return Err("the shelf is gone".into());
-        };
-        if !shelf.reach {
-            return Err(REACH_HINT.into());
-        }
-        if game.gear(who).free_cell().is_none() {
-            return Err("the pack is full".into());
-        }
-        Ok(())
     }
 
     /// Whether a thing on the open body can come into `who`'s pack now, or
@@ -4673,32 +3796,6 @@ impl CrewPanels {
                         who: who as u32,
                         source,
                         cell,
-                    },
-                ));
-            }
-            Source::Plunder(id) => {
-                let Some(slot) = self.shelf.as_ref().and_then(|s| s.grid.slot(id)) else {
-                    return rows;
-                };
-                let (hint, disabled) = match self.can_plunder(game, who) {
-                    Ok(()) => (
-                        format!(
-                            "{} into {}'s pack, one to a cell, as far as it goes",
-                            match slot.count {
-                                1 => "it".to_string(),
-                                n => format!("the stack of {n}"),
-                            },
-                            name(who as u32)
-                        ),
-                        false,
-                    ),
-                    Err(why) => (why, true),
-                };
-                rows.push((
-                    theme::Row::new("Take", hint, disabled),
-                    GearOrder::Plunder {
-                        who: who as u32,
-                        id,
                     },
                 ));
             }
@@ -5673,115 +4770,6 @@ impl CrewPanels {
         });
     }
 
-    /// The day, one slot an hour, painted with a brush; and under it the
-    /// action thresholds.
-    fn schedule(&mut self, ui: &mut egui::Ui, game: &mut Game) {
-        ui.horizontal(|ui| {
-            for (slot, label, color) in [(1, "Sleep", theme::SLEEP), (0, "Everything", theme::ANY)] {
-                theme::swatch(ui, color);
-                if theme::toggle(ui, self.brush == slot, label).clicked() {
-                    self.brush = slot;
-                }
-            }
-            let above = (game.schedule_ignore_above() * 100.0).round();
-            theme::question_mark(
-                ui,
-                &format!(
-                    "Paint the hours the Bim should be asleep. It goes to bed when one comes round — unless it is already more than {above}% rested, in which case it ignores that one — and gets up as soon as it is fully rested."
-                ),
-            );
-        });
-        let now = (game.clock_minutes() / 60.0).floor() as usize % schedule::HOURS;
-        let released = ui.input(|i| i.pointer.any_released());
-        if released {
-            self.painting = false;
-        }
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            for hour in 0..schedule::HOURS {
-                let asleep = game.schedule_slot(hour as u32) == 1;
-                let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(18.0, 22.0), egui::Sense::click_and_drag());
-                let fill = if asleep { theme::SLEEP } else { theme::ANY };
-                ui.painter().rect_filled(rect, 3.0, fill);
-                if hour == now {
-                    ui.painter().rect_stroke(
-                        rect,
-                        3.0,
-                        egui::Stroke::new(1.5, theme::ACCENT),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-                ui.painter().text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    hour.to_string(),
-                    egui::FontId::proportional(10.0),
-                    theme::INK,
-                );
-                let response = response.on_hover_text(format!("{hour:02}:00"));
-                if response.drag_started() || response.clicked() {
-                    self.painting = true;
-                    self.crew_orders.push(CrewOrder::ScheduleSlot {
-                        hour: hour as u32,
-                        slot: self.brush,
-                    });
-                } else if self.painting && response.hovered() {
-                    // Dragging across the strip paints the whole run in one
-                    // gesture.
-                    self.crew_orders.push(CrewOrder::ScheduleSlot {
-                        hour: hour as u32,
-                        slot: self.brush,
-                    });
-                }
-            }
-        });
-
-        // When the Bim sees to itself: a tick box for whether it watches
-        // that need at all, and a slider for the level it acts on.
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("Action threshold")
-                    .small()
-                    .color(theme::MUTED),
-            );
-            theme::question_mark(ui, TRIGGER_TIP);
-        });
-        egui::Grid::new("triggers")
-            .num_columns(4)
-            .spacing([8.0, 2.0])
-            .show(ui, |ui| {
-                for i in TRIGGER_NEEDS {
-                    let mut on = game.need_trigger_on(i);
-                    if ui.checkbox(&mut on, "").changed() {
-                        self.crew_orders
-                            .push(CrewOrder::NeedTriggerOn { need: i, on });
-                    }
-                    ui.label(
-                        egui::RichText::new(NEED_NAMES.get(i as usize).copied().unwrap_or("Need"))
-                            .color(if on { theme::INK } else { theme::MUTED }),
-                    );
-                    let mut at = (game.need_trigger(i) * 100.0).round() as u32;
-                    if ui
-                        .add(egui::Slider::new(&mut at, 0..=100).show_value(false))
-                        .changed()
-                    {
-                        self.crew_orders.push(CrewOrder::NeedTrigger {
-                            need: i,
-                            at: at as f32 / 100.0,
-                        });
-                    }
-                    ui.label(
-                        egui::RichText::new(format!("{at}%"))
-                            .small()
-                            .color(theme::MUTED),
-                    );
-                    ui.end_row();
-                }
-            });
-    }
-
     /// The order the work gets done in. One row per job, built from the
     /// count the room reports rather than from the table of names, so a
     /// job added on that side shows up as a blank row rather than going
@@ -5902,8 +4890,9 @@ impl CrewPanels {
             });
     }
 
-    /// What is aboard, and what to keep in stock: the three targets, by
-    /// `manager::Stock`, each in the row of the thing it is a target for.
+    /// How the crew are left to get on: whether a Bim picks its own work,
+    /// whether the workbench combines matching gear, and what the benches
+    /// keep made.
     fn management(
         &mut self,
         ui: &mut egui::Ui,
@@ -5918,8 +4907,7 @@ impl CrewPanels {
             theme::asks(ui, "Let the Bim decide", AUTONOMY_TIP);
         });
         // The workbench's upgrade: a tick box, and while one is on the
-        // bench a line saying what and how far. The ship's only — the
-        // room alone has no hold and no bench worth the name.
+        // bench a line saying what and how far.
         if let Some(actions) = actions.as_deref_mut() {
             ui.horizontal(|ui| {
                 let mut on = actions.auto_upgrade;
@@ -5942,73 +4930,21 @@ impl CrewPanels {
                 );
             }
         }
+        // What the benches make: a standing order to keep so many made,
+        // kept in the hold and answered at the bench that makes it.
+        let Some(actions) = actions else {
+            return;
+        };
+        if actions.crafts.is_empty() {
+            return;
+        }
         egui::Grid::new("stock")
             .num_columns(4)
             .spacing([12.0, 2.0])
             .show(ui, |ui| {
-                for head in ["Item", "Stock", "Location"] {
+                for head in ["Made aboard", "Stock", "Location", "Target"] {
                     ui.label(egui::RichText::new(head).small().color(theme::MUTED));
                 }
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Target").small().color(theme::MUTED));
-                    theme::question_mark(ui, TARGET_TIP);
-                });
-                ui.end_row();
-                let rows = [
-                    ("Vegetables", game.store_veg(), Stock::Veg),
-                    ("Tofu", game.store_tofu(), Stock::Tofu),
-                    ("Stew", game.store_stew(), Stock::Stew),
-                    ("Fibre", game.store_fibre(), Stock::Fibre),
-                ];
-                for (name, held, which) in rows {
-                    // Fibre is the one row that is not food, and the
-                    // Target tip above says nothing about it, so its own
-                    // word asks.
-                    let a = if which == Stock::Fibre {
-                        theme::asks(ui, name, FIBRE_TIP)
-                    } else {
-                        ui.label(name)
-                    };
-                    let b = ui.label(held.to_string());
-                    let c = ui.label("Cold store");
-                    let mut target = game.target(which);
-                    let input = ui.add(
-                        egui::DragValue::new(&mut target)
-                            .range(0..=manager::MOST)
-                            .speed(0.2),
-                    );
-                    if input.changed() {
-                        self.crew_orders.push(CrewOrder::StockTarget {
-                            which,
-                            count: target,
-                        });
-                    }
-                    for r in [&a, &b, &c] {
-                        self.points(r, SPOT_FRIDGE);
-                    }
-                    // The vegetable and tofu targets are the bay's orders and
-                    // the stew target the hob's, so resting on the cell rings
-                    // the place that answers it.
-                    self.points(&input, KEEP_SPOTS[which as usize]);
-                    ui.end_row();
-                }
-                // There is no row for the dressings any more: a bandage is
-                // everybody's charge, carried and come back on a cooldown,
-                // and nobody fills a pack out of the hold to a target.
-                // Then what the benches make, on the ship: the same kind of
-                // standing order, kept in the hold rather than the cold
-                // store, and answered by the smelter and the workbench.
-                let Some(actions) = actions else {
-                    return;
-                };
-                if actions.crafts.is_empty() {
-                    return;
-                }
-                ui.label(
-                    egui::RichText::new("Made aboard")
-                        .small()
-                        .color(theme::MUTED),
-                );
                 ui.end_row();
                 for craft in &actions.crafts {
                     // A recipe the crew have not researched is greyed, and
@@ -6068,61 +5004,13 @@ impl CrewPanels {
                     }
                 }
             },
-            SPOT_FRIDGE => {
-                let open = game.fridge_at(x, y).is_some_and(|i| game.fridge_is_open(i));
-                if open { "open" } else { "" }.into()
-            }
-            SPOT_HOB => {
-                let lit = game.hob_at(x, y).is_some_and(|i| game.stove_is_on(i));
-                if lit { "lit" } else { "" }.into()
-            }
-            SPOT_BOARD => {
-                let plates = game.plates();
-                if plates == 1 {
-                    "1 plate in the drawer".into()
-                } else {
-                    format!("{plates} plates in the drawer")
-                }
-            }
-            SPOT_DISHWASHER => {
-                let i = game.dishwasher_at(x, y).unwrap_or(0);
-                if game.dishwasher_cycle_left(i) > 0.0 {
-                    "running".into()
-                } else if game.dishwasher_loaded(i) > 0 {
-                    format!("{} plates in it", game.dishwasher_loaded(i))
-                } else {
-                    String::new()
-                }
-            }
-            SPOT_BAY => {
-                let ripe = game
-                    .bay_at(x, y)
-                    .map(|bay| game.hydro_ripe(bay))
-                    .unwrap_or(0);
-                if ripe > 0 {
-                    format!("{ripe} ready to lift")
-                } else {
-                    String::new()
-                }
-            }
-            SPOT_DOOR => {
-                if game.door_is_locked() {
-                    "locked".into()
-                } else if game.door_is_open() {
-                    "open".into()
-                } else {
-                    "shut".into()
-                }
-            }
             _ => String::new(),
         }
     }
 
     /// What the room makes of a point on the deck, in room coordinates: the
-    /// spot code, the thing there and its state — "Hob · lit" — and
-    /// whatever is lying on the deck at that spot, or "" when it is clean
-    /// or not deck at all.
-    pub fn spot_readout(game: &Game, x: f32, y: f32) -> (u32, String, String) {
+    /// spot code, and the thing there with its state — "Door · locked".
+    pub fn spot_readout(game: &Game, x: f32, y: f32) -> (u32, String) {
         let spot = game.spot_at(x, y);
         let mut thing = SPOT_NAMES
             .get(spot as usize)
@@ -6133,22 +5021,10 @@ impl CrewPanels {
         if !state.is_empty() {
             thing = format!("{thing} · {state}");
         }
-        let mut on_it = String::new();
-        if DECK_SPOTS.contains(&spot) {
-            let mess = MESS_NAMES
-                .get(game.spot_mess(x, y) as usize)
-                .copied()
-                .unwrap_or("");
-            if !mess.is_empty() {
-                let deep = (game.spot_mess_depth(x, y) * 100.0).round();
-                on_it = format!("{mess} — {deep}% fouled");
-            }
-        }
-        (spot, thing, on_it)
+        (spot, thing)
     }
 }
 
-/// The room's own idea of who is steered: `bim::PLAYER`.
 /// The colour of a priority box: red for never, and from there a ramp
 /// from hot at the top of the range to cool grey at the bottom, so the
 /// Work tab reads as a heat map rather than a column of threes.
@@ -6517,15 +5393,6 @@ fn nearby_strip(ui: &mut egui::Ui, nearby: &[Near], open: Option<Open>) -> Optio
     pick
 }
 
-/// So many stacks, in words.
-fn stacks_text(n: usize) -> String {
-    if n == 1 {
-        "1 stack".to_string()
-    } else {
-        format!("{n} stacks")
-    }
-}
-
 /// Whose hands a treatment of `patient` would be: the player's own Bim
 /// for a crewmate, while it is alive, awake and aboard; for the player's
 /// own — nobody treats their own — the nearest crewmate that is free to.
@@ -6553,8 +5420,8 @@ fn treat_helper(game: &Game, player: usize, patient: usize) -> Option<usize> {
 
 /// The medkits `who` could treat with: the ones in its own pack — a
 /// medkit is a charge every crew member carries — and any on the room's
-/// shelf, which aboard is none and in the test room is the few it opens
-/// with. The room's own rule for whether a treatment has a kit.
+/// shelf, which aboard is none. The room's own rule for whether a
+/// treatment has a kit.
 fn kits_to_hand(game: &Game, who: usize) -> u32 {
     let kit = PackItem::Stack(ResourceId::Medkit as u32);
     game.medkits() + game.gear(who).units_of(kit)
@@ -6577,10 +5444,6 @@ fn bandage_words(wounds: u32, bandages: u32) -> (String, &'static str) {
         "closes every wound on it — ten minutes with hands on"
     };
     (count, hint)
-}
-
-pub fn player() -> usize {
-    bim::PLAYER
 }
 
 #[cfg(test)]
@@ -6637,18 +5500,17 @@ mod tests {
 
         // And a body with no blood in it died of that, whatever else is
         // wrong with it.
-        assert_eq!(death_line(&game, 0), DEATH_GAVE_UP);
+        assert_eq!(death_line(&game, 0), DEATH_OTHER);
         game.set_blood_for_probe(0, 0.0);
         assert_eq!(death_line(&game, 0), DEATH_BLED_OUT);
     }
 
     /// The work list's rows are built off `work_count`, so a spot table a
     /// row short would ring nothing for the last job and nobody would
-    /// notice; the target table is indexed by `manager::Stock` the same way.
+    /// notice.
     #[test]
-    fn every_job_and_every_target_has_a_place_to_ring() {
+    fn every_job_has_a_place_to_ring() {
         assert_eq!(WORK_SPOTS.len(), bims::work::Job::ALL.len());
-        assert_eq!(KEEP_SPOTS.len(), Stock::ALL.len());
     }
 
     /// The Skills tree's rules (feature 83): a point for every pick level

@@ -537,7 +537,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         }
         Refusal::BenchBusy => "the bench is at work on what is on it — wait for the day to finish",
         // A walk ordered on the deck (`Command::Crew`): the room's two
-        // refusals, said the way `order_refused` says them in the test room.
+        // refusals.
         Refusal::DoorLocked => "the bathroom door is locked on the only way there",
         Refusal::NoWayThere => "there is no way there at all",
         Refusal::NotQueued => "that is not on the research queue",
@@ -663,7 +663,7 @@ pub const LOAD_GUEST: &str = "Only the host can load a game.";
 /// The Esc sheet's Restart (feature 79): the menu's button, the page's
 /// line, the button that does it, and the two reasons it is greyed.
 pub const RESTART_BUTTON: &str = "Restart";
-pub const RESTART_LINE: &str = "Play this run again from the situation it opened in — the fight, the raid, the landing, or the game the yard started. Everything since is lost, and a saved game is not touched.";
+pub const RESTART_LINE: &str = "Play this run again from the situation it opened in — the fight, the town, the landing, or the run the lobby started. Everything since is lost, and a saved game is not touched.";
 pub const RESTART_AGAIN: &str = "Start again";
 pub const RESTART_NONE: &str = "Nothing to restart yet: the run starts when the ship is accepted.";
 /// A guest's Restart is greyed with this, as its Load is.
@@ -1891,9 +1891,6 @@ pub fn droid_name(code: u32) -> &'static str {
     DROID_NAMES.get(code as usize).copied().unwrap_or("Machine")
 }
 
-/// Which part of a trip the ship is in, indexed by `flight::Phase`.
-pub const PHASE_NAMES: [&str; 5] = ["Aligning", "Burning", "Turning", "Braking", "Holding"];
-
 /// What happened, as a sentence. `None` for an event with nothing to say —
 /// there are none today, and the arm is here so a new event is a missing
 /// line rather than a blank row.
@@ -2045,19 +2042,10 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         // One thing off a body into the pack; whose body by its kind,
         // `LootSource::code` — a crewmate's, or one of the station's
         // people's.
-        WorldEvent::Looted {
-            who: w,
-            source_kind,
-        } => {
-            format!(
-                "{} took something off {}.",
-                who(w),
-                if source_kind == 1 {
-                    "one of the station's people"
-                } else {
-                    "a crewmate"
-                }
-            )
+        // Only a crewmate's body is looted: what one of the station's
+        // people had on it is its own.
+        WorldEvent::Looted { who: w, .. } => {
+            format!("{} took something off a crewmate.", who(w))
         }
         WorldEvent::Hired { who: w } => {
             format!("{} signed on — a hired hand, paid by the month.", who(w))
@@ -2121,7 +2109,7 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         }
         WorldEvent::RaidContact { boarders, minutes } => format!(
             "Raiders. A hostile ship is on the radar and closing, incoming in {}, with {boarders} aboard. Everybody back to 1×.",
-            crate::format::in_words(minutes as f64)
+            crate::format::span_text(minutes as f32)
         ),
         WorldEvent::RaidBoarded { boarders } => format!(
             "The raider is alongside: the airlock is locked in its face, and {boarders} boarders are forcing it."
@@ -2616,45 +2604,7 @@ pub fn station_name(name: worldgen::Name) -> String {
 
 // --- the room's words ------------------------------------------------------
 
-/// The needs, in the order the room indexes them.
-pub const NEED_NAMES: [&str; 6] = [
-    "Rest",
-    "Food",
-    "Restroom",
-    "Surroundings",
-    "Socializing",
-    "Washing",
-];
-
-/// Which of those get a trigger in the schedule tab.
-pub const TRIGGER_NEEDS: [u32; 3] = [0, 1, 5];
-
-/// What each bar is, for the tooltip on its row.
-pub fn need_tip(need: usize) -> &'static str {
-    match need {
-        0 => {
-            "Runs down all day. The timetable is what sends the Bim to bed on an ordinary night — the level only decides whether a scheduled night is worth taking. The trigger under the timetable is the floor beneath that: past it the Bim turns in whatever the hour, unless a meal or the heads comes first."
-        }
-        1 => {
-            "Past its trigger — a tenth, until you move it — the Bim goes and cooks itself a meal. Empty for eight hours and malnutrition sets in; a day of it is fatal."
-        }
-        2 => {
-            "Under 10% the Bim takes itself to the toilet. If it cannot — shut in, under orders — it fidgets, then risks wetting itself, and an hour after the bar empties it has an accident. A meal cooked in a dirty galley — every tile within two of the hob with a mess on it, a wetting or worse, is a one-in-five chance — is food poisoning: for two days this runs three times as fast and empties straight into an accident."
-        }
-        3 => {
-            "Not a clock like the others: it follows the deck within three tiles of the Bim — the mess on it, lifted by any plant or picture in reach — and whatever the Bim has on itself. At nothing it treads carefully, then keeps away from the mess, then is sick in it every half hour."
-        }
-        4 => {
-            "The one need that wants another Bim rather than a fixture. Past its trigger the Bim goes and finds the other one, and they stand and talk about whatever they have been doing. This bar is the comfortable end of it; what matters is the count of days underneath, because going without runs on a far longer clock that starts once this bar is empty — six days of that and a Bim is low and slow, eight and it sits down on the deck, ten and it starts hurting itself."
-        }
-        5 => {
-            "A day's grime, on the clock like food: it runs down over the waking day and the Bim wants a shower about once a day. Past its trigger it goes and takes one, where the ship has a shower — a room without one is a Bim that goes on wanting a wash and nothing worse. Separate from Surroundings, which is the deck around it."
-        }
-        _ => "",
-    }
-}
-
-pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar: a shot takes its damage off whichever it lands on, and the head or the body at nothing is death. The legs at nothing is a leg lost. Every hit opens a wound that bleeds until it is dressed — the Blood bar underneath — and below three quarters of its blood the Bim is slow, below half it is out cold where it stands — nothing aims at a body that far gone — and at nothing it is dead. Only the worst stage of malnutrition costs health of itself, and eating properly walks it back. The lines underneath name whatever is wrong. The blue on the end of a bar is armour: a worn piece adds what it has left to the part, takes every hit first — its protection comes off the damage before anything else, and the rest drains the piece — and only what the piece cannot take reaches the body. At nothing it is broken: still worn, doing nothing, worth nothing put away — discard it and make another.";
+pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar: a shot takes its damage off whichever it lands on, and the head or the body at nothing is death. The legs at nothing is a leg lost. Every hit opens a wound that bleeds until it is dressed — the Blood bar underneath — and below three quarters of its blood the Bim is slow, below half it is out cold where it stands — nothing aims at a body that far gone — and at nothing it is dead. The lines underneath name whatever is wrong. The blue on the end of a bar is armour: a worn piece adds what it has left to the part, takes every hit first — its protection comes off the damage before anything else, and the rest drains the piece — and only what the piece cannot take reaches the body. At nothing it is broken: still worn, doing nothing, worth nothing put away — discard it and make another.";
 
 // --- what is killing it -----------------------------------------------------
 //
@@ -2664,8 +2614,8 @@ pub const HEALTH_TIP: &str = "The head, the body and the legs add up to this bar
 // `crew::perils`, off the room's own constants.
 
 /// The headline over the block. The first is for a body in a dying
-/// state or starving — the red one, the one the cross on the deck
-/// marks, the one a medkit or a meal is the answer to. The second is
+/// state — the red one, the one the cross on the deck marks, the one a
+/// medkit is the answer to. The second is
 /// for a body that is only losing blood through wounds a bandage
 /// closes: the same block and the same countdown, in the caution
 /// colour, because a scratch that would empty it in ten hours is worth
@@ -2675,13 +2625,10 @@ pub const PERIL_HEAD_HURT: &str = "LOSING";
 /// A body losing blood faster than it makes it: the wounds and the
 /// untreated traumas together.
 pub const PERIL_BLEEDING: &str = "Blood loss";
-/// The last stage of malnutrition, which is the only one that costs
-/// health of itself.
-pub const PERIL_STARVING: &str = "Starvation";
-/// What each of them wants done about it.
+/// What it wants done about it: a medkit where a trauma bleeds, a bandage
+/// where only wounds do.
 pub const PERIL_BLEED_MEDKIT: &str = "A crewmate with a medkit, then a bandage on the rest.";
 pub const PERIL_BLEED_BANDAGE: &str = "A bandage on each part closes the wounds.";
-pub const PERIL_STARVE_FIX: &str = "It has to eat, and soon.";
 /// The line under a body that is in a dying state but losing nothing —
 /// a concussion, broken ribs, a shattered knee. It will not die of it,
 /// and saying so is the point of the line.
@@ -2706,22 +2653,16 @@ pub fn peril_wounds(part: &str, n: u32) -> String {
 pub fn peril_rate(an_hour: f32) -> String {
     format!("{} blood an hour", an_hour.round() as i64)
 }
-/// How fast starvation is taking the health bar down.
-pub fn peril_drain(a_day: f32) -> String {
-    format!("{} health a day", a_day.round() as i64)
-}
 
 /// What a dead body says it died of. Nothing records a cause of death,
 /// so this reads it off the body the same way a person would: no blood
-/// left is one death, and the head and the body both at nothing with no
-/// trauma on either is the other — starved if it was starving, and
-/// otherwise its own hand, which is the only thing left that empties
-/// both parts and leaves them clean.
+/// left is the death a fight deals, and the head and the body both at
+/// nothing with no trauma on either — a body killed outright — is said
+/// as no more than that.
 pub const DEATH_BLED_OUT: &str = "Bled out.";
-pub const DEATH_STARVED: &str = "Starved.";
-pub const DEATH_GAVE_UP: &str = "Gave up.";
+pub const DEATH_OTHER: &str = "Dead.";
 
-pub const PERIL_TIP: &str = "What is taking this Bim down right now, and how long it has at that rate. Blood runs out through every open wound — ten an hour each — and through every untreated trauma that bleeds, and at nothing left the Bim is dead; a medkit ends a trauma, a bandage closes the wounds on a part. Extreme malnutrition is the other one: it takes health off the head, the body and the legs until the head and the body are both at nothing. The countdown assumes nothing changes — a bandage, a medkit or a meal moves it at once.";
+pub const PERIL_TIP: &str = "What is taking this Bim down right now, and how long it has at that rate. Blood runs out through every open wound — ten an hour each — and through every untreated trauma that bleeds, and at nothing left the Bim is dead; a medkit ends a trauma, a bandage closes the wounds on a part. The countdown assumes nothing changes — a bandage or a medkit moves it at once.";
 
 pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a body — the head, the body or the legs — and stops the bleeding there. Order one here, or right-click a Bim on the deck, and the crew member you steer walks over and dresses it, ten minutes with hands on. The dressing comes out of that Bim's own pack, five to a box: everybody carries five, a medic ten, and each one used comes back into the pack thirty seconds later — the Bandages box at the foot of the screen counts them and sweeps the wait.";
 
@@ -2757,9 +2698,7 @@ pub const SHIFT_LATER_HINT: &str =
 /// can walk to it there.
 pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in first";
 
-pub const FIBRE_TIP: &str = "Fibre is the one crop nobody eats: a day in a tray, and two of it make a bandage at the drug lab. A target here has the bay grow it like greens and soy; 0 means never.";
-
-pub const AUTONOMY_TIP: &str = "Off, the Bim starts nothing by itself — no meals, no sleep, no trips to the toilet — but still does everything it is told. The levels carry on moving either way.";
+pub const AUTONOMY_TIP: &str = "Off, the Bim starts nothing by itself — no work off the list, no dressing a crewmate's wounds of its own accord — but still does everything it is told.";
 /// The Management tab's other tick box: the workbench's upgrade.
 /// The end of the run (`screens::game::over`): the title, the line under
 /// it, and the way back.
@@ -2794,15 +2733,9 @@ pub fn bench_work_line(done: u32, of: u32) -> String {
     format!("{done} of {of} h")
 }
 
-pub const TARGET_TIP: &str = "A target is a standing order: keep at least this many in the cold store. Whenever the count falls below it, the work goes on the crew's list by itself and whoever is free does it — for vegetables and tofu, planting a tray in the hydroponic bay (greens, or soy for tofu) and carrying the harvest to the store; for stew, cooking a pot on the hob out of one vegetable and one block of tofu and putting it on the shelf. Once the count is back at the target the job comes off the list, and above it nothing is grown or cooked. 0 means never. How soon it gets done is the Planting and Cooking priorities on the Work tab.";
-
-pub const TRIGGER_TIP: &str = "How low a need may get before the Bim breaks off and does something about it: past the mark on a row it takes itself to bed, or goes and cooks, on its own account. The timetable above says when it may sleep; the Rest threshold is the floor under that — past it the Bim turns in whatever the hour, unless a meal or the heads comes first. Untick one and that need still runs down and still tells on the Bim; only the errand stops.";
-
-pub const SPEED_TIP: &str = "How fast the simulation runs. At 24x a whole game day goes by in about a minute, and at 48x in half of one.";
-
 pub const BUILD_TIP: &str = "Lay out a part and the crew build it, out of what is on the shelves: whoever is free carries what it is made of to the site a load at a time, then stands beside it and puts it together — Hauling and Building on the Work tab say how soon. A site beyond the hull is reached in a suit, through the airlock. Nothing is built while the ship is moving, and the ship stays put while something is being built.";
 
-pub const ITEMS_TIP: &str = "What is aboard, by where it is kept: ore, metal and components on the shelves; vegetables and tofu in the cold store; armour, weapons and medical things in the lockers. The food is what the crew can eat now — the cold store is refilled from the manifest at every dock. Click the armoury, a shelf or the cold store on the deck to reach into it.";
+pub const ITEMS_TIP: &str = "What is aboard, by where it is kept: vegetables and tofu in the cold store; armour, weapons and medical things in the lockers. Click the armoury or a shelf on the deck to reach into it, or open the cold store from the Nearby strip over the inventory.";
 
 /// Months of the ship's calendar. Twelve of them and no leap years — see
 /// `crates/game/src/clock.rs`, which does the arithmetic; these are only
@@ -2824,51 +2757,14 @@ pub const MONTH_NAMES: [&str; 12] = [
 
 /// How a Bim says each thing it remembers, by the code from
 /// `crates/game/src/memory.rs`. First person, because it is its diary. `d`
-/// is the one detail that came with the entry. Only things that actually
-/// went wrong are in here, because only those are written down; an entry
+/// is the one detail that came with the entry. The one thing written down
+/// is a crewmate's death (`What::CrewDied`, `d` the crewmate); an entry
 /// with no line here is dropped from the page rather than padded out.
 pub fn memory_line(what: u32, d: u32) -> Option<String> {
-    Some(match what {
-        20 => {
-            if d == 1 {
-                "Could not hold it. I would rather not talk about it.".into()
-            } else {
-                "Did not quite make it to the heads.".into()
-            }
-        }
-        21 => "Was sick on the deck.".into(),
-        22 => "Dropped off where I was standing.".into(),
-        23 => match d {
-            1 => "Getting hungry. Properly hungry.",
-            2 => "I have not eaten in a long time.",
-            3 => "I am starving. I can feel it in my hands.",
-            _ => "Going hungry.",
-        }
-        .into(),
-        24 => match d {
-            1 => "Tired. I should sleep.",
-            2 => "I have not slept in far too long.",
-            3 => "I cannot keep my eyes open.",
-            _ => "Going without sleep.",
-        }
-        .into(),
-        25 => format!("Saw {} have an accident.", crew_or(d, "one of the crew")),
-        26 => format!("Saw {} being sick.", crew_or(d, "one of the crew")),
-        27 => {
-            if d >= 7 {
-                "Nobody has spoken to me in a week.".into()
-            } else if d >= 5 {
-                "The quiet is starting to get to me.".into()
-            } else {
-                "Feeling low. It has been a few days since anyone said anything.".into()
-            }
-        }
-        28 => "Sat down on the deck and could not get up for a while.".into(),
-        29 => format!("Hurt myself. {d} points of it."),
-        30 => format!("{} died today.", crew_or(d, "One of the crew")),
-        31 => "Something I ate. Cooked in that galley — I have never been so ill.".into(),
-        _ => return None,
-    })
+    match what {
+        30 => Some(format!("{} died today.", crew_or(d, "One of the crew"))),
+        _ => None,
+    }
 }
 
 fn crew_or(who: u32, fallback: &str) -> String {
@@ -2878,43 +2774,6 @@ fn crew_or(who: u32, fallback: &str) -> String {
             .map(|s| s.to_string())
             .unwrap_or_else(|| fallback.to_string())
     })
-}
-
-/// What a Bim says it is talking about, by the code from `chat_topic`.
-/// Third person and short: this goes in a bubble over its head.
-///
-/// Two code spaces, and they do not overlap: small talk comes back as a
-/// `JOB_` code from 1, and the things that happened *to* it as a
-/// `memory::What` code from 20.
-pub fn chat_topic(code: u32) -> &'static str {
-    match code {
-        1 => "cooking",
-        2 => "the cooker",
-        3 => "that nap",
-        4 => "the night",
-        5 => "the heads",
-        6 => "the fridge",
-        7 => "that door",
-        8 => "the lock",
-        9 => "the dishwasher",
-        10 => "cooking",
-        11 => "the bay",
-        12 => "leftovers",
-        13 => "the sweeping",
-        20 => "an accident",
-        21 => "being sick",
-        22 => "dropping off",
-        23 => "being hungry",
-        24 => "being tired",
-        25 => "what happened",
-        26 => "what happened",
-        27 => "how it has been",
-        28 => "a bad day",
-        29 => "a bad day",
-        30 => "the one who died",
-        31 => "a bad meal",
-        _ => "nothing much",
-    }
 }
 
 /// What `spot_at` says is under the pointer. Must match the `SPOT_` codes
@@ -2945,58 +2804,11 @@ pub const SPOT_NAMES: [&str; 23] = [
     "Research desk",
 ];
 
-/// Which spots are deck: the only ones a mess can be lying on.
-pub const DECK_SPOTS: [u32; 2] = [1, 15];
-
 /// The spots that are only a word for *where* the pointer is — outside,
 /// deck, a bulkhead — rather than a thing the room has a picture of. Aboard
 /// the ship every part the room does not draw reads as one of these, so the
 /// ship's readout names those off the design instead.
 pub const PLAIN_SPOTS: [u32; 4] = [0, 1, 2, 15];
-
-/// What is on the deck there, by the code from `spot_mess`. Ordered least
-/// bad first, the same as `filth::Mess`.
-pub const MESS_NAMES: [&str; 6] = ["", "Grime", "Wet", "Soiled", "Vomit", "Blood"];
-
-/// The three stages of going without sleep.
-pub const DROWSINESS: [&str; 4] = [
-    "",
-    "Sleepy — fumbling, errands a quarter longer",
-    "Sleep deprived — errands half as long again",
-    "Past it — errands twice as long, and dropping off on its feet",
-];
-
-/// The three stages of going without food.
-pub const CONDITIONS: [&str; 4] = [
-    "",
-    "Mild malnutrition — moving slowly",
-    "Malnutrition — slower, and tiring twice as fast",
-    "Extreme malnutrition — losing health",
-];
-
-/// How badly the Bim needs the toilet.
-pub const URGES: [&str; 4] = [
-    "",
-    "Needs the toilet — fidgeting",
-    "Needs the toilet badly — may not make it",
-    "Bursting — an accident within the hour",
-];
-
-/// How far gone it is for want of a clean place to stand.
-pub const DISCOMFORTS: [&str; 4] = [
-    "",
-    "Uneasy about the mess — treading carefully",
-    "Sickened by the mess — keeping away from it",
-    "Sickened by the mess — being sick in it every half hour",
-];
-
-/// And for want of anybody to talk to.
-pub const LONELINESS: [&str; 4] = [
-    "",
-    "Desocialized — low, and a tenth slower at everything",
-    "Badly desocialized — sits down on the deck every few hours",
-    "Isolated — hurting itself, and past ten days it may stop altogether",
-];
 
 /// The errand codes shared by `activity()` and `agenda_job()`.
 pub fn job_name(code: u32) -> &'static str {
@@ -3032,45 +2844,6 @@ pub fn job_name(code: u32) -> &'static str {
     }
 }
 
-/// The same errands as the status line says them. A lie-down is left out:
-/// the countdown from `rest_left()` is more use than the name.
-pub fn activity_line(code: u32) -> Option<&'static str> {
-    Some(match code {
-        1 => "Making food…",
-        2 => "Off to the cooker…",
-        5 => "Using the toilet — a wash to follow",
-        11 => "In the hydroponics…",
-        12 => "Helping itself to the pot…",
-        13 => "Sweeping the deck…",
-        14 => "Having a word with the other one…",
-        15 => "Cooking a stew for the store…",
-        16 => "Warming a stew through…",
-        17 => "In the shower…",
-        18 => "At the bench…",
-        19 => "Outside, mining…",
-        20 => "Carrying a load to the site…",
-        21 => "Building…",
-        22 => "Dressing a wound…",
-        23 => "Treating with a medkit…",
-        24 => "Going for the weapon on the deck…",
-        25 => "Finishing off a body…",
-        26 => "Carrying gear to the workbench…",
-        27 => "Walking over…",
-        28 => "Setting a kit up…",
-        _ => return None,
-    })
-}
-
-/// What `order_move()` made of a right-click. Only the refusals are worth
-/// saying out loud; the rest the Bim shows you by walking.
-pub fn order_refused(code: u32) -> Option<&'static str> {
-    match code {
-        3 => Some("Can't get there — the bathroom door is locked."),
-        4 => Some("Can't get there at all."),
-        _ => None,
-    }
-}
-
 /// The jobs on the work list, by `work::Job` code, and which fixture each
 /// is about so resting on a row rings the place it happens.
 pub const WORK_NAMES: [&str; 9] = [
@@ -3089,8 +2862,6 @@ pub const WORK_NAMES: [&str; 9] = [
 /// Bim's work, and the number on the row only ever says when it gets
 /// round to it (feature 89).
 pub const WORK_CRAFT_TIP: &str = "Only the Bim you steer stands at a bench — the smelter, the workbench, the armoury, the drug lab. The rest of the crew plant, cut, sweep, cook, haul, mine, build, doctor and fight, whatever this number says.";
-
-pub const IDLE_HINT: &str = "Click a fixture for its menu · 1 or drag to select · right-click the floor to move · r to recruit";
 
 // --- arms and armour ------------------------------------------------------------
 
@@ -3302,37 +3073,10 @@ pub const RESEARCH_LOCKED: &str = "needs research";
 pub const STORAGE_WINDOW: &str = "Storage";
 pub const COLD_STORE_WINDOW: &str = "Cold store";
 
-/// The Plunder window's title — an enemy's shelf, a raider's or a hostile
-/// station's, laid out as loot — and its `?`; and the one row a friend's
-/// shelf on the joined deck gets under a click, since that one is the
-/// desk's to sell from.
-pub const PLUNDER_WINDOW: &str = "Enemy's shelf";
-pub const PLUNDER_TIP: &str = "Everything on the shelf of the station the ship is tied to, an enemy's: whatever its kind stocks, a stack to three of each, as the crew found it and have left it — a stack taken stays taken. Ctrl-click a stack to take it into the pack of the Bim shown, one to a cell, as far as the pack goes; right-click for the row. Taking wants the Bim within two tiles of one of the station's shelves — clicking the shelf walks it over. Nothing is put onto the shelf. A friend's shelf is bought from across its desk instead.";
-pub const SHELF_ASHORE_ROW: &str = "The station's shelf";
-pub const SHELF_ASHORE_HINT: &str =
-    "bought from across the desk — only an enemy's shelf is taken from";
-
 /// The Loot window's title, with the body's name after it, and the menu
-/// row on a body — a dead crew member, one out cold, or one of a hostile
-/// station's people lying in its own room — that opens it.
+/// row on a body — a dead crew member, or one out cold — that opens it.
 pub const LOOT_WINDOW: &str = "Loot";
 pub const LOOT_ROW: &str = "Loot";
-
-/// The row on one of an enemy station's people lying out cold: finish it
-/// off. RimWorld's execution — the Bim shown walks over and shoots it
-/// where it lies, or cuts it from beside it with a blade.
-pub const KILL_ROW: &str = "Kill";
-/// Why the Kill row is greyed: nothing in the Bim's hand to do it with.
-pub const KILL_UNARMED: &str = "nothing in hand to do it with";
-
-/// What the Kill row says it will do, by the weapon in hand.
-pub fn kill_hint(weapon: Option<bims::combat::WeaponKind>) -> &'static str {
-    match weapon {
-        Some(w) if w.stats().melee => "cut it where it lies, from beside it",
-        Some(_) => "shoot it where it lies, from close by",
-        None => KILL_UNARMED,
-    }
-}
 
 pub const LOOT_TIP: &str = "Everything on the body: the pack on its back, the three pieces it wears with the health they have left, and the weapon in its hand. Ctrl-click a thing to take it into the pack of the Bim shown; right-click for the row. Taking wants the Bim within two tiles of the body — the Loot row walks it over — and a free cell in its pack; a piece comes off the body as it is, broken or not, and a weapon goes into the pack to be equipped from there. Nothing is put onto a body. A crewmate that comes round is no longer a body, and the window shuts.";
 
@@ -3343,11 +3087,10 @@ pub const LOOT_TIP: &str = "Everything on the body: the pack on its back, the th
 pub const HIRE_WINDOW: &str = "Hire";
 pub const HIRE_ROW: &str = "Hire — see the terms";
 pub const HIRE_BUTTON: &str = "Hire";
-pub const HIRE_TIP: &str = "A mercenary lives at a friendly station and is for hire: the fee is a month of them, paid now and again every month after out of the crew's money, and it is what they carry — a heavier gun and a piece of armour each cost more. Hiring wants the Bim shown within two tiles of them (opening this walks it over), the money for the first month, and a free bunk aboard. A month the money will not cover has them walk off at the next berth, for hire again.";
+pub const HIRE_TIP: &str = "A mercenary lives at a friendly station and is for hire: the fee is a month of them, paid now and again every month after out of the crew's money, and it is what they carry — a heavier gun and a piece of armour each cost more. Hiring wants the Bim shown within two tiles of them (opening this walks it over) and the money for the first month. A month the money will not cover has them walk off at the next berth, for hire again.";
 /// A mercenary hired for its trade rather than its gun (feature 86).
 pub const FIELD_MEDIC: &str = "Field medic";
 pub const FIELD_MEDIC_TIP: &str = "A field medic is hired to save your crew, not to win the fight. Under arms it keeps to the far end of its weapon's reach, fetches whoever goes down out of the fire — in its arms, at half pace, holding its fire — sets them down where it is quiet, and treats them there. It carries a medic's four medkits and ten bandages, each coming back on the same cooldown as anybody's. It has none of a medic's own skills: the premium on the month is the trade.";
-pub const NO_BUNK_HINT: &str = "no bunk aboard for one more";
 pub const BROKE_HINT: &str = "not the money for the first month";
 pub const MERCENARY_MARK: &str = "?";
 
@@ -3393,26 +3136,10 @@ pub const NO_QUOTE: &str = "—";
 pub const ABOARD_HEAD: &str = "Aboard";
 pub const CART_HEAD: &str = "Cart";
 
-/// The red warning along the top while a raid is on — feature 68: what
-/// it says while the raider closes (`span` from `format::in_words`,
-/// counted down every frame), while its boarders stand at the ship's
-/// locked airlock, while they heave at it, and once it has given.
-pub fn raid_incoming(span: &str, boarders: u32) -> String {
-    format!("RAIDERS — incoming in {span}, {boarders} aboard")
-}
-pub fn raid_at_the_airlock(boarders: u32) -> String {
-    format!("RAIDERS ALONGSIDE — {boarders} at the locked airlock")
-}
-pub fn raid_forcing(boarders: u32) -> String {
-    format!("RAIDERS ALONGSIDE — {boarders} forcing the airlock")
-}
-pub fn raid_aboard(boarders: u32) -> String {
-    format!("RAIDERS ABOARD — {boarders} through the airlock")
-}
 /// The red warning along the top while the station alongside is held by
 /// the machines (feature 83): which wave is on the deck and how many are
 /// standing, then the countdown to the next one landing (`span` from
-/// `format::in_words`, counted down every frame), then the last of them
+/// `format::countdown`, counted down every frame), then the last of them
 /// gone. `wave` counts from one and `waves` is how many there are all
 /// told, the one aboard counted.
 /// Short on purpose: the line stands in a row that already holds the
@@ -3431,31 +3158,9 @@ pub const DROIDS_TIP: &str = "The station is held by the machines, and they come
 /// the fight is the machines', but the town's people are in it too.
 pub const DEFENSE_TIP: &str = "The machines are coming for this town, and they land outside a gate a wave at a time. The town's guard and whatever mercenaries live here fight them; everybody else goes indoors and stays there. Hold the last wave and the town is yours to keep — it stays friendly and goes on trading even after its system falls, and some of its people will join your crew. Go back to the ship before the last wave is down and the town falls to the machines behind you.";
 
-pub const RAID_TIP: &str = "A hostile ship is closing on yours and will tie up alongside. Its boarders come for the ship through your airlock, which is locked in their face the moment they arrive: they have to force it — half a minute of heaving, the bar over the door — and you may unlock it from its panel yourself to meet them in the passage. Everybody's speed was put back to 1× when it came onto the radar; leaving before it arrives loses it.";
-
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
 pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws a weapon — out of the pack if the hand is empty — and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
-
-/// The rows on a bunk. A bunk is one crew member's: the one shown may be
-/// given it — whoever had it loses it — or give it up. Nap and Sleep are
-/// offered on the Bim's own bunk alone.
-pub const BED_ASSIGN_ROW: &str = "Assign to";
-pub const BED_ASSIGN_HINT: &str = "makes this bunk theirs — whoever had it sleeps on the deck";
-pub const BED_UNASSIGN_ROW: &str = "Give up this bunk";
-pub const BED_UNASSIGN_HINT: &str =
-    "nobody's, until it is given to somebody — they sleep on the deck meanwhile";
-pub const BED_OWN_HINT: &str = "their own";
-pub const BED_NOBODY_S: &str = "nobody's";
-/// A station's bunk on the joined deck: not the ship's to give.
-pub const BED_FOREIGN_HINT: &str = "the station's — not yours to give";
-/// The tag written on a bunk nobody has, on the deck (feature 61); a bunk
-/// somebody has wears their name.
-pub const BED_TAG_UNASSIGNED: &str = "Unassigned";
-/// The status lines: a Bim with no bunk, and one sore from the deck.
-pub const NO_BED_LINE: &str = "No bunk — sleeps on the deck, three hours in every six";
-pub const SORE_LINE: &str = "Slept on the deck";
-pub const SORE_TIP: &str = "A crew member with no bunk of its own lies down on the deck where it stands, three hours out of every six at most, and is sore for half a day after: rest runs out half as fast again. Click a bunk to give it one — a bunk is one crew member's, and whoever had it loses it.";
 
 pub const INVENTORY_TIP: &str = "What the Bim has on it: head, body and leg protection down the left, the weapon in hand, and the pack on its back — nine cells, one thing each. Recruited, a Bim is in combat mode — it draws the weapon and shoots at any enemy it can see and reach, leaning out from cover to do it, where half the shots at it miss. A blade within reach locks it in melee: the gun goes quiet and it fights with its fists until one of them is out of reach. Right-click a thing in the pack to put it on, put it away or throw it out; right-click a worn piece to take it off. Ctrl-click moves a thing straight into the open container, or out of one into the pack. Beside each slot is the bleeding on that part of the body, and a Bandage button that sends the crew member you steer to dress it.";
 
@@ -3806,15 +3511,6 @@ mod tests {
             }
         }
 
-        // --- the_readout_names_every_mess ---
-        {
-            // Blood is the last kind; the table is indexed by the code.
-            assert_eq!(
-                MESS_NAMES.len(),
-                bims::filth::Mess::Blood.code() as usize + 1
-            );
-        }
-
         // --- every_event_has_a_line ---
         {
             // A code with no sentence is a row that never appears; the newest
@@ -3855,18 +3551,14 @@ mod tests {
                 })
                 .is_some()
             );
-            // A loot names whose body it was by the kind code, and both kinds
-            // read differently.
-            let off_crew = event_line(WorldEvent::Looted {
-                who: 0,
-                source_kind: 0,
-            });
-            let off_resident = event_line(WorldEvent::Looted {
-                who: 0,
-                source_kind: 1,
-            });
-            assert!(off_crew.is_some() && off_resident.is_some());
-            assert_ne!(off_crew, off_resident);
+            // A loot is off a crewmate's body.
+            assert!(
+                event_line(WorldEvent::Looted {
+                    who: 0,
+                    source_kind: 0,
+                })
+                .is_some()
+            );
             // And the refusals a gear command can come back with each say
             // something other than the fallback.
             for why in [
@@ -3879,12 +3571,6 @@ mod tests {
                 assert!(!refusal(why).is_empty());
             }
             assert!(!LOOT_WINDOW.is_empty() && !LOOT_ROW.is_empty() && !LOOT_TIP.is_empty());
-            assert!(!PLUNDER_WINDOW.is_empty() && !PLUNDER_TIP.is_empty());
-            // A plunder of one reads differently from a plunder of many.
-            let one = event_line(WorldEvent::Plundered { who: 0, units: 1 });
-            let many = event_line(WorldEvent::Plundered { who: 0, units: 7 });
-            assert!(one.is_some() && many.is_some());
-            assert_ne!(one, many);
         }
 
         // --- every_part_of_a_body_has_a_name ---
@@ -3897,21 +3583,19 @@ mod tests {
             }
         }
 
-        // --- the_bandage_job_has_a_name_and_a_line ---
+        // --- the_bandage_job_has_a_name ---
         {
-            // The newest job code, the one most likely to have been forgotten:
-            // `bims::game::JOB_BANDAGE` on the agenda and the status line.
+            // The newest job codes, the ones most likely to have been
+            // forgotten: `bims::game::JOB_BANDAGE` and the rest on the agenda.
             for code in [
                 bims::game::JOB_BANDAGE,
                 bims::game::JOB_TREAT,
                 bims::game::JOB_FETCH,
-                bims::game::JOB_EXECUTE,
                 bims::game::JOB_FERRY,
                 bims::game::JOB_WALK,
                 bims::game::JOB_DEPLOY,
             ] {
                 assert_ne!(job_name(code), job_name(u32::MAX));
-                assert!(activity_line(code).is_some());
             }
         }
 

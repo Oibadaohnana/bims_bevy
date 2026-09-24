@@ -58,10 +58,6 @@ impl View {
     pub fn to_canvas(self, world: Vec2) -> Vec2 {
         self.offset + world * self.scale
     }
-
-    pub fn to_world(self, canvas: Vec2) -> Vec2 {
-        (canvas - self.offset) / self.scale
-    }
 }
 
 /// A rectangle of the window, in logical points from its top-left.
@@ -757,13 +753,12 @@ mod tests {
     }
 
     #[test]
-    fn the_view_goes_both_ways() {
+    fn the_view_scales_then_shifts() {
         let view = View {
             scale: 2.0,
             offset: Vec2::new(10.0, 20.0),
         };
-        let world = Vec2::new(3.0, 4.0);
-        assert_eq!(view.to_world(view.to_canvas(world)), world);
+        assert_eq!(view.to_canvas(Vec2::new(3.0, 4.0)), Vec2::new(16.0, 28.0));
     }
 
     /// A colour at or under white is what egui made of it, to the byte,

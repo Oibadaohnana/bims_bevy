@@ -230,3 +230,148 @@ pub fn reference_run_world() -> World {
     }
     world
 }
+
+/// A reading of **only the state that outlived the old game's deletion**
+/// (feature 104): the world clock and the mission clock, the run's
+/// phase, deaths and pending bounty, the pool, every body's position,
+/// health and gear on the crew's deck and the site's, the crew's
+/// experience and classes, the machines, and every site's state.
+///
+/// `world_checksum` could not carry the deletion across: the old game's
+/// switches and the needs were in it, so the deletion had to move it.
+/// This hashes nothing the deletion took away, so a seeded run read with
+/// it on the tree before the deletion (the `needs-sim-final` tag) and
+/// after it has to come out the same — `tests_survivors.rs` here, and
+/// the commands `crates/ship` builds, are pinned against that. Values
+/// go in by their names where they are enums, so a variant deleted or a
+/// discriminant closed up moves nothing that did not itself move.
+pub struct Survivors(u64);
+
+impl Survivors {
+    pub fn new() -> Survivors {
+        Survivors(0xcbf2_9ce4_8422_2325)
+    }
+
+    /// The reading so far.
+    pub fn value(&self) -> u64 {
+        self.0
+    }
+
+    fn eat(&mut self, value: u64) {
+        for byte in value.to_le_bytes() {
+            self.0 ^= byte as u64;
+            self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+
+    /// A float onto a thousandth, as the world's own checksum grids one.
+    fn eat_f(&mut self, value: f64) {
+        self.eat(((value * 1_000.0).round() as i64) as u64);
+    }
+
+    /// A value by its name.
+    fn eat_debug(&mut self, value: &impl std::fmt::Debug) {
+        let s = format!("{value:?}");
+        self.eat(s.len() as u64);
+        for b in s.bytes() {
+            self.eat(b as u64);
+        }
+    }
+
+    /// Every body on one deck: where it is, its health and its gear, and
+    /// the machines' where they are and what is left of them.
+    fn eat_room(&mut self, room: &bims::game::Game) {
+        self.eat(room.crew_count() as u64);
+        for who in 0..room.crew_count() as usize {
+            let at = room.body_pos(who);
+            self.eat_f(at.x as f64);
+            self.eat_f(at.y as f64);
+            self.eat(room.is_alive(who) as u64);
+            self.eat(room.is_down(who) as u64);
+            self.eat_f(room.blood(who) as f64);
+            for part in bims::health::Part::ALL {
+                self.eat_f(room.part_health(who, part) as f64);
+                self.eat(room.wounds(who, part) as u64);
+                self.eat_debug(&room.trauma(who, part));
+            }
+            self.eat_debug(&room.gear(who));
+        }
+        self.eat(room.droid_count() as u64);
+        for droid in room.droids() {
+            self.eat_f(droid.pos.x as f64);
+            self.eat_f(droid.pos.y as f64);
+            self.eat_debug(&droid.kind);
+            self.eat_debug(&droid.tier);
+            self.eat_debug(&droid.body);
+        }
+    }
+
+    /// Everything that survived about `world`, added to the reading.
+    pub fn eat_world(&mut self, world: &World) {
+        self.eat_f(world.clock_minutes);
+        self.eat(world.mission_steps());
+        self.eat(world.run.phase as u64);
+        self.eat(world.run.missions as u64);
+        self.eat(world.run.deaths);
+        self.eat(world.run.pending_bounty);
+        self.eat(world.money);
+        self.eat(world.star_id as u64);
+        self.eat_debug(&world.ship.state.alongside());
+        // Experience and the class it is spent in, crew member by crew
+        // member.
+        for (class, progress) in world.classes.iter().zip(&world.progress) {
+            self.eat_debug(class);
+            self.eat(progress.xp as u64);
+            self.eat_debug(&progress.picks);
+        }
+        for fallen in &world.run.fallen {
+            self.eat(fallen.slot as u64);
+            self.eat(fallen.order);
+        }
+        // The bodies: the crew's deck and the site's.
+        self.eat_room(&world.aboard.room);
+        match &world.residents {
+            Some(residents) => {
+                self.eat(1);
+                self.eat_room(&residents.aboard.room);
+            }
+            None => self.eat(0),
+        }
+        // Every site's state: the machines' hold on each, a town's fight,
+        // the towns held — and, for this system's sites, whether each is
+        // cleared, held and threatened.
+        for it in &world.infested {
+            self.eat(it.station as u64);
+            self.eat(it.waves_left as u64);
+            self.eat(it.wave as u64);
+            self.eat_debug(&it.next_wave);
+            self.eat(it.settled as u64);
+            self.eat(it.cleared as u64);
+        }
+        for d in world.defenses() {
+            self.eat(d.station as u64);
+            self.eat(d.waves_left as u64);
+            self.eat(d.wave as u64);
+            self.eat_debug(&d.next_in);
+            self.eat(d.standing as u64);
+            self.eat(d.settled as u64);
+            self.eat(d.won as u64);
+            self.eat(d.lost as u64);
+        }
+        for &town in world.held_towns() {
+            self.eat(town as u64);
+        }
+        for site in world.sites_at(world.star_id) {
+            self.eat(site.station as u64);
+            self.eat(world.site_cleared(site.station) as u64);
+            self.eat(world.is_droid_held(site.station) as u64);
+            self.eat(world.town_threatened(site.station) as u64);
+        }
+    }
+}
+
+impl Default for Survivors {
+    fn default() -> Survivors {
+        Survivors::new()
+    }
+}

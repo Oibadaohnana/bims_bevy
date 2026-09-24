@@ -38,8 +38,6 @@ pub const HEAL: egui::Color32 = egui::Color32::from_rgb(0x8c, 0xf2, 0xbf);
 /// because a cross on a lit deck has to be picked out across the room
 /// rather than merely noticed once the eye is already on it.
 pub const DYING: egui::Color32 = egui::Color32::from_rgb(0xe8, 0x2a, 0x24);
-pub const SLEEP: egui::Color32 = egui::Color32::from_rgb(0x3f, 0x6e, 0xa8);
-pub const ANY: egui::Color32 = egui::Color32::from_rgb(0x4a, 0x55, 0x60);
 /// Armour: the blue on the end of a health bar, and a piece's own health
 /// under its icon.
 pub const ARMOUR: egui::Color32 = egui::Color32::from_rgb(0x6f, 0xa8, 0xe8);
@@ -135,6 +133,22 @@ fn style(mut contexts: EguiContexts) -> Result {
 
 // --- widgets -----------------------------------------------------------------
 
+/// A panel floating over the deck, in the pages' own translucent green.
+pub fn panel_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(egui::Color32::from_rgba_unmultiplied(20, 29, 25, 230))
+        .stroke(egui::Stroke::new(1.0, LINE))
+        .corner_radius(6.0)
+        .inner_margin(8.0)
+}
+
+/// The tray at the bottom left — the crew's tabs — in the same green but
+/// near enough solid: it is the one panel dense with rows and bars, and
+/// the deck showing through it made them hard to read.
+pub fn tray_frame() -> egui::Frame {
+    panel_frame().fill(egui::Color32::from_rgba_unmultiplied(20, 29, 25, 250))
+}
+
 /// A section heading, the pages' `h2`.
 pub fn heading(ui: &mut egui::Ui, text: &str) {
     ui.add_space(4.0);
@@ -164,18 +178,6 @@ pub fn question_mark(ui: &mut egui::Ui, tip: &str) -> egui::Response {
 /// A bar: a fraction of a strip, with the track behind it.
 pub fn bar(ui: &mut egui::Ui, width: f32, fraction: f32, fill: egui::Color32) -> egui::Response {
     bar_of_height(ui, width, 8.0, &[(fraction, fill)])
-}
-
-/// The same bar half as tall, for a strip that is a detail of something
-/// rather than a thing in its own right — a job's progress along the
-/// bottom of its row.
-pub fn thin_bar(
-    ui: &mut egui::Ui,
-    width: f32,
-    fraction: f32,
-    fill: egui::Color32,
-) -> egui::Response {
-    bar_of_height(ui, width, 4.0, &[(fraction, fill)])
 }
 
 /// A bar in two tones: `first` of the strip in `fill`, and `second` of it
@@ -437,25 +439,6 @@ pub fn name_over(painter: &egui::Painter, at: egui::Pos2, name: &str, color: egu
         );
     }
     painter.text(at, egui::Align2::CENTER_BOTTOM, name, font, color);
-}
-
-/// The tag on a bunk (feature 61): whose it is, or that it is nobody's,
-/// written small across the middle of the bed on the background layer,
-/// stroked in the void's darkness like a name so it reads over the
-/// mattress. `at` is the bunk's middle; a name over a sleeper's head is
-/// lifted well clear of it.
-pub fn bunk_tag(painter: &egui::Painter, at: egui::Pos2, words: &str, color: egui::Color32) {
-    let font = egui::FontId::proportional(NAME_SIZE * 0.8);
-    for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
-        painter.text(
-            at + egui::vec2(dx, dy),
-            egui::Align2::CENTER_CENTER,
-            words,
-            font.clone(),
-            NAME_STROKE,
-        );
-    }
-    painter.text(at, egui::Align2::CENTER_CENTER, words, font, color);
 }
 
 /// Another player's pointer, where it is over the ship (feature 60): an

@@ -2,7 +2,7 @@
 //!
 //! egui paints every panel, every word and every canvas *inside* a panel;
 //! the canvas *between* the panels — the deck, the map, the chart, the
-//! yard, the test room — is drawn here instead, as Bevy meshes on the one
+//! yard — is drawn here instead, as Bevy meshes on the one
 //! camera, because that is the only place a post-process can reach it.
 //! bevy_egui draws into the camera's target with a pass of its own, after
 //! the main pass and before the picture goes to the window, so what egui

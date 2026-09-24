@@ -10,7 +10,7 @@
 #                                  the world checksum against their
 #                                  written-down constants
 #                         clippy   cargo clippy on the app, warnings as errors
-#                         smoke    five windows open, draw sixty frames and
+#                         smoke    four windows open, draw sixty frames and
 #                                  exit, leaving a screenshot in target/check/
 #   ./check full        the same, deepened — every test, every window — and
 #                       then probes (the room's native probes) and flake
@@ -51,7 +51,7 @@ QUICK=(tracked fmt build test pins clippy smoke)
 FULL=("${QUICK[@]}" probes flake)
 
 # 1 in the full tier: the test step runs every crate and asks for its
-# sweeps, and the smoke step opens every window rather than five.
+# sweeps, and the smoke step opens every window rather than four.
 # `DEEP=1 ./check test` is one step of the full tier without the rest.
 DEEP=${DEEP:-0}
 
@@ -61,7 +61,7 @@ SLOW_CRATES=(world ship)
 
 # How many windows the smoke step opens at once. Each is a compositor and a
 # Bevy of its own and spends most of its seven seconds starting up, so the
-# quick tier's five go in one batch. One, to read a run's output as it happens.
+# quick tier's four go in one batch. One, to read a run's output as it happens.
 SMOKE_AT_ONCE=${SMOKE_AT_ONCE:-5}
 
 # How long a single probe may run before the step gives up on it — so that a
@@ -90,16 +90,15 @@ pins      bims --self-check: `design_hash` and `world_checksum` against the
           constants in shipdesign::fixture and world::fixture, which is what
           the quick tier's missing rules tests would most likely have caught
 clippy    cargo clippy on the app crate, with warnings as errors
-smoke     `bims game`, `room`, `simulation`, `design` and `droids` (the
-          fight: a wave of machines on the arena's deck) each run sixty
-          frames in a hidden window and exit, all at once, leaving a
-          screenshot in target/check/ — a black picture is a bug no test
-          sees. The full tier adds the rest: `test`, `test_planet`, the five
+smoke     `bims game`, `simulation`, `design` and `droids` (the fight: a
+          wave of machines on the arena's deck) each run sixty frames in a
+          hidden window and exit, all at once, leaving a screenshot in
+          target/check/ — a black picture is a bug no test sees. The full
+          tier adds the rest: `test`, `test_planet`, the five
           `combat_droids_<class>` fights, `tier2_test`, `tier3_test`,
           `droid_kinds` (every drawing of a machine in a row),
-          `droids_planet`, `raided` (the old game's raid, BIMS_RAID=1),
-          `landed`, `stationbuilder`, and `restarted` — the Esc sheet's
-          Restart pressed on `droids` (feature 79)
+          `droids_planet`, `stationbuilder`, and `restarted` — the Esc
+          sheet's Restart pressed on `droids` (feature 79)
 probes    every scratchpad/*.rs probe compiled fresh into target/probes/ and
           run; a compile failure is a failure, and so is a probe that runs
           past `PROBE_SECONDS` (120) rather than hanging the check
@@ -174,15 +173,11 @@ step_clippy() {
 smoke_one() {
   local what=$1 shot frames wants
   shot=""
-  case "$what" in room | simulation | design | test_planet | landed | raided | droids | droid_kinds) shot="$LOGS/smoke-$what.png" ;; esac
+  case "$what" in simulation | design | test_planet | droids | droid_kinds) shot="$LOGS/smoke-$what.png" ;; esac
   rm -f "$shot"
   local staged="" run="$what"
   frames=60
   wants=""
-  # `landed` is the simulation set down on a planet, `raided` the simulation
-  # off its berth with the boarders coming through the airlock.
-  [ "$what" = landed ] && { staged="BIMS_LANDED=1 "; run=simulation; }
-  [ "$what" = raided ] && { staged="BIMS_RAID=1 "; run=simulation; }
   # `restarted` is the Esc sheet's Restart pressed (feature 79). The clicks
   # are where the buttons are in a 1400x900 window at 100%; the run only
   # counts if the world actually went back, which is what `wants` looks for.
@@ -215,12 +210,12 @@ smoke_one() {
 step_smoke() {
   local fail=0 what
   # Every run goes through ./hidden: a headless compositor of its own, so the
-  # windows open on nobody's desktop. Five windows in the quick tier — the
-  # menu, the room, the world, the yard and a fight — and every other window
+  # windows open on nobody's desktop. Four windows in the quick tier — the
+  # menu, the world, the yard and a fight — and every other window
   # in the full one, since each of those is one of these with a dial moved.
   # The fight is `droids`: every enemy is a machine since feature 102.
-  local runs=(game room simulation design droids)
-  [ "$DEEP" = 1 ] && runs+=(test test_planet combat_droids_engineer combat_droids_soldier combat_droids_medic combat_droids_tank combat_droids_commander tier2_test tier3_test droid_kinds droids_planet raided landed restarted stationbuilder)
+  local runs=(game simulation design droids)
+  [ "$DEEP" = 1 ] && runs+=(test test_planet combat_droids_engineer combat_droids_soldier combat_droids_medic combat_droids_tank combat_droids_commander tier2_test tier3_test droid_kinds droids_planet restarted stationbuilder)
   # `SMOKE_AT_ONCE` at a time; nothing is shared — a log, a screenshot and a
   # saves directory each. The lines are held and printed in the list's order
   # afterwards, so the step reads as it did when it was one run after another.

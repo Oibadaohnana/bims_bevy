@@ -52,47 +52,6 @@ pub fn span_text(minutes: f32) -> String {
     format!("{hours}h {rest}m")
 }
 
-/// Game minutes as something a person can read. Days and hours, because a
-/// trip across a system is days and a trip across a dock is minutes.
-pub fn spell(minutes: f64) -> String {
-    let whole = minutes.round() as i64;
-    let days = whole / 1440;
-    let hours = (whole % 1440) / 60;
-    let mins = whole % 60;
-    if days > 0 {
-        format!("{days}d {hours}h")
-    } else if hours > 0 {
-        format!("{hours}h {mins}m")
-    } else {
-        format!("{mins}m")
-    }
-}
-
-/// A span of game minutes in whole words, for a warning read at a
-/// glance: "6 hours", "1 hour 30 minutes", "30 minutes" — a part of a
-/// minute counted as the whole one, as a countdown does — and "under a
-/// minute" at nought. Days are hours here: a raider is never a day out.
-pub fn in_words(minutes: f64) -> String {
-    let whole = minutes.ceil().max(0.0) as i64;
-    if whole < 1 {
-        return "under a minute".into();
-    }
-    let hours = whole / 60;
-    let mins = whole % 60;
-    let plural = |n: i64, word: &str| {
-        if n == 1 {
-            format!("{n} {word}")
-        } else {
-            format!("{n} {word}s")
-        }
-    };
-    match (hours, mins) {
-        (0, m) => plural(m, "minute"),
-        (h, 0) => plural(h, "hour"),
-        (h, m) => format!("{} {}", plural(h, "hour"), plural(m, "minute")),
-    }
-}
-
 /// How long a trip takes, in whole words (feature 103): "2 days 5
 /// hours", "5 hours 20 minutes", "40 minutes" — the world clock a trip
 /// puts on, which is the one span in a run long enough for days.
@@ -181,14 +140,6 @@ mod tests {
             assert_eq!(span_text(45.0), "45 min");
             assert_eq!(span_text(60.0), "1 hour");
             assert_eq!(span_text(150.0), "2h 30m");
-            assert_eq!(spell(3000.0), "2d 2h");
-            assert_eq!(in_words(360.0), "6 hours");
-            assert_eq!(in_words(90.0), "1 hour 30 minutes");
-            assert_eq!(in_words(30.0), "30 minutes");
-            assert_eq!(in_words(1.0), "1 minute");
-            assert_eq!(in_words(0.4), "1 minute", "counted up to the minute");
-            assert_eq!(in_words(0.0), "under a minute");
-            assert_eq!(in_words(59.2), "1 hour");
             assert_eq!(roman(9), "IX");
             assert_eq!(ordinal(1), "1st");
             assert_eq!(ordinal(2), "2nd");

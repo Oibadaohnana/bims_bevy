@@ -325,12 +325,8 @@ fn controls(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, keys: &mut Keys) {
             ("Wheel", "Zoom, about the pointer."),
             ("Middle-drag", "Pan the view."),
             (
-                "Take the helm",
-                "Send the crew member you steer to the helm. The ship is flown from there: nothing can be aimed at or confirmed until they are standing at it.",
-            ),
-            (
                 "Click the map",
-                "Aim at a planet or a station; the helm quotes the trip, and Confirm sends the ship. At a station, the crew all come back aboard first and the ship casts off once they have.",
+                "Pick a station, or a planet with a settlement, on the world map's list: the trip is quoted there and put to the crew.",
             ),
             ("Drag on the deck", "Select whoever is inside the box."),
             (

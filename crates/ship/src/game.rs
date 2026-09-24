@@ -1,9 +1,8 @@
 //! The game, as the browser sees it: a world, two cameras, and the pointer.
 //!
-//! Every rule is next door in `crates/world` and `crates/flight`, which render
-//! nothing and know nothing about a canvas. Nothing in here decides whether a
-//! trip can be flown or what a step does; it asks, it draws the answer, and it
-//! passes the player's orders along.
+//! Every rule is next door in `crates/world`, which renders nothing and
+//! knows nothing about a canvas. Nothing in here decides what a step does;
+//! it asks, it draws the answer, and it passes the player's orders along.
 //!
 //! # The page drives the clock, and that is deliberate
 //!
@@ -22,11 +21,11 @@
 //! instant a button is pressed would work perfectly and would be impossible to
 //! wire a network into later.
 
-use flight::{PlanError, Target, angle};
+use flight::{Target, angle};
 use shipdesign::parts::{PartKind, Rotation, TILE};
 use shipdesign::{Money, ShipDesign};
 use world::world::Command;
-use world::{Preview, SiteRefusal, Speed, World, WorldEvent};
+use world::{SiteRefusal, Speed, World, WorldEvent};
 use worldgen::GalaxyType;
 use worldgen::math::{DVec2, dvec2};
 
@@ -98,12 +97,9 @@ pub struct Game {
     pub events: Vec<WorldEvent>,
     /// Orders waiting for the next step — see the module note.
     pub queued: Vec<Command>,
-    /// The last plan the local player asked about. Never a command, and never
-    /// shared: two players hovering over different planets is not an argument
-    /// about where the ship is going.
-    pub preview: Option<Result<Preview, PlanError>>,
-    /// What the preview is *of*, so the map can ring it. Set and cleared
-    /// with the preview and read by nothing that decides anything.
+    /// What the map rings: the site picked on the world map's list, set by
+    /// the app every frame (feature 103). The local player's own, never a
+    /// command, and read by nothing that decides anything.
     pub aimed: Option<Target>,
     /// The design tile under the pointer, in the ship view. Signed: a pointer
     /// off the hull is off it rather than on the nearest edge.
@@ -228,7 +224,6 @@ impl Game {
             local: local.min(players.saturating_sub(1)),
             events: Vec::new(),
             queued: Vec::new(),
-            preview: None,
             aimed: None,
             hover: None,
             head_up: true,
@@ -272,7 +267,6 @@ impl Game {
             local: local.min(players.saturating_sub(1)),
             events: Vec::new(),
             queued: Vec::new(),
-            preview: None,
             aimed: None,
             hover: None,
             head_up: true,
@@ -347,19 +341,6 @@ impl Game {
     /// camera has turned to keep it upright.
     pub fn ship_turn(&self) -> f64 {
         self.world.ship.heading + self.camera_turn()
-    }
-
-    /// What is lit this frame: the plan's effort read against the heading.
-    /// Nothing while docked or holding.
-    pub fn firing(&self) -> crate::hull::Firing {
-        match self.world.plan() {
-            Some(plan) => crate::hull::Firing::of(
-                self.world.effort(),
-                self.world.ship.heading,
-                plan.direction,
-            ),
-            None => crate::hull::Firing::NONE,
-        }
     }
 
     /// The ship's airlock while it is mated to a station's: docked, and the
@@ -447,18 +428,6 @@ impl Game {
     pub fn zoom(&mut self, at_x: f32, at_y: f32, factor: f32) {
         self.camera_mut().zoom(at_x, at_y, factor);
         self.hold_map();
-    }
-
-    /// Stream the sky on by however much world time has passed since the
-    /// last frame, at the ship's speed. Once a frame, from `ship_render`;
-    /// a picture clock, and nothing that decides anything reads it.
-    pub fn stream_sky(&mut self) {
-        let velocity = self
-            .world
-            .trip_state()
-            .map(|state| state.velocity)
-            .unwrap_or(worldgen::math::DVec2::ZERO);
-        self.stars.advance(velocity, self.world.clock_minutes);
     }
 
     /// Put the crew member the player steers in the middle of the ship view
@@ -640,8 +609,8 @@ impl Game {
             .add(self.world.ship.dynamics.centre_of_mass)
     }
 
-    /// A point on the canvas, as a position in the system. What a click on the
-    /// map means.
+    /// A point on the canvas, as a position in the system: the place the
+    /// map is held on as it is panned and zoomed (`hold_map`).
     pub fn point_at(&self, x: f32, y: f32) -> DVec2 {
         let (vx, vy) = self.map_view.to_view(x, y);
         // Back through the camera's turn before the y-flip, since the turn
@@ -672,7 +641,7 @@ impl Game {
     /// picking, if any.
     ///
     /// Measured in **screen pixels** rather than in world units, because the
-    /// thing being aimed at is an icon: at a map scale where a system fits on
+    /// thing being picked is an icon: at a map scale where a system fits on
     /// a laptop, a world-unit tolerance is either the whole screen or a
     /// thousandth of a pixel.
     pub fn pick(&self, x: f32, y: f32, slop: f32) -> Option<worldgen::Node> {
@@ -689,23 +658,6 @@ impl Game {
             }
         }
         best.map(|(_, node)| node)
-    }
-
-    /// Work out what a trip would cost, for the local player's panel.
-    ///
-    /// Asked again every frame while the player is aiming at something, rather
-    /// than once when they click. A quote goes stale the instant the ship
-    /// moves — and while a trip is already under way most of the bill is
-    /// *stopping first*, which shrinks as the ship slows. A number that was
-    /// right when it was worked out and is wrong now is worse than no number.
-    pub fn preview(&mut self, target: Target) {
-        self.preview = Some(self.world.preview(target));
-        self.aimed = Some(target);
-    }
-
-    pub fn clear_preview(&mut self) {
-        self.preview = None;
-        self.aimed = None;
     }
 
     /// Whether the blueprint under the pointer would go where it is, and

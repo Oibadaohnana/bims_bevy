@@ -161,51 +161,6 @@ shot door_close Closing_Door.mp3 0.80 1.80 "highpass=f=140,atempo=1.5,acompresso
 # and once more, louder, the moment the lock gives.
 shot door_force Force_opening_Door_and_Arilock.mp3 0.19 0.95 "highpass=f=80" 0.10
 
-# --- the engines ----------------------------------------------------------
-
-# Ignition: a second of starter whine, the catch, and three seconds of it
-# settling, faded out over the last second and a half while the running
-# loop fades in underneath.
-shot engine_start Starting_engine.mp3 1.15 5.5 "highpass=f=40,lowpass=f=8000" 1.5
-# The running engine, the eighth of a second of silence at the front
-# dropped, the top taken off (the recording crackles above 6 kHz), looped
-# on a half-second seam — and an **electric hum** laid under it, since the
-# engines run on the reactor and not on anything that burns: a sawtooth at
-# 56 Hz with a sine an octave and two octaves up, softened above 1.8 kHz,
-# synthesised rather than recorded. 56 Hz because the loop is 6.75 s long
-# and 56 × 6.75 is a whole number of cycles, so the hum ends on the sample
-# it began with and the seam stays a seam; the recording's own seam is
-# the cross-fade above. Mixed a dozen dB under the engine, then both
-# levelled together.
-engine_loop() {
-    local name=engine file=running_engine.mp3 from=1.20 to=7.95 xfade=0.5 lufs=-22
-    local filter="highpass=f=40,lowpass=f=6000"
-    local length head
-    length=$(awk -v f="$from" -v t="$to" 'BEGIN { print t - f }')
-    head=$(awk -v f="$from" -v x="$xfade" 'BEGIN { print f - x }')
-    local hum="aevalsrc=0.5*(2*(56*t-floor(56*t+0.5)))+0.35*sin(2*PI*112*t)+0.15*sin(2*PI*224*t):s=48000:d=$length"
-    local graph="[0:a]$mono,$filter,asplit[x][y];
-                 [x]atrim=start=$from:end=$to,asetpts=N/SR/TB[body];
-                 [y]atrim=start=$head:end=$from,asetpts=N/SR/TB[tail];
-                 [body][tail]acrossfade=d=$xfade:c1=tri:c2=tri[eng];
-                 [1:a]$mono,lowpass=f=1800,volume=-12dB[hum];
-                 [eng][hum]amix=inputs=2:duration=first:normalize=0"
-    local stats
-    stats=$(ffmpeg -hide_banner -i "$src/$file" -f lavfi -i "$hum" \
-        -filter_complex "$graph,loudnorm=I=$lufs:TP=-2:LRA=11:print_format=json" \
-        -f null - 2>&1 | sed -n '/^{/,/^}/p')
-    local measured
-    measured=$(echo "$stats" | awk -F'"' '
-        /input_i/ { i = $4 } /input_tp/ { tp = $4 } /input_lra/ { lra = $4 }
-        /input_thresh/ { th = $4 } /target_offset/ { off = $4 }
-        END { printf "measured_I=%s:measured_TP=%s:measured_LRA=%s:measured_thresh=%s:offset=%s", i, tp, lra, th, off }')
-    "${ff[@]}" -i "$src/$file" -f lavfi -i "$hum" \
-        -filter_complex "$graph,loudnorm=I=$lufs:TP=-2:LRA=11:$measured:linear=true" \
-        "${enc[@]}" "$out/$name.ogg"
-    echo "$name.ogg  (loop with hum, $lufs LUFS)"
-}
-engine_loop
-
 # --- the ambiences --------------------------------------------------------
 
 # Both recorded close and loud: -17 and -14 LUFS. They are background and

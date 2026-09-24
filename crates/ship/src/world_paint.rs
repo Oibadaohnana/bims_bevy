@@ -37,10 +37,9 @@
 //! (`DrawList::turn_from`). North up, both turns are what they always were.
 
 use bims::sight::Stance;
-use flight::Phase;
 use shipdesign::parts::{Layer, PartKind, Rotation, TILE};
 use shipdesign::{Grid, PlacedPart, ShipDesign};
-use world::{Biome, ShipState};
+use world::Biome;
 use worldgen::math::{DVec2, dvec2};
 use worldgen::{BodyKind, Node, StationKind};
 
@@ -76,7 +75,7 @@ const FRIEND: Color = Color::rgb(0.36, 0.55, 1.0);
 const ENEMY_TINT: f32 = 0.22;
 /// The stance ring on the map, as a share of the icon size: outside the
 /// aim ring (which is the icon size across), so the two never sit on each
-/// other when the helm is pointed at an enemy's station.
+/// other when an enemy's station is the one picked.
 const STANCE_RING: f32 = 1.3;
 
 /// Somewhere the crew have already been, on the map (feature 85): a
@@ -145,18 +144,9 @@ const PAD: Color = Color::rgb(0.24, 0.25, 0.27);
 const PAD_EDGE: Color = Color::rgba(1.0, 1.0, 1.0, 0.22);
 /// How far past the hull the pad reaches, in tiles.
 const PAD_MARGIN: f32 = 1.5;
-/// How much bigger the planet is drawn at the end of a landing than at
-/// the top of it, as a factor the ship's frame grows through — the planet
-/// coming up under the ship — and how much of the landing's end and the
-/// lift-off's beginning is black: the world loading, and the screen
-/// saying so.
-const LANDING_GROWTH: f32 = 40.0;
-const LANDING_BLACK: f64 = 0.25;
-const LIFT_BLACK: f64 = 0.2;
 
-/// One colour per lobby slot. The route line is drawn in the colour of
-/// whoever set the destination, which is the whole of what
-/// `destination_set_by` is for.
+/// One colour per lobby slot: another player's pointer over the deck is
+/// drawn in its player's (`screens/game.rs`, `ghost_pointer`).
 pub static PLAYER_COLORS: [Color; 4] = [
     Color::rgb(0.38, 0.86, 0.95),
     Color::rgb(0.98, 0.72, 0.35),
@@ -206,38 +196,6 @@ pub fn crew_on_screen(game: &Game, who: u32) -> (f32, f32) {
         game.world.ship.dynamics.centre_of_mass,
         game.ship_turn(),
     )
-}
-
-/// One of the ship's bunks in the camera's units, for the name the host
-/// writes on it: where its middle lands — the same turn the room's picture
-/// goes through — and whose it is, `None` for one nobody has.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct BunkLabel {
-    pub x: f32,
-    pub y: f32,
-    pub owner: Option<u32>,
-}
-
-/// Every bunk of the ship's and whose it is — `Game::bunk_tags`, the
-/// room's point taken to the design and turned like a Bim's. A station's
-/// bunks on a joined deck are not in it.
-pub fn bunk_labels(game: &Game) -> Vec<BunkLabel> {
-    let aboard = &game.world.aboard;
-    let centre = game.world.ship.dynamics.centre_of_mass;
-    let turn = game.ship_turn();
-    aboard
-        .room
-        .bunk_tags()
-        .into_iter()
-        .map(|tag| {
-            let (x, y) = on_screen(aboard.to_design(tag.at), centre, turn);
-            BunkLabel {
-                x,
-                y,
-                owner: tag.owner.map(|o| o as u32),
-            }
-        })
-        .collect()
 }
 
 /// The four corners of the room's light map — its origin, then clockwise
@@ -354,9 +312,9 @@ pub struct PowerLabel {
 }
 
 /// Every consumer's draw, for the numbers the electricity view puts over
-/// the drainers. The engines are in it — they are what drains most — with
-/// what they draw at this moment of the plan, so the numbers agree with
-/// the exhaust. Asked once a frame while the view is up, and never
+/// the drainers. The engines are in it — they are what drains most — at
+/// nothing now against what they would draw flat out, since nothing is
+/// flown (feature 104). Asked once a frame while the view is up, and never
 /// otherwise; it is a union-find over the grid.
 pub fn power_labels(game: &Game) -> Vec<PowerLabel> {
     let design = &game.world.ship.design;
@@ -365,9 +323,7 @@ pub fn power_labels(game: &Game) -> Vec<PowerLabel> {
         .filter(|net| net.live())
         .flat_map(|net| net.parts)
         .collect();
-    let firing = game.firing();
-    let dynamics = &game.world.ship.dynamics;
-    let centre = dynamics.centre_of_mass;
+    let centre = game.world.ship.dynamics.centre_of_mass;
     let turn = game.ship_turn();
     let mut out = Vec::new();
     for part in &design.parts {
@@ -377,17 +333,7 @@ pub fn power_labels(game: &Game) -> Vec<PowerLabel> {
         }
         let is_live = live.contains(&part.id);
         let (now, full) = if def.pushes() {
-            let (lit, throttle) = match part.rotation.facing() {
-                physics::Facing::Forward => (firing.forward, dynamics.forward_throttle),
-                physics::Facing::Backward => (firing.backward, dynamics.backward_throttle),
-                _ => (false, 0.0),
-            };
-            let now = if lit && is_live {
-                def.thrust_power * throttle
-            } else {
-                0.0
-            };
-            (now, def.thrust_power)
+            (0.0, def.thrust_power)
         } else {
             (-def.power, -def.power)
         };
@@ -466,7 +412,10 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
     // has to be right the once.
     let design = &game.world.ship.design;
     let grid = design.grid();
-    let firing = game.firing();
+    // Nothing burns: a trip is resolved rather than flown (feature 104),
+    // so the engines and the thrusters are drawn cold, as the designer
+    // draws them.
+    let firing = hull::Firing::NONE;
     let centre = game.world.ship.dynamics.centre_of_mass;
     let centre = (centre.x as f32, centre.y as f32);
     let mut ship = DrawList::default();
@@ -578,19 +527,6 @@ fn paint_ship(game: &Game, list: &mut DrawList) {
         electricity(&mut over, design, &grid);
         list.append_turned(over.shapes(), centre, turn);
     }
-    // The black at the end of a landing and the start of a lift-off: the
-    // planet has filled the window and the world is being laid out on
-    // it — or taken apart again. Over the lot, square to the window.
-    if let Some(black) = blackout(game) {
-        list.rect(
-            0.0,
-            0.0,
-            half_w * 3.0,
-            half_h * 3.0,
-            0.0,
-            Color::rgba(0.0, 0.0, 0.0, black),
-        );
-    }
 }
 
 /// Every deployable in the crew's room, as a part stood on its tile:
@@ -639,20 +575,6 @@ fn ground_dark(biome: Biome) -> Color {
         Biome::Temperate => GRASS_DARK,
         Biome::Arctic => SNOW_DARK,
     }
-}
-
-/// How black the window is: the last [`LANDING_BLACK`] of a landing fades
-/// to black, and the first [`LIFT_BLACK`] of a lift-off fades from it.
-/// `None` the rest of the time, which is to say nearly always.
-fn blackout(game: &Game) -> Option<f32> {
-    if let Some((_, done)) = game.world.landing() {
-        let from = 1.0 - LANDING_BLACK;
-        return (done > from).then(|| ((done - from) / LANDING_BLACK) as f32);
-    }
-    if let Some((_, done)) = game.world.lifting() {
-        return (done < LIFT_BLACK).then(|| (1.0 - done / LIFT_BLACK) as f32);
-    }
-    None
 }
 
 /// The ground about a landed ship: patches in the biome's darker tone —
@@ -1634,10 +1556,7 @@ fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList, DrawList) 
         .filter(|&id| world::surface_body(id).is_some())
         .and_then(|id| game.world.station(id));
     let on_the_ground = settlement.is_some();
-    // And the raider tied to the ship, if one is: not among the system's
-    // stations either, and gone the moment the ship pushes off.
-    let raider = game.world.raids.station();
-    for station in game.world.stations.iter().chain(settlement).chain(raider) {
+    for station in game.world.stations.iter().chain(settlement) {
         // From the ground nothing in orbit is in the picture.
         if on_the_ground && station.plan != world::Plan::Surface {
             continue;
@@ -1780,38 +1699,6 @@ fn stations(game: &Game, list: &mut DrawList) -> (DrawList, DrawList, DrawList) 
             lifted_over.append_turned_at(over, pivot, turn, at);
         }
     }
-    // A raider closing on the ship: on the radar and nothing more, so a
-    // plate the size of its hull, washed in the enemy red, wherever it
-    // has got to along its line — the shape getting nearer that a
-    // stranger's station is from afar (`crate::raid`).
-    if let Some(contact) = game.world.raid_contact() {
-        let offset = contact.sub(here);
-        let at = crate::game::turned(offset.x as f32, -offset.y as f32, turn);
-        let hull = (world::data::RAIDER_SIDE as f32 - 2.0) * TILE as f32;
-        list.push(
-            crate::draw::KIND_RECT,
-            at.0,
-            at.1,
-            hull,
-            hull,
-            turn,
-            8.0,
-            0.0,
-            hull::HULL_UNKNOWN,
-        );
-        list.push(
-            crate::draw::KIND_RECT,
-            at.0,
-            at.1,
-            hull,
-            hull,
-            turn,
-            8.0,
-            0.0,
-            ENEMY.alpha(ENEMY_TINT),
-        );
-        paint_station(list, at.0, at.1, hull * 0.8, world::raid::RAIDER_KIND, 6.0);
-    }
     (lifted, lifted_over, shade)
 }
 
@@ -1837,13 +1724,11 @@ pub fn resident_on_screen(game: &Game, who: u32) -> (f32, f32) {
     (x + at.0, y + at.1)
 }
 
-/// The three parallax layers.
+/// The three layers of stars.
 ///
 /// In screen pixels, turned back into camera units on the way out — a
 /// backdrop covers the window rather than the world, so it does not tile four
-/// hundred times over when the view is zoomed out. How far each layer has
-/// streamed is the field's own clock (`Starfield::advance`, from
-/// `ship_render`); this only draws it where it has got to.
+/// hundred times over when the view is zoomed out.
 fn starfield(game: &Game, list: &mut DrawList) {
     let camera = &game.ship_view;
     let scale = camera.scale().max(1e-9);
@@ -1869,13 +1754,9 @@ fn starfield(game: &Game, list: &mut DrawList) {
     let across = ((x1 - x0) / FIELD).ceil() as i32 + 1;
     let down = ((y1 - y0) / FIELD).ceil() as i32 + 1;
 
-    for (i, layer) in game.stars.layers.iter().enumerate() {
-        let slide = game.stars.slid[i];
+    for layer in &game.stars.layers {
         for speck in layer {
-            let base = dvec2(
-                (speck.at.x + slide.x).rem_euclid(FIELD),
-                (speck.at.y + slide.y).rem_euclid(FIELD),
-            );
+            let base = dvec2(speck.at.x.rem_euclid(FIELD), speck.at.y.rem_euclid(FIELD));
             for tx in first_x..first_x + across {
                 for ty in first_y..first_y + down {
                     let px = base.x + tx as f64 * FIELD;
@@ -1923,17 +1804,8 @@ fn local_node(game: &Game, list: &mut DrawList) {
     match node {
         Node::Station(_) => {}
         Node::Body(id) => {
-            // Coming down onto it, the planet grows under the ship until
-            // it is the whole window; lifting off, it shrinks back to the
-            // size it is held beside at. Geometric, so the growth reads
-            // the same all the way down.
-            let growth = match (game.world.landing(), game.world.lifting()) {
-                (Some((_, done)), _) => LANDING_GROWTH.powf(done as f32),
-                (_, Some((_, done))) => LANDING_GROWTH.powf(1.0 - done as f32),
-                _ => 1.0,
-            };
             if let Some(body) = game.world.system.body(id) {
-                paint_body(list, x, y, hull * 4.0 * growth, body.kind, 6.0 * growth);
+                paint_body(list, x, y, hull * 4.0, body.kind, 6.0);
             }
         }
     }
@@ -2457,7 +2329,7 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         };
         paint_station(list, x, y, size * 0.75, station.kind, thin * 1.5);
         // Ringed by stance, outside the aim ring so the two read apart when
-        // the helm is pointed at an enemy's: red for a hostile station, blue
+        // an enemy's is the one picked: red for a hostile station, blue
         // for any other somebody lives on — home and a stranger's alike —
         // and nothing for a derelict, which is nobody's. This is what the
         // map says about who lives where; `World::stance` is the one rule,
@@ -2475,7 +2347,7 @@ fn paint_map(game: &Game, list: &mut DrawList) {
 
     // Where the crew have already been (feature 85): a tick at the lower
     // shoulder of every node the ship has stopped at, station and body
-    // alike, drawn over the icons and under everything the helm marks.
+    // alike, drawn over the icons and under the ring round the pick.
     // The chart is what remembers this — `World::visited`, filed with
     // the system when the ship jumps out — so a system met twice opens
     // with its ticks on.
@@ -2493,37 +2365,8 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         );
     }
 
-    // The raider, if one is about: closing, at wherever it has got to on
-    // its line, or tied to the ship; an enemy's icon ringed in the enemy
-    // red — the map says what is coming, and from where.
-    let raider_at = game.world.raid_contact().or_else(|| {
-        game.world
-            .raids
-            .station()
-            .filter(|_| game.world.raided())
-            .map(|station| station.centre())
-    });
-    if let Some(at) = raider_at {
-        let (x, y) = place(at);
-        paint_station(
-            list,
-            x,
-            y,
-            size * 0.75,
-            world::raid::RAIDER_KIND,
-            thin * 1.5,
-        );
-        let d = size * STANCE_RING;
-        ring(list, x, y, d, d, 0.0, thin * 1.5, ENEMY.alpha(0.9));
-        // And its line in, from where it was first seen.
-        if let world::Raid::Closing { from, .. } = game.world.raid() {
-            let (fx, fy) = place(*from);
-            list.line(fx, fy, x, y, thin * 1.5, ENEMY.alpha(0.6));
-        }
-    }
-
-    // What the helm is aimed at, ringed, so a click has visibly landed on
-    // the thing and not beside it.
+    // The site picked on the world map's list, ringed, so a click has
+    // visibly landed on the thing and not beside it.
     let aimed_at = match game.aimed {
         Some(flight::Target::Body(id)) => game.world.system.absolute_position(Node::Body(id)),
         Some(flight::Target::Station(id)) => game.world.system.absolute_position(Node::Station(id)),
@@ -2534,26 +2377,6 @@ fn paint_map(game: &Game, list: &mut DrawList) {
         let (x, y) = place(at);
         let d = (26.0 / scale) as f32;
         ring(list, x, y, d, d, 0.0, (1.5 / scale) as f32, GLOW.alpha(0.9));
-    }
-
-    // The route, in the colour of whoever set it.
-    if let ShipState::Travelling { plan, .. } = &game.world.ship.state {
-        let colour = player_color(game.world.ship.destination_set_by.unwrap_or(0));
-        let (x0, y0) = place(plan.start);
-        let (x1, y1) = place(plan.arrival);
-        list.line(x0, y0, x1, y1, (2.0 / scale) as f32, colour);
-        let end = (7.0 / scale) as f32;
-        list.push(
-            crate::draw::KIND_ELLIPSE,
-            x1,
-            y1,
-            end * 2.0,
-            end * 2.0,
-            0.0,
-            0.0,
-            (2.0 / scale) as f32,
-            colour,
-        );
     }
 
     list.turn_from(out_there, game.camera_turn() as f32);
@@ -2622,16 +2445,6 @@ fn station_color(kind: Option<StationKind>) -> Color {
         Some(StationKind::Relay) => Color::rgb(0.62, 0.74, 0.92),
         None => Color::rgb(0.6, 0.6, 0.6),
     }
-}
-
-/// Which phase to colour a readout by. Not drawn here — the host does the
-/// words — but the codes have to come from somewhere and this is where the
-/// rest of the view's vocabulary lives.
-pub fn phase_code(game: &Game) -> u32 {
-    game.world
-        .trip_state()
-        .map(|state| state.phase.code())
-        .unwrap_or(Phase::Arrived.code())
 }
 
 // --- the machines' ship (feature 83) --------------------------------------

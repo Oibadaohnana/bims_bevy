@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-nineteen things to run, and each is a name rather than a flag — and
+eighteen things to run, and each is a name rather than a flag — and
 `cargo run -- list` prints every one of them with a line each, which is
 the build's own answer where this table is a copy:
 
@@ -17,12 +17,11 @@ the build's own answer where this table is a copy:
 | `nix run .` / `nix run .#game` | `cargo run -- game` | the whole game in order — menu, setup or lobby, world and station, then **the run** (feature 102): no design phase, the default ship (the playtest ship) docked where you said and `START_MONEY_PER_BIM` (5 000) a player's Bim in the pool (`Session::run`, `screens::designer::start_run`) — see *A run* below |
 | `nix run .#simulation` | `cargo run -- simulation` | straight into the world on the playtest ship |
 | `nix run .#design` | `cargo run -- design` | straight into the yard, the playtest ship given, docked where the simulation docks — how a change to the designer is looked at |
-| `nix run .#room` | `cargo run -- room` | the behaviour test room — Bims on a deck |
-| `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member (four bunks to spare) and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
-| `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement the way `BIMS_LANDED=1` lands the simulation (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
+| `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time — docked at a random station somebody lives on, in a random galaxy, on the **combat ship** with one crew member and a **mercenary for hire** at the dock whatever the roll said (`Session::mercenary_for_probe`) |
+| `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with **everybody's kit at tier two** — every crew member's gun at it (its kind as the fight dealt it) and a fresh helm, kevlar and leg guards at it on, pieces of the world's — and the machines at tier two (`Session::droids_at_tier`, `World::outfit_for_probe`), so the fight is looked at with nothing at tier one on either side. It was the human garrison's fight until every enemy was a machine (feature 102) |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
-| `nix run .#droids` | `cargo run -- droids` | **the fight** — the **machines** (feature 83): the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the five kinds dealt round — the **last four of them hired field medics** (`session::COMBAT_MEDICS`, feature 86), docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across) that the **droids hold**. `Session::combat` builds the ship, the crew and the arena and `Session::droids` hands the arena to the machines; the `combat` command that stopped at the first half — the arena's own people turned against the crew — is gone with every other human enemy (feature 102), and so are its `combat_<class>` runs and `--combat`. Every dial the notes below write against `combat` is `droids`' now, the same ship and crew; `BIMS_FIGHT`, which stages a fight with a station's *people*, is the simulation's alone. Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, sized by `droid::wave_size` (the base, the crew, the calendar, the worth and the levels, added — never doubled — and capped at `DROID_WAVE_MAX`). `DROID_REINFORCE_STEPS` is **a minute of the mission clock** here — a real second at 1× — rather than two real minutes, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the mission clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`) |
+| `nix run .#droids` | `cargo run -- droids` | **the fight** — the **machines** (feature 83): the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the five kinds dealt round — the **last four of them hired field medics** (`session::COMBAT_MEDICS`, feature 86), docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across) that the **droids hold**. `Session::combat` builds the ship, the crew and the arena and `Session::droids` hands the arena to the machines; the `combat` command that stopped at the first half — the arena's own people turned against the crew — is gone with every other human enemy (feature 102), and so are its `combat_<class>` runs and `--combat`; `BIMS_FIGHT`, which staged a fight with a station's *people* on the simulation, went with the human enemies themselves (feature 104). Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, sized by `droid::wave_size` (the base, the crew, the calendar, the worth and the levels, added — never doubled — and capped at `DROID_WAVE_MAX`). `DROID_REINFORCE_STEPS` is **a minute of the mission clock** here — a real second at 1× — rather than two real minutes, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the mission clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`) |
 | `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with the class in hand** (features 79 and 83, `Launch::DroidsAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs: the same combat ship, the same sixteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the **tenth level** (`dev::COMBAT_CLASS_LEVEL`, feature 80) with all seven of the class's talents still to choose, so the tray opens on the **Skills** tab (feature 83) with seven points to spend; `BIMS_LEVEL=n` says otherwise. The **engineer of such a run has the charges its class deals it** (`world::deploy::SENTRY_CHARGES`, one, beside `SANDBAG_CHARGES`, three). The `combat_<class>` runs beside these were the human garrison's fight, and went with it (feature 102). The parsing is `main.rs::class_named`, and `bims list` prints the lot |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
 | `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it first spreads (feature 92): `test`'s own random galaxy and random dock and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight. The origin is theirs from day nought, as in every run since feature 102, and the clock is wound to the eve of the day the ring round it turns (`DROID_SPREAD_DAYS`, five) — so the next stars turn red on the galaxy chart within a day of the clock — a day the crew have to travel, since only travel moves the world clock (feature 103) — and the crew's own system five days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the clock opens a day short of the next ring whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
@@ -68,25 +67,14 @@ is run through **`./hidden`** so it opens on nobody's desktop:
 `BIMS_POINTER="40:move:600,250;60:click:600,250;90:right:300,400"` and
 `BIMS_KEYS="60:Escape,90:M"` drive the pointer and the keys at those frames,
 in logical points from the window's top left. `wheel` and `wheelup` at
-a point are a notch of the wheel, which zooms. `BIMS_LANDED=1` opens it set down on
-the spawn system's first planet with ground — the pad, the ground and
-the settlement beside it — and `BIMS_LANDING=0.7` over that planet with
-the landing run seven tenths of the way down, for looking at the descent
-(feature 52, `crates/world/CLAUDE.md`); `BIMS_FIGHT=1` opens the simulation
-with the dock made hostile by hand, the crew member recruited inside the
-station's door and one of its people a few tiles down the corridor — the old
-game's fight with **people**, which no run meets since feature 102 and which
-is only staged where a station has people (a droid-held arena has none, so
-it does nothing on `droids`). `BIMS_RAID=1` — a raid is the old game's too,
-and asking for one switches the world's human foes on — opens the simulation off its berth in
-open space with a raider tied to it and its boarders at the ship's
-airlock, locked in their face — forcing it by 900 frames, through it by
-2400 — and `BIMS_RAID=contact` with the raider on the radar and
-closing, for the map; the red warning along the top
-(`screens/game.rs::raid_warning`, its words `names::raid_*`) is in
-every one of those pictures; `BIMS_LOST=1` opens it with every crew member
-shot where they stand, so the end screen is what the next frame is
-(`./check` runs `raided`). `BIMS_AFIELD=1` opens the simulation landed with the
+a point are a notch of the wheel, which zooms. The dials that staged the
+old game went with it in feature 104 — `BIMS_LANDED` and `BIMS_LANDING`
+(the landing and its descent), `BIMS_FIGHT` (a fight with a station's
+*people*) and `BIMS_RAID` (a raider and its boarders, with the red warning
+along the top) — and a planet is looked at through the commands that land
+on one (`test_planet`, `droids_planet`, `defense`) or `BIMS_AFIELD` below.
+`BIMS_LOST=1` opens the simulation with every crew member shot where they
+stand, so the end screen is what the next frame is. `BIMS_AFIELD=1` opens the simulation landed with the
 crew member walked out onto the plain west of the ship and a minute gone
 by, and `BIMS_ZOOM=0.3` zooms the game view out by that factor once it
 is fitted (a scripted wheel does not reach it): the two together are how
@@ -97,7 +85,7 @@ with the armoury window up, for looking at the lockers' grid — a
 it. `BIMS_GRAVES=n` leaves `n` of the station alongside **dead where
 they stand** and builds its room again over the bodies (feature 85,
 `World::lay_graves_for_probe`), for looking at the dead lying on a
-station's deck without fighting, flying away and coming back —
+station's deck without fighting, leaving and coming back —
 `BIMS_GRAVES=4 BIMS_ZOOM=0.6` is the aftermath from far enough off to
 see it. `BIMS_DYING=n` puts `n` of the crew **in a dying state** — a
 part of each taken to nothing, so its trauma is rolled and untreated,
@@ -106,26 +94,26 @@ part each so a crew of three shows three different traumas) — for
 looking at the **red cross** over a body on the deck and at the **peril
 block** under the health bar; the player's own Bim is left out of it
 unless `n` reaches the whole crew, so the picture is taken from
-somebody still walking about (`BIMS_FIGHT=1 BIMS_DYING=3` on `combat`).
+somebody still walking about (`BIMS_DYING=3` on `droids`).
 `BIMS_FIELD_MEDIC=n` makes the **last `n` of the crew hired field
 medics** (feature 86, `Session::field_medics_for_probe`) — the contract
 and a medic's charges of medicine, no money taken — the last rather
 than the first since slot 0 is the player's own and the rescue is a
-*bot's* branch (`Game::bot_stand`). **`combat` already sails with four
+*bot's* branch (`Game::bot_stand`). **`droids` already sails with four
 of them** (`session::COMBAT_MEDICS`), and so does everything built on
-it — the tier tests, `droids`, the `combat_<class>` and
-`combat_droids_<class>` runs — since a fight with nobody who may carry
+it — the tier tests and the `combat_droids_<class>` runs — since a fight
+with nobody who may carry
 is a fight where a body down stays where it fell; the dial asks for the
 same crew members from the same end, so setting it at four or under
 changes nothing and setting it higher reaches further up the crew. `BIMS_CARRY=1` takes a crew member out cold and
 puts it in the arms of somebody who may carry, for looking at a body
 being carried off the deck without waiting for a fight to put one there.
-Both want **more than one aboard**, so they are `combat`'s and not the
+Both want **more than one aboard**, so they are `droids`' and not the
 simulation's, which sails with a crew of one: `BIMS_CLASS=medic
-BIMS_CARRY=1 bims combat` is a body in the arms (the Carry box lit, with
-no count on it, is what says so), and `BIMS_FIGHT=1 BIMS_FIELD_MEDIC=1
-BIMS_DYING=2 BIMS_SMOKE_FRAMES=600` is one going and fetching for
-itself. `G` is the carry's key in `BIMS_KEYS`.
+BIMS_CARRY=1 bims droids` is a body in the arms (the Carry box lit, with
+no count on it, is what says so), and `BIMS_DYING=2 BIMS_SMOKE_FRAMES=600
+bims droids` is one of its field medics going and fetching for itself.
+`G` is the carry's key in `BIMS_KEYS`.
 **`BIMS_BANDAGES=n`** puts exactly `n` dressings in **every** crew
 member's pack and starts the bandage cooldown afresh, and
 **`BIMS_MEDKITS=n`** the same for the medkit: since the medicine became
@@ -137,13 +125,13 @@ the foot of the canvas with its **sweep** running, and `BIMS_BANDAGES=2`
 a part stock with the **ring** round its count filling. Five go in one
 box over two cells by two, so `BIMS_BANDAGES=7` is a full box beside a
 part one, which is how the count in a cell's corner is looked at —
-`BIMS_ARMOURY=1 BIMS_BANDAGES=7` on the simulation, or `BIMS_FIGHT=1
-BIMS_BANDAGES=7 BIMS_DYING=2` for a crew that binds its own wounds as it
-runs; `BIMS_MEDKITS=0 BIMS_BANDAGES=2 bims combat` is the two medicine
+`BIMS_ARMOURY=1 BIMS_BANDAGES=7` on the simulation, or `BIMS_BANDAGES=7
+BIMS_DYING=2 bims droids` for a crew that binds its own wounds as it
+runs; `BIMS_MEDKITS=0 BIMS_BANDAGES=2 bims droids` is the two medicine
 boxes' two states in one picture.
 **`BIMS_KITS=n`** does the same for the engineer's two **charges**
 (feature 88): exactly `n` of each kit in every pack and both cooldowns
-started afresh. `BIMS_KITS=0 bims combat_engineer` is the one state a
+started afresh. `BIMS_KITS=0 bims combat_droids_engineer` is the one state a
 scripted run cannot walk itself into — no charge in hand and the whole
 wait ahead — so the seconds in the corner of the two boxes at the foot
 of the canvas (`59s` for the sentry, `44s` for the bags) are a
@@ -151,11 +139,11 @@ screenshot rather than a pointer hunting a Bim that is walking away.
 **`BIMS_GRENADES=n`** is that dial for the soldier's **grenade
 charges** (feature 90): since a grenade is a charge on a cooldown like
 a kit — two of them, thirty seconds each, and **no class makes
-anything to use a skill** — `BIMS_GRENADES=0 bims combat_soldier` is
+anything to use a skill** — `BIMS_GRENADES=0 bims combat_droids_soldier` is
 the `29s` in the corner of the Q box, and `BIMS_GRENADES=1` a soldier
 with one throw in hand and the next on its way.
 **`BIMS_CRISIS_DAY=n`** is the `crisis` command's own (feature 92): the
-machines' first star turns on day `n` instead of `DROID_FIRST_DAY`, and
+machines' first star turns on day `n` instead of day nought, and
 the clock opens a day short of whatever it says — so the dial is about
 what the *rest* of the galaxy's days come out at (five a hop after it)
 rather than about how long to wait. `BIMS_CRISIS_DAY=0 bims crisis` opens
@@ -179,12 +167,13 @@ hears its `n`th shot or blow, and **`BIMS_FREEZE=down:n+f`** after the
 and a cut are a handful of frames each and a fight's timing moves from
 run to run, so a frame count cannot catch one — and a pause holds the
 passing lights still, so the screenshot taken later is that instant.
-`BIMS_FIGHT=1 BIMS_WEAPON=sniper BIMS_ENEMY_WEAPON=sniper
-BIMS_FREEZE=2+1 bims simulation` is two beams crossing.
+`BIMS_FREEZE=2+1 bims droids` is the fight's second shot held in the
+air, and `BIMS_FREEZE=down:1+1 bims droids` the first machine bursting.
 `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
-round a lamp that is out and a failing lamp's flicker (`BIMS_FIGHT=1
-BIMS_LAMPS_OUT=3` is the lobby dark). `BIMS_CLASS=engineer` (a name from
+round a lamp that is out and a failing lamp's flicker (`BIMS_LAMPS_OUT=3`
+on the simulation is the deck round the crew member dark).
+`BIMS_CLASS=engineer` (a name from
 `names::CLASS_NAMES`, or its place in `world::Class::ALL`) puts the
 class on slot 0 of any launch (`dev::class_crew`) — and on the setup
 tab's chooser — and `Q`/`E` in `BIMS_KEYS` press the class's two keys
@@ -196,18 +185,18 @@ about 180 at 1×; a medic's surge and heal beam, `BIMS_CLASS=medic`, whose
 `E` wants the pointer **over another crew member** rather than over a
 tile; a tank's taunt and wall, `BIMS_CLASS=tank`, whose two keys want
 nothing under the pointer at all — `BIMS_CLASS=tank BIMS_LEVEL=3
-BIMS_KEYS="60:E,90:Q"` on `combat` puts the shield ring and the taunt's
+BIMS_KEYS="60:E,90:Q"` on `droids` puts the shield ring and the taunt's
 dashed radius in one picture; a commander's rally and squad orders,
 `BIMS_CLASS=commander`, whose **E** wants an enemy under the pointer and
 whose `X` and `Z` — the squad's other two keys, feature 78 — want a deck
 tile or nothing at all: `BIMS_CLASS=commander BIMS_LEVEL=3
-BIMS_KEYS="60:Z,90:Q"` on `combat` is the squad held and the rally
+BIMS_KEYS="60:Z,90:Q"` on `droids` is the squad held and the rally
 called, with the aura's ring round him throughout). Hunting a crewmate with a scripted pointer is a poor way to look
 at a beam, so **`BIMS_BEAM=1`** stands crew member 1 a tile from the
 medic with a wound on it, **its blood at three fifths** and links the
 beam (`World::beam_for_probe`, `dev::beam_crew`), and `BIMS_BEAM=surge`
 triggers the surge over that — `BIMS_CLASS=medic BIMS_BEAM=surge
-BIMS_SMOKE_FRAMES=90` on `combat` is the beam's line and both halos in
+BIMS_SMOKE_FRAMES=90` on `droids` is the beam's line and both halos in
 one picture. The blood is short on purpose (feature 91): a beam stops
 the bleeding dead, so a patient wounded and beamed in the same breath
 sits at full blood for ever and the **green numbers** over it never
@@ -234,8 +223,8 @@ the glow and nothing else taken out, which is how the two are compared
 — and what a GPU that would rather not is given.
 `BIMS_SOUND_LOG=1` prints
 every clip as it is played and every bed as it fades up or out, which is
-how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_FIGHT=1 BIMS_SMOKE_FRAMES=900 bims
-combat | grep ^sound:` is a fight's worth. **A smoke run is silent**:
+how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_SMOKE_FRAMES=900 bims
+droids | grep ^sound:` is a fight's worth. **A smoke run is silent**:
 it opens with the audio page's mute ticked (`dev::silent`), and
 `./hidden` hands whatever it runs `BIMS_SOUND=0`, so `./check` and every
 agent's window make no noise — the log prints all the same, the mute
@@ -282,7 +271,11 @@ picture has "has left" on it.
 
 `DROID_WAVE_MAX` is sixteen because a machine is a body stepped, a stand
 scored and a line traced, not because sixteen is the right number of
-enemies. The measurement, taken in a **release** build on this machine:
+enemies. (`combat`, in this section's measurements and in feature 96's
+and 97's below, is the command of that name as it was when they were
+taken: `droids`' own ship, crew and arena, with the arena's people for
+the enemy. It went in feature 102.) The measurement, taken in a
+**release** build on this machine:
 
 | wave | world step | frame, unpaced |
 | --- | --- | --- |
@@ -308,7 +301,7 @@ The frame is the other half, measured from a window:
 target/release/bims droids`, `BIMS_SMOKE_FREE` being what drops the
 sixtieth-of-a-second pacing a smoke run otherwise holds itself to. **A
 frame is the picture, not the machines**: `combat`'s own fight with no
-machines in it draws in the same nine milliseconds, and sixty-four of
+machines in it drew in the same nine milliseconds, and sixty-four of
 them add about one. So sixteen is not where the cap has to be — it is
 where it is until somebody has a reason to move it, and the reason will
 be how a fight *plays* rather than what it costs.
@@ -354,8 +347,8 @@ they are 2.4 ms against the picture's 3.6. Inside the shape buffer, the
 crew's **room's own draw** was 2.37 ms of the 4.27 and `world_paint` 1.23
 — and inside the room, `Sight::light_map` was 2.3 of that 2.37, against
 0.05 ms in the simulation. That is the shape of it: one crew member marches
-one fan of rays, fourteen march fourteen, and `combat` and `droids` are the
-two commands with fourteen.
+one fan of rays, fourteen march fourteen, and `combat` and `droids` were
+the two commands with fourteen.
 
 **What was done about it** is the march, and nothing else — the same
 pixels, the same picture. `Sight::march` takes its callback **by type**
@@ -446,8 +439,9 @@ emissive thing in the game so far is the pistol bolt's core**
 (`combat.rs`, `BOLT_CORE_TINT`, `BOLT_CORE_HEAT`): its white pulled
 towards the side's colour and made 2.4 times as bright, so the core is
 drawn white-hot and the air round it glows blue for the crew and red for
-the enemy. `BIMS_FIGHT=1 BIMS_WEAPON=pistol BIMS_ENEMY_WEAPON=pistol bims
-combat` is where it is looked at, and
+the enemy. `bims droids`, whose crew are dealt the five guns round and
+so carry pistols among them, is where it is looked at — `BIMS_FREEZE=2+1`
+holds a bolt in the air — and
 `the_pistol_bolt_s_core_is_the_one_thing_brighter_than_white` pins it.
 
 **`BIMS_BLOOM=0`** takes the bloom off and the HDR target with it — the
@@ -606,65 +600,69 @@ which lines in the tree are whose.
 
 ## A run: what the first step of the roguelike switched off (feature 102)
 
-Bims is becoming a roguelike top-down co-op shooter — humans against the
-machines, one default ship flown from site to site, time and money the
-only resources — in three steps: **this one switched off what the new
+Bims became a roguelike top-down co-op shooter — humans against the
+machines, one default ship taken from site to site, time and money the
+only resources — in three steps, and **this one switched off what the new
 game does not use and put the run on its new footing; nothing was
-deleted.** Step two builds the travel and mission loop, and step three
-deletes the dead code. What is off is off behind a **switch on the world**,
-saved and in `world_checksum`, and each is **off in every run** and on only
-for the tests of what it switches:
+deleted.** Step two built the travel and mission loop (feature 103, *The
+loop* below) and step three deleted the dead code (feature 104, *The old
+game deleted* below). What was off was off behind a **switch on the
+world**, saved and in `world_checksum`, off in every run and on only for
+the tests of what it switched. Three of the four went in feature 104 with
+what they switched:
 
-- **`World::needs_enabled`** (`set_needs_enabled`): the room's whole life
-  sim — the needs draining and sending anybody on an errand, a pot going
-  bad, the bays grown and tended, the bunks dealt and counted against a
-  hire, the mess biting, the food in a dark cold store spoiling. The world
-  tells every room every step (`hand_the_rooms_the_needs`, beside
-  `set_players`, since a room is built afresh at every dock), and the room
-  holds it as `bims::game::Game::needs_enabled` — **on** in the classic room,
-  so `bims room` and every probe in `scratchpad/` are what they were. Off,
-  `tick_bim` stands the levels still, hands `Health::update_held` a fed and
-  rested body (so the blood, the wounds and the mending still run), starts
-  no need's errand, offers no cook, tend or sweep, and `hit_at` opens no
-  menu on a fixture that only served a need.
-- **`World::human_foes_enabled`**: the generator's hostile stations and
-  towns put on the `hostile` list (`rolled_hostile`, at a start, a jump and
-  the switch), raiders coming (`run_raid`'s quiet arm), an enemy's shelf
-  laid out and plundered, and a station's dead looted. A probe's own
-  `set_hostile` still works with it off — `Session::combat` builds the
-  arena `droids` hands to the machines that way — and `raid_for_probe` /
-  `raid_coming_for_probe` switch it on, a raid being asked for. The
-  generator still **rolls** `StationBlueprint::hostile` (it is in the galaxy
-  checksum, and it is where the tier-two research keys lie), but nothing
-  reads it as a stance: the lobby lets a crew start anywhere and rings
-  nothing in red.
-- **`World::radiation_enabled`**: stage eight's dose. Off, nobody is
-  exposed, in a suit or out of one.
-- **`World::shipyard_enabled`**: a construction site placed
-  (`SiteRefusal::NoShipyard`, `Refusal::NoShipyard` 82) and what the ship
-  lives on bought (`World::buyable` — gear, and nothing else, with it off;
+- **`World::needs_enabled`** (`set_needs_enabled`) was the room's whole
+  life sim — the needs draining and sending anybody on an errand, a pot
+  going bad, the bays grown and tended, the bunks dealt and counted
+  against a hire, the mess biting, the food in a dark cold store spoiling.
+  The world told every room every step (`hand_the_rooms_the_needs`, since
+  a room is built afresh at every dock), and the room held it as
+  `bims::game::Game::needs_enabled` — on in the classic room, so `bims
+  room` and the needs probes in `scratchpad/` stayed what they had been.
+  Off, `tick_bim` stood the levels still, handed `Health::update_held` a
+  fed and rested body (so the blood, the wounds and the mending still
+  ran), started no need's errand, offered no cook, tend or sweep, and
+  `hit_at` opened no menu on a fixture that only served a need — which is
+  the room as it is now, with everything the switch hid deleted.
+- **`World::human_foes_enabled`** was the generator's hostile stations and
+  towns put on the `hostile` list (`rolled_hostile`, at a start, a jump
+  and the switch), raiders coming (`run_raid`'s quiet arm), an enemy's
+  shelf laid out and plundered, and a station's dead looted; a probe's own
+  `set_hostile` worked with it off, and `raid_for_probe` switched it on.
+  The generator still **rolls** `StationBlueprint::hostile` — it is in the
+  galaxy checksum, it is where the tier-two research keys lie, and the
+  spawn still skips a blueprint rolled hostile — but nothing reads it as a
+  stance: `World::stance` says a droid-held station is hostile, home
+  friendly and the rest neutral, and the lobby rings nothing in red.
+- **`World::radiation_enabled`** was stage eight's dose; off, nobody was
+  exposed, in a suit or out of one. The dose, the stage and the `health`
+  crate under them are gone.
+- **`World::shipyard_enabled`** is still a switch, and still off in every
+  run: a construction site placed (`SiteRefusal::NoShipyard`,
+  `Refusal::NoShipyard`) and what the ship lives on bought
+  (`World::buyable` — gear, and nothing else, with it off;
   `Session::sold_here` greys the rest). The class deployables are not
   parts and are untouched; the Build tab is not shown.
 
 The rest of the footing: **the crisis is there from day nought**
-(`crisis_first_day` is nought; `DROID_FIRST_DAY` is no longer read and step
-three deletes it), so the origin is theirs at the start and a system due
-is theirs whole the moment the crew are in it; **the `game` flow has no
-design phase** — Start is `screens::designer::start_run`, which stands
-`Session::run` up on every machine of a lobby from the same numbers: the
-playtest ship and `money_per_bim` a player's Bim, the lobby's default
-`START_MONEY_PER_BIM`; the setup tab has no ship-size row. **A station's
-people keep a routine** (`bims::routine`, dealt by
+(`crisis_first_day` is nought; `DROID_FIRST_DAY`, which nothing read after
+this, went in feature 104), so the origin is theirs at the start and a
+system due is theirs whole the moment the crew are in it; **the `game`
+flow has no design phase** — Start is `screens::designer::start_run`,
+which stands `Session::run` up on every machine of a lobby from the same
+numbers: the playtest ship and `money_per_bim` a player's Bim, the lobby's
+default `START_MONEY_PER_BIM`; the setup tab has no ship-size row. **A
+station's people keep a routine** (`bims::routine`, dealt by
 `Residents::deal_roles` from `World::open_residents`): a role off the
 station's seed and the body's place — guard, trader, worker, civilian —
 and a round of stops derived from the room's own fixtures
 (`routine::Anchors::of`), with a wander over reachable open deck as every
 role's fallback. The round rides on the `Bim` (`adopt` shifts it with the
-body), is walked by `Game::keep_to_routine` only with the needs off and
-only while the body is its own — not under arms, posted, sheltering,
-running or given an errand — and is not dealt to an enemy's garrison.
-The commands: `droids` is the fight; `combat`, `combat_<class>` and `raid`
-are gone; `tier2_test` and `tier3_test` are `droids` at a tier.
+body) and is walked by `Game::keep_to_routine` while the body is its own —
+not under arms, posted, sheltering, running or given an errand; until
+feature 104 that was only with the needs off, and never for an enemy's
+garrison. The commands: `droids` is the fight; `combat`, `combat_<class>`
+and `raid` went; `tier2_test` and `tier3_test` are `droids` at a tier.
 `tests_run.rs` in `crates/world` is the feature's own tests.
 
 ## The loop: travel and missions (feature 103)
@@ -680,19 +678,21 @@ mission at the site they set up). The world's half is `crates/world/CLAUDE.md`
   the last yes of every connected player puts `clock_minutes` on by the
   trip's whole minutes in one go (`World::travel`) and the crew arrive
   docked or landed with a mission begun. During a mission and on the map
-  the clock stands still — the rooms are told so too (`Game::set_clock_runs`)
-  — and everything inside a mission runs on the **mission clock**,
+  the clock stands still — and the rooms' own clocks with it — and
+  everything inside a mission runs on the **mission clock**,
   `World::mission_steps`, nought on arrival: the droid waves
   (`DROID_REINFORCE_STEPS`), a town's first wave (`DEFENSE_DELAY_STEPS`)
-  and every class cooldown. The helm's four orders are refused
-  (`Refusal::TravelIsResolved`) and the strip at the top is the world map
-  (`screens/worldmap.rs`) rather than the helm.
-- **The old game's clock is a switch**, `World::set_free_clock`, off in
+  and every class cooldown. The strip at the top is the world map
+  (`screens/worldmap.rs`); the helm's four orders were refused
+  (`Refusal::TravelIsResolved`) until feature 104 deleted them, the helm
+  and the flown trip together.
+  <!-- TODO(104): the rooms were told the clock stands still by `Game::set_clock_runs`; name what tells them now, or say it is the room's default, once the code has settled it. -->
+- **The old game's clock was a switch**, `World::set_free_clock`, off in
   every run and on for the tests of flight, raids, wages and the day by the
-  step, in the pattern feature 102 set. A new test of any of those turns it
-  on right after building its world, or its `Confirm` is refused and a
-  loop that waits on `clock_minutes` never ends (the engineer tests'
-  `run_for_seconds` did exactly that until it read `mission_minutes()`).
+  step, in the pattern feature 102 set. Feature 104 deleted it with the
+  flown trip: a test that wants the clock on steps a mission and reads
+  `mission_minutes()` (as the engineer tests' `run_for_seconds` learnt to),
+  and wages are paid by `World::travel` alone (`pay_wages_due`).
 - **The run's commands apply at once** (`World::applies_at_once`), since
   nothing steps on the map: `Propose`, `Accept`, `Return`, `LeaveBehind`
   and `PlayerGone` — the last said by the **host** alone, off the roster,
@@ -744,6 +744,149 @@ Republic soldiers" — the commander has a rally and a squad of the crew's
 own bots, and nothing calls a soldier in — and "liberation", which nothing
 in the code does yet.
 
+## The old game deleted (feature 104)
+
+The third step of the redesign: **everything features 102 and 103 switched
+off is deleted**, and nothing a run does moved. The last commit that has
+the old game is tagged **`needs-sim-final`** (29d5d54, feature 103's) —
+`git show needs-sim-final:<path>` is how a deleted file is read again.
+
+**What went:**
+
+- **The needs**, and everything only reachable with them on: hunger,
+  sleep, the heads, the shower, company, the mess and the surroundings;
+  food, cooking, the pot, the dishwasher, spoilage and the cold store's
+  clock; the bay's growing and the manager's stock targets; poisoning,
+  malnutrition and the diary's every entry but a crewmate's death. In
+  the room that was `needs.rs`, `social.rs`, `schedule.rs`, `galley.rs`,
+  `dish.rs`, `bath.rs`, `hydro.rs`, `manager.rs`, most of `filth.rs` and
+  every errand in `task.rs` that served them; in the world the residents'
+  larder, `World::spoil`, `WorldEvent::FoodSpoiled`, the bay's power, the
+  guard's post (which only the needs sent a guard to) and the hire's bunk
+  check (`Refusal::NoBunk`); in the app the need bars, the Schedule tab,
+  the stock rows and every menu on a fixture that only served a need. The
+  switch, `needs_enabled`, went on both sides.
+- **The `room` command and the behaviour test room** —
+  `crates/app/src/screens/room.rs`, `Launch::Room`, `Screen::Room`, the
+  flake's `room` app and `./check`'s `room` window. The classic room
+  (`Game::new`) is no longer a game mode; the tests that used it as an
+  arena have a bare room to stand in.
+- **Radiation**: the whole `crates/health` crate — it was the dose, the
+  sickness and the cancer, and nothing else ever changed a body's
+  `HealthState` — with `World::health`, stage eight (`run_health`),
+  `WorldEvent::Health`, `radiation_enabled` and the app's dose readout.
+  A walk outside still wants a suit (`suit_ok`).
+- **Human enemies**: `raid.rs`, `plunder.rs`, `human_foes_enabled`,
+  `rolled_hostile`, the world's `hostile` list and `set_hostile`, the
+  garrison formula (`station::enemies_of` and what it was built of),
+  `Command::Execute` and `Command::Plunder`, the loot of a station's dead,
+  `Plan::Raider`, `stage_fight_for_probe` and `Session::make_dock_hostile`;
+  `BIMS_FIGHT`, `BIMS_RAID`, the raid warning, the plunder window and the
+  Kill row. The tests that staged a human fight to test a class or the
+  combat were ported to machines; the tests of human-only mechanisms went.
+- **The flown trip**: `ShipState` is `Docked` and `Holding` and nothing
+  else — the trip, the push-off, the docking run, a jump's charging, the
+  landing and its descent went, with `Command::{Confirm, Abort, Jump,
+  Land}`, the helm job (`Job::Helm`, `Command::ToHelm`), the game's
+  exhaust, `landing_for_probe` and **the free clock**. `BIMS_LANDED`,
+  `BIMS_LANDING` and `./check`'s `landed` and `raided` windows went with
+  them. `DROID_FIRST_DAY`, unread since feature 102, went too.
+
+**What stayed, and why:**
+
+- **`shipdesign`, the designer and the `design` command are untouched** —
+  not a file under `crates/shipdesign` changed, so its pins did not move.
+  Its radiation warning is the designer's own check and stays, and so does
+  the validator's list of galley, heads and bunks (*What it checks* in
+  `README.md`).
+- **The parts that do nothing stay, as pictures.** The bunks, the galley,
+  the heads, the shower, the hydroponic bay, the cold store, the table and
+  chairs, the dishwasher and the broom locker are still in the part list,
+  and the room still draws them — in the state a fresh room draws them,
+  which is what the designer shows through `ship::paint::fixtures` →
+  `Room::draw_fixtures` and what a run showed anyway, since nothing changed
+  them with the needs off. Their drawing moved out of the deleted modules
+  into a module of its own, with each fixture's state cut down to what its
+  picture needs.
+  <!-- TODO(104): name the module the fixtures' drawing moved into (the decisions suggested `crates/game/src/fixtures.rs`) once the code has it. -->
+- **Their frames stay solids, in the same order.** `Room::solids()` feeds
+  the nav grids, the push-out and the wander, so a solid dropped or moved
+  is a route that moved: every fixture frame is still a solid, stand-ins
+  included. The bath compartment's three wall rectangles are zero-sized
+  and off the map aboard, and could go only with the survivor tests
+  showing that nothing moved.
+  <!-- TODO(104): say whether the bath's three wall rectangles were kept or dropped. -->
+- **Blood on the deck stays**, as a blood-only grid (what `filth.rs` was,
+  cut down to blood). Its rolls are on the room's one stream, which every
+  fight draws from: a drop's two `signed()` in `Bim::tick_drips`, the
+  boots' `chance(0.25)` when a step crosses a tile edge off a tile with
+  blood enough on it (`track`), and the splash of a cut or a burst
+  (`splash_blood`, off `blast` and `strike_stripping`). Taking any of those
+  draws away, reordering them, or changing the state that decides them
+  would re-roll every fight after the first drop.
+  <!-- TODO(104): the module's new name (the decisions say `blood.rs`) and the grid's type, once the code has them. -->
+- **The cold store stays a container** (`Container::Fridge`, on the
+  Nearby strip): the drug lab's medkit is made of vegetables, and the hold
+  keeps vegetables there.
+- **`born_year` and `born_day` stay**, though only the About tab reads
+  them: they are two draws per Bim at its making, and dropping them would
+  re-roll everything after.
+- **The generator's `hostile` roll stays** — `worldgen` is untouched, the
+  roll is in the galaxy checksum, `station::key_tier` puts the tier-two
+  keys on it, and `spawn` still skips a hostile blueprint — and so does
+  `World::stance`: a droid-held station hostile, home friendly and the
+  rest neutral.
+- **`World::jump`** stays (a trip to the next star swaps the system with
+  it, `jump::landing_point` and all), and so do `land_for_probe`,
+  `shipyard_enabled`, the `flight` and `physics` crates (a trip is quoted
+  off `Ship::dynamics` by `physics::travel_days`) and `hull::Firing`,
+  which the designer draws with.
+
+**How it is known that nothing moved.** Two tests pin a reading of **only
+the state that outlived the deletion**, taken off `needs-sim-final` before
+anything was deleted, and their constants are **never edited**:
+
+- `crates/world/src/tests_survivors.rs` — `SURVIVORS`: a seeded run, two
+  players and four bots on the combat ship with a gun in every hand: the
+  trip to a station of the spawn system handed to the machines and the
+  fight there; back to the ship, a jump to a star next door and a mission
+  there; and a second world whose own system is on the front, the trip to
+  its town and the town's defence. About forty seconds: `cargo test -p
+  world --lib tests_survivors`.
+- `crates/ship/src/tests_survivors.rs` — `PINNED`: every command's
+  `Session` built the way `screens::game::open` builds it — `simulation`,
+  `game`, `droids`, `tier2_test`, `combat_droids_medic`, `test`,
+  `test_planet`, `droids_planet`, `defense`, `crisis` and `jammer`, the
+  random ones at a written-down seed and roll and the dials at the
+  commands' own values — stepped a while and read. Beside it, `PICTURES`
+  pins the **pictures** bit for bit, since the fixtures that do nothing
+  stayed as visuals: the designer's fixtures on the playtest ship and the
+  combat ship (`paint::fixtures`), and a run's deck (`Session::render`) on
+  `simulation` and on `droids` after a while of the fight. A picture drawn
+  the same another way moves those, so one is re-pinned only by a change
+  that says in the test's note why it is the same picture. About two
+  minutes for the file: `cargo test -p ship --lib tests_survivors`.
+
+The reading is `world::fixture::Survivors`: the world clock and the
+mission clock, the run's phase, missions, deaths and pending bounty, the
+pool, the star, where the ship is alongside, every crew member's class,
+experience and picks, the fallen, every body on the crew's deck and the
+site's — where it is, alive or down, its blood, each part's health,
+wounds and trauma, its gear — every machine's place, kind, tier and body,
+and every site's state: the machines' hold on it, a town's fight, the
+towns held, and this system's places cleared, held and threatened. An
+enum goes in **by its name**, so a variant deleted or a discriminant
+closed up moves nothing that did not itself move. `world_checksum` could
+not do this job — the switches and the needs were in it — so it and
+`REFERENCE_CHECKSUM` moved (re-pinned in `world::fixture`, with
+`reference_run_world` rewritten without flight), and so did
+`SAVE_VERSION` and `wire::PROTOCOL`. **If a survivor number moves, a run
+plays differently**: find why — a draw on the room's stream removed, an
+order of operations changed, a solid gone from a nav grid, a room told
+something it was not told before — and put it back.
+
+<!-- TODO(104): the bumped numbers — `SAVE_VERSION` (35 was the plan) and `wire::PROTOCOL` (27) — once the code has settled them; and whether the `design_hash` pins moved. -->
+
 ## Money, not materials (feature 95)
 
 The economy used to be a chain: ore mined off a belt, smelted into metal,
@@ -783,24 +926,29 @@ The detail is in `crates/world/CLAUDE.md` ("Construction is stage 7",
 player's half is `README.md` (*Making things*, *Trading*, *Building,
 aboard*).
 
-## It is a workspace, and the app is one crate of eleven
+## It is a workspace, and the app is one crate of thirteen
 
-Everything is under `crates/`. `app` is the **one binary**: Bevy, egui, the
-four screens, the pointer, and every word on the screen. The rest are
-libraries. `game` is the room — the Bims' simulation, which `world` runs
-aboard the designed ship and the app runs on its own as the test room.
-`ship` is the design phase and the game it starts: `Session` (the editor,
-then the game), the cameras and the painters. `lobby` is the World tab's
-galaxy, a camera and a pick. Beside them are eight libraries that have to
-give the same answer in more than one place: `worldgen` (the galaxy, systems
-and station blueprints, which a native server will one day generate
-identically), `physics` (ship mass, thrust and travel time), `shipdesign`
-(what a ship is made of and the rules for putting one together), `flight`
-(what a design does when you push it, and the closed-form plan that flies a
-trip), `world` (one star system, the ship in it, and the one clock they both
-run on), `economy` (money: whole euros, the crew's shared pool, and sums that
-must not wrap), `health` (one body's health points, what is wrong with it
-and what that costs) and `time` (how long a day is).
+Everything is under `crates/`. `app` is the game's **one binary**: Bevy,
+egui, the four screens, the pointer, and every word on the screen. `game`
+is the room — the Bims' simulation, which `world` runs aboard the ship and
+on every station's deck. `ship` is the design phase and the game it
+starts: `Session` (the editor, then the game), the cameras and the
+painters. `lobby` is the World tab's galaxy, a camera and a pick. Beside
+them are seven libraries that have to give the same answer in more than
+one place: `worldgen` (the galaxy, systems and station blueprints, which a
+native server will one day generate identically), `physics` (ship mass,
+thrust and travel time), `shipdesign` (what a ship is made of and the
+rules for putting one together), `flight` (what a design does when you
+push it, and the closed-form plan the flown trip was read off), `world`
+(one star system, the ship in it, the run, and the clocks they all run
+on), `economy` (money: whole euros, the crew's shared pool, and sums that
+must not wrap) and `time` (how long a day is). And two are the
+multiplayer's: `wire`, what a client and the relay say to each other, and
+`server`, the relay itself (`bims-server`), which links `wire` and nothing
+else of the workspace. The fourteenth, `health` — a body's radiation dose,
+its sickness and its cancer — went with the radiation (feature 104); the
+body's parts, blood and wounds were always the room's
+(`crates/game/src/health.rs`).
 
 Things about that which are easy to get wrong:
 
@@ -809,7 +957,7 @@ Things about that which are easy to get wrong:
   own crates in dev and `3` for every dependency, because a debug build of
   Bevy is unplayable; keep it there.
 - **A bare `cargo test` is the app alone.** `default-members` makes a bare
-  cargo command mean `app`, so `cargo test` runs one crate of eleven. Use
+  cargo command mean `app`, so `cargo test` runs one crate of thirteen. Use
   `cargo test --workspace`, which is what `./check` runs. `game` has no unit
   tests; its tests are the native probes in `scratchpad/`.
 - **The rules go in `shipdesign` and `world`, never in `ship` or `app`.**
@@ -857,9 +1005,9 @@ Things about that which are easy to get wrong:
 - **The canvas between the panels is Bevy's; a canvas inside a panel is
   egui's** (feature 97, *Bloom* below). `shapes.rs` tessellates the twelve
   floats a shape into triangles either way. For the world's canvas — the
-  deck, the map, the chart, the yard, the test room — a screen hands them
-  to `scene::WorldCanvas` (`world_canvas.shapes(..)`, a system parameter
-  of the three screens that have one), which makes each call a **layer**:
+  deck, the map, the chart, the yard — a screen hands them to
+  `scene::WorldCanvas` (`world_canvas.shapes(..)`, a system parameter of
+  the screens that have one), which makes each call a **layer**:
   a `Mesh2d` on the one camera, a z apart in the order painted, under
   egui and under the bloom. For a canvas inside a panel — the lobby's
   galaxy and diagram, the setup's portrait — `canvas::paint_shapes` adds
@@ -897,7 +1045,7 @@ Things about that which are easy to get wrong:
   slot, the galaxy type's code, the spawn — and reads one back into a
   session stood up the way `simulate_on` stands one up (`Game::resume`:
   the cameras fitted, nothing aimed). Every type in `game`, `world`,
-  `flight`, `shipdesign`, `economy`, `health`, `worldgen` and `physics`
+  `flight`, `shipdesign`, `economy`, `worldgen` and `physics`
   carries `#[cfg_attr(feature = "serde", derive(...))]`, and each crate's
   `serde` feature switches on its dependencies' — a *feature*, off by
   default, because the probes compile the room's modules with no crates
@@ -944,8 +1092,8 @@ Things about that which are easy to get wrong:
   the same **tile**, so a second banner anywhere else is a fresh attack
   and a crew left under one after a fight stands at it for ever, taking
   no errand (`screens::game::attack_key`); a banner **goes with the
-  deck it stands on**, so a dock, an undock, a landing or a lift-off
-  puts the crew back to following of its own accord —
+  deck it stands on**, so leaving a place puts the crew back to
+  following of its own accord —
   and Esc or a right-click puts the armed pointer away. That is what
   moved the camera's Follow onto **V**. Tab is the
   Inventory action: it opens and shuts the crew member's inventory —
@@ -986,12 +1134,12 @@ Things about that which are easy to get wrong:
   which starts the views again from that size (the whole build area, the
   whole hull), and every later change is a plain `resize`. Without that the
   designer opens half hidden under its own checks panel.
-- **The crew's panels are one module**, `crew.rs`, shared by the room and
-  the game, and the screen hands the room its coordinates: on the room's
-  screen a canvas point is the room's through `Game::view_scale/offset`; on
-  the ship's it is `Session::room_point`, the pointer read back through the
-  ship's camera and heading. Every `Game` method that takes a point takes a
-  room point.
+- **The crew's panels are one module**, `crew.rs`, and the screen hands
+  the room its coordinates: a canvas point is the room's through
+  `Session::room_point`, the pointer read back through the ship's camera
+  and heading. Every `Game` method that takes a point takes a room point.
+  (The test room's screen, gone in feature 104, read its own through
+  `Game::view_scale/offset`.)
 - **Every container window is `grid::lockers`, and the rule for a drop
   is the world's.** The shelves, the cold store and the lockers are the
   world's grids (`World::grids`, `crates/world/CLAUDE.md`), every thing
@@ -1001,11 +1149,9 @@ Things about that which are easy to get wrong:
   on `CrewPanels::locker_drag` between frames. Whether the ghost is
   green is `Grid::fits` asked of the `Hold` snapshot, never worked out
   here, and the drop goes through the seam as `Command::Arrange` like
-  every other change to the hold. `BIMS_ARMOURY=storage` and `=fridge`
-  open those windows for a screenshot, `=plunder` the enemy's shelf
-  (`CrewPanels::plunder_window`, the same grid with nothing movable,
-  over `World::plunder_alongside` — `crates/world/CLAUDE.md`, "An
-  enemy's shelf is loot"; with `BIMS_RAID=1` it is the raider's), and
+  every other change to the hold. `BIMS_ARMOURY=storage` opens the
+  shelves' window for a screenshot (`=fridge`, the cold store's, and
+  `=plunder`, an enemy's shelf, went in feature 104), and
   `=workbench` the one
   container that is not a class of the hold: the workbench's three
   slots (`CrewPanels::bench_window`, `Hold::bench`), two `grid::grid`s
@@ -1024,16 +1170,14 @@ Things about that which are easy to get wrong:
   it (`crew::BAR_W`, `theme::health_bar`, `crew::HEALTH_NUMBER`), and
   under them is the **peril block** — `crew::perils`, one `Peril` a
   cause with the rate, the countdown at that rate, where the loss is
-  coming from and what stops it. Two things can kill a body and the
-  block works both out **from the body**, since nothing records a
-  cause: the blood, which is every open wound at
-  `health::BLEED_PER_WOUND` an hour plus every untreated trauma's own
-  `bleed()` — `Health::update_held`'s own sum, so the number on the
-  panel is the number the room subtracts — and extreme malnutrition at
-  `health::HEALTH_DRAIN`, whose countdown is left off while a trauma
-  holds the head or the body at nothing, because death there is the two
-  of them empty *and clean*. The block is graded: red and "DYING OF"
-  for a body in a dying state or starving, the caution colour and
+  coming from and what stops it. What kills a body is the blood, and the
+  block works it out **from the body**, since nothing records a cause:
+  every open wound at `health::BLEED_PER_WOUND` an hour plus every
+  untreated trauma's own `bleed()` — `Health::update_held`'s own sum, so
+  the number on the panel is the number the room subtracts. (Extreme
+  malnutrition at `health::HEALTH_DRAIN` was the other, until the needs
+  went in feature 104.) The block is graded: red and "DYING OF"
+  for a body in a dying state, the caution colour and
   "LOSING" for one that is only bleeding through wounds a bandage
   closes — a scratch that would empty it in ten hours is worth a number
   and not a fright. A part a trauma holds at nothing names that trauma
@@ -1044,7 +1188,7 @@ Things about that which are easy to get wrong:
   `theme::dying_cross` — a white disc with a medical cross on it rather
   than another coloured ring, because every other mark out there is a
   ring of some colour and this one has to say *that* one. Drawn over
-  the head in both screens (`screens::game`, `screens::room`) off
+  the head (`screens::game`) off
   `Game::is_dying`, and for the **living only**: a trauma stays on a
   corpse, and a cross over one would be asking for a medkit nothing can
   be done with. `BIMS_DYING=n` is how it is looked at.
@@ -1169,13 +1313,14 @@ Things about that which are easy to get wrong:
   the files; the player's own volumes are `Sounds::mix`, set on the Esc
   sheet's audio page and multiplied in at the end — a one-shot's when it
   starts, so a mute does not spawn one, and a bed's every frame. A one-shot despawns itself; a **bed** (the ship's hum, a
-  station's, the engines, and a planet's air by its biome — temperate,
-  desert, arctic — set down at a settlement, `Bed::of_biome`) loops the whole time at whatever level the
+  station's, and a planet's air by its biome — temperate, desert, arctic
+  — set down at a settlement, `Bed::of_biome`; the engines' bed and their
+  start went with the flown trip in feature 104) loops the whole time at whatever level the
   screen asks for *every frame*, and fades out when nobody asks, so a
   screen that closes takes its sound with it. Cues are thinned with a
-  cool-down **per kind and per place**: at 24x a frame holds a whole
-  meal's chopping, which is one stroke, but two guns in one frame are two
-  shots — the staged fight puts both gunners on the same cadence, and a
+  cool-down **per kind and per place**: at 24x a frame holds many of one
+  noise from one place, which is one sound, but two guns in one frame
+  are two shots — a fight puts gunners on the same cadence, and a
   cool-down per kind alone silenced every enemy shot. No audio device is
   a warning from Bevy and silence, never a failure, which is what the
   hidden smoke runs rely on.
@@ -1205,10 +1350,11 @@ when you want one of them; the sweep is what is somebody else's.
 **`./check` runs all of it.** The quick tier — `./check`, **under a minute
 on a warm tree** — is the git-tree check, `cargo fmt`, the workspace
 build, `cargo test` **bar `world` and `ship`**, `bims --self-check` for the
-two pinned numbers, clippy on the app, and a smoke run of **five windows**
-— the menu, the room, the world, the yard and a fight — sixty frames each
-on `./hidden`'s headless compositor, all five at once, with a screenshot
-of the last four left in `target/check/`;
+two pinned numbers, clippy on the app, and a smoke run of **four windows**
+— the menu (`game`), the world (`simulation`), the yard (`design`) and a
+fight (`droids`) — sixty frames each on `./hidden`'s headless compositor,
+all four at once, with a screenshot of the last three left in
+`target/check/`;
 `./check full` **deepens every step of it and then** adds the native probes (compiled fresh into `target/probes/`,
 never the stale binaries in `scratchpad/`, each under `PROBE_SECONDS` of
 its own so one that stops finishing fails rather than hanging the check)
@@ -1236,10 +1382,12 @@ in the workspace put together — where a plain run walks a slice of the
 matrix with the same assertions. A new test that sweeps a matrix belongs
 behind that variable too. **So a change to `world` or `ship` is not
 checked by `./check` alone**: run that crate's own `cargo test -p …`, or
-`./check full`. The windows go the same way — five in the quick tier, all
+`./check full`. The windows go the same way — four in the quick tier, all
 at once (`SMOKE_AT_ONCE`), since a run is seven seconds and mostly Bevy
 starting up; every other window is one of those with a dial moved and is
-the full tier's, `restarted` (feature 79) among them.
+the full tier's, `restarted` (feature 79) among them. The `room` window
+went with the test room, and `raided` and `landed` with the raid and the
+landing (feature 104).
 `./check <step>...` runs a subset, `./check --list` explains each. Full
 output is under `target/check/`; only the failing lines are printed. All of
 that is written for the **test-all agent**, the one whose task is the
@@ -1295,15 +1443,16 @@ the room, say, is also a step of the world's clock and a menu in the app.
 
 | file | what it holds |
 | --- | --- |
-| `crates/game/CLAUDE.md` | the room: routes, needs, errands, the two Bims, the diary, doors, the bay, stew, the helm as a job |
+| `crates/game/CLAUDE.md` | the room: routes, errands, doors, the fight, the machines, blood on the deck, the fixtures as pictures |
 | `crates/shipdesign/CLAUDE.md` | the rules: parts, layers, power, cargo, money, the hash, the validator, the playtest ship |
-| `crates/world/CLAUDE.md` | the world: the clock and its stages, stations, docking, the crew aboard, the helm, crafting, EVA |
+| `crates/world/CLAUDE.md` | the world: the clock and its stages, the run and its missions, stations, docking, the crew aboard, crafting, EVA |
 | `crates/ship/CLAUDE.md` | the designer and the game view: the camera, the painters, drags, `Session` |
 | `crates/flight/CLAUDE.md` | a plan is read, never integrated; the two pinned placeholder numbers |
-| `crates/health/CLAUDE.md` | one body's health, and why a step of any length gives the same answer |
 | `crates/lobby/CLAUDE.md` | "has a station" is answered by generating the system; a crew never starts at an enemy's |
 | `crates/worldgen/CLAUDE.md` | the generator: the checksum, up to six stations a system, which of them are hostile, who sells what |
 | `scratchpad/CLAUDE.md` | the native probes, and how to look at a room without a window |
+
+<!-- TODO(104): the game and world rows say what those notes should hold once they are rewritten for the deleted old game; check them against the notes as rewritten (and `crates/health/CLAUDE.md`, whose row went with the crate). -->
 
 ## Never use `|` as a perl `s|…|…|` delimiter here
 

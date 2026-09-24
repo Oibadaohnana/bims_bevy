@@ -35,8 +35,9 @@ pub const DEFAULT_NAME: &str = "game";
 /// and read back by the Esc sheet's Restart (feature 79). It is a save
 /// like any other — the same text, the same `Session::restore` — so a
 /// restart and a load are the same thing happening, and the situation a
-/// command puts you in (`combat_tank`'s fight, `raid`'s warning, a
-/// landing) is a thing you can go back to without leaving the window.
+/// command puts you in (`combat_droids_tank`'s fight, `defense`'s town,
+/// `test_planet`'s landing) is a thing you can go back to without leaving
+/// the window.
 #[derive(Resource)]
 pub struct Beginning(pub String);
 

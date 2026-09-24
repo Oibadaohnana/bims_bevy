@@ -21,16 +21,13 @@
 //! `BIMS_KEYS="58:+Shift,66:-Shift"` round a `right` at 62 is a
 //! Shift-right-click: an order that waits its turn (feature 69).
 //!
-//! `BIMS_LANDED=1` opens it landed on the
-//! spawn system's first planet with ground, the settlement beside the pad.
-//! `BIMS_LANDING=1` opens it over that planet with the landing just begun,
-//! `=0.7` seven tenths of the way down.
-//! `BIMS_FIGHT=1` opens it with a fight staged
-//! at the dock: the station hostile, the crew member recruited inside its
-//! door and one of its people down the corridor. `BIMS_WEAPON=schword` (or
-//! `pistol`, `shotgun`, `rifle`, `sniper`) puts that in the crew member's
-//! hand instead of the pistol, and `BIMS_ENEMY_WEAPON=…` the same in every
-//! resident's — how a swing, a burst or a long shot is looked at.
+//! `BIMS_AFIELD=1` opens it landed on the spawn system's first planet with
+//! ground and the crew member walked out onto the plain, and `BIMS_ZOOM`
+//! zooms the view once it is fitted. `BIMS_WEAPON=schword` (or `pistol`,
+//! `shotgun`, `rifle`, `sniper`) puts that in the crew member's hand
+//! instead of the pistol, and `BIMS_ENEMY_WEAPON=…` the same in every
+//! resident's — a town's guard in `defense` — which is how a swing, a burst
+//! or a long shot is looked at.
 //! `BIMS_FREEZE=n+f` pauses the game `f` frames after the `n`th shot or
 //! blow, and `BIMS_FREEZE=down:n+f` after the `n`th machine destroyed
 //! ([`freeze_at_shot`]) — how a muzzle's glow or a machine bursting is
@@ -42,7 +39,7 @@
 //! `BIMS_TRADE=1` opens the simulation with the station's trade window
 //! up, which is how the cart is looked at. `BIMS_ARMOURY=1` opens it with
 //! the armoury window up, which is how the lockers' grid is looked at;
-//! `=storage` and `=fridge` the shelves' and the cold store's.
+//! `=storage` the shelves', `=workbench` the workbench's slots.
 //!
 //! `BIMS_SOUND_LOG=1` prints every clip as it is played and every bed as
 //! it starts or stops — how a sound is *heard* from a terminal, where a
@@ -69,25 +66,6 @@ use bevy::input::mouse::{MouseButton, MouseButtonInput, MouseScrollUnit, MouseWh
 use bevy::prelude::*;
 use bevy::window::{CursorMoved, WindowEvent, WindowResolution};
 
-/// `BIMS_LANDED=1` opens the simulation set down on the spawn system's
-/// first planet with ground, tied up at its settlement — how the ground,
-/// the pad and the two buildings are looked at without the descent.
-pub fn landed() -> bool {
-    std::env::var("BIMS_LANDED").as_deref() == Ok("1")
-}
-
-/// `BIMS_LANDING=1` opens the simulation holding over that planet with the
-/// landing just begun, and `BIMS_LANDING=0.7` with it run seven tenths of
-/// the way down — how the descent is looked at at any point of it: the
-/// planet growing under the ship, and the black at the end.
-pub fn landing() -> Option<f64> {
-    let value = std::env::var("BIMS_LANDING").ok()?;
-    if value == "1" {
-        return Some(0.0);
-    }
-    value.parse::<f64>().ok().map(|done| done.clamp(0.0, 0.999))
-}
-
 /// `BIMS_ZOOM=0.3` zooms the game view by that factor about the middle of
 /// the canvas once it has been fitted: under one is out, over one in.
 /// How a whole town, or the plain round it, is looked at from a
@@ -100,20 +78,13 @@ pub fn zoom() -> Option<f32> {
         .filter(|z| *z > 0.0 && z.is_finite())
 }
 
-/// `BIMS_AFIELD=1` opens the simulation landed (as `BIMS_LANDED=1`) with
-/// the crew member walked out onto the ground west of the ship and a
-/// minute gone by, so the plain and the fog lifting from it are looked
-/// at — with `BIMS_ZOOM` out, the whole of what is seen.
+/// `BIMS_AFIELD=1` opens the simulation set down on the spawn system's
+/// first planet with ground, tied up at its settlement, with the crew
+/// member walked out onto the ground west of the ship and a minute gone
+/// by, so the plain and the fog lifting from it are looked at — with
+/// `BIMS_ZOOM` out, the whole of what is seen.
 pub fn afield() -> bool {
     std::env::var("BIMS_AFIELD").as_deref() == Ok("1")
-}
-
-/// `BIMS_FIGHT=1` opens the simulation with the dock made hostile, the
-/// crew member recruited just inside the station's door and one of the
-/// station's people a few tiles down the corridor — how a fight is looked
-/// at without walking the station for one.
-pub fn fight() -> bool {
-    std::env::var("BIMS_FIGHT").as_deref() == Ok("1")
 }
 
 /// `BIMS_GRAVES=n` opens the simulation with `n` of the station
@@ -122,21 +93,6 @@ pub fn fight() -> bool {
 /// looked at without a fight, a flight away and a flight back.
 pub fn graves() -> Option<u32> {
     std::env::var("BIMS_GRAVES").ok()?.parse().ok()
-}
-
-/// `BIMS_RAID=1` opens the simulation off its berth with a raider tied to
-/// the ship and its boarders on their way through the airlock — how a
-/// raid is looked at without holding a day for one; `BIMS_RAID=contact`
-/// opens it with the raider on the radar and closing, for the map. A raid
-/// is the old game's (feature 102): asking for one switches the world's
-/// human foes on (`World::raid_for_probe`), since a run has none.
-/// Whether one was asked for, and whether it is to dock.
-pub fn raid() -> Option<bool> {
-    match std::env::var("BIMS_RAID").as_deref() {
-        Ok("1") => Some(true),
-        Ok("contact") => Some(false),
-        _ => None,
-    }
 }
 
 /// `BIMS_LOST=1` opens the simulation with every crew member shot where
@@ -244,16 +200,15 @@ pub fn trade() -> bool {
 
 /// `BIMS_ARMOURY=1` opens the simulation with the armoury window up — how
 /// the lockers' grid is looked at without finding the armoury on deck;
-/// `BIMS_ARMOURY=storage` the first shelf's window, `=fridge` the first
-/// cold store's, `=workbench` the workbench's slots, `=plunder` the
-/// enemy's shelf (with `BIMS_RAID=1`, the raider's). What to open, if
-/// anything.
+/// `BIMS_ARMOURY=storage` the first shelf's window, `=workbench` the
+/// workbench's slots. What to open, if anything.
 pub fn armoury() -> Option<String> {
     std::env::var("BIMS_ARMOURY").ok().filter(|s| !s.is_empty())
 }
 
 /// `BIMS_WEAPON=schword` puts a schword in the crew member's hand for the
-/// run, and `BIMS_ENEMY_WEAPON=…` one in every resident's: a schword's
+/// run, and `BIMS_ENEMY_WEAPON=…` one in every resident's — a town's
+/// guard in `defense`, say: a schword's
 /// swing, a rifle's burst and a sniper's long shot are each looked at
 /// this way rather than by waiting for a station to have issued one. A
 /// word the table does not have is nobody's weapon changed. A digit on
@@ -283,7 +238,7 @@ pub fn sound_log() -> bool {
 }
 
 /// Whether the run opens muted. A smoke run does — it is a window nobody
-/// is watching, `./check` opens five at once and the agents open them all
+/// is watching, `./check` opens four at once and the agents open them all
 /// day — unless `BIMS_SOUND=1` asks to hear it; `BIMS_SOUND=0` mutes any
 /// run. It is the audio page's own mute, so `BIMS_SOUND_LOG` still prints
 /// every cue and the Esc sheet can lift it.

@@ -9,8 +9,8 @@
 //! in `Sounds/`), and a table that says which clip a cue is, and how loud.
 //!
 //! Two kinds of thing are played. A **one-shot** is spawned, plays once
-//! and despawns itself; a **bed** — the ship's hum, a station's, the
-//! engines, a planet's air — is a loop that runs the whole time at
+//! and despawns itself; a **bed** — the ship's hum, a station's, a
+//! planet's air — is a loop that runs the whole time at
 //! whatever level the screen asks for, faded rather than switched. A screen asks every
 //! frame, and a bed nobody asks for fades out, so a screen that closes
 //! takes its sound with it without having to say so.
@@ -54,8 +54,6 @@ pub enum Clip {
     DoorOpen,
     DoorClose,
     DoorForce,
-    EngineStart,
-    Engine,
     Ship,
     Station,
     Draw,
@@ -68,7 +66,7 @@ pub enum Clip {
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 27] = [
+const CLIPS: [&[u8]; 25] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -87,8 +85,6 @@ const CLIPS: [&[u8]; 27] = [
     include_bytes!("../sounds/door_open.ogg"),
     include_bytes!("../sounds/door_close.ogg"),
     include_bytes!("../sounds/door_force.ogg"),
-    include_bytes!("../sounds/engine_start.ogg"),
-    include_bytes!("../sounds/engine.ogg"),
     include_bytes!("../sounds/ship.ogg"),
     include_bytes!("../sounds/station.ogg"),
     include_bytes!("../sounds/draw.ogg"),
@@ -107,8 +103,6 @@ pub enum Bed {
     Ship,
     /// A station's, while docked with the rooms joined.
     Station,
-    /// The engines burning.
-    Engine,
     /// A planet's air, set down at its settlement with the ground on the
     /// joined deck: one a biome — birds and leaves, a dry wind, a cold one.
     Temperate,
@@ -117,10 +111,9 @@ pub enum Bed {
 }
 
 impl Bed {
-    const ALL: [Bed; 6] = [
+    const ALL: [Bed; 5] = [
         Bed::Ship,
         Bed::Station,
-        Bed::Engine,
         Bed::Temperate,
         Bed::Desert,
         Bed::Arctic,
@@ -139,7 +132,6 @@ impl Bed {
         match self {
             Bed::Ship => Clip::Ship,
             Bed::Station => Clip::Station,
-            Bed::Engine => Clip::Engine,
             Bed::Temperate => Clip::Temperate,
             Bed::Desert => Clip::Desert,
             Bed::Arctic => Clip::Arctic,
@@ -153,19 +145,16 @@ impl Bed {
     fn level(self) -> f32 {
         match self {
             Bed::Ship | Bed::Station => 0.7,
-            Bed::Engine => 0.45,
             Bed::Temperate | Bed::Desert | Bed::Arctic => 0.7,
         }
     }
 
     /// How fast it fades, in fractions of full a second. A station's hum
-    /// comes up over a couple of seconds as the airlocks mate; the engines
-    /// are quicker, since the burn is; a planet's air comes in with the
-    /// ground, at the station's pace.
+    /// comes up over a couple of seconds as the airlocks mate; a planet's
+    /// air comes in with the ground, at the station's pace.
     fn rate(self) -> f32 {
         match self {
             Bed::Ship | Bed::Station => 0.5,
-            Bed::Engine => 1.2,
             Bed::Temperate | Bed::Desert | Bed::Arctic => 0.5,
         }
     }
@@ -186,8 +175,6 @@ enum Kind {
     Holster,
     /// A grenade going off (feature 75).
     Burst,
-    /// Not a room cue: the engines catching, off the world's events.
-    EngineStart,
 }
 
 /// How many one-shots a frame may start, whatever the room says. Enough
@@ -234,8 +221,6 @@ impl Kind {
             Kind::Holster => 0.3,
             // A grenade bursts once; two in a frame are two.
             Kind::Burst => 0.05,
-            // Undocking is said, and then departing; one ignition for both.
-            Kind::EngineStart => 15.0,
         }
     }
 }
@@ -467,14 +452,6 @@ impl Sounds {
                     self.one_shot(commands, Clip::Ouch, 0.6);
                 }
             }
-        }
-    }
-
-    /// The engines catching: the push-off from a berth, or a trip
-    /// beginning from a hold. Once, however many ways the world says it.
-    pub fn engine_start(&mut self, commands: &mut Commands) {
-        if self.admit(Kind::EngineStart, bims::math::Vec2::ZERO) {
-            self.one_shot(commands, Clip::EngineStart, 0.5);
         }
     }
 

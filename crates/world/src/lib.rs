@@ -145,6 +145,8 @@ mod tests_soldier;
 #[cfg(test)]
 mod tests_standing;
 #[cfg(test)]
+mod tests_survivors;
+#[cfg(test)]
 mod tests_surface;
 #[cfg(test)]
 mod tests_tank;

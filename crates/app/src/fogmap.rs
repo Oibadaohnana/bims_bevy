@@ -12,10 +12,9 @@
 //! quad on the world's canvas (`scene.rs`) — over the world's shapes,
 //! under the shots and the rings the room draws over its fog, and under
 //! every word, which egui puts on after the canvas is drawn.
-//! The quad's corners are the map's four corners through whatever the
-//! screen did to the room — the room's own scale and offset on the room
-//! screen, the ship's camera and heading on the game's — so the fog lands
-//! on the deck it was traced over at any zoom and heading. The plain
+//! The quad's corners are the map's four corners through the ship's
+//! camera and heading, so the fog lands on the deck it was traced over at
+//! any zoom and heading. The plain
 //! beyond the deck, on a planet, is the same picture a chunk at a time
 //! (`bims::terrain::Plane::picture`): the game screen keeps a texture a
 //! chunk and draws each as `paint_pieces` — the chunk less the deck's

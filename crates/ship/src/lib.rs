@@ -37,3 +37,5 @@ pub use session::{NONE, Preset, Session};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_survivors;

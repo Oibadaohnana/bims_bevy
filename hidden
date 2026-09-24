@@ -2,7 +2,7 @@
 # Run something with its window on a display nobody can see.
 #
 #   ./hidden target/debug/bims simulation
-#   BIMS_SMOKE_FRAMES=60 BIMS_SCREENSHOT=shot.png ./hidden target/debug/bims room
+#   BIMS_SMOKE_FRAMES=60 BIMS_SCREENSHOT=shot.png ./hidden target/debug/bims droids
 #
 # A smoke run (`BIMS_SMOKE_FRAMES`, crates/app/src/dev.rs) is a window that
 # opens, draws and exits with nobody watching — but a Wayland window cannot

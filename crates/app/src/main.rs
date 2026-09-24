@@ -8,7 +8,7 @@
 //! the world and the galaxy are the crates beside this one, and this crate
 //! is the window, the pointer and the words.
 //!
-//! Nineteen things to run, and each is a name rather than a flag:
+//! Eighteen things to run, and each is a name rather than a flag:
 //!
 //! ```text
 //! bims               the whole game in order — menu, setup or lobby, world
@@ -17,7 +17,6 @@
 //! bims simulation    straight into the world on the playtest ship
 //! bims design        straight into the yard, the playtest ship given, docked
 //!                    where the simulation docks
-//! bims room          the behaviour test room — Bims on a deck
 //! bims test          the simulation somewhere else each time — docked at a
 //!                    random station somebody lives on, in a random galaxy
 //! bims droids        the fight: the combat ship — sixteen crew, a gun in
@@ -76,13 +75,12 @@ mod theme;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
-/// Which of the nineteen things this process is.
+/// Which of the eighteen things this process is.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Launch {
     Game,
     Simulation,
     Design,
-    Room,
     Test,
     /// `Test` set down on a planet: the same roll, made in a system with
     /// friendly ground, and the ship landed at the settlement.
@@ -140,7 +138,7 @@ pub enum Launch {
 /// Which screen is up. One at a time, and the whole game is a walk through
 /// them in order: the menu, then setup or a lobby, then the game its Start
 /// opens (feature 102: the designer is the `design` command's alone now).
-/// The room and the simulation start further along.
+/// The simulation and the fights start further along.
 #[derive(States, Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum Screen {
     #[default]
@@ -156,13 +154,12 @@ pub enum Screen {
     /// The run is over: nobody of the crew standing. A screen that says
     /// so and a way back to the menu (`screens::game::over`).
     Over,
-    Room,
     StationBuilder,
 }
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|room|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|stationbuilder [name]|list|--self-check]"
+        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|stationbuilder [name]|list|--self-check]"
     );
     eprintln!("       a class is one of: {}", class_words().join(", "));
     eprintln!("       `bims list` says what each of them opens");
@@ -173,7 +170,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 16] = [
+const COMMANDS: [(&str, &str); 15] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -183,7 +180,6 @@ const COMMANDS: [(&str, &str); 16] = [
         "design",
         "Straight into the yard, the playtest ship given, docked where the simulation docks",
     ),
-    ("room", "The behaviour test room: Bims on a deck"),
     (
         "test",
         "The simulation somewhere else each time: a random galaxy, docked at a station somebody lives on, a mercenary for hire at the dock",
@@ -237,7 +233,7 @@ const COMMANDS: [(&str, &str); 16] = [
 fn list() {
     println!("bims <what>, and each of these is a what:\n");
     println!(
-        "Every one of them bar the room, the yard and the station builder is a run (feature 103):\na mission at the site it opens at, Back to ship at the bottom right, and the world map\nbetween missions, where a trip is chosen, accepted by every player and resolved in days.\n"
+        "Every one of them bar the yard and the station builder is a run (feature 103):\na mission at the site it opens at, Back to ship at the bottom right, and the world map\nbetween missions, where a trip is chosen, accepted by every player and resolved in days.\n"
     );
     // Wide enough for `combat_droids_commander`, the longest of them,
     // and a space after it.
@@ -268,7 +264,7 @@ fn list() {
         }
     }
     println!(
-        "\nNothing named is `game`. The environment says the rest: BIMS_CLASS, BIMS_LEVEL,\nBIMS_FIGHT, BIMS_DROID_TIER and the others are in crates/app/src/dev.rs."
+        "\nNothing named is `game`. The environment says the rest: BIMS_CLASS, BIMS_LEVEL,\nBIMS_DROID_TIER and the others are in crates/app/src/dev.rs."
     );
 }
 
@@ -305,7 +301,6 @@ fn main() {
         None | Some("game") => Launch::Game,
         Some("simulation") => Launch::Simulation,
         Some("design") => Launch::Design,
-        Some("room") => Launch::Room,
         Some("test") => Launch::Test,
         Some("test_planet") => Launch::TestPlanet,
         // `combat_droids_medic` and the rest: the machines' fight, that
@@ -384,7 +379,6 @@ fn main() {
         screens::builder::BuilderPlugin,
         screens::designer::DesignerPlugin,
         screens::game::GamePlugin,
-        screens::room::RoomPlugin,
         screens::station::StationBuilderPlugin,
     ))
     .add_systems(Startup, open);
@@ -415,7 +409,6 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
             commands.insert_resource(screens::designer::Start(settings));
             next.set(Screen::Design);
         }
-        Launch::Room => next.set(Screen::Room),
         Launch::StationBuilder => next.set(Screen::StationBuilder),
     }
 }
@@ -454,10 +447,11 @@ mod tests {
 
     /// Every enemy is a machine (feature 102): the human garrison's
     /// fight and the raid are no commands any more, and `combat` would
-    /// have been `droids` exactly.
+    /// have been `droids` exactly. The behaviour test room went with the
+    /// needs it was there to watch (feature 104).
     #[test]
     fn the_human_fights_are_no_commands_any_more() {
-        for gone in ["combat", "raid"] {
+        for gone in ["combat", "raid", "room"] {
             assert!(
                 !COMMANDS.iter().any(|(name, _)| *name == gone),
                 "{gone} is still listed"

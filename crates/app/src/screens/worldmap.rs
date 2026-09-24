@@ -337,7 +337,7 @@ pub fn back_to_ship(
     local: u32,
     orders: &mut Vec<Order>,
 ) -> Option<egui::Rect> {
-    if !world.in_mission() || world.free_clock() || world.run.is_out(local) {
+    if !world.in_mission() || world.run.is_out(local) {
         return None;
     }
     let returning = world.run.is_returning(local);
@@ -349,7 +349,7 @@ pub fn back_to_ship(
         )
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
-            crate::screens::room::panel_frame().show(ui, |ui| {
+            crate::theme::panel_frame().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if returning {
                         let (home, waited) = world.returning_count();

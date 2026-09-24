@@ -1,7 +1,7 @@
 //! Where the shapes land, and where the pointer is.
 //!
 //! A screen paints into **canvases**: rectangles of the window, each with
-//! its own view and its own shape buffer. The room's screen has one, the
+//! its own view and its own shape buffer. The game's screen has one, the
 //! whole of the window between the panels; the lobby's World tab has two,
 //! the galaxy and the system diagram, laid out inside an egui panel like
 //! any other widget. The canvas **between** the panels is Bevy's — a mesh

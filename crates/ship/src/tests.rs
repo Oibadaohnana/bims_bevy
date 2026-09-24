@@ -256,14 +256,8 @@ fn head_up_holds_the_ship_square_and_turns_the_sky_the_map_and_the_pointer() {
 /// The starfield and anything drawn because it is out there are **never**
 /// turned. Nothing in the shape buffer for them carries a rotation, however
 /// the ship is pointing.
-/// The sky streams past a ship under way and stands still otherwise. It is
-/// a picture clock on the *world's* clock: a step with the ship at rest
-/// moves nothing, a frame with no step in it moves nothing however fast
-/// the ship is going — a pause holds the stars — and the near layer streams
-/// further than the far one, opposite the way the ship is going.
 #[test]
-fn the_sky_does_not_turn_with_the_ship_and_streams_on_the_clock_under_way() {
-    // --- the_sky_and_what_is_alongside_do_not_turn_with_the_ship ---
+fn the_sky_and_what_is_alongside_do_not_turn_with_the_ship() {
     {
         let mut game = game();
         let mut list = crate::draw::DrawList::new();
@@ -302,75 +296,6 @@ fn the_sky_does_not_turn_with_the_ship_and_streams_on_the_clock_under_way() {
         }
         assert!(square > 0, "the starfield should be square to the window");
         assert!(turned > 0, "the ship should be turned to its heading");
-    }
-
-    // --- the_sky_streams_on_the_world_s_clock_and_only_under_way ---
-    {
-        use crate::starfield::Starfield;
-        use worldgen::math::dvec2;
-
-        let mut game = game();
-        // Docked and still: frames and steps go by and the sky does not move.
-        game.stream_sky();
-        for _ in 0..10 {
-            game.world.step(&[]);
-            game.stream_sky();
-        }
-        assert!(
-            game.stars.slid.iter().all(|s| s.x == 0.0 && s.y == 0.0),
-            "the sky moved with the ship at rest: {:?}",
-            game.stars.slid.map(|s| (s.x, s.y))
-        );
-
-        // Under way, to the east, on a clock that moved a minute: the near layer
-        // streams west, and further than the far one.
-        let mut stars = Starfield::new(1);
-        let east = dvec2(3_000.0, 0.0);
-        stars.advance(east, 100.0);
-        assert!(
-            stars.slid.iter().all(|s| s.x == 0.0 && s.y == 0.0),
-            "the first frame is a reading, not a stream"
-        );
-        stars.advance(east, 101.0);
-        let near = stars.slid[0];
-        let far = stars.slid[2];
-        assert!(near.x > 0.0 && near.y == 0.0, "near layer {near:?}");
-        // Wrapped to the tile, so "west" reads as a large positive `x`.
-        let west_by = |s: worldgen::math::DVec2| crate::starfield::FIELD - s.x;
-        assert!(
-            west_by(near) > 0.0 && west_by(near) < 100.0,
-            "{}",
-            west_by(near)
-        );
-        assert!(
-            west_by(far) < west_by(near),
-            "the far layer should stream less: {far:?} against {near:?}"
-        );
-        // The same velocity on a clock that has not moved: a pause.
-        let held = stars.slid;
-        stars.advance(east, 101.0);
-        assert!(
-            stars
-                .slid
-                .iter()
-                .zip(held.iter())
-                .all(|(a, b)| a.x == b.x && a.y == b.y)
-        );
-        // Faster is further, and the mapping is monotonic even past the clamp.
-        let mut slow = Starfield::new(1);
-        slow.advance(dvec2(30.0, 0.0), 0.0);
-        slow.advance(dvec2(30.0, 0.0), 1.0);
-        assert!(west_by(slow.slid[0]) > 0.0 && west_by(slow.slid[0]) < west_by(near));
-        // North on the system's axes is up the screen, so a ship going north
-        // has the stars going down: positive `y`, unwrapped.
-        let mut north = Starfield::new(1);
-        north.advance(dvec2(0.0, 3_000.0), 0.0);
-        north.advance(dvec2(0.0, 3_000.0), 1.0);
-        assert!(
-            north.slid[0].y > 0.0 && north.slid[0].y < 100.0,
-            "{:?}",
-            (north.slid[0].x, north.slid[0].y)
-        );
     }
 }
 
@@ -453,11 +378,10 @@ fn the_map_is_north_up_and_the_ship_is_in_the_middle_of_both_views() {
     }
 }
 
-/// A map click on empty space is a place to fly to; a map click on something
-/// is that thing. Both, because the panel offers both and they are different
-/// commands.
+/// A map click on something is that thing, and a click on empty space is
+/// nothing: a site is picked off its icon, and nothing is flown to a point.
 #[test]
-fn a_click_on_the_map_is_a_place_or_a_thing() {
+fn a_click_on_the_map_is_a_thing_or_nothing() {
     let mut game = game();
     game.set_mode(ViewMode::Map);
 
@@ -466,122 +390,8 @@ fn a_click_on_the_map_is_a_place_or_a_thing() {
     let picked = game.pick(CANVAS.0 / 2.0, CANVAS.1 / 2.0, 20.0);
     assert!(picked.is_some(), "the station under the ship should pick");
 
-    // Somewhere out in the corner is nothing, and is still somewhere.
+    // Somewhere out in the corner is nothing.
     assert!(game.pick(4.0, 4.0, 20.0).is_none());
-    let point = game.point_at(4.0, 4.0);
-    assert!(point.distance(game.world.ship.position()) > 0.0);
-}
-
-/// What is lit follows the plan through every phase: nothing at the dock,
-/// the thrusters through the turn, the forward engines through the burn,
-/// nothing through the flip, the *same* forward engines through the brake —
-/// the flyer has no backward engine, so it turns round to stop — and nothing
-/// once it has arrived. And the picture says so: there is exhaust in the
-/// buffer exactly when something is lit.
-#[test]
-fn the_exhaust_follows_the_plan() {
-    use flight::{Phase, Target};
-    use world::world::Command;
-
-    let mut game = game();
-    // A flight is the old game's (feature 103): its clock runs free.
-    game.world.set_free_clock(true);
-    // Somewhere off to one side, so there is a real turn to make first —
-    // and the crew member at the helm, since the ship is flown from there.
-    let here = game.world.ship.position();
-    game.world.man_the_helm_for_probe(0);
-    game.send(Command::Confirm {
-        slot: 0,
-        target: Target::Point(dvec2(here.x + 30_000.0, here.y + 7_000.0)),
-    });
-
-    // The exhaust on its own, rather than the whole frame: the room and the
-    // starfield both change from one frame to the next, so a count of
-    // everything says nothing about the flame.
-    let exhaust = |game: &Game| -> usize {
-        let design = &game.world.ship.design;
-        let centre = game.world.ship.dynamics.centre_of_mass;
-        let mut list = crate::draw::DrawList::default();
-        crate::hull::exhaust(
-            &mut list,
-            design,
-            &design.grid(),
-            game.firing(),
-            (centre.x as f32, centre.y as f32),
-            game.frame,
-        );
-        list.len() / crate::draw::STRIDE
-    };
-    assert_eq!(game.firing(), crate::hull::Firing::NONE);
-    assert_eq!(exhaust(&game), 0, "nothing burns at the dock");
-
-    let mut seen = std::collections::BTreeSet::new();
-    let mut under_way = false;
-    for _ in 0..400_000 {
-        game.step();
-        let Some(state) = game.world.trip_state() else {
-            // Casting off and pushing off the berth come first, and the
-            // engines are cold through both; the trip is over once there
-            // has been one.
-            assert_eq!(game.firing(), crate::hull::Firing::NONE);
-            if under_way {
-                break;
-            }
-            continue;
-        };
-        under_way = true;
-        let firing = game.firing();
-        match state.phase {
-            Phase::Align => {
-                assert!(
-                    !firing.forward && !firing.backward,
-                    "no engine while aligning"
-                );
-                assert!(firing.alpha != 0.0, "the thrusters push through a turn");
-            }
-            Phase::Burn => {
-                assert!(
-                    firing.forward && !firing.backward,
-                    "the forward engines burn"
-                );
-                assert_eq!(firing.alpha, 0.0);
-            }
-            Phase::Flip => {
-                assert!(!firing.forward && !firing.backward, "a flip is a coast");
-            }
-            Phase::Brake => {
-                assert!(
-                    firing.forward && !firing.backward,
-                    "the brake after a flip is the forward engines again"
-                );
-                assert_eq!(firing.alpha, 0.0);
-            }
-            Phase::Arrived => {}
-        }
-        if seen.insert(state.phase.code()) {
-            // The first frame of each phase: the picture has exhaust in it
-            // exactly when something is lit. A flip coasts, so it draws
-            // what the dock draws — the ship and nothing behind it.
-            let lit = firing.forward || firing.backward || firing.alpha != 0.0;
-            let drawn = exhaust(&game);
-            assert_eq!(
-                drawn > 0,
-                lit,
-                "phase {:?}: {drawn} shapes of exhaust, lit {lit}",
-                state.phase,
-            );
-        }
-    }
-    assert!(
-        seen.len() >= 4,
-        "the trip should have aligned, burnt, flipped and braked: {seen:?}"
-    );
-    assert!(
-        game.world.trip_state().is_none(),
-        "the trip should have ended"
-    );
-    assert_eq!(game.firing(), crate::hull::Firing::NONE);
-    assert_eq!(exhaust(&game), 0, "nothing burns once it is there");
 }
 
 /// The mated airlocks are a door: shut while nobody is near the passage,
@@ -914,7 +724,6 @@ fn a_resident_on_the_ship_s_deck_is_drawn_over_it() {
     use crate::session::Session;
 
     let mut session = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
-    assert!(session.stage_fight_for_probe());
     let game = session.game.as_mut().unwrap();
     // Crew member 1 is at its bunk on the ship; stand the resident near
     // it — a tile or two off, so the two bodies are told apart on screen
@@ -1350,54 +1159,6 @@ fn a_landed_view_reaches_no_further_than_the_ground_is_loaded() {
     );
 }
 
-/// Every bunk of the ship's wears a name on the deck — whose it is, or
-/// that it is nobody's — and the tag lands where the bunk does: over the
-/// Bim that starts at it, and turned with the ship the way its name is.
-#[test]
-fn a_bunk_s_tag_lands_on_the_bunk_and_turns_with_the_ship() {
-    let mut game = game();
-    let labels = world_paint::bunk_labels(&game);
-    // The ship's own: docked, the deck is joined, and the station's
-    // bunks are not its to give and wear no tag.
-    let room = &game.world.aboard.room;
-    let ours = (0..room.bed_count())
-        .filter(|&b| room.bed_assignable(b))
-        .count();
-    assert!(
-        ours < room.bed_count(),
-        "docked, the station's bunks are there too"
-    );
-    assert_eq!(labels.len(), ours);
-    assert_eq!(ours, 2, "the flyer sleeps two");
-    assert_eq!(labels[0].owner, Some(0));
-    assert_eq!(labels[1].owner, Some(1));
-    // Bim *i* starts at bunk *i*: the tag is within a couple of tiles of
-    // where its name goes.
-    for who in 0..2u32 {
-        let (cx, cy) = world_paint::crew_on_screen(&game, who);
-        let l = labels[who as usize];
-        let off = ((l.x - cx).powi(2) + (l.y - cy).powi(2)).sqrt();
-        assert!(
-            off < 2.0 * TILE as f32,
-            "bunk {who}'s tag is {off} from its Bim"
-        );
-    }
-    // Given up, it says nobody's.
-    assert!(game.world.aboard.room.assign_bed(0, None));
-    let labels = world_paint::bunk_labels(&game);
-    assert_eq!(labels[0].owner, None);
-    // And turned with the ship, not left where the deck was.
-    game.world.ship.heading = 1.1;
-    let turned = world_paint::bunk_labels(&game);
-    assert!(
-        (turned[1].x - labels[1].x).abs() > 1.0 || (turned[1].y - labels[1].y).abs() > 1.0,
-        "the tag turned with the ship"
-    );
-    let (cx, cy) = world_paint::crew_on_screen(&game, 1);
-    let off = ((turned[1].x - cx).powi(2) + (turned[1].y - cy).powi(2)).sqrt();
-    assert!(off < 2.0 * TILE as f32, "and stayed by its Bim: {off}");
-}
-
 #[test]
 fn the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens() {
     use crate::Session;
@@ -1653,10 +1414,10 @@ fn the_fight_sails_with_four_hired_field_medics_at_the_back_of_the_crew() {
     }
 }
 
-/// `tier2_test` and `tier3_test` are the `combat` session with everybody's
+/// `tier2_test` and `tier3_test` are the `droids` session with everybody's
 /// kit at that tier: every crew member's gun at it, its kind as `combat`
 /// dealt it, and a full set of armour at it — pieces of the world's, worn
-/// — and every one of the garrison the same. `combat` itself is left at
+/// — and every machine of the wave at it too. `combat` itself is left at
 /// tier one, unarmoured.
 #[test]
 fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
@@ -1667,7 +1428,17 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
     let plain = Session::combat(world::data::DEFAULT_SEED, CANVAS.0, CANVAS.1);
     let plain = plain.game.as_ref().unwrap();
     for tier in [Tier::Two, Tier::Three] {
-        let session = Session::combat_at_tier(world::data::DEFAULT_SEED, tier, CANVAS.0, CANVAS.1);
+        let mut session = Session::droids_at_tier(
+            world::data::DEFAULT_SEED,
+            tier,
+            1.0,
+            None,
+            3,
+            CANVAS.0,
+            CANVAS.1,
+        );
+        // A step for the wave to be laid out in the arena's room.
+        session.world_step();
         let game = session.game.as_ref().unwrap();
         let world = &game.world;
         let crew = world.aboard.crew_count() as usize;
@@ -1688,26 +1459,20 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
                 assert_eq!(kept.tier, tier);
             }
         }
-        let residents = world.residents.as_ref().expect("the garrison's room");
-        assert_eq!(residents.aboard.count(), world::data::ARENA_GARRISON);
-        for who in 0..residents.aboard.count() as usize {
-            let gear = residents.aboard.room.gear(who);
-            assert_eq!(gear.weapon.map(|w| w.tier), Some(tier), "resident {who}");
-            for part in Part::ALL {
-                assert_eq!(gear.worn(part).map(|p| p.tier), Some(tier));
-            }
+        // And the machines: the arena is theirs, nobody of its own people
+        // is left, and every one of the wave is at the tier.
+        let residents = world.residents.as_ref().expect("the arena's room");
+        assert_eq!(
+            residents.aboard.room.crew_count(),
+            0,
+            "a held station's people are gone"
+        );
+        let mut machines = 0;
+        for droid in residents.aboard.room.droids() {
+            assert_eq!(droid.tier, tier);
+            machines += 1;
         }
-        // The garrison's pieces are numbered a head apart, past any
-        // mercenary's kit, so no two bodies' collide in the room.
-        let ids: std::collections::BTreeSet<u32> = (0..residents.aboard.count() as usize)
-            .flat_map(|who| {
-                let gear = residents.aboard.room.gear(who);
-                Part::ALL
-                    .into_iter()
-                    .map(move |part| gear.worn(part).unwrap().id)
-            })
-            .collect();
-        assert_eq!(ids.len(), 3 * residents.aboard.count() as usize);
+        assert!(machines > 0, "a wave stands about the arena");
     }
     // `combat` is what it was: tier one in every hand, nothing worn.
     for who in 0..plain.world.aboard.crew_count() as usize {
@@ -2050,17 +1815,23 @@ fn the_crisis_is_saved_and_the_hop_table_is_worked_out_again() {
 /// The fight's passing lights (feature 98) are the host's picture and
 /// nothing else. A session nobody ages records none, in either room; one
 /// aged every frame lights the crew's muzzles and flashes in the crew's
-/// room and the enemy's muzzle in the station's, over their fog — and the
-/// two stay **the same world**, checksum for checksum, which is what a
+/// room and the machines' muzzles in the station's, over their fog — and
+/// the two stay **the same world**, checksum for checksum, which is what a
 /// game with company rests on: a guest that draws them and a host that
 /// does not must never part.
 #[test]
 fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone() {
     use crate::Session;
     let staged = || {
-        let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
-        assert!(session.stage_fight_for_probe(), "a fight to look at");
-        session
+        Session::droids(
+            world::data::DEFAULT_SEED,
+            None,
+            1.0,
+            None,
+            3,
+            CANVAS.0,
+            CANVAS.1,
+        )
     };
     let lights = |s: &Session| {
         let world = &s.game.as_ref().unwrap().world;
@@ -2075,7 +1846,8 @@ fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone()
     let mut plain = staged();
     let mut lit = staged();
     let (mut crew_most, mut residents_most) = (0, 0);
-    for _ in 0..600 {
+    // Long enough for the machines to find the crew and open fire.
+    for _ in 0..1500 {
         plain.world_step();
         lit.world_step();
         lit.age_effects(1.0 / 60.0);
@@ -2085,7 +1857,10 @@ fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone()
     }
     assert_eq!(lights(&plain), ((false, 0), (false, 0)), "nobody aged them");
     assert!(crew_most > 0, "the crew's muzzles and flashes");
-    assert!(residents_most > 0, "the enemy's muzzle, in its own room");
+    assert!(
+        residents_most > 0,
+        "the machines' muzzles, in their own room"
+    );
     let checksum = |s: &Session| s.game.as_ref().unwrap().world.checksum();
     assert_eq!(
         checksum(&plain),

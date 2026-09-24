@@ -1136,7 +1136,7 @@ mod tests {
     }
 
     #[test]
-    fn two_ends_of_the_wire_lay_out_one_ship_and_fly_one_world() {
+    fn two_ends_of_the_wire_lay_out_one_ship_and_step_one_world() {
         let mut hub = Hub::new();
         let mut ends = [end(&mut hub, 0, true), end(&mut hub, 1, false)];
         let code = match hub
