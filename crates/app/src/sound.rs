@@ -344,7 +344,10 @@ impl Sounds {
             started: 0,
             turn: 0,
             log: crate::dev::sound_log(),
-            mix: Mix::default(),
+            mix: Mix {
+                muted: crate::dev::silent(),
+                ..Mix::default()
+            },
         });
     }
 

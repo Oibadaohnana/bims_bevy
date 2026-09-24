@@ -220,7 +220,12 @@ the glow and nothing else taken out, which is how the two are compared
 `BIMS_SOUND_LOG=1` prints
 every clip as it is played and every bed as it fades up or out, which is
 how a sound is *heard* from a terminal — `BIMS_SOUND_LOG=1 BIMS_FIGHT=1 BIMS_SMOKE_FRAMES=900 bims
-combat | grep ^sound:` is a fight's worth. Move at least a frame before
+combat | grep ^sound:` is a fight's worth. **A smoke run is silent**:
+it opens with the audio page's mute ticked (`dev::silent`), and
+`./hidden` hands whatever it runs `BIMS_SOUND=0`, so `./check` and every
+agent's window make no noise — the log prints all the same, the mute
+being after it. `BIMS_SOUND=1` is how one is heard, and `BIMS_SOUND=0`
+mutes an ordinary run. Move at least a frame before
 clicking — egui hit-tests a click against the widgets laid out on the
 previous frame. That is how a change to a screen is *looked at* from a
 terminal: run it through `./hidden`, read the PNG —

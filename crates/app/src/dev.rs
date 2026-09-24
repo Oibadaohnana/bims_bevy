@@ -249,6 +249,19 @@ pub fn sound_log() -> bool {
     std::env::var("BIMS_SOUND_LOG").as_deref() == Ok("1")
 }
 
+/// Whether the run opens muted. A smoke run does — it is a window nobody
+/// is watching, `./check` opens five at once and the agents open them all
+/// day — unless `BIMS_SOUND=1` asks to hear it; `BIMS_SOUND=0` mutes any
+/// run. It is the audio page's own mute, so `BIMS_SOUND_LOG` still prints
+/// every cue and the Esc sheet can lift it.
+pub fn silent() -> bool {
+    match std::env::var("BIMS_SOUND").as_deref() {
+        Ok("0") => true,
+        Ok("1") => false,
+        _ => smoke_frames().is_some(),
+    }
+}
+
 fn weapon_named(word: String) -> Option<bims::combat::Weapon> {
     use bims::combat::{Tier, WeaponKind};
     let (name, tier) = match word.strip_suffix(['2', '3']) {

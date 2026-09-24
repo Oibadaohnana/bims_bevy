@@ -19,7 +19,8 @@
 # out at exactly that size — BIMS_FULLSCREEN is neither needed nor harmful.
 #
 # The command's exit status is this script's. The compositor's log is
-# printed only if it failed to come up.
+# printed only if it failed to come up. The run is muted, as nobody is
+# watching it: BIMS_SOUND=1 ./hidden … to hear it anyway.
 #
 # Two things about the compositor:
 #
@@ -76,4 +77,6 @@ fi
 
 # DISPLAY is dropped as well as WAYLAND_DISPLAY replaced: a window system
 # the command cannot reach is one it cannot fall back to the desktop by.
-env -u DISPLAY WAYLAND_DISPLAY="$socket" "$@"
+# And a window nobody can see is one nobody hears: BIMS_SOUND=0 opens it
+# muted (`dev::silent`) unless the caller set BIMS_SOUND=1 to listen.
+env -u DISPLAY WAYLAND_DISPLAY="$socket" BIMS_SOUND="${BIMS_SOUND:-0}" "$@"
