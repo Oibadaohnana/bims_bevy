@@ -1470,6 +1470,18 @@ impl Character {
         self.dead
     }
 
+    /// Up again where it lay, awake and standing (feature 103: a dead
+    /// player's Bim bought back). Nothing in its hands.
+    pub fn revive(&mut self) {
+        self.dead = false;
+        self.unconscious = false;
+        self.path.clear();
+        self.speed = 0.0;
+        self.target_speed = 0.0;
+        self.seated = false;
+        self.action = Action::None;
+    }
+
     /// Sitting or lying: put there by a chain, and not to be shoved about by
     /// anything outside it.
     pub fn is_seated(&self) -> bool {

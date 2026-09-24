@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 /// versions of the game desync in ways that look like bugs in the room,
 /// which is a miserable thing to debug from a bug report; being told
 /// "this server speaks protocol 3, you speak 2" is not.
-pub const PROTOCOL: u32 = 25;
+pub const PROTOCOL: u32 = 26;
 
 /// Where the relay lives. `BIMS_SERVER` in the environment overrides it
 /// — `ws://127.0.0.1:8792` for one on the same machine.

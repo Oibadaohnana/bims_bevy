@@ -657,6 +657,44 @@ impl Session {
         true
     }
 
+    /// The run between missions (feature 103): the ship off the site it
+    /// opened at, whoever is where, and the world map up — `BIMS_MAP=1`.
+    /// `false` in the design phase.
+    pub fn map_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        game.world.leave_for_probe();
+        true
+    }
+
+    /// The departure check asking (feature 103): crew member 1 out cold
+    /// just inside the station's door, and the player's own Bim — aboard,
+    /// where every run opens — having pressed *Back to ship*. The next
+    /// step asks every player whether to leave it behind. `BIMS_DEPART=1`;
+    /// `false` with a crew of one or nowhere docked.
+    pub fn depart_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let world = &mut game.world;
+        if world.aboard.crew_count() < 2 {
+            return false;
+        }
+        let Some(at) = world.aboard.ashore else {
+            return false;
+        };
+        let local = game.local;
+        let other = if local == 1 { 0 } else { 1 };
+        world
+            .aboard
+            .room
+            .put_for_probe(other, bims::math::vec2(at.x as f32, at.y as f32));
+        world.aboard.room.knock_out_for_probe(other);
+        world.apply_now(world::world::Command::Return { slot: local });
+        true
+    }
+
     pub fn infest_the_dock_for_probe(
         &mut self,
         tier: Option<bims::combat::Tier>,

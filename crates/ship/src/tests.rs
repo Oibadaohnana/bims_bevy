@@ -484,6 +484,8 @@ fn the_exhaust_follows_the_plan() {
     use world::world::Command;
 
     let mut game = game();
+    // A flight is the old game's (feature 103): its clock runs free.
+    game.world.set_free_clock(true);
     // Somewhere off to one side, so there is a real turn to make first —
     // and the crew member at the helm, since the ship is flown from there.
     let here = game.world.ship.position();
@@ -1182,6 +1184,52 @@ fn a_game_saved_and_read_back_is_the_same_game() {
         CANVAS.1,
     );
     assert!(design.save().is_none());
+}
+
+/// A world saved **between missions** (feature 103) reads back between
+/// missions — the map up, the world clock where it stood, the dead player
+/// still out — and the trip chosen after it is the same trip in both.
+#[test]
+fn a_game_saved_on_the_map_reads_back_on_the_map_and_travels_alike() {
+    use crate::Session;
+    use world::world::Command;
+    let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    for _ in 0..30 {
+        session.world_step();
+    }
+    let game = session.game.as_mut().unwrap();
+    game.world.leave_for_probe();
+    assert!(!game.world.in_mission());
+    let site = game
+        .world
+        .travel_quotes()
+        .into_iter()
+        .find(|(s, q)| q.is_ok() && Some(*s) != game.world.current_site())
+        .map(|(s, _)| s)
+        .expect("somewhere to go");
+    let text = session.save().expect("a world to save");
+    let mut back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
+    let (a, b) = (
+        &session.game.as_ref().unwrap().world,
+        &back.game.as_ref().unwrap().world,
+    );
+    assert!(!b.in_mission(), "the map is up");
+    assert_eq!(a.run, b.run, "the run whole");
+    assert_eq!(a.checksum(), b.checksum());
+    for s in [&mut session, &mut back] {
+        s.game.as_mut().unwrap().send(Command::Propose {
+            slot: 0,
+            star: site.star,
+            station: site.station,
+        });
+    }
+    let (a, b) = (
+        &session.game.as_ref().unwrap().world,
+        &back.game.as_ref().unwrap().world,
+    );
+    assert!(a.in_mission() && b.in_mission(), "both travelled");
+    assert_eq!(a.clock_minutes, b.clock_minutes);
+    assert_eq!(a.checksum(), b.checksum(), "the same trip");
 }
 
 /// The landed picture as an SVG, for looking at the plain without a

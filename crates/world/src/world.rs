@@ -75,10 +75,17 @@ use crate::mercenary::{self, Hired, Offer};
 use crate::orders::Standing;
 use crate::plunder::{self, Plunder};
 use crate::raid::{self, Raid, Raids};
+use crate::run::{self, Run};
 use crate::speed::{self, Speed};
 use crate::station::{Berth, Station, enemies_of};
 use crate::surface::{self, Surface};
 use crate::tank::Tank;
+
+// The run's half of the world (feature 103): travel, a mission's start
+// and end, dying and buying back. A child of this module, so it reaches
+// the fields the rest of the `impl World` blocks here do.
+#[path = "mission.rs"]
+mod mission;
 
 /// What a player can ask the world to do.
 ///
@@ -568,6 +575,41 @@ pub enum Command {
         slot: u32,
         who: Option<u32>,
     },
+    /// Put a destination to the crew, between missions (feature 103,
+    /// [`crate::run`]): a station or a settlement in this system, or in
+    /// one a hyperlane hop away. It replaces whatever was on the table,
+    /// every acceptance with it, and counts as the proposer's own yes.
+    Propose {
+        slot: u32,
+        star: u32,
+        station: u32,
+    },
+    /// Say yes to the destination on the table, or take a yes back. The
+    /// last yes of every connected player is the trip: the world clock put
+    /// on by its length and the crew arriving there, in that instant.
+    Accept {
+        slot: u32,
+        yes: bool,
+    },
+    /// *Back to ship*: this player is done here. The first press sends
+    /// every bot home; the departure check runs once every standing
+    /// player has pressed it and is aboard. Pressed again, it asks a
+    /// turned-down departure again.
+    Return {
+        slot: u32,
+    },
+    /// This player's answer to the departure check: leave the ones
+    /// outside the ship behind, or not.
+    LeaveBehind {
+        slot: u32,
+        yes: bool,
+    },
+    /// The host saying that player has left the game: a vote no longer
+    /// waits for them, and the departure check does not either. `slot`
+    /// is the player gone, not the one saying so.
+    PlayerGone {
+        slot: u32,
+    },
 }
 
 /// What the ship is doing.
@@ -798,11 +840,11 @@ pub struct World {
     /// `world_checksum` eats is the answer rather than this, since it is
     /// the size of the fight.
     droid_tier: Option<Tier>,
-    /// How long after a wave is spent the next arrives, in minutes of
-    /// the world's clock: [`data::DROID_REINFORCE_MINUTES`], bar the
-    /// probes, which shorten it to a minute so a wave can be watched
-    /// arriving. In `world_checksum` for the same reason.
-    droid_reinforce: f64,
+    /// How long after a wave is spent the next arrives, in steps of the
+    /// mission clock: [`data::DROID_REINFORCE_STEPS`], bar the probes,
+    /// which shorten it to a minute so a wave can be watched arriving. In
+    /// `world_checksum` for the same reason.
+    droid_reinforce: u64,
     /// The most a wave ever is: [`data::DROID_WAVE_MAX`], bar the probes,
     /// which raise it to measure what a bigger wave costs a frame
     /// (`BIMS_DROID_WAVE`). In `world_checksum` with the other two.
@@ -851,11 +893,11 @@ pub struct World {
     /// system has fallen, so the crisis reads this before it flips one.
     held_towns: Vec<u32>,
     /// How long after the crew land at a threatened town the first wave
-    /// comes, in minutes of the world's clock:
-    /// [`data::DEFENSE_DELAY_MINUTES`], bar the `defense` probe. Saved
-    /// and in `world_checksum` beside the machines' own dials, since
-    /// when a wave lands is the fight.
-    defense_delay: f64,
+    /// comes, in steps of the mission clock:
+    /// [`data::DEFENSE_DELAY_STEPS`], bar the `defense` probe. Saved and
+    /// in `world_checksum` beside the machines' own dials, since when a
+    /// wave lands is the fight.
+    defense_delay: u64,
     /// The ship's power over its live networks, worked out from the parts
     /// once per change to them — `on_ship_changed` — rather than once a
     /// step: it is a union-find over every tile of the grid, and the
@@ -1134,6 +1176,14 @@ pub struct World {
     /// only for the tests of building and of the shelf. Saved and in
     /// `world_checksum`.
     shipyard_enabled: bool,
+    /// The run (feature 103, [`crate::run`]): in a mission or between
+    /// them, the mission clock, the bounty waiting on the site being
+    /// cleared, the destination on the table and who has accepted it, who
+    /// has pressed *Back to ship*, the departure check, and the dead
+    /// players waiting to be bought back. Also the one switch that lets
+    /// the world clock run with the step, for the old game's tests. Saved
+    /// and in `world_checksum` whole.
+    pub run: Run,
 }
 
 /// A lamp a fight has damaged, remembered by where it hangs: which
@@ -1423,7 +1473,7 @@ impl World {
             infested: Vec::new(),
             droids_to_post: Vec::new(),
             droid_tier: None,
-            droid_reinforce: data::DROID_REINFORCE_MINUTES,
+            droid_reinforce: data::DROID_REINFORCE_STEPS,
             droid_wave_max: data::DROID_WAVE_MAX,
             droid_wave_forced: None,
             droid_waves_forced: None,
@@ -1435,7 +1485,7 @@ impl World {
             crisis_first_day: 0,
             defenses: Vec::new(),
             held_towns: Vec::new(),
-            defense_delay: data::DEFENSE_DELAY_MINUTES,
+            defense_delay: data::DEFENSE_DELAY_STEPS,
             power_budget: shipdesign::power_budget(&design_for_charge),
             discovered: Vec::new(),
             craft_targets: [0; CARGO_SLOTS],
@@ -1498,6 +1548,10 @@ impl World {
             human_foes_enabled: false,
             radiation_enabled: false,
             shipyard_enabled: false,
+            // Feature 103: the world opens in its first mission, at the
+            // dock, with the world clock standing still until the crew
+            // travel.
+            run: Run::new(players),
         };
 
         // Whatever armour the design was accepted carrying is so many
@@ -1566,16 +1620,37 @@ impl World {
     pub fn step(&mut self, commands: &[Command]) -> Vec<WorldEvent> {
         let mut events = Vec::new();
 
+        // 0. Between missions (feature 103) nothing moves: the map is up
+        //    and the crew are choosing where next. The commands are heard
+        //    — a vote, a speed — and the step is counted, since it is
+        //    what a command is stamped with; nothing else happens.
+        if self.run.phase == run::Phase::Map {
+            for &command in commands {
+                self.apply(command, &mut events);
+            }
+            self.steps += 1;
+            return events;
+        }
+        //    And the first step of a mission photographs the site before
+        //    anything has moved: what leaving it uncleared puts back.
+        self.open_the_mission();
+
         // 1. What the players asked for, in the order it arrived.
         for &command in commands {
             self.apply(command, &mut events);
         }
 
-        // 2. The clock. Everything below reads it; nothing below sets it.
-        self.clock_minutes += data::STEP_MINUTES;
+        // 2. The clocks. Everything below reads them; nothing below sets
+        //    them. The **world** clock runs only with travel in a run
+        //    (feature 103) — with the step only where the old game's
+        //    switch is on — and the **mission** clock with every step.
+        if self.run.free_clock {
+            self.clock_minutes += data::STEP_MINUTES;
+            //    And what the clock brought due: the hired hands' month.
+            self.pay_wages(&mut events);
+        }
+        self.run.mission_steps += 1;
         self.steps += 1;
-        //    And what the clock brought due: the hired hands' month.
-        self.pay_wages(&mut events);
 
         // 3. Flight — and the two moves either side of a trip that are not
         //    flown: pushing off the berth and coming alongside.
@@ -1775,6 +1850,12 @@ impl World {
         //    and is not wired yet.
         self.run_health(&mut events);
 
+        // 9. The run (feature 103): the bounty paid the step the site is
+        //    cleared, and the departure check — which, answered, is the
+        //    ship leaving and the map coming up. Last, so it sees the
+        //    step whole.
+        self.settle_run(&mut events);
+
         events
     }
 
@@ -1829,14 +1910,59 @@ impl World {
             | Command::Squad { slot, .. }
             | Command::Rally { slot }
             | Command::Carry { slot, .. }
-            | Command::Orders { slot, .. } => slot,
+            | Command::Orders { slot, .. }
+            | Command::Propose { slot, .. }
+            | Command::Accept { slot, .. }
+            | Command::Return { slot }
+            | Command::LeaveBehind { slot, .. }
+            | Command::PlayerGone { slot } => slot,
         };
 
+        // Nothing is flown in a run (feature 103): a trip is chosen on the
+        // map and resolved, so the helm's four orders are the old game's,
+        // and only a world with the old clock running takes them.
+        if !self.run.free_clock
+            && matches!(
+                command,
+                Command::Confirm { .. }
+                    | Command::Abort { .. }
+                    | Command::Jump { .. }
+                    | Command::Land { .. }
+            )
+        {
+            events.push(refused(slot, Refusal::TravelIsResolved));
+            return;
+        }
+        // And between missions nothing happens but the choosing: the map
+        // is up and nothing steps. An order to the crew's room is heard —
+        // a selection, a pick in a panel — and moves nobody until the next
+        // mission is under way.
+        if self.run.phase == run::Phase::Map
+            && !matches!(
+                command,
+                Command::SetSpeed { .. }
+                    | Command::Propose { .. }
+                    | Command::Accept { .. }
+                    | Command::PlayerGone { .. }
+                    | Command::Crew { .. }
+                    | Command::CrewLater { .. }
+            )
+        {
+            events.push(refused(slot, Refusal::BetweenMissions));
+            return;
+        }
         match command {
             // Speed is not an order to the ship, so it does not go through the
             // helm: a player who is nowhere near the controls may still say
             // they want to watch this bit slowly.
             Command::SetSpeed { speed, .. } => self.request_speed(slot, speed),
+            Command::Propose { star, station, .. } => {
+                self.propose(slot, run::Site { star, station }, events)
+            }
+            Command::Accept { yes, .. } => self.accept_proposal(slot, yes, events),
+            Command::Return { .. } => self.press_return(slot, events),
+            Command::LeaveBehind { yes, .. } => self.answer_departure(slot, yes, events),
+            Command::PlayerGone { .. } => self.player_gone(slot, events),
             Command::Confirm { target, .. } => {
                 if !self.can_command(slot) {
                     events.push(refused(slot, Refusal::NotAtTheHelm));
@@ -2885,16 +3011,10 @@ impl World {
     /// The end: nobody of the crew standing — alive and awake — and the
     /// run is over, said once and kept.
     fn check_lost(&mut self, events: &mut Vec<WorldEvent>) {
-        if self.lost {
-            return;
-        }
-        let room = &self.aboard.room;
-        let standing = (0..self.aboard.crew_count() as usize)
-            .any(|who| room.is_alive(who) && !room.is_unconscious(who));
-        if !standing {
-            self.lost = true;
-            events.push(WorldEvent::CrewLost);
-        }
+        // Since the run (feature 103) the run is lost when every player's
+        // Bim is dead at once — not merely down, and whatever the bots are
+        // doing: see `mission.rs`.
+        self.check_run_lost(events);
     }
 
     /// A raid this instant, for looking at: off the berth and holding a
@@ -2905,8 +3025,10 @@ impl World {
     /// nothing moved, when the ship has no port for a raider to dock by.
     pub fn raid_for_probe(&mut self, dock: bool) -> Option<Vec<WorldEvent>> {
         // A raid is the old game's (feature 102): asked for, it switches
-        // the human foes on, and nothing else of them.
+        // the human foes on, and nothing else of them — and the old clock
+        // it is timed by (feature 103).
         self.human_foes_enabled = true;
+        self.set_free_clock(true);
         self.hold_off_for_probe()?;
         self.raid_now_for_probe();
         let mut events = Vec::new();
@@ -2960,8 +3082,10 @@ impl World {
     /// command in the app. False, and nothing moved, when the ship has
     /// no port for a raider to dock by.
     pub fn raid_coming_for_probe(&mut self, minutes: u64) -> bool {
-        // As `raid_for_probe`: a raid asked for is the human foes on.
+        // As `raid_for_probe`: a raid asked for is the human foes on, and
+        // the old clock.
         self.human_foes_enabled = true;
+        self.set_free_clock(true);
         if self.hold_off_for_probe().is_none() {
             return false;
         }
@@ -3340,9 +3464,14 @@ impl World {
     /// the station's people's. Every step, and at a switch.
     fn hand_the_rooms_the_needs(&mut self) {
         let on = self.needs_enabled;
+        // And whether their clocks run (feature 103): only with the old
+        // game's free clock, since in a run only travel moves the day.
+        let clock = self.run.free_clock;
         self.aboard.room.set_needs_enabled(on);
+        self.aboard.room.set_clock_runs(clock);
         if let Some(residents) = &mut self.residents {
             residents.aboard.room.set_needs_enabled(on);
+            residents.aboard.room.set_clock_runs(clock);
         }
     }
 
@@ -3762,6 +3891,9 @@ impl World {
             }
             return;
         }
+        // The machines destroyed this step, for the Republic's bounty
+        // (feature 103): said when the room is done with below.
+        let mut machine_bounty: Money = 0;
         // And which of them are down, so a body among them is one the
         // crew can right-click and loot; after the positions, since the
         // positions clear it.
@@ -3930,6 +4062,13 @@ impl World {
             let down = !room.is_alive(who);
             if down && !residents.down[who] {
                 residents.down[who] = true;
+                // The Republic pays for a machine destroyed as it pays
+                // for an enemy taken down, by its tier (feature 103):
+                // every enemy is a machine now, and a fight is how a crew
+                // earns. Pending until the site is cleared.
+                if let Some(d) = who.checked_sub(bims).and_then(|i| room.droid(i)) {
+                    machine_bounty = machine_bounty.saturating_add(bounty_for(d.tier.code()));
+                }
                 // A machine is said as a machine: it has no name, and
                 // the log would otherwise call a wreck Sanne.
                 let machine = who
@@ -4150,6 +4289,8 @@ impl World {
         self.aboard.room.set_hostiles(targets);
         self.aboard.room.set_hostiles_peeking(&peeking);
         self.aboard.room.set_hostiles_dodge(&dodge);
+        // And what the Republic owes for the machines destroyed this step.
+        self.earn_bounty(machine_bounty, events);
     }
 
     /// Who of the crew is locked in a melee — an enemy with a blade within
@@ -4205,11 +4346,11 @@ impl World {
             if down && !self.crew_down[who] {
                 self.crew_down[who] = true;
                 events.push(WorldEvent::CrewDown { who: who as u32 });
-                // A dead crew member's level, experience and talents die with
-                // it (feature 74), and a medic's beam and charge (feature 76).
-                if let Some(progress) = self.progress.get_mut(who) {
-                    *progress = Progress::default();
-                }
+                // Since the run (feature 103) a dead player's level,
+                // experience and talents are **kept** for its buyback; a
+                // bot is gone for good and costs the pool (`fall`). A
+                // medic's beam and charge go with the body (feature 76).
+                self.fall(who as u32, events);
                 if let Some(medic) = self.medics.get_mut(who) {
                     *medic = Medic::default();
                 }
@@ -7996,12 +8137,22 @@ impl World {
     /// same order (`crates/app/src/net.rs`); what it changes is *when*
     /// between two steps, and both ends agree about that too.
     pub fn applies_at_once(command: &Command) -> bool {
+        // And the run's own (feature 103): a vote on the map, where no
+        // step is taken at all, a press of *Back to ship*, an answer to
+        // the departure check and a player gone. The trip a last yes
+        // sets off, and the leaving the last answer allows, happen at
+        // the same place in every copy's order, like everything here.
         matches!(
             command,
             Command::SetSpeed { .. }
                 | Command::Crew { .. }
                 | Command::ToHelm { .. }
                 | Command::ToDesk { .. }
+                | Command::Propose { .. }
+                | Command::Accept { .. }
+                | Command::Return { .. }
+                | Command::LeaveBehind { .. }
+                | Command::PlayerGone { .. }
         )
     }
 
@@ -8178,6 +8329,8 @@ impl World {
         };
         self.undock_for_probe();
         self.residents = None;
+        // A landing is flown, which is the old game's (feature 103).
+        self.set_free_clock(true);
         self.put_for_probe(over);
         // There for the planet, whatever stands nearer: a ship that flew
         // there would be in its frame from the last leg of the trip.
@@ -8999,16 +9152,22 @@ impl World {
     }
 
     /// How long after a wave is spent the next arrives, in minutes of
-    /// the world's clock.
+    /// the mission clock (feature 103).
     pub fn droid_reinforce_minutes(&self) -> f64 {
+        self.droid_reinforce as f64 * data::STEP_MINUTES
+    }
+
+    /// The same in steps of the mission clock, which is what it is kept in.
+    pub fn droid_reinforce_steps(&self) -> u64 {
         self.droid_reinforce
     }
 
     /// The machines' own reinforcement clock, shortened: what the
     /// `droids` probes set to a minute so a wave can be watched arriving
-    /// without waiting two hours of the world's clock.
+    /// without waiting two of the mission clock. In minutes of it, a
+    /// minute being sixty steps; nought is the very next step.
     pub fn set_droid_reinforce_minutes_for_probe(&mut self, minutes: f64) {
-        self.droid_reinforce = minutes;
+        self.droid_reinforce = steps_of(minutes);
     }
 
     /// How many machines the next wave is, worked out now: the base, the
@@ -9080,14 +9239,16 @@ impl World {
     }
 
     /// How long until the next wave lands at the held station
-    /// alongside, in minutes of the world's clock — `None` while a
-    /// machine is still standing (the clock does not run then), with
-    /// none left to come, or away from a held station. The countdown
+    /// alongside, in minutes of the mission clock (feature 103) — `None`
+    /// while a machine is still standing (the clock does not run then),
+    /// with none left to come, or away from a held station. The countdown
     /// the app shows, the way `raid_minutes_left` is the raider's.
     pub fn droid_wave_due(&self) -> Option<f64> {
         let id = self.residents.as_ref()?.station;
         let it = self.infestation(id)?;
-        it.next_wave.map(|due| (due - self.clock_minutes).max(0.0))
+        let now = self.run.mission_steps;
+        it.next_wave
+            .map(|due| due.saturating_sub(now) as f64 * data::STEP_MINUTES)
     }
 
     /// The crew's class levels less one each, added up: nought for a
@@ -9417,7 +9578,9 @@ impl World {
             self.settle_droids();
         }
         let standing = self.droids_standing();
-        let minutes = self.clock_minutes;
+        // The mission clock (feature 103): a wave is timed from the
+        // arrival, whatever day it is.
+        let now = self.run.mission_steps;
         let reinforce = self.droid_reinforce;
         let mut arrive = false;
         let mut cleared = false;
@@ -9430,8 +9593,8 @@ impl World {
                 it.next_wave = None;
             } else if it.more_to_come() {
                 match it.next_wave {
-                    None => it.next_wave = Some(minutes + reinforce),
-                    Some(due) if minutes >= due => {
+                    None => it.next_wave = Some(now + reinforce),
+                    Some(due) if now >= due => {
                         it.waves_left -= 1;
                         it.wave += 1;
                         it.next_wave = None;
@@ -9558,7 +9721,9 @@ impl World {
     /// machine is still standing, with none left to come, and away from
     /// an attack. What the app counts down along the top.
     pub fn defense_wave_due(&self) -> Option<f64> {
-        self.defense_here()?.next_in
+        self.defense_here()?
+            .next_in
+            .map(|left| left as f64 * data::STEP_MINUTES)
     }
 
     /// Which wave of machines is on the town's ground and how many are
@@ -9570,15 +9735,20 @@ impl World {
     }
 
     /// How long after the crew land at a threatened town the first wave
-    /// comes, in minutes of the world's clock.
+    /// comes, in minutes of the mission clock (feature 103).
     pub fn defense_delay_minutes(&self) -> f64 {
+        self.defense_delay as f64 * data::STEP_MINUTES
+    }
+
+    /// The same in steps of the mission clock, which is what it is kept in.
+    pub fn defense_delay_steps(&self) -> u64 {
         self.defense_delay
     }
 
     /// The `defense` probe's dial: the wait before the first wave, in
-    /// minutes of the world's clock.
+    /// minutes of the mission clock, a minute being sixty steps.
     pub fn set_defense_delay_for_probe(&mut self, minutes: f64) {
-        self.defense_delay = minutes;
+        self.defense_delay = steps_of(minutes);
     }
 
     /// The attack's stage of the step, right after the machines' own.
@@ -9645,7 +9815,8 @@ impl World {
         if let Some(d) = self.defense_mut(id) {
             d.standing = standing;
         }
-        let step = data::STEP_MINUTES;
+        // Steps of the mission clock (feature 103), counted down one a
+        // step while the crew are here.
         let reinforce = self.droid_reinforce;
         let mut arrive = false;
         let mut won = false;
@@ -9656,7 +9827,7 @@ impl World {
             } else if d.wave == 0 || d.more_to_come() {
                 match d.next_in {
                     None => d.next_in = Some(reinforce),
-                    Some(left) if left <= step => {
+                    Some(left) if left <= 1 => {
                         if d.wave > 0 {
                             d.waves_left -= 1;
                         }
@@ -9664,7 +9835,7 @@ impl World {
                         d.next_in = None;
                         arrive = true;
                     }
-                    Some(left) => d.next_in = Some(left - step),
+                    Some(left) => d.next_in = Some(left - 1),
                 }
             } else if !d.won {
                 d.won = true;
@@ -10050,7 +10221,7 @@ impl World {
                 self.charge_timers
                     .resize(who + 1, [None; Charge::ALL.len()]);
             }
-            self.charge_timers[who][c] = Some(self.clock_minutes);
+            self.charge_timers[who][c] = Some(self.mission_minutes());
         }
     }
 
@@ -10234,11 +10405,10 @@ impl World {
             self.award_classed_near(at, xp, events);
         }
         // And what the Republic owes for them, said once however many
-        // went down this step.
-        if bounty > 0 {
-            self.money = self.money.saturating_add(bounty);
-            events.push(WorldEvent::Bounty { amount: bounty });
-        }
+        // went down this step — paid at once where there is nothing left
+        // to clear, and pending until the site is cleared where there is
+        // (feature 103).
+        self.earn_bounty(bounty, events);
         downed
     }
 
@@ -10467,7 +10637,7 @@ impl World {
         };
         // Seconds of the room's clock: a game minute is a real second at
         // 1× (`time::MINUTES_PER_SECOND`), the way the room steps.
-        let since = (self.clock_minutes - began) / time::MINUTES_PER_SECOND;
+        let since = (self.mission_minutes() - began) / time::MINUTES_PER_SECOND;
         (self.charge_cooldown(who, charge) - since).max(0.0)
     }
 
@@ -10537,7 +10707,7 @@ impl World {
         if self.charge_timers.len() < crew {
             self.charge_timers.resize(crew, [None; Charge::ALL.len()]);
         }
-        let now = self.clock_minutes;
+        let now = self.mission_minutes();
         for who in 0..crew {
             for charge in Charge::ALL {
                 let c = charge.code() as usize;
@@ -11999,7 +12169,7 @@ impl World {
         let Some(last) = self.tank_of(who).last_taunt else {
             return 0.0;
         };
-        (self.taunt_minutes(who) - (self.clock_minutes - last)).max(0.0)
+        (self.taunt_minutes(who) - (self.mission_minutes() - last)).max(0.0)
     }
 
     /// Whether a taunt is running on a crew member.
@@ -12013,7 +12183,7 @@ impl World {
         let Some(last) = self.tank_of(who).last_taunt else {
             return 0.0;
         };
-        let since = (self.clock_minutes - last) / time::MINUTES_PER_SECOND;
+        let since = (self.mission_minutes() - last) / time::MINUTES_PER_SECOND;
         (class::TAUNT_COOLDOWN - since).max(0.0)
     }
 
@@ -12042,7 +12212,7 @@ impl World {
     /// `hand_the_room_the_tanks`.
     fn taunt(&mut self, slot: u32) -> Result<(), Refusal> {
         self.can_taunt(slot)?;
-        let now = self.clock_minutes;
+        let now = self.mission_minutes();
         self.tank_mut(slot as usize).last_taunt = Some(now);
         Ok(())
     }
@@ -12229,7 +12399,7 @@ impl World {
         let Some(last) = self.commander_of(who).last_rally else {
             return 0.0;
         };
-        (self.rally_minutes(who) - (self.clock_minutes - last)).max(0.0)
+        (self.rally_minutes(who) - (self.mission_minutes() - last)).max(0.0)
     }
 
     /// Whether a rally is running on a commander.
@@ -12243,7 +12413,7 @@ impl World {
         let Some(last) = self.commander_of(who).last_rally else {
             return 0.0;
         };
-        let since = (self.clock_minutes - last) / time::MINUTES_PER_SECOND;
+        let since = (self.mission_minutes() - last) / time::MINUTES_PER_SECOND;
         (self.rally_cooldown(who) - since).max(0.0)
     }
 
@@ -12285,7 +12455,7 @@ impl World {
     /// `skill_of`.
     fn rally(&mut self, slot: u32) -> Result<(), Refusal> {
         self.can_rally(slot)?;
-        let now = self.clock_minutes;
+        let now = self.mission_minutes();
         self.commander_mut(slot as usize).last_rally = Some(now);
         Ok(())
     }
@@ -12380,9 +12550,13 @@ impl World {
             }
         }
         let t = shipdesign::TILE as f32;
+        // *Back to ship* pressed (feature 103): every bot goes home,
+        // whoever it follows and whatever it was told before.
+        let recalled = self.run.recalled;
         let said: Vec<bims::game::Standing> = self
             .standing
             .iter()
+            .map(|order| if recalled { &Standing::Retreat } else { order })
             .map(|order| match *order {
                 Standing::Follow => bims::game::Standing::Follow,
                 Standing::Retreat => bims::game::Standing::Retreat,
@@ -12992,6 +13166,13 @@ pub fn spawn(galaxy: &Galaxy) -> Option<(u32, u32)> {
         }
     }
     None
+}
+
+/// Minutes of the mission clock as whole steps of it (feature 103),
+/// rounded to the nearest and never below nought: how a probe's dial in
+/// minutes becomes the step count the world keeps a timer in.
+fn steps_of(minutes: f64) -> u64 {
+    (minutes / data::STEP_MINUTES).round().max(0.0) as u64
 }
 
 /// What the Republic pays for an enemy of that gear tier — [`data::REPUBLIC_BOUNTY`]

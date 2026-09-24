@@ -50,6 +50,16 @@ pub fn month_and_date(day_of_year: u32) -> (u32, u32) {
 /// The Bim's day starts here.
 const WAKING_HOUR: f32 = 8.0;
 
+/// The day a clock that opened with the game shows once `elapsed` game
+/// minutes have gone by — the same number [`Clock::day`] counts to, worked
+/// out without a clock: day one at the waking hour, and a day more at every
+/// midnight after. What the world map says a trip arrives on (feature 103),
+/// so the day it quotes is the day the clock will show.
+pub fn day_at(elapsed: f64) -> u32 {
+    let since_midnight = f64::from(WAKING_HOUR * HOUR) + elapsed.max(0.0);
+    1 + (since_midnight / f64::from(DAY)).floor() as u32
+}
+
 /// When the light comes up and goes down again. Between each pair the room
 /// eases from one to the other rather than switching.
 const DAWN: (f32, f32) = (5.5, 7.5);

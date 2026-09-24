@@ -146,6 +146,24 @@ pub fn lost() -> bool {
     std::env::var("BIMS_LOST").as_deref() == Ok("1")
 }
 
+/// `BIMS_MAP=1` opens the run **between missions** (feature 103): the
+/// ship off the site it opened at and the world map up for everybody —
+/// how the list of destinations and the vote are looked at without
+/// walking the crew home first (`Session::map_for_probe`).
+pub fn map() -> bool {
+    std::env::var("BIMS_MAP").as_deref() == Ok("1")
+}
+
+/// `BIMS_DEPART=1` opens the run with the **departure check asking**
+/// (feature 103): crew member 1 out cold just inside the station's door
+/// and the player's own Bim having pressed *Back to ship* aboard, so the
+/// *Leave them behind?* window is the first frame
+/// (`Session::depart_for_probe`). It wants a crew of two or more —
+/// `droids`, `test` after a hire.
+pub fn depart() -> bool {
+    std::env::var("BIMS_DEPART").as_deref() == Ok("1")
+}
+
 /// `BIMS_DYING=n` puts `n` of the crew into a dying state — a part at
 /// nothing with its trauma untreated and wounds open on it — for looking
 /// at the red cross over a body on the deck and at the peril block under
@@ -515,7 +533,7 @@ pub fn droid_wave_max() -> Option<u32> {
 }
 
 /// How long the `droids` probes wait between waves, in minutes of the
-/// world's clock: `BIMS_DROID_REINFORCE=600` over the commands' own
+/// mission clock (feature 103): `BIMS_DROID_REINFORCE=600` over the commands' own
 /// `screens::game::DROID_REINFORCE_IN_PROBE` (one). A minute is a real
 /// second at 1× and two and a half **frames** at 24×, so the countdown
 /// along the top cannot be looked at through a scripted run without
@@ -529,10 +547,10 @@ pub fn droid_reinforce(default: f64) -> f64 {
 }
 
 /// How long the `defense` command waits between the crew landing at a
-/// threatened town and the first wave, in minutes of the world's clock:
-/// `BIMS_DEFENSE_DELAY=30` over the command's own
+/// threatened town and the first wave, in minutes of the mission clock
+/// (feature 103): `BIMS_DEFENSE_DELAY=30` over the command's own
 /// `screens::game::DEFENSE_DELAY_IN_PROBE` (one), where the game's own
-/// is `world::data::DEFENSE_DELAY_MINUTES` (an hour). Nought or less
+/// is `world::data::DEFENSE_DELAY_STEPS` (sixty minutes of it). Nought or less
 /// reads as the default.
 pub fn defense_delay(default: f64) -> f64 {
     std::env::var("BIMS_DEFENSE_DELAY")

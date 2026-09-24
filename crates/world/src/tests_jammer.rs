@@ -125,6 +125,8 @@ fn unlaned_star(world: &World) -> u32 {
 #[test]
 fn a_jump_wants_a_lane_out_of_the_star_the_ship_is_at() {
     let mut world = jumper_world();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let here = world.star_id;
     let lane = world.galaxy().lanes(here)[0];
     let away = unlaned_star(&world);
@@ -207,6 +209,8 @@ fn the_route_is_the_shortest_chain_of_lanes_from_here() {
 #[test]
 fn a_standing_jammer_shuts_the_lanes_inward_and_no_others() {
     let mut world = jumper_world();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let here = world.star_id;
     let (origin, inward, level, outward) = three_ways(&world);
     world.set_droid_origin_for_probe(origin);
@@ -279,6 +283,8 @@ fn a_standing_jammer_shuts_the_lanes_inward_and_no_others() {
 #[test]
 fn a_cleared_jammer_station_stays_down() {
     let mut world = jumper_world();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let here = world.star_id;
     let (origin, ..) = three_ways(&world);
     world.set_droid_origin_for_probe(origin);
@@ -489,6 +495,8 @@ fn two_worlds_on_one_seed_are_jammed_and_freed_alike() {
     let (origin, inward, _, outward) = three_ways(&a);
     let h = a.galaxy().hops_from(origin)[here as usize];
     for world in [&mut a, &mut b] {
+        // A charge is the old game's (feature 103): its clock runs free.
+        world.set_free_clock(true);
         world.set_droid_origin_for_probe(origin);
         world.set_crisis_first_day_for_probe(0);
         wind_to(world, u32::from(h) * data::DROID_SPREAD_DAYS);

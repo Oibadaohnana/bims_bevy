@@ -44,6 +44,8 @@ fn needs_of(room: &bims::game::Game) -> Vec<Vec<f32>> {
 #[test]
 fn with_the_needs_off_no_need_moves_over_a_day_for_the_crew_or_a_station_s_people() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     assert!(!world.needs_enabled(), "a run has no needs");
     let residents = world.residents.as_ref().expect("the spawn has people");
     assert!(residents.aboard.room.crew_count() > 0);
@@ -537,6 +539,8 @@ fn out_in_the_open(world: &mut World) {
 /// Charged and jumped to `star`.
 fn jump_to(world: &mut World, star: u32) {
     assert_eq!(world.ship.state, ShipState::Holding);
+    // A charge is the old game's (feature 103): its clock runs free.
+    world.set_free_clock(true);
     world.man_the_helm_for_probe(0);
     world.step(&[Command::Jump { slot: 0, star }]);
     let steps = (data::JUMP_CHARGE_MINUTES / data::STEP_MINUTES).ceil() as u32 + 5;

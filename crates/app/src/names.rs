@@ -593,6 +593,17 @@ pub fn refusal(why: Refusal) -> &'static str {
             "medkits and bandages stay in the pack: they come back there on their own cooldown"
         }
         Refusal::NoShipyard => "nothing is built onto the ship on a run",
+        Refusal::TravelIsResolved => {
+            "nothing is flown on a run — choose where to go on the world map, between missions"
+        }
+        Refusal::BetweenMissions => "not between missions — choose where to go next",
+        Refusal::MidMission => "the map is read-only during a mission — go back to the ship first",
+        Refusal::NoSuchPlace => "there is no such place to go",
+        Refusal::TooFar => "that is more than one hyperlane hop away — one hop a trip",
+        Refusal::NoProposal => "nobody has put a destination to the crew",
+        Refusal::NotAsked => "nobody is being asked about leaving",
+        Refusal::PlayerOut => "your Bim is dead — it is bought back at the next mission",
+        Refusal::CannotTravel => "the ship cannot get there — nothing pushes it",
     }
 }
 
@@ -2225,8 +2236,187 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Bounty { amount } => {
             format!("The Republic pays {}.", crate::format::euros(amount))
         }
+        WorldEvent::BountyPending { amount } => format!(
+            "The Republic owes {} once this place is cleared.",
+            crate::format::euros(amount)
+        ),
+        WorldEvent::Proposed { slot, .. } => {
+            format!("{} proposes a destination.", player_name(slot))
+        }
+        WorldEvent::ProposalAccepted { slot, yes: true } => {
+            format!("{} accepts.", player_name(slot))
+        }
+        WorldEvent::ProposalAccepted { slot, yes: false } => {
+            format!("{} takes their yes back.", player_name(slot))
+        }
+        WorldEvent::Travelled { minutes, .. } => format!(
+            "Arrived after {}. A mission begins.",
+            crate::format::trip_length(minutes)
+        ),
+        WorldEvent::Returning { slot } => format!("{} is heading back to the ship.", who(slot)),
+        WorldEvent::DepartureAsked { behind } => departure_asked(behind),
+        WorldEvent::DepartureDeclined { slot } => {
+            format!("{} will not leave them behind. The ship stays.", player_name(slot))
+        }
+        WorldEvent::LeftSite { cleared: true, .. } => LEFT_CLEARED.into(),
+        WorldEvent::LeftSite { cleared: false, .. } => LEFT_UNCLEARED.into(),
+        WorldEvent::LeftBehind { who: w } => format!("{} was left behind.", who(w)),
+        WorldEvent::BoughtBack { who: w } => format!(
+            "{} is bought back for {}.",
+            who(w),
+            crate::format::euros(world::data::BUYBACK_COST)
+        ),
+        WorldEvent::StillOut { who: w } => format!(
+            "The pool cannot pay {} to buy {} back.",
+            crate::format::euros(world::data::BUYBACK_COST),
+            who(w)
+        ),
+        WorldEvent::BotLost { who: w, paid } => format!(
+            "{} is gone for good. The pool pays {}.",
+            who(w),
+            crate::format::euros(paid)
+        ),
+        WorldEvent::TownFell { .. } => TOWN_FELL.into(),
+        WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
     })
 }
+
+/// A player named by their slot: their Bim's name, which is what the
+/// lobby shows them as too.
+fn player_name(slot: u32) -> String {
+    crew_name(slot)
+}
+
+/// The departure check asking (feature 103).
+pub fn departure_asked(behind: u32) -> String {
+    match behind {
+        1 => "One of the crew is still outside the ship. Leave them behind?".into(),
+        n => format!("{n} of the crew are still outside the ship. Leave them behind?"),
+    }
+}
+
+/// The ship leaving a site it cleared, and one it did not (feature 103).
+pub const LEFT_CLEARED: &str = "The ship leaves. This place stays cleared.";
+pub const LEFT_UNCLEARED: &str = "The ship leaves before the place is cleared: it is as the crew found it, and the bounty is lost.";
+/// A town the machines were attacking, left before it was held.
+pub const TOWN_FELL: &str = "The town falls to the machines behind you.";
+
+// --- the world map and the end of a mission (feature 103) -------------------
+
+pub const MAP_TITLE: &str = "World map";
+/// Under where the crew are, in the ship view.
+pub const MAP_KEY_HINT: &str =
+    "M — the world map. Back to ship, at the bottom right, when you are done here.";
+/// Under the title, between missions and during one.
+pub const MAP_BETWEEN: &str =
+    "Between missions. Choose where to go next — everybody has to accept.";
+pub const MAP_READ_ONLY: &str =
+    "During a mission the map is read-only. Go back to the ship to choose where next.";
+pub const MAP_TIP: &str = "A trip is one step: to another station or settlement in this system, or to one in a system a hyperlane joins to this one. Nothing is flown. The world clock goes on by the trip's length the moment everybody has accepted — the crisis spreads by the day — and the crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here.";
+/// The two halves of the list.
+pub const MAP_THIS_SYSTEM: &str = "This system";
+pub fn map_next_system(star: &str) -> String {
+    format!("{star} · one hop")
+}
+/// The site the crew are at, in the list.
+pub const MAP_HERE: &str = "here";
+/// A trip's length and the day it ends on.
+pub fn trip_quote(minutes: u64, arrival_day: u32) -> String {
+    format!(
+        "{} · day {}",
+        crate::format::trip_length(minutes),
+        arrival_day
+    )
+}
+/// What the crew find on arrival, a word each.
+pub const ARRIVE_MACHINES: &str = "machines";
+pub const ARRIVE_JAMMER: &str = "jammer";
+pub const ARRIVE_THREATENED: &str = "threatened";
+pub const ARRIVE_CLEARED: &str = "cleared";
+pub fn arrive_tier(tier: u32) -> String {
+    format!("tier {tier}")
+}
+/// The picked destination, spelt out.
+pub fn picked_travel(minutes: u64, days: f64, arrival_day: u32) -> String {
+    format!(
+        "Travel {} ({days:.2} days) — arrive on day {arrival_day}.",
+        crate::format::trip_length(minutes)
+    )
+}
+pub const ARRIVE_QUIET: &str = "On arrival: nobody hostile.";
+pub fn arrive_state(infested: bool, tier: u32, jammer: bool, threatened: bool) -> String {
+    let mut words = Vec::new();
+    if infested {
+        words.push(format!("held by the machines at tier {tier}"));
+    }
+    if jammer {
+        words.push("their jammer".to_string());
+    }
+    if threatened {
+        words.push(format!("a town the machines come for, at tier {tier}"));
+    }
+    if words.is_empty() {
+        return ARRIVE_QUIET.into();
+    }
+    format!("On arrival: {}.", words.join(", "))
+}
+pub const PROPOSE: &str = "Propose";
+pub const ACCEPT_TRIP: &str = "Accept";
+pub const TAKE_BACK: &str = "Take back";
+pub fn proposal_line(site: &str, by: &str) -> String {
+    format!("{by} proposes {site}.")
+}
+pub fn accepted_line(who: &str, yes: bool, gone: bool) -> String {
+    if gone {
+        format!("{who}: gone")
+    } else if yes {
+        format!("{who}: yes")
+    } else {
+        format!("{who}: waiting")
+    }
+}
+/// A player whose Bim is dead and waiting to be bought back.
+pub fn out_line() -> String {
+    format!(
+        "Your Bim is dead. It is bought back at the next mission for {} if the pool can pay.",
+        crate::format::euros(world::data::BUYBACK_COST)
+    )
+}
+/// The pool, and what is waiting on the site being cleared.
+pub fn pool_line(day: u32, pool: u64, pending: u64) -> String {
+    if pending > 0 {
+        format!(
+            "Day {day} · {} · +{} on clear",
+            crate::format::euros(pool),
+            crate::format::euros(pending)
+        )
+    } else {
+        format!("Day {day} · {}", crate::format::euros(pool))
+    }
+}
+pub const BACK_TO_SHIP: &str = "Back to ship";
+pub const BACK_TO_SHIP_TIP: &str = "Say you are done here. The first press sends every bot back to the ship. The ship leaves once every player still on their feet has pressed it and is aboard: anybody outside then is left behind, and dead for it, if everybody agrees. Leave before the place is cleared and it is put back as you found it — the bounty is lost, the experience is kept.";
+pub fn returning_line(home: u32, waited: u32) -> String {
+    format!("Returning · {home} / {waited} aboard")
+}
+pub const ASK_AGAIN: &str = "Ask again";
+pub const DEPARTURE_TITLE: &str = "Leave them behind?";
+pub const DEPARTURE_LINE: &str =
+    "The ship is ready to go, but these are still outside it. Left behind is dead.";
+pub const LEAVE_YES: &str = "Yes, leave";
+pub const LEAVE_NO: &str = "No, wait";
+pub fn departure_answer(who: &str, answer: Option<bool>, gone: bool) -> String {
+    match (gone, answer) {
+        (true, _) => format!("{who}: gone"),
+        (false, Some(true)) => format!("{who}: leave"),
+        (false, Some(false)) => format!("{who}: wait"),
+        (false, None) => format!("{who}: …"),
+    }
+}
+/// The machines' own station where a system has none, named by nobody.
+pub const DERIVED_JAMMER_NAME: &str = "The machines' relay";
+/// Beside a name in the departure check: down and cannot walk in.
+pub const DOWNED_WORD: &str = "down";
 
 /// The parts of a body a shot can land on, indexed by
 /// `bims::health::Part::code`: the head, the body, the legs. Lower case,
@@ -3235,11 +3425,11 @@ pub fn droids_next_wave(span: &str, wave: u32, waves: u32) -> String {
     format!("MACHINES — wave {wave} of {waves} in {span}")
 }
 pub const DROIDS_CLEARED: &str = "MACHINES — the last wave is down";
-pub const DROIDS_TIP: &str = "The station is held by the machines, and they come in waves. How many waves there are was fixed the first time you docked here and never changes; how big each one is, is worked out as it appears, so a richer crew meets more of them. No wave arrives while a machine of the last one is still standing — the countdown starts when the last of them is destroyed — and the next comes in through the airlock farthest from your own, or through a gate of the town on a planet. Everybody's speed goes back to 1× when one lands.";
+pub const DROIDS_TIP: &str = "The station is held by the machines, and they come in waves. How many waves there are is worked out when you arrive, and how big each one is as it appears. Go back to the ship before the last wave is down and the station is as you found it — the bounty for what you destroyed is lost, the experience is kept — and the next visit is a fresh fight. No wave arrives while a machine of the last one is still standing — the countdown starts when the last of them is destroyed — and the next comes in through the airlock farthest from your own, or through a gate of the town on a planet. Everybody's speed goes back to 1× when one lands.";
 
 /// The same warning over a town the crew are defending (feature 94):
 /// the fight is the machines', but the town's people are in it too.
-pub const DEFENSE_TIP: &str = "The machines are coming for this town, and they land outside a gate a wave at a time. The town's guard and whatever mercenaries live here fight them; everybody else goes indoors and stays there. Hold the last wave and the town is yours to keep — it stays friendly and goes on trading even after its system falls, and some of its people will join your crew. Lift off and the attack waits where it stood; leave the town to it and it falls like any other.";
+pub const DEFENSE_TIP: &str = "The machines are coming for this town, and they land outside a gate a wave at a time. The town's guard and whatever mercenaries live here fight them; everybody else goes indoors and stays there. Hold the last wave and the town is yours to keep — it stays friendly and goes on trading even after its system falls, and some of its people will join your crew. Go back to the ship before the last wave is down and the town falls to the machines behind you.";
 
 pub const RAID_TIP: &str = "A hostile ship is closing on yours and will tie up alongside. Its boarders come for the ship through your airlock, which is locked in their face the moment they arrive: they have to force it — half a minute of heaving, the bar over the door — and you may unlock it from its panel yourself to meet them in the passage. Everybody's speed was put back to 1× when it came onto the radar; leaving before it arrives loses it.";
 

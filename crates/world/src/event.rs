@@ -306,6 +306,48 @@ pub enum WorldEvent {
     /// so many euros into the crew's one pool, said once for however many
     /// were downed this step. Fighting is how a crew earn.
     Bounty { amount: economy::Money },
+    /// The Republic's bounty for machines destroyed at a site not yet
+    /// cleared (feature 103): so many euros **pending**, paid the step
+    /// the site is cleared and thrown away if the crew leave before.
+    BountyPending { amount: economy::Money },
+    /// A player put a destination to the crew, between missions.
+    Proposed { slot: u32, star: u32, station: u32 },
+    /// A player said yes to the destination on the table, or took it back.
+    ProposalAccepted { slot: u32, yes: bool },
+    /// The crew travelled and arrived: the world clock on by `minutes`,
+    /// the ship docked or landed at the site, and a mission begun there.
+    Travelled {
+        star: u32,
+        station: u32,
+        minutes: u64,
+    },
+    /// A player pressed *Back to ship*.
+    Returning { slot: u32 },
+    /// The departure check is asking every player whether to leave
+    /// `behind` of the crew outside the ship.
+    DepartureAsked { behind: u32 },
+    /// A player said no to leaving them: the ship stays.
+    DepartureDeclined { slot: u32 },
+    /// The ship left the site and the world map is up: `cleared` whether
+    /// the site was — kept as it is — or not, and put back as the mission
+    /// met it.
+    LeftSite { station: u32, cleared: bool },
+    /// A crew member left outside the ship when it went, and dead for it.
+    LeftBehind { who: u32 },
+    /// A dead player's Bim bought back out of the pool at a mission's
+    /// start, aboard with no gear.
+    BoughtBack { who: u32 },
+    /// A dead player's Bim the pool could not pay for: out until the next
+    /// mission.
+    StillOut { who: u32 },
+    /// A bot died, gone for good, and the pool paid for it — as much of
+    /// the penalty as it held.
+    BotLost { who: u32, paid: economy::Money },
+    /// A town the machines were attacking was left before it was held,
+    /// and fell to them: an infested site like any other.
+    TownFell { station: u32 },
+    /// The host said that player has left the game.
+    PlayerGone { slot: u32 },
 }
 
 /// Why a command did nothing.
@@ -561,6 +603,30 @@ pub enum Refusal {
     /// default one and nothing is built onto it but a class's
     /// deployables (`World::shipyard_enabled`).
     NoShipyard = 82,
+    /// A helm order — Confirm, Brake, Jump, Land — in a run (feature
+    /// 103): nothing is flown, a trip is chosen on the world map between
+    /// missions and resolved (`crate::run`).
+    TravelIsResolved = 83,
+    /// Anything but choosing a destination between missions: the map is
+    /// up and nobody is anywhere to be ordered about.
+    BetweenMissions = 84,
+    /// A destination put or accepted during a mission: the map is
+    /// read-only until everybody is back aboard and the ship has left.
+    MidMission = 85,
+    /// A destination that is no station or settlement of the system named.
+    NoSuchPlace = 86,
+    /// A destination further than one hyperlane hop: a trip is one hop at
+    /// most.
+    TooFar = 87,
+    /// An acceptance with nothing on the table.
+    NoProposal = 88,
+    /// An answer to the departure check with no check asking.
+    NotAsked = 89,
+    /// *Back to ship* from a player whose Bim is dead: it comes back at
+    /// the next mission, if the pool can pay.
+    PlayerOut = 90,
+    /// A trip the ship cannot make: nothing pushes it, forwards or back.
+    CannotTravel = 91,
 }
 
 impl Refusal {
@@ -663,6 +729,20 @@ impl WorldEvent {
             WorldEvent::TownHeld { .. } => 90,
             WorldEvent::TownsfolkJoined { .. } => 91,
             WorldEvent::Bounty { .. } => 92,
+            WorldEvent::BountyPending { .. } => 93,
+            WorldEvent::Proposed { .. } => 94,
+            WorldEvent::ProposalAccepted { .. } => 95,
+            WorldEvent::Travelled { .. } => 96,
+            WorldEvent::Returning { .. } => 97,
+            WorldEvent::DepartureAsked { .. } => 98,
+            WorldEvent::DepartureDeclined { .. } => 99,
+            WorldEvent::LeftSite { .. } => 100,
+            WorldEvent::LeftBehind { .. } => 101,
+            WorldEvent::BoughtBack { .. } => 102,
+            WorldEvent::StillOut { .. } => 103,
+            WorldEvent::BotLost { .. } => 104,
+            WorldEvent::TownFell { .. } => 105,
+            WorldEvent::PlayerGone { .. } => 106,
         }
     }
 
@@ -680,7 +760,24 @@ impl WorldEvent {
             | WorldEvent::DroidStationCleared { station }
             | WorldEvent::TownHeld { station } => station as i64,
             WorldEvent::TownsfolkJoined { count } => count as i64,
-            WorldEvent::Bounty { amount } => amount as i64,
+            WorldEvent::Bounty { amount } | WorldEvent::BountyPending { amount } => amount as i64,
+            // The station in the thousands, the player in the units — the
+            // star is the log's to look up, a site being named by both.
+            WorldEvent::Proposed { slot, station, .. } => (slot as i64) + 1_000 * (station as i64),
+            WorldEvent::ProposalAccepted { slot, yes } => (slot as i64) + 100 * i64::from(yes),
+            // The minutes: how long the trip was.
+            WorldEvent::Travelled { minutes, .. } => minutes as i64,
+            WorldEvent::Returning { slot }
+            | WorldEvent::DepartureDeclined { slot }
+            | WorldEvent::PlayerGone { slot } => slot as i64,
+            WorldEvent::DepartureAsked { behind } => behind as i64,
+            WorldEvent::LeftSite { station, cleared } => (station as i64) * 2 + i64::from(cleared),
+            WorldEvent::LeftBehind { who }
+            | WorldEvent::BoughtBack { who }
+            | WorldEvent::StillOut { who } => who as i64,
+            // The penalty paid in the hundreds: a crew is never a hundred.
+            WorldEvent::BotLost { who, paid } => (who as i64) + 100 * (paid as i64),
+            WorldEvent::TownFell { station } => station as i64,
             WorldEvent::Crafted { recipe } | WorldEvent::CraftLost { recipe } => recipe as i64,
             // The station in the thousands, the person in the units.
             WorldEvent::EnemyDown { station, who } => (who + 1_000 * station) as i64,

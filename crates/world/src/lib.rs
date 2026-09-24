@@ -69,6 +69,7 @@ pub mod mercenary;
 pub mod orders;
 pub mod plunder;
 pub mod raid;
+pub mod run;
 pub mod speed;
 pub mod station;
 pub mod surface;
@@ -91,6 +92,7 @@ pub use memory::{Losses, SystemMemory};
 pub use orders::Standing;
 pub use plunder::Plunder;
 pub use raid::{Raid, Raids, boarders_of, raider_id, raider_index};
+pub use run::{Departure, Fallen, Proposal, Run, Site, SiteSnapshot, TravelQuote};
 pub use speed::Speed;
 pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};
@@ -126,6 +128,8 @@ mod tests_jammer;
 mod tests_medic;
 #[cfg(test)]
 mod tests_memory;
+#[cfg(test)]
+mod tests_mission;
 #[cfg(test)]
 mod tests_money;
 #[cfg(test)]

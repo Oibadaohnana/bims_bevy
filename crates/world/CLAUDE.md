@@ -4387,3 +4387,126 @@ aboard — a hire, a townsperson joining — loses its round
 (`take_resident_aboard` → `Game::clear_routine`). The residents' room is
 not in the checksum, so the rounds are not either; `tests_run.rs` pins that
 two runs on one seed walk them alike, position for position.
+
+## The loop: travel resolved, and a mission's start and end (feature 103)
+
+The second step of the redesign. `crate::run` is the types — `Run`,
+`Phase`, `Site`, `Proposal`, `Departure`, `Fallen`, `SiteSnapshot`,
+`TravelQuote` — and `mission.rs` is the world's side of them, **a child
+module of `world`** (`#[path = "mission.rs"] mod mission;` near the top
+of `world.rs`), so it reaches the private fields the rest of the `impl
+World` blocks do without growing `world.rs` by a thousand lines.
+`World::run` holds all of it, saved and in `world_checksum` at the very
+end.
+
+**Two clocks.** `clock_minutes` is the **world clock** — the day, the
+crisis, the front, the wages — and in a run it moves **only** in
+`World::travel`, by the trip's whole minutes in one go. `Run::mission_steps`
+is the **mission clock**, nought on arrival and one a step: the droid
+waves (`Infestation::next_wave` is a mission step now, `droid_reinforce`
+steps, `data::DROID_REINFORCE_STEPS`), a town's first wave and its
+countdown (`Defense::next_in` in steps, `defense_delay`,
+`data::DEFENSE_DELAY_STEPS`), and every class timer read through
+`World::mission_minutes()` — `charge_timers`, a taunt, a rally. The probes'
+dials are still in minutes of it (`set_droid_reinforce_minutes_for_probe`,
+`set_defense_delay_for_probe`), turned into steps by `steps_of`. The rooms
+are told `Game::set_clock_runs` with the needs, so a room's time of day
+stands where it was built — wound to the world clock at every build — and
+`World::day()` read off the room stays the world's day.
+
+**The old game's switch is `Run::free_clock`** (`World::set_free_clock`),
+off in every run, the pattern feature 102 set: with it on the world clock
+runs with the step as it always did, `pay_wages` runs with it, and the
+helm's four orders are taken; with it off `Command::{Confirm, Abort, Jump,
+Land}` are refused `Refusal::TravelIsResolved` (83). **A test of flight,
+raids, wages or the day passing by the step turns it on right after
+building its world** — `set_off` in `tests.rs` and `tests_raid.rs` and
+`jump_to` in `tests_run.rs` do it themselves, and the reference run flies
+with it on and then turns it off for the loop.
+
+**The step's order grew two ends.** Stage 0: in `Phase::Map` the commands
+are applied, the step is counted and nothing else happens. Then
+`open_the_mission` photographs the site the first step of a mission
+(`SiteSnapshot`: the site's `Infestation`, `Defense`, `Losses`, graves,
+lamps and plunder — **not** its research key or a hire, which the crew
+carried away), before the commands. Stage 9, last: `settle_run` — the
+pending bounty paid the step the site is cleared, and the departure
+check. `check_lost` is `check_run_lost` now.
+
+**The run's commands apply at once** (`applies_at_once`):
+`Command::Propose`, `Accept`, `Return`, `LeaveBehind` and `PlayerGone`, so
+a vote lands on the map where no step is taken and at a pause. The last
+yes of every connected player **is** the trip — `go_if_carried` →
+`travel`: the clock on, `pay_wages_due` (a month a pass), `jump` for
+another system, the whole system charted, `spread_crisis` **before**
+`arrive_at` (so a system whose day came on the way is the machines'
+before the ship ties up), `arrive_at` (`Docked`, the frame, `dock_at`,
+`settle_residents`, `mark_visited`), `begin_mission`. The host says
+`PlayerGone` when the roster loses somebody (`screens/game.rs`), since the
+world cannot know who is at a keyboard.
+
+**A quote** (`travel_quote`, `travel_quotes` for the map's whole list off
+one generated galaxy) is `physics::travel_days(distance, a_forward,
+max(a_forward, a_backward))` of the leg — from `current_site()`'s place,
+or `jump::landing_point` for another system — plus
+`time::days(JUMP_CHARGE_MINUTES)` for a jump, rounded **up** to whole
+minutes for the clock; one lane at most (`TooFar`), `jammed_step` still
+`Jammed`, and the state on arrival read off the arrival day: infested, the
+tier (the distance rule unless the probe's override), the jammer (lowest
+orbital, else derived), a threatened town (the front worked out at that
+day). No hyperdrive part is asked for: the default ship has none, and a
+trip is resolved. `sites_at(star)` is the stations then the settlements,
+and a system with no station gets the derived jammer's id when it is
+infested today.
+
+**A mission's start** (`begin_mission`): the run's per-mission state
+cleared, `buy_back` (the fallen in death order while the pool holds
+`BUYBACK_COST`; `Game::revive` — alive, whole, awake, **no gear** — and
+`strip_the_dead` for the world's armour records; `StillOut` for the rest),
+and `make_whole` — `Game::restore_health` for every living crew member, the
+world's `HealthState`s fresh, beams and carries cleared, every charge timer,
+taunt and rally reset and every charge filled (`fill_charges`) — and every
+player's standing order back to Follow.
+
+**Cleared** is `site_cleared(id)`: an `Infestation`'s `cleared`, a
+`Defense`'s `won`, and otherwise `!town_threatened(id)` — a peaceful site
+is cleared from the start, which is also why a legacy human enemy's bounty
+is still paid at once. `earn_bounty` pays at once where
+`mission_cleared()` (the site tied up at, and "nowhere" counts as clear)
+and makes it pending otherwise; `visit` adds `bounty_for(droid.tier)` for
+every machine seen destroyed — the Republic pays for machines now, every
+enemy being one — and `experience` adds the human's as before.
+
+**The end of a mission.** `press_return`: `returning` set, `recalled` on —
+which `hand_the_room_the_standing` hands every slot as `Retreat` — and a
+press by one already returning clears a `Declined` departure.
+`settle_departure` waits for every **waited-for** player (`waited_for`:
+connected, not out, alive, not `is_down`) to be returning and
+`inside_ship` (`Aboard::on_ship` against the ship's own design), and at
+least one to exist; then `left_behind()` (every living crew member outside
+the ship) empty is `leave_mission`, and otherwise `Departure::Asking`. An
+`Asking` whose list changed is asked afresh; one declined is not asked
+about the same list again. `leave_mission`: the left behind `kill_now`,
+`casualties` (the deaths paid for), the bounty settled or dropped,
+`unjoin_rooms` and `close_residents`, then a town under attack `infest`ed
+(`TownFell`) or the snapshot restored (`restore_site`), the fallen
+stripped, the dead bots dropped (`bury_the_bots` → `drop_crew_member`,
+which removes a crew index from every list the world keeps one in), the
+ship `Holding` at the site's place, `undocked_once`, and `Phase::Map`.
+
+**Dying.** `casualties` no longer resets a dead crew member's `Progress`
+(it is kept for the buyback) and calls `fall`: a player onto `run.fallen`
+in death order, a bot `BotLost` and `min(money, BOT_DEATH_PENALTY)` off the
+pool. `check_run_lost`: every player slot's Bim dead — out cold is alive,
+and the bots do not count.
+
+**What moved.** `Refusal` 83–91, `WorldEvent` 93–106, `data::BUYBACK_COST`,
+`BOT_DEATH_PENALTY`, `DROID_REINFORCE_STEPS`, `DEFENSE_DELAY_STEPS` (the two
+`_MINUTES` constants gone), `SAVE_VERSION` 34, `wire::PROTOCOL` 26 (the
+relay wants redeploying), and `REFERENCE_CHECKSUM` with the reference run's
+loop. **Not done, because it does not exist**: the spec's "Commander's
+call-in reinforcements, once per mission" and "temporary Republic
+soldiers" — the commander has a rally and a squad, and nothing calls a
+soldier in. `tests_mission.rs` is the rule, with
+`travel_days_over_ten_galaxies` (`#[ignore]`) printing the measurements
+the root `CLAUDE.md` carries.

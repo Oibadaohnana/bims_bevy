@@ -332,6 +332,8 @@ fn a_settlement_s_dead_lie_in_its_street_too() {
 #[test]
 fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.set_human_foes_enabled(true);
     let from = world.star_id;
     let to = crate::tests::laned_star(&world);
@@ -512,6 +514,8 @@ fn a_mercenary_hired_is_not_there_to_hire_twice() {
 #[test]
 fn the_dead_stay_on_the_deck_across_a_jump_away_and_back() {
     let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let from = world.star_id;
     let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");
@@ -568,6 +572,8 @@ fn the_dead_stay_on_the_deck_across_a_jump_away_and_back() {
 fn the_map_marks_where_the_ship_has_already_been() {
     use worldgen::Node;
     let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let from = world.star_id;
     let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");

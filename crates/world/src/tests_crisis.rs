@@ -272,6 +272,8 @@ fn a_station_cleared_before_its_day_stays_cleared_after_it() {
 #[test]
 fn a_system_overrun_while_the_crew_were_away_remembers_none_of_its_people() {
     let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let home_star = world.star_id;
     let home = world.home;
     // A neighbour's people are enemies, and the crew have killed two.

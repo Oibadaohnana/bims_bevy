@@ -352,9 +352,12 @@ pub const DROID_WAVE_MAX: u32 = 16;
 /// and never worked out again.
 pub const DROID_WAVES_BASE: u32 = 2;
 /// How long after the last machine of a wave is destroyed the next one
-/// arrives, in minutes of the world's clock — two hours. Never while one
-/// is still standing.
-pub const DROID_REINFORCE_MINUTES: f64 = 120.0;
+/// arrives, in steps of the **mission clock** (feature 103) — two minutes
+/// of it at 1×, which was two hours of the old world clock. Never while
+/// one is still standing. The world clock stands still during a mission
+/// (only travel moves it), so a wave is timed from the arrival like every
+/// other in-mission timer, and not by the day.
+pub const DROID_REINFORCE_STEPS: u64 = 7_200;
 /// How far beyond a town's wall the machines' lander sets down, in
 /// tiles: far enough that its own picture does not overlap the gate it
 /// unloaded through.
@@ -425,10 +428,11 @@ pub const FRONT_BIAS: i32 = 5;
 // --- defending a town (feature 94) ---------------------------------------
 
 /// How long after the crew set down at a threatened town the first wave
-/// of machines lands, in minutes of the world's clock. An hour: long
+/// of machines lands, in steps of the **mission clock** (feature 103): a
+/// minute of it at 1×, which was an hour of the old world clock — long
 /// enough to walk the town, talk to the desk and hire what is for hire
 /// before the shooting starts.
-pub const DEFENSE_DELAY_MINUTES: f64 = 60.0;
+pub const DEFENSE_DELAY_STEPS: u64 = 3_600;
 /// What share of a defended town's surviving people join the crew, in per
 /// cent, when the last wave is destroyed. A fifth, rounded down, and never
 /// fewer than one while there is anybody but the guard left to come.
@@ -445,3 +449,19 @@ pub const DEFENSE_JOIN_PERCENT: u32 = 20;
 /// worth pushing towards, which is what the crisis wants of them.
 /// Placeholders, like every other number here.
 pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];
+
+// --- the run: death and buyback (feature 103) ------------------------------
+
+/// What the pool pays to bring a dead player's Bim back, at the start of
+/// the next mission: it respawns aboard the ship with no gear, its level,
+/// experience and talents kept. Paid automatically, longest-dead first,
+/// while the pool holds this much; a player the pool cannot pay for stays
+/// out and is tried again at the mission after. The same as a player's
+/// share of the starting pool ([`START_MONEY_PER_BIM`]), so a crew that
+/// has earned nothing yet can buy one of its own back once.
+pub const BUYBACK_COST: Money = 5_000;
+/// What a **bot** Bim's death costs the pool — a hired hand, a townsperson
+/// who joined, any crew member no player steers. It is gone for good, and
+/// the pool pays this the moment it dies, never going below nought: what
+/// it cannot pay is dropped.
+pub const BOT_DEATH_PENALTY: Money = 5_000;

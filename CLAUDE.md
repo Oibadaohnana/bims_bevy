@@ -22,12 +22,12 @@ the build's own answer where this table is a copy:
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement the way `BIMS_LANDED=1` lands the simulation (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with **everybody's kit at tier two** — every crew member's gun at it (its kind as the fight dealt it) and a fresh helm, kevlar and leg guards at it on, pieces of the world's — and the machines at tier two (`Session::droids_at_tier`, `World::outfit_for_probe`), so the fight is looked at with nothing at tier one on either side. It was the human garrison's fight until every enemy was a machine (feature 102) |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
-| `nix run .#droids` | `cargo run -- droids` | **the fight** — the **machines** (feature 83): the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the five kinds dealt round — the **last four of them hired field medics** (`session::COMBAT_MEDICS`, feature 86), docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across) that the **droids hold**. `Session::combat` builds the ship, the crew and the arena and `Session::droids` hands the arena to the machines; the `combat` command that stopped at the first half — the arena's own people turned against the crew — is gone with every other human enemy (feature 102), and so are its `combat_<class>` runs and `--combat`. Every dial the notes below write against `combat` is `droids`' now, the same ship and crew; `BIMS_FIGHT`, which stages a fight with a station's *people*, is the simulation's alone. Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, sized by `droid::wave_size` (the base, the crew, the calendar, the worth and the levels, added — never doubled — and capped at `DROID_WAVE_MAX`). `DROID_REINFORCE_MINUTES` is **one minute** here rather than two hours, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`) |
+| `nix run .#droids` | `cargo run -- droids` | **the fight** — the **machines** (feature 83): the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the five kinds dealt round — the **last four of them hired field medics** (`session::COMBAT_MEDICS`, feature 86), docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across) that the **droids hold**. `Session::combat` builds the ship, the crew and the arena and `Session::droids` hands the arena to the machines; the `combat` command that stopped at the first half — the arena's own people turned against the crew — is gone with every other human enemy (feature 102), and so are its `combat_<class>` runs and `--combat`. Every dial the notes below write against `combat` is `droids`' now, the same ship and crew; `BIMS_FIGHT`, which stages a fight with a station's *people*, is the simulation's alone. Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, sized by `droid::wave_size` (the base, the crew, the calendar, the worth and the levels, added — never doubled — and capped at `DROID_WAVE_MAX`). `DROID_REINFORCE_STEPS` is **a minute of the mission clock** here — a real second at 1× — rather than two real minutes, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the mission clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`) |
 | `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with the class in hand** (features 79 and 83, `Launch::DroidsAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs: the same combat ship, the same sixteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the **tenth level** (`dev::COMBAT_CLASS_LEVEL`, feature 80) with all seven of the class's talents still to choose, so the tray opens on the **Skills** tab (feature 83) with seven points to spend; `BIMS_LEVEL=n` says otherwise. The **engineer of such a run has the charges its class deals it** (`world::deploy::SENTRY_CHARGES`, one, beside `SANDBAG_CHARGES`, three). The `combat_<class>` runs beside these were the human garrison's fight, and went with it (feature 102). The parsing is `main.rs::class_named`, and `bims list` prints the lot |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
-| `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it first spreads (feature 92): `test`'s own random galaxy and random dock and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight. The origin is theirs from day nought, as in every run since feature 102, and the clock is wound to the eve of the day the ring round it turns (`DROID_SPREAD_DAYS`, five) — so the next stars turn red on the galaxy chart within a day of the clock, and the crew's own system five days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the clock opens a day short of the next ring whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
-| `nix run .#jammer` | `cargo run -- jammer` | the **jammer** (feature 93): `crisis`'s own random galaxy, random dock and origin **two hops off**, with the clock wound *past* the day this system falls rather than a day short of the first — so the crew open **inside** an infested system, every station of it in the machines' hands (`Session::jammer_for_probe`, `World::infest_here_for_probe`), a wave aboard the one they are tied up at and `DROID_REINFORCE_MINUTES` a minute. Two things are looked at from here. The **jam**: the chart lights the lanes out of the ship's star in the hyperdrive's violet, draws the route to whatever star is picked along them, and **bars in red every step of it a jammer would turn back** — a jump *inward*, towards where the machines began, is refused while the jammer station stands (`Refusal::Jammed`), and the panel says which station holds it. And the **tier**: two hops is inside `DROID_TIER_THREE_HOPS`, so the machines come at **tier three** without a dial. `BIMS_DROID_TIER=1` says otherwise, and `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE` are `droids`' own |
-| `nix run .#defense` | `cargo run -- defense` | **defending a town** (feature 94): `test_planet`'s own random galaxy and roll — the ship set down at a settlement whose people are friendly — with the machines' origin forced **one hyperlane hop off** and the crisis's first day wound to nought, so the town's system is on the **front** (`World::front` of it is one) and the town is *threatened*. The map says so under its planet's icon, in the enemy's red, where it would otherwise say *land*. A minute after the landing (`DEFENSE_DELAY_MINUTES`, an hour in the game, `BIMS_DEFENSE_DELAY=n` over the command's own minute) a wave sets down outside a gate and walks in, and the red line along the top counts it the way it counts a held station's. The fight is the one that happens **inside one room**: the town's **guard and its mercenaries** take arms and fight the machines where they stand, everybody else walks into the nearest house and stays there, the crew never aim at a townsperson and the machines aim at both. Hold the last wave and the town is **held** — friendly for good, trading and hiring even after its system falls, its map tag *held* — and some of its people join the crew; lift off and the attack waits exactly where it stood. `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE`/`BIMS_DROID_WAVE` are `droids`' own (`Session::defense_for_probe`) |
+| `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it first spreads (feature 92): `test`'s own random galaxy and random dock and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight. The origin is theirs from day nought, as in every run since feature 102, and the clock is wound to the eve of the day the ring round it turns (`DROID_SPREAD_DAYS`, five) — so the next stars turn red on the galaxy chart within a day of the clock — a day the crew have to travel, since only travel moves the world clock (feature 103) — and the crew's own system five days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the clock opens a day short of the next ring whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
+| `nix run .#jammer` | `cargo run -- jammer` | the **jammer** (feature 93): `crisis`'s own random galaxy, random dock and origin **two hops off**, with the clock wound *past* the day this system falls rather than a day short of the first — so the crew open **inside** an infested system, every station of it in the machines' hands (`Session::jammer_for_probe`, `World::infest_here_for_probe`), a wave aboard the one they are tied up at and `DROID_REINFORCE_STEPS` a minute of the mission clock. Two things are looked at from here. The **jam**: the chart lights the lanes out of the ship's star in the hyperdrive's violet, draws the route to whatever star is picked along them, and **bars in red every step of it a jammer would turn back** — a jump *inward*, towards where the machines began, is refused while the jammer station stands (`Refusal::Jammed`), and the panel says which station holds it. And the **tier**: two hops is inside `DROID_TIER_THREE_HOPS`, so the machines come at **tier three** without a dial. `BIMS_DROID_TIER=1` says otherwise, and `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE` are `droids`' own |
+| `nix run .#defense` | `cargo run -- defense` | **defending a town** (feature 94): `test_planet`'s own random galaxy and roll — the ship set down at a settlement whose people are friendly — with the machines' origin forced **one hyperlane hop off** and the crisis's first day wound to nought, so the town's system is on the **front** (`World::front` of it is one) and the town is *threatened*. The map says so under its planet's icon, in the enemy's red, where it would otherwise say *land*. A minute of the mission clock after the landing (`DEFENSE_DELAY_STEPS` is sixty of them in the game, a real minute at 1×; `BIMS_DEFENSE_DELAY=n` minutes over the command's own one) a wave sets down outside a gate and walks in, and the red line along the top counts it the way it counts a held station's. The fight is the one that happens **inside one room**: the town's **guard and its mercenaries** take arms and fight the machines where they stand, everybody else walks into the nearest house and stays there, the crew never aim at a townsperson and the machines aim at both. Hold the last wave and the town is **held** — friendly for good, trading and hiring even after its system falls, its map tag *held* — and some of its people join the crew; go back to the ship before the last wave is down and the town falls to the machines (feature 103). `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE`/`BIMS_DROID_WAVE` are `droids`' own (`Session::defense_for_probe`) |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -169,7 +169,7 @@ jammer` is the way to see a wave that is *not* at tier three, and
 **`BIMS_DEFENSE_DELAY=n`** is the `defense` command's own (feature 94):
 how long after the crew set down at a threatened town the first wave
 lands, in minutes of the clock, where the command's own is a minute and
-the game's own is `DEFENSE_DELAY_MINUTES` (an hour). Raise it to look at
+the game's own is `DEFENSE_DELAY_STEPS` (sixty minutes of the mission clock, a real minute at 1×). Raise it to look at
 the hour the crew have to walk the town, trade and hire before the
 shooting starts; `BIMS_DROID_WAVES=1 bims defense` is a fight that can
 be held to the end in one sitting.
@@ -666,6 +666,83 @@ running or given an errand — and is not dealt to an enemy's garrison.
 The commands: `droids` is the fight; `combat`, `combat_<class>` and `raid`
 are gone; `tier2_test` and `tier3_test` are `droids` at a tier.
 `tests_run.rs` in `crates/world` is the feature's own tests.
+
+## The loop: travel and missions (feature 103)
+
+The second step of the redesign: **world map → travel → mission → back to
+ship → world map**, every run command under it (`game`, `simulation`,
+`test`, `test_planet`, `crisis`, `jammer`, `defense`, `droids`,
+`droids_planet`, the tier tests and the class runs all open in their first
+mission at the site they set up). The world's half is `crates/world/CLAUDE.md`
+("The loop"); the player's is `README.md` ("The loop"). What to hold on to:
+
+- **Only travel moves the world clock.** A trip is resolved, not flown:
+  the last yes of every connected player puts `clock_minutes` on by the
+  trip's whole minutes in one go (`World::travel`) and the crew arrive
+  docked or landed with a mission begun. During a mission and on the map
+  the clock stands still — the rooms are told so too (`Game::set_clock_runs`)
+  — and everything inside a mission runs on the **mission clock**,
+  `World::mission_steps`, nought on arrival: the droid waves
+  (`DROID_REINFORCE_STEPS`), a town's first wave (`DEFENSE_DELAY_STEPS`)
+  and every class cooldown. The helm's four orders are refused
+  (`Refusal::TravelIsResolved`) and the strip at the top is the world map
+  (`screens/worldmap.rs`) rather than the helm.
+- **The old game's clock is a switch**, `World::set_free_clock`, off in
+  every run and on for the tests of flight, raids, wages and the day by the
+  step, in the pattern feature 102 set. A new test of any of those turns it
+  on right after building its world, or its `Confirm` is refused and a
+  loop that waits on `clock_minutes` never ends (the engineer tests'
+  `run_for_seconds` did exactly that until it read `mission_minutes()`).
+- **The run's commands apply at once** (`World::applies_at_once`), since
+  nothing steps on the map: `Propose`, `Accept`, `Return`, `LeaveBehind`
+  and `PlayerGone` — the last said by the **host** alone, off the roster,
+  since the world cannot know who is at a keyboard.
+- **Dying.** A dead player's Bim is out until bought back at a mission's
+  start (`BUYBACK_COST`, longest dead first), its progress kept; a dead bot
+  costs `BOT_DEATH_PENALTY` and is gone at the end of the mission; the run
+  is lost when every player's Bim is dead at once.
+- **The Republic pays for machines now**, by their tier, and the bounty is
+  pending until the site is cleared.
+
+**Looking at it from a terminal.** `BIMS_MAP=1` opens any run between
+missions with the map up (`Session::map_for_probe`), and `BIMS_DEPART=1`
+with the departure check asking — crew member 1 out cold just inside the
+station's door and the player's own Bim having pressed *Back to ship*
+aboard (`Session::depart_for_probe`; it wants a crew of two, so `droids`).
+The *Back to ship* button is at the bottom right, `(1290, 867)` at
+1400×900, and the map's first row at about `(650, 109)` with *Propose* at
+`(623, 392)` once a row is picked — `BIMS_POINTER="40:move:1290,867;
+42:click:1290,867;80:move:650,109;82:click:650,109;110:move:623,392;
+112:click:623,392"` on `simulation` is the whole loop in 220 frames. A
+scripted run prints `left:`, `proposed:`, `accepted:`, `travelled:`,
+`gone:` and `refused:` lines, and **`scratchpad/duo_resync.sh travel`** is
+the pair: both press *Back to ship*, the host proposes, the guest accepts,
+and both must print the same `travelled:` line with the checksums agreeing
+after it. `net::tests::two_ends_leave_vote_and_travel_as_one_world` is the
+same through the in-process relay.
+
+**How long a trip is**, for the default ship over ten galaxies —
+`cargo test --release -p world -- --ignored --nocapture
+travel_days_over_ten_galaxies` (`tests_mission.rs`), every site of the
+spawn's system from the spawn and every site of every system a lane away:
+
+| | n | min | p25 | median | p75 | max |
+| --- | --- | --- | --- | --- | --- | --- |
+| in the system | 83 | 0.11 | 1.41 | 2.85 | 5.82 | 11.46 days |
+| one hop | 230 | 0.31 | 1.22 | 2.42 | 4.04 | 12.08 days |
+
+So a trip is two or three days as a rule — the crisis crosses a hop every
+`DROID_SPREAD_DAYS` (five) — and a jump is usually no longer than a trip
+across the system, since a jump lands the ship well inside its target
+system and the charge is twenty minutes. Nothing stops a crew going to the
+site it is at (a trip of nought minutes); step four of the redesign puts a
+floor under a trip.
+
+**Not done, because it is not there**: the spec's Commander
+"call-in-reinforcements" (to become once a mission) and its "temporary
+Republic soldiers" — the commander has a rally and a squad of the crew's
+own bots, and nothing calls a soldier in — and "liberation", which nothing
+in the code does yet.
 
 ## Money, not materials (feature 95)
 

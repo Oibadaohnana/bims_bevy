@@ -9,6 +9,10 @@
 #                                     host's world back
 #   scratchpad/duo_resync.sh load     the host saves, then loads the save;
 #                                     the guest gets the loaded world
+#   scratchpad/duo_resync.sh travel   both press Back to ship, the host
+#                                     proposes a place on the world map and
+#                                     the guest accepts it (feature 103):
+#                                     both leave, both travel, one world
 #
 # Everything lands under target/duo/<scenario>/: host.out, guest.out (the
 # `checksum:` / `desync:` / `resync:` lines), host.png, guest.png, and the
@@ -36,6 +40,10 @@ case $scenario in
   load)
     host_frames=${HOST_FRAMES:-1300}
     guest_frames=${GUEST_FRAMES:-1400}
+    ;;
+  travel)
+    host_frames=${HOST_FRAMES:-900}
+    guest_frames=${GUEST_FRAMES:-1000}
     ;;
   *) echo "unknown scenario: $scenario" >&2; exit 2 ;;
 esac
@@ -67,6 +75,19 @@ case $scenario in
     host_env=(
       BIMS_KEYS="${HOST_KEYS:-400:Escape,460:Escape,480:Escape}"
       BIMS_POINTER="${HOST_POINTER:-410:move:560,496;420:click:560,496;430:move:750,427;440:click:750,427;490:move:612,496;500:click:612,496;510:move:620,440;520:click:620,440;530:move:542,471;540:click:542,471}"
+    )
+    ;;
+  travel)
+    # Both press Back to ship (the bottom right) once the world is open;
+    # the ship leaves and the map is up on both. The host picks the
+    # first row of the list and proposes it; the guest accepts. Points
+    # are the map panel at 1400x900 with two players, read off
+    # screenshots.
+    host_env=(
+      BIMS_POINTER="${HOST_POINTER:-300:move:1290,867;302:click:1290,867;400:move:650,109;402:click:650,109;430:move:623,392;432:click:623,392}"
+    )
+    guest_env=(
+      BIMS_POINTER="${GUEST_POINTER:-300:move:1290,867;302:click:1290,867;480:move:610,372;482:click:610,372}"
     )
     ;;
 esac
@@ -120,6 +141,19 @@ case $scenario in
     after=$(sed -n '/^resync:/,$p' "$out/guest.out" | grep -c '^checksum:')
     echo "  guest checksums matched after the resync: $after"
     [ "$after" -ge 2 ] || { echo "  MISSING  two matching checksums after the resync"; fail=1; }
+    ;;
+  travel)
+    expect "$out/host.out" '^left:' "the host left the site"
+    expect "$out/guest.out" '^left:' "the guest left it too"
+    expect "$out/host.out" '^travelled:' "the host travelled"
+    expect "$out/guest.out" '^travelled:' "the guest travelled"
+    h=$(grep '^travelled:' "$out/host.out" | head -1)
+    g=$(grep '^travelled:' "$out/guest.out" | head -1)
+    if [ -n "$h" ] && [ "$h" = "$g" ]; then
+      echo "  ok   the same trip on both: $h"
+    else
+      echo "  MISSING  the same trip on both ($h / $g)"; fail=1
+    fi
     ;;
   load)
     ls -la "$out/saves"

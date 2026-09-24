@@ -124,6 +124,8 @@ const LEAVING: u32 = 62 * 60;
 /// push-off — which is what every trip in here begins with; from a hold it
 /// is one step. Everything seen on the way comes back.
 fn set_off(world: &mut World, slot: u32, target: Target) -> Vec<WorldEvent> {
+    // A flight is the old game's (feature 103): its clock runs free.
+    world.set_free_clock(true);
     world.man_the_helm_for_probe(slot);
     let mut seen = world.step(&[Command::Confirm { slot, target }]);
     for _ in 0..LEAVING {
@@ -275,6 +277,8 @@ fn a_step_is_always_the_same_length_however_the_steps_are_grouped() {
 
         let run = |group: u32| {
             let mut world = basic();
+            // The old game's clock, running with the step (feature 103).
+            world.set_free_clock(true);
             let target = target(&world);
             let mut taken = 0;
             while taken < total {
@@ -305,6 +309,7 @@ fn a_step_is_always_the_same_length_however_the_steps_are_grouped() {
     // --- a_step_is_always_the_same_length ---
     {
         let mut world = basic();
+        world.set_free_clock(true);
         for i in 1..=10u32 {
             world.step(&[]);
             assert!(close(world.clock_minutes, data::STEP_MINUTES * i as f64));
@@ -509,6 +514,8 @@ fn engines_thrusters_and_the_reactor_are_not_to_be_touched_in_flight() {
     // --- engines_and_thrusters_are_not_to_be_touched_in_flight ---
     {
         let mut world = basic();
+        // The old game's clock, running with the step (feature 103).
+        world.set_free_clock(true);
         for kind in [PartKind::Engine, PartKind::HeavyEngine, PartKind::Thruster] {
             assert!(world.can_modify_part(kind), "{kind:?} while docked");
         }
@@ -741,6 +748,8 @@ fn nothing_is_bought_or_sold_under_way_or_away_from_a_station() {
     // --- nothing_is_sold_under_way ---
     {
         let mut world = basic();
+        // The old game's clock, running with the step (feature 103).
+        world.set_free_clock(true);
         let target = nearby(&world, 4_000.0);
         set_off(&mut world, 0, target);
         let tofu = world.ship.design.carrying(ResourceId::Tofu);
@@ -839,6 +848,8 @@ fn a_ship_with_a_dark_engine_is_not_going_anywhere() {
     let mut dark = flyer(2);
     dark.parts.retain(|p| p.kind != PartKind::Reactor);
     let mut world = world_with(dark, REFERENCE_MONEY, 2);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     assert_eq!(world.ship.dynamics.a_forward, 0.0);
     assert_eq!(world.ship.dynamics.forward_engines, 0);
     let target = nearby(&world, 4_000.0);
@@ -908,6 +919,8 @@ pub(crate) fn laned_star(world: &World) -> u32 {
 #[test]
 fn a_charged_hyperdrive_puts_the_ship_in_another_system() {
     let mut world = world_with(jumper(), REFERENCE_MONEY, 2);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let from = world.star_id;
     let to = laned_star(&world);
     let money = world.money;
@@ -1026,6 +1039,8 @@ fn a_charged_hyperdrive_puts_the_ship_in_another_system() {
 #[test]
 fn a_jump_wants_a_working_hyperdrive() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.undock_for_probe();
     world.man_the_helm_for_probe(0);
     assert!(!world.hyperdrive_ready());
@@ -1039,6 +1054,7 @@ fn a_jump_wants_a_working_hyperdrive() {
         .retain(|p| !(p.kind == PartKind::PowerConduit && p.origin == (6, 16)));
     assert!(!shipdesign::hyperdrive::ready(&dark));
     let mut world = world_with(dark, REFERENCE_MONEY, 2);
+    world.set_free_clock(true);
     world.undock_for_probe();
     world.man_the_helm_for_probe(0);
     let events = world.step(&[Command::Jump { slot: 0, star: to }]);
@@ -1305,6 +1321,8 @@ fn a_confirm_under_way_is_a_redirect_the_later_one_wins_and_one_that_cannot_be_f
     // --- a_confirm_under_way_stops_first_and_then_goes ---
     {
         let mut world = basic();
+        // The old game's clock, running with the step (feature 103).
+        world.set_free_clock(true);
         let first = nearby(&world, 40_000.0);
         set_off(&mut world, 0, first);
         for _ in 0..4_000 {
@@ -1355,6 +1373,7 @@ fn a_confirm_under_way_is_a_redirect_the_later_one_wins_and_one_that_cannot_be_f
     // --- two_confirms_in_one_step_keep_the_later_one ---
     {
         let mut world = basic();
+        world.set_free_clock(true);
         let first = nearby(&world, 40_000.0);
         let second = Target::Point(world.ship.position().add(dvec2(-30_000.0, 0.0)));
         world.man_the_helm_for_probe(0);
@@ -1690,6 +1709,8 @@ fn the_local_frame_has_a_hysteresis_and_changing_it_touches_neither_the_clock_no
     // --- the_local_frame_has_a_hysteresis_and_uses_it ---
     {
         let mut world = basic();
+        // The old game's clock, running with the step (feature 103).
+        world.set_free_clock(true);
         let ShipState::Docked { station } = world.ship.state else {
             unreachable!()
         };
@@ -1752,6 +1773,7 @@ fn the_local_frame_has_a_hysteresis_and_changing_it_touches_neither_the_clock_no
     // --- the_frame_changing_does_not_touch_the_clock_or_the_speed ---
     {
         let mut world = basic();
+        world.set_free_clock(true);
         world.step(&[Command::SetSpeed {
             slot: 0,
             speed: Speed::Ten,
@@ -1831,6 +1853,8 @@ fn the_world_runs_at_the_slowest_request() {
 #[test]
 fn the_ship_is_flown_from_the_helm() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let seat = world.helm_spot().expect("the flyer has a helm");
     assert!(!world.can_command(0), "nobody starts at the helm");
     assert!(!world.can_command(1));
@@ -1881,6 +1905,8 @@ fn only_a_living_waking_crew_member_is_at_the_helm() {
     // --- a_dead_body_at_the_seat_is_not_at_the_helm ---
     {
         let mut world = basic();
+        // The old game's clock, running with the step (feature 103).
+        world.set_free_clock(true);
         let seat = world.helm_spot().expect("the flyer has a helm");
         world.man_the_helm_for_probe(1);
         assert!(world.at_the_helm(1));
@@ -1901,6 +1927,7 @@ fn only_a_living_waking_crew_member_is_at_the_helm() {
     // --- a_sleeping_one_is_not_either_until_it_wakes ---
     {
         let mut world = basic();
+        world.set_free_clock(true);
         world.man_the_helm_for_probe(0);
         assert!(world.can_command(0));
         world.aboard.room.nod_off_for_probe(0, 15.0);
@@ -1989,6 +2016,8 @@ fn send_a_crew_member_ashore(world: &mut World) -> u32 {
 #[test]
 fn leaving_a_station_sends_everybody_home_and_pushes_off_before_the_trip() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let ShipState::Docked { station } = world.ship.state else {
         panic!("not docked");
     };
@@ -2072,6 +2101,8 @@ fn leaving_a_station_sends_everybody_home_and_pushes_off_before_the_trip() {
 #[test]
 fn a_departure_can_be_called_off() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let ShipState::Docked { station } = world.ship.state else {
         panic!("not docked");
     };
@@ -2711,6 +2742,8 @@ fn the_checksum_notices_every_kind_of_change() {
     // --- the_checksum_notices_a_world_that_has_moved ---
     {
         let mut world = basic();
+        // The old game's clock, running with the step (feature 103).
+        world.set_free_clock(true);
         let was = world.checksum();
         world.step(&[]);
         assert_ne!(world.checksum(), was, "a step should show");
@@ -2720,10 +2753,12 @@ fn the_checksum_notices_every_kind_of_change() {
         assert_ne!(spent.checksum(), basic().checksum(), "a euro should show");
 
         let mut confirmed = basic();
+        confirmed.set_free_clock(true);
         let target = nearby(&confirmed, 12_000.0);
         confirmed.man_the_helm_for_probe(0);
         confirmed.step(&[Command::Confirm { slot: 0, target }]);
         let mut idle = basic();
+        idle.set_free_clock(true);
         idle.man_the_helm_for_probe(0);
         idle.step(&[]);
         assert_ne!(confirmed.checksum(), idle.checksum(), "a trip should show");
@@ -3179,6 +3214,8 @@ fn a_bim_aboard_showers_for_a_day_s_grime_or_for_soiling_itself() {
 fn under_way_the_helm_is_a_job_and_somebody_takes_it() {
     use bims::work::Job;
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let target = nearby(&world, 40_000.0);
     set_off(&mut world, 0, target);
     let room = &mut world.aboard.room;
@@ -3596,6 +3633,8 @@ fn the_ship_docks_airlock_to_airlock_outside_the_station() {
 #[test]
 fn arriving_at_a_station_docks_at_its_berth() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let here = match world.ship.state {
         ShipState::Docked { station } => station,
         _ => panic!(),
@@ -3772,6 +3811,8 @@ fn residents_are_there_within_fifty_tiles_and_not_beyond() {
 #[test]
 fn docked_the_ship_and_the_station_are_one_room_and_the_crew_can_cross() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let ShipState::Docked { station } = world.ship.state else {
         panic!("not docked");
     };
@@ -5181,6 +5222,8 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
 fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.set_shipyard_enabled(true);
     let money = world.money;
     let place = |slot: u32| Command::PlaceSite {
@@ -5479,6 +5522,8 @@ fn sight_is_traced_and_a_shut_door_stops_it_without_a_trace() {
 #[test]
 fn docked_the_crew_see_what_is_in_view_and_the_station_s_people_only_there() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     assert!(world.aboard.is_joined());
     world.aboard.room.observe();
     let james = world.aboard.room.bim_pos(0);
@@ -7065,6 +7110,8 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
         station,
     )
     .unwrap();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     assert_eq!(world.aboard.crew_count(), 1);
     assert!(world.aboard.room.bed_count() >= 2, "a bunk to spare");
     assert!(world.mercenary_for_probe());
@@ -9797,6 +9844,8 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         use bims::combat::{Item, Tier, WeaponKind};
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
+        // The old game's clock, running with the step (feature 103).
+        world.set_free_clock(true);
         // The dressings every Bim carries are out of the way (feature 87).
         without_dressings(&mut world);
         world.undock_for_probe();
@@ -10543,6 +10592,8 @@ fn a_landable_body_has_a_settlement_and_the_world_finds_it_as_a_station() {
 #[test]
 fn from_a_dock_in_a_planet_s_orbit_a_trip_to_the_planet_ends_over_it_in_its_frame() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let ShipState::Docked { station } = world.ship.state else {
         unreachable!()
     };
@@ -10612,6 +10663,8 @@ fn a_ship_holding_over_a_planet_lands_on_the_pad_and_lifts_off_straight_up() {
     use crate::surface::{GUARD, guard_post, surface_id};
     use worldgen::Node;
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.set_shipyard_enabled(true);
     world.set_needs_enabled(true);
     let Some(planet) = over_a_planet(&mut world) else {
@@ -10741,6 +10794,8 @@ fn a_ship_holding_over_a_planet_lands_on_the_pad_and_lifts_off_straight_up() {
 #[test]
 fn a_land_wants_a_hold_over_a_planet_with_ground() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     assert_eq!(world.can_land(), Err(Refusal::NotHolding));
     world.man_the_helm_for_probe(0);
     let events = world.step(&[Command::Land { slot: 0 }]);

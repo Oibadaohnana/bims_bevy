@@ -1283,6 +1283,83 @@ mod tests {
         );
     }
 
+    /// The run's loop across the wire (feature 103): both players press
+    /// Back to ship, the host puts a destination to the crew and the
+    /// guest accepts it — and both ends leave, travel and arrive as one
+    /// world.
+    #[test]
+    fn two_ends_leave_vote_and_travel_as_one_world() {
+        let mut hub = Hub::new();
+        let mut ends = [end(&mut hub, 0, true), end(&mut hub, 1, false)];
+        let code = match hub
+            .handle(ends[0].peer, ClientCtl::Create)
+            .pop()
+            .unwrap()
+            .msg
+        {
+            ServerCtl::RoomJoined { code, .. } => code,
+            other => panic!("{other:?}"),
+        };
+        hub.handle(ends[1].peer, ClientCtl::Join { code });
+        assert!(ends[1].net.accept(&mut ends[1].session, true).ok);
+        pump(&mut hub, &mut ends);
+        assert!(ends[0].net.accept(&mut ends[0].session, true).ok);
+        pump(&mut hub, &mut ends);
+        assert!(ends[0].session.playing() && ends[1].session.playing());
+        fn world(e: &End) -> &world::World {
+            &e.session.game.as_ref().unwrap().world
+        }
+        let steps = |ends: &mut [End; 2], n: u32| {
+            for _ in 0..n {
+                ends[0].session.world_step();
+            }
+            let checksum = Some(ends[0].session.game.as_ref().unwrap().world.checksum());
+            ends[0]
+                .net
+                .wire
+                .as_ref()
+                .unwrap()
+                .send(To::All, &Packet::Steps { n, checksum });
+        };
+        steps(&mut ends, 30);
+        pump(&mut hub, &mut ends);
+        // Both press: the ship leaves on the next step, the map up on both.
+        ends[0].net.order(&mut ends[0].session, Order::ReturnToShip);
+        ends[1].net.order(&mut ends[1].session, Order::ReturnToShip);
+        pump(&mut hub, &mut ends);
+        steps(&mut ends, 2);
+        pump(&mut hub, &mut ends);
+        assert!(!world(&ends[0]).in_mission() && !world(&ends[1]).in_mission());
+        assert_eq!(world(&ends[0]).checksum(), world(&ends[1]).checksum());
+        // The host proposes; the guest accepts.
+        let site = world(&ends[0])
+            .travel_quotes()
+            .into_iter()
+            .find(|(s, q)| q.is_ok() && Some(*s) != world(&ends[0]).current_site())
+            .map(|(s, _)| s)
+            .unwrap();
+        ends[0].net.order(
+            &mut ends[0].session,
+            Order::Propose {
+                star: site.star,
+                station: site.station,
+            },
+        );
+        pump(&mut hub, &mut ends);
+        assert!(world(&ends[1]).run.proposal.is_some(), "the guest sees it");
+        assert!(!world(&ends[0]).in_mission(), "one yes of two");
+        ends[1]
+            .net
+            .order(&mut ends[1].session, Order::AcceptTrip(true));
+        pump(&mut hub, &mut ends);
+        assert!(world(&ends[0]).in_mission(), "the host travelled");
+        assert!(world(&ends[1]).in_mission(), "and the guest");
+        assert_eq!(world(&ends[0]).checksum(), world(&ends[1]).checksum());
+        steps(&mut ends, 120);
+        pump(&mut hub, &mut ends);
+        assert_eq!(world(&ends[0]).checksum(), world(&ends[1]).checksum());
+    }
+
     /// The room's own state off the wire: a Bim's name and a pointer are
     /// folded into `Online` as they arrive, never events, and a pointer
     /// goes out only when it moved and the interval has gone by — or at

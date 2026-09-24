@@ -94,7 +94,7 @@ pub enum Launch {
     DroidsAtTier(bims::combat::Tier),
     /// The fight (feature 83): the combat ship and its sixteen crew, a
     /// gun in every hand, at an arena the **machines** hold — a wave of
-    /// them about it — with `DROID_REINFORCE_MINUTES` a minute here, so
+    /// them about it — with `DROID_REINFORCE_STEPS` a minute here, so
     /// the next wave can be watched arriving. Since every enemy is a
     /// machine (feature 102) it is *the* fight: the `combat` command that
     /// turned the arena's people against the crew would have been this
@@ -115,9 +115,9 @@ pub enum Launch {
     DroidsPlanet,
     /// `TestPlanet` with the town **threatened** (feature 94): the
     /// machines' origin one hyperlane hop off, so the town is next and a
-    /// wave lands outside a gate `DEFENSE_DELAY_MINUTES` after the crew
-    /// set down. That wait and `DROID_REINFORCE_MINUTES` are both a
-    /// minute here, so the whole fight is watched rather than waited for.
+    /// wave lands outside a gate `DEFENSE_DELAY_STEPS` after the crew
+    /// set down. That wait and `DROID_REINFORCE_STEPS` are both a
+    /// minute of the mission clock here, so the whole fight is watched rather than waited for.
     Defense,
     /// `Test` a day before the crisis first spreads (feature 92): the
     /// same random galaxy and roll, the crisis's origin forced two
@@ -176,7 +176,7 @@ fn usage() -> ! {
 const COMMANDS: [(&str, &str); 16] = [
     (
         "game",
-        "The whole game in order: menu, setup or lobby, world and station, then the run docked where you said, on the default ship, 5 000 a Bim in the pool",
+        "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
     ),
     ("simulation", "Straight into the world on the playtest ship"),
     (
@@ -207,7 +207,7 @@ const COMMANDS: [(&str, &str); 16] = [
     ),
     (
         "crisis",
-        "The simulation a day before the crisis first spreads, its origin two hyperlane hops off: the next stars turn red on the chart while you watch",
+        "The simulation a day before the crisis next spreads, its origin two hyperlane hops off: travel a day on the world map and the next stars are red",
     ),
     (
         "jammer",
@@ -236,6 +236,9 @@ const COMMANDS: [(&str, &str); 16] = [
 /// so a class added later is listed the day it exists.
 fn list() {
     println!("bims <what>, and each of these is a what:\n");
+    println!(
+        "Every one of them bar the room, the yard and the station builder is a run (feature 103):\na mission at the site it opens at, Back to ship at the bottom right, and the world map\nbetween missions, where a trip is chosen, accepted by every player and resolved in days.\n"
+    );
     // Wide enough for `combat_droids_commander`, the longest of them,
     // and a space after it.
     let row = |name: &str, what: &str| println!("  {name:<26}{what}");

@@ -503,6 +503,8 @@ fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_dismi
         station,
     )
     .unwrap();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     assert_eq!(world.set_class(0, Class::Medic), Ok(()));
     hold_still(&mut world);
     assert!(world.mercenary_for_probe());
@@ -1355,7 +1357,8 @@ fn a_medic_s_state_dies_with_it_and_a_game_with_a_medic_reads_the_same_twice() {
         crate::medic::Medic::default(),
         "gone with it"
     );
-    assert_eq!(world.progress_of(0).level(), 1);
+    // The level is the player's, kept for its buyback (feature 103).
+    assert_eq!(world.progress_of(0).level(), class::SURGE_LEVEL as u8);
     // Two runs of a beam on one seed are one world.
     let run = || {
         let mut world = medic();

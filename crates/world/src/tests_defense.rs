@@ -78,7 +78,7 @@ fn until(world: &mut World, steps: u32, mut done: impl FnMut(&World) -> bool) ->
 }
 
 /// A town one hop outside the infection is threatened, and the first
-/// wave lands `DEFENSE_DELAY_MINUTES` after the crew set down — not
+/// wave lands `DEFENSE_DELAY_STEPS` after the crew set down — not
 /// before, and not at a town nobody is coming for.
 #[test]
 fn a_threatened_town_s_first_wave_lands_after_the_delay() {
@@ -103,7 +103,7 @@ fn a_threatened_town_s_first_wave_lands_after_the_delay() {
     let d = world.defense(id).expect("an attack").clone();
     assert_eq!(d.wave, 0, "nothing has landed yet");
     assert!(d.settled, "the wave count is fixed at the landing");
-    assert!(d.next_in.is_some_and(|left| left > 0.0));
+    assert!(d.next_in.is_some_and(|left| left > 0));
     assert_eq!(world.droids_standing(), 0);
     assert!(world.defense_wave_standing().is_none());
     // And it lands once the delay has run out.

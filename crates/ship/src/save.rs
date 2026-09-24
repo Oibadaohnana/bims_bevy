@@ -88,7 +88,11 @@ use crate::game::Game;
 /// `human_foes_enabled`, `radiation_enabled`, `shipyard_enabled`), the
 /// room's `needs_enabled`, and a station's person's round on its `Bim`
 /// with a `lingering` flag on its character.
-pub const SAVE_VERSION: u32 = 33;
+/// 34: the run's loop (feature 103) — `World::run` (the phase, the
+/// mission clock, the pending bounty, the vote, the departure check, the
+/// fallen), the droid and town clocks in steps of the mission clock, and
+/// the room's `clock_runs`.
+pub const SAVE_VERSION: u32 = 34;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

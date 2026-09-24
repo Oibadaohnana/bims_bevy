@@ -199,6 +199,23 @@ pub enum Order {
     /// A medic taking a crewmate up into its arms, or setting one
     /// down with `None` — `Command::Carry`, the G key (feature 86).
     Carry(Option<u32>),
+    /// A destination put to the crew on the world map, between missions
+    /// — `Command::Propose` (feature 103).
+    Propose {
+        star: u32,
+        station: u32,
+    },
+    /// A yes to the destination on the table, or one taken back —
+    /// `Command::Accept`.
+    AcceptTrip(bool),
+    /// The *Back to ship* button — `Command::Return`.
+    ReturnToShip,
+    /// An answer to the departure check — `Command::LeaveBehind`.
+    LeaveBehind(bool),
+    /// The host saying that player has left the game —
+    /// `Command::PlayerGone`, carrying the gone player's slot rather than
+    /// the sender's.
+    PlayerGone(u32),
 }
 
 /// What the other end said about a message.
@@ -535,6 +552,15 @@ impl Net {
                         Order::Rally => Command::Rally { slot },
                         Order::Orders(order) => Command::Orders { slot, order },
                         Order::Carry(who) => Command::Carry { slot, who },
+                        Order::Propose { star, station } => Command::Propose {
+                            slot,
+                            star,
+                            station,
+                        },
+                        Order::AcceptTrip(yes) => Command::Accept { slot, yes },
+                        Order::ReturnToShip => Command::Return { slot },
+                        Order::LeaveBehind(yes) => Command::LeaveBehind { slot, yes },
+                        Order::PlayerGone(gone) => Command::PlayerGone { slot: gone },
                         Order::Gear(GearOrder::StowOnBench { who, cell }) => {
                             Command::StowOnBench { slot, who, cell }
                         }

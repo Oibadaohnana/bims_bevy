@@ -93,6 +93,37 @@ pub fn in_words(minutes: f64) -> String {
     }
 }
 
+/// How long a trip takes, in whole words (feature 103): "2 days 5
+/// hours", "5 hours 20 minutes", "40 minutes" — the world clock a trip
+/// puts on, which is the one span in a run long enough for days.
+pub fn trip_length(minutes: u64) -> String {
+    let plural = |n: u64, word: &str| {
+        if n == 1 {
+            format!("{n} {word}")
+        } else {
+            format!("{n} {word}s")
+        }
+    };
+    let days = minutes / 1440;
+    let hours = (minutes % 1440) / 60;
+    let mins = minutes % 60;
+    match (days, hours, mins) {
+        (0, 0, m) => plural(m, "minute"),
+        (0, h, 0) => plural(h, "hour"),
+        (0, h, m) => format!("{} {}", plural(h, "hour"), plural(m, "minute")),
+        (d, 0, _) => plural(d, "day"),
+        (d, h, _) => format!("{} {}", plural(d, "day"), plural(h, "hour")),
+    }
+}
+
+/// A span of the **mission clock** (feature 103) as the seconds it is at
+/// 1× — a minute of it is a real second — for a countdown along the
+/// top: "1:30", "0:05". Rounded up, as a countdown is.
+pub fn countdown(minutes: f64) -> String {
+    let seconds = minutes.ceil().max(0.0) as u64;
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
 /// A date the way a person would write it.
 pub fn date_text(date: u32, month: u32, year: u32) -> String {
     let month = MONTH_NAMES

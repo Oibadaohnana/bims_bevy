@@ -843,6 +843,13 @@ pub struct Game {
     /// levels stand where they are, and a fixture that only served a
     /// need is furniture: no menu opens on it.
     needs_enabled: bool,
+    /// Whether the room's clock runs with the step (feature 103). **On** in
+    /// the classic room; the world says every step whether its own clock
+    /// runs, and in a run it does not — only travel moves the day — so the
+    /// room's time of day stands where the room was built at, and a long
+    /// fight on a planet is not overtaken by the night. Everything timed
+    /// in a mission runs on the steps themselves, not on this.
+    clock_runs: bool,
     /// A `SPOT_` code the host has asked to have ringed on the deck, or
     /// `SPOT_NOTHING`. This is how a panel that names a place — "Cold store",
     /// "Pot on the hob" — points at the actual thing rather than leaving the
@@ -1212,6 +1219,7 @@ impl Game {
             visitors_hailable: Vec::new(),
             autonomous: true,
             needs_enabled: true,
+            clock_runs: true,
             highlight: room::SPOT_NOTHING,
             fog: Fog::Crew,
             show_everybody: false,
@@ -1622,7 +1630,9 @@ impl Game {
     /// aboard — up to twenty-four times a frame at its top speed, where a
     /// picture of every step but the last would be a picture nobody sees.
     pub fn simulate(&mut self, dt: f32) {
-        self.clock.advance(dt);
+        if self.clock_runs {
+            self.clock.advance(dt);
+        }
         self.refresh_outside();
         self.refresh_afield();
         self.room.update(dt);
@@ -5430,6 +5440,71 @@ impl Game {
     /// Whether the Bims here have needs at all.
     pub fn needs_enabled(&self) -> bool {
         self.needs_enabled
+    }
+
+    // --- the run's missions (feature 103) -----------------------------------
+
+    /// Switch the room's clock on or off — see the field. The world says
+    /// it every step; the classic room leaves it on.
+    pub fn set_clock_runs(&mut self, on: bool) {
+        self.clock_runs = on;
+    }
+
+    /// Whether the room's clock runs with the step.
+    pub fn clock_runs(&self) -> bool {
+        self.clock_runs
+    }
+
+    /// A living Bim made whole, the way a mission begins: every part at
+    /// its full, the blood back, every wound, trauma and what a treated
+    /// one left behind gone, hunger and sleeplessness with them — and
+    /// awake, on its feet where it lay. Nothing for the dead: a body is
+    /// bought back ([`Game::revive`]), never healed back.
+    pub fn restore_health(&mut self, who: usize) {
+        let Some(bim) = self.bims.get_mut(who) else {
+            return;
+        };
+        if !bim.is_alive() {
+            return;
+        }
+        bim.health = Health::new();
+        bim.character.knock_out(false);
+        bim.character.set_wounds([false; 3]);
+    }
+
+    /// Dead this instant, where it stands — not at the top of its next
+    /// tick, the way [`Game::kill_for_probe`] leaves one: what the world
+    /// does to a crew member the ship leaves behind (feature 103), whose
+    /// room is taken apart in the same breath. Its errands go with it.
+    pub fn kill_now(&mut self, who: usize) {
+        let Some(bim) = self.bims.get_mut(who) else {
+            return;
+        };
+        bim.task = None;
+        bim.queue.clear();
+        bim.health.give_up();
+        bim.character.die();
+        if let Some(bed) = self.room.sleeps_in.get_mut(who) {
+            *bed = None;
+        }
+    }
+
+    /// A dead Bim brought back (feature 103, a buyback): alive, whole,
+    /// awake and **carrying nothing** — no gun, no armour, an empty pack
+    /// — where its body lay. Nothing for one already alive.
+    pub fn revive(&mut self, who: usize) {
+        let Some(bim) = self.bims.get_mut(who) else {
+            return;
+        };
+        if bim.is_alive() {
+            return;
+        }
+        bim.character.revive();
+        bim.health = Health::new();
+        bim.character.set_wounds([false; 3]);
+        bim.task = None;
+        bim.queue.clear();
+        self.issue(who, Gear::default());
     }
 
     /// Deal a Bim its peacetime role and plan its round off this room's

@@ -209,6 +209,8 @@ fn two_commanders_auras_do_not_stack_and_the_stronger_holds() {
 #[test]
 fn a_hire_a_commander_makes_is_cheaper_and_gives_him_experience() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     assert_eq!(world.set_class(0, Class::Commander), Ok(()));
     assert_eq!(world.set_class(1, Class::Commander), Ok(()));
     world.step(&[]);

@@ -32,6 +32,9 @@ const LEAVING: u32 = 62 * 60;
 /// Confirm a trip from wherever the ship is with `slot` at the helm and
 /// run until it is under way.
 fn set_off(world: &mut World, slot: u32, target: Target) -> Vec<WorldEvent> {
+    // A flight and a raid are the old game's (feature 103): its clock
+    // runs free.
+    world.set_free_clock(true);
     world.man_the_helm_for_probe(slot);
     let mut seen = world.step(&[Command::Confirm { slot, target }]);
     for _ in 0..LEAVING {
@@ -204,6 +207,8 @@ fn boarders_are_counted_like_a_garrison_to_a_lower_cap() {
     // And a raid is rolled at the clock's day: the same crew, thirty
     // days on, are boarded by four rather than three.
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.set_human_foes_enabled(true);
     holding_out(&mut world);
     world.clock_minutes = time::minutes(30.0);
@@ -254,6 +259,8 @@ fn a_raid_waits_for_the_crew_to_leave_home_and_for_a_hold() {
 #[test]
 fn a_raid_staged_to_come_in_ten_minutes_makes_contact_on_the_tenth() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     let berth = world.ship.position();
     assert!(world.raid_coming_for_probe(10));
     assert!(matches!(world.ship.state, ShipState::Holding));
@@ -295,6 +302,8 @@ fn a_raid_staged_to_come_in_ten_minutes_makes_contact_on_the_tenth() {
 #[test]
 fn a_raid_arrives_while_holding_and_the_boarders_come_for_the_ship() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.set_human_foes_enabled(true);
     holding_out(&mut world);
     assert!(world.raids.left_home, "the crew have left home");
@@ -467,6 +476,8 @@ fn a_raid_arrives_while_holding_and_the_boarders_come_for_the_ship() {
 #[test]
 fn a_raid_is_cancelled_by_leaving() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.set_human_foes_enabled(true);
     holding_out(&mut world);
     world.raid_now_for_probe();
@@ -527,6 +538,8 @@ fn a_raid_is_cancelled_by_a_completed_jump() {
         .unwrap_or_else(|e| panic!("{kind:?} at {origin:?}: {e:?}"));
     }
     let mut world = simulation_world(design, REFERENCE_MONEY, 2);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.set_human_foes_enabled(true);
     holding_out(&mut world);
     world.raid_now_for_probe();
@@ -574,6 +587,8 @@ fn a_raid_is_cancelled_by_a_completed_jump() {
 fn warning_time_grows_with_sensors() {
     let warning = |design: ShipDesign| {
         let mut world = simulation_world(design, REFERENCE_MONEY, 2);
+        // The old game's clock, running with the step (feature 103).
+        world.set_free_clock(true);
         world.set_human_foes_enabled(true);
         holding_out(&mut world);
         world.raid_now_for_probe();
@@ -675,6 +690,10 @@ fn two_runs_on_one_seed_raid_at_the_same_minutes_with_the_same_boarders() {
 #[test]
 fn a_repelled_raider_is_a_derelict_until_the_ship_casts_off() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     world.set_human_foes_enabled(true);
     holding_out(&mut world);
     let frame = world.ship.frame;
@@ -734,10 +753,10 @@ fn a_repelled_raider_is_a_derelict_until_the_ship_casts_off() {
     assert!(matches!(world.raid(), Raid::Closing { n: 1, .. }));
 }
 
-/// A lost fight reaches the end: no crew member standing — dead, or out
-/// cold — and the world says the run is over, once, and keeps saying it
-/// is (`World::lost`), which is what the app's screen reads. One of them
-/// on their feet, and it is not over.
+/// A lost fight reaches the end: every player's Bim **dead** — out cold
+/// is not dead, since the run's rule (feature 103) — and the world says
+/// the run is over, once, and keeps saying it is (`World::lost`), which is
+/// what the app's screen reads. One of them alive, and it is not over.
 #[test]
 fn a_lost_fight_reaches_the_end_screen() {
     let mut world = basic();
@@ -751,6 +770,10 @@ fn a_lost_fight_reaches_the_end_screen() {
     );
     assert!(!world.lost);
     world.aboard.room.knock_out_for_probe(1);
+    let events = world.step(&[]);
+    assert!(!events.contains(&WorldEvent::CrewLost), "out cold is alive");
+    assert!(!world.lost);
+    world.aboard.room.kill_for_probe(1);
     let events = world.step(&[]);
     assert!(events.contains(&WorldEvent::CrewLost), "{events:?}");
     assert!(world.lost);

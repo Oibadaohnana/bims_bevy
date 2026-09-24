@@ -40,10 +40,11 @@ pub struct Defense {
     /// the first has landed**, which is the hour the crew have to walk
     /// the town, trade and hire before the shooting starts.
     pub wave: u32,
-    /// Minutes of the world's clock until the next wave lands — `None`
-    /// while a machine is still standing, and with none left to come.
-    /// Counted down only while the crew are here: see the module note.
-    pub next_in: Option<f64>,
+    /// Steps of the mission clock until the next wave lands (feature 103)
+    /// — `None` while a machine is still standing, and with none left to
+    /// come. Counted down only while the crew are here: see the module
+    /// note.
+    pub next_in: Option<u64>,
     /// How many machines of the wave on the ground were still standing
     /// when the world last looked. It is what a take-off leaves behind
     /// and a landing puts back: a town's room is built afresh at every
@@ -63,14 +64,14 @@ pub struct Defense {
 
 impl Defense {
     /// A town the crew have just landed at, threatened and not attacked
-    /// before: the first wave is [`data::DEFENSE_DELAY_MINUTES`] off and
+    /// before: the first wave is [`data::DEFENSE_DELAY_STEPS`] off and
     /// nothing has been worked out yet.
     pub fn new(station: u32) -> Defense {
         Defense {
             station,
             waves_left: 0,
             wave: 0,
-            next_in: Some(data::DEFENSE_DELAY_MINUTES),
+            next_in: Some(data::DEFENSE_DELAY_STEPS),
             standing: 0,
             settled: false,
             won: false,
@@ -154,7 +155,7 @@ mod tests {
     fn the_first_wave_is_an_hour_off_and_the_count_is_fixed_once() {
         let mut d = Defense::new(7);
         assert_eq!(d.wave, 0);
-        assert_eq!(d.next_in, Some(data::DEFENSE_DELAY_MINUTES));
+        assert_eq!(d.next_in, Some(data::DEFENSE_DELAY_STEPS));
         assert!(!d.settled && !d.over());
         d.settle(3);
         assert_eq!(d.waves_left, 2);

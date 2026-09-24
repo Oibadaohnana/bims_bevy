@@ -76,7 +76,11 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// And again for a run (feature 102): the world's four switches hashed at
 /// the end, the hostile list empty with every human friendly, the crisis
 /// there from day nought, and the room's needs standing still.
-pub const REFERENCE_CHECKSUM: u64 = 0x_d44a_c0d9_6b8b_b6d1;
+/// And again for the run's loop (feature 103): `World::run` hashed at the
+/// very end, the droid and town clocks in mission steps, and the scenario
+/// itself grown a second half — back to the ship, the map, a trip resolved
+/// and a mission at the far end of it.
+pub const REFERENCE_CHECKSUM: u64 = 0x_3b79_4d55_6b05_0f5d;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -162,13 +166,24 @@ pub fn reference_target(world: &World) -> Target {
 }
 
 /// The scenario: open a world, confirm a trip, and run for
-/// [`REFERENCE_STEPS`].
+/// [`REFERENCE_STEPS`] — with the old game's free clock, since a trip is
+/// flown in it — and then the run's own loop (feature 103): both players
+/// back to the ship, the map, a destination put and accepted, the trip
+/// resolved, and [`REFERENCE_STEPS`] of the mission that begins there.
 ///
 /// Everything a checksum is meant to catch is in it — a plan made, a burn
 /// drawing on the reactor, a heading turning through a trigonometric function, the local
-/// frame changing as the ship leaves the dock.
+/// frame changing as the ship leaves the dock, and a trip's length worked
+/// out from a square root and put on the clock.
 pub fn reference_run() -> u64 {
+    reference_run_world().checksum()
+}
+
+/// The world [`reference_run`] ends on, for a test that wants to see the
+/// scenario did what it says: flew, went back to the ship, travelled.
+pub fn reference_run_world() -> World {
     let mut world = reference_world();
+    world.set_free_clock(true);
     let target = reference_target(&world);
 
     // The second player at the helm, since the ship is flown from there;
@@ -191,5 +206,27 @@ pub fn reference_run() -> u64 {
     for _ in 1..REFERENCE_STEPS {
         world.step(&[]);
     }
-    world.checksum()
+    // And the run (feature 103): the world clock standing still, both
+    // players pressing Back to ship — aboard, so the ship leaves — the
+    // first destination of the map put and accepted, and a mission there.
+    world.set_free_clock(false);
+    world.step(&[Command::Return { slot: 0 }, Command::Return { slot: 1 }]);
+    world.step(&[]);
+    let site = world
+        .travel_quotes()
+        .into_iter()
+        .find(|(site, quote)| quote.is_ok() && Some(*site) != world.current_site())
+        .map(|(site, _)| site);
+    if let Some(site) = site {
+        world.step(&[Command::Propose {
+            slot: 0,
+            star: site.star,
+            station: site.station,
+        }]);
+        world.step(&[Command::Accept { slot: 1, yes: true }]);
+    }
+    for _ in 1..REFERENCE_STEPS {
+        world.step(&[]);
+    }
+    world
 }

@@ -14,9 +14,10 @@ and the deck goes dark at night.
 **Bims is becoming a roguelike top-down co-op shooter: humans against
 machines.** The crew fly one default ship from site to site, fight the
 droid crisis, and decide together on the galaxy map where to go next; time
-and money are the only resources. [A run](#a-run) is what that looks like
-so far — the first of three steps, which switched off what the new game
-does not use and put the run on its new footing.
+and money are the only resources. [A run](#a-run) is what the first step
+switched off and put on a new footing, and [the loop](#the-loop-world-map-travel-missions)
+is the second: **world map → travel → mission → back to ship → world
+map**, from the first dock to the end of the run.
 
 The lobby starts [the game](#the-game) straight away — one star system,
 the default ship docked at the station you picked, and one clock everything
@@ -73,6 +74,76 @@ travel-and-mission loop and then take the dead code out.
   off the station's seed and the world's step, so two players' clients
   walk the same rounds.
 
+## The loop: world map, travel, missions
+
+The second step of the redesign (feature 103). A run is a string of
+**missions**, one at each place the crew go, with the **world map**
+between them. Nothing is flown any more: the helm's Confirm, Brake, Jump
+and Land are gone from the screen.
+
+- **The world map.** Between missions every player sees it: the system
+  map of the stations and settlements round the crew, the galaxy chart
+  behind *Galaxy view*, and along the top a list of every place a trip
+  can go — every station and settlement in this system, and every one in
+  a system a hyperlane joins to this one — each with how long the trip
+  is, the day the crew would get there, and what they would find there
+  on that day: the machines and at what tier, the system's jammer, a town
+  the machines are coming for, a place already cleared. `M` shows it
+  during a mission too, read-only.
+- **Choosing together.** Pick a place — on the list, or click it on the
+  system map — and **Propose**. Every player still in the game has to
+  **Accept**; proposing counts as your own yes, and another proposal
+  clears every yes there was. A player who has left the game is not
+  waited for, and a player whose Bim is dead still has a vote.
+- **Travel costs days, and only travel moves the clock.** A trip is the
+  hyperdrive's twenty-minute charge for a jump, and the flight inside
+  the system at the ship's own accelerations — from where the crew are,
+  or from where the jump lands them, to the place. One hyperlane hop at
+  most, and the machines' jammer still bars a jump inward out of a
+  system they hold. The moment the last player accepts, the world clock
+  goes on by the whole trip in one go and everything that runs on days
+  is read at the new day: a system whose day came on the way is the
+  machines' when the crew get there, towns on the new front are
+  threatened, and the waves are sized for the day. The crew arrive
+  docked, or landed at a settlement, and a mission begins. **The world
+  clock stands still during a mission and on the map**: the day on the
+  screen only changes when you travel.
+- **A mission** begins on arrival anywhere, peaceful or not — a visit to
+  a trader is a mission without a fight. Everybody's health is made
+  whole, every class charge and cooldown is ready, and dead players are
+  bought back (below). Everything inside a mission runs on the **mission
+  clock**, which starts at nought on arrival: the machines' next wave two
+  minutes after the last of one is destroyed, a town's first wave a
+  minute after the landing, the class cooldowns.
+- **The bounty waits for the place to be cleared.** The Republic pays
+  for every machine destroyed — 500, 1 500 or 4 500 by its tier — but
+  it is **pending**, "+€ n on clear" along the top, until the place is
+  **cleared**: no machine left there and none still to come. Then it is
+  paid into the pool, once. Experience is always yours.
+- **Back to ship**, at the bottom right. The first press sends every bot
+  back to the ship. When every player still on their feet has pressed
+  it and is aboard, the ship leaves — asking first if anybody would be
+  left outside: every player gets *Leave them behind?*, and it takes
+  everybody's yes; one no keeps the ship where it is, the presses
+  standing, and *Ask again* asks again. A player who is down, dead or
+  gone is not waited for. **Left behind is dead**, and a body down
+  outside the ship is not carried aboard by leaving.
+- **What leaving does to the place.** A place the crew cleared stays
+  cleared. Any other is put back exactly as the mission found it — the
+  machines, the dead, the lamps — and its bounty is lost. A town the
+  machines were attacking falls to them when the crew leave it before the
+  last wave is down, and is an infested place like any other from then
+  on.
+- **Dying.** A player's Bim that dies is **out**: its gun, armour and pack
+  are lost with the body, but its class, level, experience and talents are
+  kept. At the start of each mission the pool buys each dead player's Bim
+  back for **5 000** if it can, the longest dead first — it wakes aboard
+  the ship carrying nothing — and one the pool cannot pay for stays out
+  and is tried again at the next mission. A bot that dies — a hired hand,
+  a townsperson who joined — is gone for good and costs the pool **5 000**,
+  never taking it below nought. **The run is over when every player's Bim
+  is dead at once**, whoever is waiting to be bought back.
+
 ## Running it
 
 ```sh
@@ -96,7 +167,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the machines at tier two — nothing at tier one on either side |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | the same on a planet: a town held by the machines, the ship set down at its pad, and their lander coming down on the plain beyond a gate |
-| `nix run .#crisis` | `cargo run -- crisis` | the simulation **a day before the crisis first spreads**: a random galaxy and a random dock as `test` deals them, and the crisis's origin forced two hyperlane hops from the crew's own star — theirs from day nought, as in every run — with the clock wound to the eve of the day the stars next to it turn. Open the galaxy chart: the origin is red, the next ring turns red while you watch, and the crew's own system follows five days later; the day any star is due is written under its name when it is picked. `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the rest with it |
+| `nix run .#crisis` | `cargo run -- crisis` | the simulation **a day before the crisis first spreads**: a random galaxy and a random dock as `test` deals them, and the crisis's origin forced two hyperlane hops from the crew's own star — theirs from day nought, as in every run — with the clock wound to the eve of the day the stars next to it turn. Open the galaxy chart: the origin is red, and since only travel moves the clock, the next ring is red once the crew have travelled a day — the world map says which places the machines will hold on the day you would arrive — and the crew's own system follows five days later; the day any star is due is written under its name when it is picked. `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the rest with it |
 | `nix run .#jammer` | `cargo run -- jammer` | the crew **inside an infested system**, two hyperlane hops from where the machines began: every station of it in their hands, a wave aboard the one the ship is tied to, and the system's **jammer** standing — so the chart's route inward is barred in red, a jump that way is refused, and the machines come at tier three because of how near the origin they are. `BIMS_DROID_TIER=1` brings them at tier one instead |
 | `nix run .#defense` | `cargo run -- defense` | **a town worth defending**: the ship set down at a friendly settlement with the machines one hyperlane hop away, so the town is next. A minute after the landing a wave sets down outside a gate and walks in; the town's guard and whatever mercenaries live there take arms, everybody else goes indoors, and the red line along the top counts the wave the way it counts a held station's. Hold the last wave and the town is yours to keep. `BIMS_DEFENSE_DELAY=n` is the wait before the first wave and `BIMS_DROID_WAVES=1` a fight short enough to finish |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |

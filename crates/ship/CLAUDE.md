@@ -1034,3 +1034,17 @@ frame time, nought while paused, handed to the crew's room and the
 station's (`Game::fade`). The game screen calls it once a frame (the
 test room calls `Game::fade` on its own room); a session nobody calls it
 on — every test here — draws the fight exactly as it did before.
+
+## The run's loop, from the session's side (feature 103)
+
+Nothing in `Session` flies any more in a run: the world refuses the helm's
+orders (`World::free_clock` off) and the app's strip is the world map
+(`crates/app/src/screens/worldmap.rs`), whose votes go through the seam as
+`Order::{Propose, AcceptTrip, ReturnToShip, LeaveBehind, PlayerGone}` —
+applied at once, so they land on the map where no step is taken. Two
+probes beside the others: `Session::map_for_probe` (`BIMS_MAP=1`, the run
+between missions) and `Session::depart_for_probe` (`BIMS_DEPART=1`, the
+departure check asking). A test here that flies — `the_exhaust_follows_the_plan`
+— turns the world's old clock on first, as the world's own flight tests do.
+`a_game_saved_on_the_map_reads_back_on_the_map_and_travels_alike` is the
+save's half: `World::run` is saved whole, and **`SAVE_VERSION` 34**.

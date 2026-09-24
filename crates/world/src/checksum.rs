@@ -210,12 +210,12 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(it.waves_left as u64);
         hash.eat(it.wave as u64);
         hash.eat(u64::from(it.next_wave.is_some()));
-        hash.eat_rounded(it.next_wave.unwrap_or(0.0), FINE_GRID);
+        hash.eat(it.next_wave.unwrap_or(0));
         hash.eat(u64::from(it.settled));
         hash.eat(u64::from(it.cleared));
     }
     hash.eat(u64::from(world.droid_tier().code()));
-    hash.eat_rounded(world.droid_reinforce_minutes(), FINE_GRID);
+    hash.eat(world.droid_reinforce_steps());
     hash.eat(u64::from(world.droid_wave_max()));
     // And the crisis (feature 92): the star the machines began at and the
     // day the first one turns. The hop table is *not* in here — it is
@@ -235,13 +235,13 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(u64::from(d.waves_left));
         hash.eat(u64::from(d.wave));
         hash.eat(u64::from(d.next_in.is_some()));
-        hash.eat_rounded(d.next_in.unwrap_or(0.0), FINE_GRID);
+        hash.eat(d.next_in.unwrap_or(0));
         hash.eat(u64::from(d.standing));
         hash.eat(u64::from(d.settled));
         hash.eat(u64::from(d.won));
         hash.eat(u64::from(d.lost));
     }
-    hash.eat_rounded(world.defense_delay_minutes(), FINE_GRID);
+    hash.eat(world.defense_delay_steps());
     // And the towns they held: a held town stays friendly for good, so
     // two worlds that disagree about one disagree about whether a
     // settlement inside the infection still trades.
@@ -518,7 +518,7 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(it.waves_left as u64);
             hash.eat(it.wave as u64);
             hash.eat(u64::from(it.next_wave.is_some()));
-            hash.eat_rounded(it.next_wave.unwrap_or(0.0), FINE_GRID);
+            hash.eat(it.next_wave.unwrap_or(0));
             hash.eat(u64::from(it.settled));
             hash.eat(u64::from(it.cleared));
         }
@@ -699,6 +699,71 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(u64::from(world.human_foes_enabled()));
     hash.eat(u64::from(world.radiation_enabled()));
     hash.eat(u64::from(world.shipyard_enabled()));
+
+    // The run (feature 103), whole: where it stands, both clocks' switch
+    // and the mission clock, the bounty waiting on the site, the vote on
+    // the table, who is going home, the departure check, who is out and
+    // since when — every one of them something two clients must agree on
+    // or they part at the next trip.
+    let run = &world.run;
+    hash.eat(u64::from(run.phase.code()));
+    hash.eat(u64::from(run.free_clock));
+    hash.eat(run.mission_steps);
+    hash.eat(u64::from(run.missions));
+    hash.eat(run.site.map_or(u64::MAX, u64::from));
+    hash.eat(u64::from(run.snapped));
+    hash.eat(u64::from(run.snapshot.is_some()));
+    if let Some(snapshot) = &run.snapshot {
+        hash.eat(u64::from(snapshot.station));
+        hash.eat(u64::from(snapshot.infestation.is_some()));
+        hash.eat(u64::from(snapshot.defense.is_some()));
+        hash.eat(snapshot.graves.len() as u64);
+        hash.eat(snapshot.lamps.len() as u64);
+    }
+    hash.eat(run.pending_bounty);
+    match &run.proposal {
+        None => hash.eat(u64::MAX),
+        Some(p) => {
+            hash.eat(u64::from(p.site.star));
+            hash.eat(u64::from(p.site.station));
+            hash.eat(u64::from(p.by));
+            for &yes in &p.accepted {
+                hash.eat(u64::from(yes));
+            }
+        }
+    }
+    hash.eat(run.returning.len() as u64);
+    for &r in &run.returning {
+        hash.eat(u64::from(r));
+    }
+    hash.eat(u64::from(run.recalled));
+    match &run.departure {
+        None => hash.eat(0),
+        Some(crate::run::Departure::Asking { behind, answers }) => {
+            hash.eat(1);
+            for &who in behind {
+                hash.eat(u64::from(who));
+            }
+            for answer in answers {
+                hash.eat(answer.map_or(2, u64::from));
+            }
+        }
+        Some(crate::run::Departure::Declined { behind }) => {
+            hash.eat(3);
+            for &who in behind {
+                hash.eat(u64::from(who));
+            }
+        }
+    }
+    for &c in &run.connected {
+        hash.eat(u64::from(c));
+    }
+    hash.eat(run.fallen.len() as u64);
+    for fallen in &run.fallen {
+        hash.eat(u64::from(fallen.slot));
+        hash.eat(fallen.order);
+    }
+    hash.eat(run.deaths);
 
     hash.0
 }

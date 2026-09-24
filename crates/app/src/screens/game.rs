@@ -64,8 +64,8 @@ const BLACKOUT_HOLD: f32 = 1.4;
 const BLACKOUT_FADE: f32 = 0.6;
 
 /// How long the `droids` probes wait between waves, in minutes of the
-/// world's clock: a minute, a second at 1x, where the game's own is
-/// `data::DROID_REINFORCE_MINUTES` (two hours). The shortcut feature 83
+/// mission clock (feature 103): a minute, a second at 1x, where the
+/// game's own is `data::DROID_REINFORCE_STEPS` (a hundred and twenty). The shortcut feature 83
 /// asks for, so a wave landing can be watched rather than waited for.
 const DROID_REINFORCE_IN_PROBE: f64 = 1.0;
 
@@ -79,9 +79,9 @@ const DROID_REINFORCE_IN_PROBE: f64 = 1.0;
 const DROID_WAVES_IN_PROBE: u32 = 3;
 
 /// How long the `defense` command waits between the crew setting down at
-/// a threatened town and the first wave, in minutes of the world's clock
-/// (feature 94): a minute, where the game's own is
-/// `data::DEFENSE_DELAY_MINUTES` (an hour) — the same shortcut as the
+/// a threatened town and the first wave, in minutes of the mission clock
+/// (features 94 and 103): a minute, where the game's own is
+/// `data::DEFENSE_DELAY_STEPS` (sixty) — the same shortcut as the
 /// machines' reinforcement clock, and for the same reason.
 /// `BIMS_DEFENSE_DELAY=n` says otherwise.
 const DEFENSE_DELAY_IN_PROBE: f64 = 1.0;
@@ -260,6 +260,10 @@ pub struct GameScreen {
     /// back is the body's own count going up, and neither the room nor
     /// the world records it as an event to be read.
     heals: Heals,
+    /// The world map's list of destinations and the one picked on it
+    /// (feature 103, `super::worldmap`): worked out when the world it
+    /// reads has moved, not every frame.
+    world_map: super::worldmap::WorldMap,
 }
 
 /// How long one of those numbers is in the air, and the shortest gap
@@ -625,6 +629,14 @@ fn open(
             if crate::dev::lost() {
                 session.lose_for_probe();
             }
+            // The run's loop (feature 103): between missions with the map
+            // up, or the departure check asking.
+            if crate::dev::map() {
+                session.map_for_probe();
+            }
+            if crate::dev::depart() {
+                session.depart_for_probe();
+            }
             if let Some(n) = crate::dev::lamps_out() {
                 session.shoot_lamps_for_probe(n);
             }
@@ -781,6 +793,7 @@ impl GameScreen {
             blackout: 0.0,
             skills_prompt: true,
             heals: Heals::default(),
+            world_map: super::worldmap::WorldMap::default(),
         }
     }
 
@@ -976,6 +989,12 @@ fn frame(
                     if !there && !screen.gone.contains(&slot) {
                         screen.gone.push(slot);
                         screen.log.push(player_left(&crew_name(slot)));
+                        // And the world told, by the host alone, so a
+                        // vote or a departure does not wait on somebody
+                        // who is not there (feature 103).
+                        if screen.net.wire.as_ref().is_some_and(|w| w.host) {
+                            screen.net.order(session, Order::PlayerGone(slot));
+                        }
                     }
                 }
             }
@@ -1089,6 +1108,7 @@ fn frame(
     // What just happened. An event is a thing that happened once, so the
     // list is drained after it is read.
     if let Some(game) = &mut session.game {
+        let mut arrived = false;
         for event in game.events.drain(..) {
             if let Some(line) = event_line(event) {
                 screen.log.push(line);
@@ -1115,12 +1135,54 @@ fn frame(
             if matches!(event, WorldEvent::Landed { .. }) {
                 screen.blackout = BLACKOUT_HOLD;
             }
+            // Arrived (feature 103): a mission begins, and the ship view
+            // is where it is played — the map put away, nothing picked,
+            // and the black a landing ends in while the place is laid out.
+            // Said on stdout in a scripted run, for the two-window pair
+            // (`scratchpad/duo_resync.sh travel`).
+            if crate::dev::auto().is_some() {
+                match event {
+                    WorldEvent::LeftSite { station, cleared } => {
+                        println!("left: {station} {cleared}")
+                    }
+                    WorldEvent::Travelled {
+                        star,
+                        station,
+                        minutes,
+                    } => println!("travelled: {star} {station} {minutes}"),
+                    WorldEvent::Proposed {
+                        slot,
+                        star,
+                        station,
+                    } => println!("proposed: {slot} {star} {station}"),
+                    WorldEvent::ProposalAccepted { slot, yes } => {
+                        println!("accepted: {slot} {yes}")
+                    }
+                    WorldEvent::PlayerGone { slot } => println!("gone: {slot}"),
+                    WorldEvent::Refused { slot, why } => println!("refused: {slot} {why:?}"),
+                    _ => {}
+                }
+            }
+            if matches!(event, WorldEvent::Travelled { .. }) {
+                arrived = true;
+                screen.galaxy_up = false;
+                screen.world_map.picked = None;
+                screen.blackout = BLACKOUT_HOLD;
+            }
             // A level of your own may be a choice to make: the tray comes
             // up on the Skills tab for it (features 80 and 83). Somebody
             // else's slot is their own screen's.
             if matches!(event, WorldEvent::LevelUp { who, .. } if who == screen.net.slot) {
                 screen.skills_prompt = true;
             }
+        }
+        if arrived {
+            game.set_mode(ViewMode::Ship);
+        }
+        // Between missions the map is up for everybody, and stays up
+        // (feature 103): it is the one thing there is to do.
+        if !game.world.in_mission() && game.mode != ViewMode::Map {
+            game.set_mode(ViewMode::Map);
         }
         while screen.log.len() > LOG_LINES {
             screen.log.remove(0);
@@ -1520,6 +1582,27 @@ fn frame(
         // or the empty space beside it, which is a perfectly good place to
         // go. Aiming is looking; it is Confirm that wants the helm.
         else if let Some(p) = on_canvas
+            && pointer.primary_pressed
+            && session.game.as_ref().is_some_and(|g| !g.world.free_clock())
+        {
+            // In a run (feature 103) nothing is flown: a click on a
+            // station or a planet with a settlement picks it on the world
+            // map's list, which is where the trip is quoted and put to
+            // the crew.
+            let game = session.game.as_ref().unwrap();
+            let star = game.world.star_id;
+            let site = match game.pick(p.x, p.y, MAP_PICK_SLOP) {
+                Some(Node::Station(id)) => Some(world::Site { star, station: id }),
+                Some(Node::Body(body)) => game.world.surface(body).map(|_| world::Site {
+                    star,
+                    station: world::surface_id(body),
+                }),
+                None => None,
+            };
+            if site.is_some() {
+                screen.world_map.picked = site;
+            }
+        } else if let Some(p) = on_canvas
             && pointer.primary_pressed
         {
             let game = session.game.as_mut().unwrap();
@@ -2010,6 +2093,20 @@ fn frame(
     if screen.aimed.is_none() {
         session.clear_preview();
     }
+    // In a run (feature 103) the map rings the site picked on the world
+    // map's list, where the old game rang whatever the helm was aimed at:
+    // a ring and nothing more, since nothing is flown.
+    if let Some(game) = &mut session.game
+        && !game.world.free_clock()
+    {
+        let star = game.world.star_id;
+        game.aimed = screen.world_map.picked.filter(|s| s.star == star).map(|s| {
+            match world::surface_body(s.station) {
+                Some(body) => Target::Body(body),
+                None => Target::Station(s.station),
+            }
+        });
+    }
 
     // Everything that changes the ship goes through the seam.
     for order in orders.drain(..) {
@@ -2237,22 +2334,40 @@ fn frame(
         .show(&ctx, |ui| {
             panel_frame().show(ui, |ui| {
                 ui.set_min_width(300.0);
-                trip_panel(
-                    ui,
-                    session,
-                    local,
-                    map_up,
-                    &mut screen.aimed,
-                    &mut screen.pending,
-                    &mut screen.relieve,
-                    &mut screen.log,
-                    &mut Chart {
-                        up: &mut screen.galaxy_up,
-                        lobby: &mut screen.galaxy,
-                        picked: &mut screen.picked_star,
-                    },
-                    &mut orders,
-                );
+                // A run (feature 103) has no helm: the strip is the world
+                // map with the map up, and where the crew are without.
+                // The old game's helm stays for a world whose clock runs
+                // free.
+                let run = session.game.as_ref().is_some_and(|g| !g.world.free_clock());
+                let mut chart = Chart {
+                    up: &mut screen.galaxy_up,
+                    lobby: &mut screen.galaxy,
+                    picked: &mut screen.picked_star,
+                };
+                if run {
+                    run_strip(
+                        ui,
+                        session,
+                        map_up,
+                        &mut screen.world_map,
+                        &mut chart,
+                        local,
+                        &mut orders,
+                    );
+                } else {
+                    trip_panel(
+                        ui,
+                        session,
+                        local,
+                        map_up,
+                        &mut screen.aimed,
+                        &mut screen.pending,
+                        &mut screen.relieve,
+                        &mut screen.log,
+                        &mut chart,
+                        &mut orders,
+                    );
+                }
             });
         });
 
@@ -2383,13 +2498,28 @@ fn frame(
         }
     }
 
+    // *Back to ship* at the bottom right, during a mission, and the
+    // departure check over the middle while it is asking (feature 103).
+    // The log sits on top of the button.
+    let mut above_log = 0.0;
+    if let Some(game) = &session.game {
+        if let Some(rect) =
+            super::worldmap::back_to_ship(&ctx, canvas.max.x, &game.world, local, &mut orders)
+        {
+            above_log = rect.height() + 6.0;
+        }
+        super::worldmap::departure_window(&ctx, &game.world, local, &mut orders, &crew_name);
+    }
+    for order in orders.drain(..) {
+        screen.net.order(session, order);
+    }
     if !screen.log.is_empty() {
         egui::Area::new(egui::Id::new("game-log"))
             .anchor(
                 egui::Align2::RIGHT_BOTTOM,
                 egui::vec2(
                     -(size.x * 0.0) - 10.0 - (ctx.viewport_rect().max.x - canvas.max.x),
-                    -10.0,
+                    -10.0 - above_log,
                 ),
             )
             .order(egui::Order::Middle)
@@ -3413,6 +3543,70 @@ fn trip_panel(
     }
 }
 
+/// The strip across the top in a run (feature 103): with the map up, the
+/// galaxy chart's toggle and the world map — every destination, its
+/// quote and the vote (`super::worldmap`); with the ship view up, where
+/// the crew are, the day and the pool, and how to get at the map.
+fn run_strip(
+    ui: &mut egui::Ui,
+    session: &mut Session,
+    map_up: bool,
+    map: &mut super::worldmap::WorldMap,
+    chart: &mut Chart,
+    local: u32,
+    orders: &mut Vec<Order>,
+) {
+    let whereabouts = whereabouts(session);
+    let game = session.game.as_ref().unwrap();
+    let world = &game.world;
+    if !map_up {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(whereabouts).strong());
+            ui.label(
+                egui::RichText::new(pool_line(
+                    world.day(),
+                    world.money,
+                    world.run.pending_bounty,
+                ))
+                .color(theme::MUTED),
+            );
+        });
+        ui.label(
+            egui::RichText::new(MAP_KEY_HINT)
+                .small()
+                .color(theme::MUTED),
+        );
+        return;
+    }
+    ui.horizontal(|ui| {
+        let label = if *chart.up {
+            "System view"
+        } else {
+            "Galaxy view"
+        };
+        if ui.button(label).clicked() {
+            *chart.up = !*chart.up;
+            if *chart.up {
+                if chart.lobby.is_none() {
+                    *chart.lobby = Some(lobby::Lobby::new(
+                        world.galaxy_seed,
+                        world.galaxy_type,
+                        800.0,
+                        600.0,
+                    ));
+                }
+                if let Some(lobby) = chart.lobby.as_mut() {
+                    lobby.inspect(chart.picked.unwrap_or(world.star_id));
+                }
+            }
+        }
+        if *chart.up {
+            crisis_line(ui, world, chart.picked.unwrap_or(world.star_id));
+        }
+    });
+    super::worldmap::map_panel(ui, map, world, local, orders, &crew_name);
+}
+
 /// The galaxy chart's state, as the strip sees it: whether it is up, the
 /// chart itself, and the star picked on it.
 struct Chart<'a> {
@@ -3808,8 +4002,8 @@ fn droid_warning(ui: &mut egui::Ui, world: &world::World) {
         let standing = world.droids_standing();
         let words = if standing > 0 {
             droids_standing(defending.wave, waves, standing)
-        } else if let Some(due) = defending.next_in {
-            droids_next_wave(&crate::format::in_words(due), defending.wave + 1, waves)
+        } else if let Some(due) = world.defense_wave_due() {
+            droids_next_wave(&crate::format::countdown(due), defending.wave + 1, waves)
         } else if defending.wave > 0 && defending.waves_left == 0 {
             DROIDS_CLEARED.into()
         } else {
@@ -3831,7 +4025,7 @@ fn droid_warning(ui: &mut egui::Ui, world: &world::World) {
     let words = if standing > 0 {
         droids_standing(wave, waves, standing)
     } else if let Some(due) = world.droid_wave_due() {
-        droids_next_wave(&crate::format::in_words(due), wave + 1, waves)
+        droids_next_wave(&crate::format::countdown(due), wave + 1, waves)
     } else if left == 0 {
         DROIDS_CLEARED.into()
     } else {
@@ -4063,6 +4257,13 @@ fn trade_window(
 /// The Ship tab: the helm, and the ship's facts.
 fn ship_panel(ui: &mut egui::Ui, session: &Session, net: &Net, local: u32, walking: bool) {
     let game = session.game.as_ref().unwrap();
+    // Nothing is flown in a run (feature 103): the helm is the world map.
+    if !game.world.free_clock() {
+        theme::heading(ui, "Travel");
+        ui.label(egui::RichText::new(MAP_TIP).small().color(theme::MUTED));
+        facts_panel(ui, session, net);
+        return;
+    }
     theme::heading(ui, "Helm");
     let manned = game.world.at_the_helm(local);
     ui.label(if walking {

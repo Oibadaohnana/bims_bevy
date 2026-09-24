@@ -25,10 +25,11 @@
 //! - The **wave size** is worked out as each wave appears, so a crew
 //!   that has grown richer between waves meets more machines.
 //! - When the last machine of a wave is destroyed and waves are left,
-//!   the next arrives [`data::DROID_REINFORCE_MINUTES`] of world clock
-//!   later. **Never while one is still standing.**
-//! - A wave whose time came while the crew were away is aboard when they
-//!   next dock. Leaving and coming back resets nothing.
+//!   the next arrives [`data::DROID_REINFORCE_STEPS`] of the **mission
+//!   clock** later (feature 103). **Never while one is still standing.**
+//! - Leaving a station before its last wave is destroyed puts it back as
+//!   the crew met it (`crate::run`): the next visit is a fresh fight, its
+//!   count worked out again at the day it is fought on.
 //!
 //! # How many
 //!
@@ -55,9 +56,9 @@ pub struct Infestation {
     /// Which wave is aboard, counting from one; nought before the first
     /// has ever been laid.
     pub wave: u32,
-    /// The clock minute the next wave arrives, or `None` while one is
-    /// still standing or there are none left.
-    pub next_wave: Option<f64>,
+    /// The step of the **mission clock** the next wave arrives at (feature
+    /// 103), or `None` while one is still standing or there are none left.
+    pub next_wave: Option<u64>,
     /// Whether the count has been worked out yet: the crew's first dock
     /// settles it, and nothing settles it twice.
     pub settled: bool,

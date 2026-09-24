@@ -7,3 +7,4 @@ pub mod designer;
 pub mod game;
 pub mod room;
 pub mod station;
+pub mod worldmap;

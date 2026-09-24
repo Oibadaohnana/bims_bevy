@@ -336,12 +336,12 @@ fn no_reinforcement_while_a_machine_lives_and_one_a_clock_after_the_last_dies() 
         room_mut!(world).strike_droid(i, DroidPart::Chassis, 1e6);
     }
     assert_eq!(world.droids_standing(), 1, "one left");
-    let was = world.clock_minutes;
+    let was = world.mission_minutes();
     for _ in 0..200 {
         world.step(&[]);
     }
     assert!(
-        world.clock_minutes - was > world.droid_reinforce_minutes(),
+        world.mission_minutes() - was > world.droid_reinforce_minutes(),
         "the clock ran well past a reinforcement"
     );
     assert_eq!(
@@ -366,7 +366,7 @@ fn no_reinforcement_while_a_machine_lives_and_one_a_clock_after_the_last_dies() 
         .unwrap()
         .next_wave
         .expect("the clock is running now");
-    assert!(due > world.clock_minutes);
+    assert!(due > world.mission_steps());
 
     // Run it out: the wave lands, and it is said once.
     let mut landed = 0;

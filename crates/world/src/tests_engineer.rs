@@ -319,8 +319,13 @@ fn an_enemy_going_down_and_dying_is_experience_once_each_to_the_classed_crew_in_
         world.step(&[]);
     }
     assert_eq!(world.progress_of(0).xp, a);
-    // And a dead crew member's progress died with it.
-    assert_eq!(world.progress_of(1), Progress::default());
+    // And a dead player's progress is kept, for the buyback (feature
+    // 103): the level, the experience and the talents come back with it.
+    assert_eq!(
+        world.progress_of(1).xp,
+        b + class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD
+    );
+    assert_ne!(world.progress_of(1), Progress::default());
 }
 
 #[test]
@@ -491,6 +496,8 @@ fn a_pick_is_refused_for_the_wrong_slot_level_or_a_second_time_and_moves_the_che
 #[test]
 fn an_engineer_sets_out_with_its_kits_and_the_class_locks_at_the_first_undock() {
     let mut world = basic();
+    // The old game's clock, running with the step (feature 103).
+    world.set_free_clock(true);
     assert_eq!(world.class_of(0), Class::None);
     assert_eq!(kits_in_pack(&world, 0, Kit::Sandbag), 0);
     let events = world.step(&[Command::SetClass {
@@ -1357,8 +1364,8 @@ fn a_spent_charge_comes_back_on_its_cooldown() {
 /// Steps the world forward that many seconds of the clock, which is that
 /// many game minutes (`time::MINUTES_PER_SECOND`).
 fn run_for_seconds(world: &mut World, seconds: f64) {
-    let until = world.clock_minutes + seconds * time::MINUTES_PER_SECOND;
-    while world.clock_minutes < until {
+    let until = world.mission_minutes() + seconds * time::MINUTES_PER_SECOND;
+    while world.mission_minutes() < until {
         world.step(&[]);
     }
 }
