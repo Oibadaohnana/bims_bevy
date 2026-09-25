@@ -1065,7 +1065,7 @@ fn frame(
                 screen.log.push(line);
             }
             if let Some(freeze) = screen.freeze.as_mut()
-                && freeze.downs
+                && freeze.counts == crate::dev::Counted::Downs
                 && matches!(event, WorldEvent::DroidDown { .. })
             {
                 freeze.left = freeze.left.saturating_sub(1);
@@ -1140,14 +1140,26 @@ fn frame(
         // beside it while the decks are joined — its doors and its galley
         // are on the same picture.
         for cued in game.world.aboard.room.take_cues() {
-            if let Some(freeze) = screen.freeze.as_mut()
-                && !freeze.downs
-                && matches!(
-                    cued.cue,
-                    bims::cue::Cue::Shot { .. } | bims::cue::Cue::Blow { .. }
-                )
-            {
-                freeze.left = freeze.left.saturating_sub(1);
+            if let Some(freeze) = screen.freeze.as_mut() {
+                use crate::dev::Counted;
+                use bims::cue::Cue;
+                let counted = match (freeze.counts, cued.cue) {
+                    (Counted::Shots, Cue::Shot { .. } | Cue::Blow { .. }) => true,
+                    // A Guardian's beam is said as a shot of the Sweeper
+                    // where it is laid (feature 100).
+                    (
+                        Counted::Sweeps,
+                        Cue::Shot {
+                            weapon: bims::combat::WeaponKind::Sweeper,
+                            ..
+                        },
+                    ) => true,
+                    (Counted::Shields, Cue::Shielded) => true,
+                    _ => false,
+                };
+                if counted {
+                    freeze.left = freeze.left.saturating_sub(1);
+                }
             }
             sounds.play(&mut commands, cued);
         }

@@ -36,6 +36,8 @@ pub enum Cue {
     Impact { on_crew: bool },
     /// A bolt ended in a bulkhead, or a shut door.
     Ricochet,
+    /// A bolt or a blow stopped on a Guardian's shield (feature 100).
+    Shielded,
     /// A swing or a jab landed: `cut` from a blade, a fist otherwise;
     /// `on_crew` as for a bolt.
     Blow { cut: bool, on_crew: bool },

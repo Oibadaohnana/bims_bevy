@@ -170,6 +170,17 @@ run to run, so a frame count cannot catch one — and a pause holds the
 passing lights still, so the screenshot taken later is that instant.
 `BIMS_FREEZE=2+1 bims droids` is the fight's second shot held in the
 air, and `BIMS_FREEZE=down:1+1 bims droids` the first machine bursting.
+**`BIMS_FREEZE=sweep:n+f`** counts a Guardian's beams laid in the crew's
+room and **`shield:n+f`** bolts and blows stopped on its shield
+(`Cue::Shielded`, feature 100). The machines of `bims guardian` never
+come aboard, so the crew are sent in: `BIMS_KEYS="40:F,70:V"
+BIMS_POINTER="45:move:1250,420;47:click:1250,420;60:move:1250,440;62:right:1250,440"`
+puts an attack banner down in the station's lobby, walks James after it
+and has the camera follow him, and `BIMS_FREEZE=sweep:1+10` over that
+is the beam mid-sweep. At `BIMS_ZOOM=0.5` in a `BIMS_WINDOW=2800x1800`
+(pointer coordinates doubled) the Guardian is in frame, for a crop; the
+rack (`BIMS_DROIDS=1 BIMS_ZOOM=0.55` and a few `wheelup`s over its
+fourth row) is the idle, the wind-up and the wreck up close.
 `BIMS_LAMPS_OUT=n` shoots the `n` lamps nearest the crew member
 out at open and leaves the next one failing, for looking at the dark
 round a lamp that is out and a failing lamp's flicker (`BIMS_LAMPS_OUT=3`

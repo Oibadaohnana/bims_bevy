@@ -1766,6 +1766,12 @@ pub const SWEEP_STEP_SIN: f32 = 0.034_899_496;
 /// sweep starts and ends.
 pub const SWEEP_HALF_COS: f32 = 0.984_807_75;
 pub const SWEEP_HALF_SIN: f32 = 0.173_648_18;
+/// How a swept beam is drawn: the red beam's width, its core's, how far
+/// past white the core burns, and the burning point where a wall stops it.
+const SWEEP_BEAM: f32 = 5.0;
+const SWEEP_CORE: f32 = 2.2;
+const SWEEP_HEAT: f32 = 2.2;
+const SWEEP_TIP: f32 = 9.0;
 
 /// A Guardian's beam being swept in a room (feature 100, [`Combat::sweep`]):
 /// where from, which way it points now and which way it turns, how far
@@ -2705,7 +2711,7 @@ impl Combat {
                 let plate = at + toward * balance::GUARDIAN_SHIELD_RADIUS;
                 self.fx.shield(at, plate);
                 self.cues.push(Cued {
-                    cue: Cue::Ricochet,
+                    cue: Cue::Shielded,
                     at: plate,
                 });
                 return;
@@ -2988,6 +2994,7 @@ impl Combat {
                             Some(_) => Cue::Impact {
                                 on_crew: bolt.hostile,
                             },
+                            None if shielded.is_some() => Cue::Shielded,
                             None => Cue::Ricochet,
                         },
                         at,
@@ -3185,8 +3192,27 @@ impl Combat {
         }
         // The Guardians' beams (feature 100), in this room if it draws them:
         // laid where the last sub-step laid them.
+        // The beam itself is the machines' red, and a **white-hot core**
+        // down it that flickers — the core past white, so the bloom is what
+        // makes it glow, and no halo is drawn by hand. Where a wall or a
+        // shut door stops it, a bright point burns (the scorch it leaves
+        // along the sweep is the passing lights', `Fx::burn`).
         for s in self.sweeps.iter().filter(|s| s.drawn && s.done > 0) {
-            fx::laser(list, s.from, s.end, 10.0, 2.5, true, fx::CORE_HEAT, 1.0);
+            let flick = fx::scatter((s.elapsed * 60.0) as u32, s.done);
+            list.line(s.from, s.end, SWEEP_BEAM, HOSTILE_BOLT.alpha(0.85));
+            list.line(
+                s.from,
+                s.end,
+                SWEEP_CORE * (0.75 + 0.5 * flick),
+                BOLT_CORE_WHITE.glowing(SWEEP_HEAT + flick),
+            );
+            if s.walled {
+                list.circle(
+                    s.end,
+                    SWEEP_TIP * (0.8 + 0.4 * flick),
+                    fx::BURST_HOT.glowing(SWEEP_HEAT),
+                );
+            }
         }
         // Where the bolts ended: the fight's own flash for a host that ages
         // no effects, the passing lights for one that does.

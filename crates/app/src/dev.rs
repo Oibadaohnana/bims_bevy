@@ -573,27 +573,46 @@ pub fn droid_waves(default: u32) -> u32 {
 /// handful of frames long and the fight's own timing moves from run to
 /// run. A pause holds the passing lights where they are, so the picture
 /// taken later is that instant. `BIMS_FREEZE=down:n+f` counts machines
-/// destroyed instead (`WorldEvent::DroidDown`), for a machine bursting.
+/// destroyed instead (`WorldEvent::DroidDown`), for a machine bursting;
+/// `sweep:n+f` a Guardian's beams laid in the crew's room, for a beam
+/// mid-sweep, and `shield:n+f` bolts and blows stopped on a Guardian's
+/// shield, for the plate flaring (feature 100).
 pub fn freeze_at_shot() -> Option<Freeze> {
     let value = std::env::var("BIMS_FREEZE").ok()?;
-    let (downs, value) = match value.strip_prefix("down:") {
-        Some(rest) => (true, rest),
-        None => (false, value.as_str()),
-    };
+    let (counts, value) = [
+        ("down:", Counted::Downs),
+        ("sweep:", Counted::Sweeps),
+        ("shield:", Counted::Shields),
+    ]
+    .into_iter()
+    .find_map(|(prefix, counts)| value.strip_prefix(prefix).map(|rest| (counts, rest)))
+    .unwrap_or((Counted::Shots, value.as_str()));
     let (count, frames) = value.split_once('+').unwrap_or((value, "0"));
     Some(Freeze {
-        downs,
+        counts,
         left: count.parse().ok()?,
         frames: frames.parse().ok()?,
     })
 }
 
-/// `BIMS_FREEZE`, read: what is counted — shots and blows heard in the
-/// crew's room, or machines destroyed — how many are still to come, and
+/// What a `BIMS_FREEZE` counts.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Counted {
+    /// Shots and blows heard in the crew's room.
+    Shots,
+    /// Machines destroyed.
+    Downs,
+    /// A Guardian's beams laid in the crew's room (feature 100).
+    Sweeps,
+    /// Bolts and blows stopped on a Guardian's shield (feature 100).
+    Shields,
+}
+
+/// `BIMS_FREEZE`, read: what is counted, how many are still to come, and
 /// the frames after the last before the game pauses itself.
 #[derive(Clone, Copy, Debug)]
 pub struct Freeze {
-    pub downs: bool,
+    pub counts: Counted,
     pub left: u32,
     pub frames: u32,
 }

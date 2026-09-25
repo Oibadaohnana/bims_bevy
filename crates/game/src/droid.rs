@@ -61,6 +61,7 @@ use crate::balance;
 use crate::combat::{HIT_RADIUS, Tier, Weapon, WeaponKind, WeaponStats};
 use crate::draw::{Brush, Color, DrawList};
 use crate::math::{TAU, Vec2, angle_lerp, clamp, vec2};
+use crate::room::TILE;
 
 // --- the look -----------------------------------------------------------
 
@@ -106,6 +107,18 @@ const SHIELD_HALF_ARC: f32 = core::f32::consts::FRAC_PI_3;
 /// How far out the arc on the deck is laid, as a share of the plate's
 /// radius: a little beyond it, so the plate does not hide it.
 const SHIELD_DECK_REACH: f32 = 1.25;
+/// How fast a Guardian's lens pulses at rest, in radians a second.
+const LENS_PULSE: f32 = 1.7;
+/// How far out the wind-up's wedge is laid on the deck, in room units —
+/// a hint of the arc, not its whole reach — and how many lines fill it.
+const WEDGE_REACH: f32 = 7.0 * TILE;
+const WEDGE_LINES: u32 = 16;
+/// How long a destroyed Guardian's shield takes to collapse, and how long
+/// its wreck smokes, in seconds; how many puffs go up; and their colour.
+const SHIELD_COLLAPSE: f32 = 0.8;
+const SMOKE_LIFE: f32 = 4.0;
+const SMOKE_PUFFS: u32 = 9;
+const SMOKE: Color = Color::rgb(0.42, 0.42, 0.45);
 
 // --- the animation ------------------------------------------------------
 
@@ -946,7 +959,7 @@ impl Droid {
         // A Guardian's shield marked faintly on the deck under it (feature
         // 100), so the arc it stops things in is read before a shot is.
         if self.is_guardian() && !self.destroyed {
-            self.draw_shield_on_deck(list);
+            self.draw_guardian_under(list);
         }
         // The sparks, over the machine: the struck part's, and a fresh
         // wreck's. Put through the brush's frame first, so they ride the
@@ -970,9 +983,10 @@ impl Droid {
                 sparks.push((b.to_world(s.at + s.dir * (1.0 - t)), t, 0.0));
             }
         }
-        // And the shield's plate, standing out in front of it.
-        if self.is_guardian() && !self.destroyed {
-            self.draw_shield_plate(list);
+        // And the shield's plate, standing out in front of it — or, on a
+        // wreck, collapsing — the wind-up's line, and a wreck's smoke.
+        if self.is_guardian() {
+            self.draw_guardian_over(list);
         }
         for (at, t, _) in sparks {
             list.circle(at, 2.0 + 3.0 * t, SPARK.glowing(SPARK_HEAT).alpha(0.9 * t));
@@ -1311,45 +1325,139 @@ impl Droid {
         );
     }
 
-    /// **The Guardian** (feature 100): the largest, a walker. Heavy legs,
-    /// a broad chassis, and the lens in the middle of it.
+    /// **The Guardian** (feature 100): the largest, and a walker rather
+    /// than a rolling droid. Broad and hunched: a heavy carapace humped
+    /// over its back, two stomping legs with wide feet, the shield's two
+    /// emitters at the front corners, and one large **lens** set in the
+    /// middle of the chassis — the beam comes out of it. Legs gone and it
+    /// sits on its hull, feet splayed; arms gone and the emitters hang
+    /// dark (the shield stands: it cannot be broken).
     fn draw_guardian(&self, b: &mut Brush) {
         let step = self.step();
         let legs_gone = self.body.gone(DroidPart::Legs);
-        if !legs_gone {
-            for side in [-1.0f32, 1.0] {
-                let swing = step * 6.0 * side;
+        let arms_gone = self.body.gone(DroidPart::Arms);
+        // The legs: a heavy thigh on a hip actuator, and a wide foot that
+        // is set down ahead and trails behind — a stomp, the fore foot
+        // lifted a little (drawn larger) as it swings through.
+        for side in [-1.0f32, 1.0] {
+            let hip = vec2(-5.0, 20.0 * side);
+            if legs_gone {
                 b.rect(
-                    vec2(swing - 4.0, 16.0 * side),
-                    vec2(18.0, 11.0),
-                    0.0,
+                    hip + vec2(-4.0, 3.0 * side),
+                    vec2(16.0, 9.0),
+                    0.5 * side,
                     3.0,
-                    HULL_DARK,
+                    JOINT,
                 );
+                continue;
             }
+            let swing = step * side;
+            let lift = 1.0 + 0.12 * swing.max(0.0);
+            let foot = hip + vec2(swing * 9.0 + 2.0, 3.5 * side);
+            b.rect((hip + foot) * 0.5, vec2(13.0, 10.0), 0.0, 3.0, HULL_DARK);
+            b.rect(foot, vec2(18.0, 11.0) * lift, 0.0, 3.5, JOINT);
+            b.rect(
+                foot + vec2(-1.0, 0.0),
+                vec2(14.0, 8.0) * lift,
+                0.0,
+                3.0,
+                PLATE,
+            );
+            b.rect(
+                foot + vec2(4.0, 0.0),
+                vec2(6.0, 10.0) * lift,
+                0.0,
+                2.0,
+                STEEL,
+            );
+            b.ellipse(hip, vec2(12.0, 12.0), 0.0, STEEL);
+            b.ellipse(hip, vec2(6.0, 6.0), 0.0, JOINT);
         }
-        b.rect(Vec2::ZERO, vec2(36.0, 50.0), 0.0, 5.0, HULL_DARK);
-        b.rect(vec2(1.0, 0.0), vec2(30.0, 43.0), 0.0, 4.0, HULL);
-        b.ellipse(vec2(LENS_AHEAD, 0.0), vec2(13.0, 13.0), 0.0, JOINT);
-        b.ellipse(vec2(LENS_AHEAD, 0.0), vec2(9.0, 9.0), 0.0, self.eye());
+        let hunch = if legs_gone { 0.94 } else { 1.0 };
+        // The hump over its back, the carapace over that, and the mantle
+        // it hunches forward under.
+        b.ellipse(vec2(-9.0, 0.0), vec2(40.0, 44.0) * hunch, 0.0, HULL_DARK);
+        b.rect(vec2(-2.0, 0.0), vec2(34.0, 38.0) * hunch, 0.0, 6.0, HULL);
+        for i in 0..3 {
+            let x = -14.0 + i as f32 * 7.0;
+            b.rect(vec2(x, 0.0), vec2(3.0, 32.0) * hunch, 0.0, 1.5, HULL_DARK);
+        }
+        b.rect(vec2(9.0, 0.0), vec2(16.0, 40.0) * hunch, 0.0, 5.0, PLATE);
+        b.rect(vec2(10.0, 0.0), vec2(11.0, 32.0) * hunch, 0.0, 4.0, HULL);
+        // The shield's emitters at the front corners: a dull red lamp each
+        // while the arms work, dark when they are gone.
+        for side in [-1.0f32, 1.0] {
+            let at = vec2(13.0, 17.0 * side);
+            b.rect(at, vec2(9.0, 7.0), 0.3 * side, 2.0, STEEL);
+            let lamp = if arms_gone { SENSOR_OUT } else { SENSOR };
+            b.ellipse(at + vec2(2.5, 0.0), vec2(3.4, 3.4), 0.0, lamp);
+        }
+        // The lens: a deep housing, an iris ring, and the glass lit by
+        // what the machine is doing (`Droid::lens_glow`).
+        let lens = vec2(LENS_AHEAD, 0.0);
+        b.ellipse(lens, vec2(20.0, 20.0), 0.0, JOINT);
+        b.ellipse(lens, vec2(15.0, 15.0), 0.0, STEEL);
+        b.ellipse(lens, vec2(12.0, 12.0), 0.0, HULL_DARK);
+        let (glass, core) = self.lens_glow();
+        b.ellipse(lens, vec2(10.0, 10.0), 0.0, glass);
+        b.ellipse(lens + vec2(1.0, 0.0), vec2(4.0, 4.0), 0.0, core);
     }
 
-    /// A Guardian's wreck: the chassis down, the lens dark.
+    /// The lens's glass and its bright core, by what the machine is doing:
+    /// a slow pulse at rest, brightening past white over a wind-up — the
+    /// bloom picks it up as it climbs — and white-hot through a sweep.
+    /// Dimmed as the head, which the lens is, is shot away.
+    fn lens_glow(&self) -> (Color, Color) {
+        let head = 0.35 + 0.65 * self.body.share(DroidPart::Head);
+        match (self.wind_up(), self.beam) {
+            (_, Beam::Sweep { .. }) => (
+                SENSOR.mix(SPARK, 0.35).glowing(1.2 + 1.8 * head),
+                SPARK.glowing(1.0 + 2.2 * head),
+            ),
+            (Some((t, _, _)), _) => (
+                SENSOR.glowing(0.8 + (0.4 + 1.4 * t) * head),
+                SENSOR.mix(SPARK, t).glowing(0.9 + 1.6 * t * head),
+            ),
+            _ => {
+                let pulse = 0.5 + 0.5 * (self.idle * LENS_PULSE).sin();
+                let lit = (0.45 + 0.3 * pulse) * head;
+                (
+                    SENSOR_OUT.mix(SENSOR, lit),
+                    SENSOR_OUT.mix(SENSOR, lit + 0.2),
+                )
+            }
+        }
+    }
+
+    /// How far through a wind-up it is, nought to one, the way the beam
+    /// will be laid, and the point it was fixed on; `None` when it is not
+    /// winding up. A machine held lit for a picture is wound up whole,
+    /// its aim straight ahead at six tiles.
+    fn wind_up(&self) -> Option<(f32, Vec2, Vec2)> {
+        if self.destroyed {
+            return None;
+        }
+        if self.lit {
+            let at = self.pos + self.facing * (6.0 * TILE);
+            return Some((1.0, self.facing, at));
+        }
+        match self.beam {
+            Beam::WindUp { left, aim, at, .. } => Some((
+                clamp(1.0 - left / balance::SWEEPER_WINDUP, 0.0, 1.0),
+                aim,
+                at,
+            )),
+            _ => None,
+        }
+    }
+
+    /// A Guardian's wreck: the carapace split and slumped, the legs
+    /// thrown off, the shield's emitters torn away, and the lens
+    /// **cracked and dark**. What is left of the shield collapses over
+    /// the first moments and the smoke goes up for a few seconds — both
+    /// drawn over the wreck, in [`Droid::draw_guardian_over`].
     fn draw_guardian_wreck(&self, b: &mut Brush) {
         self.draw_wreck_ground(b, 36.0);
-        // Both legs off and thrown clear.
-        for i in 0..2u32 {
-            let a = self.scatter(i + 90) * TAU;
-            let at = vec2(-14.0, 0.0) + Vec2::from_angle(a) * (18.0 + 8.0 * self.scatter(i + 92));
-            b.rect(at, vec2(18.0, 11.0), a, 3.0, HULL_DARK);
-            b.rect(
-                at + Vec2::from_angle(a) * 10.0,
-                vec2(12.0, 7.0),
-                a + 0.3,
-                2.0,
-                JOINT,
-            );
-        }
         // The largest machine throws the most: a second ring of plate
         // further out than the common mess reaches.
         for i in 0..10u32 {
@@ -1365,30 +1473,72 @@ impl Droid {
                 if i % 2 == 0 { TORN } else { JOINT },
             );
         }
+        // Both legs off and thrown clear, feet and all.
+        for i in 0..2u32 {
+            let a = self.scatter(i + 90) * TAU;
+            let at = vec2(-14.0, 0.0) + Vec2::from_angle(a) * (20.0 + 8.0 * self.scatter(i + 92));
+            b.rect(at, vec2(14.0, 10.0), a, 3.0, HULL_DARK);
+            b.rect(
+                at + Vec2::from_angle(a) * 10.0,
+                vec2(17.0, 12.0),
+                a + 0.3,
+                3.5,
+                JOINT,
+            );
+        }
+        // The carapace, split down its length and slumped apart, the hump
+        // caved in.
+        b.ellipse(vec2(-10.0, 2.0), vec2(36.0, 46.0), 0.2, HULL_DARK);
+        for side in [-1.0f32, 1.0] {
+            let at = vec2(-1.0, 11.0 * side);
+            b.rect(at, vec2(32.0, 21.0), 0.14 * side, 5.0, HULL);
+            b.rect(
+                at + vec2(-7.0, 0.0),
+                vec2(3.0, 17.0),
+                0.14 * side,
+                1.5,
+                HULL_DARK,
+            );
+        }
+        self.draw_rift(b, vec2(-2.0, 0.0), vec2(30.0, 9.0), 0.0);
+        b.rect(vec2(10.0, 0.0), vec2(14.0, 40.0), -0.08, 4.0, PLATE);
         // The shield's emitters, torn off the front and lying dark.
         for i in 0..3u32 {
             let a = self.scatter(i + 94) * 1.2 - 0.6;
             let at = Vec2::from_angle(a) * (30.0 + 6.0 * self.scatter(i + 97));
             b.rect(at, vec2(8.0, 4.0), a + 1.2, 1.5, TORN);
         }
-        b.rect(vec2(-2.0, 0.0), vec2(36.0, 48.0), 0.12, 5.0, HULL_DARK);
-        b.rect(vec2(-1.0, 0.0), vec2(29.0, 40.0), 0.12, 4.0, HULL);
-        self.draw_rift(b, vec2(-2.0, 2.0), vec2(14.0, 30.0), 0.1);
-        b.ellipse(vec2(LENS_AHEAD, 0.0), vec2(13.0, 13.0), 0.0, JOINT);
-        b.ellipse(vec2(LENS_AHEAD, 0.0), vec2(9.0, 9.0), 0.0, self.eye());
+        // The lens, dark in its housing and cracked across.
+        let lens = vec2(LENS_AHEAD, 0.0);
+        b.ellipse(lens, vec2(20.0, 20.0), 0.0, JOINT);
+        b.ellipse(lens, vec2(15.0, 15.0), 0.0, STEEL);
+        b.ellipse(lens, vec2(10.0, 10.0), 0.0, SENSOR_OUT.mix(JOINT, 0.5));
+        for i in 0..4u32 {
+            let a = self.scatter(i + 110) * TAU;
+            let len = 4.0 + 3.0 * self.scatter(i + 114);
+            b.rect(
+                lens + Vec2::from_angle(a) * (len * 0.5),
+                vec2(len, 0.9),
+                a,
+                0.3,
+                JOINT,
+            );
+        }
     }
 
-    /// A point on the shield's arc, `a` radians off the facing and `r` out
-    /// from the middle: drawing only.
+    /// A point `a` radians round from the facing, `r` out from the middle:
+    /// drawing only.
     fn on_arc(&self, a: f32, r: f32) -> Vec2 {
         self.pos + self.facing.rotate(a) * r
     }
 
-    /// The arc the shield stops things in, faint on the deck under the
-    /// machine (feature 100, section 7): the ±60° wedge's two edges and
-    /// its rim, so a crew member can see where to get round to.
-    fn draw_shield_on_deck(&self, list: &mut DrawList) {
-        const STEPS: usize = 10;
+    /// What of a Guardian lies on the deck under it (feature 100): the
+    /// arc its shield stops things in, faint — its rim and its two edges,
+    /// so a crew member can see where to get round to — and, while it
+    /// winds up, the **wedge** the sweep will cross, a fan of faint lines
+    /// out from the lens. Drawn before the machine, under it.
+    fn draw_guardian_under(&self, list: &mut DrawList) {
+        const STEPS: usize = 12;
         let half = SHIELD_HALF_ARC;
         let r = balance::GUARDIAN_SHIELD_RADIUS * SHIELD_DECK_REACH;
         let mut prev = self.on_arc(-half, r);
@@ -1405,20 +1555,101 @@ impl Droid {
                 SHIELD_DECK,
             );
         }
+        if let Some((t, aim, _)) = self.wind_up() {
+            let lens = self.muzzle();
+            let reach = self.stats().reach().min(WEDGE_REACH);
+            let half = (balance::SWEEPER_ARC_DEGREES * 0.5).to_radians();
+            for i in 0..=WEDGE_LINES {
+                let f = i as f32 / WEDGE_LINES as f32;
+                let dir = aim.rotate(-half + 2.0 * half * f);
+                let edge = i == 0 || i == WEDGE_LINES;
+                let alpha = if edge { 0.22 } else { 0.035 } * (0.4 + 0.6 * t);
+                list.line(
+                    lens,
+                    lens + dir * reach,
+                    if edge { 1.2 } else { 6.0 },
+                    SENSOR.alpha(alpha),
+                );
+            }
+        }
     }
 
-    /// The shield's plate: short overlapping segments round the front at
-    /// [`balance::GUARDIAN_SHIELD_RADIUS`].
-    fn draw_shield_plate(&self, list: &mut DrawList) {
-        const STEPS: usize = 12;
+    /// What of a Guardian stands over it: its shield's **plate** — short
+    /// overlapping segments round the front at
+    /// [`balance::GUARDIAN_SHIELD_RADIUS`], translucent red with a rim past
+    /// white that the bloom lights and nothing else of it — and, winding
+    /// up, the thin **targeting line** from the lens to the point it has
+    /// fixed on, flickering. A wreck's plate **collapses**, flickering and
+    /// falling in on the machine for [`SHIELD_COLLAPSE`] seconds, and its
+    /// smoke rises for [`SMOKE_LIFE`].
+    fn draw_guardian_over(&self, list: &mut DrawList) {
+        const SEGMENTS: usize = 9;
         let half = SHIELD_HALF_ARC;
-        let r = balance::GUARDIAN_SHIELD_RADIUS;
-        let mut prev = self.on_arc(-half, r);
-        for i in 1..=STEPS {
-            let next = self.on_arc(-half + 2.0 * half * i as f32 / STEPS as f32, r);
-            list.line(prev, next, 5.0, SHIELD.alpha(0.35));
-            list.line(prev, next, 1.6, SHIELD_RIM);
-            prev = next;
+        let (reach, shown) = if self.destroyed {
+            let u = self.wreck_age / SHIELD_COLLAPSE;
+            if u >= 1.0 {
+                (0.0, 0.0)
+            } else {
+                // Flickering out: a hash of the moment, never a roll.
+                let flick = self.scatter(200 + (self.wreck_age * 30.0) as u32);
+                (
+                    1.0 - 0.45 * u,
+                    if flick < 0.5 * (1.0 - u) + 0.2 {
+                        1.0 - u
+                    } else {
+                        0.0
+                    },
+                )
+            }
+        } else {
+            (1.0, 1.0)
+        };
+        if shown > 0.0 {
+            let r = balance::GUARDIAN_SHIELD_RADIUS * reach;
+            let span = 2.0 * half / SEGMENTS as f32;
+            for i in 0..SEGMENTS {
+                // Each plate a little longer than its share, so the two
+                // next to it overlap it.
+                let a0 = -half + span * i as f32 - span * 0.12;
+                let a1 = a0 + span * 1.24;
+                let (p, q) = (self.on_arc(a0, r), self.on_arc(a1, r));
+                list.line(p, q, 7.0, SHIELD.alpha(0.2 * shown));
+                list.line(
+                    self.on_arc(a0, r + 2.5),
+                    self.on_arc(a1, r + 2.5),
+                    1.4,
+                    SHIELD_RIM.alpha(0.85 * shown),
+                );
+            }
+        }
+        if let Some((t, _, at)) = self.wind_up() {
+            let lens = self.muzzle();
+            let flick = 0.55 + 0.45 * self.scatter(300 + (self.idle * 24.0) as u32);
+            list.line(
+                lens,
+                at,
+                0.9 + 0.6 * t,
+                SENSOR
+                    .glowing(1.1 + 0.6 * t)
+                    .alpha(flick * (0.35 + 0.65 * t)),
+            );
+        }
+        if self.destroyed && self.wreck_age < SMOKE_LIFE {
+            let u = self.wreck_age / SMOKE_LIFE;
+            for i in 0..SMOKE_PUFFS {
+                // Each puff set off at its own moment, up and drifting
+                // with its own lean; nothing rolled, so a picture is the
+                // same picture drawn twice.
+                let born = self.scatter(400 + i) * 0.5;
+                let age = (u - born) / (1.0 - born);
+                if age <= 0.0 {
+                    continue;
+                }
+                let lean = Vec2::from_angle(self.scatter(420 + i) * TAU) * 10.0;
+                let at = self.pos + lean * age + vec2(0.0, -46.0 * age);
+                let size = 12.0 + 28.0 * age;
+                list.circle(at, size, SMOKE.alpha(0.42 * (1.0 - age)));
+            }
         }
     }
 

@@ -3590,3 +3590,38 @@ arms gone.
   door, bags, a peek and a Bulwark, a surge, a town's own sweep missing
   the machine in its way, the arms, and the heading held to the sweep's
   end.
+
+### The Guardian's look
+
+`Droid::draw_guardian` and `draw_guardian_wreck`, with two passes of its
+own in `Droid::draw`: `draw_guardian_under` before the body (the shield's
+arc faint on the deck, and while it winds up the **wedge** the sweep will
+cross — `WEDGE_LINES` faint lines out from the lens to `WEDGE_REACH`) and
+`draw_guardian_over` after it (the **plate**: nine overlapping segments
+at `GUARDIAN_SHIELD_RADIUS`, a translucent red band and a thin rim;
+the wind-up's **targeting line**, lens to the fixed point, flickering;
+on a wreck the plate **collapsing** — shrinking and flickering out over
+`SHIELD_COLLAPSE` — and **smoke** rising for `SMOKE_LIFE`). A broad,
+hunched walker: a humped carapace, two stomping legs with wide feet set
+out beside it, the shield's emitters at the front corners (dark with the
+arms gone) and one large **lens** in the middle of the chassis
+(`LENS_AHEAD`), the beam's origin (`Droid::muzzle`).
+
+**What glows is what is past white, and nothing else is drawn to glow**
+(feature 97's bloom: threshold one, additive): the lens
+(`Droid::lens_glow` — a slow pulse under white at rest, climbing past it
+over a wind-up, white-hot through a sweep, dimmed as the head is shot
+away), the plate's rim (`SHIELD_RIM`), the targeting line, the beam's core
+and the burning point where a wall stops it (`combat::SWEEP_HEAT`), and
+the shield's flare where a bolt stops (`fx::draw_shield_flare`: the plate
+lit over `SHIELD_FLARE_SPAN`, its rim past white). No halo and no glow
+layer is drawn by hand. Every flicker is a hash of the moment
+(`Droid::scatter`, `fx::scatter`), never a roll.
+
+`Droid::wind_up` is the one reading the picture takes of the rhythm —
+how far through, the aim and the point — and a machine held `lit` for a
+picture is wound up whole, aimed six tiles ahead, which is the rack's
+second column (`BIMS_DROIDS=1`, four rows now). `BIMS_FREEZE=sweep:n+f`
+and `shield:n+f` (`Cue::Shielded`, a bolt or a blow stopped on the plate)
+are how the beam and the flare are caught in a live fight; the root
+`CLAUDE.md` has the pictures' recipe.

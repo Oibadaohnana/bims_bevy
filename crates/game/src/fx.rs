@@ -141,8 +141,8 @@ pub const BURST_CAP: usize = 8;
 /// How long a Guardian's shield flares where a bolt or a blow stopped
 /// on it (feature 100), and how far round the plate the flare runs either
 /// side of the spot, in radians.
-pub const SHIELD_FLARE_LIFE: f32 = 0.3;
-pub const SHIELD_FLARE_SPAN: f32 = 0.45;
+pub const SHIELD_FLARE_LIFE: f32 = 0.35;
+pub const SHIELD_FLARE_SPAN: f32 = 0.8;
 
 /// A side's colour: blue for the crew's fire, red for the enemy's —
 /// always, whatever the weapon.
@@ -721,34 +721,36 @@ fn draw_cut(list: &mut DrawList, f: &Flare, facing: f32, t: f32) {
     }
 }
 
-/// A Guardian's shield flaring where it was struck: a run of the plate's
-/// own arc either side of the spot, past white at the spot and fading
-/// along the plate, and a swell of the side's red over it.
+/// A Guardian's shield flaring where it was struck (feature 100): the
+/// plate itself lit up over a run of its arc either side of the spot —
+/// thicker and redder there, its rim past white at the spot and dying off
+/// along the plate — so the bloom makes the glow and nothing is drawn
+/// round it by hand.
 fn draw_shield_flare(list: &mut DrawList, f: &Flare, centre: Vec2, t: f32) {
     const STEPS: usize = 6;
     let out = f.at - centre;
     let radius = out.len().max(1.0);
     let mid = out.angle();
     let colour = side(f.hostile);
-    list.circle(f.at, 9.0 + 8.0 * (1.0 - t), colour.alpha(0.45 * t));
     let span = SHIELD_FLARE_SPAN * (0.6 + 0.4 * (1.0 - t));
-    let mut prev = centre + Vec2::from_angle(mid - span) * radius;
-    for i in 1..=STEPS {
-        let a = mid - span + 2.0 * span * (i as f32 / STEPS as f32);
-        let next = centre + Vec2::from_angle(a) * radius;
+    let at = |a: f32, r: f32| centre + Vec2::from_angle(a) * r;
+    for i in 0..STEPS {
+        let a0 = mid - span + 2.0 * span * (i as f32 / STEPS as f32);
+        let a1 = mid - span + 2.0 * span * ((i + 1) as f32 / STEPS as f32);
         // Brightest where it struck, dying off along the plate.
-        let near = 1.0 - ((i as f32 - 0.5) / STEPS as f32 - 0.5).abs() * 1.8;
-        laser(
-            list,
-            prev,
-            next,
-            6.0,
-            1.8,
-            f.hostile,
-            1.8,
-            t * near.max(0.0),
+        let near = (1.0 - ((i as f32 + 0.5) / STEPS as f32 - 0.5).abs() * 1.8).max(0.0);
+        list.line(
+            at(a0, radius),
+            at(a1, radius),
+            10.0,
+            colour.alpha(0.6 * t * near),
         );
-        prev = next;
+        list.line(
+            at(a0, radius + 2.5),
+            at(a1, radius + 2.5),
+            2.0,
+            hot(f.hostile, 1.4 + 1.2 * near).alpha(t * near),
+        );
     }
 }
 

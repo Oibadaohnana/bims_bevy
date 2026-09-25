@@ -185,7 +185,7 @@ impl Kind {
             Cue::DoorSmash | Cue::DoorForced => Kind::Smash,
             Cue::Shot { .. } => Kind::Shot,
             Cue::Impact { .. } => Kind::Impact,
-            Cue::Ricochet => Kind::Ricochet,
+            Cue::Ricochet | Cue::Shielded => Kind::Ricochet,
             Cue::Blow { .. } => Kind::Blow,
             Cue::Holster { .. } => Kind::Holster,
             Cue::Throw => Kind::Blow,
@@ -422,7 +422,9 @@ impl Sounds {
                     self.one_shot(commands, Clip::LaserHit, 0.5);
                 }
             }
-            Cue::Ricochet => self.one_shot(commands, Clip::LaserWall, 0.18),
+            // A bolt on a Guardian's shield has no recording of its own yet
+            // (sounds are not in feature 100): it borrows the wall's.
+            Cue::Ricochet | Cue::Shielded => self.one_shot(commands, Clip::LaserWall, 0.18),
             // The throw is the pin and the pitch: the holster's click will
             // do. The burst is the shotgun's report and a door giving at
             // once — no recording of its own yet.
