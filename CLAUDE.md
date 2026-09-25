@@ -849,7 +849,10 @@ the old game is tagged **`needs-sim-final`** (29d5d54, feature 103's) —
 
 **How it is known that nothing moved.** Two tests pin a reading of **only
 the state that outlived the deletion**, taken off `needs-sim-final` before
-anything was deleted, and their constants are **never edited**:
+anything was deleted, and their constants are **never edited** — save by a
+change *meant* to alter how a run plays, which says why in the constant's
+own note (`SURVIVORS` has moved once so: the follow-up to feature 104 that
+pays experience for machines downed in a town's defence):
 
 - `crates/world/src/tests_survivors.rs` — `SURVIVORS`: a seeded run, two
   players and four bots on the combat ship with a gun in every hand: the

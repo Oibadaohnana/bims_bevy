@@ -35,8 +35,17 @@ use crate::world::{Command, World};
 const TILE: f32 = shipdesign::TILE as f32;
 
 /// What [`survivors`] comes out at. Taken off the tree before the
-/// deletion (the `needs-sim-final` tag), with the same scenario.
-const SURVIVORS: u64 = 0x_9aad_713a_e8d2_95ba;
+/// deletion (the `needs-sim-final` tag), with the same scenario, as
+/// `0x_9aad_713a_e8d2_95ba`.
+///
+/// **Moved once since, on purpose**: the fix after feature 104 that pays
+/// experience for a machine downed in a **town's defence**
+/// (`World::first_enemy_body`) — the town run's engineer and tank earn
+/// it now. Nothing else moved: the hash after the first two worlds (the
+/// held station's fight and the jump) is the same with the fix and
+/// without it, and with the defence's half of the fix taken out the old
+/// number came back.
+const SURVIVORS: u64 = 0x_1ac2_9e51_d456_7c7a;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew.

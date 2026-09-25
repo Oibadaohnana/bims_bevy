@@ -8202,25 +8202,27 @@ impl World {
 
     /// After `visit`: every enemy that went down or died this step, once
     /// each, to every classed crew member within the vicinity of where it
-    /// lies on the joined deck. Only a hostile room's bodies — the
-    /// machines, since every human is friendly (feature 104) — and only
-    /// while the rooms are joined: on an unjoined deck nobody is in
-    /// anybody's vicinity. A crewmate or a hire going down is nobody's
-    /// experience.
+    /// lies on the joined deck. Only the crew's enemies
+    /// ([`World::first_enemy_body`]) — a hostile room's bodies, which are
+    /// the machines since every human is friendly (feature 104), and the
+    /// machines in a town the crew are defending, whose own people going
+    /// down are nobody's experience — and only while the rooms are
+    /// joined: on an unjoined deck nobody is in anybody's vicinity. A
+    /// crewmate or a hire going down is nobody's experience either.
     /// Hands back every enemy that went down this step with who last hit
     /// it, for the soldiers' *rampage* (`settle_rampage`).
     fn experience(&mut self, events: &mut Vec<WorldEvent>) -> Vec<(usize, Option<usize>)> {
         let mut downed = Vec::new();
+        let Some(first) = self.first_enemy_body() else {
+            return downed;
+        };
         let Some(residents) = &self.residents else {
             return downed;
         };
-        if self.stance(residents.station) != Stance::Hostile || !self.aboard.is_joined() {
-            return downed;
-        }
         let mut gained: Vec<(bims::math::Vec2, u32)> = Vec::new();
         let mut bounty: Money = 0;
         let count = residents.aboard.count() as usize;
-        for who in 0..count.min(residents.xp_down.len()) {
+        for who in first..count.min(residents.xp_down.len()) {
             let room = &residents.aboard.room;
             let dead = !room.is_alive(who);
             let down = dead || room.is_unconscious(who);
@@ -10812,24 +10814,35 @@ impl World {
     /// cleared the step it was earned and a field surgery came back
     /// every step.
     fn enemy_standing(&self) -> bool {
-        let Some(residents) = &self.residents else {
+        let (Some(first), Some(residents)) = (self.first_enemy_body(), &self.residents) else {
             return false;
         };
-        if !self.aboard.is_joined() {
-            return false;
-        }
         let room = &residents.aboard.room;
-        let first = if self.stance(residents.station) == Stance::Hostile {
-            0
+        (first..room.body_count() as usize)
+            .any(|who| room.is_alive(who) && !room.is_unconscious(who))
+    }
+
+    /// Which of the residents' bodies are the crew's enemies, as the
+    /// first of them — every body from there to the end of the list —
+    /// or `None` where no fight is on: the rooms unjoined, or a station
+    /// at peace. At a hostile station it is all of them; in a town the
+    /// crew are defending it is the machines alone, past the town's own
+    /// Bims, who are no enemy of theirs. What the experience and
+    /// [`World::enemy_standing`] both ask.
+    fn first_enemy_body(&self) -> Option<usize> {
+        let residents = self.residents.as_ref()?;
+        if !self.aboard.is_joined() {
+            return None;
+        }
+        if self.stance(residents.station) == Stance::Hostile {
+            Some(0)
         } else if self.defense_here().is_some()
             && Some(residents.station) == self.ship.state.station()
         {
-            room.crew_count() as usize
+            Some(residents.aboard.room.crew_count() as usize)
         } else {
-            return false;
-        };
-        (first..room.body_count() as usize)
-            .any(|who| room.is_alive(who) && !room.is_unconscious(who))
+            None
+        }
     }
 
     /// After `visit` and the experience: what the fight did to the

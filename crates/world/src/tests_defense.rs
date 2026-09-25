@@ -9,12 +9,13 @@
 
 use shipdesign::fixture::flyer;
 
+use crate::class::{self, Class, Side, Talent};
 use crate::data;
 use crate::defense;
 use crate::event::WorldEvent;
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
 use crate::surface;
-use crate::world::World;
+use crate::world::{Command, World};
 use crate::world_checksum;
 
 fn basic() -> World {
@@ -486,4 +487,110 @@ fn the_checksum_notices_an_attack_and_two_worlds_fight_alike() {
         );
     }
     assert!(world.defense(id).is_some());
+}
+
+/// Machine `i` of the town's wave moved to where crew member 0 stands —
+/// well within the vicinity — hit last by crew member 0, and destroyed.
+fn down_by_crew_member_0(world: &mut World, i: usize) {
+    let at = world.aboard.room.bim_pos(0);
+    let station = world
+        .aboard
+        .to_station(worldgen::math::dvec2(at.x as f64, at.y as f64))
+        .expect("the rooms joined");
+    let residents = world.residents.as_mut().expect("the town's room");
+    let bims = residents.aboard.room.crew_count() as usize;
+    let there = residents.aboard.to_room(station);
+    let droid = residents
+        .aboard
+        .room
+        .droid_mut_for_probe(i)
+        .expect("a machine of the wave");
+    droid.pos = there;
+    residents.last_hit_by[bims + i] = Some(0);
+    residents
+        .aboard
+        .room
+        .strike_droid(i, bims::droid::DroidPart::Chassis, 1e6);
+}
+
+/// A machine taken down in a town's defence is experience, as one at a
+/// station the machines hold is: `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` to
+/// every classed crew member within the vicinity, once. A townsperson
+/// going down is nobody's. And a soldier's *rampage* counts it while the
+/// rest of the wave stands, since a defended town's machines are the
+/// crew's enemies. (Until the fix after feature 104 the experience was
+/// asked of a hostile station alone, and a defended town is friendly.)
+#[test]
+fn a_machine_downed_in_a_town_s_defence_is_experience_and_a_townsperson_is_not() {
+    let Some((mut world, _)) = a_threatened_town(1.0, 2, Some(2)) else {
+        return;
+    };
+    assert_eq!(world.set_class(0, Class::Commander), Ok(()));
+    assert!(
+        until(&mut world, 40, |w| w.droids_standing() > 0),
+        "the first wave never landed"
+    );
+    // A townsperson down, and not the guard: nothing.
+    let xp = world.progress_of(0).xp;
+    let bims = world.residents.as_ref().unwrap().aboard.room.crew_count() as usize;
+    assert!(bims > 1, "a town with people in it");
+    let townsperson = (0..bims)
+        .rev()
+        .find(|&who| who != surface::GUARD as usize)
+        .expect("somebody but the guard");
+    world
+        .residents
+        .as_mut()
+        .unwrap()
+        .aboard
+        .room
+        .kill_for_probe(townsperson);
+    for _ in 0..3 {
+        world.step(&[]);
+    }
+    assert_eq!(world.progress_of(0).xp, xp, "a townsperson is nobody's");
+    // A machine down by the crew member: the down and the death, once.
+    down_by_crew_member_0(&mut world, 0);
+    world.step(&[]);
+    let paid = class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD;
+    assert_eq!(
+        world.progress_of(0).xp,
+        xp + paid,
+        "a machine is experience"
+    );
+    for _ in 0..3 {
+        world.step(&[]);
+    }
+    assert_eq!(world.progress_of(0).xp, xp + paid, "and only once");
+
+    // *Rampage*: a soldier's stack for the first machine of the wave,
+    // held while the second stands.
+    let Some((mut world, _)) = a_threatened_town(1.0, 2, Some(2)) else {
+        return;
+    };
+    assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
+    let mut events = Vec::new();
+    world.award(0, class::LEVEL_XP[class::LEVELS as usize - 1], &mut events);
+    let (level, side) = (1..=class::LEVELS)
+        .find_map(|l| {
+            class::pick_at(Class::Soldier, l).and_then(|(left, right)| {
+                (left == Talent::Rampage)
+                    .then_some((l, Side::Left))
+                    .or((right == Talent::Rampage).then_some((l, Side::Right)))
+            })
+        })
+        .expect("rampage is on a pick level");
+    world.step(&[Command::PickTalent {
+        slot: 0,
+        level: level as u32,
+        side,
+    }]);
+    assert!(world.has_talent(0, Talent::Rampage));
+    assert!(
+        until(&mut world, 40, |w| w.droids_standing() > 1),
+        "the first wave never landed"
+    );
+    down_by_crew_member_0(&mut world, 0);
+    world.step(&[]);
+    assert_eq!(world.aboard.room.rampage(0), 1, "a stack in the town");
 }

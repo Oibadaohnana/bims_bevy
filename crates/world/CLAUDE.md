@@ -4415,7 +4415,9 @@ its name**, so a variant deleted or a discriminant closed up moves
 nothing that did not itself move. `world_checksum` could not do the job,
 since the switches and the needs were in it. Two tests pin a reading
 taken off `needs-sim-final` before anything was deleted, and **their
-constants are never edited**:
+constants are never edited** — except by a change *meant* to alter how a
+run plays, which says why in the constant's own note (`SURVIVORS` has
+moved once so, for the town defence's experience, below):
 
 - `crates/world/src/tests_survivors.rs`, `SURVIVORS`
   (`the_run_plays_as_it_did_before_the_old_game_was_deleted`): a seeded
@@ -4469,13 +4471,23 @@ relentless half of `relentless_and_grit` — came back against the
 machines with the fix: `field_surgeon_is_once_a_fight_against_the_machines_and_comes_back_when_it_ends`,
 `rampage_is_a_stack_a_machine_downed_until_none_stands` and
 `relentless_takes_the_attack_on_to_the_nearest_machine_standing`. No
-survivor pin moved: neither survivor run has a crew member past the
-first level, so no talent is in either.
+survivor pin moved for those three: neither survivor run has a crew
+member past the first level, so no talent is in either.
 
-**One more gap, found by the fix and left**: in a **town's defence**
-`experience` pays nothing for a machine downed — it asks
-`stance == Hostile`, and a defended town is friendly — so no
-`XP_ENEMY_DOWN`, no `XP_ENEMY_DEAD` and no *rampage* stack is earned
-there (the Republic's bounty is paid, off `visit`'s own count). Paying
-it would move `SURVIVORS`, whose town run has an engineer and a tank
-earning experience, so it is a change of its own.
+**One more gap, found by the same fix and fixed after it**: in a
+**town's defence** `experience` paid nothing for a machine downed — it
+asked `stance == Hostile`, and a defended town is friendly — so no
+`XP_ENEMY_DOWN`, no `XP_ENEMY_DEAD` and no *rampage* stack was earned
+there (the Republic's bounty was paid, off `visit`'s own count). Now
+`World::first_enemy_body` is the one answer to *which of the residents'
+bodies are the crew's enemies* — all of them at a hostile station, the
+machines alone past the town's own Bims in a defended town, none
+elsewhere — and `experience` and `enemy_standing` both ask it, so a
+townsperson going down is still nobody's experience
+(`a_machine_downed_in_a_town_s_defence_is_experience_and_a_townsperson_is_not`).
+**This moved `SURVIVORS`, on purpose and once**: its town run has an
+engineer and a tank, who earn the experience now. The new number is in
+the constant with a note saying why; the hash after the first two
+worlds is the same with the fix and without it, and with the defence's
+half taken out the old number came back, so nothing else moved.
+`crates/ship`'s `PINNED` and `PICTURES` did not move.
