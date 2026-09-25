@@ -49,9 +49,8 @@ pub const SEEN_FOR: f32 = 2.0;
 const HIT_FLASH: f32 = 0.22;
 
 /// Where the gun of a body going out cold lands, in room units from the body:
-/// out past the hand lying along its right side, off the figure — the
-/// fallen one is stretched along its heading (`Character::draw_flat`),
-/// so ahead of the body is under its head.
+/// out past the hand fallen out on its right side, off the figure
+/// (`Character::draw_down`).
 const DROP_FLUNG: Vec2 = vec2(-14.0, 44.0);
 
 /// A dressing or a treatment finished (feature 76): whose hands, on

@@ -43,16 +43,6 @@ const FAR_LEG: f32 = crate::room::TILE;
 /// the body — parts, arm reach, where held items sit — goes through this, so the
 /// proportions against the pot and the table stay as designed.
 pub const BODY_SCALE: f32 = 1.45;
-/// How much smaller than that a body lying on the deck is drawn — dead or
-/// out cold. At the standing scale the sprawl ran a little over two tiles
-/// from boots to flung hand and lay across most of two more; at half it
-/// is about a tile long and fits inside two whichever way it lies.
-const FLAT_SCALE: f32 = 0.5;
-/// How much bigger than a dead one a body that is only out cold is drawn.
-/// A living body on the deck is slack rather than gone: a shade broader and
-/// longer than the corpse beside it, on top of the live colours and the
-/// breath, so the two tell each other apart at a glance from above.
-const OUT_COLD_SCALE: f32 = 1.1;
 /// How far the body centre is kept clear of walls and furniture.
 pub const BODY_MARGIN: f32 = 23.0;
 /// How close a click or marquee has to come to count as touching the Bim.
@@ -119,11 +109,33 @@ const MEDKIT: Color = Color::rgb(0.92, 0.93, 0.92);
 const MEDKIT_CROSS: Color = Color::rgb(0.80, 0.16, 0.16);
 /// A pick's haft.
 const HAFT: Color = Color::rgb(0.55, 0.44, 0.31);
-/// The same body, with everything warm taken out of it.
-const GONE_SHIRT: Color = Color::rgb(0.30, 0.36, 0.42);
-const GONE_SLEEVE: Color = Color::rgb(0.25, 0.30, 0.36);
-const GONE_SKIN: Color = Color::rgb(0.55, 0.53, 0.50);
-const GONE_HAIR: Color = Color::rgb(0.18, 0.17, 0.16);
+/// The grey a dead body is drained towards ([`ashen`]): a dead slate, a touch
+/// cold: darker than a machine's plating and with none of a coverall's colour.
+const ASH: Color = Color::rgb(0.36, 0.37, 0.37);
+/// The dark pool a dead body lies in.
+const POOL: Color = Color::rgba(0.34, 0.03, 0.04, 0.80);
+/// The stars circling the head of a body out cold, how many, and how fast
+/// they go round, in radians a second.
+const DAZE: Color = Color::rgb(1.0, 0.90, 0.45);
+const DAZE_STARS: usize = 3;
+const DAZE_TURN: f32 = 2.4;
+
+/// A colour on a dead body: most of the way to [`ASH`], a shade of its
+/// own brightness kept so the parts still read apart.
+fn ashen(c: Color) -> Color {
+    let luma = 0.30 * c.r + 0.59 * c.g + 0.11 * c.b;
+    let grey = Color::rgba(luma, luma, luma, c.a);
+    grey.mix(ASH, 0.6).alpha(c.a)
+}
+
+/// A colour on a body out cold: half the way to grey and dimmed a little,
+/// still the side's colours but plainly not a body on its feet.
+fn faded(c: Color) -> Color {
+    let luma = 0.30 * c.r + 0.59 * c.g + 0.11 * c.b;
+    let grey = Color::rgba(luma, luma, luma, c.a);
+    let c = c.mix(grey, 0.5);
+    Color::rgba(c.r * 0.8, c.g * 0.8, c.b * 0.8, c.a)
+}
 /// Shared with the trail and the order marker, so everything the player is
 /// steering reads as one colour.
 pub const ACCENT: Color = Color::rgb(0.50, 0.82, 0.66);
@@ -444,7 +456,7 @@ pub enum Yoke {
 
 /// How the hair is worn, seen from above. Every arm is a shape or two on
 /// the crown in [`Character::draw`] and its lying-down twin in
-/// `draw_flat`; the name of each is the app's (`names::HAIR_NAMES`,
+/// `draw_down`; the name of each is the app's (`names::HAIR_NAMES`,
 /// pinned to [`Hair::ALL`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -967,22 +979,11 @@ impl Character {
         PICK_RADIUS
     }
 
-    /// Whether a click at `p` lands on the figure. Standing, within
-    /// [`PICK_RADIUS`] of where it is; down, the figure is stretched along
-    /// its heading (`draw_flat`), so the test is the same radius about the
-    /// line from the boots to the head — a click on either end is a click
-    /// on the body, not on the deck under it.
+    /// Whether a click at `p` lands on the figure: within [`PICK_RADIUS`]
+    /// of where it is, standing or down — a body down is drawn slumped
+    /// where it stood (`draw_down`), not stretched out along the deck.
     pub fn picked_at(&self, p: Vec2) -> bool {
-        if !(self.dead || self.unconscious) {
-            return (self.pos - p).len() <= PICK_RADIUS;
-        }
-        let along = Vec2::from_angle(self.heading);
-        let (feet, head) = (
-            -24.0 * BODY_SCALE * FLAT_SCALE,
-            32.0 * BODY_SCALE * FLAT_SCALE,
-        );
-        let t = clamp((p - self.pos).dot(along), feet, head);
-        (self.pos + along * t - p).len() <= PICK_RADIUS
+        (self.pos - p).len() <= PICK_RADIUS
     }
 
     /// True once an ordered walk has finished, so a task can move on.
@@ -2179,128 +2180,129 @@ impl Character {
         }
     }
 
-    /// Face down where it dropped. Drawn cold and flat — no bob, no breath,
-    /// no glancing about — because every other state has one of those, and
-    /// the absence is what reads as dead.
+    /// Dead where it dropped: the standing figure slumped
+    /// ([`Character::draw_down`]), drained to ash — every colour on it
+    /// pulled most of the way to a pale grey ([`ashen`]) — over a dark
+    /// pool of its own blood, and still: no bob, no breath, no glance.
+    /// The grey and the pool are what read as dead from across a room;
+    /// every living body is in colour and none has a pool under it.
     fn draw_fallen(&self, list: &mut DrawList) {
-        self.draw_flat(
-            list,
-            self.body_scale(),
-            (GONE_SHIRT, GONE_SLEEVE, GONE_SKIN, GONE_HAIR),
+        let scale = self.body_scale();
+        list.soft_ellipse(
+            self.drawn_at() + vec2(-3.0, 2.0).rotate(self.heading) * scale,
+            vec2(58.0, 50.0) * scale,
+            self.heading,
+            POOL,
         );
+        self.draw_down(list, scale, ashen);
     }
 
-    /// Out cold: the same figure as a fallen one, in its own colours, a
-    /// tenth bigger ([`OUT_COLD_SCALE`]), and breathing — a slow swell of
+    /// Out cold: the same slumped figure, only half faded ([`faded`]) so
+    /// it is still plainly one of its side, breathing — a slow swell of
     /// the whole body, since from above a chest rising is the outline
-    /// growing. The size, the colour and the
-    /// breath are what say alive; the blotches say why it is down.
+    /// growing — and with stars circling its head, the one mark no other
+    /// state has. The fading, the breath and the stars say alive and
+    /// down; the blotches say why.
     fn draw_lying(&self, list: &mut DrawList) {
         let breath = 1.0 + 0.03 * (self.idle * TAU / BREATH_PERIOD).sin();
-        self.draw_flat(
-            list,
-            self.body_scale() * OUT_COLD_SCALE * breath,
-            (
-                self.outfit.dye(self.uniform.shirt(), self.uniform),
-                self.outfit.dye(self.uniform.sleeve(), self.uniform),
-                SKIN,
-                self.look.hair(),
-            ),
-        );
+        let head = self.draw_down(list, self.body_scale() * breath, faded);
+        let scale = self.body_scale();
+        for i in 0..DAZE_STARS {
+            let a = self.idle * DAZE_TURN + i as f32 * TAU / DAZE_STARS as f32;
+            let at = head + vec2(a.cos() * 17.0, a.sin() * 8.0 - 7.0) * scale;
+            let spin = a * 0.5;
+            for turn in [0.0, PI * 0.5] {
+                list.rect(at, vec2(11.0, 3.8) * scale, spin + turn, 1.9, OUTLINE);
+            }
+            for turn in [0.0, PI * 0.5] {
+                list.rect(at, vec2(9.5, 2.4) * scale, spin + turn, 1.2, DAZE);
+            }
+        }
     }
 
-    /// The figure stretched out on the deck, in the given shirt, sleeve,
-    /// skin and hair, with the blood on whichever parts bleed. Seen from
-    /// above a body lying down is long rather than round: the legs trail
-    /// out behind the hips to the boots, the torso is longer than it is
-    /// wide, one arm is flung out past the head and the other lies along
-    /// the side, and the head at the far end is turned onto its cheek.
-    /// The limbs are drawn **short**: from directly above, an arm and a
-    /// leg are mostly foreshortened away, and at full reach the sprawl
-    /// read as a figure seen standing rather than one lying on the deck.
-    /// Head forward, the way it was facing when it went down, so it reads
-    /// as having fallen where it stood. Drawn at [`FLAT_SCALE`] of the
-    /// standing figure: about a tile long, and it is the shape that says
-    /// "down" at a glance, not the size.
-    fn draw_flat(&self, list: &mut DrawList, scale: f32, colours: (Color, Color, Color, Color)) {
-        let (shirt, sleeve, skin, hair) = colours;
-        let scale = scale * FLAT_SCALE;
+    /// The standing figure gone slack — a body down where it went, drawn
+    /// at the standing size so it is plainly the same Bim: the boots
+    /// splayed, the arms fallen out wide of the shoulders, no gun, and the
+    /// head lolled forward onto one shoulder and turned on its cheek.
+    /// Every colour goes through `tone` and the class's kit is left off,
+    /// so a body down is told from a standing one by its colour as well
+    /// as its shape. Answers where the head is, in room units, for
+    /// whatever is drawn over it.
+    fn draw_down(&self, list: &mut DrawList, scale: f32, tone: fn(Color) -> Color) -> Vec2 {
+        let pos = self.drawn_at();
         list.soft_ellipse(
-            self.pos + vec2(3.0, 5.0) * FLAT_SCALE,
-            vec2(68.0, 36.0) * self.body_scale() * FLAT_SCALE,
+            pos + vec2(0.0, 4.5 * scale),
+            vec2(30.0, 38.0) * scale,
             self.heading,
             SHADOW,
         );
-        let mut b = list.brush(self.pos, self.heading, scale);
+        let mut b = list.brush(pos, self.heading, scale);
 
-        // Legs, under the torso: from the hips back to the boots, a little
-        // apart, each with a boot at its end and the guard over the shin.
+        // The boots, toes turned out: nobody is holding them straight.
         for side in [-1.0f32, 1.0] {
-            let splay = 0.09 * side;
-            b.ellipse(vec2(-17.0, 6.5 * side), vec2(26.0, 10.5), splay, OUTLINE);
-            b.ellipse(vec2(-17.0, 6.5 * side), vec2(24.0, 8.5), splay, shirt);
-            b.ellipse(vec2(-28.0, 8.0 * side), vec2(10.0, 8.5), splay, BOOT);
+            let at = vec2(-10.0, 9.0 * side);
+            let splay = 0.55 * side;
+            b.ellipse(at, vec2(13.5, 9.0), splay, tone(BOOT));
             if let Some(guard) = self.armour[2] {
-                b.ellipse(vec2(-23.0, 7.5 * side), vec2(12.0, 8.0), splay, GUARD);
-                b.rect(
-                    vec2(-20.0, 7.0 * side),
-                    vec2(2.5, 8.0),
-                    splay,
-                    0.0,
-                    GUARD_BAND,
-                );
+                b.ellipse(at, vec2(13.5, 9.0), splay, tone(GUARD));
                 if guard.broken {
-                    b.rect(vec2(-23.0, 7.5 * side), vec2(8.0, 1.2), 0.7, 0.0, CRACK);
+                    b.rect(at, vec2(10.0, 1.3), 0.7 + splay, 0.0, CRACK);
                 }
             }
-            // A wounded leg bleeds onto the thigh.
             if self.wounds[2] {
-                b.ellipse(vec2(-14.0, 6.5 * side), vec2(9.0, 6.5), splay, BLOOD);
+                b.ellipse(at - vec2(2.0, 0.0), vec2(8.0, 6.0), splay, BLOOD);
             }
         }
 
-        // The torso, shoulders forward, with the yoke across them.
-        b.ellipse(vec2(-1.0, 0.0), vec2(38.0, 27.0), 0.0, OUTLINE);
-        b.ellipse(vec2(-1.0, 0.0), vec2(34.0, 23.0), 0.0, shirt);
-        b.ellipse(vec2(11.0, 0.0), vec2(8.0, 20.0), 0.0, self.look.trim());
-        // The armour stays on a body that is down, the vest over the chest.
+        // The arms, fallen out past the shoulders — one further back than
+        // the other, a sprawl rather than a pose — under the torso's rim.
+        let sleeve = tone(self.outfit.dye(self.uniform.sleeve(), self.uniform));
+        for at in [vec2(-3.0, -19.0), vec2(-9.0, 18.0)] {
+            b.ellipse(at, vec2(SLEEVE_RIM, SLEEVE_RIM), 0.0, OUTLINE);
+            b.ellipse(at, vec2(SLEEVE_WIDE, SLEEVE_WIDE), 0.0, sleeve);
+        }
+
+        // The torso as it stands, with the yoke and the vest.
+        b.ellipse(Vec2::ZERO, vec2(25.0, 33.0), 0.0, OUTLINE);
+        b.ellipse(
+            Vec2::ZERO,
+            vec2(22.0, 30.0),
+            0.0,
+            tone(self.outfit.dye(self.uniform.shirt(), self.uniform)),
+        );
+        b.ellipse(
+            vec2(-6.5, 0.0),
+            vec2(7.0, 24.0),
+            0.0,
+            tone(self.look.trim()),
+        );
         if let Some(vest) = self.armour[1] {
-            b.ellipse(vec2(2.0, 0.0), vec2(24.0, 17.0), 0.0, KEVLAR);
+            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, tone(KEVLAR));
             if vest.broken {
-                b.rect(vec2(2.0, 0.0), vec2(20.0, 1.4), 0.5, 0.0, CRACK);
+                b.rect(vec2(3.0, 0.0), vec2(20.0, 1.4), 0.9, 0.0, CRACK);
             }
         }
         if self.wounds[1] {
-            b.ellipse(vec2(0.0, -1.0), vec2(11.0, 9.0), 0.3, BLOOD);
+            b.ellipse(vec2(1.0, 0.0), vec2(11.0, 9.0), 0.3, BLOOD);
         }
 
-        // The arms: the left thrown up beside the head, the right along
-        // the side with the hand by the hip — a sprawl, not a pose, and
-        // both short, since an arm on the deck is seen down its length.
-        let arm = |b: &mut Brush, from: Vec2, to: Vec2| {
-            let mid = (from + to) * 0.5;
-            let along = to - from;
-            let rot = along.y.atan2(along.x);
-            b.rect(mid, vec2(along.len(), 10.0), rot, 5.0, OUTLINE);
-            b.rect(mid, vec2(along.len(), 8.0), rot, 4.0, sleeve);
-            b.ellipse(to, vec2(11.0, 11.0), 0.0, OUTLINE);
-            b.ellipse(to, vec2(9.0, 9.0), 0.0, sleeve);
-        };
-        arm(&mut b, vec2(10.0, -11.0), vec2(23.0, -19.0));
-        arm(&mut b, vec2(8.0, 12.0), vec2(-5.0, 15.0));
-
-        // The head, out past the shoulders, turned onto its right cheek:
-        // the hair over the crown and the near side, the face showing to
-        // the right. Long hair fans out on the deck behind it.
-        let head = vec2(25.0, 1.0);
+        // The head, dropped forward onto the right shoulder and lying on
+        // its cheek: the hair over the crown, the face turned aside.
+        let head = vec2(6.0, 6.0);
+        let hair = tone(self.look.hair());
         draw_hair_lying(&mut b, self.look.hair, head, hair, true);
         b.ellipse(head, vec2(15.5, 15.5), 0.0, OUTLINE);
-        b.ellipse(head, vec2(13.0, 13.0), 0.0, skin);
+        b.ellipse(head, vec2(13.0, 13.0), 0.0, tone(SKIN));
         draw_hair_lying(&mut b, self.look.hair, head, hair, false);
-        b.ellipse(head + vec2(3.0, 5.5), vec2(4.0, 3.0), 1.2, NOSE);
+        b.ellipse(head + vec2(3.0, 5.5), vec2(4.0, 3.0), 1.2, tone(NOSE));
         if let Some(helm) = self.armour[0] {
-            b.ellipse(head + vec2(-1.5, -3.0), vec2(13.5, 11.5), 0.35, HELM_RIM);
-            b.ellipse(head + vec2(-1.5, -3.0), vec2(11.5, 9.5), 0.35, HELM);
+            b.ellipse(
+                head + vec2(-1.5, -3.0),
+                vec2(13.5, 11.5),
+                0.35,
+                tone(HELM_RIM),
+            );
+            b.ellipse(head + vec2(-1.5, -3.0), vec2(11.5, 9.5), 0.35, tone(HELM));
             if helm.broken {
                 b.rect(head + vec2(-1.5, -3.0), vec2(10.0, 1.2), 1.2, 0.0, CRACK);
             }
@@ -2308,13 +2310,13 @@ impl Character {
         if self.wounds[0] {
             b.ellipse(head + vec2(-1.0, -2.0), vec2(7.0, 6.0), 0.4, BLOOD);
         }
-        // The visor, in the suit: the helmet is a bigger circle than the
-        // head, lying where the head does.
         if self.uniform == Uniform::Suit {
             b.ellipse(head, vec2(18.0, 18.0), 0.0, OUTLINE);
             b.ellipse(head, vec2(16.5, 16.5), 0.0, VISOR.alpha(0.55));
         }
+        b.to_world(head)
     }
+
     /// Whatever is in the hands, placed in front of the body.
     fn draw_held(&self, list: &mut DrawList, pose: Pose) {
         let pos = self.drawn_at();
@@ -2859,7 +2861,7 @@ fn draw_hair_standing(b: &mut Brush, look: Look, at: impl Fn(Vec2) -> Vec2, turn
 /// The hair on a head lying on its cheek, `head` the head's centre in the
 /// body's frame: what a style spreads on the deck goes down before the
 /// head (`under`), what sits on it after. The lying head faces +x with
-/// its crown to the near (−y) side, the way `draw_flat` lays it.
+/// its crown to the near (−y) side, the way `draw_down` lays it.
 fn draw_hair_lying(b: &mut Brush, style: Hair, head: Vec2, hair: Color, under: bool) {
     let crown = |b: &mut Brush| b.ellipse(head + vec2(-1.0, -3.0), vec2(12.0, 10.0), 0.35, hair);
     match (style, under) {

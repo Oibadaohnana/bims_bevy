@@ -2,7 +2,7 @@
 // without a window. A bare room, two Bims in it, and whatever the first
 // argument asks for: "start" for a couple of seconds in, "down" for one of
 // them out cold with its gun dropped beside it, "dead" for one dead and one
-// out cold side by side — the two lying figures against each other.
+// out cold side by side — the two figures down against each other.
 
 include!("modules.rs");
 
@@ -23,7 +23,7 @@ fn main() {
         }
     }
     // Both figures down side by side: James dead and Kate out cold, for
-    // looking at the two lying figures against each other.
+    // looking at the two figures down against each other.
     let dead = want == "dead";
     if dead {
         game.set_autonomous(false);

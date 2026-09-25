@@ -1187,24 +1187,27 @@ prints the curves itself.
   the gun** (`drop_weapon`, below), and the frame stops there for that
   Bim until the blood comes back (`OUT_AT` is **half its
   blood** since feature 89, with `SLOWED_AT`'s half pace moved up to
-  three quarters so the band above it is still walked). Out cold
-  it is drawn by `draw_lying`: the fallen figure in the **live** colours,
-  **`OUT_COLD_SCALE` (a tenth) bigger** than the dead one beside it, with
-  a slow breath — size, colour and breath are the three things
-  that tell a body out cold from a body gone, since the shape is the one
-  figure. The fallen figure (`draw_flat`, shared
-  with the dead one's `draw_fallen`) is a body **stretched out along its
-  heading**, head forward: legs and boots trailing behind the hips, one
-  arm up beside the head, the other along the side, the head turned
-  onto its cheek — drawn at `FLAT_SCALE` (half) of the standing
-  figure since the user asked, about a tile long and inside two
-  whichever way it lies; it is the shape that says "down" at a
-  glance. The **limbs are short** — arms and legs drawn in towards the
-  body — because seen from directly above an arm or a leg on the deck is
-  foreshortened away, and at full reach the sprawl read as a figure
-  standing up. A click on a body down is tested against that line
-  (`Character::picked_at`), boots to head at the same scale, not the
-  standing circle. `scratchpad/layout.rs dead` puts both
+  three quarters so the band above it is still walked). **A body down
+  does not lie down** (September 2026, the user's word: "they don't have to
+  lie down … just very distinguishable from alive and walking bims").
+  Both states are `draw_down`: the **standing figure at the standing
+  size, gone slack** — boots splayed, the arms fallen out wide of the
+  shoulders, no gun, the head lolled onto one shoulder and turned on its
+  cheek (`draw_hair_lying`), the class's kit left off — and every colour
+  on it put through a tone. **Dead** (`draw_fallen`) is `ashen`: every
+  colour most of the way to `ASH`, a dark slate grey — darker than a
+  machine's pale plating, so a corpse is never read as a Husk — over a
+  dark `POOL` of blood, and still. **Out cold** (`draw_lying`) is
+  `faded`: half the way to grey and dimmed, so it is still plainly its
+  side's, with a slow breath and `DAZE_STARS` (three) yellow stars
+  circling the head (`DAZE_TURN`) — the one mark no other state has.
+  Colour, the pool and the stars are what tell the three apart from
+  across a room; they were a half-size sprawl lying along the heading
+  (`draw_flat`, `FLAT_SCALE`) until then, which at a fight's zoom read
+  as one more small standing Bim. The first cut drew the dead as the
+  standing figure in cold greys too, which the user remembered as the
+  one that worked. A click on a body down is the standing circle again
+  (`Character::picked_at`). `scratchpad/layout.rs dead` puts both
   figures side by side. `Bim::tick_drips` drips **blood on the
   deck** every `DRIP_EVERY / wounds` seconds while it bleeds and lives,
   scattered `DRIP_SCATTER` (±10) off the body by two rolls off the room's
@@ -1615,7 +1618,7 @@ room only ever holds instances — on a body, or in its pack.
   helm is a steel-blue cap over the hair, kevlar a dark plate set
   forward over the torso with the yoke still showing behind it, leg
   guards the boots darker with a band across the shin; a broken piece
-  has a light diagonal stroke (`CRACK`) across it. The lying figure
+  has a light diagonal stroke (`CRACK`) across it. A body down
   wears the same. The field on `Character` is `armour`, not `worn` —
   `worn` was already the coverall a suit goes back over — and the app's
   icons (`crates/app/src/icons.rs`) use the same three colours, so the
@@ -2647,7 +2650,7 @@ draw in `Bim::new` would move every roll after it on the room's stream
 - **The hair is two functions**, `draw_hair_standing` (the head's own
   frame, face to +x, what a style adds drawn before the crown so the
   crown lies on top and the nose after so a puff still leaves the face)
-  and `draw_hair_lying` (the head on its cheek in `draw_flat`, called
+  and `draw_hair_lying` (the head on its cheek in `draw_down`, called
   twice: `under` for what spreads on the deck before the head, then
   what sits on it). A new style is an arm in each, a name in the app's
   `HAIR_NAMES` (pinned to `Hair::ALL` by `names.rs`'s test) and an

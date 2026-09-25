@@ -117,7 +117,7 @@ returns, and a check that hangs is a check nobody runs. It should fail.
 takes an argument for which moment to catch: `start` for a couple of
 seconds into a bare room with its two Bims, `down` for one of them out cold
 with its gun dropped beside it, `dead` for one dead and one out cold side by
-side — the two lying figures against each other. `rsvg-convert` turns it
+side — the two figures down against each other. `rsvg-convert` turns it
 into a PNG. A bare room has no fixtures, so the furniture is no longer
 looked at this way: the fixtures' pictures are the ship's, seen on the deck
 and in the yard by running the app — `BIMS_SMOKE_FRAMES=200
