@@ -155,7 +155,14 @@ impl Station {
     /// Build the station the blueprint describes, standing at `at`, on the
     /// plan its seed rolls.
     pub fn build(blueprint: &StationBlueprint, at: DVec2) -> Station {
-        Station::build_as(blueprint, at, Plan::rolled(blueprint.map_seed))
+        // The Machine Heart's fortress is a fortress whatever its seed says
+        // (feature 108).
+        let plan = if crate::heart::is_heart(blueprint.id) {
+            Plan::Fortress
+        } else {
+            Plan::rolled(blueprint.map_seed)
+        };
+        Station::build_as(blueprint, at, plan)
     }
 
     /// Build the station the blueprint describes, standing at `at`, on
@@ -362,6 +369,13 @@ pub enum Plan {
     /// ([`Station::population`]), and [`Plan::residents`] answers the most
     /// a town holds, since only `layout` and the tests ask it.
     Surface,
+    /// The **Machine Heart's fortress** (feature 108, `crate::heart`): the
+    /// hub again, laid out [`data::ARENA_SIDE`] tiles across like the
+    /// arena — the core and its fabricators in the hub, a conduit in a
+    /// room of its own down each arm, an airlock at the end of every arm
+    /// for the waves to come in by. Never rolled: the one station a
+    /// galaxy has on it is the machines' own, and nobody lives there.
+    Fortress,
 }
 
 /// The salt the plan is rolled with: a stream of its own off the seed, so
@@ -404,6 +418,7 @@ impl Plan {
             Plan::Ring => 48 + grown,
             Plan::Comb => 52 + grown,
             Plan::Surface => data::SURFACE_SIDE,
+            Plan::Fortress => data::ARENA_SIDE,
         }
     }
 
@@ -423,6 +438,7 @@ impl Plan {
             Plan::Ring => 6,
             Plan::Comb => 5,
             Plan::Surface => return data::SURFACE_POPULATION.1,
+            Plan::Fortress => return 0,
         };
         residents_of(kind).min(of_plan)
     }
@@ -433,7 +449,7 @@ impl Plan {
     /// tiles is a wall.
     pub fn corridor(self) -> u32 {
         match self {
-            Plan::Hub => 5,
+            Plan::Hub | Plan::Fortress => 5,
             Plan::Pod | Plan::Cross | Plan::Ring | Plan::Comb => 2,
             Plan::Spine => 3,
             // Open ground: the whole of it is corridor.
@@ -787,6 +803,50 @@ fn hub(side: u32, bunk_columns: u32) -> Floor {
         wild: None,
         clear: Vec::new(),
     }
+}
+
+/// The Machine Heart's fortress (feature 108): the hub, less the big plant
+/// in its middle — which is opaque, and where the core stands. Its tile is
+/// put on a partition, where the comforts' rule leaves a comfort whose
+/// tile is taken out.
+fn fortress(side: u32) -> Floor {
+    let mut floor = hub(side, 1);
+    if let Some(&wall) = floor.walls.first() {
+        floor.hall = wall;
+    }
+    // And two standing lights inside the hub, on the diagonal the
+    // fabricators are not on: the hub's own lamps hang in its corners, a
+    // little over seven tiles from its middle, and the middle tile — where
+    // the plant stood on a hub, and the core stands here — is out of reach
+    // of all four. A core in the dark is a core nobody can see to shoot.
+    let mid = side / 2;
+    floor.standing_lights = vec![(mid + 2, mid - 2), (mid - 2, mid + 2)];
+    floor
+}
+
+/// The Machine Heart's fortress's blocks (feature 108), in hull tiles as
+/// `(x0, y0, x1, y1)` with their walls on: the hub, where the core and its
+/// fabricators stand, and the places a conduit is put in the order they
+/// are filled — the four outer rooms first, one in each corner of the
+/// plan, then the three lobbies the waves come in by, then the four inner
+/// rooms. Read off the hub's own floor ([`Plan::Fortress`] is the hub), so
+/// a room moved there moves here with it.
+pub fn fortress_rooms(side: u32) -> ((u32, u32, u32, u32), Vec<(u32, u32, u32, u32)>) {
+    let floor = fortress(side);
+    let edges = |b: Block| (b.x0, b.y0, b.x1, b.y1);
+    // The hull is the hub, the four lobbies (the port's first), the four
+    // arms and the rooms, in that order.
+    let lobby = |i: usize| floor.hull.get(i).copied().map(edges);
+    let mut rooms = vec![edges(floor.quarters)];
+    rooms.extend(floor.lab.map(edges));
+    rooms.extend(floor.stores.get(1).copied().map(edges));
+    rooms.push(edges(floor.research));
+    rooms.extend([lobby(2), lobby(3), lobby(4)].into_iter().flatten());
+    rooms.push(edges(floor.mess));
+    rooms.push(edges(floor.heads));
+    rooms.extend(floor.rec.map(edges));
+    rooms.extend(floor.stores.first().copied().map(edges));
+    (edges(floor.hull[0]), rooms)
 }
 
 /// The pod: a bar twenty tall across the width of the build area, the
@@ -1385,6 +1445,7 @@ pub(crate) fn build_placer(
 ) -> Placer {
     let floor = match plan {
         Plan::Hub => hub(side, bunk_columns),
+        Plan::Fortress => fortress(side),
         Plan::Pod => pod(side),
         Plan::Cross => cross(side),
         Plan::Spine => spine(side),

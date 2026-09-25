@@ -29,6 +29,11 @@ use crate::sight::{Fog, Sight, Stance};
 use crate::task::{self, Kind, Saved, Task};
 use crate::work::{self, Job, Priorities};
 
+/// The Machine Heart's machines in the room (feature 108): the core's
+/// beams, and nothing for a conduit or a fabricator to do.
+#[path = "heart.rs"]
+mod heart;
+
 const TRAIL: Color = ACCENT;
 
 /// A box of dressings as a pack item (feature 87): what a Bim binds a
@@ -2208,6 +2213,13 @@ impl Game {
                 self.tick_guardian(i, dt, war, &stats);
                 continue;
             }
+            // The Machine Heart's machines stand where they were built
+            // (feature 108): a conduit and a fabricator do nothing at all,
+            // and the core sweeps its beams from where it stands.
+            if self.droids[i].kind.is_structure() {
+                self.tick_structure(i, dt, war);
+                continue;
+            }
             if !war {
                 // Nothing to fight: it stands where it was posted.
                 self.droids[i].trigger.hold();
@@ -2499,7 +2511,6 @@ impl Game {
     /// the one beam. `at` and `mark` are what the wind-up was fixed on;
     /// the beam is the arc, whoever stands in it.
     fn let_the_beam_go(&mut self, i: usize, aim: Vec2, at: Vec2, mark: usize) {
-        use crate::combat::{SWEEP_HALF_COS, SWEEP_HALF_SIN};
         use crate::droid::Beam;
         let _ = (at, mark);
         let d = &mut self.droids[i];
@@ -2509,28 +2520,57 @@ impl Game {
         let stats = d.stats();
         let weapon = d.weapon;
         let from = d.muzzle();
-        let reach = stats.reach();
-        let start = from + aim.rotate_by(SWEEP_HALF_COS, -side * SWEEP_HALF_SIN) * reach;
-        let end = from + aim.rotate_by(SWEEP_HALF_COS, side * SWEEP_HALF_SIN) * reach;
         d.beam = Beam::Sweep {
             left: crate::balance::SWEEPER_SWEEP,
             aim,
             side,
         };
+        self.lay_beam(from, aim, side, weapon, stats.reach(), stats.damage, 1.0);
+    }
+
+    /// A Sweeper's beam out of `from` along `aim`, swept from `side` of it
+    /// round to the other, `reach` long, `damage` to each body it crosses
+    /// and `pace` times a Guardian's speed: recorded as a `Shot` for the
+    /// world to lay in the crew's room, and laid here as well when the
+    /// machines' list has bodies of this room's own on it. A Guardian's
+    /// (feature 100) and a Machine Heart core's (feature 108).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn lay_beam(
+        &mut self,
+        from: Vec2,
+        aim: Vec2,
+        side: f32,
+        weapon: Weapon,
+        reach: f32,
+        damage: f32,
+        pace: f32,
+    ) {
+        use crate::combat::{SWEEP_HALF_COS, SWEEP_HALF_SIN};
+        let start = from + aim.rotate_by(SWEEP_HALF_COS, -side * SWEEP_HALF_SIN) * reach;
+        let end = from + aim.rotate_by(SWEEP_HALF_COS, side * SWEEP_HALF_SIN) * reach;
         self.combat
-            .shoot_sweep(from, start, end, weapon, stats.damage);
+            .shoot_sweep(from, start, end, weapon, damage, pace);
         if self.combat.machine_cross() < self.combat.machine_targets().len() {
             self.combat
-                .sweep(from, start, end, weapon, stats.damage, false);
+                .sweep(from, start, end, weapon, damage, false, pace);
         }
     }
 
     /// A Guardian's Sweeper recorded in the other room, laid in this one
     /// by the world (feature 100): the beam from `from`, turning from the
     /// aim at `start` round to the aim at `end`, over this room's own
-    /// bodies — see `Combat::sweep`.
-    pub fn enemy_sweep(&mut self, from: Vec2, start: Vec2, end: Vec2, weapon: Weapon, damage: f32) {
-        self.combat.sweep(from, start, end, weapon, damage, true);
+    /// bodies, `pace` times a Guardian's speed — see `Combat::sweep`.
+    pub fn enemy_sweep(
+        &mut self,
+        from: Vec2,
+        start: Vec2,
+        end: Vec2,
+        weapon: Weapon,
+        damage: f32,
+        pace: f32,
+    ) {
+        self.combat
+            .sweep(from, start, end, weapon, damage, true, pace);
     }
 
     /// The Guardians' beams being swept in this room (feature 100).
@@ -5768,7 +5808,9 @@ impl Game {
         for mut droid in droids {
             droid.pos = droid.pos + shift;
             let nav = self.maps.deck();
-            if !nav.is_free(droid.pos) {
+            // The Machine Heart's are built where they stand (feature 108),
+            // on free deck that `world::heart::places` picked: never moved.
+            if !droid.kind.is_structure() && !nav.is_free(droid.pos) {
                 droid.pos = nav.nearest_free(droid.pos);
             }
             droid.halt();

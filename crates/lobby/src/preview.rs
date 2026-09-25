@@ -247,6 +247,11 @@ pub struct Marks<'a> {
     /// drawn in the enemy's red and barred across its middle, so a route
     /// that cannot be flown says where it stops.
     pub jammed: &'a [bool],
+    /// Where the machines began and their Machine Heart stands (feature
+    /// 108): a diamond round the star in the enemy's red, over its cross,
+    /// once the crew have seen the origin's system or one next to it
+    /// (`World::origin_seen`). `None` until then, and in the lobby.
+    pub heart: Option<u32>,
     pub pings: &'a [Ping],
 }
 
@@ -482,6 +487,33 @@ pub fn paint(
         let arm = 5.5;
         list.line(x - arm, y - arm, x + arm, y + arm, 1.6, INFESTED);
         list.line(x - arm, y + arm, x + arm, y - arm, 1.6, INFESTED);
+    }
+
+    // And the Machine Heart, once it has been seen: a diamond round the
+    // origin, a second inside it, and a dot at its middle — a shape of its
+    // own, as the cross is.
+    if let Some(star) = marks.heart.and_then(|id| stars.get(id as usize)) {
+        let (x, y) = preview.to_screen(star.position.x, star.position.y);
+        if preview.on_canvas(x, y, 16.0) {
+            for r in [14.0f32, 9.5] {
+                let corners = [(x, y - r), (x + r, y), (x, y + r), (x - r, y)];
+                for i in 0..4 {
+                    let (a, b) = (corners[i], corners[(i + 1) % 4]);
+                    list.line(a.0, a.1, b.0, b.1, 1.8, INFESTED);
+                }
+            }
+            list.push(
+                crate::draw::KIND_ELLIPSE,
+                x,
+                y,
+                5.0,
+                5.0,
+                0.0,
+                0.0,
+                0.0,
+                INFESTED,
+            );
+        }
     }
 
     if let Some(id) = marks.hovered.and_then(|id| stars.get(id as usize)) {

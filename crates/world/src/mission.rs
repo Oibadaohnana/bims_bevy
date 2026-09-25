@@ -80,6 +80,14 @@ impl World {
                 station: jammer::jammer_id(star),
             });
         }
+        // The Machine Heart's fortress at the origin (feature 108), past
+        // every other station of it as its id is.
+        if star == self.droid_origin {
+            sites.push(Site {
+                star,
+                station: heart::heart_id(star),
+            });
+        }
         sites.extend(
             Surface::all_of(&system, self.galaxy_seed)
                 .iter()
@@ -141,6 +149,9 @@ impl World {
         }
         if jammer::is_derived(station) && system.station(station).is_none() {
             return Some(jammer::blueprint(system, self.galaxy_seed, system.star_id).position);
+        }
+        if heart::is_heart(station) && system.station(station).is_none() {
+            return Some(heart::blueprint(system, self.galaxy_seed, system.star_id).position);
         }
         system.absolute_position(Node::Station(station))
     }
@@ -260,7 +271,7 @@ impl World {
             .stations
             .iter()
             .map(|s| s.id)
-            .filter(|&id| !jammer::is_derived(id))
+            .filter(|&id| !jammer::is_derived(id) && !heart::is_heart(id))
             .min();
         let jammer = infested
             && surface::surface_body(site.station).is_none()
@@ -313,6 +324,8 @@ impl World {
             jammer,
             threatened,
             cleared,
+            // The Machine Heart's strength on arrival (feature 108).
+            heart: self.heart_preview(site.station, self.clock_minutes + minutes as f64),
         })
     }
 
@@ -716,7 +729,9 @@ impl World {
     /// as [`WorldEvent::CrewLost`] and kept. Bots and hired hands do not
     /// keep a run going: a crew is its players.
     pub(super) fn check_run_lost(&mut self, events: &mut Vec<WorldEvent>) {
-        if self.lost {
+        // A run won stays won (feature 108): the crew dying after the
+        // core is down loses nothing.
+        if self.lost || self.run.won {
             return;
         }
         let players = self.players().min(self.aboard.crew_count()) as usize;

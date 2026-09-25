@@ -122,6 +122,11 @@ impl WorldMap {
 /// A site's name: a station's own, a settlement by its planet, and the
 /// machines' relay where they built one.
 pub fn site_name(world: &World, galaxy: &Galaxy, site: Site) -> String {
+    // The Machine Heart's fortress (feature 108) is called what it is,
+    // whatever name its seed rolled.
+    if world::heart::is_heart(site.station) {
+        return HEART_NAME.to_string();
+    }
     let generated;
     let system: &StarSystem = if site.star == world.star_id {
         &world.system
@@ -166,6 +171,9 @@ fn tags(quote: &TravelQuote) -> String {
     }
     if quote.cleared {
         words.push(ARRIVE_CLEARED.into());
+    }
+    if quote.heart.is_some() {
+        words.push(ARRIVE_HEART.into());
     }
     words.join(" · ")
 }
@@ -445,6 +453,25 @@ fn destination_card(
         )
         .wrap(),
     );
+    // The Machine Heart's strength on arrival (feature 108): the numbers
+    // the fight will be built with, so waiting is seen to cost.
+    if let Some(heart) = quote.heart {
+        ui.label(
+            egui::RichText::new(HEART_ON_ARRIVAL)
+                .strong()
+                .color(theme::BAD),
+        );
+        egui::Grid::new("map-heart")
+            .num_columns(2)
+            .spacing([12.0, 2.0])
+            .show(ui, |ui| {
+                for (label, value) in heart_preview_rows(&heart) {
+                    ui.label(egui::RichText::new(label).color(theme::MUTED));
+                    ui.label(value);
+                    ui.end_row();
+                }
+            });
+    }
     ui.add_space(4.0);
     match world.run.proposal.as_ref().filter(|p| p.site == site) {
         Some(proposal) => {

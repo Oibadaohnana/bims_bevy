@@ -65,6 +65,7 @@ use crate::droid::{self as droidplan, Infestation};
 use crate::event::{Refusal, WorldEvent};
 use crate::frame::{self, Frame};
 use crate::grid::{Grid, Kept, Wanted};
+use crate::heart;
 use crate::jammer;
 use crate::medic::Medic;
 use crate::memory::{self, Grave, Losses, SystemMemory};
@@ -86,6 +87,12 @@ mod mission;
 // choosing, the caches and the win. A child for the same reason.
 #[path = "relics.rs"]
 mod relics;
+
+// The Machine Heart's half of the world (feature 108): the fortress, its
+// fight, the win and the map's preview. A child for the same reason.
+#[path = "fortress.rs"]
+mod fortress;
+pub use fortress::{HeartStatus, RunSummary};
 
 /// What a player can ask the world to do.
 ///
@@ -1534,6 +1541,11 @@ impl World {
         self.settle_medics(&mut events);
         self.settle_tanks(&mut events);
         self.melee_locks(&mut events);
+        //    And the Machine Heart (feature 108): its phase read off the room,
+        //    what its fabricators build, and the core down being the run
+        //    won — before the loss, so a core that falls the step the last
+        //    player does is a win.
+        self.heart_step(&mut events);
         //    And the run over with nobody standing.
         self.check_lost(&mut events);
         //    And what the fight did to the armour: the pieces in packs and
@@ -2877,6 +2889,7 @@ impl World {
                         on_deck(end),
                         shot.weapon,
                         shot.damage,
+                        shot.pace,
                     );
                     continue;
                 }
@@ -2986,6 +2999,11 @@ impl World {
         // A machine's last hit by a player's Bim with a relic that
         // reads kills (feature 106): *Salvage Beacon*'s share on the
         // bounty, *Kill Relay*'s seconds off the cooldowns.
+        // Every machine destroyed, for the run's summary (feature 108).
+        self.run.machines_destroyed = self
+            .run
+            .machines_destroyed
+            .saturating_add(machine_kills.len() as u32);
         let machine_bounty = self.machine_kills(&machine_kills, events);
         self.earn_bounty(machine_bounty, events);
     }
@@ -6733,7 +6751,7 @@ impl World {
         self.stations
             .iter()
             .map(|s| s.id)
-            .filter(|&id| !jammer::is_derived(id))
+            .filter(|&id| !jammer::is_derived(id) && !heart::is_heart(id))
             .min()
             .or_else(|| Some(jammer::jammer_id(self.star_id)))
     }
@@ -6797,6 +6815,19 @@ impl World {
     /// is not a secret: a jammer the crew cannot find is a system they
     /// cannot leave.
     pub fn settle_jammer(&mut self) {
+        // The Machine Heart's fortress (feature 108) is taken out first and
+        // laid again last: it is never the jammer, it is not a station of
+        // the system's own for the rule below, and a derived jammer is
+        // rolled off the system without it.
+        self.system.stations.retain(|s| !heart::is_heart(s.id));
+        self.stations.retain(|s| !heart::is_heart(s.id));
+        self.settle_derived_jammer();
+        self.settle_heart();
+    }
+
+    /// [`World::settle_jammer`]'s own half: the derived jammer, the
+    /// fortress out of the system while it is decided.
+    fn settle_derived_jammer(&mut self) {
         let derived = jammer::jammer_id(self.star_id);
         let wanted =
             self.infested(self.star_id) && !self.stations.iter().any(|s| !jammer::is_derived(s.id));
@@ -6834,6 +6865,15 @@ impl World {
     /// carries. `BIMS_DROID_TIER` overrides it in the probes, which is the
     /// only thing that does.
     pub fn droid_tier(&self) -> Tier {
+        // The Machine Heart's fortress is tier three whatever else is said
+        // (feature 108): the fight the run is won by is the hardest there is.
+        if self
+            .residents
+            .as_ref()
+            .is_some_and(|r| heart::is_heart(r.station))
+        {
+            return Tier::Three;
+        }
         if let Some(tier) = self.droid_tier {
             return tier;
         }
@@ -6899,6 +6939,13 @@ impl World {
     /// the bots, the worth or the levels (feature 105). Asked as each wave
     /// appears, never stored.
     pub fn droid_wave_size(&self) -> u32 {
+        self.wave_size_at(self.hours_gone())
+    }
+
+    /// [`World::droid_wave_size`] with the world clock at `hours` gone:
+    /// what a wave would be on arrival, for the map's preview of the
+    /// Machine Heart (feature 108) as well as for the wave appearing now.
+    pub fn wave_size_at(&self, hours: u32) -> u32 {
         // The probes' dial says the size outright, since raising the cap
         // A wave forced to its machines is as many as it names.
         if let Some(kinds) = &self.droid_kinds_forced {
@@ -6909,7 +6956,7 @@ impl World {
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        droidplan::wave_size(self.players(), droidplan::time_steps(self.hours_gone()))
+        droidplan::wave_size(self.players(), droidplan::time_steps(hours))
             .min(self.droid_wave_max)
             .max(1)
     }
@@ -6937,6 +6984,11 @@ impl World {
     /// How many waves a held station has all told, worked out now. Only
     /// ever asked once a station, at the crew's first dock.
     pub fn droid_wave_count(&self) -> u32 {
+        self.wave_count_at(self.hours_gone())
+    }
+
+    /// [`World::droid_wave_count`] with the world clock at `hours` gone.
+    pub fn wave_count_at(&self, hours: u32) -> u32 {
         // The probes' dial says it outright, the way `droid_wave_size`
         // takes its own: the `droids` commands are looked at for what a
         // wave *after* the first does, and the formula's two at day
@@ -6944,7 +6996,7 @@ impl World {
         if let Some(forced) = self.droid_waves_forced {
             return forced.max(1);
         }
-        droidplan::wave_count(droidplan::time_steps(self.hours_gone()))
+        droidplan::wave_count(droidplan::time_steps(hours))
     }
 
     /// The probes' dial: a held station has this many waves all told,
@@ -7022,7 +7074,7 @@ impl World {
             };
             return Some((dvec2(x, y), dvec2(0.0, -fy), true));
         }
-        let port = droidplan::arrival_airlock(design)?;
+        let port = droidplan::arrival_airlock_at(design, station, wave)?;
         let (fx, fy) = port.face();
         Some((
             dvec2(fx, fy),
@@ -7109,8 +7161,13 @@ impl World {
             return 0;
         };
         let room = &residents.aboard.room;
+        // The Machine Heart's own are not a wave (feature 108): a conduit
+        // standing must not hold the next wave off for ever.
         (0..room.droid_count() as usize)
-            .filter(|&i| room.droid(i).is_some_and(|d| !d.destroyed))
+            .filter(|&i| {
+                room.droid(i)
+                    .is_some_and(|d| !d.destroyed && !d.kind.is_structure())
+            })
             .count() as u32
     }
 
@@ -7190,7 +7247,8 @@ impl World {
             let (spot, face) = droidplan::gate_spot(station.design.build_area, wave);
             (spot, bims::math::vec2(face.0 as f32, face.1 as f32).angle())
         } else {
-            let Some(port) = droidplan::arrival_airlock(&station.design) else {
+            let Some(port) = droidplan::arrival_airlock_at(&station.design, station.id, wave)
+            else {
                 return Vec::new();
             };
             let spot = droidplan::inside_of(&port, data::ASHORE_TILES);
@@ -7258,11 +7316,14 @@ impl World {
             return;
         };
         let n = self.droid_wave_size();
-        let droids = if wave == 1 {
+        // The Machine Heart's own go on the deck first (feature 108), so
+        // they keep the front of the list through every wave after.
+        let mut droids = self.heart_machines_to_lay(&station);
+        droids.extend(if wave == 1 {
             self.first_wave(&station, n, wave)
         } else {
             self.arriving_wave(&station, n, wave)
-        };
+        });
         if let Some(residents) = &mut self.residents {
             residents
                 .aboard
@@ -7294,6 +7355,9 @@ impl World {
             if let Some(it) = self.infestation_mut(id) {
                 it.settle(waves);
             }
+            // And, at the Machine Heart's fortress, its own fight
+            // settled beside the waves (feature 108).
+            self.settle_heart_fight(id);
             self.settle_droids();
         }
         let standing = self.droids_standing();
@@ -7321,16 +7385,21 @@ impl World {
                     }
                     Some(_) => {}
                 }
-            } else if !it.cleared {
+            } else if !it.cleared && it.heart.is_none() {
+                // The Machine Heart's fortress is cleared by its core and
+                // nothing else (feature 108, `World::heart_step`): the
+                // last wave spent there leaves the core to be fought.
                 it.cleared = true;
                 cleared = true;
             }
         }
         if arrive {
             // The room's old wrecks go with the wave that made them:
-            // a fresh wave is a fresh deck.
+            // a fresh wave is a fresh deck — all but the Machine Heart's
+            // own, which stay where they stand, shot down or not, at the
+            // front of the list (feature 108).
             if let Some(residents) = &mut self.residents {
-                residents.aboard.room.clear_droids();
+                let kept = residents.aboard.room.clear_wave_droids();
                 // And so does what was remembered about them. The five
                 // lists are one entry a **body**, and `visit` only ever
                 // *grows* them — a wave landing makes the room bigger.
@@ -7338,7 +7407,7 @@ impl World {
                 // every machine of the next wave was born already
                 // flagged down: no `DroidDown` said for it when it was
                 // destroyed, and no experience paid for it either.
-                let bims = residents.aboard.room.crew_count() as usize;
+                let bims = residents.aboard.room.crew_count() as usize + kept;
                 residents.down.truncate(bims);
                 residents.xp_down.truncate(bims);
                 residents.xp_dead.truncate(bims);

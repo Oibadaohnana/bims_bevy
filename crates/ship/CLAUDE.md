@@ -1095,3 +1095,18 @@ Both numbers were taken off `needs-sim-final` before anything was
 deleted. About two minutes: `cargo test -p ship --lib tests_survivors`.
 If one moves, a run plays or draws differently — find why and put it
 back.
+
+## The `heart` command (feature 108)
+
+`Session::heart(seed, reinforce, waves, phase, ..)` is `nix run .#heart`:
+`Session::combat`'s ship and sixteen crew, everybody's kit at tier three
+(`World::outfit_for_probe`), `waves` only when `BIMS_DROID_WAVES` says
+(the fortress's count is otherwise the game's own), and
+`World::heart_dock_for_probe` — the machines' origin put at the crew's own
+star, the fortress laid there, every station of the system held, and the
+ship docked at the fortress again the way the arena probe docks. A
+`phase` of exposed or overload wants the Heart on the deck, so the world is
+stepped until `heart_status` answers and `set_heart_phase_for_probe` is
+asked; the restart's *Beginning* is taken after that, so *Start again*
+opens in the same phase. **`SAVE_VERSION` 38** (the history is in
+`save.rs`).

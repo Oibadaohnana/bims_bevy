@@ -4532,3 +4532,91 @@ minute. It is in `world_checksum` through `droid_tier()` as before.
 
 `tests_relic.rs` is the feature's tests; `relic::tests` the rules'
 own; `tests::a_workbench_upgrade_wants_no_research` the bench's.
+
+## The Machine Heart (feature 108)
+
+The end boss, and the one way to win a run. `crate::heart` is the types
+and the rules; `fortress.rs` (a child of `world`, like `mission.rs` and
+`relics.rs`) is where they meet the world's fields.
+
+- **The fortress is a derived station at the origin**: `heart::blueprint`
+  rolls it off the origin star's own stream (the jammer's `Purpose`, a
+  branch of its own, so nothing about the jammer moved), its id
+  `heart::heart_id(star)` = `HEART_BASE | star` (`0x2000_0000`, clear of
+  the generator's, `JAMMER_BASE` and `SURFACE_BASE`), its point a
+  `jump::clear_point` past every ring a derived jammer is rolled on and
+  worked out off the system **without** any derived station in it — so the
+  map's quote from next door and the station laid in the system agree.
+  `World::settle_heart` strips and lays it; `settle_jammer` takes the
+  fortress out first, settles the derived jammer (the fortress is not a
+  station of the system's own for that rule, and never the jammer —
+  `jammer_station` and the quote's "lowest orbital" skip it), then calls
+  it. Never saved: what is saved is its `Infestation`.
+- **Its layout is `Plan::Fortress`** (`station::fortress`): the hub
+  floor at `data::ARENA_SIDE`, the big plant's tile put on a partition so
+  the comforts' rule leaves it out (the plant is opaque, and the core
+  stands in the middle), and two **standing lights** inside the hub on the
+  diagonal the fabricators are not on — the hub's own four lamps hang in
+  its corners a little over seven tiles from its middle, and the middle
+  tile is out of reach of all four (on a hub the plant stands there, so
+  nobody had noticed). `station::fortress_rooms` hands `heart::places` the
+  hub and the conduits' rooms in the order they are filled: the four outer
+  rooms (one a corner), the three lobbies the waves come in by, the four
+  inner rooms. `Station::build` builds a heart id as a fortress whatever
+  the seed rolls.
+- **Always tier three**: `World::droid_tier` answers `Three` at a fortress
+  before the probes' dial.
+- **The fight is on the `Infestation`**: `Infestation::heart:
+  Option<HeartFight>` (phase, how many conduits and how much core health it
+  was built with, whether it is laid, the next build and how many were
+  built), set beside the waves' count at the first dock
+  (`settle_heart_fight`, off `World::players`), hashed by `eat_heart` only
+  where it is `Some`. The machines are laid by `settle_droids` ahead of the
+  wave (`heart_machines_to_lay`), so they keep the front of the droid list;
+  a wave arriving clears the rest (`Game::clear_wave_droids`) and cuts the
+  residents' per-body lists back to the Bims **and** the Heart's machines.
+  `droids_standing` never counts them, so a conduit standing never holds a
+  wave off, and a fortress is cleared by its core alone (`droid_waves`
+  leaves `cleared` to `heart_step`).
+- **`World::heart_step`**, after the rooms step and before the loss is
+  checked: the last conduit down is `HeartExposed` and the first build
+  due an interval on; under `HEART_OVERLOAD_FRACTION` of its health
+  `HeartOverload`, the next build on the faster clock; builds at every
+  fabricator still standing on their interval (`fabricate`: a Trooper, a
+  Husk, a Trooper, a Warden and round, by the count built, out of the bay
+  it faces with, the wave aboard); the core at nothing `HeartDestroyed`,
+  `DroidStationCleared`, the station cleared and **`run_won`**. Then
+  `tell_the_heart` puts the phase on the core's and the fabricators'
+  `HeartState` for the room's next step. `check_run_lost` does nothing once
+  the run is won.
+- **Waves come in by every airlock but the crew's in turn**
+  (`droid::arrival_airlock_at`), and the lander is drawn at the one they
+  used.
+- **Leaving** puts it back through the mission's `SiteSnapshot`, which
+  photographs the `Infestation` before the first dock settles anything.
+- **The map**: a heart site is listed at the origin (`sites_in`), placed by
+  `heart::blueprint` (`site_position`), and its quote carries
+  `TravelQuote::heart` — `World::heart_preview` at the arrival's world
+  clock, off `wave_size_at` / `wave_count_at`, which `droid_wave_size` and
+  `droid_wave_count` are now at the clock's own hours.
+  `World::origin_seen` (a visited star within a hop of the origin, off the
+  kept hop table) is what the chart's diamond waits on.
+- **The run's summary**: `Run::{machines_destroyed, sites_cleared,
+  systems_liberated}` (counted in `visit` and `settle_clear`; a system is
+  liberated when the site cleared is its jammer), in the checksum, read by
+  `World::run_summary`.
+- **The probes**: `heart_dock_for_probe` (the origin put at the crew's
+  star, everything held, the ship re-docked at the fortress as
+  `arena_dock_for_probe` does), `set_heart_phase_for_probe` (every conduit
+  down, and for the overload the core's health just under the fraction)
+  and `residents_point_on_deck_for_probe`.
+
+`tests_heart.rs` is the rule: one fortress a galaxy at the origin, the
+same for the same seed, tier three, the conduits a player count asks for,
+none sharing a room; the seal; one beam and the builds on their interval
+and a fabricator down building nothing; two beams at two targets, faster,
+and faster builds; the win once with a player dead and kept; the fortress
+put back whole; the preview matching the fight on arrival; and two worlds
+alike step for step through it. `heart.rs`'s own tests pin the id and the
+placement. **`SAVE_VERSION` 38, `wire::PROTOCOL` 30**, `REFERENCE_CHECKSUM`
+re-pinned for the run's counters; `SURVIVORS` unmoved.

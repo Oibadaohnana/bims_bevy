@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-twenty things to run, and each is a name rather than a flag — and
+twenty-one things to run, and each is a name rather than a flag — and
 `cargo run -- list` prints every one of them with a line each, which is
 the build's own answer where this table is a copy:
 
@@ -29,6 +29,7 @@ the build's own answer where this table is a copy:
 | `nix run .#defense` | `cargo run -- defense` | **defending a town** (feature 94): `test_planet`'s own random galaxy and roll — the ship set down at a settlement whose people are friendly — with the machines' origin forced **one hyperlane hop off** and the crisis's first day wound to nought, so the town's system is on the **front** (`World::front` of it is one) and the town is *threatened*. The map says so under its planet's icon, in the enemy's red, where it would otherwise say *land*. A minute of the mission clock after the landing (`DEFENSE_DELAY_STEPS` is sixty of them in the game, a real minute at 1×; `BIMS_DEFENSE_DELAY=n` minutes over the command's own one) a wave sets down outside a gate and walks in, and the red line along the top counts it the way it counts a held station's. The fight is the one that happens **inside one room**: the town's **guard and its mercenaries** take arms and fight the machines where they stand, everybody else walks into the nearest house and stays there, the crew never aim at a townsperson and the machines aim at both. Hold the last wave and the town is **held** — friendly for good, trading and hiring even after its system falls, its map tag *held* — and some of its people join the crew; go back to the ship before the last wave is down and the town falls to the machines (feature 103). `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE`/`BIMS_DROID_WAVE` are `droids`' own (`Session::defense_for_probe`) |
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian** (feature 100): `droids` at **tier three** with every wave exactly **one Guardian and two Troopers** (`Session::guardian`, `World::set_droid_kinds_for_probe`) and `DROID_REINFORCE_STEPS` a minute of the mission clock, so the machine is looked at on its own with a fight going on round it — its shield stopping the crew's bolts from the front and flaring where they stop, its turn, its wind-up and its beam. `BIMS_DROID_WAVES` and `BIMS_DROID_REINFORCE` are `droids`' own; the tier and the wave are the command's whatever `BIMS_DROID_TIER` and `BIMS_DROID_WAVE` say |
 | `nix run .#relics` | `cargo run -- relics` | **the relics** (feature 106): `droids` with **one wave of four** (`Session::relics`, `session::RELICS_WAVE`) at the arena's own tier and the reinforcement clock a minute — short enough to clear, so going back to the ship after opens the **reward screen**: three relics of the site's tier to choose from together. `BIMS_RELICS=<id>,<id>` gives the steered Bim those relics at the start (a relic's name in lower case with `_` for the spaces, `focusing_lens`, or its code); `BIMS_REWARD=1` opens straight on the reward screen, the site cleared by the probe (`Session::reward_for_probe`); `BIMS_CACHE=1` with a relic cache opened on the site's research desk and its one relic being chosen in the mission (`Session::cache_for_probe`); and `BIMS_WIN=1`, on **any** command, wins the run the next time a site is cleared with machines in it (`World::set_win_on_clear`), which is how the victory screen and the profile's unlocks are looked at — point `BIMS_PROFILE_DIR` at a scratch directory first, or the win lands in your own profile |
+| `nix run .#heart` | `cargo run -- heart` | **the Machine Heart** (feature 108): `Session::combat`'s ship and sixteen crew with **everybody's kit at tier three** (`World::outfit_for_probe`), the machines' origin put at the crew's own star and the ship **docked at its fortress** (`Session::heart`, `World::heart_dock_for_probe`) — the core in the hub sealed by its conduits, the fabricators beside it, the waves the game's own formula and the next a minute of the mission clock after the last is down. `BIMS_HEART_PHASE=2` opens with every conduit down (the core exposed), `BIMS_HEART_PHASE=3` with the core's health just under the overload as well (`World::set_heart_phase_for_probe`, after the Heart is laid); `BIMS_DROID_WAVES=n` gives the fortress that many waves. The fortress is past the ship's own lobby and down the west arm: `BIMS_ZOOM=0.28 BIMS_WINDOW=2000x1300 BIMS_KEYS="40:F,700:F,720:F" BIMS_POINTER="45:move:1240,675;47:click:1240,675;725:move:1720,675;727:click:1720,675"` walks the crew in to the lobby and then to the hub |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -841,7 +842,8 @@ The fifth step of the redesign. The world's half is
   shows it (`profile::Victory`), once.
 - **`World::run_won` is the one place a run is won** — said once as
   `WorldEvent::RunWon`; the app ends the run on it as on `CrewLost`. The
-  end boss will call it; `BIMS_WIN=1` does until then.
+  Machine Heart's core destroyed calls it (feature 108); `BIMS_WIN=1`
+  still does too, as a way to the victory screen without the fight.
 
 **What moved.** `SAVE_VERSION` **37**, `wire::PROTOCOL` **29** (the relay
 wants redeploying), `REFERENCE_CHECKSUM` `0x_dced_2c7b_c7e4_bf7e` (the
@@ -853,7 +855,55 @@ bit for bit. `SURVIVORS` and `PINNED` did not move.
 
 **Not done, because it is not there**: a bandage heals nothing — it
 closes wounds — so *Trauma Kit* raises the medkit and the beam and not
-the bandage. And the win itself waits on the end boss (the next step).
+the bandage. And the win itself waited on the end boss — feature 108, below.
+
+## The Machine Heart, and winning a run (feature 108)
+
+The sixth step of the redesign: the end boss, and the win it gives. The
+world's half is `crates/world/CLAUDE.md` ("The Machine Heart"), the room's
+`crates/game/CLAUDE.md` ("The Machine Heart's machines"), the player's
+`README.md` ("The Machine Heart"). What to hold on to:
+
+- **The fortress is a derived station**, the way a derived jammer is:
+  `world::heart` rolls it off the origin star's own stream (its id
+  `HEART_BASE | star`), `World::settle_heart` lays it — called at the end
+  of `settle_jammer`, so at the start, a jump, every load and the step a
+  system falls — and it is never saved. Its layout is `Plan::Fortress`:
+  the hub at the arena's size less the big plant in the middle (the core
+  stands there) and with two standing lights in the hub, since the hub's
+  own lamps leave its middle tile dark. It is never the jammer.
+- **The core, the conduits and the fabricators are machines**:
+  `DroidKind::{Core, Conduit, Fabricator}` (5–7, `DroidKind::HEART`, not in
+  `ALL`), one health each (`DroidBody::solid`), laid first on the deck so
+  a wave cleared keeps them (`Game::clear_wave_droids`), never counted as
+  a wave standing. So every bolt, blow, grenade, bounty and wreck the
+  fight had serves them unchanged. A sealed core's shield is the zero
+  vector, which `combat::shield_stops` reads as all round, and nobody aims
+  at one of their own accord (`Target::sealed`).
+- **The phase is the world's**, on the fortress's `Infestation::heart`
+  (`HeartFight`, saved and hashed — hashed only where it is, so no other
+  fight's number moved) and read off the room each step
+  (`World::heart_step`, before the loss is checked); what the phase allows
+  is told to the core on `Droid::heart` (`HeartState`). The core down is
+  `World::run_won`, and a run won stays won (`check_run_lost`).
+- **Leaving puts it back** through the site snapshot that already put a
+  held station back: the fight is on the `Infestation`.
+- **The map's preview** is `TravelQuote::heart` (`World::heart_preview`),
+  off the same `wave_size_at` / `wave_count_at` the fight uses, so a
+  quote and the fight it is for agree.
+- **The run's summary** is `World::run_summary`: `Run::{machines_destroyed,
+  sites_cleared, systems_liberated}` (a system is liberated when its
+  jammer is the site cleared) beside the days and the deaths.
+
+**What moved.** `SAVE_VERSION` **38**, `wire::PROTOCOL` **30** (the relay
+wants redeploying), `REFERENCE_CHECKSUM` `0x_d534_2dda_6563_babe` (the run's
+three counters in the hash). `SURVIVORS` and the ship's `PINNED` and
+`PICTURES` did **not** move: `DroidBody`'s `Debug`, which the survivors'
+reading takes a machine's body by, is written out by hand so a body of four
+parts prints what it always printed.
+
+**Not done, because it is not there**: "systems liberated" has no
+liberation mechanic behind it, so it counts jammers cleared.
 
 ## The old game deleted (feature 104)
 

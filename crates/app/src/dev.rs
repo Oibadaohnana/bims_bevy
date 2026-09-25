@@ -134,8 +134,8 @@ pub fn relics() -> Vec<world::Relic> {
 
 /// `BIMS_WIN=1` declares the run **won** the next time a site is cleared
 /// with machines in it (feature 106, `World::run_won`), on any command,
-/// until there is an end boss to win it — how the victory screen and the
-/// profile's unlocks are looked at.
+/// without the Machine Heart's fight (feature 108) in front of it — how the
+/// victory screen and the profile's unlocks are looked at.
 pub fn win() -> bool {
     std::env::var("BIMS_WIN").as_deref() == Ok("1")
 }
@@ -630,6 +630,26 @@ pub fn droid_waves(default: u32) -> u32 {
         .and_then(|spec| spec.trim().parse::<u32>().ok())
         .unwrap_or(default)
         .max(1)
+}
+
+/// `BIMS_DROID_WAVES`, if it is set at all: the `heart` command's waves are
+/// the game's own formula unless a dial says otherwise (feature 108).
+pub fn droid_waves_dial() -> Option<u32> {
+    std::env::var("BIMS_DROID_WAVES")
+        .ok()
+        .and_then(|spec| spec.trim().parse::<u32>().ok())
+        .map(|n| n.max(1))
+}
+
+/// `BIMS_HEART_PHASE=2` or `3` (feature 108): the `heart` command opens its
+/// fight past the seal — every conduit down — or in the overload, the
+/// core's health just under the fraction. Unset, or anything else, is
+/// the fight from its start.
+pub fn heart_phase() -> Option<world::heart::HeartPhase> {
+    std::env::var("BIMS_HEART_PHASE")
+        .ok()
+        .and_then(|spec| spec.trim().parse::<u32>().ok())
+        .and_then(world::heart::HeartPhase::from_number)
 }
 
 /// `BIMS_FREEZE=n` pauses the game the frame after the crew's room hears

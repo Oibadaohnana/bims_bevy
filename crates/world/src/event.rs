@@ -296,6 +296,14 @@ pub enum WorldEvent {
     RelicFired { who: u32, relic: u32 },
     /// The run is won (`World::run_won`). Said once.
     RunWon,
+    /// The Machine Heart's last conduit is down (feature 108): its core is
+    /// exposed, sweeping its beam, and its fabricators are building.
+    HeartExposed { station: u32 },
+    /// The core has gone into its overload: two beams, faster, and the
+    /// fabricators building faster.
+    HeartOverload { station: u32 },
+    /// The core is destroyed. The run is won with it.
+    HeartDestroyed { station: u32 },
 }
 
 /// Why a command did nothing.
@@ -628,6 +636,9 @@ impl WorldEvent {
             WorldEvent::CacheOpened { .. } => 114,
             WorldEvent::RelicFired { .. } => 115,
             WorldEvent::RunWon => 116,
+            WorldEvent::HeartExposed { .. } => 117,
+            WorldEvent::HeartOverload { .. } => 118,
+            WorldEvent::HeartDestroyed { .. } => 119,
         }
     }
 
@@ -657,7 +668,10 @@ impl WorldEvent {
             | WorldEvent::StillOut { who } => who as i64,
             // The penalty paid in the hundreds: a crew is never a hundred.
             WorldEvent::BotLost { who, paid } => (who as i64) + 100 * (paid as i64),
-            WorldEvent::TownFell { station } => station as i64,
+            WorldEvent::TownFell { station }
+            | WorldEvent::HeartExposed { station }
+            | WorldEvent::HeartOverload { station }
+            | WorldEvent::HeartDestroyed { station } => station as i64,
             // The relic in the hundreds, the player in the units: a crew
             // is never a hundred. A proposal's relic plus one, nought being
             // none, and its Bim in the ten thousands.

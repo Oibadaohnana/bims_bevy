@@ -1694,6 +1694,11 @@ pub fn tint_name(tint: bims::character::Tint) -> &'static str {
 pub const DROID_REINFORCEMENTS: &str = "Another wave of machines has landed.";
 pub const DROID_CLEARED: &str = "The last of the machines is down.";
 
+/// The Machine Heart (feature 108): its seal broken, its overload, its end.
+pub const HEART_EXPOSED: &str = "The last conduit is down: the core is exposed.";
+pub const HEART_OVERLOAD: &str = "The core is overloading!";
+pub const HEART_DESTROYED: &str = "The Machine Heart is destroyed.";
+
 /// Defending a town (feature 94): the town held, and who came with the
 /// crew afterwards.
 pub const TOWN_HELD: &str = "The town is held. The machines are destroyed.";
@@ -1708,7 +1713,17 @@ pub fn townsfolk_joined(count: u32) -> String {
 /// `bims::droid::DroidKind::code`; `0` is no machine at all. A droid
 /// has no name of its own — it is a machine, not somebody — so the log
 /// says its kind.
-pub const DROID_NAMES: [&str; 5] = ["—", "Husk", "Trooper", "Warden", "Guardian"];
+pub const DROID_NAMES: [&str; 8] = [
+    "—",
+    "Husk",
+    "Trooper",
+    "Warden",
+    "Guardian",
+    // The Machine Heart's (feature 108).
+    "Core",
+    "Conduit",
+    "Fabricator",
+];
 
 pub fn droid_name(code: u32) -> &'static str {
     DROID_NAMES.get(code as usize).copied().unwrap_or("Machine")
@@ -2050,6 +2065,9 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             None => String::new(),
         },
         WorldEvent::RunWon => "The run is won.".into(),
+        WorldEvent::HeartExposed { .. } => HEART_EXPOSED.into(),
+        WorldEvent::HeartOverload { .. } => HEART_OVERLOAD.into(),
+        WorldEvent::HeartDestroyed { .. } => HEART_DESTROYED.into(),
     })
 }
 
@@ -2151,6 +2169,31 @@ pub const FOR_BIM: &str = "For";
 pub const VICTORY_TITLE: &str = "The run is won";
 pub const VICTORY_UNLOCKED: &str = "Unlocked for your next runs:";
 pub const VICTORY_NOTHING_NEW: &str = "Every relic is unlocked already.";
+
+/// The victory screen's summary of the run (feature 108), a line a number,
+/// and each player's Bim's relics under it.
+pub fn victory_summary(summary: &world::world::RunSummary) -> Vec<String> {
+    vec![
+        format!("Days travelled: {:.1}", summary.days),
+        format!("Sites cleared: {}", summary.sites_cleared),
+        format!("Systems liberated: {}", summary.systems_liberated),
+        format!(
+            "Machines destroyed: {}",
+            crate::format::grouped(u64::from(summary.machines_destroyed))
+        ),
+        format!("Deaths: {}", summary.deaths),
+    ]
+}
+pub const VICTORY_RELICS: &str = "Relics held:";
+pub fn victory_relics_of(who: u32, relics: &[world::Relic]) -> String {
+    let names: Vec<&str> = relics.iter().map(|&r| relic_name(r)).collect();
+    let held = if names.is_empty() {
+        "none".to_string()
+    } else {
+        names.join(", ")
+    };
+    format!("{}: {held}", crew_name(who))
+}
 
 /// The line under a proposal: what is on the table and who has said yes.
 /// A player's word on the relic on the table.
@@ -2286,6 +2329,26 @@ pub fn departure_answer(who: &str, answer: Option<bool>, gone: bool) -> String {
 }
 /// The machines' own station where a system has none, named by nobody.
 pub const DERIVED_JAMMER_NAME: &str = "The machines' relay";
+
+/// The Machine Heart on the map (feature 108): its fortress's name, its tag
+/// in the list, and the rows of its card — its strength on arrival.
+pub const HEART_NAME: &str = "The Machine Heart";
+pub const ARRIVE_HEART: &str = "the Machine Heart";
+pub const HEART_ON_ARRIVAL: &str = "On arrival:";
+pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, String); 4] {
+    [
+        ("Conduits", p.conduits.to_string()),
+        (
+            "Core",
+            crate::format::grouped(p.core_health.max(0.0).ceil() as u64),
+        ),
+        ("Wave size", p.wave_size.to_string()),
+        ("Waves", p.wave_count.to_string()),
+    ]
+}
+/// What the galaxy chart says under the machines' origin, once the crew
+/// have seen it.
+pub const HEART_CHART_LINE: &str = "Where the machines began: the Machine Heart's fortress";
 /// Beside a name in the departure check: down and cannot walk in.
 pub const DOWNED_WORD: &str = "down";
 
@@ -3105,6 +3168,40 @@ pub fn droids_next_wave(span: &str, wave: u32, waves: u32) -> String {
     format!("MACHINES — wave {wave} of {waves} in {span}")
 }
 pub const DROIDS_CLEARED: &str = "MACHINES — the last wave is down";
+
+/// The Machine Heart's line (feature 108), ahead of the wave's in the same
+/// red chip while the crew are in its fortress: the core's health and how
+/// many conduits still seal it, and the word for its phase.
+pub fn heart_line(
+    phase: world::heart::HeartPhase,
+    core: f32,
+    max: f32,
+    left: u32,
+    of: u32,
+) -> String {
+    use world::heart::HeartPhase;
+    let core = crate::format::grouped(core.max(0.0).ceil() as u64);
+    let max = crate::format::grouped(max.max(0.0).ceil() as u64);
+    match phase {
+        HeartPhase::Sealed => {
+            format!("HEART — core {core}/{max} sealed, {left} of {of} conduits left")
+        }
+        HeartPhase::Exposed => format!("HEART — core {core}/{max} exposed, 0 of {of} conduits"),
+        HeartPhase::Overload => format!("HEART — core {core}/{max} OVERLOADING"),
+        HeartPhase::Destroyed => "HEART — the core is destroyed".into(),
+    }
+}
+/// The waves' half of that chip, and the two put together.
+pub fn heart_wave(wave: u32, waves: u32, standing: u32) -> String {
+    format!("wave {wave} of {waves}, {standing} up")
+}
+pub fn heart_next_wave(span: &str, wave: u32, waves: u32) -> String {
+    format!("wave {wave} of {waves} in {span}")
+}
+pub fn heart_and_waves(heart: &str, waves: &str) -> String {
+    format!("{heart} · {waves}")
+}
+pub const HEART_TIP: &str = "The Machine Heart, where the machines began. Its core cannot be hurt while any conduit stands — they are spread through the fortress's rooms, a line of red light from each to the core. Bring the last one down and the core sweeps a beam at whoever is nearest, and the fabricators beside it build a machine every half minute until they are wrecked. Take the core under a third of its health and it overloads: two beams, faster, and the fabricators building twice as fast. Destroy it and the run is won. Go back to the ship first and the fortress is as you found it.";
 pub const DROIDS_TIP: &str = "The station is held by the machines, and they come in waves. How many waves there are is worked out when you arrive, and how big each one is as it appears. Go back to the ship before the last wave is down and the station is as you found it — the bounty for what you destroyed is lost, the experience is kept — and the next visit is a fresh fight. No wave arrives while a machine of the last one is still standing — the countdown starts when the last of them is destroyed — and the next comes in through the airlock farthest from your own, or through a gate of the town on a planet. Everybody's speed goes back to 1× when one lands.";
 
 /// The same warning over a town the crew are defending (feature 94):
@@ -3617,8 +3714,8 @@ mod tests {
         {
             // Feature 83: a droid has no name of its own, so the log
             // says its kind. Slot 0 is no machine at all.
-            assert_eq!(DROID_NAMES.len(), bims::droid::DroidKind::ALL.len() + 1);
-            for kind in bims::droid::DroidKind::ALL {
+            assert_eq!(DROID_NAMES.len(), bims::droid::DroidKind::EVERY.len() + 1);
+            for kind in bims::droid::DroidKind::EVERY {
                 assert!(!droid_name(kind.code()).is_empty());
                 assert_ne!(droid_name(kind.code()), DROID_NAMES[0]);
             }

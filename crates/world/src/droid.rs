@@ -72,6 +72,12 @@ pub struct Infestation {
     /// said once, and what the crisis step reads
     /// (`World::droid_station_cleared`).
     pub cleared: bool,
+    /// The Machine Heart's fight (feature 108, [`crate::heart::HeartFight`]):
+    /// `None` at every station but its fortress, and there until the crew
+    /// first dock. Put back with the rest of this when the crew leave
+    /// before the core is down.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub heart: Option<crate::heart::HeartFight>,
     /// Whether a **relic cache** still lies on the station's research desk
     /// (feature 106, `crate::relic::cache_rolled`): rolled when the
     /// machines take the site, and gone when a crew member opens it. Put
@@ -89,6 +95,7 @@ impl Infestation {
             next_wave: None,
             settled: false,
             cleared: false,
+            heart: None,
             cache: false,
         }
     }
@@ -354,6 +361,20 @@ pub fn arrival_airlock(design: &ShipDesign) -> Option<Port> {
             da.total_cmp(&db).then(j.cmp(i))
         })
         .map(|(_, port)| port)
+}
+
+/// The airlock a reinforcement wave `wave` ties up at, at station `id`:
+/// [`arrival_airlock`], except at the Machine Heart's fortress (feature
+/// 108), whose waves come in by **every** airlock but the crew's in turn —
+/// the east, the north and the south lobbies — so a fight there is not
+/// one door held.
+pub fn arrival_airlock_at(design: &ShipDesign, id: u32, wave: u32) -> Option<Port> {
+    if !crate::heart::is_heart(id) {
+        return arrival_airlock(design);
+    }
+    let ports = airlocks(design);
+    let others = ports.len().checked_sub(1).filter(|&n| n > 0)?;
+    ports.get(1 + wave as usize % others).copied()
 }
 
 /// The spot `tiles` inside an airlock, in the design's own world units:

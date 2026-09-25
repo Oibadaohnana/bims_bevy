@@ -147,6 +147,7 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(u64::from(it.settled));
         hash.eat(u64::from(it.cleared));
         hash.eat(u64::from(it.cache));
+        eat_heart(&mut hash, it.heart.as_ref());
     }
     hash.eat(u64::from(world.droid_tier().code()));
     hash.eat(world.droid_reinforce_steps());
@@ -354,6 +355,7 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(it.settled));
             hash.eat(u64::from(it.cleared));
             hash.eat(u64::from(it.cache));
+            eat_heart(&mut hash, it.heart.as_ref());
         }
     }
 
@@ -653,8 +655,27 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(u64::from(run.cleared_here));
     hash.eat(u64::from(run.won));
     hash.eat(u64::from(run.win_on_clear));
+    // The run in numbers (feature 108): what the victory screen says.
+    hash.eat(u64::from(run.machines_destroyed));
+    hash.eat(u64::from(run.sites_cleared));
+    hash.eat(u64::from(run.systems_liberated));
 
     hash.0
+}
+
+/// The Machine Heart's fight on its fortress's infestation (feature 108):
+/// nothing at all at every other station, so no other fight's number
+/// moved when it went in.
+fn eat_heart(hash: &mut Fnv, fight: Option<&crate::heart::HeartFight>) {
+    let Some(f) = fight else {
+        return;
+    };
+    hash.eat(u64::from(f.phase.code()));
+    hash.eat(u64::from(f.conduits));
+    hash.eat_rounded(f64::from(f.core_health), HEALTH_GRID);
+    hash.eat(u64::from(f.laid));
+    hash.eat(f.next_build.map_or(u64::MAX, |s| s));
+    hash.eat(u64::from(f.built));
 }
 
 /// What the stations have lost, station by station.

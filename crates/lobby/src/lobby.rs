@@ -75,6 +75,11 @@ pub struct Lobby {
     /// picked.
     pub route: Vec<u32>,
     pub jammed: Vec<bool>,
+    /// In the game: the machines' origin, where their Machine Heart
+    /// stands, once the crew have seen it (feature 108,
+    /// `World::origin_seen`). The page sets it every frame; `None` in the
+    /// lobby.
+    pub heart: Option<u32>,
     pub pings: Vec<Ping>,
     /// The star whose system is in the side panel, and the system itself.
     pub inspected: Option<(u32, StarSystem)>,
@@ -106,6 +111,7 @@ impl Lobby {
             reachable: Vec::new(),
             route: Vec::new(),
             jammed: Vec::new(),
+            heart: None,
             pings: Vec::new(),
             inspected: None,
             placed: Placed::default(),
@@ -217,6 +223,7 @@ impl Lobby {
             reachable: &self.reachable,
             route: &self.route,
             jammed: &self.jammed,
+            heart: self.heart,
             pings: &self.pings,
         };
         preview::paint(

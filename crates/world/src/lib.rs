@@ -58,6 +58,7 @@ pub mod event;
 pub mod fixture;
 pub mod frame;
 pub mod grid;
+pub mod heart;
 pub mod jammer;
 pub mod jump;
 pub mod medic;
@@ -113,6 +114,8 @@ mod tests_engineer;
 mod tests_front;
 #[cfg(test)]
 mod tests_guardian;
+#[cfg(test)]
+mod tests_heart;
 #[cfg(test)]
 mod tests_jammer;
 #[cfg(test)]

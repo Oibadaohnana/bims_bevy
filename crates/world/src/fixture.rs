@@ -94,7 +94,11 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// research tree and every station's key tier — on the world and in
 /// every system's memory — are out of the hash, and the run's relics, a
 /// held site's cache and each crew member's shots fired are in it.
-pub const REFERENCE_CHECKSUM: u64 = 0x_dced_2c7b_c7e4_bf7e;
+/// And again for the Machine Heart (feature 108): the run's summary — the
+/// machines destroyed, the sites cleared and the systems liberated — is
+/// in the hash, where the reference run's machines count. The Heart's own
+/// fight is hashed only at its fortress, so nothing else moved.
+pub const REFERENCE_CHECKSUM: u64 = 0x_d534_2dda_6563_babe;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

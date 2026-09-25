@@ -160,8 +160,9 @@ impl World {
     /// **The one place a run is won.** Said once, as
     /// [`WorldEvent::RunWon`], and kept; the app ends the run on it, the
     /// way it does on [`WorldEvent::CrewLost`], and every player's
-    /// profile unlocks relics off it. The end boss calls it; until there
-    /// is one, the probes' `BIMS_WIN` does, on the next clear.
+    /// profile unlocks relics off it. The Machine Heart's core destroyed
+    /// calls it (feature 108, `World::heart_step`), and so does the
+    /// probes' `BIMS_WIN`, on the next clear.
     pub fn run_won(&mut self, events: &mut Vec<WorldEvent>) {
         if self.run.won || self.lost {
             return;
@@ -653,6 +654,13 @@ impl World {
             return;
         }
         self.run.cleared_here = true;
+        // The run's summary (feature 108): a site cleared of machines, and
+        // a system liberated when the site was its jammer.
+        self.run.sites_cleared = self.run.sites_cleared.saturating_add(1);
+        let here = self.run.site.or_else(|| self.ship.state.alongside());
+        if here.is_some() && here == self.jammer_station() {
+            self.run.systems_liberated = self.run.systems_liberated.saturating_add(1);
+        }
         for (slot, relic) in std::mem::take(&mut self.run.relics.pending) {
             self.run.relics.give(slot, relic);
             events.push(WorldEvent::RelicGiven {

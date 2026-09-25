@@ -143,6 +143,35 @@ fn droid_line(world: &world::World) -> Option<(String, &'static str)> {
         };
         return Some((words, DEFENSE_TIP));
     }
+    // At the Machine Heart's fortress (feature 108) the core and its
+    // conduits come first in the same red chip, the waves after them.
+    if let Some(heart) = world.heart_status() {
+        let line = heart_line(
+            heart.phase,
+            heart.core_health,
+            heart.core_max,
+            heart.conduits_left,
+            heart.conduits,
+        );
+        let waves = world
+            .droid_wave_standing()
+            .map(|(wave, left)| {
+                let standing = world.droids_standing();
+                match world.droid_wave_due() {
+                    Some(due) if standing == 0 => {
+                        heart_next_wave(&crate::format::countdown(due), wave + 1, wave + left)
+                    }
+                    _ => heart_wave(wave, wave + left, standing),
+                }
+            })
+            .unwrap_or_default();
+        let text = if waves.is_empty() {
+            line
+        } else {
+            heart_and_waves(&line, &waves)
+        };
+        return Some((text, HEART_TIP));
+    }
     let (wave, left) = world.droid_wave_standing()?;
     let waves = wave + left;
     let standing = world.droids_standing();

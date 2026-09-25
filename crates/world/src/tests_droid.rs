@@ -135,6 +135,10 @@ fn a_held_station_has_machines_and_no_people_at_all() {
             }
             // Tier three alone (feature 100), and this is tier one.
             DroidKind::Guardian => panic!("a Guardian below tier three"),
+            // The Machine Heart's (feature 108) stand in its fortress alone.
+            DroidKind::Core | DroidKind::Conduit | DroidKind::Fabricator => {
+                panic!("the Machine Heart's in a wave")
+            }
         }
     }
     assert_eq!(seen, (husks, troopers, wardens), "the mix the plan says");

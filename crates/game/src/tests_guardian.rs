@@ -353,7 +353,7 @@ fn swept(combat: &mut Combat, sight: &Sight, bodies: &[Option<(Vec2, bool, f32)>
     let from = lens();
     let start = from + aim.rotate_by(SWEEP_HALF_COS, -SWEEP_HALF_SIN) * reach;
     let end = from + aim.rotate_by(SWEEP_HALF_COS, SWEEP_HALF_SIN) * reach;
-    combat.sweep(from, start, end, weapon, weapon.stats().damage, true);
+    combat.sweep(from, start, end, weapon, weapon.stats().damage, true, 1.0);
     for _ in 0..60 {
         combat.step(DT, sight, bodies);
     }
@@ -487,6 +487,7 @@ fn a_surge_takes_the_beam_whole() {
             at + vec2(0.0, 2.0 * TILE),
             weapon,
             30.0,
+            1.0,
         );
         for _ in 0..40 {
             game.simulate(DT);

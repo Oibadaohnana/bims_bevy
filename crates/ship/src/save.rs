@@ -109,7 +109,10 @@ use crate::game::Game;
 /// 37: relics and unlocks (feature 106) — the run keeps its relics, a
 /// held site its cache and a Bim its shots fired; the world keeps no
 /// research and no station its key.
-pub const SAVE_VERSION: u32 = 37;
+/// 38: the Machine Heart (feature 108) — a held station keeps the Heart's
+/// fight, a machine what the world told it of the Heart and a body its
+/// one health, a shot and a sweep their pace, and the run its summary.
+pub const SAVE_VERSION: u32 = 38;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

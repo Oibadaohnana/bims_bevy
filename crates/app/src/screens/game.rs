@@ -360,6 +360,20 @@ fn over(
             if won {
                 ui.label(egui::RichText::new(VICTORY_TITLE).size(28.0).strong());
                 ui.label(egui::RichText::new(when).color(theme::MUTED));
+                // The run in numbers (feature 108), and each player's
+                // relics.
+                if let Some(game) = session.0.game.as_ref() {
+                    let summary = game.world.run_summary();
+                    ui.add_space(8.0);
+                    for line in victory_summary(&summary) {
+                        ui.label(line);
+                    }
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new(VICTORY_RELICS).strong());
+                    for (slot, held) in summary.relics.iter().enumerate() {
+                        ui.label(egui::RichText::new(victory_relics_of(slot as u32, held)).small());
+                    }
+                }
                 ui.add_space(8.0);
                 let unlocked = victory.as_ref().map_or(&[][..], |v| v.unlocked.as_slice());
                 if unlocked.is_empty() {
@@ -502,6 +516,18 @@ fn open(
                     seed,
                     crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
                     crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                    size.x,
+                    size.y,
+                ),
+                // The Machine Heart (feature 108): the crew at its fortress
+                // in tier-three kit, the waves the game's own unless
+                // `BIMS_DROID_WAVES` says, and `BIMS_HEART_PHASE` the phase
+                // the fight opens in.
+                Launch::Heart => Session::heart(
+                    seed,
+                    crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                    crate::dev::droid_waves_dial(),
+                    crate::dev::heart_phase(),
                     size.x,
                     size.y,
                 ),
@@ -1430,6 +1456,13 @@ fn frame(
             .as_ref()
             .map(|g| g.world.reachable_stars())
             .unwrap_or_default();
+        // And the machines' origin, where the Machine Heart stands, once
+        // the crew have seen its system or one next to it (feature 108).
+        chart.heart = session
+            .game
+            .as_ref()
+            .filter(|g| g.world.origin_seen())
+            .map(|g| g.world.droid_origin());
         let plotted = session
             .game
             .as_ref()
@@ -3153,6 +3186,14 @@ fn whereabouts(session: &Session) -> String {
 /// the star's name on the chart's panel, and nothing at all for a star the
 /// lanes do not reach — which, the graph being one piece, is no star at all.
 fn crisis_line(ui: &mut egui::Ui, world: &world::World, star: u32) {
+    // The Machine Heart's star, once the crew have seen it (feature 108).
+    if star == world.droid_origin() && world.origin_seen() {
+        ui.label(
+            egui::RichText::new(HEART_CHART_LINE)
+                .strong()
+                .color(theme::BAD),
+        );
+    }
     let day = world.infested_on(star);
     if day == u32::MAX {
         return;

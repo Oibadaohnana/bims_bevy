@@ -1644,6 +1644,14 @@ pub struct Target {
     pub shield: Option<Vec2>,
 }
 
+impl Target {
+    /// Whether a shell all the way round guards it — a Machine Heart's
+    /// sealed core (feature 108), whose shield is the zero vector.
+    pub fn sealed(&self) -> bool {
+        self.shield == Some(Vec2::ZERO)
+    }
+}
+
 /// Whether a shield facing `heading` (a unit vector) stops what comes in
 /// **from** `toward` — a unit vector pointing from the shielded body back
 /// the way the bolt or the blow came. A dot product against
@@ -1651,7 +1659,9 @@ pub struct Target {
 /// else: no angle is ever worked out, so two platforms agree to the bit,
 /// and the edge itself is stopped.
 pub fn shield_stops(heading: Vec2, toward: Vec2) -> bool {
-    heading.dot(toward) >= balance::GUARDIAN_SHIELD_COS
+    // A heading of nought is a shell all the way round: a Machine Heart's
+    // sealed core (feature 108), which stops everything from every side.
+    heading == Vec2::ZERO || heading.dot(toward) >= balance::GUARDIAN_SHIELD_COS
 }
 
 /// One shot in the air.
@@ -1776,6 +1786,18 @@ pub struct Shot {
     /// what each body it crosses takes, the machine's arms counted.
     #[cfg_attr(feature = "serde", serde(default))]
     pub sweep: Option<Vec2>,
+    /// How many times faster than a Guardian's that sweep goes: one for
+    /// every beam but a Machine Heart's core in its overload (feature
+    /// 108). Carried with the shot so the room it is laid in sweeps it
+    /// at the same pace.
+    #[cfg_attr(feature = "serde", serde(default = "one"))]
+    pub pace: f32,
+}
+
+/// One: the pace of every sweep but an overloaded core's.
+#[cfg(feature = "serde")]
+fn one() -> f32 {
+    1.0
 }
 
 /// How many fixed sub-steps a Sweeper's sweep is resolved in (feature
@@ -1822,6 +1844,9 @@ pub struct Sweep {
     /// wall or a shut door stopped it there.
     pub end: Vec2,
     pub walled: bool,
+    /// How many times faster than a Guardian's it sweeps: [`Shot::pace`].
+    #[cfg_attr(feature = "serde", serde(default = "one"))]
+    pub pace: f32,
 }
 
 /// How far `p` lies from the segment `a`–`b`: the nearest point of the
@@ -2293,6 +2318,7 @@ impl Combat {
             cut: false,
             moving,
             sweep: None,
+            pace: 1.0,
         });
     }
 
@@ -2300,7 +2326,15 @@ impl Combat {
     /// recorded [`Shot`] from the lens at `from`, the beam's arc from the
     /// aim at `start` round to the aim at `end`, `damage` to each body it
     /// crosses. The world lays it as a [`Sweep`] in the crew's room.
-    pub fn shoot_sweep(&mut self, from: Vec2, start: Vec2, end: Vec2, weapon: Weapon, damage: f32) {
+    pub fn shoot_sweep(
+        &mut self,
+        from: Vec2,
+        start: Vec2,
+        end: Vec2,
+        weapon: Weapon,
+        damage: f32,
+        pace: f32,
+    ) {
         self.lull = 0.0;
         self.shots.push(Shot {
             from,
@@ -2311,6 +2345,7 @@ impl Combat {
             cut: false,
             moving: false,
             sweep: Some(end),
+            pace,
         });
     }
 
@@ -2330,6 +2365,7 @@ impl Combat {
         weapon: Weapon,
         damage: f32,
         drawn: bool,
+        pace: f32,
     ) {
         let out = start - from;
         let reach = out.len();
@@ -2364,6 +2400,7 @@ impl Combat {
             rolled: Vec::new(),
             end: from,
             walled: false,
+            pace: pace.max(0.01),
         });
     }
 
@@ -2395,8 +2432,10 @@ impl Combat {
         let fx = &mut self.fx;
         let mut taken: Vec<Hit> = Vec::new();
         let mut heard: Vec<Cued> = Vec::new();
-        let every = balance::SWEEPER_SWEEP / SWEEP_STEPS as f32;
         for s in &mut self.sweeps {
+            // An overloaded core sweeps faster (feature 108): the same
+            // sub-steps, closer together.
+            let every = balance::SWEEPER_SWEEP / SWEEP_STEPS as f32 / s.pace;
             s.elapsed += dt;
             while s.done <= SWEEP_STEPS && s.done as f32 * every <= s.elapsed + 1e-5 {
                 let far = s.from + s.dir * s.reach;
@@ -2522,6 +2561,12 @@ impl Combat {
             let Some(t) = target.filter(|t| !t.stale) else {
                 continue;
             };
+            // A sealed core is nothing to spend a shot on (feature 108):
+            // nobody aims at one of their own accord, though a mark still
+            // may.
+            if t.sealed() && mark != Some(i) {
+                continue;
+            }
             let at = t.at;
             let d = (at - from).len();
             if d > reach {
@@ -2567,7 +2612,7 @@ impl Combat {
         let reach = MELEE_RANGE * TILE;
         let mut best: Option<(f32, usize)> = None;
         for (i, target) in targets.iter().enumerate() {
-            let Some(t) = target.filter(|t| !t.stale) else {
+            let Some(t) = target.filter(|t| !t.stale && !t.sealed()) else {
                 continue;
             };
             if !own.melee && !t.weapon.stats().melee {
@@ -2718,6 +2763,7 @@ impl Combat {
                 cut,
                 moving: false,
                 sweep: None,
+                pace: 1.0,
             });
         } else {
             // A blow from the front of a shield is stopped at the plate

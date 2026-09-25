@@ -254,9 +254,19 @@ pub struct Run {
     /// and kept, as the loss is.
     pub won: bool,
     /// The probes' dial (`BIMS_WIN=1`): the run is won the next time a
-    /// site is cleared with machines in it, until there is an end boss to
-    /// win it.
+    /// site is cleared with machines in it — the victory screen without the
+    /// Machine Heart's fight (feature 108) in front of it.
     pub win_on_clear: bool,
+    /// The run in numbers, for the victory screen (feature 108): every
+    /// machine destroyed, every site cleared of machines, and every
+    /// system **liberated** — its jammer cleared, so its lanes inward are
+    /// open for good.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub machines_destroyed: u32,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sites_cleared: u32,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub systems_liberated: u32,
 }
 
 impl Run {
@@ -282,6 +292,9 @@ impl Run {
             cleared_here: false,
             won: false,
             win_on_clear: false,
+            machines_destroyed: 0,
+            sites_cleared: 0,
+            systems_liberated: 0,
         }
     }
 
@@ -339,4 +352,8 @@ pub struct TravelQuote {
     /// Whether the site is somewhere the crew have already cleared or
     /// held.
     pub cleared: bool,
+    /// At the Machine Heart's fortress (feature 108), what the crew would
+    /// meet on arrival: the conduits, the core, and the waves at the
+    /// arrival day. `None` at every other site.
+    pub heart: Option<crate::heart::HeartPreview>,
 }

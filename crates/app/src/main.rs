@@ -44,6 +44,10 @@
 //!                    Troopers a wave: the shield, the turn and the beam
 //! bims relics        the droids arena with one short wave: clear it, go
 //!                    back to the ship, and the reward screen offers relics
+//! bims heart         the Machine Heart: the crew docked at its fortress at
+//!                    the machines' origin, everybody in tier-three kit;
+//!                    `BIMS_HEART_PHASE=2` or `3` opens the fight past its
+//!                    seal or in its overload
 //! bims defense       a town on a planet with the machines one hop away: the
 //!                    crew set down at its pad, a wave landing outside a gate
 //!                    a minute later, and the town's own guard fighting beside
@@ -145,6 +149,10 @@ pub enum Launch {
     /// wave short enough to finish, so clearing it and going back to the
     /// ship opens the reward screen.
     Relics,
+    /// The Machine Heart looked at (feature 108): the crew docked at its
+    /// fortress at the machines' origin, everybody in tier-three kit.
+    /// `BIMS_HEART_PHASE` opens the fight in its second or third phase.
+    Heart,
     StationBuilder,
 }
 
@@ -183,7 +191,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 17] = [
+const COMMANDS: [(&str, &str); 18] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -233,6 +241,10 @@ const COMMANDS: [(&str, &str); 17] = [
     (
         "relics",
         "The droids arena with one short wave: clear it, go back to the ship, and the reward screen offers the site's relics",
+    ),
+    (
+        "heart",
+        "The Machine Heart: the crew docked at its fortress at the machines' origin in tier-three kit; BIMS_HEART_PHASE=2 or 3 opens it past its seal or overloading",
     ),
     (
         "stationbuilder [name]",
@@ -339,6 +351,7 @@ fn main() {
         Some("defense") => Launch::Defense,
         Some("guardian") => Launch::Guardian,
         Some("relics") => Launch::Relics,
+        Some("heart") => Launch::Heart,
         Some("stationbuilder") => Launch::StationBuilder,
         // What there is to run, printed rather than opened.
         Some("list") | Some("--list") | Some("--help") | Some("-h") => {
@@ -426,6 +439,7 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Jammer
         | Launch::Guardian
         | Launch::Relics
+        | Launch::Heart
         | Launch::Defense => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();

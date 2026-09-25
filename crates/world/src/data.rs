@@ -263,6 +263,48 @@ pub const DROID_REINFORCE_STEPS: u64 = 7_200;
 /// unloaded through.
 pub const DROID_LANDER_TILES: f64 = 7.0;
 
+// --- the Machine Heart (feature 108, `crate::heart`) ------------------------
+//
+// The run is won at the crisis's origin: a fortress there holds the core,
+// sealed while its conduits stand, then sweeping the Guardian's beam at the
+// crew while its fabricators build, and in its overload sweeping two. The
+// numbers are placeholders, like every other number here, set so the core
+// outlasts a tier-three Warden many times over and the fight is a siege
+// rather than a skirmish.
+
+/// How many conduits seal the core before the players are counted.
+pub const HEART_CONDUITS_BASE: u32 = 3;
+/// And one more for every **player** Bim — never a bot — so a crew of four
+/// has seven rooms to fight through before the core can be touched.
+pub const HEART_CONDUITS_PER_PLAYER: u32 = 1;
+/// What a conduit takes to bring down: a little more than a tier-three
+/// Warden's chassis (`bims::balance::WARDEN_BODY` × 1.5²), since it neither
+/// dodges nor shoots back.
+pub const HEART_CONDUIT_HEALTH: f32 = 300.0;
+/// What the core takes to destroy, before the players are counted.
+pub const HEART_CORE_HEALTH_BASE: f32 = 1_500.0;
+/// And this much more for every **player** Bim.
+pub const HEART_CORE_HEALTH_PER_PLAYER: f32 = 500.0;
+/// What the core's beams do, as a multiple of a tier-three Guardian's
+/// Sweeper (`bims::balance::SWEEPER`): a beam that has to be dodged, not
+/// stood in.
+pub const HEART_BEAM_DAMAGE_FACTOR: f32 = 1.5;
+/// How many fabricators stand round the core.
+pub const HEART_FABRICATORS: u32 = 2;
+/// What a fabricator takes to bring down.
+pub const HEART_FABRICATOR_HEALTH: f32 = 400.0;
+/// How often each fabricator still standing builds a tier-three machine
+/// once the core is exposed, in steps of the **mission clock**: thirty
+/// seconds of it at 1×.
+pub const HEART_FABRICATOR_INTERVAL: u64 = 1_800;
+/// The share of the core's health under which it goes into its
+/// **overload**: two beams at once, faster sweeps and faster building.
+pub const HEART_OVERLOAD_FRACTION: f32 = 0.35;
+/// How many times faster the core's beams sweep in its overload.
+pub const HEART_OVERLOAD_SWEEP_FACTOR: f32 = 2.0;
+/// How many times as often the fabricators build in the core's overload.
+pub const HEART_OVERLOAD_SPAWN_FACTOR: u64 = 2;
+
 // --- the crisis (feature 92) ---------------------------------------------
 //
 // The machines appear at one star and spread a hyperlane hop at a time.

@@ -63,6 +63,12 @@ use crate::draw::{Brush, Color, DrawList};
 use crate::math::{TAU, Vec2, angle_lerp, clamp, vec2};
 use crate::room::TILE;
 
+/// The Machine Heart's machines (feature 108): what the world tells them,
+/// and their pictures.
+#[path = "heart_look.rs"]
+mod heart_look;
+pub use heart_look::HeartState;
+
 // --- the look -----------------------------------------------------------
 
 /// The hull: dark gunmetal, nothing like a coverall.
@@ -255,7 +261,10 @@ impl DroidPart {
     }
 }
 
-/// The four machines. Codes written out, never renumbered.
+/// The machines. Codes written out, never renumbered. The first four walk
+/// and fight; the last three are the **Machine Heart**'s (feature 108,
+/// [`DroidKind::HEART`]) — built into its fortress, never walking and
+/// never in a wave.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -270,9 +279,21 @@ pub enum DroidKind {
     /// that stops everything from the front, with a beam that sweeps. It
     /// is beaten by getting round it. Only ever at tier three.
     Guardian = 4,
+    /// The Machine Heart's **core** (feature 108): the one thing a run is
+    /// won by destroying. Sealed while any conduit stands, and once it is
+    /// not, it sweeps the Guardian's beam at the crew — two of them in
+    /// its overload.
+    Core = 5,
+    /// A **conduit** feeding the core its seal: a pylon standing in a
+    /// room of the fortress, doing nothing but being shot down.
+    Conduit = 6,
+    /// A **fabricator** beside the core: builds a machine every so often
+    /// once the core is exposed, and never again once it is wrecked.
+    Fabricator = 7,
 }
 
 impl DroidKind {
+    /// The four that walk and fight, and come in waves.
     pub const ALL: [DroidKind; 4] = [
         DroidKind::Husk,
         DroidKind::Trooper,
@@ -280,12 +301,37 @@ impl DroidKind {
         DroidKind::Guardian,
     ];
 
+    /// The Machine Heart's three (feature 108): built where they stand
+    /// and never moved.
+    pub const HEART: [DroidKind; 3] = [DroidKind::Core, DroidKind::Conduit, DroidKind::Fabricator];
+
+    /// Every kind there is, by code.
+    pub const EVERY: [DroidKind; 7] = [
+        DroidKind::Husk,
+        DroidKind::Trooper,
+        DroidKind::Warden,
+        DroidKind::Guardian,
+        DroidKind::Core,
+        DroidKind::Conduit,
+        DroidKind::Fabricator,
+    ];
+
     pub fn code(self) -> u32 {
         self as u32
     }
 
     pub fn from_code(code: u32) -> Option<DroidKind> {
-        DroidKind::ALL.iter().copied().find(|k| k.code() == code)
+        DroidKind::EVERY.iter().copied().find(|k| k.code() == code)
+    }
+
+    /// Whether it is one of the Heart's (feature 108): stood where it was
+    /// built, one health rather than four parts, never counted among the
+    /// machines standing in a wave and never cleared away with one.
+    pub fn is_structure(self) -> bool {
+        matches!(
+            self,
+            DroidKind::Core | DroidKind::Conduit | DroidKind::Fabricator
+        )
     }
 
     /// What each of the four parts has at tier one, in
@@ -296,6 +342,10 @@ impl DroidKind {
             DroidKind::Trooper => balance::TROOPER_BODY,
             DroidKind::Warden => balance::WARDEN_BODY,
             DroidKind::Guardian => balance::GUARDIAN_BODY,
+            // The Heart's have one health, which the world says
+            // (`Droid::structure`); this is only what `Droid::new` starts
+            // one at before it does.
+            DroidKind::Core | DroidKind::Conduit | DroidKind::Fabricator => [1.0; 4],
         }
     }
 
@@ -306,6 +356,7 @@ impl DroidKind {
             DroidKind::Trooper => balance::TROOPER_PACE,
             DroidKind::Warden => balance::WARDEN_PACE,
             DroidKind::Guardian => balance::GUARDIAN_PACE,
+            DroidKind::Core | DroidKind::Conduit | DroidKind::Fabricator => 0.0,
         }
     }
 
@@ -318,6 +369,9 @@ impl DroidKind {
             DroidKind::Trooper => 17.0,
             DroidKind::Warden => 26.0,
             DroidKind::Guardian => 28.0,
+            DroidKind::Core => 30.0,
+            DroidKind::Conduit => 14.0,
+            DroidKind::Fabricator => 24.0,
         }
     }
 
@@ -335,7 +389,11 @@ impl DroidKind {
             DroidKind::Husk => WeaponKind::Claw,
             DroidKind::Trooper => DroidKind::trooper_arm(index),
             DroidKind::Warden => WeaponKind::Unmaker,
-            DroidKind::Guardian => WeaponKind::Sweeper,
+            // The core's beams are the Guardian's (feature 108); a conduit
+            // and a fabricator have no arm, and a claw is one that never
+            // swings.
+            DroidKind::Guardian | DroidKind::Core => WeaponKind::Sweeper,
+            DroidKind::Conduit | DroidKind::Fabricator => WeaponKind::Claw,
         }
     }
 
@@ -351,11 +409,31 @@ impl DroidKind {
 }
 
 /// One machine's four parts, each with what it has and what it had.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DroidBody {
     health: [f32; 4],
     max: [f32; 4],
+    /// One health rather than four parts: a Heart's machine (feature
+    /// 108), where every hit lands on the Chassis and only the Chassis
+    /// at nothing destroys it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    solid: bool,
+}
+
+/// Written out as it was before a body could be solid (feature 108), and
+/// with `solid` only when it is: the survivors' reading
+/// (`world::fixture::Survivors`) takes a body by this, and a body of four
+/// parts is the body it always was.
+impl core::fmt::Debug for DroidBody {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut s = f.debug_struct("DroidBody");
+        s.field("health", &self.health).field("max", &self.max);
+        if self.solid {
+            s.field("solid", &self.solid);
+        }
+        s.finish()
+    }
 }
 
 impl DroidBody {
@@ -371,7 +449,27 @@ impl DroidBody {
         for h in &mut max {
             *h *= step;
         }
-        DroidBody { health: max, max }
+        DroidBody {
+            health: max,
+            max,
+            solid: false,
+        }
+    }
+
+    /// A body of **one** health (feature 108): what a Heart's machine is.
+    /// Every part reads that health, every hit is taken off the Chassis.
+    pub fn solid(health: f32) -> DroidBody {
+        let health = health.max(1.0);
+        DroidBody {
+            health: [health; 4],
+            max: [health; 4],
+            solid: true,
+        }
+    }
+
+    /// Whether it is a body of one health.
+    pub fn is_solid(&self) -> bool {
+        self.solid
     }
 
     pub fn health(&self, part: DroidPart) -> f32 {
@@ -399,6 +497,9 @@ impl DroidBody {
     /// Whether the machine is finished: head or chassis at nothing.
     /// There is no dying state — it stops the instant either goes.
     pub fn destroyed(&self) -> bool {
+        if self.solid {
+            return self.gone(DroidPart::Chassis);
+        }
         self.gone(DroidPart::Head) || self.gone(DroidPart::Chassis)
     }
 
@@ -408,6 +509,7 @@ impl DroidBody {
     /// The head and the chassis themselves take what they are given.
     pub fn take(&mut self, part: DroidPart, damage: f32) -> DroidPart {
         let part = match part {
+            _ if self.solid => DroidPart::Chassis,
             DroidPart::Arms | DroidPart::Legs if self.gone(part) => DroidPart::Chassis,
             other => other,
         };
@@ -461,6 +563,12 @@ pub struct Droid {
     /// alternates by it.
     #[cfg_attr(feature = "serde", serde(default))]
     pub sweeps: u32,
+    /// What the world has told a Machine Heart's machine (feature 108,
+    /// [`HeartState`]): whether the core is sealed, how many beams it
+    /// sweeps and how hard and fast, and a fabricator's last build. The
+    /// default — nothing sealed, no beam — for every other kind.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub heart: HeartState,
     /// Where it is steering, the way a Bim's intent works.
     intent: f32,
     /// The arm it was built with, as a [`Weapon`] so every curve, every
@@ -545,6 +653,7 @@ impl Droid {
             turn_left: 0.0,
             beam: Beam::Ready,
             sweeps: 0,
+            heart: HeartState::default(),
             intent: heading,
             weapon: kind.arm(index).at(tier),
             body: DroidBody::new(kind, tier),
@@ -629,6 +738,12 @@ impl Droid {
         if self.destroyed {
             return None;
         }
+        // A sealed core takes nothing at all (feature 108) — a bolt is
+        // stopped at its shell, and this is what a grenade's burst, which
+        // no shield is asked about, comes to.
+        if self.heart.sealed {
+            return None;
+        }
         let struck = self.body.take(part, damage);
         self.spark_on(struck);
         if self.body.destroyed() {
@@ -709,6 +824,11 @@ impl Droid {
             // The lens in the middle of the chassis, a little forward: the
             // beam comes out of it (feature 100).
             DroidKind::Guardian => vec2(LENS_AHEAD, 0.0),
+            // The Heart's (feature 108): the core's first emitter lays
+            // its own, off the rim the way it points; the others have no
+            // arm, and their middle is as good as anywhere.
+            DroidKind::Core => return self.pos + self.emitter_dir(0) * HeartState::LENS_OUT,
+            DroidKind::Conduit | DroidKind::Fabricator => Vec2::ZERO,
         };
         self.pos + local.rotate(self.heading)
     }
@@ -794,7 +914,16 @@ impl Droid {
     /// `None` for a wreck or any other kind. **The shield cannot be
     /// broken**: nothing but the machine being destroyed takes it away.
     pub fn shield(&self) -> Option<Vec2> {
-        (self.is_guardian() && !self.destroyed).then_some(self.facing)
+        if self.destroyed {
+            return None;
+        }
+        // A sealed core's shell is all the way round (feature 108): the
+        // zero vector, which [`crate::combat::shield_stops`] reads as
+        // stopping everything from every side.
+        if self.heart.sealed {
+            return Some(Vec2::ZERO);
+        }
+        self.is_guardian().then_some(self.facing)
     }
 
     /// Turn a Guardian towards `want` (any length) by as many of its
@@ -947,6 +1076,13 @@ impl Droid {
     /// hair, no clothes, no armour layers, no held item.
     pub fn draw(&self, list: &mut DrawList) {
         let scale = if self.destroyed { 0.88 } else { 1.0 };
+        // The Machine Heart's core is drawn half as large again (feature
+        // 108): it never walks a corridor, and it is what the run is for.
+        let scale = if self.kind == DroidKind::Core {
+            scale * heart_look::CORE_SCALE
+        } else {
+            scale
+        };
         // A soft shadow (feature 98), and a wreck casts less of one, being
         // flatter and smaller.
         let w = self.kind.half_width();
@@ -960,6 +1096,11 @@ impl Droid {
         // 100), so the arc it stops things in is read before a shot is.
         if self.is_guardian() && !self.destroyed {
             self.draw_guardian_under(list);
+        }
+        // A conduit's line of light to the core it seals (feature 108),
+        // under the machines.
+        if self.kind == DroidKind::Conduit {
+            self.draw_conduit_link(list);
         }
         // The sparks, over the machine: the struck part's, and a fresh
         // wreck's. Put through the brush's frame first, so they ride the
@@ -977,6 +1118,12 @@ impl Droid {
                 (DroidKind::Trooper, true) => self.draw_trooper_wreck(&mut b),
                 (DroidKind::Warden, true) => self.draw_warden_wreck(&mut b),
                 (DroidKind::Guardian, true) => self.draw_guardian_wreck(&mut b),
+                (DroidKind::Core, false) => self.draw_core(&mut b),
+                (DroidKind::Conduit, false) => self.draw_conduit(&mut b),
+                (DroidKind::Fabricator, false) => self.draw_fabricator(&mut b),
+                (DroidKind::Core, true) => self.draw_core_wreck(&mut b),
+                (DroidKind::Conduit, true) => self.draw_conduit_wreck(&mut b),
+                (DroidKind::Fabricator, true) => self.draw_fabricator_wreck(&mut b),
             }
             for s in &self.sparks {
                 let t = 1.0 - s.age / SPARK_LIFE;
@@ -987,6 +1134,10 @@ impl Droid {
         // wreck, collapsing — the wind-up's line, and a wreck's smoke.
         if self.is_guardian() {
             self.draw_guardian_over(list);
+        }
+        // A sealed core's shell, its emitters and their targeting lines.
+        if self.kind == DroidKind::Core {
+            self.draw_core_over(list);
         }
         for (at, t, _) in sparks {
             list.circle(at, 2.0 + 3.0 * t, SPARK.glowing(SPARK_HEAT).alpha(0.9 * t));

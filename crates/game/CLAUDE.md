@@ -3633,3 +3633,53 @@ second column (`BIMS_DROIDS=1`, four rows now). `BIMS_FREEZE=sweep:n+f`
 and `shield:n+f` (`Cue::Shielded`, a bolt or a blow stopped on the plate)
 are how the beam and the flare are caught in a live fight; the root
 `CLAUDE.md` has the pictures' recipe.
+
+## The Machine Heart's machines (feature 108)
+
+`DroidKind::{Core = 5, Conduit = 6, Fabricator = 7}` — `DroidKind::HEART`,
+in `EVERY` (what `from_code` searches) and **not in `ALL`**, which is still
+the four that walk and come in waves. `is_structure()` says it: pace
+nought, never planned, never snapped by `adopt_droids` (they are built
+where `world::heart::places` put them, on free deck), and stepped by
+`Game::tick_structure` (`heart.rs`, a child of `game`) rather than the
+walkers' branch.
+
+- **One health.** `Droid::structure` builds one on `DroidBody::solid`:
+  every part reads the one number, every hit is taken off the Chassis,
+  and only the Chassis at nothing destroys it. `DroidBody`'s `Debug` is
+  written out by hand and prints `solid` only when it is, since the
+  survivors' reading takes a body by it.
+- **What the world says is on `Droid::heart`** (`HeartState`, in
+  `heart_look.rs`, a child of `droid`): the core sealed, how many of its
+  two emitters may fire, the damage factor, the sweep's pace, the overload
+  for the picture; a fabricator's build flaring; a conduit's link to the
+  core, kept by the room. Nothing here is decided in the room.
+- **The seal.** A sealed core takes nothing (`Droid::strike` answers
+  `None` — a grenade's burst asks no shield) and its `shield()` is
+  `Some(Vec2::ZERO)`, which `combat::shield_stops` reads as a shell all
+  round: a bolt or a blow from any side stops at
+  `GUARDIAN_SHIELD_RADIUS` and flares. `Target::sealed` keeps it out of
+  `aim_among` and `melee_among` unless it is marked, so the bots do not
+  spend a fight on it.
+- **The beams are the Guardian's.** Each emitter runs the `Beam` rhythm —
+  wind-up, sweep, cooldown — with no turn (a core faces every way), on the
+  nearest body it sees within reach, the second on somebody the first is
+  not on when there is anybody else (`core_pick`, ties to the lower index).
+  The beam leaves the core's rim along its aim and goes through
+  `Game::lay_beam`, which the Guardian's `let_the_beam_go` now goes
+  through too: `Shot::pace` and `Sweep::pace` (one for every beam but an
+  overloaded core's) carry how many times faster it sweeps, so the room it
+  is laid in sweeps it at the same pace — `Combat::sweep`, `shoot_sweep`
+  and `Game::enemy_sweep` take it.
+- **The pictures** (`heart_look.rs`): the core an armoured octagon with
+  vanes, a red orb and two emitter pods on its rim, drawn at
+  `CORE_SCALE`; sealed, a turning shell of plates with a rim past white;
+  overloaded, the orb flickering white-hot and the vanes glowing. A conduit
+  is a pylon with a crystal, a line of red light crawling to the core
+  while it seals it. A fabricator is a squat block with a bay and two arms
+  thrown wide when it builds. Each has a wreck over the common mess, and
+  every flicker is `Droid::scatter`.
+
+`heart.rs`'s tests: one health whatever part is hit, a sealed core taking
+nothing and shelled all round, and a picture and a different wreck for
+each.

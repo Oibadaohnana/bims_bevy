@@ -241,9 +241,10 @@ player's Bim** for the rest of the run. A bot never holds one.
   In a lobby the **host's** profile decides the run's pool and which
   classes can be picked, fixed at the start. A class added later can be
   made one to unlock the same way; every class there is now is open.
-- **Winning.** The end boss that wins a run is the next step; until it is
-  in, `BIMS_WIN=1` on any command wins the run the next time a site is
-  cleared with machines in it.
+- **Winning.** A run is won by destroying the **Machine Heart** at the
+  machines' origin — see [The Machine Heart](#the-machine-heart). For a
+  look at the victory screen without the fight, `BIMS_WIN=1` on any command
+  wins the run the next time a site is cleared with machines in it.
 - **Tier two on time.** With no research to wait on, the machines come at
   tier two once the world clock is **a fortnight** in: from then on a
   site's odds of tier two climb with its distance from the crew's own star
@@ -255,6 +256,46 @@ back to the ship, and the reward screen offers the site's relics.
 `BIMS_RELICS=focusing_lens,second_wind` gives your Bim those relics at the
 start, `BIMS_REWARD=1` opens straight on the reward screen and
 `BIMS_CACHE=1` with a cache opened in the mission.
+
+## The Machine Heart
+
+The run is won at the **crisis's origin**, the star the machines began
+at. Its system holds one site more than any other: the Heart's
+**fortress**, a station the size of the droids arena that is always the
+machines' and always at **tier three**. It is reached like any site in the
+origin's system — one hop at a time down the lanes, so the jammers on the
+way decide how soon — and the galaxy chart marks the origin with a red
+diamond once the crew have been in its system or a system next to it.
+Pick the fortress on the world map and its card says what it will be **on
+arrival**: how many conduits, the core's health, and the size and number
+of the waves — which grow with the world clock, so waiting costs.
+
+- **The core** stands in the fortress's hub, with two **fabricators**
+  beside it; **conduits** stand in the rooms round it, one a room — three,
+  and one more a player. Waves of machines come in by the fortress's
+  airlocks as at any held station, the waves in turn at each.
+- **Sealed.** While any conduit stands, the core is behind a shell that
+  stops every bolt and blow from every side, and it does not fire. A red
+  line of light runs from each conduit to it. Bring the conduits down.
+- **Exposed.** With the last conduit down, the core sweeps the Guardian's
+  beam — harder — at the nearest crew member it can see, player or bot,
+  and each fabricator still standing builds a tier-three machine every half
+  minute. A fabricator destroyed builds no more.
+- **Overload.** Under a third of its health the core sweeps **two** beams
+  at once, at two different targets when it can see two, twice as fast,
+  and the fabricators build twice as often.
+- **Won.** The core destroyed is the run won, whoever of the crew is dead —
+  the **victory screen** says how many days the world clock ran, the sites
+  cleared, the systems liberated (their jammer cleared), the machines
+  destroyed, the deaths and every player's relics, and which relics the
+  win unlocked; from there, back to the start menu.
+- **Leaving** before the core is down puts the whole fortress back as the
+  crew met it — conduits, fabricators, core and phase — and pays nothing
+  and offers no relic. The dead stay out until the next mission's buyback,
+  and the run is lost as ever when every player's Bim is dead at once.
+
+The top bar says it while the crew are there: the core's health, how many
+conduits are left, and the waves after them.
 
 ## Running it
 
@@ -283,6 +324,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#defense` | `cargo run -- defense` | **a town worth defending**: the ship set down at a friendly settlement with the machines one hyperlane hop away, so the town is next. A minute after the landing a wave sets down outside a gate and walks in; the town's guard and whatever mercenaries live there take arms, everybody else goes indoors, and the red line along the top counts the wave the way it counts a held station's. Hold the last wave and the town is yours to keep. `BIMS_DEFENSE_DELAY=n` is the wait before the first wave and `BIMS_DROID_WAVES=1` a fight short enough to finish |
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian**: the fight at tier three with every wave one Guardian and two Troopers — the largest machine, a walker behind a shield that stops everything from the front. Get round it |
 | `nix run .#relics` | `cargo run -- relics` | **the relics**: the droids arena with one short wave of four — clear it, go back to the ship, and the **reward screen** offers the site's relics to choose from. `BIMS_RELICS=focusing_lens,second_wind` gives your Bim those at the start, `BIMS_REWARD=1` opens on the reward screen, `BIMS_CACHE=1` with a relic cache opened in the mission and `BIMS_WIN=1` (on any command) wins the run on the next clear |
+| `nix run .#heart` | `cargo run -- heart` | **the Machine Heart**: the crew docked at its fortress at the machines' origin, everybody in tier-three kit, the waves the game's own — bring the conduits down, then the core. `BIMS_HEART_PHASE=2` opens with every conduit down, `=3` with the core overloading as well; `BIMS_DROID_WAVES=n` shortens the waves |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 
 Whichever of them you open, **Esc → Restart → Start again** puts the run back

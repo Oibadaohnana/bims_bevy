@@ -609,8 +609,52 @@ impl Session {
             .any(|e| matches!(e, world::WorldEvent::CacheOpened { .. }))
     }
 
+    /// The `heart` command (feature 108): [`Session::combat`]'s ship and
+    /// crew with everybody's kit at **tier three**
+    /// (`World::outfit_for_probe`), docked at the **Machine Heart's
+    /// fortress** — the machines' origin put at the crew's own star so its
+    /// system is theirs and the fortress laid in it
+    /// (`World::heart_dock_for_probe`). The waves are the game's own
+    /// formula, `waves` of them if a dial says so, the next landing
+    /// `reinforce` minutes of the mission clock after the last is down.
+    /// `phase` 2 or 3 opens the fight in that phase — every conduit down,
+    /// and for 3 the core's health just under the overload — which wants
+    /// the Heart on the deck, so the world is stepped until it is.
+    pub fn heart(
+        seed: u64,
+        reinforce: f64,
+        waves: Option<u32>,
+        phase: Option<world::heart::HeartPhase>,
+        width: f32,
+        height: f32,
+    ) -> Session {
+        let mut session = Session::combat(seed, width, height);
+        let Some(game) = session.game.as_mut() else {
+            return session;
+        };
+        let world = &mut game.world;
+        world.outfit_for_probe(bims::combat::Tier::Three);
+        if let Some(n) = waves {
+            world.set_droid_waves_for_probe(n);
+        }
+        world.set_droid_reinforce_minutes_for_probe(reinforce);
+        if !world.heart_dock_for_probe() {
+            return session;
+        }
+        if let Some(phase) = phase.filter(|&p| p != world::heart::HeartPhase::Sealed) {
+            for _ in 0..40 {
+                world.step(&[]);
+                if world.heart_status().is_some() {
+                    break;
+                }
+            }
+            world.set_heart_phase_for_probe(phase);
+        }
+        session
+    }
+
     /// `BIMS_WIN=1`: the run won the next time a site is cleared with
-    /// machines in it (`World::run_won`, until there is an end boss).
+    /// machines in it (`World::run_won`), without the Machine Heart's fight.
     pub fn win_on_clear_for_probe(&mut self) {
         if let Some(game) = self.game.as_mut() {
             game.world.set_win_on_clear(true);
