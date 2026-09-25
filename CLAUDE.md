@@ -120,8 +120,8 @@ bims droids` is one of its field medics going and fetching for itself.
 member's pack and starts the bandage cooldown afresh, and
 **`BIMS_MEDKITS=n`** the same for the medkit: since the medicine became
 **everybody's charges** — a medkit and five bandages each, a medic four
-and ten, back a minute and thirty seconds of the clock after each is
-used (`class::Charge::{Medkit, Bandage}`, `crates/world/CLAUDE.md`,
+and ten, back forty seconds (a medic's medkit thirty) and thirty
+seconds of the clock after each is used (`class::Charge::{Medkit, Bandage}`, `crates/world/CLAUDE.md`,
 "The medicine is everybody's charges") — nought is the empty box at
 the foot of the canvas with its **sweep** running, and `BIMS_BANDAGES=2`
 a part stock with the **ring** round its count filling. Five go in one

@@ -481,6 +481,33 @@ fn everybody_carries_a_medkit_and_five_bandages_that_come_back_on_their_cooldown
     assert_eq!(world.charges_of(0, Charge::Medkit), class::MEDKIT_CHARGES);
 }
 
+/// A medkit comes back in forty seconds of the clock, a medic's in
+/// thirty; a bandage in thirty for anybody.
+#[test]
+fn a_medic_s_medkit_comes_back_quicker_and_a_bandage_no_quicker() {
+    use crate::class::Charge;
+    let mut world = basic();
+    assert_eq!(world.set_class(0, Class::Medic), Ok(()));
+    assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
+    assert_eq!(world.charge_cooldown(0, Charge::Medkit), 30.0);
+    assert_eq!(world.charge_cooldown(1, Charge::Medkit), 40.0);
+    assert_eq!(world.charge_cooldown(0, Charge::Bandage), 30.0);
+    assert_eq!(world.charge_cooldown(1, Charge::Bandage), 30.0);
+    // And the clock on a spent kit runs at that rate.
+    hold_still(&mut world);
+    for who in [0, 1] {
+        world
+            .aboard
+            .room
+            .take_stack(who, Item::Stack(ResourceId::Medkit as u32), 1);
+    }
+    world.step(&[]);
+    let medic = world.charge_cooldown_left(0, Charge::Medkit);
+    let soldier = world.charge_cooldown_left(1, Charge::Medkit);
+    assert!(medic > 29.0 && medic <= 30.0, "{medic}");
+    assert!(soldier > 39.0 && soldier <= 40.0, "{soldier}");
+}
+
 #[test]
 fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_bot_lost() {
     use crate::armour::LootSource;

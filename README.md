@@ -1386,7 +1386,8 @@ no surge, no class at all — and what it does instead is this:
   down somewhere nothing can see them, and **treats them there**;
 * it carries a **medic's medicine** — four medkits and ten bandages, where
   anybody else carries one and five — and each one it spends comes back
-  into its pack on the same cooldown as anybody's (see *Medkits and
+  into its pack, a medkit in thirty seconds where anybody's takes forty
+  (see *Medkits and
   bandages are charges* under *Getting hurt*).
 
 Before anybody is down it is an ordinary crew member with a gun, and it
@@ -2864,9 +2865,11 @@ Nobody fills a pack out of the hold any more, and nobody walks to a
 cabinet for a kit. **Every crew member carries one medkit and five
 bandages**, whatever its class — a **medic**, of the class or a hired
 field medic, carries **four and ten** — and each one used **comes back
-into the pack on its own**: a medkit a minute of the clock after it
-was spent, a bandage thirty seconds after, one at a time, in a fight as
-out of one. Two boxes at the foot of the screen, past a rule beside the
+into the pack on its own**: a medkit forty seconds of the clock after
+it was spent — a medic's in thirty — a bandage thirty seconds after,
+one at a time, in a fight as out of one. **One medkit treats every
+trauma on the body at once**: a crewmate dying of a fractured femur and
+internal bleeding is got out of both by the one kit. Two boxes at the foot of the screen, past a rule beside the
 class's own, say how many your Bim has: the count sits on a disc in the
 corner, and while the next is on its way a **ring** round the disc
 fills clockwise; with none left the whole box goes dark and the dark

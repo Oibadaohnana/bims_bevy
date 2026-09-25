@@ -3568,8 +3568,13 @@ and a bandage are two more `class::Charge`s** — `Medkit = 3`,
   `BANDAGE_CHARGES` (5) for anybody, `MEDIC_MEDKIT_CHARGES` (4) and
   `MEDIC_BANDAGE_CHARGES` (10) for a medic **of either kind** —
   `can_lift`, the class or a hired field medic, since the trade is the
-  medicine. **`charge_cooldown`** is `MEDKIT_COOLDOWN` (60 s of the
-  clock) and `BANDAGE_COOLDOWN` (30 s), the same for a medic.
+  medicine. **`charge_cooldown`** is `MEDKIT_COOLDOWN` (40 s of the
+  clock) — `MEDIC_MEDKIT_COOLDOWN` (30 s) for a medic of either kind —
+  and `BANDAGE_COOLDOWN` (30 s), the same for a medic. One medkit
+  treats **every** trauma on the body (`Game::apply_treatments`), so a
+  body dying of two is one kit, not two.
+  `a_medic_s_medkit_comes_back_quicker_and_a_bandage_no_quicker` pins
+  the three.
   **`charges_of` counts by the unit** (`Gear::units_of`), since five
   dressings lie in one box; a kit or a grenade is one a cell as before.
 - **`restock_charges`** fills a short pack one charge a cooldown, in

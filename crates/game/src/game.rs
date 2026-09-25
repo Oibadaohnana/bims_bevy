@@ -8379,7 +8379,8 @@ impl Game {
     /// itself — with the kit in its own pack if it has one, else one of
     /// the room's medkits off a shelf: the walk over and
     /// [`task::TREAT_MINUTES`] with hands on it, and the trauma over when
-    /// the hands come off (`apply_treatments`). Refused for the same
+    /// the hands come off (`apply_treatments`) — with a kit, every
+    /// trauma on the body over, not only `part`'s. Refused for the same
     /// reasons a bandage is, for a helper that is the patient, no medkit,
     /// or a part with no trauma on it.
     pub fn treat(&mut self, who: usize, patient: usize, part: Part) -> bool {
@@ -8426,8 +8427,9 @@ impl Game {
     }
 
     /// Every treatment the chains finished this step, done: the trauma on
-    /// the part over (`Health::treat`), a medkit off the count, and the
-    /// world told. Under the same conditions as a dressing — the helper
+    /// the part over (`Health::treat`) — with a kit, every other trauma
+    /// on the body too, one kit for the lot — a medkit off the count, and
+    /// the world told. Under the same conditions as a dressing — the helper
     /// within two tiles of the patient, a medkit still to hand, the
     /// patient alive.
     fn apply_treatments(&mut self) {
@@ -8454,12 +8456,24 @@ impl Game {
             // And the patient's own *Trauma Kit* (feature 106): what the
             // part starts again from, raised, whoever holds the kit.
             let healing = self.skill(patient).healing;
-            if let Some(trauma) = self.bims[patient].health.treat_as(
-                part,
-                doctoring.clean_hands,
-                doctoring.treated_to * healing,
-            ) {
-                self.treated.push((patient, trauma));
+            // A medkit treats **every** trauma on the body at once, the
+            // part it was opened for first; bare hands only that part.
+            let mut parts = vec![part];
+            if !bare {
+                parts.extend(Part::ALL.into_iter().filter(|&p| p != part));
+            }
+            let mut any = false;
+            for part in parts {
+                if let Some(trauma) = self.bims[patient].health.treat_as(
+                    part,
+                    doctoring.clean_hands,
+                    doctoring.treated_to * healing,
+                ) {
+                    self.treated.push((patient, trauma));
+                    any = true;
+                }
+            }
+            if any {
                 self.healings.push(Healed {
                     helper,
                     patient,
@@ -10076,6 +10090,30 @@ mod tests {
             assert_eq!(game.lasting(1).len(), usize::from(trauma.after().is_some()));
             // The wound is still open: the medical row goes on to it.
             assert_eq!(game.medical_on_offer(0), Some(Care::Bandage(1, Part::Body)));
+        }
+
+        // --- one_medkit_treats_every_trauma_on_the_body_at_once ---
+        {
+            let mut game = room();
+            game.put_for_probe(0, vec2(ROOM_W * 0.55, ROOM_H * 0.5));
+            game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+            game.set_autonomous(false);
+            let body = game.wound(1, Part::Body, Part::Body.max()).trauma;
+            let legs = game.wound(1, Part::Legs, Part::Legs.max()).trauma;
+            let (body, legs) = (body.expect("dying"), legs.expect("dying"));
+            let had = game.medkits();
+            assert!(game.treat(0, 1, Part::Body));
+            let mut steps = 0;
+            while game.is_dying(1) && steps < 60 * 60 {
+                game.simulate(DT);
+                steps += 1;
+            }
+            assert!(!game.is_dying(1), "both over within the hour");
+            assert_eq!(game.trauma(1, Part::Legs), None, "the legs' too");
+            assert_eq!(game.medkits(), had - 1, "one kit for the two");
+            assert_eq!(game.take_medkits_used(), 1);
+            assert_eq!(game.take_treated(), vec![(1, body), (1, legs)]);
+            assert!(game.is_alive(1));
         }
     }
 

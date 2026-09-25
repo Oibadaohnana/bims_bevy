@@ -28,7 +28,8 @@
 //! its class, carries [`MEDKIT_CHARGES`] medkit and [`BANDAGE_CHARGES`]
 //! bandages that come back on [`MEDKIT_COOLDOWN`] and
 //! [`BANDAGE_COOLDOWN`] a charge — a medic of either kind
-//! [`MEDIC_MEDKIT_CHARGES`] and [`MEDIC_BANDAGE_CHARGES`] — and nothing
+//! [`MEDIC_MEDKIT_CHARGES`] and [`MEDIC_BANDAGE_CHARGES`], its medkits
+//! back on [`MEDIC_MEDKIT_COOLDOWN`] — and nothing
 //! is fetched out of the hold for a wound any more. The abilities that
 //! spend nothing are held instead of
 //! thrown — a brace, a beam, a bulwark, a squad order — and the ones
@@ -709,8 +710,11 @@ pub const BANDAGE_CHARGES: u32 = 5;
 pub const MEDIC_MEDKIT_CHARGES: u32 = 4;
 pub const MEDIC_BANDAGE_CHARGES: u32 = 10;
 /// Seconds of the clock one spent medkit takes to come back into the
-/// pack, and one spent bandage — a medic's no faster than anybody's.
-pub const MEDKIT_COOLDOWN: f64 = 60.0;
+/// pack — a medic's quicker, [`MEDIC_MEDKIT_COOLDOWN`] — and one spent
+/// bandage, a medic's no faster than anybody's. A medkit opened on a
+/// body treats **every** trauma on it at once (`Game::apply_treatments`).
+pub const MEDKIT_COOLDOWN: f64 = 40.0;
+pub const MEDIC_MEDKIT_COOLDOWN: f64 = 30.0;
 pub const BANDAGE_COOLDOWN: f64 = 30.0;
 
 // --- the soldier's numbers (feature 75) --------------------------------------

@@ -2020,7 +2020,12 @@ back; `WoundOutcome::trauma` carries it and `leg_lost` is derived.
   `apply_treatments` does it after everybody has moved, under the
   dressing's conditions, off `Room::medkits` (`set_medkits`,
   `take_medkits_used`, `MEDKITS_AT_DAWN` = 2 in a bare room; nought
-  aboard, below). `JOB_TREAT = 23`. The world is told through
+  aboard, below). **One kit treats every trauma on the body**: the part
+  it was opened for first, then the rest in `Part::ALL` order, each on
+  `take_treated`, and one `Healed` — one kit spent — for the lot. A
+  bare-handed treatment (*field surgeon*) is the one part alone.
+  `one_medkit_treats_every_trauma_on_the_body_at_once` (a block of
+  `a_crewmate_bleeding_or_dying_is_treated_by_whoever_is_free`) pins it. `JOB_TREAT = 23`. The world is told through
   `take_traumas()` and `take_treated()` (`CrewDying`, `CrewTreated`).
 - **The medical row: itself first, then a kit for the dying, then the
   rest.** `medical_on_offer` answers a `Care`: `Care::Bandage(who, part)`

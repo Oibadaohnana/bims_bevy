@@ -8326,7 +8326,7 @@ impl World {
 
     /// Seconds of the clock one spent charge takes to come back — the
     /// kind's own, and a talent's factor on it: *quick draw* halves the
-    /// grenade's.
+    /// grenade's. A medic's medkit comes back quicker than anybody's.
     pub fn charge_cooldown(&self, who: u32, charge: Charge) -> f64 {
         let own = match charge {
             Charge::Sandbag => deploy::SANDBAG_COOLDOWN,
@@ -8338,6 +8338,7 @@ impl World {
                     class::GRENADE_COOLDOWN
                 }
             }
+            Charge::Medkit if self.can_lift(who) => class::MEDIC_MEDKIT_COOLDOWN,
             Charge::Medkit => class::MEDKIT_COOLDOWN,
             Charge::Bandage => class::BANDAGE_COOLDOWN,
         };
