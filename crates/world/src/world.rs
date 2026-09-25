@@ -94,6 +94,12 @@ mod relics;
 mod fortress;
 pub use fortress::{HeartStatus, RunSummary};
 
+// The Manufacturers' half of the world (feature 109): which sites of this
+// system are theirs, their people laid on the deck, and the fight's few
+// differences from the machines'. A child for the same reason.
+#[path = "garrison.rs"]
+mod garrison;
+
 /// What a player can ask the world to do.
 ///
 /// Every one of them carries the slot that sent it, because every one of them
@@ -744,6 +750,13 @@ pub struct World {
     /// [`World::site_tier`]). Derived and never saved, as `droid_hops` is.
     #[cfg_attr(feature = "serde", serde(skip))]
     home_hops: Vec<u16>,
+    /// The sites made the Manufacturers' near the crew's own star on top
+    /// of the galaxy's roll (feature 109, [`crate::manufacturer::near_sites`]),
+    /// `(star, station)` pairs. Derived off the galaxy and
+    /// [`World::home_star`] at the start and at every load, as `home_hops`
+    /// is, and never saved.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    manufacturer_near: Vec<(u32, u32)>,
     /// The day the origin turns: **nought** — the crisis is there from
     /// the start (feature 102) — bar the `crisis` probe
     /// (`BIMS_CRISIS_DAY`), which moves it. In `world_checksum` with the
@@ -1221,6 +1234,9 @@ impl World {
         let droid_origin = droidplan::origin(&galaxy, star_id);
         let droid_hops = galaxy.hops_from(droid_origin);
         let home_hops = galaxy.hops_from(star_id);
+        // And which sites near home are the Manufacturers' on top of the
+        // roll (feature 109): derived the same way.
+        let manufacturer_near = crate::manufacturer::near_sites(&galaxy, star_id);
 
         let dynamics = flight::dynamics(&design, crew).map_err(StartError::NotAShip)?;
         let aboard = Aboard::new(&design, crew, seed);
@@ -1263,6 +1279,7 @@ impl World {
             droid_origin,
             droid_hops,
             home_hops,
+            manufacturer_near,
             // The crisis is there from day nought (feature 102): the
             // origin is the machines' the moment the run opens, and every
             // star due by then with it.
@@ -2582,7 +2599,10 @@ impl World {
                     // on it. Everything else that asks whether a droid
                     // is down asks the room; this list is the click's
                     // alone.
-                    let machine = who >= residents.aboard.room.crew_count();
+                    // Nor is a Manufacturer (feature 109): nothing of theirs
+                    // is ever taken.
+                    let machine = who >= residents.aboard.room.crew_count()
+                        || residents.aboard.room.is_manufacturer(who as usize);
                     (
                         residents.aboard.position(who),
                         !machine && residents.aboard.room.is_down(who as usize),
@@ -3177,7 +3197,9 @@ impl World {
         // `World::infested` rather than by `losses` (feature 83).
         let people = residents.aboard.room.crew_count() as usize;
         for who in 0..people {
-            if residents.aboard.room.is_alive(who) {
+            // Nor is a Manufacturer (feature 109): they are not the
+            // station's people, and their dead are nobody's grave.
+            if residents.aboard.room.is_alive(who) || residents.aboard.room.is_manufacturer(who) {
                 continue;
             }
             // Not `is_alive` is dead, not out cold — one out cold wakes,
@@ -6473,6 +6495,11 @@ impl World {
         if self.is_droid_held(id) {
             return;
         }
+        // **A site of the Manufacturers' is never the machines'** (feature
+        // 109): the spread passes it by, whoever holds it, cleared or not.
+        if self.is_manufacturer_station(id) {
+            return;
+        }
         // **A town the crew held is never taken** (feature 94): the
         // machines came for it once and were destroyed, and after that
         // the system falling round it changes nothing — it goes on
@@ -6531,6 +6558,7 @@ impl World {
         let galaxy = self.galaxy();
         self.droid_hops = galaxy.hops_from(self.droid_origin);
         self.home_hops = galaxy.hops_from(self.home_star);
+        self.manufacturer_near = crate::manufacturer::near_sites(&galaxy, self.home_star);
         // The hop table is what says whether this system is theirs, so
         // the jammer is settled behind it — and this is the call every
         // load goes through (`ship::Game::resume`), which is what keeps a
@@ -6765,6 +6793,9 @@ impl World {
             .iter()
             .map(|s| s.id)
             .filter(|&id| !jammer::is_derived(id) && !heart::is_heart(id))
+            // Never a site of the Manufacturers' (feature 109): they have
+            // no jammer.
+            .filter(|&id| !self.is_manufacturer_station(id))
             .min()
             .or_else(|| Some(jammer::jammer_id(self.star_id)))
     }
@@ -6836,14 +6867,22 @@ impl World {
         self.stations.retain(|s| !heart::is_heart(s.id));
         self.settle_derived_jammer();
         self.settle_heart();
+        // And the Manufacturers' sites of this system held by them (feature
+        // 109): the same doors — the start, a jump, a spread, every load.
+        self.settle_manufacturers();
     }
 
     /// [`World::settle_jammer`]'s own half: the derived jammer, the
     /// fortress out of the system while it is decided.
     fn settle_derived_jammer(&mut self) {
         let derived = jammer::jammer_id(self.star_id);
-        let wanted =
-            self.infested(self.star_id) && !self.stations.iter().any(|s| !jammer::is_derived(s.id));
+        // A system with no station the jammer could be on: none at all, or
+        // only the Manufacturers', who have no jammer (feature 109).
+        let wanted = self.infested(self.star_id)
+            && !self
+                .stations
+                .iter()
+                .any(|s| !jammer::is_derived(s.id) && !self.is_manufacturer_station(s.id));
         let had = self.stations.iter().any(|s| s.id == derived);
         if wanted && had {
             return;
@@ -7068,7 +7107,7 @@ impl World {
         let alive = (0..room.droid_count() as usize)
             .filter_map(|i| room.droid(i))
             .any(|d| !d.destroyed && d.wave == wave);
-        if !alive {
+        if !alive && !(self.is_manufacturer_held(station) && self.manufacturers_standing() > 0) {
             return None;
         }
         let design = &self.station(station)?.design;
@@ -7182,6 +7221,9 @@ impl World {
                     .is_some_and(|d| !d.destroyed && !d.kind.is_structure())
             })
             .count() as u32
+            // And the Manufacturers on their feet (feature 109): one down
+            // bleeding out is out of the wave, and holds nothing up.
+            + self.manufacturers_standing()
     }
 
     /// The machines a wave of `n` is, built: the kinds
@@ -7253,16 +7295,31 @@ impl World {
     /// a surface, just inside the gate its lander set down beyond, north
     /// for an odd wave and south for an even one.
     fn arriving_wave(&self, station: &Station, n: u32, wave: u32) -> Vec<bims::droid::Droid> {
-        let Some(residents) = &self.residents else {
+        let Some((spots, facing)) = self.arrival_spots(station, n, wave) else {
             return Vec::new();
         };
+        self.build_wave(n, wave, &spots, facing, station.map_seed)
+    }
+
+    /// Where a wave of `n` that **arrives** is stood, in the residents'
+    /// room's own units, and which way it faces: round the spot just
+    /// inside the airlock its ship tied up at, or inside the gate its
+    /// lander set down beyond. The machines' reinforcements and the
+    /// Manufacturers' (feature 109) land alike.
+    pub(super) fn arrival_spots(
+        &self,
+        station: &Station,
+        n: u32,
+        wave: u32,
+    ) -> Option<(Vec<bims::math::Vec2>, f32)> {
+        let residents = self.residents.as_ref()?;
         let (at, facing) = if crate::surface::surface_body(station.id).is_some() {
             let (spot, face) = droidplan::gate_spot(station.design.build_area, wave);
             (spot, bims::math::vec2(face.0 as f32, face.1 as f32).angle())
         } else {
             let Some(port) = droidplan::arrival_airlock_at(&station.design, station.id, wave)
             else {
-                return Vec::new();
+                return None;
             };
             let spot = droidplan::inside_of(&port, data::ASHORE_TILES);
             (
@@ -7286,7 +7343,7 @@ impl World {
                 middle + bims::math::Vec2::from_angle(angle) * (ring * t * 1.5)
             })
             .collect();
-        self.build_wave(n, wave, &spots, facing, station.map_seed)
+        Some((spots, facing))
     }
 
     /// Put the wave that is aboard into the residents' room, if the room
@@ -7300,6 +7357,11 @@ impl World {
         };
         let id = residents.station;
         if !self.is_droid_held(id) {
+            return;
+        }
+        // A site of the Manufacturers' lays its own (feature 109).
+        if self.is_manufacturer_held(id) {
+            self.lay_manufacturers();
             return;
         }
         // A wave laid this step but with no room to go into yet.
@@ -7364,7 +7426,7 @@ impl World {
         // The count is fixed at the crew's **first dock** and never
         // worked out again.
         if self.aboard.is_joined() && self.infestation(id).is_some_and(|it| !it.settled) {
-            let waves = self.droid_wave_count();
+            let waves = self.wave_count_here(id);
             if let Some(it) = self.infestation_mut(id) {
                 it.settle(waves);
             }
@@ -7377,7 +7439,7 @@ impl World {
         // The mission clock (feature 103): a wave is timed from the
         // arrival, whatever day it is.
         let now = self.run.mission_steps;
-        let reinforce = self.droid_reinforce;
+        let reinforce = self.reinforce_steps_here(id);
         let mut arrive = false;
         let mut cleared = false;
         if let Some(it) = self.infestation_mut(id) {
@@ -8180,6 +8242,11 @@ impl World {
                 continue;
             };
             let at = bims::math::vec2(at.x as f32, at.y as f32);
+            // **One award an enemy, at its first down or death** (feature
+            // 109): out cold, or dead without being down first — every
+            // machine — is the same [`class::XP_ENEMY_DOWN`], and one down
+            // that dies later, bled out or shot where it lies, is nothing
+            // more.
             if down && !residents.xp_down[who] {
                 gained.push((at, class::XP_ENEMY_DOWN));
                 downed.push((who, residents.last_hit_by.get(who).copied().flatten()));
@@ -8189,9 +8256,6 @@ impl World {
                 if who < residents.aboard.room.crew_count() as usize {
                     bounty = bounty.saturating_add(bounty_for(gear_tier(room, who)));
                 }
-            }
-            if dead && !residents.xp_dead[who] {
-                gained.push((at, class::XP_ENEMY_DEAD));
             }
         }
         if let Some(residents) = &mut self.residents {

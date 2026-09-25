@@ -4620,3 +4620,97 @@ put back whole; the preview matching the fight on arrival; and two worlds
 alike step for step through it. `heart.rs`'s own tests pin the id and the
 placement. **`SAVE_VERSION` 38, `wire::PROTOCOL` 30**, `REFERENCE_CHECKSUM`
 re-pinned for the run's counters; `SURVIVORS` unmoved.
+
+## The Manufacturers (feature 109)
+
+A human faction the crew fight from the first day of a run: the people who
+built the machines. `crate::manufacturer` is the rules — which sites, who
+stands in a garrison, what each carries — and `garrison.rs` (a child of
+`world`, like `mission.rs` and `fortress.rs`) is where they meet the
+world's fields. The whole schedule is `data::MANUFACTURER_*`.
+
+- **Which sites is stateless, like the crisis.** `manufacturer::holds`: an
+  orbital station (`eligible` — never a settlement, a derived jammer or the
+  fortress) outside the home system, either `rolled` off the galaxy's seed
+  (`MANUFACTURER_SITE_CHANCE`, ten in a hundred) or one of
+  `near_sites(galaxy, home)` — what the start makes up so there are at
+  least `MANUFACTURER_NEAR_SITES` (2) within `MANUFACTURER_NEAR_HOPS` (2)
+  lanes of home. `World::manufacturer_near` is that list, **derived** at the
+  start and in `settle_crisis` (every load) like `home_hops`, never saved.
+  `World::is_manufacturer_station(id)` asks it of this system,
+  `is_manufacturer_site(star, blueprint)` of any.
+- **A site of theirs is held the way the machines hold one**: an
+  `Infestation` flagged `manufacturers` (serde default, hashed by
+  `eat_manufacturers` only where set, so no machines' site's hash moved).
+  `settle_manufacturers` lays one for every site of theirs in the system,
+  at the end of `settle_jammer` — the start, a jump (after the memory is
+  recalled), the spread and every load — never over one already there, so
+  a cleared site stays cleared. So `is_droid_held` is **"held by an
+  enemy"**: the stance is Hostile, `people_of` and `mercenaries_of` are
+  nought, no desk quotes, and the waves' clock, the clear, the pending
+  bounty, the relic reward and cache and the `SiteSnapshot` put-back all
+  work unchanged. `is_manufacturer_held(id)` is the flag.
+- **Not infested.** `infest` refuses a site of theirs (the spread passes it
+  by); `jammer_station`, `settle_derived_jammer`, the quote's jammer and
+  `sites_in`'s derived jammer skip them — a system whose only orbitals are
+  theirs gets the machines' derived jammer. `TravelQuote::manufacturers`
+  says so, `infested` and `jammer` false, and `tier` the tier of what they
+  will carry on arrival.
+- **Who stands there** — `lay_manufacturers`, the branch `settle_droids`
+  takes at a site of theirs. Wave one is the **garrison**: `droid_wave_size`
+  bodies about the station's rooms (`spots_about`), each rolled a Trooper
+  at `trooper_percent(day)` while `has_droids(day)` (before
+  `MANUFACTURER_DROIDS_LOST_DAY`, ten) and one of their people otherwise;
+  a later wave is their people alone at `arrival_spots` (split out of
+  `arriving_wave`). The seed is the galaxy, the star, the station, the wave
+  and the **world clock** (`garrison_seed`), so a visit's garrison is fixed
+  and the next visit's is rolled afresh. Their people are enlisted
+  (`Game::enlist_manufacturer`) **before** the Troopers, since a body index
+  past the Bims is a machine's; reinforcements are their people alone, so
+  no Bim is ever added while machines stand. `Residents::manufacturers_laid`
+  says which wave the room holds (a fresh room is nought; the room can hold
+  graves as Bims, so "any Bims" would not do), and nothing is laid on a
+  cleared site. The room's shelf of medkits goes to nought.
+- **What they carry** is `manufacturer::gear(day, droid_tier, seed, ids)`
+  → `Gear::manufacturer`: the pistol alone before day three, a tier-one
+  gun (never the schword) from it, tier-one armour besides from day six,
+  and gun and armour at `droid_tier()` from day ten.
+  `World::manufacturer_tier` is that tier (one before day ten) — what a
+  clear's relics are drawn at (`site_tier_code`); the bounty is
+  `bounty_for(gear_tier)`, paid through `experience`'s Bim branch at the
+  first down or death, pending until the clear.
+- **The waves**: `wave_count_here` is one while they have the machines and
+  `droid_wave_count` after; `reinforce_steps_here` is
+  `MANUFACTURER_REINFORCE_STEPS` (four hours of the mission clock) unless a
+  probe moved `droid_reinforce`. `droids_standing` adds
+  `manufacturers_standing` — alive and **not out cold** — so one down and
+  bleeding holds no wave and no clear up. `droid_ship` draws their ship at
+  the airlock while their wave stands.
+- **Nothing of theirs is taken**: `visit`'s click list is false for one
+  (no Loot window), a loot of any resident is refused as ever, and
+  `close_residents` counts no loss and lays no grave for one — they are not
+  the station's people. The room keeps their gun with the body and nobody
+  doctors, carries or binds for them (`crates/game/CLAUDE.md`).
+- **Experience, for every enemy**: `XP_ENEMY_DOWN` (ten) once, at the first
+  down or death — out cold, or dead without being down first (every
+  machine); a death after a down is nothing. `XP_ENEMY_DEAD` went. That
+  moved `SURVIVORS` (the constant's note says how it was checked).
+
+`tests_manufacturer.rs` is the feature: sites near home and none at home,
+the map's tag, day nought's pistols and its clear on the last down (out
+cold, not dead) with the bounty and ten a head, a Manufacturer down
+bleeding out with nothing taken and nothing more for its death, day
+eight's Troopers, day ten's waves at four hours, the crisis passing a site
+by and the jammer elsewhere, two worlds meeting the same garrison, a site
+left uncleared met afresh with no graves, and the two sides shooting each
+other. `manufacturer::tests` pins the schedule and the one-in-ten.
+`World::manufacturer_dock_for_probe(day)` (the nearest site by
+`nearest_manufacturer_site`, a trip a lane, the clock put at the day —
+rewound, rooms and all, when the trips took longer) is the tests' and the
+`manufacturers` command's. **`SAVE_VERSION` 39, `wire::PROTOCOL` 31** (the
+relay wants redeploying); `REFERENCE_CHECKSUM` and the ship's `PINNED` and
+`PICTURES` did not move.
+
+**Not done**: the threat chip along the top still says *machines* at a
+site of theirs (the spec kept the HUD to the nameplate); a relic that reads
+kills (*Salvage Beacon*, *Kill Relay*) counts machines only, as before.

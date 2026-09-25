@@ -352,6 +352,9 @@ pub struct TravelQuote {
     /// Whether the site is somewhere the crew have already cleared or
     /// held.
     pub cleared: bool,
+    /// Whether the site is the Manufacturers' (feature 109): their people
+    /// on the deck, and [`TravelQuote::tier`] what they will carry.
+    pub manufacturers: bool,
     /// At the Machine Heart's fortress (feature 108), what the crew would
     /// meet on arrival: the conduits, the core, and the waves at the
     /// arrival day. `None` at every other site.

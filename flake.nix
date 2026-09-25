@@ -245,6 +245,11 @@
             what = "heart";
             about = "The Machine Heart: the crew docked at its fortress at the machines' origin in tier-three kit";
           };
+          bims-manufacturers = runFor {
+            name = "bims-manufacturers";
+            what = "manufacturers";
+            about = "A site of the Manufacturers': the combat crew at the nearest one, their people with Troopers beside them";
+          };
         }
         # The machines' fight, one build a class, so a class is looked at
         # in the fight it is for without a `BIMS_CLASS` in front of the
@@ -286,6 +291,7 @@
             bims-guardian
             bims-relics
             bims-heart
+            bims-manufacturers
             bims-stationbuilder
             bims-server
             ;
@@ -321,6 +327,8 @@
       # to the ship, and the reward screen offers relics (feature 106);
       # `.#heart` is the Machine Heart: the crew docked at its fortress at the
       # machines' origin in tier-three kit (feature 108);
+      # `.#manufacturers` is the nearest site of the Manufacturers', the combat
+      # crew there with Troopers beside their people (feature 109);
       # saves beside the working tree rather than inside the store;
       # `.#server` is the relay the game finds its crew through, run on
       # the server box rather than a desk.
@@ -351,6 +359,7 @@
           guardian = app built.bims-guardian "The fight at tier three with every wave one Guardian and two Troopers: its shield, its turn and its beam";
           relics = app built.bims-relics "The droids arena with one short wave: clear it, go back to the ship, and the reward screen offers the site's relics";
           heart = app built.bims-heart "The Machine Heart: the crew docked at its fortress at the machines' origin in tier-three kit";
+          manufacturers = app built.bims-manufacturers "A site of the Manufacturers': the combat crew at the nearest one, their people with Troopers beside them";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           server = app built.bims-server "The relay: rooms by code, and bytes passed between the players in one — what runs at bims.buggly.de";
           default = game;

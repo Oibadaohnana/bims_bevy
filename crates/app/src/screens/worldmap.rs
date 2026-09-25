@@ -175,6 +175,10 @@ fn tags(quote: &TravelQuote) -> String {
     if quote.heart.is_some() {
         words.push(ARRIVE_HEART.into());
     }
+    if quote.manufacturers {
+        words.push(ARRIVE_MANUFACTURERS.into());
+        words.push(arrive_tier(quote.tier.code()));
+    }
     words.join(" · ")
 }
 

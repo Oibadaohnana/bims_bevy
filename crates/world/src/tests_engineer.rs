@@ -286,7 +286,7 @@ fn experience_climbs_the_levels_and_a_level_up_is_said_once() {
 
 /// A machine destroyed is experience to every classed crew member in
 /// range, once: a wreck is down and dead at the same instant, so it is
-/// `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` together and never again.
+/// `XP_ENEMY_DOWN` alone (feature 109; it was `XP_ENEMY_DEAD` besides) and never again.
 #[test]
 fn a_machine_destroyed_is_experience_once_each_to_the_classed_crew_in_range() {
     let mut world = fight();
@@ -308,7 +308,7 @@ fn a_machine_destroyed_is_experience_once_each_to_the_classed_crew_in_range() {
     for _ in 0..3 {
         world.step(&[]);
     }
-    let paid = class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD;
+    let paid = class::XP_ENEMY_DOWN;
     assert_eq!(world.progress_of(0).xp, a + paid, "James");
     assert_eq!(world.progress_of(1).xp, b + paid, "Kate");
     world.step(&[]);

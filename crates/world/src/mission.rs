@@ -74,7 +74,13 @@ impl World {
                 station: s.id,
             })
             .collect();
-        if system.stations.is_empty() && self.infested(star) {
+        // No station the jammer could be on: none at all, or only the
+        // Manufacturers', who have none (feature 109).
+        let none = !system
+            .stations
+            .iter()
+            .any(|s| !self.is_manufacturer_site(star, s));
+        if none && self.infested(star) {
             sites.push(Site {
                 star,
                 station: jammer::jammer_id(star),
@@ -259,11 +265,22 @@ impl World {
         };
         let arrival = self.clock_minutes.floor() as u64 + minutes;
         let arrival_day = (arrival / (time::DAY as u64)) as u32;
+        // A site of the Manufacturers' (feature 109): theirs whatever the
+        // crisis has done round it, so never infested and never a jammer,
+        // and the tier said is what their people will carry on arrival.
+        let manufacturers = system
+            .station(site.station)
+            .is_some_and(|s| self.is_manufacturer_site(site.star, s));
         let turns = self.infested_on(site.star);
-        let infested = turns != u32::MAX && arrival_day >= turns;
+        let infested = !manufacturers && turns != u32::MAX && arrival_day >= turns;
         let tier = match self.droid_tier {
             Some(tier) => tier,
             None => self.site_tier(site.star, Some(site.station), arrival as f64),
+        };
+        let tier = if manufacturers {
+            crate::manufacturer::gear_tier(arrival_day, tier)
+        } else {
+            tier
         };
         // The jammer on arrival: the lowest orbital station of a system
         // the machines have by then, or theirs where it has none.
@@ -272,6 +289,11 @@ impl World {
             .iter()
             .map(|s| s.id)
             .filter(|&id| !jammer::is_derived(id) && !heart::is_heart(id))
+            .filter(|&id| {
+                !system
+                    .station(id)
+                    .is_some_and(|s| self.is_manufacturer_site(site.star, s))
+            })
             .min();
         let jammer = infested
             && surface::surface_body(site.station).is_none()
@@ -324,6 +346,7 @@ impl World {
             jammer,
             threatened,
             cleared,
+            manufacturers,
             // The Machine Heart's strength on arrival (feature 108).
             heart: self.heart_preview(site.station, self.clock_minutes + minutes as f64),
         })

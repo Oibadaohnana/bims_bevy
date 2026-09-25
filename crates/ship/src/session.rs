@@ -630,6 +630,35 @@ impl Session {
     /// `phase` 2 or 3 opens the fight in that phase — every conduit down,
     /// and for 3 the core's health just under the overload — which wants
     /// the Heart on the deck, so the world is stepped until it is.
+    /// A site of the **Manufacturers'** looked at (feature 109): the
+    /// combat ship's crew of [`Session::combat`] taken to the nearest site of
+    /// theirs (`World::manufacturer_dock_for_probe`) and the world clock put
+    /// at `day`, so the garrison laid the first step is that day's — their
+    /// people alone with pistols before day five, Troopers beside them
+    /// from it, their own waves in better kit from day ten. `wave` forces a
+    /// wave's size (`BIMS_DROID_WAVE`), and `reinforce` is the minutes
+    /// between their waves, as `droids`' is.
+    pub fn manufacturers(
+        seed: u64,
+        day: u32,
+        wave: Option<u32>,
+        reinforce: f64,
+        width: f32,
+        height: f32,
+    ) -> Session {
+        let mut session = Session::combat(seed, width, height);
+        let Some(game) = session.game.as_mut() else {
+            return session;
+        };
+        let world = &mut game.world;
+        if let Some(n) = wave {
+            world.set_droid_wave_for_probe(n);
+        }
+        world.set_droid_reinforce_minutes_for_probe(reinforce);
+        world.manufacturer_dock_for_probe(day);
+        session
+    }
+
     pub fn heart(
         seed: u64,
         reinforce: f64,
@@ -1630,6 +1659,15 @@ impl Session {
         let room = &game.world.residents.as_ref()?.aboard.room;
         let i = (who as usize).checked_sub(room.crew_count() as usize)?;
         room.droid(i).map(|d| d.kind.code())
+    }
+
+    /// Whether that body of a station's room is a **Manufacturer** (feature
+    /// 109): what the app writes over its head instead of a name.
+    pub fn resident_manufacturer(&self, who: u32) -> bool {
+        self.game
+            .as_ref()
+            .and_then(|g| g.world.residents.as_ref())
+            .is_some_and(|r| r.aboard.room.is_manufacturer(who as usize))
     }
 
     /// Where a resident is, in the ship view's camera units about the ship.

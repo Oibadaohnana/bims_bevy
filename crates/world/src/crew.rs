@@ -661,6 +661,14 @@ pub struct Residents {
     /// open. Its death is already in `World::losses`, so
     /// `World::close_residents` must not count it a second time.
     pub grave: Vec<bool>,
+    /// Which of a Manufacturers' site's waves are on this room's deck
+    /// (feature 109): nought for a room opened fresh, and the wave's
+    /// number once `World::lay_manufacturers` has laid it. The machines'
+    /// own need no such mark — a fresh room has none of them, and a room
+    /// with any has its wave — but the Manufacturers are Bims, and a room
+    /// can hold the station's dead besides.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub manufacturers_laid: u32,
 }
 
 impl Residents {
@@ -779,6 +787,7 @@ impl Residents {
             fee,
             medic,
             grave,
+            manufacturers_laid: 0,
         }
     }
 

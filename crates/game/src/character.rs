@@ -77,6 +77,13 @@ const SLEEVE_STATION: Color = Color::rgb(0.70, 0.41, 0.18);
 /// hired hands are not crew.
 const SHIRT_MERCENARY: Color = Color::rgb(0.40, 0.47, 0.30);
 const SLEEVE_MERCENARY: Color = Color::rgb(0.31, 0.37, 0.23);
+/// A Manufacturer's (feature 109): black with gold at the yoke and the
+/// cuffs, the one faction that is rich and the one no townsperson or crew
+/// member is ever mistaken for. The black is lifted off the outline's own,
+/// so the figure holds its shape in the dark.
+const SHIRT_MANUFACTURER: Color = Color::rgb(0.14, 0.13, 0.14);
+const SLEEVE_MANUFACTURER: Color = Color::rgb(0.19, 0.17, 0.14);
+const GOLD: Color = Color::rgb(0.83, 0.66, 0.24);
 /// The pressure suit, and the visor over the head while it is worn.
 const SHIRT_SUIT: Color = Color::rgb(0.86, 0.88, 0.92);
 const SLEEVE_SUIT: Color = Color::rgb(0.70, 0.73, 0.79);
@@ -308,6 +315,10 @@ pub enum Uniform {
     /// A mercenary's, at a station or hired aboard: the world says who
     /// is one (`world::mercenary`), the room only draws it.
     Mercenary,
+    /// A Manufacturer's (feature 109): black and gold. Worn by the one
+    /// human faction the crew fight and by nobody else; drawing only, like
+    /// the rest — what makes a body a Manufacturer is `Bim::manufacturer`.
+    Manufacturer,
     /// A pressure suit, worn for a walk outside and drawn with a visor over
     /// the head. Put on by [`Character::go_outside`] over whichever of the
     /// other two the body wears, and taken off again by
@@ -321,7 +332,17 @@ impl Uniform {
             Uniform::Crew => SHIRT,
             Uniform::Station => SHIRT_STATION,
             Uniform::Mercenary => SHIRT_MERCENARY,
+            Uniform::Manufacturer => SHIRT_MANUFACTURER,
             Uniform::Suit => SHIRT_SUIT,
+        }
+    }
+
+    /// The yoke across the shoulders: the wearer's own colour, but gold on
+    /// a Manufacturer, whose coverall says whose it is rather than who.
+    fn yoke(self, own: Color) -> Color {
+        match self {
+            Uniform::Manufacturer => GOLD,
+            _ => own,
         }
     }
 
@@ -330,6 +351,7 @@ impl Uniform {
             Uniform::Crew => SLEEVE,
             Uniform::Station => SLEEVE_STATION,
             Uniform::Mercenary => SLEEVE_MERCENARY,
+            Uniform::Manufacturer => SLEEVE_MANUFACTURER,
             Uniform::Suit => SLEEVE_SUIT,
         }
     }
@@ -2004,7 +2026,12 @@ impl Character {
         // The yoke across the shoulders, in the wearer's own colour — the
         // coverall is the ship's or the station's and says nothing about
         // who is in it.
-        b.ellipse(vec2(-6.5, 0.0), vec2(7.0, 24.0), 0.0, self.look.trim());
+        b.ellipse(
+            vec2(-6.5, 0.0),
+            vec2(7.0, 24.0),
+            0.0,
+            self.uniform.yoke(self.look.trim()),
+        );
         // The vest: a dark plate over the torso, set forward so the yoke
         // still shows at the collar behind it, strapped on at the sides.
         if let Some(vest) = self.armour[1] {
@@ -2042,6 +2069,10 @@ impl Character {
                     0.0,
                     self.outfit.dye(self.uniform.sleeve(), self.uniform),
                 );
+                // And a Manufacturer's gold cuff.
+                if self.uniform == Uniform::Manufacturer {
+                    b.ellipse(at, vec2(SLEEVE_WIDE * 0.5, SLEEVE_WIDE * 0.5), 0.0, GOLD);
+                }
             }
         }
 
@@ -2274,7 +2305,7 @@ impl Character {
             vec2(-6.5, 0.0),
             vec2(7.0, 24.0),
             0.0,
-            tone(self.look.trim()),
+            tone(self.uniform.yoke(self.look.trim())),
         );
         if let Some(vest) = self.armour[1] {
             b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, tone(KEVLAR));

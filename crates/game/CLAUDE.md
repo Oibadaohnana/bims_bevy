@@ -3683,3 +3683,34 @@ walkers' branch.
 `heart.rs`'s tests: one health whatever part is hit, a sealed core taking
 nothing and shelled all round, and a picture and a different wreck for
 each.
+
+## A Manufacturer is a hostile Bim with three things taken away (feature 109)
+
+The world lays the Manufacturers' people in a station's room
+(`crates/world/CLAUDE.md`, "The Manufacturers") through
+`Game::enlist_manufacturer(at, gear, seed, plan_wait)`: a `Bim::new` at the
+end of the Bims, adopted (`Game::adopt`, so snapped to free deck), in
+`Uniform::Manufacturer`, hostile if the room's bodies are, its face off
+`Look::of` past the classic pair by the seed — **no draw on the room's
+stream**, so laying a site moves no fight's roll. It goes on the end of the
+Bims, so the world enlists a wave's people **before** its machines.
+
+Everything the kept hostile-Bim code does it does — the war, the muster,
+`plan_stand`, the hunt, the recorded shots, the run when dying — with
+`Bim::manufacturer` (serde default) taking three things away:
+
+- **Nobody saves one.** `needs_rescue` is false for it, `bandage` and
+  `treat` refuse it as a patient, and `medical_on_offer` offers one nothing,
+  its own wounds included — the world gives them no dressings and puts the
+  room's shelf at nought besides. Down, it bleeds out.
+- **It binds nothing sealed in** (the enemy's run's `bind_timer` wound).
+- **Its gun stays with the body**: `drop_weapon` only puts it out of the
+  hands, so nothing lies on the deck.
+
+The look is `Uniform::Manufacturer`: a charcoal black coverall (lifted off
+the outline so the figure holds its shape in the dark), a **gold** yoke
+(`Uniform::yoke`) where everybody else wears their own colour, and gold
+cuffs on the arms at rest. `Gear::manufacturer` is their kit
+(`MANUFACTURER_ODDS`: the four guns, the schword at nothing and first so
+rounding never lands on it), and `Game::set_clock_for_probe` puts a room's
+clock back for a probe that moves the world's back.

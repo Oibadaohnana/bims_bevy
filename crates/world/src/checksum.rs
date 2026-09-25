@@ -148,6 +148,7 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(u64::from(it.cleared));
         hash.eat(u64::from(it.cache));
         eat_heart(&mut hash, it.heart.as_ref());
+        eat_manufacturers(&mut hash, it);
     }
     hash.eat(u64::from(world.droid_tier().code()));
     hash.eat(world.droid_reinforce_steps());
@@ -356,6 +357,7 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(it.cleared));
             hash.eat(u64::from(it.cache));
             eat_heart(&mut hash, it.heart.as_ref());
+            eat_manufacturers(&mut hash, it);
         }
     }
 
@@ -661,6 +663,14 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(u64::from(run.systems_liberated));
 
     hash.0
+}
+
+/// Whether a held site is the Manufacturers' (feature 109): eaten only
+/// where it is, so a machines' site hashes as it always did.
+fn eat_manufacturers(hash: &mut Fnv, it: &crate::droid::Infestation) {
+    if it.manufacturers {
+        hash.eat(0x_4D41_4E55);
+    }
 }
 
 /// The Machine Heart's fight on its fortress's infestation (feature 108):

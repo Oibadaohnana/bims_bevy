@@ -1027,3 +1027,15 @@ fn scripted_input(
         }
     }
 }
+
+/// Which day of the world clock the `manufacturers` command puts the crew
+/// at the site of theirs on (feature 109): `BIMS_MANUFACTURER_DAY=0` for
+/// their people alone with pistols, `8` — the command's own — for half of
+/// the garrison Troopers beside them, and ten or more for their own waves
+/// in the machines' tier of kit.
+pub fn manufacturer_day() -> u32 {
+    std::env::var("BIMS_MANUFACTURER_DAY")
+        .ok()
+        .and_then(|spec| spec.trim().parse::<u32>().ok())
+        .unwrap_or(8)
+}

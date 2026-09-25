@@ -190,8 +190,14 @@ impl World {
     }
 
     /// The tier the machines at a site come at, as a number: what its
-    /// relics are drawn at.
+    /// relics are drawn at. At a site of the Manufacturers' (feature 109)
+    /// the tier of what **they** carry — tier one for the pistol days —
+    /// whatever the Troopers beside them came at.
     fn site_tier_code(&self) -> u8 {
+        let site = self.ship.state.alongside().or(self.run.site);
+        if site.is_some_and(|id| self.is_manufacturer_held(id)) {
+            return self.manufacturer_tier().code() as u8;
+        }
         self.droid_tier().code() as u8
     }
 

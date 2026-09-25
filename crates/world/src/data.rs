@@ -263,6 +263,44 @@ pub const DROID_REINFORCE_STEPS: u64 = 7_200;
 /// unloaded through.
 pub const DROID_LANDER_TILES: f64 = 7.0;
 
+// --- the Manufacturers (feature 109, `crate::manufacturer`) -----------------
+//
+// The human faction that built the machines and defends what it made. A
+// site of theirs is a station they hold from the start of a run: a
+// garrison of their people with the machines beside them until they lose
+// control of the machines, and waves of their own people after. The whole
+// schedule is here.
+
+/// A site of the galaxy is theirs with odds of this many in a hundred —
+/// any orbital station but the crew's home and the machines' own derived
+/// ones, rolled once a site off the galaxy's seed. Never a town.
+pub const MANUFACTURER_SITE_CHANCE: u32 = 10;
+/// And at least this many of theirs within [`MANUFACTURER_NEAR_HOPS`]
+/// lanes of the crew's own star, none in it: the crew have somebody to
+/// fight from the first day. Made up out of the eligible stations there
+/// where the roll gave fewer.
+pub const MANUFACTURER_NEAR_SITES: usize = 2;
+pub const MANUFACTURER_NEAR_HOPS: u16 = 2;
+/// The day they **lose the machines**: before it a site of theirs is a
+/// fixed garrison with Troopers fighting beside them and no reinforcement;
+/// from it on their own people alone, in waves, geared by the machines'
+/// tier rules.
+pub const MANUFACTURER_DROIDS_LOST_DAY: u32 = 10;
+/// Before this day they carry the laser pistol and nothing else.
+pub const MANUFACTURER_ANY_GUN_DAY: u32 = 3;
+/// From this day (until [`MANUFACTURER_DROIDS_LOST_DAY`]) a tier-one helm,
+/// kevlar and leg guards besides the tier-one gun.
+pub const MANUFACTURER_ARMOUR_DAY: u32 = 6;
+/// The share of a garrison that is a **Trooper** rather than one of their
+/// people, by day: each row from its day on, until the next row's. Each
+/// body of the garrison is rolled on its own against it.
+pub const MANUFACTURER_TROOPER_PERCENT: [(u32, u32); 6] =
+    [(0, 0), (5, 10), (7, 25), (8, 50), (9, 60), (10, 0)];
+/// How long after a wave of theirs is down the next docks, in steps of
+/// the mission clock: four hours of it, twice the machines' own
+/// ([`DROID_REINFORCE_STEPS`]) — they have further to come.
+pub const MANUFACTURER_REINFORCE_STEPS: u64 = 14_400;
+
 // --- the Machine Heart (feature 108, `crate::heart`) ------------------------
 //
 // The run is won at the crisis's origin: a fortress there holds the core,

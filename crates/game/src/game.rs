@@ -3045,6 +3045,11 @@ impl Game {
             self.bims[who].bind_timer = 0.0;
             return;
         }
+        // A Manufacturer binds nothing of its own (feature 109): down, it
+        // bleeds out, and sealed in it only waits.
+        if self.bims[who].manufacturer {
+            return;
+        }
         let bim = &mut self.bims[who];
         bim.bind_timer += dt;
         if bim.bind_timer < BIND_EVERY {
@@ -4738,6 +4743,53 @@ impl Game {
         }
     }
 
+    /// A **Manufacturer** onto the deck (feature 109): a Bim at `at` —
+    /// snapped to where a body fits, the way [`Game::adopt`] snaps one —
+    /// in the black and gold, carrying `gear`, flagged
+    /// [`crate::bim::Bim::manufacturer`] and on the room's side of the
+    /// fight ([`Game::set_hostile_bodies`]). Its face is rolled off `seed`
+    /// rather than the room's stream, so laying a site's people moves no
+    /// roll a fight makes. Answers its index among the Bims.
+    ///
+    /// It goes on the end of the Bims, and a body index past the Bims is a
+    /// machine's: so every Manufacturer of a wave is enlisted **before**
+    /// the machines of that wave go on the deck, and none while machines
+    /// stand (the world's rule — a site's Troopers are the garrison's and
+    /// its reinforcements are Manufacturers alone).
+    ///
+    /// `plan_wait` is its first wait before it picks where to stand, which
+    /// the world staggers across a wave as it does a wave of machines.
+    pub fn enlist_manufacturer(
+        &mut self,
+        at: Vec2,
+        gear: Gear,
+        seed: u64,
+        plan_wait: f32,
+    ) -> usize {
+        let who = self.bims.len();
+        let mut rng = Rng::new(seed);
+        let mut bim = Bim::new(who, at, &mut rng);
+        // Past the classic pair, off the seed: faces as varied as a
+        // station's people, and none of them the crew's first two.
+        bim.character
+            .set_look(crate::character::Look::of(2 + (seed % 4_096) as usize));
+        bim.character
+            .set_uniform(crate::character::Uniform::Manufacturer);
+        bim.character.set_hostile(self.hostile_bodies);
+        bim.gear = gear;
+        bim.manufacturer = true;
+        bim.plan_wait = plan_wait;
+        bim.breach_wait = plan_wait;
+        self.adopt(vec![bim], Vec2::ZERO);
+        who
+    }
+
+    /// Whether that body is a Manufacturer (feature 109) — false for a
+    /// machine and for every other Bim.
+    pub fn is_manufacturer(&self, who: usize) -> bool {
+        self.bims.get(who).is_some_and(|b| b.manufacturer)
+    }
+
     /// Whose coverall that Bim wears; the crew's for no such Bim.
     pub fn uniform(&self, who: usize) -> crate::character::Uniform {
         self.bims
@@ -4949,6 +5001,8 @@ impl Game {
     /// twice and waste the second's minutes.
     fn medical_on_offer(&self, who: usize) -> Option<Care> {
         if !self.bims.get(who).is_some_and(|b| b.is_alive())
+            // A Manufacturer doctors nobody, itself included (feature 109).
+            || self.bims[who].manufacturer
             || self.bims[who].character.is_unconscious()
             || self.bims[who].character.is_outside()
         {
@@ -6200,6 +6254,14 @@ impl Game {
     /// starting at the waking hour whenever the ship happens to turn up.
     pub fn wind_clock(&mut self, minutes: f32) {
         self.clock.advance(clock::seconds(minutes));
+    }
+
+    /// The clock put back to its start and wound to `minutes`, for a probe
+    /// that moves the world's clock **back** — which nothing in a game
+    /// does: [`Game::wind_clock`] only ever goes forward.
+    pub fn set_clock_for_probe(&mut self, minutes: f32) {
+        self.clock = Clock::new();
+        self.wind_clock(minutes);
     }
 
     pub fn clock_minutes(&self) -> f32 {
@@ -7515,6 +7577,7 @@ impl Game {
     pub fn needs_rescue(&self, who: usize) -> bool {
         self.bims.get(who).is_some_and(|b| {
             b.is_alive()
+                && !b.manufacturer
                 && !b.character.is_outside()
                 && (b.character.is_unconscious() || b.health.dying() || b.health.bleeding() > 0)
         })
@@ -8219,6 +8282,7 @@ impl Game {
     pub fn bandage(&mut self, who: usize, patient: usize, part: Part) -> bool {
         if who >= self.bims.len()
             || patient >= self.bims.len()
+            || self.bims[patient].manufacturer
             || !self.bims[who].is_alive()
             || !self.bims[patient].is_alive()
             || self.bims[who].character.is_unconscious()
@@ -8428,6 +8492,7 @@ impl Game {
     pub fn treat(&mut self, who: usize, patient: usize, part: Part) -> bool {
         if who >= self.bims.len()
             || patient >= self.bims.len()
+            || self.bims[patient].manufacturer
             || who == patient
             || !self.bims[who].is_alive()
             || !self.bims[patient].is_alive()
@@ -8720,6 +8785,13 @@ impl Game {
     /// it lies: onto the deck, numbered, for whoever comes for it.
     fn drop_weapon(&mut self, who: usize) {
         let bim = &mut self.bims[who];
+        // A Manufacturer lets go of nothing (feature 109): its gun stays
+        // with the body, out of its hands, so there is never one lying on
+        // the deck for anybody to take.
+        if bim.manufacturer {
+            bim.character.set_armed(None);
+            return;
+        }
         let Some(weapon) = bim.gear.weapon.take() else {
             return;
         };

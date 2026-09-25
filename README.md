@@ -56,9 +56,11 @@ What a run is, from the lobby to the end of it.
   the ship. Each player picks a **class** for their own Bim — engineer,
   soldier, medic, tank or commander, or none — and it levels up in the
   fight; see [Classes and levels](#classes-and-levels).
-- **Every enemy is a machine.** No station's or town's people are the
-  crew's enemies: a place is the crew's home, neutral, or held by the
-  machines. The fights are theirs — Husks, Troopers and Wardens, in waves,
+- **The machines and the Manufacturers.** No station's or town's people
+  are the crew's enemies: a place is the crew's home, neutral, held by the
+  machines — or held by the **Manufacturers**, the people who built them,
+  who are the crew's enemy from the first day; see [The
+  Manufacturers](#the-manufacturers). The fights are theirs — Husks, Troopers and Wardens, in waves,
   at tier one, two or three, and a Guardian among them at tier three — and `nix run .#droids` is how one is looked
   at on its own; see [The fight](#the-fight).
 - **The crisis is there from day nought.** The machines' origin is theirs
@@ -297,13 +299,53 @@ of the waves — which grow with the world clock, so waiting costs.
 The top bar says it while the crew are there: the core's health, how many
 conduits are left, and the waves after them.
 
+## The Manufacturers
+
+The machines are months away at the start of a run; the **Manufacturers**
+are not. They built the machines, and they defend what they made: some
+stations of the galaxy are theirs from the first day — **two at least
+within two hyperlane hops of home**, none in the home system, and about
+one in ten of the orbital stations anywhere else. Never a town, and never
+the crew's home. The world map tags a site of theirs *Manufacturers* with
+the tier of what they carry on arrival.
+
+- **Who they are.** People, in **black and gold**, ringed in red and named
+  *Manufacturer* on the deck. They walk, take cover, shoot and bleed as
+  anybody does. Nobody hires one, nobody loots one — no gun, armour or
+  money comes off a Manufacturer or a Trooper — and nobody patches one up:
+  one **down** stays down and **bleeds out**.
+- **Before day ten** a site of theirs is a **fixed garrison** — as many as a
+  wave of machines would be — and nothing comes after it. Their people
+  carry the **laser pistol** and nothing else until day three, a tier-one
+  gun from day three, and tier-one armour besides from day six. From day
+  five some of the garrison are **Troopers** fighting beside them — a tenth
+  of it on days five and six, a quarter on day seven, half on day eight,
+  three in five on day nine.
+- **From day ten** they have lost the machines: their own people alone,
+  in **waves** as a machines' station has them, geared at the tier the
+  machines there would come at, and the next wave's ship docks **four
+  hours** after the last of a wave is down.
+- **Cleared** the moment every Manufacturer is down or dead, every Trooper
+  is destroyed and no wave is left — one down and still bleeding holds
+  nothing up, the clear or the leaving. The Republic pays a Manufacturer's
+  bounty like a machine's, for each one down or dead, on the clear; the
+  clear offers relics at the tier of what they carried (the pistol days
+  count as tier one); and a site left uncleared is met afresh next time,
+  at the new day.
+- **Not the crisis.** A site of theirs is never infested and never a
+  jammer, and the machines spreading through its system pass it by.
+
+`nix run .#manufacturers` is the nearest site of theirs with the combat
+crew there: `BIMS_MANUFACTURER_DAY=0` for pistols alone, `8` (the
+command's own) for the Troopers beside them, ten or more for their waves.
+
 ## Running it
 
 ```sh
 nix run .
 ```
 
-That builds the game and opens it. There are eighteen things to run, and each is
+That builds the game and opens it. There are nineteen things to run, and each is
 a name rather than a flag — `cargo run -- list` (or `bims list`) prints them
 all with a line each, and is the build's own answer rather than this table's:
 
@@ -325,6 +367,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian**: the fight at tier three with every wave one Guardian and two Troopers — the largest machine, a walker behind a shield that stops everything from the front. Get round it |
 | `nix run .#relics` | `cargo run -- relics` | **the relics**: the droids arena with one short wave of four — clear it, go back to the ship, and the **reward screen** offers the site's relics to choose from. `BIMS_RELICS=focusing_lens,second_wind` gives your Bim those at the start, `BIMS_REWARD=1` opens on the reward screen, `BIMS_CACHE=1` with a relic cache opened in the mission and `BIMS_WIN=1` (on any command) wins the run on the next clear |
 | `nix run .#heart` | `cargo run -- heart` | **the Machine Heart**: the crew docked at its fortress at the machines' origin, everybody in tier-three kit, the waves the game's own — bring the conduits down, then the core. `BIMS_HEART_PHASE=2` opens with every conduit down, `=3` with the core overloading as well; `BIMS_DROID_WAVES=n` shortens the waves |
+| `nix run .#manufacturers` | `cargo run -- manufacturers` | **the Manufacturers**: the combat crew at the nearest site of theirs, on day eight — their people in tier-one kit with Troopers beside them. `BIMS_MANUFACTURER_DAY=0` is pistols alone, ten or more their own waves |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 
 Whichever of them you open, **Esc → Restart → Start again** puts the run back
@@ -1855,16 +1898,17 @@ it. While a rally is actually running, the Bims it lifts wear its own
 chevron rather than the aura's plain ring, so a rally called is told
 from an aura standing there all along.
 
-**Experience** comes from six things and nothing else: an enemy going
-down within fifty tiles is 10 to every classed crew member in range, an
-enemy dying 5, a construction site finished or a kit laid by the
-engineer or anybody within fifty tiles of it is 2 to that engineer, a
+**Experience** comes from five things and nothing else: an enemy going
+down within fifty tiles is 10 to every classed crew member in range,
+once — out cold, or dead without being down first, as every machine is;
+one down that dies later is worth nothing more — a construction site
+finished or a kit laid by the engineer or anybody within fifty tiles of it is 2 to that engineer, a
 **medic** finishing a bandage or a medkit treatment on a crewmate — any
 crew member but itself, mercenaries included — is 5 to that medic, and
 an enemy's shot or blow landing on a **tank** is a fifth of a point to
 that tank, counted five hits for one, and a hire that goes through from
-the slot steering a **commander** is 10 to that commander. Each
-enemy counts once for each, a crewmate or a hire going down is nothing,
+the slot steering a **commander** is 10 to that commander. An
+enemy counts once, a crewmate or a hire going down is nothing,
 a kit packed up and laid again is nothing, an interrupted task is
 nothing, a crew member who is not a medic doctoring earns nothing
 at all, a hit on anybody who is not a tank is nothing, a refused hire is

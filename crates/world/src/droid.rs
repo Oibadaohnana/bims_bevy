@@ -83,6 +83,15 @@ pub struct Infestation {
     /// machines take the site, and gone when a crew member opens it. Put
     /// back with the rest of the site when the crew leave it uncleared.
     pub cache: bool,
+    /// Whether the site is the **Manufacturers'** rather than the
+    /// machines' (feature 109, [`crate::manufacturer`]): the same fight's
+    /// bookkeeping — the waves, the clock, the clear, the cache — with
+    /// their people on the deck where the machines would stand. A site of
+    /// theirs is not infested: the crisis never takes it, it is never a
+    /// jammer, and it frees no system when it is cleared. Hashed only where
+    /// it is set, so nothing about a machines' site moved.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub manufacturers: bool,
 }
 
 impl Infestation {
@@ -97,6 +106,16 @@ impl Infestation {
             cleared: false,
             heart: None,
             cache: false,
+            manufacturers: false,
+        }
+    }
+
+    /// A site the Manufacturers hold (feature 109): nothing worked out
+    /// yet, as for a station newly held by the machines.
+    pub fn manufacturers(station: u32) -> Infestation {
+        Infestation {
+            manufacturers: true,
+            ..Infestation::new(station)
         }
     }
 

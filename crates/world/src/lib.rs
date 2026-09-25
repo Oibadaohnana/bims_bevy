@@ -61,6 +61,7 @@ pub mod grid;
 pub mod heart;
 pub mod jammer;
 pub mod jump;
+pub mod manufacturer;
 pub mod medic;
 pub mod memory;
 pub mod mercenary;
@@ -118,6 +119,8 @@ mod tests_guardian;
 mod tests_heart;
 #[cfg(test)]
 mod tests_jammer;
+#[cfg(test)]
+mod tests_manufacturer;
 #[cfg(test)]
 mod tests_medic;
 #[cfg(test)]

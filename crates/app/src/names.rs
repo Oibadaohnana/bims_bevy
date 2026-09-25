@@ -2335,6 +2335,13 @@ pub const DERIVED_JAMMER_NAME: &str = "The machines' relay";
 pub const HEART_NAME: &str = "The Machine Heart";
 pub const ARRIVE_HEART: &str = "the Machine Heart";
 pub const HEART_ON_ARRIVAL: &str = "On arrival:";
+
+/// The Manufacturers (feature 109): the name over one of theirs on the
+/// deck, the log's line when one dies, and a site of theirs' tag in the
+/// map's list.
+pub const MANUFACTURER_NAME: &str = "Manufacturer";
+pub const MANUFACTURER_DOWN: &str = "A Manufacturer is dead.";
+pub const ARRIVE_MANUFACTURERS: &str = "Manufacturers";
 pub fn heart_preview_rows(p: &world::heart::HeartPreview) -> [(&'static str, String); 4] {
     [
         ("Conduits", p.conduits.to_string()),

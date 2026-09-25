@@ -28,7 +28,7 @@
 //! # Nothing is looted
 //!
 //! A destroyed droid is a wreck: down for everything that asks, worth
-//! `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` together and once, and carrying
+//! `XP_ENEMY_DOWN` alone (feature 109; it was `XP_ENEMY_DEAD` besides) and once, and carrying
 //! nothing — the Loot window does not open on one and `take_from_body`
 //! refuses it. It lies where it fell until the room closes and blocks
 //! nothing.

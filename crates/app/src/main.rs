@@ -48,6 +48,9 @@
 //!                    the machines' origin, everybody in tier-three kit;
 //!                    `BIMS_HEART_PHASE=2` or `3` opens the fight past its
 //!                    seal or in its overload
+//! bims manufacturers the combat crew at the nearest site of the
+//!                    Manufacturers' on day `BIMS_MANUFACTURER_DAY` (eight
+//!                    unless it says: their people with Troopers beside them)
 //! bims defense       a town on a planet with the machines one hop away: the
 //!                    crew set down at its pad, a wave landing outside a gate
 //!                    a minute later, and the town's own guard fighting beside
@@ -153,6 +156,10 @@ pub enum Launch {
     /// fortress at the machines' origin, everybody in tier-three kit.
     /// `BIMS_HEART_PHASE` opens the fight in its second or third phase.
     Heart,
+    /// A site of the Manufacturers' looked at (feature 109): the combat
+    /// ship's crew at the nearest site of theirs on the day
+    /// `BIMS_MANUFACTURER_DAY` says (eight unless it does).
+    Manufacturers,
     StationBuilder,
 }
 
@@ -191,7 +198,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 18] = [
+const COMMANDS: [(&str, &str); 19] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -245,6 +252,10 @@ const COMMANDS: [(&str, &str); 18] = [
     (
         "heart",
         "The Machine Heart: the crew docked at its fortress at the machines' origin in tier-three kit; BIMS_HEART_PHASE=2 or 3 opens it past its seal or overloading",
+    ),
+    (
+        "manufacturers",
+        "A site of the Manufacturers': the combat crew at the nearest one on day BIMS_MANUFACTURER_DAY (eight: Troopers beside them; nought: pistols alone; ten or more: their own waves)",
     ),
     (
         "stationbuilder [name]",
@@ -352,6 +363,7 @@ fn main() {
         Some("guardian") => Launch::Guardian,
         Some("relics") => Launch::Relics,
         Some("heart") => Launch::Heart,
+        Some("manufacturers") => Launch::Manufacturers,
         Some("stationbuilder") => Launch::StationBuilder,
         // What there is to run, printed rather than opened.
         Some("list") | Some("--list") | Some("--help") | Some("-h") => {
@@ -440,6 +452,7 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Guardian
         | Launch::Relics
         | Launch::Heart
+        | Launch::Manufacturers
         | Launch::Defense => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();

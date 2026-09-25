@@ -112,7 +112,10 @@ use crate::game::Game;
 /// 38: the Machine Heart (feature 108) — a held station keeps the Heart's
 /// fight, a machine what the world told it of the Heart and a body its
 /// one health, a shot and a sweep their pace, and the run its summary.
-pub const SAVE_VERSION: u32 = 38;
+/// 39: the Manufacturers (feature 109) — a held site keeps whose it is, a
+/// station's room which of their waves it has laid, and a Bim whether it
+/// is one of them.
+pub const SAVE_VERSION: u32 = 39;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

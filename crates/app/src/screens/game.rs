@@ -531,6 +531,16 @@ fn open(
                     size.x,
                     size.y,
                 ),
+                // A site of the Manufacturers' (feature 109): the combat
+                // crew there on `BIMS_MANUFACTURER_DAY`.
+                Launch::Manufacturers => Session::manufacturers(
+                    seed,
+                    crate::dev::manufacturer_day(),
+                    crate::dev::droid_wave_max(),
+                    crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                    size.x,
+                    size.y,
+                ),
                 // The relics looked at (feature 106): the arena with one
                 // wave short enough to clear, and the reward screen after.
                 Launch::Relics => Session::relics(
@@ -1151,7 +1161,19 @@ fn frame(
         let mut machines_down = false;
         for event in game.events.drain(..) {
             machines_down |= matches!(event, WorldEvent::DroidDown { .. });
-            if let Some(line) = event_line(event) {
+            // One of the Manufacturers dead is said as one (feature 109):
+            // they have no names the crew know.
+            let theirs = match event {
+                WorldEvent::EnemyDown { who, .. } => game
+                    .world
+                    .residents
+                    .as_ref()
+                    .is_some_and(|r| r.aboard.room.is_manufacturer(who as usize)),
+                _ => false,
+            };
+            if theirs {
+                screen.log.push(crate::names::MANUFACTURER_DOWN.to_string());
+            } else if let Some(line) = event_line(event) {
                 screen.log.push(line);
             }
             if let Some(freeze) = screen.freeze.as_mut()
@@ -3101,6 +3123,10 @@ fn frame(
                 // somebody (feature 83).
                 let label = match session.resident_droid(who) {
                     Some(kind) => crate::names::droid_name(kind).to_string(),
+                    // And a Manufacturer its faction (feature 109).
+                    None if session.resident_manufacturer(who) => {
+                        crate::names::MANUFACTURER_NAME.to_string()
+                    }
                     None => resident_name(station, who),
                 };
                 theme::name_over(&painter, at, &label, theme::THEIRS);

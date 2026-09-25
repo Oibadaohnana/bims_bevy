@@ -199,6 +199,15 @@ pub struct Bim {
     /// dealt none. Walked by `Game::keep_to_routine`, and carried with the
     /// body through `take_crew` and `adopt` like its post.
     pub routine: Option<crate::routine::Routine>,
+    /// Whether this body is a **Manufacturer** (feature 109): one of the
+    /// faction that built the machines, laid on a site of theirs by the
+    /// world (`Game::enlist_manufacturer`). A hostile Bim like any other in
+    /// how it walks, fights and bleeds, with three things taken away:
+    /// nobody dresses, treats or carries it — it bleeds out once down —
+    /// it binds no wound of its own, and a gun is never let go of onto
+    /// the deck, so it leaves nothing lying for anybody to take.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub manufacturer: bool,
 }
 
 /// The years the crew were born in. Everyone aboard is somewhere between
@@ -247,6 +256,7 @@ impl Bim {
             sealed_in: None,
             bind_timer: 0.0,
             routine: None,
+            manufacturer: false,
         }
     }
 

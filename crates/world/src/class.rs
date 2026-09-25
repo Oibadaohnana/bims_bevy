@@ -43,8 +43,7 @@
 //!
 //! | what | xp | who |
 //! |---|---|---|
-//! | an enemy goes down within [`VICINITY_TILES`] | [`XP_ENEMY_DOWN`] | every classed crew member in range |
-//! | an enemy dies within it | [`XP_ENEMY_DEAD`] | the same |
+//! | an enemy goes down within [`VICINITY_TILES`] — out cold, or dead without being down first; one down dying later is nothing more (feature 109) | [`XP_ENEMY_DOWN`] | every classed crew member in range |
 //! | a construction site finishes, or a kit is laid, by an engineer or anybody within its vicinity | [`XP_BUILT`] | that engineer alone |
 //! | a medic finishes bandaging a crewmate, or treating a crewmate's trauma | [`XP_HEALED`] | that medic alone |
 //! | an enemy's shot or blow lands on a tank | one a [`TANK_HITS_PER_XP`] | that tank alone |
@@ -640,10 +639,11 @@ pub const LEVEL_XP: [u32; LEVELS as usize] =
     [0, 100, 250, 450, 700, 1_000, 1_400, 1_900, 2_500, 3_200];
 
 /// What an enemy going down within the vicinity is worth, to every
-/// classed crew member in range.
+/// classed crew member in range: **once an enemy** (feature 109) — out
+/// cold, or dead without being down first, which is every machine. One
+/// down that dies later, bled out or finished where it lies, is worth
+/// nothing more. (Until then its death was worth five besides.)
 pub const XP_ENEMY_DOWN: u32 = 10;
-/// What an enemy dying within it is worth, the same way.
-pub const XP_ENEMY_DEAD: u32 = 5;
 /// What a site finished or a kit laid within an engineer's vicinity is
 /// worth, to that engineer.
 pub const XP_BUILT: u32 = 2;

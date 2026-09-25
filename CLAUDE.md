@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-twenty-one things to run, and each is a name rather than a flag — and
+twenty-two things to run, and each is a name rather than a flag — and
 `cargo run -- list` prints every one of them with a line each, which is
 the build's own answer where this table is a copy:
 
@@ -30,6 +30,7 @@ the build's own answer where this table is a copy:
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian** (feature 100): `droids` at **tier three** with every wave exactly **one Guardian and two Troopers** (`Session::guardian`, `World::set_droid_kinds_for_probe`) and `DROID_REINFORCE_STEPS` a minute of the mission clock, so the machine is looked at on its own with a fight going on round it — its shield stopping the crew's bolts from the front and flaring where they stop, its turn, its wind-up and its beam. `BIMS_DROID_WAVES` and `BIMS_DROID_REINFORCE` are `droids`' own; the tier and the wave are the command's whatever `BIMS_DROID_TIER` and `BIMS_DROID_WAVE` say |
 | `nix run .#relics` | `cargo run -- relics` | **the relics** (feature 106): `droids` with **one wave of four** (`Session::relics`, `session::RELICS_WAVE`) at the arena's own tier and the reinforcement clock a minute — short enough to clear, so going back to the ship after opens the **reward screen**: three relics of the site's tier to choose from together. `BIMS_RELICS=<id>,<id>` gives the steered Bim those relics at the start (a relic's name in lower case with `_` for the spaces, `focusing_lens`, or its code); `BIMS_REWARD=1` opens straight on the reward screen, the site cleared by the probe (`Session::reward_for_probe`); `BIMS_CACHE=1` with a relic cache opened on the site's research desk and its one relic being chosen in the mission (`Session::cache_for_probe`); and `BIMS_WIN=1`, on **any** command, wins the run the next time a site is cleared with machines in it (`World::set_win_on_clear`), which is how the victory screen and the profile's unlocks are looked at — point `BIMS_PROFILE_DIR` at a scratch directory first, or the win lands in your own profile |
 | `nix run .#heart` | `cargo run -- heart` | **the Machine Heart** (feature 108): `Session::combat`'s ship and sixteen crew with **everybody's kit at tier three** (`World::outfit_for_probe`), the machines' origin put at the crew's own star and the ship **docked at its fortress** (`Session::heart`, `World::heart_dock_for_probe`) — the core in the hub sealed by its conduits, the fabricators beside it, the waves the game's own formula and the next a minute of the mission clock after the last is down. `BIMS_HEART_PHASE=2` opens with every conduit down (the core exposed), `BIMS_HEART_PHASE=3` with the core's health just under the overload as well (`World::set_heart_phase_for_probe`, after the Heart is laid); `BIMS_DROID_WAVES=n` gives the fortress that many waves. The fortress is past the ship's own lobby and down the west arm: `BIMS_ZOOM=0.28 BIMS_WINDOW=2000x1300 BIMS_KEYS="40:F,700:F,720:F" BIMS_POINTER="45:move:1240,675;47:click:1240,675;725:move:1720,675;727:click:1720,675"` walks the crew in to the lobby and then to the hub |
+| `nix run .#manufacturers` | `cargo run -- manufacturers` | **the Manufacturers** (feature 109): `Session::combat`'s ship and sixteen crew taken to the **nearest site of theirs** (`World::manufacturer_dock_for_probe`, a trip a lane) with the world clock put at **day eight** — their people in tier-one gun and armour and about half the garrison **Troopers** beside them. `BIMS_MANUFACTURER_DAY=0` is their people alone with pistols, ten or more their own waves in the machines' tier of kit, four hours apart unless `BIMS_DROID_REINFORCE` says; `BIMS_DROID_WAVE` sizes the garrison. The site is down the airlock: `BIMS_KEYS="40:F,70:V" BIMS_POINTER="45:move:1000,470;47:click:1000,470;60:move:1010,480;62:right:1010,480" BIMS_ZOOM=0.8` walks James and the crew in |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -905,6 +906,36 @@ parts prints what it always printed.
 **Not done, because it is not there**: "systems liberated" has no
 liberation mechanic behind it, so it counts jammers cleared.
 
+## The Manufacturers (feature 109)
+
+The human enemy, from the first day of a run: the people who built the
+machines. The world's half is `crates/world/CLAUDE.md` ("The
+Manufacturers"), the room's `crates/game/CLAUDE.md` ("A Manufacturer is a
+hostile Bim"), the player's `README.md` ("The Manufacturers"). What to hold
+on to:
+
+- **A site of theirs is a held site with a flag** — an `Infestation` with
+  `manufacturers` set — so everything a held station has (hostile, nobody
+  living there, the waves, the clear, the bounty, the relics, the
+  put-back on leaving) is the machines' machinery unchanged, and
+  `World::is_droid_held` reads as "held by an enemy". What differs is who
+  is laid on the deck (`World::lay_manufacturers`: their people as hostile
+  Bims, `Game::enlist_manufacturer`, and Troopers beside them before day
+  ten) and three numbers: one wave before day ten, the machines' count
+  after, four hours between.
+- **Which sites is stateless** (`world::manufacturer::holds`): a roll a
+  site off the galaxy's seed and at least two made up within two lanes of
+  home, none in it — derived at the start and at every load, never saved.
+  Never infested, never a jammer, never taken by the spread.
+- **The whole schedule is `data::MANUFACTURER_*`**, gear by day included.
+- **Experience changed for every enemy**: ten once, at its first down or
+  death; `XP_ENEMY_DEAD` went. That moved `SURVIVORS`, and nothing else of
+  the feature did (its note).
+
+**What moved.** `SAVE_VERSION` **39**, `wire::PROTOCOL` **31** (the relay
+wants redeploying), `SURVIVORS`. `REFERENCE_CHECKSUM` and the ship's
+`PINNED` and `PICTURES` did **not** move.
+
 ## The old game deleted (feature 104)
 
 The third step of the redesign: **everything features 102 and 103 switched
@@ -1008,9 +1039,10 @@ the old game is tagged **`needs-sim-final`** (29d5d54, feature 103's) —
 the state that outlived the deletion**, taken off `needs-sim-final` before
 anything was deleted, and their constants are **never edited** — save by a
 change *meant* to alter how a run plays, which says why in the constant's
-own note (`SURVIVORS` has moved twice so: the follow-up to feature 104 that
-pays experience for machines downed in a town's defence, and the Guardian
-in the town run's tier-three wave, feature 100):
+own note (`SURVIVORS` has moved so for the follow-up to feature 104 that
+pays experience for machines downed in a town's defence, the Guardian in
+the town run's tier-three wave (feature 100), the least trip (feature 105)
+and the experience of feature 109):
 
 - `crates/world/src/tests_survivors.rs` — `SURVIVORS`: a seeded run, two
   players and four bots on the combat ship with a gun in every hand: the

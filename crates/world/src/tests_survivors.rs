@@ -63,7 +63,17 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// scaled on the players and the clock alone, the site the crew are at
 /// refused — that number came back: both worlds force the wave to six,
 /// and the count is two at day nought under the old rule and the new.
-const SURVIVORS: u64 = 0x_062f_ddde_23e9_2bfb;
+///
+/// **And once more, on purpose**: the experience rule of feature 109 — an
+/// enemy is worth `XP_ENEMY_DOWN` once, at its first down or death, and
+/// its death after a down nothing more, where a machine destroyed used to
+/// pay `XP_ENEMY_DEAD` (five) on top. The crew's experience is in the
+/// hash. Was `0x_062f_ddde_23e9_2bfb`; with the five put back on a death
+/// and everything else of the feature in — the Manufacturers' sites
+/// rolled across the galaxy, the jammer rule round them — that number
+/// came back, so nothing else moved: the run's jump and its town meet no
+/// site of theirs.
+const SURVIVORS: u64 = 0x_024e_0982_c931_c4bb;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew.

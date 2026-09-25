@@ -1286,6 +1286,35 @@ impl Gear {
         }
     }
 
+    /// What a **Manufacturer** carries (feature 109), off `seed`: with
+    /// `weapon` `None`, the laser pistol and nothing else, since that is
+    /// all the first days of a run arm them with; with a tier, a gun rolled
+    /// against [`MANUFACTURER_ODDS`] at it — a gun and never the schword,
+    /// since a blade with no armour on is dead before it closes — and a
+    /// fresh helm, kevlar and leg guards at `armour`'s tier, numbered from
+    /// `piece_ids`, where there is one. A function of its arguments alone,
+    /// like [`Gear::issued_for`], so the world derives it.
+    pub fn manufacturer(
+        seed: u64,
+        weapon: Option<Tier>,
+        armour: Option<Tier>,
+        piece_ids: u32,
+    ) -> Gear {
+        let mut rng = Rng::new(seed ^ 0x_4D41_4E55);
+        let weapon = match weapon {
+            None => WeaponKind::LaserPistol.basic(),
+            Some(tier) => roll_weapon(&mut rng, &MANUFACTURER_ODDS).at(tier),
+        };
+        let piece = |n: u32, kind: ArmourKind| armour.map(|t| Piece::new(piece_ids + n, kind, t));
+        Gear {
+            head: piece(0, ArmourKind::BasicHelm),
+            body: piece(1, ArmourKind::BasicKevlar),
+            legs: piece(2, ArmourKind::BasicLegs),
+            weapon: Some(weapon),
+            ..Gear::default()
+        }
+    }
+
     /// The piece on a part, if any — broken or not.
     pub fn worn(&self, part: Part) -> Option<Piece> {
         *self.slot(part)
@@ -1589,6 +1618,18 @@ pub const MERCENARY_ODDS: [(WeaponKind, f32); 5] = [
     (WeaponKind::AutoRifle, 0.20),
     (WeaponKind::SniperRifle, 0.12),
     (WeaponKind::Schword, 0.08),
+];
+/// What a Manufacturer is armed with once it carries more than the pistol
+/// (feature 109), by share: the guns alone. See [`Gear::manufacturer`].
+/// The schword is first at nothing rather than left out, so the table is
+/// every kind, and never last, since the last row takes whatever the
+/// rounding leaves.
+pub const MANUFACTURER_ODDS: [(WeaponKind, f32); 5] = [
+    (WeaponKind::Schword, 0.0),
+    (WeaponKind::LaserPistol, 0.30),
+    (WeaponKind::Shotgun, 0.25),
+    (WeaponKind::AutoRifle, 0.30),
+    (WeaponKind::SniperRifle, 0.15),
 ];
 /// The odds a mercenary wears a helm, a kevlar and leg guards.
 pub const MERCENARY_ARMOUR_ODDS: [f32; 3] = [0.5, 0.6, 0.4];
