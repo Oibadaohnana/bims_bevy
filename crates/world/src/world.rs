@@ -2937,8 +2937,9 @@ impl World {
         let dodge: Vec<f32> = (0..bodies).map(|who| room.dodge(who as usize)).collect();
         // And which way each Guardian's shield faces (feature 100), in the
         // residents' room's frame; turned onto the joined deck below.
-        let shields_there: Vec<Option<bims::math::Vec2>> =
-            (0..bodies).map(|who| room.shield_of(who as usize)).collect();
+        let shields_there: Vec<Option<bims::math::Vec2>> = (0..bodies)
+            .map(|who| room.shield_of(who as usize))
+            .collect();
         let exposed: Vec<DVec2> = (0..residents.aboard.count())
             .map(|who| residents.aboard.exposed(who))
             .collect();

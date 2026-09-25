@@ -40,6 +40,9 @@ pub mod task;
 pub mod terrain;
 pub mod work;
 
+#[cfg(test)]
+mod tests_guardian;
+
 /// The shared `time` crate, pulled into the crate root so every module reaches
 /// it as `crate::time`. That spelling is deliberate: the native probes in
 /// `scratchpad/` declare the crate's modules by `#[path]` and link nothing at

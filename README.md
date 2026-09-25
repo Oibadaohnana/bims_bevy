@@ -59,7 +59,7 @@ What a run is, from the lobby to the end of it.
 - **Every enemy is a machine.** No station's or town's people are the
   crew's enemies: a place is the crew's home, neutral, or held by the
   machines. The fights are theirs — Husks, Troopers and Wardens, in waves,
-  at tier one, two or three — and `nix run .#droids` is how one is looked
+  at tier one, two or three, and a Guardian among them at tier three — and `nix run .#droids` is how one is looked
   at on its own; see [The fight](#the-fight).
 - **The crisis is there from day nought.** The machines' origin is theirs
   the moment the run opens, eight hyperlane hops or more from the crew, and
@@ -193,6 +193,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#crisis` | `cargo run -- crisis` | the simulation **a day before the crisis first spreads**: a random galaxy and a random dock as `test` deals them, and the crisis's origin forced two hyperlane hops from the crew's own star — theirs from day nought, as in every run — with the clock wound to the eve of the day the stars next to it turn. Open the galaxy chart: the origin is red, and since only travel moves the clock, the next ring is red once the crew have travelled a day — the world map says which places the machines will hold on the day you would arrive — and the crew's own system follows five days later; the day any star is due is written under its name when it is picked. `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the rest with it |
 | `nix run .#jammer` | `cargo run -- jammer` | the crew **inside an infested system**, two hyperlane hops from where the machines began: every station of it in their hands, a wave aboard the one the ship is tied to, and the system's **jammer** standing — so the chart's route inward is barred in red, a jump that way is refused, and the machines come at tier three because of how near the origin they are. `BIMS_DROID_TIER=1` brings them at tier one instead |
 | `nix run .#defense` | `cargo run -- defense` | **a town worth defending**: the ship set down at a friendly settlement with the machines one hyperlane hop away, so the town is next. A minute after the landing a wave sets down outside a gate and walks in; the town's guard and whatever mercenaries live there take arms, everybody else goes indoors, and the red line along the top counts the wave the way it counts a held station's. Hold the last wave and the town is yours to keep. `BIMS_DEFENSE_DELAY=n` is the wait before the first wave and `BIMS_DROID_WAVES=1` a fight short enough to finish |
+| `nix run .#guardian` | `cargo run -- guardian` | **the Guardian**: the fight at tier three with every wave one Guardian and two Troopers — the largest machine, a walker behind a shield that stops everything from the front. Get round it |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 
 Whichever of them you open, **Esc → Restart → Start again** puts the run back
@@ -1602,7 +1603,17 @@ one thing in the arms at a time, from the lockers to the bench and back.
   with a gun built into its forearm, which walks into the open and fires
   on the move; and the broad, shoulder-plated **Warden**, whose
   **Unmaker** strips the armour off whatever it hits rather than opening
-  the body under it. A machine is not a Bim: it has four parts rather
+  the body under it. Close to where the machines began — tier three —
+  a wave has a fourth: the **Guardian**, the largest, a heavy walker
+  behind a **shield** that stops every bolt and every blow coming at it
+  from the front, the ±60° its plate covers, flaring where it stops one.
+  The shield cannot be broken, but a grenade's burst is not stopped by
+  it, and the arc is marked faintly on the deck under it: **get round
+  it**. It turns to face the nearest crew member it sees — a tank's
+  taunt turns it — no faster than 75° a second, and walks in the open,
+  the shield being its cover. One in eight of a tier-three wave is a
+  Guardian, at least one from four machines up.
+  `nix run .#guardian` is the fight against one. A machine is not a Bim: it has four parts rather
   than three (head, chassis, arms, legs), no blood, no dying state — head
   or chassis at nothing and it is a wreck that instant — and nothing to
   loot, since its arm is part of it. Shoot its arms off and it aims half

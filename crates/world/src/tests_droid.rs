@@ -133,6 +133,8 @@ fn a_held_station_has_machines_and_no_people_at_all() {
                 seen.2 += 1;
                 assert_eq!(droid.weapon.kind, WeaponKind::Unmaker);
             }
+            // Tier three alone (feature 100), and this is tier one.
+            DroidKind::Guardian => panic!("a Guardian below tier three"),
         }
     }
     assert_eq!(seen, (husks, troopers, wardens), "the mix the plan says");

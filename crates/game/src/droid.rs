@@ -746,13 +746,20 @@ impl Droid {
     /// in from its airlock or its gate, said as the vector the world has
     /// rather than as an angle.
     pub fn with_facing(mut self, dir: Vec2) -> Droid {
+        self.face_for_probe(dir);
+        self
+    }
+
+    /// Faced `dir` at once, the turn rate never asked: for a machine being
+    /// stood somewhere (a wave built, a test, a picture). Nothing in a
+    /// fight turns one so.
+    pub fn face_for_probe(&mut self, dir: Vec2) {
         let dir = dir.normalize_or_zero();
         if dir != Vec2::ZERO {
             self.facing = dir;
             self.heading = dir.angle();
             self.intent = self.heading;
         }
-        self
     }
 
     /// Whether it is the Guardian, which faces and turns by its own rule.
@@ -1326,7 +1333,13 @@ impl Droid {
             let a = self.scatter(i + 90) * TAU;
             let at = vec2(-14.0, 0.0) + Vec2::from_angle(a) * (18.0 + 8.0 * self.scatter(i + 92));
             b.rect(at, vec2(18.0, 11.0), a, 3.0, HULL_DARK);
-            b.rect(at + Vec2::from_angle(a) * 10.0, vec2(12.0, 7.0), a + 0.3, 2.0, JOINT);
+            b.rect(
+                at + Vec2::from_angle(a) * 10.0,
+                vec2(12.0, 7.0),
+                a + 0.3,
+                2.0,
+                JOINT,
+            );
         }
         // The largest machine throws the most: a second ring of plate
         // further out than the common mess reaches.
@@ -1909,6 +1922,40 @@ mod tests {
         assert_eq!(DroidKind::Husk.body(), [8.0, 40.0, 12.0, 15.0]);
         assert_eq!(DroidKind::Trooper.body(), [10.0, 60.0, 15.0, 20.0]);
         assert_eq!(DroidKind::Warden.body(), [20.0, 120.0, 25.0, 30.0]);
+        assert_eq!(DroidKind::Guardian.body(), [16.0, 110.0, 25.0, 30.0]);
+        assert_eq!(DroidKind::Guardian.pace(), 0.7);
+        assert_eq!(DroidKind::Guardian.arm(0), WeaponKind::Sweeper);
+        assert!(
+            !DroidKind::Guardian.takes_cover(),
+            "its shield is its cover"
+        );
+    }
+
+    /// Feature 100: Guardians only at tier three, `n / 8` of a wave and
+    /// at least one from four, out of the Troopers' share.
+    #[test]
+    fn guardians_come_only_at_tier_three_an_eighth_of_a_wave_and_one_from_four() {
+        for n in 0..40u32 {
+            for tier in [Tier::One, Tier::Two] {
+                assert_eq!(guardians_of(n, tier), 0);
+                assert!(!wave_kinds(n, tier).contains(&DroidKind::Guardian));
+                assert_eq!(wave_kinds(n, tier).len(), n as usize);
+            }
+            let want = if n < 4 { 0 } else { (n / 8).max(1) };
+            assert_eq!(guardians_of(n, Tier::Three), want, "a wave of {n}");
+            let kinds = wave_kinds(n, Tier::Three);
+            let count = |k: DroidKind| kinds.iter().filter(|&&x| x == k).count() as u32;
+            let (husks, troopers, wardens) = mix_of(n);
+            assert_eq!(count(DroidKind::Guardian), want);
+            assert_eq!(count(DroidKind::Husk), husks, "the Husks untouched");
+            assert_eq!(count(DroidKind::Warden), wardens, "the Wardens untouched");
+            assert_eq!(
+                count(DroidKind::Trooper),
+                troopers - want,
+                "the Troopers give"
+            );
+        }
+        assert_eq!(guardians_of(16, Tier::Three), 2);
     }
 
     #[test]

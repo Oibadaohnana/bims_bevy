@@ -216,10 +216,9 @@ fn muzzle_look(kind: WeaponKind) -> (f32, f32) {
         WeaponKind::Shotgun => MUZZLE_SHOTGUN,
         WeaponKind::AutoRifle => MUZZLE_AUTO,
         WeaponKind::SniperRifle => MUZZLE_SNIPER,
-        WeaponKind::Schword
-        | WeaponKind::Claw
-        | WeaponKind::Unmaker
-        | WeaponKind::Sweeper => (0.0, 0.0),
+        WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => {
+            (0.0, 0.0)
+        }
     }
 }
 

@@ -45,7 +45,14 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// held station's fight and the jump) is the same with the fix and
 /// without it, and with the defence's half of the fix taken out the old
 /// number came back.
-const SURVIVORS: u64 = 0x_1ac2_9e51_d456_7c7a;
+///
+/// **And once more, on purpose**: the Guardian (feature 100). The town run
+/// is one hop from the machines' origin, so its waves come at tier three,
+/// and a tier-three wave of six has a Guardian in it out of the Troopers'
+/// share (`bims::droid::guardians_of`). Was `0x_1ac2_9e51_d456_7c7a`;
+/// with the Guardians switched off in `guardians_of` and everything else
+/// of the feature in, that number came back, so nothing else moved.
+const SURVIVORS: u64 = 0x_99e3_2b61_aeec_1c30;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew.

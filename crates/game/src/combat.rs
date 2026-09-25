@@ -245,11 +245,8 @@ impl WeaponKind {
     /// never bought, never in a hold or a pack. [`WeaponKind::resource`]
     /// is `None` for each, which is what keeps them out of everything
     /// the hold does.
-    pub const BUILT_IN: [WeaponKind; 3] = [
-        WeaponKind::Claw,
-        WeaponKind::Unmaker,
-        WeaponKind::Sweeper,
-    ];
+    pub const BUILT_IN: [WeaponKind; 3] =
+        [WeaponKind::Claw, WeaponKind::Unmaker, WeaponKind::Sweeper];
 
     /// Every kind there is: the carried five and the built-in three. What
     /// the app names, and what a code is read back against.

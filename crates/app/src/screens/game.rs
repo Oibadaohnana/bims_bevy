@@ -459,6 +459,15 @@ fn open(
                 // wave with the class below in hand: the ship, the arena,
                 // the wave and both dials are `droids`', so two of those
                 // runs differ by the class and nothing else (feature 79).
+                // The Guardian looked at (feature 100): `droids` at tier
+                // three with every wave one Guardian and two Troopers.
+                Launch::Guardian => Session::guardian(
+                    seed,
+                    crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                    crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                    size.x,
+                    size.y,
+                ),
                 Launch::Droids | Launch::DroidsAs(_) => Session::droids(
                     seed,
                     crate::dev::droid_tier(),

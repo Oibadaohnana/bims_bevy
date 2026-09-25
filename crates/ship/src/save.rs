@@ -103,7 +103,10 @@ use crate::game::Game;
 /// needs, clocks and poisoning, the galley's, the heads', the bays' and the
 /// cold store's state, the timetable, the manager, the deck's mess (blood
 /// alone is kept), every errand that served a need and the two flags.
-pub const SAVE_VERSION: u32 = 35;
+/// 36: the Guardian (feature 100) — a machine keeps a facing vector, the
+/// part of a turn owed and where its Sweeper is in its rhythm, a target a
+/// shield, and the world the probes' forced wave of machines.
+pub const SAVE_VERSION: u32 = 36;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

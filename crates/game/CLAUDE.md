@@ -3493,3 +3493,55 @@ What stayed, and why each one looks as if it should have gone:
   ported onto `Game::bare`, and `droidwreck.rs`, which draws the machines
   with no room at all; the needs probes went, and `modules.rs` lists the
   room's modules as they are now (`scratchpad/CLAUDE.md`).
+
+## The Guardian: a shield in front, a turn in sub-steps (feature 100)
+
+`DroidKind::Guardian` (code 4), a fourth machine, only ever at tier three
+(`droid::guardians_of`: `n / 8` of a wave of `n`, at least one from four,
+out of the Troopers' share; `wave_kinds(n, tier)` takes the tier now).
+Body `balance::GUARDIAN_BODY` (16 / 110 / 25 / 30), pace
+`GUARDIAN_PACE` (0.7), half-width 28, `BODY_MARGIN` like the rest. Its
+arm is `WeaponKind::Sweeper` (8), built in like the Unmaker — in
+`BUILT_IN` and `EVERY`, never `ALL`, no resource. Arms at nothing halve
+the Sweeper's **damage** (`Droid::stats`: a beam rolls no odds to lose);
+legs at nothing stop the walk and nothing else.
+
+- **The facing is a unit vector**, `Droid::facing`, kept for every kind
+  and read for the Guardian alone. `Droid::heading` (the angle) is read
+  off it for the picture only. **The turn is `Droid::turn_toward`**: whole
+  sub-steps of `TURN_STEP_COS`/`TURN_STEP_SIN` (1.25°) at
+  `TURN_STEPS_A_SECOND` (60), the sense a cross product
+  (`Vec2::perp_dot`), the rotation `Vec2::rotate_by` — no angle is worked
+  out, so two platforms turn it alike to the bit — the fraction of a
+  sub-step a step's time does not buy carried on `turn_left`, and within
+  a sub-step of the want it faces the want exactly. `Droid::walk` does not
+  ease a Guardian's heading the way it eases every other kind's.
+- **The shield is `Droid::shield()`**: `Some(facing)` for a standing
+  Guardian, `None` for a wreck and every other kind; it cannot be broken.
+  The world hands it across with the targets
+  (`Game::set_hostiles_shields` → `Combat::set_shields` →
+  `Target::shield`), turned through the station's frame, and it is
+  decided **where a bolt resolves**: `Combat::step` stops a friendly bolt
+  that would reach a shielded target (its line within `HIT_RADIUS` — a
+  miss flies on) coming in from inside the front arc
+  (`combat::shield_stops`: the heading dotted with the way back along the
+  bolt, `>= GUARDIAN_SHIELD_COS`, the edge stopped) where it crosses
+  `GUARDIAN_SHIELD_RADIUS` (34), rolling nothing — no `Hit`, no scorch, a
+  `Cue::Ricochet` and `Fx::shield`, the plate flaring there. A blow from
+  the front is stopped the same way in `Combat::brawl_at`, before the part
+  is rolled. A grenade's burst (`Game::burst`) never asks.
+- **`Game::tick_guardian`** is its branch of `tick_droids`: no melee lock
+  and no peek; it turns towards the nearest crew body it sees from its own
+  eyes (`Combat::aim_among`, so a taunt's pull comes first) or, with none,
+  the way it walks; its stand is `stand_scored` with cover worth nought
+  and **distance worth nought**, so the Sweeper's worth falling off past
+  its sweet range (`balance::SWEEPER`'s `accuracy_far`, which is the
+  tactics' alone — a beam rolls no odds) walks it in to that range; and
+  when the Sweeper is ready and the target is within `WINDUP_COS` (15°) of
+  its facing it **plants its feet and winds up** (`Beam::WindUp`: the aim
+  and the target fixed, the heading held — `Beam::holds_heading`,
+  `turn_toward` a no-op — for `SWEEPER_WINDUP`), lets the beam go, and
+  cools (`Beam::Cooling`, `SWEEPER_COOLDOWN`).
+- `tests_guardian.rs` is the rule: the shield's dot product and its edge,
+  bolts from inside and outside the arc, a blow, a grenade, the turn rate,
+  the heading held through a wind-up, a taunt, and the legs and arms.

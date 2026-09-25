@@ -4417,7 +4417,8 @@ since the switches and the needs were in it. Two tests pin a reading
 taken off `needs-sim-final` before anything was deleted, and **their
 constants are never edited** — except by a change *meant* to alter how a
 run plays, which says why in the constant's own note (`SURVIVORS` has
-moved once so, for the town defence's experience, below):
+moved twice so, for the town defence's experience, below, and for the
+Guardian in the town run's tier-three wave, feature 100):
 
 - `crates/world/src/tests_survivors.rs`, `SURVIVORS`
   (`the_run_plays_as_it_did_before_the_old_game_was_deleted`): a seeded
@@ -4491,3 +4492,35 @@ the constant with a note saying why; the hash after the first two
 worlds is the same with the fix and without it, and with the defence's
 half taken out the old number came back, so nothing else moved.
 `crates/ship`'s `PINNED` and `PICTURES` did not move.
+
+## The Guardian: a tier-three wave's fourth machine (feature 100)
+
+The machine is the room's (`crates/game/CLAUDE.md`, "The Guardian"); the
+world does two things for it and keeps nothing new but a probe's dial.
+
+- **The wave.** `build_wave` asks `bims::droid::wave_kinds(n, tier)` at
+  the world's tier, so a Guardian stands in a wave only at tier three —
+  a held station, a reinforcement, a town's defence, all within
+  `DROID_TIER_THREE_HOPS` of the origin, or wherever the probes force the
+  tier — `n / 8` of it, at least one from four, out of the Troopers'
+  share. `World::set_droid_kinds_for_probe(kinds)` forces every wave to be
+  exactly those machines in that order (`droid_kinds_forced`, saved so a
+  restart brings them again, not hashed); `droid_wave_size` answers its
+  length. It is the `guardian` command's one Guardian and two Troopers
+  (`Session::guardian`).
+- **The shield across the seam.** In `visit`, beside the peeking and the
+  dodge, every body of the residents' room is asked `Game::shield_of`,
+  turned onto the joined deck through `station_frame`'s two unit axes (a
+  direction takes no origin and no shift), and handed to the crew's room
+  with `set_hostiles_shields` — so a crew bolt is stopped in the crew's
+  room, where it would have landed. In a town under defence the town's
+  people's targets are the machines in their own room, and their shields
+  go with them untouched (`set_hostiles_shields` on the residents' room).
+
+`tests_guardian.rs`: the waves by tier and size, and a staged Guardian
+whose shield stops every bolt of a crew member in front of it and none
+once it is turned about. **`SAVE_VERSION` 36, `wire::PROTOCOL` 28.**
+`SURVIVORS` moved, on purpose: the town run of `tests_survivors.rs` is one
+hop from the origin, so its tier-three wave of six has a Guardian in it
+(the constant's note says how it was checked that nothing else moved).
+`REFERENCE_CHECKSUM` and the ship's `PINNED` and `PICTURES` did not move.

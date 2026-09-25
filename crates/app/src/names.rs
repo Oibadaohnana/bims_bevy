@@ -1706,11 +1706,11 @@ pub fn townsfolk_joined(count: u32) -> String {
     }
 }
 
-/// What each of the three is called, indexed by
+/// What each of the four is called, indexed by
 /// `bims::droid::DroidKind::code`; `0` is no machine at all. A droid
 /// has no name of its own — it is a machine, not somebody — so the log
 /// says its kind.
-pub const DROID_NAMES: [&str; 4] = ["—", "Husk", "Trooper", "Warden"];
+pub const DROID_NAMES: [&str; 5] = ["—", "Husk", "Trooper", "Warden", "Guardian"];
 
 pub fn droid_name(code: u32) -> &'static str {
     DROID_NAMES.get(code as usize).copied().unwrap_or("Machine")
@@ -2708,10 +2708,10 @@ pub const PLAIN_SPOTS: [u32; 4] = [
 // --- arms and armour ------------------------------------------------------------
 
 /// What a weapon is called, indexed by `bims::combat::WeaponKind::code`;
-/// `0` is an empty slot. The last two are a droid's built-in arms
-/// (feature 83): they are named here because the picture names what it
+/// `0` is an empty slot. The last three are the machines' built-in arms
+/// (features 83 and 100): they are named here because the picture names what it
 /// draws, and nowhere else — nothing carries one.
-pub const WEAPON_NAMES: [&str; 8] = [
+pub const WEAPON_NAMES: [&str; 9] = [
     "—",
     "Laser pistol",
     "Shotgun",
@@ -2720,6 +2720,7 @@ pub const WEAPON_NAMES: [&str; 8] = [
     "Schword",
     "Claw",
     "Unmaker",
+    "Sweeper",
 ];
 
 /// What a piece of armour is called, indexed by `bims::combat::ArmourKind::code`;
