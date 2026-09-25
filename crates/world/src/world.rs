@@ -10545,6 +10545,29 @@ impl World {
         enemy >= residents.aboard.count() || !residents.aboard.room.is_alive(enemy as usize)
     }
 
+    /// The enemy still standing nearest the commander at `slot` in the
+    /// crew's room, the lowest index on a tie: where a *relentless*
+    /// attack goes once every mark it had is dead. `None` with nobody
+    /// standing.
+    fn nearest_enemy_standing(&self, slot: u32) -> Option<u32> {
+        let residents = self.residents.as_ref()?;
+        let from = self.aboard.room.bim_pos(slot as usize);
+        let mut nearest: Option<(u32, f32)> = None;
+        for enemy in 0..residents.aboard.count() {
+            if !self.enemy_standing_at(enemy) {
+                continue;
+            }
+            let Some(at) = self.aboard.from_station(residents.aboard.position(enemy)) else {
+                continue;
+            };
+            let far = (bims::math::vec2(at.x as f32, at.y as f32) - from).len();
+            if nearest.is_none_or(|(_, best)| far < best) {
+                nearest = Some((enemy, far));
+            }
+        }
+        nearest.map(|(enemy, _)| enemy)
+    }
+
     /// The order a player's ask comes out as: an attack's enemy checked
     /// and, with *pincer*, added beside the one already marked; a fall
     /// back's tile the one named or, for a tile that is not deck of the
@@ -10687,8 +10710,10 @@ impl World {
 
     /// The pruning half of the step: an order ends when the commander
     /// goes down or dies, when an attack's marks are all gone — down or
-    /// dead, and dead alone with *relentless* — or when nobody is left
-    /// under it.
+    /// dead — or when nobody is left under it. With *relentless* a mark
+    /// is gone only once it is dead, and an attack whose marks are all
+    /// dead moves on to the enemy standing nearest him
+    /// ([`World::nearest_enemy_standing`]) rather than ending.
     fn settle_squad(&mut self) {
         if self.commanders.len() < self.aboard.crew_count() as usize {
             self.commanders
@@ -10715,11 +10740,21 @@ impl World {
                     }
                 })
                 .collect();
+            // *Relentless* does not stop at the mark: with every one it
+            // had dead, the attack goes on to the enemy standing nearest
+            // the commander, and ends only when none is. A machine is
+            // destroyed and never out cold, so this is the half of the
+            // talent a fight against the machines has to act on.
+            let alive = if alive.is_empty() && relentless {
+                self.nearest_enemy_standing(by).into_iter().collect()
+            } else {
+                alive
+            };
             if alive.is_empty() {
                 self.squad = None;
                 return;
             }
-            if alive.len() != enemies.len()
+            if alive != *enemies
                 && let Some(order) = &mut self.squad
             {
                 order.kind = SquadKind::Attack { enemies: alive };
@@ -10764,18 +10799,37 @@ impl World {
         self.aboard.room.set_skills(skills);
     }
 
-    /// Whether an enemy is standing in the crew's room: the rooms joined
-    /// and hostile, and one of the station's people alive and on its
-    /// feet. A *rampage* lasts while one is.
+    /// Whether an enemy is standing in the crew's room: the rooms joined,
+    /// and one of the station's **bodies** alive and on its feet — its
+    /// people and its machines at a hostile station, and the machines
+    /// alone in a town the crew are defending, whose own people are no
+    /// enemy of theirs. A *rampage* lasts while one is, and a field
+    /// surgery is once for as long as one is.
+    ///
+    /// The machines are what a fight is made of (every enemy since
+    /// feature 102), and until this counted them it asked the station's
+    /// Bims alone: always false against a wave, so a rampage's stack was
+    /// cleared the step it was earned and a field surgery came back
+    /// every step.
     fn enemy_standing(&self) -> bool {
         let Some(residents) = &self.residents else {
             return false;
         };
-        if self.stance(residents.station) != Stance::Hostile || !self.aboard.is_joined() {
+        if !self.aboard.is_joined() {
             return false;
         }
         let room = &residents.aboard.room;
-        (0..room.crew_count() as usize).any(|who| room.is_alive(who) && !room.is_unconscious(who))
+        let first = if self.stance(residents.station) == Stance::Hostile {
+            0
+        } else if self.defense_here().is_some()
+            && Some(residents.station) == self.ship.state.station()
+        {
+            room.crew_count() as usize
+        } else {
+            return false;
+        };
+        (first..room.body_count() as usize)
+            .any(|who| room.is_alive(who) && !room.is_unconscious(who))
     }
 
     /// After `visit` and the experience: what the fight did to the

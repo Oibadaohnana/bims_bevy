@@ -312,14 +312,22 @@ fn fight() -> World {
 /// A second machine a tile and a half from the one the probe stood,
 /// held where it is put the same way.
 fn second_machine(world: &mut World) {
+    machine_off(world, 1.5);
+}
+
+/// Another machine `tiles` tiles along the station's own y from the one
+/// the probe stood — the other way for a negative count — held where it
+/// is put the same way.
+fn machine_off(world: &mut World, tiles: f32) {
     let residents = world.residents.as_mut().expect("alongside");
     let room = &mut residents.aboard.room;
+    let index = room.droid_count() as usize;
     let first = room.droid(0).expect("the staged machine");
-    let at = first.pos + vec2(0.0, 1.5 * shipdesign::TILE as f32);
+    let at = first.pos + vec2(0.0, tiles * shipdesign::TILE as f32);
     let mut other = Droid::new(
         first.kind,
         first.tier,
-        1,
+        index,
         first.wave,
         at,
         first.heading,
@@ -1016,10 +1024,86 @@ fn steady_ranks_and_double_time() {
     assert_eq!(skill(&world, 0).walk, 1.0, "never himself");
 }
 
-/// *Grit*: during a rally, nothing the fight has done costs pace. (Its
-/// pick's other side, *relentless* — a mark that lasts past an enemy
-/// out cold until it is dead — has nothing to bite on since every enemy
-/// is a machine, which is destroyed and never out cold.)
+/// Where an enemy stands in the crew's room, off the commander.
+fn from_commander(world: &World, enemy: u32) -> f32 {
+    let residents = world.residents.as_ref().expect("alongside");
+    let at = world
+        .aboard
+        .from_station(residents.aboard.position(enemy))
+        .expect("on the joined deck");
+    (vec2(at.x as f32, at.y as f32) - world.aboard.room.bim_pos(0)).len()
+}
+
+/// What an attack has marked.
+fn marks(world: &World) -> Vec<u32> {
+    match &world.squad.as_ref().expect("an order").kind {
+        SquadKind::Attack { enemies } => enemies.clone(),
+        other => panic!("not an attack: {other:?}"),
+    }
+}
+
+/// *Relentless*: an attack whose mark is dead goes on to the enemy
+/// standing nearest the commander rather than ending, and ends only when
+/// none is — which is the half of the talent a fight against the
+/// machines has to act on, a machine being destroyed and never out cold.
+/// Without it the order ends with the mark, a machine still standing
+/// (`an_attack_marks_an_enemy_and_ends_when_it_goes_down`).
+#[test]
+fn relentless_takes_the_attack_on_to_the_nearest_machine_standing() {
+    let mut world = fight();
+    machine_off(&mut world, -1.5);
+    world.step(&[]);
+    for who in 1..world.aboard.crew_count() {
+        stand_near(&mut world, who as usize, 2.0);
+    }
+    world.step(&[]);
+    pick(&mut world, 0, Talent::Relentless);
+    let enemy = enemy_up(&world);
+    world.step(&[Command::Squad {
+        slot: 0,
+        order: SquadAsk::Attack { enemy },
+    }]);
+    assert_eq!(marks(&world), vec![enemy]);
+    let member = world.squad.as_ref().unwrap().members[0];
+    let mut mark = enemy;
+    let mut moved = 0;
+    loop {
+        wreck(&mut world, mark);
+        world.step(&[]);
+        world.step(&[]);
+        let residents = world.residents.as_ref().unwrap();
+        let standing: Vec<u32> = (0..residents.aboard.count())
+            .filter(|&i| residents.aboard.room.is_alive(i as usize))
+            .collect();
+        if standing.is_empty() {
+            assert!(world.squad.is_none(), "none standing: the order is over");
+            break;
+        }
+        let next = marks(&world);
+        assert_eq!(next.len(), 1, "one mark: {next:?}");
+        let next = next[0];
+        assert!(standing.contains(&next), "{next} is standing");
+        for &other in &standing {
+            assert!(
+                from_commander(&world, next) <= from_commander(&world, other),
+                "{next} is the nearest standing, not {other}"
+            );
+        }
+        // And the squad is sent at it, in sight.
+        assert_eq!(
+            world.aboard.room.squad_for_probe(member as usize),
+            bims::game::Squad::Attack {
+                enemy: next as usize,
+                seen: true
+            }
+        );
+        mark = next;
+        moved += 1;
+    }
+    assert_eq!(moved, 2, "on from the first mark to each of the other two");
+}
+
+/// *Grit*: during a rally, nothing the fight has done costs pace.
 #[test]
 fn grit_takes_the_hurt_off_the_pace_during_a_rally() {
     let mut world = commander();

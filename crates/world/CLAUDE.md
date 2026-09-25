@@ -2839,14 +2839,15 @@ own bolt or blow; `None` for a sentry's and an enemy's) for the
 *rampage*: `experience` hands back every enemy newly down with who last
 hit it, and `settle_rampage` gives that soldier a stack (up to
 `RAMPAGE_STACKS`) — or clears every stack when `enemy_standing` is
-false: the rooms unjoined, or nobody of the station's up and conscious.
-**`enemy_standing` counts the station room's *Bims* alone**, so against
-the machines — every enemy since feature 102 — it is always false and
-the stack earned is cleared the same step: *rampage* does nothing now.
-Feature 104 found it, deleted the half of
-`bruiser_dug_in_deadeye_and_rampage` that staged a human fight for it
-(the test is `bruiser_dug_in_and_deadeye` now) and left the game as it
-was; see the section on feature 104 at the end. Enemies neither throw
+false: the rooms unjoined, or no body of the station's up and
+conscious. **`enemy_standing` counts the station room's machines as
+well as its Bims** — every body at a hostile station, and the machines
+alone in a town the crew are defending. Until the fix after feature 104
+it counted the Bims alone, so against the machines — every enemy since
+feature 102 — it was always false and the stack earned was cleared the
+same step; `rampage_is_a_stack_a_machine_downed_until_none_stands` is
+the test, a second machine standing out of the grenade's reach while the
+soldier's burst downs the first. Enemies neither throw
 nor dodge grenades.
 
 **What moved.** `SAVE_VERSION` 17, `wire::PROTOCOL` 10, `Refusal` 52–59,
@@ -2982,13 +2983,12 @@ patient's wounds as it ends when the flag is up. `WorldEvent::Surged`
 gives `XP_HEALED` to a medic that did one on a crewmate, marks the
 field surgery used for a bare one, and puts every medic's field surgery
 back when `enemy_standing` is false, the way `settle_rampage` clears the
-stacks. **Against the machines that reset is every step**:
-`enemy_standing` counts the station room's *Bims* alone, and a held
-station has none standing, so a bare field surgery is never held to once
-a fight any more — a gap feature 104 found and left, its test
-(`field_surgeon_is_once_a_fight_and_comes_back_when_it_ends`) deleted
-with the human fight it staged (see the section on feature 104 at the
-end).
+stacks — so once a fight is **while a machine stands**, and the surgery
+comes back when the last of a wave is down.
+(`field_surgeon_is_once_a_fight_against_the_machines_and_comes_back_when_it_ends`.)
+Until the fix after feature 104 `enemy_standing` counted the station
+room's *Bims* alone, a held station has none, and the reset was every
+step: a bare field surgery was never held to once a fight.
 
 **Crew indices are all a link is**, so `clear_beams` breaks every beam
 at a hire and when a dead bot is dropped from the crew at a mission's
@@ -3124,12 +3124,20 @@ from `LONG_REACH_LEVEL`). `settle_squad`, at the top of
 `hand_the_room_the_squad` every step, prunes a member a player has begun
 steering and one dead or outside, and drops the whole order when the
 commander is not `fit_to_act`, when an attack's marks are all gone
-(down or dead, and dead alone with *relentless*) or when nobody is left
-under it. *Relentless* bites on a mark **out cold**, which a machine
-never is — it is destroyed at once — so against the machines the talent
-has nothing to do; its half of `relentless_and_grit` went in feature
-104 (the test is `grit_takes_the_hurt_off_the_pace_during_a_rally`
-now). `take_the_ordered_out_of_squad` is the other half: a
+(down or dead) or when nobody is left under it. ***Relentless*** does
+two things there. A mark **out cold** is not gone until it is dead — a
+machine never is out cold, being destroyed at once — and an attack
+whose marks are all dead **moves on** to the enemy standing nearest the
+commander (`World::nearest_enemy_standing`, the lowest index on a tie)
+rather than ending, so the order ends only when nobody is standing. The
+move says nothing (an order ending by itself says nothing either); the
+room is simply handed the new mark. The second half is the fix after
+feature 104, which had found the talent with nothing to act on against
+the machines (`relentless_takes_the_attack_on_to_the_nearest_machine_standing`;
+without the talent the order ends with its mark, a machine still
+standing, `an_attack_marks_an_enemy_and_ends_when_it_goes_down`). An
+unseen mark is walked towards whatever the talent — that is the room's
+`Target::stale`. `take_the_ordered_out_of_squad` is the other half: a
 `Command::Crew`/`CrewLater` takes the crew member an errand names — or
 everybody the player has selected, for a move or a line — out of the
 order until the next one. `clear_squad` is called by `unjoin_rooms`, a
@@ -4427,26 +4435,47 @@ solid gone from a nav grid, a room told something it was not told
 before — and put it back.
 
 **What the deletion found and left alone.** Four things the human enemy
-was the only one to reach, which do nothing against the machines; the
-game was left as it plays, and each is noted where it lives above:
+was the only one to reach, which did nothing against the machines; the
+deletion left the game as it played, and the three that were game bugs
+were **fixed after it**, as a change of their own (each noted where it
+lives above):
 
-- ***Rampage*** does nothing: `settle_rampage` clears every stack when
-  `enemy_standing()` is false, and `enemy_standing` counts the station
-  room's **Bims** alone, so against machines the stack earned is cleared
-  the same step.
-- **The field surgeon's reset** is every step: `settle_medics` puts
+- ***Rampage*** did nothing: `settle_rampage` clears every stack when
+  `enemy_standing()` is false, and `enemy_standing` counted the station
+  room's **Bims** alone, so against machines the stack earned was
+  cleared the same step. Fixed: `enemy_standing` counts the machines —
+  every body at a hostile station, the machines alone in a town the crew
+  are defending.
+- **The field surgeon's reset** was every step: `settle_medics` puts
   `field_surgery_used` back when `enemy_standing()` is false, for the
-  same reason, so a bare field surgery is never held to once a fight.
-- ***Relentless*** has nothing to bite on: it keeps a mark past an enemy
+  same reason, so a bare field surgery was never held to once a fight.
+  Fixed by the same change.
+- ***Relentless*** had nothing to bite on: it keeps a mark past an enemy
   out cold until it is dead, and a machine is never out cold — it is
-  destroyed at once.
-- **`EnemyDown` is never said**, no room having hostile Bims, and
-  `Game::recall_outside` lost its only caller (`leave_site`, the raid's
-  arrival). `surface::guard_post()` has no caller either, the guard's
-  post being gone; `GUARD_POST` is still the plan's.
+  destroyed at once. Fixed by giving it a second half: an attack whose
+  marks are all dead moves on to the enemy standing nearest the
+  commander instead of ending.
+- **`EnemyDown` is never said**, no room having hostile Bims — and that
+  is left as it is: a machine going down is `DroidDown`, which the log
+  prints and everything that pays for a machine reads. The variant and
+  its log line stay. `Game::recall_outside` lost its only caller
+  (`leave_site`, the raid's arrival). `surface::guard_post()` has no
+  caller either, the guard's post being gone; `GUARD_POST` is still the
+  plan's.
 
-The tests deleted with them: `field_surgeon_is_once_a_fight_and_comes_back_when_it_ends`,
-and the rampage half of `bruiser_dug_in_deadeye_and_rampage` and the
-relentless half of `relentless_and_grit`. A fix is a change to what the
-game does, and is its own feature — `enemy_standing` asked of the
-machines too, most likely.
+The tests deleted with them — `field_surgeon_is_once_a_fight_and_comes_back_when_it_ends`,
+the rampage half of `bruiser_dug_in_deadeye_and_rampage` and the
+relentless half of `relentless_and_grit` — came back against the
+machines with the fix: `field_surgeon_is_once_a_fight_against_the_machines_and_comes_back_when_it_ends`,
+`rampage_is_a_stack_a_machine_downed_until_none_stands` and
+`relentless_takes_the_attack_on_to_the_nearest_machine_standing`. No
+survivor pin moved: neither survivor run has a crew member past the
+first level, so no talent is in either.
+
+**One more gap, found by the fix and left**: in a **town's defence**
+`experience` pays nothing for a machine downed — it asks
+`stance == Hostile`, and a defended town is friendly — so no
+`XP_ENEMY_DOWN`, no `XP_ENEMY_DEAD` and no *rampage* stack is earned
+there (the Republic's bounty is paid, off `visit`'s own count). Paying
+it would move `SURVIVORS`, whose town run has an engineer and a tank
+earning experience, so it is a change of its own.

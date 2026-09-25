@@ -157,7 +157,7 @@
 //! | 6 | *Long rally*: a rally lasts ×1.5 | *Quick rally*: the rally cooldown ×0.5 |
 //! | 7 | *Long reach*: a squad order reaches every squad member in the room | — |
 //! | 8 | *Steady ranks*: Bims in his aura bleed ×0.75 | *Double time*: Bims in his aura walk at pace ×1.1 |
-//! | 9 | *Relentless*: an attack's mark lasts until the enemy dies, walked towards even unseen | *Grit*: during a rally, Bims in it lose no pace to wounds or traumas |
+//! | 9 | *Relentless*: an attack's mark lasts until the enemy dies, then moves on to the nearest enemy standing | *Grit*: during a rally, Bims in it lose no pace to wounds or traumas |
 //! | 10 | *Anchor*: the aura's bonuses double while he stands still | *Warcry*: a rally covers every friendly Bim in the room |
 //!
 //! **His aura and his rally lift every friendly Bim they reach, a

@@ -943,7 +943,7 @@ pub const TALENT_TIPS: [&str; 69] = [
     "The rally's cooldown is half as long.",
     "Bims in his aura bleed at three quarters the rate.",
     "Bims in his aura walk a tenth faster.",
-    "An attack's mark lasts until that enemy is dead, not merely down.",
+    "An attack's mark lasts until that enemy is dead, then moves on to the nearest one standing.",
     "During a rally, Bims in it lose no pace at all to wounds or traumas.",
     "The aura's bonuses are twice as deep while he stands still.",
     "A rally covers every friendly Bim in the room, however far off.",
@@ -1468,7 +1468,7 @@ pub fn talent_numbers(talent: world::Talent) -> String {
             "Bims in the aura walk at {} pace",
             by(c::DOUBLE_TIME_PACE as f64)
         ),
-        T::Relentless => "An attack's mark holds until that enemy is dead, not merely down — and the squad walks towards it even unseen".to_string(),
+        T::Relentless => "An attack's mark holds until that enemy is dead, not merely down — and then the squad goes on to the nearest enemy still standing".to_string(),
         T::Grit => "During a rally, Bims in it lose no pace at all to wounds or traumas".to_string(),
         T::Anchor => format!(
             "Standing still, each aura bonus {} deeper: work and aim {}, nerve {}",

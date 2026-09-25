@@ -1213,11 +1213,8 @@ fn long_throw_short_fuse_frag_and_quick_draw_are_the_grenade_s_numbers() {
     assert_eq!(world.grenade_fuse(1), class::GRENADE_FUSE);
 }
 
-/// *Bruiser*, *dug in* and *deadeye* are the soldier's numbers. (The
-/// last pick's other side, *rampage* — a stack for each enemy downed
-/// while one is still standing — does nothing since every enemy is a
-/// machine: whether an enemy stands is asked of the station's people
-/// alone, so the stacks are cleared the step they are earned.)
+/// *Bruiser*, *dug in* and *deadeye* are the soldier's numbers. The last
+/// pick's other side, *rampage*, is the test after this one.
 #[test]
 fn bruiser_dug_in_and_deadeye() {
     let mut world = soldier();
@@ -1242,4 +1239,119 @@ fn bruiser_dug_in_and_deadeye() {
         assert_eq!(stats.accuracy, kind.basic().stats().accuracy);
     }
     assert!(!world.skill_of(1).deadeye);
+}
+
+/// A second machine stood on the station's deck `tiles` tiles off the
+/// staged one, held where it is put the same way: far enough that a
+/// burst on the first never reaches it.
+fn machine_beyond(world: &mut World, tiles: f32) {
+    let residents = world.residents.as_mut().expect("alongside");
+    let room = &mut residents.aboard.room;
+    let first = room.droid(0).expect("the staged machine");
+    let (kind, tier, wave, from, heading) =
+        (first.kind, first.tier, first.wave, first.pos, first.heading);
+    let at = [
+        vec2(1.0, 0.0),
+        vec2(-1.0, 0.0),
+        vec2(0.0, 1.0),
+        vec2(0.0, -1.0),
+    ]
+    .into_iter()
+    .map(|d| from + d * (tiles * TILE))
+    .find(|&p| room.is_deck_tile(p))
+    .expect("deck that far off the machine");
+    let mut other = bims::droid::Droid::new(kind, tier, 1, wave, at, heading, 0x5EC0_4D);
+    other.posing = true;
+    room.adopt_droids(vec![other], Vec2::ZERO);
+    residents.aboard.crew = residents.aboard.room.body_count();
+    let stood = residents
+        .aboard
+        .room
+        .droid(1)
+        .expect("the second machine")
+        .pos;
+    assert!(
+        (stood - from).len() > (class::GRENADE_RADIUS + 1.0) * TILE,
+        "out of the burst's reach"
+    );
+}
+
+/// A machine destroyed where it stands, by its body index.
+fn wreck(world: &mut World, who: usize) {
+    world
+        .residents
+        .as_mut()
+        .unwrap()
+        .aboard
+        .room
+        .strike_droid(who, DroidPart::Chassis, 1e6);
+}
+
+/// *Rampage*: a stack for each machine the soldier downs while another
+/// still stands, up to three, each one the fire rate ×1.1 — and every
+/// stack gone once none stands, the fight over. The soldier's grenade is
+/// the last thing to land on the first machine, and a second stands out
+/// of the burst's reach so the fight goes on past it. (Until the fight
+/// counted the machines as enemies standing, the stack was cleared the
+/// step it was earned.)
+#[test]
+fn rampage_is_a_stack_a_machine_downed_until_none_stands() {
+    let mut world = fight();
+    disarm(&mut world, 0);
+    disarm(&mut world, 1);
+    machine_beyond(&mut world, 6.0);
+    pick(&mut world, 0, Talent::Rampage);
+    // The tenth level has the seventh's drill under it.
+    let drill = class::DRILL_FIRE_RATE;
+    assert_eq!(world.skill_of(0).fire_rate, drill);
+    assert_eq!(world.aboard.room.rampage(0), 0);
+    let tile = tile_of(machine_at(&world));
+    assert_eq!(world.can_throw(0, tile), Ok(()));
+    throw(&mut world, 0, tile);
+    let (took, _) = machine_burst(&mut world);
+    assert!(took > 0.0, "the burst landed");
+    // Whatever the burst left of it destroyed: the grenade was the last
+    // thing to land on it, so it is the soldier's.
+    wreck(&mut world, 0);
+    for _ in 0..3 {
+        if world.aboard.room.rampage(0) > 0 {
+            break;
+        }
+        world.step(&[]);
+    }
+    assert!(machine(&world).destroyed);
+    assert_eq!(
+        world.aboard.room.rampage(0),
+        1,
+        "a stack while the second machine stands"
+    );
+    assert_eq!(
+        world.skill_of(0).fire_rate,
+        drill * class::RAMPAGE_FIRE_RATE
+    );
+    for _ in 0..3 {
+        world.step(&[]);
+    }
+    assert_eq!(
+        world.aboard.room.rampage(0),
+        1,
+        "and it holds while one does"
+    );
+    // Capped at three, and the checksum knows the stacks.
+    let before = world_checksum(&world);
+    world.aboard.room.set_rampage(0, 3);
+    assert_ne!(world_checksum(&world), before);
+    assert_eq!(
+        world.skill_of(0).fire_rate,
+        drill * class::RAMPAGE_FIRE_RATE.powi(class::RAMPAGE_STACKS as i32)
+    );
+    // The last machine down: the fight is over, and the stacks with it.
+    wreck(&mut world, 1);
+    for _ in 0..3 {
+        world.step(&[]);
+    }
+    assert_eq!(world.aboard.room.rampage(0), 0);
+    assert_eq!(world.skill_of(0).fire_rate, drill);
+    // Nothing for the crewmate, ever.
+    assert_eq!(world.aboard.room.rampage(1), 0);
 }

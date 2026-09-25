@@ -4,6 +4,7 @@
 //! holds it alone.
 
 use bims::combat::{Item, WeaponKind};
+use bims::droid::{DroidKind, DroidPart};
 use bims::health::{MAX_BLOOD, OUT_AT, Part, TREATED_TO};
 use bims::math::{Vec2, vec2};
 use bims::order::CrewOrder;
@@ -1293,6 +1294,59 @@ fn mass_surge_covers_the_crew_round_the_patient_and_field_surgeon_treats_without
     world.step(&[]);
     assert_eq!(count_in_pack(&world, 1, ResourceId::Medkit), 0);
     assert!(!world.aboard.room.treat(1, 0, Part::Body));
+}
+
+/// *Field surgeon* is once a fight, and a fight is a machine standing: a
+/// bare treatment done while one is on the dock alongside is not given
+/// again until none is, and then it is back. The machine is held where
+/// it is put, firing nothing, and the crew's guns are out of their hands,
+/// so nothing ends the fight but the test.
+#[test]
+fn field_surgeon_is_once_a_fight_against_the_machines_and_comes_back_when_it_ends() {
+    let mut world = medic();
+    pick(&mut world, 0, Talent::FieldSurgeon);
+    world.ship.design.cargo[ResourceId::Medkit as usize] = 0;
+    // The packs are emptied, and no medkit comes back into them.
+    world.medicine_off_for_probe();
+    empty_pack_of_kits(&mut world, 0);
+    empty_pack_of_kits(&mut world, 1);
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
+    for who in 0..2 {
+        let mut gear = world.aboard.room.gear(who);
+        gear.weapon = None;
+        world.aboard.room.issue(who, gear);
+    }
+    for _ in 0..3 {
+        world.step(&[]);
+    }
+    assert_eq!(world.aboard.room.medkits(), 0);
+    // The medic's crewmate beside it, dying: treated bare once.
+    beside(&mut world, 1, 0);
+    make_dying(&mut world, 1);
+    assert!(treat_and_wait(&mut world, 0, 1, Part::Body).is_some());
+    assert!(world.medic_of(0).field_surgery_used, "used this fight");
+    beside(&mut world, 1, 0);
+    make_dying(&mut world, 1);
+    assert!(
+        !world.aboard.room.treat(0, 1, Part::Body),
+        "not twice in one fight"
+    );
+    // The machine destroyed — nothing standing — and it comes back.
+    world
+        .residents
+        .as_mut()
+        .unwrap()
+        .aboard
+        .room
+        .strike_droid(0, DroidPart::Chassis, 1e6);
+    for _ in 0..3 {
+        world.step(&[]);
+    }
+    assert!(
+        !world.medic_of(0).field_surgery_used,
+        "back after the fight"
+    );
+    assert!(world.aboard.room.treat(0, 1, Part::Body));
 }
 
 #[test]
