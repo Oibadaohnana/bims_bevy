@@ -14,7 +14,7 @@ use shipdesign::PartKind;
 use crate::data;
 use crate::event::WorldEvent;
 use crate::fixture::simulation_world;
-use crate::world::{Command, World};
+use crate::world::World;
 
 fn a_world() -> World {
     let mut world = simulation_world(
@@ -252,39 +252,16 @@ fn the_bounty_is_by_the_enemy_s_gear_tier() {
     }
 }
 
-/// **Gear is sold only where its trade is** (feature 95): a station rolls
-/// a weapon trade and an armour trade off its own seed, and a buy of
-/// something it does not stock is `NotSoldHere` however much money there
-/// is. Every tier of what it does stock is on sale, at the book times
-/// `TIER_PRICE`.
+/// Every tier of a gun or a piece is priced at the book times
+/// `TIER_PRICE` (feature 95) — what a trader's shelf is priced at (task
+/// 114) — and a resource that comes at no tier ignores the tier.
 #[test]
-fn gear_is_sold_where_its_trade_is_and_every_tier_is_priced() {
-    let mut world = a_world();
+fn every_tier_is_priced_at_the_book_times_its_multiplier() {
+    let world = a_world();
     let station = match world.ship.state {
         crate::world::ShipState::Docked { station } => station,
         _ => panic!("a world opens docked"),
     };
-    world.money = 10_000_000;
-    assert!(world.man_the_desk_for_probe(0));
-    let stock = world.station(station).unwrap().stock;
-
-    // The two flags are read back off the shelf, and each is all of its
-    // list or none of it.
-    let weapons = [
-        ResourceId::Handgun,
-        ResourceId::Shotgun,
-        ResourceId::AutoRifle,
-        ResourceId::SniperRifle,
-        ResourceId::Schword,
-    ];
-    let armour = [ResourceId::Helm, ResourceId::Kevlar, ResourceId::LegGuard];
-    for resource in weapons {
-        assert_eq!(stock.sells(resource), stock.weapon_trade(), "{resource:?}");
-    }
-    for resource in armour {
-        assert_eq!(stock.sells(resource), stock.armour_trade(), "{resource:?}");
-    }
-
     // A tier's price is the book times the multiplier, on both sides.
     let one = world.quote_at(station, ResourceId::Handgun, 1).unwrap();
     let two = world.quote_at(station, ResourceId::Handgun, 2).unwrap();
@@ -295,45 +272,4 @@ fn gear_is_sold_where_its_trade_is_and_every_tier_is_priced() {
     // And a resource that comes at no tier ignores the tier entirely.
     let food = world.quote_at(station, ResourceId::Vegetable, 3).unwrap();
     assert_eq!(food, world.quote(station, ResourceId::Vegetable).unwrap());
-
-    // What it does not stock is refused; what it does arrives at the tier
-    // it was bought at.
-    let refused = |events: &[WorldEvent]| {
-        events.iter().any(|e| {
-            matches!(
-                e,
-                WorldEvent::Refused {
-                    why: crate::Refusal::NotSoldHere,
-                    ..
-                }
-            )
-        })
-    };
-    if stock.weapon_trade() {
-        let money = world.money;
-        let events = world.step(&[Command::Buy {
-            slot: 0,
-            resource: ResourceId::Handgun,
-            units: 1,
-            tier: 2,
-        }]);
-        assert!(!refused(&events), "{events:?}");
-        assert_eq!(world.money, money - two.ask, "a tier-two price");
-        assert!(
-            world
-                .holdings
-                .armory
-                .iter()
-                .any(|s| s.item == Item::Weapon(WeaponKind::LaserPistol.at(Tier::Two))),
-            "the gun arrived in the armory at the tier it was bought at"
-        );
-    } else {
-        let events = world.step(&[Command::Buy {
-            slot: 0,
-            resource: ResourceId::Handgun,
-            units: 1,
-            tier: 1,
-        }]);
-        assert!(refused(&events), "{events:?}");
-    }
 }

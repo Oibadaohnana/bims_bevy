@@ -27,10 +27,10 @@
 //! the research (feature 106). A recipe made and lost (14, 15), a piece
 //! put on (34), a thing stowed (35), a body looted (38), the workbench's
 //! upgrade and repair (48, 49, 74) and the buyback (102, 103) went with
-//! the storage (task 113).
+//! the storage (task 113). Goods across a desk (8, 9) went with the desks
+//! (task 114): gear is bought at a trader, on the map.
 
 use bims::combat::ArmourKind;
-use physics::ResourceId;
 use shipdesign::PartKind;
 use worldgen::Node;
 
@@ -44,12 +44,6 @@ pub enum WorldEvent {
     Discovered { node: Node },
     /// The view is now about a particular place, or about space again.
     FrameChanged { frame: Frame },
-    /// Goods aboard. `units` is negative for a sale.
-    Traded {
-        slot: u32,
-        resource: ResourceId,
-        units: i64,
-    },
     /// A command was not carried out. The reason is in the code.
     Refused { slot: u32, why: Refusal },
     /// A construction site was laid out for a part of `kind`, and is
@@ -288,6 +282,20 @@ pub enum WorldEvent {
     /// whole loadout, and the pool paid `paid` for it — the buyback, or
     /// what was left of the pool, which never goes below nought.
     Respawned { who: u32, paid: economy::Money },
+    /// Player `slot` bought what was in the shelf's slot `index` at the
+    /// trader the crew are at (task 114), for crew member `to`'s loadout
+    /// — or the armory, `u32::MAX`.
+    ShelfBought { slot: u32, index: u32, to: u32 },
+    /// Player `slot` combined two things into one of `tier` at a trader:
+    /// onto crew member `who`, or into the armory, `u32::MAX`.
+    Combined { slot: u32, who: u32, tier: u32 },
+    /// The trader's relic bought: player `slot`'s Bim holds `relic` (a
+    /// code), and the pool paid `price`.
+    RelicBought {
+        slot: u32,
+        relic: u32,
+        price: economy::Money,
+    },
 }
 
 /// Why a command did nothing.
@@ -299,7 +307,7 @@ pub enum WorldEvent {
 /// plunder's, 26 and 27, and a walk through the test room's locked heads
 /// door, 37, went with the old game in feature 104; the hold's, the
 /// pack's, the loot's and the workbench's, 3, 15–18, 34–36, 51 and 81,
-/// went with the storage in task 113).
+/// went with the storage in task 113; the desk's, 21, with the desks in task 114).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -336,9 +344,6 @@ pub enum Refusal {
     /// A hire of somebody who is not a mercenary for hire — one of the
     /// station's own people, or nobody at all.
     NotForHire = 19,
-    /// A buy or a sell by a player whose crew member is not at the
-    /// station's trading desk — see `World::at_the_desk`.
-    NotAtTheDesk = 21,
     /// A sale at a station with nobody to buy: a derelict keeps no desk
     /// (`crate::station::market_kind`). A buy there is
     /// [`Refusal::NotSoldHere`] first, since it stocks nothing either.
@@ -495,6 +500,23 @@ pub enum Refusal {
     NoSuchGear = 100,
     /// An answer to an offer nobody made.
     NoOffer = 101,
+    /// A trader proposed while its system is the machines' and not
+    /// liberated (task 114): closed, until every infested site of it is
+    /// cleared.
+    TraderClosed = 102,
+    /// A trader proposed that the crisis will have closed by the day the
+    /// crew would arrive.
+    ClosedOnArrival = 103,
+    /// A purchase, a combining or a trader's relic asked for anywhere
+    /// but at a trader.
+    NotAtATrader = 104,
+    /// A thing off the shelf that is not there — bought already, or the
+    /// trader's relic gone: the first command to want it had it.
+    SoldOut = 105,
+    /// Two things combined at tier three: there is no tier past it.
+    TopTier = 106,
+    /// Two things combined that are not two of one kind at one tier.
+    NotAPair = 107,
 }
 
 impl Refusal {
@@ -512,8 +534,6 @@ impl WorldEvent {
         match self {
             WorldEvent::Discovered { .. } => 6,
             WorldEvent::FrameChanged { .. } => 7,
-            WorldEvent::Traded { units, .. } if units >= 0 => 8,
-            WorldEvent::Traded { .. } => 9,
             WorldEvent::Refused { .. } => 10,
             // 14 and 15 were a recipe made and lost, 34, 35 and 38 a piece put
             // on, a thing stowed and a body looted, 48 and 49 the workbench's
@@ -599,6 +619,9 @@ impl WorldEvent {
             WorldEvent::OfferWithdrawn { .. } => 123,
             WorldEvent::KeyFound { .. } => 124,
             WorldEvent::Respawned { .. } => 125,
+            WorldEvent::ShelfBought { .. } => 126,
+            WorldEvent::Combined { .. } => 127,
+            WorldEvent::RelicBought { .. } => 128,
         }
     }
 
@@ -637,6 +660,17 @@ impl WorldEvent {
             | WorldEvent::OfferTaken { from, part, to }
             | WorldEvent::OfferWithdrawn { from, part, to } => (from + 10 * part + 100 * to) as i64,
             WorldEvent::KeyFound { keys } => keys as i64,
+            // The buyer in the units, the slot in the tens and the Bim plus
+            // one in the thousands, nought for the armory (task 114).
+            WorldEvent::ShelfBought { slot, index, to } => {
+                let to = if to == u32::MAX { 0 } else { to as i64 + 1 };
+                (slot as i64) + 10 * (index as i64) + 1_000 * to
+            }
+            WorldEvent::Combined { slot, who, tier } => {
+                let who = if who == u32::MAX { 0 } else { who as i64 + 1 };
+                (slot as i64) + 10 * (tier as i64) + 100 * who
+            }
+            WorldEvent::RelicBought { slot, relic, .. } => (slot as i64) + 100 * (relic as i64),
             WorldEvent::TownFell { station }
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }
@@ -700,7 +734,6 @@ impl WorldEvent {
                 Node::Body(id) | Node::Station(id) => id as i64,
             },
             WorldEvent::FrameChanged { frame } => frame.code() as i64,
-            WorldEvent::Traded { units, .. } => units,
             WorldEvent::Refused { why, .. } => why.code() as i64,
             // The star: a galaxy has a thousand.
             WorldEvent::Jumped { star } | WorldEvent::Infested { star } => star as i64,

@@ -380,7 +380,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NoSuchSite => "that site is not there any more",
         Refusal::OutOfReach => "it is out of reach — walk over first",
         Refusal::NotForHire => "that is not a mercenary for hire",
-        Refusal::NotAtTheDesk => "nobody of yours is at the trading desk — walk over first",
         Refusal::NoMarket => "there is nobody here to sell to",
         // A walk ordered on the deck (`Command::Crew`): the room's two
         // refusals.
@@ -449,6 +448,16 @@ pub fn refusal(why: Refusal) -> &'static str {
         }
         Refusal::NoSuchGear => "that thing is not there any more",
         Refusal::NoOffer => "there is no such offer standing",
+        Refusal::TraderClosed => {
+            "the trader is closed: the machines have its system until every site of it is cleared"
+        }
+        Refusal::ClosedOnArrival => {
+            "the machines will have the trader's system by the day the crew would get there"
+        }
+        Refusal::NotAtATrader => "only at a trader",
+        Refusal::SoldOut => "that is gone — somebody bought it first",
+        Refusal::TopTier => "tier three is as far as combining goes",
+        Refusal::NotAPair => "only two of one kind at one tier combine",
     }
 }
 
@@ -1727,20 +1736,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 "Alongside.".into()
             }
         }
-        WorldEvent::Traded {
-            resource, units, ..
-        } if units >= 0 => {
-            format!("{units} {} aboard.", resource_name(resource).to_lowercase())
-        }
-        WorldEvent::Traded {
-            resource, units, ..
-        } => {
-            format!(
-                "{} {} sold.",
-                -units,
-                resource_name(resource).to_lowercase()
-            )
-        }
         WorldEvent::Refused { why, .. } => {
             format!("That could not be done — {}.", refusal(why))
         }
@@ -1952,6 +1947,23 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             "{} is back aboard with everything it wore. The pool pays {}.",
             who(w),
             crate::format::euros(paid)
+        ),
+        // The trader's (task 114).
+        WorldEvent::ShelfBought { slot, to, .. } => {
+            if to == u32::MAX {
+                format!("{} bought a thing into the armory.", player_name(slot))
+            } else {
+                format!("{} bought a thing for {}.", player_name(slot), who(to))
+            }
+        }
+        WorldEvent::Combined { slot, tier, .. } => {
+            format!("{} combined two into one of tier {tier}.", player_name(slot))
+        }
+        WorldEvent::RelicBought { slot, relic, price } => format!(
+            "{} holds {} now. The pool paid {}.",
+            who(slot),
+            world::Relic::from_code(relic).map_or("a relic", relic_name),
+            crate::format::euros(price)
         ),
         WorldEvent::GearChanged { .. } => GEAR_CHANGED.into(),
         WorldEvent::GearOffered { from, to, .. } => format!(
@@ -2197,6 +2209,9 @@ pub const MAP_BETWEEN: &str =
     "Between missions. Choose where to go next — everybody has to accept.";
 pub const MAP_READ_ONLY: &str =
     "During a mission the map is read-only. Go back to the ship to choose where next.";
+/// At a trader (task 114): the visit is here, and the vote goes on.
+pub const MAP_AT_TRADER: &str =
+    "At a trader. Buy what you want, then choose where to go next — everybody has to accept.";
 pub const MAP_TIP: &str = "A trip is one step: to another station or settlement in this system, or to one in a system a hyperlane joins to this one. Nothing is flown. The world clock goes on by the trip's length the moment everybody has accepted — the crisis spreads by the day — and the crew arrive docked or landed with a mission begun. The world clock moves for nothing else: not during a mission, and not here.";
 /// The two halves of the list.
 pub const MAP_THIS_SYSTEM: &str = "This system";
@@ -2292,6 +2307,49 @@ pub const DERIVED_JAMMER_NAME: &str = "The machines' relay";
 pub const HEART_NAME: &str = "The Machine Heart";
 pub const ARRIVE_HEART: &str = "the Machine Heart";
 pub const HEART_ON_ARRIVAL: &str = "On arrival:";
+
+/// The trader (task 114): its tag on the map, why one is shut, and the
+/// Trader panel's every word.
+pub const ARRIVE_TRADER: &str = "trader";
+pub const TRADER_TIP: &str = "A trader is visited on the map: no mission, no room, and neither clock moves while the crew are there. Its shelf is rolled once for the run and never restocked, and its relic is drawn the first time the crew arrive. It is closed while the machines have its system, until every site of the system they took is cleared.";
+pub const TRADER_CLOSED: &str = "closed";
+pub const TRADER_CLOSED_ON_ARRIVAL: &str = "closed on arrival";
+pub const TRADER_TITLE: &str = "Trader";
+pub const TRADER_INTRO: &str = "Buy off the shelf out of the pool — onto your own Bim, a bot, or into the armory. What it replaces goes into the armory. Nothing comes back once it is sold.";
+pub const TRADER_WEAPONS: &str = "Weapons";
+pub const TRADER_ARMOUR: &str = "Armour";
+pub const TRADER_SOLD: &str = "sold";
+pub const TRADER_BUY: &str = "Buy";
+pub const TRADER_INTO_ARMORY: &str = "Into the armory";
+pub const TRADER_RELIC: &str = "Relic";
+pub const TRADER_NO_RELIC: &str = "The relic here is sold.";
+pub const TRADER_RELIC_INTRO: &str = "Bought together: propose it for a player's Bim and every player has to say yes. A new proposal clears them. The pool pays when it carries.";
+pub const TRADER_PROPOSE: &str = "Propose";
+pub const TRADER_WITHDRAW: &str = "Withdraw";
+pub const TRADER_COMBINE: &str = "Combine";
+pub const TRADER_COMBINE_INTRO: &str = "Two weapons or two pieces of one kind at one tier make one of the next tier, whole. Out of the armory, off your own Bim or off a bot. Where one of the two is worn, the result is worn in its place. Tier three is as far as it goes.";
+pub const TRADER_COMBINE_NONE: &str =
+    "Nothing to combine: no two of one kind at one tier below three.";
+pub const TRADER_ARMORY_HINT: &str = "Tab opens the Armory beside this.";
+/// A thing on the shelf: its name and tier.
+pub fn shelf_line(name: &str, tier: u32) -> String {
+    format!("{name} · tier {tier}")
+}
+/// What a relic costs here.
+pub fn relic_price_line(tier: u8, price: &str) -> String {
+    format!("Tier {tier} · {price}")
+}
+/// A pair that combines: what it is and where the two are.
+pub fn combine_line(name: &str, tier: u32, from: &str) -> String {
+    format!("Two {name} · tier {tier} into tier {} · {from}", tier + 1)
+}
+/// Where a thing to combine is.
+pub fn combine_from(worn_by: Option<&str>) -> String {
+    match worn_by {
+        Some(who) => format!("worn by {who}"),
+        None => "armory".into(),
+    }
+}
 
 /// The Manufacturers (feature 109): the name over one of theirs on the
 /// deck, the log's line when one dies, and a site of theirs' tag in the
@@ -2418,7 +2476,6 @@ pub fn with_key(word: &str, key: &str) -> String {
 pub const TRAY_ARMORY: &str = "Armory";
 pub const TRAY_SQUAD: &str = "Squad";
 pub const TRAY_MAP: &str = "Map";
-pub const TRAY_TRADE: &str = "Trade";
 /// The Stash panel.
 // The Armory panel (task 113): every crew member's loadout and the
 // ship's armory, money and keys.
@@ -2620,25 +2677,6 @@ pub const BODY_KIND_NAMES: [&str; 4] = ["Rocky planet", "Gas giant", "Ice world"
 /// And each kind of station, by `worldgen::StationKind`.
 pub const STATION_KIND_NAMES: [&str; 5] =
     ["Orbital", "Refinery", "Mining outpost", "Derelict", "Relay"];
-
-/// Which gear trades a place has, for the line that names it (feature
-/// 95): a market rolls a **weapon trade** and an **armour trade** off its
-/// own seed, each independently, and a station with neither sells no gear
-/// at all — so the word is worth saying before flying there. `None` where
-/// there is nothing to say.
-pub fn gear_trades(weapons: bool, armour: bool) -> Option<&'static str> {
-    match (weapons, armour) {
-        (true, true) => Some("weapons · armour"),
-        (true, false) => Some("weapons"),
-        (false, true) => Some("armour"),
-        (false, false) => None,
-    }
-}
-
-/// The same for a line of its own, where there is room for a sentence:
-/// what the place trades in, or that it deals in no gear.
-pub const NO_GEAR_TRADE: &str = "No gear traded here.";
-pub const GEAR_TRADE_TIP: &str = "Every place with a market rolls two trades off its own seed: weapons — handguns, shotguns, auto rifles, sniper rifles and schwords — and armour — helms, kevlar and leg guards. Each is all of its list or none of it, and a place may have both, one or neither. Every tier a market deals in is on sale at the book times four for tier two and sixteen for tier three, and it buys gear at whatever tier the gear is.";
 
 /// `worldgen::StarClass`, hottest first.
 pub const STAR_CLASS_NAMES: [&str; 7] = ["O", "B", "A", "F", "G", "K", "M"];
@@ -3010,12 +3048,12 @@ pub const ITEM_TIPS: [&str; 18] = [
     "A vegetable off the bay. Two of them make a stew, and two make a medkit at the drug lab.",
     "A block of tofu, pressed from soy.",
     "A pressure suit, for a walk outside.",
-    "A laser handgun. Bought at a desk that trades in weapons.",
+    "A laser handgun. Bought at a trader.",
     "A medkit, the one thing that gets a crewmate out of a dying state — every trauma on the body at once. Everybody carries one, a medic four, and a spent one comes back into the pack forty seconds later, a medic's thirty.",
     "A bandage. Closes every wound on one part of a body. Five to a box: everybody carries five, a medic ten, each back thirty seconds after it is used.",
-    "A basic helm, for the head. Bought at a desk that trades in armour.",
-    "Basic kevlar, for the body. Bought at a desk that trades in armour.",
-    "Basic leg guards. Bought at a desk that trades in armour.",
+    "A basic helm, for the head. Bought at a trader.",
+    "Basic kevlar, for the body. Bought at a trader.",
+    "Basic leg guards. Bought at a trader.",
     "A shotgun. Hits hard up close.",
     "An auto rifle. Fires in bursts.",
     "A sniper rifle. Reaches furthest.",
@@ -3049,13 +3087,7 @@ pub const FIELD_MEDIC_TIP: &str = "A field medic is hired to save your crew, not
 pub const BROKE_HINT: &str = "not the money for the first month";
 pub const MERCENARY_MARK: &str = "?";
 
-/// The trade window's word while nobody of yours is at the station's
-/// trading desk, the button beside it, and the desk's own menu row.
-pub const NOT_AT_DESK: &str = "Nobody of yours is at the trading desk";
-pub const WALK_TO_DESK: &str = "Walk over";
-pub const TRADE_ROW: &str = "Trade";
-
-/// The trade window's line at a desk near the front (feature 94): the
+/// The Trader panel's line at a trader near the front (feature 94, task 114): the
 /// guns, the armour and the medicine here are dearer than they are
 /// anywhere quieter, and how much dearer is how near the machines are.
 /// `front_premium` takes the hops.
@@ -3525,6 +3557,21 @@ mod tests {
                     who: 1,
                     paid: 5_000,
                 },
+                WorldEvent::ShelfBought {
+                    slot: 0,
+                    index: 1,
+                    to: u32::MAX,
+                },
+                WorldEvent::Combined {
+                    slot: 0,
+                    who: 0,
+                    tier: 2,
+                },
+                WorldEvent::RelicBought {
+                    slot: 1,
+                    relic: 0,
+                    price: 3_000,
+                },
             ] {
                 assert!(event_line(event).is_some(), "{event:?}");
             }
@@ -3535,6 +3582,12 @@ mod tests {
                 Refusal::NotYours,
                 Refusal::NoSuchGear,
                 Refusal::NoOffer,
+                Refusal::TraderClosed,
+                Refusal::ClosedOnArrival,
+                Refusal::NotAtATrader,
+                Refusal::SoldOut,
+                Refusal::TopTier,
+                Refusal::NotAPair,
             ] {
                 assert!(!refusal(why).is_empty());
             }

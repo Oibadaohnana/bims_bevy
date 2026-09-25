@@ -378,15 +378,52 @@ the armory to take it off; a right-click says the same in rows.
 - **Armour is never destroyed.** A piece shot down to nothing stays on
   and stops nothing for the rest of the mission, and every piece — worn
   or in the armory — is whole again when the next mission starts.
-- **Buying** at a trader puts the thing in the armory at the tier bought;
-  **selling** takes from the armory, the lowest tier first — never off a
-  Bim.
+- **Buying** at a trader puts the thing on a Bim or in the armory at the
+  tier bought ([The trader](#the-trader)). Nothing is sold.
 - **A player's Bim that dies keeps everything it wore** and comes back
   with it when the mission ends; **a bot's** gear comes home to the armory
   (see [the loop](#the-loop-world-map-travel-missions)).
 
 Whatever the world will not do, it says why in the log: a change during
 a mission, another player's Bim, a thing that is not there any more.
+
+## The trader
+
+Gear is bought at a **trader** and nowhere else — no station keeps a desk
+for it any more. A trader is a station like any other on the map, marked
+*trader* in the list and on the chart; about one station in ten is one,
+and there is always one within a lane of home. A visit happens **entirely
+on the world map**: choose it the way you choose any destination —
+everybody accepts — and the trip moves the world clock by its length. On
+arrival there is no mission and no room: nothing moves and neither clock
+runs while you are there, and the **Trader panel** comes up beside the
+map. **Tab** opens the Armory beside it.
+
+- **The shelf**: four weapons and three pieces of armour, any kind at any
+  tier, priced at the trader's own tier prices. It is rolled once for the
+  run and **never restocked**: a thing bought is gone from that shelf for
+  good, and coming back shows what is left. Any player buys, with no vote,
+  out of the pool — onto their own Bim, onto a bot, or into the armory;
+  what it replaces goes into the armory. Two players after the same thing:
+  the first has it, the second is told it is gone.
+- **The relic**: one a trader, drawn the first time you arrive at the
+  tier of the place, and there until bought. Buying it is a vote, like a
+  reward: propose it for a player's Bim (never a bot's), everybody says
+  yes, and the pool pays its price when the vote carries — refused if the
+  pool cannot. A new proposal clears every yes.
+- **Combining**, where the workbench used to be: two weapons or two pieces
+  of one kind at one tier make one of the next tier, whole, at once — out
+  of the armory, off your own Bim or off a bot, never off another
+  player's. Where one of the two is worn, the result is worn in its place.
+  Tier three is as far as it goes.
+- **Closed**: a trader is shut while the machines have its system, and
+  opens again once the system is **liberated** — every station, jammer
+  and town of it they took, cleared. A trader the crisis will reach by
+  the day you would get there says *closed on arrival*. Either way it is
+  greyed out on the map with the reason, and cannot be proposed.
+
+Propose anywhere else from the trader's map and, once everybody accepts,
+the crew leave and travel.
 
 ## Running it
 
@@ -1398,6 +1435,12 @@ they were left on.
 
 ### Trading
 
+> **Since the trader (task 114) nothing is bought or sold across a
+> station's desk**: gear is bought at a trader, on the map ([The
+> trader](#the-trader)), and nothing is sold. What follows is how the
+> desks worked; the prices it describes are the ones a trader's shelf is
+> priced at.
+
 > **In a run** (feature 102, [A run](#a-run)) a desk sells the crew
 > **gear** — guns and armour, every tier — and nothing else: the food,
 > the suits and the medicine on its shelf are greyed out. It still buys
@@ -1552,6 +1595,9 @@ Before anybody is down it is an ordinary crew member with a gun, and it
 works and fights like the rest.
 
 ### The trading desk
+
+> **Gone with the desks' trading (task 114)**: the desk still stands inside
+> every station's port, as furniture, and does nothing.
 
 Every station keeps a **trading desk** just inside its port — a wooden
 counter with a ledger and a terminal on it, against the corridor's north

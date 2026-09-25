@@ -1,0 +1,551 @@
+//! The world's side of the trader (task 114, [`crate::trader`]): which
+//! sites of the galaxy are traders, whether one is open, the visit — on
+//! the map, no room and no mission — the shelf bought from, the relic's
+//! vote, and two things combined into one.
+//!
+//! A child of `crate::world`, as `mission.rs` is, so it reaches the
+//! world's private fields; the trader's own types are `crate::trader`'s.
+
+use super::*;
+use crate::relic::{Relic, RelicProposal};
+use crate::run::{Phase as RunPhase, Site};
+use crate::trader::{self, CombineError, ShelfItem, Trader};
+
+impl World {
+    // --- which sites -----------------------------------------------------------
+
+    /// The sites made traders near home on top of the roll
+    /// ([`trader::near_sites`]): what `trader_near` is derived as, at the
+    /// start and at every load, behind `manufacturer_near`.
+    pub(super) fn trader_near_sites(&self, galaxy: &Galaxy) -> Vec<(u32, u32)> {
+        trader::near_sites(galaxy, self.home_star, |star, system, station| {
+            self.trader_eligible(star, &system.stations, station)
+        })
+    }
+
+    /// Whether a station of `star`'s system, whose stations are `stations`,
+    /// could be a trader at all ([`trader::eligible`]).
+    fn trader_eligible(
+        &self,
+        star: u32,
+        stations: &[worldgen::StationBlueprint],
+        station: &worldgen::StationBlueprint,
+    ) -> bool {
+        let jammer = trader::jammer_candidate(stations, |s| self.is_manufacturer_site(star, s));
+        trader::eligible(
+            station,
+            jammer,
+            star == self.home_star && station.id == self.home,
+            self.is_manufacturer_site(star, station),
+        )
+    }
+
+    /// Whether a station of `star`'s system is a **trader**: eligible, and
+    /// rolled or made up near home. Stateless: a function of the galaxy and
+    /// the crew's own star.
+    pub fn is_trader_station(
+        &self,
+        star: u32,
+        stations: &[worldgen::StationBlueprint],
+        station: &worldgen::StationBlueprint,
+    ) -> bool {
+        self.trader_eligible(star, stations, station)
+            && trader::holds(self.galaxy_seed, &self.trader_near, star, station.id)
+    }
+
+    /// Whether a site is a trader: this system's read off the world, any
+    /// other's off `galaxy` (generated here when none is handed in).
+    pub fn is_trader(&self, site: Site) -> bool {
+        if site.star == self.star_id {
+            return self.trader_in(None, site);
+        }
+        self.trader_in(Some(&self.galaxy()), site)
+    }
+
+    /// [`World::is_trader`] off a galaxy already generated.
+    pub(super) fn trader_in(&self, galaxy: Option<&Galaxy>, site: Site) -> bool {
+        if site.star == self.star_id {
+            return self
+                .system
+                .station(site.station)
+                .is_some_and(|s| self.is_trader_station(site.star, &self.system.stations, s));
+        }
+        let Some(system) = galaxy.and_then(|g| g.system(site.star)) else {
+            return false;
+        };
+        system
+            .station(site.station)
+            .is_some_and(|s| self.is_trader_station(site.star, &system.stations, s))
+    }
+
+    /// Whether a station of this system is a trader: what the crisis
+    /// passes by.
+    pub fn is_trader_here(&self, id: u32) -> bool {
+        self.trader_in(
+            None,
+            Site {
+                star: self.star_id,
+                station: id,
+            },
+        )
+    }
+
+    /// Every trader among the places a trip can go from here — what the
+    /// map marks. The galaxy is generated once for all of them.
+    pub fn trader_sites(&self) -> Vec<Site> {
+        let galaxy = self.galaxy();
+        self.destinations()
+            .into_iter()
+            .filter(|&site| self.trader_in(Some(&galaxy), site))
+            .collect()
+    }
+
+    // --- open and closed ------------------------------------------------------
+
+    /// Whether a star's system is **liberated**: the machines have had it,
+    /// and every one of its sites they took — station, jammer, town — is
+    /// cleared. This system's is read off the world, any other's off its
+    /// memory; a system the crew have never been in since it fell is not.
+    /// The Manufacturers' sites are not the machines' and are not asked.
+    pub fn liberated(&self, star: u32) -> bool {
+        let held: &[Infestation] = if star == self.star_id {
+            &self.infested
+        } else {
+            match self.memories.iter().find(|m| m.star == star) {
+                Some(m) => &m.infested,
+                None => return false,
+            }
+        };
+        let mut any = false;
+        for it in held.iter().filter(|it| !it.manufacturers) {
+            if !it.cleared {
+                return false;
+            }
+            any = true;
+        }
+        any
+    }
+
+    /// Whether a trader of `star` is closed on `day`: its system the
+    /// machines' by then and not liberated. The crisis is a function of the
+    /// day, so the answer for the day the crew would arrive is exact.
+    pub fn trader_closed_on(&self, star: u32, day: u32) -> bool {
+        let turns = self.infested_on(star);
+        turns != u32::MAX && day >= turns && !self.liberated(star)
+    }
+
+    // --- the visit --------------------------------------------------------------
+
+    /// Whether the crew are at a trader: arrived, the map up.
+    pub fn at_trader(&self) -> bool {
+        self.run.phase == RunPhase::Trade
+    }
+
+    /// The trader the crew are at, with what is left on its shelf and its
+    /// relic.
+    pub fn trader_here(&self) -> Option<&Trader> {
+        let at = self.trader_index()?;
+        self.run.traders.get(at)
+    }
+
+    /// Where the trader the crew are at is kept on the run.
+    fn trader_index(&self) -> Option<usize> {
+        if !self.at_trader() {
+            return None;
+        }
+        let site = self.current_site()?;
+        self.run.traders.iter().position(|t| t.site == site)
+    }
+
+    /// Every trader the crew have been to this run, with what is left.
+    pub fn traders_met(&self) -> &[Trader] {
+        &self.run.traders
+    }
+
+    /// The vote on the trader's relic, while there is one.
+    pub fn trade_relic(&self) -> Option<&RelicProposal> {
+        self.run.trade_relic.as_ref()
+    }
+
+    /// Arrived at a trader (from `travel`): the ship holding off it, the
+    /// run in [`RunPhase::Trade`] and nothing else — no room built, no
+    /// mission begun, neither clock touched, nothing a mission's start
+    /// does. The first time the crew are here the trader is met: its shelf
+    /// rolled and its relic drawn out of the pool at the tier of the site.
+    pub(super) fn arrive_at_trader(&mut self, site: Site) {
+        let at = self.site_position(&self.system, site.station);
+        self.ship.state = ShipState::Holding;
+        self.ship.frame = Frame::Local(Node::Station(site.station));
+        if let Some(at) = at {
+            self.ship.set_position(at);
+        }
+        self.mark_visited();
+        self.run.phase = RunPhase::Trade;
+        self.run.site = Some(site.station);
+        self.run.snapshot = None;
+        self.run.snapped = false;
+        self.run.proposal = None;
+        self.run.departure = None;
+        self.run.trade_relic = None;
+        if self.run.traders.iter().any(|t| t.site == site) {
+            return;
+        }
+        let tier = match self.droid_tier {
+            Some(tier) => tier,
+            None => self.site_tier(site.star, Some(site.station), self.clock_minutes),
+        };
+        let relic = self
+            .draw_relics(tier.code() as u8, 1, site.station)
+            .first()
+            .copied();
+        let at = self.run.traders.partition_point(|t| t.site < site);
+        self.run
+            .traders
+            .insert(at, Trader::new(self.galaxy_seed, site, relic));
+    }
+
+    /// What a thing off the shelf costs: the trader's own ask for it at its
+    /// tier (`World::quote_at`, the existing tier pricing), else the book at
+    /// the tier.
+    pub fn shelf_price(&self, item: ShelfItem) -> Money {
+        let tier = item.tier.code();
+        self.run
+            .site
+            .and_then(|id| self.quote_at(id, item.resource, tier))
+            .map(|q| q.ask)
+            .unwrap_or_else(|| {
+                economy::trade_price(item.resource).saturating_mul(economy::tier_price(tier))
+            })
+    }
+
+    // --- buying ---------------------------------------------------------------
+
+    /// [`Command::BuyShelf`]: the thing in the shelf's slot `index` paid for
+    /// out of the pool and onto crew member `to`'s loadout — what was there
+    /// into the armory — or into the armory with `None`. Any player, no
+    /// vote; the first command to want a thing has it.
+    pub(super) fn buy_shelf(
+        &mut self,
+        slot: u32,
+        index: u32,
+        to: Option<u32>,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        let Some(at) = self.trader_index() else {
+            events.push(refused(slot, Refusal::NotAtATrader));
+            return;
+        };
+        let Some(item) = self.run.traders[at]
+            .shelf
+            .get(index as usize)
+            .copied()
+            .flatten()
+        else {
+            events.push(refused(slot, Refusal::SoldOut));
+            return;
+        };
+        if let Some(who) = to {
+            if who >= self.aboard.crew_count() {
+                events.push(refused(slot, Refusal::NotAboard));
+                return;
+            }
+            if !self.may_change(slot, who) {
+                events.push(refused(slot, Refusal::NotYours));
+                return;
+            }
+        }
+        let price = self.shelf_price(item);
+        if price > self.money {
+            events.push(refused(slot, Refusal::Unaffordable));
+            return;
+        }
+        self.money -= price;
+        self.run.traders[at].shelf[index as usize] = None;
+        let thing = match item.weapon() {
+            Some(weapon) => Item::Weapon(weapon),
+            None => {
+                let kind = item.armour().unwrap_or(ArmourKind::BasicHelm);
+                Item::Armour(self.holdings.new_piece(kind, item.tier))
+            }
+        };
+        match (to, GearSlot::of_item(thing)) {
+            (Some(who), Some(part)) => {
+                if let Some(old) = self.set_slot(who, part, Some(thing), events) {
+                    self.holdings.put(old);
+                }
+                events.push(WorldEvent::GearChanged {
+                    who,
+                    part: part.code(),
+                });
+            }
+            _ => {
+                self.holdings.put(thing);
+            }
+        }
+        events.push(WorldEvent::ShelfBought {
+            slot,
+            index,
+            to: to.unwrap_or(u32::MAX),
+        });
+    }
+
+    // --- the relic ----------------------------------------------------------------
+
+    /// [`Command::ProposeRelic`] at a trader: its relic for player `to`'s
+    /// Bim, or — with `None` — the proposal on the table taken off it. A
+    /// new proposal clears every yes but the proposer's.
+    pub(super) fn propose_trader_relic(
+        &mut self,
+        slot: u32,
+        relic: Option<Relic>,
+        to: u32,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        let Some(at) = self.trader_index() else {
+            events.push(refused(slot, Refusal::NotAtATrader));
+            return;
+        };
+        let Some(here) = self.run.traders[at].relic else {
+            events.push(refused(slot, Refusal::SoldOut));
+            return;
+        };
+        let Some(relic) = relic else {
+            self.run.trade_relic = None;
+            events.push(WorldEvent::RelicProposed {
+                slot,
+                relic: u32::MAX,
+                to,
+            });
+            return;
+        };
+        if relic != here {
+            events.push(refused(slot, Refusal::NotOnOffer));
+            return;
+        }
+        let players = self.players();
+        if to >= players {
+            events.push(refused(slot, Refusal::NotAPlayer));
+            return;
+        }
+        let mut accepted = vec![false; players as usize];
+        if let Some(a) = accepted.get_mut(slot as usize) {
+            *a = true;
+        }
+        self.run.trade_relic = Some(RelicProposal {
+            relic: Some(relic),
+            to,
+            by: slot,
+            accepted,
+        });
+        events.push(WorldEvent::RelicProposed {
+            slot,
+            relic: relic.code(),
+            to,
+        });
+        self.trade_relic_if_carried(events);
+    }
+
+    /// [`Command::AcceptRelic`] at a trader: a yes to the relic on the
+    /// table, or one taken back.
+    pub(super) fn accept_trader_relic(
+        &mut self,
+        slot: u32,
+        yes: bool,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        if !self.at_trader() {
+            events.push(refused(slot, Refusal::NotAtATrader));
+            return;
+        }
+        let Some(proposal) = self.run.trade_relic.as_mut() else {
+            events.push(refused(slot, Refusal::NoRelicChoice));
+            return;
+        };
+        if let Some(a) = proposal.accepted.get_mut(slot as usize) {
+            *a = yes;
+        }
+        events.push(WorldEvent::RelicAccepted { slot, yes });
+        self.trade_relic_if_carried(events);
+    }
+
+    /// The relic bought, the moment every connected player has said yes:
+    /// [`trader::relic_price`] out of the pool — refused to whoever put it,
+    /// and the proposal gone, when the pool cannot pay — and the relic to
+    /// its Bim, gone off the trader for good.
+    pub(super) fn trade_relic_if_carried(&mut self, events: &mut Vec<WorldEvent>) {
+        let carried = self
+            .run
+            .trade_relic
+            .as_ref()
+            .is_some_and(|p| p.carried(&self.run.connected));
+        if !carried {
+            return;
+        }
+        let Some(proposal) = self.run.trade_relic.take() else {
+            return;
+        };
+        let Some(at) = self.trader_index() else {
+            return;
+        };
+        let (Some(relic), Some(here)) = (proposal.relic, self.run.traders[at].relic) else {
+            events.push(refused(proposal.by, Refusal::SoldOut));
+            return;
+        };
+        if relic != here {
+            events.push(refused(proposal.by, Refusal::SoldOut));
+            return;
+        }
+        let price = trader::relic_price(relic);
+        if price > self.money {
+            events.push(refused(proposal.by, Refusal::Unaffordable));
+            return;
+        }
+        self.money -= price;
+        self.run.traders[at].relic = None;
+        self.run.relics.give(proposal.to, relic);
+        events.push(WorldEvent::RelicBought {
+            slot: proposal.to,
+            relic: relic.code(),
+            price,
+        });
+    }
+
+    // --- combining ------------------------------------------------------------
+
+    /// What a combining's input is, if player `slot` may use it: a thing in
+    /// the armory, or on its own Bim's or a bot's slot — never another
+    /// player's.
+    fn combine_input(&self, slot: u32, from: GearSource) -> Result<Item, Refusal> {
+        match from {
+            GearSource::Armory { id } => self
+                .holdings
+                .get(id)
+                .map(|s| s.item)
+                .ok_or(Refusal::NoSuchGear),
+            GearSource::Worn { who, slot: part } => {
+                if who >= self.aboard.crew_count() {
+                    return Err(Refusal::NotAboard);
+                }
+                if !self.may_change(slot, who) {
+                    return Err(Refusal::NotYours);
+                }
+                self.worn_on(who, part).ok_or(Refusal::NoSuchGear)
+            }
+        }
+    }
+
+    /// [`Command::Combine`]: two weapons or two pieces of one kind at one
+    /// tier into one of the next, at once, for [`data::COMBINE_FEE`] out of
+    /// the pool. Where one of the two was worn the result is on that Bim in
+    /// its place; otherwise it goes into the armory. Whole, as anything
+    /// made is.
+    pub(super) fn combine(
+        &mut self,
+        slot: u32,
+        a: GearSource,
+        b: GearSource,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        if !self.at_trader() {
+            events.push(refused(slot, Refusal::NotAtATrader));
+            return;
+        }
+        if a == b {
+            events.push(refused(slot, Refusal::NoSuchGear));
+            return;
+        }
+        let (first, second) = match (self.combine_input(slot, a), self.combine_input(slot, b)) {
+            (Ok(x), Ok(y)) => (x, y),
+            (Err(why), _) | (_, Err(why)) => {
+                events.push(refused(slot, why));
+                return;
+            }
+        };
+        let made = match trader::combined(first, second, 0) {
+            Ok(made) => made,
+            Err(CombineError::NotAPair) => {
+                events.push(refused(slot, Refusal::NotAPair));
+                return;
+            }
+            Err(CombineError::TopTier) => {
+                events.push(refused(slot, Refusal::TopTier));
+                return;
+            }
+        };
+        if data::COMBINE_FEE > self.money {
+            events.push(refused(slot, Refusal::Unaffordable));
+            return;
+        }
+        self.money -= data::COMBINE_FEE;
+        // A piece made is numbered off the holdings like one bought.
+        let made = match made {
+            Item::Armour(mut piece) => {
+                piece.id = self.holdings.take_id();
+                Item::Armour(piece)
+            }
+            other => other,
+        };
+        let tier = match made {
+            Item::Weapon(w) => w.tier.code(),
+            Item::Armour(p) => p.tier.code(),
+            Item::Stack(_) => 0,
+        };
+        // The worn one, if either was, takes the result; the other goes.
+        let (keep, drop) = match (a, b) {
+            (GearSource::Worn { .. }, _) => (a, b),
+            (_, GearSource::Worn { .. }) => (b, a),
+            _ => (a, b),
+        };
+        let take = |world: &mut World, from: GearSource, events: &mut Vec<WorldEvent>| match from {
+            GearSource::Armory { id } => {
+                world.holdings.take(id);
+            }
+            GearSource::Worn { who, slot: part } => {
+                world.set_slot(who, part, None, events);
+            }
+        };
+        take(self, drop, events);
+        let onto = match keep {
+            GearSource::Worn { who, slot: part } => {
+                self.set_slot(who, part, Some(made), events);
+                events.push(WorldEvent::GearChanged {
+                    who,
+                    part: part.code(),
+                });
+                who
+            }
+            GearSource::Armory { .. } => {
+                take(self, keep, events);
+                self.holdings.put(made);
+                u32::MAX
+            }
+        };
+        events.push(WorldEvent::Combined {
+            slot,
+            who: onto,
+            tier,
+        });
+    }
+}
+
+impl World {
+    /// A probe's way to a trader (`BIMS_TRADER=1`): the mission left as
+    /// the button leaves it, and the trip to the first open trader a trip
+    /// can go to taken at once, without the vote. The trader, or `None`
+    /// with none in reach.
+    pub fn trader_for_probe(&mut self) -> Option<Site> {
+        if self.in_mission() {
+            self.leave_for_probe();
+        }
+        self.run.phase = RunPhase::Map;
+        self.run.relics.choice = None;
+        let site = self
+            .trader_sites()
+            .into_iter()
+            .find(|&s| self.travel_quote(s).is_ok())?;
+        let quote = self.travel_quote(site).ok()?;
+        let mut events = Vec::new();
+        self.travel(quote, &mut events);
+        self.at_trader().then_some(site)
+    }
+}

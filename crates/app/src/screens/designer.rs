@@ -91,14 +91,18 @@ pub enum Message {
 #[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Order {
     Speed(Speed),
-    Deal {
-        resource: ResourceId,
-        units: u32,
-        buying: bool,
-        /// Which tier of a gun or a piece of armour: every tier is on
-        /// sale since the money rework (feature 95). One for anything
-        /// that comes at no tier.
-        tier: u32,
+    /// A thing off the shelf of the trader the crew are at (task 114),
+    /// onto a Bim's loadout or into the armory with `None` —
+    /// `Command::BuyShelf`.
+    BuyShelf {
+        index: u32,
+        to: Option<u32>,
+    },
+    /// Two of a kind at a tier combined into one of the next, at a trader
+    /// — `Command::Combine`.
+    Combine {
+        a: world::GearSource,
+        b: world::GearSource,
     },
     /// Lay out a part to be built, at a design tile, turned so.
     Build {
@@ -125,9 +129,6 @@ pub enum Order {
     /// member's queue rather than displacing what it is on —
     /// `Command::CrewLater` (feature 69).
     CrewLater(CrewOrder),
-    /// Walk the player's own crew member to the station's trading desk —
-    /// `Command::ToDesk`.
-    ToDesk,
     /// The player's class chosen or changed while playing, until the
     /// first undock — `Command::SetClass` (feature 74).
     SetClass(world::Class),
@@ -394,27 +395,8 @@ impl Net {
                     let slot = from;
                     game.send(match order {
                         Order::Speed(speed) => Command::SetSpeed { slot, speed },
-                        Order::Deal {
-                            resource,
-                            units,
-                            buying,
-                            tier,
-                        } => {
-                            if buying {
-                                Command::Buy {
-                                    slot,
-                                    resource,
-                                    units,
-                                    tier,
-                                }
-                            } else {
-                                Command::Sell {
-                                    slot,
-                                    resource,
-                                    units,
-                                }
-                            }
-                        }
+                        Order::BuyShelf { index, to } => Command::BuyShelf { slot, index, to },
+                        Order::Combine { a, b } => Command::Combine { slot, a, b },
                         Order::Build {
                             kind,
                             x,
@@ -461,7 +443,6 @@ impl Net {
                         },
                         Order::Crew(order) => Command::Crew { slot, order },
                         Order::CrewLater(order) => Command::CrewLater { slot, order },
-                        Order::ToDesk => Command::ToDesk { slot },
                         Order::SetClass(class) => Command::SetClass { slot, class },
                         Order::PickTalent { level, side } => {
                             Command::PickTalent { slot, level, side }

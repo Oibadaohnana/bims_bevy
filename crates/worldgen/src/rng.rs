@@ -79,10 +79,10 @@ pub enum Purpose {
     /// it — and its own stream, so that a jammer never moves a raid or the
     /// machines' origin.
     Jammer = 13,
-    /// Whether a place with a market trades in **weapons**, and whether
-    /// it trades in **armour** (feature 95, `data::Stock::roll`): two
-    /// flags a station, and its own stream so that reworking what is on
-    /// a shelf never moves which places sell guns.
+    /// Whether a place with a market traded in **weapons**, and whether it
+    /// traded in **armour** (feature 95): two flags a station, drawn from
+    /// nothing since the trader (task 114) sold the gear. Kept, since a
+    /// purpose's number is never reused.
     GearTrade = 14,
 }
 

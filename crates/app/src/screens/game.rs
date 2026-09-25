@@ -24,11 +24,10 @@ use wire::{PeerId, To};
 use world::{Refusal, ShipState, Speed, WorldEvent};
 use worldgen::Node;
 
-use super::designer::{Cart, Net, Order, ShipSession, trade_rows};
+use super::designer::{Net, Order, ShipSession};
 use super::hud::{self, GAP, MARGIN};
 use crate::canvas::{Pointer, canvas_painter, egui_rect, rect_of, root_ui, zoom_factor};
 use crate::crew::{CLICK_SLOP, CrewPanels, GearOrder, Hold, Near, Open, TrayAsk, TrayView};
-use crate::format::euros;
 use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::net::{CHECK_EVERY, Event, Online, Packet};
@@ -99,6 +98,10 @@ const LAND_TAG: &str = "land";
 const TOWN_THREATENED_TAG: &str = "threatened";
 const TOWN_HELD_TAG: &str = "held";
 const LAND_DROP: f32 = 38.0;
+/// And a trader's name (task 114) a line under that, since a station
+/// stands at its planet's shoulder and the two names would lie on one
+/// another.
+const TRADER_DROP: f32 = 16.0;
 
 /// How near a click has to come to a map icon to count as picking it, in
 /// points. Measured on screen rather than in world units: the thing being
@@ -131,13 +134,9 @@ pub struct GameScreen {
     /// left click on the deck puts the banner down there. Esc, a
     /// right-click or the key again puts it away.
     aiming_attack: bool,
-    /// Whether the station's trade window is up.
-    trading: bool,
     /// Tab went down last frame with the keys ours: the focus egui gave a
     /// widget for it is to be surrendered (`keys::release_tab_focus`).
     tab_took_focus: bool,
-    /// What is in the trade window's cart, not yet bought or sold.
-    cart: Cart,
     backlog: f64,
     /// What just happened, over *Back to ship* (feature 107): four lines
     /// at most, each fading a few seconds after it came.
@@ -695,6 +694,13 @@ fn open(
             if crate::dev::depart() {
                 session.depart_for_probe();
             }
+            // And at a trader (task 114), the Trader panel up on the map.
+            if crate::dev::trader() {
+                match session.trader_for_probe() {
+                    Some(site) => println!("trader: star {} station {}", site.star, site.station),
+                    None => println!("trader: none in reach"),
+                }
+            }
             // And the relics' two screens (feature 106): a cache's choice
             // in the mission, or the reward screen after a site cleared.
             if crate::dev::cache() && !session.cache_for_probe() {
@@ -828,9 +834,7 @@ impl GameScreen {
             panels: None,
             throw_aim: None,
             aiming_attack: false,
-            trading: crate::dev::trade(),
             tab_took_focus: false,
-            cart: Cart::new(),
             backlog: 0.0,
             log: hud::Log::default(),
             hover_at: None,
@@ -1976,10 +1980,8 @@ fn frame(
                     // else happens — the Mine tool's rule.
                     screen.aiming_attack = false;
                 } else if panels.escape() {
-                    // A menu, a container window, the character sheet or
-                    // the trade window is shut without opening the sheet.
-                } else if screen.trading {
-                    screen.trading = false;
+                    // A menu, a container window or the character sheet
+                    // is shut without opening the sheet.
                 } else {
                     screen.sheet = Some(Sheet::Menu);
                 }
@@ -2161,11 +2163,7 @@ fn frame(
         }
 
         // The tray, anchored at the bottom left and growing upwards.
-        let shop = session.docked_at().is_some_and(|id| {
-            !world.is_droid_held(id) && world.station(id).is_some_and(|s| s.market().is_some())
-        });
         let tray_view = TrayView {
-            shop,
             out,
             bots: cells.iter().filter(|c| !c.player).cloned().collect(),
             standing: world.standing_of(local).code(),
@@ -2287,16 +2285,18 @@ fn frame(
     // And a relic being chosen (feature 106): the reward screen after a
     // site cleared, over the map, or a cache's in the mission.
     super::worldmap::relic_window(&ctx, world, local, &mut orders, &crew_name);
+    // And the trader the crew are at (task 114): the whole visit is on the
+    // map, and the Armory panel may be up beside it.
+    super::worldmap::trader_window(&ctx, world, local, &mut orders, &crew_name);
 
     // What the HUD asked for: the orders now, off the world as it stands,
     // and the windows once it is let go of.
     let standing = world.standing_of(local);
     let map_asked = asks.contains(&TrayAsk::Map);
-    let trade_asked = asks.contains(&TrayAsk::Trade);
     let mut arm = None;
     for ask in asks {
         let (order, line) = match ask {
-            TrayAsk::Map | TrayAsk::Trade => (None, None),
+            TrayAsk::Map => (None, None),
             // The F key's own rule: the pointer armed, or a banner taken
             // up again.
             TrayAsk::Attack => {
@@ -2329,9 +2329,6 @@ fn frame(
         } else {
             ViewMode::Map
         });
-    }
-    if trade_asked {
-        screen.trading = !screen.trading;
     }
     if let Some(ask) = column {
         if ask.close
@@ -2414,32 +2411,6 @@ fn frame(
         screen.net.order(session, order);
     }
 
-    // The trade window: the tray's Trade button opens it and shuts it, and
-    // so does the Trade row on the station's desk, which walked the Bim
-    // over as well; leaving the berth shuts it, since there is nobody to
-    // trade with then.
-    if std::mem::take(&mut panels.trade_requested) {
-        screen.trading = true;
-    }
-    if session.docked_at().is_none() {
-        screen.trading = false;
-    }
-    if screen.trading {
-        trade_window(
-            &ctx,
-            session,
-            local,
-            &mut screen.trading,
-            &mut screen.cart,
-            &mut orders,
-        );
-    }
-    // A cart is this window's, at this berth: shutting the window, or
-    // leaving with it up, is walking away from the desk with nothing
-    // agreed.
-    if !screen.trading {
-        screen.cart.clear();
-    }
     // The class section's, the sheet's and the deployable rows' (feature 74).
     for order in panels.deploy_orders.drain(..) {
         orders.push(match order {
@@ -2693,6 +2664,25 @@ fn frame(
                     &painter,
                     at,
                     &format!("{} · {tag}", node_name(session, site.node)),
+                    colour,
+                );
+            }
+            // Every trader of the system (task 114) the same way, under its
+            // icon — greyed, and saying why, while the machines have the
+            // system and it is closed.
+            for mark in session.trader_marks() {
+                let (x, y) = mark.at;
+                let at = view.to_canvas(Vec2::new(x, y)) + canvas.min;
+                let at = egui::pos2(at.x, at.y + LAND_DROP + TRADER_DROP);
+                let (colour, tag) = if mark.closed {
+                    (theme::MUTED, format!("{ARRIVE_TRADER} · {TRADER_CLOSED}"))
+                } else {
+                    (theme::ACCENT, ARRIVE_TRADER.to_string())
+                };
+                theme::name_over(
+                    &painter,
+                    at,
+                    &format!("{} · {tag}", node_name(session, mark.node)),
                     colour,
                 );
             }
@@ -3230,106 +3220,6 @@ fn crisis_line(ui: &mut egui::Ui, world: &world::World, star: u32) {
         )
     };
     ui.label(egui::RichText::new(words).small().color(colour));
-}
-
-/// The station's shelf, in a window in the middle of the screen: what it
-/// trades, a row a resource with its icon, the ones it does not stock
-/// dimmed, and under them the cart — what the lot would cost or fetch, the
-/// hold's room after it, and Confirm, which is when anything is bought or
-/// sold at all. Only while docked — the button that opens it is
-/// only there then — and shut by its own cross, by Escape, or by leaving.
-fn trade_window(
-    ctx: &egui::Context,
-    session: &mut Session,
-    local: u32,
-    open: &mut bool,
-    cart: &mut Cart,
-    orders: &mut Vec<Order>,
-) {
-    let Some(station) = session.docked_at() else {
-        *open = false;
-        return;
-    };
-    let title = node_name(session, Node::Station(station));
-    // The station is traded with across its desk: the cart is filled from
-    // anywhere, but Confirm goes only while the crew member steered stands
-    // at it, and the button walks it over. The world refuses a deal from
-    // across the room either way.
-    let at_desk = session.at_the_desk(local);
-    let mut walk = false;
-    egui::Window::new(title)
-        .id(egui::Id::new("trade"))
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-        .collapsible(false)
-        .resizable(false)
-        .open(open)
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("Crew's money")
-                        .small()
-                        .color(theme::MUTED),
-                );
-                ui.label(egui::RichText::new(euros(session.remaining())).strong());
-            });
-            if !at_desk {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(NOT_AT_DESK)
-                            .small()
-                            .color(theme::CAUTION),
-                    );
-                    if ui.small_button(WALK_TO_DESK).clicked() {
-                        walk = true;
-                    }
-                });
-            }
-            // A desk inside the front charges over the odds for what a
-            // fight is fought with (feature 94). Said outright, with the
-            // underlined word carrying what it is charged on, since a
-            // price that has moved and no word for why is a bug report.
-            if let Some(hops) = session.front_premium() {
-                theme::asks(ui, &front_premium(hops), FRONT_PREMIUM_TIP);
-            }
-            // And which gear this desk deals in (feature 95): the two
-            // trades are rolled off the place's own seed, so a station
-            // that sells no guns at all is the ordinary case rather than
-            // a fault, and the line says so before the rows are read.
-            let trades = gear_trades(
-                session.sold_here(ResourceId::Handgun),
-                session.sold_here(ResourceId::Helm),
-            );
-            theme::asks(
-                ui,
-                &trades
-                    .map(|t| format!("Gear traded here: {t}."))
-                    .unwrap_or_else(|| NO_GEAR_TRADE.to_string()),
-                GEAR_TRADE_TIP,
-            );
-            ui.add_space(4.0);
-            // What is aboard to sell is what no construction site has
-            // claimed, which is the rule `Sell` is judged by.
-            let free = |s: &Session, id: ResourceId| {
-                s.game
-                    .as_ref()
-                    .map_or(0, |g| g.world.ship.design.carrying(id))
-            };
-            for (resource, units, buying, tier) in
-                trade_rows(ui, session, cart, true, at_desk, free)
-            {
-                orders.push(Order::Deal {
-                    resource: ResourceId::ALL[resource as usize],
-                    units,
-                    buying,
-                    // The tier the row's chooser named (feature 95): a buy
-                    // is at that tier, a sale gives up the lowest first.
-                    tier,
-                });
-            }
-        });
-    if walk {
-        orders.push(Order::ToDesk);
-    }
 }
 
 /// What of the ship's the crew's panels read: whether a relic cache lies

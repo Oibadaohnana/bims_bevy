@@ -36,8 +36,8 @@
 //! stand and builds its room again over the bodies (feature 85), which
 //! is how the dead lying on a station's deck are looked at without
 //! fighting, flying away and coming back.
-//! `BIMS_TRADE=1` opens the simulation with the station's trade window
-//! up, which is how the cart is looked at. `BIMS_ARMORY=1` opens any run
+//! `BIMS_TRADER=1` opens any run at the nearest open trader, the Trader
+//! panel up on the map (task 114). `BIMS_ARMORY=1` opens any run
 //! with the Armory panel up (task 113), which is how the loadouts and the
 //! armory are looked at.
 //!
@@ -283,10 +283,11 @@ pub fn lamps_out() -> Option<usize> {
     std::env::var("BIMS_LAMPS_OUT").ok()?.parse().ok()
 }
 
-/// `BIMS_TRADE=1` opens the simulation with the station's trade window up
-/// — how the cart is looked at without finding the Station button.
-pub fn trade() -> bool {
-    std::env::var("BIMS_TRADE").as_deref() == Ok("1")
+/// `BIMS_TRADER=1` opens any run at a trader (task 114): the mission left
+/// and the trip to the nearest open trader taken, the Trader panel up on
+/// the map (`Session::trader_for_probe`).
+pub fn trader() -> bool {
+    std::env::var("BIMS_TRADER").as_deref() == Ok("1")
 }
 
 /// `BIMS_ARMORY=1` opens any run with the Armory panel up (task 113) —

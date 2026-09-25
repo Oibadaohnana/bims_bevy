@@ -25,8 +25,9 @@
 //!
 //! # What a mission is
 //!
-//! A mission begins on arrival at any site, peaceful or not: a trader
-//! visit is a mission without a fight. At its start every crew member's
+//! A mission begins on arrival at any site, peaceful or not — bar a
+//! **trader** (task 114, [`Phase::Trade`]), which is visited entirely on
+//! the map: no room, no mission, neither clock. At its start every crew member's
 //! health is made whole, every charge is set to its start amount and
 //! every cooldown is fresh, and every piece of armour is whole again
 //! (task 113). The site's state
@@ -86,6 +87,12 @@ pub enum Phase {
     /// ([`crate::relic::RelicChoice`]). Nothing moves, as on the map; the
     /// map comes up when the choice is made.
     Reward,
+    /// At a trader (task 114): arrived, and the whole visit on the map.
+    /// No room is loaded and no mission runs; nothing moves and neither
+    /// clock runs, as on the map. The trader's shelf, its relic and the
+    /// combining are open ([`crate::trader`]), and the vote on where next
+    /// works as it does on the map: carried, the crew leave and travel.
+    Trade,
 }
 
 impl Phase {
@@ -95,30 +102,9 @@ impl Phase {
             Phase::Mission => 0,
             Phase::Map => 1,
             Phase::Reward => 2,
+            Phase::Trade => 3,
         }
     }
-}
-
-/// Whether a place the generator rolled keeps a **gear trade** (feature
-/// 111): a desk (`crate::station::market_kind` — nobody keeps one at a
-/// derelict) dealing in at least one of the two trades the roll gives it
-/// (`Stock::weapon_trade`, `Stock::armour_trade`). A pure function of the
-/// roll, never saved, so the map's quote for a star next door and the
-/// world at it would agree.
-///
-/// **The candidate rule for a trader site, and not yet used**: the
-/// feature that would build on it wants a trader to be the exception
-/// (5–40 % of the sites), and over ten galaxies this rule makes 55–58 %
-/// of them traders (`tests_trader::trader_share_over_ten_seeds`), so the
-/// rule is waiting on a decision.
-pub fn trades_gear(kind: worldgen::StationKind, surface: bool, stock: worldgen::Stock) -> bool {
-    let plan = if surface {
-        crate::station::Plan::Surface
-    } else {
-        crate::station::Plan::Hub
-    };
-    crate::station::market_kind(kind, plan).is_some()
-        && (stock.weapon_trade() || stock.armour_trade())
 }
 
 /// A place the crew can travel to: a station or a planet's settlement,
@@ -292,6 +278,17 @@ pub struct Run {
     pub sites_cleared: u32,
     #[cfg_attr(feature = "serde", serde(default))]
     pub systems_liberated: u32,
+    /// Every trader the crew have been to this run (task 114,
+    /// [`crate::trader::Trader`]): what is left on its shelf and its relic
+    /// until bought, kept from the first arrival on — no restock and no
+    /// reroll. Sorted by site.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub traders: Vec<crate::trader::Trader>,
+    /// The vote on the relic of the trader the crew are at, while they are
+    /// at one: which player's Bim, who put it, who has said yes. Every
+    /// connected player has to; a new proposal clears every yes.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub trade_relic: Option<crate::relic::RelicProposal>,
 }
 
 impl Run {
@@ -320,6 +317,8 @@ impl Run {
             machines_destroyed: 0,
             sites_cleared: 0,
             systems_liberated: 0,
+            traders: Vec::new(),
+            trade_relic: None,
         }
     }
 
@@ -380,6 +379,11 @@ pub struct TravelQuote {
     /// Whether the site is the Manufacturers' (feature 109): their people
     /// on the deck, and [`TravelQuote::tier`] what they will carry.
     pub manufacturers: bool,
+    /// Whether the site is a **trader** (task 114): the visit is on the
+    /// map, no mission. A trader closed now or on arrival is no quote at
+    /// all but a refusal (`Refusal::TraderClosed`,
+    /// `Refusal::ClosedOnArrival`).
+    pub trader: bool,
     /// At the Machine Heart's fortress (feature 108), what the crew would
     /// meet on arrival: the conduits, the core, and the waves at the
     /// arrival day. `None` at every other site.

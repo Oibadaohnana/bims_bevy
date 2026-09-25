@@ -13,7 +13,7 @@ use shipdesign::fixture::flyer;
 use crate::data;
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
 use crate::mercenary::MERCENARIES_MAX;
-use crate::world::{Command, World};
+use crate::world::World;
 
 fn basic() -> World {
     simulation_world(flyer(2), REFERENCE_MONEY, 2)
@@ -196,60 +196,6 @@ fn every_quote_path_agrees_and_a_sale_pays_the_front_price() {
             ResourceId::Vegetable
         ))
     );
-
-    // What a sale pays is that bid, to the euro. Nobody stocks a medkit
-    // on the shelf the crew can *buy* it off everywhere, but a desk buys
-    // what is brought to it, and that is the direction the front is felt
-    // in: a crew selling its kit near the machines is paid over the odds.
-    world.ship.design.cargo[ResourceId::Medkit as usize] += 4;
-    world.on_ship_changed();
-    assert!(world.man_the_desk_for_probe(0), "a desk to trade at");
-    let money = world.money;
-    world.step(&[Command::Sell {
-        slot: 0,
-        resource: ResourceId::Medkit,
-        units: 4,
-    }]);
-    assert_eq!(world.money, money + 4 * front.bid);
-    assert!(
-        world.money > money + 4 * quiet.bid,
-        "the front price is over the quiet one"
-    );
-
-    // And a buy of something the shelf stocks goes through the same door.
-    // A shelf first, since the flyer carries nowhere to put it.
-    world.ship.design = shipdesign::apply(
-        &world.ship.design,
-        &shipdesign::Budget::new(10_000_000),
-        shipdesign::Edit::Place {
-            kind: shipdesign::parts::PartKind::Shelf,
-            origin: (7, 9),
-            rotation: shipdesign::Rotation::R0,
-        },
-    )
-    .unwrap();
-    world.on_ship_changed();
-    let stocked = ResourceId::ALL
-        .iter()
-        .copied()
-        .find(|&r| world.station(home).unwrap().stock.sells(r))
-        .expect("the spawn stocks something");
-    let quote = world.quote(home, stocked).unwrap();
-    let money = world.money;
-    assert!(world.man_the_desk_for_probe(0));
-    let events = world.step(&[Command::Buy {
-        slot: 0,
-        resource: stocked,
-        units: 1,
-        tier: 1,
-    }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, crate::event::WorldEvent::Traded { units: 1, .. })),
-        "the buy went through: {events:?}"
-    );
-    assert_eq!(world.money, money - quote.ask, "{stocked:?} at the ask");
 }
 
 /// A station inside the front has one more hand for hire, and never more

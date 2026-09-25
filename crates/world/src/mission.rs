@@ -149,7 +149,7 @@ impl World {
 
     /// Where a site of `system` is, in the system's units: a station's
     /// place, a settlement's planet's, the derived jammer's roll.
-    fn site_position(&self, system: &StarSystem, station: u32) -> Option<DVec2> {
+    pub(super) fn site_position(&self, system: &StarSystem, station: u32) -> Option<DVec2> {
         if let Some(body) = surface::surface_body(station) {
             return system.absolute_position(Node::Body(body));
         }
@@ -265,6 +265,16 @@ impl World {
         };
         let arrival = self.clock_minutes.floor() as u64 + minutes;
         let arrival_day = (arrival / (time::DAY as u64)) as u32;
+        // A trader (task 114) is closed while its system is the machines'
+        // and not liberated — now, or by the day the crew would get there,
+        // which the crisis being a function of the day makes exact.
+        let trader = self.trader_in(galaxy, site);
+        if trader && self.trader_closed_on(site.star, self.days_gone()) {
+            return Err(Refusal::TraderClosed);
+        }
+        if trader && self.trader_closed_on(site.star, arrival_day) {
+            return Err(Refusal::ClosedOnArrival);
+        }
         // A site of the Manufacturers' (feature 109): theirs whatever the
         // crisis has done round it, so never infested and never a jammer,
         // and the tier said is what their people will carry on arrival.
@@ -272,7 +282,7 @@ impl World {
             .station(site.station)
             .is_some_and(|s| self.is_manufacturer_site(site.star, s));
         let turns = self.infested_on(site.star);
-        let infested = !manufacturers && turns != u32::MAX && arrival_day >= turns;
+        let infested = !manufacturers && !trader && turns != u32::MAX && arrival_day >= turns;
         let tier = match self.droid_tier {
             Some(tier) => tier,
             None => self.site_tier(site.star, Some(site.station), arrival as f64),
@@ -351,6 +361,7 @@ impl World {
             threatened,
             cleared,
             manufacturers,
+            trader,
             // The Machine Heart's strength on arrival (feature 108).
             heart: self.heart_preview(site.station, self.clock_minutes + minutes as f64),
         })
@@ -364,7 +375,9 @@ impl World {
             events.push(refused(slot, Refusal::ChoosingRelic));
             return;
         }
-        if self.run.phase != RunPhase::Map {
+        // On the map, or at a trader (task 114), whose vote on where next
+        // is the map's.
+        if !matches!(self.run.phase, RunPhase::Map | RunPhase::Trade) {
             events.push(refused(slot, Refusal::MidMission));
             return;
         }
@@ -384,7 +397,7 @@ impl World {
     /// A yes to the destination on the table, or one taken back — see
     /// [`Command::Accept`].
     pub(super) fn accept_proposal(&mut self, slot: u32, yes: bool, events: &mut Vec<WorldEvent>) {
-        if self.run.phase != RunPhase::Map {
+        if !matches!(self.run.phase, RunPhase::Map | RunPhase::Trade) {
             events.push(refused(slot, Refusal::MidMission));
             return;
         }
@@ -427,7 +440,10 @@ impl World {
         }
         *connected = false;
         events.push(WorldEvent::PlayerGone { slot });
-        if self.run.phase == RunPhase::Map {
+        if self.run.phase == RunPhase::Trade {
+            self.trade_relic_if_carried(events);
+        }
+        if matches!(self.run.phase, RunPhase::Map | RunPhase::Trade) {
             self.go_if_carried(events);
         }
     }
@@ -447,6 +463,8 @@ impl World {
     /// its day on, whatever happened in between.
     pub(super) fn travel(&mut self, quote: TravelQuote, events: &mut Vec<WorldEvent>) {
         let site = quote.site;
+        // The vote on a trader's relic goes with the trader (task 114).
+        self.run.trade_relic = None;
         self.clock_minutes += quote.minutes as f64;
         // The hired hands' months that fell due on the way.
         self.pay_wages_due(events);
@@ -465,8 +483,14 @@ impl World {
         self.discovered.sort_by_key(node_key);
         // The crisis at the new day, before the ship is tied up anywhere.
         self.spread_crisis(events);
-        self.arrive_at(site.station);
-        self.begin_mission(events);
+        // A trader is visited on the map (task 114): no room, no mission,
+        // nothing a mission's start does. Anywhere else a mission begins.
+        if quote.trader {
+            self.arrive_at_trader(site);
+        } else {
+            self.arrive_at(site.station);
+            self.begin_mission(events);
+        }
         events.push(WorldEvent::Travelled {
             star: site.star,
             station: site.station,

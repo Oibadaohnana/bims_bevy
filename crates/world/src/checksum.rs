@@ -591,6 +591,39 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(u64::from(run.machines_destroyed));
     hash.eat(u64::from(run.sites_cleared));
     hash.eat(u64::from(run.systems_liberated));
+    // The traders (task 114): every one met, what is left on its shelf and
+    // its relic, and the vote on the relic of the one the crew are at.
+    // Eaten only where there is any, so a run that has met none hashes as
+    // it always did.
+    if !run.traders.is_empty() || run.trade_relic.is_some() {
+        hash.eat(run.traders.len() as u64);
+        for trader in &run.traders {
+            hash.eat(u64::from(trader.site.star));
+            hash.eat(u64::from(trader.site.station));
+            hash.eat(trader.shelf.len() as u64);
+            for item in &trader.shelf {
+                match item {
+                    None => hash.eat(u64::MAX),
+                    Some(item) => {
+                        hash.eat(item.resource as u64);
+                        hash.eat(u64::from(item.tier.code()));
+                    }
+                }
+            }
+            hash.eat(trader.relic.map_or(u64::MAX, |r| u64::from(r.code())));
+        }
+        match &run.trade_relic {
+            None => hash.eat(u64::MAX),
+            Some(p) => {
+                hash.eat(p.relic.map_or(u64::MAX, |r| u64::from(r.code())));
+                hash.eat(u64::from(p.to));
+                hash.eat(u64::from(p.by));
+                for &yes in &p.accepted {
+                    hash.eat(u64::from(yes));
+                }
+            }
+        }
+    }
 
     hash.0
 }

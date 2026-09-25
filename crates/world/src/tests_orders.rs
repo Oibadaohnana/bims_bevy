@@ -105,18 +105,37 @@ fn a_walk_is_a_command_and_every_player_selects_for_themselves() {
     );
 }
 
+/// A walk to the station's trading desk, the way a click on it walks a
+/// Bim: the desk's own command went with the desks (task 114), and the
+/// fixture is still on the deck.
+fn to_desk(world: &World, who: u32) -> Command {
+    let at = world
+        .aboard
+        .room
+        .desk_spot(0)
+        .expect("docked, there is a desk");
+    Command::Crew {
+        slot: who,
+        order: CrewOrder::SendTo {
+            who,
+            x: at.x,
+            y: at.y,
+        },
+    }
+}
+
 #[test]
 fn the_desk_and_a_menu_row_are_commands_too() {
     let mut world = two_players();
     // To the desk — docked, there is one — and stood down again.
-    world.step(&[Command::ToDesk { slot: 1 }]);
+    world.step(&[to_desk(&world, 1)]);
     assert!(world.aboard.room.post_of(1).is_some(), "posted at the desk");
     world.step(&[Command::Crew {
         slot: 1,
         order: CrewOrder::StandDown { who: 1 },
     }]);
     assert!(world.aboard.room.post_of(1).is_none());
-    world.step(&[Command::ToDesk { slot: 0 }]);
+    world.step(&[to_desk(&world, 0)]);
     assert!(world.aboard.room.post_of(0).is_some(), "posted at the desk");
     // A container's use spot, the way a window's click walks a Bim.
     let spot = world
@@ -178,7 +197,7 @@ fn two_worlds_fed_one_stream_of_orders_stay_one_world() {
                     slot: 0,
                     order: CrewOrder::Recruit,
                 },
-                Command::ToDesk { slot: 0 },
+                to_desk(&a, 0),
             ],
         ),
         (

@@ -125,7 +125,10 @@ use crate::game::Game;
 /// armory, the keys, the offers) where it kept the hold's pieces, guns,
 /// grids, workbench and craft targets, and a Bim's gear its charges where
 /// it kept a pack; the room keeps no weapons on the deck.
-pub const SAVE_VERSION: u32 = 42;
+/// 43: the trader (task 114) — the run keeps every trader met (its shelf
+/// left, its relic) and the vote on the relic, and may be at one
+/// (`Phase::Trade`); a station's shelf holds no gear.
+pub const SAVE_VERSION: u32 = 43;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

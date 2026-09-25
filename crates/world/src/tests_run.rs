@@ -5,7 +5,6 @@
 
 use bims::routine::Role;
 use bims::sight::Stance;
-use physics::ResourceId;
 use shipdesign::Rotation;
 use shipdesign::fixture::flyer;
 use shipdesign::parts::PartKind;
@@ -131,43 +130,11 @@ fn at_day_nought_the_systems_due_to_have_fallen_are_infested() {
     }
 }
 
-/// A run starts with gear and time: a desk sells the crew guns and armour
-/// and nothing the ship lives on, nothing is built onto the ship, and a
-/// bunk puts no cap on the crew.
+/// A run builds nothing onto the ship, and a bunk puts no cap on the crew.
+/// (What it buys is a trader's, since task 114: `tests_trader`.)
 #[test]
-fn a_run_buys_gear_builds_nothing_and_has_no_bunk_cap() {
+fn a_run_builds_nothing_and_has_no_bunk_cap() {
     let mut world = basic();
-    let station = world.ship.state.station().unwrap();
-    assert!(world.buyable(ResourceId::Handgun));
-    assert!(world.buyable(ResourceId::Kevlar));
-    for goods in [
-        ResourceId::Vegetable,
-        ResourceId::Tofu,
-        ResourceId::Suit,
-        ResourceId::Medkit,
-        ResourceId::Bandage,
-    ] {
-        assert!(!world.buyable(goods), "{goods:?}");
-    }
-    world.man_the_desk_for_probe(0);
-    let sold = world
-        .station(station)
-        .is_some_and(|s| s.stock.sells(ResourceId::Vegetable));
-    assert!(sold, "the spawn's shelf has vegetables on it");
-    let events = world.step(&[Command::Buy {
-        slot: 0,
-        resource: ResourceId::Vegetable,
-        units: 1,
-        tier: 1,
-    }]);
-    assert!(
-        events.contains(&WorldEvent::Refused {
-            slot: 0,
-            why: Refusal::NotSoldHere
-        }),
-        "{events:?}"
-    );
-
     // Nothing built onto the ship.
     assert_eq!(
         world.can_place_site(PartKind::Wall, (1, 1), Rotation::R0),

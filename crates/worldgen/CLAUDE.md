@@ -156,6 +156,15 @@ friendly and the rest neutral, whatever the roll said.
 
 ## Who sells what is one `match`, and the gear is two flags beside it
 
+> **Since the trader (task 114)** no shelf holds gear: `Stock::roll(kind,
+> roll)` takes no gear stream, `WEAPON_TRADE_CHANCE`, `ARMOUR_TRADE_CHANCE`
+> and `Stock::{weapon_trade, armour_trade}` are gone, and `Purpose::GearTrade`
+> (14) is drawn from no more. `WEAPONS` and `ARMOUR` are the lists a
+> trader's shelf (`world::trader`) is drawn from. The four
+> `REFERENCE_CHECKSUMS` moved (the shelves lost the gear bits) and
+> `GENERATOR_VERSION` did not: no layout and no other draw moved.
+> `no_shelf_holds_gear_and_the_roll_is_the_seed_s` replaced the test below.
+
 `StationKind::sells` in `data.rs` is the only place the shelf's ceiling is
 written down, and `a_station_stocks_the_staples_and_rolls_the_rest` in
 `tests.rs` walks every kind against every resource, so a resource added to

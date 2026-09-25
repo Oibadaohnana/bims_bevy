@@ -1144,6 +1144,10 @@ and the roll.
 
 ## A station is traded with across its desk
 
+> **Deleted by the trader (task 114)**: nothing is bought or sold across a
+> desk any more — see "The trader" at the end. The desk stays as a
+> fixture.
+
 `PartKind::TradingDesk` (36) — a table's footprint, worked from the tile
 below, seen over — stands in every station just inside the port against
 the corridor's north wall, at `(5, mid − 1)` in `build_layout`, clear of
@@ -4956,3 +4960,86 @@ player back at the mission's end with its sniper and helm, the pool
 charged and never below nought; a dead and a left-behind bot's kit in the
 armory; a key counted at once; the holdings in the checksum; and the
 design's gear in the armory and not the hold.
+
+## The trader (task 114)
+
+> Every section above about a desk, a buy, a sell, the cart or a
+> station's gear trades describes what **task 114 deleted**. Gear is
+> bought at a trader, on the map; nothing is sold.
+
+`crate::trader` is the rules — which sites are traders, the shelf, the
+relic's price, what two things combine into — and `trading.rs` the
+world's side, a child of `world` like `mission.rs`.
+
+- **Which sites** (`trader::eligible`, `rolled`, `near_sites`, `holds`):
+  a station blueprint with a desk (never a derelict), not home, not
+  `trader::jammer_candidate` (the lowest station not derived and not the
+  Manufacturers' — `jammer_station`'s own rule, so the jammer never moved
+  and a trader is never a site to clear), not the Manufacturers', not
+  derived; rolled at `data::TRADER_SITE_CHANCE` off the galaxy's seed
+  (its own salt), or one of `TRADER_NEAR_SITES` made up within
+  `TRADER_NEAR_HOPS` lanes of home, its own system counted.
+  `World::trader_near` is derived at the start and in `settle_crisis`,
+  behind `manufacturer_near` which it reads, and never saved.
+  `World::is_trader(site)`, `trader_in(galaxy, site)` for a list,
+  `is_trader_here(id)`, `trader_sites()` for the map.
+- **Closed**: `World::liberated(star)` is every non-Manufacturer
+  `Infestation` of the system cleared, at least one — off `infested` for
+  this system and the system's `SystemMemory` for any other, so a system
+  never visited since it fell is not. `trader_closed_on(star, day)` is
+  the crisis on that day and not liberated. `quote_in` refuses a trader
+  `TraderClosed` (102) closed today and `ClosedOnArrival` (103) closed on
+  the arrival day, and quotes `trader: true` otherwise (`infested` false:
+  it is never theirs). `spread_crisis` skips a trader; so does
+  `infest_here_for_probe`, bar the dock.
+- **The visit**: `travel` calls `arrive_at_trader` for a trader quote and
+  `arrive_at` + `begin_mission` for anything else. `arrive_at_trader`:
+  the ship `Holding` off the station in its frame, `mark_visited`,
+  `Phase::Trade`, `run.site` the station, and nothing a mission's start
+  does. The first arrival meets the trader: `Trader::new` rolls the
+  shelf (`trader::roll_shelf`, off the galaxy's seed and the site on a
+  salt of its own — `TRADER_WEAPONS` weapons then `TRADER_ARMOUR` pieces,
+  any kind of `worldgen::data::{WEAPONS, ARMOUR}` at any tier) and the
+  relic is `draw_relics(site_tier, 1, station)` — out of the pool for
+  good. Kept on `Run::traders`, sorted by site; a shelf slot bought is
+  `None`, so a slot's index never moves. `Run::trade_relic` is the relic's
+  vote while there; `travel` clears it.
+- **The step** does nothing in `Phase::Trade` but the commands, as on the
+  map. `propose` and `accept_proposal` take `Map | Trade`; `player_gone`
+  carries both votes there.
+- **`Command::BuyShelf { index, to }`** (`buy_shelf`): at a trader, the
+  slot not sold (`SoldOut`, 105 — the first command has it), `to` a Bim
+  the player `may_change` (`NotYours`) or `None` for the armory, the pool
+  paying `shelf_price` (`quote_at`'s ask at the item's tier — the station's
+  lean and the front premium included — else the book at the tier;
+  `Unaffordable`). Onto a Bim through `set_slot`, the old thing into the
+  armory. `WorldEvent::ShelfBought` (126).
+- **The relic**: `ProposeRelic`/`AcceptRelic` in `Phase::Trade` are
+  `propose_trader_relic`/`accept_trader_relic` — the trader's relic only
+  (`NotOnOffer`), a player's Bim (`NotAPlayer`), `relic: None` withdraws.
+  Carried, `trade_relic_if_carried` pays `trader::relic_price` (by the
+  relic's own tier, `data::RELIC_PRICE`) or refuses the proposer
+  `Unaffordable` and drops the vote; paid, the Bim holds it and the
+  trader's relic is `None`. `WorldEvent::RelicBought` (128).
+- **`Command::Combine { a, b }`** (`combine`): at a trader, two distinct
+  sources, each the armory or a Bim the player `may_change`;
+  `trader::combined` — `NotAPair` (107), `TopTier` (106); the fee
+  `COMBINE_FEE` out of the pool; a piece made is numbered off the
+  holdings. A worn input takes the result in its place (the first worn of
+  the two), the other is taken away; two from the armory make one in it.
+  `WorldEvent::Combined` (127).
+- **The checksum** eats `Run::traders` and `trade_relic` only where there
+  are any, which is why neither `REFERENCE_CHECKSUM` nor `SURVIVORS`
+  moved. The ship's `PINNED` moved for `jammer` alone, by
+  `infest_here_for_probe` passing a trader by.
+
+`tests_trader.rs` is the task: arriving enters `Phase::Trade` with no
+room and neither clock moving; the same seed the same shelf and relic; a
+bought thing never back and a revisit the same trader; onto a Bim or the
+armory, another player's refused, the pool short refused; two buyers of
+one thing; the relic's vote, a bot refused, a new proposal clearing the
+yes, the pool short, paid once; combining, tier three, not a pair,
+another player's Bim, worn in place; closed and liberated; closed on
+arrival against a site beside it; and the checksum.
+`trader_share_over_ten_seeds` (`#[ignore]`) prints the share: 9–10 % of
+stations.

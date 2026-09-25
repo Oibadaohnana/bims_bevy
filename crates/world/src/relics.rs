@@ -177,7 +177,7 @@ impl World {
     /// offered once, never again this run. Seeded off the galaxy, the
     /// site and how many offers came before, so every client draws the
     /// same.
-    fn draw_relics(&mut self, tier: u8, n: usize, station: u32) -> Vec<Relic> {
+    pub(super) fn draw_relics(&mut self, tier: u8, n: usize, station: u32) -> Vec<Relic> {
         let seed = worldgen::rng::mix(
             self.galaxy_seed
                 ^ worldgen::rng::mix(u64::from(self.star_id) << 32 | u64::from(station))
@@ -250,6 +250,11 @@ impl World {
         to: u32,
         events: &mut Vec<WorldEvent>,
     ) {
+        // At a trader the relic on the table is the trader's (task 114).
+        if self.run.phase == RunPhase::Trade {
+            self.propose_trader_relic(slot, relic, to, events);
+            return;
+        }
         let players = self.players();
         let Some(choice) = self.run.relics.choice.as_mut() else {
             events.push(refused(slot, Refusal::NoRelicChoice));
@@ -284,6 +289,10 @@ impl World {
     /// A yes to the relic on the table, or one taken back — see
     /// [`Command::AcceptRelic`].
     pub(super) fn accept_relic(&mut self, slot: u32, yes: bool, events: &mut Vec<WorldEvent>) {
+        if self.run.phase == RunPhase::Trade {
+            self.accept_trader_relic(slot, yes, events);
+            return;
+        }
         let Some(proposal) = self
             .run
             .relics

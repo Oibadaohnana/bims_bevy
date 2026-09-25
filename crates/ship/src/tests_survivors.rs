@@ -146,6 +146,14 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// the task's own rules — the design's gear in the armory rather than
 /// the hold, a body out cold keeping its gun (`world`'s `SURVIVORS` note
 /// has the list). `PICTURES` did not move.
+///
+/// **`jammer` moved once more, on purpose**: the trader (task 114). A
+/// trader is never the machines' — the crisis passes it by and it is
+/// closed instead — and `World::infest_here_for_probe`, which is the
+/// crisis at once, passes it by too, so a trader of the command's system
+/// stands untaken. It was `0x_3bb8_9b7e_8ffe_057f`; with the probe
+/// infesting the trader as before it came back, and it is the same number
+/// under the old layouts (`PINNED_BEFORE_112`). Nothing else moved.
 const PINNED: [(&str, u64); 11] = [
     ("simulation", 0x_37d6_6b39_8298_9325),
     ("game", 0x_123b_cbc1_3bd0_f5e2),
@@ -157,7 +165,7 @@ const PINNED: [(&str, u64); 11] = [
     ("droids_planet", 0x_2b9c_d125_981c_4147),
     ("defense", 0x_f7d9_18b0_5265_5f26),
     ("crisis", 0x_9ecf_6122_fd41_05b8),
-    ("jammer", 0x_3bb8_9b7e_8ffe_057f),
+    ("jammer", 0x_26e0_b44c_8492_25f3),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read
@@ -267,7 +275,7 @@ const PINNED_BEFORE_112: [(&str, u64); 11] = [
     ("droids_planet", 0x_1545_0c14_606b_a1dc),
     ("defense", 0x_3ff6_9a47_94c1_b073),
     ("crisis", 0x_9ecf_6122_fd41_05b8),
-    ("jammer", 0x_3bb8_9b7e_8ffe_057f),
+    ("jammer", 0x_26e0_b44c_8492_25f3),
 ];
 
 /// Not a test of its own, and **run alone** (`--exact`), since it flips

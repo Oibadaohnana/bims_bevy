@@ -122,6 +122,16 @@ pub struct LandingSite {
     pub at: (f32, f32),
 }
 
+/// A trader of this system as the map draws it (task 114): which station,
+/// whether it is closed, and where.
+pub struct TraderMark {
+    pub node: Node,
+    /// Its system is the machines' and not liberated.
+    pub closed: bool,
+    /// Where the map draws it, in the camera's units about the ship.
+    pub at: (f32, f32),
+}
+
 pub struct Session {
     pub editor: Editor,
     /// The game, once there is one. `None` for the whole of the design
@@ -860,6 +870,13 @@ impl Session {
         true
     }
 
+    /// Any run opened at a trader (task 114): the mission left and the
+    /// trip to the nearest open trader taken, the Trader panel up on the
+    /// map. `BIMS_TRADER=1`. The trader, or `None` with none in reach.
+    pub fn trader_for_probe(&mut self) -> Option<world::Site> {
+        self.game.as_mut()?.world.trader_for_probe()
+    }
+
     /// The departure check asking (feature 103): crew member 1 out cold
     /// just inside the station's door, and the player's own Bim — aboard,
     /// where every run opens — having pressed *Back to ship*. The next
@@ -1450,19 +1467,12 @@ impl Session {
 
     // --- the station's goods, and the hold --------------------------------
 
-    /// Whether the station the ship is at sells `resource`: the design
-    /// phase's spawn station, or the one the ship is docked at — and false
-    /// anywhere else, since there is nobody to buy from. Playing, and only
-    /// what a run may buy at all (`World::buyable`, feature 102): gear.
+    /// Whether the design phase's spawn station sells `resource`. Playing,
+    /// nothing is bought across a desk (task 114): gear is a trader's, off
+    /// its shelf on the map.
     pub fn sold_here(&self, resource: ResourceId) -> bool {
         match &self.game {
-            Some(g) => match g.world.ship.state {
-                world::ShipState::Docked { station } => g
-                    .world
-                    .station(station)
-                    .is_some_and(|s| s.stock.sells(resource) && g.world.buyable(resource)),
-                _ => false,
-            },
+            Some(_) => false,
             None => self.editor.sells(resource),
         }
     }
@@ -1718,14 +1728,6 @@ impl Session {
         }
     }
 
-    /// Whether that player's crew member is at the station's trading desk —
-    /// `World::at_the_desk`, what a buy or a sell wants beside the berth.
-    pub fn at_the_desk(&self, slot: u32) -> bool {
-        self.game
-            .as_ref()
-            .is_some_and(|g| g.world.at_the_desk(slot))
-    }
-
     /// How near the front the desk the ship is tied up at is, in hops —
     /// `None` away from a berth and at a desk too far out for it to
     /// matter (feature 94). What the trade window says a **front
@@ -1788,6 +1790,32 @@ impl Session {
                     hostile: game.world.stance(surface.id) == bims::sight::Stance::Hostile,
                     threatened: game.world.town_threatened(surface.id),
                     held: game.world.town_held(surface.id),
+                    at: game.map_spot(node)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Every trader of this system the crew have charted (task 114), for
+    /// the map to name and mark — greyed while it is closed. The rule is
+    /// the world's (`World::is_trader_here`, `World::trader_closed_on`).
+    pub fn trader_marks(&self) -> Vec<TraderMark> {
+        let Some(game) = &self.game else {
+            return Vec::new();
+        };
+        let world = &game.world;
+        let closed = world.trader_closed_on(world.star_id, world.days_gone());
+        world
+            .discovered
+            .iter()
+            .filter_map(|&node| {
+                let Node::Station(id) = node else { return None };
+                if !world.is_trader_here(id) {
+                    return None;
+                }
+                Some(TraderMark {
+                    node,
+                    closed,
                     at: game.map_spot(node)?,
                 })
             })

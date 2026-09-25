@@ -7,7 +7,7 @@
 //! used instead: see `discover_for_probe` and `put_for_probe`.
 
 use bims::combat::Tier;
-use economy::{Money, Storage, trade_price};
+use economy::Money;
 use physics::ResourceId;
 use shipdesign::fixture::flyer;
 use shipdesign::parts::PartKind;
@@ -265,7 +265,15 @@ fn a_step_is_always_the_same_length_however_the_steps_are_grouped() {
                     // A walk to the station's desk partway: an order that
                     // moves somebody, in the middle of a frame or not.
                     let commands: Vec<Command> = if taken == order_at {
-                        vec![Command::ToDesk { slot: 0 }]
+                        let at = world.aboard.room.desk_spot(0).expect("a desk");
+                        vec![Command::Crew {
+                            slot: 0,
+                            order: bims::order::CrewOrder::SendTo {
+                                who: 0,
+                                x: at.x,
+                                y: at.y,
+                            },
+                        }]
                     } else {
                         Vec::new()
                     };
@@ -415,184 +423,6 @@ fn hull_positions(world: &World) -> Vec<DVec2> {
 }
 
 // --- power under way ------------------------------------------------------------
-
-/// A station is traded with across its trading desk: docked, a buy or a
-/// sell by a player whose crew member is not within reach of one is
-/// refused, and from the desk it goes, the goods straight into the hold.
-/// Every station lays a desk just inside its port; a ship has none, so
-/// cast off there is no desk to stand at.
-/// A dock sells what its kind sells and nothing else: an emitter is never
-/// on the shelf, galvum only at an outpost, and selling is open either way.
-/// The spawn is whatever kind it is, so the test reads the kind and expects
-/// accordingly — the rule itself is pinned in `worldgen`.
-#[test]
-fn trading_wants_somebody_at_the_desk_and_a_station_only_sells_what_its_kind_sells() {
-    // --- trading_wants_somebody_at_the_station_s_desk ---
-    {
-        let mut world = basic();
-        world.set_shipyard_enabled(true);
-        assert!(
-            !world.aboard.room.desks().is_empty(),
-            "a desk on the joined deck"
-        );
-        assert!(!world.at_the_desk(0));
-        // The flyer's cold store is stocked: a sale is the trade that would go.
-        let tofu = world.ship.design.carrying(ResourceId::Tofu);
-        assert!(tofu > 0);
-        let events = world.step(&[Command::Sell {
-            slot: 0,
-            resource: ResourceId::Tofu,
-            units: 1,
-        }]);
-        assert!(refused_with(&events, Refusal::NotAtTheDesk), "{events:?}");
-        assert_eq!(
-            world.ship.design.carrying(ResourceId::Tofu),
-            tofu,
-            "nothing sold from across the room"
-        );
-
-        assert!(world.man_the_desk_for_probe(0));
-        assert!(world.at_the_desk(0));
-        assert!(!world.at_the_desk(1), "the other one is not");
-        let money = world.money;
-        let events = world.step(&[Command::Sell {
-            slot: 0,
-            resource: ResourceId::Tofu,
-            units: 1,
-        }]);
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::Traded { .. })),
-            "{events:?}"
-        );
-        assert!(world.money > money);
-        assert_eq!(world.ship.design.carrying(ResourceId::Tofu), tofu - 1);
-
-        world.undock_for_probe();
-        assert!(
-            world.aboard.room.desks().is_empty(),
-            "no desk on a ship of its own"
-        );
-        assert!(world.desk_spot().is_none());
-        assert!(!world.man_the_desk_for_probe(0));
-    }
-    // --- a_station_only_sells_what_its_kind_sells ---
-    {
-        let budget = Budget::new(10_000_000);
-        let mut design = flyer(2);
-        design = apply(
-            &design,
-            &budget,
-            Edit::Place {
-                kind: PartKind::Shelf,
-                origin: (7, 9),
-                rotation: Rotation::R0,
-            },
-        )
-        .expect("a shelf on bare deck");
-        let mut world = world_with(design, 1_000_000, 2);
-        world.set_shipyard_enabled(true);
-        let ShipState::Docked { station } = world.ship.state else {
-            panic!("a world opens docked");
-        };
-        let kind = world.station(station).unwrap().kind;
-        assert!(kind.sells(ResourceId::Vegetable));
-        assert!(world.man_the_desk_for_probe(0), "a desk to trade at");
-
-        // A research key is found on a desk, never on a shelf, and no
-        // kind stocks one.
-        let events = world.step(&[Command::Buy {
-            slot: 0,
-            resource: ResourceId::ResearchKey,
-            units: 1,
-            tier: 1,
-        }]);
-        assert!(refused_with(&events, Refusal::NotSoldHere), "{events:?}");
-        assert_eq!(world.ship.design.carrying(ResourceId::ResearchKey), 0);
-
-        // A pressure suit hangs where people work outside, and nowhere
-        // else (feature 95).
-        let events = world.step(&[Command::Buy {
-            slot: 0,
-            resource: ResourceId::Suit,
-            units: 1,
-            tier: 1,
-        }]);
-        let outside_work = matches!(
-            kind,
-            worldgen::StationKind::Refinery | worldgen::StationKind::MiningOutpost
-        );
-        if outside_work
-            && world
-                .station(station)
-                .unwrap()
-                .stock
-                .sells(ResourceId::Suit)
-        {
-            assert_eq!(world.ship.design.carrying(ResourceId::Suit), 1);
-        } else {
-            assert!(refused_with(&events, Refusal::NotSoldHere), "{events:?}");
-        }
-
-        // Vegetables are on every shelf, and what is aboard sells
-        // anywhere with somebody to buy it.
-        let events = world.step(&[Command::Buy {
-            slot: 0,
-            resource: ResourceId::Vegetable,
-            units: 1,
-            tier: 1,
-        }]);
-        assert!(!refused_with(&events, Refusal::NotSoldHere), "{events:?}");
-        let veg = world.ship.design.carrying(ResourceId::Vegetable);
-        assert!(veg > 0);
-        let money = world.money;
-        world.step(&[Command::Sell {
-            slot: 0,
-            resource: ResourceId::Vegetable,
-            units: 1,
-        }]);
-        assert_eq!(world.ship.design.carrying(ResourceId::Vegetable), veg - 1);
-        assert!(world.money > money);
-    }
-}
-
-/// Money works at a dock and nowhere else: off the berth there is nobody
-/// to trade with, and trading is refused for that reason and no other.
-/// That is `shipdesign::materials`' rule, and this is the world keeping it.
-#[test]
-fn nothing_is_bought_or_sold_away_from_a_station() {
-    let mut world = world_with(flyer(2), 1_000_000, 2);
-    world.undock_for_probe();
-    world.step(&[]);
-    assert_eq!(world.ship.state, ShipState::Holding);
-    let tofu = world.ship.design.carrying(ResourceId::Tofu);
-    for command in [
-        Command::Buy {
-            slot: 0,
-            resource: ResourceId::Vegetable,
-            units: 1,
-            tier: 1,
-        },
-        Command::Sell {
-            slot: 0,
-            resource: ResourceId::Vegetable,
-            units: 1,
-        },
-        Command::Sell {
-            slot: 0,
-            resource: ResourceId::Tofu,
-            units: 1,
-        },
-    ] {
-        let events = world.step(&[command]);
-        assert!(
-            refused_with(&events, Refusal::NotDocked),
-            "holding is not docked: {command:?}"
-        );
-    }
-    assert_eq!(world.ship.design.carrying(ResourceId::Tofu), tofu);
-}
 
 // --- the jump -------------------------------------------------------------------
 
@@ -918,73 +748,6 @@ fn a_lock_on_a_station_door_is_the_same_lock_in_both_rooms_and_a_lamp_shot_out_i
 
 // --- trading ---------------------------------------------------------------------
 
-#[test]
-fn buying_costs_money_and_makes_the_ship_heavier() {
-    let mut world = world_with(flyer(2), 100_000, 2);
-    world.set_shipyard_enabled(true);
-    // Somewhere to put it first: the flyer has a cold store and no racking
-    // at all.
-    world.ship.design = apply(
-        &world.ship.design,
-        &Budget::new(10_000_000),
-        Edit::Place {
-            kind: PartKind::Shelf,
-            origin: (7, 9),
-            rotation: Rotation::R0,
-        },
-    )
-    .unwrap();
-    world.on_ship_changed();
-    assert!(world.man_the_desk_for_probe(1), "a desk to trade at");
-
-    let money = world.money;
-    let mass = world.ship.dynamics.mass.get();
-    let aboard = world.ship.design.carrying(ResourceId::Vegetable);
-    let events = world.step(&[Command::Buy {
-        slot: 1,
-        resource: ResourceId::Vegetable,
-        units: 10,
-        tier: 1,
-    }]);
-
-    assert!(events.iter().any(|e| matches!(
-        e,
-        WorldEvent::Traded {
-            resource: ResourceId::Vegetable,
-            units: 10,
-            ..
-        }
-    )));
-    // At the desk's ask — the station's kind's lean on the book with the
-    // spawn's own lean forced to nothing, then half the spread over it —
-    // and never at the book itself.
-    let desk = world.station(world.home).unwrap().market().unwrap();
-    assert_eq!(desk.bias, economy::market::Bias::NONE, "the spawn leans");
-    let quote = desk.quote(ResourceId::Vegetable);
-    assert_ne!(quote.ask, trade_price(ResourceId::Vegetable));
-    assert_eq!(world.money, money - 10 * quote.ask);
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Vegetable),
-        aboard + 10
-    );
-    assert!(close(
-        world.ship.dynamics.mass.get(),
-        mass + 10.0 * ResourceId::Vegetable.mass_per_unit(),
-    ));
-
-    // And selling puts it back at the bid — by whoever is at the desk —
-    // which is under the ask: a buy and a sell at one desk lose money.
-    assert!(world.man_the_desk_for_probe(0));
-    world.step(&[Command::Sell {
-        slot: 0,
-        resource: ResourceId::Vegetable,
-        units: 10,
-    }]);
-    assert_eq!(world.money, money - 10 * (quote.ask - quote.bid));
-    assert!(world.money < money);
-    assert!(close(world.ship.dynamics.mass.get(), mass));
-}
-
 /// A derelict keeps no desk: nothing to buy, since it stocks nothing, and
 /// nobody to sell to either. Every lived-on kind quotes; a settlement
 /// quotes as a settlement whatever kind it is laid out as; and the same
@@ -1028,73 +791,6 @@ fn a_derelict_has_no_market_and_every_other_station_quotes() {
         .chain(again.stations.iter())
         .any(|s| s.bias != economy::market::Bias::NONE);
     assert!(leaning, "no station in the spawn system leans on anything");
-
-    // And a sale at a derelict is refused for want of anybody to sell to.
-    let mut world = world_with(flyer(2), 100_000, 2);
-    let derelict = world
-        .stations
-        .iter()
-        .find(|s| s.kind == StationKind::Derelict)
-        .map(|s| s.id);
-    if let Some(id) = derelict {
-        world.ship.state = ShipState::Docked { station: id };
-        world.ship.design.cargo[ResourceId::Vegetable as usize] = 5;
-        let events = world.step(&[Command::Sell {
-            slot: 0,
-            resource: ResourceId::Vegetable,
-            units: 1,
-        }]);
-        assert!(refused_with(&events, Refusal::NoMarket));
-        let events = world.step(&[Command::Buy {
-            slot: 0,
-            resource: ResourceId::Vegetable,
-            units: 1,
-            tier: 1,
-        }]);
-        assert!(refused_with(&events, Refusal::NotSoldHere));
-    }
-}
-
-#[test]
-fn what_cannot_be_paid_for_or_is_not_there_is_refused() {
-    let mut world = world_with(flyer(2), 100, 2);
-    world.set_shipyard_enabled(true);
-    assert!(world.man_the_desk_for_probe(0), "a desk to trade at");
-    // No money. A staple, which every shelf carries: whether the spawn
-    // rolled anything else is the generator's business, not this
-    // test's.
-    let events = world.step(&[Command::Buy {
-        slot: 0,
-        resource: ResourceId::Vegetable,
-        units: 100,
-        tier: 1,
-    }]);
-    assert!(refused_with(&events, Refusal::Unaffordable));
-
-    // Nothing is stored (task 113), so there is no room to run out of:
-    // a gun bought with the money for it is in the armory.
-    world.money = 1_000_000;
-    assert_eq!(world.ship.design.capacity(Storage::Locker), 0);
-    world.step(&[Command::Buy {
-        slot: 0,
-        resource: ResourceId::Shotgun,
-        units: 1,
-        tier: 1,
-    }]);
-
-    // And selling what is not there.
-    let events = world.step(&[Command::Sell {
-        slot: 0,
-        resource: ResourceId::Schword,
-        units: 1,
-    }]);
-    assert!(refused_with(&events, Refusal::NotAboard), "{events:?}");
-}
-
-fn refused_with(events: &[WorldEvent], want: Refusal) -> bool {
-    events
-        .iter()
-        .any(|e| matches!(e, WorldEvent::Refused { why, .. } if *why == want))
 }
 
 // --- looking out of the window ----------------------------------------------------

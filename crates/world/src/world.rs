@@ -98,6 +98,12 @@ pub use fortress::{HeartStatus, RunSummary};
 #[path = "garrison.rs"]
 mod garrison;
 
+// The trader's half of the world (task 114): which sites of the galaxy
+// are traders, the visit on the map, the shelf, the relic's vote and the
+// combining. A child for the same reason.
+#[path = "trading.rs"]
+mod trading;
+
 /// What a player can ask the world to do.
 ///
 /// Every one of them carries the slot that sent it, because every one of them
@@ -110,22 +116,6 @@ pub enum Command {
     SetSpeed {
         slot: u32,
         speed: Speed,
-    },
-    /// Buy `units` of `resource` at `tier` across the station's desk.
-    /// **Every tier of a gun and a piece of armour is on sale** since the
-    /// money rework (feature 95), at the book times `economy::TIER_PRICE`;
-    /// a resource that comes at no tier ignores the field, and one is
-    /// what a caller with nothing to say passes.
-    Buy {
-        slot: u32,
-        resource: ResourceId,
-        units: u32,
-        tier: u32,
-    },
-    Sell {
-        slot: u32,
-        resource: ResourceId,
-        units: u32,
     },
     /// Lay out a part to be built: a construction site at `origin`, turned
     /// by `rotation`, for the crew to carry the materials to and put
@@ -199,9 +189,7 @@ pub enum Command {
     /// [`bims::order::CrewOrder`]. A command because the crew's positions
     /// are in the checksum: every player's ship has to agree about who
     /// walked where, so nothing reaches into the room except through
-    /// here. They go to `Game::order`; the walk to the station's desk
-    /// is the world's own, [`Command::ToDesk`], since the room does not
-    /// know which desk is the station's. A walk with no way there is
+    /// here. They go to `Game::order`. A walk with no way there is
     /// `Refused` with `NoWayThere`; every other order
     /// shows its answer on the deck and says nothing.
     Crew {
@@ -216,11 +204,6 @@ pub enum Command {
     CrewLater {
         slot: u32,
         order: CrewOrder,
-    },
-    /// Walk that player's own crew member to the station's trading desk.
-    /// Nothing with no desk.
-    ToDesk {
-        slot: u32,
     },
     /// Choose that player's class (feature 74, `crate::class`): what its
     /// own crew member is. Allowed until the ship first leaves its
@@ -436,6 +419,27 @@ pub enum Command {
     OpenCache {
         slot: u32,
         who: u32,
+    },
+    /// Buy what is in slot `index` of the shelf of the trader the crew
+    /// are at (task 114, [`crate::trader`]), out of the pool: onto crew
+    /// member `to`'s loadout — the player's own Bim or a bot, what was
+    /// on the slot going into the armory — or into the armory with
+    /// `None`. Any player, no vote. Refused when the pool cannot pay or
+    /// the thing is gone: the first command to want it has it.
+    BuyShelf {
+        slot: u32,
+        index: u32,
+        to: Option<u32>,
+    },
+    /// Combine two weapons or two pieces of armour of one kind and one
+    /// tier into one of the next, at a trader (task 114) — what the
+    /// workbench did. Each out of the armory or off the player's own Bim
+    /// or a bot, never another player's; at once, for
+    /// [`data::COMBINE_FEE`]. A tier three combines into nothing.
+    Combine {
+        slot: u32,
+        a: GearSource,
+        b: GearSource,
     },
 }
 
@@ -655,6 +659,12 @@ pub struct World {
     /// is, and never saved.
     #[cfg_attr(feature = "serde", serde(skip))]
     manufacturer_near: Vec<(u32, u32)>,
+    /// The sites made traders near the crew's own star on top of the
+    /// galaxy's roll (task 114, [`crate::trader::near_sites`]): derived
+    /// at the start and at every load behind `manufacturer_near`, which
+    /// it reads, and never saved.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    trader_near: Vec<(u32, u32)>,
     /// The day the origin turns: **nought** — the crisis is there from
     /// the start (feature 102) — bar the `crisis` probe
     /// (`BIMS_CRISIS_DAY`), which moves it. In `world_checksum` with the
@@ -1011,6 +1021,9 @@ impl World {
             droid_hops,
             home_hops,
             manufacturer_near,
+            // Worked out below, once the world stands: it asks which sites
+            // are the Manufacturers'.
+            trader_near: Vec::new(),
             // The crisis is there from day nought (feature 102): the
             // origin is the machines' the moment the run opens, and every
             // star due by then with it.
@@ -1070,6 +1083,9 @@ impl World {
         // things in the armory from the first step, and its research keys
         // the holdings' count: nothing is stored in the hold (task 113).
         world.stock_the_armory();
+        // Which sites near home are traders on top of the roll (task 114):
+        // derived, behind the Manufacturers' it reads.
+        world.trader_near = world.trader_near_sites(&galaxy);
         // And the machines' jammer, if this system is already theirs —
         // which only a probe that wound the clock forward can arrange,
         // but the rule is the rule (feature 93). Before the chart below,
@@ -1317,8 +1333,6 @@ impl World {
     fn apply(&mut self, command: Command, events: &mut Vec<WorldEvent>) {
         let slot = match command {
             Command::SetSpeed { slot, .. }
-            | Command::Buy { slot, .. }
-            | Command::Sell { slot, .. }
             | Command::PlaceSite { slot, .. }
             | Command::CancelSite { slot, .. }
             | Command::Equip { slot, .. }
@@ -1328,7 +1342,6 @@ impl World {
             | Command::Hire { slot, .. }
             | Command::Crew { slot, .. }
             | Command::CrewLater { slot, .. }
-            | Command::ToDesk { slot }
             | Command::SetClass { slot, .. }
             | Command::PickTalent { slot, .. }
             | Command::Deploy { slot, .. }
@@ -1350,7 +1363,9 @@ impl World {
             | Command::PlayerGone { slot }
             | Command::ProposeRelic { slot, .. }
             | Command::AcceptRelic { slot, .. }
-            | Command::OpenCache { slot, .. } => slot,
+            | Command::OpenCache { slot, .. }
+            | Command::BuyShelf { slot, .. }
+            | Command::Combine { slot, .. } => slot,
         };
 
         // Between missions nothing happens but the choosing: the map
@@ -1372,6 +1387,8 @@ impl World {
                     | Command::Unequip { .. }
                     | Command::Offer { .. }
                     | Command::AnswerOffer { .. }
+                    | Command::BuyShelf { .. }
+                    | Command::Combine { .. }
             )
         {
             events.push(refused(slot, Refusal::BetweenMissions));
@@ -1395,15 +1412,8 @@ impl World {
             }
             Command::AcceptRelic { yes, .. } => self.accept_relic(slot, yes, events),
             Command::OpenCache { who, .. } => self.open_cache(slot, who, events),
-            Command::Buy {
-                resource,
-                units,
-                tier,
-                ..
-            } => self.buy(slot, resource, units, tier, events),
-            Command::Sell {
-                resource, units, ..
-            } => self.sell(slot, resource, units, events),
+            Command::BuyShelf { index, to, .. } => self.buy_shelf(slot, index, to, events),
+            Command::Combine { a, b, .. } => self.combine(slot, a, b, events),
             Command::PlaceSite {
                 kind,
                 origin,
@@ -1438,9 +1448,6 @@ impl World {
                 if let Some(why) = walk_refusal(code) {
                     events.push(refused(slot, why));
                 }
-            }
-            Command::ToDesk { .. } => {
-                self.walk_to_desk(slot);
             }
             Command::SetClass { class, .. } => {
                 if let Err(why) = self.set_class(slot, class) {
@@ -1878,15 +1885,6 @@ impl World {
     /// shelf switch it on.
     pub fn set_shipyard_enabled(&mut self, on: bool) {
         self.shipyard_enabled = on;
-    }
-
-    /// Whether this resource can be **bought** in a run at all, whatever a
-    /// desk stocks (feature 102): gear — the guns and the armour, at every
-    /// tier — and nothing else with the shipyard off, since what the ship
-    /// lives on is what it set out with. Everything with it on. A sale is
-    /// never refused on this: a desk still buys whatever it buys.
-    pub fn buyable(&self, resource: ResourceId) -> bool {
-        self.shipyard_enabled || economy::tiered(resource)
     }
 
     /// The residents' room opened again with the crowd the station now
@@ -3424,64 +3422,6 @@ impl World {
         room.is_alive(who) && !room.is_unconscious(who) && !room.is_outside(who)
     }
 
-    /// Whether that player's crew member is at a trading desk: alive,
-    /// awake, aboard ([`World::fit_to_act`]), and within [`data::REACH`]
-    /// tiles of a desk's footprint on the deck it walks — the station's,
-    /// on the joined deck. What a buy or a sell wants beside the berth
-    /// (`Refusal::NotAtTheDesk`): the station is traded with across its
-    /// desk, and the goods still go straight into the hold. A ship has
-    /// no desk of its own, so away from a berth this is never true.
-    pub fn at_the_desk(&self, slot: u32) -> bool {
-        if !self.fit_to_act(slot) {
-            return false;
-        }
-        let room = &self.aboard.room;
-        let who = slot as usize;
-        let here = room.bim_pos(who);
-        let reach = data::REACH * shipdesign::TILE as f32;
-        room.desks().iter().any(|(frame, _)| {
-            let near = bims::math::vec2(
-                here.x.clamp(frame.min.x, frame.max.x),
-                here.y.clamp(frame.min.y, frame.max.y),
-            );
-            (here - near).len() <= reach
-        })
-    }
-
-    /// Where that player's crew member stands to trade: the first desk's
-    /// stand spot on the deck, in the room's units, for the app to
-    /// `send_to`. `None` with no desk on the deck — a ship on its own.
-    pub fn desk_spot(&self) -> Option<bims::math::Vec2> {
-        self.aboard.room.desk_spot(0)
-    }
-
-    /// Walk that player's crew member to the station's trading desk:
-    /// `Command::ToDesk`, since the walk moves a crew member and every
-    /// player's ship has to agree about where each of them is. False
-    /// with no desk to walk to.
-    pub fn walk_to_desk(&mut self, slot: u32) -> bool {
-        if slot >= self.aboard.crew_count() {
-            return false;
-        }
-        let Some(at) = self.desk_spot() else {
-            return false;
-        };
-        self.aboard.room.send_to(slot as usize, at)
-    }
-
-    /// Stand that player's crew member at the trading desk, without the
-    /// walk. For probes of trading, which have to be at it.
-    pub fn man_the_desk_for_probe(&mut self, slot: u32) -> bool {
-        let Some(at) = self.desk_spot() else {
-            return false;
-        };
-        if slot >= self.aboard.crew_count() {
-            return false;
-        }
-        self.aboard.room.post_for_probe(slot as usize, at);
-        true
-    }
-
     // --- trading ------------------------------------------------------------
 
     /// How near the front this station's desk is, in hops — `None` for
@@ -3547,165 +3487,6 @@ impl World {
         } else {
             quote
         })
-    }
-
-    /// Which things of a gear resource a sale of `units` would take out of
-    /// the armory, lowest tier first and the oldest of a tier first: the
-    /// sell rule, so a sale is paid for what it actually gives up. Their
-    /// armory ids and tiers; empty for a resource that is not gear.
-    fn gear_leaving(&self, resource: ResourceId, units: u32) -> Vec<(u32, u32)> {
-        let mut leaving: Vec<(u32, u32)> = self
-            .holdings
-            .armory
-            .iter()
-            .filter(|s| armour::resource_of_item(s.item) == Some(resource))
-            .map(|s| (s.id, s.tier()))
-            .collect();
-        leaving.sort_by_key(|&(id, tier)| (tier, id));
-        leaving.truncate(units as usize);
-        leaving
-    }
-
-    fn buy(
-        &mut self,
-        slot: u32,
-        resource: ResourceId,
-        units: u32,
-        tier: u32,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        let ShipState::Docked { station } = self.ship.state else {
-            events.push(refused(slot, Refusal::NotDocked));
-            return;
-        };
-        // Nobody keeps a desk at a station the machines hold (feature 92):
-        // the people who sold from it are gone, and a shelf without them is
-        // not a shop. The same answer a derelict's sale gets.
-        if self.is_droid_held(station) {
-            events.push(refused(slot, Refusal::NoMarket));
-            return;
-        }
-        // What the ship lives on is not for sale in a run (feature 102):
-        // gear, and nothing else.
-        if !self.buyable(resource) {
-            events.push(refused(slot, Refusal::NotSoldHere));
-            return;
-        }
-        // Every tier is on sale (feature 95), so what is asked for is a
-        // resource **and** a tier; anything that comes at no tier ignores
-        // it.
-        let Some(quote) = self
-            .station(station)
-            .filter(|s| s.stock.sells(resource))
-            .and_then(|_| self.quote_at(station, resource, tier))
-        else {
-            events.push(refused(slot, Refusal::NotSoldHere));
-            return;
-        };
-        // At the desk's ask — `World::quote`, never the book.
-        let Ok(value) = quote.cost(units) else {
-            events.push(refused(slot, Refusal::Unaffordable));
-            return;
-        };
-        if value > self.money {
-            events.push(refused(slot, Refusal::Unaffordable));
-            return;
-        }
-        // Last, as for a sale: "walk over first" only about a buy that
-        // would otherwise go.
-        if !self.at_the_desk(slot) {
-            events.push(refused(slot, Refusal::NotAtTheDesk));
-            return;
-        }
-        self.money -= value;
-        // A gun or a piece goes into the armory at the tier it was bought
-        // at (task 113): nothing is stored, and there is no room to run
-        // out of. Everything else is a count on the ship.
-        let at = bims::combat::Tier::from_code(tier).unwrap_or(Tier::One);
-        if let Some(kind) = armour::weapon_of(resource) {
-            for _ in 0..units {
-                self.holdings.put(Item::Weapon(kind.at(at)));
-            }
-        } else if let Some(kind) = armour::kind_of(resource) {
-            for _ in 0..units {
-                let piece = self.holdings.new_piece(kind, at);
-                self.holdings.put(Item::Armour(piece));
-            }
-        } else {
-            self.ship.design.cargo[resource as usize] += units;
-            self.on_ship_changed();
-        }
-        events.push(WorldEvent::Traded {
-            slot,
-            resource,
-            units: units as i64,
-        });
-    }
-
-    fn sell(&mut self, slot: u32, resource: ResourceId, units: u32, events: &mut Vec<WorldEvent>) {
-        let ShipState::Docked { station } = self.ship.state else {
-            events.push(refused(slot, Refusal::NotDocked));
-            return;
-        };
-        // Somebody to sell to: a derelict keeps no desk, and neither does a
-        // station the machines hold (feature 92).
-        if self.is_droid_held(station) {
-            events.push(refused(slot, Refusal::NoMarket));
-            return;
-        }
-        let Some(quote) = self.quote(station, resource) else {
-            events.push(refused(slot, Refusal::NoMarket));
-            return;
-        };
-        // What there is to sell: the armory's for gear — never what a Bim
-        // wears — and the ship's count for anything else.
-        if units > self.held(resource) {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        }
-        // What is asked is sound; now whether anybody is at the desk to
-        // ask it — last, so "walk over first" is said only about a sale
-        // that would otherwise go.
-        if !self.at_the_desk(slot) {
-            events.push(refused(slot, Refusal::NotAtTheDesk));
-            return;
-        }
-        // At the desk's bid, which is under its ask: what was bought here
-        // and sold straight back has lost money. **A market buys gear at
-        // its tier** (feature 95), and a sale gives up the lowest tiers
-        // first, so the sum is one line a thing rather than one for the
-        // lot.
-        let leaving = self.gear_leaving(resource, units);
-        let gear = armour::weapon_of(resource).is_some() || armour::kind_of(resource).is_some();
-        let value = if gear {
-            leaving.iter().fold(0, |sum: Money, &(_, tier)| {
-                sum.saturating_add(quote.at_tier(tier).bid)
-            })
-        } else {
-            let Ok(value) = quote.fetches(units) else {
-                events.push(refused(slot, Refusal::SumTooBig));
-                return;
-            };
-            value
-        };
-        let Ok(money) = economy::add(self.money, value) else {
-            events.push(refused(slot, Refusal::SumTooBig));
-            return;
-        };
-        self.money = money;
-        if gear {
-            for (id, _) in leaving {
-                self.holdings.take(id);
-            }
-        } else {
-            self.ship.design.cargo[resource as usize] -= units;
-            self.on_ship_changed();
-        }
-        events.push(WorldEvent::Traded {
-            slot,
-            resource,
-            units: -(units as i64),
-        });
     }
 
     // --- the holdings and the loadouts (task 113) ----------------------------
@@ -4569,7 +4350,7 @@ impl World {
 
     /// Whether a command is applied the moment it is sent rather than at
     /// the top of the next step: the speed, for the reason above, and an
-    /// order to the crew's room (`Command::Crew`, `ToDesk`) —
+    /// order to the crew's room (`Command::Crew`) —
     /// a click on the deck at a pause is a click that shows, and a walk
     /// begun between two steps is what the room always did. Deterministic
     /// all the same, since every copy applies the same commands in the
@@ -4585,7 +4366,6 @@ impl World {
             command,
             Command::SetSpeed { .. }
                 | Command::Crew { .. }
-                | Command::ToDesk { .. }
                 | Command::Propose { .. }
                 | Command::Accept { .. }
                 | Command::Return { .. }
@@ -4600,6 +4380,10 @@ impl World {
                 | Command::Unequip { .. }
                 | Command::Offer { .. }
                 | Command::AnswerOffer { .. }
+                // And the trader's (task 114): bought and combined on the
+                // map, where nothing steps.
+                | Command::BuyShelf { .. }
+                | Command::Combine { .. }
         )
     }
 
@@ -5177,6 +4961,7 @@ impl World {
         self.droid_hops = galaxy.hops_from(self.droid_origin);
         self.home_hops = galaxy.hops_from(self.home_star);
         self.manufacturer_near = crate::manufacturer::near_sites(&galaxy, self.home_star);
+        self.trader_near = self.trader_near_sites(&galaxy);
         // The hop table is what says whether this system is theirs, so
         // the jammer is settled behind it — and this is the call every
         // load goes through (`ship::Game::resume`), which is what keeps a
@@ -5317,6 +5102,11 @@ impl World {
         let mut ids: Vec<u32> = self.stations.iter().map(|s| s.id).collect();
         ids.extend(self.surfaces.iter().map(|s| s.id));
         for id in ids {
+            // Passed by as the crisis passes it (task 114), bar the dock
+            // the probe opens tied up at.
+            if self.is_trader_here(id) && self.ship.state.alongside() != Some(id) {
+                continue;
+            }
             self.infest(id);
         }
     }
@@ -5357,6 +5147,11 @@ impl World {
         let mut taken = false;
         for id in ids {
             if self.is_droid_held(id) {
+                continue;
+            }
+            // A trader is never the machines' (task 114): it is closed while
+            // its system is theirs, and open again once it is liberated.
+            if self.is_trader_here(id) {
                 continue;
             }
             self.infest(id);

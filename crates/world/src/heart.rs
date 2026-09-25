@@ -111,11 +111,7 @@ pub fn blueprint(system: &StarSystem, galaxy_seed: u64, star: u32) -> StationBlu
     // nothing about the jammer moves because the fortress is there.
     let stream = Rng::new(base).branch(0x_4845_4152_5400_0000);
     let map_seed = stream.branch(0x_4d41_5000_0000_0000).next_u64();
-    let stock = Stock::roll(
-        HEART_KIND,
-        &mut stream.branch(0x_5354_4f43_4b00_0000),
-        &mut stream.branch(0x_4745_4152_0000_0000),
-    );
+    let stock = Stock::roll(HEART_KIND, &mut stream.branch(0x_5354_4f43_4b00_0000));
     let bias = worldgen::data::price_bias(&mut stream.branch(0x_4249_4153_0000_0000));
     let mut place = stream.branch(0x_504c_4143_4500_0000);
     let ring = HEART_FIRST_RING + place.below(HEART_RINGS);

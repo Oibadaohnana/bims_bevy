@@ -73,6 +73,7 @@ pub mod station;
 pub mod stationgen;
 pub mod surface;
 pub mod tank;
+pub mod trader;
 pub mod world;
 
 pub use armour::LootSource;

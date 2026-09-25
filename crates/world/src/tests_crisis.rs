@@ -13,7 +13,7 @@ use crate::data;
 use crate::droid;
 use crate::event::WorldEvent;
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
-use crate::world::{Command, ShipState, World};
+use crate::world::{ShipState, World};
 use crate::world_checksum;
 
 fn basic() -> World {
@@ -344,12 +344,10 @@ fn crisis_spread_over_ten_seeds() {
     println!("worst: {worst_hops} hops, the whole galaxy by day {worst_day}");
 }
 
-/// An infested station is no shop and no larder: nobody keeps the desk,
-/// and there is no shelf to loot — the machines carry nothing and the
-/// people who stocked it are gone.
+/// An infested station is nobody's shop: nobody keeps its desk, so
+/// nothing there is quoted, and nobody lives there to hire.
 #[test]
-fn an_infested_station_has_no_desk_and_nothing_on_a_shelf() {
-    use crate::event::Refusal;
+fn an_infested_station_has_no_desk_and_nobody_to_hire() {
     use physics::ResourceId;
 
     let mut world = basic();
@@ -359,36 +357,9 @@ fn an_infested_station_has_no_desk_and_nothing_on_a_shelf() {
     let home = world.home;
     assert!(world.is_droid_held(home), "the crisis took the spawn");
 
-    // Docked at it, with somebody at the desk: metal is on every shelf,
-    // and both halves of a trade are refused all the same.
     world.dock_for_probe(home);
     world.step(&[]);
-    assert!(world.man_the_desk_for_probe(0), "a desk to stand at");
-    let events = world.step(&[Command::Buy {
-        slot: 0,
-        resource: ResourceId::Vegetable,
-        units: 1,
-        tier: 1,
-    }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Refused { why, .. } if *why == Refusal::NoMarket)),
-        "{events:?}"
-    );
-    let money = world.money;
-    let events = world.step(&[Command::Sell {
-        slot: 0,
-        resource: ResourceId::Vegetable,
-        units: 1,
-    }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Refused { why, .. } if *why == Refusal::NoMarket)),
-        "{events:?}"
-    );
-    assert_eq!(world.money, money, "nothing was bought or sold");
+    assert!(world.quote(home, ResourceId::Vegetable).is_none());
     // Nobody to hire, and nobody aboard.
     let station = world.station(home).unwrap();
     assert_eq!(world.people_of(&station), 0);

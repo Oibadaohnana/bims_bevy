@@ -140,10 +140,6 @@ pub struct Near {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Open {
     Hire(u32),
-    /// Not a window of the panels' own: the Trade row walks the Bim to
-    /// the desk and asks the screen for the trade window
-    /// (`CrewPanels::trade_requested`).
-    Trade(usize),
     /// Not a window either: the station's research desk's row walks
     /// the Bim shown to it and asks the screen to open the relic cache
     /// on it (feature 106, `CrewPanels::cache_requested`).
@@ -257,8 +253,6 @@ pub enum TrayTab {
 
 /// What the tray is handed each frame that the room alone does not know.
 pub struct TrayView {
-    /// Docked at a site with somebody behind a desk: the Trade button.
-    pub shop: bool,
     /// The player's own Bim is out: the tray is its Map button alone.
     pub out: bool,
     /// Every bot, as the portraits show them, for the Squad panel.
@@ -276,8 +270,6 @@ pub struct TrayView {
 pub enum TrayAsk {
     /// The world map, as M.
     Map,
-    /// The trade window.
-    Trade,
     /// An attack banner, as F: the pointer armed, or a banner taken up.
     Attack,
     /// The crew called back to the ship, as T.
@@ -682,9 +674,6 @@ pub struct CrewPanels {
     /// handed them; `None` while none is open, or once the body is no
     /// longer for hire — hired, or the rooms parted — which shuts it.
     pub terms: Option<Terms>,
-    /// The Trade row was picked: the screen opens the trade window and
-    /// takes this.
-    pub trade_requested: bool,
     /// The research desk's Open row was picked for this Bim (feature
     /// 106): the screen
     /// opens the relic cache once they are within reach, and takes this.
@@ -732,7 +721,6 @@ impl CrewPanels {
             open: None,
             walk: None,
             terms: None,
-            trade_requested: false,
             cache_requested: None,
             nearby: Vec::new(),
             class_view: None,
@@ -1026,16 +1014,6 @@ impl CrewPanels {
                     ));
                 }
             }
-            HIT_DESK => {
-                // A station's trading desk: the one row walks the Bim shown
-                // over and puts the trade window up.
-                let desk = game.hit_desk();
-                items.push(Item::opens(
-                    TRADE_ROW,
-                    "walk to the desk and trade with the station",
-                    Open::Trade(desk),
-                ));
-            }
             HIT_RESEARCH => {
                 // A station's research desk: the one row walks the Bim
                 // shown over and opens the relic cache on it, if there is
@@ -1086,17 +1064,6 @@ impl CrewPanels {
             self.menu = None;
             match item.opens {
                 Some(Open::Hire(resident)) => self.open_hire(resident),
-                Some(Open::Trade(desk)) => {
-                    if let Some(spot) = game.desk_spot(desk) {
-                        let who = self.inventory_who(game) as u32;
-                        self.crew_orders.push(CrewOrder::SendTo {
-                            who,
-                            x: spot.x,
-                            y: spot.y,
-                        });
-                    }
-                    self.trade_requested = true;
-                }
                 Some(Open::Cache(desk)) => {
                     let who = self.inventory_who(game);
                     if let Some(spot) = game.research_spot(desk) {
@@ -1758,9 +1725,6 @@ impl CrewPanels {
             }
             if button(ui, false, TRAY_MAP, Some(Action::Map)).clicked() {
                 asks.push(TrayAsk::Map);
-            }
-            if view.shop && !view.out && button(ui, false, TRAY_TRADE, None).clicked() {
-                asks.push(TrayAsk::Trade);
             }
         });
         asks
@@ -2624,7 +2588,7 @@ fn worn_line(piece: Piece) -> String {
 
 /// A cell's tooltip: the name, the numbers that matter — a piece's
 /// health and protection, and what it has left — and the resource's line.
-fn tip_of(item: PackItem, count: u32) -> String {
+pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
     // A tier above one is said after the name: "Basic helm — tier 2".
     let tiered = |name: &str, tier: bims::combat::Tier| match tier_word(tier) {
         Some(word) => format!("{name} — {word}"),

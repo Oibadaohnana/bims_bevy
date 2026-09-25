@@ -26,6 +26,9 @@ pub struct Destination {
     pub site: Site,
     pub name: String,
     pub quote: Result<TravelQuote, Refusal>,
+    /// Whether it is a trader (task 114): marked in the list, and greyed
+    /// out with the reason while it is closed.
+    pub trader: bool,
 }
 
 /// The destinations of one system, under its heading.
@@ -81,8 +84,10 @@ impl WorldMap {
         }
         self.key = Some(key);
         let galaxy = world.galaxy();
+        let traders = world.trader_sites();
         let mut groups: Vec<Group> = Vec::new();
         for (site, quote) in world.travel_quotes() {
+            let trader = traders.contains(&site);
             let name = site_name(world, &galaxy, site);
             if groups
                 .last()
@@ -104,7 +109,12 @@ impl WorldMap {
                 });
             }
             if let Some(group) = groups.last_mut() {
-                group.destinations.push(Destination { site, name, quote });
+                group.destinations.push(Destination {
+                    site,
+                    name,
+                    quote,
+                    trader,
+                });
             }
         }
         self.groups = groups;
@@ -179,6 +189,9 @@ fn tags(quote: &TravelQuote) -> String {
         words.push(ARRIVE_MANUFACTURERS.into());
         words.push(arrive_tier(quote.tier.code()));
     }
+    if quote.trader {
+        words.push(ARRIVE_TRADER.into());
+    }
     words.join(" · ")
 }
 
@@ -249,9 +262,15 @@ pub fn map_column(
                     });
                 });
                 ui.label(
-                    egui::RichText::new(if between { MAP_BETWEEN } else { MAP_READ_ONLY })
-                        .small()
-                        .color(if between { theme::ACCENT } else { theme::MUTED }),
+                    egui::RichText::new(if world.at_trader() {
+                        MAP_AT_TRADER
+                    } else if between {
+                        MAP_BETWEEN
+                    } else {
+                        MAP_READ_ONLY
+                    })
+                    .small()
+                    .color(if between { theme::ACCENT } else { theme::MUTED }),
                 );
                 ui.add_space(4.0);
                 egui::Grid::new("map-facts")
@@ -356,6 +375,16 @@ fn row_words(d: &Destination, at: bool) -> (String, egui::Color32) {
         // The site the crew are at is never a trip (feature 105): it is
         // listed as where they are, not as a place refused.
         Err(_) if at => (format!("{}  ({MAP_HERE})", d.name), theme::YOURS),
+        // A trader shut by the crisis (task 114): marked, greyed out,
+        // and the reason in a word.
+        Err(Refusal::TraderClosed) if d.trader => (
+            format!("{}  · {ARRIVE_TRADER} · {TRADER_CLOSED}", d.name),
+            theme::MUTED,
+        ),
+        Err(Refusal::ClosedOnArrival) if d.trader => (
+            format!("{}  · {ARRIVE_TRADER} · {TRADER_CLOSED_ON_ARRIVAL}", d.name),
+            theme::MUTED,
+        ),
         Err(why) => (format!("{}  — {}", d.name, refusal(*why)), theme::MUTED),
     }
 }
@@ -419,6 +448,10 @@ fn destination_card(
             ui.label(egui::RichText::new(MAP_HERE).small().color(theme::YOURS));
         }
     });
+    // A trader (task 114) says so, and what a visit is, before the rest.
+    if d.trader {
+        theme::asks(ui, ARRIVE_TRADER, TRADER_TIP);
+    }
     let quote = match &d.quote {
         Ok(q) => q,
         Err(why) => {
@@ -815,6 +848,369 @@ pub fn relic_window(
             .show(ctx, |ui| body(ui, &mut pick, orders));
     }
     ctx.data_mut(|d| d.insert_temp(id, pick));
+}
+
+/// The Trader panel (task 114), while the crew are at a trader: the whole
+/// visit on the map. The shelf in weapons and armour — each thing's kind,
+/// tier, numbers and price, and *Buy* for whoever the player has chosen
+/// (its own Bim, a bot, or the armory) — then the relic with its vote,
+/// then what the armory and the Bims the player may change have to
+/// combine, and the pool. A window of its own that may be moved, so the
+/// Armory panel (Tab) can be up beside it. Nothing here decides anything:
+/// every press is an [`Order`] the world may refuse, and the refusal is
+/// the log's line.
+pub fn trader_window(
+    ctx: &egui::Context,
+    world: &World,
+    local: u32,
+    orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
+) {
+    let Some(trader) = world.trader_here() else {
+        return;
+    };
+    // Whom a purchase is for, kept between frames: a crew index, or the
+    // armory as `u32::MAX`. The player's own Bim to begin with.
+    let id = egui::Id::new("trader-for");
+    let mut to = ctx.data(|d| d.get_temp::<u32>(id)).unwrap_or(local);
+    let crew = world.aboard.crew_count();
+    if to != u32::MAX && !(to < crew && world.may_change(local, to)) {
+        to = local;
+    }
+    let relic_id = egui::Id::new("trader-relic-for");
+    let mut relic_to = ctx.data(|d| d.get_temp::<u32>(relic_id)).unwrap_or(local);
+    egui::Window::new(TRADER_TITLE)
+        .id(egui::Id::new("trader-window"))
+        .title_bar(false)
+        .default_pos(egui::pos2(24.0, 90.0))
+        .collapsible(false)
+        .resizable(false)
+        .frame(theme::panel_frame())
+        .show(ctx, |ui| {
+            ui.set_width(420.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(TRADER_TITLE).strong().size(17.0));
+                theme::question_mark(ui, TRADER_TIP);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(euros(world.money))
+                            .strong()
+                            .color(theme::ACCENT),
+                    );
+                    ui.label(egui::RichText::new(MAP_POOL).color(theme::MUTED));
+                });
+            });
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(TRADER_INTRO)
+                        .small()
+                        .color(theme::MUTED),
+                )
+                .wrap(),
+            );
+            // A trader near the machines charges over the odds for what a
+            // fight is fought with (feature 94): said outright.
+            if let Some(hops) = world.run.site.and_then(|id| world.front_at(id)) {
+                theme::asks(ui, &front_premium(hops), FRONT_PREMIUM_TIP);
+            }
+            // For whom: the player's own Bim, every bot, or the armory.
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(FOR_BIM).color(theme::MUTED));
+                for who in 0..crew {
+                    if world.may_change(local, who)
+                        && world.aboard.room.is_alive(who as usize)
+                        && theme::toggle(ui, to == who, name(who)).clicked()
+                    {
+                        to = who;
+                    }
+                }
+                if theme::toggle(ui, to == u32::MAX, TRADER_INTO_ARMORY).clicked() {
+                    to = u32::MAX;
+                }
+            });
+            ui.add_space(4.0);
+            egui::ScrollArea::vertical()
+                .id_salt("trader-body")
+                .max_height(520.0)
+                .show(ui, |ui| {
+                    for (heading, weapons) in [(TRADER_WEAPONS, true), (TRADER_ARMOUR, false)] {
+                        theme::heading(ui, heading);
+                        egui::Grid::new(("trader-shelf", weapons))
+                            .num_columns(3)
+                            .spacing([10.0, 3.0])
+                            .show(ui, |ui| {
+                                for (index, slot) in trader.shelf.iter().enumerate() {
+                                    shelf_row(ui, world, index, *slot, weapons, to, orders);
+                                }
+                            });
+                        ui.add_space(4.0);
+                    }
+                    theme::heading(ui, TRADER_RELIC);
+                    relic_at_trader(ui, world, trader, local, &mut relic_to, orders, name);
+                    ui.add_space(4.0);
+                    theme::heading(ui, TRADER_COMBINE);
+                    combine_rows(ui, world, local, orders, name);
+                });
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new(TRADER_ARMORY_HINT)
+                    .small()
+                    .color(theme::MUTED),
+            );
+        });
+    ctx.data_mut(|d| {
+        d.insert_temp(id, to);
+        d.insert_temp(relic_id, relic_to);
+    });
+}
+
+/// The thing a shelf slot holds, as a thing: a weapon, or a whole piece.
+fn shelf_thing(item: world::trader::ShelfItem) -> bims::combat::Item {
+    match (item.weapon(), item.armour()) {
+        (Some(weapon), _) => bims::combat::Item::Weapon(weapon),
+        (None, Some(kind)) => {
+            bims::combat::Item::Armour(bims::combat::Piece::new(0, kind, item.tier))
+        }
+        (None, None) => bims::combat::Item::Stack(item.resource as u32),
+    }
+}
+
+/// One row of the shelf, if the slot belongs under this heading: the
+/// thing's kind and tier (its numbers on a hover), its price, and *Buy*
+/// — or the word that it is sold.
+fn shelf_row(
+    ui: &mut egui::Ui,
+    world: &World,
+    index: usize,
+    slot: Option<world::trader::ShelfItem>,
+    weapons: bool,
+    to: u32,
+    orders: &mut Vec<Order>,
+) {
+    // A slot sold is shown under the heading of the half of the shelf it
+    // was in: the weapons come first, [`world::data::TRADER_WEAPONS`] of
+    // them.
+    let in_weapons = index < world::data::TRADER_WEAPONS;
+    if in_weapons != weapons {
+        return;
+    }
+    let Some(item) = slot else {
+        ui.label(egui::RichText::new("—").color(theme::MUTED));
+        ui.label(egui::RichText::new(TRADER_SOLD).small().color(theme::MUTED));
+        ui.label("");
+        ui.end_row();
+        return;
+    };
+    let thing = shelf_thing(item);
+    let what = match thing {
+        bims::combat::Item::Weapon(w) => weapon_name(Some(w.kind)),
+        bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
+        bims::combat::Item::Stack(_) => resource_name(item.resource),
+    };
+    // Its numbers under its name: the tooltip's second line, a piece's
+    // without the state it is in (whole, as anything bought is).
+    let tip = crate::crew::tip_of(thing, 1);
+    let numbers = tip
+        .lines()
+        .nth(1)
+        .map(|l| l.split(" · ").next().unwrap_or(l).to_string())
+        .unwrap_or_default();
+    ui.vertical(|ui| {
+        ui.set_min_width(250.0);
+        ui.label(shelf_line(what, item.tier.code()))
+            .on_hover_text(&tip);
+        ui.label(egui::RichText::new(numbers).small().color(theme::MUTED));
+    });
+    let price = world.shelf_price(item);
+    ui.label(
+        egui::RichText::new(euros(price)).color(if price <= world.money {
+            theme::INK
+        } else {
+            theme::WARN
+        }),
+    );
+    if ui
+        .add_enabled(price <= world.money, egui::Button::new(TRADER_BUY))
+        .clicked()
+    {
+        orders.push(Order::BuyShelf {
+            index: index as u32,
+            to: (to != u32::MAX).then_some(to),
+        });
+    }
+    ui.end_row();
+}
+
+/// The trader's relic: what it is and costs, whose Bim to propose it for,
+/// and the vote on the table — the reward's own vote, the pool paying the
+/// price when it carries.
+fn relic_at_trader(
+    ui: &mut egui::Ui,
+    world: &World,
+    trader: &world::trader::Trader,
+    local: u32,
+    to: &mut u32,
+    orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
+) {
+    let Some(relic) = trader.relic else {
+        ui.label(egui::RichText::new(TRADER_NO_RELIC).color(theme::MUTED));
+        return;
+    };
+    let price = world::trader::relic_price(relic);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(relic_name(relic)).strong());
+        ui.label(
+            egui::RichText::new(relic_price_line(relic.tier(), &euros(price))).color(
+                if price <= world.money {
+                    theme::MUTED
+                } else {
+                    theme::WARN
+                },
+            ),
+        );
+    });
+    ui.add(egui::Label::new(egui::RichText::new(relic_line(relic)).small()).wrap());
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(TRADER_RELIC_INTRO)
+                .small()
+                .color(theme::MUTED),
+        )
+        .wrap(),
+    );
+    if *to >= world.players() {
+        *to = local;
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new(FOR_BIM).color(theme::MUTED));
+        for slot in 0..world.players() {
+            if theme::toggle(ui, *to == slot, name(slot)).clicked() {
+                *to = slot;
+            }
+        }
+        if ui.button(TRADER_PROPOSE).clicked() {
+            orders.push(Order::ProposeRelic {
+                relic: Some(relic),
+                to: *to,
+            });
+        }
+    });
+    let Some(p) = world.trade_relic() else {
+        return;
+    };
+    ui.label(egui::RichText::new(relic_proposal_line(p.relic, p.to)).strong());
+    ui.horizontal_wrapped(|ui| {
+        for (slot, &yes) in p.accepted.iter().enumerate() {
+            let slot = slot as u32;
+            ui.label(
+                egui::RichText::new(relic_answer(
+                    &name(slot),
+                    yes,
+                    !world.run.is_connected(slot),
+                ))
+                .small()
+                .color(if yes { theme::ACCENT } else { theme::MUTED }),
+            );
+        }
+    });
+    let mine = p.accepted.get(local as usize).copied().unwrap_or(false);
+    ui.horizontal(|ui| {
+        if ui.add_enabled(!mine, egui::Button::new(ACCEPT)).clicked() {
+            orders.push(Order::AcceptRelic(true));
+        }
+        if ui.add_enabled(mine, egui::Button::new(TAKE_BACK)).clicked() {
+            orders.push(Order::AcceptRelic(false));
+        }
+        if ui.button(TRADER_WITHDRAW).clicked() {
+            orders.push(Order::ProposeRelic {
+                relic: None,
+                to: p.to,
+            });
+        }
+    });
+}
+
+/// Every pair the player may combine: two of one kind at one tier under
+/// three, out of the armory or off its own Bim or a bot, a row a pair —
+/// a worn one first, so the result is worn in its place.
+fn combine_rows(
+    ui: &mut egui::Ui,
+    world: &World,
+    local: u32,
+    orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
+) {
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(TRADER_COMBINE_INTRO)
+                .small()
+                .color(theme::MUTED),
+        )
+        .wrap(),
+    );
+    // Every thing the player may use, with where it is: the worn first.
+    let mut things: Vec<(world::GearSource, bims::combat::Item, Option<u32>)> = Vec::new();
+    for who in 0..world.aboard.crew_count() {
+        if !world.may_change(local, who) {
+            continue;
+        }
+        for part in world::GearSlot::ALL {
+            if let Some(item) = world.worn_on(who, part) {
+                things.push((world::GearSource::Worn { who, slot: part }, item, Some(who)));
+            }
+        }
+    }
+    for stored in &world.holdings.armory {
+        things.push((
+            world::GearSource::Armory { id: stored.id },
+            stored.item,
+            None,
+        ));
+    }
+    let key = |item: bims::combat::Item| match item {
+        bims::combat::Item::Weapon(w) => Some((0u32, w.kind.code(), w.tier.code())),
+        bims::combat::Item::Armour(p) => Some((1u32, p.kind.code(), p.tier.code())),
+        bims::combat::Item::Stack(_) => None,
+    };
+    let mut seen: Vec<(u32, u32, u32)> = Vec::new();
+    let mut any = false;
+    for (i, &(a, first, worn)) in things.iter().enumerate() {
+        let Some(k) = key(first) else {
+            continue;
+        };
+        if k.2 >= 3 || seen.contains(&k) {
+            continue;
+        }
+        let Some(&(b, _, _)) = things[i + 1..].iter().find(|t| key(t.1) == Some(k)) else {
+            continue;
+        };
+        seen.push(k);
+        any = true;
+        let what = match first {
+            bims::combat::Item::Weapon(w) => weapon_name(Some(w.kind)),
+            bims::combat::Item::Armour(p) => armour_name(Some(p.kind)),
+            bims::combat::Item::Stack(_) => "",
+        };
+        let from = combine_from(worn.map(name).as_deref());
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(combine_line(what, k.2, &from)).small());
+            let fee = world::data::COMBINE_FEE;
+            if ui
+                .add_enabled(fee <= world.money, egui::Button::new(TRADER_COMBINE))
+                .clicked()
+            {
+                orders.push(Order::Combine { a, b });
+            }
+        });
+    }
+    if !any {
+        ui.label(
+            egui::RichText::new(TRADER_COMBINE_NONE)
+                .small()
+                .color(theme::MUTED),
+        );
+    }
 }
 
 #[cfg(test)]

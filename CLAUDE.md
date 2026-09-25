@@ -82,8 +82,10 @@ stand, so the end screen is what the next frame is. `BIMS_AFIELD=1` opens the si
 crew member walked out onto the plain west of the ship and a minute gone
 by, and `BIMS_ZOOM=0.3` zooms the game view out by that factor once it
 is fitted (a scripted wheel does not reach it): the two together are how
-the plain and its fog are looked at. `BIMS_TRADE=1` opens the simulation with the station's
-trade window up, for looking at the cart; **`BIMS_ARMORY=1`** (or the
+the plain and its fog are looked at. **`BIMS_TRADER=1`** opens any run
+at the nearest open **trader** (task 114): the mission left and the trip
+taken, the Trader panel up on the map (it prints `trader: star <s>
+station <t>`); **`BIMS_ARMORY=1`** (or the
 old `BIMS_ARMOURY=1`) opens any run with the **Armory panel** up (task
 113) — a `press`, `move`s and a `release` in `BIMS_POINTER` drag a thing
 across it, and `BIMS_MAP=1` beside it is the panel on the map, where it
@@ -1063,6 +1065,53 @@ takes a `Gear` by its `Debug`, which lost the pack, and the run itself
 plays differently on purpose — the armour mended and the charges set at
 every mission's start, the dead back at its end, no gun dropped).
 `tests_holdings.rs` in `crates/world` is the task's own tests.
+
+## The trader (task 114)
+
+Gear is bought at a **trader**, and a trader is visited **entirely on the
+world map**: no room is loaded and no mission runs. The world's half is
+`crates/world/CLAUDE.md` ("The trader"), the player's `README.md` ("The
+trader"). What to hold on to:
+
+- **Desk trading is gone**: `Command::{Buy, Sell, ToDesk}`,
+  `World::{at_the_desk, desk_spot, walk_to_desk, man_the_desk_for_probe,
+  buyable}`, `Refusal::NotAtTheDesk` (21), `WorldEvent::Traded` (8, 9),
+  the app's trade window and cart in a run (`Order::{Deal, ToDesk}`, the
+  tray's Trade button, the desk's menu row, `BIMS_TRADE`), and the
+  generator's per-station gear-trade roll (`WEAPON_TRADE_CHANCE`,
+  `ARMOUR_TRADE_CHANCE`, `Stock::{weapon_trade, armour_trade}` — no shelf
+  holds gear). The yard's Station panel in the design phase is the
+  editor's and is untouched. The desk stays as furniture.
+- **Which sites are traders is stateless** (`world::trader`, the
+  Manufacturers' pattern): a station with a desk that is not home, not
+  its system's jammer station, not the Manufacturers' and not derived,
+  rolled at `data::TRADER_SITE_CHANCE` off the galaxy's seed, plus at
+  least `TRADER_NEAR_SITES` within `TRADER_NEAR_HOPS` of home
+  (`World::trader_near`, derived). About one station in ten
+  (`tests_trader::trader_share_over_ten_seeds`, ignored).
+- **`run::Phase::Trade`** (code 3): `travel` to a trader calls
+  `arrive_at_trader` instead of `arrive_at` + `begin_mission`. The step
+  does nothing in it but the commands, as on the map; `Propose`/`Accept`
+  work there. The trader met is kept on `Run::traders` (its shelf,
+  `None` where bought, and its relic) from the first arrival; the relic's
+  vote is `Run::trade_relic`, through the same `ProposeRelic`/`AcceptRelic`.
+- **Closed** is `World::trader_closed_on(star, day)`: infested by then and
+  not `World::liberated(star)` (every non-Manufacturer infestation of the
+  system cleared, off the world or the system's memory). The quote
+  refuses `TraderClosed` (102) or `ClosedOnArrival` (103); the crisis
+  passes a trader by (`spread_crisis`).
+- **New commands** `BuyShelf { index, to }` and `Combine { a, b }`; new
+  refusals 102–107, events 126–128; constants `TRADER_WEAPONS`,
+  `TRADER_ARMOUR`, `RELIC_PRICE`, `COMBINE_FEE` in `world::data`.
+
+**What moved.** `SAVE_VERSION` **43**, `wire::PROTOCOL` **35** (the relay
+wants redeploying), and the four `worldgen::fixture::REFERENCE_CHECKSUMS`
+(the shelves lost their gear bits; not a `GENERATOR_VERSION` bump, since
+no layout and no other draw moved), and the ship's `PINNED` for
+`jammer` alone: `infest_here_for_probe` passes a trader by as the crisis
+does (its note; the old number returns with the probe infesting it).
+`REFERENCE_CHECKSUM`, `SURVIVORS` and `PICTURES` did **not** move: the
+traders are hashed only where there are any, and no pinned run meets one.
 
 ## The old game deleted (feature 104)
 

@@ -232,14 +232,11 @@ impl StationKind {
     /// only place the rule is written down. A derelict sells nothing:
     /// there is nobody aboard to sell it.
     ///
-    /// **The guns and the armour are not here.** Since the money rework
-    /// (feature 95) whether a place trades in weapons, or in armour, is
-    /// rolled per **station** rather than per kind — `Stock::roll`, off
-    /// [`WEAPON_TRADE_CHANCE`] and [`ARMOUR_TRADE_CHANCE`] — so that two
-    /// orbitals in one system are two different shops. This answers
-    /// `true` for all eight, since the ceiling has no opinion about them
-    /// and `Stock` is what decides; a caller wanting to know whether a
-    /// thing is actually on sale asks the station's `Stock::sells`.
+    /// **The guns and the armour are not here.** No station's shelf has
+    /// either since the trader (task 114): gear is bought at a trader site,
+    /// off a shelf the world rolls (`world::trader`). This answers `true`
+    /// for all eight, since the ceiling has no opinion about them, and
+    /// [`Stock::roll`] never puts one on a shelf.
     ///
     /// Every station **buys** anything; this is only about what is on the
     /// shelf.
@@ -506,49 +503,28 @@ mod tests {
         }
     }
 
-    /// The two gear trades are a **function of the seed alone**, rolled
-    /// off their own stream, and each puts its whole list on the shelf or
-    /// none of it (feature 95). A derelict rolls neither.
+    /// No station's shelf has a gun or a piece of armour on it (task 114):
+    /// gear is a trader site's. The shelf is still a function of the seed
+    /// alone, a staple is on every shelf with a market, and a derelict
+    /// rolls nothing.
     #[test]
-    fn the_gear_trades_are_a_roll_of_their_own() {
+    fn no_shelf_holds_gear_and_the_roll_is_the_seed_s() {
         use crate::rng::Rng;
-        let roll =
-            |kind, seed: u64| Stock::roll(kind, &mut Rng::new(seed), &mut Rng::new(seed ^ 0x_9E37));
-        // The same seed gives the same shelf, every time.
-        for seed in 0..50u64 {
-            let once = roll(StationKind::Orbital, seed);
-            assert_eq!(once, roll(StationKind::Orbital, seed), "seed {seed}");
-            // All five weapons or none; all three pieces or none.
-            let weapons = WEAPONS.iter().filter(|&&r| once.sells(r)).count();
-            assert!(weapons == 0 || weapons == WEAPONS.len(), "seed {seed}");
-            let armour = ARMOUR.iter().filter(|&&r| once.sells(r)).count();
-            assert!(armour == 0 || armour == ARMOUR.len(), "seed {seed}");
-            assert_eq!(once.weapon_trade(), weapons > 0, "seed {seed}");
-            assert_eq!(once.armour_trade(), armour > 0, "seed {seed}");
-            // A derelict has no market and rolls nothing.
-            assert_eq!(roll(StationKind::Derelict, seed), Stock::NONE);
-        }
-        // Over enough seeds, about two in five each way, and the two are
-        // independent — so neither is always on and neither always off.
-        let mut both = 0;
-        let mut neither = 0;
-        let (mut guns, mut plate) = (0, 0);
-        for seed in 0..400u64 {
-            let s = roll(StationKind::Orbital, seed);
-            guns += s.weapon_trade() as u32;
-            plate += s.armour_trade() as u32;
-            both += (s.weapon_trade() && s.armour_trade()) as u32;
-            neither += (!s.weapon_trade() && !s.armour_trade()) as u32;
-        }
-        assert!((100..=220).contains(&guns), "{guns} of 400 sold guns");
-        assert!((100..=220).contains(&plate), "{plate} of 400 sold armour");
-        assert!(both > 20, "{both} sold both");
-        assert!(neither > 20, "{neither} sold neither");
-        // And a staple is on every shelf that has a market at all.
-        for seed in 0..50u64 {
-            for &staple in STAPLES.iter() {
-                let s = roll(StationKind::Orbital, seed);
-                assert!(s.sells(staple), "seed {seed}: {staple:?}");
+        let roll = |kind, seed: u64| Stock::roll(kind, &mut Rng::new(seed));
+        for seed in 0..200u64 {
+            for kind in StationKind::ALL {
+                let once = roll(kind, seed);
+                assert_eq!(once, roll(kind, seed), "seed {seed}");
+                for &gear in WEAPONS.iter().chain(ARMOUR.iter()) {
+                    assert!(!once.sells(gear), "{kind:?} seed {seed}: {gear:?}");
+                }
+                if kind == StationKind::Derelict {
+                    assert_eq!(once, Stock::NONE);
+                } else {
+                    for &staple in STAPLES.iter() {
+                        assert!(once.sells(staple), "seed {seed}: {staple:?}");
+                    }
+                }
             }
         }
     }
@@ -614,11 +590,10 @@ pub struct Stock(pub u32);
 /// they cannot do without.
 pub const STAPLES: [ResourceId; 3] = [ResourceId::Vegetable, ResourceId::Tofu, ResourceId::Medkit];
 
-/// The five weapons a **weapon trade** puts on its shelf, and the three
-/// pieces a **armour trade** does (feature 95). Whether a station has
-/// either is one flag each, rolled off its own stream — so a place may
-/// sell guns, armour, both or neither, and a crew who want a sniper rifle
-/// have somewhere to fly to rather than a bench to stand at.
+/// The five weapons and the three pieces of armour there are to buy
+/// (feature 95). On no station's shelf since the trader (task 114): a
+/// trader site's own shelf is drawn from these two lists
+/// (`world::trader`).
 pub const WEAPONS: [ResourceId; 5] = [
     ResourceId::Handgun,
     ResourceId::Shotgun,
@@ -631,32 +606,24 @@ pub const ARMOUR: [ResourceId; 3] = [ResourceId::Helm, ResourceId::Kevlar, Resou
 /// How likely a station is to stock any one good that is not a staple.
 pub const STOCKED_CHANCE: f64 = 0.6;
 
-/// How likely a place with a market is to trade in weapons, and how
-/// likely it is to trade in armour. **Independent**: the two are rolled
-/// separately, so two in five places sell guns and two in five sell
-/// armour and about one in six sells both. Placeholders, like every other
-/// number here.
-pub const WEAPON_TRADE_CHANCE: f64 = 0.4;
-pub const ARMOUR_TRADE_CHANCE: f64 = 0.4;
-
 impl Stock {
     /// Nothing on the shelf: a derelict's, or a page with no market.
     pub const NONE: Stock = Stock(0);
 
-    /// Roll one station's shelf. `roll` is the station's own stream and
-    /// `gear` its **gear-trade** stream (`Purpose::GearTrade`, feature
-    /// 95), kept apart so that reworking what is on a shelf never moves
-    /// which places sell guns. A draw is made from `roll` for every
-    /// resource the kind sells whether it is a staple or not, so that
-    /// adding a staple does not reshuffle the rest.
+    /// Roll one station's shelf off `roll`, the station's own stream. A
+    /// draw is made for every resource the kind sells whether it is a
+    /// staple or not, so that adding a staple does not reshuffle the rest.
     ///
-    /// A **derelict has no market** and rolls nothing: neither stream is
-    /// drawn from, since there is nobody aboard to keep a desk.
-    pub fn roll(
-        kind: StationKind,
-        roll: &mut crate::rng::Rng,
-        gear: &mut crate::rng::Rng,
-    ) -> Stock {
+    /// **The gear is never drawn for and never on it** (task 114): a gun
+    /// or a piece is a trader site's, off a shelf the world rolls
+    /// (`world::trader`). The two gear-trade flags that were rolled here
+    /// off a stream of their own (`Purpose::GearTrade`, feature 95) went
+    /// with the stations' desks, and moved nothing else: that stream fed
+    /// nothing but them.
+    ///
+    /// A **derelict has no market** and rolls nothing, since there is
+    /// nobody aboard to keep a desk.
+    pub fn roll(kind: StationKind, roll: &mut crate::rng::Rng) -> Stock {
         if kind == StationKind::Derelict {
             return Stock::NONE;
         }
@@ -667,20 +634,6 @@ impl Stock {
             }
             let drawn = roll.chance(STOCKED_CHANCE);
             if drawn || STAPLES.contains(&resource) {
-                bits |= 1 << resource as u32;
-            }
-        }
-        // The two trades, in this order and always both drawn, so that
-        // turning one chance does not move the other.
-        let weapons = gear.chance(WEAPON_TRADE_CHANCE);
-        let armour = gear.chance(ARMOUR_TRADE_CHANCE);
-        if weapons {
-            for &resource in WEAPONS.iter() {
-                bits |= 1 << resource as u32;
-            }
-        }
-        if armour {
-            for &resource in ARMOUR.iter() {
                 bits |= 1 << resource as u32;
             }
         }
@@ -701,18 +654,6 @@ impl Stock {
 
     pub fn sells(self, resource: ResourceId) -> bool {
         self.0 & (1 << resource as u32) != 0
-    }
-
-    /// Whether this place trades in **weapons**: the flag, read back off
-    /// the shelf. What the system preview, the start selection and the
-    /// station tooltip say (feature 95).
-    pub fn weapon_trade(self) -> bool {
-        self.sells(ResourceId::Handgun)
-    }
-
-    /// Whether this place trades in **armour**, the same way.
-    pub fn armour_trade(self) -> bool {
-        self.sells(ResourceId::Helm)
     }
 }
 

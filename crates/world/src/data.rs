@@ -505,3 +505,30 @@ pub const RELIC_CACHE_CHANCE: u32 = 40;
 /// How many relics a won run unlocks in each player's profile: the first
 /// still locked, in list order.
 pub const RELICS_UNLOCKED_PER_WIN: usize = 2;
+
+// --- the trader (task 114, `crate::trader`) ---------------------------------
+
+/// A station of the galaxy is a **trader site** with odds of this many in
+/// a hundred: any station with a desk that is not the crew's home, not the
+/// jammer's own station, not the Manufacturers' and not one of the
+/// machines' derived ones — rolled once a site off the galaxy's seed.
+/// Never a town. A placeholder.
+pub const TRADER_SITE_CHANCE: u32 = 20;
+/// And at least this many traders within [`TRADER_NEAR_HOPS`] lanes of the
+/// crew's own star, their own system counted: somewhere to buy a gun
+/// before the first fight has paid for one. Made up out of the eligible
+/// stations there where the roll gave fewer.
+pub const TRADER_NEAR_SITES: usize = 1;
+pub const TRADER_NEAR_HOPS: u16 = 1;
+/// How many weapons a trader's shelf holds, rolled once a trader a run:
+/// any kind, any tier. A placeholder.
+pub const TRADER_WEAPONS: usize = 4;
+/// How many pieces of armour it holds beside them. A placeholder.
+pub const TRADER_ARMOUR: usize = 3;
+/// What the relic at a trader costs, by the relic's own tier — one, two,
+/// three. Placeholders.
+pub const RELIC_PRICE: [Money; 3] = [3_000, 9_000, 27_000];
+/// What combining two things of a kind and a tier into one of the next
+/// costs, out of the pool (the workbench's upgrade, at a trader now). A
+/// placeholder, and nothing yet.
+pub const COMBINE_FEE: Money = 0;
