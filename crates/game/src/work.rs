@@ -5,11 +5,13 @@
 //! nothing pressing works through whatever is going in that order. See
 //! `Game::consider_errand`, which is the only place any of this is read.
 //!
-//! No strings cross the boundary, so the ship knows [`Job::Haul`] and the
-//! host knows "Carrying things". **Adding a job is three edits**: a variant
-//! here, appended; a name in `WORK_NAMES` and a fixture to ring in
-//! `WORK_SPOTS` (`crates/app/src/names.rs` and `crew.rs`, whose length tests
-//! pin both against [`Job::ALL`]). Miss the name and the row renders blank.
+//! No strings cross the boundary, so the ship knows [`Job::Build`] and the
+//! host knows "Building". **Adding a job is three edits**: a variant here,
+//! appended; a name in `WORK_NAMES` and a fixture to ring in `WORK_SPOTS`
+//! (the app's, which no panel shows since the HUD of feature 107). Miss
+//! the name and the row renders blank. Task 113 took the carry to the
+//! workbench (`Haul`) and the making at a bench (`Craft`) away with the
+//! workbench and the crafting, and closed the codes up.
 
 /// The jobs, in the order they are listed and in the order the codes run.
 ///
@@ -18,15 +20,6 @@
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Job {
-    /// Carrying things: a gun or a piece of armour between the lockers and
-    /// the workbench (`game::Ferry`).
-    Haul,
-    /// Making something at a bench — the drug lab — while the
-    /// world has an order for it: the hold short of a product the player
-    /// asked to keep, the inputs aboard, and the station powered. One row
-    /// for every bench, because what a Bim does at any of them is stand
-    /// there; which recipe is the order's. See `game::Order`.
-    Craft,
     /// Putting a part of the ship together at a construction site the
     /// player laid out. Nothing is carried to one: a part is paid for out
     /// of the crew's pool (feature 95), so the errand is the walk and the
@@ -44,7 +37,7 @@ pub enum Job {
 }
 
 impl Job {
-    pub const ALL: [Job; 4] = [Job::Haul, Job::Craft, Job::Build, Job::Medical];
+    pub const ALL: [Job; 2] = [Job::Build, Job::Medical];
 
     /// 0, then one per job. The host names them.
     pub fn code(self) -> u32 {

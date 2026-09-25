@@ -6,12 +6,11 @@
 //! since it is the same machinery; and the price table's own inequalities
 //! are `economy`'s, which is the crate that holds them.
 
-use bims::combat::{ArmourKind, Tier, WeaponKind};
+use bims::combat::{ArmourKind, Item, Tier, WeaponKind};
 use economy::{TIER_PRICE, trade_price};
 use physics::ResourceId;
 use shipdesign::PartKind;
 
-use crate::armour::{self, Where};
 use crate::data;
 use crate::event::WorldEvent;
 use crate::fixture::simulation_world;
@@ -28,8 +27,8 @@ fn a_world() -> World {
 }
 
 /// **Worth is everything the crew own**, money included (feature 95):
-/// every part at its price, the hold at the book with the gear at its
-/// tier, every piece and gun the crew carry, and the pool. Nothing a crew
+/// every part at its price, the ship's goods at the book, every gun and
+/// piece in the armory or on a Bim at its tier, and the pool. Nothing a crew
 /// own changes what they are worth by moving from one pocket to another.
 #[test]
 fn worth_is_the_ship_the_hold_the_crew_s_gear_and_the_money() {
@@ -52,34 +51,31 @@ fn worth_is_the_ship_the_hold_the_crew_s_gear_and_the_money() {
     assert!(world.worth() >= parts + world.money);
 
     // A tier-two rifle is worth four tier-one ones: the tier multiplies
-    // the book, both in the hold and on a body.
+    // the book, in the armory and on a body alike (task 113).
     let rifle = ResourceId::AutoRifle;
     let one = world.worth();
-    world.ship.design.cargo[rifle as usize] += 1;
-    world.on_ship_changed();
+    let id = world
+        .holdings
+        .put(Item::Weapon(WeaponKind::AutoRifle.basic()))
+        .unwrap();
     assert_eq!(world.worth(), one + trade_price(rifle));
-    // Put that gun up a tier by hand, the way the workbench would.
-    let at = world
-        .guns
-        .iter()
-        .position(|g| g.kind == WeaponKind::AutoRifle && g.tier == Tier::One)
-        .expect("the gun that was just bought");
-    world.guns[at] = WeaponKind::AutoRifle.at(Tier::Two);
+    world.holdings.take(id);
+    world
+        .holdings
+        .put(Item::Weapon(WeaponKind::AutoRifle.at(Tier::Two)));
     assert_eq!(
         world.worth(),
         one + trade_price(rifle) * TIER_PRICE[2],
         "a tier-two rifle is four tier-one ones"
     );
 
-    // And a piece on a crew member's back counts like one in the hold.
+    // And a piece on a crew member's back counts like one in the armory.
     let helm = ResourceId::Helm;
     let worn = world.worth();
-    let id = world.next_piece;
-    world.next_piece += 1;
-    world.pieces.push(armour::Piece {
-        at: Where::Worn { who: 0 },
-        ..armour::Piece::new(id, ArmourKind::BasicHelm, Tier::Three)
-    });
+    let piece = world.holdings.new_piece(ArmourKind::BasicHelm, Tier::Three);
+    let mut gear = world.aboard.room.gear(0);
+    gear.head = Some(piece);
+    world.aboard.room.issue(0, gear);
     assert_eq!(
         world.worth(),
         worn + trade_price(helm) * TIER_PRICE[3],
@@ -104,8 +100,8 @@ fn start_worth_is_worth_when_the_world_opens() {
 }
 
 /// A run sets out with nothing in the hold (feature 110): every count at
-/// nought, no armour or gun left in it, nothing on the lockers' grid, the
-/// crew's gun and charges kept, and the crew worth the ship and the pool.
+/// nought, nothing in the armory and no key, the crew's gun and charges
+/// kept, and the crew worth the ship, their loadouts and the pool.
 #[test]
 fn a_run_sets_out_with_the_hold_empty() {
     let mut world = simulation_world(
@@ -118,11 +114,8 @@ fn a_run_sets_out_with_the_hold_empty() {
     let medkits = world.charges_of(0, crate::class::Charge::Medkit);
     world.set_out_empty();
     assert!(world.ship.design.cargo.iter().all(|&n| n == 0));
-    assert!(world.pieces.iter().all(|p| p.at != Where::Hold));
-    assert!(world.guns.is_empty());
-    for class in World::GRID_CLASSES {
-        assert_eq!(world.grid(class).map_or(0, |g| g.slots.len()), 0);
-    }
+    assert!(world.holdings.armory.is_empty());
+    assert_eq!(world.holdings.keys, 0);
     assert_eq!(world.aboard.room.gear(0).weapon, gun);
     assert_eq!(world.charges_of(0, crate::class::Charge::Medkit), medkits);
     assert_eq!(world.start_worth, world.worth());
@@ -328,10 +321,11 @@ fn gear_is_sold_where_its_trade_is_and_every_tier_is_priced() {
         assert_eq!(world.money, money - two.ask, "a tier-two price");
         assert!(
             world
-                .guns
+                .holdings
+                .armory
                 .iter()
-                .any(|g| g.kind == WeaponKind::LaserPistol && g.tier == Tier::Two),
-            "the gun arrived at the tier it was bought at"
+                .any(|s| s.item == Item::Weapon(WeaponKind::LaserPistol.at(Tier::Two))),
+            "the gun arrived in the armory at the tier it was bought at"
         );
     } else {
         let events = world.step(&[Command::Buy {

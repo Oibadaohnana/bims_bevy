@@ -114,13 +114,8 @@ fn grenades(world: &World, who: u32) -> u32 {
 }
 
 fn give_grenade(world: &mut World, who: usize) {
-    assert!(
-        world
-            .aboard
-            .room
-            .give(who, None, Item::Stack(ResourceId::Grenade as u32)),
-        "room in the pack"
-    );
+    let grenade = Item::Stack(ResourceId::Grenade as u32);
+    assert_eq!(world.aboard.room.give_stack(who, grenade, 1), 1);
 }
 
 fn tile_of(p: Vec2) -> (i32, i32) {
@@ -281,7 +276,8 @@ fn lay_bags(world: &mut World, at: Vec2) -> u32 {
 #[test]
 fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
     // Three crew, one of each class; a fresh world for each, since an
-    // errand put down stays on the queue.
+    // errand put down stays on the queue. Three players, so each changes
+    // its own.
     let classed = || {
         let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
         assert_eq!(world.set_class(0, Class::Engineer), Ok(()));
@@ -291,21 +287,16 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
     };
     for who in 0..3u32 {
         let mut world = classed();
-        // Every weapon into the hand, whatever the class.
+        // Every weapon into the hand, whatever the class — out of the
+        // armory between missions (task 113).
+        world.leave_for_probe();
         for kind in WeaponKind::ALL {
             let item = Item::Weapon(kind.basic());
-            assert!(world.aboard.room.give(who as usize, None, item));
-            let cell = world
-                .aboard
-                .room
-                .pack(who as usize)
-                .iter()
-                .position(|i| *i == Some(item))
-                .unwrap();
+            let id = world.holdings.put(item).unwrap();
             let events = world.step(&[Command::Equip {
                 slot: who,
                 who,
-                cell: cell as u32,
+                from: crate::GearSource::Armory { id },
             }]);
             assert!(
                 !events
@@ -314,40 +305,15 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
                 "{who} equips {kind:?}: {events:?}"
             );
             assert_eq!(world.aboard.room.weapon(who as usize), Some(kind.basic()));
-            // What came off into the pack goes, so the pack has room for
-            // the next.
-            let off: Vec<usize> = world
-                .aboard
-                .room
-                .pack(who as usize)
-                .iter()
-                .enumerate()
-                .filter(|(_, i)| matches!(i, Some(Item::Weapon(_))))
-                .map(|(c, _)| c)
-                .collect();
-            for cell in off {
-                world.aboard.room.take(who as usize, cell);
-            }
         }
-        // Every errand: a gun picked up off the deck and its own wound
-        // dressed are each an order the room takes for anybody. The
-        // order's answer is on the deck, never a refusal; what says it was
-        // taken is the errand on hand. Stood on a cell a body fits in
-        // first: where the crew wake up is against the furniture.
+        world.restart_mission_for_probe();
+        // Every errand: its own wound dressed is an order the room takes
+        // for anybody. The order's answer is on the deck, never a refusal;
+        // what says it was taken is the errand on hand. Stood on a cell a
+        // body fits in first: where the crew wake up is against the
+        // furniture.
         let at = world.aboard.room.bim_pos(who as usize);
-        let here = world.aboard.room.put_for_probe(who as usize, at);
-        let gun =
-            world
-                .aboard
-                .room
-                .drop_for_probe(here, WeaponKind::LaserPistol.basic(), who as usize);
-        let order = bims::order::CrewOrder::PickUp { who, item: gun };
-        world.step(&[Command::Crew { slot: who, order }]);
-        assert_eq!(
-            world.aboard.room.task_kind_for_probe(who as usize),
-            Some(bims::game::JOB_FETCH),
-            "{who} takes {order:?}"
-        );
+        world.aboard.room.put_for_probe(who as usize, at);
         world.aboard.room.set_bandages_for_probe(who as usize, 1);
         world
             .aboard
@@ -415,8 +381,8 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
         assert_eq!(world.set_class(1, b), Ok(()));
         assert_eq!(world.money, money, "{a:?} and {b:?}: the same pool");
     }
-    // The soldier's kit: a basic auto rifle in hand, the pistol in the
-    // pack, two grenades; the engineer keeps its own sandbag kits; and
+    // The soldier's kit: a basic auto rifle in hand, the pistol into
+    // the armory (task 113), two grenades; the engineer keeps its own sandbag kits; and
     // a class put back to none is the plain start again.
     assert_eq!(world.set_class(0, Class::Soldier), Ok(()));
     assert_eq!(
@@ -424,19 +390,21 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
         Some(WeaponKind::AutoRifle.basic())
     );
     let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
-    assert!(world.aboard.room.pack(0).contains(&Some(pistol)));
+    let in_armory = |world: &World, item: Item| {
+        world
+            .holdings
+            .armory
+            .iter()
+            .filter(|s| s.item == item)
+            .count()
+    };
+    assert_eq!(in_armory(&world, pistol), 1);
     assert_eq!(grenades(&world, 0), class::GRENADE_CHARGES);
     assert_eq!(world.set_class(1, Class::Engineer), Ok(()));
     let kit = Item::Stack(ResourceId::SandbagKit as u32);
     assert_eq!(
-        world
-            .aboard
-            .room
-            .pack(1)
-            .iter()
-            .filter(|i| **i == Some(kit))
-            .count(),
-        crate::deploy::SANDBAG_CHARGES as usize
+        world.aboard.room.charges_of(1, kit),
+        crate::deploy::SANDBAG_CHARGES
     );
     assert_eq!(grenades(&world, 1), 0);
     assert_eq!(world.set_class(0, Class::None), Ok(()));
@@ -444,27 +412,15 @@ fn the_starting_pool_is_the_same_for_any_mix_of_classes_and_each_has_its_kit() {
         world.aboard.room.weapon(0),
         Some(WeaponKind::LaserPistol.basic())
     );
-    assert!(!world.aboard.room.pack(0).contains(&Some(pistol)));
-    assert!(
-        !world
-            .aboard
-            .room
-            .pack(0)
-            .contains(&Some(Item::Weapon(WeaponKind::AutoRifle.basic())))
+    assert_eq!(in_armory(&world, pistol), 0, "taken back out");
+    assert_eq!(
+        in_armory(&world, Item::Weapon(WeaponKind::AutoRifle.basic())),
+        0
     );
     assert_eq!(grenades(&world, 0), 0);
     // And straight from one class to the other swaps the kits.
     assert_eq!(world.set_class(1, Class::Soldier), Ok(()));
-    assert_eq!(
-        world
-            .aboard
-            .room
-            .pack(1)
-            .iter()
-            .filter(|i| **i == Some(kit))
-            .count(),
-        0
-    );
+    assert_eq!(world.aboard.room.charges_of(1, kit), 0);
     assert_eq!(grenades(&world, 1), 2);
     assert_eq!(
         world.aboard.room.weapon(1),
@@ -598,20 +554,9 @@ fn every_reason_a_throw_is_refused() {
     assert_eq!(world.can_throw(0, tile), Err(Refusal::OutOfReach));
     world.aboard.room.patch_up_for_probe(0);
     world.step(&[]);
-    // No grenade in the pack.
+    // No grenade left.
     let grenade = Item::Stack(ResourceId::Grenade as u32);
-    let cells: Vec<usize> = world
-        .aboard
-        .room
-        .pack(0)
-        .iter()
-        .enumerate()
-        .filter(|(_, i)| **i == Some(grenade))
-        .map(|(c, _)| c)
-        .collect();
-    for cell in cells {
-        world.aboard.room.take(0, cell);
-    }
+    world.aboard.room.set_charges(0, grenade, 0);
     assert_eq!(world.can_throw(0, tile), Err(Refusal::NoGrenade));
     let events = throw(&mut world, 0, tile);
     assert!(refused_with(&events, Refusal::NoGrenade));

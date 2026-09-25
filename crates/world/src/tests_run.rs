@@ -81,31 +81,6 @@ fn no_human_is_ever_hostile_in_a_generated_galaxy() {
             assert_ne!(world.stance(s.id), Stance::Hostile);
         }
     }
-
-    // And looting one of a station's people is refused: the dead are
-    // nobody's to strip, and only a crewmate's body is the crew's.
-    let mut world = basic();
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .kill_for_probe(0);
-    world.step(&[]);
-    let events = world.step(&[Command::Loot {
-        slot: 0,
-        who: 0,
-        source: crate::LootSource::Resident(0),
-        cell: 0,
-    }]);
-    assert!(
-        events.contains(&WorldEvent::Refused {
-            slot: 0,
-            why: Refusal::NotACrewmate
-        }),
-        "{events:?}"
-    );
 }
 
 /// The crisis is there from day nought: the origin is the machines' the

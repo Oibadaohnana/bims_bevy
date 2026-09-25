@@ -37,9 +37,9 @@
 //! is how the dead lying on a station's deck are looked at without
 //! fighting, flying away and coming back.
 //! `BIMS_TRADE=1` opens the simulation with the station's trade window
-//! up, which is how the cart is looked at. `BIMS_ARMOURY=1` opens it with
-//! the armoury window up, which is how the lockers' grid is looked at;
-//! `=storage` the shelves', `=workbench` the workbench's slots.
+//! up, which is how the cart is looked at. `BIMS_ARMORY=1` opens any run
+//! with the Armory panel up (task 113), which is how the loadouts and the
+//! armory are looked at.
 //!
 //! `BIMS_SOUND_LOG=1` prints every clip as it is played and every bed as
 //! it starts or stops — how a sound is *heard* from a terminal, where a
@@ -192,11 +192,11 @@ pub fn sheet() -> bool {
     std::env::var("BIMS_SHEET").as_deref() == Ok("1")
 }
 
-/// `BIMS_TRAY=stash` or `=squad` opens the game with that panel of the
-/// tray up (feature 107).
+/// `BIMS_TRAY=squad` opens the game with the tray's Squad panel up
+/// (feature 107); `BIMS_TRAY=stash` was the Stash, which is the Armory
+/// panel now (`BIMS_ARMORY`).
 pub fn tray() -> Option<crate::crew::TrayTab> {
     match std::env::var("BIMS_TRAY").ok()?.trim() {
-        "stash" => Some(crate::crew::TrayTab::Stash),
         "squad" => Some(crate::crew::TrayTab::Squad),
         _ => None,
     }
@@ -289,12 +289,13 @@ pub fn trade() -> bool {
     std::env::var("BIMS_TRADE").as_deref() == Ok("1")
 }
 
-/// `BIMS_ARMOURY=1` opens the simulation with the armoury window up — how
-/// the lockers' grid is looked at without finding the armoury on deck;
-/// `BIMS_ARMOURY=storage` the first shelf's window, `=workbench` the
-/// workbench's slots. What to open, if anything.
-pub fn armoury() -> Option<String> {
-    std::env::var("BIMS_ARMOURY").ok().filter(|s| !s.is_empty())
+/// `BIMS_ARMORY=1` opens any run with the Armory panel up (task 113) —
+/// how the loadouts and the armory are looked at without pressing Tab.
+/// `BIMS_ARMOURY=1`, the old spelling, does the same.
+pub fn armory() -> bool {
+    ["BIMS_ARMORY", "BIMS_ARMOURY"]
+        .iter()
+        .any(|k| std::env::var(k).is_ok_and(|v| !v.is_empty() && v != "0"))
 }
 
 /// `BIMS_WEAPON=schword` puts a schword in the crew member's hand for the

@@ -256,13 +256,12 @@ pub fn tier_tint(tier: bims::combat::Tier) -> Option<egui::Color32> {
 }
 
 /// The tint an item is drawn in, if it has a tier above one: a weapon's or
-/// a piece's, and a research key's by its tier; a stack has none.
+/// a piece's; a charge has none.
 pub fn item_tint(item: bims::combat::Item) -> Option<egui::Color32> {
     match item {
         bims::combat::Item::Armour(piece) => tier_tint(piece.tier),
         bims::combat::Item::Weapon(weapon) => tier_tint(weapon.tier),
-        bims::combat::Item::Key(2) => Some(TIER_TWO),
-        bims::combat::Item::Stack(_) | bims::combat::Item::Key(_) => None,
+        bims::combat::Item::Stack(_) => None,
     }
 }
 

@@ -69,7 +69,6 @@ mod crew;
 mod dev;
 mod fogmap;
 mod format;
-mod grid;
 mod icons;
 mod keys;
 mod names;

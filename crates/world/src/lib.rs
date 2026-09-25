@@ -57,8 +57,8 @@ pub mod droid;
 pub mod event;
 pub mod fixture;
 pub mod frame;
-pub mod grid;
 pub mod heart;
+pub mod holdings;
 pub mod jammer;
 pub mod jump;
 pub mod manufacturer;
@@ -75,7 +75,7 @@ pub mod surface;
 pub mod tank;
 pub mod world;
 
-pub use armour::{FetchKind, LootSource, Piece, Where};
+pub use armour::LootSource;
 pub use build::{BuildSite, SiteRefusal};
 pub use checksum::world_checksum;
 pub use class::{Charge, Class, Progress, Side, Talent};
@@ -84,7 +84,7 @@ pub use defense::Defense;
 pub use deploy::{Deck, DeployKind, Deployable, Kit};
 pub use event::{Refusal, WorldEvent};
 pub use frame::Frame;
-pub use grid::{Grid, Kept, Slot, Wanted};
+pub use holdings::{GearSlot, GearSource, Holdings, Offer, Stored};
 pub use jammer::{JAMMER_BASE, jammer_id, jammer_star};
 pub use medic::Medic;
 pub use memory::{Losses, SystemMemory};
@@ -96,8 +96,7 @@ pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};
 pub use tank::Tank;
 pub use world::{
-    Command, Power, Ship, ShipState, StartError, UPGRADE_ORDER, Upgrade, Workbench, World, spawn,
-    spawn_anywhere, spawn_with_ground,
+    Command, Power, Ship, ShipState, StartError, World, spawn, spawn_anywhere, spawn_with_ground,
 };
 
 #[cfg(test)]
@@ -119,9 +118,11 @@ mod tests_guardian;
 #[cfg(test)]
 mod tests_heart;
 #[cfg(test)]
-mod tests_layoutgen;
+mod tests_holdings;
 #[cfg(test)]
 mod tests_jammer;
+#[cfg(test)]
+mod tests_layoutgen;
 #[cfg(test)]
 mod tests_manufacturer;
 #[cfg(test)]

@@ -8,9 +8,8 @@ use crate::character::{
 use crate::clock::MINUTES_PER_SECOND;
 use crate::clock::{self, Clock};
 use crate::combat::{
-    ArmourKind, Blow, COVER_WORTH, Combat, FIST_DAMAGE, Gear, Grenade, Hit, Item, LOOT_CELLS,
-    LootCell, MELEE_PERIOD, MELEE_RANGE, PACK_CELLS, Piece, Sentry, Shot, Skill, Tactics, Weapon,
-    WeaponStats,
+    ArmourKind, Blow, COVER_WORTH, Combat, FIST_DAMAGE, Gear, Grenade, Hit, Item, MELEE_PERIOD,
+    MELEE_RANGE, Piece, Sentry, Shot, Skill, Tactics, Weapon, WeaponStats,
 };
 use crate::cue::{Cue, Cued};
 use crate::door;
@@ -21,10 +20,7 @@ use crate::math::{Rect, TAU, Vec2, clamp, vec2};
 use crate::memory::What;
 use crate::nav::{self, Maps, Nav};
 use crate::rng::Rng;
-use crate::room::{
-    self, Dropped, GLOW, HIT_BIM, HIT_BODY, HIT_DROPPED, HIT_NONE, HIT_VISITOR, Room, Switch, TILE,
-    WARN,
-};
+use crate::room::{self, GLOW, HIT_BIM, HIT_BODY, HIT_NONE, HIT_VISITOR, Room, Switch, TILE, WARN};
 use crate::sight::{Fog, Sight, Stance};
 use crate::task::{self, Kind, Saved, Task};
 use crate::work::{self, Job, Priorities};
@@ -36,8 +32,8 @@ mod heart;
 
 const TRAIL: Color = ACCENT;
 
-/// A box of dressings as a pack item (feature 87): what a Bim binds a
-/// wound with, and the one thing in a pack that stacks.
+/// A dressing, as a charge on a body (feature 87, task 113): what a Bim
+/// binds a wound with.
 pub const BANDAGE: Item = Item::Stack(crate::combat::BANDAGE_CODE);
 const MARQUEE_EDGE: Color = ACCENT;
 const MARQUEE_FILL: Color = Color::rgba(0.50, 0.82, 0.66, 0.10);
@@ -52,11 +48,6 @@ pub const SEEN_FOR: f32 = 2.0;
 
 /// How long the flash a hit puts on a body lasts, in seconds.
 const HIT_FLASH: f32 = 0.22;
-
-/// Where the gun of a body going out cold lands, in room units from the body:
-/// out past the hand fallen out on its right side, off the figure
-/// (`Character::draw_down`).
-const DROP_FLUNG: Vec2 = vec2(-14.0, 44.0);
 
 /// A dressing or a treatment finished (feature 76): whose hands, on
 /// whom, and what was used — a bandage, a medkit, or nothing at all (a
@@ -327,16 +318,17 @@ pub const BIND_EVERY: f32 = 10.0;
 /// unlocking it.
 pub const JOB_DOOR: u32 = 7;
 pub const JOB_DOOR_LOCK: u32 = 8;
-pub const JOB_CRAFT: u32 = 18;
+// 18 was making something at a bench, which went with the crafting (task
+// 113).
 pub const JOB_EVA: u32 = 19;
 pub const JOB_HAUL: u32 = 20;
 pub const JOB_BUILD: u32 = 21;
 pub const JOB_BANDAGE: u32 = 22;
 pub const JOB_TREAT: u32 = 23;
-pub const JOB_FETCH: u32 = 24;
-// 25 was finishing a body off, which went with every human enemy
+// 24 was picking a dropped weapon up, which went with the dropping (task
+// 113), and 25 finishing a body off, which went with every human enemy
 // (feature 104).
-pub const JOB_FERRY: u32 = 26;
+// 26 was carrying a thing to the workbench, which went with it (task 113).
 /// A walk to a spot on the deck waiting its turn — a Shift-click. Only
 /// ever on the agenda, never the activity: the walk is given, not run.
 pub const JOB_WALK: u32 = 27;
@@ -347,12 +339,9 @@ fn job_code(kind: Kind) -> u32 {
     match kind {
         Kind::Switch(Switch::Door(_, door::Order::Open | door::Order::Close)) => JOB_DOOR,
         Kind::Switch(Switch::Door(_, door::Order::Lock | door::Order::Unlock)) => JOB_DOOR_LOCK,
-        Kind::Craft { .. } => JOB_CRAFT,
         Kind::Build { .. } => JOB_BUILD,
         Kind::Bandage { .. } => JOB_BANDAGE,
         Kind::Treat { .. } => JOB_TREAT,
-        Kind::Fetch { .. } => JOB_FETCH,
-        Kind::Ferry { .. } => JOB_FERRY,
         Kind::Walk { .. } => JOB_WALK,
         Kind::Deploy { .. } => JOB_DEPLOY,
     }
@@ -453,23 +442,6 @@ fn dashed(list: &mut DrawList, a: Vec2, b: Vec2, colour: Color) {
     }
 }
 
-/// One recipe the world would like made, at one bench: what the room's
-/// craft job is offered off. The world hands the room a fresh list every
-/// step — see `Game::set_craft_orders` — worked out from the hold, the
-/// player's targets and the power; the room decides only who goes and
-/// whether the bench is free. `minutes` is how long the recipe takes,
-/// carried because the room has no recipe table.
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Order {
-    pub recipe: u32,
-    pub bench: usize,
-    pub minutes: f32,
-    /// The one Bim that may take it, or anybody: an engineer's repair at
-    /// the workbench is its own (feature 74).
-    pub only: Option<usize>,
-}
-
 /// One construction site the world wants worked, this step: where it is,
 /// in room units, and how long putting it together takes. The world hands
 /// the room a fresh list every step — `Game::set_build_orders` — worked
@@ -486,38 +458,17 @@ pub struct Build {
     pub minutes: f32,
 }
 
-/// One thing the world wants carried between two workstations, this step:
-/// out of the cabinet at bench `from` and onto bench `to` — a gun or a
-/// piece of armour from the lockers to the workbench for an upgrade, or
-/// the upgraded one back — by their indices in `Room::benches`. What the
-/// thing is stays the world's: the room says a Bim took something at
-/// `from` and put it down at `to` (`Room::ferry_picked`,
-/// `Room::ferry_dropped`), or gave up on the way (`ferry_returned`), and
-/// the world moves it. The world hands the room a fresh list every step
-/// (`Game::set_ferries`), at most one long, and keeps the order on it
-/// until the drop lands, so a chain on its way finds it there. See
-/// `Kind::Ferry`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Ferry {
-    pub from: usize,
-    pub to: usize,
-}
-
 /// A part of the ship only one Bim can be using at a time.
 ///
 /// Most of the room is shared happily — two of them can walk past each
 /// other, dress one patient — but some of it is one set of hands' worth: a
-/// bench, the airlock, a site. So an errand that needs one of these does not start while the other Bim is
+/// the airlock, a site. So an errand that needs one of these does not start while the other Bim is
 /// on an errand that needs the same. It is not a queue and nobody waits in
 /// line: the errand simply is not begun, and `consider_errand` moves on to
 /// whatever else that Bim could be doing. It will come round again.
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Exclusive {
-    /// One workstation, by its index in `Room::benches`. One pair of hands
-    /// on a bench; a second bench of the same kind is another one of these.
-    Bench(usize),
     /// The airlock, for a walk outside to a site beyond the hull. One body out at a time: the suit is counted by the world and
     /// not taken out of the hold, so this is what keeps two Bims from
     /// wearing one suit.
@@ -531,13 +482,8 @@ enum Exclusive {
 /// What a chain needs to itself, or `None` when it treads on nothing.
 fn exclusive(kind: Kind) -> Option<Exclusive> {
     match kind {
-        Kind::Craft { bench, .. } => Some(Exclusive::Bench(bench)),
         Kind::Build { outside: true, .. } => Some(Exclusive::Airlock),
         Kind::Build { site, .. } => Some(Exclusive::Site(site)),
-        // A carry holds the bench it is putting the thing on: two Bims
-        // ferrying to the workbench at once would be two hands in one slot,
-        // and a Bim at work on it is at it already.
-        Kind::Ferry { to, .. } => Some(Exclusive::Bench(to)),
         // A ship's door has a panel each side and takes a moment: nobody
         // needs to wait for it. A dressing holds nothing: two crew dressing
         // one patient's two parts at once is two pairs of hands, which is
@@ -545,7 +491,6 @@ fn exclusive(kind: Kind) -> Option<Exclusive> {
         Kind::Switch(..)
         | Kind::Bandage { .. }
         | Kind::Treat { .. }
-        | Kind::Fetch { .. }
         | Kind::Walk { .. }
         | Kind::Deploy { .. } => None,
     }
@@ -634,9 +579,6 @@ pub struct Game {
     /// The order the player wants the work done in. One list for the ship:
     /// the whole crew work to it. See `work.rs`.
     priorities: Priorities,
-    /// What the world wants made right now. See [`Order`]. Empty in a bare
-    /// room, which has no benches and no world.
-    orders: Vec<Order>,
     /// What a body outside is pushed out of: the hull and the rocks. Kept
     /// with the outside grid — see `refresh_outside`.
     outside_blockers: Vec<Rect>,
@@ -802,12 +744,6 @@ pub struct Game {
     /// world to say so. See `Game::strike` and `Game::apply_treatments`.
     traumas: Vec<(usize, Trauma)>,
     treated: Vec<(usize, Trauma)>,
-    /// The dropped weapon a click last landed on, for the host to ask
-    /// after `hit_at` said `HIT_DROPPED`: its id.
-    hit_dropped: u32,
-    /// The dropped weapon the pointer rests on, ringed in `render` so the
-    /// gun under the mouse reads as something to click; `None` for none.
-    hover_dropped: Option<u32>,
     /// What a hostile room's people believe about each of the world's
     /// targets: where it was when one of them last saw it, and how long
     /// ago. Index for index with `set_hostiles`; `None` for one never
@@ -892,34 +828,6 @@ impl Game {
         game
     }
 
-    /// Put `n` of a stackable thing in a Bim's pack, boxes as full as
-    /// the thing stacks, as far as the pack has room (feature 87). What
-    /// a bare room deals its dressings with and what the world's
-    /// restock tops a pack up by; the number that actually went in.
-    pub fn give_stack(&mut self, who: usize, item: Item, n: u32) -> u32 {
-        let mut left = n;
-        while left > 0 {
-            let Some(bim) = self.bims.get_mut(who) else {
-                break;
-            };
-            let cell = bim
-                .gear
-                .stack_with_room(item)
-                .or_else(|| bim.gear.free_cell_for(item));
-            let Some(cell) = cell else { break };
-            let fits = match bim.gear.room_in(cell, item) {
-                0 => item.stack_limit(),
-                spare => spare,
-            }
-            .min(left);
-            if !bim.gear.put_many(cell, item, fits) {
-                break;
-            }
-            left -= fits;
-        }
-        n - left
-    }
-
     /// A game in a room laid out from elsewhere — a ship design, through
     /// `crate::aboard` — with one Bim per `start`, standing there.
     ///
@@ -992,7 +900,6 @@ impl Game {
             order_drag: None,
             markers: Vec::new(),
             priorities: Priorities::new(),
-            orders: Vec::new(),
             outside_blockers: Vec::new(),
             afield_blockers: Vec::new(),
             outside_version: None,
@@ -1033,8 +940,6 @@ impl Game {
             pieces_broken: Vec::new(),
             traumas: Vec::new(),
             treated: Vec::new(),
-            hit_dropped: 0,
-            hover_dropped: None,
             last_seen: Vec::new(),
             machine_seen: Vec::new(),
             sheltering: Vec::new(),
@@ -1152,19 +1057,6 @@ impl Game {
             bim.bed = self.room.bed_of(who);
         }
         self.room.bunk_of.clear();
-        // The room is about to be thrown away, and a gun on its deck with
-        // it: whoever dropped one takes it along — into the hand, else the
-        // pack, else it is lost with the deck.
-        for (who, bim) in self.bims.iter_mut().enumerate() {
-            while let Some(i) = self.room.weapons_down.iter().position(|d| d.owner == who) {
-                let d = self.room.weapons_down.remove(i);
-                if bim.gear.weapon.is_none() {
-                    bim.gear.weapon = Some(d.weapon);
-                } else if let Some(cell) = bim.gear.free_cell() {
-                    bim.gear.pack[cell] = Some(Item::Weapon(d.weapon));
-                }
-            }
-        }
         std::mem::take(&mut self.bims)
     }
 
@@ -1320,7 +1212,6 @@ impl Game {
         // looked at here.
         self.apply_dressings();
         self.apply_treatments();
-        self.apply_pickups();
         // Under arms, bodies do not stack: whoever is recruited is pushed
         // apart from whoever else is, after everybody has moved.
         self.separate_under_arms();
@@ -1493,7 +1384,7 @@ impl Game {
         }
         // The crew's alarm: an enemy within range of any of them, or one of
         // them hit lately, and everybody but the player's own is under
-        // arms — a weapon out of the pack if the hand is empty — and fights
+        // arms and fights
         // the way an enemy's people do. Nobody near and nobody hit for a
         // while, and they stand down to their errands.
         self.attacked_for = (self.attacked_for - dt).max(0.0);
@@ -2024,12 +1915,7 @@ impl Game {
     }
 
     /// The crew's alarm, on or off: every living crew member but the
-    /// player's own under arms with its errand put down — a weapon taken
-    /// out of the pack into an empty hand first, since a recruited body
-    /// with nothing in its hand is a body standing still, and for a blade
-    /// in the hand every piece of armour in the pack put on over a part
-    /// that has none or a broken one, since a melee bot always wears what
-    /// armour it has — or let go, the queue kept, so peace picks it all up
+    /// player's own under arms with its errand put down — or let go, the queue kept, so peace picks it all up
     /// again. The player's own is left as the player has it: recruiting
     /// it is the player's.
     fn muster_crew(&mut self, alarm: bool) {
@@ -2075,24 +1961,12 @@ impl Game {
         self.mustered
     }
 
-    /// One crew member put under arms: a weapon out of the pack into an
-    /// empty hand, every piece of armour it has on for a blade, and the
-    /// errand put down onto the queue. What the alarm does to each of
-    /// them, and what a commander's squad order does to one without
-    /// waiting for an alarm (feature 78).
+    /// One crew member put under arms: the errand put down onto the
+    /// queue. What it holds and wears is its loadout, which changes only
+    /// between missions (task 113), so there is nothing to take out.
+    /// What the alarm does to each of them, and what a commander's squad
+    /// order does to one without waiting for an alarm (feature 78).
     fn take_up_arms(&mut self, who: usize) {
-        if self.bims[who].gear.weapon.is_none()
-            && let Some(cell) = self.bims[who]
-                .gear
-                .pack
-                .iter()
-                .position(|c| matches!(c, Some(Item::Weapon(_))))
-        {
-            self.equip(who, cell);
-        }
-        if self.bims[who].gear.weapon.is_some_and(|w| w.stats().melee) {
-            self.wear_what_it_has(who);
-        }
         self.interrupt(who);
         self.bims[who].plan_wait = 0.0;
     }
@@ -2126,24 +2000,6 @@ impl Game {
                 self.squad_armed.resize(who + 1, false);
             }
             self.squad_armed[who] = under;
-        }
-    }
-
-    /// Every unbroken piece of armour in the pack put on, where the part
-    /// wears nothing or a broken piece: what a melee bot does at the
-    /// alarm. A better piece already worn is left alone.
-    fn wear_what_it_has(&mut self, who: usize) {
-        for cell in 0..PACK_CELLS {
-            let Some(Item::Armour(piece)) = self.bims[who].gear.pack[cell] else {
-                continue;
-            };
-            if piece.broken() {
-                continue;
-            }
-            let worn = self.bims[who].gear.worn(piece.kind.slot());
-            if worn.is_none_or(|w| w.broken()) {
-                self.equip(who, cell);
-            }
         }
     }
 
@@ -3603,10 +3459,9 @@ impl Game {
         let out = self.bims[who].health.unconscious();
         if out != self.bims[who].character.is_unconscious() {
             if out {
+                // The gun stays in the hand, holstered (`tick_combat`): a
+                // loadout is never dropped (task 113).
                 self.interrupt(who);
-                // And the gun goes on the deck: a body out cold holds
-                // nothing, and it has to come back for it.
-                self.drop_weapon(who);
             }
             self.bims[who].character.knock_out(out);
         }
@@ -3648,22 +3503,19 @@ impl Game {
         {
             self.give_care(who, care);
         }
-        // A bot that came round finds its hand empty and its gun on the
-        // deck, and goes for it.
-        self.fetch_own_weapon(who);
 
         // A trauma on it, untreated or lasting, slows the work.
         let effort = self.bims[who].health.works_at();
         // And what an engineer's talents do (feature 74): a factor on a
-        // craft's working steps, another on a build's, and nothing on any
-        // other errand — the task says which job it serves.
-        let (craft, build) = self.work_factors.get(who).copied().unwrap_or((1.0, 1.0));
+        // build's working steps, and nothing on any other errand — the
+        // task says which job it serves. (The first of the pair was a
+        // craft's, which went with the crafting in task 113.)
+        let (_, build) = self.work_factors.get(who).copied().unwrap_or((1.0, 1.0));
         // And a medic's (feature 76): its bandaging, its treating, and a
         // treatment with no kit at its own pace.
         let doctoring = self.doctoring_of(who);
         let effort = effort
             * match self.bims[who].task.as_ref().map(|t| t.kind()) {
-                Some(Kind::Craft { .. }) => craft,
                 Some(Kind::Build { .. }) => build,
                 Some(Kind::Bandage { .. }) => doctoring.bandage,
                 Some(Kind::Treat { bare: true, .. }) => doctoring.bare.unwrap_or(doctoring.treat),
@@ -4246,9 +4098,6 @@ impl Game {
                 }
             }
             Kind::Switch(which) => self.send_to_switch(who, which),
-            Kind::Fetch { item } => {
-                self.fetch(who, item);
-            }
             Kind::Bandage { patient, part } => {
                 if let Some(part) = Part::from_code(part) {
                     self.bandage(who, patient, part);
@@ -4261,7 +4110,7 @@ impl Game {
             }
             // Nothing a Shift-click can queue: the rest are the room's own
             // errands and the world's, never `Saved::ordered`.
-            Kind::Craft { .. } | Kind::Build { .. } | Kind::Ferry { .. } | Kind::Deploy { .. } => {}
+            Kind::Build { .. } | Kind::Deploy { .. } => {}
         }
     }
 
@@ -4363,16 +4212,6 @@ impl Game {
         // has none.
         if let Some(bed) = self.room.bunk_of.get_mut(who) {
             *bed = None;
-        }
-        // The gun it let go of going out cold lies beside the body, and
-        // the body is what gets looted: back into its hand, so the Loot
-        // window shows it and a crew looting a station's dead is not
-        // reaching for a floor in the other room.
-        if self.bims[who].gear.weapon.is_none()
-            && let Some(i) = self.room.weapons_down.iter().position(|d| d.owner == who)
-        {
-            let d = self.room.weapons_down.remove(i);
-            self.bims[who].gear.weapon = Some(d.weapon);
         }
     }
 
@@ -4568,9 +4407,10 @@ impl Game {
         }
     }
 
-    /// A dead Bim brought back (feature 103, a buyback): alive, whole,
-    /// awake and **carrying nothing** — no gun, no armour, an empty pack
-    /// — where its body lay. Nothing for one already alive.
+    /// A dead Bim brought back (feature 103; since task 113 a player's Bim
+    /// at its mission's end): alive, whole and awake where its body lay,
+    /// **with everything it wore and held** — a loadout is never lost —
+    /// and its armour mended. Nothing for one already alive.
     pub fn revive(&mut self, who: usize) {
         let Some(bim) = self.bims.get_mut(who) else {
             return;
@@ -4583,7 +4423,13 @@ impl Game {
         bim.character.set_wounds([false; 3]);
         bim.task = None;
         bim.queue.clear();
-        self.issue(who, Gear::default());
+        let mut gear = bim.gear;
+        for part in Part::ALL {
+            if let Some(piece) = gear.worn_mut(part) {
+                piece.health = piece.stats().health;
+            }
+        }
+        self.issue(who, gear);
     }
 
     /// Deal a Bim its peacetime role and plan its round off this room's
@@ -4873,21 +4719,6 @@ impl Game {
         self.bims[who].task.as_ref().map(|t| job_code(t.kind()))
     }
 
-    /// Lay a weapon on the deck at `at`, as a body knocked out lets one
-    /// fall, for a test that wants one to pick up: its id.
-    #[allow(dead_code)]
-    pub fn drop_for_probe(&mut self, at: Vec2, weapon: Weapon, owner: usize) -> u32 {
-        let id = self.room.next_weapon_down;
-        self.room.next_weapon_down += 1;
-        self.room.weapons_down.push(Dropped {
-            id,
-            at,
-            weapon,
-            owner,
-        });
-        id
-    }
-
     /// Whether a Bim's walk is over. For the probes.
     #[allow(dead_code)]
     pub fn arrived_for_probe(&self, who: usize) -> bool {
@@ -4946,9 +4777,6 @@ impl Game {
     fn do_some_work(&mut self, who: usize) -> bool {
         for job in self.work_on_offer(who) {
             let started = match job {
-                Job::Craft => self.craft(who),
-                // A thing to the workbench and back.
-                Job::Haul => self.ferry(who),
                 Job::Build => self.build(who),
                 // A wound to dress, somebody's: the same errand the player
                 // orders from the menu on a body, chosen by the room.
@@ -5193,14 +5021,6 @@ impl Game {
         if self.medical_on_offer(who).is_some() {
             offered.push(Job::Medical);
         }
-        // Something to make, at a bench nobody is at.
-        if self.craft_on_offer(who).is_some() {
-            offered.push(Job::Craft);
-        }
-        // A thing to carry between two benches.
-        if self.ferry_on_offer(who).is_some() {
-            offered.push(Job::Haul);
-        }
         // A site with nobody at it.
         if self.build_on_offer(who).is_some() {
             offered.push(Job::Build);
@@ -5209,59 +5029,6 @@ impl Game {
         offered.retain(|&job| self.waits_on(job) != work::NEVER);
         offered.sort_by_key(|&job| self.waits_on(job));
         offered
-    }
-
-    /// The first order whose bench is free and reachable, or none. First in
-    /// the world's order, which is the recipe table's — so a smelt is picked
-    /// over an emitter when both want doing and both benches stand free.
-    ///
-    /// **A bot never stands at a bench** (feature 89): an open order — the
-    /// workbench, the armoury, the drug lab — is the players' own work, and
-    /// a Bim no player steers passes it over whatever the Craft row says. It
-    /// carries, builds, doctors and shoots as it always did. An order
-    /// *named* for one Bim is still
-    /// that Bim's, bot or not, since it is a thing already begun rather
-    /// than the ship's standing want: an engineer's armour repair at the
-    /// workbench (feature 74) would otherwise sit on the bench for ever.
-    fn craft_on_offer(&self, who: usize) -> Option<Order> {
-        self.orders.iter().copied().find(|order| {
-            let mine = match order.only {
-                Some(only) => only == who,
-                None => !self.is_bot(who),
-            };
-            mine && self.room.benches.get(order.bench).is_some()
-                && self.can_begin(
-                    who,
-                    Kind::Craft {
-                        recipe: order.recipe,
-                        bench: order.bench,
-                    },
-                )
-        })
-    }
-
-    /// Off to make the first thing on offer.
-    pub fn craft(&mut self, who: usize) -> bool {
-        let Some(order) = self.craft_on_offer(who) else {
-            return false;
-        };
-        let kind = Kind::Craft {
-            recipe: order.recipe,
-            bench: order.bench,
-        };
-        if !self.take_over(who, kind) {
-            return false;
-        }
-        self.bims[who].task = Some(Task::craft(
-            who,
-            order.recipe,
-            order.bench,
-            order.minutes,
-            &mut self.bims[who].character,
-            &mut self.room,
-            &self.maps,
-        ));
-        true
     }
 
     /// Where a site is worked from, for `who`: from the deck if any tile
@@ -5323,95 +5090,13 @@ impl Game {
     }
 
     /// What the world wants built, this step, and who may go outside to
-    /// it. Replaces the last list whole, like the craft orders: a site
+    /// it. Replaces the last list whole: a site
     /// that is no longer on it is not begun again, and a chain already at
     /// one finds it gone at its next walk and gives up. The world says,
     /// every step.
     pub fn set_build_orders(&mut self, builds: Vec<Build>, suit_ok: Vec<bool>) {
         self.room.builds = builds;
         self.room.suit_ok = suit_ok;
-    }
-
-    /// The first thing the world wants carried between two benches that
-    /// `who` could carry now: both benches in the room, a way to the first
-    /// from where the Bim stands, and nobody else carrying to or working at
-    /// the second. Asked of every idle Bim every step, so the walk is not
-    /// planned until there is an order to plan it for.
-    fn ferry_on_offer(&self, who: usize) -> Option<Ferry> {
-        if self.room.ferries.is_empty() {
-            return None;
-        }
-        let from = self.bims[who].character.pos;
-        self.room.ferries.iter().copied().find(|f| {
-            let (Some(a), Some(_)) = (self.room.benches.get(f.from), self.room.benches.get(f.to))
-            else {
-                return false;
-            };
-            self.maps.deck().can_reach(from, a.at)
-                && self.can_begin(
-                    who,
-                    Kind::Ferry {
-                        from: f.from,
-                        to: f.to,
-                    },
-                )
-        })
-    }
-
-    /// Off to carry the first thing the world wants carried.
-    pub fn ferry(&mut self, who: usize) -> bool {
-        let Some(order) = self.ferry_on_offer(who) else {
-            return false;
-        };
-        let kind = Kind::Ferry {
-            from: order.from,
-            to: order.to,
-        };
-        if !self.take_over(who, kind) {
-            return false;
-        }
-        self.bims[who].task = Some(Task::ferry(
-            who,
-            order.from,
-            order.to,
-            &mut self.bims[who].character,
-            &mut self.room,
-            &self.maps,
-        ));
-        true
-    }
-
-    /// What the world wants carried between benches, this step. Replaces
-    /// the last list whole, like the build orders; the world keeps an
-    /// order on it until the thing is put down, so a chain on its way is
-    /// not left walking to nothing.
-    pub fn set_ferries(&mut self, ferries: Vec<Ferry>) {
-        self.room.ferries = ferries;
-    }
-
-    /// What the world asked carried this step, as the room still has it: a
-    /// carry drops off the list as its thing is put down.
-    pub fn ferries(&self) -> &[Ferry] {
-        &self.room.ferries
-    }
-
-    /// The carries whose thing was taken off the first bench since the
-    /// last call, for the world to take it out of the hold or off the
-    /// workbench.
-    pub fn take_ferry_picked(&mut self) -> Vec<Ferry> {
-        core::mem::take(&mut self.room.ferry_picked)
-    }
-
-    /// The carries whose thing was put down on the second bench since the
-    /// last call.
-    pub fn take_ferry_dropped(&mut self) -> Vec<Ferry> {
-        core::mem::take(&mut self.room.ferry_dropped)
-    }
-
-    /// The carries given up between the two since the last call: what was
-    /// carried goes back where it came from, or into the hold.
-    pub fn take_ferry_returned(&mut self) -> Vec<Ferry> {
-        core::mem::take(&mut self.room.ferry_returned)
     }
 
     /// The sites put together since the last call, each with who put it
@@ -5449,12 +5134,7 @@ impl Game {
     /// the outside grid is marked stale so it comes back with the new hull
     /// under it. A walk already planned through where the part now stands
     /// is caught by `unstick`, which replans it round.
-    ///
-    /// The one errand given up is a craft at a bench that moved: a bench is
-    /// named by its index in the layout's list, and a bench built in among
-    /// them would have a chain finishing at the wrong one.
     pub fn relayout(&mut self, layout: room::Layout) {
-        let benches_before: Vec<Rect> = self.room.benches.iter().map(|b| b.frame).collect();
         self.room.relayout(layout);
         // A fresh grid for sight: whose the tiles are goes back on it.
         self.room.sight.set_stance(self.stance);
@@ -5466,54 +5146,11 @@ impl Game {
         self.refresh_maps();
         self.refresh_blockers();
         self.room.rocks_version = self.room.rocks_version.wrapping_add(1);
-        for who in 0..self.bims.len() {
-            let moved = self.bims[who]
-                .task
-                .as_ref()
-                .is_some_and(|t| match t.kind() {
-                    Kind::Craft { bench, .. } => {
-                        benches_before.get(bench) != self.room.benches.get(bench).map(|b| &b.frame)
-                    }
-                    _ => false,
-                });
-            if moved && let Some(task) = self.bims[who].task.take() {
-                task.abandon(&mut self.bims[who].character, &mut self.room);
-            }
-        }
     }
 
-    /// The workstations aboard, in the layout's order — what an `Order`'s
-    /// `bench` indexes.
+    /// The workstations aboard, in the layout's order.
     pub fn benches(&self) -> &[crate::room::Bench] {
         &self.room.benches
-    }
-
-    /// What the world wants made, this step. Replaces the last list whole:
-    /// an order that is no longer on it — the target met, the ore sold, the
-    /// smelter browned out — is simply not begun again, and a chain already
-    /// at the bench finishes what it started. The world says, every step.
-    pub fn set_craft_orders(&mut self, orders: Vec<Order>) {
-        self.orders = orders;
-    }
-
-    /// The recipes finished since the last call, in the order they were
-    /// finished. The world moves the cargo for each.
-    pub fn take_crafted(&mut self) -> Vec<u32> {
-        core::mem::take(&mut self.room.crafted)
-    }
-
-    /// How many of `recipe` are being made right now — chains running, not
-    /// queued. The world counts them against a target, so a target of one
-    /// more is one more and not one more per step the first one takes.
-    pub fn crafts_under_way(&self, recipe: u32) -> u32 {
-        self.bims
-            .iter()
-            .filter(|b| {
-                b.task.as_ref().is_some_and(
-                    |t| matches!(t.kind(), Kind::Craft { recipe: r, .. } if r == recipe),
-                )
-            })
-            .count() as u32
     }
 
     /// Whether this Bim is outside the hull, in a suit. What the world
@@ -5685,8 +5322,7 @@ impl Game {
     /// a station's people answer to nobody at this keyboard, so the
     /// first of them is no more a player's than the last. What decides
     /// whether a crewmate is doctored of its own accord
-    /// (`medical_on_offer`) and, since feature 89, whether it will stand
-    /// at a bench at all (`craft_on_offer`).
+    /// (`medical_on_offer`).
     pub fn is_bot(&self, who: usize) -> bool {
         self.hostile_bodies || !self.is_player(who)
     }
@@ -6374,13 +6010,6 @@ impl Game {
             if (down || hailable) && (*at - p).len() <= PICK_RADIUS {
                 self.hit_visitor = i;
                 return HIT_VISITOR;
-            }
-        }
-        // Then a weapon lying on the deck, to pick up.
-        for d in &self.room.weapons_down {
-            if (d.at - p).len() <= PICK_RADIUS {
-                self.hit_dropped = d.id;
-                return HIT_DROPPED;
             }
         }
         // Then the room: a door, a bench, a shelf, a desk — or furniture,
@@ -7883,15 +7512,6 @@ impl Game {
         self.room.benches[bench].at
     }
 
-    /// Whether `who` is on a craft of `recipe` right now, for the tests.
-    #[allow(dead_code)]
-    pub fn is_at_work_for_probe(&self, who: usize, recipe: u32) -> bool {
-        self.bims
-            .get(who)
-            .and_then(|b| b.task.as_ref())
-            .is_some_and(|t| matches!(t.kind(), Kind::Craft { recipe: r, .. } if r == recipe))
-    }
-
     /// Whether `who` is on a deploy errand, for the world and the panels.
     pub fn is_deploying(&self, who: usize) -> bool {
         self.bims
@@ -8376,31 +7996,17 @@ impl Game {
             .map_or(0, |bim| bim.gear.units_of(BANDAGE))
     }
 
-    /// Leave exactly `n` dressings in that Bim's pack: every box taken
-    /// out and `n` dealt again. For the tests and the probes, which
-    /// want a Bim carrying one and not a boxful.
+    /// Leave exactly `n` dressings on that Bim. For the tests and the
+    /// probes, which want a Bim carrying one and not a boxful.
     pub fn set_bandages_for_probe(&mut self, who: usize, n: u32) {
-        let Some(bim) = self.bims.get_mut(who) else {
-            return;
-        };
-        for cell in 0..PACK_CELLS {
-            if bim.gear.pack[cell] == Some(BANDAGE) {
-                bim.gear.take_out(cell);
-            }
-        }
-        self.give_stack(who, BANDAGE, n);
+        self.set_charges(who, BANDAGE, n);
     }
 
-    /// Spend one out of that Bim's pack: the emptiest box first, so the
-    /// pack tidies itself by being used. `false` when it carries none.
+    /// Spend one of that Bim's dressings. `false` when it has none.
     fn spend_bandage(&mut self, who: usize) -> bool {
-        let Some(bim) = self.bims.get_mut(who) else {
-            return false;
-        };
-        let Some(cell) = bim.gear.stack_to_spend(BANDAGE) else {
-            return false;
-        };
-        bim.gear.take_one(cell).is_some()
+        self.bims
+            .get_mut(who)
+            .is_some_and(|bim| bim.gear.spend(BANDAGE))
     }
 
     /// The part of `patient` worth dressing next: the one bleeding most,
@@ -8678,170 +8284,6 @@ impl Game {
         core::mem::take(&mut self.room.pack_kits_used)
     }
 
-    // --- a weapon on the deck ------------------------------------------------
-
-    /// The weapons lying on the deck, dropped by bodies knocked out.
-    pub fn weapons_down(&self) -> &[Dropped] {
-        &self.room.weapons_down
-    }
-
-    /// The dropped weapon the last click landed on, by id, after
-    /// [`Game::hit_at`] said `HIT_DROPPED`.
-    pub fn hit_dropped(&self) -> u32 {
-        self.hit_dropped
-    }
-
-    /// The dropped weapon under a room point, by id: within `PICK_RADIUS`
-    /// of where it lies, the same reach as a click. Nothing is noted; this
-    /// is the hover's question, asked every frame.
-    pub fn dropped_at(&self, x: f32, y: f32) -> Option<u32> {
-        let p = vec2(x, y);
-        self.room
-            .weapons_down
-            .iter()
-            .find(|d| (d.at - p).len() <= PICK_RADIUS)
-            .map(|d| d.id)
-    }
-
-    /// Ring the dropped weapon with this id on the deck — the one the
-    /// pointer rests on — or none. Worked out afresh every frame by the
-    /// host, like the highlight, so nothing stays lit.
-    pub fn set_hover_dropped(&mut self, id: Option<u32>) {
-        self.hover_dropped = id;
-    }
-
-    /// Whether [`Game::fetch`] would start: the Bim alive, awake and in,
-    /// and the weapon still lying there. What the screen asks before it
-    /// sends the order, so a refusal can be said at the click.
-    pub fn can_fetch(&self, who: usize, item: u32) -> bool {
-        who < self.bims.len()
-            && self.bims[who].is_alive()
-            && !self.bims[who].character.is_unconscious()
-            && !self.bims[who].character.is_outside()
-            && self.room.weapons_down.iter().any(|d| d.id == item)
-    }
-
-    /// Send `who` to pick the dropped weapon `item` up: the walk over and a
-    /// moment bending for it, and it is in the hand if the hand is empty,
-    /// else in the pack (`apply_pickups`). The player's order from the menu
-    /// on it, and what a bot does for its own gun the moment it comes round
-    /// (`fetch_own_weapon`). Refused for a Bim that cannot — dead, out
-    /// cold, outside — or a weapon that is not there any more.
-    pub fn fetch(&mut self, who: usize, item: u32) -> bool {
-        if !self.can_fetch(who, item) {
-            return false;
-        }
-        let kind = Kind::Fetch { item };
-        if !self.take_over(who, kind) {
-            return false;
-        }
-        self.bims[who].task = Some(Task::fetch(
-            who,
-            item,
-            &mut self.bims[who].character,
-            &mut self.room,
-            &self.maps,
-        ));
-        true
-    }
-
-    /// Every pick-up the chains finished this step, done — as long as the
-    /// Bim is still within two tiles of it. The player's own Bim puts the
-    /// weapon in its **pack** (the hand if the pack is full), since a
-    /// right-click on a gun is "into the inventory" and what goes in the
-    /// hand is the player's to choose; a bot — a crewmate, or one of a
-    /// hostile room's — puts it in its hand if that is empty, else the
-    /// pack, since it came for its own gun to fight with. Left where it
-    /// lies when neither has room.
-    fn apply_pickups(&mut self) {
-        for (who, item) in core::mem::take(&mut self.room.picked_up) {
-            if who >= self.bims.len() || !self.bims[who].is_alive() {
-                continue;
-            }
-            let Some(i) = self.room.weapons_down.iter().position(|d| d.id == item) else {
-                continue;
-            };
-            let dropped = self.room.weapons_down[i];
-            if (self.bims[who].character.pos - dropped.at).len() > 2.0 * TILE {
-                continue;
-            }
-            let bot = self.is_bot(who);
-            let gear = &mut self.bims[who].gear;
-            let hand_first = bot && gear.weapon.is_none();
-            if hand_first {
-                gear.weapon = Some(dropped.weapon);
-            } else if let Some(cell) = gear.free_cell() {
-                gear.pack[cell] = Some(Item::Weapon(dropped.weapon));
-            } else if gear.weapon.is_none() {
-                gear.weapon = Some(dropped.weapon);
-            } else {
-                continue;
-            }
-            self.room.weapons_down.remove(i);
-        }
-    }
-
-    /// The weapon in the hand of a body going out cold, let go of where
-    /// it lies: onto the deck, numbered, for whoever comes for it.
-    fn drop_weapon(&mut self, who: usize) {
-        let bim = &mut self.bims[who];
-        // A Manufacturer lets go of nothing (feature 109): its gun stays
-        // with the body, out of its hands, so there is never one lying on
-        // the deck for anybody to take.
-        if bim.manufacturer {
-            bim.character.set_armed(None);
-            return;
-        }
-        let Some(weapon) = bim.gear.weapon.take() else {
-            return;
-        };
-        bim.character.set_armed(None);
-        let id = self.room.next_weapon_down;
-        self.room.next_weapon_down += 1;
-        // Dropped out of the hand as it falls, so it lies beside the
-        // fallen figure and not under it.
-        let at = bim.character.pos + DROP_FLUNG.rotate(bim.character.heading);
-        self.room.weapons_down.push(Dropped {
-            id,
-            at,
-            weapon,
-            owner: who,
-        });
-    }
-
-    /// A bot back on its feet with nothing in its hand goes for the gun it
-    /// dropped, if it still lies there and there is a way to it. Every Bim
-    /// but the player's own in the crew's room, and every one of a
-    /// hostile room's; not one already on its way, not one dying with an
-    /// enemy about — it is running — and not while it is under arms at a
-    /// post the player gave it.
-    fn fetch_own_weapon(&mut self, who: usize) {
-        let bot = self.is_bot(who);
-        let bim = &self.bims[who];
-        if !bot
-            || bim.gear.weapon.is_some()
-            || bim
-                .task
-                .as_ref()
-                .is_some_and(|t| matches!(t.kind(), Kind::Fetch { .. }))
-            || self.is_fleeing(who)
-        {
-            return;
-        }
-        let from = bim.character.pos;
-        let Some(item) = self
-            .room
-            .weapons_down
-            .iter()
-            .filter(|d| d.owner == who)
-            .find(|d| task::dropped_stand(&self.room, &self.maps, d.id, from).is_some())
-            .map(|d| d.id)
-        else {
-            return;
-        };
-        self.fetch(who, item);
-    }
-
     // --- running from a fight ------------------------------------------------
 
     /// Whether `who` is running from the fight: **dying** — a part at
@@ -9045,12 +8487,7 @@ impl Game {
         self.bims[who].character.outfit()
     }
 
-    // --- the pack and what is worn ------------------------------------------
-
-    /// What is in a Bim's pack, cell by cell.
-    pub fn pack(&self, who: usize) -> [Option<Item>; PACK_CELLS] {
-        self.bims[who].gear.pack
-    }
+    // --- the loadout: what is worn and held, and the charges ------------------
 
     /// The piece worn on a part, broken or not.
     pub fn worn(&self, who: usize, part: Part) -> Option<Piece> {
@@ -9069,240 +8506,47 @@ impl Game {
         self.bims[who].gear.armour_health()
     }
 
-    /// Put an item in a Bim's pack: its corner in `cell`, turned if only
-    /// that fits, or in the first place the whole of it fits. The world's
-    /// half of a fetch — the piece has already left the hold. `false`, and
-    /// the item is not taken, when it would not lie there or nowhere
-    /// fits.
-    pub fn give(&mut self, who: usize, cell: Option<usize>, item: Item) -> bool {
-        let Some(bim) = self.bims.get_mut(who) else {
-            return false;
-        };
-        // A stackable thing joins a box that has room before it asks for
-        // a cell of its own (feature 87): five dressings go where one
-        // does.
-        let cell = cell
-            .or_else(|| bim.gear.stack_with_room(item))
-            .or_else(|| bim.gear.free_cell_for(item));
-        let Some(cell) = cell else {
-            return false;
-        };
-        bim.gear.put(cell, item)
+    /// How many of a charge a Bim has left (task 113): a medkit, the
+    /// dressings, an engineer's kits, a grenade — `Item::Stack` of the
+    /// charge's code. Nought for anybody the room has not got.
+    pub fn charges_of(&self, who: usize, item: Item) -> u32 {
+        self.bims.get(who).map_or(0, |b| b.gear.units_of(item))
     }
 
-    /// Take up to `n` of a stackable thing out of a Bim's pack, the
-    /// emptiest box first (feature 87); how many actually came out.
-    /// The other half of [`Game::give_stack`].
+    /// Put `n` more of a charge on a Bim; how many went on.
+    pub fn give_stack(&mut self, who: usize, item: Item, n: u32) -> u32 {
+        self.bims.get_mut(who).map_or(0, |b| b.gear.add(item, n))
+    }
+
+    /// Take up to `n` of a charge off a Bim; how many came off.
     pub fn take_stack(&mut self, who: usize, item: Item, n: u32) -> u32 {
+        let Some(bim) = self.bims.get_mut(who) else {
+            return 0;
+        };
         let mut gone = 0;
-        while gone < n {
-            let Some(bim) = self.bims.get_mut(who) else {
-                break;
-            };
-            let Some(cell) = bim.gear.stack_to_spend(item) else {
-                break;
-            };
-            if bim.gear.take_one(cell).is_none() {
-                break;
-            }
+        while gone < n && bim.gear.spend(item) {
             gone += 1;
         }
         gone
     }
 
-    /// Move a thing across a Bim's pack: the one kept in `cell` — or
-    /// reaching over it — to the cell `to`, turned or not. A drag in the
-    /// inventory. `false`, and nothing moved, when it would not lie there.
-    pub fn rearrange(&mut self, who: usize, cell: usize, to: usize, turned: bool) -> bool {
-        self.bims
-            .get_mut(who)
-            .is_some_and(|bim| bim.gear.rearrange(cell, to, turned))
+    /// Leave exactly `n` of a charge on a Bim.
+    pub fn set_charges(&mut self, who: usize, item: Item, n: u32) {
+        if let Some(bim) = self.bims.get_mut(who) {
+            bim.gear.set_units(item, n);
+        }
     }
 
-    /// Take an item out of a Bim's pack, for the hold or a shelf: the
-    /// other half of a stow. A **broken** piece is refused and left where
-    /// it is — the hold counts pieces as resources and a broken one is
-    /// worth nothing there; it can only be [`Game::discard`]ed.
-    pub fn take(&mut self, who: usize, cell: usize) -> Option<Item> {
-        let gear = &mut self.bims.get_mut(who)?.gear;
-        // A thing is taken by any of its cells.
-        let cell = gear.head_of(cell);
-        if let Some(Item::Armour(piece)) = gear.pack.get(cell)?
-            && piece.broken()
-        {
-            return None;
-        }
-        gear.take_out(cell)
-    }
-
-    /// Throw an item away for good. What the pop-up offers for a broken
-    /// piece. `false` when the cell was empty.
-    pub fn discard(&mut self, who: usize, cell: usize) -> bool {
-        let Some(gear) = self.bims.get_mut(who).map(|b| &mut b.gear) else {
-            return false;
-        };
-        gear.take_out(cell).is_some()
-    }
-
-    /// Put on what is in a pack cell: a piece goes on the part it is cut
-    /// for and whatever was worn there comes back into the pack — into
-    /// the cells the piece left if it fits there, else the first place it
-    /// does; a weapon swaps with the weapon slot the same way. Refused
-    /// for a stack, an empty cell, a Bim that is dead, or a pack with no
-    /// room for what would come off, in which case nothing moves.
-    /// Returns what came off, if anything, for the caller's information
-    /// — nothing both for a refusal and for an empty slot.
-    pub fn equip(&mut self, who: usize, cell: usize) -> Option<Item> {
-        if !self.bims.get(who).is_some_and(|b| b.is_alive()) {
-            return None;
-        }
-        let gear = &mut self.bims[who].gear;
-        let cell = gear.head_of(cell);
-        let item = (*gear.pack.get(cell)?)?;
-        let worn = match item {
-            Item::Armour(piece) => gear.worn(piece.kind.slot()).map(Item::Armour),
-            Item::Weapon(_) => gear.weapon.map(Item::Weapon),
-            Item::Stack(_) | Item::Key(_) => return None,
-        };
-        // The item out first, so what comes off can take its cells.
-        gear.take_out(cell);
-        if let Some(off) = worn
-            && !gear.put(cell, off)
-            && !gear.free_cell_for(off).is_some_and(|c| gear.put(c, off))
-        {
-            gear.put(cell, item);
-            return None;
-        }
-        match item {
-            Item::Armour(piece) => *gear.worn_mut(piece.kind.slot()) = Some(piece),
-            Item::Weapon(weapon) => gear.weapon = Some(weapon),
-            Item::Stack(_) | Item::Key(_) => {}
-        }
-        self.refresh_worn(who);
-        worn
-    }
-
-    /// Take off what is worn on a part, into the first place in the pack
-    /// it fits. `false` with nothing there, no room for it, or a Bim that
-    /// is dead.
-    pub fn unequip(&mut self, who: usize, part: Part) -> bool {
-        if !self.bims.get(who).is_some_and(|b| b.is_alive()) {
-            return false;
-        }
-        let gear = &mut self.bims[who].gear;
-        let Some(piece) = gear.worn(part) else {
-            return false;
-        };
-        let Some(cell) = gear.free_cell_for(Item::Armour(piece)) else {
-            return false;
-        };
-        if !gear.put(cell, Item::Armour(piece)) {
-            return false;
-        }
-        *gear.worn_mut(part) = None;
-        self.refresh_worn(who);
-        true
-    }
-
-    // --- looting a body -------------------------------------------------------
-
-    /// Down: dead, or out cold. What a body has to be to be looted, and
-    /// what the world hands the other room as `set_visitors_down`.
+    /// Down: dead, or out cold. What the world hands the other room as
+    /// `set_visitors_down`, and what a carry and a rescue ask.
     pub fn is_down(&self, who: usize) -> bool {
         if let Some(i) = self.droid_at(who) {
-            // A wreck is down for everything that asks — and, unlike a
-            // body, there is nothing on it to take.
+            // A wreck is down for everything that asks.
             return self.droids[i].destroyed;
         }
         self.bims
             .get(who)
             .is_some_and(|b| !b.is_alive() || b.character.is_unconscious())
-    }
-
-    /// What a body shows when it is looted, cell by cell in [`LootCell`]
-    /// order: the pack's nine, then the head, the body, the legs and the
-    /// weapon in hand — a worn piece with its health, a weapon as the item
-    /// a pack would hold it as. Down or not: the window asks, and whether
-    /// anything may be taken is [`Game::take_from_body`]'s to say.
-    pub fn loot_cells(&self, who: usize) -> [Option<Item>; LOOT_CELLS] {
-        let mut cells = [None; LOOT_CELLS];
-        // A machine carries nothing: no pack, no armour, and an arm that
-        // is part of it (feature 83). Every cell empty, and
-        // `take_from_body` refuses it besides, so the Loot window never
-        // opens on a wreck.
-        if self.droid_at(who).is_some() {
-            return cells;
-        }
-        let Some(bim) = self.bims.get(who) else {
-            return cells;
-        };
-        let gear = &bim.gear;
-        cells[..PACK_CELLS].copy_from_slice(&gear.pack);
-        cells[LootCell::Head.code() as usize] = gear.head.map(Item::Armour);
-        cells[LootCell::Body.code() as usize] = gear.body.map(Item::Armour);
-        cells[LootCell::Legs.code() as usize] = gear.legs.map(Item::Armour);
-        cells[LootCell::Weapon.code() as usize] = gear.weapon.map(Item::Weapon);
-        cells
-    }
-
-    /// Take one thing off a body: a pack cell emptied, a worn piece
-    /// stripped — its damage with it, broken or not: the looter's pack can
-    /// hold what the hold will not — or the weapon out of its hand. The
-    /// room's half of a loot; the world puts what comes back into the
-    /// looter's pack (`give`), and reach is its check. Refused, `None`,
-    /// for a Bim that is alive and awake — a crewmate that came round is
-    /// no longer a body — and for an empty cell. The picture follows.
-    /// How many are in one of a body's loot cells (feature 87): the
-    /// stack in a pack cell, one for a worn piece or the weapon, nought
-    /// for an empty cell or a body nothing comes off. Asked **before**
-    /// [`Game::take_from_body`], which takes the whole stack.
-    pub fn body_units(&self, who: usize, cell: LootCell) -> u32 {
-        if self.droid_at(who).is_some() || !self.is_down(who) {
-            return 0;
-        }
-        let gear = &self.bims[who].gear;
-        match cell {
-            LootCell::Pack(cell) => gear.units(cell as usize),
-            LootCell::Head => u32::from(gear.head.is_some()),
-            LootCell::Body => u32::from(gear.body.is_some()),
-            LootCell::Legs => u32::from(gear.legs.is_some()),
-            LootCell::Weapon => u32::from(gear.weapon.is_some()),
-        }
-    }
-
-    /// How many are in each of a body's loot cells, for the window's
-    /// numbers — [`Game::loot_cells`]'s counts, index for index.
-    pub fn loot_counts(&self, who: usize) -> [u32; LOOT_CELLS] {
-        let mut counts = [0; LOOT_CELLS];
-        for (i, count) in counts.iter_mut().enumerate() {
-            if let Some(cell) = LootCell::from_code(i as u32) {
-                *count = self.body_units(who, cell);
-            }
-        }
-        counts
-    }
-
-    pub fn take_from_body(&mut self, who: usize, cell: LootCell) -> Option<Item> {
-        // Nothing comes off a machine, wreck or not (feature 83).
-        if self.droid_at(who).is_some() {
-            return None;
-        }
-        if !self.is_down(who) {
-            return None;
-        }
-        let gear = &mut self.bims[who].gear;
-        let taken = match cell {
-            LootCell::Pack(cell) => gear.take_out(cell as usize),
-            LootCell::Head => gear.head.take().map(Item::Armour),
-            LootCell::Body => gear.body.take().map(Item::Armour),
-            LootCell::Legs => gear.legs.take().map(Item::Armour),
-            LootCell::Weapon => gear.weapon.take().map(Item::Weapon),
-        }?;
-        // A body that is down draws no weapon — `tick_combat` holsters it
-        // — but the hand is emptied now, not next step.
-        self.bims[who].character.set_armed(None);
-        self.refresh_worn(who);
-        Some(taken)
     }
 
     /// The picture of what a Bim wears, put right after its gear changed:
@@ -9626,21 +8870,7 @@ impl Game {
             }
         }
 
-        // What lies on the deck under the bodies: the guns dropped by
-        // whoever went out cold, where they fell — the one under the
-        // pointer ringed in the highlight's cyan, so it reads as something
-        // a right-click picks up.
         self.bodies_from = self.list.len();
-        for d in &self.room.weapons_down {
-            if self.hover_dropped == Some(d.id) {
-                let size = vec2(PICK_RADIUS, PICK_RADIUS) * 2.0;
-                self.list
-                    .rect(d.at, size, 0.0, PICK_RADIUS, GLOW.alpha(0.16));
-                self.list
-                    .stroke_rect(d.at, size, 0.0, PICK_RADIUS, 2.0, GLOW.alpha(0.95));
-            }
-            crate::character::draw_dropped(&mut self.list, d.at, d.weapon.kind);
-        }
 
         // Bodies in crew order, so who is drawn on top of whom does not
         // change as they walk past each other — and only the ones in view:
@@ -9813,7 +9043,7 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::{PACK_COLS, Tier, WeaponKind};
+    use crate::combat::{Tier, WeaponKind};
     use crate::health::MAX_BLOOD;
     use crate::room::{ROOM_H, ROOM_W};
 
@@ -10023,16 +9253,12 @@ mod tests {
         game.recruit_for_probe(1, true);
         let who = 0;
         game.put_for_probe(who, vec2(ROOM_W * 0.15, ROOM_H * 0.5));
-        // A gun on the deck across the room, and James sent for it.
-        game.room.weapons_down.push(Dropped {
-            id: 7,
-            at: vec2(ROOM_W * 0.85, ROOM_H * 0.5),
-            weapon: WeaponKind::LaserPistol.basic(),
-            owner: who,
-        });
-        assert!(game.fetch(who, 7));
+        // A kit to lay across the room, and James sent to lay it, with
+        // steady hands so a wound puts it down rather than dropping it.
+        game.set_steady_hands(vec![true, false]);
+        assert!(game.deploy(who, vec2(ROOM_W * 0.85, ROOM_H * 0.5), false, 600.0));
         game.simulate(DT);
-        assert_eq!(game.activity(who), JOB_FETCH);
+        assert_eq!(game.activity(who), JOB_DEPLOY);
         let had = game.bandages_of(who);
         assert!(had > 0);
 
@@ -10047,7 +9273,7 @@ mod tests {
         game.set_work_priority(Job::Medical.code(), work::DEFAULT);
         assert!(!game.wound(who, Part::Legs, 3.0).leg_lost);
         game.simulate(DT);
-        assert_eq!(game.activity(who), JOB_FETCH, "a wound at 3 waits");
+        assert_eq!(game.activity(who), JOB_DEPLOY, "a wound at 3 waits");
         assert!(
             game.work_on_offer_for_probe(who)
                 .contains(&Job::Medical.code()),
@@ -10060,7 +9286,7 @@ mod tests {
         game.simulate(DT);
         assert_eq!(game.activity(who), JOB_BANDAGE);
         assert_eq!(game.agenda_len(who), 2);
-        assert_eq!(game.agenda_job(who, 1), JOB_FETCH, "the errand waits");
+        assert_eq!(game.agenda_job(who, 1), JOB_DEPLOY, "the errand waits");
         let mut steps = 0;
         while game.bleeding(who) > 0 && steps < 60 * 60 {
             game.simulate(DT);
@@ -10077,11 +9303,11 @@ mod tests {
         );
         for _ in 0..600 {
             game.simulate(DT);
-            if game.activity(who) == JOB_FETCH {
+            if game.activity(who) == JOB_DEPLOY {
                 break;
             }
         }
-        assert_eq!(game.activity(who), JOB_FETCH, "back to the errand");
+        assert_eq!(game.activity(who), JOB_DEPLOY, "back to the errand");
 
         // Never is never: a fresh wound with the row switched off is left
         // open, urgent or not, and the player's own order still works.
@@ -11093,8 +10319,11 @@ mod tests {
         assert_eq!(glow_at(&game, far), 0);
     }
 
+    /// A body out cold keeps its gun (task 113: a loadout is never
+    /// dropped), holstered, is nobody's target — a bolt flies over it —
+    /// and comes round with the gun still in its hand.
     #[test]
-    fn a_bim_knocked_out_drops_its_gun_and_a_bot_comes_back_for_it() {
+    fn a_bim_knocked_out_keeps_its_gun_and_is_no_target() {
         let mut game = room_with_bare_packs();
         game.set_autonomous(false);
         game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
@@ -11109,19 +10338,15 @@ mod tests {
             minutes += MINUTES_PER_SECOND;
         }
         assert!(game.is_unconscious(1));
-        // The gun on the deck under her, her hand empty.
-        assert_eq!(game.weapon(1), None);
-        assert_eq!(game.weapons_down().len(), 1);
-        let d = game.weapons_down()[0];
-        assert_eq!(d.weapon, WeaponKind::LaserPistol.basic());
-        assert_eq!(d.owner, 1);
-        assert!((d.at - game.bim_pos(1)).len() < TILE, "flung beside her");
+        assert_eq!(
+            game.weapon(1),
+            Some(WeaponKind::LaserPistol.basic()),
+            "the gun stays with her"
+        );
         let at = game.bim_pos(1);
-        assert_eq!(game.hit_at(at.x + 2.0, at.y), HIT_BIM, "the body first");
-        assert_eq!(game.hit_at(d.at.x, d.at.y), HIT_DROPPED);
+        assert_eq!(game.hit_at(at.x + 2.0, at.y), HIT_BIM, "the body");
         // Out cold, nothing is aimed at her, and a bolt flies over her.
         let wounds = game.bleeding(1);
-        let at = game.bim_pos(1);
         game.enemy_fire(
             at + vec2(-3.0 * TILE, 0.0),
             at,
@@ -11133,88 +10358,14 @@ mod tests {
         }
         assert_eq!(game.bleeding(1), wounds, "a body out cold is not shot");
         game.take_wounds_taken();
-        // Dressed, she comes round — and, a bot, goes for it: the chain,
-        // and the gun back in her hand.
+        // Dressed, she comes round with it in her hand.
         assert!(game.bims[1].health.bandage(Part::Body));
         while game.is_unconscious(1) && minutes < 24.0 * 60.0 {
             game.simulate(1.0);
             minutes += MINUTES_PER_SECOND;
         }
         assert!(!game.is_unconscious(1));
-        let mut steps = 0;
-        while game.weapon(1).is_none() && steps < 60 * 30 {
-            game.simulate(DT);
-            steps += 1;
-        }
-        assert_eq!(
-            game.weapon(1),
-            Some(WeaponKind::LaserPistol.basic()),
-            "picked up"
-        );
-        assert!(game.weapons_down().is_empty());
-        // The player's own is not a bot: its gun lies where it fell until
-        // the player sends it, and the click on it says what it is.
-        for _ in 0..10 {
-            game.wound(0, Part::Body, 1.0);
-        }
-        minutes = 0.0;
-        while !game.is_unconscious(0) && minutes < 60.0 {
-            game.simulate(1.0);
-            minutes += MINUTES_PER_SECOND;
-        }
-        assert!(game.bims[0].health.bandage(Part::Body));
-        while game.is_unconscious(0) && minutes < 24.0 * 60.0 {
-            game.simulate(1.0);
-            minutes += MINUTES_PER_SECOND;
-        }
-        assert!(!game.is_unconscious(0));
-        for _ in 0..(60 * 5) {
-            game.simulate(DT);
-        }
-        assert_eq!(game.weapon(0), None, "the player's waits to be told");
-        assert_eq!(game.weapons_down().len(), 1);
-        let d = game.weapons_down()[0];
-        // Somewhere off the body's own tile, with a way back to it: the
-        // walk has to move. Which way is free depends on where the gun
-        // fell — a flung thing is a roll, and a roll moves whenever
-        // anything else in the room does — so take the first side that
-        // works rather than assuming east.
-        let mut stand = None;
-        for off in [
-            vec2(4.0 * TILE, 0.0),
-            vec2(-4.0 * TILE, 0.0),
-            vec2(0.0, 4.0 * TILE),
-            vec2(0.0, -4.0 * TILE),
-        ] {
-            let p = game.put_for_probe(0, d.at + off);
-            if (p - d.at).len() > TILE && game.can_reach_for_probe(0, d.at) {
-                stand = Some(p);
-                break;
-            }
-        }
-        let stand = stand.expect("somewhere to stand a walk away from the gun");
-        assert!((stand - d.at).len() > TILE);
-        assert_eq!(game.hit_at(d.at.x + 3.0, d.at.y - 2.0), HIT_DROPPED);
-        assert_eq!(game.hit_dropped(), d.id);
-        // The hover asks the same reach and notes nothing.
-        assert_eq!(game.dropped_at(d.at.x + 3.0, d.at.y - 2.0), Some(d.id));
-        assert_eq!(game.dropped_at(d.at.x + 3.0 * TILE, d.at.y), None);
-        assert!(game.fetch(0, d.id));
-        assert_eq!(game.activity(0), JOB_FETCH);
-        let mut steps = 0;
-        while game.weapons_down().len() == 1 && steps < 60 * 30 {
-            game.simulate(DT);
-            steps += 1;
-        }
-        // The player's own puts it in the pack — the right-click is "into
-        // the inventory" — and the hand stays as the player left it.
-        assert!(game.weapons_down().is_empty());
-        assert_eq!(game.weapon(0), None, "not in the hand");
-        assert_eq!(
-            game.pack(0)[0],
-            Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
-        );
-        assert!(!game.fetch(0, d.id), "nothing there any more");
+        assert_eq!(game.weapon(1), Some(WeaponKind::LaserPistol.basic()));
     }
 
     #[test]
@@ -11647,11 +10798,9 @@ mod tests {
             assert_eq!(game.bandages_of(0), 0, "nothing to bind with");
             assert!(!game.wound(0, Part::Body, 4.0).leg_lost);
             assert!(!game.bandage(0, 0, Part::Body), "and so nothing is bound");
-            // Seven of them: a full box and a part one, two cells.
+            // Seven of them, as a count on the body (task 113).
             assert_eq!(game.give_stack(0, BANDAGE, 7), 7);
             assert_eq!(game.bandages_of(0), 7);
-            let boxes = game.pack(0).iter().filter(|c| **c == Some(BANDAGE)).count();
-            assert_eq!(boxes, 2, "five to a box");
             assert!(game.bandage(0, 0, Part::Body));
             let mut steps = 0;
             while game.bleeding(0) > 0 && steps < 60 * 30 {
@@ -11659,12 +10808,7 @@ mod tests {
                 steps += 1;
             }
             assert_eq!(game.bleeding(0), 0, "bound");
-            assert_eq!(game.bandages_of(0), 6, "one dressing out of the pack");
-            // The emptiest box first, so the pack tidies itself.
-            assert_eq!(
-                game.pack(0).iter().filter(|c| **c == Some(BANDAGE)).count(),
-                2
-            );
+            assert_eq!(game.bandages_of(0), 6, "one dressing spent");
         }
 
         // --- bandage all wounds: the worst now, the rest queued ---
@@ -12250,76 +11394,11 @@ mod tests {
         assert!(gap < CREW_CLEARANCE, "not pushed: {gap}");
     }
 
+    /// A blade bot is issued the basic armour (task 113 took the pack it
+    /// once put on at the alarm): a resident rolled the schword wears the
+    /// basic set, a mercenary with one too.
     #[test]
-    fn a_crewmate_with_a_blade_puts_the_armour_in_its_pack_on_at_the_alarm() {
-        let mut game = room();
-        game.set_autonomous(false);
-        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
-        game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
-        // The schword and a helm and leg guards in the pack, a broken vest
-        // on the body: the alarm draws the blade and puts on what is whole,
-        // and leaves the broken vest, since there is nothing to replace it.
-        let mut gear = Gear::default();
-        gear.pack[0] = Some(Item::Weapon(WeaponKind::Schword.basic()));
-        gear.pack[1] = Some(Item::Armour(Piece::new(
-            1,
-            ArmourKind::BasicHelm,
-            Tier::One,
-        )));
-        let mut cracked = Piece::new(2, ArmourKind::BasicKevlar, Tier::One);
-        cracked.health = 0.0;
-        gear.body = Some(cracked);
-        gear.pack[4] = Some(Item::Armour(Piece::new(
-            3,
-            ArmourKind::BasicLegs,
-            Tier::One,
-        )));
-        game.issue(1, gear);
-        assert_eq!(game.armour_health(1), 0.0);
-        game.set_hostiles(vec![Some((
-            kate + vec2(6.0 * TILE, 0.0),
-            WeaponKind::LaserPistol.basic(),
-        ))]);
-        for _ in 0..10 {
-            game.simulate(DT);
-        }
-        assert!(game.is_alarmed());
-        assert_eq!(game.weapon(1), Some(WeaponKind::Schword.basic()));
-        let worn = game.gear(1);
-        assert!(worn.head.is_some_and(|p| p.id == 1), "the helm on");
-        assert!(worn.legs.is_some_and(|p| p.id == 3), "the guards on");
-        assert!(
-            worn.body.is_some_and(|p| p.id == 2 && p.broken()),
-            "the cracked vest as it was"
-        );
-        assert_eq!(game.armour_health(1), 25.0);
-
-        // A gunner leaves its armour in the pack: the alarm is not a
-        // dressing-up for a body that keeps its distance.
-        let mut game = room();
-        game.set_autonomous(false);
-        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
-        game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
-        let mut gear = Gear::default();
-        gear.pack[0] = Some(Item::Weapon(WeaponKind::LaserPistol.basic()));
-        gear.pack[1] = Some(Item::Armour(Piece::new(
-            1,
-            ArmourKind::BasicHelm,
-            Tier::One,
-        )));
-        game.issue(1, gear);
-        game.set_hostiles(vec![Some((
-            kate + vec2(6.0 * TILE, 0.0),
-            WeaponKind::LaserPistol.basic(),
-        ))]);
-        for _ in 0..10 {
-            game.simulate(DT);
-        }
-        assert_eq!(game.weapon(1), Some(WeaponKind::LaserPistol.basic()));
-        assert!(game.gear(1).head.is_none());
-
-        // And what the world issues: a resident rolled the schword wears
-        // the basic set, a mercenary with one too.
+    fn a_blade_bot_is_issued_the_basic_armour() {
         let blades = (0..400u64)
             .filter(|&seed| Gear::issued_for(seed).weapon == Some(WeaponKind::Schword.basic()));
         let mut seen = 0;
@@ -12352,11 +11431,7 @@ mod tests {
         game.set_autonomous(false);
         let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
         game.put_for_probe(0, vec2(ROOM_W * 0.7, ROOM_H * 0.85));
-        // Her pistol in the pack, not in the hand: the alarm equips it.
-        let mut gear = Gear::default();
-        gear.pack[2] = Some(Item::Weapon(WeaponKind::LaserPistol.basic()));
-        game.issue(1, gear);
-        assert!(game.weapon(1).is_none());
+        assert_eq!(game.weapon(1), Some(WeaponKind::LaserPistol.basic()));
         // A target far off: nothing.
         // Far from everybody: James stands nearer it than she does.
         let far = kate + vec2((ALARM_RANGE + 20.0) * TILE, 0.0);
@@ -12661,13 +11736,13 @@ mod tests {
         game.set_autonomous(false);
         game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
         let vest = Piece::new(7, ArmourKind::BasicKevlar, Tier::One);
-        assert!(game.give(0, None, Item::Armour(vest)));
-        assert!(game.equip(0, 0).is_none(), "nothing was worn before");
+        let mut gear = game.gear(0);
+        gear.body = Some(vest);
+        game.issue(0, gear);
         assert_eq!(game.worn(0, Part::Body), Some(vest));
         assert_eq!(game.armour_health(0), 20.0);
         assert_eq!(game.part_bonus(0, Part::Body), 20.0);
         assert_eq!(game.part_bonus(0, Part::Head), 0.0);
-        assert!(game.pack(0).iter().all(|c| c.is_none()));
 
         // Two points of protection off, then the vest takes the rest:
         // fifteen leaves the Bim untouched and the vest at seven.
@@ -12722,93 +11797,6 @@ mod tests {
         let out = game.wound(0, Part::Legs, 12.0);
         assert_eq!(out.through, 12.0);
         assert_eq!(game.part_health(0, Part::Legs), Part::Legs.max() - 12.0);
-    }
-
-    #[test]
-    fn equipping_swaps_with_what_is_worn_and_give_and_take_round_trip() {
-        // --- equipping_swaps_with_what_is_worn_and_a_weapon_with_the_weapon ---
-        {
-            let mut game = room_with_bare_packs();
-            let helm = Piece::new(1, ArmourKind::BasicHelm, Tier::One);
-            let other = Piece {
-                health: 4.0,
-                ..Piece::new(2, ArmourKind::BasicHelm, Tier::One)
-            };
-            // A helm lies two by four: the first three cells in along the
-            // top rows, and the other, with no room beside it, on the third.
-            assert!(game.give(0, Some(3), Item::Armour(helm)));
-            assert!(game.give(0, None, Item::Armour(other)));
-            assert_eq!(
-                game.pack(0)[2 * PACK_COLS],
-                Some(Item::Armour(other)),
-                "first place it fits"
-            );
-            assert_eq!(game.equip(0, 4), None, "by any of its cells");
-            assert_eq!(game.worn(0, Part::Head), Some(helm));
-            assert_eq!(game.pack(0)[4], None);
-            // The other goes on and the first comes back into its cells, its
-            // damage with it — by any of its cells.
-            assert_eq!(game.equip(0, 2 * PACK_COLS + 1), Some(Item::Armour(helm)));
-            assert_eq!(game.worn(0, Part::Head), Some(other));
-            assert_eq!(game.pack(0)[2 * PACK_COLS], Some(Item::Armour(helm)));
-            assert_eq!(game.armour_health(0), 4.0);
-            // Off again, into the first place it fits: the top rows, empty
-            // since the first helm went on.
-            assert!(game.unequip(0, Part::Head));
-            assert_eq!(game.worn(0, Part::Head), None);
-            assert_eq!(game.pack(0)[0], Some(Item::Armour(other)));
-            assert!(!game.unequip(0, Part::Head), "nothing there now");
-
-            // A weapon swaps with the hand; a stack is refused and stays put.
-            let low = 4 * PACK_COLS;
-            assert!(game.give(0, Some(low), Item::Weapon(WeaponKind::LaserPistol.basic())));
-            assert_eq!(
-                game.equip(0, low),
-                Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
-            );
-            assert_eq!(game.gear(0).weapon, Some(WeaponKind::LaserPistol.basic()));
-            assert!(game.give(0, Some(5), Item::Stack(5)));
-            assert_eq!(game.equip(0, 5), None);
-            assert_eq!(game.pack(0)[5], Some(Item::Stack(5)));
-            assert_eq!(game.equip(0, 6), None, "an empty cell");
-            assert_eq!(game.equip(0, 99), None, "no such cell");
-        }
-
-        // --- give_and_take_round_trip_and_a_broken_piece_is_only_ever_discarded ---
-        {
-            let mut game = room_with_bare_packs();
-            let legs = Piece {
-                health: 3.5,
-                ..Piece::new(9, ArmourKind::BasicLegs, Tier::One)
-            };
-            assert!(game.give(0, Some(2), Item::Armour(legs)));
-            assert!(!game.give(0, Some(2), Item::Stack(17)), "the cell is full");
-            assert!(
-                !game.give(0, Some(2 + PACK_COLS), Item::Stack(17)),
-                "and so is the cell the guards reach over"
-            );
-            assert_eq!(game.take(0, 2), Some(Item::Armour(legs)), "damage kept");
-            assert_eq!(game.take(0, 2), None, "gone");
-            // Fifty one-cell things in, the fifty-first has nowhere to go.
-            for _ in 0..PACK_CELLS {
-                assert!(game.give(0, None, Item::Stack(17)));
-            }
-            assert!(!game.give(0, None, Item::Stack(17)), "full");
-            for i in 0..PACK_CELLS {
-                assert_eq!(game.take(0, i), Some(Item::Stack(17)));
-            }
-
-            let broken = Piece {
-                health: 0.0,
-                ..Piece::new(10, ArmourKind::BasicHelm, Tier::One)
-            };
-            assert!(game.give(0, Some(0), Item::Armour(broken)));
-            assert_eq!(game.take(0, 0), None, "a broken piece is not stowed");
-            assert_eq!(game.pack(0)[0], Some(Item::Armour(broken)), "and stays");
-            assert!(game.discard(0, 0));
-            assert_eq!(game.pack(0)[0], None);
-            assert!(!game.discard(0, 0), "nothing to throw away");
-        }
     }
 
     #[test]
@@ -12891,73 +11879,6 @@ mod tests {
             minutes += MINUTES_PER_SECOND;
         }
         assert!(game.is_unconscious(who), "out cold");
-    }
-
-    #[test]
-    fn looting_strips_a_worn_helm_with_its_damage_and_an_awake_bim_is_refused() {
-        let mut game = room_with_bare_packs();
-        game.set_autonomous(false);
-        game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
-        let helm = Piece {
-            health: 6.0,
-            ..Piece::new(7, ArmourKind::BasicHelm, Tier::One)
-        };
-        assert!(game.give(0, Some(0), Item::Armour(helm)));
-        assert_eq!(game.equip(0, 0), None);
-        assert!(game.give(0, Some(4), Item::Stack(5)));
-        assert_eq!(game.gear(0).weapon, Some(WeaponKind::LaserPistol.basic()));
-        // The window shows the pack, the worn pieces and the hand.
-        let cells = game.loot_cells(0);
-        assert_eq!(cells[4], Some(Item::Stack(5)));
-        assert_eq!(
-            cells[LootCell::Head.code() as usize],
-            Some(Item::Armour(helm))
-        );
-        assert_eq!(cells[LootCell::Body.code() as usize], None);
-        assert_eq!(
-            cells[LootCell::Weapon.code() as usize],
-            Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
-        );
-        // Alive and awake, nothing comes off it.
-        assert!(!game.is_down(0));
-        assert_eq!(game.take_from_body(0, LootCell::Head), None);
-        assert_eq!(game.take_from_body(0, LootCell::Pack(4)), None);
-        assert_eq!(game.worn(0, Part::Head), Some(helm), "still worn");
-        // Dead, everything does: the helm with its damage, the hand, the
-        // pack cell, and each only once.
-        game.kill_for_probe(0);
-        game.simulate(DT);
-        assert!(game.is_down(0));
-        assert_eq!(
-            game.take_from_body(0, LootCell::Head),
-            Some(Item::Armour(helm))
-        );
-        assert_eq!(game.worn(0, Part::Head), None, "stripped");
-        assert_eq!(game.take_from_body(0, LootCell::Head), None, "bare now");
-        assert_eq!(
-            game.take_from_body(0, LootCell::Weapon),
-            Some(Item::Weapon(WeaponKind::LaserPistol.basic()))
-        );
-        assert_eq!(game.weapon(0), None);
-        assert_eq!(
-            game.take_from_body(0, LootCell::Pack(4)),
-            Some(Item::Stack(5))
-        );
-        assert_eq!(game.pack(0)[4], None);
-        assert_eq!(game.take_from_body(0, LootCell::Pack(4)), None);
-        assert_eq!(
-            game.take_from_body(0, LootCell::Pack(99)),
-            None,
-            "no such cell"
-        );
-        assert!(game.loot_cells(0).iter().all(|c| c.is_none()), "bare");
-        // The codes round-trip, and the window's thirteen are all of them.
-        for code in 0..LOOT_CELLS as u32 {
-            assert_eq!(LootCell::from_code(code).map(|c| c.code()), Some(code));
-        }
-        assert_eq!(LootCell::from_code(LOOT_CELLS as u32), None);
-        assert_eq!(LootCell::Pack(8).code(), 8);
-        assert_eq!(LootCell::Weapon.code() as usize, PACK_CELLS + 3);
     }
 
     /// The host lays its smooth fog between the room's picture and what

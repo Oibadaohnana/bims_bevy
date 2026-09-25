@@ -71,7 +71,6 @@
 //! for the next site on the way to it. On a station's deck it is lost
 //! when the rooms unjoin.
 
-use economy::Money;
 use physics::ResourceId;
 
 /// A kit in a pack: which of the two.
@@ -196,18 +195,6 @@ pub const SENTRY_CHARGES: u32 = 1;
 pub const SANDBAG_COOLDOWN: f64 = 45.0;
 /// Seconds of the clock a spent sentry charge takes to come back.
 pub const SENTRY_COOLDOWN: f64 = 60.0;
-/// What a repair at the workbench costs, in euros out of the crew's one
-/// pool. It was one bar of metal until the money rework (feature 95) took
-/// the materials away; a part is bought now and so is a patch for one.
-/// Payable **anywhere**, like a construction site, since a bench is not a
-/// shop.
-pub const ARMOUR_REPAIR_COST: Money = 100;
-
-/// The room's `Order.recipe` for one session of an armour repair at the
-/// workbench — the engineer's *armourer* talent — the way
-/// `crate::UPGRADE_ORDER` is one of an upgrade: past every recipe, so
-/// `finish_craft` knows it for what it is.
-pub const REPAIR_ORDER: u32 = 1_001;
 
 #[cfg(test)]
 mod tests {

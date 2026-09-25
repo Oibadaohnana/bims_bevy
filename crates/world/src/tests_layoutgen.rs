@@ -529,9 +529,14 @@ fn print_town() {
     );
 }
 
-/// What `REFERENCE_CHECKSUM` and `SURVIVORS` were before feature 112.
-const REFERENCE_BEFORE_112: u64 = 0x_d534_2dda_6563_babe;
-const SURVIVORS_BEFORE_112: u64 = 0x_024e_0982_c931_c4bb;
+/// What `REFERENCE_CHECKSUM` and `SURVIVORS` come to under the layouts
+/// before feature 112. They were `0x_d534_2dda_6563_babe` and
+/// `0x_024e_0982_c931_c4bb` — the numbers before feature 112 itself — and
+/// were taken again under task 113, which moved both on every layout
+/// (the constants' own notes say why); the check still says the layouts
+/// are all feature 112 moved.
+const REFERENCE_BEFORE_112: u64 = 0x_c7b1_8af4_f64f_0fa1;
+const SURVIVORS_BEFORE_112: u64 = 0x_a881_25c7_68e4_5807;
 
 /// Not a test of its own, and **run alone** (`--exact`): the process-wide
 /// switch to the old layouts is flipped here, and a test running beside

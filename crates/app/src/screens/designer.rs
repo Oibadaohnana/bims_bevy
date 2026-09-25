@@ -100,10 +100,6 @@ pub enum Order {
         /// that comes at no tier.
         tier: u32,
     },
-    Keep {
-        resource: ResourceId,
-        units: u32,
-    },
     /// Lay out a part to be built, at a design tile, turned so.
     Build {
         kind: PartKind,
@@ -115,16 +111,11 @@ pub enum Order {
     Cancel {
         site: u32,
     },
-    /// Somebody's gear moved: into or out of the hold, on or off. The
-    /// hold is the world's, so even putting a helm on goes through the
-    /// seam — every player's ship has to agree about where each piece is.
+    /// Somebody's gear moved between missions (task 113): a thing on or
+    /// off a slot, offered or taken. The loadouts and the armory are the
+    /// world's, so even putting a helm on goes through the seam — every
+    /// player's ship has to agree about where each thing is.
     Gear(GearOrder),
-    /// The Management tab's tick box: combine matching gear at the
-    /// workbench, or stop. The hold is the world's, so it is a command.
-    AutoUpgrade(bool),
-    /// The workbench window's button: the day's work begun on the pair in
-    /// its slots — `Command::Upgrade`.
-    Upgrade,
     /// An order to the crew's room — a click on the deck, a walk, a row of
     /// a fixture's menu, a Management box — `Command::Crew`. The crew's
     /// positions are in the checksum, so nothing reaches the room but
@@ -154,8 +145,6 @@ pub enum Order {
     },
     /// A deployable packed up into the engineer's pack — `Command::PackUp`.
     PackUp(u32),
-    /// The armourer's repair begun at the workbench — `Command::Repair`.
-    Repair,
     /// The soldier braced, or stood easy — `Command::Brace`, the E key
     /// (feature 75).
     Brace(bool),
@@ -426,11 +415,6 @@ impl Net {
                                 }
                             }
                         }
-                        Order::Keep { resource, units } => Command::SetCraftTarget {
-                            slot,
-                            resource,
-                            units,
-                        },
                         Order::Build {
                             kind,
                             x,
@@ -443,53 +427,23 @@ impl Net {
                             rotation,
                         },
                         Order::Cancel { site } => Command::CancelSite { slot, site },
-                        Order::Gear(GearOrder::Stow { who, cell }) => {
-                            Command::Stow { slot, who, cell }
-                        }
-                        Order::Gear(GearOrder::Fetch { who, kind }) => {
-                            Command::Fetch { slot, who, kind }
-                        }
-                        Order::Gear(GearOrder::Equip { who, cell }) => {
-                            Command::Equip { slot, who, cell }
+                        Order::Gear(GearOrder::Equip { who, from }) => {
+                            Command::Equip { slot, who, from }
                         }
                         Order::Gear(GearOrder::Unequip { who, part }) => {
                             Command::Unequip { slot, who, part }
                         }
-                        Order::Gear(GearOrder::Discard { who, cell }) => {
-                            Command::Discard { slot, who, cell }
+                        Order::Gear(GearOrder::Offer { part, to }) => {
+                            Command::Offer { slot, part, to }
                         }
-                        Order::Gear(GearOrder::Arrange {
-                            class,
-                            id,
-                            x,
-                            y,
-                            turned,
-                        }) => Command::Arrange {
-                            slot,
-                            class: class.code(),
-                            id,
-                            x,
-                            y,
-                            turned,
-                        },
-                        Order::Gear(GearOrder::Repack {
-                            who,
-                            cell,
-                            to,
-                            turned,
-                        }) => Command::Repack {
-                            slot,
-                            who,
-                            cell,
-                            to,
-                            turned,
-                        },
-                        Order::Gear(GearOrder::Loot { who, source, cell }) => Command::Loot {
-                            slot,
-                            who,
-                            source,
-                            cell,
-                        },
+                        Order::Gear(GearOrder::AnswerOffer { from, part, yes }) => {
+                            Command::AnswerOffer {
+                                slot,
+                                from,
+                                part,
+                                yes,
+                            }
+                        }
                         Order::Gear(GearOrder::Hire { who, resident }) => Command::Hire {
                             slot,
                             who,
@@ -505,8 +459,6 @@ impl Net {
                             slot,
                             order: bims::order::CrewOrder::BandageAll { who, patient: who },
                         },
-                        Order::AutoUpgrade(on) => Command::SetAutoUpgrade { slot, on },
-                        Order::Upgrade => Command::Upgrade { slot },
                         Order::Crew(order) => Command::Crew { slot, order },
                         Order::CrewLater(order) => Command::CrewLater { slot, order },
                         Order::ToDesk => Command::ToDesk { slot },
@@ -516,7 +468,6 @@ impl Net {
                         }
                         Order::Deploy { kit, x, y } => Command::Deploy { slot, kit, x, y },
                         Order::PackUp(id) => Command::PackUp { slot, id },
-                        Order::Repair => Command::Repair { slot },
                         Order::Brace(on) => Command::Brace { slot, on },
                         Order::Throw { x, y } => Command::Throw { slot, x, y },
                         Order::Beam(patient) => Command::Beam { slot, patient },
@@ -542,9 +493,6 @@ impl Net {
                         },
                         Order::AcceptRelic(yes) => Command::AcceptRelic { slot, yes },
                         Order::PlayerGone(gone) => Command::PlayerGone { slot: gone },
-                        Order::Gear(GearOrder::StowOnBench { who, cell }) => {
-                            Command::StowOnBench { slot, who, cell }
-                        }
                     });
                 }
                 0

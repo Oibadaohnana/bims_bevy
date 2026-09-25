@@ -33,14 +33,6 @@ pub enum Step {
     GoToSwitch,
     FlipSwitch,
 
-    // Making something: over to the bench the recipe wants, and hands on it
-    // for the recipe's length. What is made, out of what, is the world's —
-    // the room only says, on the way out of `Work`, that a recipe was
-    // finished, and `Game::take_crafted` hands that on. See
-    // `shipdesign::recipes`.
-    GoToBench,
-    Work,
-
     // A walk outside: a suit out of its locker, over to the deck inside the
     // port, out through the airlock, and back in and the suit hung up
     // again after. The one errand that leaves the hull is a construction
@@ -83,14 +75,6 @@ pub enum Step {
     GoToPatient,
     Dress,
 
-    // Picking a dropped weapon up off the deck: over to where it lies
-    // (`Room::weapons_down`, by the id in `Kind::Fetch`) and a moment bending
-    // for it. `PickUp` only says, on the way out, that the hand closed on
-    // it (`Room::picked_up`); `Game` moves the weapon, since the gear is a
-    // `Bim`'s.
-    GoToDropped,
-    PickUp,
-
     // A walk to a spot on the deck and nothing more — `Kind::Walk`, a
     // move the player gave with Shift held, waiting its turn on the queue
     // behind whatever the Bim is on. It is never *run* as a chain: the
@@ -106,18 +90,6 @@ pub enum Step {
     GoToDeploySpot,
     Deploy,
 
-    // Carrying a thing between two benches — `Kind::Ferry`: over to the
-    // first, a moment reaching into it, over to the second with the thing
-    // in the arms, and a moment putting it down. The room never knows what
-    // the thing is: `TakeGear` says it was taken and `PutGear` that it
-    // arrived, on `Room::ferry_picked` and `Room::ferry_dropped`, and the
-    // world moves it — out of the hold and onto the workbench, or off the
-    // workbench and back.
-    GoToStore,
-    TakeGear,
-    CarryGear,
-    PutGear,
-
     Done,
 }
 
@@ -126,7 +98,6 @@ impl Step {
         use Step::*;
         match self {
             GoToSwitch => FlipSwitch,
-            GoToBench => Work,
             GoToSuitLocker => TakeSuit,
             TakeSuit => GoToGangway,
             GoToGangway => StepOut,
@@ -143,14 +114,9 @@ impl Step {
             GoToKit => TakeKit,
             TakeKit => GoToPatient,
             GoToPatient => Dress,
-            GoToDropped => PickUp,
             GoToSpot => Done,
             GoToDeploySpot => Deploy,
-            GoToStore => TakeGear,
-            TakeGear => CarryGear,
-            CarryGear => PutGear,
-            FlipSwitch | Work | PutSuitBack | Construct | Dress | PickUp | PutGear | Deploy
-            | Done => Done,
+            FlipSwitch | PutSuitBack | Construct | Dress | Deploy | Done => Done,
         }
     }
 
@@ -164,8 +130,7 @@ impl Step {
             FlipSwitch => 0.5,
             TakeSuit | PutSuitBack => 1.5,
             StepOut | StepIn => 1.0,
-            TakeGear | PutGear => 1.2,
-            PickUp | TakeKit => 0.8,
+            TakeKit => 0.8,
             _ => 0.0,
         }
     }
@@ -175,7 +140,6 @@ impl Step {
         matches!(
             self,
             GoToSwitch
-                | GoToBench
                 | GoToSuitLocker
                 | GoToGangway
                 | WalkToPort
@@ -183,11 +147,8 @@ impl Step {
                 | GoToSite
                 | GoToKit
                 | GoToPatient
-                | GoToDropped
                 | GoToSpot
                 | GoToDeploySpot
-                | GoToStore
-                | CarryGear
         )
     }
 }
@@ -199,13 +160,8 @@ pub enum Kind {
     /// Walking over to a door and working its panel by hand: none of them
     /// answer from across the room.
     Switch(Switch),
-    /// Making one recipe at one bench: `recipe` indexes
-    /// `shipdesign::recipes::RECIPES` and `bench` the room's `benches`. How
-    /// long it takes rides in `rest_minutes`, because the room has no recipe
-    /// table to read it off.
-    Craft { recipe: u32, bench: usize },
     /// Putting construction site `site` together, standing beside it, for
-    /// the minutes riding in `rest_minutes` the way a craft's do.
+    /// the minutes riding in `rest_minutes`.
     /// `outside` is whether the site is beyond the hull, in which case the
     /// walk goes out through the airlock in a suit and back in again
     /// after — decided when the errand is begun, off whether any tile
@@ -234,18 +190,6 @@ pub enum Kind {
         part: u32,
         bare: bool,
     },
-    /// Picking a weapon up off the deck — `Room::weapons_down`, by its id —
-    /// where a body knocked out let go of it: the walk over and a moment
-    /// bending for it, and `Room::picked_up` says the hand closed on it.
-    Fetch { item: u32 },
-    /// Carrying one thing from bench `from` to bench `to` — both indices
-    /// into `Room::benches` — the way the world asked on
-    /// `Room::ferries`: a gun or a piece of armour out of the lockers and
-    /// onto the workbench for an upgrade, or the upgraded one back. What
-    /// the thing is stays the world's: the room says it was taken and
-    /// that it arrived (`Room::ferry_picked`, `ferry_dropped`), or that
-    /// the walk was given up with it in the arms (`ferry_returned`).
-    Ferry { from: usize, to: usize },
     /// A walk to a spot on the deck, given with Shift held so it waits its
     /// turn behind what the Bim is on: the spot rides on `Saved::target`.
     /// `post` is whether the Bim stands there once it arrives — a
@@ -270,14 +214,11 @@ impl Kind {
     fn first_step(self) -> Step {
         match self {
             Kind::Switch(_) => Step::GoToSwitch,
-            Kind::Craft { .. } => Step::GoToBench,
             Kind::Build { outside: true, .. } => Step::GoToSuitLocker,
             Kind::Build { outside: false, .. } => Step::GoToSite,
             Kind::Bandage { .. } => Step::GoToPatient,
             Kind::Treat { bare: false, .. } => Step::GoToKit,
             Kind::Treat { bare: true, .. } => Step::GoToPatient,
-            Kind::Fetch { .. } => Step::GoToDropped,
-            Kind::Ferry { .. } => Step::GoToStore,
             Kind::Walk { .. } => Step::GoToSpot,
             Kind::Deploy { .. } => Step::GoToDeploySpot,
         }
@@ -463,10 +404,6 @@ fn destination(
             Kind::Switch(which) => Some(room.switch_station(which, from)),
             _ => None,
         },
-        GoToBench => match kind {
-            Kind::Craft { bench, .. } => room.benches.get(bench).map(|b| b.at),
-            _ => None,
-        },
         // A room without a suit locker or a port has nowhere to send the
         // Bim, and the errand is not begun — `Game::can_go_outside` asks.
         GoToSuitLocker | BackToSuitLocker => room.suit_locker_station(),
@@ -482,17 +419,7 @@ fn destination(
         GoToKit | GoToPatient => target,
         // And beside the weapon on the deck, likewise; and the spot a
         // queued walk was given for.
-        GoToDropped | GoToSpot | GoToDeploySpot => target,
-        // The two benches a carry runs between: the first from anywhere, the
-        // second with the thing in the arms.
-        GoToStore => match kind {
-            Kind::Ferry { from, .. } => room.benches.get(from).map(|b| b.at),
-            _ => None,
-        },
-        CarryGear => match kind {
-            Kind::Ferry { to, .. } => room.benches.get(to).map(|b| b.at),
-            _ => None,
-        },
+        GoToSpot | GoToDeploySpot => target,
         _ => None,
     }
 }
@@ -655,16 +582,6 @@ pub fn kit_stand(room: &Room, maps: &Maps, from: Vec2) -> Option<Vec2> {
         .find(|&at| nav.can_reach(from, at))
 }
 
-/// Where to stand for the dropped weapon `item`: the nearest free cell to
-/// where it lies, if it still lies there and there is a way to it from
-/// `from`.
-pub fn dropped_stand(room: &Room, maps: &Maps, item: u32, from: Vec2) -> Option<Vec2> {
-    let at = room.weapons_down.iter().find(|d| d.id == item)?.at;
-    let nav = maps.deck();
-    let stand = nav.nearest_free(at);
-    nav.can_reach(from, stand).then_some(stand)
-}
-
 /// The step to start at when picking `target` up again.
 ///
 /// Standing steps assume the Bim is already in the right place, so resuming
@@ -698,10 +615,7 @@ const NOMINAL_WALK: f32 = 3.0;
 fn weight(step: Step, rest_minutes: f32) -> f32 {
     if step.is_walk() {
         NOMINAL_WALK
-    } else if matches!(
-        step,
-        Step::Work | Step::Construct | Step::Dress | Step::Deploy
-    ) {
+    } else if matches!(step, Step::Construct | Step::Dress | Step::Deploy) {
         clock::seconds(rest_minutes)
     } else {
         step.duration().max(0.05)
@@ -814,19 +728,6 @@ impl Task {
         )
     }
 
-    /// One thing from bench `from` to bench `to`, the way the world asked.
-    pub fn ferry(
-        who: usize,
-        from: usize,
-        to: usize,
-        ch: &mut Character,
-        room: &mut Room,
-        maps: &Maps,
-    ) -> Task {
-        let kind = Kind::Ferry { from, to };
-        Task::starting_at(who, kind, kind.first_step(), 0.0, ch, room, maps)
-    }
-
     /// Off to put site `site` together, for `minutes` beside it, out
     /// through the airlock and back if it is `outside` the hull.
     pub fn build(
@@ -905,40 +806,6 @@ impl Task {
         Task::starting_at(who, kind, kind.first_step(), minutes, ch, room, maps)
     }
 
-    /// Off to pick the dropped weapon `item` up off the deck.
-    pub fn fetch(who: usize, item: u32, ch: &mut Character, room: &mut Room, maps: &Maps) -> Task {
-        Task::starting_at(
-            who,
-            Kind::Fetch { item },
-            Step::GoToDropped,
-            0.0,
-            ch,
-            room,
-            maps,
-        )
-    }
-
-    /// Off to make `recipe` at `bench`, for `minutes` at it.
-    pub fn craft(
-        who: usize,
-        recipe: u32,
-        bench: usize,
-        minutes: f32,
-        ch: &mut Character,
-        room: &mut Room,
-        maps: &Maps,
-    ) -> Task {
-        Task::starting_at(
-            who,
-            Kind::Craft { recipe, bench },
-            Step::GoToBench,
-            minutes,
-            ch,
-            room,
-            maps,
-        )
-    }
-
     /// The step after this one: the straight line, or the fork a build
     /// outside takes through the airlock.
     fn next_step(&self) -> Step {
@@ -951,9 +818,7 @@ impl Task {
     /// long as the Bim was told; everything else is a fixed length.
     fn duration(&self) -> f32 {
         match self.step {
-            Step::Work | Step::Construct | Step::Dress | Step::Deploy => {
-                clock::seconds(self.rest_minutes)
-            }
+            Step::Construct | Step::Dress | Step::Deploy => clock::seconds(self.rest_minutes),
             step => step.duration(),
         }
     }
@@ -981,7 +846,7 @@ impl Task {
     /// the Bim's hands goes back where it came from. For a Bim leaving the
     /// room altogether.
     pub fn abandon(self, ch: &mut Character, room: &mut Room) {
-        Task::let_go(self.kind, self.step, true, ch, room);
+        Task::let_go(true, ch, room);
         ch.set_scripted(false);
     }
 
@@ -1006,27 +871,17 @@ impl Task {
         };
         // `false`: a suspended chain is kept, not given up, and a kit in the
         // hands is on `saved.main` and comes back with the chain.
-        Task::let_go(self.kind, self.step, false, ch, room);
+        Task::let_go(false, ch, room);
         ch.set_scripted(false);
         saved
     }
 
     /// Leave the world in a state the Bim can walk away from.
-    fn let_go(kind: Kind, step: Step, for_good: bool, ch: &mut Character, room: &mut Room) {
-        use Step::*;
+    fn let_go(for_good: bool, ch: &mut Character, room: &mut Room) {
         // A medkit: back on the shelf it came off, for good only — a
         // suspended treatment keeps it on `Saved.main` and walks on with it.
         if for_good && ch.main_held() == Held::Medkit {
             room.medkits += 1;
-            ch.hold_main(Held::Nothing);
-        }
-        // A thing carried between benches the same: given up for good once
-        // it is in the arms, the room says so and the world puts it back.
-        if for_good
-            && let Kind::Ferry { from, to } = kind
-            && !matches!(step, GoToStore | TakeGear)
-        {
-            room.ferry_returned.push(crate::game::Ferry { from, to });
             ch.hold_main(Held::Nothing);
         }
         // A walk outside given up brings the body back in through the door,
@@ -1088,9 +943,6 @@ impl Task {
         // way to — a site cancelled, a patient dead, a weapon picked up —
         // gives the errand up the way a locked door gives one up.
         match self.step {
-            // The thing is in the arms on the walk to the second bench,
-            // whatever the hands were doing before it.
-            Step::CarryGear => ch.hold_main(Held::Crate),
             Step::GoToSite => {
                 self.target = self
                     .kind
@@ -1126,19 +978,6 @@ impl Task {
                 } else {
                     kit_stand(room, maps, ch.pos).or(Some(ch.pos))
                 };
-            }
-            // Beside the weapon on the deck, if it still lies there. Gone —
-            // somebody else picked it up since the order — and the errand is
-            // given up the same way.
-            Step::GoToDropped => {
-                let Kind::Fetch { item } = self.kind else {
-                    unreachable!("GoToDropped is a Fetch's step")
-                };
-                self.target = dropped_stand(room, maps, item, ch.pos);
-                if self.target.is_none() {
-                    self.blocked = true;
-                    return;
-                }
             }
             // Beside the tile the kit goes on, from wherever the Bim stands.
             Step::GoToDeploySpot => {
@@ -1201,15 +1040,6 @@ impl Task {
                 ch.face(room.port_facing() + PI);
                 ch.set_action(Action::Reach);
             }
-            // Hands on the bench, turned into it.
-            Work => {
-                if let Kind::Craft { bench, .. } = self.kind
-                    && let Some(bench) = room.benches.get(bench)
-                {
-                    ch.face(bench.facing());
-                }
-                ch.set_action(Action::Reach);
-            }
             // At the site, turned to it, the arms going at the work.
             Construct => {
                 if let Some(build) = self.kind.site().and_then(|site| site_of(room, site)) {
@@ -1253,31 +1083,6 @@ impl Task {
                 }
                 ch.set_action(Action::Chop);
             }
-            // Reaching into the first bench, and putting the thing down on
-            // the second: turned into each.
-            TakeGear | PutGear => {
-                let bench = match (self.kind, self.step) {
-                    (Kind::Ferry { from, .. }, TakeGear) => room.benches.get(from),
-                    (Kind::Ferry { to, .. }, _) => room.benches.get(to),
-                    _ => None,
-                };
-                if let Some(bench) = bench {
-                    ch.face(bench.facing());
-                }
-                ch.set_action(Action::Reach);
-            }
-            // Bending for the weapon where it lies.
-            PickUp => {
-                if let Kind::Fetch { item } = self.kind
-                    && let Some(d) = room.weapons_down.iter().find(|d| d.id == item)
-                {
-                    let to = d.at - ch.pos;
-                    if to.len() > 1e-3 {
-                        ch.face(to.y.atan2(to.x));
-                    }
-                }
-                ch.set_action(Action::Reach);
-            }
             _ => ch.set_action(Action::None),
         }
     }
@@ -1301,13 +1106,6 @@ impl Task {
                 if let Some(site) = self.kind.site() {
                     room.built.push((site, self.who));
                     room.builds.retain(|b| b.site != site);
-                }
-            }
-            // Finished: the room writes it down and the world moves the
-            // cargo. The room never touches a resource itself.
-            Work => {
-                if let Kind::Craft { recipe, .. } = self.kind {
-                    room.crafted.push(recipe);
                 }
             }
             // Hands off the patient: the room says which part of whom was
@@ -1359,25 +1157,6 @@ impl Task {
                 }
                 ch.hold_main(Held::Medkit);
             }
-            // The thing off the first bench, in the arms: the room says so,
-            // and the world takes it out of the hold or off the workbench.
-            TakeGear => {
-                if let Kind::Ferry { from, to } = self.kind {
-                    room.ferry_picked.push(crate::game::Ferry { from, to });
-                }
-                ch.hold_main(Held::Crate);
-            }
-            // Put down on the second: the world moves it there. The room's
-            // copy of the order is a step behind the world, so it comes off
-            // the list here as well, or the same carry is offered again
-            // before the world has spoken.
-            PutGear => {
-                ch.hold_main(Held::Nothing);
-                if let Kind::Ferry { from, to } = self.kind {
-                    room.ferry_dropped.push(crate::game::Ferry { from, to });
-                    room.ferries.retain(|f| f.from != from || f.to != to);
-                }
-            }
             // Laid: the room says who laid what where, and the world puts
             // the deployable down and takes the kit out of the pack.
             Deploy => {
@@ -1385,13 +1164,6 @@ impl Task {
                     (self.kind, self.kind.deploy_tile())
                 {
                     room.deployed.push((self.who, tile, sentry));
-                }
-            }
-            // The hand closed on the weapon: the room says which, and the
-            // game — which has the gear — moves it, if it still lies there.
-            PickUp => {
-                if let Kind::Fetch { item } = self.kind {
-                    room.picked_up.push((self.who, item));
                 }
             }
             // The player asked for the door as it is when the Bim's hand
@@ -1426,7 +1198,7 @@ impl Task {
         if self.blocked {
             // This chain is over for good, so anything in the Bim's hands is
             // handed over with it.
-            Task::let_go(self.kind, self.step, true, ch, room);
+            Task::let_go(true, ch, room);
             ch.set_scripted(false);
             self.step = Step::Done;
             return;

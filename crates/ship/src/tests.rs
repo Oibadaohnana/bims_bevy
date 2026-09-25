@@ -1482,13 +1482,7 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
             for part in Part::ALL {
                 let piece = gear.worn(part).expect("a piece on every part");
                 assert_eq!(piece.tier, tier);
-                let kept = world
-                    .pieces
-                    .iter()
-                    .find(|p| p.id == piece.id)
-                    .expect("the world knows the piece");
-                assert_eq!(kept.at, world::armour::Where::Worn { who: who as u32 });
-                assert_eq!(kept.tier, tier);
+                assert!(piece.id < world.holdings.next_id, "a piece of the world's");
             }
         }
         // And the machines: the arena is theirs, nobody of its own people
@@ -1566,22 +1560,15 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     );
     assert_eq!(world.grenades_of(0), 2);
     let kits = |session: &Session, who: usize| {
-        session
-            .game
-            .as_ref()
-            .unwrap()
-            .world
-            .aboard
-            .room
-            .pack(who)
-            .iter()
-            .filter(|i| **i == Some(bims::combat::Item::Stack(Kit::Sandbag.resource() as u32)))
-            .count()
+        session.game.as_ref().unwrap().world.aboard.room.charges_of(
+            who,
+            bims::combat::Item::Stack(Kit::Sandbag.resource() as u32),
+        ) as usize
     };
     assert_eq!(
         kits(&session, 1),
         world::deploy::SANDBAG_CHARGES as usize,
-        "the kits are in the pack"
+        "the kits are its charges"
     );
     assert_eq!(kits(&session, 0), 0);
     assert!(
@@ -1643,7 +1630,7 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
     assert_eq!(b.deployables, a.deployables);
     assert_eq!(back.class_of(1), Class::Engineer);
     assert_eq!(back.class_of(0), Class::Soldier);
-    assert_eq!(b.grenades_of(0), 2, "the grenades read back in the pack");
+    assert_eq!(b.grenades_of(0), 2, "the grenades read back as charges");
 
     // And a medic's beam and charge, the same way (feature 76): the
     // soldier is a medic in a fresh session, linked to the engineer,
@@ -1669,18 +1656,12 @@ fn a_class_chosen_in_the_yard_leaves_the_pool_and_opens_the_world_and_is_saved()
         let world = &mut session.game.as_mut().unwrap().world;
         assert_eq!(world.class_of(0), Class::Medic);
         assert_eq!(
-            world
-                .aboard
-                .room
-                .pack(0)
-                .iter()
-                .filter(|i| **i
-                    == Some(bims::combat::Item::Stack(
-                        physics::ResourceId::Medkit as u32
-                    )))
-                .count(),
-            world::class::MEDIC_MEDKIT_CHARGES as usize,
-            "a medic's medkits are in the pack"
+            world.aboard.room.charges_of(
+                0,
+                bims::combat::Item::Stack(physics::ResourceId::Medkit as u32)
+            ),
+            world::class::MEDIC_MEDKIT_CHARGES,
+            "a medic's medkits are its charges"
         );
         // Crew member 1 beside it, a wound on it, and the beam on.
         let at = world.aboard.room.bim_pos(0) + bims::math::vec2(TILE as f32, 0.0);
@@ -1944,10 +1925,22 @@ fn a_run_opens_docked_on_the_default_ship_with_five_thousand_a_bim() {
             START_MONEY_PER_BIM * u64::from(players),
             "{players} players"
         );
+        // The default ship, set out with nothing aboard (feature 110): its
+        // parts are the playtest ship's and its cargo all nought — nothing
+        // is stored anywhere since task 113, and the armory is empty.
+        let mut default = shipdesign::fixture::playtest_ship();
+        default.cargo = [0; shipdesign::CARGO_SLOTS];
         assert_eq!(
             shipdesign::design_hash(&world.ship.design),
-            shipdesign::design_hash(&shipdesign::fixture::playtest_ship()),
+            shipdesign::design_hash(&default),
             "the default ship"
+        );
+        // Nothing in the armory but the pistol a soldier's rifle took the
+        // place of in its hand.
+        assert!(
+            world.holdings.armory.iter().all(|s| s.item
+                == bims::combat::Item::Weapon(bims::combat::WeaponKind::LaserPistol.basic())),
+            "the armory is the soldier's pistol at most"
         );
         assert_eq!(
             world.ship.state,

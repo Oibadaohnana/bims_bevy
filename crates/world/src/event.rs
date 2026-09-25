@@ -24,7 +24,10 @@
 //! food spoiling (58), the raids (59–62, 67), the plunder (64) and the
 //! execution (48, which it shared with `UpgradeBegun` by mistake) went
 //! with the old game (feature 104). Research (44–47, 65–66) went with
-//! the research (feature 106).
+//! the research (feature 106). A recipe made and lost (14, 15), a piece
+//! put on (34), a thing stowed (35), a body looted (38), the workbench's
+//! upgrade and repair (48, 49, 74) and the buyback (102, 103) went with
+//! the storage (task 113).
 
 use bims::combat::ArmourKind;
 use physics::ResourceId;
@@ -49,13 +52,6 @@ pub enum WorldEvent {
     },
     /// A command was not carried out. The reason is in the code.
     Refused { slot: u32, why: Refusal },
-    /// A Bim finished a recipe at a bench and the cargo moved:
-    /// `shipdesign::recipes::RECIPES[recipe]`'s inputs out, its output in.
-    Crafted { recipe: u32 },
-    /// A Bim finished a recipe and nothing was made: the inputs had gone
-    /// from the hold, or there was no longer room for the output. The
-    /// labour is lost, and this says so.
-    CraftLost { recipe: u32 },
     /// A construction site was laid out for a part of `kind`, and is
     /// `site` from now on. See `crate::build`.
     SitePlaced { site: u32, kind: PartKind },
@@ -85,13 +81,6 @@ pub enum WorldEvent {
     /// treated, or the room's own hunger. A part shot to nothing is not
     /// this any more: it is `CrewDying`.
     CrewDown { who: u32 },
-    /// A crew member put a piece of armour on, out of their pack —
-    /// `Command::Equip`. Whatever was worn there is in the pack now. A
-    /// weapon swapped the same way says nothing: there is one weapon.
-    Equipped { who: u32, kind: ArmourKind },
-    /// A crew member put something from their pack into a container —
-    /// `Command::Stow` — and the hold's count moved.
-    Stowed { who: u32 },
     /// A hit broke a worn piece: it is at nought, still worn, and does
     /// nothing from now on. Said once, the step it happens, off the room's
     /// `take_pieces_broken` — the room wounds its own the step a bolt
@@ -103,12 +92,6 @@ pub enum WorldEvent {
     /// once; walking out of reach breaks it, and the next lock is said
     /// again. `Game::is_locked` is the state.
     Locked { who: u32 },
-    /// A crew member took something off a body — `Command::Loot`: a
-    /// dead or unconscious crewmate's, `source_kind` being
-    /// `crate::armour::LootSource::code` (always a crewmate's since
-    /// feature 104). It is in `who`'s pack now; a piece of armour keeps
-    /// the health it had.
-    Looted { who: u32, source_kind: u32 },
     /// A mercenary was hired — `Command::Hire` — and is crew member `who`
     /// now, the first month paid. See `crate::mercenary`.
     Hired { who: u32 },
@@ -127,13 +110,6 @@ pub enum WorldEvent {
     /// A crewmate's medkit took a crew member out of the dying state
     /// `trauma`. Whatever it leaves behind is on the body now.
     CrewTreated { who: u32, trauma: u32 },
-    /// Two of a kind at the same tier went onto the workbench, out of the
-    /// hold, to become one of tier `tier` — `World::upgrade`; `resource`
-    /// is what they count as in the hold, as a `ResourceId` code.
-    UpgradeBegun { resource: u32, tier: u32 },
-    /// The upgrade came off the workbench into the hold: one `resource` at
-    /// `tier`.
-    Upgraded { resource: u32, tier: u32 },
     /// The ship is in another system: the one round `star`, in empty space
     /// — a trip across a hyperlane on its way (`World::jump`).
     Jumped { star: u32 },
@@ -162,9 +138,6 @@ pub enum WorldEvent {
     /// A deployable was destroyed — sandbags shot to nothing, a sentry
     /// drained — by the kind.
     DeployableLost { kind: u32 },
-    /// A piece of armour was repaired at the workbench — the armourer's
-    /// session done — by `bims::combat::ArmourKind`'s code.
-    Repaired { kind: u32 },
     /// A soldier braced, or stood easy again (feature 75): who, and
     /// which.
     Braced { who: u32, on: bool },
@@ -255,12 +228,6 @@ pub enum WorldEvent {
     LeftSite { station: u32, cleared: bool },
     /// A crew member left outside the ship when it went, and dead for it.
     LeftBehind { who: u32 },
-    /// A dead player's Bim bought back out of the pool at a mission's
-    /// start, aboard with no gear.
-    BoughtBack { who: u32 },
-    /// A dead player's Bim the pool could not pay for: out until the next
-    /// mission.
-    StillOut { who: u32 },
     /// A bot died, gone for good, and the pool paid for it — as much of
     /// the penalty as it held.
     BotLost { who: u32, paid: economy::Money },
@@ -304,6 +271,23 @@ pub enum WorldEvent {
     HeartOverload { station: u32 },
     /// The core is destroyed. The run is won with it.
     HeartDestroyed { station: u32 },
+    /// Crew member `who`'s loadout changed between missions (task 113):
+    /// a thing onto or off its slot `part` (a `GearSlot` code).
+    GearChanged { who: u32, part: u32 },
+    /// Player `from` offered what its Bim has on `part` to player `to`.
+    GearOffered { from: u32, part: u32, to: u32 },
+    /// Player `to` took the offer: the thing is on its Bim now.
+    OfferTaken { from: u32, part: u32, to: u32 },
+    /// An offer is gone untaken: declined, taken back, or one of the
+    /// two slots changed.
+    OfferWithdrawn { from: u32, part: u32, to: u32 },
+    /// A research key picked up, counted the moment it was: `keys` is
+    /// how many the crew hold now.
+    KeyFound { keys: u32 },
+    /// A player's Bim that died is back at the mission's end, with its
+    /// whole loadout, and the pool paid `paid` for it — the buyback, or
+    /// what was left of the pool, which never goes below nought.
+    Respawned { who: u32, paid: economy::Money },
 }
 
 /// Why a command did nothing.
@@ -313,7 +297,9 @@ pub enum WorldEvent {
 /// helm's and the flight's, 5, 6, 8, 10, 13 and
 /// 28–32, 78 and 83, the hire's bunk, 20, the execution's and the
 /// plunder's, 26 and 27, and a walk through the test room's locked heads
-/// door, 37, went with the old game in feature 104).
+/// door, 37, went with the old game in feature 104; the hold's, the
+/// pack's, the loot's and the workbench's, 3, 15–18, 34–36, 51 and 81,
+/// went with the storage in task 113).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -323,8 +309,6 @@ pub enum Refusal {
     NotDocked = 1,
     /// Not the money for it.
     Unaffordable = 2,
-    /// Nowhere aboard to stow it.
-    NoRoomAboard = 3,
     /// Selling more than is aboard, or more than is not spoken for by the
     /// construction sites. And, since the pack, the thing asked for not
     /// being there at all: a fetch of a piece
@@ -349,20 +333,6 @@ pub enum Refusal {
     /// thing — or with no such crew member: dead, outside in a suit, or
     /// not aboard. Walk over first.
     OutOfReach = 14,
-    /// A fetch, or a piece taken off, with no free cell in the pack.
-    PackFull = 15,
-    /// A stow with the class the thing counts against full up: the
-    /// lockers for a piece of armour, the shelves for a bar of metal.
-    /// [`Refusal::NoRoomAboard`] is the same wall met buying at the dock.
-    NoRoom = 16,
-    /// A stow of a broken piece. It is worth nothing in the hold and the
-    /// room will not hand it over: discard it instead.
-    Broken = 17,
-    /// A loot of a body that is not one: the Bim is alive and awake — a
-    /// crewmate who came round while the window was open — or there is
-    /// no such Bim. Down, dead or out cold, is asked when the command
-    /// lands, not when the window opened.
-    NotDown = 18,
     /// A hire of somebody who is not a mercenary for hire — one of the
     /// station's own people, or nobody at all.
     NotForHire = 19,
@@ -373,19 +343,6 @@ pub enum Refusal {
     /// (`crate::station::market_kind`). A buy there is
     /// [`Refusal::NotSoldHere`] first, since it stocks nothing either.
     NoMarket = 33,
-    /// A thing put on the workbench, taken off it or an upgrade begun
-    /// with no workbench aboard, or with the crew member further than
-    /// [`crate::data::REACH`] from it — see `World::workbench`.
-    NoWorkbench = 34,
-    /// An upgrade begun with the bench's two input slots not holding two
-    /// of a kind at the same tier below three — or a thing put on the
-    /// bench that would not pair with what is there: a different kind, a
-    /// different tier, or a tier-three thing, which has nowhere to go.
-    NoPair = 35,
-    /// A thing put on the workbench or an input taken off it while the
-    /// day's work is under way on the pair; the output waits in its slot
-    /// and can be taken any time.
-    BenchBusy = 36,
     /// A walk ordered somewhere there is no way to at all —
     /// `Command::Crew`, the room's `ORDER_NOWHERE`.
     NoWayThere = 38,
@@ -411,9 +368,6 @@ pub enum Refusal {
     LevelNotReached = 49,
     /// A pick at a level already picked: a pick is never changed.
     AlreadyPicked = 50,
-    /// Something an engineer's talent gates, asked for without the
-    /// talent: a repair without *armourer*.
-    NoTalent = 51,
     /// A pick by a crew member with no class.
     NoClass = 52,
     /// A brace or a throw by a crew member that is not a soldier
@@ -490,11 +444,6 @@ pub enum Refusal {
     /// (feature 95, `crate::build`). The site stands and waits; money
     /// earned or a site cancelled lets it go on.
     NotEnoughMoney = 80,
-    /// A stow of a medkit or a bandage: those are everybody's charges
-    /// (`class::Charge::everybody`), which come back into the pack on a
-    /// cooldown of their own — one put in the hold would be one more
-    /// every minute for nothing, so they stay where they are.
-    ChargeKept = 81,
     /// A construction site placed in a run (feature 102): the ship is the
     /// default one and nothing is built onto it but a class's
     /// deployables (`World::shipyard_enabled`).
@@ -535,6 +484,17 @@ pub enum Refusal {
     /// A destination proposed while the crew are still choosing a relic:
     /// the map comes up once they have.
     ChoosingRelic = 97,
+    /// A loadout or armory command in a mission (task 113): gear changes
+    /// hands between missions, on the map and the reward screen.
+    GearLocked = 98,
+    /// A loadout command on another player's Bim: a player changes its
+    /// own and the bots', and gives another player a thing by offering it.
+    NotYours = 99,
+    /// A thing asked for that is not there: nothing under that id in the
+    /// armory, or nothing on that slot.
+    NoSuchGear = 100,
+    /// An answer to an offer nobody made.
+    NoOffer = 101,
 }
 
 impl Refusal {
@@ -555,8 +515,10 @@ impl WorldEvent {
             WorldEvent::Traded { units, .. } if units >= 0 => 8,
             WorldEvent::Traded { .. } => 9,
             WorldEvent::Refused { .. } => 10,
-            WorldEvent::Crafted { .. } => 14,
-            WorldEvent::CraftLost { .. } => 15,
+            // 14 and 15 were a recipe made and lost, 34, 35 and 38 a piece put
+            // on, a thing stowed and a body looted, 48 and 49 the workbench's
+            // upgrade, 74 its repair, and 102 and 103 a buyback and a player
+            // still out: all went with the storage (task 113).
             // 1 to 5 and 11 to 13 are free: flight's (feature 104). 16 was
             // `Mined`, which went with the mining (feature 95), and 17 to
             // 26 the radiation dose's (feature 104).
@@ -567,18 +529,13 @@ impl WorldEvent {
             WorldEvent::EnemyDown { .. } => 31,
             WorldEvent::CrewHit { .. } => 32,
             WorldEvent::CrewDown { .. } => 33,
-            WorldEvent::Equipped { .. } => 34,
-            WorldEvent::Stowed { .. } => 35,
             WorldEvent::PieceBroke { .. } => 36,
             WorldEvent::Locked { .. } => 37,
-            WorldEvent::Looted { .. } => 38,
             WorldEvent::Hired { .. } => 39,
             WorldEvent::MercenaryPaid { .. } => 40,
             WorldEvent::MercenaryLeft { .. } => 41,
             WorldEvent::CrewDying { .. } => 42,
             WorldEvent::CrewTreated { .. } => 43,
-            WorldEvent::UpgradeBegun { .. } => 48,
-            WorldEvent::Upgraded { .. } => 49,
             // 50 and 52 to 55 were the charge and the landing (feature 104).
             WorldEvent::Jumped { .. } => 51,
             WorldEvent::Brownout => 56,
@@ -591,7 +548,6 @@ impl WorldEvent {
             WorldEvent::Deployed { .. } => 70,
             WorldEvent::PackedUp { .. } => 71,
             WorldEvent::DeployableLost { .. } => 72,
-            WorldEvent::Repaired { .. } => 74,
             WorldEvent::Braced { .. } => 75,
             WorldEvent::Thrown { .. } => 76,
             WorldEvent::Beamed { .. } => 77,
@@ -621,8 +577,6 @@ impl WorldEvent {
             WorldEvent::DepartureDeclined { .. } => 99,
             WorldEvent::LeftSite { .. } => 100,
             WorldEvent::LeftBehind { .. } => 101,
-            WorldEvent::BoughtBack { .. } => 102,
-            WorldEvent::StillOut { .. } => 103,
             WorldEvent::BotLost { .. } => 104,
             WorldEvent::TownFell { .. } => 105,
             WorldEvent::PlayerGone { .. } => 106,
@@ -639,6 +593,12 @@ impl WorldEvent {
             WorldEvent::HeartExposed { .. } => 117,
             WorldEvent::HeartOverload { .. } => 118,
             WorldEvent::HeartDestroyed { .. } => 119,
+            WorldEvent::GearChanged { .. } => 120,
+            WorldEvent::GearOffered { .. } => 121,
+            WorldEvent::OfferTaken { .. } => 122,
+            WorldEvent::OfferWithdrawn { .. } => 123,
+            WorldEvent::KeyFound { .. } => 124,
+            WorldEvent::Respawned { .. } => 125,
         }
     }
 
@@ -663,11 +623,20 @@ impl WorldEvent {
             | WorldEvent::PlayerGone { slot } => slot as i64,
             WorldEvent::DepartureAsked { behind } => behind as i64,
             WorldEvent::LeftSite { station, cleared } => (station as i64) * 2 + i64::from(cleared),
-            WorldEvent::LeftBehind { who }
-            | WorldEvent::BoughtBack { who }
-            | WorldEvent::StillOut { who } => who as i64,
+            WorldEvent::LeftBehind { who } => who as i64,
             // The penalty paid in the hundreds: a crew is never a hundred.
-            WorldEvent::BotLost { who, paid } => (who as i64) + 100 * (paid as i64),
+            WorldEvent::BotLost { who, paid } | WorldEvent::Respawned { who, paid } => {
+                (who as i64) + 100 * (paid as i64)
+            }
+            // The slot in the tens, the Bim in the units: four slots, and a
+            // crew is never ten (task 113).
+            WorldEvent::GearChanged { who, part } => (who + 10 * part) as i64,
+            // An offer: the giver in the units, the slot in the tens, the
+            // receiver in the hundreds.
+            WorldEvent::GearOffered { from, part, to }
+            | WorldEvent::OfferTaken { from, part, to }
+            | WorldEvent::OfferWithdrawn { from, part, to } => (from + 10 * part + 100 * to) as i64,
+            WorldEvent::KeyFound { keys } => keys as i64,
             WorldEvent::TownFell { station }
             | WorldEvent::HeartExposed { station }
             | WorldEvent::HeartOverload { station }
@@ -691,7 +660,6 @@ impl WorldEvent {
             WorldEvent::RelicsOffered { source, count } => (count as i64) + 100 * (source as i64),
             WorldEvent::CacheOpened { who } => who as i64,
             WorldEvent::RelicsDeclined | WorldEvent::RunWon => 0,
-            WorldEvent::Crafted { recipe } | WorldEvent::CraftLost { recipe } => recipe as i64,
             // The station in the thousands, the person in the units.
             WorldEvent::EnemyDown { station, who } => (who + 1_000 * station) as i64,
             // The kind in the hundreds and the body under it, the way
@@ -711,11 +679,7 @@ impl WorldEvent {
             }
             // The kind in the tens the same way: three kinds, and a crew
             // is never ten.
-            WorldEvent::Equipped { who, kind } | WorldEvent::PieceBroke { who, kind } => {
-                (who + 10 * kind.code()) as i64
-            }
-            // The source's kind in the tens, likewise: two kinds.
-            WorldEvent::Looted { who, source_kind } => (who + 10 * source_kind) as i64,
+            WorldEvent::PieceBroke { who, kind } => (who + 10 * kind.code()) as i64,
             // The one carried in the **hundreds**, the carrier in the
             // units, and the carrier alone for a set down, whose line
             // names nobody else (feature 86). The hundreds rather than
@@ -727,12 +691,7 @@ impl WorldEvent {
             WorldEvent::CrewDown { who }
             | WorldEvent::Locked { who }
             | WorldEvent::Hired { who }
-            | WorldEvent::MercenaryLeft { who }
-            | WorldEvent::Stowed { who } => who as i64,
-            // The tier in the hundreds: under a hundred resources, and a
-            // tier is never a hundred.
-            WorldEvent::UpgradeBegun { resource, tier }
-            | WorldEvent::Upgraded { resource, tier } => (resource + 100 * tier) as i64,
+            | WorldEvent::MercenaryLeft { who } => who as i64,
             WorldEvent::SitePlaced { kind, .. }
             | WorldEvent::SiteCancelled { kind }
             | WorldEvent::Built { kind }
@@ -753,7 +712,7 @@ impl WorldEvent {
             WorldEvent::Deployed { who, kind } | WorldEvent::PackedUp { who, kind } => {
                 (who as i64) + 100 * (kind as i64)
             }
-            WorldEvent::DeployableLost { kind } | WorldEvent::Repaired { kind } => kind as i64,
+            WorldEvent::DeployableLost { kind } => kind as i64,
             WorldEvent::Thrown { who }
             | WorldEvent::Surged { who }
             | WorldEvent::Taunted { who }

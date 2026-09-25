@@ -139,18 +139,25 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// (`world::station::set_legacy_layouts`) all eleven came back
 /// (`the_commands_come_back_under_the_old_layouts`). The rest did not move:
 /// every other command docks at the spawn, a hub still, or the arena.
+///
+/// **All eleven moved once more, on purpose**: nothing stored (task 113).
+/// The reading takes every body's gear by its `Debug`, and `Gear` lost
+/// the pack and gained the charges; and the sessions play differently by
+/// the task's own rules — the design's gear in the armory rather than
+/// the hold, a body out cold keeping its gun (`world`'s `SURVIVORS` note
+/// has the list). `PICTURES` did not move.
 const PINNED: [(&str, u64); 11] = [
-    ("simulation", 0x_1253_d38e_edbd_1192),
-    ("game", 0x_b817_4a5d_28b1_de71),
-    ("droids", 0x_df45_19b3_735c_4a33),
-    ("tier2_test", 0x_2f3e_804a_355f_9cf3),
-    ("combat_droids_medic", 0x_cc8b_5e2f_2320_a411),
-    ("test", 0x_4d32_ad42_ac1c_4591),
-    ("test_planet", 0x_2801_0e83_e79b_4d1c),
-    ("droids_planet", 0x_0ce0_48d0_5395_ca00),
-    ("defense", 0x_8714_ccca_e073_f52b),
-    ("crisis", 0x_0876_98de_a683_2bfa),
-    ("jammer", 0x_ea1e_1f88_d357_2888),
+    ("simulation", 0x_37d6_6b39_8298_9325),
+    ("game", 0x_123b_cbc1_3bd0_f5e2),
+    ("droids", 0x_58e5_da1b_7aeb_4c13),
+    ("tier2_test", 0x_faf7_7de2_1506_a29b),
+    ("combat_droids_medic", 0x_8897_a1fc_b6fc_683e),
+    ("test", 0x_551a_3ee8_1e3a_44cb),
+    ("test_planet", 0x_c01a_a1aa_1b48_feb5),
+    ("droids_planet", 0x_2b9c_d125_981c_4147),
+    ("defense", 0x_f7d9_18b0_5265_5f26),
+    ("crisis", 0x_9ecf_6122_fd41_05b8),
+    ("jammer", 0x_3bb8_9b7e_8ffe_057f),
 ];
 
 /// **Every command plays as it did**: each session the app builds, read
@@ -245,19 +252,22 @@ fn the_fixtures_and_a_run_s_deck_are_drawn_as_they_were() {
     assert!(moved.is_empty(), "pictures moved:\n{}", moved.join("\n"));
 }
 
-/// What `PINNED` was before feature 112, for the check below.
+/// What `PINNED` comes to under the layouts before feature 112, for the
+/// check below. Taken again under task 113, which moved every one on
+/// every layout (`PINNED`'s note): the eight that never stand on a town
+/// are `PINNED`'s own, and the three that do differ by the town alone.
 const PINNED_BEFORE_112: [(&str, u64); 11] = [
-    ("simulation", 0x_1253_d38e_edbd_1192),
-    ("game", 0x_b817_4a5d_28b1_de71),
-    ("droids", 0x_df45_19b3_735c_4a33),
-    ("tier2_test", 0x_2f3e_804a_355f_9cf3),
-    ("combat_droids_medic", 0x_cc8b_5e2f_2320_a411),
-    ("test", 0x_4d32_ad42_ac1c_4591),
-    ("test_planet", 0x_8f91_50e0_31b0_10ec),
-    ("droids_planet", 0x_e0b9_f2bd_f4b4_10db),
-    ("defense", 0x_0e7f_1c4d_4f87_9ace),
-    ("crisis", 0x_0876_98de_a683_2bfa),
-    ("jammer", 0x_ea1e_1f88_d357_2888),
+    ("simulation", 0x_37d6_6b39_8298_9325),
+    ("game", 0x_123b_cbc1_3bd0_f5e2),
+    ("droids", 0x_58e5_da1b_7aeb_4c13),
+    ("tier2_test", 0x_faf7_7de2_1506_a29b),
+    ("combat_droids_medic", 0x_8897_a1fc_b6fc_683e),
+    ("test", 0x_551a_3ee8_1e3a_44cb),
+    ("test_planet", 0x_1670_f153_e5c8_e2fd),
+    ("droids_planet", 0x_1545_0c14_606b_a1dc),
+    ("defense", 0x_3ff6_9a47_94c1_b073),
+    ("crisis", 0x_9ecf_6122_fd41_05b8),
+    ("jammer", 0x_3bb8_9b7e_8ffe_057f),
 ];
 
 /// Not a test of its own, and **run alone** (`--exact`), since it flips

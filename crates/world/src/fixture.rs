@@ -108,7 +108,13 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// (`tests_layoutgen::the_pins_come_back_under_the_old_layouts`), so
 /// nothing but the layout moved it. The spawn is a hub still and its
 /// design did not move.
-pub const REFERENCE_CHECKSUM: u64 = 0x_eb8a_5e06_aeca_832b;
+/// And again for task 113 (nothing stored): the hold's pieces, guns,
+/// grids, workbench, craft targets and tick box are out of the hash, and
+/// the holdings (the armory, the keys, the offers) and every crew
+/// member's loadout and charges are in it; the design's gear is the
+/// armory's from the start, so the ship is lighter and its trips are
+/// other lengths. Was `0x_eb8a_5e06_aeca_832b`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_2e8b_94f3_4a74_debc;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

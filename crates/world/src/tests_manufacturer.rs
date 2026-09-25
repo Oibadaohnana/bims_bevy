@@ -13,10 +13,10 @@ use shipdesign::fixture::flyer;
 use crate::armour::LootSource;
 use crate::class::{self, Class};
 use crate::data;
-use crate::event::{Refusal, WorldEvent};
+use crate::event::WorldEvent;
 use crate::fixture::{REFERENCE_MONEY, crewed_world};
 use crate::manufacturer;
-use crate::world::{Command, World};
+use crate::world::World;
 
 /// One player and a bot, docked at the nearest site of the
 /// Manufacturers' on `day`, with the garrison laid.
@@ -220,22 +220,6 @@ fn a_manufacturer_down_bleeds_out_and_nothing_of_it_is_taken() {
         );
         assert!(!world.aboard.room.visitor_down(who), "not a body to click");
     }
-    let refused = world.step(&[Command::Loot {
-        slot: 0,
-        who: 0,
-        source: LootSource::Resident(who as u32),
-        cell: 12,
-    }]);
-    assert!(
-        refused.iter().any(|e| matches!(
-            e,
-            WorldEvent::Refused {
-                why: Refusal::NotACrewmate,
-                ..
-            }
-        )),
-        "{refused:?}"
-    );
     let mut dead = false;
     for _ in 0..2_000 {
         world.step(&[]);

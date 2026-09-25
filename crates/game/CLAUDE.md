@@ -3714,3 +3714,46 @@ cuffs on the arms at rest. `Gear::manufacturer` is their kit
 (`MANUFACTURER_ODDS`: the four guns, the schword at nothing and first so
 rounding never lands on it), and `Game::set_clock_for_probe` puts a room's
 clock back for a probe that moves the world's back.
+
+## A loadout and its charges (task 113)
+
+> "The pack is `Gear::pack`", "A body is looted", "A body going out cold
+> drops its gun", "A carry between benches is the whole of hauling", "A
+> key is two cells tall" and "Adding a job to the work list" above
+> describe what **task 113 deleted**: kept as history, and this is what
+> the room has now.
+
+**`Gear` is a loadout**: `head`, `body`, `legs`, `weapon` and
+`charges: [u32; CHARGE_CODES]` — a count a `ResourceId` code (a medkit,
+the dressings, an engineer's two kits, a grenade), with `units_of`,
+`add`, `spend` and `set_units`. There is no pack, no footprint, no stack
+and no `Item::Key`; `Item` is `Armour`, `Weapon` or `Stack(code)` — a
+charge named, never a thing lying anywhere. `Gear` is `Copy` and
+`Default` again by derive. The game's side is `Game::{charges_of,
+give_stack, take_stack, set_charges}` over it; `bandages_of`,
+`spend_bandage` and `set_bandages_for_probe` read and write the same
+count. What a Bim wears and holds is changed only by `Game::issue`, which
+the world calls between missions.
+
+- **A body out cold keeps its gun** (holstered, since `tick_combat`
+  draws nothing for a body down). `drop_weapon`, `Room::weapons_down`,
+  `Dropped`, `Kind::Fetch`, `Step::{GoToDropped, PickUp}`, `HIT_DROPPED`
+  (17), `JOB_FETCH` (24), `CrewOrder::PickUp`, `Game::{fetch, can_fetch,
+  hit_dropped, dropped_at, set_hover_dropped, drop_for_probe}` all went;
+  so did `take_up_arms`'s weapon out of the pack and a blade bot's
+  `wear_what_it_has` — a bot wears what it was issued.
+- **Nothing is looted**: `loot_cells`, `body_units`, `loot_counts`,
+  `take_from_body`, `LootCell`, `LOOT_CELLS`. `is_down` stays: the world
+  hands the other room its downed.
+- **`Game::revive`** brings a Bim back *with* its gear, every piece
+  mended — a player's Bim respawning at its mission's end.
+- **The bench carry and the craft chain went**: `Kind::{Craft, Ferry}`,
+  `Step::{GoToBench, Work, GoToStore, TakeGear, CarryGear, PutGear}`,
+  `game::{Order, Ferry}`, `Room::{ferries, ferry_*, crafted}`,
+  `Exclusive::Bench`, `JOB_CRAFT` (18) and `JOB_FERRY` (26); `Job` is
+  `Build` and `Medical`, codes 0 and 1. `set_work_factors` still takes a
+  pair and reads the second (a build's).
+
+`a_charge_is_a_count_on_the_body_and_a_piece_is_cut_for_one_part`
+(`combat::tests`) and `a_bim_knocked_out_keeps_its_gun_and_is_no_target`
+(`game::tests`) pin the two halves.

@@ -4877,3 +4877,82 @@ relay wants redeploying); `REFERENCE_CHECKSUM` and the ship's `PINNED` and
 **Not done**: the threat chip along the top still says *machines* at a
 site of theirs (the spec kept the HUD to the nameplate); a relic that reads
 kills (*Salvage Beacon*, *Kill Relay*) counts machines only, as before.
+
+## Nothing is stored: the holdings and the loadouts (task 113)
+
+> Every section above about the hold's gear, the pieces' `Where`, the
+> guns' list, the grids, the pack, a fetch or a stow, a loot, the
+> workbench's slots, upgrades and repairs, the drug lab's medkit and the
+> engineer's *armourer* describes what **task 113 deleted**. They are
+> kept as the history of how it worked; this section is what is there
+> now.
+
+`crate::holdings` is the one new module: `Holdings { armory, keys,
+next_id, offers }` on `World::holdings` (saved, and in `world_checksum`
+whole), `Stored { id, item }` a thing in the armory, `GearSlot` (weapon,
+head, body, legs — codes 0–3, with `read` and `write` on a
+`bims::combat::Gear`), `GearSource` (the armory by id, or a Bim's slot)
+and `Offer { from, slot, to }`. Its tests pin the slot rule and the
+armory's numbering.
+
+- **The loadout is the room's `Gear`** and nothing of it is copied on
+  the world: the checksum reads every crew member's gear off the room
+  (weapon, pieces with their health to a hundredth, the charges).
+  `World::{pieces, next_piece, guns, grids, bench, craft_targets,
+  auto_upgrade}` are gone with `crate::grid`, `armour::{Where, Piece,
+  FetchKind}` and the keys' pack items; `armour` is the resource table and
+  `LootSource`, which still names a body for a hire and the commander.
+- **`stock_the_armory`** at `World::start`: the design's gear cargo
+  becomes things in the armory (tier one, whole) and its research keys
+  the holdings' count, and those counts go to nought — so the ship's mass
+  no longer carries gear. `set_out_empty` empties the armory and the keys
+  too. `World::held(resource)` is what a sale takes from (the armory, for
+  gear) and what the trade window shows.
+- **The four commands** (`Equip`, `Unequip`, `Offer`, `AnswerOffer`) are
+  allowed between missions and refused `GearLocked` (98) in one;
+  `may_change(slot, who)` is the player's own Bim or a bot
+  (`NotYours`, 99); `NoSuchGear` (100) and `NoOffer` (101) are the rest.
+  `set_slot` is the one door a slot changes by, and it withdraws every
+  offer the slot was in (`OfferWithdrawn`). An accepted offer moves the
+  thing and puts the recipient's old one in the armory (`OfferTaken`);
+  `begin_mission` withdraws every offer standing. Events 120–125:
+  `GearChanged`, `GearOffered`, `OfferTaken`, `OfferWithdrawn`,
+  `KeyFound`, `Respawned`.
+- **A mission's start** mends every piece (`mend_all_armour`, the armory's
+  and every loadout's) and **sets** every charge to its start amount
+  (`fill_charges` — it used to top up). There is no buyback at the start.
+- **A mission's end** (`leave_mission`): dead bots' loadouts go into the
+  armory (`store_loadout`, mended) before `drop_crew_member`, and every
+  fallen player is revived with its gear (`Game::revive` keeps it now,
+  mended), the pool paying `BUYBACK_COST` saturating at nought
+  (`respawn_the_fallen`). A player left behind dies and comes back the
+  same way; `Run::fallen` empties.
+- **Charges are counts**: `charges_of` reads `Gear::units_of`,
+  `restock_charges` adds one with `Game::give_stack`, a deploy and a
+  throw spend one with `take_stack`, a pack-up gives one back — there is
+  no pack to be full, so `PackFull` went. `set_charges_for_probe` sets
+  the count outright.
+- **Trading**: a gun or a piece bought goes into the armory at its tier
+  (`new_piece` numbers a piece off the holdings); a sale gives up the
+  lowest tiers first (`gear_leaving`). `NoRoomAboard` went: nothing is
+  ever short of room. A resident joining — a hire, a townsperson — keeps
+  what it brought as its loadout, its pieces renumbered off the holdings.
+- **Keys**: `pick_up_key` is the one door a key comes in by, counted the
+  moment it is (`KeyFound`). Nothing in a run lays one yet.
+- **The engineer**: `pick_at(Engineer, 6)` is `None` and
+  `fixed_at(Engineer, 6)` is *Higher quality armour*; `Talent::Armourer`
+  keeps its code (a talent's code is its place in `Talent::ALL`) and is
+  never offered. `class::ARMOUR_REPAIR_*`, `deploy::{ARMOUR_REPAIR_COST,
+  REPAIR_ORDER}`, `UPGRADE_ORDER`, `data::UPGRADE_SESSION*` went.
+- **Refusals gone**: 3, 15–18, 34–36, 51 and 81. **Events gone**: 14, 15,
+  34, 35, 38, 48, 49, 74, 102 and 103.
+
+`tests_holdings.rs` is the task: the commands refused in a mission and
+taken on the map and the reward screen; every way one player could reach
+another's rifle refused, an offer declined, withdrawn by a slot changing,
+accepted and withdrawn by a mission; a helm worn to nothing staying worn
+and whole at the next mission, an armory piece mended too; a dead
+player back at the mission's end with its sniper and helm, the pool
+charged and never below nought; a dead and a left-behind bot's kit in the
+armory; a key counted at once; the holdings in the checksum; and the
+design's gear in the armory and not the hold.

@@ -27,7 +27,6 @@
 //! integers throughout precisely so its hash is exact on both targets, and
 //! that hash goes in whole.
 
-use crate::armour::Where;
 use crate::world::{ShipState, World, node_key};
 
 /// FNV-1a, written out by hand.
@@ -88,9 +87,6 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(world.galaxy_type as u64);
     hash.eat(world.star_id as u64);
     hash.eat(world.money);
-    for &target in world.craft_targets.iter() {
-        hash.eat(target as u64);
-    }
 
     let ship = &world.ship;
     hash.eat(world.design_hash());
@@ -186,89 +182,29 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(hired.medic as u64);
     }
 
-    // The armour: every piece, what it has left and where it is. A piece
-    // on a body or in a pack is the room's, and its health is `f32`
-    // arithmetic under fire, so it goes in to a hundredth — a hit is
-    // whole points, and a last-bit disagreement is nothing beside one.
-    // The next id is in for the reason `next_site` is.
-    hash.eat(world.next_piece as u64);
-    hash.eat(world.pieces.len() as u64);
-    for piece in &world.pieces {
-        hash.eat(piece.id as u64);
-        hash.eat(piece.kind.code() as u64);
-        hash.eat(piece.tier.code() as u64);
-        hash.eat_rounded(piece.health as f64, HEALTH_GRID);
-        hash.eat(piece.at.code() as u64);
-        match piece.at {
-            Where::Hold => {}
-            Where::Pack { who, cell } => {
-                hash.eat(who as u64);
-                hash.eat(cell as u64);
-            }
-            Where::Worn { who } => hash.eat(who as u64),
-        }
+    // The holdings (task 113): the armory — every thing's id, what it is
+    // and, for a piece, what it has left to a hundredth, the way a piece
+    // anywhere else goes in — the keys, the offers standing and the next
+    // id, for the reason `next_site` is in.
+    let holdings = &world.holdings;
+    hash.eat(holdings.next_id as u64);
+    hash.eat(holdings.keys as u64);
+    hash.eat(holdings.armory.len() as u64);
+    for stored in &holdings.armory {
+        hash.eat(stored.id as u64);
+        eat_item(&mut hash, &stored.item);
     }
-    // The weapons in the hold by tier, the tick box, and what is on the
-    // workbench and how far along: integers throughout. A crew whose
-    // pistol came off the bench at tier two and one whose did not are two
-    // different games.
-    hash.eat(world.guns.len() as u64);
-    for gun in &world.guns {
-        hash.eat(gun.kind.code() as u64);
-        hash.eat(gun.tier.code() as u64);
+    hash.eat(holdings.offers.len() as u64);
+    for offer in &holdings.offers {
+        hash.eat(offer.from as u64);
+        hash.eat(offer.slot.code() as u64);
+        hash.eat(offer.to as u64);
     }
-    // The grids — the shelves, the cold stores, the lockers: every slot,
-    // what it holds and how many, where it lies and which way round, and
-    // the next id — integers throughout. Two crews whose rifles lie in
-    // different places have different armouries, and the fit that
-    // refuses a stow depends on it.
-    for grid in &world.grids {
-        eat_grid(&mut hash, grid);
-    }
-    hash.eat(u64::from(world.auto_upgrade));
-    // The workbench: its three slots and the thing in somebody's arms —
-    // each a gun by kind and tier, or a piece by id, kind, tier and health
-    // to the hundredth, the way a piece anywhere else goes in — and the
-    // work under way on the pair.
-    for item in world
-        .bench
-        .slots
-        .iter()
-        .chain(core::iter::once(&world.bench.carrying))
-    {
-        match item {
-            None => hash.eat(u64::MAX),
-            Some(bims::combat::Item::Weapon(gun)) => {
-                hash.eat(1);
-                hash.eat(gun.kind.code() as u64);
-                hash.eat(gun.tier.code() as u64);
-            }
-            Some(bims::combat::Item::Armour(piece)) => {
-                hash.eat(2);
-                hash.eat(piece.id as u64);
-                hash.eat(piece.kind.code() as u64);
-                hash.eat(piece.tier.code() as u64);
-                hash.eat_rounded(piece.health as f64, HEALTH_GRID);
-            }
-            // Never on the bench; hashed all the same rather than skipped.
-            Some(bims::combat::Item::Stack(resource)) => {
-                hash.eat(3);
-                hash.eat(*resource as u64);
-            }
-            Some(bims::combat::Item::Key(tier)) => {
-                hash.eat(4);
-                hash.eat(*tier as u64);
-            }
-        }
-    }
-    hash.eat(u64::from(world.bench.back));
-    match world.bench.work {
-        None => hash.eat(u64::MAX),
-        Some(upgrade) => {
-            hash.eat(upgrade.resource as u64);
-            hash.eat(upgrade.to.code() as u64);
-            hash.eat(upgrade.done as u64);
-        }
+    // And every crew member's loadout: what it wears and holds and its
+    // charges. A crew whose rifle is on James and one whose is on Kate
+    // are two different games.
+    for who in 0..world.aboard.room.crew_count() as usize {
+        eat_gear(&mut hash, &world.aboard.room.gear(who));
     }
 
     for node in &world.discovered {
@@ -743,9 +679,9 @@ fn eat_graves(hash: &mut Fnv, graves: &[crate::memory::Grave]) {
     }
 }
 
-/// What is on a body: what it wears, the gun in its hand and its pack,
-/// cell by cell — integers throughout but a piece's health, to a
-/// hundredth as a piece of armour's goes in anywhere else.
+/// What is on a body: what it wears, the gun in its hand and its charges
+/// — integers throughout but a piece's health, to a hundredth as a piece
+/// of armour's goes in anywhere else.
 fn eat_gear(hash: &mut Fnv, gear: &bims::combat::Gear) {
     for piece in [gear.head, gear.body, gear.legs] {
         match piece {
@@ -764,48 +700,34 @@ fn eat_gear(hash: &mut Fnv, gear: &bims::combat::Gear) {
             hash.eat(weapon.tier.code() as u64);
         }
     }
-    for (cell, item) in gear.pack.iter().enumerate() {
-        let Some(item) = item else { continue };
-        hash.eat(cell as u64);
-        let (kind, a, b) = item_codes(item);
-        hash.eat(kind);
-        hash.eat(a);
-        hash.eat(b);
-        hash.eat(u64::from(gear.turned[cell]));
-        // How many are in the cell's stack (feature 87): five dressings
-        // in a box are not one, and `units` reads a count never set as
-        // the one it is.
-        hash.eat(gear.units(cell) as u64);
+    for (code, &n) in gear.charges.iter().enumerate() {
+        if n > 0 {
+            hash.eat(code as u64);
+            hash.eat(n as u64);
+        }
     }
 }
 
-/// One thing in a pack as three numbers, the way `grid::Kept::codes`
-/// gives a slot's: which of the four, then what.
-fn item_codes(item: &bims::combat::Item) -> (u64, u64, u64) {
+/// One thing of the armory: which of the three, what it is, and a
+/// piece's id and health.
+fn eat_item(hash: &mut Fnv, item: &bims::combat::Item) {
     use bims::combat::Item;
     match item {
-        Item::Armour(piece) => (0, piece.kind.code() as u64, piece.tier.code() as u64),
-        Item::Weapon(weapon) => (1, weapon.kind.code() as u64, weapon.tier.code() as u64),
-        Item::Stack(code) => (2, *code as u64, 0),
-        Item::Key(tier) => (3, u64::from(*tier), 0),
-    }
-}
-
-/// A grid — one of the hold's — whole: every slot,
-/// what it holds and how many, where it lies and which way round, and
-/// the next id — integers throughout.
-fn eat_grid(hash: &mut Fnv, grid: &crate::grid::Grid) {
-    hash.eat(grid.next as u64);
-    hash.eat(grid.slots.len() as u64);
-    for slot in &grid.slots {
-        hash.eat(slot.id as u64);
-        let (kind, a, b) = slot.kept.codes();
-        hash.eat(kind);
-        hash.eat(a);
-        hash.eat(b);
-        hash.eat(slot.count as u64);
-        hash.eat(slot.x as u64);
-        hash.eat(slot.y as u64);
-        hash.eat(u64::from(slot.turned));
+        Item::Armour(piece) => {
+            hash.eat(0);
+            hash.eat(piece.id as u64);
+            hash.eat(piece.kind.code() as u64);
+            hash.eat(piece.tier.code() as u64);
+            hash.eat_rounded(piece.health as f64, HEALTH_GRID);
+        }
+        Item::Weapon(weapon) => {
+            hash.eat(1);
+            hash.eat(weapon.kind.code() as u64);
+            hash.eat(weapon.tier.code() as u64);
+        }
+        Item::Stack(code) => {
+            hash.eat(2);
+            hash.eat(*code as u64);
+        }
     }
 }

@@ -1,7 +1,7 @@
 //! Arms, armour, and the shots in the air.
 //!
 //! Every Bim carries a [`Gear`]: three armour slots, a weapon slot with
-//! the hand laser everybody is issued, and a nine-cell pack. A Bim under orders
+//! the hand laser everybody is issued, and its charges. A Bim under orders
 //! — recruited — is in **combat mode**: it draws the weapon and, whenever
 //! an enemy is in range and in its own line of sight (`crate::sight`, the
 //! peek round a wall included), fires. The shot is a [`Bolt`]: a thing
@@ -90,11 +90,13 @@
 //! what is left drains the piece's own **health** first — only what the
 //! piece cannot take reaches the body and opens a wound (`Game::wound`).
 //! At nothing the piece is **broken**: still worn, still drawn, doing
-//! nothing. A piece keeps its damage wherever it goes — into the pack, the
-//! hold, another Bim — which is why it has an `id` and is carried about
-//! as an [`Item`] rather than counted. The world keeps the pieces in the
-//! hold; the room keeps the ones on a body (`Gear::pack`, the three
-//! slots), because the room's health reads them.
+//! nothing — for the rest of the mission, since the world makes every piece
+//! whole again at the next one (task 113). A piece keeps its damage
+//! wherever it goes — the armory, another Bim — which is why it has an
+//! `id` and is moved about as an [`Item`] rather than counted. The world
+//! keeps the pieces nobody wears in the ship's armory; the room keeps the
+//! ones on a body (`Gear`'s three slots), because the room's health reads
+//! them.
 //!
 //! # Accuracy and damage are two points and a line
 //!
@@ -242,7 +244,7 @@ impl WeaponKind {
     ];
 
     /// The arms that are part of a machine (feature 83): never made,
-    /// never bought, never in a hold or a pack. [`WeaponKind::resource`]
+    /// never bought, never in the armory or a slot. [`WeaponKind::resource`]
     /// is `None` for each, which is what keeps them out of everything
     /// the hold does.
     pub const BUILT_IN: [WeaponKind; 3] =
@@ -270,8 +272,8 @@ impl WeaponKind {
     }
 
     /// Whether a body can carry one: false for a droid's built-in arms,
-    /// which is the one thing keeping them out of the hold, the bench, a
-    /// pack and a loot.
+    /// which is the one thing keeping them out of the armory and the
+    /// trade.
     pub fn carried(self) -> bool {
         WeaponKind::ALL.contains(&self)
     }
@@ -386,8 +388,8 @@ impl Tier {
     }
 }
 
-/// A weapon: what it is and how good. What a hand holds, a pack carries,
-/// the hold's list keeps, and a shot or a bolt was fired from. A weapon
+/// A weapon: what it is and how good. What a hand holds, the ship's
+/// armory keeps, and a shot or a bolt was fired from. A weapon
 /// has no wear and no id — two pistols of a tier are the same pistol —
 /// which is why it is a value and a piece of armour is an instance.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -986,235 +988,50 @@ impl Piece {
 }
 
 /// `ResourceId::Bandage`'s code, said here because this crate does not
-/// know `physics` and the room spends a dressing out of a pack itself
+/// know `physics` and the room spends a dressing off a body itself
 /// (feature 87). Pinned against the real one by the world's tests.
 pub const BANDAGE_CODE: u32 = 5;
 
-/// How many dressings are in one box — one pack cell, one footprint of a
-/// locker (`economy::stack_size(Bandage)`).
-pub const BANDAGES_A_BOX: u32 = 5;
-
-/// One thing in a pack cell: a piece of armour, a weapon, a stack of a
-/// resource by its `ResourceId` code (a bandage, a medkit — the world
-/// knows what the number is; the room only carries it), or a research
-/// key of a tier, which is the one thing that takes more than a cell.
-/// How many are in the stack is the *cell's* (`Gear::count`), not the
-/// item's, so two cells of dressings are the same `Item`.
+/// A thing of the crew's, as the room holds it: a piece of armour, a
+/// weapon, or a **charge** by its `ResourceId` code — a medkit, a dressing,
+/// an engineer's kit, a grenade (the world knows what the number is; the
+/// room only counts it). A piece or a weapon is worn or held
+/// ([`Gear`]'s slots); a charge is a count on the body
+/// ([`Gear::charges`]) and never a thing lying anywhere (task 113: nothing
+/// is carried in a pack any more).
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Item {
     Armour(Piece),
     Weapon(Weapon),
     Stack(u32),
-    /// A research key of that tier: two cells tall in the pack — it is
-    /// kept in the upper one and the cell under it is its tail — and
-    /// nothing a body wears or holds. The world knows what it opens.
-    Key(u8),
 }
 
-impl Item {
-    /// How many cells of a pack it covers, rows by columns, unturned: the
-    /// footprint the world lays it on the lockers' grid by
-    /// (`economy::footprint`), said again here by resource code since this
-    /// crate does not know `physics` — a pistol a row of two, a sniper
-    /// rifle a row of ten, a vest four by four, a key two tall — and
-    /// pinned against that table by the world's tests.
-    pub fn footprint(&self) -> (u8, u8) {
-        let code = match self {
-            Item::Armour(piece) => piece.kind.resource(),
-            // A built-in arm is never an item, so it never has a
-            // footprint; the sentinel is no resource code at all, and
-            // `no_built_in_arm_is_ever_a_thing` is what holds it.
-            Item::Weapon(weapon) => weapon.kind.resource().unwrap_or(u32::MAX),
-            Item::Stack(code) => *code,
-            Item::Key(_) => return (2, 1),
-        };
-        match code {
-            // A crate of vegetables, a block of tofu.
-            0 => (1, 2),
-            1 => (4, 4),
-            // The pressure suit, folded.
-            2 => (3, 3),
-            // The pistol.
-            3 => (1, 2),
-            // A medkit, and a box of dressings beside it (feature 87).
-            4 | 5 => (2, 2),
-            // The helm, the kevlar, the leg guards.
-            6 => (2, 4),
-            7 => (4, 4),
-            8 => (3, 2),
-            // The shotgun, the auto rifle, the sniper rifle, the schword.
-            9 => (2, 5),
-            10 => (1, 7),
-            11 => (1, 10),
-            12 => (1, 5),
-            // An engineer's sandbag kit, and its sentry's crate.
-            15 => (2, 2),
-            16 => (2, 3),
-            _ => (1, 1),
-        }
-    }
+/// How many resource codes a body keeps a charge count for: every
+/// `ResourceId` code is under it, which a world test pins.
+pub const CHARGE_CODES: usize = 24;
 
-    /// How many of it go in one pack cell — one footprint's worth
-    /// (`economy::stack_size`, said again here by resource code the way
-    /// [`Item::footprint`] is, and pinned against that table by the
-    /// world's tests). One for everything but a box of dressings, which
-    /// holds [`BANDAGES_A_BOX`] (feature 87): the materials and the food
-    /// stack on a shelf but never in a pack, since nobody walks about
-    /// with ten blocks of tofu on their back.
-    pub fn stack_limit(&self) -> u32 {
-        match self {
-            Item::Stack(BANDAGE_CODE) => BANDAGES_A_BOX,
-            _ => 1,
-        }
-    }
-
-    /// Whether two things go in the same cell: the same stackable thing.
-    pub fn stacks_with(&self, other: Item) -> bool {
-        *self == other && self.stack_limit() > 1
-    }
-
-    /// How many rows it takes unturned — what a desk's slot asks of a key.
-    pub fn rows(&self) -> usize {
-        self.footprint().0 as usize
-    }
-
-    /// Its footprint as laid, turned a quarter or not.
-    pub fn laid(&self, turned: bool) -> (usize, usize) {
-        let (rows, cols) = self.footprint();
-        if turned {
-            (cols as usize, rows as usize)
-        } else {
-            (rows as usize, cols as usize)
-        }
-    }
-}
-
-/// How many cells a Bim's pack has: ten across by five down, laid out the way the
-/// lockers are — a thing over its footprint, turned if it is turned —
-/// and addressed by the cell its top-left corner is in.
-pub const PACK_CELLS: usize = PACK_COLS * PACK_ROWS;
-/// How many across, which is what a row down is offset by.
-pub const PACK_COLS: usize = 10;
-pub const PACK_ROWS: usize = 5;
-
-/// How many cells a body shows when it is looted: the pack's fifty, then
-/// the three worn pieces and the weapon in hand — see [`LootCell`].
-pub const LOOT_CELLS: usize = PACK_CELLS + 4;
-
-/// One cell of what a body shows when it is looted, in the order the Loot
-/// window lays them out: the fifty of its pack, then the head, the body,
-/// the legs and the weapon in hand. `code()` is that order — 0..49 the
-/// pack, then 50, 51, 52, 53 — which is what a `Command::Loot` names.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum LootCell {
-    Pack(u8),
-    Head,
-    Body,
-    Legs,
-    Weapon,
-}
-
-impl LootCell {
-    pub fn code(self) -> u32 {
-        match self {
-            LootCell::Pack(cell) => cell as u32,
-            LootCell::Head => PACK_CELLS as u32,
-            LootCell::Body => PACK_CELLS as u32 + 1,
-            LootCell::Legs => PACK_CELLS as u32 + 2,
-            LootCell::Weapon => PACK_CELLS as u32 + 3,
-        }
-    }
-
-    pub fn from_code(code: u32) -> Option<LootCell> {
-        match code {
-            c if (c as usize) < PACK_CELLS => Some(LootCell::Pack(c as u8)),
-            c if c == PACK_CELLS as u32 => Some(LootCell::Head),
-            c if c == PACK_CELLS as u32 + 1 => Some(LootCell::Body),
-            c if c == PACK_CELLS as u32 + 2 => Some(LootCell::Legs),
-            c if c == PACK_CELLS as u32 + 3 => Some(LootCell::Weapon),
-            _ => None,
-        }
-    }
-}
-
-/// What one Bim has on it: three armour slots, top to bottom, the weapon
-/// in its hand, and the pack on its back — ten by five cells, indexed
-/// row by row, each thing kept in the cell its top-left corner is in and
-/// reaching over the rest of its footprint ([`Item::footprint`]), turned
-/// a quarter round if `turned` says so for that cell.
-#[derive(Clone, Copy, PartialEq, Debug)]
+/// What one Bim has on it — its **loadout** (task 113): three armour
+/// slots, top to bottom, the weapon in its hand, and how many of each
+/// charge it has left. That is everything a body carries: there is no
+/// pack, and nothing is picked up, dropped or looted.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Gear {
     pub head: Option<Piece>,
     pub body: Option<Piece>,
     pub legs: Option<Piece>,
     pub weapon: Option<Weapon>,
-    #[cfg_attr(feature = "serde", serde(with = "pack_cells"))]
-    pub pack: [Option<Item>; PACK_CELLS],
-    /// Which way round the thing kept in each cell lies; `false` where
-    /// nothing is kept.
-    #[cfg_attr(feature = "serde", serde(with = "pack_cells"))]
-    pub turned: [bool; PACK_CELLS],
-    /// How many are in each cell's stack (feature 87), up to the item's
-    /// [`Item::stack_limit`] — five dressings in a box, one of
-    /// everything else. **Nought reads as one**: every cell filled
-    /// before there were stacks says nought there, and so does every
-    /// `pack[cell] = Some(item)` written by hand, so ask
-    /// [`Gear::units`] rather than this.
-    #[cfg_attr(feature = "serde", serde(with = "pack_cells"))]
-    pub count: [u32; PACK_CELLS],
-}
-
-/// The pack's two arrays in a save: serde derives nothing for an array
-/// past thirty-two, so they go as a list and come back checked for length.
-#[cfg(feature = "serde")]
-mod pack_cells {
-    use serde::de::Error;
-    use serde::{Deserialize, Serialize};
-
-    pub fn serialize<T: serde::Serialize, S: serde::Serializer, const N: usize>(
-        cells: &[T; N],
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        cells[..].serialize(s)
-    }
-
-    pub fn deserialize<
-        'de,
-        T: serde::Deserialize<'de>,
-        D: serde::Deserializer<'de>,
-        const N: usize,
-    >(
-        d: D,
-    ) -> Result<[T; N], D::Error> {
-        let cells: Vec<T> = Vec::deserialize(d)?;
-        let len = cells.len();
-        cells
-            .try_into()
-            .map_err(|_| D::Error::custom(format!("a pack of {len} cells, not {N}")))
-    }
-}
-
-// By hand: an array past thirty-two has no `Default` of its own.
-impl Default for Gear {
-    fn default() -> Gear {
-        Gear {
-            head: None,
-            body: None,
-            legs: None,
-            weapon: None,
-            pack: [None; PACK_CELLS],
-            turned: [false; PACK_CELLS],
-            count: [0; PACK_CELLS],
-        }
-    }
+    /// How many of each charge the body has, by the charge's resource
+    /// code: a medkit, the dressings, an engineer's kits, a grenade. The
+    /// world sets them at a mission's start and fills them on their
+    /// cooldowns; the room spends a dressing and a medkit itself.
+    pub charges: [u32; CHARGE_CODES],
 }
 
 impl Gear {
-    /// What everybody is issued: nothing to wear, a hand laser, and an
-    /// empty pack.
+    /// What everybody is issued: nothing to wear, a hand laser, and no
+    /// charges.
     pub fn issued() -> Gear {
         Gear {
             weapon: Some(WeaponKind::LaserPistol.basic()),
@@ -1360,244 +1177,51 @@ impl Gear {
         Part::ALL.iter().map(|&p| self.part_bonus(p)).sum()
     }
 
-    /// Whether a cell has something in it — its own, or a cell of a
-    /// thing kept in another cell that reaches over it.
-    pub fn occupied(&self, cell: usize) -> bool {
-        if cell >= PACK_CELLS {
-            return true;
-        }
-        self.pack[cell].is_some() || self.head_of(cell) != cell
-    }
-
-    /// The cell a thing over `cell` is kept in: `cell` itself, or the
-    /// top-left cell of the thing that reaches over it.
-    pub fn head_of(&self, cell: usize) -> usize {
-        if cell >= PACK_CELLS || self.pack[cell].is_some() {
-            return cell;
-        }
-        (0..PACK_CELLS)
-            .find(|&head| {
-                self.pack[head].is_some_and(|item| covers(head, item.laid(self.turned[head]), cell))
-            })
-            .unwrap_or(cell)
-    }
-
-    /// Whether `item` would lie with its top-left corner in `cell`, turned
-    /// or not: every cell of it on the grid — a footprint does not wrap
-    /// round the edge onto the next row — and free, bar the cells of the
-    /// thing kept in `ignoring`, which is the one being moved.
-    pub fn fits_turned(
-        &self,
-        cell: usize,
-        item: Item,
-        turned: bool,
-        ignoring: Option<usize>,
-    ) -> bool {
-        let (rows, cols) = item.laid(turned);
-        let (x, y) = (cell % PACK_COLS, cell / PACK_COLS);
-        if x + cols > PACK_COLS || y + rows > PACK_ROWS {
-            return false;
-        }
-        for r in y..y + rows {
-            for c in x..x + cols {
-                let at = r * PACK_COLS + c;
-                let head = self.head_of(at);
-                if (self.pack[at].is_some() || head != at) && Some(head) != ignoring {
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
-    /// Whether `item` would go into `cell` as it is, unturned.
-    pub fn fits(&self, cell: usize, item: Item) -> bool {
-        self.fits_turned(cell, item, false, None)
-    }
-
-    /// The way round `item` would lie at `cell`, if either: unturned first.
-    pub fn fit_at(&self, cell: usize, item: Item) -> Option<bool> {
-        [false, true]
-            .into_iter()
-            .find(|&turned| self.fits_turned(cell, item, turned, None))
-    }
-
-    /// The first place `item` fits — row by row from the top left, the
-    /// whole pack unturned before any of it turned, the way the lockers
-    /// are laid — and which way round.
-    pub fn first_fit(&self, item: Item) -> Option<(usize, bool)> {
-        for turned in [false, true] {
-            if turned && item.footprint().0 == item.footprint().1 {
-                break;
-            }
-            if let Some(cell) = (0..PACK_CELLS).find(|&c| self.fits_turned(c, item, turned, None)) {
-                return Some((cell, turned));
-            }
-        }
-        None
-    }
-
-    /// The first empty pack cell — for a one-cell item.
-    pub fn free_cell(&self) -> Option<usize> {
-        (0..PACK_CELLS).find(|&c| !self.occupied(c))
-    }
-
-    /// The first cell `item` would go into, the whole of it.
-    pub fn free_cell_for(&self, item: Item) -> Option<usize> {
-        self.first_fit(item).map(|(cell, _)| cell)
-    }
-
-    /// How many are in the cell's stack: nought for an empty cell, and
-    /// **one wherever something is kept and the count was never set** —
-    /// see [`Gear::count`].
-    pub fn units(&self, cell: usize) -> u32 {
-        let head = self.head_of(cell);
-        match self.pack.get(head) {
-            Some(Some(_)) => self.count.get(head).copied().unwrap_or(0).max(1),
-            _ => 0,
-        }
-    }
-
-    /// How many more of `item` that cell would take: nought unless it
-    /// holds the same stackable thing (feature 87).
-    pub fn room_in(&self, cell: usize, item: Item) -> u32 {
-        match self.pack.get(cell) {
-            Some(Some(kept)) if kept.stacks_with(item) => {
-                item.stack_limit().saturating_sub(self.units(cell))
-            }
-            _ => 0,
-        }
-    }
-
-    /// The cell a stack of `item` would be topped up into: the first one
-    /// holding the same thing with room left. `None` for a thing that
-    /// does not stack, or one with no half-full cell to join.
-    pub fn stack_with_room(&self, item: Item) -> Option<usize> {
-        (item.stack_limit() > 1)
-            .then(|| (0..PACK_CELLS).find(|&c| self.room_in(c, item) > 0))
-            .flatten()
-    }
-
-    /// Lay `item` with its corner in `cell`, the way round it fits —
-    /// unturned if it can. `false`, and nothing changed, when it would
-    /// not lie there. One of it: [`Gear::put_many`] lays a stack.
-    pub fn put(&mut self, cell: usize, item: Item) -> bool {
-        self.put_many(cell, item, 1)
-    }
-
-    /// [`Gear::put`] with a count: `n` of `item` in the cell, capped at
-    /// what the thing stacks to. A cell that already holds the same
-    /// stackable thing is **topped up** rather than refused, as far as
-    /// it goes.
-    pub fn put_many(&mut self, cell: usize, item: Item, n: u32) -> bool {
-        if cell >= PACK_CELLS || n == 0 {
-            return false;
-        }
-        if self.room_in(cell, item) > 0 {
-            self.count[cell] = self.units(cell) + n.min(self.room_in(cell, item));
-            return true;
-        }
-        let Some(turned) = self.fit_at(cell, item) else {
-            return false;
-        };
-        self.pack[cell] = Some(item);
-        self.turned[cell] = turned;
-        self.count[cell] = n.min(item.stack_limit());
-        true
-    }
-
-    /// Take the thing kept in `cell`, or reaching over it, out of the
-    /// pack — the **whole** stack, however many are in it.
-    pub fn take_out(&mut self, cell: usize) -> Option<Item> {
-        let head = self.head_of(cell);
-        let item = self.pack.get_mut(head)?.take()?;
-        self.turned[head] = false;
-        self.count[head] = 0;
-        Some(item)
-    }
-
-    /// Take **one** out of the cell's stack, the cell emptied when it was
-    /// the last (feature 87): what spending a dressing does.
-    pub fn take_one(&mut self, cell: usize) -> Option<Item> {
-        let head = self.head_of(cell);
-        let item = (*self.pack.get(head)?)?;
-        match self.units(head) {
-            0 => None,
-            1 => self.take_out(head),
-            many => {
-                self.count[head] = many - 1;
-                Some(item)
-            }
-        }
-    }
-
-    /// Move the thing kept in `cell` so its corner is in `to`, turned or
-    /// not — a drag across the pack. `false`, and nothing moved, when it
-    /// would not lie there or there is nothing in `cell`.
-    pub fn rearrange(&mut self, cell: usize, to: usize, turned: bool) -> bool {
-        let head = self.head_of(cell);
-        let Some(item) = self.pack.get(head).copied().flatten() else {
-            return false;
-        };
-        if to >= PACK_CELLS {
-            return false;
-        }
-        // Onto a cell holding the same stackable thing: the two stacks
-        // are poured together as far as the limit, and whatever is left
-        // stays where it was (feature 87). Asked before `fits_turned`,
-        // which would refuse a cell with something already in it.
-        if self.room_in(to, item) > 0 && to != head {
-            let room = self.room_in(to, item);
-            let moved = self.units(head).min(room);
-            self.count[to] = self.units(to) + moved;
-            let left = self.units(head) - moved;
-            if left == 0 {
-                self.pack[head] = None;
-                self.turned[head] = false;
-                self.count[head] = 0;
-            } else {
-                self.count[head] = left;
-            }
-            return true;
-        }
-        if !self.fits_turned(to, item, turned, Some(head)) {
-            return false;
-        }
-        let units = self.units(head);
-        self.pack[head] = None;
-        self.turned[head] = false;
-        self.count[head] = 0;
-        self.pack[to] = Some(item);
-        self.turned[to] = turned;
-        self.count[to] = units;
-        true
-    }
-
-    /// How many of `item` are in the pack all told — every cell's stack
-    /// added up. What says whether a Bim has a dressing on it.
+    /// How many of a charge the body has left.
     pub fn units_of(&self, item: Item) -> u32 {
-        (0..PACK_CELLS)
-            .filter(|&c| self.pack[c] == Some(item))
-            .map(|c| self.units(c))
-            .sum()
+        match item {
+            Item::Stack(code) => self.charges.get(code as usize).copied().unwrap_or(0),
+            _ => 0,
+        }
     }
 
-    /// The cell one of `item` would be spent out of: the **emptiest**
-    /// stack, so the pack is tidied by using it rather than left with
-    /// part-boxes everywhere.
-    pub fn stack_to_spend(&self, item: Item) -> Option<usize> {
-        (0..PACK_CELLS)
-            .filter(|&c| self.pack[c] == Some(item))
-            .min_by_key(|&c| self.units(c))
+    /// Put `n` more of a charge on the body; how many went on (nought
+    /// for a thing that is not a charge).
+    pub fn add(&mut self, item: Item, n: u32) -> u32 {
+        match item {
+            Item::Stack(code) => match self.charges.get_mut(code as usize) {
+                Some(have) => {
+                    *have = have.saturating_add(n);
+                    n
+                }
+                None => 0,
+            },
+            _ => 0,
+        }
     }
-}
 
-/// Whether a thing kept in `head`, covering `laid` (rows, columns), reaches
-/// over `cell`.
-fn covers(head: usize, (rows, cols): (usize, usize), cell: usize) -> bool {
-    let (hx, hy) = (head % PACK_COLS, head / PACK_COLS);
-    let (x, y) = (cell % PACK_COLS, cell / PACK_COLS);
-    x >= hx && x < hx + cols && y >= hy && y < hy + rows
+    /// Spend one of a charge: `false` with none left.
+    pub fn spend(&mut self, item: Item) -> bool {
+        match item {
+            Item::Stack(code) => match self.charges.get_mut(code as usize) {
+                Some(have) if *have > 0 => {
+                    *have -= 1;
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Leave exactly `n` of a charge on the body.
+    pub fn set_units(&mut self, item: Item, n: u32) {
+        if let Item::Stack(code) = item
+            && let Some(have) = self.charges.get_mut(code as usize)
+        {
+            *have = n;
+        }
+    }
 }
 
 /// What a resident is issued, by the odds: the shares add to one, and
@@ -3927,95 +3551,27 @@ mod tests {
         (body, peek)
     }
 
-    /// The pack is a grid things lie on over their footprint, kept by
-    /// their top-left cell: a key stands two tall, a rifle lies seven
-    /// along — and cannot stand, seven tall in five rows — a schword
-    /// stands, turned, when only that fits, a cell reached over answers
-    /// to the thing's corner, and nothing lies off the edge or over
-    /// anything else.
+    /// A body's charges are counts (task 113): added, spent one at a
+    /// time and set outright, nought for a thing that is not a charge,
+    /// and nothing is lost off the end.
     #[test]
-    fn a_thing_lies_over_its_footprint_and_a_piece_is_cut_for_one_part() {
-        // --- a_thing_lies_over_its_footprint_and_turns_to_fit ---
+    fn a_charge_is_a_count_on_the_body_and_a_piece_is_cut_for_one_part() {
+        // --- a_charge_is_a_count_on_the_body ---
         {
             let mut gear = Gear::issued();
-            let key = Item::Key(1);
+            let bandage = Item::Stack(BANDAGE_CODE);
             let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
-            let schword = Item::Weapon(WeaponKind::Schword.basic());
-            let bandage = Item::Stack(5);
-            let bottom = (PACK_ROWS - 1) * PACK_COLS;
-            assert_eq!(key.rows(), 2);
-            assert_eq!(key.footprint(), (2, 1));
-            assert_eq!(rifle.footprint(), (1, 7));
-            assert_eq!(rifle.laid(true), (7, 1));
-            assert_eq!(schword.footprint(), (1, 5));
-            // A box of dressings is a medkit's square since feature 87.
-            assert_eq!(bandage.footprint(), (2, 2));
-            assert!(gear.fits(0, key));
-            assert!(
-                !gear.fits(bottom, key),
-                "the bottom row has nothing under it"
-            );
-            assert!(gear.fits(0, rifle), "along the top row");
-            assert!(
-                !gear.fits(4, rifle),
-                "a footprint does not wrap onto the next row"
-            );
-            assert_eq!(
-                gear.fit_at(PACK_COLS - 1, rifle),
-                None,
-                "nor stands: seven tall in five rows"
-            );
-            assert_eq!(gear.free_cell_for(key), Some(0));
-            assert!(gear.put(0, key));
-            assert!(gear.occupied(0));
-            assert!(gear.occupied(PACK_COLS), "the cell under it");
-            assert!(!gear.occupied(2 * PACK_COLS));
-            assert_eq!(gear.head_of(PACK_COLS), 0);
-            assert_eq!(gear.head_of(2 * PACK_COLS), 2 * PACK_COLS);
-            assert_eq!(gear.free_cell(), Some(1));
-            assert!(
-                !gear.fits(PACK_COLS, bandage),
-                "nothing goes where a thing reaches"
-            );
-            // The rifle lies along the top row beside the key; the schword,
-            // put at the last column where it cannot lie, stands — turned,
-            // down to the bottom.
-            assert_eq!(gear.first_fit(rifle), Some((1, false)));
-            assert!(gear.put(1, rifle));
-            assert!(gear.occupied(7));
-            assert_eq!(gear.head_of(7), 1);
-            let last = PACK_COLS - 1;
-            assert_eq!(gear.fit_at(last, schword), Some(true));
-            assert!(gear.put(last, schword));
-            assert!(gear.turned[last]);
-            assert!(gear.occupied(last + bottom), "down to the bottom");
-            assert_eq!(gear.head_of(last + 2 * PACK_COLS), last);
-            // Moved back to lie along a row, unturned; and refused over the key.
-            assert!(gear.rearrange(last + 2 * PACK_COLS, 2 * PACK_COLS, false));
-            assert!(!gear.turned[2 * PACK_COLS]);
-            assert!(gear.pack[last].is_none() && !gear.occupied(last + bottom));
-            assert!(!gear.rearrange(2 * PACK_COLS, 0, false));
-            assert!(
-                !gear.rearrange(2 * PACK_COLS, PACK_COLS + 1, true),
-                "off the bottom"
-            );
-            assert!(
-                gear.rearrange(2 * PACK_COLS, 2 * PACK_COLS, false),
-                "where it is"
-            );
-            assert_eq!(
-                gear.take_out(2 * PACK_COLS + 4),
-                Some(schword),
-                "by any of its cells"
-            );
-            assert!(!gear.occupied(2 * PACK_COLS));
-            // A square thing is never turned to fit: the two cells past the
-            // rifle are too few, so it goes on the second row beside the key.
-            let suit = Item::Stack(2);
-            assert_eq!(suit.footprint(), (3, 3));
-            assert_eq!(gear.first_fit(suit), Some((PACK_COLS + 1, false)));
-            assert_eq!(PACK_COLS * PACK_ROWS, PACK_CELLS);
-            assert_eq!(PACK_CELLS, 50);
+            assert_eq!(gear.units_of(bandage), 0);
+            assert!(!gear.spend(bandage));
+            assert_eq!(gear.add(bandage, 7), 7);
+            assert_eq!(gear.units_of(bandage), 7);
+            assert!(gear.spend(bandage));
+            assert_eq!(gear.units_of(bandage), 6);
+            gear.set_units(bandage, 2);
+            assert_eq!(gear.units_of(bandage), 2);
+            assert_eq!(gear.add(rifle, 1), 0, "a gun is no charge");
+            assert_eq!(gear.units_of(rifle), 0);
+            assert_eq!(gear.add(Item::Stack(CHARGE_CODES as u32), 1), 0);
         }
 
         // --- a_piece_is_cut_for_one_part_and_does_nothing_once_broken ---
@@ -4031,7 +3587,6 @@ mod tests {
 
             let mut gear = Gear::issued();
             assert_eq!(gear.armour_health(), 0.0);
-            assert_eq!(gear.free_cell(), Some(0));
             let vest = Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
             *gear.worn_mut(Part::Body) = Some(vest);
             assert_eq!(gear.worn(Part::Body), Some(vest));
@@ -4262,9 +3817,9 @@ mod tests {
     }
 
     /// Feature 83: a droid's arms are part of the machine. Nothing may
-    /// make one, buy one, hold one, stow one or loot one, and the one
-    /// thing that holds all of that is `resource()` being `None` — the
-    /// hold, the bench, the pack and the shelves all go by the resource.
+    /// make one, buy one or hold one, and the one thing that holds all
+    /// of that is `resource()` being `None` — the armory and the trade
+    /// go by the resource.
     #[test]
     fn no_built_in_arm_is_ever_a_thing() {
         for kind in WeaponKind::BUILT_IN {
@@ -4550,7 +4105,7 @@ mod tests {
             } else {
                 assert_eq!(gear.armour_health(), 0.0, "nothing to wear");
             }
-            assert!(gear.pack.iter().all(|c| c.is_none()));
+            assert!(gear.charges.iter().all(|&n| n == 0));
             seen[weapon.kind.code() as usize - 1] += 1;
             assert_eq!(
                 Gear::issued_for(seed).weapon,

@@ -1,7 +1,7 @@
 //! The run's loop (feature 103): world map → travel → mission → back to
 //! ship → world map. Travel resolved in one go, the world clock moving
 //! only with it, a mission's start and end, the bounty waiting on the
-//! site being cleared, death, buyback and the end of a run.
+//! site being cleared, death, the respawn and the end of a run.
 
 use bims::combat::{Gear, WeaponKind};
 use bims::droid::DroidPart;
@@ -494,64 +494,6 @@ fn a_town_left_under_assault_becomes_infested() {
 
 // --- dying ----------------------------------------------------------------------
 
-/// **Buyback** at a mission's start: a dead player's Bim bought back when
-/// the pool can pay, the longest dead first, with no gear and its level
-/// kept; the one the pool cannot pay for stays out and is tried again.
-#[test]
-fn buyback_goes_longest_dead_first_and_a_player_stays_out_when_the_pool_cannot_pay() {
-    let mut world = crewed_world(flyer(2), data::BUYBACK_COST, 3, 3);
-    world.award(1, 400, &mut Vec::new());
-    let level = world.progress_of(1).level();
-    // Slot 2 dies first, then slot 1.
-    world.aboard.room.kill_for_probe(2);
-    world.step(&[]);
-    world.aboard.room.kill_for_probe(1);
-    world.step(&[]);
-    assert!(world.run.is_out(2) && world.run.is_out(1));
-    assert_eq!(world.run.fallen[0].slot, 2, "the longest dead first");
-    assert!(!world.lost, "one player still standing");
-    to_the_map(&mut world);
-    let site = another_site_here(&world);
-    let events = travel_to(&mut world, site);
-    assert!(travelled(&events));
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::BoughtBack { who: 2 }))
-    );
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::StillOut { who: 1 }))
-    );
-    assert!(world.aboard.room.is_alive(2), "bought back");
-    assert!(!world.aboard.room.is_alive(1), "still out");
-    assert!(world.run.is_out(1) && !world.run.is_out(2));
-    assert_eq!(world.money, 0, "the pool paid what it held");
-    let gear = world.aboard.room.gear(2);
-    assert!(gear.weapon.is_none() && gear.head.is_none() && gear.body.is_none());
-    assert!(
-        gear.pack
-            .iter()
-            .flatten()
-            .all(|i| matches!(i, bims::combat::Item::Stack(_))),
-        "nothing in the pack but the charges every body carries"
-    );
-    // Slot 1 is tried again at the next mission, and comes back with its
-    // level.
-    world.money = data::BUYBACK_COST;
-    to_the_map(&mut world);
-    let site = another_site_here(&world);
-    let events = travel_to(&mut world, site);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::BoughtBack { who: 1 }))
-    );
-    assert!(world.aboard.room.is_alive(1));
-    assert_eq!(world.progress_of(1).level(), level, "the level kept");
-}
-
 /// **A bot's death costs the pool**, never below nought, and it is gone
 /// for good when the ship leaves.
 #[test]
@@ -705,10 +647,15 @@ fn the_departure_check_waits_for_standing_players_lists_everyone_outside_and_wan
             "{who} left behind"
         );
     }
+    // The player left behind died there, and is back aboard at the
+    // mission's end, as every dead player is (task 113).
     assert!(
-        world.run.is_out(1),
-        "the player left behind is dead and out"
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Respawned { who: 1, .. })),
+        "the player left behind is back"
     );
+    assert!(!world.run.is_out(1) && world.aboard.room.is_alive(1));
     assert_eq!(world.ship.state, ShipState::Holding);
 }
 

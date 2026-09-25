@@ -123,19 +123,11 @@ fn linked(events: &[WorldEvent], who: u32, patient: Option<u32>) -> bool {
         .any(|e| *e == WorldEvent::Beamed { who, patient })
 }
 
-/// Every medkit out of `who`'s pack and nowhere: what "no kit anywhere"
-/// takes, now that a helper treats with its own before a shelf's.
+/// Every medkit off `who` and nowhere: what "no kit anywhere" takes, now
+/// that a helper treats with its own before a shelf's.
 fn empty_pack_of_kits(world: &mut World, who: usize) {
     let wanted = Item::Stack(ResourceId::Medkit as u32);
-    while let Some(cell) = world
-        .aboard
-        .room
-        .pack(who)
-        .iter()
-        .position(|i| *i == Some(wanted))
-    {
-        assert!(world.aboard.room.take(who, cell).is_some());
-    }
+    world.aboard.room.set_charges(who, wanted, 0);
     world.step(&[]);
 }
 
@@ -455,28 +447,6 @@ fn everybody_carries_a_medkit_and_five_bandages_that_come_back_on_their_cooldown
     // Nothing of it came out of the hold.
     assert_eq!(world.ship.design.carrying(ResourceId::Medkit), kits);
     assert_eq!(world.ship.design.carrying(ResourceId::Bandage), dressings);
-    // And the medicine stays in the pack: a stow of either is refused.
-    for resource in [ResourceId::Medkit, ResourceId::Bandage] {
-        let cell = world
-            .aboard
-            .room
-            .pack(0)
-            .iter()
-            .position(|i| *i == Some(Item::Stack(resource as u32)))
-            .expect("in the pack") as u32;
-        let events = world.step(&[Command::Stow {
-            slot: 0,
-            who: 0,
-            cell,
-        }]);
-        assert!(
-            events.contains(&WorldEvent::Refused {
-                slot: 0,
-                why: Refusal::ChargeKept
-            }),
-            "{resource:?}: {events:?}"
-        );
-    }
     assert_eq!(world.ship.design.carrying(ResourceId::Medkit), kits);
     assert_eq!(world.charges_of(0, Charge::Medkit), class::MEDKIT_CHARGES);
 }

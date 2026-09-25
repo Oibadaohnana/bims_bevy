@@ -550,7 +550,7 @@ pub fn portraits(
 /// player's own; a thin health bar under it; the level under that, or
 /// `out`. A check in the corner while that player is on the way home,
 /// the red cross while it is down.
-fn portrait(ui: &mut egui::Ui, cell: &Portrait) -> Option<PortraitPress> {
+pub fn portrait(ui: &mut egui::Ui, cell: &Portrait) -> Option<PortraitPress> {
     let size = egui::vec2(PORTRAIT_W, PORTRAIT_H + 6.0 + 14.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     let painter = ui.painter();

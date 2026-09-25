@@ -1088,20 +1088,19 @@ impl Session {
         }
     }
 
-    /// Exactly `n` dressings in **every** crew member's pack, for
+    /// Exactly `n` dressings on **every** crew member, for
     /// `BIMS_BANDAGES=n`, with the bandage cooldown started afresh — a
     /// dressing is everybody's charge, so `BIMS_BANDAGES=0` is the whole
     /// wait ahead and the sweep over the bandage box at the foot of the
     /// canvas, and `BIMS_BANDAGES=2` a part box with the next on its way.
-    /// A box holds five, so `BIMS_BANDAGES=7` is a full box beside a
-    /// part one (the cooldown brings nothing over the charges).
+    /// Seven is over the charges, and the cooldown brings nothing more.
     pub fn bandages_for_probe(&mut self, n: u32) {
         if let Some(game) = self.game.as_mut() {
             game.world.set_charges_for_probe(world::Charge::Bandage, n);
         }
     }
 
-    /// Exactly `n` medkits in every crew member's pack, for
+    /// Exactly `n` medkits on every crew member, for
     /// `BIMS_MEDKITS=n`, the medkit cooldown started afresh the same way.
     pub fn medkits_for_probe(&mut self, n: u32) {
         if let Some(game) = self.game.as_mut() {
@@ -1109,7 +1108,7 @@ impl Session {
         }
     }
 
-    /// Exactly `n` of each of the engineer's two kits in every pack
+    /// Exactly `n` of each of the engineer's two kits on everybody
     /// (feature 88), for `BIMS_KITS=n`, with the cooldowns started afresh
     /// — `BIMS_KITS=0` is the one state a scripted run cannot walk itself
     /// into: no charge in hand and the whole wait ahead, which is what
@@ -1120,7 +1119,7 @@ impl Session {
         }
     }
 
-    /// Exactly `n` grenade charges in every pack (feature 90), for
+    /// Exactly `n` grenade charges on everybody (feature 90), for
     /// `BIMS_GRENADES=n`, the cooldown started afresh the same way.
     pub fn grenades_for_probe(&mut self, n: u32) {
         if let Some(game) = self.game.as_mut() {
@@ -1199,7 +1198,7 @@ impl Session {
     /// Put the classes the players chose onto the world as it opens
     /// (`crew_classes`): slot *i* gets what was said for it, through the
     /// same `World::set_class` a `Command::SetClass` goes through, so an
-    /// engineer's kits are in its pack from the first step. Nothing
+    /// engineer's kits are its charges from the first step. Nothing
     /// before the world opens.
     fn class_crew(&mut self) {
         let Some(game) = &mut self.game else {

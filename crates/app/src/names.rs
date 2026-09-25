@@ -265,14 +265,6 @@ pub fn resource_name(id: ResourceId) -> &'static str {
         .unwrap_or("Something")
 }
 
-/// The same off a `ResourceId` code, for an event that carries one.
-pub fn resource_name_by_code(code: u32) -> &'static str {
-    RESOURCE_NAMES
-        .get(code as usize)
-        .copied()
-        .unwrap_or("Something")
-}
-
 /// An equipment tier, by `bims::combat::Tier::code`: what a cell's
 /// tooltip and the workbench's events say. "tier 1" for the baseline,
 /// which no cell says — see [`tier_word`].
@@ -381,31 +373,21 @@ pub fn refusal(why: Refusal) -> &'static str {
     match why {
         Refusal::NotDocked => "not while the ship is away from a station",
         Refusal::Unaffordable => "there is not the money",
-        Refusal::NoRoomAboard => "there is nowhere aboard to put it",
-        Refusal::NotAboard => "there is not that much aboard to sell",
+        Refusal::NotAboard => "there is not that much in the armory to sell",
         Refusal::SumTooBig => "the sum will not go",
         Refusal::NotSoldHere => "this station does not sell that",
         Refusal::WontFit => "that will not go there",
         Refusal::NoSuchSite => "that site is not there any more",
         Refusal::OutOfReach => "it is out of reach — walk over first",
-        Refusal::PackFull => "the pack is full",
-        Refusal::NoRoom => "there is no room for it aboard",
-        Refusal::Broken => "it is broken, and worth nothing put away — discard it",
-        Refusal::NotDown => "nobody on their feet is looted — it is not down any more",
         Refusal::NotForHire => "that is not a mercenary for hire",
         Refusal::NotAtTheDesk => "nobody of yours is at the trading desk — walk over first",
         Refusal::NoMarket => "there is nobody here to sell to",
-        Refusal::NoWorkbench => "there is no workbench aboard to put it on",
-        Refusal::NoPair => {
-            "the bench takes two of a kind at one tier — the same weapon or piece, below tier three"
-        }
-        Refusal::BenchBusy => "the bench is at work on what is on it — wait for the day to finish",
         // A walk ordered on the deck (`Command::Crew`): the room's two
         // refusals.
         Refusal::NoWayThere => "there is no way there at all",
         Refusal::ClassLocked => "a class is chosen before the ship first leaves its berth",
         Refusal::NotAnEngineer => "only an engineer does that",
-        Refusal::NoKit => "there is no such kit in the pack",
+        Refusal::NoKit => "no such kit charge left: the next is still coming back",
         Refusal::NoSentryYet => "a sentry wants the engineer's third level",
         Refusal::CantDeployThere => {
             "that tile will not take it — clear deck floor within reach, not a door, nothing on it"
@@ -414,10 +396,9 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotAPickLevel => "that level has no talent to pick",
         Refusal::LevelNotReached => "that level has not been reached",
         Refusal::AlreadyPicked => "that level's talent is picked, and a pick is never changed",
-        Refusal::NoTalent => "the engineer has not learnt that",
         Refusal::NoClass => "a crew member with no class has no talents to pick",
         Refusal::NotASoldier => "only a soldier does that",
-        Refusal::NoGrenade => "no grenade charge in the pack: the next is still coming back",
+        Refusal::NoGrenade => "no grenade charge left: the next is still coming back",
         Refusal::NoGrenadesYet => "grenades want the soldier's third level",
         Refusal::CoolingDown => "that skill is still cooling down",
         Refusal::OutOfThrowRange => "that tile is out of throwing range",
@@ -447,9 +428,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotEnoughMoney => {
             "there is not enough money left for it — earn some, or call another site off"
         }
-        Refusal::ChargeKept => {
-            "medkits and bandages stay in the pack: they come back there on their own cooldown"
-        }
         Refusal::NoShipyard => "nothing is built onto the ship on a run",
         Refusal::BetweenMissions => "not between missions — choose where to go next",
         Refusal::MidMission => "the map is read-only during a mission — go back to the ship first",
@@ -457,7 +435,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::TooFar => "that is more than one hyperlane hop away — one hop a trip",
         Refusal::NoProposal => "nobody has put a destination to the crew",
         Refusal::NotAsked => "nobody is being asked about leaving",
-        Refusal::PlayerOut => "your Bim is dead — it is bought back at the next mission",
+        Refusal::PlayerOut => "your Bim is dead — it is back when the mission ends",
         Refusal::CannotTravel => "the ship cannot get there — nothing pushes it",
         Refusal::AlreadyHere => "the crew are here — the next trip goes somewhere else",
         Refusal::NoRelicChoice => "there is no relic to choose now",
@@ -465,6 +443,12 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotAPlayer => "only a player's Bim holds a relic",
         Refusal::NoCache => "there is no relic cache here — walk over first",
         Refusal::ChoosingRelic => "the crew are still choosing a relic",
+        Refusal::GearLocked => "gear changes hands between missions — not in one",
+        Refusal::NotYours => {
+            "that is another player's Bim — offer them the thing instead, and they accept it"
+        }
+        Refusal::NoSuchGear => "that thing is not there any more",
+        Refusal::NoOffer => "there is no such offer standing",
     }
 }
 
@@ -863,6 +847,9 @@ pub fn level_line(class: world::Class, level: u8) -> Option<&'static str> {
     Some(match (class, level) {
         (world::Class::Engineer, 1) => "Lays sandbags and packs deployables up.",
         (world::Class::Engineer, 3) => "May set up a sentry.",
+        (world::Class::Engineer, 6) => {
+            "Higher quality armour: what he wears holds more and stops more."
+        }
         (world::Class::Engineer, 7) => "Sentry mark II: its rifle at tier two.",
         (world::Class::Soldier, 1) => "Brace: holds a line, and shoots steadier for it.",
         (world::Class::Soldier, 3) => "May throw grenades.",
@@ -894,6 +881,7 @@ pub fn level_name(class: world::Class, level: u8) -> Option<&'static str> {
     Some(match (class, level) {
         (world::Class::Engineer, 1) => "Sandbags",
         (world::Class::Engineer, 3) => "Sentry",
+        (world::Class::Engineer, 6) => "Higher quality armour",
         (world::Class::Engineer, 7) => "Sentry mark II",
         (world::Class::Soldier, 1) => "Brace",
         (world::Class::Soldier, 3) => "Grenades",
@@ -1017,12 +1005,7 @@ pub fn talent_numbers(talent: world::Talent) -> String {
                 ""
             )
         ),
-        T::Armourer => format!(
-            "{} points back on a piece of armour for €{}, {} game minutes at the workbench",
-            fig(c::ARMOUR_REPAIR_HEALTH as f64),
-            world::deploy::ARMOUR_REPAIR_COST,
-            c::ARMOUR_REPAIR_MINUTES
-        ),
+        T::Armourer => "Retired with the workbench: never offered".to_string(),
         T::BetterArmour => format!(
             "Armour he wears holds {} more and stops {} more of every hit — a basic kevlar's {} becomes {} of protection, and its 20 health absorbs {}",
             pc((c::BETTER_ARMOUR_HEALTH - 1.0) as f64),
@@ -1405,6 +1388,9 @@ pub fn level_numbers(class: world::Class, level: u8) -> Option<String> {
             fig(world::deploy::DEPLOY_SENTRY_MINUTES),
             fig(world::deploy::SENTRY_HEALTH as f64)
         ),
+        // The sixth level's one talent since task 113 took *armourer*
+        // away with the workbench: the same numbers as the pick said.
+        (world::Class::Engineer, 6) => talent_numbers(world::Talent::BetterArmour),
         (world::Class::Engineer, 7) => format!(
             "The sentry's rifle takes the tier-2 factors, where it fired at tier 1: {} tiles of range",
             fig(sentry_range(bims::combat::Tier::Two) as f64)
@@ -1501,8 +1487,6 @@ pub fn class_line(class: world::Class, level: u8, to_next: u32) -> String {
 }
 pub const PICK_PENDING: &str = "A talent to pick:";
 pub const PACK_UP: &str = "Pack up";
-pub const REPAIR: &str = "Repair";
-pub const REPAIR_TIP: &str = "Mend the damaged piece in the first slot for a bar of metal: the armourer's own session at the bench, ten minutes.";
 /// What a deployable on the deck is called, by `world::DeployKind` code,
 /// with what it has left.
 pub const DEPLOYABLE_NAMES: [&str; 2] = ["Sandbags", "Sentry"];
@@ -1760,13 +1744,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Refused { why, .. } => {
             format!("That could not be done — {}.", refusal(why))
         }
-        WorldEvent::Crafted { recipe } => format!("Made {}.", made_name(recipe)),
-        WorldEvent::CraftLost { recipe } => {
-            format!(
-                "Nothing made: the materials for {} were gone.",
-                made_name(recipe)
-            )
-        }
         WorldEvent::SitePlaced { kind, .. } => {
             format!("{} laid out.", part_name(kind))
         }
@@ -1818,19 +1795,11 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 }
             )
         }
-        WorldEvent::Equipped { who: w, kind } => {
-            format!(
-                "{} put on the {}.",
-                who(w),
-                armour_name(Some(kind)).to_lowercase()
-            )
-        }
-        WorldEvent::Stowed { who: w } => format!("{} put it away.", who(w)),
-        // A piece at nothing is still worn and does nothing from now on:
-        // the line is what sends a player to the armoury for another.
+        // A piece at nothing is still worn and does nothing for the rest of
+        // the mission; it is whole again at the next (task 113).
         WorldEvent::PieceBroke { who: w, kind } => {
             format!(
-                "{}'s {} is broken — it stops nothing now.",
+                "{}'s {} is broken — it stops nothing until the next mission.",
                 who(w),
                 armour_name(Some(kind)).to_lowercase()
             )
@@ -1842,14 +1811,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 "{} is locked in melee — no firing until it is clear.",
                 who(w)
             )
-        }
-        // One thing off a body into the pack; whose body by its kind,
-        // `LootSource::code` — a crewmate's, or one of the station's
-        // people's.
-        // Only a crewmate's body is looted: what one of the station's
-        // people had on it is its own.
-        WorldEvent::Looted { who: w, .. } => {
-            format!("{} took something off a crewmate.", who(w))
         }
         WorldEvent::Hired { who: w } => {
             format!("{} signed on — a hired hand, paid by the month.", who(w))
@@ -1864,16 +1825,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::MercenaryLeft { who: w } => format!(
             "{}'s month came round and there was not the money — the hand is owed until it is paid.",
             who(w)
-        ),
-        WorldEvent::UpgradeBegun { resource, tier } => format!(
-            "Two of {} went onto the workbench: one will come off at {}.",
-            resource_name_by_code(resource),
-            tier_name(tier)
-        ),
-        WorldEvent::Upgraded { resource, tier } => format!(
-            "A {} came off the workbench at {}.",
-            resource_name_by_code(resource).to_lowercase(),
-            tier_name(tier)
         ),
         WorldEvent::Jumped { star } => format!("Jumped. The ship is in the system of star {star}."),
         WorldEvent::Infested { star } => format!(
@@ -1935,10 +1886,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             0 => "The sandbags are shot to pieces.".into(),
             _ => "A sentry is shot to pieces.".into(),
         },
-        WorldEvent::Repaired { kind } => format!(
-            "The workbench mended {}.",
-            armour_name(bims::combat::ArmourKind::from_code(kind)).to_lowercase()
-        ),
         WorldEvent::Braced { who: w, on: true } => format!("{} braced.", who(w)),
         WorldEvent::Braced { who: w, on: false } => format!("{} stood easy.", who(w)),
         WorldEvent::Thrown { who: w } => format!("{} threw a grenade.", who(w)),
@@ -2001,15 +1948,25 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::LeftSite { cleared: true, .. } => LEFT_CLEARED.into(),
         WorldEvent::LeftSite { cleared: false, .. } => LEFT_UNCLEARED.into(),
         WorldEvent::LeftBehind { who: w } => format!("{} was left behind.", who(w)),
-        WorldEvent::BoughtBack { who: w } => format!(
-            "{} is bought back for {}.",
+        WorldEvent::Respawned { who: w, paid } => format!(
+            "{} is back aboard with everything it wore. The pool pays {}.",
             who(w),
-            crate::format::euros(world::data::BUYBACK_COST)
+            crate::format::euros(paid)
         ),
-        WorldEvent::StillOut { who: w } => format!(
-            "The pool cannot pay {} to buy {} back.",
-            crate::format::euros(world::data::BUYBACK_COST),
-            who(w)
+        WorldEvent::GearChanged { .. } => GEAR_CHANGED.into(),
+        WorldEvent::GearOffered { from, to, .. } => format!(
+            "{} offers {} a thing: it is theirs when they accept it.",
+            player_name(from),
+            player_name(to)
+        ),
+        WorldEvent::OfferTaken { from, to, .. } => {
+            format!("{} took what {} offered.", player_name(to), player_name(from))
+        }
+        WorldEvent::OfferWithdrawn { from, .. } => {
+            format!("{}'s offer is withdrawn.", player_name(from))
+        }
+        WorldEvent::KeyFound { keys } => format!(
+            "A research key picked up — the crew hold {keys}."
         ),
         WorldEvent::BotLost { who: w, paid } => format!(
             "{} is gone for good. The pool pays {}.",
@@ -2458,13 +2415,32 @@ pub fn with_key(word: &str, key: &str) -> String {
 }
 
 /// The tray's buttons.
-pub const TRAY_STASH: &str = "Stash";
+pub const TRAY_ARMORY: &str = "Armory";
 pub const TRAY_SQUAD: &str = "Squad";
 pub const TRAY_MAP: &str = "Map";
 pub const TRAY_TRADE: &str = "Trade";
 /// The Stash panel.
-pub const STASH_NOTHING: &str = "Nothing on them.";
-pub const STASH_OPEN_PACK: &str = "Open pack";
+// The Armory panel (task 113): every crew member's loadout and the
+// ship's armory, money and keys.
+pub const ARMORY_TITLE: &str = "Armory";
+pub const ARMORY_HOW: &str = "Drag a thing onto a Bim to put it on, or onto the armory to take it off. Yours onto another player's Bim is an offer. Right-click for the same.";
+pub const ARMORY_LOCKED: &str = "Read-only in a mission: gear changes hands between missions.";
+pub const ARMORY_BOT: &str = "bot";
+pub const ARMORY_EMPTY_SLOT: &str = "—";
+pub const ARMORY_TAKE_OFF: &str = "Take off, into the armory";
+pub const ARMORY_OFFER_TO: &str = "Offer to";
+pub const ARMORY_PUT_ON: &str = "Put on";
+pub const ARMORY_OFFERS: &str = "offers:";
+pub const ARMORY_ACCEPT: &str = "Accept";
+pub const ARMORY_DECLINE: &str = "Decline";
+pub const ARMORY_OFFERED_TO: &str = "offered to";
+pub const ARMORY_TAKE_BACK: &str = "Take back";
+pub const ARMORY_STOCK: &str = "The armory";
+pub const ARMORY_NOTHING: &str = "Nothing in the armory.";
+pub const ARMORY_KEY: &str = "research key";
+pub const ARMORY_KEYS: &str = "research keys";
+/// The log's line for a loadout changed between missions.
+pub const GEAR_CHANGED: &str = "Gear changed hands.";
 /// The Squad panel.
 pub const SQUAD_FOLLOWING: &str = "Crew: following you";
 pub const SQUAD_ATTACK: &str = "Attack";
@@ -2638,18 +2614,6 @@ pub fn trauma_after(code: u32) -> &'static str {
     TRAUMA_AFTER.get(code as usize).copied().unwrap_or("")
 }
 
-/// What a recipe makes, in words: "4 components".
-pub fn made_name(recipe: u32) -> String {
-    match shipdesign::RECIPES.get(recipe as usize) {
-        Some(r) => format!(
-            "{} {}",
-            r.output.1,
-            resource_name(r.output.0).to_lowercase()
-        ),
-        None => "something".into(),
-    }
-}
-
 /// What each kind of body is called. Indexed by `worldgen::BodyKind`.
 pub const BODY_KIND_NAMES: [&str; 4] = ["Rocky planet", "Gas giant", "Ice world", "Asteroid belt"];
 
@@ -2809,8 +2773,6 @@ pub const DEATH_OTHER: &str = "Dead.";
 
 pub const PERIL_TIP: &str = "What is taking this Bim down right now, and how long it has at that rate. Blood runs out through every open wound — ten an hour each — and through every untreated trauma that bleeds, and at nothing left the Bim is dead; a medkit ends a trauma, a bandage closes the wounds on a part. The countdown assumes nothing changes — a bandage or a medkit moves it at once.";
 
-pub const BANDAGE_TIP: &str = "A bandage closes every wound on one part of a body — the head, the body or the legs — and stops the bleeding there. Order one here, or right-click a Bim on the deck, and the crew member you steer walks over and dresses it, ten minutes with hands on. The dressing comes out of that Bim's own pack, five to a box: everybody carries five, a medic ten, and each one used comes back into the pack thirty seconds later — the Bandages box at the foot of the screen counts them and sweeps the wait.";
-
 /// Feature 87: the dressings are in the pack, and a box of them has a
 /// row of its own.
 pub const NO_BANDAGE: &str =
@@ -2827,10 +2789,6 @@ pub const BANDAGE_ALL_WHOLE: &str = "nothing open on this Bim";
 /// Why a Bandage row is greyed when the helper cannot do it: the crew
 /// member you steer is dead, out cold, or outside in a suit.
 pub const HELPER_OUT: &str = "not from where the Bim is";
-
-/// What the log says when a right-click on a gun on the deck cannot send
-/// the Bim for it: dead, out cold, outside, or the gun already gone.
-pub const PICK_UP_REFUSED: &str = "Can't pick that up from here.";
 
 /// The greyed line under a fixture menu's rows while the Bim has
 /// something on: a row clicked with Shift held waits its turn behind it
@@ -2849,15 +2807,6 @@ pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in 
 pub const OVER_TITLE: &str = "The crew are down";
 pub const OVER_LINE: &str = "Nobody of the crew is standing. The run is over.";
 pub const OVER_BACK: &str = "Back to the menu";
-
-/// The workbench's window: its title, the button, and the tip on the `?`.
-pub const BENCH_WINDOW: &str = "Workbench";
-pub const UPGRADE_BUTTON: &str = "Upgrade";
-pub const BENCH_TIP: &str = "Two of a kind at the same tier go in the two slots on the left — two pistols, two helms, below tier three — and Upgrade starts a day of work on them; the one that comes out, a tier up, appears in the slot on the right. Ctrl-click a thing in the pack to put it on the bench while this window is up, and Ctrl-click a slot to take what is in it back. Tier two is drawn on blue, tier three on gold, wherever a thing lies. With Combine matching gear ticked on the Management tab the crew carry the pairs over and press the button themselves.";
-/// The words between the slots while the day's work is on.
-pub fn bench_work_line(done: u32, of: u32) -> String {
-    format!("{done} of {of} h")
-}
 
 /// Months of the ship's calendar. Twelve of them and no leap years — see
 /// `crates/game/src/clock.rs`, which does the arithmetic; these are only
@@ -3002,15 +2951,6 @@ pub fn tidy(x: f32) -> String {
     }
 }
 
-fn percent(odds: f32) -> String {
-    format!("{}%", (odds * 100.0).round())
-}
-
-/// "90% to 4 tiles, 60% at 10".
-pub fn accuracy_text(stats: &WeaponStats) -> String {
-    curve_text(stats, percent(stats.accuracy), percent(stats.accuracy_far))
-}
-
 /// "100 to 4 tiles, 60 at 10"; "12 a shot" for a flat curve, "90 a
 /// swing" for a blade.
 pub fn damage_text(stats: &WeaponStats) -> String {
@@ -3094,20 +3034,6 @@ pub fn item_tip(id: ResourceId) -> &'static str {
 /// The research desk's row where a relic cache lies on it (feature 106).
 pub const CACHE_ROW: &str = "Open the relic cache";
 pub const CACHE_ROW_HINT: &str = "walk over and open it — one relic, kept if the site is cleared";
-pub const RESEARCH_WINDOW: &str = "Research desk";
-
-/// The container windows' titles. A workstation's window is named for the
-/// part — the armoury, the drug lab — off `PART_NAMES`; the other two have
-/// no part of their own to be named for.
-pub const STORAGE_WINDOW: &str = "Storage";
-pub const COLD_STORE_WINDOW: &str = "Cold store";
-
-/// The Loot window's title, with the body's name after it, and the menu
-/// row on a body — a dead crew member, or one out cold — that opens it.
-pub const LOOT_WINDOW: &str = "Loot";
-pub const LOOT_ROW: &str = "Loot";
-
-pub const LOOT_TIP: &str = "Everything on the body: the pack on its back, the three pieces it wears with the health they have left, and the weapon in its hand. Ctrl-click a thing to take it into the pack of the Bim shown; right-click for the row. Taking wants the Bim within two tiles of the body — the Loot row walks it over — and a free cell in its pack; a piece comes off the body as it is, broken or not, and a weapon goes into the pack to be equipped from there. Nothing is put onto a body. A crewmate that comes round is no longer a body, and the window shuts.";
 
 /// The Hire window's title, with the mercenary's name after it, the menu
 /// row on a mercenary for hire — one of a friendly station's people in
@@ -3223,17 +3149,9 @@ pub const DEFENSE_TIP: &str = "The machines are coming for this town, and they l
 
 /// The header's word while the crew's alarm is up, and what it means.
 pub const ALARM_STATUS: &str = "To arms — an enemy is near";
-pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws a weapon — out of the pack if the hand is empty — and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
-
-pub const INVENTORY_TIP: &str = "What the Bim has on it: head, body and leg protection down the left, the weapon in hand, and the pack on its back — nine cells, one thing each. Recruited, a Bim is in combat mode — it draws the weapon and shoots at any enemy it can see and reach, leaning out from cover to do it, where half the shots at it miss. A blade within reach locks it in melee: the gun goes quiet and it fights with its fists until one of them is out of reach. Right-click a thing in the pack to put it on, put it away or throw it out; right-click a worn piece to take it off. Ctrl-click moves a thing straight into the open container, or out of one into the pack. Beside each slot is the bleeding on that part of the body, and a Bandage button that sends the crew member you steer to dress it.";
-
-pub const CONTAINER_TIP: &str = "What is in the hold, by where it is kept: each hold is a grid ten across, every part of its kind aboard so many rows of it, and everything kept there laid over the cells it takes — a pistol a row of two, a rifle seven, a sniper rifle the whole width; a vest four by four; a crate of vegetables one by two, a block of tofu four by four — a piece of armour with its health under it. Goods that stack take one footprint a stack, ten ore or twenty components to a cell, with the count in the corner; so what a shelf holds is its cells times the stacks. A thing goes in only where there is a run of cells for it: drag a thing to move it, press the Turn key (R, unless you changed it) while carrying it to turn it a quarter round, and let go where the ghost shows green. The armoury is the lockers, the shelves take materials and anything worn or held, the cold store is the food. Ctrl-click a thing to take one into the pack of the Bim shown; right-click for the rows. The Bim has to be within two tiles: clicking a container walks it over.";
+pub const ALARM_TIP: &str = "An enemy within thirty tiles of anybody or in anybody's sight, or a crew member hit, in the last half minute: every crew member but the one you steer draws its weapon and fights, walking to wherever it can shoot from, until nobody is near, nobody has seen one and nobody has been hit for half a minute — then it goes back to its day, however many of the station's people are still alive somewhere on it. The one you steer is yours: recruit it yourself, or leave it to its errands.";
 
 pub const REACH_HINT: &str = "walk over first — it is out of reach";
-pub const ACCURACY_TIP: &str = "The odds of a shot landing: its best out to the first distance, then falling in a straight line to the second at the weapon's range, beyond which it does not shoot.";
-pub const DAMAGE_TIP: &str = "What a shot takes off the part it lands on, by how far it flew: its best out to the first distance, falling in a straight line to the second at the range. Armour on the part takes it first.";
-pub const FIRE_RATE_TIP: &str = "How often the trigger goes. A burst weapon fires its burst a shot at a time and then recharges for the rest.";
-pub const DPS_TIP: &str = "Damage a second with every shot landing up close: the shots a trigger pull, the fire rate and the damage a shot multiplied.";
 
 #[cfg(test)]
 mod tests {
@@ -3285,7 +3203,7 @@ mod tests {
                 "{words}"
             );
         }
-        for words in [BANDAGE_BOX_TIP, NO_BANDAGE, BANDAGE_TIP] {
+        for words in [BANDAGE_BOX_TIP, NO_BANDAGE] {
             assert!(words.contains("thirty seconds"), "{words}");
         }
     }
@@ -3433,7 +3351,6 @@ mod tests {
                 Refusal::NotAPickLevel,
                 Refusal::LevelNotReached,
                 Refusal::AlreadyPicked,
-                Refusal::NoTalent,
                 Refusal::NoClass,
                 Refusal::NotASoldier,
                 Refusal::NoGrenade,
@@ -3520,7 +3437,6 @@ mod tests {
                 WorldEvent::Deployed { who: 0, kind: 0 },
                 WorldEvent::PackedUp { who: 0, kind: 1 },
                 WorldEvent::DeployableLost { kind: 1 },
-                WorldEvent::Repaired { kind: 1 },
                 WorldEvent::Braced { who: 0, on: true },
                 WorldEvent::Braced { who: 0, on: false },
                 WorldEvent::Thrown { who: 0 },
@@ -3579,14 +3495,6 @@ mod tests {
             assert!(event_line(WorldEvent::CrewHit { who: 0, part: 2 }).is_some());
             assert!(event_line(WorldEvent::CrewDown { who: 0 }).is_some());
             assert!(
-                event_line(WorldEvent::Equipped {
-                    who: 0,
-                    kind: ArmourKind::BasicHelm
-                })
-                .is_some()
-            );
-            assert!(event_line(WorldEvent::Stowed { who: 0 }).is_some());
-            assert!(
                 event_line(WorldEvent::PieceBroke {
                     who: 0,
                     kind: ArmourKind::BasicKevlar
@@ -3594,42 +3502,42 @@ mod tests {
                 .is_some()
             );
             assert!(event_line(WorldEvent::Locked { who: 0 }).is_some());
-            let begun = event_line(WorldEvent::UpgradeBegun {
-                resource: ResourceId::Handgun as u32,
-                tier: 2,
-            })
-            .unwrap();
-            assert!(
-                begun.contains("tier 2") && begun.contains(resource_name(ResourceId::Handgun)),
-                "{begun}"
-            );
-            assert!(
-                event_line(WorldEvent::Upgraded {
-                    resource: ResourceId::Helm as u32,
-                    tier: 3
-                })
-                .is_some()
-            );
-            // A loot is off a crewmate's body.
-            assert!(
-                event_line(WorldEvent::Looted {
-                    who: 0,
-                    source_kind: 0,
-                })
-                .is_some()
-            );
+            // The loadouts' and the armory's (task 113).
+            for event in [
+                WorldEvent::GearChanged { who: 0, part: 2 },
+                WorldEvent::GearOffered {
+                    from: 0,
+                    part: 0,
+                    to: 1,
+                },
+                WorldEvent::OfferTaken {
+                    from: 0,
+                    part: 0,
+                    to: 1,
+                },
+                WorldEvent::OfferWithdrawn {
+                    from: 0,
+                    part: 0,
+                    to: 1,
+                },
+                WorldEvent::KeyFound { keys: 2 },
+                WorldEvent::Respawned {
+                    who: 1,
+                    paid: 5_000,
+                },
+            ] {
+                assert!(event_line(event).is_some(), "{event:?}");
+            }
             // And the refusals a gear command can come back with each say
             // something other than the fallback.
             for why in [
-                Refusal::OutOfReach,
-                Refusal::PackFull,
-                Refusal::NoRoom,
-                Refusal::Broken,
-                Refusal::NotDown,
+                Refusal::GearLocked,
+                Refusal::NotYours,
+                Refusal::NoSuchGear,
+                Refusal::NoOffer,
             ] {
                 assert!(!refusal(why).is_empty());
             }
-            assert!(!LOOT_WINDOW.is_empty() && !LOOT_ROW.is_empty() && !LOOT_TIP.is_empty());
         }
 
         // --- every_part_of_a_body_has_a_name ---
@@ -3710,10 +3618,8 @@ mod tests {
             // real tables: a two-point curve, a flat one, a burst, a blade.
             use bims::combat::WeaponKind;
             let shotgun = WeaponKind::Shotgun.stats();
-            assert_eq!(accuracy_text(&shotgun), "81% to 4 tiles, 54% at 10");
             assert_eq!(damage_text(&shotgun), "60 to 4 tiles, 36 at 10");
             let pistol = WeaponKind::LaserPistol.stats();
-            assert_eq!(accuracy_text(&pistol), "86% up close, 58% at 22 tiles");
             assert_eq!(damage_text(&pistol), "7.2 a shot");
             assert_eq!(fire_rate_text(&pistol), "1.5 a second");
             let rifle = WeaponKind::AutoRifle.stats();
@@ -3742,28 +3648,6 @@ mod tests {
             assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
             for &id in ResourceId::ALL.iter() {
                 assert!(!item_tip(id).is_empty(), "{id:?} has no tip");
-            }
-        }
-
-        // --- the_loot_window_has_a_label_for_every_cell ---
-        {
-            // The Loot window is the pack's nine cells and a row of four under
-            // them labelled off `SLOT_NAMES`, which is how the row's length is
-            // tied to what a body shows.
-            assert_eq!(
-                bims::combat::PACK_CELLS + SLOT_NAMES.len(),
-                bims::combat::LOOT_CELLS
-            );
-            for (i, code) in [
-                bims::combat::LootCell::Head,
-                bims::combat::LootCell::Body,
-                bims::combat::LootCell::Legs,
-                bims::combat::LootCell::Weapon,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                assert_eq!(code.code() as usize, bims::combat::PACK_CELLS + i);
             }
         }
     }

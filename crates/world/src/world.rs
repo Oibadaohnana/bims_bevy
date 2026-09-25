@@ -37,7 +37,7 @@
 //! centre of mass and the inertia without changing the total.
 
 use economy::market::{self, Quote};
-use economy::{Money, Storage, footprint, storage, trade_price};
+use economy::{Money, trade_price};
 use flight::{Dynamics, angle};
 use physics::ResourceId;
 use shipdesign::parts::{PartKind, Rotation};
@@ -45,15 +45,13 @@ use shipdesign::{CARGO_SLOTS, ShipDesign, design_hash};
 use worldgen::math::{DVec2, dvec2};
 use worldgen::{Galaxy, GalaxyType, Node, StarSystem};
 
-use bims::combat::{
-    ArmourKind, Item, LOOT_CELLS, LootCell, PACK_CELLS, Sentry, Tier, Weapon, WeaponKind,
-};
+use bims::combat::{ArmourKind, Item, Sentry, Tier, Weapon, WeaponKind};
 use bims::game::Container;
 use bims::health::Part;
 use bims::order::CrewOrder;
 use bims::sight::Stance;
 
-use crate::armour::{self, FetchKind, LootSource, Piece, Where};
+use crate::armour::{self, LootSource};
 use crate::build::{self, BuildSite, SiteRefusal};
 use crate::class::{self, Charge, Class, Progress, Side, Talent};
 use crate::commander::{Aura, Commander, SquadAsk, SquadKind, SquadOrder};
@@ -64,8 +62,8 @@ use crate::deploy::{self, Deck, DeployKind, Deployable, Kit};
 use crate::droid::{self as droidplan, Infestation};
 use crate::event::{Refusal, WorldEvent};
 use crate::frame::{self, Frame};
-use crate::grid::{Grid, Kept, Wanted};
 use crate::heart;
+use crate::holdings::{self, GearSlot, GearSource, Holdings};
 use crate::jammer;
 use crate::medic::Medic;
 use crate::memory::{self, Grave, Losses, SystemMemory};
@@ -129,14 +127,6 @@ pub enum Command {
         resource: ResourceId,
         units: u32,
     },
-    /// Keep so many of `resource` made — see [`World::set_craft_target`].
-    /// A command rather than a setting because the benches work to it and
-    /// two players' ships have to agree about what the benches are doing.
-    SetCraftTarget {
-        slot: u32,
-        resource: ResourceId,
-        units: u32,
-    },
     /// Lay out a part to be built: a construction site at `origin`, turned
     /// by `rotation`, for the crew to carry the materials to and put
     /// together — see [`crate::build`]. A command because the crew work to
@@ -155,65 +145,42 @@ pub enum Command {
         slot: u32,
         site: u32,
     },
-    /// Put what is in cell `cell` of crew member `who`'s pack into a
-    /// container: the hold's count goes up by one and, for a piece of
-    /// armour, the piece is `Where::Hold` with the health it had. Wants
-    /// the Bim within [`data::REACH`] of a container that takes the thing
-    /// — see [`World::container_takes`] — and room in its class. A broken
-    /// piece is refused; discard it. Commands rather than room orders,
-    /// all six of these, because the hold is the world's and every
-    /// player's ship has to agree about what is in it.
-    Stow {
-        slot: u32,
-        who: u32,
-        cell: u32,
-    },
-    /// Take something out of a container into `who`'s pack: one piece by
-    /// its id, or one unit of a resource — for an armour resource, the
-    /// least damaged piece of that kind. Reach as for a stow, and a free
-    /// cell in the pack.
-    Fetch {
-        slot: u32,
-        who: u32,
-        kind: FetchKind,
-    },
-    /// Put on what is in a pack cell: a piece goes on the part it is cut
-    /// for and what was worn there comes back into the cell; a weapon
-    /// swaps with the hand the same way. Wants no container — it is all
-    /// in the pack already.
+    /// Put a thing on crew member `who`'s loadout (task 113): out of the
+    /// armory by its id, or off another Bim's slot — the slot it goes on
+    /// is the one it is made for, a weapon the hand and a piece its part.
+    /// What was there goes into the armory. Only between missions
+    /// (`Refusal::GearLocked` in one), and only onto — and off — the
+    /// player's own Bim or a bot's (`Refusal::NotYours`): another
+    /// player's Bim is given a thing by [`Command::Offer`].
     Equip {
         slot: u32,
         who: u32,
-        cell: u32,
+        from: GearSource,
     },
-    /// Take off what is worn on a part, into the first free pack cell.
+    /// Take what crew member `who` has on `part` off into the armory. The
+    /// same rules as [`Command::Equip`].
     Unequip {
         slot: u32,
         who: u32,
-        part: Part,
+        part: GearSlot,
     },
-    /// Throw away what is in a pack cell, for good. What a broken piece
-    /// is for.
-    Discard {
+    /// Offer what that player's own Bim has on `part` to player `to`'s
+    /// Bim: it moves when `to` accepts, the thing `to` had there going
+    /// into the armory, and is withdrawn when either side changes that
+    /// slot, the offerer takes it back or a mission starts. Between
+    /// missions only.
+    Offer {
         slot: u32,
-        who: u32,
-        cell: u32,
+        part: GearSlot,
+        to: u32,
     },
-    /// Take one thing off a body into `who`'s pack: `cell` is a
-    /// `bims::combat::LootCell` code — the body's pack, then what it
-    /// wears on the head, the body and the legs, then the weapon in its
-    /// hand. The body has to be *down* — dead or out cold, asked when this
-    /// lands and not when the window opened — and `who` alive, awake,
-    /// aboard and within [`data::REACH`] of it, with a free cell in the
-    /// pack. **A crewmate's body alone** since feature 104: one of a
-    /// station's people is refused `NotACrewmate`, its dead being left as
-    /// they lie. A weapon goes into the pack, to be equipped from there.
-    /// Nothing goes *onto* a body.
-    Loot {
+    /// Answer the offer player `from` made of its `part`: the recipient
+    /// accepts or declines it; the offerer saying no takes it back.
+    AnswerOffer {
         slot: u32,
-        who: u32,
-        source: LootSource,
-        cell: u32,
+        from: u32,
+        part: GearSlot,
+        yes: bool,
     },
     /// Hire the mercenary that is resident `resident` of the station the
     /// ship is tied to, crew member `who` doing the hiring: the ship
@@ -226,65 +193,6 @@ pub enum Command {
         slot: u32,
         who: u32,
         resident: u32,
-    },
-    /// Whether the crew combine matching gear at the workbench: with `on`,
-    /// whenever the hold has two of a kind at the same tier and a
-    /// workbench is aboard, the two go onto the bench and come off as one
-    /// of the next tier a day of work later — `World::upgrade`. Never
-    /// refused; off is off, and an upgrade already begun finishes.
-    SetAutoUpgrade {
-        slot: u32,
-        on: bool,
-    },
-    /// Begin the day's work on the pair in the workbench's two input
-    /// slots — the button in the bench's window. Refused `NoWorkbench`
-    /// with none aboard, `BenchBusy` while work is under way or the
-    /// output slot is still full, `NoPair` unless the two slots hold two
-    /// of a kind at one tier below three. With the tick box on the world
-    /// presses it itself — `tend_bench`.
-    Upgrade {
-        slot: u32,
-    },
-    /// Put what is in `who`'s pack cell into the workbench's first free
-    /// input slot. Reach as for a stow, but to the workbench itself
-    /// (`OutOfReach`, or `NoWorkbench` with none aboard); `NoRoom` with
-    /// both input slots full, `BenchBusy` while work is under way,
-    /// `NoPair` for a thing that would not pair with what is in the other
-    /// slot, or a tier-three thing, `Broken` for a broken piece. Nothing
-    /// in the hold moves: the thing goes from the pack to the bench.
-    StowOnBench {
-        slot: u32,
-        who: u32,
-        cell: u32,
-    },
-    /// Move a slot of the lockers' grid — `World::lockers`, by the slot's
-    /// id — to column `x`, row `y`, `turned` a quarter round or not: what
-    /// a drag in the armoury window asks, and the R key over a thing
-    /// there. Refused `NoRoom` when it would not lie there — off the grid,
-    /// or over another slot — or there is no such slot. Wants nobody in
-    /// reach: it is tidying, and nothing leaves the lockers. A command
-    /// because the grid is in the checksum: every player's ship has to
-    /// agree about where the rifle lies.
-    Arrange {
-        slot: u32,
-        class: u32,
-        id: u32,
-        x: u32,
-        y: u32,
-        turned: bool,
-    },
-    /// Move a thing across `who`'s pack: the one kept in `cell` — or
-    /// reaching over it — so its corner is in `to`, `turned` a quarter
-    /// round or not; a drag in the inventory window. The pack is the
-    /// room's, but a piece's `Where::Pack` is in the checksum, so it is a
-    /// command like the rest. Refused `NoRoom` when it would not lie
-    /// there, `NotAboard` for nothing in the cell or no such crew member.
-    Repack {
-        slot: u32,
-        who: u32,
-        cell: u32,
-        to: u32,
-        turned: bool,
     },
     /// An order to the crew's room — a click on the deck, a walk, a row
     /// of a fixture's menu, a box on the Management tab — see
@@ -353,16 +261,6 @@ pub enum Command {
     PackUp {
         slot: u32,
         id: u32,
-    },
-    /// Begin a repair at the workbench — the engineer's *armourer*
-    /// talent: a damaged piece in the bench's first input slot, the
-    /// second empty, [`crate::deploy::ARMOUR_REPAIR_COST`] in the pool,
-    /// and that player's own engineer with the talent, who alone works
-    /// the session. The piece comes out in the output slot with
-    /// [`crate::class::ARMOUR_REPAIR_HEALTH`] back on it, capped at
-    /// its tier's full health.
-    Repair {
-        slot: u32,
     },
     /// Brace that player's own soldier, or stand it easy (feature 75,
     /// `crate::class`): braced, it holds where it stands — no errands,
@@ -792,13 +690,6 @@ pub struct World {
     /// What the crew have seen, shared between all of them and never
     /// forgotten. Sorted, so a checksum over it means something.
     pub discovered: Vec<Node>,
-    /// How many of each resource the crew are to keep made, by
-    /// `ResourceId` — the player's standing instruction to the benches,
-    /// the way the manager's stew target is to the galley. A recipe is on
-    /// offer while the hold has fewer of its output than this. Nought until
-    /// somebody asks: a workshop that started the game smelting the ore
-    /// down would move every probe that pins the first morning.
-    pub craft_targets: [u32; CARGO_SLOTS],
     /// One per player, in slot order. The world runs at the slowest of them.
     pub speed_requests: Vec<Speed>,
     /// The parts laid out to be built and not built yet, in the order they
@@ -830,14 +721,11 @@ pub struct World {
     /// [`WorldEvent::Locked`] is said the step a lock forms and not every
     /// step it holds. See [`World::melee_locks`].
     crew_locked: Vec<bool>,
-    /// Every piece of armour aboard, in id order: in the hold, in a pack,
-    /// or on a body. **The hold's count of each armour resource is always
-    /// the number of these `at == Hold` of that kind** — see
-    /// [`crate::armour`] for the split and [`World::settle_pieces`] for
-    /// what keeps it. In `world_checksum` whole.
-    pub pieces: Vec<Piece>,
-    /// The next piece's id. Only ever climbs, like a site's.
-    pub next_piece: u32,
+    /// The ship's holdings bar the money (task 113, [`crate::holdings`]):
+    /// the armory — every weapon and piece of armour nobody wears — the
+    /// research keys picked up, and the offers between players standing.
+    /// In `world_checksum` whole.
+    pub holdings: Holdings,
     /// What the ship and its hold were worth when the world opened —
     /// [`World::worth`] at step nought — fixed for the whole game. Every
     /// half of it the crew's worth has grown by since is more hands for
@@ -846,29 +734,6 @@ pub struct World {
     /// is a function of the design the world started on, which two
     /// clients share.
     pub start_worth: Money,
-    /// The weapons in the hold, each with its tier, sorted by kind and
-    /// tier. **The hold's count of each weapon resource is always the
-    /// number of these of that kind** — [`World::settle_guns`] holds it
-    /// the way `settle_pieces` holds the pieces'. A weapon in a pack or a
-    /// hand is the room's `Item::Weapon`, tier and all, and the world
-    /// keeps no copy of it. In `world_checksum` whole.
-    pub guns: Vec<Weapon>,
-    /// Whether the crew combine two of a kind at the same tier into one
-    /// of the next whenever there is a pair — the Management tab's tick
-    /// box, `Command::SetAutoUpgrade`. Off at the start. In
-    /// `world_checksum`.
-    pub auto_upgrade: bool,
-    /// The workbench's three slots — two things going in, one coming out
-    /// — what is in somebody's arms on the way to or from it, and the
-    /// day's work under way on it. In `world_checksum` whole. See
-    /// [`Workbench`].
-    pub bench: Workbench,
-    /// The shelves, the cold stores and the lockers as grids, in
-    /// [`World::GRID_CLASSES`] order: where every stack, piece and gun
-    /// lies and which way round, as far as they fit.
-    /// [`World::settle_grids`] holds them the way `settle_pieces` holds
-    /// the pieces; see [`crate::grid`]. In `world_checksum` whole.
-    pub grids: [Grid; 2],
     /// Every lamp a fight has damaged, by where it hangs, with what it has
     /// left. A room is built afresh at every dock, undock and relayout,
     /// and this is what puts the damage back on its lamps, and what
@@ -1014,145 +879,6 @@ pub struct LampDamage {
     pub health: f32,
 }
 
-/// An upgrade under way at the workbench: the two of a kind and a tier in
-/// its input slots becoming one of the next tier over
-/// [`data::UPGRADE_SESSIONS`] hours of work. Progress is whole sessions
-/// and the world's, so a Bim that leaves the bench between them loses
-/// nothing.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Upgrade {
-    /// What is being made, as the resource it counts as in the hold.
-    pub resource: ResourceId,
-    /// The tier it comes out at.
-    pub to: Tier,
-    /// Sessions done, of [`data::UPGRADE_SESSIONS`].
-    pub done: u32,
-}
-
-impl Upgrade {
-    /// Whether the day's work is done.
-    pub fn complete(&self) -> bool {
-        self.done >= data::UPGRADE_SESSIONS
-    }
-}
-
-/// The workbench as a container: three slots, the first two for the pair
-/// going in and the third for what comes out, each holding a gun or a
-/// piece of armour as the room would carry it — a piece on the bench is
-/// *not* in [`World::pieces`], the way one in a pack is not in the hold;
-/// it is pushed back when it is taken off. `carrying` is the thing in a
-/// crew member's arms on the way to or from the bench (`Kind::Ferry`),
-/// out of the hold and not yet on it, and `work` the day's work under
-/// way on the pair. The bench with the slots is the first workbench in
-/// bench order ([`World::workbench`]); a second workbench is a bench to
-/// make things at and nothing more.
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Workbench {
-    pub slots: [Option<Item>; Workbench::SLOTS],
-    pub carrying: Option<Item>,
-    /// Whether what is in the arms is on its way back to the lockers rather
-    /// than to the bench: the one thing about a carry the order does not
-    /// say once the thing is off its slot.
-    pub back: bool,
-    pub work: Option<Upgrade>,
-    /// The engineer repairing the piece in the first slot, by crew index,
-    /// while a repair is under way (feature 74, *armourer*): the one Bim
-    /// the session is offered to. `None` with no repair on.
-    pub repair: Option<u32>,
-}
-
-impl Workbench {
-    /// Three: two in, one out.
-    pub const SLOTS: usize = 3;
-    /// The two input slots.
-    pub const IN: [usize; 2] = [0, 1];
-    /// The output slot.
-    pub const OUT: usize = 2;
-
-    /// Whether nothing is on the bench, in the arms or under way.
-    pub fn is_empty(&self) -> bool {
-        self.slots.iter().all(|s| s.is_none())
-            && self.carrying.is_none()
-            && self.work.is_none()
-            && self.repair.is_none()
-    }
-
-    /// Whether anybody is at work on what is on the bench: an upgrade's
-    /// day, or a repair.
-    pub fn busy(&self) -> bool {
-        self.work.is_some() || self.repair.is_some()
-    }
-
-    /// The first empty input slot, if either is.
-    pub fn free_in(&self) -> Option<usize> {
-        Workbench::IN.into_iter().find(|&i| self.slots[i].is_none())
-    }
-
-    /// What the input slots hold, as a pair to go up a tier — the same
-    /// kind at the same tier below three — or why not.
-    pub fn pair(&self) -> Result<(ResourceId, Tier), Refusal> {
-        let (Some(a), Some(b)) = (self.slots[0], self.slots[1]) else {
-            return Err(Refusal::NoPair);
-        };
-        let (Some(resource), Some(tier)) = (armour::resource_of_item(a), tier_of(a)) else {
-            return Err(Refusal::NoPair);
-        };
-        if armour::resource_of_item(b) != Some(resource) || tier_of(b) != Some(tier) {
-            return Err(Refusal::NoPair);
-        }
-        if tier.next().is_none() {
-            return Err(Refusal::NoPair);
-        }
-        Ok((resource, tier))
-    }
-
-    /// Whether a thing could go into an input slot now: a free slot, no
-    /// work under way, and — with the other slot filled — the same kind at
-    /// the same tier as what is there, below tier three.
-    pub fn takes(&self, item: Item) -> Result<usize, Refusal> {
-        if self.busy() {
-            return Err(Refusal::BenchBusy);
-        }
-        let (Some(resource), Some(tier)) = (armour::resource_of_item(item), tier_of(item)) else {
-            return Err(Refusal::NoPair);
-        };
-        // A damaged piece goes onto an empty bench at any tier: a repair
-        // (feature 74) wants no pair, and a tier-three piece has nowhere
-        // to go up but can still be mended.
-        let mending = matches!(item, Item::Armour(p) if p.health < p.stats().health)
-            && self.slots.iter().all(|s| s.is_none());
-        if tier.next().is_none() && !mending {
-            return Err(Refusal::NoPair);
-        }
-        let Some(free) = self.free_in() else {
-            return Err(Refusal::NoRoom);
-        };
-        let other = Workbench::IN.into_iter().find_map(|i| self.slots[i]);
-        if let Some(other) = other
-            && (armour::resource_of_item(other) != Some(resource) || tier_of(other) != Some(tier))
-        {
-            return Err(Refusal::NoPair);
-        }
-        Ok(free)
-    }
-}
-
-/// A gun's or a piece's tier; a stack and a key have none.
-fn tier_of(item: Item) -> Option<Tier> {
-    match item {
-        Item::Weapon(w) => Some(w.tier),
-        Item::Armour(p) => Some(p.tier),
-        Item::Stack(_) | Item::Key(_) => None,
-    }
-}
-
-/// The room's `Order.recipe` for one session of an upgrade at the
-/// workbench: not a recipe — past every row of `shipdesign::RECIPES`, which
-/// a test pins — so `finish_craft` knows it for what it is.
-pub const UPGRADE_ORDER: u32 = 1_000;
-
 /// What [`World::beam_for_probe`] leaves the patient's blood at, as a
 /// share of full: under `health::SLOWED_AT` so the beam has plenty to
 /// put back, over `health::OUT_AT` so the patient is on its feet.
@@ -1294,7 +1020,6 @@ impl World {
             defense_delay: data::DEFENSE_DELAY_STEPS,
             power_budget: shipdesign::power_budget(&design_for_charge),
             discovered: Vec::new(),
-            craft_targets: [0; CARGO_SLOTS],
             // Everybody starts at real time. Anything else would have the
             // world already moving before the first player had looked at it.
             speed_requests: vec![Speed::Real; players as usize],
@@ -1306,15 +1031,10 @@ impl World {
             least_mercenaries: 0,
             crew_down: vec![false; crew as usize],
             crew_locked: vec![false; crew as usize],
-            pieces: Vec::new(),
-            next_piece: 1,
+            holdings: Holdings::new(),
             // Taken below, once the world stands: `worth` reads the
             // crew's gear and the pool as well as the ship.
             start_worth: 0,
-            guns: Vec::new(),
-            auto_upgrade: false,
-            bench: Workbench::default(),
-            grids: [Grid::default(), Grid::default()],
             lamps: Vec::new(),
             powered_parts: shipdesign::powered_parts(&design_for_charge),
             browned_out: false,
@@ -1346,12 +1066,10 @@ impl World {
             run: Run::new(players),
         };
 
-        // Whatever armour the design was accepted carrying is so many
-        // whole pieces in the hold from the first step, and everything in
-        // the locker class is laid out on the lockers' grid.
-        world.settle_pieces();
-        world.settle_guns();
-        world.settle_grids();
+        // Whatever gear the design was accepted carrying is so many whole
+        // things in the armory from the first step, and its research keys
+        // the holdings' count: nothing is stored in the hold (task 113).
+        world.stock_the_armory();
         // And the machines' jammer, if this system is already theirs —
         // which only a probe that wound the clock forward can arrange,
         // but the rule is the rule (feature 93). Before the chart below,
@@ -1483,22 +1201,11 @@ impl World {
         //    afresh at every dock and undock and starts at one, so it is
         //    told every step, before it moves anybody (`bims::order`).
         self.aboard.room.set_players(self.players());
-        //    And what the benches are wanted for, worked out fresh from the
-        //    hold, the targets and the power; then, after the step, what
-        //    they finished, moved through the hold.
-        //    First, with the tick box on, a pair of matching gear goes onto
-        //    the workbench — out of the hold now — so the orders below can
-        //    have a Bim work at it.
-        let ferries = self.tend_bench(&mut events);
-        self.aboard.room.set_ferries(ferries);
-        let orders = self.craft_orders();
-        self.aboard.room.set_craft_orders(orders);
         //    The medicine is what each crew member carries, and nothing
-        //    of the hold's: the room is told how many medkits are in each
-        //    pack, and no shelf. The packs themselves are filled back up
-        //    by `restock_charges` below, a medkit and a bandage being
-        //    everybody's charges.
-        self.hand_the_room_the_hold_s_medicine();
+        //    else: the room is told how many medkits each has, and no
+        //    shelf. They are filled back up by `restock_charges` below, a
+        //    medkit and a bandage being everybody's charges.
+        self.hand_the_room_the_medicine();
         //    And the construction sites, what each still wants, and who may
         //    go out to one beyond the hull. What the room did about them is
         //    read in stage 7.
@@ -1570,15 +1277,10 @@ impl World {
         self.heart_step(&mut events);
         //    And the run over with nobody standing.
         self.check_lost(&mut events);
-        //    And what the fight did to the armour: the pieces in packs and
-        //    on bodies are the room's, and the world's copies are read
-        //    back after the step so the checksum sees them as they are.
-        self.mirror_pieces(&mut events);
+        //    And what the fight did to the armour: a piece broken is said
+        //    once, and stays worn (task 113).
+        self.say_pieces_broken(&mut events);
         self.take_the_room_s_medicine();
-        for recipe in self.aboard.room.take_crafted() {
-            self.finish_craft(recipe, &mut events);
-        }
-        self.finish_upgrade(&mut events);
 
         // 6. Power: what the reactors made this step against what the
         //    wired consumers drew, into or out of the batteries. What is
@@ -1593,16 +1295,6 @@ impl World {
         //    feature 95: a part is **bought**, and its price leaves the
         //    pool the moment it goes down. See `crate::build` and
         //    `shipdesign::materials`.
-        //    And the workbench's carries, the same three ways.
-        for ferry in self.aboard.room.take_ferry_picked() {
-            self.finish_ferry_pick(ferry);
-        }
-        for ferry in self.aboard.room.take_ferry_dropped() {
-            self.finish_ferry_drop(ferry);
-        }
-        for ferry in self.aboard.room.take_ferry_returned() {
-            self.finish_ferry_return(ferry);
-        }
         for (site, who) in self.aboard.room.take_built() {
             self.finish_build(site, who, &mut events);
         }
@@ -1627,21 +1319,13 @@ impl World {
             Command::SetSpeed { slot, .. }
             | Command::Buy { slot, .. }
             | Command::Sell { slot, .. }
-            | Command::SetCraftTarget { slot, .. }
             | Command::PlaceSite { slot, .. }
             | Command::CancelSite { slot, .. }
-            | Command::Stow { slot, .. }
-            | Command::Fetch { slot, .. }
             | Command::Equip { slot, .. }
             | Command::Unequip { slot, .. }
-            | Command::Discard { slot, .. }
-            | Command::Loot { slot, .. }
+            | Command::Offer { slot, .. }
+            | Command::AnswerOffer { slot, .. }
             | Command::Hire { slot, .. }
-            | Command::SetAutoUpgrade { slot, .. }
-            | Command::Upgrade { slot }
-            | Command::StowOnBench { slot, .. }
-            | Command::Arrange { slot, .. }
-            | Command::Repack { slot, .. }
             | Command::Crew { slot, .. }
             | Command::CrewLater { slot, .. }
             | Command::ToDesk { slot }
@@ -1649,7 +1333,6 @@ impl World {
             | Command::PickTalent { slot, .. }
             | Command::Deploy { slot, .. }
             | Command::PackUp { slot, .. }
-            | Command::Repair { slot }
             | Command::Brace { slot, .. }
             | Command::Throw { slot, .. }
             | Command::Beam { slot, .. }
@@ -1685,6 +1368,10 @@ impl World {
                     | Command::PlayerGone { .. }
                     | Command::Crew { .. }
                     | Command::CrewLater { .. }
+                    | Command::Equip { .. }
+                    | Command::Unequip { .. }
+                    | Command::Offer { .. }
+                    | Command::AnswerOffer { .. }
             )
         {
             events.push(refused(slot, Refusal::BetweenMissions));
@@ -1717,9 +1404,6 @@ impl World {
             Command::Sell {
                 resource, units, ..
             } => self.sell(slot, resource, units, events),
-            Command::SetCraftTarget {
-                resource, units, ..
-            } => self.set_craft_target(resource, units),
             Command::PlaceSite {
                 kind,
                 origin,
@@ -1727,37 +1411,13 @@ impl World {
                 ..
             } => self.place_site(slot, kind, origin, rotation, events),
             Command::CancelSite { site, .. } => self.cancel_site(slot, site, events),
-            Command::Stow { who, cell, .. } => self.stow(slot, who, cell, events),
-            Command::Fetch { who, kind, .. } => self.fetch(slot, who, kind, events),
-            Command::Equip { who, cell, .. } => self.equip(slot, who, cell, events),
+            Command::Equip { who, from, .. } => self.equip(slot, who, from, events),
             Command::Unequip { who, part, .. } => self.unequip(slot, who, part, events),
-            Command::Discard { who, cell, .. } => self.discard(slot, who, cell, events),
-            Command::Loot {
-                who, source, cell, ..
-            } => self.loot(slot, who, source, cell, events),
+            Command::Offer { part, to, .. } => self.offer(slot, part, to, events),
+            Command::AnswerOffer {
+                from, part, yes, ..
+            } => self.answer_offer(slot, from, part, yes, events),
             Command::Hire { who, resident, .. } => self.hire(slot, who, resident, events),
-            Command::SetAutoUpgrade { on, .. } => self.auto_upgrade = on,
-            Command::Upgrade { .. } => {
-                if let Err(why) = self.begin_upgrade(events) {
-                    events.push(refused(slot, why));
-                }
-            }
-            Command::StowOnBench { who, cell, .. } => self.stow_on_bench(slot, who, cell, events),
-            Command::Arrange {
-                class,
-                id,
-                x,
-                y,
-                turned,
-                ..
-            } => self.arrange(slot, class, id, x, y, turned, events),
-            Command::Repack {
-                who,
-                cell,
-                to,
-                turned,
-                ..
-            } => self.repack(slot, who, cell, to, turned, events),
             Command::Crew { order, .. } => {
                 // A room built since the last step starts at one player.
                 self.aboard.room.set_players(self.players());
@@ -1794,11 +1454,6 @@ impl World {
                 }
             }
             Command::PackUp { id, .. } => self.pack_up(slot, id, events),
-            Command::Repair { .. } => {
-                if let Err(why) = self.begin_repair(slot, events) {
-                    events.push(refused(slot, why));
-                }
-            }
             Command::Brace { on, .. } => match self.brace(slot, on) {
                 Ok(()) => events.push(WorldEvent::Braced { who: slot, on }),
                 Err(why) => events.push(refused(slot, why)),
@@ -1963,18 +1618,19 @@ impl World {
     /// The crew's **whole net worth** now, in whole euros (feature 95):
     ///
     /// - every part of the ship at its price;
-    /// - the hold at the **book value** (`economy::trade_price`, the same
-    ///   everywhere; a valuation, not what any desk would pay), with a
-    ///   gun or a piece of armour at its **tier** (`economy::TIER_PRICE`);
-    /// - every gun and every piece of armour on every crew member — in a
-    ///   hand, worn, or in a pack — at the same book and tier;
+    /// - what the ship carries that is not gear at the **book value**
+    ///   (`economy::trade_price`, the same everywhere; a valuation, not
+    ///   what any desk would pay);
+    /// - every gun and every piece of armour the crew own — in the armory
+    ///   or on a Bim's loadout (task 113) — at the same book and its
+    ///   **tier** (`economy::TIER_PRICE`), and the research keys;
     /// - and the **money in hand**.
     ///
-    /// The money used to be left out, so a crew that sold its hold got
-    /// poorer by doing it. Now nothing a crew own
-    /// changes what they are worth by moving from one pocket to another:
-    /// a purchase, a sale, a fetch out of the hold and a piece put on are
-    /// all worth the spread and nothing else.
+    /// Nothing a crew own changes what they are worth by moving from one
+    /// pocket to another: a purchase, a sale and a piece put on are all
+    /// worth the spread and nothing else. A charge — a medkit, the
+    /// dressings, a kit — is not property: it came back by itself and will
+    /// again, so a crew that has spent its bandages is no poorer.
     ///
     /// Saturating throughout: a world worth more than a `u64` is a bug
     /// upstream, and a wrap would hand an enemy a crew worth nothing.
@@ -1984,9 +1640,8 @@ impl World {
             .parts
             .iter()
             .fold(0, |sum, p| sum.saturating_add(p.kind.def().price));
-        // The hold, bar the gear: a gun and a piece are counted off the
-        // lists that carry their tiers, below, so that a tier-two rifle
-        // is not valued as a tier-one one.
+        // What the ship carries, bar the gear, which is never a count
+        // (task 113).
         for &id in ResourceId::ALL.iter() {
             if economy::tiered(id) {
                 continue;
@@ -1994,67 +1649,28 @@ impl World {
             let units = design.carrying(id) as Money;
             sum = sum.saturating_add(trade_price(id).saturating_mul(units));
         }
-        // Every piece of armour there is, wherever it lies: the hold, a
-        // pack, a body (`World::pieces` is all three).
-        for piece in &self.pieces {
-            sum = sum.saturating_add(gear_value(
-                armour::resource_of(piece.kind),
-                piece.tier.code(),
-            ));
+        // The armory, then every loadout.
+        let value = |item: Item| match item {
+            Item::Weapon(w) => gear_value(armour::weapon_resource(w.kind), w.tier.code()),
+            Item::Armour(p) => gear_value(armour::resource_of(p.kind), p.tier.code()),
+            Item::Stack(_) => 0,
+        };
+        for stored in &self.holdings.armory {
+            sum = sum.saturating_add(value(stored.item));
         }
-        // The hold's guns, then every weapon the crew carry — in a hand
-        // or in a pack — which no list of the world's holds.
-        for gun in &self.guns {
-            sum = sum.saturating_add(gear_value(
-                armour::weapon_resource(gun.kind),
-                gun.tier.code(),
-            ));
-        }
-        // And what the crew carry that no list of the world's holds: the
-        // weapon in a hand, every weapon in a pack, and every stack in
-        // one — a box of dressings, a medkit, a key. A thing moved out of
-        // the hold and into a pack must be worth the same in both, or a
-        // restock would make the crew poorer.
         let room = &self.aboard.room;
         for who in 0..room.crew_count() as usize {
             let gear = room.gear(who);
-            for weapon in gear.weapon.into_iter() {
-                sum = sum.saturating_add(gear_value(
-                    armour::weapon_resource(weapon.kind),
-                    weapon.tier.code(),
-                ));
-            }
-            for cell in 0..gear.pack.len() {
-                let units = gear.units(cell) as Money;
-                match gear.pack[cell] {
-                    Some(Item::Weapon(weapon)) => {
-                        sum = sum.saturating_add(gear_value(
-                            armour::weapon_resource(weapon.kind),
-                            weapon.tier.code(),
-                        ));
-                    }
-                    // A charge in a pack is not property: it came back by
-                    // itself and will again, so a crew that has spent its
-                    // bandages is no poorer and the hands for hire
-                    // scaled on the worth do not thin with every wound
-                    // bound.
-                    Some(Item::Stack(code)) => {
-                        if let Some(&id) = ResourceId::ALL.get(code as usize)
-                            && Charge::of_resource(id).is_none()
-                        {
-                            sum = sum.saturating_add(trade_price(id).saturating_mul(units.max(1)));
-                        }
-                    }
-                    Some(Item::Key(tier)) => {
-                        if let Some(id) = armour::key_resource(tier) {
-                            sum = sum.saturating_add(trade_price(id));
-                        }
-                    }
-                    // A piece in a pack is on `World::pieces` already.
-                    Some(Item::Armour(_)) | None => {}
+            for slot in GearSlot::ALL {
+                if let Some(item) = slot.read(&gear) {
+                    sum = sum.saturating_add(value(item));
                 }
             }
         }
+        // And the keys, at the tier-one key's book.
+        sum = sum.saturating_add(
+            trade_price(ResourceId::ResearchKey).saturating_mul(self.holdings.keys as Money),
+        );
         sum.saturating_add(self.money)
     }
 
@@ -2182,7 +1798,6 @@ impl World {
                 self.open_residents(id, &design, count, mercs, seed)
             }
         };
-        self.drop_loads();
         let ship_seed = self.galaxy_seed ^ self.steps;
         // The crew out of the old room, and then what leaving banked in
         // it — a sheaf in somebody's hands goes into the store as the
@@ -3110,16 +2725,15 @@ impl World {
         }
     }
 
-    /// The medicine, told to the room before it steps. **None of it is
-    /// the hold's**: a medkit is a charge in its carrier's pack like a
-    /// dressing (see [`class::Charge`]), so the room's shelf is set to
-    /// nought, there is no cabinet to walk to, and each crew member's
-    /// own medkits are the count it treats with — opened where the
-    /// helper stands. The kit leaves the pack when the treatment is done
-    /// (`settle_medics`), not when it is taken up, so a treatment given
-    /// up for a shot puts nothing back anywhere. A dressing is spent out
-    /// of the pack by the room itself, so no count of those crosses.
-    fn hand_the_room_the_hold_s_medicine(&mut self) {
+    /// The medicine, told to the room before it steps. A medkit is a
+    /// charge on its carrier like a dressing (see [`class::Charge`]), so
+    /// the room's shelf is set to nought, there is no cabinet to walk to,
+    /// and each crew member's own medkits are the count it treats with —
+    /// opened where the helper stands. The kit is spent when the treatment
+    /// is done (`settle_medics`), not when it is taken up, so a treatment
+    /// given up for a shot spends nothing. A dressing is spent by the room
+    /// itself, so no count of those crosses.
+    fn hand_the_room_the_medicine(&mut self) {
         let carried: Vec<u32> = (0..self.aboard.crew_count())
             .map(|who| self.charges_of(who, Charge::Medkit))
             .collect();
@@ -3145,9 +2759,6 @@ impl World {
         // A squad order marks residents of the station alongside, so it
         // goes with the deck (feature 78).
         self.clear_squad();
-        // A room taken apart drops every errand, a load in somebody's arms
-        // with it: whatever was on its way to a site is the hold's again.
-        self.drop_loads();
         let seed = self.galaxy_seed ^ self.steps;
         // As at the join: the crew out first, then what that banked.
         let mut old = std::mem::replace(&mut self.aboard, Aboard::new(&self.ship.design, 1, 0));
@@ -3404,24 +3015,18 @@ impl World {
         if self.ship.charge > storage {
             self.ship.charge = storage;
         }
-        // And the pieces of armour against the hold's count of them —
-        // here because this is the one door every cargo change goes
-        // through, so the invariant holds by construction rather than by
-        // every caller remembering.
-        self.settle_pieces();
-        self.settle_guns();
-        self.settle_grids();
     }
 
     /// The hold emptied, for a run that sets out with nothing aboard
-    /// (feature 110): every count of the design's cargo at nought, and
-    /// the armour, the guns and the grids settled against that — what
-    /// the ship holds is the pool and nothing else. The crew keep the gun
-    /// in hand and the charges they carry. Taken at the start, so
-    /// `start_worth` is taken again after it: the crew set out worth the
-    /// ship and the pool.
+    /// (feature 110): every count of the design's cargo at nought, the
+    /// armory and the keys with it — what the ship holds is the pool and
+    /// nothing else. The crew keep their loadouts and their charges.
+    /// Taken at the start, so `start_worth` is taken again after it: the
+    /// crew set out worth the ship, their loadouts and the pool.
     pub fn set_out_empty(&mut self) {
         self.ship.design.cargo = [0; CARGO_SLOTS];
+        self.holdings.armory.clear();
+        self.holdings.keys = 0;
         self.on_ship_changed();
         self.start_worth = self.worth();
     }
@@ -3494,138 +3099,6 @@ impl World {
                 residents.aboard.room.set_lamp_powered(i, on);
             }
         }
-    }
-
-    // --- making things -------------------------------------------------------
-
-    /// Set what the crew are to keep made of `resource`. Clamped to what its
-    /// class could hold of it with nothing else there, since a target past
-    /// that is one the benches would never reach.
-    pub fn set_craft_target(&mut self, resource: ResourceId, units: u32) {
-        let most = self.ship.design.most_of(resource);
-        self.craft_targets[resource as usize] = units.min(most);
-    }
-
-    pub fn craft_target(&self, resource: ResourceId) -> u32 {
-        self.craft_targets[resource as usize]
-    }
-
-    /// Whether one of `recipe` could be made out of the hold right now:
-    /// every input aboard and not spoken for by a construction site, and
-    /// room in the output's class for the output once the inputs are out
-    /// of it.
-    fn can_make(&self, recipe: &shipdesign::Recipe) -> bool {
-        let design = &self.ship.design;
-        let inputs_aboard = recipe
-            .inputs
-            .iter()
-            .all(|&(id, units)| design.carrying(id) >= units);
-        let (output, units) = recipe.output;
-        // Room for the output as the hold stands: what the inputs free is
-        // not counted — the vegetables and the medkit share no class, but
-        // the rule is the same for whatever is added next.
-        inputs_aboard && self.has_room(output, units)
-    }
-
-    /// Every recipe the benches are wanted for this step, one order per
-    /// bench of its station: the hold short of the target, one makeable,
-    /// the station wired and running. In recipe order, which is what the
-    /// room picks from.
-    pub fn craft_orders(&self) -> Vec<bims::game::Order> {
-        let mut orders = Vec::new();
-        for (i, recipe) in shipdesign::RECIPES.iter().enumerate() {
-            let (output, units) = recipe.output;
-            // What is aboard plus what is on the bench: a chain already
-            // making one counts, or the target would be overshot by one
-            // for every step the first one took.
-            let coming = self.aboard.room.crafts_under_way(i as u32) * units;
-            if self.ship.design.carrying(output) + coming >= self.craft_targets[output as usize] {
-                continue;
-            }
-            if !self.can_make(recipe) || !self.powered(recipe.station) {
-                continue;
-            }
-            for (bench, b) in self.aboard.room.benches().iter().enumerate() {
-                if b.kind == recipe.station.code() {
-                    orders.push(bims::game::Order {
-                        recipe: i as u32,
-                        bench,
-                        minutes: recipe.minutes as f32,
-                        only: None,
-                    });
-                }
-            }
-        }
-        // And a session of the upgrade, at the first workbench only — one
-        // pair of hands a day, however many benches — while one is under
-        // way and unfinished, the bench is powered and nobody is at it.
-        if let Some(upgrade) = self.bench.work
-            && !upgrade.complete()
-            && self.powered(PartKind::Workbench)
-            && self.aboard.room.crafts_under_way(UPGRADE_ORDER) == 0
-            && let Some(bench) = self
-                .aboard
-                .room
-                .benches()
-                .iter()
-                .position(|b| b.kind == PartKind::Workbench.code())
-        {
-            orders.push(bims::game::Order {
-                recipe: UPGRADE_ORDER,
-                bench,
-                minutes: data::UPGRADE_SESSION_MINUTES as f32,
-                only: None,
-            });
-        }
-        // And the armourer's repair session (feature 74), at the first
-        // workbench, for the one engineer who began it and nobody else,
-        // while the bench is powered and nobody is at it.
-        if let Some(who) = self.bench.repair
-            && self.powered(PartKind::Workbench)
-            && self.aboard.room.crafts_under_way(deploy::REPAIR_ORDER) == 0
-            && let Some(bench) = self
-                .aboard
-                .room
-                .benches()
-                .iter()
-                .position(|b| b.kind == PartKind::Workbench.code())
-        {
-            orders.push(bims::game::Order {
-                recipe: deploy::REPAIR_ORDER,
-                bench,
-                minutes: class::ARMOUR_REPAIR_MINUTES as f32,
-                only: Some(who as usize),
-            });
-        }
-        orders
-    }
-
-    /// A Bim finished `recipe`: the inputs out of the hold and the output
-    /// in, if the hold still allows it — the ore may have been sold while
-    /// the Bim stood at the smelter — and an event either way. The mass
-    /// moves with the cargo; `on_ship_changed` is what notices.
-    fn finish_craft(&mut self, recipe: u32, events: &mut Vec<WorldEvent>) {
-        if recipe == UPGRADE_ORDER {
-            self.finish_upgrade_session();
-            return;
-        }
-        if recipe == deploy::REPAIR_ORDER {
-            self.finish_repair(events);
-            return;
-        }
-        let Some(r) = shipdesign::RECIPES.get(recipe as usize) else {
-            return;
-        };
-        if !self.can_make(r) {
-            events.push(WorldEvent::CraftLost { recipe });
-            return;
-        }
-        for &(id, units) in r.inputs {
-            self.ship.design.cargo[id as usize] -= units;
-        }
-        self.ship.design.cargo[r.output.0 as usize] += r.output.1;
-        self.on_ship_changed();
-        events.push(WorldEvent::Crafted { recipe });
     }
 
     // --- building -------------------------------------------------------------
@@ -3809,17 +3282,6 @@ impl World {
     fn suit_ok(&self) -> Vec<bool> {
         let suit = self.ship.design.carrying(ResourceId::Suit) > 0;
         vec![suit; self.aboard.crew_count() as usize]
-    }
-
-    /// A thing on its way to or from the workbench goes back into the
-    /// hold: for a room being taken apart, whose crew drop what they were
-    /// carrying without the room saying so. Nothing is carried to a
-    /// construction site any more (feature 95), so this is the bench's
-    /// ferry and nothing else.
-    fn drop_loads(&mut self) {
-        if let Some(item) = self.bench.carrying.take() {
-            self.hold_takes(item);
-        }
     }
 
     /// A Bim put a site together: the part goes down and its recipe comes
@@ -4087,32 +3549,21 @@ impl World {
         })
     }
 
-    /// Which tiers `units` of a gear resource would **leave** the hold as,
-    /// lowest first — the sell rule `settle_guns` and `settle_pieces`
-    /// follow — so a sale is paid for what it actually gives up. Empty
-    /// for a resource that comes at no tier.
-    fn tiers_leaving(&self, resource: ResourceId, units: u32) -> Vec<u32> {
-        if !economy::tiered(resource) {
-            return Vec::new();
-        }
-        let mut tiers: Vec<u32> = if let Some(kind) = armour::weapon_of(resource) {
-            self.guns
-                .iter()
-                .filter(|g| g.kind == kind)
-                .map(|g| g.tier.code())
-                .collect()
-        } else if let Some(kind) = armour::kind_of(resource) {
-            self.pieces
-                .iter()
-                .filter(|p| p.kind == kind && p.at == Where::Hold)
-                .map(|p| p.tier.code())
-                .collect()
-        } else {
-            Vec::new()
-        };
-        tiers.sort_unstable();
-        tiers.truncate(units as usize);
-        tiers
+    /// Which things of a gear resource a sale of `units` would take out of
+    /// the armory, lowest tier first and the oldest of a tier first: the
+    /// sell rule, so a sale is paid for what it actually gives up. Their
+    /// armory ids and tiers; empty for a resource that is not gear.
+    fn gear_leaving(&self, resource: ResourceId, units: u32) -> Vec<(u32, u32)> {
+        let mut leaving: Vec<(u32, u32)> = self
+            .holdings
+            .armory
+            .iter()
+            .filter(|s| armour::resource_of_item(s.item) == Some(resource))
+            .map(|s| (s.id, s.tier()))
+            .collect();
+        leaving.sort_by_key(|&(id, tier)| (tier, id));
+        leaving.truncate(units as usize);
+        leaving
     }
 
     fn buy(
@@ -4160,10 +3611,6 @@ impl World {
             events.push(refused(slot, Refusal::Unaffordable));
             return;
         }
-        if !self.has_room(resource, units) {
-            events.push(refused(slot, Refusal::NoRoomAboard));
-            return;
-        }
         // Last, as for a sale: "walk over first" only about a buy that
         // would otherwise go.
         if !self.at_the_desk(slot) {
@@ -4171,31 +3618,23 @@ impl World {
             return;
         }
         self.money -= value;
-        // A gun or a piece arrives at the tier it was bought at: the
-        // instance goes on the list **before** the count moves, or
-        // `settle_guns`/`settle_pieces` would make the difference up with
-        // tier-one ones. Everything else is a count and nothing more.
-        if economy::tiered(resource)
-            && let Some(at) = bims::combat::Tier::from_code(tier)
-        {
-            if let Some(kind) = armour::weapon_of(resource) {
-                for _ in 0..units {
-                    self.guns.push(kind.at(at));
-                }
-                self.guns.sort_by_key(|g| (g.kind.code(), g.tier.code()));
-            } else if let Some(kind) = armour::kind_of(resource) {
-                for _ in 0..units {
-                    let id = self.next_piece;
-                    self.next_piece += 1;
-                    self.pieces.push(armour::Piece {
-                        at: Where::Hold,
-                        ..armour::Piece::new(id, kind, at)
-                    });
-                }
+        // A gun or a piece goes into the armory at the tier it was bought
+        // at (task 113): nothing is stored, and there is no room to run
+        // out of. Everything else is a count on the ship.
+        let at = bims::combat::Tier::from_code(tier).unwrap_or(Tier::One);
+        if let Some(kind) = armour::weapon_of(resource) {
+            for _ in 0..units {
+                self.holdings.put(Item::Weapon(kind.at(at)));
             }
+        } else if let Some(kind) = armour::kind_of(resource) {
+            for _ in 0..units {
+                let piece = self.holdings.new_piece(kind, at);
+                self.holdings.put(Item::Armour(piece));
+            }
+        } else {
+            self.ship.design.cargo[resource as usize] += units;
+            self.on_ship_changed();
         }
-        self.ship.design.cargo[resource as usize] += units;
-        self.on_ship_changed();
         events.push(WorldEvent::Traded {
             slot,
             resource,
@@ -4218,8 +3657,9 @@ impl World {
             events.push(refused(slot, Refusal::NoMarket));
             return;
         };
-        let aboard = self.ship.design.carrying(resource);
-        if units > aboard {
+        // What there is to sell: the armory's for gear — never what a Bim
+        // wears — and the ship's count for anything else.
+        if units > self.held(resource) {
             events.push(refused(slot, Refusal::NotAboard));
             return;
         }
@@ -4235,25 +3675,32 @@ impl World {
         // its tier** (feature 95), and a sale gives up the lowest tiers
         // first, so the sum is one line a thing rather than one for the
         // lot.
-        let tiers = self.tiers_leaving(resource, units);
-        let value = if tiers.is_empty() {
+        let leaving = self.gear_leaving(resource, units);
+        let gear = armour::weapon_of(resource).is_some() || armour::kind_of(resource).is_some();
+        let value = if gear {
+            leaving.iter().fold(0, |sum: Money, &(_, tier)| {
+                sum.saturating_add(quote.at_tier(tier).bid)
+            })
+        } else {
             let Ok(value) = quote.fetches(units) else {
                 events.push(refused(slot, Refusal::SumTooBig));
                 return;
             };
             value
-        } else {
-            tiers.iter().fold(0, |sum: Money, &tier| {
-                sum.saturating_add(quote.at_tier(tier).bid)
-            })
         };
         let Ok(money) = economy::add(self.money, value) else {
             events.push(refused(slot, Refusal::SumTooBig));
             return;
         };
         self.money = money;
-        self.ship.design.cargo[resource as usize] -= units;
-        self.on_ship_changed();
+        if gear {
+            for (id, _) in leaving {
+                self.holdings.take(id);
+            }
+        } else {
+            self.ship.design.cargo[resource as usize] -= units;
+            self.on_ship_changed();
+        }
         events.push(WorldEvent::Traded {
             slot,
             resource,
@@ -4261,1064 +3708,314 @@ impl World {
         });
     }
 
-    // --- armour and the pack -------------------------------------------------
+    // --- the holdings and the loadouts (task 113) ----------------------------
 
-    /// The pieces against the hold: for each kind, as many pieces `at ==
-    /// Hold` as the hold counts of its resource. A count that has grown —
-    /// a purchase, a bench — gets fresh pieces, whole, ids in order; one
-    /// that has shrunk — a sale — loses its most damaged piece first,
-    /// which is the sell rule. Idempotent, and asked at every
-    /// `on_ship_changed`, so the invariant in [`crate::armour`] holds
-    /// wherever the count is read. A stow or a fetch moves the piece
-    /// *before* it moves the count, so this finds nothing to do there.
-    fn settle_pieces(&mut self) {
-        for kind in bims::combat::ArmourKind::ALL {
-            let wanted = self.ship.design.carrying(armour::resource_of(kind)) as usize;
-            loop {
-                let held: Vec<usize> = self
-                    .pieces
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, p)| p.kind == kind && p.at == Where::Hold)
-                    .map(|(i, _)| i)
-                    .collect();
-                if held.len() < wanted {
-                    let id = self.next_piece;
-                    self.next_piece += 1;
-                    self.pieces.push(Piece::new(id, kind, Tier::One));
-                } else if held.len() > wanted {
-                    // The most damaged; the lowest id among equals, since
-                    // `min_by` keeps the first.
-                    let worst = held
-                        .iter()
-                        .copied()
-                        .min_by(|&a, &b| {
-                            self.pieces[a]
-                                .health
-                                .partial_cmp(&self.pieces[b].health)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                        .expect("held is not empty");
-                    self.pieces.remove(worst);
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-
-    /// The world's copies of the pieces in packs and on bodies, read back
-    /// from the room, where those live: where each is and what it has
-    /// left. Any piece the room has broken since the last look is said.
-    /// Asked after the room has stepped, and after every command that
-    /// moves gear, so the checksum and a reader of `pieces` see what the
-    /// room sees.
-    fn mirror_pieces(&mut self, events: &mut Vec<WorldEvent>) {
-        let room = &self.aboard.room;
-        let pieces = &mut self.pieces;
-        let place = |pieces: &mut Vec<Piece>, p: bims::combat::Piece, at: Where| {
-            if let Some(piece) = pieces.iter_mut().find(|q| q.id == p.id) {
-                piece.health = p.health;
-                piece.at = at;
-            }
-        };
-        for who in 0..self.aboard.crew as usize {
-            for (cell, item) in room.pack(who).iter().enumerate() {
-                if let Some(Item::Armour(p)) = item {
-                    let at = Where::Pack {
-                        who: who as u32,
-                        cell: cell as u8,
-                    };
-                    place(pieces, *p, at);
-                }
-            }
-            for part in Part::ALL {
-                if let Some(p) = room.worn(who, part) {
-                    place(pieces, p, Where::Worn { who: who as u32 });
-                }
-            }
-        }
-        for (who, kind) in self.aboard.room.take_pieces_broken() {
-            if who < self.aboard.crew as usize {
-                events.push(WorldEvent::PieceBroke {
-                    who: who as u32,
-                    kind,
-                });
-            }
-        }
-    }
-
-    // --- tiers and the workbench's upgrade -----------------------------------
-
-    /// The weapons in the hold against its count of them: for each kind,
-    /// as many `guns` as the hold counts of its resource. A count that has
-    /// grown — the armoury, a test poking `cargo[]` — gets tier-one
-    /// weapons; one that has shrunk loses its lowest tier first, which is
-    /// the sell rule. The list is kept sorted by kind and tier, so two
-    /// worlds that did the same things hash the same list. Idempotent,
-    /// and asked at every `on_ship_changed` after `settle_pieces`; a stow
-    /// or a fetch moves the gun *before* the count, so this finds nothing
-    /// to do there.
-    fn settle_guns(&mut self) {
-        for kind in WeaponKind::ALL {
-            let wanted = self.ship.design.carrying(armour::weapon_resource(kind)) as usize;
-            loop {
-                let held = self.guns.iter().filter(|g| g.kind == kind).count();
-                if held < wanted {
-                    self.guns.push(kind.basic());
-                } else if held > wanted {
-                    let worst = self
-                        .guns
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, g)| g.kind == kind)
-                        .min_by_key(|(_, g)| g.tier)
-                        .map(|(i, _)| i)
-                        .expect("held is not empty");
-                    self.guns.remove(worst);
-                } else {
-                    break;
-                }
-            }
-        }
-        self.guns.sort_by_key(|g| (g.kind.code(), g.tier.code()));
-    }
-
-    // --- the lockers' grid ----------------------------------------------------
-
-    /// The grids' classes, in the order `grids` keeps them: the code of
-    /// each is its index. The research desk is a count of one and has
-    /// none.
-    pub const GRID_CLASSES: [Storage; 2] = [Storage::ColdStore, Storage::Locker];
-
-    /// A class's grid, if the class is one: the shelves', the cold
-    /// stores' or the lockers'.
-    pub fn grid(&self, class: Storage) -> Option<&Grid> {
-        World::GRID_CLASSES
-            .iter()
-            .position(|&c| c == class)
-            .map(|i| &self.grids[i])
-    }
-
-    fn grid_mut(&mut self, class: Storage) -> Option<&mut Grid> {
-        World::GRID_CLASSES
-            .iter()
-            .position(|&c| c == class)
-            .map(|i| &mut self.grids[i])
-    }
-
-    /// A class's grid in cells: every part of the class's capacity added
-    /// up.
-    pub fn grid_capacity(&self, class: Storage) -> u32 {
-        self.ship.design.capacity(class)
-    }
-
-    /// Everything a class holds, in the order the slots are settled in:
-    /// for the lockers the pieces of armour in the hold by id and the
-    /// guns by kind and tier; then every other resource of the class with
-    /// its count, in `ResourceId` order — each with its footprint.
-    fn grid_wanted(&self, class: Storage) -> Vec<Wanted> {
-        let mut wanted = Vec::new();
-        if class == Storage::Locker {
-            for piece in self.pieces.iter().filter(|p| p.at == Where::Hold) {
-                wanted.push(Wanted::Piece(piece.id, footprint(piece.resource())));
-            }
-            for gun in &self.guns {
-                wanted.push(Wanted::Gun(
-                    gun.kind,
-                    gun.tier,
-                    footprint(armour::weapon_resource(gun.kind)),
-                ));
-            }
-        }
+    /// The design's gear cargo as things in the armory, and its research
+    /// keys as the holdings' count, every one of those counts at nought
+    /// after: what a world opens with. Nothing is stored in the hold, so a
+    /// ship accepted carrying three helms sets out with three helms in
+    /// the armory, whole, at tier one.
+    fn stock_the_armory(&mut self) {
         for &id in ResourceId::ALL.iter() {
-            if storage(id) != class || armour::is_gear(id) {
+            let units = self.ship.design.carrying(id);
+            if units == 0 {
                 continue;
             }
-            wanted.push(Wanted::Units(
-                id,
-                self.ship.design.carrying(id),
-                footprint(id),
-            ));
-        }
-        wanted
-    }
-
-    /// The slots of every grid against what its class holds — see
-    /// [`crate::grid`] for the rule and what an overflow does. Asked at
-    /// every `on_ship_changed` after the pieces and the guns, since a
-    /// slot names a piece by id and a gun by tier.
-    fn settle_grids(&mut self) {
-        for class in World::GRID_CLASSES {
-            let wanted = self.grid_wanted(class);
-            let capacity = self.grid_capacity(class);
-            if let Some(grid) = self.grid_mut(class) {
-                grid.settle(capacity, &wanted);
+            if let Some(kind) = armour::weapon_of(id) {
+                for _ in 0..units {
+                    self.holdings.put(Item::Weapon(kind.basic()));
+                }
+            } else if let Some(kind) = armour::kind_of(id) {
+                for _ in 0..units {
+                    let piece = self.holdings.new_piece(kind, Tier::One);
+                    self.holdings.put(Item::Armour(piece));
+                }
+            } else if matches!(id, ResourceId::ResearchKey | ResourceId::ResearchKeyTwo) {
+                self.holdings.keys += units;
+            } else {
+                continue;
             }
+            self.ship.design.cargo[id as usize] = 0;
         }
+        self.on_ship_changed();
     }
 
-    /// Whether `units` more of a resource could come aboard: room in its
-    /// class by area (`ShipDesign::has_room`) and a place on the class's
-    /// grid for each — a part-full stack topped up, or a run of cells for
-    /// a new one — the rule every purchase, craft, stow and upgrade asks
-    /// before the count moves, so the settle finds room for what they let
-    /// through.
-    pub fn has_room(&self, resource: ResourceId, units: u32) -> bool {
-        if !self.ship.design.has_room(resource, units) {
-            return false;
+    /// How many of a resource the crew have to sell: for a gun or a piece
+    /// of armour, how many of that kind lie in the armory (what a sale
+    /// takes from — never off a Bim); for anything else, the ship's count.
+    pub fn held(&self, resource: ResourceId) -> u32 {
+        if armour::weapon_of(resource).is_some() || armour::kind_of(resource).is_some() {
+            return self
+                .holdings
+                .armory
+                .iter()
+                .filter(|s| armour::resource_of_item(s.item) == Some(resource))
+                .count() as u32;
         }
-        let class = storage(resource);
-        match self.grid(class) {
-            Some(grid) => grid.can_take(
-                self.grid_capacity(class),
-                resource,
-                units,
-                footprint(resource),
-            ),
-            None => true,
-        }
+        self.ship.design.carrying(resource)
     }
 
-    /// The most of `wanted` more units of a resource that would come
-    /// aboard — what a haul or a harvest is cut to.
-    pub fn room_for(&self, resource: ResourceId, wanted: u32) -> u32 {
-        (0..=wanted)
-            .rev()
-            .find(|&n| self.has_room(resource, n))
-            .unwrap_or(0)
-    }
-
-    /// Move a slot of a class's grid to `(x, y)`, turned or not — see
-    /// [`Command::Arrange`]. Refused `NoRoom` when it would not lie there,
-    /// there is no such slot, or the class has no grid.
-    fn arrange(
-        &mut self,
-        slot: u32,
-        class: u32,
-        id: u32,
-        x: u32,
-        y: u32,
-        turned: bool,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        let moved = Storage::from_code(class).is_some_and(|class| {
-            let capacity = self.grid_capacity(class);
-            self.grid_mut(class)
-                .is_some_and(|grid| grid.arrange(capacity, id, x, y, turned))
+    /// A research key picked up (task 113): counted the moment it is.
+    /// The one door a key comes in by, for whatever lays one on a site.
+    pub fn pick_up_key(&mut self, events: &mut Vec<WorldEvent>) {
+        self.holdings.keys = self.holdings.keys.saturating_add(1);
+        events.push(WorldEvent::KeyFound {
+            keys: self.holdings.keys,
         });
-        if !moved {
-            events.push(refused(slot, Refusal::NoRoom));
+    }
+
+    /// Whether player `slot` may change crew member `who`'s loadout: its
+    /// own Bim, or a bot's — anybody past the players — and nobody
+    /// else's. A player's Bim is given a thing only by an offer it
+    /// accepts.
+    pub fn may_change(&self, slot: u32, who: u32) -> bool {
+        slot < self.players()
+            && who < self.aboard.crew_count()
+            && (who == slot || who >= self.players())
+    }
+
+    /// Why a loadout or armory command by `slot` on `who` would be
+    /// refused now, if it would: in a mission, or not the player's to
+    /// change.
+    fn gear_refusal(&self, slot: u32, who: u32) -> Option<Refusal> {
+        if self.in_mission() {
+            return Some(Refusal::GearLocked);
         }
-    }
-
-    /// Move a thing across a crew member's pack — see [`Command::Repack`].
-    /// The room does the moving; the pieces are read back after, since a
-    /// piece's cell is in the checksum.
-    fn repack(
-        &mut self,
-        slot: u32,
-        who: u32,
-        cell: u32,
-        to: u32,
-        turned: bool,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        if self.pack_item(who, cell).is_none() {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        }
-        if !self
-            .aboard
-            .room
-            .rearrange(who as usize, cell as usize, to as usize, turned)
-        {
-            events.push(refused(slot, Refusal::NoRoom));
-            return;
-        }
-        self.mirror_pieces(events);
-    }
-
-    /// How many weapons of `kind` at `tier` the hold has — what a
-    /// container window lists a cell for.
-    pub fn guns_at(&self, kind: WeaponKind, tier: Tier) -> u32 {
-        self.guns
-            .iter()
-            .filter(|g| g.kind == kind && g.tier == tier)
-            .count() as u32
-    }
-
-    /// Whether the crew combine matching gear at the workbench whenever
-    /// there is a pair — `Command::SetAutoUpgrade`.
-    pub fn auto_upgrade(&self) -> bool {
-        self.auto_upgrade
-    }
-
-    /// The workbench with the slots: the first workbench in bench order,
-    /// by its index in the room's benches — the container a thing is put
-    /// on and taken off, and the bench the day's work is done at. `None`
-    /// with no workbench aboard.
-    pub fn workbench(&self) -> Option<usize> {
-        self.aboard
-            .room
-            .benches()
-            .iter()
-            .position(|b| b.kind == PartKind::Workbench.code())
-    }
-
-    /// The cabinet a carry to the workbench fetches from and a carry back
-    /// returns to: the first bench in bench order whose part keeps the
-    /// locker class — the armoury, the drug lab. The hold is one pool, so
-    /// any cabinet of the class is where a gun is; a ship with no such
-    /// bench has nowhere for a Bim to walk to, and the crew carry
-    /// nothing of their own accord.
-    pub fn store_bench(&self) -> Option<usize> {
-        self.aboard.room.benches().iter().position(|b| {
-            PartKind::from_code(b.kind)
-                .and_then(|kind| kind.def().capacity)
-                .is_some_and(|(class, _)| class == Storage::Locker)
-        })
-    }
-
-    /// Whether crew member `who` stands within [`data::REACH`] of the
-    /// workbench — alive, aboard, and near enough to reach onto it. What
-    /// a put-on and a take-off ask first.
-    pub fn in_reach_of_bench(&self, who: u32) -> bool {
         if who >= self.aboard.crew_count() {
-            return false;
+            return Some(Refusal::NotAboard);
         }
-        self.workbench().is_some_and(|bench| {
-            self.aboard
-                .room
-                .within_reach(who as usize, Container::Bench(bench), data::REACH)
-        })
-    }
-
-    /// Whether the button could be pressed now, or why not: a workbench
-    /// aboard (always allowed since research left the game, feature 106),
-    /// nothing under way, the output slot clear, and a pair in the input slots — what
-    /// [`Command::Upgrade`] checks, so a window can say so first.
-    pub fn can_upgrade(&self) -> Result<(), Refusal> {
-        if self.workbench().is_none() {
-            return Err(Refusal::NoWorkbench);
-        }
-        if self.bench.busy() || self.bench.slots[Workbench::OUT].is_some() {
-            return Err(Refusal::BenchBusy);
-        }
-        self.bench.pair().map(|_| ())
-    }
-
-    /// The first pair of matching gear in the hold that could go up a
-    /// tier, for the crew to carry to the bench: armour kinds first, then
-    /// weapons, the lowest tier first within a kind, tier three never.
-    /// What the pair is;
-    /// which pieces is `bench_wants`'s.
-    fn upgrade_pair(&self) -> Option<(ResourceId, Tier)> {
-        for kind in ArmourKind::ALL {
-            for tier in Tier::ALL {
-                if tier.next().is_none() {
-                    continue;
-                }
-                let held = self
-                    .pieces
-                    .iter()
-                    .filter(|p| p.kind == kind && p.tier == tier && p.at == Where::Hold)
-                    .count();
-                if held >= 2 {
-                    return Some((armour::resource_of(kind), tier));
-                }
-            }
-        }
-        for kind in WeaponKind::ALL {
-            for tier in Tier::ALL {
-                if tier.next().is_some() && self.guns_at(kind, tier) >= 2 {
-                    return Some((armour::weapon_resource(kind), tier));
-                }
-            }
+        if !self.may_change(slot, who) {
+            return Some(Refusal::NotYours);
         }
         None
     }
 
-    /// What the bench wants carried to it next, out of the hold, with the
-    /// tick box on: with one input slot filled, a match for it — the same
-    /// kind at the same tier; with both empty, the first of the first pair
-    /// in the hold. For armour the **most damaged** piece of the kind and
-    /// tier: the good ones stay in circulation, and the piece that comes
-    /// out is fresh whatever went in. `None` with nothing to carry — both
-    /// slots full, or nothing in the hold that would pair.
-    fn bench_wants(&self) -> Option<Kept> {
-        if self.bench.free_in().is_none() || self.bench.busy() {
-            return None;
-        }
-        let other = Workbench::IN.into_iter().find_map(|i| self.bench.slots[i]);
-        let (resource, tier) = match other {
-            Some(item) => (armour::resource_of_item(item)?, tier_of(item)?),
-            None => self.upgrade_pair()?,
-        };
-        if tier.next().is_none() {
-            return None;
-        }
-        if let Some(kind) = armour::kind_of(resource) {
-            self.pieces
-                .iter()
-                .filter(|p| p.kind == kind && p.tier == tier && p.at == Where::Hold)
-                .min_by(|a, b| {
-                    a.health
-                        .partial_cmp(&b.health)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then(a.id.cmp(&b.id))
-                })
-                .map(|p| Kept::Piece(p.id))
-        } else {
-            let kind = armour::weapon_of(resource)?;
-            (self.guns_at(kind, tier) > 0).then_some(Kept::Gun(kind, tier))
-        }
+    /// What crew member `who` has on `part`.
+    pub fn worn_on(&self, who: u32, part: GearSlot) -> Option<Item> {
+        (who < self.aboard.crew_count())
+            .then(|| part.read(&self.aboard.room.gear(who as usize)))
+            .flatten()
     }
 
-    /// Stage 5, before the craft orders, with the tick box on: the crew
-    /// see to the bench themselves. The output waiting in its slot is
-    /// carried back to the lockers; a pair in the input slots has the
-    /// button pressed for it; an input slot empty has the next thing that
-    /// would pair carried over from the lockers. One thing in the arms at
-    /// a time, and none of it without a workbench and a cabinet aboard.
-    /// What the crew are asked to carry this step, for the room.
-    fn tend_bench(&mut self, events: &mut Vec<WorldEvent>) -> Vec<bims::game::Ferry> {
-        let (Some(bench), Some(store)) = (self.workbench(), self.store_bench()) else {
-            return Vec::new();
-        };
-        if self.bench.busy() {
-            return Vec::new();
+    /// Put `item` on `who`'s `part` — or empty it — through the room, and
+    /// withdraw every offer that slot was part of; what was there. The
+    /// caller has checked the thing goes on the slot.
+    fn set_slot(
+        &mut self,
+        who: u32,
+        part: GearSlot,
+        item: Option<Item>,
+        events: &mut Vec<WorldEvent>,
+    ) -> Option<Item> {
+        let mut gear = self.aboard.room.gear(who as usize);
+        let was = part.write(&mut gear, item).ok().flatten();
+        self.aboard.room.issue(who as usize, gear);
+        for offer in self.holdings.withdraw_touching(who, part) {
+            events.push(WorldEvent::OfferWithdrawn {
+                from: offer.from,
+                part: offer.slot.code(),
+                to: offer.to,
+            });
         }
-        // A carry under way keeps its order until it lands: the room is a
-        // step behind, and a chain with its order gone gives the thing up.
-        if self.bench.carrying.is_some() {
-            return vec![if self.bench.back {
-                bims::game::Ferry {
-                    from: bench,
-                    to: store,
+        was
+    }
+
+    /// [`Command::Equip`]: a thing out of the armory, or off another
+    /// Bim's slot, onto `who`'s — the slot the thing is made for — and
+    /// what was there into the armory.
+    fn equip(&mut self, slot: u32, who: u32, from: GearSource, events: &mut Vec<WorldEvent>) {
+        if let Some(why) = self.gear_refusal(slot, who) {
+            events.push(refused(slot, why));
+            return;
+        }
+        let item = match from {
+            GearSource::Armory { id } => self.holdings.get(id).map(|s| s.item),
+            GearSource::Worn {
+                who: other,
+                slot: part,
+            } => {
+                if let Some(why) = self.gear_refusal(slot, other) {
+                    events.push(refused(slot, why));
+                    return;
                 }
-            } else {
-                bims::game::Ferry {
-                    from: store,
-                    to: bench,
-                }
-            }];
-        }
-        if !self.auto_upgrade {
-            return Vec::new();
-        }
-        if let Some(out) = self.bench.slots[Workbench::OUT] {
-            // Back to the lockers, once there is room for it there.
-            let room = armour::resource_of_item(out).is_some_and(|r| self.has_room(r, 1));
-            return if room {
-                vec![bims::game::Ferry {
-                    from: bench,
-                    to: store,
-                }]
-            } else {
-                Vec::new()
-            };
-        }
-        if self.bench.pair().is_ok() {
-            // Never refused here: the pair was just checked and nothing is
-            // under way.
-            let _ = self.begin_upgrade(events);
-            return Vec::new();
-        }
-        if self.bench_wants().is_some() {
-            return vec![bims::game::Ferry {
-                from: store,
-                to: bench,
-            }];
-        }
-        Vec::new()
-    }
-
-    /// The day's work begun on the pair in the input slots — the button,
-    /// or the tick box pressing it: [`Command::Upgrade`]. The two stay on
-    /// the bench, being worked on, until `finish_upgrade` swaps them for
-    /// the one.
-    fn begin_upgrade(&mut self, events: &mut Vec<WorldEvent>) -> Result<(), Refusal> {
-        self.can_upgrade()?;
-        let (resource, tier) = self.bench.pair()?;
-        let to = tier.next().ok_or(Refusal::NoPair)?;
-        self.bench.work = Some(Upgrade {
-            resource,
-            to,
-            done: 0,
-        });
-        events.push(WorldEvent::UpgradeBegun {
-            resource: resource as u32,
-            tier: to.code(),
-        });
-        Ok(())
-    }
-
-    /// One session of the upgrade finished at the workbench — the room
-    /// said `UPGRADE_ORDER` through `take_crafted`: an hour more of the
-    /// day. The item itself is `finish_upgrade`'s.
-    fn finish_upgrade_session(&mut self) {
-        if let Some(upgrade) = self.bench.work.as_mut()
-            && upgrade.done < data::UPGRADE_SESSIONS
-        {
-            upgrade.done += 1;
-        }
-    }
-
-    /// Every step after the crafts: an upgrade with its day done takes the
-    /// pair off the bench and puts one of the next tier in the output slot
-    /// — a fresh piece with a fresh id, or a gun — for a crew member to
-    /// take, or the crew to carry back to the lockers with the tick box
-    /// on. Nothing in the hold moves.
-    fn finish_upgrade(&mut self, events: &mut Vec<WorldEvent>) {
-        let Some(upgrade) = self.bench.work else {
-            return;
-        };
-        if !upgrade.complete() {
-            return;
-        }
-        let made = if let Some(kind) = armour::kind_of(upgrade.resource) {
-            let id = self.next_piece;
-            self.next_piece += 1;
-            Some(Piece::new(id, kind, upgrade.to).item())
-        } else {
-            armour::weapon_at(upgrade.resource, upgrade.to).map(Item::Weapon)
-        };
-        for i in Workbench::IN {
-            self.bench.slots[i] = None;
-        }
-        self.bench.slots[Workbench::OUT] = made;
-        self.bench.work = None;
-        events.push(WorldEvent::Upgraded {
-            resource: upgrade.resource as u32,
-            tier: upgrade.to.code(),
-        });
-    }
-
-    /// A thing out of `who`'s pack onto the workbench's first free input
-    /// slot. See [`Command::StowOnBench`] for what is checked.
-    fn stow_on_bench(&mut self, slot: u32, who: u32, cell: u32, events: &mut Vec<WorldEvent>) {
-        let Some(item) = self.pack_item(who, cell) else {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        };
-        if self.workbench().is_none() {
-            events.push(refused(slot, Refusal::NoWorkbench));
-            return;
-        }
-        if let Item::Armour(p) = item
-            && p.broken()
-        {
-            events.push(refused(slot, Refusal::Broken));
-            return;
-        }
-        let at = match self.bench.takes(item) {
-            Ok(at) => at,
-            Err(why) => {
-                events.push(refused(slot, why));
-                return;
+                self.worn_on(other, part)
             }
         };
-        if !self.in_reach_of_bench(who) {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        let Some(taken) = self.aboard.room.take(who as usize, cell as usize) else {
-            events.push(refused(slot, Refusal::Broken));
+        let Some(item) = item else {
+            events.push(refused(slot, Refusal::NoSuchGear));
             return;
         };
-        // A piece leaves the world's list the way one leaving the hold
-        // for a pack joins the room's: the bench keeps it whole, health
-        // and all, and it is pushed back when it is taken off.
-        if let Item::Armour(p) = taken {
-            self.pieces.retain(|q| q.id != p.id);
+        let Some(part) = GearSlot::of_item(item) else {
+            events.push(refused(slot, Refusal::NoSuchGear));
+            return;
+        };
+        if matches!(from, GearSource::Worn { who: other, .. } if other == who) {
+            // Onto the slot it is already on: nothing to do.
+            return;
         }
-        self.bench.slots[at] = Some(taken);
-        events.push(WorldEvent::Stowed { who });
+        match from {
+            GearSource::Armory { id } => {
+                self.holdings.take(id);
+            }
+            GearSource::Worn { who: other, slot } => {
+                self.set_slot(other, slot, None, events);
+            }
+        }
+        if let Some(old) = self.set_slot(who, part, Some(item), events) {
+            self.holdings.put(old);
+        }
+        events.push(WorldEvent::GearChanged {
+            who,
+            part: part.code(),
+        });
     }
 
-    /// A thing off one of the workbench's slots into `who`'s pack —
-    /// `FetchKind::Bench`: an input back, while nothing is under way, or
-    /// the output any time. Nothing in the hold moves.
-    fn fetch_from_bench(&mut self, slot: u32, who: u32, at: u32, events: &mut Vec<WorldEvent>) {
-        if self.workbench().is_none() {
-            events.push(refused(slot, Refusal::NoWorkbench));
+    /// [`Command::Unequip`]: what `who` has on `part` off into the armory.
+    fn unequip(&mut self, slot: u32, who: u32, part: GearSlot, events: &mut Vec<WorldEvent>) {
+        if let Some(why) = self.gear_refusal(slot, who) {
+            events.push(refused(slot, why));
             return;
         }
-        let Some(item) = self.bench.slots.get(at as usize).copied().flatten() else {
-            events.push(refused(slot, Refusal::NotAboard));
+        if self.worn_on(who, part).is_none() {
+            events.push(refused(slot, Refusal::NoSuchGear));
+            return;
+        }
+        if let Some(old) = self.set_slot(who, part, None, events) {
+            self.holdings.put(old);
+        }
+        events.push(WorldEvent::GearChanged {
+            who,
+            part: part.code(),
+        });
+    }
+
+    /// [`Command::Offer`]: what player `slot`'s own Bim has on `part`,
+    /// offered to player `to`'s. One offer a slot: a second of the same
+    /// slot replaces the first.
+    fn offer(&mut self, slot: u32, part: GearSlot, to: u32, events: &mut Vec<WorldEvent>) {
+        if self.in_mission() {
+            events.push(refused(slot, Refusal::GearLocked));
+            return;
+        }
+        if slot >= self.players() || to >= self.players() || to == slot {
+            events.push(refused(slot, Refusal::NotAPlayer));
+            return;
+        }
+        if self.worn_on(slot, part).is_none() {
+            events.push(refused(slot, Refusal::NoSuchGear));
+            return;
+        }
+        self.holdings
+            .offers
+            .retain(|o| !(o.from == slot && o.slot == part));
+        self.holdings.offers.push(holdings::Offer {
+            from: slot,
+            slot: part,
+            to,
+        });
+        events.push(WorldEvent::GearOffered {
+            from: slot,
+            part: part.code(),
+            to,
+        });
+    }
+
+    /// [`Command::AnswerOffer`]: the recipient taking or declining player
+    /// `from`'s offer of its `part`, or the offerer taking it back.
+    fn answer_offer(
+        &mut self,
+        slot: u32,
+        from: u32,
+        part: GearSlot,
+        yes: bool,
+        events: &mut Vec<WorldEvent>,
+    ) {
+        if self.in_mission() {
+            events.push(refused(slot, Refusal::GearLocked));
+            return;
+        }
+        let Some(at) = self
+            .holdings
+            .offers
+            .iter()
+            .position(|o| o.from == from && o.slot == part && (o.to == slot || o.from == slot))
+        else {
+            events.push(refused(slot, Refusal::NoOffer));
             return;
         };
-        if self.bench.busy() && at as usize != Workbench::OUT {
-            events.push(refused(slot, Refusal::BenchBusy));
+        let offer = self.holdings.offers[at];
+        // The offerer can only take it back; only the recipient takes it.
+        if !yes || slot != offer.to {
+            self.holdings.offers.remove(at);
+            events.push(WorldEvent::OfferWithdrawn {
+                from: offer.from,
+                part: part.code(),
+                to: offer.to,
+            });
             return;
         }
-        if !self.in_reach_of_bench(who) {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        let Some(cell) = self.aboard.room.gear(who as usize).free_cell_for(item) else {
-            events.push(refused(slot, Refusal::PackFull));
+        let Some(item) = self.worn_on(offer.from, part) else {
+            self.holdings.offers.remove(at);
+            events.push(refused(slot, Refusal::NoSuchGear));
             return;
         };
-        if !self.aboard.room.give(who as usize, Some(cell), item) {
-            events.push(refused(slot, Refusal::PackFull));
+        self.holdings.offers.remove(at);
+        self.set_slot(offer.from, part, None, events);
+        if let Some(old) = self.set_slot(offer.to, part, Some(item), events) {
+            self.holdings.put(old);
+        }
+        events.push(WorldEvent::OfferTaken {
+            from: offer.from,
+            part: part.code(),
+            to: offer.to,
+        });
+    }
+
+    /// Every piece there is made whole, worn or in the armory: what a
+    /// mission's start does (task 113). Armour is never destroyed — a
+    /// piece at nothing stays worn and does nothing until then.
+    fn mend_all_armour(&mut self) {
+        for stored in &mut self.holdings.armory {
+            stored.item = holdings::mend(stored.item);
+        }
+        for who in 0..self.aboard.room.crew_count() as usize {
+            let mut gear = self.aboard.room.gear(who);
+            holdings::mend_gear(&mut gear);
+            self.aboard.room.issue(who, gear);
+        }
+    }
+
+    /// Crew member `who`'s weapon and armour into the armory, its slots
+    /// left empty: what a dead or left-behind bot's loadout does at the
+    /// end of a mission (task 113). Its charges go with it.
+    fn store_loadout(&mut self, who: u32) {
+        if who >= self.aboard.crew_count() {
             return;
         }
-        self.bench.slots[at as usize] = None;
-        if let Item::Armour(p) = item {
-            self.pieces.push(Piece {
-                id: p.id,
-                kind: p.kind,
-                tier: p.tier,
-                health: p.health,
-                at: Where::Pack {
-                    who,
-                    cell: cell as u8,
-                },
+        let gear = self.aboard.room.gear(who as usize);
+        for part in GearSlot::ALL {
+            if let Some(item) = part.read(&gear) {
+                self.holdings.put(holdings::mend(item));
+            }
+        }
+        self.aboard
+            .room
+            .issue(who as usize, bims::combat::Gear::default());
+    }
+
+    /// The fight's broken pieces, said once each: a piece at nothing
+    /// stays worn and does nothing for the rest of the mission (task
+    /// 113), and nothing else happens to it.
+    fn say_pieces_broken(&mut self, events: &mut Vec<WorldEvent>) {
+        for (who, kind) in self.aboard.room.take_pieces_broken() {
+            events.push(WorldEvent::PieceBroke {
+                who: who as u32,
+                kind,
             });
         }
     }
 
-    /// A thing into the hold from the bench's arms — a carry given up, a
-    /// carry back landed, or the room taken apart with one under way: the
-    /// instance first and the count second, as everywhere. Room or no
-    /// room: it was in the hold a moment ago, and the grid keeps what it
-    /// cannot lay unplaced rather than losing it.
-    fn hold_takes(&mut self, item: Item) {
-        let Some(resource) = armour::resource_of_item(item) else {
-            return;
-        };
-        match item {
-            Item::Armour(p) => self.pieces.push(Piece {
-                id: p.id,
-                kind: p.kind,
-                tier: p.tier,
-                health: p.health,
-                at: Where::Hold,
-            }),
-            Item::Weapon(gun) => self.guns.push(gun),
-            Item::Stack(_) | Item::Key(_) => {}
-        }
-        self.ship.design.cargo[resource as usize] += 1;
-        self.on_ship_changed();
-    }
-
-    /// A thing out of the hold, by what the bench wants, into the bench's
-    /// arms: the instance, its slot on the grid, then the count.
-    fn hold_gives(&mut self, kept: Kept) -> Option<Item> {
-        let (item, resource) = match kept {
-            Kept::Piece(id) => {
-                let i = self
-                    .pieces
-                    .iter()
-                    .position(|p| p.id == id && p.at == Where::Hold)?;
-                let p = self.pieces.remove(i);
-                (p.item(), p.resource())
-            }
-            Kept::Gun(kind, tier) => {
-                let gun = kind.at(tier);
-                let i = self.guns.iter().position(|g| *g == gun)?;
-                self.guns.remove(i);
-                (Item::Weapon(gun), armour::weapon_resource(kind))
-            }
-            Kept::Stack(_) => return None,
-        };
-        if let Some(grid) = self.grid_mut(storage(resource))
-            && let Some(id) = grid.slots.iter().find(|s| s.kept == kept).map(|s| s.id)
-        {
-            grid.take(id);
-        }
-        self.ship.design.cargo[resource as usize] -= 1;
-        self.on_ship_changed();
-        Some(item)
-    }
-
-    /// Stage 7: a Bim reached into the first bench of a carry. From the
-    /// cabinet, what the bench wants comes out of the hold into the arms
-    /// — nothing, if it was sold or taken since the order, and the Bim
-    /// carries nothing; from the workbench, the output comes off it.
-    fn finish_ferry_pick(&mut self, ferry: bims::game::Ferry) {
-        if self.bench.carrying.is_some() {
-            return;
-        }
-        if Some(ferry.from) == self.workbench() {
-            self.bench.carrying = self.bench.slots[Workbench::OUT].take();
-            self.bench.back = true;
-        } else if Some(ferry.to) == self.workbench()
-            && let Some(kept) = self.bench_wants()
-        {
-            self.bench.carrying = self.hold_gives(kept);
-            self.bench.back = false;
-        }
-    }
-
-    /// Stage 7: a Bim put a carried thing down at the second bench. At the
-    /// workbench it goes into the first free input slot — into the hold
-    /// instead if the slots filled meanwhile; at the cabinet, into the
-    /// hold.
-    fn finish_ferry_drop(&mut self, ferry: bims::game::Ferry) {
-        let Some(item) = self.bench.carrying.take() else {
-            return;
-        };
-        if Some(ferry.to) == self.workbench()
-            && let Ok(at) = self.bench.takes(item)
-        {
-            self.bench.slots[at] = Some(item);
-        } else {
-            self.hold_takes(item);
-        }
-    }
-
-    /// Stage 7: a carry given up with the thing in the arms. Into the
-    /// hold, whichever way it was going.
-    fn finish_ferry_return(&mut self, _ferry: bims::game::Ferry) {
-        if let Some(item) = self.bench.carrying.take() {
-            self.hold_takes(item);
-        }
-    }
-
-    /// Whether a container takes a resource: a bench whose part is a
-    /// cabinet of the resource's class — the armoury and the drug lab are
-    /// lockers; the smelter and the workbench hold nothing — a shelf for
-    /// shelf goods and, since a storage can hold armour or weapons as
-    /// well as materials, for anything worn or held; a cold store for
-    /// what goes off. Which class the thing *counts* against is
-    /// `economy::storage` whichever container it went through: the class
-    /// rules stay the one truth about capacity.
-    pub fn container_takes(&self, container: Container, resource: ResourceId) -> bool {
-        let class = storage(resource);
-        match container {
-            Container::Bench(i) => PartKind::from_code(self.aboard.room.bench_part(i))
-                .and_then(|kind| kind.def().capacity)
-                .is_some_and(|(held, _)| held == class),
-            // The ship's own shelves only: the station's, on the joined
-            // deck, are the station's to leave alone, never the hold's.
-            Container::Shelf(i) => {
-                // A shelf is locker room since the money rework, so it
-                // takes what a locker takes.
-                class == Storage::Locker && !self.station_shelves().contains(&i)
-            }
-            Container::Fridge(_) => class == Storage::ColdStore,
-            // The crew's own desks only: a key put on a station's desk
-            // would be the station's, and the hold would count it.
-            Container::Desk(i) => class == Storage::Research && Some(i) != self.station_desk(),
-        }
-    }
-
-    /// Whether crew member `who` stands within [`data::REACH`] of a
-    /// container that takes `resource` — alive, aboard, and near enough
-    /// to reach into it. What a stow and a fetch ask first.
-    pub fn in_reach(&self, who: u32, resource: ResourceId) -> bool {
-        if who >= self.aboard.crew_count() {
-            return false;
-        }
-        self.aboard.containers().into_iter().any(|c| {
-            self.container_takes(c, resource)
-                && self.aboard.room.within_reach(who as usize, c, data::REACH)
-        })
-    }
-
-    /// What is in a pack cell, or `None` for no such crew member, no such
-    /// cell, or nothing in it. The tail cell of a tall item — a key — is
-    /// that item, the way the room reads it.
-    fn pack_item(&self, who: u32, cell: u32) -> Option<Item> {
-        if who >= self.aboard.crew_count() || cell as usize >= PACK_CELLS {
-            return None;
-        }
-        let gear = self.aboard.room.gear(who as usize);
-        gear.pack[gear.head_of(cell as usize)]
-    }
-
-    /// A stow: the thing out of the pack, the count up by one, and a piece
-    /// of armour `Where::Hold` with the health it had. See
-    /// [`Command::Stow`] for what is checked.
-    fn stow(&mut self, slot: u32, who: u32, cell: u32, events: &mut Vec<WorldEvent>) {
-        let Some(item) = self.pack_item(who, cell) else {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        };
-        if let Item::Armour(p) = item
-            && p.broken()
-        {
-            events.push(refused(slot, Refusal::Broken));
-            return;
-        }
-        let Some(resource) = armour::resource_of_item(item) else {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        };
-        // The medicine is a charge the cooldown fills the pack back up
-        // with, so one stowed would be one conjured into the hold.
-        if Charge::of_resource(resource).is_some_and(Charge::everybody) {
-            events.push(refused(slot, Refusal::ChargeKept));
-            return;
-        }
-        if !self.in_reach(who, resource) {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        // The whole stack goes (feature 87): a cell of five dressings is
-        // five, not one, so the hold has to have room for the lot.
-        let gear = self.aboard.room.gear(who as usize);
-        let units = gear.units(gear.head_of(cell as usize)).max(1);
-        if !self.has_room(resource, units) {
-            events.push(refused(slot, Refusal::NoRoom));
-            return;
-        }
-        // The room's own refusal is a broken piece, checked above; asked
-        // all the same, since the room is the one holding it.
-        let Some(taken) = self.aboard.room.take(who as usize, cell as usize) else {
-            events.push(refused(slot, Refusal::Broken));
-            return;
-        };
-        match taken {
-            Item::Armour(p) => {
-                if let Some(piece) = self.pieces.iter_mut().find(|q| q.id == p.id) {
-                    piece.health = p.health;
-                    piece.at = Where::Hold;
-                }
-            }
-            // A weapon keeps its tier on the list, the way a piece keeps
-            // its health.
-            Item::Weapon(gun) => self.guns.push(gun),
-            Item::Stack(_) | Item::Key(_) => {}
-        }
-        self.ship.design.cargo[resource as usize] += units;
-        self.on_ship_changed();
-        events.push(WorldEvent::Stowed { who });
-    }
-
-    /// A fetch: one piece by id, or one unit of a resource — the least
-    /// damaged piece of the kind for an armour resource — out of the hold
-    /// and into the first free pack cell. See [`Command::Fetch`].
-    fn fetch(&mut self, slot: u32, who: u32, kind: FetchKind, events: &mut Vec<WorldEvent>) {
-        // Off the workbench rather than out of the hold: its own rules.
-        if let FetchKind::Bench { slot: at } = kind {
-            self.fetch_from_bench(slot, who, at, events);
-            return;
-        }
-        let in_hold = |p: &&Piece| p.at == Where::Hold;
-        // A slot of a grid is whatever lies in it, asked for the way the
-        // rest are: the piece by id, the gun by its tier, one off the stack
-        // by its resource — and it is that slot which goes, not the first
-        // of its kind.
-        let (kind, from_slot) = match kind {
-            FetchKind::Slot { class, id } => {
-                let found = Storage::from_code(class)
-                    .and_then(|class| self.grid(class))
-                    .and_then(|grid| grid.slot(id))
-                    .map(|s| s.kept);
-                match found {
-                    Some(Kept::Piece(piece)) => (FetchKind::Piece(piece), Some(id)),
-                    Some(Kept::Gun(kind, tier)) => (
-                        FetchKind::Tiered {
-                            resource: armour::weapon_resource(kind) as u32,
-                            tier: tier.code(),
-                        },
-                        Some(id),
-                    ),
-                    Some(Kept::Stack(resource)) => (FetchKind::Resource(resource as u32), Some(id)),
-                    None => {
-                        events.push(refused(slot, Refusal::NotAboard));
-                        return;
-                    }
-                }
-            }
-            kind => (kind, None),
-        };
-        // What is being taken: the resource, and the instance — a piece,
-        // or a gun off the list — if the resource is one that has them.
-        let (resource, piece, gun) = match kind {
-            FetchKind::Piece(id) => {
-                let Some(p) = self.pieces.iter().find(|p| p.id == id).filter(in_hold) else {
-                    events.push(refused(slot, Refusal::NotAboard));
-                    return;
-                };
-                (p.resource(), Some(*p), None)
-            }
-            FetchKind::Resource(code) => {
-                let Some(resource) = ResourceId::ALL.get(code as usize).copied() else {
-                    events.push(refused(slot, Refusal::NotAboard));
-                    return;
-                };
-                let best = armour::kind_of(resource).map(|kind| {
-                    self.pieces
-                        .iter()
-                        .filter(|p| p.kind == kind)
-                        .filter(in_hold)
-                        .max_by(|a, b| {
-                            a.health
-                                .partial_cmp(&b.health)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                        .copied()
-                });
-                // A weapon by resource is the best of them: the highest
-                // tier, the way a piece by resource is the least damaged.
-                let gun = armour::weapon_of(resource).map(|kind| {
-                    self.guns
-                        .iter()
-                        .filter(|g| g.kind == kind)
-                        .max_by_key(|g| g.tier)
-                        .copied()
-                });
-                match (best, gun) {
-                    // An armour resource with no piece to its count, or a
-                    // weapon with no gun, would be the invariant broken;
-                    // refused rather than made up.
-                    (Some(None), _) | (_, Some(None)) => {
-                        events.push(refused(slot, Refusal::NotAboard));
-                        return;
-                    }
-                    (piece, gun) => (resource, piece.flatten(), gun.flatten()),
-                }
-            }
-            FetchKind::Tiered { resource, tier } => {
-                let Some(resource) = ResourceId::ALL.get(resource as usize).copied() else {
-                    events.push(refused(slot, Refusal::NotAboard));
-                    return;
-                };
-                let gun = Tier::from_code(tier).and_then(|tier| armour::weapon_at(resource, tier));
-                let Some(gun) = gun.filter(|g| self.guns.contains(g)) else {
-                    events.push(refused(slot, Refusal::NotAboard));
-                    return;
-                };
-                (resource, None, Some(gun))
-            }
-            // Resolved above into one of the three, and the bench handled
-            // before any of it.
-            FetchKind::Slot { .. } | FetchKind::Bench { .. } => {
-                events.push(refused(slot, Refusal::NotAboard));
-                return;
-            }
-        };
-        if self.ship.design.carrying(resource) == 0 {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        }
-        if !self.in_reach(who, resource) {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        let item = match (piece, gun) {
-            (Some(p), _) => p.item(),
-            (None, Some(g)) => Item::Weapon(g),
-            (None, None) => armour::item_of(resource),
-        };
-        // A box with room in it first (feature 87), then the first cell
-        // the thing fits: a key wants two, one over the other.
-        let gear = self.aboard.room.gear(who as usize);
-        let cell = gear
-            .stack_with_room(item)
-            .or_else(|| gear.free_cell_for(item));
-        let Some(cell) = cell else {
-            events.push(refused(slot, Refusal::PackFull));
-            return;
-        };
-        if !self.aboard.room.give(who as usize, Some(cell), item) {
-            events.push(refused(slot, Refusal::PackFull));
-            return;
-        }
-        // The instance first and the count second, so the settle finds
-        // them agreeing.
-        if let Some(p) = piece
-            && let Some(piece) = self.pieces.iter_mut().find(|q| q.id == p.id)
-        {
-            piece.at = Where::Pack {
-                who,
-                cell: cell as u8,
-            };
-        }
-        if let Some(g) = gun
-            && let Some(i) = self.guns.iter().position(|q| *q == g)
-        {
-            self.guns.remove(i);
-        }
-        // And off its class's grid: a piece or a gun with its slot — the
-        // one asked for, else the first that holds the thing — one unit
-        // off a stack, the one asked for else the last; before the count,
-        // like the rest, so the settle finds nothing to drop.
-        let class = storage(resource);
-        if let Some(grid) = self.grid_mut(class) {
-            match (piece, gun) {
-                (None, None) => {
-                    grid.remove(resource, 1, from_slot);
-                }
-                (piece, gun) => {
-                    let kept = match (piece, gun) {
-                        (Some(p), _) => Kept::Piece(p.id),
-                        (_, Some(g)) => Kept::Gun(g.kind, g.tier),
-                        (None, None) => unreachable!(),
-                    };
-                    let taken = from_slot
-                        .or_else(|| grid.slots.iter().find(|s| s.kept == kept).map(|s| s.id));
-                    if let Some(id) = taken {
-                        grid.take(id);
-                    }
-                }
-            }
-        }
-        self.ship.design.cargo[resource as usize] -= 1;
-        self.on_ship_changed();
-    }
-
-    /// Put on what is in a pack cell. See [`Command::Equip`]. The room
-    /// does the swap; the world reads the pieces back and says so.
-    fn equip(&mut self, slot: u32, who: u32, cell: u32, events: &mut Vec<WorldEvent>) {
-        let kind = match self.pack_item(who, cell) {
-            Some(Item::Armour(p)) => Some(p.kind),
-            Some(Item::Weapon(_)) => None,
-            Some(Item::Stack(_) | Item::Key(_)) | None => {
-                events.push(refused(slot, Refusal::NotAboard));
-                return;
-            }
-        };
-        if !self.aboard.room.is_alive(who as usize) {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        self.aboard.room.equip(who as usize, cell as usize);
-        self.mirror_pieces(events);
-        if let Some(kind) = kind {
-            events.push(WorldEvent::Equipped { who, kind });
-        }
-    }
-
-    /// Take off what is worn on a part, into the pack. See
-    /// [`Command::Unequip`].
-    fn unequip(&mut self, slot: u32, who: u32, part: Part, events: &mut Vec<WorldEvent>) {
-        if who >= self.aboard.crew_count() || !self.aboard.room.is_alive(who as usize) {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        if self.aboard.room.worn(who as usize, part).is_none() {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        }
-        if self.aboard.room.gear(who as usize).free_cell().is_none() {
-            events.push(refused(slot, Refusal::PackFull));
-            return;
-        }
-        self.aboard.room.unequip(who as usize, part);
-        self.mirror_pieces(events);
-    }
-
-    /// Throw away what is in a pack cell. A piece of armour is gone from
-    /// `pieces` with it. See [`Command::Discard`].
-    fn discard(&mut self, slot: u32, who: u32, cell: u32, events: &mut Vec<WorldEvent>) {
-        let Some(item) = self.pack_item(who, cell) else {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        };
-        if self.aboard.room.discard(who as usize, cell as usize)
-            && let Item::Armour(p) = item
-        {
-            self.pieces.retain(|q| q.id != p.id);
-        }
-    }
-
-    // --- looting a body ------------------------------------------------------
+    // --- the bodies on the deck ----------------------------------------------
 
     /// The room a body is in, and its index there: the crew's own room
     /// for one of the crew, the station's people's for one of them.
@@ -5337,41 +4034,15 @@ impl World {
     }
 
     /// Whether a body is one: dead, or out cold, in whichever room it
-    /// lies (`Game::is_down`). What [`Command::Loot`] asks first, and
-    /// what the Loot window watches to know when to shut. `false` for no
-    /// such Bim.
+    /// lies (`Game::is_down`). `false` for no such Bim.
     pub fn is_down(&self, source: LootSource) -> bool {
         self.body_room(source)
             .is_some_and(|(room, who)| room.is_down(who))
     }
 
-    /// What a body shows when it is looted, cell by cell in
-    /// `bims::combat::LootCell` order — the pack's nine, then the head,
-    /// the body, the legs and the weapon in hand — read off whichever
-    /// room the body is in. `None` for no such Bim. Down or not: the
-    /// window asks, and [`Command::Loot`] is what refuses.
-    pub fn loot_cells(&self, source: LootSource) -> Option<[Option<Item>; LOOT_CELLS]> {
-        let (room, who) = self.body_room(source)?;
-        Some(room.loot_cells(who))
-    }
-
-    /// Which way round each thing in a body's pack lies — `Gear::turned`
-    /// — for the Loot window to draw it as it is.
-    pub fn loot_turned(&self, source: LootSource) -> Option<[bool; PACK_CELLS]> {
-        let (room, who) = self.body_room(source)?;
-        Some(room.gear(who).turned)
-    }
-
-    /// How many are in each of a body's loot cells (feature 87), for the
-    /// window's numbers — a box of dressings is five.
-    pub fn loot_counts(&self, source: LootSource) -> Option<[u32; LOOT_CELLS]> {
-        let (room, who) = self.body_room(source)?;
-        Some(room.loot_counts(who))
-    }
-
     /// Where a body lies, in the crew's room's units — the ones
-    /// `Game::send_to` and the pointer speak — so the looter can be walked
-    /// to it: one of the crew where it stands on the deck, or one of the
+    /// `Game::send_to` and the pointer speak — so a crew member can be
+    /// walked to it: one of the crew where it stands on the deck, or one of the
     /// station's people where it stands in its own room, put through
     /// `station_frame`. `None` for no such Bim, and for a resident while
     /// the rooms are not joined, since it is then on no deck the crew can
@@ -5406,10 +4077,8 @@ impl World {
     }
 
     /// Whether crew member `who` stands within [`data::REACH`] tiles of a
-    /// body — alive, awake, aboard, and near enough to go through its
-    /// pockets. What a loot asks after the body, and what the Loot window
-    /// reads to say "walk over first" before the command is sent and
-    /// refused; the command checks again when it lands.
+    /// body — alive, awake, aboard, and near enough to speak to it: what a
+    /// hire asks of the hand being hired.
     pub fn in_reach_of_body(&self, who: u32, source: LootSource) -> bool {
         if who >= self.aboard.crew_count() {
             return false;
@@ -5423,96 +4092,6 @@ impl World {
             return false;
         };
         (room.bim_pos(looter) - body).len() <= data::REACH * shipdesign::TILE as f32
-    }
-
-    /// A loot: one thing off a crewmate's body into the looter's pack. See
-    /// [`Command::Loot`] for what is checked. The body's room is the
-    /// crew's own, so the stripping (`Game::take_from_body`) and the
-    /// taking in (`Game::give`) are the one room's; a piece of armour off
-    /// a crewmate is already on the world's list, and `mirror_pieces`
-    /// finds it in the new pack.
-    fn loot(
-        &mut self,
-        slot: u32,
-        who: u32,
-        source: LootSource,
-        cell: u32,
-        events: &mut Vec<WorldEvent>,
-    ) {
-        // A station's people are nobody's to loot (features 102 and 104):
-        // every human is friendly, their dead are left as they lie, and a
-        // machine carries nothing. A crewmate down is still the crew's
-        // own to take a gun off.
-        let LootSource::Crew(body) = source else {
-            events.push(refused(slot, Refusal::NotACrewmate));
-            return;
-        };
-        let Some(cell) = LootCell::from_code(cell) else {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        };
-        if !self.is_down(source) {
-            events.push(refused(slot, Refusal::NotDown));
-            return;
-        }
-        if !self.in_reach_of_body(who, source) {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        if self.aboard.room.gear(who as usize).free_cell().is_none() {
-            events.push(refused(slot, Refusal::PackFull));
-            return;
-        }
-        // How many are in the cell — a box of dressings is five (feature
-        // 87) — asked before the cell is emptied.
-        let units = self.aboard.room.body_units(body as usize, cell).max(1);
-        let Some(item) = self.aboard.room.take_from_body(body as usize, cell) else {
-            events.push(refused(slot, Refusal::NotAboard));
-            return;
-        };
-        // The cell was free an instant ago and nothing has moved since;
-        // a stack goes into a box with room before it takes one of its
-        // own, and whatever will not fit is left on the body's cell —
-        // `give_stack` says how many went (feature 87).
-        let went = self.aboard.room.give_stack(who as usize, item, units);
-        if went < units {
-            self.aboard
-                .room
-                .give_stack(body as usize, item, units - went);
-        }
-        self.mirror_pieces(events);
-        events.push(WorldEvent::Looted {
-            who,
-            source_kind: source.code(),
-        });
-    }
-
-    // --- the station's shelves ---------------------------------------------------
-
-    /// Which of the shelves on the deck are the station's, while the
-    /// rooms are joined: the ones standing in the station's box, told
-    /// apart from the ship's the way its research desk is
-    /// ([`World::station_desk`]). Empty on a ship of its own. These are
-    /// not containers of the hold: [`World::container_takes`] says no for
-    /// them, and the app opens nothing on them.
-    pub fn station_shelves(&self) -> Vec<usize> {
-        let Some((lo, hi)) = self.aboard.station_box else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        let mut i = 0;
-        while let Some(frame) = self.aboard.room.container_frame(Container::Shelf(i)) {
-            let m = frame.center();
-            if (m.x as f64) >= lo.x
-                && (m.x as f64) <= hi.x
-                && (m.y as f64) >= lo.y
-                && (m.y as f64) <= hi.y
-            {
-                out.push(i);
-            }
-            i += 1;
-        }
-        out
     }
 
     // --- mercenaries ---------------------------------------------------------
@@ -5616,25 +4195,16 @@ impl World {
                 l.dead += 1;
             }
         });
-        // Into the crew's, where it stood on the deck, with its armour
-        // renumbered as the world's — and its berth left behind, since
-        // that was the station's: `adopt` gives it the first bunk spare,
-        // and a body with none sleeps on the deck under the usual rules.
+        // Into the crew's, where it stood on the deck, with the gear it
+        // brings as its loadout (task 113), its armour renumbered off the
+        // holdings — and its berth left behind, since that was the
+        // station's: `adopt` gives it the first bunk spare.
         let new_who = self.aboard.crew_count();
         body.bed = None;
         let mut gear = body.gear;
         for part in Part::ALL {
             if let Some(worn) = gear.worn_mut(part) {
-                let id = self.next_piece;
-                self.next_piece += 1;
-                self.pieces.push(Piece {
-                    id,
-                    kind: worn.kind,
-                    tier: worn.tier,
-                    health: worn.health,
-                    at: Where::Worn { who: new_who },
-                });
-                worn.id = id;
+                worn.id = self.holdings.take_id();
             }
         }
         body.character.stand_at(at);
@@ -5728,7 +4298,6 @@ impl World {
             self.outfit_the_hire(new_who);
         }
         self.on_ship_changed();
-        self.mirror_pieces(events);
         events.push(WorldEvent::Hired { who: new_who });
         // And the commander who signed it learns something by it.
         if self.is_commander(slot) {
@@ -5738,7 +4307,7 @@ impl World {
 
     /// *Outfitter*: the lowest basic piece a fresh hire is missing —
     /// helm, then kevlar, then leg guards — made out of nothing and put
-    /// on it, a piece of the world's like the tank's own start.
+    /// on it, numbered off the holdings like the tank's own start.
     fn outfit_the_hire(&mut self, who: u32) {
         let missing = [
             bims::combat::ArmourKind::BasicHelm,
@@ -5756,16 +4325,7 @@ impl World {
         let Some(kind) = missing else {
             return;
         };
-        let id = self.next_piece;
-        self.next_piece += 1;
-        let piece = bims::combat::Piece::new(id, kind, bims::combat::Tier::One);
-        self.pieces.push(Piece {
-            id,
-            kind,
-            tier: bims::combat::Tier::One,
-            health: piece.health,
-            at: Where::Worn { who },
-        });
+        let piece = self.holdings.new_piece(kind, Tier::One);
         let mut gear = self.aboard.room.gear(who as usize);
         *gear.worn_mut(kind.slot()) = Some(piece);
         self.aboard.room.issue(who as usize, gear);
@@ -6033,6 +4593,13 @@ impl World {
                 | Command::PlayerGone { .. }
                 | Command::ProposeRelic { .. }
                 | Command::AcceptRelic { .. }
+                // And the loadouts' (task 113): changed on the map and the
+                // reward screen, where nothing steps, and refused in a
+                // mission whenever they land.
+                | Command::Equip { .. }
+                | Command::Unequip { .. }
+                | Command::Offer { .. }
+                | Command::AnswerOffer { .. }
         )
     }
 
@@ -6322,9 +4889,9 @@ impl World {
 
     /// Everybody's kit at one tier: every crew member's weapon at `tier`
     /// (its kind kept, the pistol for an empty hand) and a fresh helm,
-    /// kevlar and leg guards at it over whatever was worn — pieces of the
-    /// world's, ids off `next_piece` and `Where::Worn`, so the checksum,
-    /// the health bars and a loot see them like any other. The crew's
+    /// kevlar and leg guards at it over whatever was worn — ids off the
+    /// holdings, so the checksum and the health bars see them like any
+    /// other. The crew's
     /// half of the `tier2_test` and `tier3_test` commands, whose machines
     /// come at the tier of themselves (`World::set_droid_tier_for_probe`):
     /// the fight with nothing at tier one on either side. Whatever was
@@ -6341,13 +4908,7 @@ impl World {
             let mut gear = self.aboard.room.gear(who);
             gear.weapon = armed(&gear);
             for kind in ArmourKind::ALL {
-                let id = self.next_piece;
-                self.next_piece += 1;
-                self.pieces.push(Piece {
-                    at: Where::Worn { who: who as u32 },
-                    ..Piece::new(id, kind, tier)
-                });
-                *gear.worn_mut(kind.slot()) = Some(bims::combat::Piece::new(id, kind, tier));
+                *gear.worn_mut(kind.slot()) = Some(self.holdings.new_piece(kind, tier));
             }
             self.aboard.room.issue(who, gear);
         }
@@ -7874,7 +6435,6 @@ impl World {
             self.take_resident_aboard(who, false);
         }
         self.on_ship_changed();
-        self.mirror_pieces(events);
         events.push(WorldEvent::TownsfolkJoined { count });
     }
 }
@@ -7957,53 +6517,38 @@ impl World {
     }
 
     /// The tank's start (feature 77): the laser pistol he has in hand
-    /// already, and a fresh basic helm, kevlar and leg guards on — the
-    /// world's own pieces, `next_piece` ids at `Where::Worn`, the way
-    /// `outfit_for_probe` dresses a crew. Nothing of the hold's moves:
-    /// the kit comes with him, like a soldier's rifle.
+    /// already, and a fresh basic helm, kevlar and leg guards on where he
+    /// wears nothing — his loadout from then on, ids off the holdings the
+    /// way `outfit_for_probe` dresses a crew. Nothing of the armory's
+    /// moves: the kit comes with him, like a soldier's rifle.
     fn give_tank_kit(&mut self, who: usize) {
         let mut gear = self.aboard.room.gear(who);
         for kind in ArmourKind::ALL {
             if gear.worn(kind.slot()).is_some() {
                 continue;
             }
-            let id = self.next_piece;
-            self.next_piece += 1;
-            self.pieces.push(Piece {
-                at: Where::Worn { who: who as u32 },
-                ..Piece::new(id, kind, Tier::One)
-            });
-            *gear.worn_mut(kind.slot()) = Some(bims::combat::Piece::new(id, kind, Tier::One));
+            *gear.worn_mut(kind.slot()) = Some(self.holdings.new_piece(kind, Tier::One));
         }
         self.aboard.room.issue(who, gear);
     }
 
-    /// And off again: every whole basic piece the tank's start put on,
-    /// off the body and off the world's list. A piece the crew member
-    /// came by some other way — looted, fetched out of the hold — is
-    /// left on, since only the tank's own were made out of nothing.
+    /// And off again: every tier-one piece he wears, which is the tank's
+    /// start — a class is chosen before the ship first leaves its berth,
+    /// and a loadout changes only between missions (task 113), so
+    /// nothing else can have put one on him by then.
     fn take_tank_kit(&mut self, who: usize) {
         let mut gear = self.aboard.room.gear(who);
-        let mut gone = Vec::new();
+        let mut changed = false;
         for kind in ArmourKind::ALL {
             let slot = kind.slot();
-            let Some(piece) = gear.worn(slot) else {
-                continue;
-            };
-            let ours = self
-                .pieces
-                .iter()
-                .any(|p| p.id == piece.id && p.at == Where::Worn { who: who as u32 });
-            if ours && piece.tier == Tier::One {
-                gone.push(piece.id);
+            if gear.worn(slot).is_some_and(|p| p.tier == Tier::One) {
                 *gear.worn_mut(slot) = None;
+                changed = true;
             }
         }
-        if gone.is_empty() {
-            return;
+        if changed {
+            self.aboard.room.issue(who, gear);
         }
-        self.pieces.retain(|p| !gone.contains(&p.id));
-        self.aboard.room.issue(who, gear);
     }
 
     /// The medic's start (feature 76): the laser pistol it has in hand
@@ -8021,36 +6566,33 @@ impl World {
         self.fill_medicine(who);
     }
 
-    /// And out again: the pack taken down to everybody's charges, as far
-    /// as it holds more than that — the medic's extra went with the
+    /// And out again: the medicine taken down to everybody's charges, as
+    /// far as it holds more than that — the medic's extra went with the
     /// class, and what it had already spent is spent.
     fn take_medic_kit(&mut self, who: usize) {
         for charge in Charge::MEDICINE {
             let over = self
                 .charges_of(who as u32, charge)
                 .saturating_sub(self.charges(who as u32, charge));
-            // By unit, not by cell: five dressings go in one box
-            // (feature 87), and taking the box would take the lot.
             let item = Item::Stack(charge.resource() as u32);
             self.aboard.room.take_stack(who, item, over);
         }
     }
 
     /// Everybody's medicine switched off, for a probe: no medkit or
-    /// bandage charge dealt from now on and none come back, so what is in
-    /// the packs is exactly what the probe leaves there — a pack laid out
-    /// cell by cell, a helper with no kit anywhere. What is in the packs
-    /// already stays. Neither saved nor hashed; never set in a game.
+    /// bandage charge dealt from now on and none come back, so what a
+    /// body has is exactly what the probe leaves it — a helper with no kit
+    /// anywhere. What is there already stays. Neither saved nor hashed;
+    /// never set in a game.
     pub fn medicine_off_for_probe(&mut self) {
         self.medicine_off = true;
     }
 
     /// Crew member `who`'s medicine topped up to its charges **at once**
     /// — a medkit and five bandages, a medic's four and ten — rather than
-    /// a charge a cooldown: what the crew set out with, what a hand
-    /// joining brings, what a medic's class or contract adds. As far as
-    /// the pack has room; the cooldowns bring the rest. Nothing with the
-    /// medicine switched off for a probe.
+    /// a charge a cooldown: what a hand joining brings, what a medic's
+    /// class or contract adds. The cooldowns bring the rest. Nothing with
+    /// the medicine switched off for a probe.
     fn fill_medicine(&mut self, who: u32) {
         if self.medicine_off || who >= self.aboard.crew_count() {
             return;
@@ -8064,30 +6606,21 @@ impl World {
         }
     }
 
-    /// The engineer's start: its charges in the pack — [`deploy::SANDBAG_CHARGES`]
+    /// The engineer's start: its charges — [`deploy::SANDBAG_CHARGES`]
     /// sandbag kits and [`deploy::SENTRY_CHARGES`] sentry kits (feature
     /// 88), which is what the cooldowns fill it back up to.
     fn give_engineer_kit(&mut self, who: usize) {
         for (kit, count) in Self::ENGINEER_START {
             let item = Item::Stack(kit.resource() as u32);
-            for _ in 0..count {
-                self.aboard.room.give(who, None, item);
-            }
+            self.aboard.room.give_stack(who, item, count);
         }
     }
 
     /// And out again, as many of each as are there.
     fn take_engineer_kit(&mut self, who: usize) {
-        let room = &mut self.aboard.room;
         for (kit, count) in Self::ENGINEER_START {
             let item = Item::Stack(kit.resource() as u32);
-            let mut left = count;
-            let pack = room.pack(who);
-            for (cell, thing) in pack.iter().enumerate() {
-                if left > 0 && *thing == Some(item) && room.take(who, cell).is_some() {
-                    left -= 1;
-                }
-            }
+            self.aboard.room.take_stack(who, item, count);
         }
     }
 
@@ -8097,41 +6630,30 @@ impl World {
         (Kit::Sentry, deploy::SENTRY_CHARGES),
     ];
 
-    /// Kits straight into a crew member's pack, for a probe: `n` of
-    /// `kit` given the way the engineer's start gives its own, and how
-    /// many of them fitted. Nothing is made and nothing is paid. The
-    /// class's own start is [`deploy::SANDBAG_CHARGES`] sandbag kits
-    /// and [`deploy::SENTRY_CHARGES`] sentry kits, so a probe
-    /// wants this only for more of either than the class deals.
+    /// Kits straight onto a crew member, for a probe: `n` of `kit` given
+    /// the way the engineer's start gives its own, and how many. Nothing
+    /// is made and nothing is paid. The class's own start is
+    /// [`deploy::SANDBAG_CHARGES`] sandbag kits and
+    /// [`deploy::SENTRY_CHARGES`] sentry kits, so a probe wants this only
+    /// for more of either than the class deals.
     pub fn give_kits_for_probe(&mut self, who: u32, kit: Kit, n: u32) -> u32 {
         if who >= self.aboard.crew_count() {
             return 0;
         }
         let item = Item::Stack(kit.resource() as u32);
-        (0..n)
-            .filter(|_| self.aboard.room.give(who as usize, None, item))
-            .count() as u32
+        self.aboard.room.give_stack(who as usize, item, n)
     }
 
-    /// **Exactly** `n` of one charge in every crew member's pack, for a
-    /// probe (features 88 and 90): what is there taken out and `n` put
-    /// back, and that cooldown started afresh — so `n` of nought is a
-    /// class with no charges and the full wait ahead of it, which is the
-    /// one state a scripted run cannot walk itself into. `BIMS_KITS=n`
-    /// and `BIMS_GRENADES=n`.
+    /// **Exactly** `n` of one charge on every crew member, for a probe
+    /// (features 88 and 90): the count set and that cooldown started
+    /// afresh — so `n` of nought is a class with no charges and the full
+    /// wait ahead of it, which is the one state a scripted run cannot
+    /// walk itself into. `BIMS_KITS=n` and `BIMS_GRENADES=n`.
     pub fn set_charges_for_probe(&mut self, charge: Charge, n: u32) {
         let c = charge.code() as usize;
         for who in 0..self.aboard.crew_count() as usize {
             let item = Item::Stack(charge.resource() as u32);
-            let pack = self.aboard.room.pack(who);
-            for (cell, thing) in pack.iter().enumerate() {
-                if *thing == Some(item) {
-                    self.aboard.room.take(who, cell);
-                }
-            }
-            for _ in 0..n {
-                self.aboard.room.give(who, None, item);
-            }
+            self.aboard.room.set_charges(who, item, n);
             if self.charge_timers.len() <= who {
                 self.charge_timers
                     .resize(who + 1, [None; Charge::ALL.len()]);
@@ -8153,47 +6675,45 @@ impl World {
     }
 
     /// The soldier's start (feature 75): a basic auto rifle in hand, the
-    /// laser pistol that was there into the pack, and its
-    /// [`class::GRENADE_CHARGES`] grenades beside it — which is what the
-    /// cooldown fills it back up to (feature 90).
+    /// weapon that was there into the armory, and its
+    /// [`class::GRENADE_CHARGES`] grenades — which is what the cooldown
+    /// fills it back up to (feature 90).
     fn give_soldier_kit(&mut self, who: usize) {
-        let room = &mut self.aboard.room;
-        let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
-        if room.give(who, None, rifle) {
-            let pack = room.pack(who);
-            if let Some(cell) = pack.iter().position(|i| *i == Some(rifle)) {
-                room.equip(who, cell);
-            }
+        let mut gear = self.aboard.room.gear(who);
+        let was = gear.weapon.replace(WeaponKind::AutoRifle.basic());
+        self.aboard.room.issue(who, gear);
+        if let Some(was) = was {
+            self.holdings.put(Item::Weapon(was));
         }
         let grenade = Item::Stack(ResourceId::Grenade as u32);
-        for _ in 0..class::GRENADE_CHARGES {
-            room.give(who, None, grenade);
-        }
+        self.aboard
+            .room
+            .give_stack(who, grenade, class::GRENADE_CHARGES);
     }
 
-    /// And out again: the grenades out of the pack, the pistol back in
-    /// the hand and the rifle gone, as far as each is still there.
+    /// And out again: the grenades taken off, and the rifle the class
+    /// brought given up for a pistol out of the armory — a fresh one if
+    /// the armory has none, the one that went in being what came out.
     fn take_soldier_kit(&mut self, who: usize) {
-        let room = &mut self.aboard.room;
         let grenade = Item::Stack(ResourceId::Grenade as u32);
-        let mut left = class::GRENADE_CHARGES;
-        let pack = room.pack(who);
-        for (cell, item) in pack.iter().enumerate() {
-            if left > 0 && *item == Some(grenade) && room.take(who, cell).is_some() {
-                left -= 1;
+        self.aboard
+            .room
+            .take_stack(who, grenade, class::GRENADE_CHARGES);
+        let mut gear = self.aboard.room.gear(who);
+        if gear.weapon == Some(WeaponKind::AutoRifle.basic()) {
+            let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
+            if let Some(id) = self
+                .holdings
+                .armory
+                .iter()
+                .rev()
+                .find(|s| s.item == pistol)
+                .map(|s| s.id)
+            {
+                self.holdings.take(id);
             }
-        }
-        let pistol = Item::Weapon(WeaponKind::LaserPistol.basic());
-        let rifle = Item::Weapon(WeaponKind::AutoRifle.basic());
-        if room.weapon(who) == Some(WeaponKind::AutoRifle.basic()) {
-            let pack = room.pack(who);
-            if let Some(cell) = pack.iter().position(|i| *i == Some(pistol)) {
-                room.equip(who, cell);
-            }
-        }
-        let pack = room.pack(who);
-        if let Some(cell) = pack.iter().position(|i| *i == Some(rifle)) {
-            room.take(who, cell);
+            gear.weapon = Some(WeaponKind::LaserPistol.basic());
+            self.aboard.room.issue(who, gear);
         }
     }
 
@@ -8657,13 +7177,10 @@ impl World {
                 if since < self.charge_cooldown(who as u32, charge) {
                     continue;
                 }
-                // The charge is up. A pack with nowhere to put it keeps
-                // the timer where it is and the thing lands the step room
-                // is made, the way the grids keep an overflow unplaced.
+                // The charge is up: one more on the body.
                 let item = Item::Stack(charge.resource() as u32);
-                if self.aboard.room.give(who, None, item) {
-                    self.charge_timers[who][c] = (held + 1 < charges).then_some(now);
-                }
+                self.aboard.room.give_stack(who, item, 1);
+                self.charge_timers[who][c] = (held + 1 < charges).then_some(now);
             }
         }
     }
@@ -8682,7 +7199,7 @@ impl World {
         let who = slot as usize;
         let room = &self.aboard.room;
         let wanted = Item::Stack(kit.resource() as u32);
-        if !room.pack(who).iter().any(|i| *i == Some(wanted)) {
+        if room.charges_of(who, wanted) == 0 {
             return Err(Refusal::NoKit);
         }
         // A sentry over the limit is not refused (feature 88): the laying
@@ -8778,20 +7295,14 @@ impl World {
             return;
         }
         let wanted = Item::Stack(kit.resource() as u32);
-        let Some(cell) = self
-            .aboard
-            .room
-            .pack(who)
-            .iter()
-            .position(|i| *i == Some(wanted))
-        else {
+        if self.aboard.room.charges_of(who, wanted) == 0 {
             return;
-        };
+        }
         let (deck, tile) = self.deck_of(at);
         if self.deployable_at(deck, tile).is_some() {
             return;
         }
-        if self.aboard.room.take(who, cell).is_none() {
+        if self.aboard.room.take_stack(who, wanted, 1) == 0 {
             return;
         }
         // One more than the charges allow: the oldest of this engineer's
@@ -8880,7 +7391,7 @@ impl World {
         Ok(d)
     }
 
-    /// A deployable back into the pack as a kit — see [`Command::PackUp`].
+    /// A deployable back onto its engineer as a kit — see [`Command::PackUp`].
     fn pack_up(&mut self, slot: u32, id: u32, events: &mut Vec<WorldEvent>) {
         let d = match self.deployable_in_reach(slot, id) {
             Ok(d) => d,
@@ -8890,10 +7401,7 @@ impl World {
             }
         };
         let kit = Item::Stack(d.kind.kit().resource() as u32);
-        if !self.aboard.room.give(slot as usize, None, kit) {
-            events.push(refused(slot, Refusal::PackFull));
-            return;
-        }
+        self.aboard.room.give_stack(slot as usize, kit, 1);
         self.deployables.retain(|x| x.id != id);
         if let Some(n) = self.reused_kits.get_mut(slot as usize) {
             *n += 1;
@@ -9055,45 +7563,6 @@ impl World {
     /// unjoin: called from `unjoin_rooms`.
     fn drop_station_deployables(&mut self) {
         self.deployables.retain(|d| d.deck == Deck::Ship);
-    }
-
-    // --- the armourer's repair ---------------------------------------------
-
-    /// Whether a player's engineer could begin a repair now, or why not:
-    /// what greys the bench window's button. The command's own check.
-    pub fn can_repair(&self, slot: u32) -> Result<(), Refusal> {
-        if !self.has_talent(slot, Talent::Armourer) {
-            return Err(Refusal::NoTalent);
-        }
-        if !self.fit_to_act(slot) {
-            return Err(Refusal::OutOfReach);
-        }
-        if self.workbench().is_none() {
-            return Err(Refusal::NoWorkbench);
-        }
-        if self.bench.busy() || self.bench.slots[Workbench::OUT].is_some() {
-            return Err(Refusal::BenchBusy);
-        }
-        let damaged = match (self.bench.slots[0], self.bench.slots[1]) {
-            (Some(Item::Armour(p)), None) => p.health < p.stats().health,
-            _ => false,
-        };
-        if !damaged {
-            return Err(Refusal::NoPair);
-        }
-        if self.money < deploy::ARMOUR_REPAIR_COST {
-            return Err(Refusal::NotEnoughMoney);
-        }
-        Ok(())
-    }
-
-    /// A repair begun at the workbench — see [`Command::Repair`].
-    fn begin_repair(&mut self, slot: u32, events: &mut Vec<WorldEvent>) -> Result<(), Refusal> {
-        self.can_repair(slot)?;
-        self.money -= deploy::ARMOUR_REPAIR_COST;
-        self.bench.repair = Some(slot);
-        let _ = events;
-        Ok(())
     }
 
     // --- the soldier: the brace, the skills and the grenades (feature 75) --
@@ -9310,14 +7779,7 @@ impl World {
         self.can_throw(slot, tile)?;
         let who = slot as usize;
         let wanted = Item::Stack(ResourceId::Grenade as u32);
-        let cell = self
-            .aboard
-            .room
-            .pack(who)
-            .iter()
-            .position(|i| *i == Some(wanted))
-            .ok_or(Refusal::NoGrenade)?;
-        if self.aboard.room.take(who, cell).is_none() {
+        if self.aboard.room.take_stack(who, wanted, 1) == 0 {
             return Err(Refusal::NoGrenade);
         }
         let t = shipdesign::TILE as f32;
@@ -10992,23 +9454,6 @@ impl World {
             });
         }
         self.sync_deployed_cover();
-    }
-
-    /// The session done: the piece into the output slot with the metal's
-    /// worth back on it, capped at its tier's full health.
-    fn finish_repair(&mut self, events: &mut Vec<WorldEvent>) {
-        if self.bench.repair.take().is_none() {
-            return;
-        }
-        let Some(Item::Armour(mut piece)) = self.bench.slots[0] else {
-            return;
-        };
-        piece.health = (piece.health + class::ARMOUR_REPAIR_HEALTH).min(piece.stats().health);
-        self.bench.slots[0] = None;
-        self.bench.slots[Workbench::OUT] = Some(Item::Armour(piece));
-        events.push(WorldEvent::Repaired {
-            kind: piece.kind.code(),
-        });
     }
 }
 

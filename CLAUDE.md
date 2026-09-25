@@ -22,7 +22,7 @@ the build's own answer where this table is a copy:
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with **everybody's kit at tier two** — every crew member's gun at it (its kind as the fight dealt it) and a fresh helm, kevlar and leg guards at it on, pieces of the world's — and the machines at tier two (`Session::droids_at_tier`, `World::outfit_for_probe`), so the fight is looked at with nothing at tier one on either side. It was the human garrison's fight until every enemy was a machine (feature 102) |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
 | `nix run .#droids` | `cargo run -- droids` | **the fight** — the **machines** (feature 83): the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the five kinds dealt round — the **last four of them hired field medics** (`session::COMBAT_MEDICS`, feature 86), docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across) that the **droids hold**. `Session::combat` builds the ship, the crew and the arena and `Session::droids` hands the arena to the machines; the `combat` command that stopped at the first half — the arena's own people turned against the crew — is gone with every other human enemy (feature 102), and so are its `combat_<class>` runs and `--combat`; `BIMS_FIGHT`, which staged a fight with a station's *people* on the simulation, went with the human enemies themselves (feature 104). Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, **sixteen a wave** (`session::COMBAT_WAVE`, the cap) — the game's own `droid::wave_size` is the base, the *players* and the world clock and nothing else (feature 105), which for one player at day nought is three, and sixteen crew against three is not the fight this command is for. `DROID_REINFORCE_STEPS` is **a minute of the mission clock** here — a real second at 1× — rather than two real minutes, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the mission clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`). **`BIMS_STATION_SEED=<n>`** (and `BIMS_STATION_KIND`) fights it in the station seed `n` generates rather than the arena (feature 112, `Session::regenerate_dock_for_probe`) |
-| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with the class in hand** (features 79 and 83, `Launch::DroidsAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs: the same combat ship, the same sixteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the **tenth level** (`dev::COMBAT_CLASS_LEVEL`, feature 80) with all seven of the class's talents still to choose, so the tray opens on the **Skills** tab (feature 83) with seven points to spend; `BIMS_LEVEL=n` says otherwise. The **engineer of such a run has the charges its class deals it** (`world::deploy::SENTRY_CHARGES`, one, beside `SANDBAG_CHARGES`, three). The `combat_<class>` runs beside these were the human garrison's fight, and went with it (feature 102). The parsing is `main.rs::class_named`, and `bims list` prints the lot |
+| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with the class in hand** (features 79 and 83, `Launch::DroidsAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs: the same combat ship, the same sixteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the **tenth level** (`dev::COMBAT_CLASS_LEVEL`, feature 80) with all of the class's talents still to choose (seven, the engineer's six since task 113), so the tray opens on the **Skills** tab (feature 83) with that many points to spend; `BIMS_LEVEL=n` says otherwise. The **engineer of such a run has the charges its class deals it** (`world::deploy::SENTRY_CHARGES`, one, beside `SANDBAG_CHARGES`, three). The `combat_<class>` runs beside these were the human garrison's fight, and went with it (feature 102). The parsing is `main.rs::class_named`, and `bims list` prints the lot |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
 | `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it first spreads (feature 92): `test`'s own random galaxy and random dock and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight. The origin is theirs from day nought, as in every run since feature 102, and the clock is wound to the eve of the day the ring round it turns (`DROID_SPREAD_DAYS`, five) — so the next stars turn red on the galaxy chart within a day of the clock — a day the crew have to travel, since only travel moves the world clock (feature 103) — and the crew's own system five days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the clock opens a day short of the next ring whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
 | `nix run .#jammer` | `cargo run -- jammer` | the **jammer** (feature 93): `crisis`'s own random galaxy, random dock and origin **two hops off**, with the clock wound *past* the day this system falls rather than a day short of the first — so the crew open **inside** an infested system, every station of it in the machines' hands (`Session::jammer_for_probe`, `World::infest_here_for_probe`), a wave aboard the one they are tied up at and `DROID_REINFORCE_STEPS` a minute of the mission clock. Two things are looked at from here. The **jam**: the chart lights the lanes out of the ship's star in the hyperdrive's violet, draws the route to whatever star is picked along them, and **bars in red every step of it a jammer would turn back** — a jump *inward*, towards where the machines began, is refused while the jammer station stands (`Refusal::Jammed`), and the panel says which station holds it. And the **tier**: two hops is inside `DROID_TIER_THREE_HOPS`, so the machines come at **tier three** without a dial. `BIMS_DROID_TIER=1` says otherwise, and `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE` are `droids`' own |
@@ -83,10 +83,11 @@ crew member walked out onto the plain west of the ship and a minute gone
 by, and `BIMS_ZOOM=0.3` zooms the game view out by that factor once it
 is fitted (a scripted wheel does not reach it): the two together are how
 the plain and its fog are looked at. `BIMS_TRADE=1` opens the simulation with the station's
-trade window up, for looking at the cart; `BIMS_ARMOURY=1` opens it
-with the armoury window up, for looking at the lockers' grid — a
-`press`, `move`s and a `release` in `BIMS_POINTER` drag a thing across
-it. `BIMS_GRAVES=n` leaves `n` of the station alongside **dead where
+trade window up, for looking at the cart; **`BIMS_ARMORY=1`** (or the
+old `BIMS_ARMOURY=1`) opens any run with the **Armory panel** up (task
+113) — a `press`, `move`s and a `release` in `BIMS_POINTER` drag a thing
+across it, and `BIMS_MAP=1` beside it is the panel on the map, where it
+is not read-only. `BIMS_GRAVES=n` leaves `n` of the station alongside **dead where
 they stand** and builds its room again over the bodies (feature 85,
 `World::lay_graves_for_probe`), for looking at the dead lying on a
 station's deck without fighting, leaving and coming back —
@@ -118,23 +119,21 @@ BIMS_CARRY=1 bims droids` is a body in the arms (the Carry box lit, with
 no count on it, is what says so), and `BIMS_DYING=2 BIMS_SMOKE_FRAMES=600
 bims droids` is one of its field medics going and fetching for itself.
 `G` is the carry's key in `BIMS_KEYS`.
-**`BIMS_BANDAGES=n`** puts exactly `n` dressings in **every** crew
-member's pack and starts the bandage cooldown afresh, and
+**`BIMS_BANDAGES=n`** puts exactly `n` dressings on **every** crew
+member and starts the bandage cooldown afresh, and
 **`BIMS_MEDKITS=n`** the same for the medkit: since the medicine became
 **everybody's charges** — a medkit and five bandages each, a medic four
 and ten, back forty seconds (a medic's medkit thirty) and thirty
 seconds of the clock after each is used (`class::Charge::{Medkit, Bandage}`, `crates/world/CLAUDE.md`,
 "The medicine is everybody's charges") — nought is the empty box at
 the foot of the canvas with its **sweep** running, and `BIMS_BANDAGES=2`
-a part stock with the **ring** round its count filling. Five go in one
-box over two cells by two, so `BIMS_BANDAGES=7` is a full box beside a
-part one, which is how the count in a cell's corner is looked at —
-`BIMS_ARMOURY=1 BIMS_BANDAGES=7` on the simulation, or `BIMS_BANDAGES=7
-BIMS_DYING=2 bims droids` for a crew that binds its own wounds as it
+a part stock with the **ring** round its count filling. A charge is a
+count on the body since task 113 — no pack, no box —
+so `BIMS_BANDAGES=7 BIMS_DYING=2 bims droids` for a crew that binds its own wounds as it
 runs; `BIMS_MEDKITS=0 BIMS_BANDAGES=2 bims droids` is the two medicine
 boxes' two states in one picture.
 **`BIMS_KITS=n`** does the same for the engineer's two **charges**
-(feature 88): exactly `n` of each kit in every pack and both cooldowns
+(feature 88): exactly `n` of each kit on everybody and both cooldowns
 started afresh. `BIMS_KITS=0 bims combat_droids_engineer` is the one state a
 scripted run cannot walk itself into — no charge in hand and the whole
 wait ahead — so the seconds in the corner of the two boxes at the foot
@@ -1005,6 +1004,66 @@ Every one came back to its old number under the old layouts
 `the_commands_come_back_under_the_old_layouts`, both run alone with
 `--exact`). `PICTURES` and the design-hash pins did not move.
 
+## No storage: the ship's holdings and each Bim's loadout (task 113)
+
+Nothing is stored anywhere. What the crew own is abstract, and it is two
+things: **the ship's holdings** — the pool (`World::money`), the
+**armory** (every weapon and piece of armour nobody wears, one
+`world::Stored` each with an id that only climbs) and the **research
+keys** (a count, added the moment one is picked up, `World::pick_up_key`)
+— and **each Bim's loadout**: one weapon slot and one slot a part of the
+body, the room's `bims::combat::Gear`, and nothing else. Bandages,
+medkits and the class kits are **charges** on the body
+(`Gear::charges`, a count by resource code), never things. The world's
+half is `crates/world/CLAUDE.md` ("Nothing is stored"), the room's
+`crates/game/CLAUDE.md` ("A loadout and its charges"), the player's
+`README.md` ("The Armory"). What to hold on to:
+
+- **Gone**: the hold's gear counts (a design's gear cargo goes into the
+  armory at `World::start` and its count to nought, `stock_the_armory`),
+  `World::{pieces, guns, grids, bench, craft_targets, auto_upgrade}`,
+  `crate::grid`, `Where`, `FetchKind`, the pack (`PACK_CELLS`, `LootCell`,
+  `Item::Key`), looting, a knocked-out Bim dropping its gun and fetching
+  it (`Kind::Fetch`, `HIT_DROPPED`), the workbench's slots, upgrades and
+  repairs, the drug lab's medkit, the room's bench carry (`Kind::Ferry`)
+  and craft chain (`Kind::Craft`, `Job::{Haul, Craft}` — the work list is
+  `Build` and `Medical`, codes 0 and 1), and the engineer's *Armourer*
+  (level six is *Higher quality armour* alone, given outright —
+  `class::fixed_at`; `Talent::Armourer` keeps its code, never offered).
+  The furniture stays as pictures and solids.
+- **A loadout changes between missions only** — `Phase::Map` and
+  `Phase::Reward` (there is no trade phase yet) — through
+  `Command::{Equip, Unequip, Offer, AnswerOffer}`: in a mission every one
+  is refused `GearLocked`. A player changes its own Bim and any bot
+  (`World::may_change`), never another player's (`NotYours`): a thing
+  passes to another player only as an **offer** it accepts, withdrawn
+  when either side's slot changes or a mission starts. A thing off a slot
+  goes into the armory; onto a filled slot, the old one does.
+- **Armour is never destroyed**: at nought it stays worn and protects
+  nothing for the rest of the mission; **every piece is whole at a
+  mission's start** (`mend_all_armour`), and so are the charges — **set**
+  to their start amounts, not topped up (`fill_charges`).
+- **Death**: a player's Bim that dies is out for the rest of the mission
+  and **respawns when it ends** with everything it wore, its relics,
+  class, level and talents, the pool paying `BUYBACK_COST` or what it
+  holds, down to nought (`respawn_the_fallen`, `WorldEvent::Respawned`);
+  there is no buyback queue. A bot dead or left behind is gone, the
+  penalty paid, **its loadout into the armory** (`store_loadout`).
+- **Trading** puts gear into the armory and sells it out of it
+  (`World::held`, lowest tier first); nothing is ever short of room.
+- **The Armory panel** is the app's (`CrewPanels::armory_window`), Tab
+  and the tray's Armory button on every screen of a run, read-only in a
+  mission. `BIMS_ARMORY=1` opens with it up.
+
+**What moved**: `SAVE_VERSION` **42**, `wire::PROTOCOL` **34** (the relay
+wants redeploying), `REFERENCE_CHECKSUM` (the holdings and every loadout
+are hashed where the pieces, the guns, the grids and the bench were), and
+`SURVIVORS` and the ship's `PINNED` (their notes say why: the reading
+takes a `Gear` by its `Debug`, which lost the pack, and the run itself
+plays differently on purpose — the armour mended and the charges set at
+every mission's start, the dead back at its end, no gun dropped).
+`tests_holdings.rs` in `crates/world` is the task's own tests.
+
 ## The old game deleted (feature 104)
 
 The third step of the redesign: **everything features 102 and 103 switched
@@ -1281,9 +1340,8 @@ Things about that which are easy to get wrong:
   health big: the bar and its number, a short bar each for the head,
   the body, the legs and the blood, and a beating red frame with
   *CRITICAL* while `hud::Hero::critical` holds), the tray bottom left
-  (`CrewPanels::tray`: Stash — the crew's gear alone since feature
-  110, the hold and the charges left out — Squad, Map, and Trade at a
-  desk), *Back to ship* and the log
+  (`CrewPanels::tray`: Armory — the Armory panel, where the Stash was
+  until task 113 — Squad, Map, and Trade at a desk), *Back to ship* and the log
   bottom right (`hud::Log`: four lines, eight seconds each, the same
   words or one source's experience folded inside a second), the side
   panel on the right only for a **crewmate** picked
@@ -1297,7 +1355,7 @@ Things about that which are easy to get wrong:
   world says a level and not the points. A player whose Bim is out
   watches a crewmate through `ship::game::Game::spectate`, which the
   cameras follow in place of `local`. **`BIMS_SHEET=1`** opens with the
-  sheet up, **`BIMS_TRAY=stash|squad`** with that panel open, and
+  sheet up, **`BIMS_TRAY=squad`** with that panel open, and
   **`BIMS_OUT=1`** lays the HUD out as if the player's own Bim were out
   without touching the world (a Bim out in a game of one is a run lost).
 - **One frame is one system per screen**, in `EguiPrimaryContextPass`:
@@ -1398,14 +1456,11 @@ Things about that which are easy to get wrong:
   following of its own accord —
   and Esc or a right-click puts the armed pointer away. That is what
   moved the camera's Follow onto **V**. Tab is the
-  Inventory action: it opens and shuts the tray's **Stash** (feature
-  107), whose *Open pack* opens the crew member's inventory window —
-  and with it a body down within reach, if there is one (the
-  ship's own lockers no longer come up with it, feature 110), the
-  rest of them a click away on the **Nearby** strip over
-  the window and on the Stash (`CrewPanels::nearby`, a `Near` list the screens rebuild
-  every frame off the room's `within_reach` and the world's
-  `in_reach_of_body`). `BIMS_KEYS` knows `Tab` and `Space` by name and every letter the
+  Inventory action: it opens and shuts the **Armory panel** (task 113,
+  `CrewPanels::armory_window`) on every screen of a run — the deck, the
+  map, the galaxy chart and the reward screen — read-only in a mission,
+  with the **Nearby** strip (an engineer's deployables to pack up,
+  `CrewPanels::nearby`) on it there. `BIMS_KEYS` knows `Tab` and `Space` by name and every letter the
   bindings use — `T` and `V` among them, which it did not until feature
   84's two orders were looked at from a terminal — and `+Shift` at one frame with `-Shift` at a later one holds Shift across a click between them — a Shift order, feature 69 (bevy_egui reads the modifier a frame late, so leave a frame or two each side).
   **egui moves keyboard focus on Tab**, and a widget with focus is egui
@@ -1413,10 +1468,16 @@ Things about that which are easy to get wrong:
   been egui's: `keys::release_tab_focus` at the top of a screen's frame
   surrenders the focus Tab gave (`tab_took_focus` on the screen). A
   text field that has focus keeps it.
-- **The pack is the lockers' grid again, ten across by five down** — the same
-  `grid::lockers` widget, `CrewPanels::pack_drag`, and a drop is
-  `GearOrder::Repack` → `Command::Repack`. The Loot window draws a body's
-  pack on it too, with `movable` off: looked at, not tidied.
+- **Nothing is stored, and the Armory panel is all of what the crew own**
+  (task 113, *No storage* below): `CrewPanels::armory_window` off an
+  `ArmoryView` the screen builds every frame (`screens::game::armory_of`)
+  — a column a crew member with its HUD portrait (`hud::portrait`), its
+  class and its four slots, the armory, the money and the keys. A thing
+  moves by egui's own drag and drop (`dnd_drag_source`,
+  `dnd_drop_zone`, an `ArmoryDrag` payload) or a right-click's rows, and
+  every move is a `GearOrder` → `Command::{Equip, Unequip, Offer,
+  AnswerOffer}`; the world's refusal is the log's line. There is no
+  pack, no container window, no Loot window and no workbench window.
 - **The UI scale is egui's zoom factor** (`theme::ui_scale_row`, on the Esc
   sheet's menu): it scales the type, the panels and the canvas alike, and
   bevy_egui divides the pointer by it, so nothing in the screens has to
@@ -1444,31 +1505,6 @@ Things about that which are easy to get wrong:
   and heading. Every `Game` method that takes a point takes a room point.
   (The test room's screen, gone in feature 104, read its own through
   `Game::view_scale/offset`.)
-- **Every container window is `grid::lockers`, and the rule for a drop
-  is the world's.** The shelves, the cold store and the lockers are the
-  world's grids (`World::grids`, `crates/world/CLAUDE.md`), every thing
-  drawn over its footprint with a stack's count in the corner; only the
-  research desk is `grid::grid`, a cell. The widget carries a thing on a
-  drag, turns it on `R` and hands back a `Moved` — the drag itself lives
-  on `CrewPanels::locker_drag` between frames. Whether the ghost is
-  green is `Grid::fits` asked of the `Hold` snapshot, never worked out
-  here, and the drop goes through the seam as `Command::Arrange` like
-  every other change to the hold. `BIMS_ARMOURY=storage` opens the
-  shelves' window for a screenshot (`=fridge`, the cold store's, and
-  `=plunder`, an enemy's shelf, went in feature 104), and
-  `=workbench` the one
-  container that is not a class of the hold: the workbench's three
-  slots (`CrewPanels::bench_window`, `Hold::bench`), two `grid::grid`s
-  with the Upgrade button between them — greyed with the world's own
-  refusal (`World::can_upgrade`) — and a thing goes onto it from the
-  pack by Ctrl-click or its Bench row (`GearOrder::StowOnBench`) and
-  off it by Ctrl-click or Take (`FetchKind::Bench`); see
-  `crates/world/CLAUDE.md`, "Two of a kind go onto the workbench". A
-  thing's picture over a long footprint is `icons::laid`: the long guns
-  have a wide drawing (`draw_wide`), everything else sits square in the
-  middle, and a turned thing is drawn upright into a `Sketch` — the
-  shapes gathered rather than painted — and turned a quarter, since a
-  painter cannot turn a shape once it has it.
 - **The health block says what the Bim is dying *of*, not only how much
   is left.** The bars on the right-hand panel are the biggest thing on
   it (`crew::BAR_W`, `theme::health_bar`, `crew::HEALTH_NUMBER`), and

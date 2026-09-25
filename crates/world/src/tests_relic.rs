@@ -132,22 +132,9 @@ fn no_station_carries_a_research_key() {
         for who in 0..world.aboard.crew_count() as usize {
             let wanted = bims::combat::Item::Stack(key as u32);
             assert_eq!(world.aboard.room.gear(who).units_of(wanted), 0);
-            for tier in [1, 2] {
-                let keyed = bims::combat::Item::Key(tier);
-                assert!(
-                    !world
-                        .aboard
-                        .room
-                        .gear(who)
-                        .pack
-                        .iter()
-                        .flatten()
-                        .any(|i| *i == keyed),
-                    "a key in a pack"
-                );
-            }
         }
     }
+    assert_eq!(world.holdings.keys, 0, "no key counted");
 }
 
 // --- 2: tier two on time and distance ------------------------------------------
@@ -447,31 +434,21 @@ fn a_bot_can_never_be_given_a_relic() {
     );
 }
 
-/// **A dead player keeps its relics** through its death and its buyback,
-/// as it keeps its level.
+/// **A dead player keeps its relics** through its death and its respawn
+/// at the mission's end (task 113), as it keeps its level.
 #[test]
-fn a_dead_player_keeps_its_relics_through_buyback() {
+fn a_dead_player_keeps_its_relics_through_its_respawn() {
     let mut world = crewed_world(flyer(2), data::BUYBACK_COST, 2, 2);
     world.give_relic_for_probe(1, Relic::FieldPlating);
     world.aboard.room.kill_for_probe(1);
     world.step(&[]);
     assert!(world.run.is_out(1));
     assert_eq!(world.relics_of(1), &[Relic::FieldPlating], "dead, and kept");
-    world.leave_for_probe();
-    let here = world.current_site();
-    let site = world
-        .sites_at(world.star_id)
-        .into_iter()
-        .find(|&s| Some(s) != here && world.travel_quote(s).is_ok())
-        .unwrap();
-    let mut events = world.step(&[Command::Propose {
-        slot: 0,
-        star: site.star,
-        station: site.station,
-    }]);
-    events.extend(world.step(&[Command::Accept { slot: 1, yes: true }]));
+    let events = world.leave_for_probe();
     assert!(
-        events.contains(&WorldEvent::BoughtBack { who: 1 }),
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Respawned { who: 1, .. })),
         "{events:?}"
     );
     assert_eq!(world.relics_of(1), &[Relic::FieldPlating], "back, and kept");

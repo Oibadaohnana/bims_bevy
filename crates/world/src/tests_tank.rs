@@ -107,15 +107,9 @@ fn hits_taken(world: &World, who: u32) -> u32 {
 /// A piece of armour worn by `who`, put on by hand over whatever was
 /// there, with `health` left on it.
 fn wear(world: &mut World, who: usize, kind: ArmourKind, health: f32) -> u32 {
-    let id = world.next_piece;
-    world.next_piece += 1;
-    let mut piece = Piece::new(id, kind, Tier::One);
+    let mut piece = world.holdings.new_piece(kind, Tier::One);
+    let id = piece.id;
     piece.health = health;
-    world.pieces.push(crate::armour::Piece {
-        health,
-        at: crate::Where::Worn { who: who as u32 },
-        ..crate::armour::Piece::new(id, kind, Tier::One)
-    });
     let mut gear = world.aboard.room.gear(who);
     *gear.worn_mut(kind.slot()) = Some(piece);
     world.aboard.room.issue(who, gear);
@@ -197,8 +191,8 @@ fn the_tank_sets_out_in_basic_armour_with_the_pistol_and_the_pool_is_unchanged()
         assert_eq!((piece.kind, piece.tier), (kind, Tier::One));
         assert_eq!(piece.health, kind.stats().health, "fresh");
         assert!(
-            world.pieces.iter().any(|p| p.id == piece.id),
-            "the world knows the piece"
+            piece.id < world.holdings.next_id,
+            "numbered off the holdings"
         );
     }
     // And a class put back to none takes its start off again.
@@ -210,15 +204,13 @@ fn the_tank_sets_out_in_basic_armour_with_the_pistol_and_the_pool_is_unchanged()
     // the tank's kit is a start, not a monopoly.
     assert_eq!(world.set_class(1, Class::Medic), Ok(()));
     let helm = Item::Armour(Piece::new(9_001, ArmourKind::BasicHelm, Tier::One));
-    assert!(world.aboard.room.give(1, None, helm));
-    let cell = world
-        .aboard
-        .room
-        .pack(1)
-        .iter()
-        .position(|i| *i == Some(helm))
-        .expect("in the pack");
-    world.aboard.room.equip(1, cell);
+    world.leave_for_probe();
+    let id = world.holdings.put(helm).unwrap();
+    world.step(&[Command::Equip {
+        slot: 1,
+        who: 1,
+        from: crate::GearSource::Armory { id },
+    }]);
     assert!(world.aboard.room.gear(1).worn(Part::Head).is_some());
 }
 

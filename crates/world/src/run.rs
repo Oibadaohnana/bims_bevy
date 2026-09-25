@@ -27,9 +27,9 @@
 //!
 //! A mission begins on arrival at any site, peaceful or not: a trader
 //! visit is a mission without a fight. At its start every crew member's
-//! health is made whole, every class charge and cooldown is fresh, and
-//! the dead players the pool can pay for are bought back
-//! ([`crate::data::BUYBACK_COST`], longest dead first). The site's state
+//! health is made whole, every charge is set to its start amount and
+//! every cooldown is fresh, and every piece of armour is whole again
+//! (task 113). The site's state
 //! is photographed the first step the mission runs ([`SiteSnapshot`]),
 //! so that leaving it **uncleared** puts it back exactly as it was met.
 //!
@@ -53,8 +53,11 @@
 //!
 //! # Dying
 //!
-//! A player's Bim that dies is **out** ([`Fallen`]) until bought back,
-//! its gear lost with the body and its class, level and talents kept. A
+//! A player's Bim that dies is **out** ([`Fallen`]) for the rest of the
+//! mission and respawns when it ends, with its whole loadout, relics,
+//! class, level and talents, the pool paying
+//! [`crate::data::BUYBACK_COST`] — or what it holds, down to nought, since
+//! a respawn never waits for money (task 113). Gear is never lost. A
 //! bot's is gone for good and costs the pool
 //! [`crate::data::BOT_DEATH_PENALTY`], never below nought. The run is
 //! over when every player's Bim is dead at once.
@@ -197,7 +200,7 @@ impl Departure {
     }
 }
 
-/// A player's Bim that is dead and waiting to be bought back, and when
+/// A player's Bim that is dead and waiting for the mission's end, and when
 /// it fell, so the longest dead go first.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -258,7 +261,7 @@ pub struct Run {
     /// goes ([`crate::Command::PlayerGone`]), and a vote does not wait for
     /// a player who is not there.
     pub connected: Vec<bool>,
-    /// Dead players waiting to be bought back, the longest dead first.
+    /// Dead players waiting for the mission's end, the longest dead first.
     pub fallen: Vec<Fallen>,
     /// Deaths so far: what [`Fallen::order`] is stamped from.
     pub deaths: u64,
@@ -325,7 +328,7 @@ impl Run {
         self.connected.get(slot as usize).copied().unwrap_or(true)
     }
 
-    /// Whether that player's Bim is dead and waiting to be bought back.
+    /// Whether that player's Bim is dead and waiting for the mission's end.
     pub fn is_out(&self, slot: u32) -> bool {
         self.fallen.iter().any(|f| f.slot == slot)
     }

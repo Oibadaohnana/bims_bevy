@@ -147,8 +147,10 @@ there is no helm to stand at and no trip to sit through.
   stronger makes the fight easier, and keeping money costs nothing.
 - **A mission** begins on arrival anywhere, peaceful or not — a visit to
   a trader is a mission without a fight. Everybody's health is made
-  whole, every class charge and cooldown is ready, and dead players are
-  bought back (below). Everything inside a mission runs on the **mission
+  whole, every piece of armour is whole again, every charge is set back
+  to what the Bim starts with and every cooldown is ready, and an offer
+  of gear still standing is withdrawn (see [the Armory](#the-armory)).
+  Gear changes hands only between missions. Everything inside a mission runs on the **mission
   clock**, which starts at nought on arrival: the machines' next wave two
   minutes after the last of one is destroyed, a town's first wave a
   minute after the landing, the class cooldowns.
@@ -173,13 +175,15 @@ there is no helm to stand at and no trip to sit through.
   on.
 - **Dying.** A player's Bim that dies is **out**: its gun, armour and pack
   are lost with the body, but its class, level, experience and talents are
-  kept. At the start of each mission the pool buys each dead player's Bim
-  back for **5 000** if it can, the longest dead first — it wakes aboard
-  the ship carrying nothing — and one the pool cannot pay for stays out
-  and is tried again at the next mission. A bot that dies — a hired hand,
-  a townsperson who joined — is gone for good and costs the pool **5 000**,
-  never taking it below nought. **The run is over when every player's Bim
-  is dead at once**, whoever is waiting to be bought back: a screen says
+  kept. A player's Bim that dies is out for the rest of the mission and
+  **comes back when the mission ends**, aboard, **with everything it
+  wore** — its gun, its armour, its relics, its class and level — and the
+  pool pays **5 000** for it, or what it holds if that is less: a Bim
+  never waits for money, and the pool never goes below nought. Gear is
+  never lost. A bot that dies or is left behind — a hired hand, a
+  townsperson who joined — is gone for good and costs the pool **5 000**,
+  never taking it below nought, and **its gun and armour go into the
+  armory**. **The run is over when every player's Bim is dead at once**: a screen says
   so, with the day, and its *Start again* puts the run back to where it
   opened.
 
@@ -215,7 +219,7 @@ player's Bim** for the rest of the run. A bot never holds one.
   nothing else.
 - **Kept.** A relic cannot be moved to another Bim, dropped or sold, and a
   player's Bim that dies keeps its relics as it keeps its level; they come
-  back with it when it is bought back.
+  back with it at the mission's end.
 - **A clear pays one.** A site cleared **with machines in it** — a held
   station, a held town, a town defended — offers **three relics of its
   tier** (the tier its machines came at) on a **reward screen** after the
@@ -293,8 +297,8 @@ of the waves — which grow with the world clock, so waiting costs.
   win unlocked; from there, back to the start menu.
 - **Leaving** before the core is down puts the whole fortress back as the
   crew met it — conduits, fabricators, core and phase — and pays nothing
-  and offers no relic. The dead stay out until the next mission's buyback,
-  and the run is lost as ever when every player's Bim is dead at once.
+  and offers no relic. The dead come back as the ship leaves, and the
+  run is lost as ever when every player's Bim is dead at once.
 
 The top bar says it while the crew are there: the core's health, how many
 conduits are left, and the waves after them.
@@ -339,6 +343,51 @@ the tier of what they carry on arrival.
 crew there: `BIMS_MANUFACTURER_DAY=0` for pistols alone, `8` (the
 command's own) for the Troopers beside them, ten or more for their waves.
 
+## The Armory
+
+Nothing is kept anywhere. There is no hold for gear, no pack on anybody's
+back, no locker to put a gun in and nothing to take off a body — the
+armoury, the lockers and the shelves still stand on the deck, and they
+are furniture. What the crew own is two things:
+
+- **The ship's holdings**: the money, the **armory** — every weapon and
+  piece of armour nobody is wearing — and the **research keys**, counted
+  the moment one is picked up.
+- **Each Bim's loadout**: a weapon and a piece for the head, the body and
+  the legs. That is everything a Bim carries. Its bandages, medkits,
+  sandbag and sentry kits and grenades are **charges**, counted on the
+  Bim, set back to what it starts with at every mission and coming back
+  on their cooldowns during one.
+
+**Tab** (or the tray's **Armory**) opens the panel on every screen of a
+run: a column for each of the crew — its portrait, its class, its weapon
+and each piece with its tier and what it has left — and under them the
+armory, the money and the keys. **Drag** a thing out of the armory onto a
+Bim to put it on (what was there goes into the armory), or off a Bim onto
+the armory to take it off; a right-click says the same in rows.
+
+- **Between missions only**: on the world map, the galaxy chart and the
+  reward screen. During a mission the panel is read-only.
+- **Your own Bim and every bot are yours to dress**; another player's Bim
+  is not. To give another player something you are wearing, drag it onto
+  their column — or right-click, *Offer to* — and it is **offered**: it
+  shows on their column with **Accept** and **Decline**, and moves only
+  when they accept, their old one going into the armory. An offer is
+  withdrawn when either of you changes that slot, when you take it back,
+  or when a mission starts.
+- **Armour is never destroyed.** A piece shot down to nothing stays on
+  and stops nothing for the rest of the mission, and every piece — worn
+  or in the armory — is whole again when the next mission starts.
+- **Buying** at a trader puts the thing in the armory at the tier bought;
+  **selling** takes from the armory, the lowest tier first — never off a
+  Bim.
+- **A player's Bim that dies keeps everything it wore** and comes back
+  with it when the mission ends; **a bot's** gear comes home to the armory
+  (see [the loop](#the-loop-world-map-travel-missions)).
+
+Whatever the world will not do, it says why in the log: a change during
+a mission, another player's Bim, a thing that is not there any more.
+
 ## Running it
 
 ```sh
@@ -357,7 +406,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#test` | `cargo run -- test` | the simulation somewhere else each time: docked at a random station somebody lives on, in a random galaxy, with a mercenary for hire at the dock |
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` set down on a planet: the same random galaxy, landed at the settlement of a planet whose people are friendly |
 | `nix run .#droids` | `cargo run -- droids` | **the fight**: the combat ship — sixteen crew, a gun in every hand, four of them hired field medics — docked at the arena, which the **machines** hold: a wave of Husks, Troopers and Wardens stands about it. They wear nothing, carry nothing and leave nothing to loot; a Husk snaps at arm's length, a Trooper walks into the open with a gun for a forearm, and a Warden's lance **strips the armour off** whatever it hits rather than wounding the body under it. Clear a wave and the next lands at the far airlock a minute later. Every enemy is a machine (see [a run](#a-run)), so the `combat` command that turned the arena's people against the crew — which would be this exactly — is gone |
-| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the wave `droids`' own, so two of these runs differ by the class and nothing else. It starts at the **tenth level** with every one of the class's seven talents still to choose, so the tray opens on the **Skills** tab with seven points to spend; `BIMS_LEVEL=3` opens it at that level instead, and `BIMS_CLASS` still overrides the command |
+| `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with a class in hand**: the crew member you steer starts as an engineer, a soldier, a medic, a tank or a commander — one command a class, the ship, the arena and the wave `droids`' own, so two of these runs differ by the class and nothing else. It starts at the **tenth level** with every one of the class's talents still to choose (seven, the engineer's six), so the tray opens on the **Skills** tab with those points to spend; `BIMS_LEVEL=3` opens it at that level instead, and `BIMS_CLASS` still overrides the command |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with everybody's kit at **tier two**: every crew member's gun at it and a full set of armour at it on, and the machines at tier two — nothing at tier one on either side |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | the same on a planet: a town held by the machines, the ship set down at its pad, and their lander coming down on the plain beyond a gate |
@@ -1028,6 +1077,11 @@ back from, not a game over.
 
 ### Making things
 
+> **Since task 113 nothing is made and nothing is kept**: the workbench's
+> upgrades and repairs, the drug lab's medkit and every hold went, and
+> what the crew own is [the Armory](#the-armory). What follows is how it
+> used to work.
+
 The crew make **one thing**, at one bench, and one mechanism does all of
 it. A **recipe** is a bench, what goes in, what comes out and how long it
 takes; the **drug lab** turns two **vegetables** into one **medkit** in a
@@ -1313,11 +1367,9 @@ next few seconds (feature 107); everything else is a key or a button away.
   blood under three quarters — its frame beats red and *CRITICAL* stands
   beside the number (feature 110). Down, the panel greys over and
   says so, with the time the blood has left.
-- **Bottom left, the tray**: **Stash** (Tab) — what each of the crew
-  carries (the ship's hold is not listed, and the medicine, kits and
-  grenades are the hero panel's boxes rather than things in a pack —
-  feature 110), with *Open pack* for your own whole pack
-  and what is within reach — **Squad**, every bot with its class, level and
+- **Bottom left, the tray**: **Armory** (Tab) — the [Armory](#the-armory)
+  panel, every crew member's gear and the ship's armory, money and keys
+  — **Squad**, every bot with its class, level and
   health and the orders the crew take (Attack, Retreat, Follow me, and a
   commander's Fall back and Stand ground), and **Map**, the world map as
   **M** is; and **Trade** while the ship is at a desk. The panel of the one
@@ -1645,6 +1697,10 @@ beyond the hull is reached; there is nothing out there to dig.
 
 ### The armoury
 
+> **Since task 113 the armoury is furniture**: the guns and the armour
+> nobody wears are in [the Armory](#the-armory), which is no place on the
+> deck. What follows is how it used to work.
+
 Built, and then **stripped back to a cabinet**. The **armoury** used to
 be a bench and a locker in one, making the laser handgun, the vest and
 the four other weapons out of metal, components and emitters. It makes
@@ -1660,6 +1716,11 @@ wounds on one part of a body; see *Getting hurt* under the game. What a
 Bim does with a handgun is the fight, below.
 
 ### Armour
+
+> **Since task 113** a piece is never destroyed and never lost: at
+> nothing it stays worn, doing nothing, until the next mission makes it
+> whole; and it moves only on [the Armory](#the-armory), between missions.
+> The hold, the pack and the workbench below are gone.
 
 Built. Three pieces — a **helm** (+15 health, 2 protection), **kevlar**
 (+20, 2) and **leg guards** (+10, 1) — **bought** rather than made, at
@@ -2668,6 +2729,10 @@ header, and a broken amber ring around the Bim itself, in a colour used for
 nothing else and drawn whether or not the Bim happens to be selected.
 
 ### Combat mode, and the inventory
+
+> **Since task 113 there is no inventory**: no pack, no looting, and a
+> body knocked down keeps its gun in its hand. What a Bim carries is its
+> loadout and its charges ([the Armory](#the-armory)).
 
 **The rest of the crew take arms on their own.** Whenever an enemy is
 within thirty tiles of anybody or in anybody's sight — a compartment or

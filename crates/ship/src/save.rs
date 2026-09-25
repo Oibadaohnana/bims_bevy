@@ -121,7 +121,11 @@ use crate::game::Game;
 /// 41: procedural stations and towns (feature 112) — a station keeps its
 /// gates (a town's, in the order its waves take them) and may be on the
 /// generated plan.
-pub const SAVE_VERSION: u32 = 41;
+/// 42: nothing stored (task 113) — the world keeps its holdings (the
+/// armory, the keys, the offers) where it kept the hold's pieces, guns,
+/// grids, workbench and craft targets, and a Bim's gear its charges where
+/// it kept a pack; the room keeps no weapons on the deck.
+pub const SAVE_VERSION: u32 = 42;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

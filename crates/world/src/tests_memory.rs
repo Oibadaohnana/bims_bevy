@@ -194,13 +194,12 @@ fn a_station_s_dead_lie_where_they_fell_when_its_room_opens_again() {
     let crowd = world.residents.as_ref().unwrap().aboard.count();
     assert!(crowd >= 2, "people to shoot: {crowd}");
 
-    // One of them shot where it stands, and its pack emptied the way a
-    // looting empties one.
+    // One of them shot where it stands, its charges spent.
     let shot = 1;
     {
         let ashore = world.residents.as_mut().unwrap();
         let mut gear = ashore.aboard.room.gear(shot);
-        gear.pack = [None; bims::combat::PACK_CELLS];
+        gear.charges = [0; bims::combat::CHARGE_CODES];
         ashore.aboard.room.issue(shot, gear);
         ashore.aboard.room.kill_for_probe(shot);
     }

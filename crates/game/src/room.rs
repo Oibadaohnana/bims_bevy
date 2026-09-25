@@ -69,19 +69,6 @@ pub const BANDAGES_AT_DAWN: u32 = 3;
 /// can be treated in a test without an armoury.
 pub const MEDKITS_AT_DAWN: u32 = 2;
 
-/// A weapon lying on the deck, let go of by a body knocked out: what it
-/// is, where it lies, and whose hand it fell from — that Bim comes back
-/// for it when it comes round (`Game::fetch`), and the player can send
-/// anybody. `id` is the number a chain names it by.
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Dropped {
-    pub id: u32,
-    pub at: Vec2,
-    pub weapon: crate::combat::Weapon,
-    pub owner: usize,
-}
-
 /// Something the Bim can walk up to and work with its hands: one of a
 /// ship's powered doors, by index into [`Room::doors`], and what to do to
 /// it.
@@ -124,9 +111,8 @@ pub const HIT_VISITOR: u32 = 15;
 /// A station's trading desk — the Trade row, which walks the Bim to it
 /// and opens the trade window. `Game::hit_desk` says which.
 pub const HIT_DESK: u32 = 16;
-/// A weapon lying on the deck — dropped by a body knocked out, for
-/// picking up. `Game::hit_dropped` says which.
-pub const HIT_DROPPED: u32 = 17;
+// 17 was a weapon lying on the deck, which went with the dropping
+// (task 113).
 /// A research desk — the ship's own, for its window, or a station's on
 /// the joined deck, for the key on it. `Game::hit_research` says which.
 pub const HIT_RESEARCH: u32 = 18;
@@ -173,12 +159,10 @@ pub const SPOT_RESEARCH: u32 = 20;
 /// two. The world reads it for a relay's and a hub's crowd.
 pub const BERTHS: usize = 2;
 
-/// A workstation a Bim can be stood at: the workbench, the armoury, the
-/// drug lab. What the craft chain walks to — `task::Kind::Craft` — and
-/// nothing else about it is the room's: what is made there, out of what,
-/// and whether it has the power to run are the world's, which hands the
-/// room a list of `game::Order`s every step. `kind` is the part's code, so
-/// the world can say which bench a recipe wants without the room knowing a
+/// A workstation standing on the deck: the workbench, the armoury, the
+/// drug lab. Nothing is made or kept at one since task 113 — they are
+/// pictures and solids — and the room keeps the list for the click and
+/// the ring. `kind` is the part's code, so the room need not know a
 /// `PartKind`.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -464,17 +448,6 @@ pub struct Room {
     /// of the tile in room units, and whether it was a sentry. The world
     /// puts the deployable down. See `crate::task::Kind::Deploy`.
     pub deployed: Vec<(usize, Vec2, bool)>,
-    /// What the world wants carried between two benches this step — a
-    /// gun or a piece of armour to the workbench, or the upgraded one
-    /// back — at most one; set by `Game::set_ferries`. See
-    /// `crate::game::Ferry`.
-    pub ferries: Vec<crate::game::Ferry>,
-    /// What the carrying chains did since the world last asked, drained
-    /// every step: the thing was taken at the first bench, put down at the
-    /// second, or given up between them.
-    pub ferry_picked: Vec<crate::game::Ferry>,
-    pub ferry_dropped: Vec<crate::game::Ferry>,
-    pub ferry_returned: Vec<crate::game::Ferry>,
     /// Moves whenever the outside grid has to be built again. Nothing
     /// changes it now that the mining is gone; it is kept because
     /// `Game::refresh_outside` reads it, and a planet's ground or another
@@ -485,10 +458,6 @@ pub struct Room {
     /// the frame it is read through. See `crate::terrain`. `None`
     /// everywhere else.
     pub plane: Option<crate::terrain::Plane>,
-    /// Recipes finished at a bench since the world last asked — indices into
-    /// `shipdesign::recipes::RECIPES`. The world drains it every step with
-    /// `Game::take_crafted` and moves the cargo.
-    pub crafted: Vec<u32>,
     /// The blood on the deck. It lives here because the deck *is* the
     /// room; `Game::render` draws it under the bodies.
     pub blood: Blood,
@@ -526,15 +495,6 @@ pub struct Room {
     /// with no kit (feature 76). The game does the treating: the trauma
     /// is on the patient's `Health`.
     pub treated: Vec<(usize, usize, u32, bool)>,
-    /// Weapons lying on the deck: what a body knocked out let go of, where
-    /// it fell. Each numbered from `next_weapon_down`, so a chain walking to
-    /// one names it by a number that survives another being picked up.
-    pub weapons_down: Vec<Dropped>,
-    pub next_weapon_down: u32,
-    /// Every pick-up finished since the game last looked — `(who, dropped
-    /// id)`, pushed by the fetch chain as the hand closes on it. The game
-    /// moves the weapon: the gear is a `Bim`'s.
-    pub picked_up: Vec<(usize, u32)>,
     /// Where every one of the crew stands this step, by index — `None` for
     /// one dead or outside. The one thing about the crew the room is told,
     /// set by the game at the top of every step, so that a chain walking
@@ -588,13 +548,8 @@ impl Room {
             suit_ok: Vec::new(),
             built: Vec::new(),
             deployed: Vec::new(),
-            ferries: Vec::new(),
-            ferry_picked: Vec::new(),
-            ferry_dropped: Vec::new(),
-            ferry_returned: Vec::new(),
             rocks_version: 0,
             plane: None,
-            crafted: Vec::new(),
             blood: Blood::new(interior),
             dressed: Vec::new(),
             medkits: MEDKITS_AT_DAWN,
@@ -603,9 +558,6 @@ impl Room {
             pack_kits_used: Vec::new(),
             kit_stands: Vec::new(),
             treated: Vec::new(),
-            weapons_down: Vec::new(),
-            next_weapon_down: 0,
-            picked_up: Vec::new(),
             crew: Vec::new(),
             cues: Vec::new(),
         }
@@ -721,13 +673,8 @@ impl Room {
             suit_ok: Vec::new(),
             built: Vec::new(),
             deployed: Vec::new(),
-            ferries: Vec::new(),
-            ferry_picked: Vec::new(),
-            ferry_dropped: Vec::new(),
-            ferry_returned: Vec::new(),
             rocks_version: 0,
             plane: layout.plane,
-            crafted: Vec::new(),
             blood: Blood::new(interior),
             dressed: Vec::new(),
             medkits: 0,
@@ -736,9 +683,6 @@ impl Room {
             pack_kits_used: Vec::new(),
             kit_stands: Vec::new(),
             treated: Vec::new(),
-            weapons_down: Vec::new(),
-            next_weapon_down: 0,
-            picked_up: Vec::new(),
             crew: Vec::new(),
             cues: Vec::new(),
         }

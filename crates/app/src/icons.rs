@@ -87,12 +87,6 @@ pub fn icon(painter: &egui::Painter, rect: Rect, item: Item) {
             Some(&id) => resource(painter, rect, id),
             None => unknown(painter, rect),
         },
-        // A key is its tier's resource, tall: the cell it is given is two
-        // cells high, and the picture is drawn to fill it.
-        Item::Key(tier) => match world::armour::key_resource(tier) {
-            Some(id) => resource(painter, rect, id),
-            None => unknown(painter, rect),
-        },
     }
 }
 
@@ -393,150 +387,9 @@ fn unknown(painter: &egui::Painter, rect: Rect) {
     );
 }
 
-// --- a thing laid on the lockers' grid ------------------------------------------
-
-/// A thing drawn over its footprint in the armoury: `rect` is the cells
-/// it covers, as laid. A gun lies along its footprint — the long guns
-/// have a drawing of their own for it, [`draw_wide`], since the square
-/// one stretched seven times over is a smear — and everything else sits
-/// square in the middle of its footprint the way it sits in a cell.
-/// `turned` draws the thing a quarter round: the picture is made for the
-/// footprint the other way up and turned with it, so a rifle stood on
-/// end is a rifle standing, muzzle up.
-pub fn laid(painter: &egui::Painter, rect: Rect, item: Item, turned: bool) {
-    let upright = if turned {
-        Rect::from_center_size(rect.center(), vec2(rect.height(), rect.width()))
-    } else {
-        rect
-    };
-    let mut s = Sketch::default();
-    let id = match item {
-        Item::Armour(piece) => ResourceId::ALL.get(piece.kind.resource() as usize).copied(),
-        Item::Weapon(weapon) => weapon
-            .kind
-            .resource()
-            .and_then(|c| ResourceId::ALL.get(c as usize))
-            .copied(),
-        Item::Stack(code) => ResourceId::ALL.get(code as usize).copied(),
-        Item::Key(tier) => world::armour::key_resource(tier),
-    };
-    match id {
-        Some(id) if upright.width() >= 1.5 * upright.height() && is_long(id) => {
-            draw_wide(&mut s, &Box_::stretched(upright), id);
-        }
-        Some(id) => draw_resource(&mut s, &Box_::new(upright), id),
-        None => {
-            let b = Box_::new(upright);
-            s.rect_stroke(
-                b.rect(0.2, 0.2, 0.8, 0.8),
-                b.px(0.05),
-                Stroke::new(b.px(0.06), theme::MUTED),
-                egui::StrokeKind::Inside,
-            );
-        }
-    }
-    if let Item::Armour(piece) = item
-        && piece.broken()
-    {
-        let b = Box_::new(upright);
-        s.line_segment(
-            [b.at(0.22, 0.78), b.at(0.78, 0.22)],
-            Stroke::new(b.px(0.08), CRACK),
-        );
-    }
-    if turned {
-        s.turn(rect.center());
-    }
-    painter.extend(s.shapes);
-}
-
-/// The things with a drawing made for a footprint wider than it is tall.
-fn is_long(id: ResourceId) -> bool {
-    matches!(
-        id,
-        ResourceId::Handgun
-            | ResourceId::Shotgun
-            | ResourceId::AutoRifle
-            | ResourceId::SniperRifle
-            | ResourceId::Schword
-    )
-}
-
-/// A long gun lying along its footprint: the muzzle to the right, lit,
-/// the way the square icons face, and the parts the deck tells them
-/// apart by laid out along the length rather than crowded into a square.
-/// `b` is the whole footprint, so `x` runs the length and `y` the height;
-/// widths of strokes are in `px`, which is the short side.
-fn draw_wide(s: &mut Sketch, b: &Box_, id: ResourceId) {
-    match id {
-        ResourceId::Handgun => {
-            // Small even laid out: the slide takes half the footprint and
-            // the rest is the air round a sidearm.
-            s.rect_filled(b.rect(0.24, 0.26, 0.80, 0.48), b.px(0.06), GUN);
-            s.rect_filled(b.rect(0.26, 0.44, 0.44, 0.86), b.px(0.06), GUN);
-            s.circle_filled(b.at(0.82, 0.37), b.px(0.09), GUN_LIGHT);
-        }
-        ResourceId::Shotgun => {
-            s.rect_filled(b.rect(0.02, 0.38, 0.22, 0.68), b.px(0.06), STOCK);
-            s.rect_filled(b.rect(0.18, 0.32, 0.34, 0.62), b.px(0.04), GUN);
-            s.rect_filled(b.rect(0.30, 0.32, 0.96, 0.52), b.px(0.04), GUN);
-            s.rect_filled(b.rect(0.42, 0.34, 0.66, 0.58), b.px(0.05), STOCK);
-            s.rect_filled(b.rect(0.26, 0.56, 0.36, 0.90), b.px(0.04), GUN);
-            s.circle_filled(b.at(0.94, 0.42), b.px(0.09), GUN_LIGHT);
-        }
-        // The one-row guns are a cell tall, so their parts take a good
-        // half of the height each or they are a hair.
-        ResourceId::AutoRifle => {
-            s.rect_filled(b.rect(0.01, 0.30, 0.20, 0.66), b.px(0.07), GUN);
-            s.rect_filled(b.rect(0.16, 0.24, 0.38, 0.66), b.px(0.05), GUN);
-            s.rect_filled(b.rect(0.36, 0.28, 0.82, 0.58), b.px(0.05), GUN);
-            for x in [0.46, 0.56, 0.66] {
-                s.rect_filled(b.rect(x, 0.32, x + 0.025, 0.54), 0.0, GUN_DARK);
-            }
-            s.rect_filled(b.rect(0.22, 0.14, 0.46, 0.28), b.px(0.03), GUN_DARK);
-            s.rect_filled(b.rect(0.26, 0.64, 0.38, 0.98), b.px(0.04), GUN_DARK);
-            s.rect_filled(b.rect(0.82, 0.26, 0.92, 0.60), b.px(0.03), GUN_STEEL);
-            s.circle_filled(b.at(0.94, 0.43), b.px(0.10), GUN_LIGHT);
-        }
-        ResourceId::SniperRifle => {
-            s.rect_filled(b.rect(0.00, 0.34, 0.16, 0.74), b.px(0.07), STOCK);
-            s.rect_filled(b.rect(0.08, 0.26, 0.24, 0.40), b.px(0.03), STOCK);
-            s.rect_filled(b.rect(0.18, 0.34, 0.34, 0.64), b.px(0.04), GUN);
-            s.rect_filled(b.rect(0.30, 0.40, 0.97, 0.56), b.px(0.03), GUN);
-            s.rect_filled(b.rect(0.22, 0.12, 0.54, 0.36), b.px(0.04), SCOPE);
-            s.circle_filled(b.at(0.49, 0.24), b.px(0.10), LENS);
-            s.rect_filled(b.rect(0.24, 0.62, 0.34, 0.96), b.px(0.04), GUN);
-            for foot in [0.68f32, 0.82] {
-                s.line_segment(
-                    [b.at(0.75, 0.56), b.at(foot, 0.96)],
-                    Stroke::new(b.px(0.05), GUN_STEEL),
-                );
-            }
-            s.rect_filled(b.rect(0.90, 0.34, 0.97, 0.62), b.px(0.03), GUN_STEEL);
-            s.circle_filled(b.at(0.96, 0.48), b.px(0.09), GUN_LIGHT);
-        }
-        ResourceId::Schword => {
-            let (foot, tip) = (b.at(0.26, 0.50), b.at(0.96, 0.50));
-            s.line_segment([foot, tip], Stroke::new(b.px(0.62), BLADE_GLOW));
-            s.line_segment([foot, tip], Stroke::new(b.px(0.32), BLADE_EDGE));
-            s.line_segment([foot, tip], Stroke::new(b.px(0.14), BLADE_CORE));
-            s.line_segment(
-                [b.at(0.24, 0.12), b.at(0.24, 0.88)],
-                Stroke::new(b.px(0.16), HILT),
-            );
-            s.line_segment(
-                [b.at(0.04, 0.50), b.at(0.22, 0.50)],
-                Stroke::new(b.px(0.30), HILT),
-            );
-        }
-        _ => draw_resource(s, b, id),
-    }
-}
-
-/// The shapes of an icon, gathered before they go to the painter, so a
-/// picture can be turned a quarter round on the way — the painter takes
-/// shapes and cannot turn one. The methods are the painter's, so a
-/// drawing reads the same whichever it is given.
+/// The shapes of an icon, gathered before they go to the painter. The
+/// methods are the painter's, so a drawing reads the same whichever it
+/// is given.
 #[derive(Default)]
 struct Sketch {
     shapes: Vec<egui::Shape>,
@@ -566,54 +419,6 @@ impl Sketch {
     fn line_segment(&mut self, points: [Pos2; 2], stroke: Stroke) {
         self.add(egui::Shape::line_segment(points, stroke));
     }
-
-    /// Every shape a quarter turn clockwise about `origin`. A rect turned
-    /// a quarter is still a rect, so its rounding is kept; the icons use
-    /// nothing else that has a direction of its own.
-    fn turn(&mut self, origin: Pos2) {
-        for shape in &mut self.shapes {
-            turn_shape(shape, origin);
-        }
-    }
-}
-
-/// A point a quarter turn clockwise about `origin`.
-fn turn_point(p: Pos2, origin: Pos2) -> Pos2 {
-    let d = p - origin;
-    pos2(origin.x - d.y, origin.y + d.x)
-}
-
-fn turn_shape(shape: &mut egui::Shape, origin: Pos2) {
-    use egui::Shape;
-    match shape {
-        Shape::Rect(r) => {
-            r.rect = Rect::from_two_pos(
-                turn_point(r.rect.min, origin),
-                turn_point(r.rect.max, origin),
-            );
-        }
-        Shape::Circle(c) => c.center = turn_point(c.center, origin),
-        Shape::LineSegment { points, .. } => {
-            for p in points.iter_mut() {
-                *p = turn_point(*p, origin);
-            }
-        }
-        Shape::Path(path) => {
-            for p in path.points.iter_mut() {
-                *p = turn_point(*p, origin);
-            }
-        }
-        Shape::Ellipse(e) => {
-            e.center = turn_point(e.center, origin);
-            e.radius = vec2(e.radius.y, e.radius.x);
-        }
-        Shape::Vec(shapes) => {
-            for shape in shapes.iter_mut() {
-                turn_shape(shape, origin);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// The cell's rect as a unit square, so every icon is drawn in fractions
@@ -629,12 +434,6 @@ impl Box_ {
         Box_ {
             rect: Rect::from_center_size(rect.center(), vec2(side, side)),
         }
-    }
-
-    /// The whole rect, whatever its shape: `x` in fractions of its width
-    /// and `y` of its height, for a drawing made for that shape.
-    fn stretched(rect: Rect) -> Box_ {
-        Box_ { rect }
     }
 
     fn at(&self, x: f32, y: f32) -> Pos2 {
@@ -690,23 +489,5 @@ mod tests {
             icon(&painter, rect, Item::Weapon(weapon.basic()));
         }
         icon(&painter, rect, Item::Stack(u32::MAX));
-        icon(&painter, rect, Item::Key(1));
-        icon(&painter, rect, Item::Key(2));
-        icon(&painter, rect, Item::Key(9));
-        // And laid over a footprint, either way round: the long guns on
-        // their own drawings, the rest square in the middle.
-        let long = Rect::from_min_size(pos2(10.0, 10.0), vec2(240.0, 24.0));
-        let tall = Rect::from_min_size(pos2(10.0, 10.0), vec2(24.0, 240.0));
-        for &id in ResourceId::ALL.iter() {
-            laid(&painter, long, Item::Stack(id as u32), false);
-            laid(&painter, tall, Item::Stack(id as u32), true);
-            laid(&painter, rect, Item::Stack(id as u32), false);
-        }
-        for &kind in ArmourKind::ALL.iter() {
-            let mut piece = Piece::new(1, kind, bims::combat::Tier::One);
-            piece.health = 0.0;
-            laid(&painter, long, Item::Armour(piece), true);
-        }
-        laid(&painter, long, Item::Key(9), true);
     }
 }

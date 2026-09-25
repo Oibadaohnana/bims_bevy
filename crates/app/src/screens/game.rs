@@ -14,20 +14,20 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bims::order::CrewOrder;
-use bims::room::{HIT_BIM, HIT_DROPPED, HIT_SHIP_DOOR};
+use bims::room::{HIT_BIM, HIT_SHIP_DOOR};
 use flight::Target;
 use physics::ResourceId;
 use ship::Session;
 use ship::game::ViewMode;
-use shipdesign::Storage;
+
 use wire::{PeerId, To};
-use world::{Refusal, ShipState, Speed, Where, WorldEvent};
+use world::{Refusal, ShipState, Speed, WorldEvent};
 use worldgen::Node;
 
 use super::designer::{Cart, Net, Order, ShipSession, trade_rows};
 use super::hud::{self, GAP, MARGIN};
 use crate::canvas::{Pointer, canvas_painter, egui_rect, rect_of, root_ui, zoom_factor};
-use crate::crew::{Body, CLICK_SLOP, CrewPanels, GearOrder, Hold, Near, Open, TrayAsk, TrayView};
+use crate::crew::{CLICK_SLOP, CrewPanels, GearOrder, Hold, Near, Open, TrayAsk, TrayView};
 use crate::format::euros;
 use crate::keys::{Action, Keys};
 use crate::names::*;
@@ -39,8 +39,6 @@ use crate::shapes::View;
 use crate::sound::{Bed, Sounds};
 use crate::theme::{panel_frame, tray_frame};
 use crate::{Launch, Screen, icons, theme};
-use bims::game::Container;
-use shipdesign::parts::PartKind;
 
 /// Ceiling on world steps per frame. It has to be at least `TOP_SPEED * 60
 /// / 30`, or the top of the speed range stops being reachable on a display
@@ -135,9 +133,6 @@ pub struct GameScreen {
     aiming_attack: bool,
     /// Whether the station's trade window is up.
     trading: bool,
-    /// `BIMS_ARMOURY=1`: the armoury window is to be opened on the first
-    /// frame there is a room to open it in.
-    armoury_wanted: Option<String>,
     /// Tab went down last frame with the keys ours: the focus egui gave a
     /// widget for it is to be surrendered (`keys::release_tab_focus`).
     tab_took_focus: bool,
@@ -834,7 +829,6 @@ impl GameScreen {
             throw_aim: None,
             aiming_attack: false,
             trading: crate::dev::trade(),
-            armoury_wanted: crate::dev::armoury(),
             tab_took_focus: false,
             cart: Cart::new(),
             backlog: 0.0,
@@ -1363,8 +1357,7 @@ fn frame(
     // something that takes each thing. Fresh every frame — the Bim is
     // walking.
     if let Some(panels) = &mut screen.panels {
-        let who = session.room_ref().map(|r| panels.inventory_who(r));
-        panels.hold = who.map(|who| hold_of(session, who));
+        panels.hold = Some(hold_of(session));
         panels.keys = keys_now;
     }
     let crew_count = session
@@ -1405,7 +1398,6 @@ fn frame(
                 picks: progress.picks.clone(),
                 talents: progress.talents(class),
                 can_change: !world.undocked_once,
-                repair: (class == world::Class::Engineer).then(|| world.can_repair(slot)),
                 soldier: (class == world::Class::Soldier).then(|| crate::crew::SoldierView {
                     grenades: world.grenades_of(slot),
                     cooldown: world.grenade_cooldown_left(slot),
@@ -1623,10 +1615,6 @@ fn frame(
         if let Some(game) = &mut session.game {
             game.hover = screen.hover_at.map(|p| game.tile_at(p.x, p.y));
         }
-        // Nothing on the deck is lit until the pointer is found over it.
-        if let Some(room) = session.room() {
-            room.set_hover_dropped(None);
-        }
         // With the attack key pressed the pointer is about one thing and
         // nothing else (feature 84): the system's cursor goes and a red
         // crosshair is drawn in its place, below, a left click puts the
@@ -1658,36 +1646,11 @@ fn frame(
             }
         } else if let Some(p) = on_canvas {
             let (rx, ry) = session.room_point(p.x, p.y);
-            // The gun under the pointer, ringed — worked out afresh every
-            // frame, like the highlight, so one walked off with is not
-            // left lit.
-            let who = session.room().map(|room| panels.inventory_who(room));
-            if let Some(room) = session.room() {
-                let under = room.dropped_at(rx, ry);
-                room.set_hover_dropped(under);
-            }
             if pointer.secondary_pressed {
                 panels.close_menu();
                 if let Some(room) = session.room() {
                     let fixture = room.hit_at(rx, ry);
-                    // A gun on the deck is picked up by the right-click
-                    // itself — no menu — into the pack of the Bim shown.
-                    if fixture == HIT_DROPPED {
-                        let id = room.hit_dropped();
-                        if let Some(who) = who {
-                            if room.can_fetch(who, id) {
-                                orders.push(crew_order(
-                                    CrewOrder::PickUp {
-                                        who: who as u32,
-                                        item: id,
-                                    },
-                                    pointer.shift,
-                                ));
-                            } else {
-                                screen.log.push(PICK_UP_REFUSED.into());
-                            }
-                        }
-                    } else if fixture != 0 {
+                    if fixture != 0 {
                         let at = pointer.pos.unwrap();
                         panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
                     }
@@ -1745,15 +1708,8 @@ fn frame(
                                 fixture = 0;
                             }
                             if fixture != 0 {
-                                // A body — dead, out cold, or one of the
-                                // station's people down — opens its inventory
-                                // straight off; anything else its menu.
-                                if let Some(source) = panels.body_under_click(room, fixture) {
-                                    panels.open_loot(source);
-                                } else {
-                                    let at = pointer.pos.unwrap();
-                                    panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
-                                }
+                                let at = pointer.pos.unwrap();
+                                panels.open_menu(fixture, egui::pos2(at.x, at.y), room);
                             }
                             screen.marquee_from = None;
                         }
@@ -1864,11 +1820,10 @@ fn frame(
                 if keys_now.pressed(i, Action::Recruit) {
                     orders.push(Order::Crew(CrewOrder::Recruit));
                 }
-                // Tab: the tray's Stash (feature 107) — what the ship
-                // holds and what everybody carries, the whole pack of the
-                // Bim you steer a click away on it.
+                // Tab: the Armory panel (task 113) — every loadout, the
+                // armory, the money and the keys; read-only in a mission.
                 if keys_now.pressed(i, Action::Inventory) {
-                    panels.toggle_stash();
+                    panels.toggle_armory();
                 }
                 // K: the character sheet (feature 107).
                 if keys_now.pressed(i, Action::CharacterSheet) {
@@ -2210,7 +2165,6 @@ fn frame(
             !world.is_droid_held(id) && world.station(id).is_some_and(|s| s.market().is_some())
         });
         let tray_view = TrayView {
-            crew: world.aboard.crew_count(),
             shop,
             out,
             bots: cells.iter().filter(|c| !c.player).cloned().collect(),
@@ -2486,17 +2440,12 @@ fn frame(
     if !screen.trading {
         screen.cart.clear();
     }
-    // The workbench window's button.
-    if std::mem::take(&mut panels.upgrade_requested) {
-        orders.push(Order::Upgrade);
-    }
     // The class section's, the sheet's and the deployable rows' (feature 74).
     for order in panels.deploy_orders.drain(..) {
         orders.push(match order {
             crate::crew::DeployOrder::PackUp(id) => Order::PackUp(id),
             crate::crew::DeployOrder::Pick { level, side } => Order::PickTalent { level, side },
             crate::crew::DeployOrder::SetClass(class) => Order::SetClass(class),
-            crate::crew::DeployOrder::Repair => Order::Repair,
         });
     }
     for order in orders.drain(..) {
@@ -2504,17 +2453,11 @@ fn frame(
     }
 
     if let Some(room) = session.room() {
-        if let Some(what) = screen.armoury_wanted.take() {
-            panels.open_named(room, &what);
-        }
         panels.menu(&ctx, room, &name);
-        panels.container_window(&ctx, room, &name);
     }
-    // The body under the Loot window, after the menu — which is what
-    // opens it — and fresh every frame: the looter is walking, and a
-    // crewmate out cold may come round. The walk over is the world's to
-    // start, since where one of the station's people lies is a point of
-    // its own room put through the station's frame.
+    // The mercenary the Hire row opened on: the walk over is the world's
+    // to start, since where one of the station's people stands is a point
+    // of its own room put through the station's frame.
     if let Some(game) = &mut session.game {
         let world = &mut game.world;
         let who = panels.inventory_who(&world.aboard.room);
@@ -2527,9 +2470,6 @@ fn frame(
                 y: at.y,
             }));
         }
-        panels.body = panels
-            .loot_source()
-            .and_then(|source| body_of(world, who, source));
         // And the mercenary under the Hire window, the same way: for hire
         // still, and what it asks, read off the world every frame.
         panels.terms = panels.hire_source().and_then(|resident| {
@@ -2559,15 +2499,17 @@ fn frame(
                 panels.cache_requested = None;
             }
         }
+        // The Armory panel (task 113): on every screen of a run — the deck,
+        // the map, the galaxy chart and the reward screen — read-only in a
+        // mission.
+        let armory = armory_of(world, local);
+        panels.armory_window(&ctx, &armory);
         let room = &mut world.aboard.room;
-        panels.loot_window(&ctx, room, &name);
         panels.hire_window(&ctx, room, &name);
-        panels.inventory_window(&ctx, room, &name);
-        panels.cell_menu(&ctx, room, &name);
         panels.end_frame(room);
     }
-    // What the grids asked for: gear moves through the seam like every
-    // other change to the hold.
+    // What the Armory panel and the rows asked for: gear moves through the
+    // seam like every other change to the world.
     for order in panels.orders.drain(..) {
         orders.push(Order::Gear(order));
     }
@@ -3390,118 +3332,78 @@ fn trade_window(
     }
 }
 
-/// The hold as the crew's panels want it: what is aboard and not spoken
-/// for, the pieces of armour in it, how full each class is, and whether
-/// crew member `who` stands within reach of a container that takes each
-/// resource — the world's own `in_reach`, asked once a resource, so the
-/// rows can say "walk over first" before a command is sent and refused.
-fn hold_of(session: &Session, who: usize) -> Hold {
-    let mut hold = Hold::default();
+/// What of the ship's the crew's panels read: whether a relic cache lies
+/// on the station's research desk (feature 106). Nothing
+/// is stored anywhere since task 113.
+fn hold_of(session: &Session) -> Hold {
     let Some(game) = session.game.as_ref() else {
-        return hold;
+        return Hold::default();
     };
     let world = &game.world;
-    for &id in ResourceId::ALL.iter() {
-        hold.counts[id as usize] = world.ship.design.carrying(id);
-        hold.reach[id as usize] = world.in_reach(who as u32, id);
+    Hold {
+        station_cache: world.cache_here(),
     }
-    hold.guns = world.guns.clone();
-    hold.grids = world.grids.clone();
-    for (i, &class) in world::World::GRID_CLASSES.iter().enumerate() {
-        hold.grid_capacity[i] = world.grid_capacity(class);
+}
+
+/// The Armory panel's reading (task 113), off the world as it stands: a
+/// column a crew member — its portrait as the HUD draws it, its
+/// loadout, whether the player looking may change it, and the offers
+/// standing to it and from it — the armory, the money, the keys, and
+/// whether the panel is read-only (a mission is running).
+fn armory_of(world: &world::World, local: u32) -> crate::crew::ArmoryView {
+    let portraits = hud::portraits_of(world, local, None);
+    let room = &world.aboard.room;
+    let offers = &world.holdings.offers;
+    let columns = portraits
+        .into_iter()
+        .map(|portrait| {
+            let who = portrait.who;
+            let offers_in = offers
+                .iter()
+                .filter(|o| o.to == who)
+                .filter_map(|o| {
+                    world
+                        .worn_on(o.from, o.slot)
+                        .map(|item| (o.from, o.slot, item, crew_name(o.from)))
+                })
+                .collect();
+            let offers_out = offers
+                .iter()
+                .filter(|o| o.from == who)
+                .map(|o| (o.slot, o.to, crew_name(o.to)))
+                .collect();
+            crate::crew::ArmoryColumn {
+                who,
+                gear: room.gear(who as usize),
+                may_change: world.may_change(local, who),
+                offers_in,
+                offers_out,
+                portrait,
+            }
+        })
+        .collect();
+    crate::crew::ArmoryView {
+        local,
+        columns,
+        armory: world.holdings.armory.clone(),
+        money: world.money,
+        keys: world.holdings.keys,
+        locked: world.in_mission(),
     }
-    for piece in world.pieces.iter().filter(|p| p.at == Where::Hold) {
-        if let bims::combat::Item::Armour(piece) = piece.item() {
-            hold.pieces.push(piece);
-        }
-    }
-    for &class in Storage::ALL.iter() {
-        hold.used[class as usize] = session.storage_used(class);
-        hold.capacity[class as usize] = session.storage_capacity(class);
-    }
-    hold.station_desk = world.station_desk();
-    hold.station_cache = world.cache_here();
-    hold.station_shelves = world.station_shelves();
-    hold.bench = world.workbench().map(|index| crate::crew::BenchView {
-        index,
-        bench: world.bench,
-        reach: world.in_reach_of_bench(who as u32),
-        upgrade: world.can_upgrade(),
-    });
-    hold
 }
 
 /// What is within reach of crew member `who`, nearest first, for the
-/// panels' nearby strip and the Inventory key: every container that
-/// keeps something — the armoury and the drug lab, the shelves, the cold
-/// stores, the desks — by the room's own reach (`Game::within_reach`,
-/// `data::REACH`), and every crewmate down within reach by the world's
-/// (`in_reach_of_body`). Named the way their windows are titled.
-fn nearby_of(session: &Session, who: usize, name: &dyn Fn(u32) -> String) -> Vec<Near> {
+/// panels' nearby strip: the engineer's deployables to pack up. Nothing
+/// is a container and nothing is looted since task 113.
+fn nearby_of(session: &Session, who: usize, _name: &dyn Fn(u32) -> String) -> Vec<Near> {
     let Some(game) = session.game.as_ref() else {
         return Vec::new();
     };
     let world = &game.world;
     let room = &world.aboard.room;
     let at = room.bim_pos(who);
-    let reach = world::data::REACH;
     let mut found: Vec<(f32, Near)> = Vec::new();
-    let workbench = world.workbench().map(Container::Bench);
-    let ashore = world.station_shelves();
-    for container in world.aboard.containers() {
-        // The station's shelves are not the hold's, and nothing to open.
-        if let Container::Shelf(i) = container
-            && ashore.contains(&i)
-        {
-            continue;
-        }
-        // The workbench keeps no class of goods, but it has its slots.
-        let keeps =
-            crate::crew::container_class(room, container).is_some() || Some(container) == workbench;
-        if !keeps || !room.within_reach(who, container, reach) {
-            continue;
-        }
-        let Some(frame) = room.container_frame(container) else {
-            continue;
-        };
-        let label = match container {
-            Container::Bench(i) => PartKind::from_code(room.bench_part(i))
-                .map(part_name)
-                .unwrap_or("Container")
-                .to_string(),
-            Container::Shelf(_) => STORAGE_WINDOW.to_string(),
-            Container::Fridge(_) => COLD_STORE_WINDOW.to_string(),
-            Container::Desk(_) => RESEARCH_WINDOW.to_string(),
-        };
-        found.push((
-            (at - frame.center()).len(),
-            Near {
-                open: Open::Container(container),
-                label,
-            },
-        ));
-    }
-    for body in 0..world.aboard.crew_count() {
-        let source = world::LootSource::Crew(body);
-        if body == who as u32
-            || !world.is_down(source)
-            || !world.in_reach_of_body(who as u32, source)
-        {
-            continue;
-        }
-        let Some(lies) = world.body_position(source) else {
-            continue;
-        };
-        let whose = name(body);
-        found.push((
-            (at - lies).len(),
-            Near {
-                open: Open::Loot(source),
-                label: format!("{LOOT_WINDOW} — {whose}"),
-            },
-        ));
-    }
-    // And the engineer's deployables within reach (feature 74): a row to
+    // The engineer's deployables within reach (feature 74): a row to
     // pack each up, and nothing else — a sentry never runs out of shots
     // and is never refilled (feature 88). Only an engineer's rows —
     // nobody else can, and the world would only say so.
@@ -3519,21 +3421,6 @@ fn nearby_of(session: &Session, who: usize, name: &dyn Fn(u32) -> String) -> Vec
     }
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
     found.into_iter().map(|(_, near)| near).collect()
-}
-
-/// A body as the Loot window wants it: what it has on it, whether it is
-/// still down, and whether crew member `who` stands within reach of it —
-/// the world's own `in_reach_of_body`, so the window can say "walk over
-/// first" before a command is sent and refused. `None` for a Bim the
-/// world no longer has.
-fn body_of(world: &world::World, who: usize, source: world::LootSource) -> Option<Body> {
-    Some(Body {
-        cells: world.loot_cells(source)?,
-        turned: world.loot_turned(source)?,
-        counts: world.loot_counts(source)?,
-        down: world.is_down(source),
-        reach: world.in_reach_of_body(who as u32, source),
-    })
 }
 
 /// The picture in an ability box (feature 80). A kit or a grenade is the

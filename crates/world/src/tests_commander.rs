@@ -130,9 +130,9 @@ fn the_commander_sets_out_with_the_pistol_and_the_pool_is_unchanged() {
     );
     // He brings nothing else, and a class put back to none takes
     // nothing off him.
-    let pack = world.aboard.room.pack(0);
+    let gear = world.aboard.room.gear(0);
     assert_eq!(world.set_class(0, Class::None), Ok(()));
-    assert_eq!(world.aboard.room.pack(0), pack);
+    assert_eq!(world.aboard.room.gear(0), gear);
     assert_eq!(
         world.aboard.room.weapon(0),
         Some(WeaponKind::LaserPistol.basic())

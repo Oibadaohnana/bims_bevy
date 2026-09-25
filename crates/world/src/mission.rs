@@ -512,9 +512,10 @@ impl World {
 
     /// A mission begins, at the site the ship has just arrived at: the
     /// mission clock at nought, nothing pending, nobody going home, the
-    /// site to be photographed on its first step; the dead players the
-    /// pool can pay for bought back, longest dead first; and every crew
-    /// member whole, its class charges full and every cooldown ready.
+    /// site to be photographed on its first step; every offer between
+    /// players withdrawn; every piece of armour whole again, worn or in
+    /// the armory (task 113); and every crew member whole, its charges
+    /// set to their start amounts and every cooldown ready.
     pub(super) fn begin_mission(&mut self, events: &mut Vec<WorldEvent>) {
         let players = self.players();
         self.run.phase = RunPhase::Mission;
@@ -528,7 +529,14 @@ impl World {
         self.run.returning = vec![false; players as usize];
         self.run.recalled = false;
         self.run.departure = None;
-        self.buy_back(events);
+        for offer in std::mem::take(&mut self.holdings.offers) {
+            events.push(WorldEvent::OfferWithdrawn {
+                from: offer.from,
+                part: offer.slot.code(),
+                to: offer.to,
+            });
+        }
+        self.mend_all_armour();
         self.make_whole();
         // Every once-a-mission relic ready again (feature 106).
         self.relics_at_mission_start(events);
@@ -539,30 +547,28 @@ impl World {
         }
     }
 
-    /// The dead players bought back, oldest death first, while the pool
-    /// holds [`data::BUYBACK_COST`] — each up again where its body lies
-    /// aboard, carrying nothing. The rest stay out and are said so.
-    fn buy_back(&mut self, events: &mut Vec<WorldEvent>) {
-        let mut still = Vec::new();
+    /// The dead players back, at the end of the mission they died in
+    /// (task 113): each up again where its body lies aboard with its whole
+    /// loadout, relics, class, level and talents, and the pool charged
+    /// [`data::BUYBACK_COST`] for it — or whatever the pool holds, down to
+    /// nought, since a respawn never waits for money.
+    fn respawn_the_fallen(&mut self, events: &mut Vec<WorldEvent>) {
         for fallen in std::mem::take(&mut self.run.fallen) {
             let who = fallen.slot as usize;
             if who >= self.aboard.crew_count() as usize {
                 continue;
             }
-            if self.money < data::BUYBACK_COST {
-                still.push(fallen);
-                events.push(WorldEvent::StillOut { who: fallen.slot });
-                continue;
-            }
-            self.money -= data::BUYBACK_COST;
-            self.strip_the_dead(fallen.slot);
+            let paid = self.money.min(data::BUYBACK_COST);
+            self.money -= paid;
             self.aboard.room.revive(who);
             if let Some(down) = self.crew_down.get_mut(who) {
                 *down = false;
             }
-            events.push(WorldEvent::BoughtBack { who: fallen.slot });
+            events.push(WorldEvent::Respawned {
+                who: fallen.slot,
+                paid,
+            });
         }
-        self.run.fallen = still;
     }
 
     /// Every living crew member made whole (`Game::restore_health`), and
@@ -593,8 +599,9 @@ impl World {
         }
     }
 
-    /// Crew member `who`'s pack topped up to every charge it has — its
-    /// class's kits and grenades and everybody's medicine — at once.
+    /// Crew member `who`'s charges **set to their start amounts** — its
+    /// class's kits and grenades and everybody's medicine (task 113): what
+    /// was left over from the last mission is neither kept nor added to.
     fn fill_charges(&mut self, who: u32) {
         if who >= self.aboard.crew_count() {
             return;
@@ -603,17 +610,9 @@ impl World {
             if self.medicine_off && charge.everybody() {
                 continue;
             }
-            let short = self
-                .charges(who, charge)
-                .saturating_sub(self.charges_of(who, charge));
             let item = Item::Stack(charge.resource() as u32);
-            if charge.everybody() {
-                self.aboard.room.give_stack(who as usize, item, short);
-            } else {
-                for _ in 0..short {
-                    self.aboard.room.give(who as usize, None, item);
-                }
-            }
+            let start = self.charges(who, charge);
+            self.aboard.room.set_charges(who as usize, item, start);
         }
     }
 
@@ -734,8 +733,9 @@ impl World {
     // --- dying ---------------------------------------------------------------
 
     /// A crew member has died — said once, from `casualties` or from
-    /// being left behind. A player's Bim is **out** until bought back, its
-    /// class and progress kept; a bot's is gone for good, and the pool
+    /// being left behind. A player's Bim is **out** for the rest of the
+    /// mission and back at its end with everything it wore (task 113),
+    /// its class and progress kept; a bot's is gone for good, and the pool
     /// pays [`data::BOT_DEATH_PENALTY`] for it, as much as it holds.
     pub(super) fn fall(&mut self, who: u32, events: &mut Vec<WorldEvent>) {
         if who < self.players() {
@@ -752,7 +752,7 @@ impl World {
     }
 
     /// The run is lost when every player's Bim is dead at once — out and
-    /// waiting to be bought back counts, since that is dead too — said once
+    /// waiting for the mission's end counts, since that is dead too — said once
     /// as [`WorldEvent::CrewLost`] and kept. Bots and hired hands do not
     /// keep a run going: a crew is its players.
     pub(super) fn check_run_lost(&mut self, events: &mut Vec<WorldEvent>) {
@@ -770,27 +770,16 @@ impl World {
         }
     }
 
-    /// What a dead player's Bim carried, gone with the body: its gun, its
-    /// armour and its pack, and the world's record of each piece.
-    fn strip_the_dead(&mut self, slot: u32) {
-        let who = slot as usize;
-        if who >= self.aboard.crew_count() as usize {
-            return;
-        }
-        self.aboard.room.issue(who, bims::combat::Gear::default());
-        self.pieces.retain(
-            |p| !matches!(p.at, Where::Worn { who: w } | Where::Pack { who: w, .. } if w == slot),
-        );
-    }
-
     /// Every dead bot off the crew for good, highest index first so the
-    /// indices below stay right: out of the room, and every list the
-    /// world keeps a crew member by with it.
+    /// indices below stay right: its loadout into the armory (task 113),
+    /// then out of the room, and every list the world keeps a crew member
+    /// by with it.
     fn bury_the_bots(&mut self) {
         let players = self.players();
         let crew = self.aboard.crew_count();
         for who in (players..crew).rev() {
             if !self.aboard.room.is_alive(who as usize) {
+                self.store_loadout(who);
                 self.drop_crew_member(who);
             }
         }
@@ -835,15 +824,6 @@ impl World {
             self.commanders.remove(index);
         }
         self.clear_squad();
-        self.pieces.retain(
-            |p| !matches!(p.at, Where::Worn { who: w } | Where::Pack { who: w, .. } if w == who),
-        );
-        for piece in &mut self.pieces {
-            match &mut piece.at {
-                Where::Worn { who: w } | Where::Pack { who: w, .. } if *w > who => *w -= 1,
-                _ => {}
-            }
-        }
         self.hired.retain(|h| h.who != who);
         for h in &mut self.hired {
             if h.who > who {
@@ -996,8 +976,8 @@ impl World {
     /// and otherwise put back as the mission met it, the bounty thrown
     /// away; experience is kept either way. A town the machines were
     /// attacking falls to them instead, an infested site like any other.
-    /// The dead players lose what they carried with the body, the dead
-    /// bots are gone, and the ship holds off the site with the rooms
+    /// The dead bots are gone, their loadouts into the armory, the dead
+    /// players back with theirs, the pool paying for each, and the ship holds off the site with the rooms
     /// apart, nothing moving, until the crew have chosen where next.
     pub(super) fn leave_mission(&mut self, events: &mut Vec<WorldEvent>) {
         let station = self.ship.state.alongside().or(self.run.site);
@@ -1030,13 +1010,10 @@ impl World {
         } else if !cleared && let Some(snapshot) = self.run.snapshot.take() {
             self.restore_site(snapshot);
         }
-        // What the dead carried goes with them, and the dead bots go.
-        let out: Vec<u32> = self.run.fallen.iter().map(|f| f.slot).collect();
-        for slot in out {
-            self.strip_the_dead(slot);
-        }
+        // The dead bots go, their loadouts into the armory, and the dead
+        // players come back with theirs (task 113).
         self.bury_the_bots();
-        self.mirror_pieces(events);
+        self.respawn_the_fallen(events);
         // Off the berth, holding where the site is, the map up.
         let at = station.and_then(|id| {
             let system = &self.system;

@@ -16,7 +16,7 @@ use crate::class::{self, Class, LEVEL_XP, Progress, Side, Talent};
 use crate::deploy::{self, Deck, DeployKind, Kit};
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
-use crate::world::{Command, ShipState, Workbench, World};
+use crate::world::{Command, ShipState, World};
 use crate::world_checksum;
 
 const TILE: f32 = shipdesign::TILE as f32;
@@ -81,35 +81,24 @@ fn pick(world: &mut World, who: u32, talent: Talent) {
 
 fn kits_in_pack(world: &World, who: usize, kit: Kit) -> usize {
     let wanted = Item::Stack(kit.resource() as u32);
-    world
-        .aboard
-        .room
-        .pack(who)
-        .iter()
-        .filter(|i| **i == Some(wanted))
-        .count()
+    world.aboard.room.charges_of(who, wanted) as usize
 }
 
-/// Every one of that kit out of the pack again, for a test that wants
-/// the engineer without the ones its class dealt it.
+/// Every one of that kit taken off again, for a test that wants the
+/// engineer without the ones its class dealt it.
 fn drop_kits(world: &mut World, who: usize, kit: Kit) {
     let wanted = Item::Stack(kit.resource() as u32);
-    let pack = world.aboard.room.pack(who);
-    for (cell, item) in pack.iter().enumerate() {
-        if *item == Some(wanted) {
-            world.aboard.room.take(who, cell);
-        }
-    }
+    world.aboard.room.set_charges(who, wanted, 0);
     assert_eq!(kits_in_pack(world, who, kit), 0);
 }
 
 fn give_kit(world: &mut World, who: usize, kit: Kit) {
-    assert!(
+    assert_eq!(
         world
             .aboard
             .room
-            .give(who, None, Item::Stack(kit.resource() as u32)),
-        "room in the pack"
+            .give_stack(who, Item::Stack(kit.resource() as u32), 1),
+        1
     );
 }
 
@@ -543,7 +532,7 @@ fn an_engineer_sets_out_with_its_kits_and_the_class_locks_at_the_first_undock() 
 }
 
 #[test]
-fn kits_go_into_the_pack_for_a_probe() {
+fn kits_go_onto_the_engineer_for_a_probe() {
     let mut world = engineer();
     let own = deploy::SENTRY_CHARGES as usize;
     assert_eq!(kits_in_pack(&world, 0, Kit::Sentry), own, "its class's own");
@@ -555,10 +544,10 @@ fn kits_go_into_the_pack_for_a_probe() {
         deploy::SANDBAG_CHARGES as usize,
         "the sandbags it set out with are untouched"
     );
-    // Nobody aboard gets nothing, and neither does a pack with no room.
+    // Nobody aboard gets nothing; a charge is a count, so there is no
+    // pack to fill up (task 113).
     assert_eq!(world.give_kits_for_probe(99, Kit::Sentry, 2), 0);
-    let fitted = world.give_kits_for_probe(0, Kit::Sentry, 40);
-    assert!(fitted < 40, "the pack fills up: {fitted}");
+    assert_eq!(world.give_kits_for_probe(0, Kit::Sentry, 40), 40);
 }
 
 // --- C: sandbags --------------------------------------------------------------
@@ -1010,80 +999,26 @@ fn armoured_sentry_and_enhanced_optics_are_the_sentry_s_numbers() {
     );
 }
 
-#[test]
-fn the_armourer_repairs_a_piece_at_the_workbench_for_a_metal() {
-    use bims::combat::{ArmourKind, Piece};
-    let mut world = simulation_world(
-        shipdesign::fixture::playtest_ship(),
-        crate::data::SIMULATION_MONEY,
-        1,
-    );
-    assert_eq!(world.set_class(0, Class::Engineer), Ok(()));
-    // A damaged helm on the bench, put there straight.
-    let mut piece = Piece::new(900, ArmourKind::BasicHelm, Tier::One);
-    let full = piece.stats().health;
-    piece.health = full - 25.0;
-    let bench = world.workbench().expect("the flyer has a workbench");
-    assert_eq!(
-        world.bench.takes(Item::Armour(piece)),
-        Ok(0),
-        "a damaged piece goes on"
-    );
-    world.bench.slots[0] = Some(Item::Armour(piece));
-    // Beside it, since the repair is begun from beside the bench.
-    let spot = world.aboard.room.bench_spot_for_probe(bench);
-    world.aboard.room.put_for_probe(0, spot);
-    let events = world.step(&[Command::Repair { slot: 0 }]);
-    assert!(
-        refused_with(&events, Refusal::NoTalent),
-        "without the talent"
-    );
-    pick(&mut world, 0, Talent::Armourer);
-    world.ship.design.cargo[ResourceId::Vegetable as usize] += 5;
-    world.on_ship_changed();
-    let money = world.money;
-    let events = world.step(&[Command::Repair { slot: 0 }]);
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Refused { .. })),
-        "{events:?}"
-    );
-    assert_eq!(world.bench.repair, Some(0));
-    assert_eq!(world.money, money - deploy::ARMOUR_REPAIR_COST);
-    // Only the engineer works it; Kate is never sent.
-    let mut done = false;
-    for _ in 0..60 * 60 * 6 {
-        let events = world.step(&[]);
-        if events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Repaired { .. }))
-        {
-            done = true;
-            break;
-        }
-    }
-    assert!(done, "the session was worked");
-    assert_eq!(world.bench.repair, None);
-    assert!(world.bench.slots[0].is_none());
-    let Some(Item::Armour(out)) = world.bench.slots[Workbench::OUT] else {
-        panic!("the piece is in the output slot");
-    };
-    assert_eq!(out.id, 900);
-    assert_eq!(out.health, full - 25.0 + class::ARMOUR_REPAIR_HEALTH);
-}
-
 /// *Higher quality armour* (feature 88) is the engineer's own worn
 /// pieces': a point added to what each stops, and five per cent more
 /// health said as the drain's reciprocal, which is the tank's own
-/// mechanism.
+/// mechanism. Since task 113 it is the sixth level's one talent, given
+/// outright: *armourer* went with the workbench, and nothing is picked
+/// there.
 #[test]
 fn higher_quality_armour_adds_protection_and_health_to_what_he_wears() {
     let mut world = engineer();
     let plain = world.skill_of(0);
     assert_eq!(plain.armour_protection_add, 0.0);
     assert_eq!(plain.armour_drain, 1.0);
-    pick(&mut world, 0, Talent::BetterArmour);
+    assert_eq!(class::pick_at(Class::Engineer, 6), None, "no pick at six");
+    assert_eq!(
+        class::fixed_at(Class::Engineer, 6),
+        Some(Talent::BetterArmour)
+    );
+    level_up(&mut world, 0, 6);
+    assert!(world.has_talent(0, Talent::BetterArmour));
+    assert!(!world.has_talent(0, Talent::Armourer));
     let skill = world.skill_of(0);
     assert_eq!(
         skill.armour_protection_add,

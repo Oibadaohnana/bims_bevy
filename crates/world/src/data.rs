@@ -159,11 +159,10 @@ pub const JUMP_CHARGE_MINUTES: f64 = 20.0 * time::MINUTES_PER_SECOND;
 /// is a trip. `crate::jump::landing_point` is what uses it.
 pub const JUMP_CLEARANCE: f64 = 4.0 * flight::data::ARRIVAL_RADIUS_BODY;
 
-/// How far a crew member may stand from a container's footprint and still
-/// reach into it, in tiles: an armoury, a shelf or a cold store two tiles
-/// off is near enough to take a piece out of or put one back. What a stow
-/// or a fetch is refused beyond (`Refusal::OutOfReach`); putting on what
-/// is already in the pack wants no container at all.
+/// How far a crew member may stand from a thing and still reach it, in
+/// tiles: a mercenary it hires, a relic cache on a research desk, a
+/// deployable it packs up. What those are refused beyond
+/// (`Refusal::OutOfReach`).
 pub const REACH: f32 = 2.0;
 
 /// How far inside a door the people going through it are sent, in tiles:
@@ -201,15 +200,6 @@ pub const START_MONEY_PER_BIM: Money = 5_000;
 /// now, so the walk is the whole of what is on top.
 pub const BUILD_MINUTES_BASE: f64 = 5.0;
 pub const BUILD_MINUTES_PER_HUNDRED: f64 = 0.5;
-
-/// Combining two of a kind at the workbench into one of the next tier
-/// (`World::upgrade`) is a day's work, taken an hour at a time: each
-/// session is one `Order` the room runs like a recipe, and the world counts
-/// the sessions, so the progress is the world's and whole hours, and a Bim
-/// that goes to eat between two loses nothing. Pinned together as a day
-/// by `upgrade_sessions_make_a_day`.
-pub const UPGRADE_SESSION_MINUTES: f64 = time::HOUR;
-pub const UPGRADE_SESSIONS: u32 = 24;
 
 /// A planet's surface — a rocky planet's or an ice world's — is a place
 /// the ship lands at: a **town** laid out on the ground as a station is
@@ -427,13 +417,12 @@ pub const REPUBLIC_BOUNTY: [Money; 4] = [0, 500, 1_500, 4_500];
 
 // --- the run: death and buyback (feature 103) ------------------------------
 
-/// What the pool pays to bring a dead player's Bim back, at the start of
-/// the next mission: it respawns aboard the ship with no gear, its level,
-/// experience and talents kept. Paid automatically, longest-dead first,
-/// while the pool holds this much; a player the pool cannot pay for stays
-/// out and is tried again at the mission after. The same as a player's
-/// share of the starting pool ([`START_MONEY_PER_BIM`]), so a crew that
-/// has earned nothing yet can buy one of its own back once.
+/// What the pool pays to bring a dead player's Bim back, at the end of
+/// the mission it died in (task 113): it respawns aboard the ship with its
+/// whole loadout, its level, experience and talents kept. Paid
+/// automatically; a pool that holds less goes to nought, and the respawn
+/// does not wait for money. The same as a player's share of the starting
+/// pool ([`START_MONEY_PER_BIM`]).
 pub const BUYBACK_COST: Money = 5_000;
 /// What a **bot** Bim's death costs the pool — a hired hand, a townsperson
 /// who joined, any crew member no player steers. It is gone for good, and

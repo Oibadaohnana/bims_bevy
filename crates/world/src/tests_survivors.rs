@@ -84,7 +84,19 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// (`station::set_legacy_layouts`) that number came back
 /// (`tests_layoutgen::the_pins_come_back_under_the_old_layouts`), so
 /// nothing but the layouts moved it.
-const SURVIVORS: u64 = 0x_81b4_5bae_e33d_8446;
+///
+/// **And once more, on purpose**: nothing stored (task 113). The reading
+/// takes a body's gear by its `Debug`, and `Gear` lost the pack and
+/// gained the charges, so the number could not have stayed; and the run
+/// plays differently by the task's own rules — every piece mended and
+/// every charge **set** at each mission's start, the dead players back
+/// at the mission's end rather than bought at the next one's start, a
+/// body out cold keeping its gun rather than dropping it and fetching it,
+/// and the design's gear in the armory rather than the hold (a lighter
+/// ship, other trip lengths). With the reading itself changed there is
+/// no old number to bring back by switching one rule off, so none of
+/// those was isolated. Was `0x_81b4_5bae_e33d_8446`.
+const SURVIVORS: u64 = 0x_14e4_ee7e_31d6_a769;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew.

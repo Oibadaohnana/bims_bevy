@@ -70,11 +70,6 @@ pub enum CrewOrder {
     StandDown {
         who: u32,
     },
-    /// Pick up the weapon lying on the deck by its id, into `who`'s pack.
-    PickUp {
-        who: u32,
-        item: u32,
-    },
     /// Dress every open wound on that part of `patient`.
     Bandage {
         who: u32,
@@ -120,7 +115,6 @@ impl CrewOrder {
     pub fn errand_for(self) -> Option<u32> {
         match self {
             CrewOrder::SendTo { who, .. }
-            | CrewOrder::PickUp { who, .. }
             | CrewOrder::Bandage { who, .. }
             | CrewOrder::BandageAll { who, .. }
             | CrewOrder::Treat { who, .. }
@@ -182,12 +176,6 @@ impl Game {
             }
             CrewOrder::StandDown { who: w } => {
                 self.stand_down(who(w));
-                0
-            }
-            CrewOrder::PickUp { who: w, item } => {
-                if who(w) < self.crew_count() as usize {
-                    self.fetch(who(w), item);
-                }
                 0
             }
             CrewOrder::Bandage {
@@ -278,7 +266,6 @@ impl Game {
                 }
                 return self.queue_walk(who(w), vec2(x, y), true);
             }
-            CrewOrder::PickUp { who: w, item } => (w, Kind::Fetch { item }, 0.0),
             CrewOrder::Bandage {
                 who: w,
                 patient,
@@ -428,16 +415,24 @@ mod tests {
     /// order calls the whole queue off.
     #[test]
     fn a_shift_order_waits_its_turn_and_a_plain_one_calls_the_queue_off() {
-        use crate::game::{JOB_FETCH, JOB_WALK};
+        use crate::game::{JOB_BANDAGE, JOB_WALK};
+        use crate::health::Part;
         const DT: f32 = 1.0 / 60.0;
         let mut game = room();
         game.set_autonomous(false);
         let start = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
 
-        // First, an errand queued where there is nothing for it — no such
-        // weapon on the deck — is dropped when its turn comes, the way the
+        // First, an errand queued where there is nothing for it — a
+        // dressing for a body with nothing open on it — is dropped when its turn comes, the way the
         // row would have refused it, not walked through with empty hands.
-        game.order_later(0, CrewOrder::PickUp { who: 0, item: 99 });
+        game.order_later(
+            0,
+            CrewOrder::Bandage {
+                who: 0,
+                patient: 0,
+                part: Part::Body,
+            },
+        );
         assert_eq!(game.ordered_count(0), 1);
         game.simulate(DT);
         assert_eq!(game.ordered_count(0), 0, "nothing in the pot: dropped");
@@ -460,10 +455,16 @@ mod tests {
         assert_eq!(walks.len(), 2, "both read off the deck: {walks:?}");
         assert!((walks[0] - a).len() < TILE && (walks[1] - b).len() < TILE);
         assert_eq!(game.agenda_job(0, 0), JOB_WALK);
-        // And a weapon to pick up behind them, lying back where the Bim
-        // started.
-        let gun = game.drop_for_probe(start, crate::combat::WeaponKind::LaserPistol.basic(), 1);
-        game.order_later(0, CrewOrder::PickUp { who: 0, item: gun });
+        // And a crewmate's wound to dress behind them.
+        game.wound(1, Part::Body, 5.0);
+        game.order_later(
+            0,
+            CrewOrder::Bandage {
+                who: 0,
+                patient: 1,
+                part: Part::Body,
+            },
+        );
         assert_eq!(game.agenda_len(0), 3);
         assert_eq!(game.ordered_count(0), 3);
 
@@ -486,7 +487,7 @@ mod tests {
             game.destination_for_probe(0)
         );
         assert!(game.queued_walks(0).is_empty());
-        // And there, the fetch is begun the way the row begins one.
+        // And there, the dressing is begun the way the row begins one.
         let mut steps = 0;
         while !game.arrived_for_probe(0) && steps < 3000 {
             game.simulate(DT);
@@ -495,12 +496,16 @@ mod tests {
         for _ in 0..3 {
             game.simulate(DT);
         }
-        assert_eq!(game.activity(0), JOB_FETCH, "off for it, once it got there");
+        assert_eq!(
+            game.activity(0),
+            JOB_BANDAGE,
+            "off to dress it, once it got there"
+        );
         assert_eq!(game.ordered_count(0), 0);
 
-        // A plain order is the end of what was queued: the fetch is put
-        // down to be picked up (it is the Bim's own work now), the queued
-        // walk behind it is not.
+        // A plain order is the end of what was queued: the dressing is put
+        // down to be picked up (it is the Bim's own work now), the
+        // queued walk behind it is not.
         game.order_later(0, CrewOrder::Move { x: a.x, y: a.y });
         assert_eq!(game.ordered_count(0), 1);
         assert_eq!(
@@ -514,7 +519,7 @@ mod tests {
             ORDER_MOVING
         );
         assert_eq!(game.ordered_count(0), 0, "the plain walk called it off");
-        assert_eq!(game.agenda_len(0), 1, "the fetch waits to be picked up");
+        assert_eq!(game.agenda_len(0), 1, "the dressing waits to be picked up");
         assert!(game.queued_walks(0).is_empty());
         // What is not an errand is done now, Shift or no.
         game.order_later(0, CrewOrder::Autonomous { on: true });

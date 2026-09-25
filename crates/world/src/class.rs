@@ -94,7 +94,7 @@
 //! | 3 | *Sentry*: one sentry charge | — |
 //! | 4 | *Sandbagger*: sandbag deploy time ×0.5 | *Bulk bags*: one charge lays two adjacent tiles |
 //! | 5 | *Armoured sentry*: sentry health ×1.5 | *Enhanced optics*: sentry fire range +10 tiles |
-//! | 6 | *Armourer*: repairs armour at the workbench | *Higher quality armour*: his worn armour +5% health, +1 protection |
+//! | 6 | *Higher quality armour*: his worn armour +5% health, +1 protection — the level's one talent, given outright (task 113 took *Armourer* away with the workbench) | — |
 //! | 7 | *Sentry mark II*: the tier-two factors on its rifle | — |
 //! | 8 | *Dug in*: sandbags anywhere between a sentry and the shooter are cover | *Quick build*: sentry deploy time ×0.5 |
 //! | 9 | *Extra bags*: one more sandbag charge | *Steady hands*: a hit no longer interrupts a deploy |
@@ -460,6 +460,9 @@ pub enum Talent {
     BulkBags = 3,
     ArmouredSentry = 4,
     EnhancedOptics = 5,
+    /// Retired with the workbench it repaired at (task 113): never offered
+    /// again. The variant and its code stay, since a talent's code is its
+    /// place in [`Talent::ALL`].
     Armourer = 6,
     BetterArmour = 7,
     DugIn = 8,
@@ -689,10 +692,6 @@ pub const SENTRY_MARK_THREE_FIRE_RATE: f32 = 2.0;
 pub const SENTRY_MARK_THREE_DAMAGE: f32 = 1.2;
 /// *Quick build*: what the sentry deploy time is multiplied by.
 pub const QUICK_BUILD_TIME: f64 = 0.5;
-/// *Armourer*: what one repair at the workbench puts back on a piece.
-pub const ARMOUR_REPAIR_HEALTH: f32 = 10.0;
-/// *Armourer*: how long the repair takes at the bench, in game minutes.
-pub const ARMOUR_REPAIR_MINUTES: u32 = 10;
 
 // --- the medicine, everybody's --------------------------------------------
 
@@ -943,7 +942,9 @@ pub fn aura_bonus(bonus: f32, factor: f32) -> f32 {
 /// Whether a level is a pick level **for this class**: every class is
 /// fixed at one, three and seven and a pick at the rest, bar the tank's
 /// second, which the money rework (feature 95) made a fixed level when
-/// hauling went and *pack mule* with it — *plated* stands alone there.
+/// hauling went and *pack mule* with it — *plated* stands alone there —
+/// and the engineer's sixth, where *higher quality armour* stands alone
+/// since task 113 took *armourer* away.
 ///
 /// Asked of `pick_at`, so the two can never disagree about the shape of
 /// a tree.
@@ -952,12 +953,16 @@ pub fn is_pick_level(class: Class, level: u8) -> bool {
 }
 
 /// The one talent a **fixed** level of a class gives outright, if it
-/// gives one: the tank's *plated* at the second, and nothing anywhere
-/// else so far. A fixed level costs no skill point and is never picked
+/// gives one: the tank's *plated* at the second, and the engineer's
+/// *higher quality armour* at the sixth since *armourer* went (task
+/// 113). A fixed level costs no skill point and is never picked
 /// at; `Progress::has` counts it from the level it sits at.
 pub fn fixed_at(class: Class, level: u8) -> Option<Talent> {
     match (class, level) {
         (Class::Tank, 2) => Some(Talent::Plated),
+        // Until a replacement for *Armourer* is designed (task 113), the
+        // engineer's sixth level offers *higher quality armour* alone.
+        (Class::Engineer, 6) => Some(Talent::BetterArmour),
         _ => None,
     }
 }
@@ -969,7 +974,6 @@ pub fn pick_at(class: Class, level: u8) -> Option<(Talent, Talent)> {
         (Class::Engineer, 2) => (Talent::ReinforcedSand, Talent::SiteForeman),
         (Class::Engineer, 4) => (Talent::Sandbagger, Talent::BulkBags),
         (Class::Engineer, 5) => (Talent::ArmouredSentry, Talent::EnhancedOptics),
-        (Class::Engineer, 6) => (Talent::Armourer, Talent::BetterArmour),
         (Class::Engineer, 8) => (Talent::DugIn, Talent::QuickBuild),
         (Class::Engineer, 9) => (Talent::ExtraBags, Talent::SteadyHands),
         (Class::Engineer, 10) => (Talent::SecondSentry, Talent::SentryMarkThree),
@@ -1148,8 +1152,13 @@ mod tests {
             Err(Refusal::NotAPickLevel)
         );
         assert_eq!(
-            p.pick(Class::Engineer, 6, Side::Left),
+            p.pick(Class::Engineer, 8, Side::Left),
             Err(Refusal::LevelNotReached)
+        );
+        assert_eq!(
+            p.pick(Class::Engineer, 6, Side::Left),
+            Err(Refusal::NotAPickLevel),
+            "the sixth is fixed since task 113"
         );
         assert_eq!(
             p.pick(Class::None, 2, Side::Left),
@@ -1202,9 +1211,11 @@ mod tests {
                     all.push(r);
                 }
             }
+            // Bar *armourer*, retired with the workbench (task 113): its
+            // code stays, and no level offers it.
             let own: Vec<Talent> = Talent::ALL
                 .into_iter()
-                .filter(|t| t.class() == class)
+                .filter(|t| t.class() == class && *t != Talent::Armourer)
                 .collect();
             assert_eq!(all, own, "every talent of {class:?} is on one pick level");
         }

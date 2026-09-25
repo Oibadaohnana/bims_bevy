@@ -201,19 +201,6 @@ fn a_wreck_is_down_carries_nothing_and_is_worth_fifteen_once() {
     assert!(room!(world).is_down(0), "a wreck is down");
     assert!(!room!(world).is_alive(0));
     assert!(!room!(world).is_unconscious(0), "and never out cold");
-    // And carries nothing: the Loot window's cells are empty and
-    // nothing may be taken off it.
-    assert!(room!(world).loot_cells(0).iter().all(|c| c.is_none()));
-    for cell in [
-        bims::combat::LootCell::Weapon,
-        bims::combat::LootCell::Head,
-        bims::combat::LootCell::Pack(0),
-    ] {
-        assert!(
-            room_mut!(world).take_from_body(0, cell).is_none(),
-            "nothing comes off a machine"
-        );
-    }
 
     // Stand the crew member next to it so the experience is in range,
     // and step: `XP_ENEMY_DOWN` alone (feature 109; it was `XP_ENEMY_DEAD` besides), once.
