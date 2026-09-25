@@ -145,3 +145,5 @@ mod tests_surface;
 mod tests_survivors;
 #[cfg(test)]
 mod tests_tank;
+#[cfg(test)]
+mod tests_trader;

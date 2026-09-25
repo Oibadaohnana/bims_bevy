@@ -185,6 +185,16 @@ pub struct SystemMemory {
     /// here with `cleared` set**, which is what keeps the crisis from
     /// ever re-arming it (feature 92).
     pub infested: Vec<crate::droid::Infestation>,
+    /// `World::defenses`: the towns of the system the machines came for
+    /// while the crew were there (feature 94). Per system for the same
+    /// reason as `infested` — a town's id is its system's own.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub defenses: Vec<crate::defense::Defense>,
+    /// `World::held_towns`: the towns of the system the crew held. Carried
+    /// across a jump, a town held here held the next system's town of the
+    /// same id.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub held_towns: Vec<u32>,
 }
 
 impl SystemMemory {
@@ -193,7 +203,9 @@ impl SystemMemory {
     /// saw those and they are still there — but the people are gone, so
     /// what the crew did to them is no longer anything the crew will
     /// meet. The infestations stay: they are how a station the crew
-    /// cleared stays cleared.
+    /// cleared stays cleared. So do the defences and the towns held: a
+    /// held town is the one thing the crisis never takes, and a fight the
+    /// crew walked away from is marked lost by the flip itself.
     pub fn overrun(&mut self) {
         self.losses.clear();
         self.graves.clear();

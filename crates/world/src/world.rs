@@ -766,12 +766,17 @@ pub struct World {
     /// (feature 94), by station id, sorted — one [`Defense`] a town the
     /// crew have ever landed at while it was threatened, kept for good
     /// so a fight paused by a take-off is resumed where it stood. Saved
-    /// and in `world_checksum`.
+    /// and in `world_checksum`. **This system's alone**, like
+    /// [`World::infested`]: a station id is a system's own, so the list
+    /// goes onto [`SystemMemory`] at a jump and comes back with the
+    /// system (`remember_system`, `recall_system`).
     defenses: Vec<Defense>,
     /// The towns the crew **held**: the last machine of the last wave
     /// destroyed. Sorted station ids, saved and in `world_checksum` —
     /// a held town stays friendly, trades and hires even after its
     /// system has fallen, so the crisis reads this before it flips one.
+    /// This system's alone, the same way as `defenses`: carried across a
+    /// jump it held the next system's town of the same id.
     held_towns: Vec<u32>,
     /// How long after the crew land at a threatened town the first wave
     /// comes, in steps of the mission clock:
@@ -1900,6 +1905,10 @@ impl World {
             // which names ids this one has of its own: the crisis lays
             // its own the first step after the arrival.
             self.infested.clear();
+            // And the towns the crew defended and held there, for the
+            // same reason: a town id is its system's own.
+            self.defenses.clear();
+            self.held_towns.clear();
         }
         // The machines' jammer goes in **before** the landing point is
         // picked (feature 93), so the two are never the same spot and the
@@ -3294,6 +3303,8 @@ impl World {
             graves: self.graves.clone(),
             visited: self.visited.clone(),
             infested: self.infested.clone(),
+            defenses: self.defenses.clone(),
+            held_towns: self.held_towns.clone(),
         };
         memory::file_memory(&mut self.memories, memory);
     }
@@ -3321,6 +3332,8 @@ impl World {
         self.graves = memory.graves;
         self.visited = memory.visited;
         self.infested = memory.infested;
+        self.defenses = memory.defenses;
+        self.held_towns = memory.held_towns;
         true
     }
 

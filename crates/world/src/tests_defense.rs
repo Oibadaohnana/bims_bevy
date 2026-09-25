@@ -594,3 +594,59 @@ fn a_machine_downed_in_a_town_s_defence_is_experience_and_a_townsperson_is_not()
     world.step(&[]);
     assert_eq!(world.aboard.room.rampage(0), 1, "a stack in the town");
 }
+
+/// **A town held is its own system's** (feature 111's first fix): station
+/// ids are only unique within a system, so a held town carried across a
+/// jump held the next system's town of the same id — friendly for good,
+/// never threatened, never taken. The defences and the towns held go onto
+/// the system's memory with the machines' own hold, and come back with it.
+#[test]
+fn a_town_held_in_one_system_is_not_held_in_the_next() {
+    let Some((mut world, id)) = a_threatened_town(0.1, 1, Some(2)) else {
+        return;
+    };
+    assert!(
+        until(&mut world, 40, |w| w.droids_standing() > 0),
+        "the first wave never landed"
+    );
+    destroy_the_wave(&mut world);
+    assert!(
+        until(&mut world, 20, |w| w.town_held(id)),
+        "the last wave destroyed and the town not held"
+    );
+    assert!(world.defense(id).is_some_and(|d| d.won));
+    let home = world.star_id;
+
+    // Away down a lane: the same id there is nobody's town the crew held,
+    // and no fight was ever fought over it.
+    let next = *world
+        .galaxy()
+        .lanes(home)
+        .first()
+        .expect("a star with no lane");
+    world.undock_for_probe();
+    let mut events = Vec::new();
+    assert!(world.jump(next, &mut events), "the ship never jumped");
+    assert!(!world.town_held(id), "a town held next door was held here");
+    assert!(world.held_towns().is_empty());
+    assert!(
+        world.defense(id).is_none(),
+        "the last system's fight came along"
+    );
+    assert!(world.defenses().is_empty());
+    // And the map's quote back home reads that system's memory.
+    let quote = world
+        .travel_quote(crate::run::Site {
+            star: home,
+            station: id,
+        })
+        .expect("a trip back down the lane");
+    assert!(quote.cleared, "the town held there is cleared on the map");
+    assert!(!quote.threatened, "and not threatened");
+
+    // Back again: the town is held, as it was left.
+    assert!(world.jump(home, &mut events), "the ship never jumped back");
+    assert!(world.town_held(id), "the held town was forgotten");
+    assert!(world.defense(id).is_some_and(|d| d.won));
+    assert_eq!(world.held_towns(), &[id]);
+}

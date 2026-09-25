@@ -115,7 +115,10 @@ use crate::game::Game;
 /// 39: the Manufacturers (feature 109) — a held site keeps whose it is, a
 /// station's room which of their waves it has laid, and a Bim whether it
 /// is one of them.
-pub const SAVE_VERSION: u32 = 39;
+/// 40: a system's memory keeps its own defences and held towns (feature
+/// 111's first fix) — a town id is only its system's, and carried across
+/// a jump the list held the next system's town of the same id.
+pub const SAVE_VERSION: u32 = 40;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -96,6 +96,28 @@ impl Phase {
     }
 }
 
+/// Whether a place the generator rolled keeps a **gear trade** (feature
+/// 111): a desk (`crate::station::market_kind` — nobody keeps one at a
+/// derelict) dealing in at least one of the two trades the roll gives it
+/// (`Stock::weapon_trade`, `Stock::armour_trade`). A pure function of the
+/// roll, never saved, so the map's quote for a star next door and the
+/// world at it would agree.
+///
+/// **The candidate rule for a trader site, and not yet used**: the
+/// feature that would build on it wants a trader to be the exception
+/// (5–40 % of the sites), and over ten galaxies this rule makes 55–58 %
+/// of them traders (`tests_trader::trader_share_over_ten_seeds`), so the
+/// rule is waiting on a decision.
+pub fn trades_gear(kind: worldgen::StationKind, surface: bool, stock: worldgen::Stock) -> bool {
+    let plan = if surface {
+        crate::station::Plan::Surface
+    } else {
+        crate::station::Plan::Hub
+    };
+    crate::station::market_kind(kind, plan).is_some()
+        && (stock.weapon_trade() || stock.armour_trade())
+}
+
 /// A place the crew can travel to: a station or a planet's settlement,
 /// by its star and its station id in that star's system — a settlement
 /// by `crate::surface::surface_id` of its body, a derived jammer by

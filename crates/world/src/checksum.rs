@@ -165,26 +165,12 @@ pub fn world_checksum(world: &World) -> u64 {
     // lost. It is a fight the same way an infestation is, and the wait
     // before the first wave goes in beside it, the way the reinforcement
     // clock goes in beside the machines' own.
-    hash.eat(world.defenses().len() as u64);
-    for d in world.defenses() {
-        hash.eat(u64::from(d.station));
-        hash.eat(u64::from(d.waves_left));
-        hash.eat(u64::from(d.wave));
-        hash.eat(u64::from(d.next_in.is_some()));
-        hash.eat(d.next_in.unwrap_or(0));
-        hash.eat(u64::from(d.standing));
-        hash.eat(u64::from(d.settled));
-        hash.eat(u64::from(d.won));
-        hash.eat(u64::from(d.lost));
-    }
+    eat_defenses(&mut hash, world.defenses());
     hash.eat(world.defense_delay_steps());
     // And the towns they held: a held town stays friendly for good, so
     // two worlds that disagree about one disagree about whether a
     // settlement inside the infection still trades.
-    hash.eat(world.held_towns().len() as u64);
-    for &station in world.held_towns() {
-        hash.eat(u64::from(station));
-    }
+    eat_held_towns(&mut hash, world.held_towns());
     // The hired hands: who, what a month costs, when it is next due and
     // whether one is owed. A crew member that costs money is a different
     // crew from one that does not.
@@ -358,6 +344,14 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(u64::from(it.cache));
             eat_heart(&mut hash, it.heart.as_ref());
             eat_manufacturers(&mut hash, it);
+        }
+        // And that system's defences and held towns, which are its own
+        // since station ids are: only where it has any, so a memory of a
+        // system nobody defended hashes what it always did.
+        if !memory.defenses.is_empty() || !memory.held_towns.is_empty() {
+            hash.eat(0x_4445_4645);
+            eat_defenses(&mut hash, &memory.defenses);
+            eat_held_towns(&mut hash, &memory.held_towns);
         }
     }
 
@@ -667,6 +661,31 @@ pub fn world_checksum(world: &World) -> u64 {
 
 /// Whether a held site is the Manufacturers' (feature 109): eaten only
 /// where it is, so a machines' site hashes as it always did.
+/// The towns under attack (feature 94), in station order: the schedule of
+/// each fight and how it ended.
+fn eat_defenses(hash: &mut Fnv, defenses: &[crate::defense::Defense]) {
+    hash.eat(defenses.len() as u64);
+    for d in defenses {
+        hash.eat(u64::from(d.station));
+        hash.eat(u64::from(d.waves_left));
+        hash.eat(u64::from(d.wave));
+        hash.eat(u64::from(d.next_in.is_some()));
+        hash.eat(d.next_in.unwrap_or(0));
+        hash.eat(u64::from(d.standing));
+        hash.eat(u64::from(d.settled));
+        hash.eat(u64::from(d.won));
+        hash.eat(u64::from(d.lost));
+    }
+}
+
+/// The towns the crew held, in station order.
+fn eat_held_towns(hash: &mut Fnv, towns: &[u32]) {
+    hash.eat(towns.len() as u64);
+    for &station in towns {
+        hash.eat(u64::from(station));
+    }
+}
+
 fn eat_manufacturers(hash: &mut Fnv, it: &crate::droid::Infestation) {
     if it.manufacturers {
         hash.eat(0x_4D41_4E55);

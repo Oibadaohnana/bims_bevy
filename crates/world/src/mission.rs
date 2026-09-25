@@ -315,13 +315,17 @@ impl World {
             })
         };
         let (held, cleared) = if jump {
+            // That system's own memory: a town held there is held, and a
+            // town of the same id here says nothing about it.
             let memory = self.memories.iter().find(|m| m.star == site.star);
-            let cleared = memory.is_some_and(|m| {
-                m.infested
-                    .iter()
-                    .any(|it| it.station == site.station && it.cleared)
-            });
-            (false, cleared)
+            let held = memory.is_some_and(|m| m.held_towns.binary_search(&site.station).is_ok());
+            let cleared = held
+                || memory.is_some_and(|m| {
+                    m.infested
+                        .iter()
+                        .any(|it| it.station == site.station && it.cleared)
+                });
+            (held, cleared)
         } else {
             let held = self.town_held(site.station);
             let cleared = held || self.infestation(site.station).is_some_and(|it| it.cleared);

@@ -1921,7 +1921,8 @@ lifted out as one struct: `station_keys`, the **stations'** `lamps`
 (`station.is_some()`; the ship's own stay with the ship, which also
 fixed a lamp shot out at one system's station 3 landing on the next
 system's station 3), `discovered`, `losses`, since feature 85 `graves`
-and `visited`, and since feature 83 the machines' `infested`. The
+and `visited`, since feature 83 the machines' `infested`, and since
+feature 111 a town's `defenses` and `held_towns`. The
 hostile list, the arena's `reinforcements`, an enemy's shelf
 (`plunder`) and the mining `sites` were in it too, and went with what
 they were for. `SystemMemory::overrun` clears the losses and the graves
@@ -3950,6 +3951,19 @@ held town for ever** — so the crisis taking the system round it leaves it
 friendly, trading and hiring. `World::front_at` reads a held town as one
 hop out whatever the chart says, since it is then the last friendly desk
 inside the infection.
+
+**`defenses` and `held_towns` are the system's own**, like `infested`
+(feature 111's first fix): a town's id is `SURFACE_BASE | body`, and body
+ids are a system's own, so while the two lists were global a town held in
+one system held the next system's town of the same id — never
+threatened, never taken. They go onto `SystemMemory` in
+`remember_system`, come back in `recall_system`, are cleared by a jump to
+a system never visited, are kept by `SystemMemory::overrun`, and are
+hashed in the checksum's memory block **only where a memory has any**
+(so no number moved). A trip's quote for another system reads that
+system's memory for *held* and *cleared*. `SAVE_VERSION` 40,
+`wire::PROTOCOL` 32 (the relay wants redeploying);
+`a_town_held_in_one_system_is_not_held_in_the_next` is the test.
 
 **And some of its people go with the crew.** `defense::joiners` is the
 larger of one and `survivors × DEFENSE_JOIN_PERCENT (20) / 100` rounded
