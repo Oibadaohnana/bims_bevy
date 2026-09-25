@@ -685,8 +685,12 @@ mission at the site they set up). The world's half is `crates/world/CLAUDE.md`
   and every class cooldown. The strip at the top is the world map
   (`screens/worldmap.rs`); the helm's four orders were refused
   (`Refusal::TravelIsResolved`) until feature 104 deleted them, the helm
-  and the flown trip together.
-  <!-- TODO(104): the rooms were told the clock stands still by `Game::set_clock_runs`; name what tells them now, or say it is the room's default, once the code has settled it. -->
+  and the flown trip together. Nothing tells a room its clock stands
+  still any more: `Game::simulate` never advances it, `Game::wind_clock`
+  is the one thing that moves it, and the world winds every room it
+  builds to the world's minutes (`crates/game/CLAUDE.md`, "The needs
+  deleted"). Until feature 104 the world said so every step through
+  `Game::set_clock_runs(false)`, which went with the needs.
 - **The old game's clock was a switch**, `World::set_free_clock`, off in
   every run and on for the tests of flight, raids, wages and the day by the
   step, in the pattern feature 102 set. Feature 104 deleted it with the
@@ -806,25 +810,26 @@ the old game is tagged **`needs-sim-final`** (29d5d54, feature 103's) —
   which is what the designer shows through `ship::paint::fixtures` →
   `Room::draw_fixtures` and what a run showed anyway, since nothing changed
   them with the needs off. Their drawing moved out of the deleted modules
-  into a module of its own, with each fixture's state cut down to what its
-  picture needs.
-  <!-- TODO(104): name the module the fixtures' drawing moved into (the decisions suggested `crates/game/src/fixtures.rs`) once the code has it. -->
+  into a module of its own, `crates/game/src/fixtures.rs` (`Worktop`,
+  `Hob`, `Fridge`, `Dishwasher`, `Berth`, `Locker`, `Bay`, `Heads`,
+  `Stills`), with each fixture's state cut down to what its picture
+  needs.
 - **Their frames stay solids, in the same order.** `Room::solids()` feeds
   the nav grids, the push-out and the wander, so a solid dropped or moved
   is a route that moved: every fixture frame is still a solid, stand-ins
-  included. The bath compartment's three wall rectangles are zero-sized
-  and off the map aboard, and could go only with the survivor tests
-  showing that nothing moved.
-  <!-- TODO(104): say whether the bath's three wall rectangles were kept or dropped. -->
-- **Blood on the deck stays**, as a blood-only grid (what `filth.rs` was,
-  cut down to blood). Its rolls are on the room's one stream, which every
-  fight draws from: a drop's two `signed()` in `Bim::tick_drips`, the
-  boots' `chance(0.25)` when a step crosses a tile edge off a tile with
-  blood enough on it (`track`), and the splash of a cut or a burst
-  (`splash_blood`, off `blast` and `strike_stripping`). Taking any of those
-  draws away, reordering them, or changing the state that decides them
-  would re-roll every fight after the first drop.
-  <!-- TODO(104): the module's new name (the decisions say `blood.rs`) and the grid's type, once the code has them. -->
+  included. The classic bath compartment's three wall rectangles were
+  the one exception: zero-sized and off the map aboard, they were dropped
+  with the classic room, and the survivor tests stayed green, so nothing
+  moved.
+- **Blood on the deck stays**, as a blood-only grid — `blood::Blood` in
+  `crates/game/src/blood.rs`, what `filth.rs` was, cut down to blood. Its
+  rolls are on the room's one stream, which every fight draws from: a
+  drop's two `signed()` in `Bim::tick_drips`, the boots' `chance(0.25)`
+  when a step crosses a tile edge off a tile with blood enough on it
+  (`Blood::track`), and the splash of a cut or a burst (`Blood::splash`,
+  off `blast` and `strike_stripping`). Taking any of those draws away,
+  reordering them, or changing the state that decides them would re-roll
+  every fight after the first drop.
 - **The cold store stays a container** (`Container::Fridge`, on the
   Nearby strip): the drug lab's medkit is made of vegetables, and the hold
   keeps vegetables there.
@@ -885,7 +890,12 @@ plays differently**: find why — a draw on the room's stream removed, an
 order of operations changed, a solid gone from a nav grid, a room told
 something it was not told before — and put it back.
 
-<!-- TODO(104): the bumped numbers — `SAVE_VERSION` (35 was the plan) and `wire::PROTOCOL` (27) — once the code has settled them; and whether the `design_hash` pins moved. -->
+The numbers that did move, each once for the whole feature:
+**`SAVE_VERSION` 35** and **`wire::PROTOCOL` 27**; `REFERENCE_CHECKSUM`
+is `0x_5359_7c7a_29be_b3e2`, re-pinned by the world's half and not moved
+again by the room's, whose needs had already left the world's hash. The
+`design_hash` pins did not move: not a file under `crates/shipdesign`
+changed.
 
 ## Money, not materials (feature 95)
 
@@ -958,8 +968,9 @@ Things about that which are easy to get wrong:
   Bevy is unplayable; keep it there.
 - **A bare `cargo test` is the app alone.** `default-members` makes a bare
   cargo command mean `app`, so `cargo test` runs one crate of thirteen. Use
-  `cargo test --workspace`, which is what `./check` runs. `game` has no unit
-  tests; its tests are the native probes in `scratchpad/`.
+  `cargo test --workspace`, which is what `./check` runs. `game` (the `bims`
+  package) has unit tests of its own now, on the bare room `Game::bare`, and
+  the three native probes left in `scratchpad/` beside them.
 - **The rules go in `shipdesign` and `world`, never in `ship` or `app`.**
   `ship` may ask whether a part can be placed or a trip can be flown; it may
   not decide, and the app may not either. A native server has to give the
@@ -1443,16 +1454,14 @@ the room, say, is also a step of the world's clock and a menu in the app.
 
 | file | what it holds |
 | --- | --- |
-| `crates/game/CLAUDE.md` | the room: routes, errands, doors, the fight, the machines, blood on the deck, the fixtures as pictures |
+| `crates/game/CLAUDE.md` | the room: routes, errands, doors, sight and the dark, the fight, the machines, medicine and carrying, the classes' room halves, blood on the deck, the fixtures as pictures, the bare room the tests stand in |
 | `crates/shipdesign/CLAUDE.md` | the rules: parts, layers, power, cargo, money, the hash, the validator, the playtest ship |
-| `crates/world/CLAUDE.md` | the world: the clock and its stages, the run and its missions, stations, docking, the crew aboard, crafting, EVA |
+| `crates/world/CLAUDE.md` | the world: the clocks and the stages, the run, travel and missions, stations and docking, the fight across two rooms, the machines and the crisis, the classes, the crew aboard, crafting and money, the walk outside |
 | `crates/ship/CLAUDE.md` | the designer and the game view: the camera, the painters, drags, `Session` |
 | `crates/flight/CLAUDE.md` | a plan is read, never integrated; the two pinned placeholder numbers |
 | `crates/lobby/CLAUDE.md` | "has a station" is answered by generating the system; a crew never starts at an enemy's |
 | `crates/worldgen/CLAUDE.md` | the generator: the checksum, up to six stations a system, which of them are hostile, who sells what |
-| `scratchpad/CLAUDE.md` | the native probes, and how to look at a room without a window |
-
-<!-- TODO(104): the game and world rows say what those notes should hold once they are rewritten for the deleted old game; check them against the notes as rewritten (and `crates/health/CLAUDE.md`, whose row went with the crate). -->
+| `scratchpad/CLAUDE.md` | the three native probes left (`crowding`, `layout`, `droidwreck`), and how to look at a room without a window |
 
 ## Never use `|` as a perl `s|…|…|` delimiter here
 

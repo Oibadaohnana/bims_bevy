@@ -1,27 +1,19 @@
-//! The hyperdrive: a jump from one star to another.
+//! The jump: from one star to another, across a hyperlane.
 //!
-//! A ship with a working hyperdrive — `shipdesign::hyperdrive::ready`: a
-//! drive bolted to a main engine and on a live network — can be charged
-//! from the helm at any star it can see on the galaxy chart, and
-//! [`crate::data::JUMP_CHARGE_MINUTES`] later it is **somewhere else**: the
-//! same ship, the same crew, the same hold, in a system generated afresh
-//! from the galaxy seed and the star's id the way the lobby generates one
-//! to look at, standing still in **empty space**. Not at a station: a jump
-//! lands wherever [`landing_point`] says, which is a point well clear of
-//! everything the system holds, and the crew fly in from there like
-//! anybody arriving.
+//! A trip to a site of another system (feature 103, `World::travel`) jumps
+//! on the way: the same ship, the same crew, the same hold, in a system
+//! generated afresh from the galaxy seed and the star's id the way the
+//! lobby generates one to look at, standing still in **empty space**
+//! wherever [`landing_point`] says — a point well clear of everything the
+//! system holds — and the trip's leg in the system runs from there to the
+//! site. The charge, [`crate::data::JUMP_CHARGE_MINUTES`], is part of the
+//! trip's length (`World::travel_quote`); nothing is flown, and no part
+//! of the ship is asked for.
 //!
 //! Only the ship makes the trip. What belonged to the system stays behind:
-//! its stations and their people, the chart of it, the mining site, the
-//! hostile list. `World::jump` is the one place that replaces them, so
-//! there is one list of what a system is.
-//!
-//! The charge is the world's clock and nothing else — [`ShipState::Charging`]
-//! (`crate::ShipState`) holds the star and when it began, the same shape
-//! as a docking — so a browser at 24x and a server catching up land on the
-//! same step. A charge is called off like a trip, with Abort, and the ship
-//! is left holding where it was. There is no fuel and no charge to pay:
-//! the drive draws its keep all day like a system, and the jump is free.
+//! its stations and their people, the chart of it, the keys on its desks.
+//! `World::jump` is the one place that replaces them, so there is one list
+//! of what a system is.
 
 use worldgen::StarSystem;
 use worldgen::math::{DVec2, dvec2};

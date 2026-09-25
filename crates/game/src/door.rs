@@ -1,17 +1,14 @@
 //! A powered door in a bulkhead, as a ship design places them.
 //!
-//! The classic room has one door — the heads' — and it is worked by hand:
-//! the Bim walks to the panel, and the pathfinder keeps a grid for each of
-//! its two states (`crate::nav::Maps`). A designed ship has a door in every
-//! bulkhead, and a grid per combination of them is not a thing, so these
-//! are **sliding doors that open by themselves**: a body walking up to one
+//! A designed ship has a door in every bulkhead, and a pathfinding grid
+//! per combination of them is not a thing, so these are **sliding doors
+//! that open by themselves**: a body walking up to one
 //! opens it, and it shuts a moment after the doorway is clear. The
 //! pathfinder walks straight through an unlocked one, open or shut, because
 //! it will be open by the time the body gets there.
 //!
-//! What the player can do to one is the bathroom door's vocabulary — open,
-//! close, lock, unlock — and it is done the bathroom door's way: the Bim
-//! walks over and works it, through [`crate::room::Switch::Door`]. *Open*
+//! What the player can do to one is four words — open, close, lock,
+//! unlock — and it is done by hand: the Bim walks over and works it, through [`crate::room::Switch::Door`]. *Open*
 //! holds it open, so it no longer shuts itself; *close* hands it back to
 //! itself; *lock* shuts it and makes it a solid, which is the one state the
 //! pathfinder has to know about, and the room rebuilds its grids when one
@@ -35,8 +32,7 @@ pub const SMASH_AIRLOCK: f32 = 30.0;
 /// Seconds between heaves, for the sound of it.
 const HEAVE_EVERY: f32 = 2.0;
 
-/// How fast the leaves travel, in fractions of open per second. The
-/// bathroom door's rate.
+/// How fast the leaves travel, in fractions of open per second.
 const RATE: f32 = 2.6;
 /// How far from the opening a body has to be for the door to open for it.
 pub const REACH: f32 = 64.0;
@@ -47,8 +43,8 @@ const SHUT_AFTER: f32 = 1.2;
 const IN_THE_WAY: f32 = 22.0;
 
 /// What the player asks of a door. Carried by the switch rather than read
-/// off the door when the hand arrives, for the reason the bathroom door's
-/// orders are.
+/// off the door when the hand arrives, so the order is the one given and
+/// not whatever the door happens to be doing by then.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Order {
@@ -324,8 +320,7 @@ impl Door {
 
     /// Two leaves parting in the middle, each sliding away under the
     /// bulkhead it meets, with the lamp beside the opening reading locked
-    /// or held at a glance — the bathroom door's picture, laid along
-    /// whichever way this one runs.
+    /// or held at a glance, laid along whichever way this one runs.
     pub fn draw(&self, list: &mut DrawList) {
         let d = self.rect;
         let c = d.center();

@@ -1822,8 +1822,11 @@ fn the_crisis_is_saved_and_the_hop_table_is_worked_out_again() {
 #[test]
 fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone() {
     use crate::Session;
+    // The machines' arena, with crew member 0 put just inside the
+    // station's door and under arms: something for the machines to go to
+    // war over, without walking one there.
     let staged = || {
-        Session::droids(
+        let mut session = Session::droids(
             world::data::DEFAULT_SEED,
             None,
             1.0,
@@ -1831,7 +1834,15 @@ fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone()
             3,
             CANVAS.0,
             CANVAS.1,
-        )
+        );
+        let world = &mut session.game.as_mut().unwrap().world;
+        let ashore = world.aboard.ashore.expect("docked, so there is a door");
+        world
+            .aboard
+            .room
+            .put_for_probe(0, bims::math::vec2(ashore.x as f32, ashore.y as f32));
+        world.aboard.room.recruit_for_probe(0, true);
+        session
     };
     let lights = |s: &Session| {
         let world = &s.game.as_ref().unwrap().world;
@@ -1846,8 +1857,7 @@ fn the_fight_s_passing_lights_are_the_host_s_picture_and_leave_the_world_alone()
     let mut plain = staged();
     let mut lit = staged();
     let (mut crew_most, mut residents_most) = (0, 0);
-    // Long enough for the machines to find the crew and open fire.
-    for _ in 0..1500 {
+    for _ in 0..600 {
         plain.world_step();
         lit.world_step();
         lit.age_effects(1.0 / 60.0);
@@ -1914,8 +1924,7 @@ fn a_run_opens_docked_on_the_default_ship_with_five_thousand_a_bim() {
             }
         );
         assert_eq!(world.aboard.crew_count(), players);
-        assert!(!world.needs_enabled() && !world.human_foes_enabled());
-        assert!(!world.shipyard_enabled() && !world.radiation_enabled());
+        assert!(!world.shipyard_enabled());
         assert_eq!(world.class_of(0), world::Class::Medic);
         if players > 1 {
             assert_eq!(world.class_of(1), world::Class::Soldier);

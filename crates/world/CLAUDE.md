@@ -1,8 +1,11 @@
 # The world
 
 Notes on `crates/world` — one star system, the ship in it, the stations, the
-crew aboard and the one clock. The room it steps is `crates/game/CLAUDE.md`;
-the painter and the page, `crates/ship/CLAUDE.md`.
+crew aboard, the run and its two clocks. The room it steps is
+`crates/game/CLAUDE.md`; the painter and the page, `crates/ship/CLAUDE.md`.
+Feature 104 deleted the old game (the flown trip, the needs, radiation,
+the human enemies); where a section below names one of those, it says so
+in the past tense, and the section at the end is the list.
 
 > **Since the port to Bevy (September 2026):** the browser host is gone.
 > Every name table this file points at in `web/*.js` is now
@@ -33,8 +36,8 @@ it `World::workbench()` and `World::store_bench()` answer `NoWorkbench` on
 a ship that plainly has both.
 
 The chain is `Kind::Craft { recipe, bench }`, two steps, `GoToBench` and
-`Work`, with the length riding in `rest_minutes` the way a doze's does,
-because the room has no recipe table. **The room moves no cargo.** `Work`'s
+`Work`, with the length riding on the task in `rest_minutes`, because the
+room has no recipe table. **The room moves no cargo.** `Work`'s
 `leave` pushes the recipe onto `Room::crafted`; `World::step` drains it
 with `Game::take_crafted` after the room steps and moves the hold —
 `finish_craft`, which re-checks `can_make` and emits `Crafted` or
@@ -47,8 +50,8 @@ first, so recipe order is preference order.
 
 Targets are `World::craft_targets`, in `world_checksum`, set by
 `Command::SetCraftTarget` and clamped to the class's capacity. Nought at
-the start, for the same reason as the stew target. The items panel's
-`.keep` box is the control. `JOB_CRAFT`, `SPOT_BENCH` and
+the start. The Management tab's crafts table is the control
+(`Actions::crafts`, handed back as `Order::Keep`). `JOB_CRAFT`, `SPOT_BENCH` and
 `WORK_NAMES`/`WORK_SPOTS` in `crates/app/src/crew.rs` are the app's half —
 and `Job::Mine` came **out** of that list with the mining, so every job
 code after it moved down one.
@@ -91,42 +94,61 @@ again. `Room::rocks_version` is kept and moves for nothing: it is what
 `Game::refresh_outside` reads, and a planet's ground or another reason to
 rebuild the outside grid would set it.
 
-Stage 8 is as it was: `World::health` doses a body at `SUIT_INTENSITY`
-while `Game::is_outside(who)`, and `EVA_DOSE_LIMIT` keeps a dosed Bim in.
-`World::hold_at_belt_for_probe` is still there — undock, put the ship at
+Who may go out is `World::suit_ok`: everybody, while there is a suit
+aboard to wear. There is no dose any more — the radiation, stage 8 and
+`World::health` went in feature 104 (see the section at the end) — so a
+suit is the whole of the check, the same answer it always gave, since
+nothing ever dosed a body in a run. `World::hold_at_belt_for_probe` is
+still there — undock, put the ship at
 the spawn system's first belt, settle the frame — because a few tests
 want the ship holding somewhere that is not a berth; it lays nothing out.
 
 ## The design phase, then the game, and one clock in it
 
-`web/ship.html` is two screens and one wasm. The last Accept settles the ship
-**and** opens the world — one event, in `Session::accept`, because two exports for
-it would be two things that could disagree about which ship got handed over.
-`ship_phase()` is still the only way to ask which half you are in.
+The yard (`bims design`) is the one way into the design phase now — the
+`game` flow has had none since feature 102, `screens::designer::start_run`
+standing `Session::run` up on the default ship instead. There the last
+Accept settles the ship **and** opens the world — one event, in
+`Session::accept`, because two calls for it would be two things that
+could disagree about which ship got handed over. `Session::designing` and
+`Session::playing` are how a caller asks which half it is in.
 
-After that there is exactly one loop: `World::step`, which advances
-`STEP_MINUTES` and nothing else. Its order is the contract and it is written
-out in the function:
+After that there is exactly one loop: `World::step`, which advances the
+**mission clock** by `STEP_MINUTES` and nothing else. Its order is the
+contract and it is written out in the function:
 
+0. between missions (feature 103), the commands and nothing else — the
+   map is up and nothing moves;
 1. the commands stamped for this step, in arrival order;
-2. the clock;
-3. flight;
-4. discovery and the local frame;
-5. **crew** — the room aboard, stepped;
-6. **power** — the reactors against the wired consumers, into the batteries;
-7. **construction** — what the crew did at the sites, moved through the hold;
-8. **health and radiation** — each body dosed or sheltered.
+2. the clocks — the mission clock, and never the world clock, which only
+   travel moves (`mission.rs`);
+3. the ship, which does not move — nothing is flown since feature 104,
+   and where it is, is what is in range;
+4. discovery and the local frame, the station's room opened or closed,
+   the crisis spread and the machines' waves laid (features 83, 92, 94);
+5. **crew** — the room aboard and the station's, stepped, with everything
+   the classes, the medicine and the benches hand them before and read
+   back after;
+6. **power** — the reactors against the wired consumers, into the
+   batteries — with the brownout and the research after it;
+7. **construction** — what the crew did at the sites, moved through the
+   hold, and the workbench's carries and the kits laid;
+8. **the run** — the bounty paid the step a site is cleared, and the
+   departure check (feature 103).
 
-The last two were extension points, and both are filled now; whatever
-joins them goes in *there*, on *that* clock. A second clock or a second loop is two
-simulations that will disagree, and the failure reads as a ship in two places.
+Stage 8 was health and radiation until feature 104 took the dose away;
+the run is stage 8 now. Whatever joins the step goes in at one of these
+places, on *this* clock. A second clock or a second loop is two
+simulations that will disagree, and the failure reads as a ship in two
+places.
 
-`crates/app/src/screens/game.rs` turns real time into steps with an accumulator — `dt *
-ship_steps_per_second() * multiplier` — and never into bigger steps. Same rule
-as the room, same reason: a 24x step would move the ship several times its own
-length and skip straight past its own braking phase. `MAX_STEPS_PER_FRAME` has
-to stay at or above `TOP_SPEED * 60 / 30` or the top of the range quietly stops
-being reachable.
+`crates/app/src/screens/game.rs` turns real time into steps with an
+accumulator — `dt * ship_steps_per_second() * multiplier` — and never
+into bigger steps. Same rule as the room, same reason: every timer in a
+mission — a wave, a cooldown, a bandage — counts whole steps, and a
+bigger step would be a different fight rather than a faster one.
+`MAX_STEPS_PER_FRAME` has to stay at or above `TOP_SPEED * 60 / 30` or
+the top of the range quietly stops being reachable.
 
 ## The anchor is stored and the position is derived
 
@@ -137,8 +159,9 @@ the heading through `flight::angle::rotate_design`.
 That way round on purpose. `on_ship_changed` has to promise that welding a
 shelf to the stern does not move the *hull*: if the position were stored and
 the anchor derived, every wall anybody built would shove the whole ship
-sideways through space. Docking is the one place the ship is *put* somewhere
-rather than flown there, and it is `set_position` doing it.
+sideways through space. Nothing flies the ship any more (feature 104):
+it is *put* where it goes — at a berth, off a site between missions,
+inside the next system after a jump — and `set_position` does each.
 
 `rotate_design` is **its own inverse** — it is a rotation composed with the
 flip between the grid's y-down and the system's y-up, and a rotation composed
@@ -154,18 +177,6 @@ change would never be applied and the pause could never be lifted.
 `World::request_speed` is the door, `Command::SetSpeed` goes through the same
 door, and it is safe to be the exception because it changes nothing a step
 would have changed — only how fast the caller is expected to turn the crank.
-
-## A redirect is a stop and then a trip, and it needs no mechanism of its own
-
-A Confirm while the ship is under way aborts the current plan to rest, and the
-moment that abort *ends* the pending target is picked up and a fresh plan is
-made from where the ship stopped. Two plans, one after the other, and the ship
-is genuinely at rest in between. Only the **latest** confirmed target is kept.
-
-The consequence that surprised a test: a redirect one step after departure has
-no speed and no spin to take out, so the stop is of no length and the second
-trip is already under way in the same step. That is the redirect working, not
-a shortcut round it.
 
 ## A station is a place, and the ship docks beside it
 
@@ -187,9 +198,9 @@ Five things that hang off that:
   is a design's first airlock and the side of it with nothing beyond, and
   `Station::berth` turns the ship so its port faces the station's and puts
   the two outer faces on one point. `World::dock_at` is the one place the
-  ship is set down (with `World::start`); `target_position` of a station is
-  the *berth*, so a trip ends outside the station rather than at its
-  middle. `the_ship_docks_airlock_to_airlock_outside_the_station` checks
+  ship is set down at a station (with `World::start`), at
+  `World::berth_at`, so a trip ends outside the station rather than at
+  its middle. `the_ship_docks_airlock_to_airlock_outside_the_station` checks
   every ship tile is clear of the station's frame.
 - **An airlock in the deck is a door to nowhere.** `Dynamics::has_airlock`
   is now "has a port", and `IssueCode::AirlockSealedIn = 31` warns about an
@@ -214,23 +225,27 @@ Five things that hang off that:
   counted as the room closes and stay dead (`World::close_residents`,
   `World::losses`; "A system has a memory" below). It is in
   `world_checksum` after the crew.
-- **The spawn is the first friendly orbital in a system with a belt**,
-  not the first station: `World::spawn` skips derelicts, because a crew
-  that opens docked at a wreck sees nobody and blocks, and skips a system
-  with no belt, which was the mining site and is now only what keeps the
-  simulation on the dock every pinned number stands on —
-  `BIMS_AT_BELT=1`, and every fixture test that walks outside through
-  `at_a_belt` — holds at the spawn system's first belt. An orbital rather
-  than any lived-on kind because it is the ordinary case, and because the
-  fixture tests lean on what one has: four bunks (the garrison a hostile
-  dock arms is capped at the beds), a shelf with the staples. It was "the
-  first lived-on station" until the generator went to 6 and that landed
-  on a three-bunk refinery in a system with no belt.
+- **The spawn is the first orbital in a system with a belt whose
+  blueprint was not rolled hostile**, not the first station: `World::spawn`
+  skips derelicts, because a crew that opens docked at a wreck sees nobody
+  and blocks, and skips a system with no belt, which was the mining site
+  and is now only what keeps the simulation on the dock every pinned
+  number stands on. It still skips a blueprint rolled hostile
+  (`StationBlueprint::hostile`) though no human has been an enemy since
+  feature 104 — the roll picks the dock every command opens at, and
+  dropping the condition would move the spawn and re-pin the lot for
+  nothing (`spawn_anywhere` and `spawn_with_ground` skip them the same
+  way). An orbital rather than any lived-on kind because it is the
+  ordinary case, and because the fixture tests lean on what one has:
+  four bunks and a shelf with the staples. It was "the first lived-on
+  station" until the generator went to 6 and that landed on a three-bunk
+  refinery in a system with no belt.
   `the_spawn_is_the_first_lived_in_dock_in_the_galaxy` states the rule;
   `residents_are_there_within_fifty_tiles_and_not_beyond` reads
   `world.home` rather than the first lived-on station, since the spawn
-  system has an enemy's orbital too and that one's room opens with a
-  garrison. `the_local_frame_has_a_hysteresis_and_uses_it`
+  system has another orbital, rolled hostile, which was an enemy's with a
+  garrison until feature 104.
+  `the_local_frame_has_a_hysteresis_and_changing_it_touches_neither_the_clock_nor_the_speed`
   drifts *away from the nearest other node* rather than along `+x` for
   the same reason — in the new spawn system `+x` walked into the parent
   body's frame.
@@ -262,18 +277,20 @@ hulls, where the collars meet, decked — and `World::dock_at` opens the
 room on that (`Aboard::joined`). One deck, one nav grid, so a right-click
 on the station's deck walks James through the airlocks. **The station's
 people are not in it.** They keep their own room — `World::residents`,
-opened on the station's design with the station's galley, heads, bunks,
-bay and benches for fixtures — and go on living there while the ship is
-tied up: cooking at their own hob, eating at their own table, sleeping in
-their own bunks, on their own timetable and under their own manager
-(`Residents::open` sets their goals, `data::RESIDENT_*_EACH` a head, and
-stocks their larder to them). They never come aboard, and the crew's
-Management tab reaches nobody ashore — it is the crew's, and one day
-another player's crew on the same ship. `set_off` takes the deck apart
-again (`Aboard::unjoined`): the crew back into a room of the ship alone;
-the residents' room goes on as it was until the ship is out of range.
-`docked_the_station_s_people_keep_to_the_station_and_their_own_agenda`
-pins a day of it.
+opened on the station's design with the station's own fixtures — and go
+on living there while the ship is tied up, each keeping to the round of
+its role (`bims::routine`, dealt by `Residents::deal_roles`, feature 102;
+"A run" below). The crew's Management tab reaches nobody ashore — it is
+the crew's, and one day another player's crew on the same ship.
+`unjoin_rooms` takes the deck apart again (`Aboard::unjoined`) when the
+ship leaves the site at a mission's end (`World::leave_mission`, which
+closes the residents' room straight after) or a test calls
+`undock_for_probe`: the crew back into a room of the ship alone.
+`every_role_has_a_round_on_a_sample_of_stations_and_towns` and
+`two_runs_on_one_seed_walk_the_same_rounds` (`tests_run.rs`) pin the
+rounds. Until feature 104 they cooked, ate and slept there on their own
+timetable under their own manager; the needs went, and the round is
+what is left.
 
 What that rests on, and what will bite:
 
@@ -291,43 +308,35 @@ What that rests on, and what will bite:
   for and nothing else reads, since the joined room draws every door —
   the station's own room draws none while docked — and a resident walking
   through a shut-looking door would be a door lying.
-- **The room's berths and seats are `Vec`s now**, as many as the layout has
-  bunks and chairs, ship's first — and a bunk is *given* to a Bim
-  (`Room::sleeps_in`, the player's to change; a crew past the bunks
-  sleeps on the deck, see the room's notes), which `take_crew` carries
-  on `Bim::bed` and `adopt` reads back, so the ship's crew keep their
-  bunks across a dock; a hire's is cleared first, its old berth being
-  the station's, and it takes the first spare. `BERTHS`/`SEATS` are the
-  classic room's two. A station's room is cut to
-  its bunks by `Residents::open` (the room itself takes what it is given;
-  see the arena, below), and a room may have **none** (a derelict's).
-  `plate_on_table` goes through `plate_at`/`set_plate_at`, clamped, and
-  `solids()` lists the beds where the classic room always did — between
-  the table and the bay — because the push-out walks solids in order and
-  a different order re-rolls every probe seed.
+- **The room's berths and seats are `Vec`s**, as many as the layout has
+  bunks and chairs, ship's first. A station's room is cut to its bunks by
+  `Residents::open` (the room itself takes what it is given; see the
+  arena, below), and a room may have **none** (a derelict's). Nobody
+  sleeps in a bunk since the needs went in feature 104, but a bunk's frame
+  is still a solid, a shelter (`nearest_shelter`) and a place a round
+  stops at, and `solids()` lists the beds where the classic room always
+  did — between the table and the bay — because the push-out walks solids
+  in order and a different order re-rolls every probe seed.
 - **Moving a Bim between rooms drops its errand.** `Game::take_crew`
   abandons every chain (`Task::abandon`: what was carried goes back in the
-  store, whoever was in bed is stood up) and `Game::adopt` stands each
-  one where they were, snapped to the nearest free nav cell — a spot
-  beside a bunk sits on the edge of the bunk's inflated footprint and
-  reads free or not by how the grid happened to fall — or at their bunk
-  if that is more than a body's margin away, which is what a crew member
-  left on the station at departure gets. `take_crew` takes `&mut self`
-  and leaves the old room standing for a reason: giving up an errand is
-  what puts a medkit in somebody's hands back into the *old* room's
-  store, so `join_rooms` and `unjoin_rooms` take the crew out first and
-  then `bank_medicine` off that room into the hold before it is dropped.
-  Before that, a kit in hand at the moment of docking was lost.
-- **One galley, the ship's.** The joined room maps the first of each
-  fixture kind by id — the ship's — and `Aboard::leave_the_station_s`
+  store) and `Game::adopt` stands each one where they were, snapped to the
+  nearest free nav cell — a spot beside a bunk sits on the edge of the
+  bunk's inflated footprint and reads free or not by how the grid happened
+  to fall — or at their bunk if that is more than a body's margin away.
+  `take_crew` takes `&mut self` and leaves the old room standing for a
+  reason: giving up an errand is what puts a medkit in somebody's hands
+  back into the *old* room's store, so `join_rooms` and `unjoin_rooms`
+  take the crew out first and then `bank_medicine` off that room before
+  it is dropped. Before that, a kit in hand at the moment of docking was
+  lost.
+- **One set of fixtures, the ship's.** The joined room maps the first of
+  each fixture kind by id — the ship's — and `Aboard::leave_the_station_s`
   drops every further fixture standing in the station's box from
   `Layout::more` and `extras`, so the station's galley, heads, bays and
   lockers are furniture to walk round on the joined deck and never a
-  chain's pick. The
-  residents' own room, with them in it, is what draws the station's
-  fixtures and the residents; the joined room draws the ship's fixtures,
-  the crew and every door, over it. The cold store is restocked from the
-  ship's cargo at every join and unjoin, like at world start.
+  chain's pick. The residents' own room, with them in it, is what draws
+  the station's fixtures and the residents; the joined room draws the
+  ship's fixtures, the crew and every door, over it.
 - **The crew panels rebuild when the room's crew changes**
   (`CrewPanels::rebuild_crew` in `crates/app/src/crew.rs`, from the game
   screen when the count moves). With the residents in their own room that
@@ -358,16 +367,18 @@ passage decked beyond the *station's* port — and `Residents::join`
 (called from `join_rooms`, and from the reopen path while docked)
 rebuilds the residents' room on it through `Aboard::mirrored`: everybody
 out of the old room with `take_crew` (errands dropped, as the crew's are
-at a dock), adopted at the shift, the room's own counts carried over
-(`replace_room`: the larder and its targets, bandages, medkits, fog,
-whether the doors are drawn). The `Joined` a mirror returns reads with
+at a dock), adopted at the shift, what the old room held that is not a
+body's carried over (`replace_room`: its medicine, its fog, whether its
+doors are drawn). The `Joined` a mirror returns reads with
 the names swapped: `ship_at` is the station's shift and `station_*` the
 ship's frame; the residents' `Aboard` keeps that as its `station_frame`
 and the ship's box as its `station_box`, so `leave_the_station_s` drops
 the ship's fixtures from their room as it drops the station's from the
-crew's. That is what lets an enemy follow a crew member through the
-passage onto the ship
-(`an_enemy_follows_the_crew_member_it_saw_onto_the_ship_and_is_put_ashore_when_it_leaves`).
+crew's. That is what lets a body of the station's room follow a crew
+member through the passage onto the ship — a machine of a held station,
+since feature 104; the test of it was a human garrison's
+(`an_enemy_follows_the_crew_member_it_saw_onto_the_ship_…`) and went
+with the human enemies.
 `Residents::unjoin` at `unjoin_rooms` builds the station's own room
 again, adopting back at `-offset`: one still on the ship has no floor
 under it and goes to its bunk.
@@ -377,7 +388,7 @@ room before and is not now:
 
 - **`Aboard::position`/`exposed` subtract it**, so everything that reads
   a resident's place in station design units — `visit`, `body_position`,
-  the loot, the hire, `resident_on_screen` — is right as it was.
+  the hire, `resident_on_screen` — is right as it was.
 - **What goes *into* their room adds it**: `visit` hands the residents
   their targets at `crew_ashore() + offset` and takes their shots' `from`
   and `at` back through `- offset` before `station_frame`
@@ -392,192 +403,187 @@ nobody is the last-seen rule instead ("The enemy shoots back" below).
 
 ## A station has a stance, and the fight crosses between two rooms
 
-`World::stance(id)` is Friendly for `home` — the spawn station — Hostile
-for any id on `World::hostile` (sorted), Neutral for the rest. The list
-starts as **what the generator rolled**: `World::start` puts every
-station whose `StationBlueprint::hostile` is set on it, bar `home` —
-the spawn is home whatever it rolled, since a world handed an enemy's
-dock should open at home rather than under fire — and `Station::hostile`
-carries the roll for anyone who wants the blueprint's word rather than
-the rule. `set_hostile` puts a station on or takes it off after that
-(`combat`, through `Session::make_dock_hostile`, is the caller). **Both
-`home` and `hostile` are in `world_checksum`**, after the crew; a stance
-change is a different fight, and
-`the_checksum_notices_a_stance_change` says so. `spawn` and
-`spawn_anywhere` skip a hostile blueprint the way they skip a derelict
-(`the_galaxy_has_hostile_stations_and_the_spawn_is_never_one`), and the
-lobby's own pick does the same. `apply_stances` — at every `join_rooms`,
-every `settle_residents` open and every `set_hostile` — tells the rooms:
-the residents' room its own stance (`Game::set_stance`, its fog under
+`World::stance(id)` is Hostile for a station the machines hold
+(`is_droid_held`), Friendly for `home` — the spawn station, while the
+ship is at the home star — and Neutral for the rest. **No human is ever
+the crew's enemy** (feature 104): whatever the generator rolled a
+station's people, they are a friend's at home and a stranger's anywhere
+else. The roll itself stays — `StationBlueprint::hostile`, carried as
+`Station::hostile` — because three things still read it: `spawn`,
+`spawn_anywhere` and `spawn_with_ground` skip a blueprint rolled hostile
+the way they skip a derelict, which is what picks the dock every command
+opens at (`the_galaxy_has_hostile_stations_and_the_spawn_is_never_one`);
+`station::key_tier` puts the tier-two research keys on it; and the
+machines' derived jammer is built with it set. Nothing reads it as a
+stance. The world's own `hostile` list, `rolled_hostile` and
+`set_hostile` went with the human enemies, and `home` is in
+`world_checksum` after the crew; the one stance that changes is a
+station taken by the machines (`World::infest`), and
+`the_checksum_notices_a_stance_change` (a block of the checksum test in
+`tests.rs`) says so. `apply_stances` — at every `join_rooms`, every
+`settle_residents` open, every reopen (`reopen_residents`,
+`mercenary_for_probe`) and every `infest` — tells the rooms: the
+residents' room its own stance (`Game::set_stance`, its fog under
 `Fog::All`) and whether its people are enemies (`set_hostile_bodies`,
 which is the ring under each *and* the switch that makes them fight —
-see the next section), and the joined deck the station's box and stance
+see the next section, and true only for a held station, whose Bims are
+at most its dead), and the joined deck the station's box and stance
 (`Game::set_foreign`, the black-and-grey fog over the station's half).
 The painter asks it too: a stranger's station is its far plate
 (`HULL_UNKNOWN`) until its room is open, so approaching one reveals
 nothing at fifty tiles, and the map rings every station by it
-(`world_paint::paint_map`: enemy red, home green, neutral nothing).
+(`world_paint::paint_map`: the enemy's red for a held station, blue for
+any other somebody lives on, nothing for a derelict;
+`crates/ship/CLAUDE.md`).
 
-**How many enemies a station puts up is the crew's worth, and the
-calendar.** A room is
-opened with `World::people_of(station)`, never `residents()` straight:
-the residents at a friendly or neutral station, nobody on a derelict,
-and at a hostile one `station::enemies_of(crew, worth, start_worth,
-days)` — `station::base_by_day(days)` plus one a crewmate, doubled for
-every half of `World::start_worth` that `World::worth()` has grown by
-since, capped at `data::ENEMIES_MAX` (sixteen). The base is
-`data::ENEMIES_BASE` (one) **and one more every `data::ENEMIES_DAYS`
-(thirty) whole days the game has run** (feature 58): nothing more for
-the first month, one more from day thirty, two from day sixty, so an
-enemy gets stronger with time as well as with the crew's worth, and the
-worth's doublings sit on top of the bigger base. `days` is
-`World::days_gone()` — `clock_minutes`, elapsed time since the world
-opened, floored to whole minutes and then to whole days, *not* the
-crew's calendar `World::day()`, which opened at the waking hour — so
-two clients that have stepped the same number of times count the same
-day. Worth is `shipdesign::Budget::spent`
-of the ship's design — every part at its price and every unit in the
-hold at its trade value, the money in hand *not* counted — and
-`start_worth` is that sum at step nought, fixed for the game and left
-out of `world_checksum` because two clients on the same design already
-agree on it. Whole euros in and a whole number out, so a server counts
-the same crowd. The count is asked when the room opens (`join_rooms`,
-`settle_residents`), so a station keeps the garrison it was reached
-with until the ship has left and come back; `set_hostile` is the one
-exception — it reopens the residents' room at the new stance's count
-if that differs, because `combat` turns the dock hostile with its two
-residents' room already open, and two residents are not a garrison.
-`enemies_of_grows_with_the_crew_s_worth_and_caps` pins the formula
-(the calendar's steps with it), `the_days_gone_are_the_world_s_clock_in_whole_days`
-the day count, `a_hostile_dock_opens_with_a_garrison_not_its_residents`
-the reopen, and `a_month_in_the_garrison_is_one_bigger` the same dock
-turned hostile again at day thirty arming one more — all one `#[test]`
-in `tests.rs`. The `combat` command's arena is unmoved by it: its
-`reinforcements` are worked out at open, day nought, to make the
-garrison up to `ARENA_GARRISON`, and the room opens then and there.
-A rule that must not come out of a save: nothing new is stored — the
-day is read off `clock_minutes`, which was already saved.
+**A station's room opens with its survivors.** A room is opened with
+`World::people_of(station)`, never `residents()` straight: the people
+who live there **less its dead** (`World::losses`), nobody on a
+derelict, and nobody at a station the machines hold — what that room
+is opened with is a wave (`settle_droids`). The mercenaries for hire are
+`World::mercenaries_of` on top. Both are asked when the room opens
+(`join_rooms`, `settle_residents`), so a station keeps the crowd it was
+reached with until the ship has left and come back. Until feature 104 a
+hostile station opened with a **garrison** instead — `station::enemies_of`,
+a base by the calendar plus one a crewmate, doubled with the crew's
+worth and capped at sixteen, with the `combat` arena's `reinforcements`
+on top — and the whole formula went with the human enemies.
+`data::ENEMIES_DAYS` (thirty) and `World::days_gone` stay: the machines'
+wave counts a step every thirty days the world has run
+(`droid::day_steps`, "The machines hold a station" below), and
+`days_gone` is `clock_minutes` floored to whole days rather than the
+crew's calendar `World::day()`, so two clients that have travelled the
+same trips count the same day.
 **A station's room is cut to its bunks, and the cut is
-`Residents::open`'s** (since September 2026): a garrison bigger than the
-station's bunks — an orbital has four — is four, the mercenaries cut
-first. The room itself no longer caps — `Game::with_layout` and
-`Game::adopt` take every Bim they are given, since the ship's crew is
-the world's count (`health`, `crew_down`, `Ship::crew_count` are all
-sized by it) and a room that quietly held fewer was a world at odds with
-itself; `berth` and `seat` clamp, so a crew past the bunks shares the
-last, and `bims::aboard::starts` stands them on clear deck tiles of
-their own to begin with. That is what lets the `combat` command put
-fourteen on a ship with five bunks. That is also what the arena is for.
+`Residents::open`'s** (since September 2026): people and mercenaries
+past the station's bunks — an orbital has four — are not opened, the
+mercenaries cut first. The room itself no longer caps —
+`Game::with_layout` and `Game::adopt` take every Bim they are given,
+since the ship's crew is the world's count (`crew_down`,
+`Ship::crew_count` are sized by it) and a room that quietly held fewer
+was a world at odds with itself; `berth` and `seat` clamp, so a crew
+past the bunks shares the last, and `bims::aboard::starts` stands them
+on clear deck tiles of their own to begin with. That is what lets
+`Session::combat` put sixteen on a ship with five bunks. That is also
+what the arena is for.
 
-**The `combat` command's dock is the arena.** `station::arena(kind,
-seed)` is `build_layout` at `data::ARENA_SIDE` (72) with the quarters'
-bunks in `ARENA_BUNK_COLUMNS` (4) columns three tiles apart — twenty
-bunks, more than `ENEMIES_MAX` — and `World::arena_dock_for_probe`
-rebuilds the docked station as that, standing where it stood (the
-anchor recomputed from the old centre, since the build area grew),
-sets `World::reinforcements` to whatever makes `enemies_of` up to
-`ARENA_GARRISON` (15) — nought for the fourteen, since `ENEMIES_BASE`
-and one a crewmate is fifteen already — and docks again from scratch —
+**The fight's dock is the arena.** `station::arena(kind, seed)` is
+`build_layout` at `data::ARENA_SIDE` (72) with the quarters' bunks in
+`ARENA_BUNK_COLUMNS` (4) columns three tiles apart, and
+`World::arena_dock_for_probe` rebuilds the docked station as that,
+standing where it stood (the anchor recomputed from the old centre,
+since the build area grew), and docks again from scratch —
 `undock_for_probe`, the residents' room dropped, `dock_at` — so the
-joined deck and the residents' room are laid out on the new design.
-`reinforcements` is added to `enemies_of` in `people_of` (capped at
-`ENEMIES_MAX`) and is **in `world_checksum`** after the hostile list: it
-is the size of the fight. The crew are fourteen
-(`shipdesign::fixture::COMBAT_CREW`) on the combat ship through
-`World::start_with_crew(design, money, players, crew, ..)` — `start` is
-that with `crew = players` — which sizes the room, `health`,
+joined deck and the residents' room are laid out on the new design. The
+crew are sixteen (`shipdesign::fixture::COMBAT_CREW`) on the combat ship
+through `World::start_with_crew(design, money, players, crew, ..)` —
+`start` is that with `crew = players` — which sizes the room,
 `crew_down`, `crew_locked` and `Ship::crew_count` by `crew` and
-`speed_requests` by `players`, so the crew nobody steers do not hold
-the speed at 1x (`speed::effective` is the *slowest* request).
+`speed_requests` by `players`, so the crew nobody steers do not hold the
+speed at 1x (`speed::effective` is the *slowest* request).
 `Session::combat` in `crates/ship` does the whole thing and issues
-`WeaponKind::ALL` down the crew and round again, one each.
-`the_combat_dock_is_the_arena_with_fourteen_crew_and_a_garrison_of_fifteen`
-and `the_arena_and_the_combat_ship_can_be_walked` (the walkability
-contract again, by `Nav::can_reach` rather than a search per tile)
-are the tests. **`tier2_test` and `tier3_test` are that fight with
-everybody's kit at one tier** (feature 70): `World::outfit_for_probe(tier)`
-puts every crew member's gun at the tier (its kind kept) and a fresh
-helm, kevlar and leg guards at it on — pieces of the world's, `next_piece`
-ids at `Where::Worn`, so `mirror_pieces` and a loot find them — and does
-the same to every body in the residents' room, those pieces the room's
-own (`1_000 * (who + 1) + 100` and up, past a mercenary's kit) until a
-loot renumbers one. Asked *after* `set_hostile`, since that reopens the
-room with the garrison; `Session::combat_at_tier` does it in that order,
-and `stage_fight_for_probe` keeps the resident's pistol at the tier its
-hand had. `the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier`
+`WeaponKind::ALL` down the crew and round again, one each; it is no
+command of its own since feature 102, only what `Session::droids` builds
+on before it hands the arena to the machines.
+`the_arena_is_the_combat_dock_and_it_and_the_combat_ship_can_be_walked`
+(the walkability contract again, by `Nav::can_reach` rather than a
+search per tile) is the test. **`tier2_test` and `tier3_test` are that
+fight with everybody's kit at one tier** (feature 70):
+`Session::droids_at_tier` is `Session::droids` with the machines at the
+tier and then `World::outfit_for_probe(tier)`, which puts every crew
+member's gun at the tier (its kind kept) and a fresh helm, kevlar and leg
+guards at it on — pieces of the world's, `next_piece` ids at
+`Where::Worn`, so `mirror_pieces` finds them. It dressed the residents'
+garrison too until feature 104; a held station has nobody in it to
+dress. `the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier`
 in `crates/ship` pins it.
 
-`World::visit` is where the fight crosses. While the station is hostile
-the residents' positions go to the joined room as **targets**
-(`Aboard::hostiles`, `None` for one that is down — each at its exposed
-position, `Aboard::exposed`, and paired with its weapon kind) beside the
-visitors the doors read, and the hits the joined room's bolts landed and
-the blows its fists and blades struck (`take_hits`, a `combat::Hit` —
-who, which part, how hard, and whether it is a cut) are delivered to the
-residents' room one by one (`Game::strike(who, part, damage, cut)`). At a
-friendly or neutral station both target lists are empty and nobody
-shoots. The residents never come aboard and their room is a step behind
-on `seen`, as before; `SEEN_FOR` in the room is what keeps one drawn for
-two seconds after the crew lost sight of it.
-`a_stranger_s_deck_is_black_beyond_a_grey_ring_and_the_crew_s_own_is_dim`
-and `a_recruited_bim_shoots_the_enemies_it_can_see_and_they_are_hurt`
-pin both halves; `stage_fight_for_probe` (`BIMS_FIGHT=1` in the app)
-stands the two a few tiles apart inside the station's door.
+`World::visit` is where the fight crosses. While the station is held
+(Hostile) — or is a town the crew are defending (feature 94) — the
+residents' room's bodies go to the joined room as **targets**
+(`Aboard::hostiles` for its Bims, `None` for one that is down — each at
+its exposed position, `Aboard::exposed`, and paired with its weapon kind
+— and the machines beside them; "Every place that assumed a hostile body
+is a `Bim`" below) beside the visitors the doors read, and the hits the
+joined room's bolts landed and the blows its fists and blades struck
+(`take_hits`, a `combat::Hit` — who, which part, how hard, and whether it
+is a cut) are delivered to the residents' room one by one
+(`Game::strike(who, part, damage, cut)`, or `strike_droid` past the
+room's Bims). At a friendly or neutral station both target lists are
+empty and nobody shoots. The residents' room is a step behind on `seen`,
+as before; `SEEN_FOR` in the room is what keeps one drawn for two
+seconds after the crew lost sight of it.
+`a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have`
+and `a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt`
+pin both halves; `World::stage_droid_fight_for_probe(kind, weapon)`
+(feature 104, in place of the human `stage_fight_for_probe` and
+`BIMS_FIGHT`) infests the station the ship is tied to, replaces its
+first wave with **one** machine of that kind four tiles down the
+corridor from the port, armed with `weapon` or, with `None`, posing —
+held where it is put, firing nothing — and puts crew member 0 inside the
+door, recruited. `Game::droid_mut_for_probe` is the room's half, for a
+test to mend, hold or arm the machine.
 
 ## The enemy shoots back, and a bolt flies in one room only
 
-The other half of `visit`. While the station is hostile the residents'
-room is handed the crew as **its** targets every step —
-`Aboard::crew_ashore`, the crew's positions in the station's own units
-through `Aboard::to_station` (the inverse of `station_frame`: two
-projections onto its unit axes), `None` for one dead, **out cold** — a
-body down is nobody's target, on either side: `visit`'s `alive` for
-the residents asks `is_unconscious` too — or outside in a
-suit — **on the ship's own deck too, since September 2026** (see "The
-residents' room holds the ship" below), where it used to be `None`
-outside `station_box` — each paired
-with **what it carries** (`Game::weapon`, the pistol if somehow nothing),
-since the room reads the weapon to know which targets lock a gunner in a
-melee (`bims::combat`) — and that
-is what puts its people **at war** (`bims::game::tick_combat`: hostile
-bodies and a target that is `Some`): recruited, armed, and walking to
-wherever `Tactics::stand` says — or charging, with a blade. **They
-know only what they have seen**: the room keeps a last-seen belief a
-target (`Game::set_hostiles` in a hostile room, `crates/game/CLAUDE.md`),
-walks to where it last saw one and gives the hunt up after
-`FORGET_AFTER`, so a crew that docks at a hostile station and stays
-aboard unseen leaves its people to their day rather than at war with
-nobody. **But the airlock is watched** (since September 2026):
+The other half of `visit`. While the station is hostile — which since
+feature 104 is only a station the machines hold, whose Bims are at most
+its dead — the residents' room is handed the crew as **its** targets
+every step — `Aboard::crew_ashore`, the crew's positions in the
+station's own units through `Aboard::to_station` (the inverse of
+`station_frame`: two projections onto its unit axes), `None` for one
+dead, **out cold** — a body down is nobody's target, on either side:
+`visit`'s `alive` for the residents asks `is_unconscious` too — or
+outside in a suit — **on the ship's own deck too, since September 2026**
+(see "The residents' room holds the ship" above), where it used to be
+`None` outside `station_box` — each paired with **what it carries**
+(`Game::weapon`, the pistol if somehow nothing), since the room reads
+the weapon to know which targets lock a gunner in a melee
+(`bims::combat`) — and that is what puts its bodies **at war**: its
+machines, and — the room's combat code being kept as it was, though no
+room in a run has any since feature 104 — hostile Bims
+(`bims::game::tick_combat`: hostile bodies and a target that is `Some`:
+recruited, armed, and walking to wherever `Tactics::stand` says — or
+charging, with a blade). **They know only what they have seen**: the
+room keeps a last-seen belief a target (`Game::set_hostiles` in a
+hostile room, with the machines' eyes among its own;
+`crates/game/CLAUDE.md`), walks to where it last saw one and gives the
+hunt up after `FORGET_AFTER`, so a crew that docks at a held station and
+stays aboard unseen leaves it at peace rather than at war with nobody.
+**But the airlock is watched** (since September 2026):
 `Residents::join` hands the fresh room the tile just inside the
 station's own door — `station.port()`, a tile back from `outward`,
 through `to_room` — as `Game::set_watched`, and a crew member within
 `bims::game::AIRLOCK_WATCH` (2.5) tiles of it is seen with nobody
 looking, so a boarding is noticed at the door and is what starts the
 fight; the ship's own airlock is beyond the watch, so a crew still
-aboard is not. `unjoin`'s fresh room has none.
-`a_hostile_station_notices_a_boarding_at_its_airlock_with_nobody_looking`
-pins it with every resident dead. What they need line of sight for is
-the shot. A room whose bodies are hostile does not
-fly bolts — it records `combat::Shot`s, and `visit` reads them back
-(`take_shots`), puts `from` and `at` through `station_frame` onto the
-joined deck and fires each there as a hostile bolt
-(`Game::enemy_fire`). So every bolt of the fight, blue or red, flies in
-the **crew's** room, which is the one room both sides' bodies are in;
-a red bolt looks for the joined room's own bodies and the wound goes
-on at once, in the room (`Game::strike`, off `Combat::wounds_taken`),
-its damage the weapon's at the distance the bolt flew — the same
-fall-off for both sides, since both sides' bolts fly in the one room.
-The world only *says* so: `casualties`, right after `visit`, drains
-`take_wounds_taken` into `WorldEvent::CrewHit { who, part }` (code 32,
-value `who + 10 * part`), `take_traumas` into `WorldEvent::CrewDying {
-who, trauma }` (42, `who + 10 * trauma`) and `take_treated` into
-`CrewTreated { who, trauma }` (43, the same) — a part shot to nothing
-is a **dying state** now, not a death (`crates/game/CLAUDE.md`, "A part
-at nothing is a dying state") — and says `WorldEvent::CrewDown { who }`
-(code 33) the step a crew member is **dead** — once, off
-`World::crew_down`, whatever did it: bled out through a wound nobody
-dressed or a trauma nobody treated, hunger. `EnemyDown` is said the same
-way, off `Residents::down`, and means dead too.
+aboard is not. `unjoin`'s fresh room has none. The world's test of it
+boarded a human station with every resident dead and went with the
+human enemies in feature 104; the room's
+`a_hostile_room_s_airlock_is_watched_and_a_boarder_at_it_is_seen_by_nobody_in_particular`
+pins the rule. What they need line of sight for is the shot. A room
+whose bodies are hostile does not fly bolts — it records
+`combat::Shot`s, and `visit` reads them back (`take_shots`), puts `from`
+and `at` through `station_frame` onto the joined deck and fires each
+there as a hostile bolt (`Game::enemy_fire`). So every bolt of the
+fight, blue or red, flies in the **crew's** room, which is the one room
+both sides' bodies are in; a red bolt looks for the joined room's own
+bodies and the wound goes on at once, in the room (`Game::strike`, off
+`Combat::wounds_taken`), its damage the weapon's at the distance the
+bolt flew — the same fall-off for both sides, since both sides' bolts
+fly in the one room. The world only *says* so: `casualties`, right
+after `visit`, drains `take_wounds_taken` into `WorldEvent::CrewHit {
+who, part }` (code 32, value `who + 10 * part`), `take_traumas` into
+`WorldEvent::CrewDying { who, trauma }` (42, `who + 10 * trauma`) and
+`take_treated` into `CrewTreated { who, trauma }` (43, the same) — a
+part shot to nothing is a **dying state** now, not a death
+(`crates/game/CLAUDE.md`, "A part at nothing is a dying state") — and
+says `WorldEvent::CrewDown { who }` (code 33) the step a crew member is
+**dead** — once, off `World::crew_down`, whatever did it: bled out
+through a wound nobody dressed or a trauma nobody treated. `EnemyDown`
+is said the same way, off `Residents::down`, for a hostile room's
+*Bim*, and means dead too — which no room has had since feature 104, so
+it is never said now; a machine destroyed is `DroidDown`.
 
 **The positions handed over are the exposed ones.** A Bim aiming from
 the peek beside a wall leans out to it, and that is where a shot at it
@@ -589,19 +595,20 @@ a **second call** right after the targets (`Aboard::crew_peeking` →
 way), because a bolt reaching a body peeking from cover is dodged half
 the time (`bims::combat::DODGE_IN_COVER`) and the room has to know which.
 `the_crew_are_handed_over_at_the_peek_while_peeking` stands James in a
-doorway found by scanning the deck — so that he actually peeks — and
-pins `crew_ashore`/`crew_peeking` against `exposed_at`/`peek`.
+doorway found by scanning the deck — so that he actually peeks — with a
+posing machine held down the corridor, and pins
+`crew_ashore`/`crew_peeking` against `exposed_at`/`peek`.
 
-**A blow is carried, not flown.** A resident in a melee — a schword
-within reach of a crew member, or a crew member's blade within reach of
-it — records a melee `Shot` (`shot.melee`, with `damage` and `cut`
-carried, since a fist's damage is not the gun's in the hand) and
-nothing flies: `visit` finds the crew member it was aimed at as the
-handed-over position nearest `shot.at` (a `Shot` carries no target
-index) and delivers it with `Game::enemy_strike(on_deck(shot.from), who,
-shot.damage, shot.cut)`, which re-checks the reach in the receiving room
-— the lock was read a step ago in the other room, and a body walks —
-rolls the part there, applies the wound and records it for `CrewHit`.
+**A blow is carried, not flown.** A body of the held room in a melee —
+a claw or a schword within reach of a crew member, or a crew member's
+blade within reach of it — records a melee `Shot` (`shot.melee`, with
+`damage` and `cut` carried, since a fist's damage is not the gun's in
+the hand) and nothing flies: `visit` finds the crew member it was aimed
+at as the handed-over position nearest `shot.at` (a `Shot` carries no
+target index) and delivers it with `Game::enemy_strike(on_deck(shot.from),
+who, shot.damage, shot.cut)`, which re-checks the reach in the receiving
+room — the lock was read a step ago in the other room, and a body walks
+— rolls the part there, applies the wound and records it for `CrewHit`.
 The crew's own blows go the other way as ordinary `Hit`s off
 `take_hits`. `melee_locks`, after `casualties`, says
 `WorldEvent::Locked { who }` (code 37, value `who`) the step
@@ -617,7 +624,9 @@ sniper rifle, one in ten a schword; a function of what `world_checksum`
 already holds, so nothing new is hashed and `REFERENCE_CHECKSUM` did not
 move for it (it moved for the playtest cargo — the four weapons B3 put
 aboard — to `0x_4fc1_5639_a265_137d`, and again for `reinforcements`, the hired hands and the trading desk in every station, to `0x_288f_814e_d375_027d`; and for the hub plan and the bigger stations, to `0x_3b1f_707d_8489_5c09`; and for the hub-and-arms plan, to `0x_80a6_d0b3_b7d9_5b08`).
-`a_station_s_people_are_armed_off_its_seed` pins it.
+Nobody turns those guns on the crew since feature 104; a town's guard
+and its mercenaries turn them on the machines when the town is
+defended. `a_station_s_people_are_armed_off_its_seed` pins it.
 
 Things that bit or would:
 
@@ -626,7 +635,7 @@ Things that bit or would:
   has something to aim at from its first step; and the targets are
   cleared — on both rooms — the moment the station is not hostile, and
   on the residents' room whenever the rooms are not joined, or a room
-  left at war with nobody there keeps its people under arms after the
+  left at war with nobody there keeps its bodies under arms after the
   ship has gone. Peeking is set *after* the targets, every time, since
   `set_hostiles` resets it.
 - **The order of the two rooms' steps matters too, and it is against
@@ -636,75 +645,51 @@ Things that bit or would:
   member still sees it a tile off and does not lock, while the blade —
   stepped after — sees the crew member in reach and its first blow
   lands that same step through `visit`; the crew member's lock, and
-  `Locked`, come a step later. A crew member with no armour (a body of
-  75) is dead to the first ninety before either, which is why
-  `a_blade_charges_and_locks_the_crew_member_who_fights_with_its_fists`
-  puts the kevlar on James first, and why every melee's first cut is
+  `Locked`, come a step later. That is why
+  `a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists`
+  puts the kevlar on James first, and why every melee's first blow is
   unanswered. Not fixed here; noted for whoever reorders the step.
-- **A sniper enemy walks to the open at its range and fires from there.**
+- **A sniper walks to the open at its range and fires from there.**
   It used to stand in the doorway at the corridor's crossing and never
   fire: `Tactics::stand` scored the doorway as cover with its door shut,
   and the body's own arrival opened the door — see "A doorway is never a
   stand" in `crates/game/CLAUDE.md`. `plan_stand` now hands the tactics
-  the room's doorways and none is a stand, so the rifle's resident walks
-  the corridor out of the pistol's reach and lands its shot from there —
-  the cover at the corridor's crossing, some seventeen tiles off, on the
-  default seed, since cover near it beats the open further on;
-  `a_sniper_rifle_reaches_from_twenty_tiles` pins that — the resident's
-  hit said as a `CrewHit` from a stand past the pistol's twelve tiles,
-  James patched up every step since an enemy shoots on the move too —
-  before James's own long shot at a resident held twenty-one tiles down
-  the corridor.
-- **Two against one is not a fight the crew member wins.** An enemy
-  station arms `enemies_of` the crew — four against `basic()`'s two —
-  and they all come; at pistol range the crew member is down in seven
-  seconds. `one_on_one` in the tests kills every resident but one
-  outright first (`Game::kill_for_probe` — a head shot is a dying state
-  now, not a death) so a run is one on one, and `Game::patch_up_for_probe`
-  makes James good as new before every step of a run that has to end
-  with the *other* body down — a one-in-twenty head shot would
-  otherwise decide it. `a_recruited_bim_shoots…` does both, and
-  `the_residents_shoot_back_and_a_crew_member_hit_bleeds` and
-  `a_hostile_station_s_people_take_arms_and_shoot_from_where_they_stand` pin the
-  other side off `stage_fight_for_probe`.
-  `the_crew_s_shotgun_does_more_at_three_tiles_than_at_nine` pins the
-  fall-off through the seam — the curve's fifty at three tiles against
-  about thirty-three at nine — with both bodies
-  `put_for_probe` each step so nobody walks off the mark.
-- **The hold's medicine is handed to the room every step, and read
-  back after it.** Stage 5 sets the **medkits** to hand
-  from the hold (`hand_the_room_the_hold_s_medicine` — `set_medkits`,
-  and `set_stock` with the bay handed **nought** fibre, since nothing
-  grows it any more) before the room
-  steps, and after it takes what was used off (`take_medkits_used`). **The bandages are not in that handover any more** (feature
-  87): a dressing is a thing in a pack, put there by
-  `World::restock_bandages` and spent out of the pack by the room, so
-  no count crosses either way — see "The dressings are carried" below.
-  **A helper's own medkits are handed over beside the
-  shelf's**: the same call counts the `Medkit` stacks in each crew
-  member's pack — a medic's start kit, or one fetched out of the hold —
-  into `Game::set_pack_kits`, and a helper that carries one treats with
-  it where it stands rather than walking to a cabinet
-  (`crates/game/CLAUDE.md`, "Its own kit before a new one").
-  `bank_medicine` drains `take_pack_kits_used` the other way: the medkit
-  comes **out of that pack** and onto `cargo[Medkit]`, since from the
-  moment it is in a hand it is counted the way a kit off a shelf is —
-  and `medkits_used` takes it off again when the treatment finishes, so
-  a medic's own kit spent leaves the hold exactly as it was.
-  A dressing is the room's chain (`Game::bandage`; see
-  `crates/game/CLAUDE.md`), and
-  `a_wound_is_dressed_with_a_bandage_from_the_hold_and_a_treatment_fetches_the_kit`
-  runs it
-  on the playtest ship, which carries five dressings and two medkits. The residents' room
-  deals `data::RESIDENT_BANDAGES` into **each of its living people's
-  packs** and gets `RESIDENT_MEDKITS` on its shelf at open, with no
-  hold behind either — what its
-  people spend on each other of their own accord now that the room has
-  a Medical job (`Game::medical_on_offer`, `crates/game/CLAUDE.md`), but
-  only once the fight is over: a recruited Bim takes no errand of its
-  own, and at war every resident is recruited. A bandage is **bought**
-  since the money rework, not made; the one recipe left is the medkit at
-  the drug lab.
+  the room's doorways and none is a stand, so a rifle walks the corridor
+  out of the pistol's reach and lands its shot from there.
+  `a_sniper_rifle_reaches_from_twenty_tiles` (a block of
+  `a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_than_at_nine`)
+  pins that with a Warden carrying the rifle — its hit said as a
+  `CrewHit` from a stand past the pistol's twelve tiles, James patched up
+  every step since an enemy shoots on the move too — before James's own
+  long shot at a Warden held twenty-odd tiles down the corridor.
+- **Two against one is not a fight the crew member wins**, so a test
+  of the seam is one against one: `stage_droid_fight_for_probe` lays a
+  single machine, and `Game::patch_up_for_probe` makes James good as new
+  before every step of a run that has to end with the *other* body down
+  — a one-in-twenty head shot would otherwise decide it.
+  `a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt` and
+  `the_machines_shoot_back_and_a_crew_member_hit_bleeds` pin the two
+  sides. `the_crew_s_shotgun_does_more_at_three_tiles_than_at_nine` pins
+  the fall-off through the seam off what comes off a Trooper's chassis
+  at three tiles and at nine, with both bodies `put_for_probe` each step
+  so nobody walks off the mark. These were human fights, staged by
+  `stage_fight_for_probe` and `one_on_one`, until feature 104 ported
+  them to machines.
+- **The medicine is handed to the room every step, and read back after
+  it.** Stage 5 tells the room each crew member's medkits
+  (`hand_the_room_the_hold_s_medicine`: `set_pack_kits` off
+  `charges_of(who, Charge::Medkit)`, the shelf at nought) before the room
+  steps, and `bank_medicine` reads what was used after it; a dressing is
+  spent out of the pack by the room itself and no count of those
+  crosses. See "The medicine is everybody's charges" below. The
+  residents' room deals `data::RESIDENT_BANDAGES` into **each of its
+  living people's packs** and gets `RESIDENT_MEDKITS` on its shelf at
+  open, with no hold behind either — what its people spend on each other
+  of their own accord now that the room has a Medical job
+  (`Game::medical_on_offer`, `crates/game/CLAUDE.md`), but only once a
+  fight is over: a recruited Bim takes no errand of its own. A bandage
+  is **bought** since the money rework, not made; the one recipe left is
+  the medkit at the drug lab.
 
 ## A piece of armour is a resource in the hold and an instance everywhere else
 
@@ -726,7 +711,7 @@ its most damaged first, which *is* the sell rule. `pieces_agree_with_the_hold`
 pins it. A piece in a pack or on a body is the room's (`Gear`, since the
 room's `Health` reads it) and `mirror_pieces` reads it back — where and
 what is left — after the room steps in stage 5 and after every command
-that moves gear, so `world_checksum` (pieces after the hostile list,
+that moves gear, so `world_checksum` (pieces after the hired hands,
 health to a hundredth, `next_piece` too) sees what the room sees.
 
 The five commands are `Stow { who, cell }`, `Fetch { who, kind:
@@ -768,8 +753,10 @@ that bit or would:
   one, and a sale only ever finds whole or dented ones. `Discard` is the
   only way out for a broken piece and takes it off `pieces`.
 - **The bunk on the playtest ship is beside the armoury**, within
-  `REACH`, so a test of "out of reach" stands the Bim at the helm
-  (`helm_spot() + aboard.offset`, through `put_for_probe`) rather than
+  `REACH`, so a test of "out of reach" stands the Bim at the helm's
+  seat (`helm_seat` in the tests, the helm part's first use spot plus
+  `aboard.offset`, through `put_for_probe` — the helm is a part and
+  nothing more since feature 104 took the helm job away) rather than
   leaving it where it woke up. `at_the_armoury` in the tests stands it at
   the armoury's use spot *before every command that wants reach* — the
   Bim goes off about its errands between steps, and a command lands at
@@ -780,9 +767,7 @@ that bit or would:
   whether the Bim shown stands within reach of something that takes it,
   and a Store or Take row can read "walk over first" *before* the
   command is sent and refused. The command checks again when it lands;
-  the row is a courtesy, not the gate. `World::free` is what the
-  container windows show, not raw `cargo`, since a fetch can only take
-  what is not spoken for.
+  the row is a courtesy, not the gate.
 
 `a_shot_on_the_head_is_taken_by_the_helm_first`,
 `a_stowed_piece_keeps_its_health_and_a_sale_takes_the_worst`,
@@ -982,7 +967,8 @@ cold store with area for three blocks of tofu and a four-by-four run for
 two refuses the third
 (`the_shelves_hold_stacks_and_a_fetch_takes_one_off_the_stack_asked_for`)
 — and that is the point: tidy, or turn something. `World::room_for(resource,
-wanted)` is the most of `wanted` that would go, for a harvest banked. The designer's `Edit::Buy` has only the area rule,
+wanted)` is the most of `wanted` that would go — a harvest banked was
+its caller until the bay's growing went with the needs (feature 104). The designer's `Edit::Buy` has only the area rule,
 since the yard has no grid; a design bought full in the yard is laid out
 at `World::new` and overflows, if it does, the way a poked count does.
 
@@ -1025,7 +1011,7 @@ fetch has to know the footprints of what went before — a pistol lies
 along two cells, so the next thing is at 2, not 1. `LOOT_CELLS` is 54
 now: the pack's 50, then head, body, legs, weapon.
 
-## A loot is a command across two rooms, and a resident's piece is new to the world
+## A loot is a command, and only a crewmate is looted
 
 `Command::Loot { slot, who, source: LootSource, cell }` takes one thing
 off a body into `who`'s pack: `cell` a `bims::combat::LootCell` code
@@ -1033,73 +1019,63 @@ off a body into `who`'s pack: `cell` a `bims::combat::LootCell` code
 either `LootSource::Crew(i)` — an index into the crew's room — or
 `Resident(i)` — an index into the *station's* room, since the two keep
 separate rooms while docked (`armour.rs`, `code()` 0 and 1, `who()`,
-`from_code`). `World::loot` asks, in this order: the body *down* — dead
-or out cold, `World::is_down(source)` off whichever room it lies in
-(`Game::is_down`) — else `Refusal::NotDown` (18); the looter alive, awake,
-aboard and within `data::REACH` of the body — `in_reach_of_body(who,
-source)`, else `OutOfReach`; a free pack cell, else `PackFull`. Then the
-body's room does the stripping (`Game::take_from_body`) and the crew's
-room the taking in (`Game::give`), `mirror_pieces` runs, and
-`WorldEvent::Looted { who, source_kind }` (38, `who + 10 * kind`) is
-said. Nothing goes *onto* a body. Two things to keep straight:
+`from_code`). **Only a crewmate is looted** (features 102 and 104): a
+`Resident` source is refused `NotACrewmate` (62) before anything else is
+asked — every human is friendly, a station's dead are left as they lie,
+and a machine carries nothing. For a crewmate `World::loot` asks, in
+this order: the body *down* — dead or out cold, `World::is_down(source)`
+(`Game::is_down`) — else `Refusal::NotDown` (18); the looter alive,
+awake, aboard and within `data::REACH` of the body —
+`in_reach_of_body(who, source)`, else `OutOfReach`; a free pack cell,
+else `PackFull`. Then the crew's room does the stripping
+(`Game::take_from_body`) and the taking in (`Game::give_stack`, a box of
+dressings being five), `mirror_pieces` runs — a piece of armour off a
+crewmate is already on the world's list and is found in the new pack —
+and `WorldEvent::Looted { who, source_kind }` (38, `who + 10 * kind`) is
+said. Nothing goes *onto* a body. **Down and reach are asked when the
+command lands, not when the window opened**: a crewmate who came round
+while the Loot window was up is refused `NotDown`; the app's `Body {
+down, reach }` snapshot is a courtesy for the rows, read off `is_down`,
+`loot_cells` and `in_reach_of_body` every frame, the way `hold_of` reads
+`in_reach`.
 
-- **Down and reach are asked when the command lands, not when the
-  window opened.** A crewmate who came round while the Loot window was
-  up is refused `NotDown`; the app's `Body { down, reach }` snapshot is
-  a courtesy for the rows, read off `is_down`, `loot_cells` and
-  `in_reach_of_body` every frame, the way `hold_of` reads `in_reach`.
-- **A piece off one of the station's people gets a fresh id.** The
-  residents' room numbered it as it liked (`Piece::new(1, …)` in the
-  probe), and that id would collide with the ship's; so `loot` pushes a
-  new `Piece` under `next_piece`, `at: Pack { who, cell }`, with the
-  health the fight left it, and hands the looter `piece.item()` — the
-  *world's* id. A piece off a crewmate is already on the list and
-  `mirror_pieces` finds it in the new pack. A weapon or a stack is a
-  plain item either way; a looted weapon goes into the pack and is
-  equipped from there, as now.
+`LootSource::Resident` stays for everything else that points at one of
+the station's bodies — the hire, the commander's attack order,
+`body_position`, `in_reach_of_body`. Where a body lies is
+`World::body_position(source)` in the crew's room's units — a
+resident's through `Aboard::from_station`, the inverse of `to_station`
+— so the app can `send_to` somebody beside it; `None` for a resident
+once the rooms have parted. `visit` tells the joined room which
+residents are down every step (`Aboard::visit(&positions, &down)` →
+`Game::set_visitors_down`, after `set_visitors`, which clears it) — a
+wreck is never on that list, since a machine carries nothing — so a body
+among them is `HIT_VISITOR` under a right-click; the fresh `Aboard` an
+undock builds knows no visitors at all.
 
-Where a body lies is `World::body_position(source)` in the crew's room's
-units — a resident's through `Aboard::from_station`, the inverse of
-`to_station` — so the app can `send_to` the looter beside it; `None` for
-a resident once the rooms have parted, which shuts the window. `visit`
-tells the joined room which residents are down every step
-(`Aboard::visit(&positions, &down)` → `Game::set_visitors_down`, after
-`set_visitors`, which clears it), so a body among them is `HIT_VISITOR`
-under a right-click; the fresh `Aboard` an undock builds knows no
-visitors at all.
+Until feature 104 a resident down in a fight could be looted too, and a
+piece off one was pushed onto the world's list under a fresh
+`next_piece` id, since the residents' room numbered its pieces as it
+liked; that path, and its test, went with the human enemies.
+`an_unconscious_crewmate_is_looted_and_an_awake_one_is_refused` (Kate
+bled to under the line, the helm off her head with its 9 health, the
+checksum of two worlds parting and meeting again) is the test, and
+`no_human_is_ever_hostile_in_a_generated_galaxy` (`tests_run.rs`) pins
+the refusal.
 
-`an_unconscious_crewmate_is_looted_and_an_awake_one_is_refused` (Kate bled
-to under the line, the helm off her head with its 9 health, the checksum
-of two worlds parting and meeting again) and
-`a_resident_down_in_the_fight_is_looted_of_its_weapon_and_its_helm` (the
-fight run to `EnemyDown`, James walked over with `send_to`, the pistol
-and a renumbered helm in his pack) are the tests.
+## An execution was a command, and went with the human enemies
 
-## An execution is a command, and the body dies in its own room
-
-`Command::Execute { slot, who, resident }` — the Kill row on one of a
-hostile station's people lying out cold (`crates/app`'s `KILL_ROW`,
-`GearOrder::Execute`, offered only while `enemies_alongside`). `World::execute`
-asks, in this order: docked with the residents' room open, else
-`NotDocked`; the station hostile, else `NotHostile` (26) — a downed
-crewmate or a friend's people are never finished off; the resident alive
-and out cold, else `NotDown`; `who` alive, awake and aboard, else
-`NotAboard`; a weapon in its hand, else `Unarmed` (27). Then
-`Game::execute` in the crew's room starts the walk and the shooting
-(`crates/game/CLAUDE.md`), and `visit` carries `take_executed` to the
-body's own room every step — `Game::execute_body`, dead if still down —
-and says `WorldEvent::Executed { who, resident }` (48, `who + 10 *
-resident`); `EnemyDown` follows off `is_alive` as for any death. Mind that
-**a change of stance opens the station's room afresh** (its mercenaries
-come and go with it), so a test that toggles hostility does so before it
-sets a body up: `a_downed_enemy_is_finished_off_where_it_lies_and_the_refusals_are_said`.
-`Game::knock_out_for_probe` is how a body is put out cold without a wound
-to bleed out from.
+`Command::Execute` — the Kill row on one of a hostile station's people
+lying out cold, which walked a crew member over and shot the body where
+it lay (`Game::execute`, `Kind::Execute`) — went in feature 104 with the
+human enemies it was for, and `NotHostile` (26), `Unarmed` (27),
+`WorldEvent::Executed` (48) and the room's `JOB_EXECUTE` (25) with it;
+the codes are left free. `Game::knock_out_for_probe` is still how a
+body is put out cold without a wound to bleed out from.
 
 ## A mercenary is an extra body in a friendly station's room, and hired it is crew that costs money
 
-`crates/world/src/mercenary.rs`. A station whose people are not enemies
-may have hired hands living among them: **extra** bodies past
+`crates/world/src/mercenary.rs`. A station the machines do not hold
+may have hired hands living among its people: **extra** bodies past
 `people_of`, opened with the room (`Residents::open(.., count,
 mercenaries, ..)`), the last `mercenaries` of them — in the olive
 `Uniform::Mercenary`, armed off `Gear::hired_for(seed, ids)` against
@@ -1111,12 +1087,12 @@ down), handed to the joined deck every `visit` as
 `Game::set_visitors_hailable`, so a right-click on one **on its feet**
 is `HIT_VISITOR` and the app's menu offers the Hire row (`visitor_down`
 says which row). How many is `World::mercenaries_of(station)` →
-`mercenary::how_many(worth, start_worth, map_seed)`: one for every half
+`mercenary::how_many(worth, start_worth, map_seed, near_front)`: one for every half
 of the start worth grown by, plus one on `MERCENARY_CHANCE` (0.4) off
 the seed, at most `MERCENARIES_MAX` (4) — so at the start worth a
 station has one or none, and a richer crew finds more. Nothing new is
 hashed for it: it is a function of the seed and the worth when the room
-opens, like the gear. Derelicts and enemies' stations have none; the
+opens, like the gear. Derelicts and held stations have none; the
 room's bunks cap the crowd, residents first.
 
 **The fee is the kit**: `fee_of(gear)` is `WEAPON_FEE` (pistol 2 000,
@@ -1130,31 +1106,33 @@ armour has one tier until a heavier one is a row in `ARMOUR_FEE`.
 
 **`Command::Hire { slot, who, resident }`** (`World::hire`, refusals in
 order: `NotForHire` 19, `NotDocked`, `OutOfReach` — `in_reach_of_body`
-with `LootSource::Resident`, the loot's own check — `NoBunk` 20,
-`Unaffordable`) takes the body out of the station's room (`take_crew`,
+with `LootSource::Resident` — and `Unaffordable`; the bunk check,
+`NoBunk` 20, went with the needs in feature 104, a bunk being furniture
+and no cap on the crew) takes the body out of the station's room (`take_crew`,
 the one removed, `adopt` the rest back — every errand ashore dropped
 once, the way a docking drops the crew's; `down` and `fee` shrink with
 it) and adopts it into the crew's at the same spot on the joined deck
 (`body_position` → `stand_at` → `adopt`), coverall kept; its worn pieces
 become pieces of the world's under fresh ids (`Where::Worn`), re-issued
-through `Game::issue`; `health`, `crew_down`, `crew_locked`,
-`Aboard::crew` and `Ship::crew_count` grow by one (`on_ship_changed`
-for the dynamics); the first month comes off `money` and a
-`mercenary::Hired { who, fee, due, owed }` goes on `World::hired`, in
-`world_checksum` after `reinforcements`. `WorldEvent::Hired` (39).
-`World::hire_offer(who, resident) -> Option<Offer>` is what the app's
-Hire window reads every frame — fee, in reach, affordable, a bunk,
-docked — so it can say "walk over first" before the command is refused.
+through `Game::issue`; `crew_down`, `crew_locked`, `Aboard::crew` and
+`Ship::crew_count` grow by one (`on_ship_changed` for the dynamics); the
+first month comes off `money` and a `mercenary::Hired { who, fee, due,
+owed, medic }` goes on `World::hired`, in `world_checksum` after the
+held towns. `WorldEvent::Hired` (39). `World::hire_offer(who, resident)
+-> Option<Offer>` is what the app's Hire window reads every frame — fee,
+in reach, affordable, docked, a medic or not — so it can say "walk over
+first" before the command is refused.
 
-**Wages are stage 2's second half**: `pay_wages` right after the clock,
-every step: a `Hired` whose `due` has passed is paid (`MercenaryPaid`
-40, `due += MONTH`, thirty days) if the money covers it; else it is
-`owed` (`MercenaryLeft` 41, said once) and, at a berth with the rooms
-joined, `dismiss`ed at once — out of the crew's room the way it came in
-(indices after it move down one: `hired`, the pieces' `who`), its pieces
-off the list, and back into the station's room as a mercenary for hire
-at the same fee if that room has a bunk, else gone. Away from a berth it
-sails on owed until it is paid or the ship docks. A mercenary is never a
+**Wages are paid by travel**, since only travel moves the world clock
+(feature 103): `World::travel` puts the clock on by the trip's minutes
+and `pay_wages_due` pays every month the clock has reached, one at a
+time, through `pay_wages`: a `Hired` whose `due` has passed is paid
+(`MercenaryPaid` 40, `due += MONTH`, thirty days) if the money covers
+it; else it is `owed` (`MercenaryLeft` 41, said once) and sails on owed
+until it is paid. It used to be paid by the step and, owed at a berth,
+`dismiss`ed back into the station's room; the step's clock went with the
+free clock in feature 104, and with it the only moment a hand could
+walk off, so `dismiss` went too. A mercenary is never a
 player: appended after the players, no slot, no speed request. The
 `test` command forces one at the dock through
 `World::mercenary_for_probe` (`least_mercenaries`, not hashed).
@@ -1179,7 +1157,7 @@ said only about a deal that would otherwise go, and the build test's
 sale from under a site is still `NotAboard`. A ship has no desk, so away
 from a berth it is never true. `man_the_desk_for_probe(slot)` posts a
 Bim at it for the tests that trade (`post_for_probe`: a post, so it
-stays; `stand_down` lifts it). The app: the desk's menu row (`Trade`)
+stays; the room's `Game::stand_down` lifts it). The app: the desk's menu row (`Trade`)
 walks the Bim over and opens the trade window
 (`CrewPanels::trade_requested`); the window offers "Walk over" while
 nobody of yours is at it (`Session::at_the_desk`, `walk_to_desk`).
@@ -1197,7 +1175,7 @@ anywhere; **Confirm** is live at the desk, and sends the lot as
 `Command::Sell`s **then** `Command::Buy`s (`Cart::deals`), so what a
 sale frees is there for the buys behind it, each judged by the world as
 before — the rules crates never see a cart. Confirm empties it; so does
-shutting the window or casting off with it up. `BIMS_TRADE=1` opens the
+shutting the window or leaving the berth with it up. `BIMS_TRADE=1` opens the
 simulation with the window up, which is how it is looked at.
 `a_cart_prices_its_lines_and_sells_before_it_buys` pins the arithmetic
 and the order.
@@ -1225,20 +1203,27 @@ into a pack must be worth the same in both, or a restock would make the
 crew poorer and `start_worth != worth()` on the first step. **`start_worth`
 is `worth()` taken at `World::start`**, the starting pool included, so
 unspent money is never counted as growth — which it was before the pool
-went into the sum. Both are what `station::enemies_of`,
-`raid::boarders_of`, `mercenary::how_many` and the droid waves are scaled
-against, so every one of those got quieter about a crew that is merely
-carrying its own money about.
+went into the sum. Both are what `mercenary::how_many` and the droid
+waves are scaled against — and the human garrison (`station::enemies_of`)
+and the raiders' boarders were, until feature 104 — so every one of
+those got quieter about a crew that is merely carrying its own money
+about.
 
 **The Republic pays a bounty** for an enemy taken down:
-`data::REPUBLIC_BOUNTY` by the enemy's **gear tier** — 500, 1 500, 4 500
-— `World::bounty_for(tier)` indexed safely, nought for no tier. It is
-paid **once per enemy**, at the first down *or* death, whoever did it,
-into `World::money`, and it is hooked at `award_classed_near`'s call site
-in `experience` — the one place the world already walks the enemies that
-are newly down and flags them, so nothing counts twice. Hostile stances
-only: a friend's people, a neutral's and the crew are worth nothing, and
-a droid pays nothing at all (a machine has no gear tier). The event is
+`data::REPUBLIC_BOUNTY` by the enemy's tier — 500, 1 500, 4 500 —
+`World::bounty_for(tier)` indexed safely, nought for no tier. It is
+earned **once per enemy**, whoever did it. For a **machine** — every
+enemy since feature 102 — it is its own tier, counted in `visit` the step
+it is destroyed (feature 103). For a hostile room's *Bim* it is its
+**gear tier** (`gear_tier(room, who)`), hooked at `award_classed_near`'s
+call site in `experience`, the first down *or* death — and never earned
+since feature 104, since no room has hostile Bims. A friend's people, a
+neutral's and the crew are worth nothing. Earned is not paid:
+`earn_bounty` pays it into `World::money` at once only at a site with
+nothing left to clear, and otherwise holds it as `Run::pending_bounty`
+(`WorldEvent::BountyPending`, 93) until the site is cleared
+(`settle_bounty`, stage 8) — and throws it away if the crew leave the
+site uncleared (`leave_mission`; "The loop" below). The payment is
 `WorldEvent::Bounty { amount }` (92), and the app's line is "The Republic
 pays €X."
 
@@ -1248,7 +1233,7 @@ pays €X."
 tier. `buy` takes a `tier` and the gun or the piece arrives at it;
 `sell` takes none — `tiers_leaving(resource, units)` says which tiers
 actually leave the hold, **lowest first**, and the desk pays for each at
-its own. `gear_tier(room, who)` is what an enemy's bounty is read off.
+its own. `gear_tier(room, who)` is what a Bim's bounty was read off.
 
 ## The world is bounded by the ship, and money by the dock
 
@@ -1305,23 +1290,15 @@ are easy to lose:
   `buying_costs_money_and_makes_the_ship_heavier` pins a buy at the ask
   and the sale back at the bid losing the spread;
   `a_derelict_has_no_market_and_every_other_station_quotes` the rest.
-- **There is no fuel (September 2026).** A trip runs on the reactor:
-  `Ship::reserved_fuel`, `fuel_aboard`, `PlanError::NoFuelAboard` and
-  `Preview::fuel` are gone, and nothing comes out of the hold at a plan's
-  end. What a burn costs is **power**: `run_power` charges the batteries
-  `supply − draw − engines` a minute, `engines` being `effort_at(plan,
-  now).power` — the lit set's throttled draw the plan was made with, so it
-  agrees with the exhaust — and `Power::engines`/`Power::load()` are what
-  the panel and the reactor's glow read. `Preview` quotes `power` and
-  `throttle` (the dynamics' forward figures) instead of a fuel bill.
-  `World::can_modify_part` refuses an engine, a thruster **or a reactor**
-  while a trip is in the air: all three would change a trip that has
-  already been quoted, the reactor because it is what the engines run on.
-  The checksum eats the plan's `forward_power`/`backward_power` where it ate
-  `fuel_required`, since a client that wired an engine the other did not
-  see would plan a different burn. `a_burn_draws_on_the_reactor_and_a_turn_does_not`
-  and `a_ship_with_a_dark_engine_is_not_going_anywhere` in `tests.rs` are
-  the rule.
+- **There is no fuel, and nothing burns.** The fuel went in September
+  2026 and a trip ran on the reactor after it; since feature 104 nothing
+  is flown at all — a trip is resolved (`World::travel`, "The loop"
+  below) — so the engines' draw (`Power::engines`), the trip's preview
+  and `World::can_modify_part`, which refused an engine, a thruster or a
+  reactor while a trip was in the air, went with the flight. `run_power`
+  charges the batteries `supply − draw` a minute and `Power::load()` is
+  `draw / supply`. An engine still matters: a trip is quoted off
+  `Ship::dynamics` by `physics::travel_days`.
 
 ## The room is aboard the ship, and it is the same room
 
@@ -1330,48 +1307,60 @@ it: `crates/world/src/crew.rs` holds a `bims::game::Game` laid out from the
 accepted design by `bims::aboard` and steps it in stage 5 of `World::step`
 — `Game::simulate` once per world step, at one sixtieth of a real second,
 which is the room's own frame at 1x. The Bims aboard are the room's Bims:
-needs, errands, the galley, the heads, the bay, the diary, all of it, with
-the cold store stocked from the cargo when the world opens. Nothing was
-copied; `world` imports `bims`, and `ship` imports it too, for the
-painter.
+their errands, their routes, their wounds and their fight, all of it.
+Nothing was copied; `world` imports `bims`, and `ship` imports it too, for
+the painter. The room's needs — hunger, sleep, the galley, the heads, the
+bay, the diary's every entry but a crewmate's death — were the room's
+too, switched off by the world in every run from feature 102 and deleted
+in feature 104.
 
 Five things that hang off that and will bite:
 
-- **`Game::render` is split from `Game::simulate`.** The room's own page
-  calls `update`, which is both; the world calls `simulate` per step and
-  the ship painter calls `aboard.render()` once per frame. At 24x that is
-  one picture a frame rather than twenty-four.
+- **`Game::render` is split from `Game::simulate`.** The world calls
+  `simulate` per step and the ship painter calls `aboard.render()` once
+  per frame; at 24x that is one picture a frame rather than twenty-four.
+  (The behaviour test room's own screen called `update`, which is both,
+  until it went in feature 104.)
 - **The room draws its fixtures and the ship painter draws the rest.**
   `bims::aboard::drawn_by_room` names the parts the room has pictures for —
   the galley, the heads, the table and seats, the bunks, the bay, the locker
   — and `world_paint` skips those tiles and re-emits the room's whole draw
-  buffer turned with the ship (`room_aboard`). The room's night wash and
-  its deck plate are off aboard (`Room::shell`); the ship owns the sky.
-- **Every fixture is used from the south.** The room's stations stand the
-  Bim *below* the counter, the pan and the basin, and above the bay, as the
-  classic layout had them; a part turned to face another way is used from
-  the wrong side. `aboard.rs` says so at the top. Fixing it is the room's
+  buffer turned with the ship (`room_aboard`). Most of those parts do
+  nothing since feature 104 and are pictures only, drawn in the state a
+  fresh room draws them. The room's night wash and its deck plate are off
+  aboard (`Room::shell`); the ship owns the sky.
+- **Every fixture is used from the south.** The room's stations stood the
+  Bim *below* the counter, the pan and the basin, and above the bay, as
+  the classic layout had them, and a part turned to face another way is
+  used from the wrong side. Nobody uses those fixtures since the needs
+  went, but a round's stops (`routine::Anchors::of`) are still read off
+  the same spots. `aboard.rs` says so at the top. Fixing it is the room's
   stations learning a direction each.
-- **At most as many of a crew as the layout has bunks are simulated.** A
-  Bim's index is its berth and its seat; the room has a berth per bunk and
-  a seat per chair of the design, and the classic room its `BERTHS` and
-  `SEATS` of two. A layout with none of one gets a single stand-in.
-- **The RNG order in `Game::new` is pinned by every probe.** The classic
-  room draws each Bim's start position *between* the Bims, from the one
-  stream; `with_room` takes a closure for exactly that reason. Drawing them
-  all first reshuffled every seed and failed `probe.rs` on
-  "somewhere that counts as deck" — an hour's diagnosis for a two-line
-  reorder. Any change to `Game::new` wants `probe`, `diary`, `sweep`,
-  `crew` and `neglect` run against it.
+- **A Bim's index is its berth and its seat.** The room has a berth per
+  bunk and a seat per chair of the design, and a crew past them shares the
+  last (`berth` and `seat` clamp; "A station has a stance" above); a
+  layout with none of one gets a single stand-in.
+- **The RNG order of a room's making is pinned.** The classic room drew
+  each Bim's start position *between* the Bims, from the one stream;
+  `with_room` takes a closure for exactly that reason. Drawing them all
+  first reshuffled every seed and failed the old `probe.rs` on "somewhere
+  that counts as deck" — an hour's diagnosis for a two-line reorder. The
+  classic room went as a game mode in feature 104, and what pins a room's
+  making now is the survivor tests (`tests_survivors.rs` in `crates/world`
+  and `crates/ship`; see the section on feature 104 at the end).
 
-The heads aboard have no compartment — `Bath::aboard` is a pan and a basin
-with the walls and the door zero-sized off the map, `closed_door` never
-anything, and both used from the deck side. The room's nav grid takes every
-other blocking part as a solid (`Layout::others`), and every tile inside
-the deck's bounding box that is not deck, so an L-shaped ship does not get
-a room that thinks the missing corner is floor. `the_crew_live_aboard` in
-`crates/world/src/tests.rs` runs the playtest ship six game hours and
-asserts the Bim went somewhere and never left the deck.
+The heads aboard have no compartment: the pan and the basin stand on the
+deck (`bims::fixtures::Heads`). The classic bath's three walls,
+zero-sized and off the map aboard, went with the classic room in feature
+104 — dropped from `Room::solids`, with the survivor tests showing that
+no route moved (`crates/game/CLAUDE.md`, "The needs deleted") — and its
+door with them. The
+room's nav grid takes every other blocking part as a solid
+(`Layout::others`), and every tile inside the deck's bounding box that is
+not deck, so an L-shaped ship does not get a room that thinks the missing
+corner is floor. `the_crew_live_aboard` in `crates/world/src/tests.rs`
+runs the playtest ship six game hours and asserts the Bim went somewhere
+and never left the deck.
 
 The names are still the host's: `CREW_NAMES` in `crates/app/src/screens/game.rs`, painted by
 `paintCrewNames` off `Session::crew_on_screen`/`_y`, which are camera units about the
@@ -1398,8 +1387,10 @@ its icon — it is a hull of its own, drawn by `world_paint::stations`; see
 "A station is a place". Nothing in them
 may paint `VOID` to cut a shape — the derelict's broken ring is short
 straight pieces, because a void bite painted over the deck was the first
-thing that went wrong. The map also rings whatever the helm is aimed at,
-off `Game::aimed`, which is set with the preview and read by nothing else.
+thing that went wrong. The map also rings the site picked on the world
+map's list, off `ship::Game::aimed` — set by the app every frame since
+feature 103, where it was the helm's aim before — and read by nothing
+that decides anything.
 
 `STATION_SHARE` went from a quarter to three fifths and a system rolls for
 a second and a third station (`MORE_STATIONS`); the rolls are drawn whether
@@ -1413,44 +1404,19 @@ hire: the residents' room there is the residents **plus**
 `World::mercenaries_of`, which is what the tests that count it compare
 against now.
 
-## The ship is flown from the helm, and a post is not an order
+## A post is a standing order, and the helm is a part and nothing more
 
-`World::can_command(slot)` is true only while that player's crew member is
-**alive, awake, aboard** and within `HELM_REACH` (a tile) of the first
-helm's use spot — `helm_spot()`, `at_the_helm(slot)` — and Confirm,
-Brake, Abort, Jump and Land ask it; speed and trading do not. The first
-three are `World::fit_to_act(slot)`, the same gate `at_the_desk` stands
-behind (alive, not `is_unconscious`, not `Game::is_asleep` — a doze in
-a bunk or a nap on its feet, `Action::Sleep` either way — and not
+Nobody flies the ship since feature 104, and the helm is a part like a
+bunk: the helm job and every gate in front of it — `World::can_command`,
+`helm_spot`, `at_the_helm`, `order_to_helm`, `stand_down`,
+`man_the_helm_for_probe`, `HELM_REACH`, `Command::ToHelm`, the room's
+`Job::Helm` — went with the flown trip. What stood behind the helm still
+stands behind the desk and every class's key: `World::fit_to_act(slot)`,
+the crew member alive, awake and aboard (`is_unconscious`,
 `is_outside`); before b-next (September 2026) the helm asked only the
 distance, and a body that died beside the seat could still fly the ship.
-It is asked when a command lands and not again: a crew member who walks
-off the helm under way is refused the *next* order, and the trip carries
-on. `only_a_living_waking_crew_member_is_at_the_helm` pins the three —
-`kill_for_probe`, `nod_off_for_probe`, and a walk away mid-trip.
-**Brake and Abort are one command** (`Command::Abort`,
-`net.stop()`) behind two buttons that are never both live: Brake for a
-ship `Travelling` and not already stopping (`Plan::aborting`), Abort
-for one `CastingOff` or `Undocking`. **Change target** is host-only — it
-clears the aim and opens the map, which is what a click on the map did
-already — and crosses no seam. Slot *i* is Bim *i*, the same pairing as the bunks. Two consequences:
+Slot *i* is Bim *i*. Two things that stay:
 
-- **Every test and harness that confirms a trip has to put a Bim there
-  first.** `World::man_the_helm_for_probe(slot)` /
-  `ship_man_helm_for_probe(slot)` stand one at the seat without the walk;
-  `set_off` in `crates/world/src/tests.rs` does that and runs the departure
-  through. And it has to be done **again before a later Confirm**: the Bim
-  goes off about its errands — at 24x a short trip is an afternoon — and
-  `ship-check.mjs` and `simulation-check.mjs` both re-man the helm before
-  the second trip for exactly that reason. The screen's own way is the
-  walk: a Confirm, Brake or Abort on the strip at the top of
-  `crates/app/src/screens/game.rs` is a `HelmOrder` held in `pending`
-  while `World::order_to_helm(slot)` walks the Bim there, sent through the
-  seam the frame `at_the_helm(slot)` says so, and followed a step later by
-  `World::stand_down(slot)` (`Game::stand_down`: the post off, nothing
-  else), so the Bim goes back to its errands and the seat is the job's.
-  There is no Take the helm button any more, and aiming on the map wants
-  nobody anywhere — it is only a preview.
 - **A post is a standing order, not a chain.** `Character::post` is where a
   Bim has been told to stand; `Game::send_to` sets it (interrupting the
   errand and walking there), `Game::walk_to` is the same walk *without* the
@@ -1469,51 +1435,34 @@ already — and crosses no seam. Slot *i* is Bim *i*, the same pairing as the bu
   than displacing what it is on — see "An order given with Shift waits
   its turn" in `crates/game/CLAUDE.md`. The walk refusals come back the
   same way (`walk_refusal`); everything else a queued order cannot do
-  when its turn comes is dropped in the room without an event. The helm
-  and the desk (`ToHelm`, `ToDesk`) have no later form: they are the
-  world's walks, given now. `a_shift_order_is_a_command_that_waits_its_turn`
-  in `tests_orders.rs` pins the seam.
+  when its turn comes is dropped in the room without an event. The desk
+  (`ToDesk`) has no later form: it is the world's walk, given now.
+  `a_shift_order_is_a_command_that_waits_its_turn` in `tests_orders.rs`
+  pins the seam.
 
-## Leaving a station is three states, and arriving is one
+## A ship is docked or holding, and nothing in between
 
-`ShipState` has `CastingOff`, `Undocking` and `Docking` beside the three it
-had, codes 3, 4 and 5; `world::data` has `UNDOCK_MINUTES`, `DOCK_MINUTES`
-and `CASTING_OFF_LIMIT`. A Confirm at a berth is refused straight away if
-`plan_from_here` fails, and otherwise begins `CastingOff` with the target in
-`Ship::pending`: every step `Aboard::send_everybody_home` posts the
-station's people ashore (`ashore`, the corridor inside the station's port)
-and walks the crew back (`gangway`, the deck inside the ship's), and
-`everybody_home` is asked against the **ship's** design, not the joined one.
-Then `unjoin_rooms`, and `Undocking` pushes the ship straight out along
-`way_out` — the station's `face()` — by `undock_distance()` (its own span),
-eased, heading untouched; `set_off` plans the trip from where that ends. A
-trip to a station is aimed at `hold_point`, the same spot the push-off ends
-at, and `finish` hands a docking plan to `Docking`: half of `DOCK_MINUTES`
-sliding and turning onto the berth's heading to the hold point, half
-straight in, then `dock_at`. Two things that bit:
+`ShipState` is `Docked { station }` (code 0) and `Holding` (1) and
+nothing else since feature 104: `Travelling`, `CastingOff`, `Undocking`,
+`Docking` and a jump's `Charging` went with the flown trip, and with
+them the push-off, the docking run, `plan_from_here`, `hold_point`,
+`way_out`, `Ship::pending`, `send_everybody_home`/`everybody_home` and
+`UNDOCK_MINUTES`, `DOCK_MINUTES`, `CASTING_OFF_LIMIT`. A trip is
+resolved rather than flown (`World::travel`, "The loop" below): the
+ship arrives `Docked` at its site — a settlement's id for a planet — in
+one go and leaves it `Holding`
+off the site (`leave_mission`), the rooms taken apart by
+`unjoin_rooms`. `ShipState::alongside()` and `station()` are both
+`Docked` alone now, where `alongside` used to take in a ship casting
+off with the rooms still joined. `undock_for_probe` and
+`dock_for_probe` are the tests' way between the two; `STATE_NAMES` in
+the app is `["Docked", "Holding"]`.
 
-- **"Docked" is two questions now.** The painter and the airlock ask
-  `ShipState::alongside()` — docked *or* casting off, the rooms joined —
-  and trade, `Session::docked_at` and the station panel ask `Docked` alone.
-  `settle_residents` skips both. Anything new that matches `Docked` has to
-  pick one.
-- **A Confirm at a berth is not `Travelling` on the next step, and a trip to
-  a station is not `Docked` the step the plan ends.** `until_stopped` in the
-  world tests runs on through `Docking`; the harnesses wait on
-  `ship_world_state() === 2` before reading a plan and on `!== 5` before
-  reading a dock. A test that reads either the step after is reading the
-  wrong state, not finding a bug. `REFERENCE_CHECKSUM` moved with all of
-  this and with the second player standing at the helm in `reference_run`.
-- **Nobody is aboard at the start**, so a probe of the walk ashore has to
-  bring a resident onto the ship first — `bring_a_resident_aboard` in the
-  world tests — or the ship casts off in the same step and the probe
-  measures nothing.
-
-`ship-layout.mjs undocking | docking` are the pictures. The map keeps its
-zoom between visits (`Game::set_mode` no longer refits), and the crew and
-the station's people are told apart by `character::Uniform` — the coverall
-is the room's, the yoke and the hair are the person's; `Residents::open` is
-the one place the station's is put on.
+The map keeps its zoom between visits (`Game::set_mode` no longer
+refits), and the crew and the station's people are told apart by
+`character::Uniform` — the coverall is the room's, the yoke and the hair
+are the person's; `Residents::open` is the one place the station's is
+put on.
 
 ## The station has rooms, and the layout is a walkability contract
 
@@ -1564,8 +1513,8 @@ shelves) to its east. The port's lobby is thirteen tall and eleven deep
 (`PORT_LOBBY`, `PORT_LOBBY_DEPTH`) and is the reactor room as well —
 the trading desk and the reactor along its north wall, life support,
 the batteries and the tank along its south, the corridor through the
-middle, so `stage_fight_for_probe`'s spots and the ashore spot are on
-open deck. Every tile in any block is frame and deck, and one with any
+middle, so `stage_droid_fight_for_probe`'s spot and the ashore spot are
+on open deck. Every tile in any block is frame and deck, and one with any
 of its eight neighbours outside them all is outside wall (`skin`) —
 which is why a room keeps `ROOM_GAP` (two) of void from the lobby and
 the hub beside it: a room touching the hub's corner would open into it.
@@ -1580,8 +1529,9 @@ ducked behind (`crates/game/CLAUDE.md`, "Sandbags are low cover").
 Sizes: Relay 48 (the smallest the rooms fit at),
 Outpost 52, Derelict 54, Refinery 56, Orbital 64, the arena 72 with
 `ARENA_BUNK_COLUMNS` (4) columns of bunks in the quarters, since a
-column holds five there and the garrison is sixteen. `CASTING_OFF_LIMIT`
-is an hour, for the walk back from the far lobby. The tank stands a row
+column holds five there and the garrison was sixteen (the arena is laid
+out as it was, though nobody lives in it once the machines have it).
+The tank stands a row
 up from the wall — it is filled from below its left-hand column, and a
 tank against the wall has its spot in the skin (`UseSpotBlocked`).
 There are no chamfers: a diagonal piece where two blocks meet would be
@@ -1616,7 +1566,7 @@ stance rolled: a crew's first dock is the familiar one, every fixture
 test and `basic()` walk it, the pinned `REFERENCE_CHECKSUM` stands on its
 berth, and the arena (`station::arena`) is it laid out bigger. Every
 other station of the system, and every station after a jump, is what it
-rolled. So the variety is met by *flying somewhere else*; `nix run
+rolled. So the variety is met by *travelling somewhere else*; `nix run
 .#test` still docks at a hub.
 
 **How they are built.** `build_layout` is now `match plan` to a floor
@@ -1648,7 +1598,7 @@ sandbag fits only in a corridor three wide or more (one tile from a
 wall leaves two), so the two-wide plans keep their cover in a hall or
 have none; lamps hang on the *inner skin* of a ring corridor as happily
 as on a wall. The port's straight run of deck stays at least nine tiles
-deep everywhere for `stage_fight_for_probe` and the ashore spot.
+deep everywhere for `stage_droid_fight_for_probe` and the ashore spot.
 `a_station_s_plan_is_rolled_off_its_seed_and_the_spawn_is_a_hub` pins
 the roll, that all six turn up in the default galaxy, that no two plans
 share (size, corridor, residents), and the spawn rule;
@@ -1668,14 +1618,14 @@ takes, `BUILD_MINUTES_BASE + BUILD_MINUTES_PER_EURO × price`.
 
 `Command::PlaceSite`/`CancelSite` are the seam; `builds` and `next_site`
 are in `world_checksum`; `WorldEvent` codes 27–30 are `SitePlaced`,
-`SiteCancelled`, `Built`, `BuildLost`; `Refusal` 10–13 are `UnderWay`,
-`WontFit`, `NoSuchSite`, `UnderConstruction`, and **80 is
-`NotEnoughMoney`**. Every step the world hands the room one
-`bims::game::Build` per site (`build_orders`): its tiles in room units
-(the offset added, like the helm) and `minutes > 0` when the part would
-go down now — which is to say when `can_modify_part` allows it, when
-`shipdesign::apply` of its edit goes, and when **the crew can pay for
-it**.
+`SiteCancelled`, `Built`, `BuildLost`; `Refusal` 11 and 12 are
+`WontFit` and `NoSuchSite`, **80 is `NotEnoughMoney`** and 82
+`NoShipyard` (10 and 13, `UnderWay` and `UnderConstruction`, went with
+the flown trip in feature 104 and are left free). Every step the world
+hands the room one `bims::game::Build` per site (`build_orders`): its
+tiles in room units (the offset added) and `minutes > 0` when the part
+would go down now — which is to say when `shipdesign::apply` of its edit
+goes and when **the crew can pay for it**.
 
 - **A site is begun only while the pool covers it.**
   `World::affordable_site(site)` is the rule: the price of every site
@@ -1708,16 +1658,17 @@ it**.
   an error it does not raise now. A wall on the hob's use spot is the
   case; the app says the issue line. The room works the sites in order,
   so a wall on plating that is itself a site waits for the deck.
-- **The ship and the building keep off each other.** Sites are placed
-  and worked only while `at_rest()` (`Docked | Holding`); `confirm`
-  refuses `UnderConstruction` while any site `begun()` or the room says
-  `building_under_way()`. A bare blueprint holds nothing. Note that with
-  one crew already aboard a Confirm at a berth is `Undocking` in the same
-  step — `the_ship_does_not_move_while_built_on…` learnt that — so "under
-  way" is checked there rather than at `CastingOff`.
+- **The ship and the building kept off each other** while the ship
+  flew: sites were placed and worked only at rest, and a Confirm was
+  refused `UnderConstruction` while any site was begun. The ship is
+  always at rest since feature 104, so both checks went with the
+  flight; `World::under_construction` (the room's `building_under_way()`:
+  a Bim on the way to a site, or at one) is still there to be asked.
+  `a_site_is_begun_once_somebody_is_on_the_way_and_a_cancel_frees_its_price`
+  is what the old test of it became.
 - **A part built relays the room under the crew** — `relayout_room` →
   `Aboard::relayout` → `Game::relayout` → `Room::relayout` — keeping
-  every errand, the dirt, the crops and the doors' locks; docking is the
+  every errand, the blood on the deck and the doors' locks; docking is the
   only thing that still takes the room apart. Joined, the joined design
   is recomputed through `docking::join` and the offset does not move.
 - `BUILD_MINUTES_BASE`/`_PER_EURO` are in `data.rs`. `HAUL_LOAD`,
@@ -1729,7 +1680,7 @@ The room's half — the one chain, the stand spot, the suit — is in
 `crates/game/CLAUDE.md`; the blueprint and the Build tab in
 `crates/ship/CLAUDE.md`. `a_site_on_the_deck_is_paid_for_and_built_by_the_crew`,
 `a_site_beyond_the_hull_is_built_in_a_suit`,
-`the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving`
+`a_site_is_begun_once_somebody_is_on_the_way_and_a_cancel_frees_its_price`
 and `a_site_is_refused_where_the_designer_would_have_refused_it` are the
 tests.
 
@@ -1800,9 +1751,11 @@ unknown parts out off `Research::new()`.
 
 **Where the keys are.** `Station::key` is a **tier**, nought for none,
 and `station::key_tier(kind, hostile, map_seed)` is the rule: a derelict
-holds nothing; every hostile station holds the **tier-two key**
-(`ResourceId::ResearchKeyTwo`, 14 since the money rework closed the
-deleted resources up), no roll; a friendly one holds the tier-one key at
+holds nothing; every station whose blueprint was rolled hostile holds
+the **tier-two key** (`ResourceId::ResearchKeyTwo`, 14 since the money
+rework closed the deleted resources up), no roll — a stranger's desk
+since feature 104 rather than an enemy's, unless the machines have taken
+the station; any other holds the tier-one key at
 `station::key_rolled(map_seed)`'s odds — `KEY_CHANCE` (80) in a hundred
 off a stream of its own, the layout's rolls what they were, and the
 tier-two keys going in moved no tier-one key: which friendly desks hold
@@ -1810,9 +1763,9 @@ one is pinned over a seed set across every galaxy type in
 `keys_are_on_four_friendly_desks_in_five_and_always_at_the_spawn` (a
 count and a hash captured before the change). `World::start` copies it
 to `station_keys` with the spawn forced to tier one, so the first key
-is always at home — the `combat` arena included, since `set_hostile`
-never touches the keys; a raider's and a settlement's desk are bare
-(`raid.rs`, `surface.rs` build with `key: 0`). `station_key(id)` is the
+is always at home — the arena included; a settlement's desk is bare
+(`surface.rs` builds with `key: 0`), and so was a raider's until the
+raiders went in feature 104. `station_key(id)` is the
 tier, `station_has_key(id)` whether it is above nought, `key_at_the_dock()`
 the tier at the berth, and the ring of lights (`world_paint::key_lights`)
 shows for either tier. `tier_two_keys_lie_only_on_hostile_desks` pins
@@ -1830,9 +1783,11 @@ index into `research_desks()` of the desk standing in `station_box`;
 wants docked, a key there, reach, and `free_cell_for(Item::Key(tier))` —
 two cells one over the other, either tier — and then `give`s
 `Item::Key(tier)` for whatever lies on the desk and sets the station's
-tier to nought. **No new check**: a key is taken at a hostile dock while
-its people stand, in the middle of the fight
-(`a_key_is_taken_at_a_hostile_dock_while_they_stand`). `key_desk_spot()` is the walk for the app, which sends the
+tier to nought. **No new check**: a key is taken at a held dock while
+the machines stand, in the middle of the fight
+(`a_key_is_taken_at_a_held_dock_while_the_machines_stand`: the
+generator-hostile station's tier-two key, the station infested, a wave
+standing), and at a stranger's with nobody minding. `key_desk_spot()` is the walk for the app, which sends the
 take the frame the Bim is in reach (`CrewPanels::key_requested`). Home,
 the key is stowed like anything else: `container_takes(Desk(i))` is the
 `Research` class **on the crew's own desks only** (`Some(i) !=
@@ -1870,19 +1825,21 @@ deck, the station's second);
 `the_checksum_notices_research_and_a_key_taken`,
 `keys_are_on_four_friendly_desks_in_five_and_always_at_the_spawn`,
 `tier_two_keys_lie_only_on_hostile_desks`,
-`a_key_is_taken_at_a_hostile_dock_while_they_stand`,
+`a_key_is_taken_at_a_held_dock_while_the_machines_stand`,
 `unlock_wants_the_nodes_tier` and `no_upgrade_before_the_node` are the
 rest; `save_round_trip_keeps_key_tiers` in `crates/ship` is the save
 (`SAVE_VERSION` 14). `tier_two_probe` (`#[ignore]`, `--nocapture`) is a
 probe rather than a test: how many tier-one keys a start system holds
-and how often an enemy's desk is in it (66% of start systems on the
+and how often a tier-two desk is in it (66% of start systems on the
 first fifty seeds, 61% of station-bearing systems, whatever the galaxy
 type — the systems are the seed's, not the type's), the walk from a
 port to the research desk plan by plan (24 tiles on a pod, 27–31 on a
 cross or a spine, 33–37 on a ring or a comb, 42–58 on a hub), and that a
-crew member left down at an enemy's desk is carried home at the cast
-off with the key still in the pack (`unjoin_rooms` takes every crew Bim,
-`adopt` puts one off the deck at its bunk).
+crew member left down at that desk is carried home by
+`undock_for_probe` with the key still in the pack (`unjoin_rooms` takes
+every crew Bim, `adopt` puts one off the deck at its bunk). In a run the
+same crew member is **left behind** instead, and dead for it, when the
+ship leaves the site (`leave_mission`; "The loop" below).
 
 ## The station's doors are in two rooms, and a lock is carried between them
 
@@ -1900,77 +1857,62 @@ sealing itself in stops the crew on the deck (and the panel can lift it),
 and the bar the crew watch is the smash in the room where it happens.
 `a_lock_on_a_station_door_is_the_same_lock_in_both_rooms` pins it.
 
-## A brownout is dark, asleep and spoiling, and none of it is lethal
+## A brownout is dark, and none of it is lethal
 
 `World::run_brownout` (September 2026) is the second half of stage 6,
 right after `run_power`: what `Power::brownout()` — draw over supply with
 the batteries flat — does to the ship, now that the lamps draw
 (`shipdesign::WALL_LIGHT_POWER` 25, `STANDING_LIGHT_POWER` 40;
 `crates/shipdesign/CLAUDE.md` "Power is a column") and a brownout is a
-thing a design can reach. Three consequences, every one recoverable:
+thing a design can reach. **The lamps go dark**, and that is the whole
+of it now:
 
-- **The lamps go dark.** `bims::sight::Lamp::powered` is a second way
-  for a lamp to give no light beside its health — `is_dark()` is out *or*
-  unpowered, and it is `is_dark` the tile mask, the fields and the
-  flicker read, while `is_out` stays what a bolt asks (an unpowered lamp
-  is still glass to shoot) — and `Sight::set_lamp_powered` /
-  `Game::set_lamp_powered` flips it, relighting through `lamp_switched`
-  like a hit that puts one out, with no flicker. `sync_lamp_power` sets
-  it for **the ship's lamps only**: every light part of the design, on
-  the crew's deck (`lamp_index(&aboard, false, tile)`) and on the
-  residents' mirror of the ship (`foreign = true`), to *on a live network
-  and not browned out*. A station's lamps are furniture — nothing reads a
-  station's power, its layout is not wired — and stay lit. It runs at the
-  end of `restore_lamps`, so every step and every rebuilt room, and again
-  the step the brownout turns so the dark lands with the event. The
-  painter needs nothing new: `lamp_look` hands back a full health share
-  and a level of nought, which `fittings::lamp_face` draws as dark glass,
-  uncracked. **This is the alarm** — nothing else is drawn for a brownout.
-- **The bay hibernates.** `hydro::Bay::powered`, `set_powered`, and
-  `Game::set_hydro_powered(on)` for every bay of the room at once —
-  `powered(kind)` is by kind. Unpowered, `update` sets `hibernating`
-  whatever the store holds and `running` answers no whatever was forced,
-  so nothing grows, is planted or lifted and the trays keep what is in
-  them. The panel says *no power* rather than *at target*
-  (`Game::hydro_powered`). `sync_bay_power` leaves a ship with **no** bay
-  alone: the room stands in a bay of its own then, and that is its
-  business.
-- **The cold store stops and the food spoils.** `World::cold_store_out`
-  is an integer clock of steps the cold store has been without power —
-  `!powered(ColdStore)`, so browned out *or* on no run — nought whenever
-  it has power, in `world_checksum` after the lamps. At
-  `data::SPOIL_STEPS` (a game hour, 3 600) it resets and `spoil` takes
-  one part in `data::SPOIL_DIVISOR` (8), **rounded up**, off the room's
-  `veg`, `tofu` and `stew` (`set_stock`) and off the hold's `Vegetable`
-  and `Tofu` (`cargo[..]`, then `on_ship_changed`, which is what shrinks
-  the cold store's grid) — the shelf is what the crew cook from, the
-  hold is what the grid lays out, the desk sells and a room built afresh
-  at the next dock stocks the shelf from, and the two are already only
-  loosely one number (eating comes off the shelf alone). Fibre is not
-  spoiled. `WorldEvent::FoodSpoiled { units }` (58) says what the shelf
-  lost. Because the clock only runs unpowered and resets on power, **an
-  overdraw a battery covers costs nothing** and what is left when the
-  power comes back stays — which is what gives a battery a job.
+- `bims::sight::Lamp::powered` is a second way for a lamp to give no
+  light beside its health — `is_dark()` is out *or* unpowered, and it is
+  `is_dark` the tile mask, the fields and the flicker read, while
+  `is_out` stays what a bolt asks (an unpowered lamp is still glass to
+  shoot) — and `Sight::set_lamp_powered` / `Game::set_lamp_powered` flips
+  it, relighting through `lamp_switched` like a hit that puts one out,
+  with no flicker. `sync_lamp_power` sets it for **the ship's lamps
+  only**: every light part of the design, on the crew's deck
+  (`lamp_index(&aboard, false, tile)`) and on the residents' mirror of
+  the ship (`foreign = true`), to *on a live network and not browned
+  out*. A station's lamps are furniture — nothing reads a station's
+  power, its layout is not wired — and stay lit. It runs at the end of
+  `restore_lamps`, so every step and every rebuilt room, and again the
+  step the brownout turns so the dark lands with the event. The painter
+  needs nothing new: `lamp_look` hands back a full health share and a
+  level of nought, which `fittings::lamp_face` draws as dark glass,
+  uncracked. **This is the alarm** — nothing else is drawn for a
+  brownout.
+
+What draws stops besides: `World::powered(kind)` is false for anything
+not `essential` while the ship is browned out, so the benches take no
+craft order and the research desk does no research. The other two
+consequences — the hydroponic bay hibernating (`sync_bay_power`,
+`Game::set_hydro_powered`) and the cold store's food spoiling
+(`World::cold_store_out`, `spoil`, `SPOIL_STEPS`, `SPOIL_DIVISOR`,
+`WorldEvent::FoodSpoiled`) — were the needs', and went with them in
+feature 104.
 
 `WorldEvent::Brownout` (56) and `PowerRestored` (57) are said once each
 way off `World::browned_out`, the last step's answer, which is derived
 and not hashed. Life support and the doors are `essential` and run on;
 nothing here kills anybody, and there is deliberately **no veto on the
-speed** for a brownout: at 48× an hour is a real second and a quarter,
-and the answer is that a brownout is expensive, not fatal.
-`throttle_reactors_for_probe` now **sticks** across `on_ship_changed`
-(`probe_supply`), since a spoil runs `on_ship_changed` and the old
-one-shot throttle came off with the first crate. Four tests:
-`a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power_is_back`
-(the playtest ship, all three consequences, the benches, the doors and
-life support, then the power back and the food staying put),
-`a_short_overdraw_a_battery_covers_costs_nothing`, `an_unwired_lamp_is_dark`
-(a standing light on bare deck at `(12, 9)`) and
-`two_runs_on_one_seed_spoil_the_same_amount`; `ship_lamps(&world)` beside
-them reads the ship's lamps off the room by tile. Adding the clock to
-the checksum and wiring the fixtures' lamps moved `REFERENCE_CHECKSUM`.
-Out of scope, and next: reactor and conduit damage, which is what makes
-a brownout happen *to* a crew rather than by their own design.
+speed** for a brownout: the answer is that a brownout is expensive, not
+fatal. `throttle_reactors_for_probe` **sticks** across
+`on_ship_changed` (`probe_supply`), since every cargo change runs
+`on_ship_changed` and a one-shot throttle came off with the first
+crate. The tests:
+`a_brownout_darkens_the_ship_and_stops_the_benches_until_the_power_is_back`
+(the playtest ship, the lamps, the benches, the doors and life support,
+then the power back), `a_short_overdraw_a_battery_covers_costs_nothing`
+and `an_unwired_lamp_is_dark` (a standing light on bare deck at
+`(12, 9)`; both blocks of one `#[test]`); `ship_lamps(&world)` beside
+them reads the ship's lamps off the room by tile. Wiring the fixtures'
+lamps moved `REFERENCE_CHECKSUM`. Out of scope, and next: reactor and
+conduit damage, which is what makes a brownout happen *to* a crew rather
+than by their own design.
 
 ## A lamp shot out is remembered by where it hangs, and is out in both rooms
 
@@ -2004,43 +1946,41 @@ docked state first, since `dock_at` does not);
 
 ## A jump is another system, and `World::jump` is the one list of what a system is
 
-`crates/world/src/jump.rs` (September 2026). A ship with a working
-hyperdrive — `shipdesign::hyperdrive::ready`: a `PartKind::Hyperdrive`
-bolted to a main engine, block to block, on a live network — and
-`World::powered(Hyperdrive)` (`hyperdrive_ready`) can be charged from the
-helm at any star: `Command::Jump { slot, star }` wants `can_command`, the
-ship **holding** (`Refusal::NotHolding` — docked, the rooms are joined and
-the station's people are aboard; under way, it is flying), a drive
-(`NoHyperdrive`), a star the galaxy has (`NoSuchStar`) that is not this one
-(`SameStar`), and nothing under construction. It puts the ship in
-`ShipState::Charging { star, began }` (code 6, `STATE_NAMES` "Charging";
-`jump_charge()` is the progress for the strip) and `charge_jump`, after
-`fly`/`cast_off`/`come_alongside` in stage 3, fires it
-`data::JUMP_CHARGE_MINUTES` later — twenty game minutes, which is twenty
-real seconds at 1x. Abort during the charge is the charge called off, the
-ship holding where it was; a Confirm during it is the same, then the trip.
-A drive gone or browned out when the charge runs out is
-`WorldEvent::JumpFailed` and the ship stays.
+`crates/world/src/jump.rs` (September 2026). A jump is a leg of a
+trip, and nothing else since feature 104: `World::travel` calls
+`World::jump(star, events)` — `pub(crate)`, and the only caller outside
+the tests — when the site proposed is in a system a hyperlane away
+(`TravelQuote::jump`), and the trip's length counts
+`data::JUMP_CHARGE_MINUTES` (twenty game minutes) for the charge on top
+of the leg. The flown jump went with the flown trip: `Command::Jump`,
+the helm's charge (`ShipState::Charging`, `begin_jump`, `charge_jump`,
+`jump_charge`, `hyperdrive_ready`), `WorldEvent::JumpFailed` and the
+refusals `NotHolding`, `NoHyperdrive`, `NoSuchStar`, `SameStar` and
+`NoLane`. A trip asks the quote instead (`travel_quote`: `TooFar` for a
+star no lane reaches, `Jammed` for a jump inward out of a jammed
+system; "Jumping along lanes" below), and no hyperdrive is asked for.
+`jump` answers false, and moves nothing, for a star the galaxy has not
+got.
 
 `jump(star)` replaces `star_id`, `system`, `stations` (`Station::all_of`),
-`hostile` (every hostile station — no spawn exemption), `station_keys`,
-`residents` (`None`), `sites` (`site_version` bumped), `reinforcements`
-and `discovered` (cleared; the step's own `discover_along` from the landing
-fills in what the sensors reach — the comment on `start` about "the
-systems beyond this one, when there is a way there" is this), and leaves
-the ship, the crew, the hold, the sites on the deck, the research, the
-money and the hired hands alone — **for a system never visited.** Since
-feature 71 the system left is filed first and one visited before is put
-back as it was left ("A system has a memory" below). The ship lands **holding** at
+`surfaces`, `station_keys`, `residents` (closed, so its dead are
+counted), and — for a system never visited — the lamps' damage, the
+losses, the graves, the places visited, the machines' hold (`infested`,
+which names this system's ids) and `discovered` (cleared; the trip
+charts the whole system on arrival), and leaves the ship, the crew, the
+hold, the sites on the deck, the research, the money and the hired hands
+alone. Since feature 71 the system left is filed first and one visited
+before is put back as it was left ("A system has a memory" below). The
+jammer is settled (`settle_jammer`) before the landing point is picked,
+so the two are never the same spot. The ship lands **holding** at
 `jump::landing_point(&system)` — rings of sixteen bearings out from the
 origin, the first point `data::JUMP_CLEARANCE` (four body radii) from every
-node, deterministic off the system — pointing the way it was, `Frame::Space`.
-`home` is only home while `star_id == home_star` (`stance`), since a new
-system reuses station ids; the checksum eats `home_star`, `star_id` and
-the charging state. `a_charged_hyperdrive_puts_the_ship_in_another_system`
-and `a_jump_wants_a_working_hyperdrive` in `tests.rs` are the rule, off
-`jumper()` — the flyer with a drive at `(5, 16)` against the engine's port
-side, wired through `(6, 16)` and `(7, 16)`.
+node, deterministic off the system — pointing the way it was,
+`Frame::Space`, and `WorldEvent::Jumped` is said; the trip then docks
+it at the site. `home` is only home while `star_id == home_star`
+(`stance`), since a new system reuses station ids; the checksum eats
+`home_star` and `star_id`. `a_jump_puts_the_ship_in_another_system` in
+`tests.rs` is the rule, calling `jump` straight.
 
 `World::galaxy()` regenerates the `Galaxy` from `galaxy_seed` and
 `galaxy_type`; the chart the app shows over the system map is
@@ -2060,23 +2000,25 @@ and `World::jump` replaced everything of the world that was the
 system's, so a jump away and back was the system as the generator
 rolled it — the key back on the desk, the rocks back in the belt, the
 enemy a stranger again. Both are kept now, as **counts and lists**,
-never as rooms.
+never as rooms. (The garrison went in feature 104; what a station has
+lost is its own people now, and the machines' hold on a station is
+kept the same way, in `infested`.)
 
 **`World::losses: Vec<Losses>`**, sorted by station id, is what each
-station has lost to the crew: `dead` of its own people (residents or
-garrison) and `mercenaries` gone — hired onto the crew, or dead. It is
-added to at **one door**, `World::close_residents`, which every
-residents' room goes out by bar a probe's: `settle_residents` out of
-range, `join_rooms` when another station's room was open, `set_hostile`'s
-reopen (the old crowd's dead counted before the new stands, and the new
-`people_of` is the fewer for them) and `jump`. A body is counted once
-it is not `is_alive` — dead, not out cold, since one out cold wakes —
-told from a mercenary by `Residents::fee`. A hire adds one to
-`mercenaries` and a dismissal back ashore takes one off
-(`memory::amend_losses`; an entry with nothing lost is dropped, so two
-worlds that lost the same read the same whichever rooms opened on the
-way). A raider's are never counted — the raid's people go with the
-raider at the cast-off, as its plunder does. **`people_of` and
+station has lost: `dead` of its own people and `mercenaries` gone —
+hired onto the crew, or dead. It is added to at **one door**,
+`World::close_residents`, which every residents' room goes out by bar a
+probe's: `settle_residents` out of range, `join_rooms` when another
+station's room was open, a reopen (`reopen_residents`: the old crowd's
+dead counted before the new stands, and the new `people_of` is the
+fewer for them), the end of a mission (`leave_mission`) and `jump`. A
+body is counted once it is not `is_alive` — dead, not out cold, since
+one out cold wakes — told from a mercenary by `Residents::fee`. A hire
+adds one to `mercenaries` (`memory::amend_losses`; an entry with
+nothing lost is dropped, so two worlds that lost the same read the same
+whichever rooms opened on the way); a dismissal back ashore took one
+off until `dismiss` went with the free clock in feature 104.
+**`people_of` and
 `mercenaries_of` subtract them**, so a station opens again with its
 survivors and an emptied one opens empty (`Residents::open` with nought
 is a derelict's room, and `dock_for_probe` there docks at nobody). The
@@ -2088,23 +2030,28 @@ they fell" below.
 
 **`World::memories: Vec<SystemMemory>`**, sorted by star, is every
 system the ship has jumped out of as it was left — the per-system fields
-lifted out as one struct: `hostile`, `reinforcements`, `station_keys`,
-`sites`, `plunder`, the **stations'** `lamps` (`station.is_some()`; the
-ship's own stay with the ship, which also fixed a lamp shot out at one
-system's station 3 landing on the next system's station 3), `discovered`,
-`losses`, and since feature 85 `graves` and `visited` too. `jump` calls
+lifted out as one struct: `station_keys`, the **stations'** `lamps`
+(`station.is_some()`; the ship's own stay with the ship, which also
+fixed a lamp shot out at one system's station 3 landing on the next
+system's station 3), `discovered`, `losses`, since feature 85 `graves`
+and `visited`, and since feature 83 the machines' `infested`. The
+hostile list, the arena's `reinforcements`, an enemy's shelf
+(`plunder`) and the mining `sites` were in it too, and went with what
+they were for. `SystemMemory::overrun` clears the losses and the graves
+of a system the machines take (feature 92). `jump` calls
 `close_residents` (so the dead at a station
 within fifty tiles are counted), then `remember_system` (filed under
 `star_id`, replacing), then rebuilds `stations` and `surfaces` and asks
 `recall_system(star)`: found, the fields are put back — `discovered`
-grows again by what the landing's `discover_along` reaches, never
-shrinks; not found, the fields are reset the way they always were.
+never shrinks, and the trip charts the rest; not found, the fields are
+reset the way they always were.
 `station_keys` is by index into `stations`, and `Station::all_of` on the
 same system gives the same list, so the indices hold.
 
-**Both are in `world_checksum`**, after the plunder — the losses whole,
-then every memory whole, its sites and shelves the way the live ones go
-in (`eat_site`, `eat_losses`, `eat_grid`) — which moved
+**Both are in `world_checksum`**, after the lamps and the lost flag —
+the losses whole, then every memory whole, each field the way the live
+one goes in (`eat_losses`, `eat_graves`, `eat_nodes`; the mining sites
+and the plunder's grids went in too, while there were any) — which moved
 `REFERENCE_CHECKSUM` to `0x_28ce_5772_6470_76ab`; **`SAVE_VERSION` 15**,
 `wire::PROTOCOL` 8. Nothing in the app changed: a memory has no words and
 no picture, it is only what the next room opens with. `tests_memory.rs`
@@ -2140,15 +2087,15 @@ coverall, the look and the gear put on each of the last of them, and
 kill it outright — no tick waited for, nothing in anybody's diary, the
 bunk given back. `World::open_residents` is the one call, so no open
 anywhere can forget them. **The dead are not people**: they are past the
-bunk cap, they are not fed (`RESIDENT_*_EACH` counts the living), no fee
-is priced for them, and `Residents::grave: Vec<bool>` flags them so
-`close_residents` does not count a body into `losses` a second time —
-that flag is maintained beside `down`/`fee` at the four places those
-lists grow, shrink or shift (`visit`, the hire, the dismissal, the wave
-truncation). A body laid out is `down`, `xp_down` and `xp_dead` from the
-first step, so no `EnemyDown` is said for it and nobody is paid for it
-twice. A raider's dead are the raid's: they go with the raider, as its
-plunder does, so nothing is filed for one.
+bunk cap, no fee is priced for them, and `Residents::grave: Vec<bool>`
+flags them so `close_residents` does not count a body into `losses` a
+second time — that flag is maintained beside `down`/`fee` at the places
+those lists grow, shrink or shift (`visit`, the hire, the wave
+truncation; the dismissal was a fourth until feature 104). A body laid
+out is `down`, `xp_down` and `xp_dead` from the first step, so no
+`EnemyDown` is said for it and nobody is paid for it twice. A raider's
+dead went with the raider and nothing was filed for one, until the
+raiders themselves went in feature 104.
 
 What the crew took off a body stays taken — the grave carries the gear
 as the room left it, so a looted pack comes back empty — and what is on
@@ -2160,10 +2107,11 @@ reason no other body's look is.
 **`World::visited: Vec<Node>`** is the other half: the nodes of this
 system the ship has actually been at, sorted by `node_key` the way
 `discovered` is. `mark_visited`, off the end of `settle_frame`, is the
-one door — the frame already knows what the ship is *there for*, and the
-one thing added is that it must have stopped, since a trip is in its
-target's frame from the moment it starts braking and a trip aborted
-half a brake away is nowhere anybody has been. `World::stars_visited`
+one door, and `arrive_at` asks it again the moment a trip ties the ship
+up — the frame already knows what the ship is *there for*. It asked as
+well that the ship had stopped, while a trip flew into its target's
+frame from the moment it began braking; nothing flies since feature 104
+and the check went with it. `World::stars_visited`
 is the galaxy's half and keeps no list at all: a star jumped out of has
 a memory filed under it, and the one the ship is at is the one it is at.
 
@@ -2202,8 +2150,9 @@ stays. Only the hub's plant blocks a walk, and it stands in open deck
 where the inflated grid passes on every side; the other four are walked
 past or under, so `a_station_is_a_place_the_room_can_live_in` and the
 walkability test cover them without a change. The layout is not in
-`world_checksum`, so `REFERENCE_CHECKSUM` did not move. What a comfort
-does is `crates/game/CLAUDE.md`, "Surroundings".
+`world_checksum`, so `REFERENCE_CHECKSUM` did not move. A comfort lifted
+a Bim's surroundings, which were the needs'; since feature 104 it is a
+picture and a solid, and nothing more.
 
 ## A planet's surface is a settlement, and landing is a docking
 
@@ -2214,8 +2163,8 @@ out through the same `furnish` on a `Floor` of its own — found through
 `World::station` by `surface_id(body)` (`SURFACE_BASE | body`, well
 clear of the generator's ids; `surface_body` reads it back). That is the
 whole trick: `dock_at`, `join_rooms`, `Residents::open`, trade at the
-desk, `people_of` at a hostile one, `hire`, `loot`, `apply_stances` — all
-of it works on the surface untouched because to the world the surface
+desk, `people_of`, `hire`, `apply_stances`, a machines' hold and a
+town's defence — all of it works on the surface untouched because to the world the surface
 *is* a station. `World::surfaces` holds one `Surface` a landable body,
 in body order — the roll only: seed, side, shelf, off a stream of its own
 (`Purpose::Settlement`, from the galaxy seed, the star and the body; the
@@ -2235,13 +2184,15 @@ the plan's for a station, the roll for a surface — and
 *most* a town holds, which only `layout` and the tests ask. `a_landable_body_has_a_settlement_…`
 pins that a world opens with none built.
 
-Its side goes on the world's `hostile` list with the stations' (`start`
-and `jump`), so `stance` reads it, `world_checksum` eats it and the map
-rings the planet by it (`world_paint::paint_map`, red or blue like a
-station) — "planets, like stations, can be hostile or friendly". The
-share is `worldgen::data::HOSTILE_SHARE`, pinned at `0.18..0.42` over the
-reference galaxy. `REFERENCE_CHECKSUM` did not move: the spawn system's
-settlements all rolled friendly.
+Its side is rolled like a station's — `Surface::hostile`, off the
+settlement's own stream, at `worldgen::data::HOSTILE_SHARE`, pinned at
+`0.18..0.42` over the reference galaxy — and read the way a station's
+roll is: never as a stance. Until feature 104 it went on the world's
+`hostile` list with the stations' ("planets, like stations, can be
+hostile or friendly"); now every town is a stranger's, or the machines'
+(`World::stance`), and the map rings a planet by that stance
+(`world_paint::paint_map`) as it rings a station. What still reads the
+roll is `spawn_with_ground`, below.
 
 **The plan is a town** (`surface::floor(side, biome, population, seed)`,
 feature 54): the whole build area bar its rim is ground — `Floor::open`,
@@ -2285,8 +2236,8 @@ frontages nearest the middle first with a rolled gap and setback each,
 until there is a bunk each and two over for mercenaries; and **food**
 beyond the east cross street and along the south — blocks of four
 `PartKind::Field` strips (six wide, a row every three so the worked row
-and the row behind are clear; a strip for every two people, since a
-field grows at half a bay's pace) or, on an arctic world,
+and the row behind are clear; a strip for every two people, the rule
+from when a field grew at half a bay's pace) or, on an arctic world,
 **greenhouses** of three hydroponic runs each with an aisle down the
 east side, a bay for every four counting the research room's. What
 each lot leaves is a frontage for more houses. Twenty standing lights
@@ -2353,101 +2304,66 @@ ship's there and the ship has a roof), `Residents::unjoin` over the
 design again, and `join_rooms` over `Aboard::station_box` on the crew's
 joined deck (`Aboard::daylight_over_station`); `unjoin_rooms` sets
 `None` on the crew's fresh room. `Aboard::leave_the_station_s` drops
-`more.fields` in the station's box as it drops the bays, so the crew
-never tend a town's fields. `a_settlement_s_ground_is_lit_by_day` lands,
+`more.fields` in the station's box as it drops the bays, so a town's
+fields are furniture on the joined deck. `a_settlement_s_ground_is_lit_by_day` lands,
 stands James on the pad and asks `seen_at` of a tile of the main street
 beyond every lamp's reach and beyond `DARK_RANGE`, with the sky and
 without — after `Game::observe`, since a step alone does not look.
 
 **The guard.** The town's people are its population and the first of
-them (`surface::GUARD`) is the guard: `Residents::post_guard`, called
-after every open, join and unjoin of a surface's room (each builds the
-room afresh and drops every post), `send_to`s it to the post — a post,
-so it goes off to eat and sleep and comes back (`Game::return_to_post`)
-— and that is the whole of "stands and looks out": at a hostile
-settlement it is the first enemy the crew meet, standing in the open
-behind its sandbags. `send_everybody_home` at a cast-off sends it ashore
-with the rest; the unjoin posts it again. `Residents::open` cuts the
-room at the bunks, and a town has its population's and two over.
+them (`surface::GUARD`) is the guard. It used to be posted at
+`GUARD_POST` behind the watch house's sandbags (`Residents::post_guard`,
+after every open, join and unjoin of a surface's room) and to go off to
+eat and sleep and come back; that was the needs', and the post went with
+them in feature 104. Since feature 102 it keeps a round like everybody
+else (`Residents::deal_roles`: a town's first walks between its gates
+and its pad), and when the crew defend the town it takes arms with the
+mercenaries (feature 94). `GUARD_POST` is still the plan's — the watch
+house, the sandbags and the wild's keep-out are laid round it.
+`Residents::open` cuts the room at the bunks, and a town has its
+population's and two over.
 
-**The landing** is `Command::Land { slot }` — from the helm, the ship
-`Holding` in the frame of a body with a surface (`World::can_land`:
-`Refusal::NotHolding` = 29 elsewhere, `NoPlanetHere` = 32 over anything
-else, `UnderConstruction`) — and it is **the docking state**:
-`ShipState::Docking { station: surface_id, hold: above(body), .. }`,
-where `above` is `LANDING_HEIGHT` (`ARRIVAL_RADIUS_BODY`) straight north
-of the planet, so `come_alongside` slides the ship over the planet first
-and then straight down onto the pad, over `LAND_MINUTES` (8) rather than
-`DOCK_MINUTES`, and `dock_at` at the end of it ties the ship up and joins
-the rooms as at any berth. `WorldEvent::Landing { body }` = 53 at the
-start and `Landed { body }` = 54 in place of `Arrived`; `frame_candidate`
-maps a surface's station id to `Node::Body`, so the view is the
-**planet's** throughout (`Frame::Local(Body)`), and `World::landed()`,
-`landing()` and `lifting()` — the body, and how far along — are what the
-painter reads. A Confirm from the pad is the cast-off as at a station,
-then `Undocking` **up** — `along` from the pad to `above`, which is
-nearly north (the pad is a few tiles west of the planet's middle), over
-`LIFT_MINUTES` (6), `LiftedOff { body }` = 55 in place of `Undocking` —
-so a ship that has just lifted off is exactly where one that has just
-arrived at the planet is, and the trip is planned from there.
-`hold_point` of a surface is `above` too. `settle_residents` never opens
-a surface's room from range (`nearest_station` walks `stations` alone)
-and drops it on the first step of the lift; `unjoin_rooms` finds the
-residents' station through `station()` now, so a surface's room is
-unjoined like a station's. `a_ship_holding_over_a_planet_lands_on_the_pad_and_lifts_off_straight_up`
-runs the lot from the east of the planet — the slide, the descent, the
-join, the guard reaching its post, a buy at the desk, the climb; and
-`a_land_wants_a_hold_over_a_planet_with_ground` the refusals.
-`land_for_probe` (`BIMS_LANDED=1`) sets the ship down without the
-descent; `landing_for_probe(done)` (`BIMS_LANDING=0.7`) begins one and
-runs it that far. `spawn_with_ground` is `spawn_anywhere` kept to the
-systems whose **first** landable body rolled friendly — the one
-`land_for_probe` picks — so `nix run .#test_planet` (`test` landed:
-`ship::session::pick_ground`) never opens under the guard's fire;
-`a_roll_picks_a_dock_in_a_system_with_friendly_ground` pins it, reading
-both dock lists off `every_system()` once because a roll generates the
-galaxy every call.
-
-**From a station in the planet's orbit, the trip to the planet is a
-hop to the point over it** (September 2026). A station orbits its
-parent `STATION_ORBIT` out — about 10 000 — which is *inside*
-`ARRIVAL_RADIUS_BODY`, so from its berth the planet was
-`PlanError::AlreadyThere`, and since Land wants `Frame::Local(Body)`
-and a dock is the station's frame, a ship docked at a derelict round a
-planet could never land on it — "I can't land at planets". Two rules
-fixed it, both in the rules crates: `flight::plan_trip` aims a trip to
-a body from inside its arrival circle at the top of the circle,
-`ARRIVAL_RADIUS_BODY` straight over the body (`World::above`, where a
-landing starts and a lift-off ends), with no arrival radius, so only a
-ship standing on that point is already there; and `frame_candidate`
-keeps a **holding** ship in the frame it is in while it is within the
-exit radius (`within_exit_radius`), rather than handing it to whatever
-discovered node is nearest — the orbital is nearer than the planet's
-centre from most of its orbit, and a ship that had just flown to the
-planet flipped to the station's frame on arrival two times in five.
-`undock_for_probe` sets `Frame::Space` for that reason (a probe that
-puts the ship somewhere else next wants it to start from nowhere; the
-hysteresis test sets `Holding` by hand and keeps its frame), and
-`landing_for_probe` sets the planet's frame outright. The fixture's
-`reference_target` skips the dock's parent body by name now rather than
-by `AlreadyThere`, so `REFERENCE_CHECKSUM` did not move.
-`from_a_dock_in_a_planet_s_orbit_a_trip_to_the_planet_ends_over_it_in_its_frame`
-pins the hop, the frame six hundred steps on, and Land on offer.
+**Landing is arriving.** A trip to a planet's site ties the ship up at
+its settlement in one go (`World::travel` → `arrive_at`:
+`ShipState::Docked { station: surface_id }` and
+`Frame::Local(Node::Body(body))`), and `World::landed()` is the body.
+`frame_candidate` maps a surface's station id to `Node::Body`, so the
+view is the **planet's**. The flown landing — `Command::Land`,
+`can_land`, `above`, the descent over `LAND_MINUTES` and the climb over
+`LIFT_MINUTES`, `Landing`/`Landed`/`LiftedOff`, `landing()` and
+`lifting()`, `landing_for_probe` and `BIMS_LANDING` — went with the
+flown trip in feature 104, and so did the hop from an orbital's berth to
+the point over its planet that made landing from one possible. What that
+hop left and is kept: a **holding** ship stays in the frame it is in
+while it is within the exit radius (`within_exit_radius`), rather than
+being handed to whatever discovered node is nearest — the orbital is
+nearer than the planet's centre from most of its orbit — and
+`undock_for_probe` sets `Frame::Space`, since a probe that puts the ship
+somewhere else next wants it to start from nowhere.
+`settle_residents` never opens a surface's room from range
+(`nearest_station` walks `stations` alone); `unjoin_rooms` finds the
+residents' station through `station()`, so a surface's room is unjoined
+like a station's. `land_for_probe` sets the ship down at the first
+landable body's settlement without a trip — `test_planet`,
+`droids_planet`, `defense` and `BIMS_AFIELD` open through it — and
+`spawn_with_ground` is `spawn_anywhere` kept to the systems whose
+**first** landable body rolled friendly, the one `land_for_probe`
+picks, so `nix run .#test_planet` (`test` landed:
+`ship::session::pick_ground`) opens where the generator put a friendly
+town; `a_roll_picks_a_dock_in_a_system_with_friendly_ground` (a block of
+`a_roll_picks_a_lived_in_dock_anywhere_and_one_with_friendly_ground_when_asked`)
+pins it, reading both dock lists off `every_system()` once because a
+roll generates the galaxy every call.
 
 **The picture** is `ship::world_paint`: landed, the backdrop is the
-planet's ground (`GROUND_ROCKY`/`GROUND_ICE`, patched by `ground`) in
-place of the void, no stars, no planet in the sky, a paved **pad** under
-the hull's box (`pad`), and `stations` draws the settlement — chained
-onto the list, since it is not in `World::stations` — and nothing in
-orbit. Landing and lifting, `local_node` grows the planet's disc by
-`LANDING_GROWTH` (40×) geometrically over the descent and shrinks it
-over the climb, and `blackout` fades the window to black over the last
-quarter of a landing and from it over the first fifth of a lift-off; the
-app holds the black `BLACKOUT_HOLD` seconds after `Landed` while the
-ground is laid out, then lifts it (`screens/game.rs`). The strip's
-**Land** button shows in a landable planet's frame, greyed with why; the
-readout says Landing, Landed and Lifting off (`state_name`); a
-settlement is named for its planet ("Ice world 1 settlement", `node_name`).
+planet's ground (`ground`, coloured by biome) in place of the void, no
+stars, no planet in the sky, a paved **pad** under the hull's box
+(`pad`), and `stations` draws the settlement — chained onto the list,
+since it is not in `World::stations` — and nothing in orbit. The
+descent's growing disc (`LANDING_GROWTH`), the blackout over a landing
+and the strip's **Land** button went with the flown landing; a
+settlement is named for its planet ("Ice world 1 settlement",
+`node_name`).
 
 ## The town stands on a plain, and the plain is walked on windows
 
@@ -2597,229 +2513,41 @@ town — past the margin, past one window — and back, with its errands
 off, and asks the fog what it saw. `SAVE_VERSION` went to 3 for
 `Room::plane`.
 
-## Raiders: a hostile ship that docks to you
+## Raiders and an enemy's shelf went with the human enemies (feature 104)
 
-`crates/world/src/raid.rs` (September 2026). Everything a hostile dock
-does — enemies in the residents' room, the two rooms joined through the
-mated airlocks, the fight crossing between them, a body looted where it
-fell — happens to a crew that *chose* to dock there. A raid is the same
-thing arriving. A **raider** is a `Station` the world builds when the raid
-is due: id `raider_id(n)` (`RAIDER_BASE | n`, bit 29 — clear of the
-generator's ids and of `SURFACE_BASE`, bit 30; `raider_index` reads it
-back and refuses a surface's), kind `RAIDER_KIND` (an orbital's, for its
-shelf), `Plan::Raider` for a hull, `hostile: true`, on the `hostile` list
-from the moment it exists; and on arrival the ship's state becomes
-`Docked { station: raider }` and `dock_at` → `join_rooms` runs exactly as
-at any berth. `World::station(id)` finds it through `Raids::station`
-after the stations and the surfaces; `people_of` answers its population
-(the boarders it was rolled with) rather than `enemies_of`;
-`frame_candidate` keeps the frame the ship held when the raid came,
-since a raider is not a place in the system. Downstream nothing knows
-the difference, which is the point.
+Two systems were the human enemies' own, and went with them in feature
+104. **A raid** (`raid.rs`) was a hostile ship that came alongside a
+crew holding in space: a `Station` the world built when the raid was
+due, with an id of its own — `RAIDER_BASE | n`, bit 29, clear of the
+generator's ids and of `SURFACE_BASE`'s bit 30 — a hull laid by hand
+(`Plan::Raider`, `furnish_raider`), its boarders counted like a garrison
+to `BOARDERS_MAX`, a warning with a countdown on the strip, and the
+ship's locked airlock forced. That is why the station ids made outside
+the generator have a gap in their bits: `SURFACE_BASE` (bit 30,
+`surface::surface_id`) and `jammer::JAMMER_BASE` (bit 28, the derived
+jammer) are still given out, bit 29 no longer is, and
+`jammer::jammer_star` masks `SURFACE_BASE` alone now that no id carries
+the raider's. **An enemy's shelf** (`plunder.rs`) was a grid laid out off a
+hostile station's seed the moment the rooms were joined there, taken a
+stack a click (`Command::Plunder`, `WorldEvent::Plundered`) and
+remembered with the system. `World::raids`, `World::plunder`, their
+events, refusals, constants and checksum lines, `tests_raid.rs`,
+`tests_plunder.rs`, and the app's raid warning, plunder window,
+`BIMS_RAID` and `BIMS_ARMOURY=plunder` went too; the codes they held are
+left free. `git show needs-sim-final:crates/world/src/raid.rs` (or
+`plunder.rs`) reads either again.
 
-**The hull** is `Plan::Raider` — `RAIDER_SIDE` (20) tiles, laid by hand
-in `station::furnish_raider` rather than by `furnish`: one block of hull
-three-quarters as tall as wide, the port in the west skin at the middle,
-the array in the north, the reactor and life support along the north
-wall with one or two shelves beside them, `BOARDERS_MAX` (6) bunks in two
-columns down the east side laid as a station's quarters lay theirs
-(R180, every three rows), two sandbags down the middle, wall lights in
-the corners and along the long walls. No galley, no heads, no desk
-(`market_kind` answers `None`): it is boarded from, not lived in, and
-`validate` reports the missing fixtures as it would for any ship —
-`a_raider_is_a_place_the_room_can_live_in_and_can_be_walked` filters
-codes 2–10 out and wants nothing else wrong, then walks it from the
-port. Not on `Plan::ALL`, never rolled; `layout_raider(seed)` is the one
-way to one, not cached since one is built a raid. The room stands up
-without the fixtures (`aboard::layout_of` falls back to the first deck
-tile), and a boarder's meal is a walk to that tile.
-
-**When.** `Raids` on the world (`World::raids`): `next`, the number of the
-next raid; `due`, the whole minute it falls due; `left_home`; and the
-`state`. Off a stream of its own — `Purpose::Raids` (11), from the galaxy
-seed with star 0, since a raid follows the ship rather than a system;
-`Raids::stream(seed, n)` mixes the number in so one raid's rolls move no
-other's — each raid is a gap after the last (`Raids::gap`: `RAID_GAP_MIN`
-a day, plus a roll below `RAID_GAP_SPREAD` two days, branch "GAP"), a
-bearing in whole degrees ("BEAR"), a hull seed ("HULL") and a shelf
-("STOC"). `run_raid`, stage 3 of the step after the jump: `left_home`
-goes up at the first step the ship is neither `Docked` nor `CastingOff`;
-a `Quiet` raid whose minute has come fires at the first step the ship is
-`Holding` after it (`World::holding`) — docked, travelling, casting off,
-undocking, docking and charging are never raided, and one that falls due
-under way waits for the next hold — and the next is scheduled a gap from
-*that* minute, so the schedule depends on when the ship held, which is
-deterministic in the command stream and hashed. At contact the raider is
-`Closing` from `from`, `detection_range()` out along the bearing, to
-`at`, where the ship holds, arriving `ceil(range / RAIDER_SPEED)` whole
-minutes on (50 000 units a minute: a minute with `VISION_RANGE`, half an
-hour with one array, two hours at `RADAR_RANGE_MAX`); `Raids::contact`
-is where it is on that line for the painter. **Every player's speed
-request is set to `Real`**, once — `speed::effective` untouched, and
-nobody can be paused at that moment since a paused world does not step.
-`WorldEvent::RaidContact { boarders, minutes }` = 59. Arrived, the ship
-holding within a tile of `at` — a hold is a stop, so anywhere else is a
-ship that left — `Raids::build_raider` lays the raider so that its berth
-for this ship *is* the ship's position (the berth is the anchor plus a
-constant, so the anchor is the ship less the berth at nought), the ship
-turns onto the berth's heading where it stands, `leave_site`, `dock_at`,
-**`seal_against_raid`** — the ship's airlock (`World::ship_airlock_door`:
-the port's centre through the ship's shift, `door_index_at`) locked with
-`Order::Lock`, the crew's lock, unless it is locked already — then
-`RaidBoarded { boarders }` = 60; otherwise `RaidCancelled` = 61 and
-`Quiet`. The lock is the seal a raid has to break (feature 68): the
-boarders find their post behind it and `breach` it — thirty seconds at
-an airlock — and `settle_raid` sets `Raid::Docked::breached` and says
-**`RaidBreached { boarders }` = 67** once, the first step the door is
-not locked, whoever opened it; `raid_forcing()` is the smash bar's
-progress while somebody heaves at it and `raid_airlock_holds()` whether
-it still stands, both for the app's red warning; `raid_minutes_left()`
-is the closing raid's countdown. `breached` is hashed with `repelled`. `jump` cancels a closing raid outright — the ship is holding
-after a jump, but not where it was — and a raid that arrives to a
-travelling ship is cancelled at arrival.
-
-**How many.** `raid::boarders_of(crew, worth, start_worth, days)` is
-`station::scaled` — `enemies_of`'s arithmetic with the baseline and the
-cap as arguments — at `base_by_day(days) + crew` (`ENEMIES_BASE`, one
-more a month gone — feature 58, below) capped at `BOARDERS_MAX` (6),
-rolled at contact with `World::days_gone()` and kept as the raider's
-population, so a crew that gets richer while it closes meets the
-number it was warned of.
-`boarders_are_counted_like_a_garrison_to_a_lower_cap` — its tail is a
-raid rolled thirty days in, four against two.
-
-**The boarders come for the ship.** A station's people go about their
-day and fight what they see, and a raider's would sit at their bunks:
-`Residents::post_boarders(ship)` posts every one of them alive and
-without a post at the ship's **gangway** — `ASHORE_TILES` inside the
-ship's port, through the mirror's `station_frame` into their room — with
-`Game::post_at`, which keeps the post whether or not there is a route
-yet. `join_rooms` calls it for a raider after `post_guard`, and
-`settle_raid` (stage 5, after the fight) calls it every step the raider
-is tied up, since a fight drops every post (`muster`) and one that went
-back to its bunk after it is sent again. Walking there they see the
-crew and the war starts; a locked airlock in the way is smashed
-(`Game::breach` off war for a post — `crates/game/CLAUDE.md`, "the
-hunter and the post"). `settle_raid` also says `RaidRepelled` = 62 once,
-the step every boarder is `is_down`, and sets `Raid::Docked::repelled`:
-the raider is a derelict tied to the ship, its bodies `LootSource::Resident`
-as at any hostile dock. **Casting off removes it**: `cast_off`'s
-transition to `Undocking` sets `Quiet` and takes the id off `hostile`
-(after `unjoin_rooms`, which still needs `station(raider)` to put its
-people ashore); `settle_residents` then drops the room since the nearest
-station is somebody else, and the painter, which chains
-`Raids::station` onto the stations only while one is there, stops
-drawing it. No persistent derelicts.
-
-**The end.** `check_lost`, after `settle_raid`: no crew member alive and
-awake — `is_alive && !is_unconscious`, whatever put them down, a raid or
-a dock — and `World::lost` goes up with `CrewLost` = 63, said once and
-kept; the app's game screen hands over to `Screen::Over` on the flag
-(`screens/game.rs::over`: the title, the day and the hour, and the way
-back to the menu). `a_lost_fight_reaches_the_end_screen`.
-
-**In `world_checksum`** after the cold store: `next`, `due`, `left_home`,
-the state with a tag — a closing raid's number, boarders, both ends of
-its line and both clock readings; a docked raider's id, seed, anchor,
-boarders, whether its airlock has given and whether it is repelled — and
-`lost`. `REFERENCE_CHECKSUM` moved with it, since the schedule is hashed
-from the first step; a save is `SAVE_VERSION` 6 (12 with `breached`).
-The tests are `tests_raid.rs`: the hull, the count, the wait for a hold
-and for leaving home, the arrival with the warning and the reset and a boarder on the deck, the two cancellations,
-the warning at nought, one and two arrays (1, 30 and 60 minutes), two
-worlds on one seed raided alike to the checksum through the boarding,
-the derelict and its removal, and the end — and, in the arrival, the
-airlock locked in the boarders' face, heaved at, and given once
-(feature 68). `raid_now_for_probe` brings the next raid to now
-(`raid_due_for_probe(minutes)` to that many minutes on); `raid_for_probe(dock)` is `BIMS_RAID`, and
-`raid_coming_for_probe(minutes)` — off the berth, holding a little way
-out, the raid due that many minutes on and nothing yet on the radar —
-is the app's `raid` command, ten minutes so that at 1× the contact is
-ten seconds in
-(`a_raid_staged_to_come_in_ten_minutes_makes_contact_on_the_tenth`).
-
-**What a raid rests on** is the retreat: the crew back aboard with the
-airlock locked, the enemy following and forcing it —
-`enemies_follow_a_crew_that_retreats_aboard_and_force_the_ship_s_locked_airlock`
-in `tests.rs`, for a blade and a pistol. A gunner did not follow before
-the hunter's rule went into the room: it took a stand with a view of
-the door at the far end of its range and waited there.
-
-## An enemy's shelf is loot, and it is taken from where it stands
-
-`crates/world/src/plunder.rs` (September 2026). A raider is built with
-a shelf and a rolled `Stock`, and so is every station — but `Stock` is
-the bits the *desk* sells by, and a raider keeps no desk, so the only
-loot a repelled raid left was the boarders' bodies. Now **an enemy's
-shelf is a grid of its own**: the moment the rooms are joined at a
-station whose people are enemies (`World::stance` hostile — a raider is
-on the list from the moment it exists, and `set_hostile(.., true)` at a
-berth counts, which is how the `combat` command and `stage_fight_for_probe`
-get one), `lay_plunder` lays it out **once** — `plunder::lay_out`: for
-every good the station's kind stocks, in `ResourceId` order, one to
-`data::PLUNDER_STACKS_MAX` (3) full stacks off branch "LOOT" of
-`Station::map_seed`, drawn for every good whether stocked or not so a
-good coming into stock moves nothing after it; the capacity is the
-station's shelves' (`ShipDesign::capacity(Shelf)`) and what would not
-fit is left off — and keeps it on `World::plunder: Vec<Plunder>` by the
-station's id. Stacks only: nobody's shelf stocks armour or guns
-(`StationKind::sells`). A shelf plundered **stays plundered**: away and
-back, it is as it was left (`dock_for_probe` after `undock_for_probe` in
-the test). Casting off from a raider drops its entry with the raider, a
-jump clears the lot with the system, and `set_hostile(.., false)` drops
-the station's — peace is the world as it was, which
-`the_checksum_notices_every_kind_of_change` insists on.
-
-**The station's shelves are told from the ship's** the way its research
-desk is: `World::station_shelves()` is every `Container::Shelf(i)` on
-the joined deck whose frame stands in `station_box`. They are **not
-containers of the hold** — `container_takes(Shelf(i), _)` is `false` for
-them now, so a crew member beside an enemy's (or a friend's) shelf
-reaches nothing of the ship's, and nothing of the crew's is stowed onto
-a station's shelf. Before this a station's shelf on the joined deck was
-a window onto the ship's own storage.
-
-**`Command::Plunder { slot, who, id }`** takes slot `id` off the shelf
-of the station alongside, refusals in this order: `NotDocked` (not
-docked with the rooms joined), `NotHostile` (26 — a friend's or a
-stranger's shelf is bought from across the desk; the refusal's note
-says so now), `NotAboard` (no such slot), `OutOfReach`
-(`shelf_ashore_in_reach(who)`: alive, awake, within `data::REACH` of
-one of the station's shelves), `PackFull`. Then **the stack comes, one
-to a cell, as far as the pack goes** — `Grid::remove(resource, 1,
-Some(id))` a unit at a time against `Gear::free_cell_for` — and
-`WorldEvent::Plundered { who, units }` (64, `who + 100 * units`) says
-how many. A fetch from the ship's own hold is still one unit a command;
-loot is a stack a click because thirty clicks for thirty crates of
-vegetables is not a raid anybody would run. `World::plunder_alongside()` is the grid the
-app draws (`None` at a friend's or away from a berth, which shuts the
-window), `plunder_spot(who)` the nearest station shelf's use spot for
-the walk over.
-
-In `world_checksum` after `lost`: the count, then each entry's station
-id, capacity and grid through `eat_grid` — the hold's three grids go
-through the same function now. `REFERENCE_CHECKSUM` moved (the count is
-hashed from the first step); `SAVE_VERSION` is 7. The tests are
-`tests_plunder.rs` — the friendly refusal, the layout against the stock
-and the cap, the ship's shelves still containers and the station's not,
-the reach, the take and what the shelf gave up, the pack filling before
-the shelf empties, the shelf remembered across an undock; and two
-worlds on one seed laid out alike — and the derelict test in
-`tests_raid.rs`, which reads the raider's shelf and sees it go with the
-cast-off.
-
-The app's side is `crates/app/src/crew.rs`: `Open::Plunder(shelf)`,
-`CrewPanels::shelf` (a `Shelf` snapshot the game screen sets every
-frame off `plunder_alongside` and `shelf_ashore_in_reach`),
-`plunder_window` — the lockers' grid with `movable` off, like the Loot
-window's pack; Ctrl-click a stack takes it (`GearOrder::Plunder` →
-`Command::Plunder`), right-click is the Take row — and
-`Hold::station_shelves`, which is what a click on a station's shelf
-reads: an enemy's opens the window and walks the Bim over, a friend's
-gets the one-row note that the desk is the way. The nearby strip lists
-an enemy's shelf within reach as "Enemy's shelf" (`PLUNDER_WINDOW`) and
-a friend's not at all. `BIMS_ARMOURY=plunder` opens the window for a
-screenshot; with `BIMS_RAID=1` that is the raider's shelf.
+**The station's shelves are still told from the ship's**, the way its
+research desk is: `World::station_shelves()` is every
+`Container::Shelf(i)` on the joined deck whose frame stands in
+`station_box`. They are **not containers of the hold** —
+`container_takes(Shelf(i), _)` is `false` for them, so a crew member
+beside a station's shelf reaches nothing of the ship's, and nothing of
+the crew's is stowed onto a station's shelf. Before the plunder a
+station's shelf on the joined deck was a window onto the ship's own
+storage. The app's `Hold::station_shelves` keeps them out of the
+container windows and off the Nearby strip; a click on one opens
+nothing — a station is traded with across its desk.
 
 ## The engineer: a class, its levels and its deployables (feature 74)
 
@@ -2866,13 +2594,18 @@ engineer's, `Brace` and `Throw` the soldier's — and no job, errand, site
 or weapon ever asks it.
 
 **Experience is given in the step, after `visit`.** `experience`: while
-the residents' room is hostile and the rooms are joined, every resident
-that is down (dead or `is_unconscious`) or dead and not yet flagged in
+the residents' room is hostile and the rooms are joined, every body of
+it — the machines, every human being friendly since feature 104 — that
+is down (dead or `is_unconscious`) or dead and not yet flagged in
 `Residents::{xp_down, xp_dead}` is `XP_ENEMY_DOWN`/`XP_ENEMY_DEAD` to
 every classed crew member within `VICINITY_TILES` (fifty) of where it
 lies on the joined deck (`Aboard::from_station` of its position;
 `in_vicinity` is the rule, alive and aboard) — so an enemy down on an
-unjoined deck is nobody's, and a crewmate down is never counted.
+unjoined deck is nobody's, and a crewmate down is never counted. A
+machine is destroyed outright, so it is both at once, the same step
+(`a_machine_destroyed_is_experience_once_each_to_the_classed_crew_in_range`
+and `a_machine_destroyed_on_an_unjoined_deck_…`, ported to machines in
+feature 104).
 `finish_build(site, who, ..)` — `Room::built` carries the builder now —
 gives `XP_BUILT` to every engineer within the vicinity of the builder
 (`award_engineers_near`), and `finish_deploy` the same at the layer,
@@ -3107,7 +2840,14 @@ own bolt or blow; `None` for a sentry's and an enemy's) for the
 hit it, and `settle_rampage` gives that soldier a stack (up to
 `RAMPAGE_STACKS`) — or clears every stack when `enemy_standing` is
 false: the rooms unjoined, or nobody of the station's up and conscious.
-Enemies neither throw nor dodge grenades.
+**`enemy_standing` counts the station room's *Bims* alone**, so against
+the machines — every enemy since feature 102 — it is always false and
+the stack earned is cleared the same step: *rampage* does nothing now.
+Feature 104 found it, deleted the half of
+`bruiser_dug_in_deadeye_and_rampage` that staged a human fight for it
+(the test is `bruiser_dug_in_and_deadeye` now) and left the game as it
+was; see the section on feature 104 at the end. Enemies neither throw
+nor dodge grenades.
 
 **What moved.** `SAVE_VERSION` 17, `wire::PROTOCOL` 10, `Refusal` 52–59,
 events 75–76. The app's
@@ -3242,10 +2982,18 @@ patient's wounds as it ends when the flag is up. `WorldEvent::Surged`
 gives `XP_HEALED` to a medic that did one on a crewmate, marks the
 field surgery used for a bare one, and puts every medic's field surgery
 back when `enemy_standing` is false, the way `settle_rampage` clears the
-stacks.
+stacks. **Against the machines that reset is every step**:
+`enemy_standing` counts the station room's *Bims* alone, and a held
+station has none standing, so a bare field surgery is never held to once
+a fight any more — a gap feature 104 found and left, its test
+(`field_surgeon_is_once_a_fight_and_comes_back_when_it_ends`) deleted
+with the human fight it staged (see the section on feature 104 at the
+end).
 
 **Crew indices are all a link is**, so `clear_beams` breaks every beam
-at a hire and at a dismissal (which also removes that index's `Medic`);
+at a hire and when a dead bot is dropped from the crew at a mission's
+end (`drop_crew_member`, which also removes that index's `Medic`; the
+dismissal was the other until feature 104);
 a dead crew member's beam and charge go with its progress in
 `casualties`. In `world_checksum` after `last_throw`: every medic's
 patients, charge and flag, then each body's surge off the room. **`SAVE_VERSION`
@@ -3319,8 +3067,10 @@ the sentries, since the talents are the world's — go to
 `Game::set_hostiles_taunting` right after `set_hostiles_peeking`, and
 `Combat::aim` prefers a taunting target in reach and in sight over any
 nearer one. That is the room the enemies aim and charge in whoever they
-are, so a station's people, a garrison and a raider's boarders are all
-taunted by the same code. *Hold fast* rides on the medics' seam: it puts
+are, so the machines are taunted by the same code a station's people, a
+garrison and a raider's boarders were
+(`a_taunting_tank_is_shot_at_before_a_nearer_crewmate_and_two_runs_agree`
+is a Trooper's since feature 104). *Hold fast* rides on the medics' seam: it puts
 a `bims::health::Beamed { blood_an_hour: 0.0 }` on the tank in
 `hand_the_room_the_medics`, exactly as *self-care* does for a medic.
 
@@ -3375,12 +3125,16 @@ from `LONG_REACH_LEVEL`). `settle_squad`, at the top of
 steering and one dead or outside, and drops the whole order when the
 commander is not `fit_to_act`, when an attack's marks are all gone
 (down or dead, and dead alone with *relentless*) or when nobody is left
-under it. `take_the_ordered_out_of_squad` is the other half: a
+under it. *Relentless* bites on a mark **out cold**, which a machine
+never is — it is destroyed at once — so against the machines the talent
+has nothing to do; its half of `relentless_and_grit` went in feature
+104 (the test is `grit_takes_the_hurt_off_the_pace_during_a_rally`
+now). `take_the_ordered_out_of_squad` is the other half: a
 `Command::Crew`/`CrewLater` takes the crew member an errand names — or
 everybody the player has selected, for a move or a line — out of the
 order until the next one. `clear_squad` is called by `unjoin_rooms`, a
-hire and a dismissal, since the members are crew indices and the marks
-are residents'.
+hire and `drop_crew_member`, since the members are crew indices and the
+marks are residents'.
 
 **What the room is told** is one `bims::game::Squad` a crew member
 (`Game::set_squad`), handed over before the skills, which read *focus
@@ -3447,13 +3201,13 @@ yard, and `World::can_order(slot)` asks only that they are `fit_to_act`.
   asked for ground** (`World::ground_for`, checked after `same_as` and
   not before it): the ground is a question about a banner being *put
   down*, and a banner on a station's deck is on no tile of the crew's
-  room the moment the ship has cast off — so asking it of a release
+  room the moment the ship has left — so asking it of a release
   refused the one press that takes a banner up, and the crew stood under
   arms at it for ever.
 * **`hand_the_room_the_standing`**, in the step right after the squad's
   hand-off, drops the order of a player no longer fit to act — down,
   asleep, outside — **and any attack whose tile is no longer ground**,
-  which is every dock, undock, landing and lift-off, since a banner is a
+  which is every arrival and departure, since a banner is a
   tile of the deck the crew walk and that deck is built afresh at each
   of them; then hands the room one `bims::game::Standing` a slot with
   the attack's tile turned into room units. The squad's is handed
@@ -3461,7 +3215,7 @@ yard, and `World::can_order(slot)` asks only that they are `fit_to_act`.
   outranks the standing one, which is the order the room reads them in.
 * **And it says where the ship is**, `Game::set_home` off
   `Aboard::gangway` — the deck a few tiles inside the **ship's** own
-  airlock, in room units, `None` for a ship flying alone. A retreat
+  airlock, in room units, `None` for a ship on its own. A retreat
   goes there, and the room cannot work it out for itself: its own
   `Room::gangway` on a joined deck is the joined design's first *free*
   airlock, and the ship's is mated to the station, so the room answers
@@ -3558,19 +3312,19 @@ The pictures themselves are `crates/game/CLAUDE.md`'s.
 
 `crates/world/src/droid.rs` is the plan; `bims::droid` is the machine
 (`crates/game/CLAUDE.md`, "A droid is not a Bim"). **Which** stations are
-held is the crisis step's job and is not this step: here a droid station
-exists only in the probes, behind one flag — `World::infest(id)`, which
-the crisis step will call and which `Session::droids` and
-`droids_planet` call meanwhile.
+held is the crisis's job (feature 92, below); `World::infest(id)` is the
+one door, which the crisis calls and `Session::droids` and
+`droids_planet` call for the probes.
 
 **A held station has no people at all.** `World::people_of` is nought
 for one and `mercenaries_of` with it, and `World::stance` is Hostile for
-one whatever the hostile list says — so the room is hostile, its bodies
+one whatever the generator rolled — so the room is hostile, its bodies
 are at war, and every seam the fight already had works unchanged.
 `World::infest` reopens a room already open on that station
 (`reopen_residents`, factored out of `set_hostile`, which used the same
-machinery to arm a garrison where two residents stood), so the people
-are gone the moment the machines have it. `reopen_residents` compares
+machinery to arm a garrison where two residents stood until the human
+enemies went in feature 104), so the people are gone the moment the
+machines have it. `reopen_residents` compares
 against the room's **`crew_count`** and not `Aboard::count`, which counts
 the machines too.
 
@@ -3580,7 +3334,7 @@ aboard, when the next is due, whether it has been settled and whether it
 has been cleared — beside the tier the machines come at
 (`droid_tier`), the reinforcement clock (`droid_reinforce`) and the wave
 cap (`droid_wave_max`), all three of which the probes move. It is the
-size of the fight, which is why `reinforcements` is in there too.
+size of the fight.
 
 - **The wave count is fixed at the crew's first dock and never worked
   out again** (`Infestation::settle`, called from `droid_waves` the first
@@ -3610,18 +3364,17 @@ size of the fight, which is why `reinforcements` is in there too.
   — pistol, rifle, pistol, rifle.
 - **No reinforcement while a machine lives.** `droid_waves`, a stage of
   the step right after `settle_residents`: with any of them standing the
-  clock is held at `None`; with none standing and waves left it is set to
-  `clock_minutes + DROID_REINFORCE_MINUTES` (two hours, a minute in the
-  probes) and the wave lands when it runs out. A wave whose time came
-  while the crew were away is aboard the moment the room opens again,
-  since the clock is the world's and not the room's, and leaving and
-  coming back resets nothing.
+  clock is held at `None`; with none standing and waves left it is set
+  `DROID_REINFORCE_STEPS` (two hours) of the **mission clock** on — a
+  minute in the probes — and the wave lands when it runs out (feature
+  103; it was the world clock's minutes before). The clock is the
+  world's and not the room's, so a room built afresh resets nothing.
 - **Where a wave arrives.** At a station, `droid::arrival_airlock` — the
   airlock **farthest from the port** (the first airlock, where the crew
   dock; ties go to the lower index) — and the machines are posted
   `data::ASHORE_TILES` inside it, spread round the spot in rings so a
   wave does not land on one tile, the way `Residents::post_boarders`
-  posts a raider's. On a surface, just inside the **gate** its lander set
+  posted a raider's boarders until feature 104. On a surface, just inside the **gate** its lander set
   down beyond: north for an odd wave and south for an even one
   (`droid::gate_spot`). The lander itself is drawn on the plain, which is
   the crew's room's to draw — **a town's own room is the deck alone and
@@ -3658,7 +3411,7 @@ size of the fight, which is why `reinforcements` is in there too.
   room, cannot be entered and cannot be shot.
 - **Arrival raises `WorldEvent::DroidReinforcements { station }`** (code
   83) and puts every player's speed request back to 1× once, as raid
-  contact does. The last machine of the last wave destroyed raises
+  contact did. The last machine of the last wave destroyed raises
   `WorldEvent::DroidStationCleared { station }` (84) **once**, and
   `World::droid_station_cleared(id)` answers for it afterwards — what the
   crisis step will read.
@@ -3668,9 +3421,10 @@ size of the fight, which is why `reinforcements` is in there too.
   `World::droid_wave_due()` how long until the next lands, in minutes of
   the world's clock — `None` while a machine is still standing, since the
   clock does not run then, and `None` with none left. Both are read off
-  the `Infestation` the world already keeps, the way `raid_minutes_left`
-  is read off the raid. The app draws them along the top in the raid's
-  own red frame (`screens::game::droid_warning`, `names::droids_*`): the
+  the `Infestation` the world already keeps. The app draws them along
+  the top in a red frame (`screens::game::droid_warning` in
+  `warning_frame`, which was the raid's `raid_frame` until the raid
+  went; `names::droids_*`): the
   wave and how many of it are standing while the fight is on, then the
   countdown the moment the last of them is down. That is the one number
   the player had no way of knowing.
@@ -3692,7 +3446,7 @@ In `bims::game` (`crates/game/src/game.rs`):
 | `is_alive`, `is_down`, `is_unconscious` | dispatch: a machine is up or a wreck, and never out cold |
 | `weapon`, `peek`, `exposed_at`, `dodge` | dispatch; a machine's arm is a `Weapon` value and its dodge is nought |
 | `loot_cells`, `take_from_body` | empty and refused for a machine |
-| `execute_body` | refused: there is no down-and-alive state to finish off |
+| `execute_body` | refused: there is no down-and-alive state to finish off (gone with the execution in feature 104) |
 | `strike(who, part, ..)` | `strike_droid(i, DroidPart, ..)` beside it, the part off `Hit::roll` |
 | `bim_pos(who)` | `body_pos(who)` |
 | `set_hostiles`' eyes (`self.bims.iter()`) | the machines are eyes too, or a room of nothing but machines never sees anybody |
@@ -3715,8 +3469,8 @@ In `world` (`crates/world/src/{world,crew}.rs`):
 | `close_residents`' losses | the Bims alone |
 | `Residents::join`/`unjoin` | carry the machines across with the same shift |
 | `people_of`, `mercenaries_of` | nought at a held station |
-| `stance` | Hostile at a held station whatever the list says |
-| `set_hostile`'s reopen | `reopen_residents`, shared with `infest`, comparing against `crew_count` |
+| `stance` | Hostile at a held station whatever the list said (there is no list since feature 104) |
+| `set_hostile`'s reopen | `reopen_residents`, shared with `infest` (and `infest`'s alone since `set_hostile` went), comparing against `crew_count` |
 | `experience`, `enemy_standing_at`, `enemy_dead_at` | unchanged: they ask `is_alive`/`is_unconscious`, which dispatch |
 | `take_hits`, `take_shots`, `enemy_fire`, `enemy_strike` | unchanged: a `Shot` and a `Hit` never knew whose body they were |
 
@@ -3781,8 +3535,8 @@ medic of any kind, or a set down with empty arms), `NotHurt` (76, a body
 on its feet and whole — a carry is for getting somebody *out*, not for
 moving the crew about) and `AlreadyCarried` (77), with `OutOfReach` and
 `NotACrewmate` doing their usual work. `clear_carries` goes beside
-`clear_beams` at a hire and a dismissal, since an index is the whole of
-what an arm holds.
+`clear_beams` at a hire, a mission's start and `drop_crew_member`, since
+an index is the whole of what an arm holds.
 
 **A field medic is a mercenary with a trade.** `mercenary::is_medic`
 rolls it off the same seed the gear and the price come off
@@ -3844,7 +3598,10 @@ rallied_mark}`, and the Hire window naming a field medic
 > restock below, the Management tab's number and the stow of a box are
 > gone: a pack is filled by the bandage cooldown, never out of the hold,
 > and a box of dressings cannot be stowed. The stacks in the pack are as
-> this section says.
+> this section says. Feature 104 took the rest of what it leant on: the
+> room's manager and its food targets went with the needs (the bandage
+> target, `manager::Stock::Bandages`, with them), and the plunder's
+> top-up with the human enemies.
 
 A bandage used to be a number the world handed the room off the hold and
 read back after the step. It is a **thing in a pack** now — the room's
@@ -3946,11 +3703,12 @@ and a bandage are two more `class::Charge`s** — `Medkit = 3`,
   test's: no medicine dealt or come back, so `without_dressings` empties
   the packs of both and they stay empty.
 
-The combat command sails with **four** field medics
-(`session::COMBAT_MEDICS`) in a crew of **sixteen** (`COMBAT_CREW`), the
-two the user asked for added rather than two guns traded for them — and
-sixteen crew put up `ENEMIES_MAX` by the garrison's formula alone, so
-`data::ARENA_GARRISON` is that cap now, sixteen.
+The fight's crew (`Session::combat`, under `droids`) sails with
+**four** field medics (`session::COMBAT_MEDICS`) in a crew of
+**sixteen** (`COMBAT_CREW`), the two the user asked for added rather
+than two guns traded for them. (Sixteen crew put up `ENEMIES_MAX` by
+the human garrison's formula alone, so `data::ARENA_GARRISON` was that
+cap, sixteen, until the garrison went in feature 104.)
 
 **What moved.** `charge_timers` is five a crew member and the packs
 hold medicine from the first step — **`REFERENCE_CHECKSUM` =
@@ -3970,8 +3728,8 @@ at open, and nothing of theirs comes back.
 ## The crisis: an origin, a hop count and a day (feature 92)
 
 > **Since feature 102 the first day is nought**: the crisis is there from
-> the start, and `DROID_FIRST_DAY` below is no longer read. See "A run" at
-> the end of this file.
+> the start, and `DROID_FIRST_DAY` below, which nothing read after that,
+> went in feature 104. See "A run" at the end of this file.
 
 Feature 83 built the machines and left "which stations are held" to a
 later step. This is that step, and the thing to hold on to is that the
@@ -3983,11 +3741,10 @@ later step. This is that step, and the thing to hold on to is that the
 No per-tick roll, nothing accumulated, nothing to keep in step: two
 clients that agree about the day, the galaxy and the origin agree about
 every star in the galaxy without a word passing between them. `data`'s
-three numbers are `DROID_FIRST_DAY` (10), `DROID_SPREAD_DAYS` (5) and
-`DROID_ORIGIN_MIN_HOPS` (8); the graph is `worldgen::Galaxy::lanes`
-(`crates/worldgen/CLAUDE.md`), and **jumping is untouched** — a
-hyperdrive still reaches any star on the chart, and nothing ever flies
-down a lane.
+numbers are `DROID_SPREAD_DAYS` (5) and `DROID_ORIGIN_MIN_HOPS` (8), and
+were `DROID_FIRST_DAY` (10) beside them until feature 104; the graph is
+`worldgen::Galaxy::lanes` (`crates/worldgen/CLAUDE.md`). Jumping was
+untouched by this step — feature 93 put it on the lanes, next section.
 
 **What is kept, and what is derived.** `World::droid_origin` is one `u32`
 rolled once at `World::start` by `droid::origin` — off `Purpose::DroidOrigin`
@@ -4004,22 +3761,24 @@ handed the host's world. `infested_on(star)`, `infested(star)` and
 `infested_stars()` are the readings; `start_star_hops_for_probe` is the
 `crisis` command's way to a star a stated number of hops off.
 
-**The flip is the state, and it waits for the crew to leave.**
-`World::spread_crisis`, a stage of the step just before `settle_droids`,
-does nothing unless `infested(star_id)` and nothing while the rooms are
-**joined** — docked, or casting off, which is the same one deck. A
-station's own room open *alongside* is not that: the crew are on their
-ship, and `infest` opens that room again with the machines in it through
-`reopen_residents`, so an undock at a system whose day has come empties
-the station in front of you. When it does
+**The flip is the state, and it happens on the way in.**
+`World::spread_crisis` does nothing unless `infested(star_id)`, and
+nothing while the ship is **docked** — the rooms joined, one deck. Since
+only travel moves the world clock (feature 103), the day that turns a
+system can only come on a trip, and `World::travel` asks
+`spread_crisis` at the new day with the ship still holding, **before**
+`arrive_at` ties it up — so a system whose day has come is the
+machines' before the crew arrive in it. The call in the step, just
+before `settle_droids`, is kept for a ship holding and for the probes;
+a station's own room open *alongside* a holding ship is opened again
+with the machines in it through `reopen_residents`. When it does
 go, every station of the system, `stations` and `surfaces` alike, goes
 through `World::infest` — feature 83's own door, so `people_of` is
 nought, `mercenaries_of` is nought, `stance` is Hostile and the room
 opens with a wave — and `WorldEvent::Infested { star }` (89) is said
 once. Two things it does not touch: **a station the crew cleared**,
 which keeps the `Infestation` it was cleared with so `infest` refuses it
-and the crisis never re-arms it; and anything about open space, so raids
-are what they were.
+and the crisis never re-arms it; and anything about open space.
 
 **`World::infested` is per-system, like everything else that names a
 station id.** It went onto `SystemMemory` with the rest (`crate::memory`)
@@ -4027,11 +3786,11 @@ station id.** It went onto `SystemMemory` with the rest (`crate::memory`)
 the last one's wave — and the jump's never-been-here branch clears it. A
 memory of a system the crisis has taken since is **overrun** on the way
 back (`SystemMemory::overrun`, called by `recall_system` when
-`infested(star)`): the chart, the rocks, the shelves and the keys stand,
-since the crew saw those and they are still there, but the `hostile`
-list, the `losses` and the `graves` are dropped — the people are gone,
-so whose side they were on and what the crew did to them is nothing the
-crew will meet. The **infestations stay**, cleared flags and all. The
+`infested(star)`): the chart, the rocks and the keys stand, since the
+crew saw those and they are still there, but the `losses` and the
+`graves` are dropped (and the `hostile` list was, while there was one)
+— the people are gone, so what the crew did to them is nothing the crew
+will meet. The **infestations stay**, cleared flags and all. The
 flip itself clears the live `losses` and `graves` for the same reason.
 
 The app's side: the galaxy chart draws the lanes faintly under the stars
@@ -4060,17 +3819,19 @@ attacking a friendly town.
 The crisis crawls along the hyperlanes; this is the step that makes the
 **crew** crawl along them too, and then shuts one direction of them.
 
-**A charge is one hop, and only down a lane.** `begin_jump` refuses a star
-`World::laned_to` says no lane reaches with `Refusal::NoLane` (78) —
-after `SameStar` and `NoSuchStar`, which are better answers — and the
-charge, the landing point and Abort are untouched. Nothing chains: one
-jump a charge, as before. `World::route_to(star)` is
+**A jump is one hop, and only down a lane.** A trip's quote
+(`World::travel_quote`) refuses a site in a star `World::laned_to` says
+no lane reaches from here with `Refusal::TooFar` (87); until feature 104
+the helm's charge (`begin_jump`) refused it `Refusal::NoLane` (78), and
+that went with the flown jump. Nothing chains: a trip is at most one
+jump. `World::route_to(star)` is
 `worldgen::Galaxy::route` asked from where the ship is (breadth-first,
 each star reached from the **lowest-numbered** of the nearest ones, so
 the same route comes out of every build), `World::reachable_stars` is
 the lanes out of here, and the app's chart draws both — the reachable
-lanes bright over the faint web, the route as a chain — and the **Jump
-button charges for `route[1]`**, not for the star picked.
+lanes bright over the faint web, the route as a chain. (The helm's
+**Jump** button charged for `route[1]` rather than for the star picked,
+until the flown jump went in feature 104.)
 
 **The jammer is one station a system, and `World::jammer_station` is the
 only place it is decided**: the **orbital station with the lowest id**, a
@@ -4084,7 +3845,8 @@ machines have not got.
 system is infested and its jammer is not cleared";
 `World::jammed_step(from, to)` is that plus `to` being **fewer hops from
 the origin** than `from` (`World::hops_from_origin`, off the crisis's own
-`droid_hops`), and `begin_jump` says `Refusal::Jammed` (79) for it.
+`droid_hops`), and a trip's quote says `Refusal::Jammed` (79) for it
+(the helm's `begin_jump` did, until feature 104).
 Sideways and outward are accepted, and a jump **into** an infested system
 is never refused: getting in is free and getting back out the way you came
 is not. `jammed_step` asked about the system the ship is in uses the live
@@ -4094,8 +3856,9 @@ good — the `Infestation`'s `cleared` flag is saved and hashed like any
 station's, so a save, a load and every later spread leave it down.
 
 **A derived jammer is rolled, never saved.** `crate::jammer`: id
-`JAMMER_BASE | star` (`0x1000_0000`, clear of the generator's, of
-`RAIDER_BASE` and of `SURFACE_BASE`), kind `Relay` — "deep space, on its
+`JAMMER_BASE | star` (`0x1000_0000`, clear of the generator's and of
+`SURFACE_BASE`, and of the raiders' `RAIDER_BASE` while there were
+raiders), kind `Relay` — "deep space, on its
 own, listening" is what the machines have made of it — `hostile`, its
 plan, map seed, shelf and **position** off `Purpose::Jammer` (13) from
 the galaxy seed and the star. The position is `jump::clear_point`, which
@@ -4126,7 +3889,8 @@ what tier an enemy carries; `World::droid_tier` the field became
 eats the **answer**, as it did before, so it is a function of the origin
 and the star and two clients agree without exchanging a word.
 
-**What moved.** `Refusal` 78–79, `Purpose::Jammer = 13`, **`SAVE_VERSION`
+**What moved.** `Refusal` 78–79 (78, `NoLane`, went in feature 104),
+`Purpose::Jammer = 13`, **`SAVE_VERSION`
 29, `wire::PROTOCOL` 21** (the relay wants redeploying). No checksum
 moved: at a start the spawn is nowhere near the origin, so `droid_tier()`
 is `Tier::One` as the field was, and a system that is not infested has no
@@ -4181,8 +3945,8 @@ things a desk stocks.
 out**, and the premium is added to the station's own rolled lean inside
 it: `buy`, `sell` and `ship::Session::quote` — which is every panel and
 the trade window — all go through it, so nothing can show one price and
-charge another. `None` where there is no desk: a derelict, a raider, a
-station the machines hold. The sum can exceed `market::MAX_BIAS`, which
+charge another. `None` where there is no desk: a derelict, a station
+the machines hold (and a raider, while there were raiders). The sum can exceed `market::MAX_BIAS`, which
 is why `economy::market::MAX_FRONT_BIAS` is written down there and
 `quote`'s own "the bid is under the ask everywhere" test runs out to
 `MAX_BIAS + MAX_FRONT_BIAS`; `tests_front.rs` pins that the world's two
@@ -4232,21 +3996,24 @@ ground, how many are still to come, how long until the next, how many
 machines are still standing, and whether it was won or lost. Three things
 about it that differ from the droid step's own `Infestation`:
 
-- **The clock is minutes left, not a minute of the clock.** `next_in`
+- **The clock is steps left, not a moment of the clock.** `next_in`
   counts down in `defense_waves`, and `defense_waves` runs only while the
-  ship is on the pad — so **taking off pauses the attack** and landing
-  again resumes it where it stood. An absolute reading would have the
-  whole schedule run while the ship was away.
-- **The wave on the ground is put back.** A town's room is built afresh at
-  every landing, so `Defense::standing` is how many machines were still
-  up when the world last looked, and the first step of the next landing
+  ship is on the pad. It was built so that **taking off paused the
+  attack** and landing again resumed it where it stood; since feature
+  103 leaving the town with waves left is losing it (`leave_mission`
+  infests it, `WorldEvent::TownFell`), so the pause is never met in a
+  run.
+- **The wave on the ground is put back.** A town's room is built afresh
+  whenever it is opened, so `Defense::standing` is how many machines were
+  still up when the world last looked, and the first step of the room
   lays exactly that many at the gate. Laying the wave again at full
   strength would be a fight that could be won or lost by leaving.
 - **Every wave arrives.** There is no wave one already standing the way a
-  held station has one: the first lands `data::DEFENSE_DELAY_MINUTES` (an
-  hour) after the crew set down — time to walk the town, trade and hire —
-  and the rest `DROID_REINFORCE_MINUTES` after the last machine of the one
-  before dies. The count and the size are the droid step's own formulas.
+  held station has one: the first lands `data::DEFENSE_DELAY_STEPS` (an
+  hour of the mission clock) after the crew set down — time to walk the
+  town, trade and hire — and the rest `DROID_REINFORCE_STEPS` after the
+  last machine of the one before dies. The count and the size are the
+  droid step's own formulas.
 
 **The room is told three things and works the rest out.** In `visit`,
 when `World::defense_here()` is `Some`:
@@ -4286,24 +4053,26 @@ down, never more than the survivors other than the guard — so a town with
 nobody left, or only the guard, sends none. Who: the lowest indices,
 never the guard and never a mercenary. Each goes through
 `World::take_resident_aboard(who, for_hire: false)` — the block lifted
-out of `World::hire` — which is the hire's own move **without** the bunk
-check, the fee, the `Hired` row and the kit: a classless crew bot like
-any other, taking no player slot, keeping what it carries and any wounds
-it has, and sleeping on the deck under `GROUND_SLEEP` if there is no
-bunk. `WorldEvent::TownsfolkJoined { count }` (91) once.
+out of `World::hire` — which is the hire's own move **without** the fee,
+the `Hired` row and the kit (and without the bunk check, while the hire
+had one): a classless crew bot like any other, taking no player slot,
+keeping what it carries and any wounds it has.
+`WorldEvent::TownsfolkJoined { count }` (91) once.
 
 **Lost** is either every one of the town's own people dead
 (`World::town_is_dead`, the mercenaries not counted) or the system's day
-coming while the crew are away with waves left — and in both cases the
-town falls through `World::infest` like any other station, which marks
-the `Defense` lost on the way past. While the crew are *at* the town the
+coming while the crew are away with waves left — or, since feature 103,
+the crew leaving it with waves left — and in every case the town falls
+through `World::infest` like any other station, which marks the
+`Defense` lost on the way past. While the crew are *at* the town the
 crisis's flip waits anyway: `spread_crisis` does nothing while the rooms
-are joined, and a landing is a dock.
+are joined, and an arrival at a town is a dock.
 
 **What moved.** `Refusal` none, events 90–91, `REFERENCE_CHECKSUM` =
 `0x_262b_281e_2a67_eae9`, **`SAVE_VERSION` 30, `wire::PROTOCOL` 22** (the
 relay wants redeploying). New `data` constants `DEFENSE_DELAY_MINUTES`
-(60) and `DEFENSE_JOIN_PERCENT` (20) beside the front's. The probe is
+(60; `DEFENSE_DELAY_STEPS` since feature 103) and `DEFENSE_JOIN_PERCENT`
+(20) beside the front's. The probe is
 `nix run .#defense` — `Session::defense_for_probe`, the origin one hop off
 and both clocks a minute — with `BIMS_DEFENSE_DELAY` over the first.
 `tests_defense.rs` is the rule and
@@ -4322,11 +4091,10 @@ along the way and the money rework moved most at once:
 - **`REFERENCE_CHECKSUM` = `0x_00fd_e444_a606_d8d2`**, `SAVE_VERSION`
   **31**, `wire::PROTOCOL` **23** (the relay wants redeploying), and
   `worldgen::GENERATOR_VERSION` **7**, which re-rolled every galaxy: new
-  systems, new stations, new shelves — and a new **raid schedule**, since
-  `Raids::stream` mixes the version in. Two world tests that undock and
-  then work for days at the workbench now push the next raid a month out
-  (`World::raid_due_for_probe`) rather than being boarded halfway
-  through.
+  systems, new stations, new shelves — and a new raid schedule, since
+  `Raids::stream` mixed the version in (the raids went in feature 104,
+  and with them `World::raid_due_for_probe`, which two workbench tests
+  called to keep from being boarded halfway through).
 - `shipdesign`: `REFERENCE_HASH`, `PLAYTEST_HASH`, `PLAYTEST_PARTS`
   (667) and `COMBAT_PARTS` (675) re-pinned; `CARGO_SLOTS` **18**;
   `ALL`/`PARTS` **49** with `PartKind::Smelter` gone and 31..49 closed up
@@ -4340,46 +4108,46 @@ along the way and the money rework moved most at once:
   and where the gear is sold. The construction half of it is in
   `tests.rs` beside the other building tests.
 
-## A run: four switches, the crisis from day nought, and a station's routine (feature 102)
+## A run: the switches, the crisis from day nought, and a station's routine (feature 102)
 
 The first step of the roguelike redesign (the root `CLAUDE.md`, "A run")
-switched the old game off rather than deleting it. Four fields on `World`,
-saved and hashed after everything else in `world_checksum`, **all off from
-`World::start`**, each with a setter the tests call right after they build
-their world:
+switched the old game off rather than deleting it: four fields on
+`World`, saved and hashed, **all off from `World::start`**, each with a
+setter the tests called right after they built their world. Feature 104
+deleted three of them with what they switched (the section at the end):
 
-- `needs_enabled` — told to every room every step
-  (`hand_the_rooms_the_needs`). Off, the food in a dark cold store does not
-  spoil (`run_brownout` holds `cold_store_out` at nought), a town's guard is
-  not posted (`post_guard` only with it on — the guard walks its round),
-  and a hire is never refused for want of a bunk (`hire_offer`'s `bunk`).
-- `human_foes_enabled` — `rolled_hostile` is the generator's hostility for
-  this system, home excepted, and empty with it off, which is what
-  `World::start` and the never-been-here branch of a jump put on the list;
-  `set_human_foes_enabled(true)` puts the roll back, the way a test of a
-  hostile station wants it. Off, the raid schedule never falls due
-  (`run_raid`'s quiet arm), `lay_plunder` lays nothing and `Command::Plunder`
-  and a `Command::Loot` of a resident are refused `NotHostile`.
-  `set_hostile` itself is untouched — the arena `droids` fights at is made
-  hostile by it before the machines take it — and `raid_for_probe` and
-  `raid_coming_for_probe` switch the foes on, since they ask for a raid.
-- `radiation_enabled` — stage eight doses nobody with it off.
-- `shipyard_enabled` — `can_place_site` answers `SiteRefusal::NoShipyard`
-  first (`Refusal::NoShipyard`, 82), and `World::buyable` is gear alone, so
-  `buy` refuses the rest `NotSoldHere` before anything else is asked.
+- `needs_enabled` was told to every room every step
+  (`hand_the_rooms_the_needs`); off, the food in a dark cold store did
+  not spoil, a town's guard was not posted, and a hire was never refused
+  for want of a bunk. The world's half of the needs went with it, and
+  the fixed tell that stood in for it (`hand_the_rooms_the_run`) went
+  with the room's half.
+- `human_foes_enabled` put the generator's hostility for the system
+  (`rolled_hostile`, home excepted) on the world's `hostile` list; off,
+  the raids never fell due, the plunder laid nothing and a loot of a
+  resident was refused. The list, the raids and the plunder went with
+  it, and the generator's roll stays ("A station has a stance").
+- `radiation_enabled` let stage eight dose; the dose, stage eight and
+  the `health` crate went with it.
+- `shipyard_enabled` **stays**, off in every run: `can_place_site`
+  answers `SiteRefusal::NoShipyard` first (`Refusal::NoShipyard`, 82),
+  and `World::buyable` is gear alone, so `buy` refuses the rest
+  `NotSoldHere` before anything else is asked. The tests of building and
+  of the shelf switch it on.
 
 **The crisis is there from day nought**: `crisis_first_day` opens at
 nought, so the origin is infested at the start and `front` has a value from
 the first step; a system due is the machines' whole the moment the crew are
 in it (the flip, the jammer, the waves), exactly as the stateless rule
-always said. `DROID_FIRST_DAY` is no longer read — the tests that used it
-as a probe's dial write their own day — and the measurements in the root
+always said. `DROID_FIRST_DAY` was no longer read, and went in feature
+104 — the tests that used it as a probe's dial write their own day — and
+the measurements in the root
 `CLAUDE.md` (*How fast the crisis crosses a galaxy*) are ten days early
 now: the whole galaxy is theirs by day 480 to 715.
 
 **A station's people are dealt a round** as their room opens —
 `open_residents` calls `Residents::deal_roles` unless the station is
-hostile then — off `map_seed` and the body's index (`bims::routine::deal`:
+hostile then (the machines', since feature 104) — off `map_seed` and the body's index (`bims::routine::deal`:
 a town's first its guard, a trading station's first its trader, the rest
 rolled, a mercenary a civilian), the town's two gates added to the guard's
 ways in (`surface::gates`, off the wall's own constants). A body taken
@@ -4409,29 +4177,35 @@ countdown (`Defense::next_in` in steps, `defense_delay`,
 `data::DEFENSE_DELAY_STEPS`), and every class timer read through
 `World::mission_minutes()` — `charge_timers`, a taunt, a rally. The probes'
 dials are still in minutes of it (`set_droid_reinforce_minutes_for_probe`,
-`set_defense_delay_for_probe`), turned into steps by `steps_of`. The rooms
-are told `Game::set_clock_runs` with the needs, so a room's time of day
-stands where it was built — wound to the world clock at every build — and
-`World::day()` read off the room stays the world's day.
+`set_defense_delay_for_probe`), turned into steps by `steps_of`. A room's
+own clock does not run: `Game::simulate` never advances it and
+`Game::wind_clock` is the one thing that moves it, so a room's time of day
+stands where it was built — wound to the world clock at every build
+(`Aboard::joined`, `mirrored` and `unjoined`, `Residents::open` and
+`unjoin`) — and `World::day()` read off the room stays the world's day.
+Nothing tells a room so: that is simply what a room does since feature
+104 took the room's clock switch away with the needs.
 
-**The old game's switch is `Run::free_clock`** (`World::set_free_clock`),
-off in every run, the pattern feature 102 set: with it on the world clock
-runs with the step as it always did, `pay_wages` runs with it, and the
-helm's four orders are taken; with it off `Command::{Confirm, Abort, Jump,
-Land}` are refused `Refusal::TravelIsResolved` (83). **A test of flight,
-raids, wages or the day passing by the step turns it on right after
-building its world** — `set_off` in `tests.rs` and `tests_raid.rs` and
-`jump_to` in `tests_run.rs` do it themselves, and the reference run flies
-with it on and then turns it off for the loop.
+**The old game's clock was a switch**, `Run::free_clock`
+(`World::set_free_clock`), off in every run in the pattern feature 102
+set: on, the world clock ran with the step, `pay_wages` with it, and the
+helm's four orders were taken; off, `Command::{Confirm, Abort, Jump,
+Land}` were refused `Refusal::TravelIsResolved` (83). Feature 104 deleted
+it with the flown trip, the four commands and the refusal. A test that
+wants time to pass steps a mission and reads `mission_minutes()`; wages
+are paid by `travel` alone; and the reference run
+(`fixture::reference_run_world`) is a mission at the spawn, both players
+back to the ship, a resolved trip and a mission at the other end.
 
 **The step's order grew two ends.** Stage 0: in `Phase::Map` the commands
 are applied, the step is counted and nothing else happens. Then
 `open_the_mission` photographs the site the first step of a mission
-(`SiteSnapshot`: the site's `Infestation`, `Defense`, `Losses`, graves,
-lamps and plunder — **not** its research key or a hire, which the crew
-carried away), before the commands. Stage 9, last: `settle_run` — the
-pending bounty paid the step the site is cleared, and the departure
-check. `check_lost` is `check_run_lost` now.
+(`SiteSnapshot`: the site's `Infestation`, `Defense`, `Losses`, graves
+and lamps — and its plunder, until feature 104 — **not** its research
+key or a hire, which the crew carried away), before the commands. The
+last stage — 9 then, 8 since feature 104 took the radiation's — is
+`settle_run`: the pending bounty paid the step the site is cleared, and
+the departure check. `check_lost` is `check_run_lost` now.
 
 **The run's commands apply at once** (`applies_at_once`):
 `Command::Propose`, `Accept`, `Return`, `LeaveBehind` and `PlayerGone`, so
@@ -4463,19 +4237,22 @@ infested today.
 cleared, `buy_back` (the fallen in death order while the pool holds
 `BUYBACK_COST`; `Game::revive` — alive, whole, awake, **no gear** — and
 `strip_the_dead` for the world's armour records; `StillOut` for the rest),
-and `make_whole` — `Game::restore_health` for every living crew member, the
-world's `HealthState`s fresh, beams and carries cleared, every charge timer,
+and `make_whole` — `Game::restore_health` for every living crew member
+(and the world's radiation `HealthState`s fresh, until feature 104),
+beams and carries cleared, every charge timer,
 taunt and rally reset and every charge filled (`fill_charges`) — and every
 player's standing order back to Follow.
 
 **Cleared** is `site_cleared(id)`: an `Infestation`'s `cleared`, a
 `Defense`'s `won`, and otherwise `!town_threatened(id)` — a peaceful site
-is cleared from the start, which is also why a legacy human enemy's bounty
-is still paid at once. `earn_bounty` pays at once where
+is cleared from the start, which is also why a hostile Bim's bounty was
+paid at once there (none is earned since feature 104). `earn_bounty`
+pays at once where
 `mission_cleared()` (the site tied up at, and "nowhere" counts as clear)
 and makes it pending otherwise; `visit` adds `bounty_for(droid.tier)` for
 every machine seen destroyed — the Republic pays for machines now, every
-enemy being one — and `experience` adds the human's as before.
+enemy being one — and `experience` a hostile Bim's, which no room has
+had since feature 104.
 
 **The end of a mission.** `press_return`: `returning` set, `recalled` on —
 which `hand_the_room_the_standing` hands every slot as `Retreat` — and a
@@ -4510,3 +4287,166 @@ soldiers" — the commander has a rally and a squad, and nothing calls a
 soldier in. `tests_mission.rs` is the rule, with
 `travel_days_over_ten_galaxies` (`#[ignore]`) printing the measurements
 the root `CLAUDE.md` carries.
+
+## The old game deleted (feature 104)
+
+The third step of the redesign (the root `CLAUDE.md`, "The old game
+deleted"): **everything features 102 and 103 switched off is deleted,
+and nothing a run does moved.** The last commit with the old game is
+tagged `needs-sim-final` (29d5d54); `git show needs-sim-final:<path>`
+reads a deleted file again. What the world lost:
+
+- **The flown trip.** `ShipState` is `Docked { station }` and `Holding`
+  and nothing else ("A ship is docked or holding" above).
+  `Command::{Confirm, Abort, Jump, Land, ToHelm}`; the helm job and its
+  gates (`can_command`, `helm_spot`, `at_the_helm`, `order_to_helm`,
+  the world's `stand_down`, `man_the_helm_for_probe`, `HELM_REACH`); `fly`,
+  `finish`, `cast_off`, `come_alongside`, `confirm`, `give_up`,
+  `begin_abort`, `set_off`, `plan_from_here`, `target_position`,
+  `preview`/`Preview`, `hold_point`, `way_out`, the jump's charge
+  (`begin_jump`, `charge_jump`, `jump_charge`, `hyperdrive_ready`), the
+  landing (`land`, `can_land`, `above`, `landing`, `lifting`,
+  `landing_for_probe`), `engine_draw_now`, `Power::engines`,
+  `can_modify_part`, `trip_state`, `effort`, `plan`, `trip_progress`,
+  `Ship::pending`/`destination_set_by`, `send_everybody_home`/
+  `everybody_home`; the flight's events (`Departed`, `Arrived`,
+  `Aborted`, `PlanFailed`, `CastingOff`, `Undocking`, `Docking`,
+  `Charging`, `JumpFailed`, `Landing`, `Landed`, `LiftedOff`), its
+  refusals (`NotAtTheHelm`, `NotTravelling`, `ComingAlongside`,
+  `UnderWay`, `UnderConstruction`, `NoHyperdrive`, `NotHolding`,
+  `NoSuchStar`, `SameStar`, `NoPlanetHere`, `NoLane`,
+  `TravelIsResolved`, `SiteRefusal::UnderWay`) and constants
+  (`UNDOCK_MINUTES`, `DOCK_MINUTES`, `CASTING_OFF_LIMIT`,
+  `LANDING_HEIGHT`, `LAND_MINUTES`, `LIFT_MINUTES`). **Kept**:
+  `World::jump`, `pub(crate)` now and called by `travel` alone, with
+  `jump::landing_point`, `WorldEvent::Jumped`, `JUMP_CHARGE_MINUTES`,
+  `JUMP_CLEARANCE` and `Refusal::Jammed`; `land_for_probe`,
+  `undock_for_probe`, `dock_for_probe`; `SetSpeed`; `laned_to`,
+  `route_to`, `reachable_stars`; `under_construction`. The `flight` and
+  `physics` crates stay — a trip is quoted off `Ship::dynamics` by
+  `physics::travel_days`.
+- **The free clock**: `Run::free_clock`, `set_free_clock`, the world
+  clock by the step and the wages by the step. Wages are paid by
+  `travel` (`pay_wages_due`) with the ship holding, where an unpaid hand
+  could never walk off, so `World::dismiss` went too: an unpaid hand
+  sails on owed.
+- **Radiation**: the whole `crates/health` crate, `World::health` and
+  every write to it, `run_health` and stage 8, `WorldEvent::Health`,
+  `SUIT_INTENSITY`, `EVA_DOSE_LIMIT` and `radiation_enabled`. The run is
+  stage 8 now, and `suit_ok` is the suit aboard — the same answer it
+  gave, since nothing ever dosed a body in a run.
+- **The world's half of the needs**: `needs_enabled`, the cold store's
+  clock and the spoiling (`cold_store_out`, `spoil`, `SPOIL_STEPS`,
+  `SPOIL_DIVISOR`, `WorldEvent::FoodSpoiled`), the bay's power
+  (`sync_bay_power`), the guard's post (`Residents::post_guard`), the
+  hire's bunk check (`Offer::bunk`, `Refusal::NoBunk`) and
+  `DROID_FIRST_DAY`. The room's own needs went with the room crate's
+  half of the feature (`crates/game/CLAUDE.md`).
+- **The human enemies**: `raid.rs` and `plunder.rs` ("Raiders and an
+  enemy's shelf" above), the world's `hostile` list,
+  `human_foes_enabled`, `rolled_hostile`, `set_hostile`,
+  `reinforcements`, the garrison formula (`station::enemies_of`,
+  `base_by_day`, `scaled`, `ENEMIES_BASE`, `ENEMIES_MAX`,
+  `ARENA_GARRISON`; `ENEMIES_DAYS` stays for the waves), `BOARDERS_MAX`
+  and every raid and plunder constant, `Plan::Raider`,
+  `Command::{Execute, Plunder}`, the loot of a resident,
+  `stage_fight_for_probe` and `outfit_for_probe`'s residents half; events
+  `Executed` (48), `RaidContact`–`RaidRepelled` (59–62), `Plundered`
+  (64) and `RaidBreached` (67), refusals `NotHostile` (26) and `Unarmed`
+  (27). The generator's roll stays (`Station::hostile`: the spawns, the
+  tier-two keys, the derived jammer), and so do `World::stance`,
+  `apply_stances`, `reopen_residents`, `open_residents` and
+  `LootSource::Resident`.
+
+**What stands in their place.** `World::stance` is a held station
+Hostile, home Friendly, the rest Neutral. `people_of` is a station's
+residents less its dead, nought for a held one. A loot of a resident is
+refused `NotACrewmate`. `World::stage_droid_fight_for_probe(kind,
+weapon)` stages the one-against-one fight the human
+`stage_fight_for_probe` did, with one machine four tiles down the
+corridor — armed, or posing with `None` — and crew member 0 recruited
+inside the door; `Game::droid_mut_for_probe(i)` is the room's half.
+Every test that staged a human fight to test a class or the combat was
+ported onto it or onto `World::infest`; the tests of what only a human
+enemy did (the garrison's size, the execution, a resident's loot, the
+raids, the plunder, an enemy following the crew aboard) were deleted.
+`hand_the_rooms_the_needs` became `hand_the_rooms_the_run` for the world's
+half of the feature — a fixed tell of `set_needs_enabled(false)` and
+`set_clock_runs(false)` to the crew's room and the station's, at
+`World::start` and at every step — and **went** with the room's half,
+when `crates/game` lost both switches: a room now behaves as it did with
+both off, and nothing is told it. The room's side is
+`crates/game/CLAUDE.md`, "The needs deleted".
+
+**The codes.** A deleted `WorldEvent` or `Refusal` leaves its code
+free rather than closing the rest up — `names.rs` matches by variant,
+not by a table indexed by code — and `event.rs` notes which are free.
+`STATE_NAMES` is `["Docked", "Holding"]`. `world_checksum` dropped the
+switches, the hostile list, the reinforcements, the raids, the plunder
+(live and remembered), `health`, `destination_set_by`, the flight
+states' payloads, `cold_store_out` and the free clock, so it moved:
+`REFERENCE_CHECKSUM` is re-pinned in `world::fixture` with a history
+line (`0x_5359_7c7a_29be_b3e2` after the world's deletions, and still
+that after the room's, which moved nothing hashed), and
+`fixture::reference_run_world` was rewritten without flight — the world
+opened, both players at `Speed::Day`, a mission at the spawn, both back
+to the ship, the first quotable other site proposed and accepted, a
+mission there — with `reference_target` deleted. **`SAVE_VERSION` 35**
+and **`wire::PROTOCOL` 27**, and those three are the final numbers: the
+room crate's half bumped none of them.
+
+**How it is known that nothing moved.** `world::fixture::Survivors` is
+a reading of **only the state that outlived the deletion** — the world
+and mission clocks, the run's phase, missions, deaths and pending
+bounty, the pool, the star, where the ship is alongside, every crew
+member's class, experience and picks, the fallen, every body on the
+crew's deck and the site's (where, alive or down, its blood, each
+part's health, wounds and trauma, its gear), every machine's place,
+kind, tier and body, and every site's state — with an enum hashed **by
+its name**, so a variant deleted or a discriminant closed up moves
+nothing that did not itself move. `world_checksum` could not do the job,
+since the switches and the needs were in it. Two tests pin a reading
+taken off `needs-sim-final` before anything was deleted, and **their
+constants are never edited**:
+
+- `crates/world/src/tests_survivors.rs`, `SURVIVORS`
+  (`the_run_plays_as_it_did_before_the_old_game_was_deleted`): a seeded
+  run, two players and four bots on the combat ship with a gun in every
+  hand — the trip to a station of the spawn system handed to the
+  machines and the fight there; back to the ship, a jump to a star next
+  door and a mission there; and a second world whose own system is on
+  the front, the trip to its town and the town's defence. About forty
+  seconds: `cargo test -p world --lib tests_survivors`.
+- `crates/ship/src/tests_survivors.rs`, `PINNED` and `PICTURES`: every
+  command's `Session` stepped and read, and the fixtures' and a run's
+  deck drawn bit for bit (`crates/ship/CLAUDE.md`).
+
+**If a survivor number moves, a run plays differently**: find why — a
+draw on the room's stream removed, an order of operations changed, a
+solid gone from a nav grid, a room told something it was not told
+before — and put it back.
+
+**What the deletion found and left alone.** Four things the human enemy
+was the only one to reach, which do nothing against the machines; the
+game was left as it plays, and each is noted where it lives above:
+
+- ***Rampage*** does nothing: `settle_rampage` clears every stack when
+  `enemy_standing()` is false, and `enemy_standing` counts the station
+  room's **Bims** alone, so against machines the stack earned is cleared
+  the same step.
+- **The field surgeon's reset** is every step: `settle_medics` puts
+  `field_surgery_used` back when `enemy_standing()` is false, for the
+  same reason, so a bare field surgery is never held to once a fight.
+- ***Relentless*** has nothing to bite on: it keeps a mark past an enemy
+  out cold until it is dead, and a machine is never out cold — it is
+  destroyed at once.
+- **`EnemyDown` is never said**, no room having hostile Bims, and
+  `Game::recall_outside` lost its only caller (`leave_site`, the raid's
+  arrival). `surface::guard_post()` has no caller either, the guard's
+  post being gone; `GUARD_POST` is still the plan's.
+
+The tests deleted with them: `field_surgeon_is_once_a_fight_and_comes_back_when_it_ends`,
+and the rampage half of `bruiser_dug_in_deadeye_and_rampage` and the
+relentless half of `relentless_and_grit`. A fix is a change to what the
+game does, and is its own feature — `enemy_standing` asked of the
+machines too, most likely.

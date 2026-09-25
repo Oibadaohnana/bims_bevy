@@ -2,7 +2,7 @@
 //!
 //! Every way the mouse and the menus reach into the simulation is one of
 //! these — a click on the deck, a right-click to walk somewhere, a row of
-//! a fixture's menu, a box on the Management tab — and [`Game::order`] is
+//! a menu, a box on the Management tab — and [`Game::order`] is
 //! the one door they go through. That is what makes the room playable by
 //! several people at once: an order is a number that can be written down,
 //! sent down a wire and applied on every player's copy of the room in the
@@ -22,9 +22,7 @@
 use crate::door;
 use crate::game::{Game, ORDER_IGNORED};
 use crate::health::Part;
-use crate::manager::Stock;
 use crate::math::vec2;
-use crate::room::Dish;
 use crate::room::Switch;
 use crate::task::{Kind, Saved};
 
@@ -68,7 +66,7 @@ pub enum CrewOrder {
         y: f32,
     },
     /// Take the post off crew member `who`, so it goes back about its
-    /// errands: the end of a trip to the helm.
+    /// errands.
     StandDown {
         who: u32,
     },
@@ -76,30 +74,6 @@ pub enum CrewOrder {
     PickUp {
         who: u32,
         item: u32,
-    },
-    Cook {
-        who: u32,
-        dish: Dish,
-    },
-    EatLeftovers {
-        who: u32,
-    },
-    MakeStew {
-        who: u32,
-    },
-    SweepUp {
-        who: u32,
-    },
-    TakeShower {
-        who: u32,
-    },
-    UseToilet {
-        who: u32,
-    },
-    /// Lie down: a nap or a night, in minutes.
-    Rest {
-        who: u32,
-        minutes: f32,
     },
     /// Dress every open wound on that part of `patient`.
     Bandage {
@@ -120,59 +94,11 @@ pub enum CrewOrder {
         patient: u32,
         part: Part,
     },
-    /// Walk to the cold store and open or shut it.
-    ToggleFridge {
-        who: u32,
-        fridge: u32,
-    },
-    ToggleStove {
-        who: u32,
-        hob: u32,
-    },
-    RunDishwasher {
-        who: u32,
-        washer: u32,
-    },
-    /// The bathroom door: hold it open, let it be, lock it, unlock it.
-    ToggleDoor {
-        who: u32,
-    },
-    ToggleDoorLock {
-        who: u32,
-    },
     /// A powered door's switch, walked to.
     Door {
         who: u32,
         door: u32,
         order: door::Order,
-    },
-    /// The bay follows the manager's targets, or stops.
-    HydroAutomated {
-        bay: u32,
-        on: bool,
-    },
-    /// Plant one crop in every tray, by its code; nought lets the bay go.
-    HydroForced {
-        bay: u32,
-        code: u32,
-    },
-    /// Give `who` bunk `bed`, or none: `u32::MAX` for none.
-    AssignBed {
-        who: u32,
-        bed: u32,
-    },
-    /// The timetable: paint hour `hour` with `slot`.
-    ScheduleSlot {
-        hour: u32,
-        slot: u32,
-    },
-    NeedTriggerOn {
-        need: u32,
-        on: bool,
-    },
-    NeedTrigger {
-        need: u32,
-        at: f32,
     },
     /// Turn job `job`'s priority one notch, forwards or back.
     WorkPriority {
@@ -182,15 +108,7 @@ pub enum CrewOrder {
     Autonomous {
         on: bool,
     },
-    /// The manager's target for one of the stocks.
-    StockTarget {
-        which: Stock,
-        count: u32,
-    },
 }
-
-/// A bed of none, in [`CrewOrder::AssignBed`].
-pub const NO_BED: u32 = u32::MAX;
 
 impl CrewOrder {
     /// The crew member this order is an errand for — a walk, a row of a
@@ -203,21 +121,9 @@ impl CrewOrder {
         match self {
             CrewOrder::SendTo { who, .. }
             | CrewOrder::PickUp { who, .. }
-            | CrewOrder::Cook { who, .. }
-            | CrewOrder::EatLeftovers { who }
-            | CrewOrder::MakeStew { who }
-            | CrewOrder::SweepUp { who }
-            | CrewOrder::TakeShower { who }
-            | CrewOrder::UseToilet { who }
-            | CrewOrder::Rest { who, .. }
             | CrewOrder::Bandage { who, .. }
             | CrewOrder::BandageAll { who, .. }
             | CrewOrder::Treat { who, .. }
-            | CrewOrder::ToggleFridge { who, .. }
-            | CrewOrder::ToggleStove { who, .. }
-            | CrewOrder::RunDishwasher { who, .. }
-            | CrewOrder::ToggleDoor { who }
-            | CrewOrder::ToggleDoorLock { who }
             | CrewOrder::Door { who, .. } => Some(who),
             CrewOrder::Select { .. }
             | CrewOrder::SelectOwn
@@ -225,15 +131,8 @@ impl CrewOrder {
             | CrewOrder::Move { .. }
             | CrewOrder::Line { .. }
             | CrewOrder::StandDown { .. }
-            | CrewOrder::HydroAutomated { .. }
-            | CrewOrder::HydroForced { .. }
-            | CrewOrder::AssignBed { .. }
-            | CrewOrder::ScheduleSlot { .. }
-            | CrewOrder::NeedTriggerOn { .. }
-            | CrewOrder::NeedTrigger { .. }
             | CrewOrder::WorkPriority { .. }
-            | CrewOrder::Autonomous { .. }
-            | CrewOrder::StockTarget { .. } => None,
+            | CrewOrder::Autonomous { .. } => None,
         }
     }
 }
@@ -291,48 +190,6 @@ impl Game {
                 }
                 0
             }
-            CrewOrder::Cook { who: w, dish } => {
-                if who(w) < self.crew_count() as usize {
-                    self.cook(who(w), dish);
-                }
-                0
-            }
-            CrewOrder::EatLeftovers { who: w } => {
-                if who(w) < self.crew_count() as usize {
-                    self.eat_leftovers(who(w));
-                }
-                0
-            }
-            CrewOrder::MakeStew { who: w } => {
-                if who(w) < self.crew_count() as usize {
-                    self.make_stew(who(w));
-                }
-                0
-            }
-            CrewOrder::SweepUp { who: w } => {
-                if who(w) < self.crew_count() as usize {
-                    self.sweep_up(who(w));
-                }
-                0
-            }
-            CrewOrder::TakeShower { who: w } => {
-                if who(w) < self.crew_count() as usize {
-                    self.take_shower(who(w));
-                }
-                0
-            }
-            CrewOrder::UseToilet { who: w } => {
-                if who(w) < self.crew_count() as usize {
-                    self.use_toilet(who(w));
-                }
-                0
-            }
-            CrewOrder::Rest { who: w, minutes } => {
-                if who(w) < self.crew_count() as usize {
-                    self.rest(who(w), minutes);
-                }
-                0
-            }
             CrewOrder::Bandage {
                 who: w,
                 patient,
@@ -362,36 +219,6 @@ impl Game {
                 }
                 0
             }
-            CrewOrder::ToggleFridge { who: w, fridge } => {
-                if who(w) < self.crew_count() as usize {
-                    self.toggle_fridge(who(w), fridge as usize);
-                }
-                0
-            }
-            CrewOrder::ToggleStove { who: w, hob } => {
-                if who(w) < self.crew_count() as usize {
-                    self.toggle_stove(who(w), hob as usize);
-                }
-                0
-            }
-            CrewOrder::RunDishwasher { who: w, washer } => {
-                if who(w) < self.crew_count() as usize {
-                    self.run_dishwasher(who(w), washer as usize);
-                }
-                0
-            }
-            CrewOrder::ToggleDoor { who: w } => {
-                if who(w) < self.crew_count() as usize {
-                    self.toggle_door(who(w));
-                }
-                0
-            }
-            CrewOrder::ToggleDoorLock { who: w } => {
-                if who(w) < self.crew_count() as usize {
-                    self.toggle_door_lock(who(w));
-                }
-                0
-            }
             CrewOrder::Door {
                 who: w,
                 door,
@@ -400,31 +227,6 @@ impl Game {
                 if who(w) < self.crew_count() as usize {
                     self.order_door(who(w), door as usize, order);
                 }
-                0
-            }
-            CrewOrder::HydroAutomated { bay, on } => {
-                self.set_hydro_automated(bay as usize, on);
-                0
-            }
-            CrewOrder::HydroForced { bay, code } => {
-                self.set_hydro_forced(bay as usize, code);
-                0
-            }
-            CrewOrder::AssignBed { who: w, bed } => {
-                let bed = (bed != NO_BED).then_some(bed as usize);
-                self.assign_bed(who(w), bed);
-                0
-            }
-            CrewOrder::ScheduleSlot { hour, slot: brush } => {
-                self.set_schedule_slot(hour, brush);
-                0
-            }
-            CrewOrder::NeedTriggerOn { need, on } => {
-                self.set_need_trigger_on(need, on);
-                0
-            }
-            CrewOrder::NeedTrigger { need, at } => {
-                self.set_need_trigger(need, at);
                 0
             }
             CrewOrder::WorkPriority { job, back } => {
@@ -439,10 +241,6 @@ impl Game {
                 self.set_autonomous(on);
                 0
             }
-            CrewOrder::StockTarget { which, count } => {
-                self.set_target(which, count);
-                0
-            }
         }
     }
 
@@ -450,14 +248,14 @@ impl Game {
     /// the Bim's queue and waits its turn behind what it is on and
     /// whatever was queued before it, rather than displacing it (feature
     /// 69). A walk goes on as a [`Kind::Walk`] and is given the way a
-    /// right-click gives one when its turn comes; a fixture's errand is
+    /// right-click gives one when its turn comes; any other errand is
     /// begun the way its row would have begun it, and dropped then if it
     /// cannot be — see [`Game::pump_queue`]. What is not an errand at all
     /// — a selection, a box on the Management tab — is done now, Shift
     /// or no Shift, through [`Game::order`]. A plain order afterwards
     /// drops what was queued (`drop_ordered`). The code is `order`'s: a
-    /// walk with no way there even with the door open is `ORDER_NOWHERE`
-    /// with a cross on the deck, one queued `ORDER_MOVING` with a ping.
+    /// walk with no way there is `ORDER_NOWHERE` with a cross on the deck,
+    /// one queued `ORDER_MOVING` with a ping.
     pub fn order_later(&mut self, slot: u32, order: CrewOrder) -> u32 {
         let crew = self.crew_count() as usize;
         let who = |w: u32| w as usize;
@@ -481,13 +279,6 @@ impl Game {
                 return self.queue_walk(who(w), vec2(x, y), true);
             }
             CrewOrder::PickUp { who: w, item } => (w, Kind::Fetch { item }, 0.0),
-            CrewOrder::Cook { who: w, dish } => (w, Kind::Meal(dish), 0.0),
-            CrewOrder::EatLeftovers { who: w } => (w, Kind::Leftovers, 0.0),
-            CrewOrder::MakeStew { who: w } => (w, Kind::Batch, 0.0),
-            CrewOrder::SweepUp { who: w } => (w, Kind::Clean, 0.0),
-            CrewOrder::TakeShower { who: w } => (w, Kind::Shower, 0.0),
-            CrewOrder::UseToilet { who: w } => (w, Kind::Heads, 0.0),
-            CrewOrder::Rest { who: w, minutes } => (w, Kind::Rest, minutes),
             CrewOrder::Bandage {
                 who: w,
                 patient,
@@ -516,25 +307,6 @@ impl Game {
                 },
                 0.0,
             ),
-            CrewOrder::ToggleFridge { who: w, fridge } => {
-                (w, Kind::Switch(Switch::FridgeDoor(fridge as usize)), 0.0)
-            }
-            CrewOrder::ToggleStove { who: w, hob } => {
-                (w, Kind::Switch(Switch::Hob(hob as usize)), 0.0)
-            }
-            CrewOrder::RunDishwasher { who: w, washer } => {
-                (w, Kind::Switch(Switch::Dishwasher(washer as usize)), 0.0)
-            }
-            // Which way the door is worked is decided at the click, as the
-            // live order decides it: the door the player is looking at.
-            CrewOrder::ToggleDoor { who: w } => {
-                (w, Kind::Switch(Switch::BathDoor(!self.door_is_open())), 0.0)
-            }
-            CrewOrder::ToggleDoorLock { who: w } => (
-                w,
-                Kind::Switch(Switch::BathLock(!self.door_is_locked())),
-                0.0,
-            ),
             CrewOrder::Door {
                 who: w,
                 door,
@@ -544,15 +316,8 @@ impl Game {
             | CrewOrder::SelectOwn
             | CrewOrder::Recruit
             | CrewOrder::StandDown { .. }
-            | CrewOrder::HydroAutomated { .. }
-            | CrewOrder::HydroForced { .. }
-            | CrewOrder::AssignBed { .. }
-            | CrewOrder::ScheduleSlot { .. }
-            | CrewOrder::NeedTriggerOn { .. }
-            | CrewOrder::NeedTrigger { .. }
             | CrewOrder::WorkPriority { .. }
-            | CrewOrder::Autonomous { .. }
-            | CrewOrder::StockTarget { .. } => return self.order(slot, order),
+            | CrewOrder::Autonomous { .. } => return self.order(slot, order),
         };
         if who(w) < crew {
             self.queue_order(Saved::ordered(who(w), kind, minutes, None));
@@ -561,12 +326,10 @@ impl Game {
     }
 }
 
-/// Whether a walk's code is a refusal worth a line: the two `order_move`
-/// comes back with when there is no way there.
+/// Whether a walk's code is a refusal worth a line: what `order_move` comes
+/// back with when there is no way there.
 pub fn walk_refused(code: u32) -> bool {
-    code != ORDER_IGNORED
-        && code != crate::game::ORDER_MOVING
-        && code != crate::game::ORDER_VIA_DOOR
+    code == crate::game::ORDER_NOWHERE
 }
 
 #[cfg(test)]
@@ -576,7 +339,7 @@ mod tests {
     use crate::room::{ROOM_H, ROOM_W, TILE};
 
     fn room() -> Game {
-        Game::new(7, ROOM_W, ROOM_H)
+        Game::bare(7, ROOM_W, ROOM_H)
     }
 
     #[test]
@@ -659,23 +422,22 @@ mod tests {
 
     /// Feature 69: an order given with Shift waits its turn. Two walks
     /// queued go one after the other, and are read off the deck
-    /// (`queued_walks`) until they are walked; a meal queued behind them
+    /// (`queued_walks`) until they are walked; an errand queued behind them
     /// is begun the way its row begins one once the Bim is there — and
-    /// dropped, not mimed, when the cold store cannot run to it by then;
-    /// a plain order calls the whole queue off.
+    /// dropped, not mimed, when there is nothing for it by then; a plain
+    /// order calls the whole queue off.
     #[test]
     fn a_shift_order_waits_its_turn_and_a_plain_one_calls_the_queue_off() {
-        use crate::game::{JOB_MEAL, JOB_WALK};
+        use crate::game::{JOB_FETCH, JOB_WALK};
         const DT: f32 = 1.0 / 60.0;
         let mut game = room();
         game.set_autonomous(false);
-        game.set_stock(4, 4, 0, 0);
         let start = game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
 
-        // First, an errand queued where there is nothing for it — the pot
-        // empty — is dropped when its turn comes, the way the row would
-        // have refused it, not walked through with empty hands.
-        game.order_later(0, CrewOrder::EatLeftovers { who: 0 });
+        // First, an errand queued where there is nothing for it — no such
+        // weapon on the deck — is dropped when its turn comes, the way the
+        // row would have refused it, not walked through with empty hands.
+        game.order_later(0, CrewOrder::PickUp { who: 0, item: 99 });
         assert_eq!(game.ordered_count(0), 1);
         game.simulate(DT);
         assert_eq!(game.ordered_count(0), 0, "nothing in the pot: dropped");
@@ -698,14 +460,10 @@ mod tests {
         assert_eq!(walks.len(), 2, "both read off the deck: {walks:?}");
         assert!((walks[0] - a).len() < TILE && (walks[1] - b).len() < TILE);
         assert_eq!(game.agenda_job(0, 0), JOB_WALK);
-        // And a meal behind them.
-        game.order_later(
-            0,
-            CrewOrder::Cook {
-                who: 0,
-                dish: Dish::Stew,
-            },
-        );
+        // And a weapon to pick up behind them, lying back where the Bim
+        // started.
+        let gun = game.drop_for_probe(start, crate::combat::WeaponKind::LaserPistol.basic(), 1);
+        game.order_later(0, CrewOrder::PickUp { who: 0, item: gun });
         assert_eq!(game.agenda_len(0), 3);
         assert_eq!(game.ordered_count(0), 3);
 
@@ -728,7 +486,7 @@ mod tests {
             game.destination_for_probe(0)
         );
         assert!(game.queued_walks(0).is_empty());
-        // And there, the meal is begun the way the row begins one.
+        // And there, the fetch is begun the way the row begins one.
         let mut steps = 0;
         while !game.arrived_for_probe(0) && steps < 3000 {
             game.simulate(DT);
@@ -737,10 +495,10 @@ mod tests {
         for _ in 0..3 {
             game.simulate(DT);
         }
-        assert_eq!(game.activity(0), JOB_MEAL, "cooking, once it got there");
+        assert_eq!(game.activity(0), JOB_FETCH, "off for it, once it got there");
         assert_eq!(game.ordered_count(0), 0);
 
-        // A plain order is the end of what was queued: the meal is put
+        // A plain order is the end of what was queued: the fetch is put
         // down to be picked up (it is the Bim's own work now), the queued
         // walk behind it is not.
         game.order_later(0, CrewOrder::Move { x: a.x, y: a.y });
@@ -756,77 +514,10 @@ mod tests {
             ORDER_MOVING
         );
         assert_eq!(game.ordered_count(0), 0, "the plain walk called it off");
-        assert_eq!(game.agenda_len(0), 1, "the meal waits to be picked up");
+        assert_eq!(game.agenda_len(0), 1, "the fetch waits to be picked up");
         assert!(game.queued_walks(0).is_empty());
         // What is not an errand is done now, Shift or no.
         game.order_later(0, CrewOrder::Autonomous { on: true });
         assert!(game.is_autonomous());
-    }
-
-    /// A walk the player gave is not an errand, and nobody takes a Bim
-    /// off one.
-    ///
-    /// An errand interrupted goes onto the queue and is picked up again; a
-    /// *walk* interrupted is simply gone, since there is no chain behind
-    /// it to save. So a crewmate wanting a word — the one errand a Bim
-    /// starts on somebody *else* — leaves alone a Bim on a route it was
-    /// sent along, and one with Shift-clicks still waiting their turn: the
-    /// chain is walked to its end and the errands come after. A Bim
-    /// standing about with nothing of the player's on it is fair game, as
-    /// it always was.
-    #[test]
-    fn a_crewmate_s_word_does_not_take_a_shift_chain_off_a_bim() {
-        use crate::game::JOB_CHAT;
-        const DT: f32 = 1.0 / 60.0;
-        // The fifth need is `Need::Company`; spent to nothing it is the one
-        // errand that reaches across to another Bim.
-        const COMPANY: u32 = 4;
-        let lonely = || {
-            let mut game = room();
-            game.set_autonomous(true);
-            game.set_stock(4, 4, 4, 4);
-            game.put_for_probe(0, vec2(ROOM_W * 0.3, ROOM_H * 0.5));
-            game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
-            game.order(0, CrewOrder::SelectOwn);
-            game.spend_for_probe(1, COMPANY, 0.99);
-            game
-        };
-
-        // Standing about, the word lands: this is what the rule below is
-        // measured against.
-        let mut game = lonely();
-        let mut chatted = false;
-        for _ in 0..120 {
-            game.simulate(DT);
-            chatted |= game.activity(0) == JOB_CHAT;
-        }
-        assert!(chatted, "an idle Bim is somebody to talk to");
-
-        // The same room, with a chain of Shift-clicks on it: nobody so much
-        // as asks until every leg has been walked.
-        let mut game = lonely();
-        let goal = vec2(ROOM_W * 0.7, ROOM_H * 0.15);
-        for p in [
-            vec2(ROOM_W * 0.3, ROOM_H * 0.85),
-            vec2(ROOM_W * 0.7, ROOM_H * 0.85),
-            goal,
-        ] {
-            assert_eq!(
-                game.order_later(0, CrewOrder::Move { x: p.x, y: p.y }),
-                ORDER_MOVING
-            );
-        }
-        let mut steps = 0;
-        while (game.bim_pos(0) - goal).len() > 2.0 * TILE && steps < 3000 {
-            game.simulate(DT);
-            steps += 1;
-            assert_ne!(
-                game.activity(0),
-                JOB_CHAT,
-                "taken off the chain at step {steps}"
-            );
-        }
-        assert!(steps < 3000, "walked the lot: {:?}", game.bim_pos(0));
-        assert_eq!(game.ordered_count(0), 0, "nothing left waiting");
     }
 }

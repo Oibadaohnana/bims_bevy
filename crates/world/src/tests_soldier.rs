@@ -4,6 +4,7 @@
 //! who holds it alone.
 
 use bims::combat::{Gear, Item, WeaponKind};
+use bims::droid::{DroidKind, DroidPart};
 use bims::health::Part;
 use bims::math::{Vec2, vec2};
 use economy::trade_price;
@@ -32,6 +33,15 @@ fn plausible(took: f32, dealt: f32) -> bool {
     Part::ALL
         .iter()
         .any(|p| (took - dealt.min(p.max())).abs() < 1.0)
+}
+
+/// [`plausible`] for the staged machine: one of its four parts took the
+/// whole of it, or the part's own total when that is less.
+fn plausible_on_machine(world: &World, took: f32, dealt: f32) -> bool {
+    let body = machine(world).body;
+    DroidPart::ALL
+        .iter()
+        .any(|&p| (took - dealt.min(body.max(p))).abs() < 1.0)
 }
 
 /// The soldier's weapon out of its hand, its pack kept: nothing but the
@@ -121,25 +131,33 @@ fn middle(tile: (i32, i32)) -> Vec2 {
     vec2((tile.0 as f32 + 0.5) * TILE, (tile.1 as f32 + 0.5) * TILE)
 }
 
-/// The hostile dock with resident 0 stood four tiles down the corridor
-/// from the soldier, disarmed, the rest of the garrison down.
+/// The machines' dock with one of them stood four tiles down the
+/// corridor from the soldier, held where it is put and firing nothing
+/// (`stage_droid_fight_for_probe`): a target and nothing else.
 fn fight() -> World {
     let mut world = soldier();
     level_up(&mut world, 0, class::GRENADE_LEVEL);
-    assert!(world.stage_fight_for_probe());
-    let ashore = world.residents.as_mut().unwrap();
-    for other in 1..ashore.aboard.count() as usize {
-        ashore.aboard.room.kill_for_probe(other);
-    }
-    ashore.aboard.room.issue(0, Gear::default());
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
     for _ in 0..3 {
         world.step(&[]);
     }
     world
 }
 
-/// Where resident 0 stands, in the crew's room.
-fn resident_at(world: &World) -> Vec2 {
+/// The staged machine.
+fn machine(world: &World) -> &bims::droid::Droid {
+    world
+        .residents
+        .as_ref()
+        .unwrap()
+        .aboard
+        .room
+        .droid(0)
+        .expect("the staged machine")
+}
+
+/// Where the machine stands, in the crew's room.
+fn machine_at(world: &World) -> Vec2 {
     let residents = world.residents.as_ref().unwrap();
     let p = world
         .aboard
@@ -148,8 +166,10 @@ fn resident_at(world: &World) -> Vec2 {
     vec2(p.x as f32, p.y as f32)
 }
 
-fn resident_health(world: &World) -> f32 {
-    world.residents.as_ref().unwrap().aboard.room.health(0)
+/// What is left of the machine, its four parts added up.
+fn machine_health(world: &World) -> f32 {
+    let body = machine(world).body;
+    DroidPart::ALL.iter().map(|&p| body.health(p)).sum()
 }
 
 fn throw(world: &mut World, slot: u32, tile: (i32, i32)) -> Vec<WorldEvent> {
@@ -171,28 +191,12 @@ fn run_until_burst(world: &mut World) -> u32 {
     panic!("the grenade never burst");
 }
 
-/// Step to the burst and no further: what the resident lost to it, and
-/// where it stood as it went off — the step's own drop, so nothing it
-/// did before or after (a fist, a charge) is counted.
-fn resident_armour(world: &World) -> f32 {
-    world
-        .residents
-        .as_ref()
-        .unwrap()
-        .aboard
-        .room
-        .armour_health(0)
-}
-
-fn resident_burst(world: &mut World) -> (f32, Vec2) {
-    resident_burst_armoured(world).0
-}
-
-/// [`resident_burst`] with what its armour lost to the burst as well.
-fn resident_burst_armoured(world: &mut World) -> ((f32, Vec2), f32) {
+/// Step to the burst and no further: what the machine lost to it, and
+/// where it stood as it went off — the step's own drop, so nothing that
+/// landed before or after is counted.
+fn machine_burst(world: &mut World) -> (f32, Vec2) {
     for _ in 1..2_000 {
-        let health = resident_health(world);
-        let armour = resident_armour(world);
+        let health = machine_health(world);
         // Where the crew's room has it as a target, which is what the
         // burst reaches for.
         let at = world
@@ -202,13 +206,10 @@ fn resident_burst_armoured(world: &mut World) -> ((f32, Vec2), f32) {
             .first()
             .copied()
             .flatten()
-            .unwrap_or_else(|| resident_at(world));
+            .unwrap_or_else(|| machine_at(world));
         world.step(&[]);
         if world.aboard.room.grenades().is_empty() {
-            return (
-                (health - resident_health(world), at),
-                armour - resident_armour(world),
-            );
+            return (health - machine_health(world), at);
         }
     }
     panic!("the grenade never burst");
@@ -267,7 +268,7 @@ fn lay_bags(world: &mut World, at: Vec2) -> u32 {
 #[test]
 fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
     // Three crew, one of each class; a fresh world for each, since an
-    // errand put down keeps its broom.
+    // errand put down stays on the queue.
     let classed = || {
         let mut world = simulation_world(flyer(3), REFERENCE_MONEY, 3);
         assert_eq!(world.set_class(0, Class::Engineer), Ok(()));
@@ -315,36 +316,41 @@ fn every_class_equips_every_weapon_takes_every_errand_and_places_every_site() {
                 world.aboard.room.take(who as usize, cell);
             }
         }
-        // Every errand: a sweep of a fouled tile, the heads and a lie-down
-        // are each an order the room takes for anybody. The order's answer
-        // is on the deck, never a refusal; what says it was taken is the
-        // errand on hand.
-        let here = world.aboard.room.bim_pos(who as usize);
-        world.aboard.room.foul_for_probe(here);
-        for (order, job) in [
-            (
-                bims::order::CrewOrder::SweepUp { who },
-                bims::game::JOB_CLEAN,
-            ),
-            (
-                bims::order::CrewOrder::UseToilet { who },
-                bims::game::JOB_HEADS,
-            ),
-            (
-                bims::order::CrewOrder::Rest {
-                    who,
-                    minutes: 300.0,
-                },
-                bims::game::JOB_SLEEP,
-            ),
-        ] {
-            world.step(&[Command::Crew { slot: who, order }]);
-            assert_eq!(
-                world.aboard.room.task_kind_for_probe(who as usize),
-                Some(job),
-                "{who} takes {order:?}"
-            );
-        }
+        // Every errand: a gun picked up off the deck and its own wound
+        // dressed are each an order the room takes for anybody. The
+        // order's answer is on the deck, never a refusal; what says it was
+        // taken is the errand on hand. Stood on a cell a body fits in
+        // first: where the crew wake up is against the furniture.
+        let at = world.aboard.room.bim_pos(who as usize);
+        let here = world.aboard.room.put_for_probe(who as usize, at);
+        let gun =
+            world
+                .aboard
+                .room
+                .drop_for_probe(here, WeaponKind::LaserPistol.basic(), who as usize);
+        let order = bims::order::CrewOrder::PickUp { who, item: gun };
+        world.step(&[Command::Crew { slot: who, order }]);
+        assert_eq!(
+            world.aboard.room.task_kind_for_probe(who as usize),
+            Some(bims::game::JOB_FETCH),
+            "{who} takes {order:?}"
+        );
+        world.aboard.room.set_bandages_for_probe(who as usize, 1);
+        world
+            .aboard
+            .room
+            .wound(who as usize, bims::health::Part::Legs, 1.0);
+        let order = bims::order::CrewOrder::Bandage {
+            who,
+            patient: who,
+            part: bims::health::Part::Legs,
+        };
+        world.step(&[Command::Crew { slot: who, order }]);
+        assert_eq!(
+            world.aboard.room.task_kind_for_probe(who as usize),
+            Some(bims::game::JOB_BANDAGE),
+            "{who} takes {order:?}"
+        );
     }
     // Every site: the rule never asks the class, so it answers the same
     // for every part whoever asks — there is no slot in the question.
@@ -696,49 +702,47 @@ fn the_fuse_burns_its_seconds_and_the_throw_moves_the_checksum() {
 }
 
 #[test]
-fn the_burst_hurts_the_enemy_at_the_centre_less_at_the_edge_and_splashes_the_deck() {
-    // The centre: the resident on its tile takes the whole of it, on a
-    // part rolled off the stream, with no armour to take any. The
-    // soldier's rifle out of its hand, so nothing else lands.
+fn the_burst_hurts_the_enemy_at_the_centre_and_less_at_the_edge() {
+    // The centre: the machine on its tile takes the whole of it, on a
+    // part rolled off the stream, with no armour to take any — a machine
+    // wears none. The soldier's rifle out of its hand, so nothing else
+    // lands.
     let mut world = fight();
     disarm(&mut world, 0);
-    let at = resident_at(&world);
+    let at = machine_at(&world);
     let tile = tile_of(at);
     assert_eq!(world.can_throw(0, tile), Ok(()));
     throw(&mut world, 0, tile);
-    let (took, now) = resident_burst(&mut world);
+    let (took, now) = machine_burst(&mut world);
     let d = (now - middle(tile)).len() / TILE;
     let want = class::GRENADE_DAMAGE * (1.0 - 0.5 * d / class::GRENADE_RADIUS);
     assert!(
-        plausible(took, want),
+        plausible_on_machine(&world, took, want),
         "took {took} at {d:.2} tiles from the burst, {want} dealt"
     );
     assert!(took > 0.0);
-    // The blood is on the residents' deck round the body, the way a cut
-    // throws it: the burst is in both rooms.
-    let ashore = &world.residents.as_ref().unwrap().aboard.room;
-    assert!(ashore.dirty_tiles() > 0, "the burst splashed the deck");
-    // The edge: a tile two tiles short of the resident deals less, in
-    // the straight line to half. The head is five, so a head rolled
-    // says nothing; the burst is thrown until a body or a leg is hit.
+    // The edge: a tile two tiles short of the machine deals less, in the
+    // straight line to half. A limb is smaller than the burst, so a limb
+    // rolled says nothing; the burst is thrown until the chassis is hit.
     for _ in 0..6 {
         let mut world = fight();
         disarm(&mut world, 0);
-        let at = resident_at(&world);
+        let at = machine_at(&world);
         let from = world.aboard.room.bim_pos(0);
         let towards = (from - at).normalize_or_zero();
         let edge = tile_of(at + towards * (2.0 * TILE));
         assert_eq!(world.can_throw(0, edge), Ok(()));
         throw(&mut world, 0, edge);
-        let (took, now) = resident_burst(&mut world);
+        let (took, now) = machine_burst(&mut world);
         let d = (now - middle(edge)).len() / TILE;
         assert!(d > 0.5 && d < class::GRENADE_RADIUS, "{d}");
         let want = class::GRENADE_DAMAGE * (1.0 - 0.5 * d / class::GRENADE_RADIUS);
         assert!(
-            plausible(took, want),
+            plausible_on_machine(&world, took, want),
             "took {took} at {d:.2} tiles from the burst, {want} dealt"
         );
-        if took > Part::Head.max() + 1.0 {
+        let body = machine(&world).body;
+        if took > body.max(DroidPart::Legs) + 1.0 {
             assert!(
                 (took - want).abs() < 1.0,
                 "took {took} at {d:.2} tiles, wanted {want}"
@@ -750,25 +754,47 @@ fn the_burst_hurts_the_enemy_at_the_centre_less_at_the_edge_and_splashes_the_dec
             return;
         }
     }
-    panic!("six bursts, and every one landed on the head");
+    panic!("six bursts, and every one landed on a limb");
 }
 
+/// Armour takes its share of a burst — the crew's own, since a machine
+/// wears none — and nothing of the ship or the station moves for it.
 #[test]
-fn armour_takes_its_share_of_a_burst_and_a_sentry_and_the_parts_are_as_they_were() {
+fn armour_takes_its_share_of_a_burst_and_the_parts_are_as_they_were() {
     let mut world = fight();
     disarm(&mut world, 0);
-    let at = resident_at(&world);
-    let tile = tile_of(at);
-    // The resident in the basic armour: every part covered, so whichever
-    // the burst lands on takes its protection off first.
+    // Kate in the basic armour, every part covered so whichever the
+    // burst lands on takes its protection off first, stood beside the
+    // machine and held there: the grenade at her feet.
     let mut gear = Gear::default();
     gear.basic_armour(1_000);
-    world.residents.as_mut().unwrap().aboard.room.issue(0, gear);
+    world.aboard.room.issue(1, gear);
+    let at = machine_at(&world);
+    let kate = world
+        .aboard
+        .room
+        .put_for_probe(1, at + vec2(0.0, 1.5 * TILE));
+    world.aboard.room.recruit_for_probe(1, true);
+    let tile = tile_of(kate);
     let hull = shipdesign::design_hash(&world.ship.design);
     let station = world.residents.as_ref().unwrap().station;
     let deck = shipdesign::design_hash(&world.station(station).unwrap().design);
+    assert_eq!(world.can_throw(0, tile), Ok(()));
     throw(&mut world, 0, tile);
-    let ((took, now), armour_took) = resident_burst_armoured(&mut world);
+    let (mut took, mut armour_took, mut now) = (0.0, 0.0, kate);
+    for _ in 1..2_000 {
+        world.aboard.room.put_for_probe(1, kate);
+        let health = world.aboard.room.health(1);
+        let armour = world.aboard.room.armour_health(1);
+        now = world.aboard.room.bim_pos(1);
+        world.step(&[]);
+        if world.aboard.room.grenades().is_empty() {
+            took = health - world.aboard.room.health(1);
+            armour_took = armour - world.aboard.room.armour_health(1);
+            break;
+        }
+    }
+    assert!(world.aboard.room.grenades().is_empty(), "it burst");
     let d = (now - middle(tile)).len() / TILE;
     let dealt = class::GRENADE_DAMAGE * (1.0 - 0.5 * d / class::GRENADE_RADIUS);
     assert!(armour_took > 0.0, "the armour took some");
@@ -869,7 +895,7 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
         crate::deploy::SENTRY_HEALTH - s.health
     );
     // And the blood: the crew's deck round the crewmate.
-    assert!(world.aboard.room.dirty_tiles() > 0);
+    assert!(world.aboard.room.bloody_tiles() > 0);
     assert_eq!(
         shipdesign::design_hash(&world.ship.design),
         hull,
@@ -1008,7 +1034,7 @@ fn a_shut_door_stops_a_burst() {
 fn two_runs_of_a_grenade_fight_on_one_seed_are_the_same_fight_and_the_book_is_the_labour_rule() {
     let run = || {
         let mut world = fight();
-        let at = resident_at(&world);
+        let at = machine_at(&world);
         throw(&mut world, 0, tile_of(at));
         for _ in 0..600 {
             world.step(&[]);
@@ -1187,8 +1213,13 @@ fn long_throw_short_fuse_frag_and_quick_draw_are_the_grenade_s_numbers() {
     assert_eq!(world.grenade_fuse(1), class::GRENADE_FUSE);
 }
 
+/// *Bruiser*, *dug in* and *deadeye* are the soldier's numbers. (The
+/// last pick's other side, *rampage* — a stack for each enemy downed
+/// while one is still standing — does nothing since every enemy is a
+/// machine: whether an enemy stands is asked of the station's people
+/// alone, so the stacks are cleared the step they are earned.)
 #[test]
-fn bruiser_dug_in_deadeye_and_rampage() {
+fn bruiser_dug_in_and_deadeye() {
     let mut world = soldier();
     pick(&mut world, 0, Talent::Bruiser);
     assert_eq!(world.skill_of(0).melee, class::BRUISER_MELEE);
@@ -1211,84 +1242,4 @@ fn bruiser_dug_in_deadeye_and_rampage() {
         assert_eq!(stats.accuracy, kind.basic().stats().accuracy);
     }
     assert!(!world.skill_of(1).deadeye);
-    // Rampage: a stack for each enemy the soldier downs, up to three,
-    // until the fight ends — so a second of the garrison is left standing,
-    // disarmed, for the fight to go on past the first going down.
-    let mut world = soldier();
-    level_up(&mut world, 0, class::GRENADE_LEVEL);
-    assert!(world.stage_fight_for_probe());
-    {
-        let ashore = world.residents.as_mut().unwrap();
-        assert!(ashore.aboard.count() >= 2, "a garrison of two at least");
-        for other in 2..ashore.aboard.count() as usize {
-            ashore.aboard.room.kill_for_probe(other);
-        }
-        ashore.aboard.room.issue(0, Gear::default());
-        ashore.aboard.room.issue(1, Gear::default());
-    }
-    for _ in 0..3 {
-        world.step(&[]);
-    }
-    disarm(&mut world, 0);
-    pick(&mut world, 0, Talent::Rampage);
-    // The tenth level has the seventh's drill under it.
-    let drill = class::DRILL_FIRE_RATE;
-    assert_eq!(world.skill_of(0).fire_rate, drill);
-    assert_eq!(world.aboard.room.rampage(0), 0);
-    // The resident hit by the soldier's grenade and, its blood run out,
-    // down the next step: one stack, the step the world sees it down —
-    // the burst was the last thing to land on it.
-    let at = resident_at(&world);
-    throw(&mut world, 0, tile_of(at));
-    let (took, _) = resident_burst(&mut world);
-    assert!(took > 0.0, "the burst landed");
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .knock_out_for_probe(0);
-    let mut downed = false;
-    for _ in 0..60 {
-        let ashore = &world.residents.as_ref().unwrap().aboard.room;
-        if ashore.is_down(0) {
-            downed = true;
-        }
-        if world.aboard.room.rampage(0) > 0 {
-            break;
-        }
-        world.step(&[]);
-    }
-    assert!(downed, "the resident went down");
-    assert_eq!(world.aboard.room.rampage(0), 1);
-    assert_eq!(
-        world.skill_of(0).fire_rate,
-        drill * class::RAMPAGE_FIRE_RATE
-    );
-    // Capped at three, and the checksum knows the stacks.
-    let before = world_checksum(&world);
-    world.aboard.room.set_rampage(0, 3);
-    assert_ne!(world_checksum(&world), before);
-    assert_eq!(
-        world.skill_of(0).fire_rate,
-        drill * class::RAMPAGE_FIRE_RATE.powi(class::RAMPAGE_STACKS as i32)
-    );
-    // No enemy standing: the fight is over, and the stacks with it.
-    for who in 0..2 {
-        world
-            .residents
-            .as_mut()
-            .unwrap()
-            .aboard
-            .room
-            .kill_for_probe(who);
-    }
-    for _ in 0..3 {
-        world.step(&[]);
-    }
-    assert_eq!(world.aboard.room.rampage(0), 0);
-    assert_eq!(world.skill_of(0).fire_rate, drill);
-    // Nothing for the crewmate, ever.
-    assert_eq!(world.aboard.room.rampage(1), 0);
 }

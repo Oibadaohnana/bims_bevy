@@ -4,14 +4,14 @@
 //! cover on both rooms, a sentry's fire and its end; and each of the ten
 //! levels' talents doing what it says.
 
-use bims::combat::{Gear, Item, Tier, WeaponKind};
+use bims::combat::{Item, Tier, WeaponKind};
+use bims::droid::{DroidBody, DroidKind, DroidPart};
 use economy::trade_price;
 use physics::ResourceId;
 use shipdesign::Rotation;
 use shipdesign::fixture::flyer;
 use shipdesign::parts::PartKind;
 
-use crate::Target;
 use crate::class::{self, Class, LEVEL_XP, Progress, Side, Talent};
 use crate::deploy::{self, Deck, DeployKind, Kit};
 use crate::event::{Refusal, WorldEvent};
@@ -190,31 +190,59 @@ fn site_near(world: &World, who: u32) -> (u32, u32) {
     panic!("nowhere near the Bim for a site");
 }
 
-/// The hostile dock with resident 0 stood a few tiles down the corridor
-/// from James, the rest of the garrison down (`stage_fight_for_probe`).
+/// The machines' dock with one of them stood a few tiles down the
+/// corridor from James (`stage_droid_fight_for_probe`), held where it is
+/// put and firing nothing while the kits are laid: a hit drops a deploy,
+/// and a machine four tiles off with a pistol lands one every few
+/// seconds. `arm_machine` gives it the pistol for the fight.
 fn fight() -> World {
     let mut world = engineer();
-    assert!(world.stage_fight_for_probe());
-    let ashore = world.residents.as_mut().unwrap();
-    for other in 1..ashore.aboard.count() as usize {
-        ashore.aboard.room.kill_for_probe(other);
-    }
-    // Disarmed while the kits are laid: a hit drops a deploy, and a
-    // resident four tiles off with a pistol lands one every few seconds.
-    // `arm_resident` gives the pistol back for the fight.
-    ashore.aboard.room.issue(0, Gear::default());
-    // And the garrison's deaths taken before anything is measured.
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
     for _ in 0..3 {
         world.step(&[]);
     }
     world
 }
 
-/// The staged resident's pistol back in its hand.
-fn arm_resident(world: &mut World) {
-    let mut gear = Gear::default();
-    gear.weapon = Some(WeaponKind::LaserPistol.basic());
-    world.residents.as_mut().unwrap().aboard.room.issue(0, gear);
+/// The staged machine let go and a pistol in its arm: it fights.
+fn arm_machine(world: &mut World) {
+    let droid = machine_mut(world);
+    droid.posing = false;
+    droid.weapon = WeaponKind::LaserPistol.basic();
+}
+
+/// The staged machine, to change by hand.
+fn machine_mut(world: &mut World) -> &mut bims::droid::Droid {
+    world
+        .residents
+        .as_mut()
+        .unwrap()
+        .aboard
+        .room
+        .droid_mut_for_probe(0)
+        .expect("the staged machine")
+}
+
+/// What is left of the staged machine, its four parts added up.
+fn machine_health(world: &World) -> f32 {
+    let droid = world
+        .residents
+        .as_ref()
+        .unwrap()
+        .aboard
+        .room
+        .droid(0)
+        .expect("the staged machine");
+    DroidPart::ALL.iter().map(|&p| droid.body.health(p)).sum()
+}
+
+/// The staged machine whole again, the way a crew member is patched up —
+/// a wreck stood up again with it: the test wants a target, not a fight
+/// won.
+fn mend_machine(world: &mut World) {
+    let droid = machine_mut(world);
+    droid.body = DroidBody::new(droid.kind, droid.tier);
+    droid.destroyed = false;
 }
 
 // --- A: experience, levels and picks -----------------------------------------
@@ -256,8 +284,11 @@ fn experience_climbs_the_levels_and_a_level_up_is_said_once() {
     assert!(!world.has_talent(1, Talent::ReinforcedSand));
 }
 
+/// A machine destroyed is experience to every classed crew member in
+/// range, once: a wreck is down and dead at the same instant, so it is
+/// `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` together and never again.
 #[test]
-fn an_enemy_going_down_and_dying_is_experience_once_each_to_the_classed_crew_in_range() {
+fn a_machine_destroyed_is_experience_once_each_to_the_classed_crew_in_range() {
     let mut world = fight();
     assert_eq!(world.set_class(1, Class::Engineer), Ok(()));
     // James is in the vicinity of himself, and of a point fifty tiles off,
@@ -265,49 +296,24 @@ fn an_enemy_going_down_and_dying_is_experience_once_each_to_the_classed_crew_in_
     let here = world.aboard.room.bim_pos(0);
     assert!(world.in_vicinity(0, here + bims::math::vec2(50.0 * TILE, 0.0)));
     assert!(!world.in_vicinity(0, here + bims::math::vec2(51.0 * TILE, 0.0)));
-    // Kate beside James, so both are in range of the resident; the
-    // resident is a few tiles from James.
+    // Kate beside James, so both are in range of the machine; the
+    // machine is a few tiles from James.
     world
         .aboard
         .room
         .put_for_probe(1, here + bims::math::vec2(TILE, 0.0));
     world.step(&[]);
     let (a, b) = (world.progress_of(0).xp, world.progress_of(1).xp);
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .knock_out_for_probe(0);
+    machine_mut(&mut world).destroy();
     for _ in 0..3 {
         world.step(&[]);
     }
-    assert_eq!(world.progress_of(0).xp, a + class::XP_ENEMY_DOWN, "James");
-    assert_eq!(world.progress_of(1).xp, b + class::XP_ENEMY_DOWN, "Kate");
+    let paid = class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD;
+    assert_eq!(world.progress_of(0).xp, a + paid, "James");
+    assert_eq!(world.progress_of(1).xp, b + paid, "Kate");
     world.step(&[]);
-    assert_eq!(world.progress_of(0).xp, a + class::XP_ENEMY_DOWN, "once");
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .kill_for_probe(0);
-    for _ in 0..3 {
-        world.step(&[]);
-    }
-    assert_eq!(
-        world.progress_of(0).xp,
-        a + class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD,
-        "and dying"
-    );
-    world.step(&[]);
-    assert_eq!(
-        world.progress_of(1).xp,
-        b + class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD,
-        "once each"
-    );
+    assert_eq!(world.progress_of(0).xp, a + paid, "once");
+    assert_eq!(world.progress_of(1).xp, b + paid, "once each");
     // A crewmate going down or dying is nobody's experience.
     let a = world.progress_of(0).xp;
     world.aboard.room.knock_out_for_probe(1);
@@ -321,15 +327,12 @@ fn an_enemy_going_down_and_dying_is_experience_once_each_to_the_classed_crew_in_
     assert_eq!(world.progress_of(0).xp, a);
     // And a dead player's progress is kept, for the buyback (feature
     // 103): the level, the experience and the talents come back with it.
-    assert_eq!(
-        world.progress_of(1).xp,
-        b + class::XP_ENEMY_DOWN + class::XP_ENEMY_DEAD
-    );
+    assert_eq!(world.progress_of(1).xp, b + paid);
     assert_ne!(world.progress_of(1), Progress::default());
 }
 
 #[test]
-fn an_enemy_down_on_an_unjoined_deck_and_one_seen_by_a_classless_crew_is_nothing() {
+fn a_machine_destroyed_on_an_unjoined_deck_and_one_seen_by_a_classless_crew_is_nothing() {
     let mut world = fight();
     // Kate, no class, beside James.
     let here = world.aboard.room.bim_pos(0);
@@ -341,13 +344,7 @@ fn an_enemy_down_on_an_unjoined_deck_and_one_seen_by_a_classless_crew_is_nothing
     let before = world.progress_of(0).xp;
     world.undock_for_probe();
     assert!(!world.aboard.is_joined());
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .knock_out_for_probe(0);
+    machine_mut(&mut world).destroy();
     for _ in 0..3 {
         world.step(&[]);
     }
@@ -496,8 +493,6 @@ fn a_pick_is_refused_for_the_wrong_slot_level_or_a_second_time_and_moves_the_che
 #[test]
 fn an_engineer_sets_out_with_its_kits_and_the_class_locks_at_the_first_undock() {
     let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     assert_eq!(world.class_of(0), Class::None);
     assert_eq!(kits_in_pack(&world, 0, Kit::Sandbag), 0);
     let events = world.step(&[Command::SetClass {
@@ -535,20 +530,7 @@ fn an_engineer_sets_out_with_its_kits_and_the_class_locks_at_the_first_undock() 
     assert_eq!(trade_price(ResourceId::SandbagKit), 60);
     assert_eq!(trade_price(ResourceId::SentryKit), 880);
     // Off the berth, and the class is fixed.
-    world.man_the_helm_for_probe(0);
-    let target = Target::Point(
-        world
-            .ship
-            .position()
-            .add(worldgen::math::dvec2(5_000.0, 0.0)),
-    );
-    world.step(&[Command::Confirm { slot: 0, target }]);
-    for _ in 0..62 * 60 {
-        if !matches!(world.ship.state, ShipState::Docked { .. }) {
-            break;
-        }
-        world.step(&[]);
-    }
+    world.undock_for_probe();
     assert!(!matches!(world.ship.state, ShipState::Docked { .. }));
     world.step(&[]);
     assert!(world.undocked_once);
@@ -783,13 +765,13 @@ fn sandbags_take_the_bolts_they_stop_and_are_gone_at_nothing() {
 // --- D: the sentry ------------------------------------------------------------
 
 /// A sentry laid beside James in the staged fight, at the third level,
-/// with resident 0 alone a few tiles down the corridor.
+/// with the machine alone a few tiles down the corridor — held and
+/// firing nothing through the laying, and armed once it is laid.
 fn sentry_fight() -> (World, u32) {
     let mut world = fight();
     level_up(&mut world, 0, class::SENTRY_LEVEL);
     give_kit(&mut world, 0, Kit::Sentry);
     let tile = tile_near(&world, 0, Kit::Sentry);
-    // Patched up through the laying, since the resident shoots.
     let mut events = world.step(&[Command::Deploy {
         slot: 0,
         kit: Kit::Sentry,
@@ -807,16 +789,12 @@ fn sentry_fight() -> (World, u32) {
             .any(|e| matches!(e, WorldEvent::Deployed { .. }))
         {
             let id = world.deployables.iter().map(|d| d.id).max().unwrap();
-            arm_resident(&mut world);
+            mend_machine(&mut world);
+            arm_machine(&mut world);
             return (world, id);
         }
-        world
-            .residents
-            .as_mut()
-            .unwrap()
-            .aboard
-            .room
-            .patch_up_for_probe(0);
+        // Whole through the laying, since James shoots it.
+        mend_machine(&mut world);
         events = world.step(&[]);
     }
     panic!("the sentry was never laid");
@@ -834,43 +812,31 @@ fn a_sentry_fires_at_the_enemy_it_sees_and_never_runs_out() {
     // James out of the fight: only the sentry is left to shoot, and to be
     // shot at.
     world.aboard.room.knock_out_for_probe(0);
-    let before = world.residents.as_ref().unwrap().aboard.room.health(0);
+    let before = machine_health(&world);
     for _ in 0..3_000 {
-        world
-            .residents
-            .as_mut()
-            .unwrap()
-            .aboard
-            .room
-            .patch_up_for_probe(0);
+        mend_machine(&mut world);
         world.step(&[]);
         assert_eq!(world.aboard.room.sentries().len(), 1);
-        if world.residents.as_ref().unwrap().aboard.room.health(0) < before {
+        if machine_health(&world) < before {
             break;
         }
     }
     assert!(
-        world.residents.as_ref().unwrap().aboard.room.health(0) < before,
-        "the sentry pulled its trigger and the resident was hit"
+        machine_health(&world) < before,
+        "the sentry pulled its trigger and the machine was hit"
     );
     // And it is still firing a long while later: there is nothing to run
-    // out of. The resident is patched up every step, so a hit landing
-    // after a thousand more steps is the sentry still shooting.
+    // out of. The machine is mended every step, so a hit landing after a
+    // thousand more steps is the sentry still shooting.
     let mut hit_again = false;
     for _ in 0..3_000 {
-        let whole = world.residents.as_ref().unwrap().aboard.room.health(0);
+        mend_machine(&mut world);
+        let whole = machine_health(&world);
         world.step(&[]);
-        if world.residents.as_ref().unwrap().aboard.room.health(0) < whole {
+        if machine_health(&world) < whole {
             hit_again = true;
             break;
         }
-        world
-            .residents
-            .as_mut()
-            .unwrap()
-            .aboard
-            .room
-            .patch_up_for_probe(0);
     }
     assert!(hit_again, "a sentry never runs dry");
 }
@@ -878,17 +844,11 @@ fn a_sentry_fires_at_the_enemy_it_sees_and_never_runs_out() {
 #[test]
 fn a_sentry_is_the_enemy_s_target_and_is_destroyed_at_nothing() {
     let (mut world, id) = sentry_fight();
-    // James out of the fight: the sentry is what the resident sees.
+    // James out of the fight: the sentry is what the machine sees.
     world.aboard.room.knock_out_for_probe(0);
     let mut lost = false;
     for _ in 0..6_000 {
-        world
-            .residents
-            .as_mut()
-            .unwrap()
-            .aboard
-            .room
-            .patch_up_for_probe(0);
+        mend_machine(&mut world);
         let events = world.step(&[]);
         if events
             .iter()
@@ -898,7 +858,7 @@ fn a_sentry_is_the_enemy_s_target_and_is_destroyed_at_nothing() {
             break;
         }
     }
-    assert!(lost, "the resident shot the sentry to nothing");
+    assert!(lost, "the machine shot the sentry to nothing");
     assert!(world.deployable(id).is_none());
     assert!(world.aboard.room.sentries().is_empty());
 }

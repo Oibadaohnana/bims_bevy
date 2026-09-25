@@ -1,8 +1,8 @@
 //! A station's people in peacetime (feature 102): a role, and the round it
 //! walks.
 //!
-//! With the needs off (`Game::needs_enabled`) nobody on a station eats,
-//! sleeps or goes to the heads, so nothing would move them but the wander.
+//! Nobody on a station eats, sleeps or goes to the heads (the needs went
+//! in feature 104), so nothing would move them but the wander.
 //! What moves them instead is a **routine**: a role dealt when the site's
 //! room is opened — a **guard** walks between the site's ways in, its
 //! airlocks or a town's gates; a **trader** stands at the trading desk and

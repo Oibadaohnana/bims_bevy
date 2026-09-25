@@ -7,8 +7,6 @@
 //! for while the crew are standing in it.
 
 use shipdesign::fixture::flyer;
-use shipdesign::parts::PartKind;
-use shipdesign::{Budget, Edit, Rotation, ShipDesign, apply};
 use worldgen::{Galaxy, GalaxyType};
 
 use crate::data;
@@ -20,29 +18,6 @@ use crate::world_checksum;
 
 fn basic() -> World {
     simulation_world(flyer(2), REFERENCE_MONEY, 2)
-}
-
-/// The flyer with a hyperdrive, as `tests_memory::jumper` builds it.
-fn jumper() -> ShipDesign {
-    let budget = Budget::new(10_000_000);
-    let mut design = flyer(2);
-    for (kind, origin) in [
-        (PartKind::PowerConduit, (7, 16)),
-        (PartKind::PowerConduit, (6, 16)),
-        (PartKind::Hyperdrive, (5, 16)),
-    ] {
-        design = apply(
-            &design,
-            &budget,
-            Edit::Place {
-                kind,
-                origin,
-                rotation: Rotation::R0,
-            },
-        )
-        .unwrap_or_else(|e| panic!("{kind:?} at {origin:?}: {e:?}"));
-    }
-    design
 }
 
 /// The ship off its berth and holding in open space, well out of every
@@ -61,23 +36,24 @@ fn out_in_the_open(world: &mut World) {
     assert!(world.residents.is_none(), "no station's room is open");
 }
 
-/// The ship, holding, charged and jumped to `star` — `tests_memory`'s own.
+/// The ship, holding, jumped to `star` — what a trip across a hyperlane
+/// does on the way (`World::jump`) — and a step after it.
 fn jump_to(world: &mut World, star: u32) {
-    assert_eq!(world.ship.state, ShipState::Holding);
-    world.man_the_helm_for_probe(0);
-    world.step(&[Command::Jump { slot: 0, star }]);
-    let steps = (data::JUMP_CHARGE_MINUTES / data::STEP_MINUTES).ceil() as u32 + 5;
-    for _ in 0..steps {
-        let events = world.step(&[]);
-        if events
+    assert_eq!(
+        world.ship.state,
+        ShipState::Holding,
+        "a jump wants a holding ship"
+    );
+    let mut events = Vec::new();
+    assert!(world.jump(star, &mut events), "the ship never jumped");
+    assert!(
+        events
             .iter()
-            .any(|e| matches!(e, WorldEvent::Jumped { star: s } if *s == star))
-        {
-            assert_eq!(world.star_id, star);
-            return;
-        }
-    }
-    panic!("the ship never jumped");
+            .any(|e| matches!(e, WorldEvent::Jumped { star: s } if *s == star)),
+        "{events:?}"
+    );
+    assert_eq!(world.star_id, star);
+    world.step(&[]);
 }
 
 /// The origin is rolled far from the crew, it is the same star twice, and
@@ -267,20 +243,17 @@ fn a_station_cleared_before_its_day_stays_cleared_after_it() {
     }
 }
 
-/// A system the crisis took while the crew were away gives back no people,
-/// no stances and no losses when they come back to it.
+/// A system the crisis took while the crew were away gives back no people
+/// and no losses when they come back to it.
 #[test]
 fn a_system_overrun_while_the_crew_were_away_remembers_none_of_its_people() {
-    let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
+    let mut world = basic();
     let home_star = world.star_id;
     let home = world.home;
-    // A neighbour's people are enemies, and the crew have killed two.
-    let enemy = world.stations.iter().map(|s| s.id).nth(1).unwrap();
-    world.set_hostile(enemy, true);
-    crate::memory::amend_losses(&mut world.losses, enemy, |l| l.dead += 2);
-    assert!(!world.hostile.is_empty());
+    // A neighbour has lost two of its people.
+    let neighbour = world.stations.iter().map(|s| s.id).nth(1).unwrap();
+    crate::memory::amend_losses(&mut world.losses, neighbour, |l| l.dead += 2);
+    assert!(!world.losses.is_empty());
 
     // Away to another star, and the crisis takes the one behind them.
     world.undock_for_probe();
@@ -294,12 +267,7 @@ fn a_system_overrun_while_the_crew_were_away_remembers_none_of_its_people() {
 
     // Back, and the memory of that system is the chart and nothing else.
     jump_to(&mut world, home_star);
-    assert!(
-        world.hostile.is_empty(),
-        "no stances come back: {:?}",
-        world.hostile
-    );
-    assert!(world.losses.is_empty(), "and no losses");
+    assert!(world.losses.is_empty(), "no losses come back");
     world.step(&[]);
     assert!(
         world.is_droid_held(home),
@@ -421,9 +389,6 @@ fn an_infested_station_has_no_desk_and_nothing_on_a_shelf() {
         "{events:?}"
     );
     assert_eq!(world.money, money, "nothing was bought or sold");
-    // And no shelf was laid out, hostile though it is.
-    assert!(world.plunder_alongside().is_none());
-    assert!(world.plunder.iter().all(|p| p.station != home));
     // Nobody to hire, and nobody aboard.
     let station = world.station(home).unwrap();
     assert_eq!(world.people_of(&station), 0);

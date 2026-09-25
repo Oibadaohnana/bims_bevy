@@ -13,11 +13,19 @@
 //! wants to *say* "docked at Wana 231-4" has to watch for the crossing, and
 //! polling the state for a change misses one that happened and reversed
 //! inside a single update — which at 24x is an ordinary thing for a step to
-//! contain. `crates/health` is built on the same distinction and its note says
-//! the same thing at more length.
+//! contain.
+//!
+//! # Codes are never reused
+//!
+//! A code is written out and never renumbered, and a variant deleted leaves
+//! its code free rather than closing the list up: the app's sentences are
+//! matched by variant, not indexed by code, so nothing has to move with it.
+//! Flight (1–5, 11–13, 50, 52–55), the radiation dose (17–26), the
+//! food spoiling (58), the raids (59–62, 67), the plunder (64) and the
+//! execution (48, which it shared with `UpgradeBegun` by mistake) went
+//! with the old game (feature 104).
 
 use bims::combat::ArmourKind;
-use flight::PlanError;
 use physics::ResourceId;
 use shipdesign::PartKind;
 use worldgen::Node;
@@ -28,16 +36,6 @@ use crate::frame::Frame;
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WorldEvent {
-    /// A trip began. Undocking, if it began from a station.
-    Departed { slot: u32 },
-    /// A trip ended. `station` is `Some` when the ship actually docked, which
-    /// wants an airlock as well as a station to aim at.
-    Arrived { station: Option<u32> },
-    /// A trip was given up. The ship is stopping, not stopped.
-    Aborted { slot: u32 },
-    /// A destination could not be flown to. Carries the reason, which is the
-    /// same `PlanError` a preview would have shown.
-    PlanFailed { slot: u32, error: PlanError },
     /// Something in the system has been seen for the first time.
     Discovered { node: Node },
     /// The view is now about a particular place, or about space again.
@@ -50,16 +48,6 @@ pub enum WorldEvent {
     },
     /// A command was not carried out. The reason is in the code.
     Refused { slot: u32, why: Refusal },
-    /// A trip was confirmed at a station: the station's people are going
-    /// ashore and the crew coming back aboard, and the ship will cast off
-    /// once they have.
-    CastingOff { slot: u32 },
-    /// Everybody is where they belong and the ship is pushing off the
-    /// berth. The trip itself is planned once it is clear.
-    Undocking { slot: u32 },
-    /// A trip has ended at a station's door and the ship is coming
-    /// alongside. `Arrived` follows once it is tied up.
-    Docking { station: u32 },
     /// A Bim finished a recipe at a bench and the cargo moved:
     /// `shipdesign::recipes::RECIPES[recipe]`'s inputs out, its output in.
     Crafted { recipe: u32 },
@@ -67,12 +55,6 @@ pub enum WorldEvent {
     /// from the hold, or there was no longer room for the output. The
     /// labour is lost, and this says so.
     CraftLost { recipe: u32 },
-    /// A crew member's body crossed a line — see `health::HealthEvent`.
-    /// One code per health event, `who` as the value.
-    Health {
-        who: u32,
-        event: health::HealthEvent,
-    },
     /// A construction site was laid out for a part of `kind`, and is
     /// `site` from now on. See `crate::build`.
     SitePlaced { site: u32, kind: PartKind },
@@ -85,9 +67,11 @@ pub enum WorldEvent {
     /// gone from the hold, or the part would no longer go where it was
     /// laid out. The site is gone with the labour, and this says so.
     BuildLost { kind: PartKind },
-    /// One of a hostile station's people went down under the crew's fire.
-    /// See `bims::combat`, and `World::visit`, which is where a hit
-    /// crosses from the crew's room to theirs.
+    /// One of a hostile room's people went down under the crew's fire —
+    /// which, with every human friendly (feature 104), no room's people
+    /// are: a machine going down is [`WorldEvent::DroidDown`]. See
+    /// `bims::combat`, and `World::visit`, which is where a hit crosses
+    /// from the crew's room to theirs.
     EnemyDown { station: u32, who: u32 },
     /// An enemy's shot landed on a crew member, on that part of them —
     /// `health::Part`'s code — and opened a wound there. The wound is
@@ -119,22 +103,19 @@ pub enum WorldEvent {
     /// again. `Game::is_locked` is the state.
     Locked { who: u32 },
     /// A crew member took something off a body — `Command::Loot`: a
-    /// dead or unconscious crewmate's, or a hostile station's person's,
-    /// `source_kind` being `crate::armour::LootSource::code`. It is in
-    /// `who`'s pack now; a piece of armour keeps the health it had.
+    /// dead or unconscious crewmate's, `source_kind` being
+    /// `crate::armour::LootSource::code` (always a crewmate's since
+    /// feature 104). It is in `who`'s pack now; a piece of armour keeps
+    /// the health it had.
     Looted { who: u32, source_kind: u32 },
     /// A mercenary was hired — `Command::Hire` — and is crew member `who`
     /// now, the first month paid. See `crate::mercenary`.
     Hired { who: u32 },
-    /// A crew member finished off one of a hostile station's people
-    /// lying out cold — `Command::Execute` — and it is dead. `who` did it,
-    /// `resident` the body.
-    Executed { who: u32, resident: u32 },
     /// A hired mercenary's month came round and was paid, `fee` euros.
     MercenaryPaid { who: u32, fee: u64 },
     /// A hired mercenary went unpaid — the month came round and the
-    /// crew's money would not cover it — and left at the dock, or is
-    /// waiting to. Said once a month owed.
+    /// crew's money would not cover it — and is owed. Said once a month
+    /// owed.
     MercenaryLeft { who: u32 },
     /// A hit took a crew member's part to nothing and they are **dying**:
     /// in the state `trauma` — `bims::health::Trauma`'s code — until a
@@ -166,58 +147,19 @@ pub enum WorldEvent {
     /// The upgrade came off the workbench into the hold: one `resource` at
     /// `tier`.
     Upgraded { resource: u32, tier: u32 },
-    /// The hyperdrive began charging for a jump to `star`, on `slot`'s
-    /// order — see `crate::jump`.
-    Charging { slot: u32, star: u32 },
-    /// The ship is in another system: the one round `star`, in empty space.
+    /// The ship is in another system: the one round `star`, in empty space
+    /// — a trip across a hyperlane on its way (`World::jump`).
     Jumped { star: u32 },
-    /// The charge ran out with no drive to fire: it was taken off or
-    /// browned out in the meantime. The ship is where it was, holding.
-    JumpFailed,
-    /// The ship is coming down onto `body`, on the helm's Land — see
-    /// `crate::surface`: over the planet first, then down onto the pad.
-    Landing { body: u32 },
-    /// And down: tied up at the settlement on `body`, the rooms joined,
-    /// the planet the new surroundings.
-    Landed { body: u32 },
-    /// Off the pad on `body` and climbing, on the way to where a trip to
-    /// the planet would have ended; the trip is planned from there.
-    LiftedOff { body: u32 },
     /// The batteries went flat under an overdraw and the ship is browned
-    /// out — see `World::run_brownout`: the lamps are dark, the bay and
-    /// the benches have stopped, and the cold store's food is spoiling.
-    /// Said once, the step it starts.
+    /// out — see `World::run_brownout`: the lamps are dark and the
+    /// benches have stopped. Said once, the step it starts.
     Brownout,
     /// The brownout is over: the reactors cover the draw again, or a
-    /// battery has something in it. What stopped is running again and
-    /// what is left in the cold store stays.
+    /// battery has something in it. What stopped is running again.
     PowerRestored,
-    /// An hour of the cold store without power took `units` off the
-    /// shelf — vegetables, tofu and stew together, a share of each.
-    FoodSpoiled { units: u32 },
-    /// A raider is on the radar, closing on the ship with `boarders`
-    /// aboard, `minutes` out — see `crate::raid`. Every player's speed
-    /// request was put back to 1× with it, once.
-    RaidContact { boarders: u32, minutes: u32 },
-    /// The raider is tied to the ship, its `boarders` posted at the
-    /// ship's airlock — locked against them the same step
-    /// (`World::seal_against_raid`) — and forcing it.
-    RaidBoarded { boarders: u32 },
-    /// The ship's airlock gave — or the crew opened it — and the raider's
-    /// `boarders` are coming through. Said once a raid.
-    RaidBreached { boarders: u32 },
-    /// The raider arrived to find the ship gone — under way, or in
-    /// another system — and the raid is off.
-    RaidCancelled,
-    /// Every boarder is down: the raider is a derelict tied to the ship,
-    /// to be looted and cast off from.
-    RaidRepelled,
     /// No crew member is standing — dead or out cold, every one — and
     /// the run is over. Said once.
     CrewLost,
-    /// Crew member `who` took `units` of a stack off an enemy's shelf into
-    /// the pack — a raider's or a hostile station's; see `crate::plunder`.
-    Plundered { who: u32, units: u32 },
     /// A node went onto the research queue — `Command::Research`, one for
     /// the node asked for and one for each prerequisite queued ahead of
     /// it; `node` is `shipdesign::research::Node`'s code.
@@ -268,7 +210,7 @@ pub enum WorldEvent {
     Rallied { who: u32 },
     /// A fresh wave of machines has landed at a droid-held station
     /// (feature 83): which station. Everybody's speed request goes
-    /// back to 1x with it, the way raid contact does.
+    /// back to 1x with it.
     DroidReinforcements { station: u32 },
     /// The last machine of the last wave at a droid-held station has
     /// been destroyed: which station. Said once, and what
@@ -352,10 +294,11 @@ pub enum WorldEvent {
 
 /// Why a command did nothing.
 ///
-/// Separate from [`PlanError`] on purpose: these are about *whether the
-/// command was allowed*, and those are about whether the trip could be flown.
-/// A player who is told "no forward engine" when what actually happened is
-/// "you are not at the helm" will go and build one.
+/// Written out and never renumbered, like the events: a refusal deleted
+/// leaves its code free (the helm's and the flight's, 5, 6, 8, 10, 13 and
+/// 28–32, 78 and 83, the hire's bunk, 20, the execution's and the
+/// plunder's, 26 and 27, and a walk through the test room's locked heads
+/// door, 37, went with the old game in feature 104).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -373,33 +316,19 @@ pub enum Refusal {
     /// the hold has not got, a stow or an equip of an empty cell, a stack
     /// where a piece was wanted.
     NotAboard = 4,
-    /// That player's crew member is not standing at the helm, and the ship
-    /// is flown from the helm — see [`crate::World::can_command`].
-    NotAtTheHelm = 5,
-    /// An abort with nothing to abort.
-    NotTravelling = 6,
     /// The sum would not fit in a `Money`. A refusal rather than a wrap, the
     /// same as everywhere else money is added up — see `crates/economy`.
     SumTooBig = 7,
-    /// A Confirm while the ship is coming alongside. It is neither at rest
-    /// nor on a trip that can be stopped: wait until it is tied up.
-    ComingAlongside = 8,
     /// The station the ship is docked at does not sell that —
     /// `worldgen::StationKind::sells`. Galvum is the outposts' alone, an
     /// emitter is nobody's, and a derelict has nobody to sell anything.
     NotSoldHere = 9,
-    /// A construction site laid out while the ship is not at rest. Nothing
-    /// is built on a ship that is moving — see `crate::build`.
-    UnderWay = 10,
     /// A site the rules would not put there, or that would leave the ship
     /// with a fault it has not got. `World::can_place_site` says which,
     /// before anything is sent.
     WontFit = 11,
     /// A site that is not there: built, or cancelled already.
     NoSuchSite = 12,
-    /// A Confirm while something is being built. The ship does not move
-    /// while it is built on: cancel the site, or let them finish.
-    UnderConstruction = 13,
     /// A stow or a fetch with the crew member further than
     /// [`crate::data::REACH`] tiles from any container that takes the
     /// thing — or with no such crew member: dead, outside in a suit, or
@@ -422,9 +351,6 @@ pub enum Refusal {
     /// A hire of somebody who is not a mercenary for hire — one of the
     /// station's own people, or nobody at all.
     NotForHire = 19,
-    /// No bunk aboard for one more: the crew sleep a bunk each, and a
-    /// hire wants a free one.
-    NoBunk = 20,
     /// A buy or a sell by a player whose crew member is not at the
     /// station's trading desk — see `World::at_the_desk`.
     NotAtTheDesk = 21,
@@ -442,26 +368,6 @@ pub enum Refusal {
     /// A site for a part the crew do not know how to build yet — see
     /// `shipdesign::research`.
     NotResearched = 25,
-    /// An execution at a station that is not an enemy's: a downed
-    /// crewmate, a friend's or a stranger's people are never finished off.
-    /// And a take off the shelf of one: a friend's or a stranger's shelf is
-    /// bought from across the desk, never plundered (`crate::plunder`).
-    NotHostile = 26,
-    /// An execution by a crew member with nothing in its hand.
-    Unarmed = 27,
-    /// A jump with no working hyperdrive: none aboard, none bolted to an
-    /// engine, or none on a live network — `shipdesign::hyperdrive::ready`.
-    NoHyperdrive = 28,
-    /// A jump from anywhere but a hold: docked, the rooms are joined and
-    /// the station's people are aboard; under way, the ship is flying.
-    NotHolding = 29,
-    /// A jump to a star the galaxy has not got.
-    NoSuchStar = 30,
-    /// A jump to the star the ship is already at.
-    SameStar = 31,
-    /// A Land from anywhere but a hold in the frame of a planet with
-    /// ground on it — a rocky planet's or an ice world's (`crate::surface`).
-    NoPlanetHere = 32,
     /// A sale at a station with nobody to buy: a derelict keeps no desk
     /// (`crate::station::market_kind`). A buy there is
     /// [`Refusal::NotSoldHere`] first, since it stocks nothing either.
@@ -479,9 +385,6 @@ pub enum Refusal {
     /// day's work is under way on the pair; the output waits in its slot
     /// and can be taken any time.
     BenchBusy = 36,
-    /// A walk ordered somewhere the only way to is through a locked
-    /// door — `Command::Crew`, the room's `ORDER_LOCKED`.
-    DoorLocked = 37,
     /// A walk ordered somewhere there is no way to at all —
     /// `Command::Crew`, the room's `ORDER_NOWHERE`.
     NoWayThere = 38,
@@ -541,7 +444,9 @@ pub enum Refusal {
     /// A beam with no crew member under the pointer.
     NoPatient = 61,
     /// A beam on somebody that is not a crewmate: the medic itself, or
-    /// an enemy.
+    /// an enemy. And a loot of a body that is not a crewmate's: one of a
+    /// station's people, whose dead are left as they lie — every human
+    /// is friendly (feature 104), and a machine carries nothing.
     NotACrewmate = 62,
     /// A beam on a crewmate beyond the beam's range.
     OutOfBeamRange = 63,
@@ -580,14 +485,11 @@ pub enum Refusal {
     NotHurt = 76,
     /// A carry of a body that is already in somebody's arms.
     AlreadyCarried = 77,
-    /// A jump to a star the hyperlanes do not join to this one (feature
-    /// 93). A charge is one hop, and only down a lane: the chart draws
-    /// the route, and the Jump button charges for its first step.
-    NoLane = 78,
-    /// A jump **inward** — to a star fewer hops from the machines' origin
+    /// A trip **inward** — to a star fewer hops from the machines' origin
     /// than this one — out of an infested system whose jammer still
-    /// stands (feature 93, `crate::jammer`). Sideways and outward are
-    /// accepted, and flying *into* an infested system never is refused.
+    /// stands (feature 93, `crate::jammer`): the travel quote's refusal.
+    /// Sideways and outward are accepted, and a trip *into* an infested
+    /// system is never refused.
     Jammed = 79,
     /// A construction site the crew cannot pay for: its part's price is
     /// more than the pool has left after the sites already begun
@@ -603,10 +505,6 @@ pub enum Refusal {
     /// default one and nothing is built onto it but a class's
     /// deployables (`World::shipyard_enabled`).
     NoShipyard = 82,
-    /// A helm order — Confirm, Brake, Jump, Land — in a run (feature
-    /// 103): nothing is flown, a trip is chosen on the world map between
-    /// missions and resolved (`crate::run`).
-    TravelIsResolved = 83,
     /// Anything but choosing a destination between missions: the map is
     /// up and nobody is anywhere to be ordered about.
     BetweenMissions = 84,
@@ -642,25 +540,16 @@ impl WorldEvent {
     /// in this workspace.
     pub fn code(self) -> u32 {
         match self {
-            WorldEvent::Departed { .. } => 1,
-            WorldEvent::Arrived { station: Some(_) } => 2,
-            WorldEvent::Arrived { station: None } => 3,
-            WorldEvent::Aborted { .. } => 4,
-            WorldEvent::PlanFailed { .. } => 5,
             WorldEvent::Discovered { .. } => 6,
             WorldEvent::FrameChanged { .. } => 7,
             WorldEvent::Traded { units, .. } if units >= 0 => 8,
             WorldEvent::Traded { .. } => 9,
             WorldEvent::Refused { .. } => 10,
-            WorldEvent::CastingOff { .. } => 11,
-            WorldEvent::Undocking { .. } => 12,
-            WorldEvent::Docking { .. } => 13,
             WorldEvent::Crafted { .. } => 14,
             WorldEvent::CraftLost { .. } => 15,
-            // 16 is free: it was `Mined`, which went with the mining
-            // (feature 95).
-            // 17 to 26: `HealthEvent` runs 1 to 10.
-            WorldEvent::Health { event, .. } => 16 + event.code(),
+            // 1 to 5 and 11 to 13 are free: flight's (feature 104). 16 was
+            // `Mined`, which went with the mining (feature 95), and 17 to
+            // 26 the radiation dose's (feature 104).
             WorldEvent::SitePlaced { .. } => 27,
             WorldEvent::SiteCancelled { .. } => 28,
             WorldEvent::Built { .. } => 29,
@@ -684,25 +573,15 @@ impl WorldEvent {
             WorldEvent::Researched { .. } => 47,
             WorldEvent::UpgradeBegun { .. } => 48,
             WorldEvent::Upgraded { .. } => 49,
-            WorldEvent::Executed { .. } => 48,
-            WorldEvent::Charging { .. } => 50,
+            // 50 and 52 to 55 were the charge and the landing (feature 104).
             WorldEvent::Jumped { .. } => 51,
-            WorldEvent::JumpFailed => 52,
-            WorldEvent::Landing { .. } => 53,
-            WorldEvent::Landed { .. } => 54,
-            WorldEvent::LiftedOff { .. } => 55,
             WorldEvent::Brownout => 56,
             WorldEvent::PowerRestored => 57,
-            WorldEvent::FoodSpoiled { .. } => 58,
-            WorldEvent::RaidContact { .. } => 59,
-            WorldEvent::RaidBoarded { .. } => 60,
-            WorldEvent::RaidCancelled => 61,
-            WorldEvent::RaidRepelled => 62,
+            // 58 was the food spoiling, 59 to 62 and 67 the raids and 64
+            // the plunder (feature 104).
             WorldEvent::CrewLost => 63,
-            WorldEvent::Plundered { .. } => 64,
             WorldEvent::ResearchQueued { .. } => 65,
             WorldEvent::ResearchDropped { .. } => 66,
-            WorldEvent::RaidBreached { .. } => 67,
             WorldEvent::LevelUp { .. } => 68,
             WorldEvent::TalentPicked { .. } => 69,
             WorldEvent::Deployed { .. } => 70,
@@ -751,12 +630,7 @@ impl WorldEvent {
     /// those it is from the code, exactly as `MEMORY_LINES` does.
     pub fn value(self) -> i64 {
         match self {
-            WorldEvent::Departed { slot }
-            | WorldEvent::Aborted { slot }
-            | WorldEvent::CastingOff { slot }
-            | WorldEvent::Undocking { slot } => slot as i64,
-            WorldEvent::Docking { station }
-            | WorldEvent::DroidReinforcements { station }
+            WorldEvent::DroidReinforcements { station }
             | WorldEvent::DroidStationCleared { station }
             | WorldEvent::TownHeld { station } => station as i64,
             WorldEvent::TownsfolkJoined { count } => count as i64,
@@ -803,8 +677,6 @@ impl WorldEvent {
             }
             // The source's kind in the tens, likewise: two kinds.
             WorldEvent::Looted { who, source_kind } => (who + 10 * source_kind) as i64,
-            // The body in the tens, likewise.
-            WorldEvent::Executed { who, resident } => (who + 10 * resident) as i64,
             // The one carried in the **hundreds**, the carrier in the
             // units, and the carrier alone for a set down, whose line
             // names nobody else (feature 86). The hundreds rather than
@@ -813,8 +685,7 @@ impl WorldEvent {
             WorldEvent::Carried { who, patient } => (who + 100 * patient.unwrap_or(0)) as i64,
             // The fee in the hundreds: a crew is never a hundred.
             WorldEvent::MercenaryPaid { who, fee } => (who as i64) + 100 * (fee as i64),
-            WorldEvent::Health { who, .. }
-            | WorldEvent::CrewDown { who }
+            WorldEvent::CrewDown { who }
             | WorldEvent::Locked { who }
             | WorldEvent::Hired { who }
             | WorldEvent::MercenaryLeft { who }
@@ -833,36 +704,15 @@ impl WorldEvent {
             | WorldEvent::SiteCancelled { kind }
             | WorldEvent::Built { kind }
             | WorldEvent::BuildLost { kind } => kind.code() as i64,
-            WorldEvent::Arrived { station } => station.map(i64::from).unwrap_or(-1),
-            WorldEvent::PlanFailed { error, .. } => error.code() as i64,
             WorldEvent::Discovered { node } => match node {
                 Node::Body(id) | Node::Station(id) => id as i64,
             },
             WorldEvent::FrameChanged { frame } => frame.code() as i64,
             WorldEvent::Traded { units, .. } => units,
             WorldEvent::Refused { why, .. } => why.code() as i64,
-            // The star: a galaxy has a thousand, and a slot is never that.
-            WorldEvent::Charging { star, .. }
-            | WorldEvent::Jumped { star }
-            | WorldEvent::Infested { star } => star as i64,
-            WorldEvent::JumpFailed => 0,
-            // The planet: a body id.
-            WorldEvent::Landing { body }
-            | WorldEvent::Landed { body }
-            | WorldEvent::LiftedOff { body } => body as i64,
-            WorldEvent::Brownout | WorldEvent::PowerRestored => 0,
-            WorldEvent::FoodSpoiled { units } => units as i64,
-            // The minutes out in the hundreds: boarders are never a hundred.
-            WorldEvent::RaidContact { boarders, minutes } => {
-                (boarders as i64) + 100 * (minutes as i64)
-            }
-            WorldEvent::RaidBoarded { boarders } | WorldEvent::RaidBreached { boarders } => {
-                boarders as i64
-            }
-            WorldEvent::RaidCancelled | WorldEvent::RaidRepelled | WorldEvent::CrewLost => 0,
-            // The units in the hundreds: a crew is never a hundred, and a
-            // pack has fifty cells.
-            WorldEvent::Plundered { who, units } => (who as i64) + 100 * (units as i64),
+            // The star: a galaxy has a thousand.
+            WorldEvent::Jumped { star } | WorldEvent::Infested { star } => star as i64,
+            WorldEvent::Brownout | WorldEvent::PowerRestored | WorldEvent::CrewLost => 0,
             // The level, the talent and the kind in the hundreds, the same
             // way: a crew is never a hundred.
             WorldEvent::LevelUp { who, level, .. } => (who as i64) + 100 * (level as i64),

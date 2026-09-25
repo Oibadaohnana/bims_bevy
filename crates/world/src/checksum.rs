@@ -91,11 +91,6 @@ pub fn world_checksum(world: &World) -> u64 {
     for &target in world.craft_targets.iter() {
         hash.eat(target as u64);
     }
-    for body in &world.health {
-        hash.eat_rounded(body.points, FINE_GRID);
-        hash.eat_rounded(body.dose, FINE_GRID);
-        hash.eat(u64::from(body.dead));
-    }
 
     let ship = &world.ship;
     hash.eat(world.design_hash());
@@ -104,7 +99,6 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat_rounded(ship.anchor.y, POSITION_GRID);
     hash.eat_rounded(ship.heading, FINE_GRID);
     hash.eat_rounded(ship.charge, FINE_GRID);
-    hash.eat(ship.destination_set_by.map(u64::from).unwrap_or(u64::MAX));
     hash.eat(ship.frame.code() as u64);
     if let Some(node) = ship.frame.node() {
         let (kind, id) = node_key(&node);
@@ -116,61 +110,6 @@ pub fn world_checksum(world: &World) -> u64 {
     match &ship.state {
         ShipState::Docked { station } => hash.eat(*station as u64),
         ShipState::Holding => {}
-        ShipState::Travelling { plan, departed } => {
-            // The plan is what the ship will *do*, so it goes in rather than
-            // only where the ship has got to: two clients agreeing about a
-            // position and disagreeing about the trip is the drift this is
-            // for.
-            hash.eat_rounded(*departed, FINE_GRID);
-            hash.eat_rounded(plan.duration(), FINE_GRID);
-            hash.eat_rounded(plan.distance, POSITION_GRID);
-            hash.eat_rounded(plan.bearing, FINE_GRID);
-            // What the burn draws: the throttle the trip was planned under,
-            // which two clients could disagree about if one wired an engine
-            // the other did not see.
-            hash.eat_rounded(plan.dynamics.forward_power, FINE_GRID);
-            hash.eat_rounded(plan.dynamics.backward_power, FINE_GRID);
-            hash.eat(plan.target.code() as u64);
-            hash.eat(u64::from(plan.docks));
-            hash.eat(u64::from(plan.aborting));
-            hash.eat(plan.segments.len() as u64);
-        }
-        ShipState::Charging { star, began } => {
-            hash.eat(*star as u64);
-            hash.eat_rounded(*began, FINE_GRID);
-        }
-        ShipState::CastingOff { station, since } => {
-            hash.eat(*station as u64);
-            hash.eat_rounded(*since, FINE_GRID);
-        }
-        ShipState::Undocking {
-            station,
-            from,
-            along,
-            began,
-        } => {
-            hash.eat(*station as u64);
-            hash.eat_rounded(from.x, POSITION_GRID);
-            hash.eat_rounded(from.y, POSITION_GRID);
-            hash.eat_rounded(along.x, FINE_GRID);
-            hash.eat_rounded(along.y, FINE_GRID);
-            hash.eat_rounded(*began, FINE_GRID);
-        }
-        ShipState::Docking {
-            station,
-            from,
-            from_heading,
-            hold,
-            began,
-        } => {
-            hash.eat(*station as u64);
-            hash.eat_rounded(from.x, POSITION_GRID);
-            hash.eat_rounded(from.y, POSITION_GRID);
-            hash.eat_rounded(*from_heading, FINE_GRID);
-            hash.eat_rounded(hold.x, POSITION_GRID);
-            hash.eat_rounded(hold.y, POSITION_GRID);
-            hash.eat_rounded(*began, FINE_GRID);
-        }
     }
 
     // The crew: where each of them is, and the room's clock. Not the whole
@@ -185,25 +124,19 @@ pub fn world_checksum(world: &World) -> u64 {
     }
     hash.eat_rounded(world.aboard.minutes(), FINE_GRID);
 
-    // Whose side each station is on: home, and the hostile list in id
-    // order. A stance is what decides whether anybody shoots, so two
+    // Whose side each station is on: home, and the stations the machines
+    // hold. A stance is what decides whether anybody shoots, so two
     // worlds that disagree about one are already two different fights.
     // The station's people themselves — the residents' room — are not in
     // here, for the reason the crew's room is only in by its positions.
     hash.eat(world.home as u64);
     hash.eat(world.home_star as u64);
-    hash.eat(world.hostile.len() as u64);
-    for &station in &world.hostile {
-        hash.eat(station as u64);
-    }
-    hash.eat(world.reinforcements as u64);
-    // And which stations the machines hold, in id order, with the state
-    // of each (feature 83): how many waves are left, which is aboard,
-    // when the next is due and whether it has been settled or cleared.
-    // It is the size of the fight, so two worlds that disagree about it
-    // are two different fights — the reason `reinforcements` is in here.
-    // The tier they come at and the reinforcement clock go in with them,
-    // since the probes move both.
+    // Which stations the machines hold, in id order, with the state of
+    // each (feature 83): how many waves are left, which is aboard, when
+    // the next is due and whether it has been settled or cleared. It is
+    // the size of the fight, so two worlds that disagree about it are two
+    // different fights. The tier they come at and the reinforcement clock
+    // go in with them, since the probes move both.
     hash.eat(world.infested.len() as u64);
     for it in &world.infested {
         hash.eat(it.station as u64);
@@ -412,66 +345,8 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat_rounded(lamp.health as f64, HEALTH_GRID);
     }
 
-    // How long the cold store has been without power, in steps: the clock
-    // the food spoils by. An integer, so it goes in whole — two worlds a
-    // step apart on it lose the next crate on different steps.
-    hash.eat(world.cold_store_out);
-
-    // The raids: the schedule and the one under way — two clients are
-    // raided together, by the same boarders from the same bearing, or not
-    // at all. The raider tied up is its id and its seed: its hull is a
-    // function of the seed, like a station's.
-    hash.eat(world.raids.next as u64);
-    hash.eat(world.raids.due);
-    hash.eat(u64::from(world.raids.left_home));
-    match &world.raids.state {
-        crate::raid::Raid::Quiet => hash.eat(0),
-        crate::raid::Raid::Closing {
-            n,
-            boarders,
-            from,
-            at,
-            began,
-            arrives,
-        } => {
-            hash.eat(1);
-            hash.eat(*n as u64);
-            hash.eat(*boarders as u64);
-            hash.eat_rounded(from.x, POSITION_GRID);
-            hash.eat_rounded(from.y, POSITION_GRID);
-            hash.eat_rounded(at.x, POSITION_GRID);
-            hash.eat_rounded(at.y, POSITION_GRID);
-            hash.eat_rounded(*began, FINE_GRID);
-            hash.eat_rounded(*arrives, FINE_GRID);
-        }
-        crate::raid::Raid::Docked {
-            station,
-            boarders,
-            breached,
-            repelled,
-        } => {
-            hash.eat(2);
-            hash.eat(station.id as u64);
-            hash.eat(station.map_seed);
-            hash.eat_rounded(station.anchor.x, POSITION_GRID);
-            hash.eat_rounded(station.anchor.y, POSITION_GRID);
-            hash.eat(*boarders as u64);
-            hash.eat(u64::from(*breached));
-            hash.eat(u64::from(*repelled));
-        }
-    }
     // And whether the run is over.
     hash.eat(u64::from(world.lost));
-
-    // Every enemy's shelf the crew have been alongside, as they have left
-    // it: whose, its size, and its grid the way the hold's grids go in —
-    // two crews who plundered a raider differently have different worlds.
-    hash.eat(world.plunder.len() as u64);
-    for plunder in &world.plunder {
-        hash.eat(plunder.station as u64);
-        hash.eat(plunder.capacity as u64);
-        eat_grid(&mut hash, &plunder.grid);
-    }
 
     // What every station has lost to the crew, and every system the ship
     // has left as it was left — integers throughout, the sites and the
@@ -483,20 +358,9 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(world.memories.len() as u64);
     for memory in &world.memories {
         hash.eat(memory.star as u64);
-        hash.eat(memory.hostile.len() as u64);
-        for &station in &memory.hostile {
-            hash.eat(station as u64);
-        }
-        hash.eat(memory.reinforcements as u64);
         hash.eat(memory.station_keys.len() as u64);
         for &key in &memory.station_keys {
             hash.eat(u64::from(key));
-        }
-        hash.eat(memory.plunder.len() as u64);
-        for plunder in &memory.plunder {
-            hash.eat(plunder.station as u64);
-            hash.eat(plunder.capacity as u64);
-            eat_grid(&mut hash, &plunder.grid);
         }
         hash.eat(memory.lamps.len() as u64);
         for lamp in &memory.lamps {
@@ -694,20 +558,16 @@ pub fn world_checksum(world: &World) -> u64 {
     }
 
     // What the run has switched off (feature 102): two clients that
-    // disagreed about any of the four would be playing two games.
-    hash.eat(u64::from(world.needs_enabled()));
-    hash.eat(u64::from(world.human_foes_enabled()));
-    hash.eat(u64::from(world.radiation_enabled()));
+    // disagreed about it would be playing two games.
     hash.eat(u64::from(world.shipyard_enabled()));
 
-    // The run (feature 103), whole: where it stands, both clocks' switch
-    // and the mission clock, the bounty waiting on the site, the vote on
-    // the table, who is going home, the departure check, who is out and
-    // since when — every one of them something two clients must agree on
-    // or they part at the next trip.
+    // The run (feature 103), whole: where it stands, the mission clock,
+    // the bounty waiting on the site, the vote on the table, who is going
+    // home, the departure check, who is out and since when — every one of
+    // them something two clients must agree on or they part at the next
+    // trip.
     let run = &world.run;
     hash.eat(u64::from(run.phase.code()));
-    hash.eat(u64::from(run.free_clock));
     hash.eat(run.mission_steps);
     hash.eat(u64::from(run.missions));
     hash.eat(run.site.map_or(u64::MAX, u64::from));
@@ -852,7 +712,7 @@ fn item_codes(item: &bims::combat::Item) -> (u64, u64, u64) {
     }
 }
 
-/// A grid — one of the hold's, or an enemy's shelf — whole: every slot,
+/// A grid — one of the hold's — whole: every slot,
 /// what it holds and how many, where it lies and which way round, and
 /// the next id — integers throughout.
 fn eat_grid(hash: &mut Fnv, grid: &crate::grid::Grid) {

@@ -1,17 +1,13 @@
 //! Whether the view is about a place or about the space between places.
 //!
 //! **It affects the view and nothing else.** Not the clock, not the speed, not
-//! the physics — the ship flies exactly the same trip whether the renderer has
-//! decided to draw a station beside it or not. That is worth stating because
-//! it is the kind of thing that grows teeth: a "local frame" in another game
-//! would be a different coordinate system, or a different tick rate, or a
-//! place where docking is allowed. Here it is which picture is drawn.
+//! the physics. That is worth stating because it is the kind of thing that
+//! grows teeth: a "local frame" in another game would be a different
+//! coordinate system, or a different tick rate, or a place where docking is
+//! allowed. Here it is which picture is drawn.
 //!
 //! A ship is in a node's frame when it is **there for that node** — docked at
-//! it, holding beside it, or on the last leg of a trip aimed at it — and
-//! within its radius. Flying *past* something on the way somewhere else never
-//! changes the frame, however close the pass: the view should be about where
-//! you are going, not about whatever you happened to sail by.
+//! it, set down on it, or holding beside it — and within its radius.
 
 use worldgen::Node;
 
@@ -19,7 +15,7 @@ use worldgen::Node;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Frame {
-    /// Between things. What the ship is in for almost all of a trip.
+    /// Between things: holding in open space, or just arrived by a jump.
     Space,
     /// At one of them.
     Local(Node),

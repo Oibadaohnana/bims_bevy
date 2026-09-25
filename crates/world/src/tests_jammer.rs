@@ -1,81 +1,44 @@
 //! Jumping along lanes, and the jammer (feature 93).
 //!
-//! Three things, and they lean on one another. A charge takes the ship
-//! **one hop and only down a lane** ([`Refusal::NoLane`]); an infested
-//! system's jammer holds the lanes **inward** shut while it stands
-//! ([`Refusal::Jammed`]); and what tier the machines come at is how far
-//! the system is from where they began. The lane graph and the route are
+//! Three things, and they lean on one another. A trip takes the ship
+//! **one hop at most, and only down a lane** ([`Refusal::TooFar`]); an
+//! infested system's jammer holds the lanes **inward** shut while it
+//! stands ([`Refusal::Jammed`]); and what tier the machines come at is how
+//! far the system is from where they began. The lane graph and the route are
 //! `worldgen::galaxy`'s and pinned there; what is here is what the
 //! *world* makes of them.
 
 use shipdesign::fixture::flyer;
-use shipdesign::parts::PartKind;
-use shipdesign::{Budget, Edit, Rotation, ShipDesign, apply};
 use worldgen::{Galaxy, GalaxyType, Node};
 
 use crate::data;
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
 use crate::jammer;
-use crate::world::{Command, ShipState, World};
+use crate::run::{Site, TravelQuote};
+use crate::world::{ShipState, World};
 use crate::world_checksum;
 
-/// The flyer with a hyperdrive, as `tests_crisis::jumper` builds it.
-fn jumper() -> ShipDesign {
-    let budget = Budget::new(10_000_000);
-    let mut design = flyer(2);
-    for (kind, origin) in [
-        (PartKind::PowerConduit, (7, 16)),
-        (PartKind::PowerConduit, (6, 16)),
-        (PartKind::Hyperdrive, (5, 16)),
-    ] {
-        design = apply(
-            &design,
-            &budget,
-            Edit::Place {
-                kind,
-                origin,
-                rotation: Rotation::R0,
-            },
-        )
-        .unwrap_or_else(|e| panic!("{kind:?} at {origin:?}: {e:?}"));
-    }
-    design
-}
-
+/// The simulation's world, off its berth and holding.
 fn jumper_world() -> World {
-    let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
+    let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
     world.undock_for_probe();
-    world.man_the_helm_for_probe(0);
-    quiet_skies(&mut world);
     world
 }
 
-/// The next raid pushed a year off. These tests wind the clock on by
-/// months (`set_day_for_probe`) to reach a day the crisis has come, and
-/// the raid schedule is on that same clock: without this a raider ties up
-/// to the ship mid-test and the jump under test is refused because the
-/// ship is docked. Say it again after every winding.
-fn quiet_skies(world: &mut World) {
-    world.raid_due_for_probe(time::DAY as u64 * 365);
+/// The first site of `star`'s system, and what a trip there would be.
+fn quote_to(world: &World, star: u32) -> (Site, Result<TravelQuote, Refusal>) {
+    let site = world
+        .sites_at(star)
+        .first()
+        .copied()
+        .unwrap_or(Site { star, station: 0 });
+    (site, world.travel_quote(site))
 }
 
-/// The clock wound to the start of `day`, with the skies kept quiet.
+/// The clock wound to the start of `day`.
 fn wind_to(world: &mut World, day: u32) {
     world.set_day_for_probe(day);
-    quiet_skies(world);
-}
-
-fn refused_with(events: &[WorldEvent], why: Refusal) -> bool {
-    events
-        .iter()
-        .any(|e| matches!(e, WorldEvent::Refused { why: w, .. } if *w == why))
-}
-
-fn charging(events: &[WorldEvent], star: u32) -> bool {
-    events
-        .iter()
-        .any(|e| matches!(e, WorldEvent::Charging { star: s, .. } if *s == star))
 }
 
 /// An origin that gives the star the ship is at a lane **each way** —
@@ -119,14 +82,12 @@ fn unlaned_star(world: &World) -> u32 {
 
 // --- 1: a jump follows the lanes ------------------------------------------
 
-/// A charge is **one hop, and only down a lane**. A star the lanes do not
-/// reach from here is [`Refusal::NoLane`], whatever else is right about
-/// the jump; one they do is accepted and charges as it always did.
+/// A trip is **one hop at most, and only down a lane**. A star the lanes
+/// do not reach from here is [`Refusal::TooFar`]; one they do is a trip
+/// like any other, and a star the galaxy has not got is no place at all.
 #[test]
-fn a_jump_wants_a_lane_out_of_the_star_the_ship_is_at() {
-    let mut world = jumper_world();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
+fn a_trip_wants_a_lane_out_of_the_star_the_ship_is_at() {
+    let world = jumper_world();
     let here = world.star_id;
     let lane = world.galaxy().lanes(here)[0];
     let away = unlaned_star(&world);
@@ -135,32 +96,18 @@ fn a_jump_wants_a_lane_out_of_the_star_the_ship_is_at() {
     assert!(!world.laned_to(away));
     assert!(!world.laned_to(here), "a star is never laned to itself");
 
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: away,
-    }]);
-    assert!(refused_with(&events, Refusal::NoLane), "{events:?}");
-    assert_eq!(world.ship.state, ShipState::Holding);
-
-    // The star the ship is at and a star the galaxy has not got are still
-    // said before the lanes are looked at: those are better answers.
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: here,
-    }]);
-    assert!(refused_with(&events, Refusal::SameStar), "{events:?}");
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: 1_000_000,
-    }]);
-    assert!(refused_with(&events, Refusal::NoSuchStar), "{events:?}");
-
+    assert_eq!(quote_to(&world, away).1, Err(Refusal::TooFar));
+    assert_eq!(
+        world.travel_quote(Site {
+            star: 1_000_000,
+            station: 0
+        }),
+        Err(Refusal::NoSuchPlace)
+    );
     // And down a lane it goes.
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: lane,
-    }]);
-    assert!(charging(&events, lane), "{events:?}");
+    let (site, quote) = quote_to(&world, lane);
+    let quote = quote.unwrap_or_else(|why| panic!("{site:?}: {why:?}"));
+    assert!(quote.jump);
 }
 
 /// The route the chart draws and the Jump button charges the first step
@@ -200,17 +147,15 @@ fn the_route_is_the_shortest_chain_of_lanes_from_here() {
 
 // --- 3: the jammer --------------------------------------------------------
 
-/// In an infested system whose jammer still stands, a jump **inward** —
+/// In an infested system whose jammer still stands, a trip **inward** —
 /// to a star fewer hops from the machines' origin — is
-/// [`Refusal::Jammed`]; sideways and outward are accepted. And flying
+/// [`Refusal::Jammed`]; sideways and outward are accepted. And a trip
 /// *into* an infested system is never refused, which is the other half of
 /// the trap: getting in is free, getting back out the way you came is
 /// not.
 #[test]
 fn a_standing_jammer_shuts_the_lanes_inward_and_no_others() {
     let mut world = jumper_world();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     let here = world.star_id;
     let (origin, inward, level, outward) = three_ways(&world);
     world.set_droid_origin_for_probe(origin);
@@ -218,26 +163,17 @@ fn a_standing_jammer_shuts_the_lanes_inward_and_no_others() {
     let h = world.hops_from_origin(here);
 
     // A day short of this system's own: the star inward has fallen and
-    // this one has not, so a jump *into* an infested system is what is
+    // this one has not, so a trip *into* an infested system is what is
     // being asked for.
     wind_to(&mut world, u32::from(h) * data::DROID_SPREAD_DAYS - 1);
     assert!(!world.infested(here), "not yet theirs");
     assert!(world.infested(inward), "the star inward is");
     assert_eq!(world.jammer_station(), None, "and no jammer here");
     assert!(!world.jammed());
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: inward,
-    }]);
+    let (site, quote) = quote_to(&world, inward);
     assert!(
-        charging(&events, inward),
-        "a jump into an infested system is never refused: {events:?}"
-    );
-    let events = world.step(&[Command::Abort { slot: 0 }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Aborted { .. }))
+        quote.is_ok(),
+        "a trip into an infested system is never refused: {site:?} {quote:?}"
     );
 
     // And now this system's own day: the jammer stands.
@@ -245,30 +181,15 @@ fn a_standing_jammer_shuts_the_lanes_inward_and_no_others() {
     assert!(world.infested(here));
     assert!(world.jammed(), "the jammer is standing");
     assert!(world.jammer_station().is_some());
+    assert_eq!(quote_to(&world, inward).1.map(|_| ()), Err(Refusal::Jammed));
 
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: inward,
-    }]);
-    assert!(refused_with(&events, Refusal::Jammed), "{events:?}");
-    assert_eq!(world.ship.state, ShipState::Holding);
-
-    // Sideways is open.
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: level,
-    }]);
-    assert!(charging(&events, level), "sideways is open: {events:?}");
-    world.step(&[Command::Abort { slot: 0 }]);
-
-    // And so is outward.
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: outward,
-    }]);
-    assert!(charging(&events, outward), "outward is open: {events:?}");
+    // Sideways and outward are open.
+    for (way, star) in [("sideways", level), ("outward", outward)] {
+        let (site, quote) = quote_to(&world, star);
+        if !world.sites_at(star).is_empty() {
+            assert!(quote.is_ok(), "{way} is open: {site:?} {quote:?}");
+        }
+    }
 
     // The same rule read off the chart, step by step.
     assert!(world.jammed_step(here, inward));
@@ -283,8 +204,6 @@ fn a_standing_jammer_shuts_the_lanes_inward_and_no_others() {
 #[test]
 fn a_cleared_jammer_station_stays_down() {
     let mut world = jumper_world();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     let here = world.star_id;
     let (origin, ..) = three_ways(&world);
     world.set_droid_origin_for_probe(origin);
@@ -324,12 +243,8 @@ fn a_cleared_jammer_station_stays_down() {
     // The way inward is open again.
     let (_, inward, ..) = three_ways(&world);
     assert!(!world.jammed_step(here, inward));
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: inward,
-    }]);
-    assert!(charging(&events, inward), "{events:?}");
+    let (site, quote) = quote_to(&world, inward);
+    assert!(quote.is_ok(), "{site:?} {quote:?}");
 }
 
 /// Every infested system has **exactly one** jammer station: the orbital
@@ -366,7 +281,7 @@ fn an_infested_system_has_exactly_one_jammer_station() {
 /// A system with no orbital station of its own gets one the machines put
 /// there: rolled off the star's own stream, standing clear of everything,
 /// the same on two clients and after a reload, and with an id that
-/// collides with nothing the generator, a raider or a surface numbers.
+/// collides with nothing the generator or a surface numbers.
 ///
 /// The stations are taken out of the system by hand rather than by flying
 /// to a starless one: what `settle_jammer` sees is "no station that is not
@@ -415,7 +330,6 @@ fn a_system_with_no_station_gets_the_machines_own() {
 
     // Its id is nobody else's.
     assert!(crate::surface_body(id).is_none());
-    assert!(crate::raider_index(id).is_none());
     assert!(world.surfaces.iter().all(|s| s.id != id));
 
     // The same station on another client of the same galaxy, and after a
@@ -495,23 +409,19 @@ fn two_worlds_on_one_seed_are_jammed_and_freed_alike() {
     let (origin, inward, _, outward) = three_ways(&a);
     let h = a.galaxy().hops_from(origin)[here as usize];
     for world in [&mut a, &mut b] {
-        // A charge is the old game's (feature 103): its clock runs free.
-        world.set_free_clock(true);
         world.set_droid_origin_for_probe(origin);
         world.set_crisis_first_day_for_probe(0);
         wind_to(world, u32::from(h) * data::DROID_SPREAD_DAYS);
-        world.man_the_helm_for_probe(0);
     }
     assert!(a.jammed() && b.jammed());
     assert_eq!(a.jammer_station(), b.jammer_station());
     assert_eq!(world_checksum(&a), world_checksum(&b));
 
-    // A jump inward, refused on both.
+    // A trip inward, refused on both.
+    assert_eq!(quote_to(&a, inward).1.map(|_| ()), Err(Refusal::Jammed));
+    assert_eq!(quote_to(&b, inward).1.map(|_| ()), Err(Refusal::Jammed));
     for world in [&mut a, &mut b] {
-        world.step(&[Command::Jump {
-            slot: 0,
-            star: inward,
-        }]);
+        world.step(&[]);
     }
     assert_eq!(world_checksum(&a), world_checksum(&b));
     assert_eq!(a.ship.state, ShipState::Holding);
@@ -534,16 +444,15 @@ fn two_worlds_on_one_seed_are_jammed_and_freed_alike() {
     assert!(!a.jammed() && !b.jammed());
 
     // And a jump outward carried through on both lands the same world.
-    let steps = (data::JUMP_CHARGE_MINUTES / data::STEP_MINUTES).ceil() as u32 + 5;
     for world in [&mut a, &mut b] {
-        world.man_the_helm_for_probe(0);
-        world.step(&[Command::Jump {
-            slot: 0,
-            star: outward,
-        }]);
-        for _ in 0..steps {
-            world.step(&[]);
-        }
+        let mut events = Vec::new();
+        assert!(world.jump(outward, &mut events));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::Jumped { star } if *star == outward))
+        );
+        world.step(&[]);
     }
     assert_eq!(a.star_id, outward);
     assert_eq!(b.star_id, outward);

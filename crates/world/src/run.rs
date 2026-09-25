@@ -20,10 +20,8 @@
 //! fought on. The room's own clocks (a routine's stops, a surge, a
 //! grenade's fuse) are its steps already.
 //!
-//! [`Run::free_clock`] is the old game's switch, **off in every run**
-//! and on only for the tests of what the free-running clock did — flight,
-//! raids, the day passing by the step — in the pattern feature 102 set:
-//! a world of the old game turns it on right after it is built.
+//! There is no third: the old game's clock, which ran with every step and
+//! flew the ship, went with the flying (feature 104).
 //!
 //! # What a mission is
 //!
@@ -66,7 +64,6 @@ use economy::Money;
 use crate::defense::Defense;
 use crate::droid::Infestation;
 use crate::memory::{Grave, Losses};
-use crate::plunder::Plunder;
 use crate::world::LampDamage;
 
 /// Where the run stands.
@@ -194,7 +191,6 @@ pub struct SiteSnapshot {
     pub losses: Option<Losses>,
     pub graves: Vec<Grave>,
     pub lamps: Vec<LampDamage>,
-    pub plunder: Option<Plunder>,
 }
 
 /// Everything the run keeps. Saved and in `world_checksum` whole.
@@ -202,9 +198,6 @@ pub struct SiteSnapshot {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Run {
     pub phase: Phase,
-    /// The old game's switch: the world clock running with every step,
-    /// as it did before feature 103. Off in every run.
-    pub free_clock: bool,
     /// The mission clock: steps since the crew arrived.
     pub mission_steps: u64,
     /// How many missions have begun, the first — the one a world opens
@@ -246,7 +239,6 @@ impl Run {
     pub fn new(players: u32) -> Run {
         Run {
             phase: Phase::Mission,
-            free_clock: false,
             mission_steps: 0,
             missions: 1,
             site: None,

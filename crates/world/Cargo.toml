@@ -15,7 +15,6 @@ description = "The one world clock: a system, a ship, and what happens on it"
 bims = { path = "../game" }
 economy = { path = "../economy" }
 flight = { path = "../flight" }
-health = { path = "../health" }
 physics = { path = "../physics" }
 shipdesign = { path = "../shipdesign" }
 time = { path = "../time" }
@@ -27,4 +26,4 @@ worldgen = { path = "../worldgen" }
 serde = { version = "1", features = ["derive"], optional = true }
 
 [features]
-serde = ["dep:serde", "bims/serde", "economy/serde", "flight/serde", "health/serde", "physics/serde", "shipdesign/serde", "worldgen/serde"]
+serde = ["dep:serde", "bims/serde", "economy/serde", "flight/serde", "physics/serde", "shipdesign/serde", "worldgen/serde"]

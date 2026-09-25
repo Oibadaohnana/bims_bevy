@@ -1,48 +1,16 @@
 // Dumps one frame of the real draw buffer as SVG, so the room can be looked at
-// without a browser. Handy after a layout change: a bed half inside the heads
-// is obvious here and invisible in every assertion.
+// without a window. A bare room, two Bims in it, and whatever the first
+// argument asks for: "start" for a couple of seconds in, "down" for one of
+// them out cold with its gun dropped beside it, "dead" for one dead and one
+// out cold side by side — the two lying figures against each other.
 
 include!("modules.rs");
 
 use game::Game;
 
 fn main() {
-    let mut game = Game::new(21, 960.0, 640.0);
-    // Sweeping needs something to sweep.
-    if std::env::args().nth(1).as_deref() == Some("sweep") {
-        for y in (100..500).step_by(52) {
-            for x in (100..760).step_by(52) {
-                let at = math::vec2(x as f32, y as f32);
-                if game.spot_at(at.x, at.y) == room::SPOT_DECK && game.can_reach_for_probe(0, at) {
-                    game.foul_for_probe(at);
-                }
-            }
-        }
-    }
-    // A graded row of mess, for looking at what each depth actually reads as
-    // on the deck. Left to right: one dirty job's stain, a smear walked out of
-    // a fouled tile, the smear a step further on, and the worst there is. The
-    // scale is linear and the shading is not, so this is the only way to tell
-    // whether a stain is visible at all.
-    if std::env::args().nth(1).as_deref() == Some("grime") {
-        for (i, cost) in [14.0, 27.5, 6.9, 110.0].iter().enumerate() {
-            game.soil_for_probe(math::vec2(240.0 + i as f32 * 52.0, 300.0), *cost);
-        }
-    }
-    // Run to whatever the first argument asks for: "start" for a few frames
-    // in, "bed" for the first moment somebody is asleep, "table" for the first
-    // moment somebody is at a meal, "board" for the middle of a stew for the
-    // shelf — the vegetable in rounds on one side of the board and the tofu
-    // half cut on the other.
+    let mut game = Game::bare(21, room::ROOM_W, room::ROOM_H);
     let want = std::env::args().nth(1).unwrap_or_else(|| "start".into());
-    let board = want == "board";
-    if board {
-        game.set_target(manager::Stock::Stew, 1);
-    }
-    // Sitting on the deck for want of anybody to talk to. Pinned forward and
-    // re-pinned each frame, because the other one coming over for a word
-    // would put the clock straight back to nothing.
-    let sulking = want == "sad";
     // Out cold on the deck, its gun dropped beside it: ten wounds on the
     // body and the blood run down until it drops. For looking at the
     // dropped weapon and the fallen figure together.
@@ -64,25 +32,11 @@ fn main() {
         game.kill_for_probe(0);
         game.knock_out_for_probe(1);
     }
-    let target: u32 = match want.as_str() {
-        "bed" => 4,
-        "table" => 1,
-        "sweep" => 13,
-        "talk" => 14,
-        _ => 0,
-    };
     let mut n = 0;
     loop {
-        if sulking {
-            game.leave_alone_for_probe(bim::PLAYER, 9.0);
-        }
         game.update(1.0 / 60.0);
         n += 1;
-        if sulking {
-            if game.broken_down_for_probe(bim::PLAYER) {
-                break;
-            }
-        } else if down {
+        if down {
             if game.is_unconscious(1) {
                 break;
             }
@@ -90,37 +44,12 @@ fn main() {
             if game.is_unconscious(1) && n >= 30 {
                 break;
             }
-        } else if board {
-            let sides = game.board_for_probe();
-            if sides.iter().all(|c| !c.is_empty()) && sides[0].pieces >= 3 {
-                break;
-            }
-        } else if target == 0 && n >= 120 {
-            break;
-        } else if target == 14 {
-            // The errand starting is the walk to the meeting point starting,
-            // and a picture of two Bims converging on the middle of the deck
-            // is not a picture of a conversation. `chat_topic` is non-zero
-            // only once somebody is actually standing there talking.
-            if (0..bim::CREW).any(|w| game.chat_topic(w) != 0) {
-                break;
-            }
-        } else if target != 0 && (0..bim::CREW).any(|w| game.activity(w) == target) {
+        } else if n >= 120 {
             break;
         }
         if n > 24 * 60 * 60 * 3 {
             eprintln!("never reached it");
             break;
-        }
-    }
-    // Reaching the errand is only the walk starting. A few game minutes more
-    // and the Bim is actually in the bed or on the chair, which is the thing
-    // worth looking at. A conversation is caught mid-way for the same reason:
-    // the walk to the meeting spot is not the thing to look at.
-    if target != 0 {
-        let settle = if target == 14 { 0 } else { 3 * 60 * 60 };
-        for _ in 0..settle {
-            game.update(1.0 / 60.0);
         }
     }
     eprintln!("frame {n}");

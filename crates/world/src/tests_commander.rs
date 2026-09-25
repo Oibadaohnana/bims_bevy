@@ -5,6 +5,7 @@
 //! the commander who holds it alone.
 
 use bims::combat::{ArmourKind, WeaponKind};
+use bims::droid::{Droid, DroidKind, DroidPart};
 use bims::math::vec2;
 use shipdesign::fixture::combat_ship;
 
@@ -79,13 +80,10 @@ fn pick(world: &mut World, who: u32, talent: Talent) {
     assert!(world.has_talent(who, talent));
 }
 
-/// The crew held where they stand: their own errands off, the timetable
-/// cleared, and nobody doctoring of their own accord.
+/// The crew held where they stand: their own errands off, and nobody
+/// doctoring of their own accord.
 fn hold_still(world: &mut World) {
     world.aboard.room.set_autonomous(false);
-    for hour in 0..24 {
-        world.aboard.room.set_schedule_slot(hour, 0);
-    }
     for who in 0..world.aboard.crew_count() as usize {
         let at = world.aboard.room.bim_pos(who);
         world.aboard.room.put_for_probe(who, at);
@@ -167,8 +165,8 @@ fn the_aura_lifts_every_friendly_bim_in_it_and_nobody_else() {
     world.step(&[]);
     assert!(world.aura_reaching(3).is_some(), "a bot, and a hire, too");
     // And the enemy is never in it: the aura is asked of the crew's room
-    // alone, so a resident's index is nobody's here.
-    assert!(world.stage_fight_for_probe());
+    // alone, so a machine's index is nobody's here.
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
     world.step(&[]);
     let residents = world.residents.as_ref().unwrap().aboard.count();
     assert!(residents > 0);
@@ -209,8 +207,6 @@ fn two_commanders_auras_do_not_stack_and_the_stronger_holds() {
 #[test]
 fn a_hire_a_commander_makes_is_cheaper_and_gives_him_experience() {
     let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     assert_eq!(world.set_class(0, Class::Commander), Ok(()));
     assert_eq!(world.set_class(1, Class::Commander), Ok(()));
     world.step(&[]);
@@ -263,20 +259,7 @@ fn a_hire_a_commander_makes_is_cheaper_and_gives_him_experience() {
     world.aboard.room.kill_for_probe(0);
     world.step(&[]);
     assert_eq!(world.hired().last().expect("still hired").fee, discounted);
-    // A dismissal refunds nothing: the month comes due with no money to
-    // cover it and the hand walks off at the berth.
-    let crew = world.aboard.crew_count();
-    world.money = 0;
-    let clock = world.clock_minutes;
-    for h in &mut world.hired {
-        h.due = clock;
-    }
-    for _ in 0..4 {
-        world.step(&[]);
-    }
-    assert!(world.aboard.crew_count() < crew, "the hand walked off");
-    assert!(!world.is_hired(hired_who));
-    assert_eq!(world.money, 0, "no refund");
+    assert!(world.is_hired(hired_who));
 }
 
 #[test]
@@ -313,14 +296,47 @@ fn a_hire_by_anybody_else_pays_in_full_and_gives_no_experience() {
 // --- B: the squad orders ---------------------------------------------------
 
 /// A fight staged with slot 0 a commander at the station's door, the
-/// crew held still and everybody but the commander a squad member.
+/// crew held still and everybody but the commander a squad member —
+/// against two machines down the corridor, both held where they are put
+/// and firing nothing, so an order can mark one and then the other.
 fn fight() -> World {
     let mut world = basic();
     assert_eq!(world.set_class(0, Class::Commander), Ok(()));
-    assert!(world.stage_fight_for_probe());
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
+    second_machine(&mut world);
     world.step(&[]);
     hold_still(&mut world);
     world
+}
+
+/// A second machine a tile and a half from the one the probe stood,
+/// held where it is put the same way.
+fn second_machine(world: &mut World) {
+    let residents = world.residents.as_mut().expect("alongside");
+    let room = &mut residents.aboard.room;
+    let first = room.droid(0).expect("the staged machine");
+    let at = first.pos + vec2(0.0, 1.5 * shipdesign::TILE as f32);
+    let mut other = Droid::new(
+        first.kind,
+        first.tier,
+        1,
+        first.wave,
+        at,
+        first.heading,
+        0x5EC0_4D,
+    );
+    other.posing = true;
+    room.adopt_droids(vec![other], vec2(0.0, 0.0));
+    residents.aboard.crew = residents.aboard.room.body_count();
+}
+
+/// A machine destroyed where it stands.
+fn wreck(world: &mut World, enemy: u32) {
+    world.residents.as_mut().unwrap().aboard.room.strike_droid(
+        enemy as usize,
+        DroidPart::Chassis,
+        1e6,
+    );
 }
 
 fn enemy_up(world: &World) -> u32 {
@@ -431,15 +447,9 @@ fn an_attack_marks_an_enemy_and_ends_when_it_goes_down() {
         }
     );
     // The mark ends when that enemy is down.
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .knock_out_for_probe(enemy as usize);
-    // A step for the body to go out cold, and a step for the world to
-    // read it back: the squad is handed over before the rooms step.
+    wreck(&mut world, enemy);
+    // A step for the world to read the wreck back, and one for the order
+    // to be pruned: the squad is handed over before the rooms step.
     world.step(&[]);
     world.step(&[]);
     assert!(world.squad.is_none(), "the mark is down, the order is over");
@@ -448,8 +458,8 @@ fn an_attack_marks_an_enemy_and_ends_when_it_goes_down() {
 #[test]
 fn an_attack_prefers_the_marked_enemy_over_a_nearer_one() {
     let mut world = fight();
-    // Two enemies: one right beside the squad member, one further off,
-    // both in sight. The order marks the far one.
+    // Two machines, both in sight of the squad member: the order marks
+    // the one it would not have picked for itself.
     let residents = world.residents.as_ref().unwrap();
     let up: Vec<u32> = (0..residents.aboard.count())
         .filter(|&i| {
@@ -457,11 +467,7 @@ fn an_attack_prefers_the_marked_enemy_over_a_nearer_one() {
                 && !residents.aboard.room.is_unconscious(i as usize)
         })
         .collect();
-    if up.len() < 2 {
-        return;
-    }
-    let (near, far) = (up[0], up[1]);
-    let _ = (near, far);
+    assert!(up.len() >= 2, "two machines standing: {up:?}");
     // The squad member stands where the commander does — beside the
     // station's door — and shoots whichever enemy it would pick for
     // itself; the order marks another one it can see, and that one
@@ -469,9 +475,11 @@ fn an_attack_prefers_the_marked_enemy_over_a_nearer_one() {
     let member = 3u32;
     stand_near(&mut world, member as usize, 1.0);
     world.step(&[]);
-    let Some(own) = world.aboard.room.aims_at_for_probe(member as usize) else {
-        return;
-    };
+    let own = world
+        .aboard
+        .room
+        .aims_at_for_probe(member as usize)
+        .expect("the squad member has a machine in its sights");
     let here = world.aboard.room.bim_pos(member as usize);
     let seen: Vec<u32> = up
         .iter()
@@ -483,9 +491,7 @@ fn an_attack_prefers_the_marked_enemy_over_a_nearer_one() {
                     .is_some_and(|p| world.aboard.room.sees(member as usize, p))
         })
         .collect();
-    let Some(&mark) = seen.first() else {
-        return;
-    };
+    let &mark = seen.first().expect("and sees the other one too");
     let _ = here;
     world.step(&[Command::Squad {
         slot: 0,
@@ -919,9 +925,7 @@ fn focus_fire_and_pincer() {
                 && !residents.aboard.room.is_unconscious(i as usize)
         })
         .collect();
-    if up.len() < 2 {
-        return;
-    }
+    assert!(up.len() >= 2, "two machines standing: {up:?}");
     for who in 1..world.aboard.crew_count() {
         stand_near(&mut world, who as usize, 2.0);
     }
@@ -1012,43 +1016,12 @@ fn steady_ranks_and_double_time() {
     assert_eq!(skill(&world, 0).walk, 1.0, "never himself");
 }
 
+/// *Grit*: during a rally, nothing the fight has done costs pace. (Its
+/// pick's other side, *relentless* — a mark that lasts past an enemy
+/// out cold until it is dead — has nothing to bite on since every enemy
+/// is a machine, which is destroyed and never out cold.)
 #[test]
-fn relentless_and_grit() {
-    let mut world = fight();
-    let enemy = enemy_up(&world);
-    for who in 1..world.aboard.crew_count() {
-        stand_near(&mut world, who as usize, 2.0);
-    }
-    world.step(&[]);
-    pick(&mut world, 0, Talent::Relentless);
-    world.step(&[Command::Squad {
-        slot: 0,
-        order: SquadAsk::Attack { enemy },
-    }]);
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .knock_out_for_probe(enemy as usize);
-    world.step(&[]);
-    assert!(
-        world.squad.is_some(),
-        "the mark lasts until the enemy is dead"
-    );
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .kill_for_probe(enemy as usize);
-    world.step(&[]);
-    world.step(&[]);
-    assert!(world.squad.is_none(), "and ends when it is");
-
-    // *Grit*: during a rally, nothing the fight has done costs pace.
+fn grit_takes_the_hurt_off_the_pace_during_a_rally() {
     let mut world = commander();
     hold_still(&mut world);
     level_up(&mut world, 0, class::RALLY_LEVEL);

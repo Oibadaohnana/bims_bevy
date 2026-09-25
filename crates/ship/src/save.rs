@@ -92,7 +92,18 @@ use crate::game::Game;
 /// mission clock, the pending bounty, the vote, the departure check, the
 /// fallen), the droid and town clocks in steps of the mission clock, and
 /// the room's `clock_runs`.
-pub const SAVE_VERSION: u32 = 34;
+/// 35: the old game deleted (feature 104) — `ShipState` is docked or
+/// holding and nothing else, the ship keeps no destination and no pending
+/// trip, `World::health` (the radiation dose) and the cold store's
+/// spoiling clock are gone, and so are the needs' and the dose's switches
+/// and the run's free clock; and every human enemy with them — the
+/// raids, an enemy's shelf, the hostile list and the arena's
+/// reinforcements (on the world and in every system's memory), the human
+/// foes' switch, and the room's execution; and the room's needs — a Bim's
+/// needs, clocks and poisoning, the galley's, the heads', the bays' and the
+/// cold store's state, the timetable, the manager, the deck's mess (blood
+/// alone is kept), every errand that served a need and the two flags.
+pub const SAVE_VERSION: u32 = 35;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

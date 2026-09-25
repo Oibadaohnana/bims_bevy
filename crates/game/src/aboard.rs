@@ -1,10 +1,10 @@
 //! The room, laid out from a ship design.
 //!
 //! This is where the two halves of the game meet: `crates/game` is the
-//! Bims — their needs, their errands, the galley and the heads and the bay,
-//! and the drawing of all of it — and `shipdesign` is the ship the player
-//! laid out. Everything the room's errands walk to is a rect on a
-//! [`Room`], and everything the designer placed is a part on a tile grid;
+//! Bims — their errands, their fight, the furniture they walk round, and the
+//! drawing of all of it — and `shipdesign` is the ship the player laid out.
+//! Everything the room's errands walk to and everything it draws is a rect
+//! on a [`Room`], and everything the designer placed is a part on a tile grid;
 //! this module turns the second into the first, and nothing else in the
 //! crate has heard of a `ShipDesign`.
 //!
@@ -17,31 +17,26 @@
 //!
 //! | part | the room's |
 //! | --- | --- |
-//! | cold store | fridge |
-//! | worktop | counter, with the board and the drawer on it |
-//! | hob | stove |
-//! | dishwasher | dishwasher |
-//! | table, chairs | table, seats |
-//! | bunks | berths, in id order — Bim *i* sleeps in bunk *i* |
-//! | broom locker | locker |
-//! | hydroponic bay | bay, six trays along it, worked from its use spots' side |
-//! | field | a bay on open ground, every one: half the pace, no plug (`More::fields`) |
-//! | toilet, basin | the heads, with no bulkheads of their own |
-//! | shower | the shower, used from its use spot; a solid the ship draws |
-//! | smelter, workbench | a bench each, used from its use spot; solids the ship draws |
+//! | cold store | fridge, drawn by the room; a container of the hold |
+//! | worktop | counter, with the board and the drawer on it, drawn by the room |
+//! | hob | stove, drawn by the room |
+//! | dishwasher | dishwasher, drawn by the room |
+//! | table, chairs | table, seats, drawn by the room |
+//! | bunks | berths, in id order — Bim *i* is dealt bunk *i* |
+//! | broom locker | locker, drawn by the room |
+//! | hydroponic bay | bay, six trays along it the way its use spots face, drawn by the room |
+//! | field | a bay on open ground, every one (`More::fields`) |
+//! | toilet, basin | the heads, with no bulkheads of their own, drawn by the room |
+//! | shower | a spot on a station's round; a solid the ship draws |
+//! | workbench, armoury, drug lab | a bench each, used from its use spot; solids the ship draws |
 //! | suit locker | where a walk outside starts and ends; a solid the ship draws |
-//! | shelf | where a load for a construction site is picked up; a solid the ship draws |
+//! | shelf | a container of the hold; a solid the ship draws |
 //! | airlock (the port) | the gangway inside it and the spot outside it, for a walk |
 //! | door | a powered door — see `crate::door` |
 //! | anything else a body cannot walk through | a solid the nav grid avoids |
 //!
-//! One of each, the first by id where the design has more. Every fixture is
-//! used **from the south** — the Bim stands below it, as it stands below the
-//! galley in the classic room — so a part turned to face another way is
-//! used from the wrong side, and a part with a wall to its south is one the
-//! crew cannot get at. That is the honest limit of this step, and it is
-//! written down here rather than fixed, because fixing it is the room's
-//! stations learning a direction each.
+//! One of each, the first by id where the design has more, and every one
+//! after it in `Layout::more`.
 //!
 //! # Units
 //!
@@ -51,13 +46,13 @@
 //! inside that box that is not deck is a solid, so an L-shaped ship does not
 //! get a room that thinks the missing corner is floor.
 
-use physics::ResourceId;
 use shipdesign::parts::{Layer, TILE, door_slides_along_x};
 use shipdesign::{PartKind, PlacedPart, ShipDesign, is_wall};
 
+use crate::fixtures::Still;
 use crate::game::Game;
 use crate::math::{Rect, Vec2, vec2};
-use crate::room::{Bench, Layout, More, Still};
+use crate::room::{Bench, Layout, More};
 use crate::terrain::Plane;
 
 /// How far inside the port the gangway is, in tiles — the same distance the
@@ -157,9 +152,6 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
     let mut tall: Vec<Rect> = Vec::new();
     // And the lights, each where it shines from with its reach.
     let mut lights: Vec<crate::sight::Light> = Vec::new();
-    // And the comforts — the plants, the pictures — each where it stands
-    // with what it lifts the deck round it by. See `Filth::set_comforts`.
-    let mut comforts: Vec<crate::filth::Comfort> = Vec::new();
     let mut extras: Vec<(Still, Rect)> = Vec::new();
     let mut more = More::default();
     let (x0, y0) = ((interior.min.x / t) as i32, (interior.min.y / t) as i32);
@@ -286,13 +278,6 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
                 reach: tiles as f32 * t,
             });
         }
-        if let Some(comfort) = shipdesign::comfort(part.kind) {
-            comforts.push(crate::filth::Comfort {
-                at: part_rect(part).center(),
-                lift: comfort.lift as f32,
-                tiles: comfort.tiles as i32,
-            });
-        }
         if def.layer != Layer::Object || !def.blocks_movement {
             continue;
         }
@@ -304,14 +289,11 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
             continue;
         }
         others.push(part_rect(part));
-        // A second of a kind the room has a picture for is drawn as one,
-        // standing still. A chair and a bunk are never here: the room
-        // seats and beds every one of them.
-        // Every second of a kind the room works is worked too: the rest
-        // go to the room as fixtures of their own, and a chain picks the
-        // closest free one. A table and a basin are the two the room only
-        // draws — every chair is seated already, and a basin is a heads'
-        // half, paired with the toilet nearest it below.
+        // Every second of a kind the room has a picture for goes to the room
+        // as a piece of furniture of its own. A chair and a bunk are never
+        // here: the room has every one of them already. A table and a basin
+        // are drawn as extras — a basin is a heads' half, paired with the
+        // toilet nearest it below.
         let frame = part_rect(part);
         match part.kind {
             PartKind::Worktop => more.worktops.push(frame),
@@ -325,9 +307,8 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
                 let side = side_of(part).unwrap_or(vec2(0.0, -1.0));
                 more.bays.push((frame, side));
             }
-            // A field is a bay on open ground, at half the pace and with
-            // no plug: every one goes to the room, since a ship never has
-            // one to be the first of.
+            // A field is a bay on open ground: every one goes to the room,
+            // since a ship never has one to be the first of.
             PartKind::Field => {
                 let side = side_of(part).unwrap_or(vec2(0.0, -1.0));
                 more.fields.push((frame, side));
@@ -349,8 +330,8 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
     }
 
     // The shower: its footprint, and the spot in front of it off its use
-    // spot, turned with the part. It stays a solid in `others` — the room
-    // has no picture for it and the ship painter draws it.
+    // spot, turned with the part — a stop on a station's people's round. It
+    // stays a solid in `others`: the ship painter draws it.
     let shower_of = |p: &PlacedPart| {
         let at = p
             .use_spots()
@@ -362,8 +343,6 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
     let showers = of_kind(design, PartKind::Shower);
     let shower = showers.first().map(|p| shower_of(p));
     more.showers = showers.iter().skip(1).map(|p| shower_of(p)).collect();
-
-    let helm = first(PartKind::Helm);
 
     // The suit locker, worked from its use spot like the shower, and the
     // port: the deck a couple of tiles inside it, which is where a walk
@@ -488,7 +467,6 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
         toilet: one(PartKind::Toilet),
         sink: one(PartKind::Basin),
         shower,
-        helm,
         benches,
         suit_locker,
         gangway,
@@ -502,7 +480,6 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
         tall,
         cover,
         lights,
-        comforts,
         more,
         extras,
         doors,
@@ -510,17 +487,14 @@ pub fn layout_of_on(design: &ShipDesign, plane: Option<&Plane>) -> Layout {
             .iter()
             .map(|p| part_rect(p))
             .collect(),
-        veg: design.carrying(ResourceId::Vegetable),
-        tofu: design.carrying(ResourceId::Tofu),
         plane,
     }
 }
 
 /// The parts the room draws for itself — its fixtures — so a painter that
 /// draws the rest of the ship as tiles can leave these to the room. Every
-/// part of every kind the room has a picture for: the first of each is
-/// the fixture the room works, and the rest it draws standing still
-/// (`Layout::extras`), so none of them is a coloured block.
+/// part of every kind the room has a picture for, so none of them is a
+/// coloured block.
 pub fn drawn_by_room(design: &ShipDesign) -> Vec<u32> {
     [
         PartKind::Door,

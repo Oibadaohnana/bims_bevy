@@ -4,6 +4,7 @@
 //! says, to the tank who holds it alone.
 
 use bims::combat::{ArmourKind, Item, Piece, Tier, WeaponKind};
+use bims::droid::{DroidKind, DroidPart};
 use bims::health::Part;
 use bims::math::vec2;
 use physics::ResourceId;
@@ -81,14 +82,11 @@ fn pick(world: &mut World, who: u32, talent: Talent) {
     assert!(world.has_talent(who, talent));
 }
 
-/// The crew held where they stand: their own errands off, the timetable
-/// cleared, and nobody doctoring of their own accord, so a test that
-/// opens a wound keeps it open.
+/// The crew held where they stand: their own errands off, and nobody
+/// doctoring of their own accord, so a test that opens a wound keeps it
+/// open.
 fn hold_still(world: &mut World) {
     world.aboard.room.set_autonomous(false);
-    for hour in 0..24 {
-        world.aboard.room.set_schedule_slot(hour, 0);
-    }
     for who in 0..world.aboard.crew_count() as usize {
         let at = world.aboard.room.bim_pos(who);
         world.aboard.room.put_for_probe(who, at);
@@ -434,15 +432,18 @@ fn a_taunt_wants_the_third_level_runs_its_minutes_and_waits_its_cooldown() {
 fn a_taunting_tank_is_shot_at_before_a_nearer_crewmate_and_two_runs_agree() {
     // Who the enemy shot, over a hundred steps: the tank and the
     // crewmate, each held where it was put with nothing in its hands so
-    // only the resident fires.
+    // only the machine fires.
     let run = |taunt: bool| -> (u32, u32, u64) {
         let mut world = basic();
         assert_eq!(world.set_class(0, Class::Tank), Ok(()));
-        assert!(world.stage_fight_for_probe());
+        assert!(world.stage_droid_fight_for_probe(
+            DroidKind::Trooper,
+            Some(WeaponKind::LaserPistol.basic())
+        ));
         level_up(&mut world, 0, class::TAUNT_LEVEL);
         // The crew member the station's door put inside is the tank; the
         // crewmate stands two tiles further in and a tile to one side —
-        // nearer the resident, which is four tiles in, and off the line
+        // nearer the machine, which is four tiles in, and off the line
         // between the two, so a bolt aimed at the tank does not have to
         // go through it.
         let tank_at = world.aboard.room.bim_pos(0);
@@ -463,20 +464,20 @@ fn a_taunting_tank_is_shot_at_before_a_nearer_crewmate_and_two_runs_agree() {
             world.step(&[Command::Taunt { slot: 0 }]);
             assert!(world.is_taunting(0));
         }
-        // Where the resident was staged, in its own room: it is held
-        // there too, or its tactics walk it out of the taunt's reach and
-        // the test measures a walk rather than a choice.
-        let resident_at = world.residents.as_ref().unwrap().aboard.room.bim_pos(0);
+        // The machine is held where it was staged too — its legs shot
+        // off, and a machine with no legs fights where it stands — or its
+        // tactics walk it out of the taunt's reach and the test measures
+        // a walk rather than a choice. Nobody of the crew is armed, so
+        // nothing else of it is ever hit.
+        if let Some(residents) = &mut world.residents {
+            residents.aboard.room.strike_droid(0, DroidPart::Legs, 1e6);
+        }
         let (mut on_tank, mut on_mate) = (0, 0);
         for _ in 0..400 {
             world.aboard.room.put_for_probe(0, tank_at);
             world.aboard.room.put_for_probe(1, mate_at);
             world.aboard.room.patch_up_for_probe(0);
             world.aboard.room.patch_up_for_probe(1);
-            if let Some(residents) = &mut world.residents {
-                residents.aboard.room.put_for_probe(0, resident_at);
-                residents.aboard.room.patch_up_for_probe(0);
-            }
             for hit in world.step(&[]) {
                 if let WorldEvent::CrewHit { who, .. } = hit {
                     match who {
@@ -509,7 +510,7 @@ fn a_taunting_tank_is_shot_at_before_a_nearer_crewmate_and_two_runs_agree() {
 fn the_taunt_the_enemies_are_handed_is_the_tank_s_radius_and_nobody_else_s() {
     let mut world = basic();
     assert_eq!(world.set_class(0, Class::Tank), Ok(()));
-    assert!(world.stage_fight_for_probe());
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
     level_up(&mut world, 0, class::TAUNT_LEVEL);
     world.step(&[]);
     let handed = |world: &World| {

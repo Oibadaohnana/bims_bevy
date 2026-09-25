@@ -6,9 +6,9 @@
 use bims::routine::Role;
 use bims::sight::Stance;
 use physics::ResourceId;
+use shipdesign::Rotation;
 use shipdesign::fixture::flyer;
 use shipdesign::parts::PartKind;
-use shipdesign::{Budget, Edit, Rotation, ShipDesign, apply};
 use worldgen::{Galaxy, GalaxyType};
 
 use crate::crew::Residents;
@@ -23,85 +23,11 @@ fn basic() -> World {
     simulation_world(flyer(2), REFERENCE_MONEY, 2)
 }
 
-/// A game day of world steps.
-const DAY_STEPS: u32 = (time::DAY / data::STEP_MINUTES) as u32;
-
-/// Every need of every Bim in a room, in `Need::ALL` order.
-fn needs_of(room: &bims::game::Game) -> Vec<Vec<f32>> {
-    (0..room.crew_count() as usize)
-        .map(|who| {
-            (0..room.need_count())
-                .map(|i| room.need_level(who, i))
-                .collect()
-        })
-        .collect()
-}
-
-/// With the needs off — every run — nothing drains over a whole day, for
-/// the crew or for the station's people living next door: nobody
-/// hungers, tires, needs the heads, is lonely or minds the mess, and
-/// nothing in the cold store spoils.
-#[test]
-fn with_the_needs_off_no_need_moves_over_a_day_for_the_crew_or_a_station_s_people() {
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    assert!(!world.needs_enabled(), "a run has no needs");
-    let residents = world.residents.as_ref().expect("the spawn has people");
-    assert!(residents.aboard.room.crew_count() > 0);
-    let crew_before = needs_of(&world.aboard.room);
-    let people_before = needs_of(&residents.aboard.room);
-    let store = |w: &World| {
-        (
-            w.aboard.room.store_veg(),
-            w.aboard.room.store_tofu(),
-            w.aboard.room.store_stew(),
-        )
-    };
-    let stocked = store(&world);
-    // A day and a minute, since the clock is a sum of floats.
-    for _ in 0..DAY_STEPS + 60 {
-        world.step(&[]);
-    }
-    assert!(world.days_gone() >= 1, "a whole day went by");
-    assert_eq!(
-        needs_of(&world.aboard.room),
-        crew_before,
-        "the crew's needs"
-    );
-    let residents = world.residents.as_ref().expect("still alongside");
-    assert_eq!(
-        needs_of(&residents.aboard.room),
-        people_before,
-        "the station's people's needs"
-    );
-    for room in [&world.aboard.room, &residents.aboard.room] {
-        for who in 0..room.crew_count() as usize {
-            assert_eq!(room.malnutrition(who), 0, "nobody goes hungry");
-            assert_eq!(room.drowsiness(who), 0, "nobody goes without sleep");
-            assert!(room.is_alive(who));
-        }
-    }
-    assert_eq!(
-        store(&world),
-        stocked,
-        "nothing is eaten and nothing spoils"
-    );
-
-    // And switched on — the tests about needs — they drain as they did.
-    let mut world = basic();
-    world.set_needs_enabled(true);
-    let before = needs_of(&world.aboard.room);
-    for _ in 0..(2 * 60 * 60) {
-        world.step(&[]);
-    }
-    assert_ne!(needs_of(&world.aboard.room), before, "on, the needs drain");
-}
-
 /// No human is ever the crew's enemy in a generated galaxy: wherever a
-/// crew starts, nothing in the system is hostile — the stations the
-/// generator rolled hostile among them — nothing after a jump either,
-/// and no raider ever comes.
+/// crew starts, nothing in the system is hostile but what the machines
+/// hold — the stations the generator rolled hostile among them — and
+/// nothing after a jump either; and a station's dead are nobody's to
+/// strip.
 #[test]
 fn no_human_is_ever_hostile_in_a_generated_galaxy() {
     let mut rolled_hostile = 0;
@@ -125,11 +51,6 @@ fn no_human_is_ever_hostile_in_a_generated_galaxy() {
                 station,
             )
             .expect("a dock to start at");
-            assert!(
-                world.hostile.is_empty(),
-                "{seed:#x}/{star}: {:?}",
-                world.hostile
-            );
             for s in &world.stations {
                 rolled_hostile += usize::from(s.hostile);
                 if !world.is_droid_held(s.id) {
@@ -150,50 +71,20 @@ fn no_human_is_ever_hostile_in_a_generated_galaxy() {
         "the sample never met a station the generator rolled hostile"
     );
 
-    // Off the berth and holding with a raid long overdue: nothing comes.
-    let mut world = basic();
-    world.undock_for_probe();
-    world.raid_due_for_probe(0);
-    for _ in 0..(2 * 60 * 60) {
-        for event in world.step(&[]) {
-            assert!(
-                !matches!(event, WorldEvent::RaidContact { .. }),
-                "a raider came"
-            );
-        }
-    }
-    assert!(world.hostile.is_empty());
-
     // And a jump: the system arrived at has nobody hostile in it either.
-    let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
+    let mut world = basic();
     out_in_the_open(&mut world);
     let next = world.reachable_stars()[0];
     jump_to(&mut world, next);
-    assert!(world.hostile.is_empty(), "{:?}", world.hostile);
     for s in &world.stations {
         if !world.is_droid_held(s.id) {
             assert_ne!(world.stance(s.id), Stance::Hostile);
         }
     }
 
-    // Plunder and looting a station's people are refused as well: the
-    // shelf is nobody's enemy's, and the dead are nobody's to strip.
+    // And looting one of a station's people is refused: the dead are
+    // nobody's to strip, and only a crewmate's body is the crew's.
     let mut world = basic();
-    let station = world.ship.state.station().unwrap();
-    world.set_hostile(station, true);
-    let events = world.step(&[Command::Plunder {
-        slot: 0,
-        who: 0,
-        id: 1,
-    }]);
-    assert!(
-        events.contains(&WorldEvent::Refused {
-            slot: 0,
-            why: Refusal::NotHostile
-        }),
-        "{events:?}"
-    );
-    assert!(world.plunder.is_empty(), "no enemy's shelf is laid out");
     world
         .residents
         .as_mut()
@@ -211,7 +102,7 @@ fn no_human_is_ever_hostile_in_a_generated_galaxy() {
     assert!(
         events.contains(&WorldEvent::Refused {
             slot: 0,
-            why: Refusal::NotHostile
+            why: Refusal::NotACrewmate
         }),
         "{events:?}"
     );
@@ -220,7 +111,7 @@ fn no_human_is_ever_hostile_in_a_generated_galaxy() {
 /// The crisis is there from day nought: the origin is the machines' the
 /// moment the world opens, and so is every star due by then — and a
 /// system due is theirs whole the moment the crew are in it, its jammer
-/// standing and a station's garrison a wave, exactly as if the spread
+/// standing and a station's people a wave, exactly as if the spread
 /// had run to it.
 #[test]
 fn at_day_nought_the_systems_due_to_have_fallen_are_infested() {
@@ -245,7 +136,7 @@ fn at_day_nought_the_systems_due_to_have_fallen_are_infested() {
 
     // Move the origin next door and jump there: the system arrived at is
     // the machines' already, every station of it and its jammer.
-    let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
+    let mut world = basic();
     out_in_the_open(&mut world);
     let next = world.reachable_stars()[0];
     world.set_droid_origin_for_probe(next);
@@ -322,26 +213,16 @@ fn a_run_buys_gear_builds_nothing_and_has_no_bunk_cap() {
     );
     assert!(world.builds.is_empty());
 
-    // A walk outside doses nobody: the stage-eight bodies stay clean.
-    for _ in 0..600 {
-        world.step(&[]);
-    }
-    assert!(world.health.iter().all(|h| h.dose == 0.0));
-
     // And a bunk is furniture: a crew of twenty on the playtest ship is
     // more than every bunk on the joined deck, and a mercenary is offered
-    // all the same — where with the needs on the lack of a bunk was the
-    // refusal.
+    // all the same.
     let mut world =
         crate::fixture::crewed_world(shipdesign::fixture::playtest_ship(), REFERENCE_MONEY, 1, 20);
     assert!(world.aboard.room.bed_count() < world.aboard.crew_count() as usize);
     assert!(world.mercenary_for_probe());
     let merc = world.residents.as_ref().unwrap().aboard.count() - 1;
     let offer = world.hire_offer(0, merc).expect("a mercenary for hire");
-    assert!(offer.bunk, "no bunk cap on a run's crew");
-    world.set_needs_enabled(true);
-    let offer = world.hire_offer(0, merc).expect("a mercenary for hire");
-    assert!(!offer.bunk, "with the needs on the bunks count");
+    assert!(offer.docked && offer.affordable, "{offer:?}");
 }
 
 /// The rounds: dealt to a station's people when the room opens, one role
@@ -500,29 +381,6 @@ fn two_runs_on_one_seed_walk_the_same_rounds() {
 
 // --- the jump helpers, as `tests_crisis` has them ----------------------------
 
-/// The flyer with a hyperdrive.
-fn jumper() -> ShipDesign {
-    let budget = Budget::new(10_000_000);
-    let mut design = flyer(2);
-    for (kind, origin) in [
-        (PartKind::PowerConduit, (7, 16)),
-        (PartKind::PowerConduit, (6, 16)),
-        (PartKind::Hyperdrive, (5, 16)),
-    ] {
-        design = apply(
-            &design,
-            &budget,
-            Edit::Place {
-                kind,
-                origin,
-                rotation: Rotation::R0,
-            },
-        )
-        .unwrap_or_else(|e| panic!("{kind:?} at {origin:?}: {e:?}"));
-    }
-    design
-}
-
 /// Off the berth and holding far from every station.
 fn out_in_the_open(world: &mut World) {
     world.undock_for_probe();
@@ -536,23 +394,12 @@ fn out_in_the_open(world: &mut World) {
     world.step(&[]);
 }
 
-/// Charged and jumped to `star`.
+/// Jumped to `star` — what a trip across a hyperlane does on the way
+/// (`World::jump`) — and a step after it.
 fn jump_to(world: &mut World, star: u32) {
     assert_eq!(world.ship.state, ShipState::Holding);
-    // A charge is the old game's (feature 103): its clock runs free.
-    world.set_free_clock(true);
-    world.man_the_helm_for_probe(0);
-    world.step(&[Command::Jump { slot: 0, star }]);
-    let steps = (data::JUMP_CHARGE_MINUTES / data::STEP_MINUTES).ceil() as u32 + 5;
-    for _ in 0..steps {
-        let events = world.step(&[]);
-        if events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Jumped { star: s } if *s == star))
-        {
-            assert_eq!(world.star_id, star);
-            return;
-        }
-    }
-    panic!("the ship never jumped");
+    let mut events = Vec::new();
+    assert!(world.jump(star, &mut events), "the ship never jumped");
+    assert_eq!(world.star_id, star);
+    world.step(&[]);
 }

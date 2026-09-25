@@ -2,13 +2,13 @@
 //! system that holds the hyperlanes shut.
 //!
 //! The crisis spreads along the lanes (`crate::droid`, feature 92) and a
-//! jump follows them too — one hop a charge, and only down a lane
-//! (`World::begin_jump`, [`crate::event::Refusal::NoLane`]). The jammer is
-//! what makes that a corner rather than a map: while it stands, a ship in
-//! an infested system may go **sideways or outward** — to a star the same
-//! number of hops from the machines' origin, or further off — and may not
-//! go **inward**, towards where they began
-//! ([`crate::event::Refusal::Jammed`]). Flying *into* an infested system is
+//! trip follows them too — one hop at most, and only down a lane
+//! (`World::travel_quote`, [`crate::event::Refusal::TooFar`]). The jammer
+//! is what makes that a corner rather than a map: while it stands, a ship
+//! in an infested system may go **sideways or outward** — to a star the
+//! same number of hops from the machines' origin, or further off — and may
+//! not go **inward**, towards where they began
+//! ([`crate::event::Refusal::Jammed`]). A trip *into* an infested system is
 //! never refused: the trap is getting back out the way you came.
 //!
 //! # Which station holds it
@@ -28,8 +28,8 @@
 //! it stands on, which is clear of every node the way a jump's landing
 //! point is ([`crate::jump::clear_point`]) — so two clients put the same
 //! station in the same place without exchanging a word. Its id is
-//! [`jammer_id`], in a range of its own well clear of the generator's, of
-//! a raider's and of a surface's.
+//! [`jammer_id`], in a range of its own well clear of the generator's and
+//! of a surface's.
 //!
 //! **It is never saved.** `World::settle_jammer` strips whatever a save
 //! carried and rolls it again, at the start, at a jump, at a load and the
@@ -51,8 +51,7 @@ use worldgen::{Name, StarSystem, StationBlueprint, StationKind, Stock};
 use crate::jump;
 
 /// The bit that marks a station id as a derived jammer's. Clear of the
-/// generator's ids, of [`crate::raid::RAIDER_BASE`] and of
-/// [`crate::surface::SURFACE_BASE`].
+/// generator's ids and of [`crate::surface::SURFACE_BASE`].
 pub const JAMMER_BASE: u32 = 0x1000_0000;
 
 /// The station id of the derived jammer in a star's system.
@@ -62,8 +61,7 @@ pub fn jammer_id(star: u32) -> u32 {
 
 /// Which star's derived jammer a station id names, if it names one.
 pub fn jammer_star(id: u32) -> Option<u32> {
-    (id & JAMMER_BASE != 0 && id & (crate::raid::RAIDER_BASE | crate::surface::SURFACE_BASE) == 0)
-        .then_some(id & !JAMMER_BASE)
+    (id & JAMMER_BASE != 0 && id & crate::surface::SURFACE_BASE == 0).then_some(id & !JAMMER_BASE)
 }
 
 /// Whether this station id is a derived jammer's rather than a station the
@@ -150,7 +148,7 @@ mod tests {
     use worldgen::{Galaxy, GalaxyType, Node};
 
     /// A derived jammer's id is its own: never a generated station's,
-    /// never a raider's and never a surface's.
+    /// and never a surface's.
     #[test]
     fn a_derived_jammer_s_id_collides_with_nothing() {
         for star in [0u32, 1, 7, 512, 999] {
@@ -158,11 +156,9 @@ mod tests {
             assert_eq!(jammer_star(id), Some(star));
             assert!(is_derived(id));
             assert!(crate::surface::surface_body(id).is_none());
-            assert!(crate::raid::raider_index(id).is_none());
             // And the generator's own ids, which are small, are not it.
             assert!(!is_derived(star));
             assert!(!is_derived(crate::surface::surface_id(star)));
-            assert!(!is_derived(crate::raid::raider_id(star)));
         }
     }
 

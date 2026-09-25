@@ -230,15 +230,6 @@ fn a_trip_is_one_hop_at_most_and_chosen_between_missions() {
         }),
         Err(Refusal::NoSuchPlace)
     );
-    // And nothing is flown: the helm's orders are the old game's.
-    let events = world.step(&[Command::Abort { slot: 0 }]);
-    assert!(events.iter().any(|e| matches!(
-        e,
-        WorldEvent::Refused {
-            why: Refusal::TravelIsResolved,
-            ..
-        }
-    )));
 }
 
 /// **The world clock stands still in a mission and on the map.** Only
@@ -268,7 +259,8 @@ fn the_world_clock_stands_still_in_a_mission_and_on_the_map() {
 /// **Days skipped by travel spread the crisis exactly as the same days
 /// stepped would have.** Two worlds on one seed, the machines' origin put
 /// so this system turns during the trip: one travels, the other holds in
-/// open space with the old free clock and steps the same minutes. They
+/// open space and has its clock put on a step's worth at a time, stepping
+/// between — what a clock running with the step would have done. They
 /// agree about every star, and both find this system's stations the
 /// machines'.
 #[test]
@@ -297,11 +289,12 @@ fn days_skipped_by_travel_spread_the_crisis_as_the_same_days_stepped() {
     let minutes = a.travel_quote(site).unwrap().minutes;
     to_the_map(&mut a);
     assert!(travelled(&travel_to(&mut a, site)));
-    // The other steps it, off its berth in the open.
-    b.set_free_clock(true);
+    // The other steps it, off its berth in the open, the clock put on
+    // by hand a step at a time.
     b.undock_for_probe();
     let steps = (minutes as f64 / data::STEP_MINUTES).round() as u64;
     for _ in 0..steps {
+        b.clock_minutes += data::STEP_MINUTES;
         b.step(&[]);
     }
     assert_eq!(a.days_gone(), b.days_gone(), "the same day");
@@ -589,6 +582,14 @@ fn the_run_is_lost_only_when_every_player_is_dead() {
     assert!(world.aboard.room.is_alive(2), "the bot stands");
     assert!(world.lost, "every player dead");
     assert!(events.iter().any(|e| matches!(e, WorldEvent::CrewLost)));
+    // Said once, and kept: the app's end screen reads the flag.
+    let events = world.step(&[]);
+    assert!(
+        !events.iter().any(|e| matches!(e, WorldEvent::CrewLost)),
+        "said once"
+    );
+    assert!(world.lost, "and kept");
+    assert_eq!(WorldEvent::CrewLost.code(), 63);
 }
 
 // --- ending a mission -----------------------------------------------------------
@@ -761,9 +762,9 @@ fn a_proposal_wants_every_connected_player_and_any_change_clears_it() {
     assert_eq!(world.star_id, b.star);
 }
 
-/// The pinned reference scenario does what its note says: it flies with
-/// the old clock, then goes back to the ship, travels, and ends in a
-/// mission somewhere else, the world clock on by the trip and no further.
+/// The pinned reference scenario does what its note says: a mission at the
+/// spawn, then back to the ship, a trip, and a mission somewhere else,
+/// the world clock on by the trip and no further.
 #[test]
 fn the_reference_run_ends_in_a_mission_somewhere_else() {
     let start = crate::fixture::reference_world();

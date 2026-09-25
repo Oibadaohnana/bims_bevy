@@ -1,29 +1,25 @@
-//! One crew member: everything that belongs to a Bim rather than to the ship.
+//! One body on a deck: everything that belongs to a Bim rather than to the
+//! room — its figure, its health, its errand and the queue of errands put
+//! down, its gear, its memory — whether it is one of the crew or one of a
+//! station's people. They are not distinguishable in code; `game.rs` is where
+//! what they share is arbitrated.
 //!
-//! Two of them live aboard and they are not distinguishable in code. Each has
-//! its own needs, its own health, its own errand and its own queue of errands
-//! put down; each has a berth and a seat at the table that the other never
-//! uses. What they share is the room — one galley, one pot, one set of heads —
-//! and `game.rs` is where the sharing is arbitrated.
-//!
-//! The only asymmetry is the player. [`PLAYER`] is the one the mouse steers;
-//! the other lives exactly the same day entirely on its own account, which is
-//! the whole point of it being there.
+//! The only asymmetry is the player. [`PLAYER`] is the one the mouse steers
+//! in a room with one player in it.
 
+use crate::blood::Blood;
 use crate::character::{Character, Look};
 use crate::clock;
 use crate::combat::{Blow, Gear, Trigger};
-use crate::filth::{self, Filth, Mess, Ordeal};
 use crate::health::Health;
 use crate::math::{Vec2, vec2};
 use crate::memory::Memory;
-use crate::needs::Needs;
 use crate::rng::Rng;
-use crate::social::Solitude;
 use crate::task::{Saved, Task};
 
-/// Who is aboard. The index is the whole identity: it picks the berth, the
-/// seat, the colour and the name the host prints, and it never changes.
+/// How many a bare room is stood up with (`Game::bare`). The index is the
+/// whole identity: it picks the colour and the name the host prints, and it
+/// never changes.
 pub const CREW: usize = 2;
 
 /// The one the player steers. Orders, selection and recruiting all mean this
@@ -35,32 +31,14 @@ pub const PLAYER: usize = 0;
 pub const TRAIL_LIFE: f32 = 2.2;
 pub const TRAIL_INTERVAL: f32 = 0.08;
 
-/// How many finished errands a Bim keeps to make conversation out of. A few
-/// hours' worth: what they talk about should be the afternoon they have just
-/// had, not something from the week before last.
-pub const TALKS_ABOUT: usize = 8;
-
 /// How often a bleeding Bim leaves a drop of blood on the deck, in
 /// seconds, with one open wound — with more it is that many times as
 /// often. Real seconds at 1x: the world's speed leaves a longer trail the
-/// way it leaves more of everything. A drop is filth on the tile it lands
-/// on — `Mess::Blood`, [`filth::BLOOD_COST`] — and stays until it is swept.
+/// way it leaves more of everything. A drop is blood on the tile it lands
+/// on — [`crate::blood::BLOOD_COST`] off it — and stays.
 pub const DRIP_EVERY: f32 = 1.2;
 /// How far from the body's middle a drop lands, in room units, either way.
 const DRIP_SCATTER: f32 = 10.0;
-
-/// How long a Bim with no bunk may sleep on the deck, in game minutes,
-/// out of every [`GROUND_WINDOW`]: three hours in six. The window opens
-/// the minute a lie-down on the deck begins and the allowance comes back
-/// whole when it closes, so an interrupted lie-down keeps what it did
-/// not use. See `Game::tick_bim` and `Game::can_sleep_on_ground`.
-pub const GROUND_SLEEP: f32 = 3.0 * clock::HOUR;
-pub const GROUND_WINDOW: f32 = 6.0 * clock::HOUR;
-/// How long a Bim is **sore** from a lie-down on the deck, in game minutes
-/// from the moment it gets up: half a day of rest draining
-/// [`crate::needs::SORE_TIRING`] times as fast. Re-armed every minute of
-/// the lie-down, so it runs from the end of it.
-pub const SORE_LASTS: f32 = 12.0 * clock::HOUR;
 
 /// A medic's surge running on a body (feature 76): the seconds of the
 /// room's clock it has left, and whether every open wound is closed as
@@ -84,35 +62,7 @@ pub struct Bim {
     /// The errand running now, and everything put down to make way for it.
     pub task: Option<Task>,
     pub queue: Vec<Saved>,
-    pub needs: Needs,
     pub health: Health,
-    /// How long this Bim has been holding on, and how long it has been
-    /// standing in the mess. Its own clocks, not the deck's — see [`Ordeal`].
-    pub ordeal: Ordeal,
-    /// Game minutes left of having dropped off standing up.
-    pub nap_left: f32,
-    /// How long this Bim has been without anybody to talk to, and what that
-    /// is costing it. Its own clock, not the ship's — see [`Solitude`].
-    pub solitude: Solitude,
-    /// Game minutes left of sitting on the deck having given up for a bit.
-    /// Works exactly like `nap_left`: the frame stops for this Bim while it
-    /// runs, and whatever it was in the middle of is still there afterwards.
-    pub sad_left: f32,
-    /// What it is talking about this instant, as a topic code, or 0. Set when
-    /// a chat is arranged and cleared when it ends; the host turns it into a
-    /// sentence in a bubble, because no strings cross the boundary.
-    pub chat_topic: u32,
-    /// The last few errands it finished, as `job_code`s, newest last.
-    ///
-    /// Small talk and nothing else. A Bim used to have something to say by
-    /// reading its own diary back — but the diary now keeps only the things
-    /// that went wrong, and a crew whose week has gone well would have had
-    /// nothing to say to each other at all. So what it has been *doing* is
-    /// kept here instead, where nothing but the conversation reads it, and
-    /// forgotten again as fast as it arrives.
-    pub lately: Vec<u32>,
-    /// Seconds until it next looks for somewhere cleaner to stand.
-    pub flee_wait: f32,
     /// Holding a line (feature 75): a soldier braced where it stands —
     /// no errands, no running, steadier shooting. Toggled by the world
     /// (`Game::set_braced`); off again on any order that moves it
@@ -173,9 +123,6 @@ pub struct Bim {
     /// commander's aura's `NERVE_HOLD` for a Bim in one.
     /// Saved with the room and in `world_checksum`.
     pub fear: f32,
-    /// Where the player sent it, held back until a door has been opened. Only
-    /// ever set on [`PLAYER`]: nobody sends the other one anywhere.
-    pub pending_move: Option<Vec2>,
     pub trail: Vec<Footprint>,
     pub trail_timer: f32,
     /// Where it was last frame and how long it has been marching without
@@ -190,24 +137,8 @@ pub struct Bim {
     pub born_day: u32,
     /// What it remembers of its days. See `memory.rs`.
     pub memory: Memory,
-    /// The worst each of these has been so far, so that going a stage further
-    /// can be noticed once rather than every frame it lasts.
-    pub worst_hunger: u32,
-    pub worst_weariness: u32,
-    /// Game minutes of food poisoning left, nothing when well. Its own clock,
-    /// like the ordeal's: it is this body that is ill. See `Game::poison`.
-    pub poisoned_for: f32,
-    /// Sleeping on the deck, for a Bim with no bunk of its own: how many
-    /// game minutes of it are left in the window that is open, and how
-    /// many minutes the window has left — nought for no window open, when
-    /// the allowance is whole. See [`GROUND_SLEEP`].
-    pub ground_left: f32,
-    pub ground_window: f32,
-    /// Game minutes left of being sore from the deck, nothing when not.
-    /// See [`SORE_LASTS`].
-    pub sore: f32,
     /// Its bunk, carried between rooms and read nowhere else: `Game::take_crew`
-    /// writes the room's [`crate::room::Room::sleeps_in`] entry here and
+    /// writes the room's [`crate::room::Room::bunk_of`] entry here and
     /// `Game::adopt` reads it back, since the crew leave one room for
     /// another with the deck. While the Bim is in a room the room's table
     /// is the truth and this is stale.
@@ -260,9 +191,8 @@ pub struct Bim {
     /// A station's person's peacetime round (feature 102): its role and
     /// the stops it walks, dealt by the world when the site's room opens
     /// (`Game::set_role`). `None` for the crew and for anybody the world
-    /// dealt none. Walked only with the needs off
-    /// (`Game::keep_to_routine`), and carried with the body through
-    /// `take_crew` and `adopt` like its post.
+    /// dealt none. Walked by `Game::keep_to_routine`, and carried with the
+    /// body through `take_crew` and `adopt` like its post.
     pub routine: Option<crate::routine::Routine>,
 }
 
@@ -277,15 +207,7 @@ impl Bim {
             character: Character::new(at, Look::of(who), rng),
             task: None,
             queue: Vec::new(),
-            needs: Needs::new(),
             health: Health::new(),
-            ordeal: Ordeal::new(),
-            solitude: Solitude::new(),
-            nap_left: 0.0,
-            sad_left: 0.0,
-            chat_topic: 0,
-            lately: Vec::new(),
-            flee_wait: 0.0,
             braced: false,
             rampage: 0,
             beaming: false,
@@ -295,7 +217,6 @@ impl Bim {
             carrying: None,
             field_medic: false,
             fear: 0.0,
-            pending_move: None,
             trail: Vec::new(),
             trail_timer: 0.0,
             last_pos: at,
@@ -303,12 +224,6 @@ impl Bim {
             born_year: BORN_FROM + rng.below(BORN_TO - BORN_FROM + 1),
             born_day: rng.below(clock::DAYS_IN_YEAR),
             memory: Memory::new(),
-            worst_hunger: 0,
-            worst_weariness: 0,
-            poisoned_for: 0.0,
-            ground_left: GROUND_SLEEP,
-            ground_window: 0.0,
-            sore: 0.0,
             bed: None,
             gear: Gear::issued(),
             trigger: Trigger::default(),
@@ -327,15 +242,6 @@ impl Bim {
             bind_timer: 0.0,
             routine: None,
         }
-    }
-
-    pub fn is_poisoned(&self) -> bool {
-        self.poisoned_for > 0.0
-    }
-
-    /// Whether it is sore from sleeping on the deck. See [`SORE_LASTS`].
-    pub fn is_sore(&self) -> bool {
-        self.sore > 0.0
     }
 
     /// How old it is on the given date, in whole years. A birthday that has
@@ -370,14 +276,11 @@ impl Bim {
     /// Drip blood on the deck. A drop every [`DRIP_EVERY`] seconds over the
     /// open wounds while it bleeds and lives — a dead Bim has stopped —
     /// scattered a little about the body so a Bim standing still leaves a
-    /// pool rather than a dot, and each drop is **filth**: the tile it
-    /// lands on is soiled with `Mess::Blood`, which the broom takes up like
-    /// any stain and the surroundings need follows like any other. There is
-    /// no picture of a drop of its own any more; the deck draws the tile.
-    /// The scatter is rolled off the room's stream: a Bim only bleeds after
-    /// a fight, and no seed-pinned probe has one, so nothing they pin is
-    /// re-rolled.
-    pub fn tick_drips(&mut self, dt: f32, rng: &mut Rng, deck: &mut Filth) {
+    /// pool rather than a dot. There is no picture of a drop of its own; the
+    /// deck draws the tile. The scatter is two rolls a drop off the room's
+    /// stream, which every fight draws from: take them away and every fight
+    /// after the first drop re-rolls.
+    pub fn tick_drips(&mut self, dt: f32, rng: &mut Rng, deck: &mut Blood) {
         let wounds = self.health.bleeding();
         if wounds > 0 && self.is_alive() {
             self.drip_timer -= dt;
@@ -385,7 +288,7 @@ impl Bim {
                 self.drip_timer = DRIP_EVERY / wounds as f32;
                 let at = self.character.pos
                     + vec2(rng.signed() * DRIP_SCATTER, rng.signed() * DRIP_SCATTER);
-                deck.soil(at, filth::BLOOD_COST, Mess::Blood);
+                deck.drop_at(at);
             }
         } else {
             self.drip_timer = 0.0;

@@ -2,23 +2,14 @@
 //!
 //! Every errand a Bim takes on *of its own accord* is one of these jobs. The
 //! player gives each a number from [`HIGHEST`] to [`LOWEST`], and a Bim with
-//! nothing pressing works through whatever is going in that order. They all
-//! start equal, so out of the box this changes nothing and the ship behaves
-//! exactly as it did before anybody touched the panel.
-//!
-//! What it does **not** touch is the body. Sleep and the heads are not work —
-//! there is no row for them and no number to set — and a Bim past its hunger
-//! is fed whatever the cook row says, because a priority list is a statement
-//! about what to do next and not a licence to starve. See
+//! nothing pressing works through whatever is going in that order. See
 //! `Game::consider_errand`, which is the only place any of this is read.
 //!
-//! No strings cross the boundary, so the ship knows [`Job::Clean`] and the
-//! host knows "Cleaning". **Adding a job is four edits**: a variant here,
-//! appended; a name in `WORK_NAMES` and a fixture to ring in `WORK_SPOTS`
-//! (`crates/app/src/names.rs` and `crew.rs`, whose length tests pin both
-//! against [`Job::ALL`]); and the range in `scratchpad/priority.rs` that
-//! checks every code names a job. Miss the name and the row renders blank;
-//! miss the probe and it passes on a job nobody can read.
+//! No strings cross the boundary, so the ship knows [`Job::Haul`] and the
+//! host knows "Carrying things". **Adding a job is three edits**: a variant
+//! here, appended; a name in `WORK_NAMES` and a fixture to ring in
+//! `WORK_SPOTS` (`crates/app/src/names.rs` and `crew.rs`, whose length tests
+//! pin both against [`Job::ALL`]). Miss the name and the row renders blank.
 
 /// The jobs, in the order they are listed and in the order the codes run.
 ///
@@ -27,33 +18,9 @@
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Job {
-    /// Sweeping the deck.
-    Clean,
-    /// Sowing an empty tray in the bay.
-    Plant,
-    /// Lifting a ripe one out of it.
-    Cut,
-    /// Carrying things: what was lifted out of a tray to the cold store,
-    /// and a gun or a piece of armour between the lockers and the
-    /// workbench. The first has no errand of its own — it is the back half
-    /// of a [`Job::Cut`], so a cutting waits on whichever of the two is set
-    /// later. The second is an errand in its own right (`game::Ferry`).
-    /// Materials to a construction site were the third until the money
-    /// rework (feature 95): there are none to carry.
+    /// Carrying things: a gun or a piece of armour between the lockers and
+    /// the workbench (`game::Ferry`).
     Haul,
-    /// Cooking: a meal for a hungry Bim, and stew for the cold store while
-    /// the shelf holds fewer than the manager asked for — one vegetable and
-    /// one block of tofu, chopped, cooked and put away in a tub. One row,
-    /// because both are the galley, and a Bim that is hungry eats before it
-    /// cooks for the shelf whatever the number says.
-    Cook,
-    /// Standing at the helm to control the ship. On offer while the ship is
-    /// away from a berth and nobody is posted at the helm; whoever takes it
-    /// is posted there — a standing order, like the player's own "take the
-    /// helm" — and let go when the ship is tied up again. The room only
-    /// knows the helm through `Game::set_helm`, which the world calls: the
-    /// classic room has no helm and never offers this.
-    Helm,
     /// Making something at a bench — the drug lab — while the
     /// world has an order for it: the hold short of a product the player
     /// asked to keep, the inputs aboard, and the station powered. One row
@@ -66,29 +33,18 @@ pub enum Job {
     /// work. The world says what there is to build (`game::Build`); the
     /// room walks a Bim to the site, in a suit if it is outside the hull.
     Build,
-    /// Dressing a wound with one of the ship's bandages — its own first,
-    /// while it bleeds, else the crewmate with the most open wounds — on
-    /// offer while a bandage is to hand and somebody aboard is bleeding
-    /// (`Game::medical_on_offer`). The one row that is also an
-    /// **interruption**: set to [`HIGHEST`] it displaces whatever the Bim
-    /// is on the moment there is a wound to dress, rather than waiting for
-    /// the errand to finish; set to [`NEVER`] nobody doctors of their own
-    /// accord, and the player's own bandage orders still work.
+    /// Dressing a wound with a bandage — its own first, while it bleeds,
+    /// else the crewmate with the most open wounds — and treating a
+    /// crewmate dying with a medkit (`Game::medical_on_offer`). The one row
+    /// that is also an **interruption**: set to [`HIGHEST`] it displaces
+    /// whatever the Bim is on the moment there is a wound to dress, rather
+    /// than waiting for the errand to finish; set to [`NEVER`] nobody
+    /// doctors of their own accord, and the player's own orders still work.
     Medical,
 }
 
 impl Job {
-    pub const ALL: [Job; 9] = [
-        Job::Clean,
-        Job::Plant,
-        Job::Cut,
-        Job::Haul,
-        Job::Cook,
-        Job::Helm,
-        Job::Craft,
-        Job::Build,
-        Job::Medical,
-    ];
+    pub const ALL: [Job; 4] = [Job::Haul, Job::Craft, Job::Build, Job::Medical];
 
     /// 0, then one per job. The host names them.
     pub fn code(self) -> u32 {
@@ -105,16 +61,14 @@ impl Job {
 pub const HIGHEST: u32 = 1;
 pub const LOWEST: u32 = 5;
 /// Below the top: **never**. A job at this is not work at all — it is never
-/// offered, whatever else is going. The one exception is a meal for a Bim
-/// past its hunger, which is not a licence to starve (see the module note).
+/// offered, whatever else is going.
 pub const NEVER: u32 = 0;
 /// What everything starts at — the middle, so the first click in either
 /// direction says something.
 pub const DEFAULT: u32 = 3;
 
 /// One number per job. The player's standing instruction to the ship rather
-/// than to a Bim: there is one list and both crew work to it, the same as the
-/// timetable and the action thresholds.
+/// than to a Bim: there is one list and the whole crew work to it.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Priorities {
     level: [u32; Job::ALL.len()],
@@ -123,9 +77,8 @@ pub struct Priorities {
 impl Priorities {
     /// Every row at [`DEFAULT`] but the medical one, which starts at
     /// [`HIGHEST`]: a wound is dressed the moment there is a bandage for
-    /// it, and a crewmate dying is treated before the deck is swept,
-    /// unless the player says otherwise. No seeded probe bleeds, so the
-    /// default costs nothing there.
+    /// it, and a crewmate dying is treated before anything else, unless
+    /// the player says otherwise.
     pub fn new() -> Priorities {
         let mut level = [DEFAULT; Job::ALL.len()];
         level[Job::Medical as usize] = HIGHEST;

@@ -96,15 +96,17 @@ second station.
 **every** kind a belt for a parent. A belt used to be the crew's mining
 site — `world::mining` laid the asteroids out about the ship holding at
 it, and the money rework (feature 95) took the mining away — and a
-station in orbit of one got in the way: a trip to a body ends
+station in orbit of one got in the way: a flown trip to a body ended
 `flight`'s `ARRIVAL_RADIUS_BODY` (15 000) short of it, a station orbits
 its parent at `STATION_ORBIT` of the minimum separation (about 10 000),
 so a ship that came in on the station's side had the station for its
 nearest node, the world's view settled on that and no site was laid out.
 The mining outposts, which were bolted to belts, are dug into rocky
 planets and ice worlds now, beside the orbitals. The rule outlived the
-mining it was written for, and it stays: a station orbiting a belt is
-still a node a trip would settle on instead of the belt. `nothing_stands_at_a_belt` (in `system.rs`'s
+mining it was written for, and the flown trip too (feature 104), and it
+stays: taking it out would move stations in every system, which is a
+`GENERATOR_VERSION` bump and a re-pin of every galaxy checksum for
+nothing. `nothing_stands_at_a_belt` (in `system.rs`'s
 tests) walks every station of the four reference galaxies: none has a
 belt for a parent, none stands within twice the arrival radius of one,
 and there are still outposts. The world's `spawn` still wants a belt in
@@ -115,9 +117,14 @@ workspace (`crates/world/CLAUDE.md`).
 ## A station's side is rolled here, and the enemy's are together in one corner
 
 > **Since feature 102** the world reads none of this as a stance — every
-> human is friendly in a run — but the roll stays: it is in the galaxy
-> checksum, and it is still where the tier-two research keys lie
-> (`world::station::key_tier`).
+> human is friendly in a run — and since feature 104 the world's
+> `hostile` list, `set_hostile` and every human enemy are deleted. The
+> roll stays, and this crate was not touched: it is in the galaxy
+> checksum, it is still where the tier-two research keys lie
+> (`world::station::key_tier`), the machines' derived jammer is built
+> with it set, and the world's `spawn`, `spawn_anywhere` and
+> `spawn_with_ground` still skip a blueprint rolled hostile, which is
+> what picks the dock every command opens at.
 
 `StationBlueprint::hostile` is `data::HOSTILE_SHARE` (0.3) of the stations
 somebody lives on, rolled in `furnish` off `base.branch(0x_484f_5354_0000_0000
@@ -139,11 +146,13 @@ kind does not enter into it; any lived-on kind can be an enemy's
 (`a_hostile_station_stays_hostile_and_any_kind_can_be`), and
 `some_stations_are_hostile_and_derelicts_never_are` pins the share in
 `0.2..0.4` for every galaxy type. The generator says only what was rolled:
-the world's `World::stance` is the rule that reads it (home is friendly
-whatever it rolled, `combat` makes the dock hostile whatever it rolled),
-and the lobby's `can_start` is what keeps a crew from starting at one. A
-station's `Station::hostile` in the world is this bit carried across,
-kept for anyone who wants the roll rather than the rule.
+the world's `World::stance` was the rule that read it (home friendly
+whatever it rolled, and `combat` making the dock hostile whatever it
+rolled, until both went), and the lobby's `can_start` kept a crew from
+starting at one. A station's `Station::hostile` in the world is this bit
+carried across, kept for anyone who wants the roll rather than the rule
+— and since feature 104 `stance` is a held station hostile, home
+friendly and the rest neutral, whatever the roll said.
 
 ## Who sells what is one `match`, and the gear is two flags beside it
 

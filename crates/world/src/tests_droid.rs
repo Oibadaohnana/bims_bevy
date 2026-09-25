@@ -208,8 +208,6 @@ fn a_wreck_is_down_carries_nothing_and_is_worth_fifteen_once() {
             "nothing comes off a machine"
         );
     }
-    // A wreck cannot be finished off either — there is no dying state.
-    assert!(!room_mut!(world).execute_body(0));
 
     // Stand the crew member next to it so the experience is in range,
     // and step: `XP_ENEMY_DOWN` and `XP_ENEMY_DEAD` together, once.
@@ -251,7 +249,7 @@ fn the_unmaker_strips_an_unbroken_piece_and_a_bare_part_takes_the_damage() {
     // The room's rule, asked of a Bim directly: a hit carrying a strip
     // takes it off the piece over the part with the piece's protection
     // ignored, and the part takes nothing.
-    let mut room = bims::game::Game::new(7, 800.0, 600.0);
+    let mut room = bims::game::Game::bare(7, 800.0, 600.0);
     let kevlar = bims::combat::Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
     let whole = kevlar.health;
     let protection = kevlar.stats().protection;
@@ -284,7 +282,7 @@ fn the_unmaker_strips_an_unbroken_piece_and_a_bare_part_takes_the_damage() {
     assert_eq!(room.wounds(0, bims::health::Part::Body), 0, "and unwounded");
 
     // A **bare** part takes the plain damage instead.
-    let mut bare = bims::game::Game::new(7, 800.0, 600.0);
+    let mut bare = bims::game::Game::bare(7, 800.0, 600.0);
     let was = bare.part_health(0, bims::health::Part::Legs);
     bare.strip_for_probe(0, bims::health::Part::Legs, 4.0, strips);
     assert_eq!(
@@ -302,7 +300,7 @@ fn the_unmaker_strips_an_unbroken_piece_and_a_bare_part_takes_the_damage() {
 
 #[test]
 fn a_broken_piece_is_no_shield_and_the_part_takes_the_damage() {
-    let mut room = bims::game::Game::new(11, 800.0, 600.0);
+    let mut room = bims::game::Game::bare(11, 800.0, 600.0);
     let mut kevlar = bims::combat::Piece::new(1, ArmourKind::BasicKevlar, Tier::One);
     kevlar.health = 0.0;
     assert!(kevlar.broken());
@@ -661,8 +659,8 @@ fn droid_waves_cost_this_much_a_step() {
 
 /// A crew member ashore, just inside the station's door and under arms:
 /// something for the machines to go to war over, without walking one
-/// there. `World::stage_fight_for_probe`'s own spot, which a droid-held
-/// station has no people of its own for.
+/// there. `World::stage_droid_fight_for_probe`'s own spot, without the
+/// wave cleared off the deck.
 fn put_one_ashore(world: &mut World) {
     let ashore = world.aboard.ashore.expect("docked, so there is a door");
     world

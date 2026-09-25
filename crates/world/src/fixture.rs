@@ -15,16 +15,17 @@
 use shipdesign::fixture::flyer;
 use worldgen::GalaxyType;
 
+use crate::Speed;
 use crate::data;
+use crate::run::Phase;
 use crate::world::{Command, World};
-use crate::{Speed, Target};
 
 /// What the reference crew have left over from the design phase.
 pub const REFERENCE_MONEY: economy::Money = 40_000;
 
-/// How many steps [`reference_run`] takes. Ten game minutes at 1x, which is
-/// long enough to get a trip planned, confirmed and turning and short enough
-/// that the wasm half of the check does not hold up a page load.
+/// How many steps each mission of [`reference_run`] takes. Ten game minutes
+/// at 1x, which is long enough for the crew to be about their business and
+/// short enough that the check does not hold up a start.
 pub const REFERENCE_STEPS: u32 = 600;
 
 /// What [`reference_run`] comes out at.
@@ -80,7 +81,16 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// very end, the droid and town clocks in mission steps, and the scenario
 /// itself grown a second half — back to the ship, the map, a trip resolved
 /// and a mission at the far end of it.
-pub const REFERENCE_CHECKSUM: u64 = 0x_3b79_4d55_6b05_0f5d;
+/// And again when the old game was deleted (feature 104): nothing is
+/// flown, so the scenario's first half is a mission at the spawn rather
+/// than a trip under the free clock, and the flight's state, the helm's
+/// destination, the radiation dose, the cold store's spoiling clock and
+/// the needs' and the dose's switches are out of the hash.
+/// And again when every human enemy went with it (feature 104): the
+/// hostile list and the arena's reinforcements, the raids' schedule and
+/// state, an enemy's shelves (on the world and in every system's memory)
+/// and the human foes' switch are out of the hash.
+pub const REFERENCE_CHECKSUM: u64 = 0x_5359_7c7a_29be_b3e2;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.
@@ -137,61 +147,28 @@ pub fn crewed_world(
     .expect("the default seed should have somewhere to spawn")
 }
 
-/// Somewhere in the spawn system that is not where the ship is standing.
+/// The scenario: open a world, run a mission at the spawn for
+/// [`REFERENCE_STEPS`], and then the run's own loop (feature 103): both
+/// players back to the ship, the map, a destination put and accepted, the
+/// trip resolved, and [`REFERENCE_STEPS`] of the mission that begins there.
 ///
-/// The lowest-numbered node that is not the dock, not the dock's own
-/// parent body — which body that is depends on the generator, and a trip
-/// to it from its orbit is a hop to the point over it rather than the
-/// burn the checksum was pinned on — and not already there, so the
-/// scenario does not depend on which of them the generator happened to
-/// put nearest.
-pub fn reference_target(world: &World) -> Target {
-    let docked = match &world.ship.state {
-        crate::ShipState::Docked { station } => Some(*station),
-        _ => None,
-    };
-    let parent = docked.and_then(|id| world.system.station(id)?.parent_body);
-    for node in world.system.nodes() {
-        let target = match node {
-            worldgen::Node::Station(id) if Some(id) == docked => continue,
-            worldgen::Node::Body(id) if Some(id) == parent => continue,
-            worldgen::Node::Body(id) => Target::Body(id),
-            worldgen::Node::Station(id) => Target::Station(id),
-        };
-        if world.preview(target) != Err(flight::PlanError::AlreadyThere) {
-            return target;
-        }
-    }
-    Target::Point(worldgen::math::dvec2(0.0, 0.0))
-}
-
-/// The scenario: open a world, confirm a trip, and run for
-/// [`REFERENCE_STEPS`] — with the old game's free clock, since a trip is
-/// flown in it — and then the run's own loop (feature 103): both players
-/// back to the ship, the map, a destination put and accepted, the trip
-/// resolved, and [`REFERENCE_STEPS`] of the mission that begins there.
-///
-/// Everything a checksum is meant to catch is in it — a plan made, a burn
-/// drawing on the reactor, a heading turning through a trigonometric function, the local
-/// frame changing as the ship leaves the dock, and a trip's length worked
-/// out from a square root and put on the clock.
+/// Everything a checksum is meant to catch is in it — the crew walking
+/// about aboard and on the joined deck, a trip's length worked out from a
+/// square root and put on the clock, the ship set down at a berth through
+/// a trigonometric function, and the site at the far end opened, its
+/// people with it.
 pub fn reference_run() -> u64 {
     reference_run_world().checksum()
 }
 
 /// The world [`reference_run`] ends on, for a test that wants to see the
-/// scenario did what it says: flew, went back to the ship, travelled.
+/// scenario did what it says: went back to the ship, travelled, and is on
+/// a mission at the far end.
 pub fn reference_run_world() -> World {
     let mut world = reference_world();
-    world.set_free_clock(true);
-    let target = reference_target(&world);
-
-    // The second player at the helm, since the ship is flown from there;
-    // both ask for a day a minute, so the effective speed is a decision that
-    // was actually taken rather than the default. `Day` rather than `Top`:
-    // the request's code is in the checksum, and code 4 is what the
-    // reference was pinned with before 48x went in above it.
-    world.man_the_helm_for_probe(1);
+    // Both players ask for a day a minute, so the effective speed is a
+    // decision that was actually taken rather than the default. `Day`
+    // rather than `Top`: the request's code is in the checksum.
     world.step(&[
         Command::SetSpeed {
             slot: 0,
@@ -201,29 +178,29 @@ pub fn reference_run_world() -> World {
             slot: 1,
             speed: Speed::Day,
         },
-        Command::Confirm { slot: 1, target },
     ]);
     for _ in 1..REFERENCE_STEPS {
         world.step(&[]);
     }
-    // And the run (feature 103): the world clock standing still, both
-    // players pressing Back to ship — aboard, so the ship leaves — the
-    // first destination of the map put and accepted, and a mission there.
-    world.set_free_clock(false);
+    // Both players pressing Back to ship — aboard, so the ship leaves —
+    // the first destination of the map put and accepted, and a mission
+    // there.
     world.step(&[Command::Return { slot: 0 }, Command::Return { slot: 1 }]);
     world.step(&[]);
-    let site = world
-        .travel_quotes()
-        .into_iter()
-        .find(|(site, quote)| quote.is_ok() && Some(*site) != world.current_site())
-        .map(|(site, _)| site);
-    if let Some(site) = site {
-        world.step(&[Command::Propose {
-            slot: 0,
-            star: site.star,
-            station: site.station,
-        }]);
-        world.step(&[Command::Accept { slot: 1, yes: true }]);
+    if world.run.phase == Phase::Map {
+        let site = world
+            .travel_quotes()
+            .into_iter()
+            .find(|(site, quote)| quote.is_ok() && Some(*site) != world.current_site())
+            .map(|(site, _)| site);
+        if let Some(site) = site {
+            world.step(&[Command::Propose {
+                slot: 0,
+                star: site.star,
+                station: site.station,
+            }]);
+            world.step(&[Command::Accept { slot: 1, yes: true }]);
+        }
     }
     for _ in 1..REFERENCE_STEPS {
         world.step(&[]);

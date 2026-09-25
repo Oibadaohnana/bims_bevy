@@ -409,16 +409,10 @@ enum HoldCell {
 
 /// Which fixture each job on the work list is about, so resting on a row
 /// rings the place it happens — every fixture of that kind, since a row
-/// names a kind: both hobs for cooking, every bay for the bay jobs. Hauling
-/// is the crop carry, and where a haul *ends* is the thing worth pointing
-/// at. Indexed by `work::Job` code; the test below pins the length.
-const WORK_SPOTS: [u32; 9] = [
-    SPOT_LOCKER,
-    SPOT_BAY,
-    SPOT_BAY,
-    SPOT_FRIDGE,
-    SPOT_HOB,
-    SPOT_HELM,
+/// names a kind: every bench for the carry between them and for the making.
+/// Indexed by `work::Job` code; the test below pins the length.
+const WORK_SPOTS: [u32; 4] = [
+    SPOT_BENCH,
     SPOT_BENCH,
     // A site is wherever it was laid out; nothing fixed to ring.
     SPOT_NOTHING,
@@ -711,7 +705,7 @@ pub enum Tool {
     Build(PartKind),
 }
 
-/// One thing the benches make, for the Management tab's second table: what
+/// One thing the benches make, for the Management tab's table: what
 /// it is, how many are aboard, where they are kept, the standing order to
 /// keep that many made, and the most the hold could take.
 pub struct Craft {
@@ -739,14 +733,12 @@ pub struct Actions {
     /// to be.
     pub crafts: Vec<Craft>,
     pub keep: Vec<(ResourceId, u32)>,
-    /// The Build tab: whether the ship is at rest, which is the only time
-    /// anything is laid out or built; what the pool has left after the
-    /// sites already begun (feature 95); the sites laid out; and — going
-    /// the other way — the sites to be called off.
-    pub at_rest: bool,
     /// Whether anything is built onto the ship at all (feature 102,
     /// `World::shipyard_enabled`): off in a run, and the Build tab with it.
     pub shipyard: bool,
+    /// The Build tab: what the pool has left after the sites already
+    /// begun (feature 95); the sites laid out; and — going the other way —
+    /// the sites to be called off.
     pub free_money: economy::Money,
     pub sites: Vec<Site>,
     pub cancel: Vec<u32>,
@@ -1007,7 +999,7 @@ impl CrewPanels {
             player,
             crew_count,
             tray_open: true,
-            tab: Tab::Inventory,
+            tab: Tab::Work,
             tool: None,
             diary_open: vec![false; crew_count as usize],
             sort: Some(Sort::Up),
@@ -2242,7 +2234,7 @@ impl CrewPanels {
             self.tab,
             Tab::View | Tab::Build | Tab::Research | Tab::Skills | Tab::Ship
         ) {
-            self.tab = Tab::Inventory;
+            self.tab = Tab::Work;
         }
         let docked = actions.as_ref().is_some_and(|a| a.docked);
         let mut station = false;
@@ -3883,13 +3875,6 @@ impl CrewPanels {
                 box_.request_focus();
             }
         });
-        if !actions.at_rest {
-            ui.label(
-                egui::RichText::new("Nothing is built while the ship is moving. Sites can be laid out once it is at rest.")
-                    .small()
-                    .color(theme::WARN),
-            );
-        }
 
         // Which rows to show: a category's, or the search's matches from
         // every category — and only the parts the crew know how to build;
@@ -5457,7 +5442,7 @@ mod tests {
     /// and the countdown is the blood left divided by it.
     #[test]
     fn a_dying_bim_says_what_is_taking_it_down_and_how_long_it_has() {
-        let mut game = Game::new(7, 1200.0, 800.0);
+        let mut game = Game::bare(7, bims::room::ROOM_W, bims::room::ROOM_H);
         assert!(
             perils(&game, 0).is_empty(),
             "a whole body is dying of nothing"

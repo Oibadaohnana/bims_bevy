@@ -22,19 +22,10 @@
 //! the pairing is the same on every client and survives every edit that
 //! did not touch the bunks. `bims::aboard::starts` is that rule.
 //!
-//! # What is not here yet
-//!
-//! The room has [`bims::room::BERTHS`] beds and as many seats, so at most
-//! two of a crew are simulated — a Bim's index is its berth and its seat,
-//! and the room has two of each. The cold store is stocked from the cargo
-//! when the world opens and is the room's from then on; what the crew eat
-//! and grow does not yet come back off the manifest.
-
 use bims::bim::Bim;
 use bims::character::Uniform;
 use bims::combat::Gear;
 use bims::game::{Container, Game as Room};
-use bims::manager::Stock;
 use bims::math::{Rect, vec2};
 use bims::sight::Fog;
 use economy::Money;
@@ -73,9 +64,8 @@ pub struct Aboard {
     pub design: ShipDesign,
     /// Where the two sides of the airlock lead, in the room's units, while
     /// the rooms are joined: the corridor just inside the station's door,
-    /// and the deck just inside the ship's. Where the station's people are
-    /// sent before the ship casts off, and where its own are called back
-    /// to. Neither for a ship on its own.
+    /// and the deck just inside the ship's — where the crew fall back to
+    /// on a retreat. Neither for a ship on its own.
     pub ashore: Option<DVec2>,
     pub gangway: Option<DVec2>,
     /// Where a station design point lands in the room, while joined: the
@@ -509,57 +499,6 @@ impl Aboard {
             })
     }
 
-    /// Everybody to their own side of the airlock: the station's people
-    /// ashore, the ship's back aboard. Sent once each, and again only when
-    /// an errand has taken one back across — a Bim handed a fresh route
-    /// every step never moves. The station's people are *posted* ashore,
-    /// since they are let go with the station anyway; the crew are only
-    /// walked back, or they would stand at the airlock for the rest of the
-    /// voyage. Whether they are all there yet is [`Aboard::everybody_home`];
-    /// nothing here waits.
-    pub fn send_everybody_home(&mut self, ship: &ShipDesign) {
-        let near = |a: Option<bims::math::Vec2>, b: bims::math::Vec2| {
-            a.is_some_and(|a| (a - b).len() <= TILE as f32)
-        };
-        for who in 0..self.count() {
-            let crew = who < self.crew;
-            let on_ship = self.on_ship(who, ship);
-            let (belongs, to) = if crew {
-                (on_ship, self.gangway)
-            } else {
-                (!on_ship, self.ashore)
-            };
-            let Some(to) = to else {
-                continue;
-            };
-            let to = vec2(to.x as f32, to.y as f32);
-            if belongs {
-                continue;
-            }
-            let who = who as usize;
-            if crew {
-                // Already on the way: leave it be.
-                if near(self.room.destination_for_probe(who), to) {
-                    continue;
-                }
-                self.room.walk_to(who, to);
-            } else {
-                // Posted there already — to within the snap a route makes —
-                // and on its way or standing: leave it be.
-                if near(self.room.post_of(who), to) && !self.room.is_busy(who) {
-                    continue;
-                }
-                self.room.send_to(who, to);
-            }
-        }
-    }
-
-    /// Whether the crew are all on the ship and the station's people all
-    /// off it. True of a ship on its own.
-    pub fn everybody_home(&self, ship: &ShipDesign) -> bool {
-        (0..self.count()).all(|who| self.on_ship(who, ship) == (who < self.crew))
-    }
-
     /// Whether this is the ship and a station as one room.
     pub fn is_joined(&self) -> bool {
         self.offset != DVec2::ZERO || self.count() > self.crew
@@ -574,16 +513,6 @@ impl Aboard {
     /// room is drawn by [`Aboard::render`] when the ship is, not every step.
     pub fn step(&mut self) {
         self.room.simulate(STEP_SECONDS);
-    }
-
-    /// Tell the room where the helm is while the ship wants somebody at it,
-    /// in the ship's design units, or that it does not. The room offers the
-    /// helm as a job off this — see `bims::work::Job::Helm`.
-    pub fn set_helm(&mut self, seat: Option<DVec2>) {
-        self.room.set_helm(seat.map(|s| {
-            let at = s.add(self.offset);
-            vec2(at.x as f32, at.y as f32)
-        }));
     }
 
     /// Draw the room as it stands. Called by the ship painter once a frame.
@@ -743,9 +672,8 @@ impl Residents {
     /// last that many bodies, in the mercenary's coverall and kit and
     /// priced, as many as the bunks will take after the residents.
     ///
-    /// **A station's room holds no more than it has bunks** — a garrison
-    /// bigger than an orbital's four is four, which is what the arena's
-    /// twenty are for — the cut made here, since the room itself takes
+    /// **A station's room holds no more than it has bunks** — a crowd
+    /// bigger than an orbital's four is four — the cut made here, since the room itself takes
     /// whatever it is given (`Game::with_layout`): the ship's crew is the
     /// world's count and may run past the ship's bunks. A design with no
     /// bunk at all still has the room's one stand-in berth.
@@ -825,20 +753,6 @@ impl Residents {
                 .room
                 .lay_out_dead(who, vec2(grave.x as f32, grave.y as f32));
         }
-        // Their own manager's goals, a head each — the crew's Management tab
-        // is the crew's, and reaches nobody ashore — and a larder already
-        // at them, since they have been living here. The dead eat nothing.
-        let each = count + mercenaries;
-        let (veg, tofu, stew) = (
-            data::RESIDENT_VEG_EACH * each,
-            data::RESIDENT_TOFU_EACH * each,
-            data::RESIDENT_STEW_EACH * each,
-        );
-        aboard.room.set_target(Stock::Veg, veg);
-        aboard.room.set_target(Stock::Tofu, tofu);
-        aboard.room.set_target(Stock::Stew, stew);
-        // No fibre: the residents grow none unasked, and nobody asks.
-        aboard.room.set_stock(veg, tofu, stew, 0);
         aboard.room.set_medkits(data::RESIDENT_MEDKITS);
         aboard.room.render();
         // A town is under a sky: its whole ground is lit by day, whatever
@@ -962,20 +876,11 @@ impl Residents {
     }
 
     /// A fresh room in the old one's place, with what the old room held
-    /// that is not a body's: the larder and its targets, the medicine, the
-    /// fog and whether the doors are drawn. `down` and `fee` are by index
-    /// and the indices are kept (`adopt` keeps the order).
+    /// that is not a body's: the medicine, the fog and whether the doors
+    /// are drawn. `down` and `fee` are by index and the indices are kept
+    /// (`adopt` keeps the order).
     fn replace_room(&mut self, mut fresh: Aboard) {
         let old = &self.aboard.room;
-        for which in Stock::ALL {
-            fresh.room.set_target(which, old.target(which));
-        }
-        fresh.room.set_stock(
-            old.store_veg(),
-            old.store_tofu(),
-            old.store_stew(),
-            old.store_fibre(),
-        );
         // The dressings go with the bodies: since feature 87 they are in
         // the packs, and `adopt` carries a Bim's gear into the new room.
         fresh.room.set_medkits(old.medkits());
@@ -1021,60 +926,6 @@ impl Residents {
             let own = seed.wrapping_add((who as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
             self.aboard.room.set_role(who, role, &gates, own);
         }
-    }
-
-    /// A settlement's guard to its post: the first of its people, sent to
-    /// stand at [`crate::surface::GUARD_POST`] outside the watch house —
-    /// a post, so it goes off to eat and sleep and comes back to it
-    /// (`Game::send_to`). Nothing at a station, which has no watch.
-    /// Called whenever the room is built afresh — opened, joined,
-    /// unjoined — since a fresh room drops every post; and false when
-    /// there is nobody to post or no way there.
-    pub fn post_guard(&mut self, station: &Station) -> bool {
-        if station.plan != crate::station::Plan::Surface
-            || self.aboard.count() <= crate::surface::GUARD
-        {
-            return false;
-        }
-        let at = self.aboard.to_room(crate::surface::guard_post());
-        self.aboard.room.send_to(crate::surface::GUARD as usize, at)
-    }
-
-    /// A raider's boarders to the ship: every one of them alive and without
-    /// a post is posted at the ship's **gangway** — the deck a few tiles
-    /// inside the ship's airlock, [`data::ASHORE_TILES`] in the way the
-    /// door opens, in this room's units through the mirror's frame — so
-    /// they walk the passage onto the ship and hold its door, and force
-    /// the airlock if it is locked against them (`Game::post_at`,
-    /// `Game::breach`). A post, so a fight drops it (`Game::muster`) and
-    /// the world asks again every step the raider is tied up: one that
-    /// went back to its bunk after a fight is sent again. Nothing unless
-    /// the ship is on this room's deck. How many were sent.
-    pub fn post_boarders(&mut self, ship: &ShipDesign) -> u32 {
-        let Some((origin, ex, ey)) = self.aboard.station_frame else {
-            return 0;
-        };
-        let Some(port) = dock::port(ship) else {
-            return 0;
-        };
-        let reach = crate::data::ASHORE_TILES * TILE as f64;
-        let inside = dvec2(
-            port.centre.0 - port.outward.0 as f64 * reach,
-            port.centre.1 - port.outward.1 as f64 * reach,
-        );
-        let at = origin.add(ex.scale(inside.x)).add(ey.scale(inside.y));
-        let at = vec2(at.x as f32, at.y as f32);
-        let mut sent = 0;
-        for who in 0..self.aboard.count() as usize {
-            let room = &mut self.aboard.room;
-            if !room.is_alive(who) || room.has_post(who) {
-                continue;
-            }
-            if room.post_at(who, at) {
-                sent += 1;
-            }
-        }
-        sent
     }
 
     /// Which of them may be spoken to — a mercenary for hire, alive and on

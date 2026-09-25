@@ -1,11 +1,10 @@
 //! What the world has to be true of.
 //!
-//! Most of these fly the real fixture in the real spawn system, because
+//! Most of these run the real fixture in the real spawn system, because
 //! almost everything here is about how the parts fit together rather than
-//! about arithmetic — the arithmetic has its own tests next door in `flight`.
-//! Where a scenario would otherwise depend on where the generator happened to
-//! put a planet, the probe seams on [`World`] are used instead: see
-//! `discover_for_probe` and `put_for_probe`.
+//! about arithmetic. Where a scenario would otherwise depend on where the
+//! generator happened to put a planet, the probe seams on [`World`] are
+//! used instead: see `discover_for_probe` and `put_for_probe`.
 
 use bims::combat::Tier;
 use economy::{Money, Storage, trade_price};
@@ -18,13 +17,12 @@ use worldgen::{GalaxyType, StationKind};
 
 use crate::data;
 use crate::event::{Refusal, WorldEvent};
-use crate::fixture::{REFERENCE_MONEY, crewed_world, reference_target, simulation_world};
+use crate::fixture::{REFERENCE_MONEY, crewed_world, simulation_world};
 use crate::frame::Frame;
 use crate::speed::Speed;
 use crate::station::Station;
 use crate::world::{Command, ShipState, World};
 use crate::world_checksum;
-use crate::{PlanError, Target};
 
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-6 * a.abs().max(b.abs()).max(1.0)
@@ -46,10 +44,6 @@ pub(crate) fn basic() -> World {
 /// counts the lockers or pins the hold's counts does not want in the
 /// way, so it says so at the top and the charges leave everybody alone.
 pub(crate) fn without_dressings(world: &mut World) {
-    world
-        .aboard
-        .room
-        .set_target(bims::manager::Stock::Bandages, 0);
     // The medicine is everybody's charge — a box of dressings and a
     // medkit in every pack, come back on a cooldown — so it is switched
     // off before the packs are emptied of it, or it would be back in the
@@ -69,73 +63,62 @@ pub(crate) fn without_dressings(world: &mut World) {
     world.on_ship_changed();
 }
 
-/// [`basic`] with Kate a crewmate nobody steers rather than a second
-/// player's own: one player, two crew. What a test of the crew under the
-/// alarm wants — a player's own is never mustered (`bims::order`).
-fn with_a_crewmate() -> World {
-    crewed_world(flyer(2), REFERENCE_MONEY, 1, 2)
+/// The machine a fight was staged with (`stage_droid_fight_for_probe`):
+/// the one body of a held station's room, to read.
+fn machine(world: &World) -> &bims::droid::Droid {
+    world
+        .residents
+        .as_ref()
+        .expect("alongside")
+        .aboard
+        .room
+        .droid(0)
+        .expect("the staged machine")
 }
 
-/// Somewhere near enough for a trip to finish inside a test.
-///
-/// A real node in the spawn system is days away, and a test that stepped
-/// through one would be stepping five million times. A point target is the
-/// same code path with a shorter line.
-fn nearby(world: &World, distance: f64) -> Target {
-    Target::Point(world.ship.position().add(dvec2(distance, distance / 3.0)))
+/// The same machine, to change by hand.
+fn machine_mut(world: &mut World) -> &mut bims::droid::Droid {
+    world
+        .residents
+        .as_mut()
+        .expect("alongside")
+        .aboard
+        .room
+        .droid_mut_for_probe(0)
+        .expect("the staged machine")
 }
 
-/// Run until the ship is at rest — holding or tied up — or give up. Coming
-/// alongside at the end of a trip is part of the trip here.
-fn until_stopped(world: &mut World, limit: u32) -> Vec<WorldEvent> {
-    let mut seen = Vec::new();
-    for _ in 0..limit {
-        seen.extend(world.step(&[]));
-        if matches!(
-            world.ship.state,
-            ShipState::Holding | ShipState::Docked { .. }
-        ) {
-            return seen;
-        }
-    }
-    panic!("the trip never ended");
+/// What is left of the staged machine, its four parts added up.
+fn machine_health(world: &World) -> f32 {
+    let body = machine(world).body;
+    bims::droid::DroidPart::ALL
+        .iter()
+        .map(|&p| body.health(p))
+        .sum()
 }
 
-/// Take every one of a station's people but `who` out of the fight — a
-/// shot to the head each — so a run is one on one. An enemy dock arms
-/// `enemies_of` the crew (four against `basic()`'s two), and a test that
-/// pins one shot or one blade wants the rest of the garrison down first.
-fn one_on_one(room: &mut bims::game::Game, who: usize) {
-    for other in 0..room.crew_count() as usize {
-        if other != who {
-            room.kill_for_probe(other);
-        }
-    }
+/// The staged machine whole again, the way a crew member is patched up —
+/// a wreck stood up again with it: the test wants a target, not a fight
+/// won.
+fn mend_machine(world: &mut World) {
+    let droid = machine_mut(world);
+    droid.body = bims::droid::DroidBody::new(droid.kind, droid.tier);
+    droid.destroyed = false;
 }
 
-/// How many steps a departure from the berth is allowed: the station's
-/// people walking ashore, the crew back, and the push-off. An hour, the
-/// casting-off limit, and a little over.
+/// The staged machine stood at a point of its own room and whole again:
+/// what a test that wants the distance it asked for does before every
+/// step, the way it puts a crew member back.
+fn hold_machine(world: &mut World, at: bims::math::Vec2) {
+    mend_machine(world);
+    let droid = machine_mut(world);
+    droid.halt();
+    droid.pos = at;
+}
+
+/// How long a walk across the joined deck is given, in steps: an hour and
+/// a little over, the length of the biggest station there and back.
 const LEAVING: u32 = 62 * 60;
-
-/// Confirm a trip from wherever the ship is, with that player's crew member
-/// at the helm, and run until it is under way. From a berth that is the
-/// whole of casting off — everybody to their own side of the airlock, the
-/// push-off — which is what every trip in here begins with; from a hold it
-/// is one step. Everything seen on the way comes back.
-fn set_off(world: &mut World, slot: u32, target: Target) -> Vec<WorldEvent> {
-    // A flight is the old game's (feature 103): its clock runs free.
-    world.set_free_clock(true);
-    world.man_the_helm_for_probe(slot);
-    let mut seen = world.step(&[Command::Confirm { slot, target }]);
-    for _ in 0..LEAVING {
-        if matches!(world.ship.state, ShipState::Travelling { .. }) {
-            return seen;
-        }
-        seen.extend(world.step(&[]));
-    }
-    panic!("the ship never set off: {:?}", world.ship.state);
-}
 
 // --- starting ---------------------------------------------------------------
 
@@ -148,7 +131,6 @@ fn a_world_opens_docked_at_the_spawn_station_with_the_money_left_over() {
     assert_eq!(world.money, REFERENCE_MONEY);
     assert_eq!(world.clock_minutes, 0.0);
     assert_eq!(world.steps, 0);
-    assert_eq!(world.power().engines, 0.0);
 
     // Docked means alongside: the ship is at its berth, which is beside
     // the station rather than on top of it.
@@ -271,21 +253,19 @@ fn the_galaxy_has_hostile_stations_and_the_spawn_is_never_one() {
 fn a_step_is_always_the_same_length_however_the_steps_are_grouped() {
     // --- how_the_steps_are_grouped_into_frames_makes_no_difference ---
     {
-        let target = |w: &World| nearby(w, 20_000.0);
-        let confirm_at = 37u32;
+        let order_at = 37u32;
         let total = 400u32;
 
         let run = |group: u32| {
             let mut world = basic();
-            // The old game's clock, running with the step (feature 103).
-            world.set_free_clock(true);
-            let target = target(&world);
             let mut taken = 0;
             while taken < total {
                 let batch = group.min(total - taken);
                 for _ in 0..batch {
-                    let commands: Vec<Command> = if taken == confirm_at {
-                        vec![Command::Confirm { slot: 0, target }]
+                    // A walk to the station's desk partway: an order that
+                    // moves somebody, in the middle of a frame or not.
+                    let commands: Vec<Command> = if taken == order_at {
+                        vec![Command::ToDesk { slot: 0 }]
                     } else {
                         Vec::new()
                     };
@@ -309,56 +289,27 @@ fn a_step_is_always_the_same_length_however_the_steps_are_grouped() {
     // --- a_step_is_always_the_same_length ---
     {
         let mut world = basic();
-        world.set_free_clock(true);
         for i in 1..=10u32 {
             world.step(&[]);
-            assert!(close(world.clock_minutes, data::STEP_MINUTES * i as f64));
+            assert!(close(
+                world.mission_minutes(),
+                data::STEP_MINUTES * i as f64
+            ));
             assert_eq!(world.steps, i as u64);
+            // The world clock is travel's alone (feature 103).
+            assert_eq!(world.clock_minutes, 0.0);
         }
         // And the day shown is the crew's: the room counts from day 1 and
-        // opens at the waking hour, so the clock panel and the schedule strip
-        // agree on what hour it is.
+        // opens at the waking hour, and stands there through a mission,
+        // since only a trip moves the day.
         assert_eq!(world.day(), 1);
-        let expected = 8.0 * time::HOUR + data::STEP_MINUTES * 10.0;
+        let expected = 8.0 * time::HOUR;
         assert!(
             (world.minutes_into_day() - expected).abs() < 1e-3,
             "{} vs {expected}",
             world.minutes_into_day()
         );
     }
-}
-
-/// Stepping the ship through a whole trip puts it where the closed-form plan
-/// said it would be, at the time the plan said. If those two ever disagree,
-/// every promise the helm panel makes is a lie.
-#[test]
-fn stepping_a_trip_lands_where_the_plan_said_it_would() {
-    let mut world = basic();
-    let target = nearby(&world, 4_000.0);
-    set_off(&mut world, 0, target);
-
-    // The departure is the clock reading the step the plan was made in
-    // began at — the push-off ending and the trip beginning are the same
-    // instant, and commands are applied before the clock advances.
-    let ShipState::Travelling { plan, departed } = &world.ship.state else {
-        panic!("the trip should have been planned");
-    };
-    let (arrival, duration, departed) = (plan.arrival, plan.duration(), *departed);
-
-    until_stopped(&mut world, 200_000);
-    assert!(
-        world.ship.position().distance(arrival) < 1.0,
-        "ended {} units from the arrival point",
-        world.ship.position().distance(arrival),
-    );
-    // Within one step of the quoted time: the loop cannot stop mid-step, so
-    // the arrival lands on the first step at or past it.
-    let took = world.clock_minutes - departed;
-    assert!(
-        took >= duration && took < duration + data::STEP_MINUTES * 2.0,
-        "took {took} minutes against a quote of {duration}",
-    );
-    assert_eq!(world.ship.state, ShipState::Holding);
 }
 
 // --- what a ship change does, and does not do -------------------------------
@@ -463,140 +414,7 @@ fn hull_positions(world: &World) -> Vec<DVec2> {
     out
 }
 
-/// A design change mid-flight does not move an arrival that has already been
-/// promised. The trip keeps the dynamics it was planned with; the *next* one
-/// gets the new ones.
-#[test]
-fn changing_the_ship_under_way_does_not_move_the_arrival() {
-    let mut world = basic();
-    let target = nearby(&world, 12_000.0);
-    set_off(&mut world, 0, target);
-    let (arrival, duration) = {
-        let plan = world.plan().unwrap();
-        (plan.arrival, plan.duration())
-    };
-    let was = world.ship.dynamics;
-
-    for _ in 0..500 {
-        world.step(&[]);
-    }
-    // A wall, welded on out of nowhere — the point is the dynamics changing,
-    // not where the metal came from.
-    world.ship.design = apply(
-        &world.ship.design,
-        &Budget::new(10_000_000),
-        Edit::Place {
-            kind: PartKind::Wall,
-            origin: (16, 16),
-            rotation: Rotation::R0,
-        },
-    )
-    .unwrap();
-    world.on_ship_changed();
-    assert_ne!(
-        world.ship.dynamics, was,
-        "the ship should fly differently now"
-    );
-
-    let plan = world.plan().unwrap();
-    assert_eq!(
-        plan.dynamics, was,
-        "the trip kept the ship it was planned for"
-    );
-    assert!(close(plan.duration(), duration));
-    assert!(plan.arrival.distance(arrival) < 1e-9);
-}
-
-/// The other half of the same rule: the reactor is what the engines run
-/// on, so it cannot come off in flight either.
-#[test]
-fn engines_thrusters_and_the_reactor_are_not_to_be_touched_in_flight() {
-    // --- engines_and_thrusters_are_not_to_be_touched_in_flight ---
-    {
-        let mut world = basic();
-        // The old game's clock, running with the step (feature 103).
-        world.set_free_clock(true);
-        for kind in [PartKind::Engine, PartKind::HeavyEngine, PartKind::Thruster] {
-            assert!(world.can_modify_part(kind), "{kind:?} while docked");
-        }
-
-        let target = nearby(&world, 12_000.0);
-        set_off(&mut world, 0, target);
-        for kind in [PartKind::Engine, PartKind::HeavyEngine, PartKind::Thruster] {
-            assert!(!world.can_modify_part(kind), "{kind:?} while travelling");
-        }
-        // Everything else is still fair game — a bunk does not change a trip.
-        assert!(world.can_modify_part(PartKind::Bunk));
-
-        until_stopped(&mut world, 200_000);
-        assert!(
-            world.can_modify_part(PartKind::Engine),
-            "holding, not flying"
-        );
-    }
-
-    // --- a_reactor_cannot_be_taken_off_in_flight ---
-    {
-        let mut world = basic();
-        assert!(
-            world.can_modify_part(PartKind::Reactor),
-            "docked, nothing depends on it yet",
-        );
-
-        let target = nearby(&world, 12_000.0);
-        set_off(&mut world, 0, target);
-        assert!(
-            !world.can_modify_part(PartKind::Reactor),
-            "the engines are running on it",
-        );
-    }
-}
-
 // --- power under way ------------------------------------------------------------
-
-/// There is no fuel. A burn draws the engines' throttled power off the
-/// reactor for as long as the engines are lit — the plan's own figure, so
-/// it agrees with the exhaust — and a turn, a hold and a berth draw nothing.
-/// Nothing leaves the hold for it.
-#[test]
-fn a_burn_draws_on_the_reactor_and_a_turn_does_not() {
-    let mut world = basic();
-    let cargo = world.ship.design.cargo;
-    let idle = world.power();
-    assert_eq!(idle.engines, 0.0);
-    assert!(idle.load() > 0.0 && idle.load() < 1.0, "{}", idle.load());
-    let wanted = world.ship.dynamics.forward_power;
-    assert!(wanted > 0.0);
-    assert_eq!(world.ship.dynamics.forward_throttle, 1.0);
-
-    let target = nearby(&world, 40_000.0);
-    set_off(&mut world, 0, target);
-    let mut burning = false;
-    let mut turning = false;
-    for _ in 0..20_000 {
-        world.step(&[]);
-        let ShipState::Travelling { plan, departed } = &world.ship.state else {
-            break;
-        };
-        let effort = flight::effort_at(plan, world.clock_minutes - departed);
-        let power = world.power();
-        if effort.engines > 0 {
-            assert_eq!(power.engines, wanted);
-            assert!(power.load() > idle.load());
-            burning = true;
-        } else {
-            assert_eq!(power.engines, 0.0);
-            turning = true;
-        }
-    }
-    assert!(burning && turning, "the trip should have burnt and turned");
-    until_stopped(&mut world, 200_000);
-    assert_eq!(world.power().engines, 0.0);
-    assert_eq!(
-        world.ship.design.cargo, cargo,
-        "nothing was burnt out of the hold"
-    );
-}
 
 /// A station is traded with across its trading desk: docked, a buy or a
 /// sell by a player whose crew member is not within reach of one is
@@ -739,164 +557,44 @@ fn trading_wants_somebody_at_the_desk_and_a_station_only_sells_what_its_kind_sel
     }
 }
 
-/// Under way there is nobody to trade with, and trading is refused for
-/// that reason and no other.
-/// Money works at a dock and nowhere else. That is `shipdesign::materials`'
-/// rule, and this is the world keeping it.
+/// Money works at a dock and nowhere else: off the berth there is nobody
+/// to trade with, and trading is refused for that reason and no other.
+/// That is `shipdesign::materials`' rule, and this is the world keeping it.
 #[test]
-fn nothing_is_bought_or_sold_under_way_or_away_from_a_station() {
-    // --- nothing_is_sold_under_way ---
-    {
-        let mut world = basic();
-        // The old game's clock, running with the step (feature 103).
-        world.set_free_clock(true);
-        let target = nearby(&world, 4_000.0);
-        set_off(&mut world, 0, target);
-        let tofu = world.ship.design.carrying(ResourceId::Tofu);
-        let events = world.step(&[Command::Sell {
-            slot: 0,
-            resource: ResourceId::Tofu,
-            units: 1,
-        }]);
-        assert!(refused_with(&events, Refusal::NotDocked));
-        assert_eq!(world.ship.design.carrying(ResourceId::Tofu), tofu);
-    }
-
-    // --- nothing_is_bought_or_sold_away_from_a_station ---
-    {
-        let mut world = world_with(flyer(2), 1_000_000, 2);
-        let target = nearby(&world, 4_000.0);
-        set_off(&mut world, 0, target);
-
-        for command in [
-            Command::Buy {
-                slot: 0,
-                resource: ResourceId::Vegetable,
-                units: 1,
-                tier: 1,
-            },
-            Command::Sell {
-                slot: 0,
-                resource: ResourceId::Vegetable,
-                units: 1,
-            },
-        ] {
-            let events = world.step(&[command]);
-            assert!(refused_with(&events, Refusal::NotDocked), "{command:?}");
-        }
-
-        until_stopped(&mut world, 200_000);
-        assert_eq!(world.ship.state, ShipState::Holding);
-        let events = world.step(&[Command::Buy {
+fn nothing_is_bought_or_sold_away_from_a_station() {
+    let mut world = world_with(flyer(2), 1_000_000, 2);
+    world.undock_for_probe();
+    world.step(&[]);
+    assert_eq!(world.ship.state, ShipState::Holding);
+    let tofu = world.ship.design.carrying(ResourceId::Tofu);
+    for command in [
+        Command::Buy {
             slot: 0,
             resource: ResourceId::Vegetable,
             units: 1,
             tier: 1,
-        }]);
+        },
+        Command::Sell {
+            slot: 0,
+            resource: ResourceId::Vegetable,
+            units: 1,
+        },
+        Command::Sell {
+            slot: 0,
+            resource: ResourceId::Tofu,
+            units: 1,
+        },
+    ] {
+        let events = world.step(&[command]);
         assert!(
             refused_with(&events, Refusal::NotDocked),
-            "holding is not docked either",
+            "holding is not docked: {command:?}"
         );
     }
-}
-
-/// An abort brakes on the engines, drawing what a burn draws, and once the
-/// ship is at rest the draw stops with it.
-#[test]
-fn an_abort_stops_the_draw_when_the_ship_stops() {
-    let mut world = basic();
-    let target = nearby(&world, 40_000.0);
-    set_off(&mut world, 0, target);
-
-    // Into the burn, so there is speed to take off.
-    for _ in 0..200_000 {
-        world.step(&[]);
-        if world.effort().engines > 0 {
-            break;
-        }
-    }
-    assert!(world.effort().engines > 0, "never got to the burn");
-    world.man_the_helm_for_probe(1);
-    let events = world.step(&[Command::Abort { slot: 1 }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Aborted { slot: 1 })),
-        "{events:?}",
-    );
-    let ShipState::Travelling { plan, .. } = &world.ship.state else {
-        panic!("stopping is still travelling");
-    };
-    assert!(plan.aborting);
-    assert!(
-        plan.segments
-            .iter()
-            .any(|s| s.engines > 0 && s.power == world.ship.dynamics.forward_power),
-        "the stop brakes on the engines"
-    );
-
-    until_stopped(&mut world, 200_000);
-    assert_eq!(world.ship.state, ShipState::Holding);
-    assert_eq!(world.power().engines, 0.0);
-    assert_eq!(world.ship.destination_set_by, None);
-}
-
-/// An engine with no reactor behind it pushes nothing, so a ship whose
-/// reactor has gone has, as far as a trip is concerned, no engine.
-#[test]
-fn a_ship_with_a_dark_engine_is_not_going_anywhere() {
-    let mut dark = flyer(2);
-    dark.parts.retain(|p| p.kind != PartKind::Reactor);
-    let mut world = world_with(dark, REFERENCE_MONEY, 2);
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    assert_eq!(world.ship.dynamics.a_forward, 0.0);
-    assert_eq!(world.ship.dynamics.forward_engines, 0);
-    let target = nearby(&world, 4_000.0);
-    assert_eq!(world.preview(target), Err(PlanError::NoForwardEngine));
-
-    // Refused at the berth, before anybody is sent ashore for nothing.
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Confirm { slot: 0, target }]);
-    assert!(
-        events.iter().any(|e| matches!(
-            e,
-            WorldEvent::PlanFailed {
-                error: PlanError::NoForwardEngine,
-                ..
-            }
-        )),
-        "{events:?}",
-    );
-    assert!(matches!(world.ship.state, ShipState::Docked { .. }));
+    assert_eq!(world.ship.design.carrying(ResourceId::Tofu), tofu);
 }
 
 // --- the jump -------------------------------------------------------------------
-
-/// The flyer with a hyperdrive against its engine's port side, on the run
-/// that feeds the engine: a ship that can jump.
-fn jumper() -> ShipDesign {
-    let budget = Budget::new(10_000_000);
-    let mut design = flyer(2);
-    for (kind, origin) in [
-        (PartKind::PowerConduit, (7, 16)),
-        (PartKind::PowerConduit, (6, 16)),
-        (PartKind::Hyperdrive, (5, 16)),
-    ] {
-        design = apply(
-            &design,
-            &budget,
-            Edit::Place {
-                kind,
-                origin,
-                rotation: Rotation::R0,
-            },
-        )
-        .unwrap_or_else(|e| panic!("{kind:?} at {origin:?}: {e:?}"));
-    }
-    assert!(shipdesign::hyperdrive::ready(&design));
-    design
-}
 
 /// A star a jump from here can actually reach: the lowest-numbered lane
 /// out of the star the ship is at. Since feature 93 a charge is **one hop
@@ -911,92 +609,34 @@ pub(crate) fn laned_star(world: &World) -> u32 {
         .expect("the lane graph is one connected web")
 }
 
-/// A jump is another system altogether: the drive charges for its twenty
-/// seconds and the ship is then holding in empty space round another star,
-/// with the old system's stations, people, chart and site left behind and
-/// everything of the ship's own brought along. Docked it is refused, and
-/// so is the star the ship is at; a flyer with no drive cannot.
+/// A jump is another system altogether — what a trip across a hyperlane
+/// does on the way (`World::travel`): the ship holding in empty space
+/// round another star, with the old system's stations, people and chart
+/// left behind and everything of the ship's own brought along. A star the
+/// galaxy has not got is no jump at all.
 #[test]
-fn a_charged_hyperdrive_puts_the_ship_in_another_system() {
-    let mut world = world_with(jumper(), REFERENCE_MONEY, 2);
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
+fn a_jump_puts_the_ship_in_another_system() {
+    let mut world = basic();
     let from = world.star_id;
     let to = laned_star(&world);
     let money = world.money;
     let cargo = world.ship.design.cargo;
     let heading = world.ship.heading;
-    assert!(world.hyperdrive_ready());
 
-    // Docked: not from here.
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Jump { slot: 0, star: to }]);
-    assert!(refused_with(&events, Refusal::NotHolding), "{events:?}");
+    let mut events = Vec::new();
+    assert!(!world.jump(1_000_000, &mut events), "no such star");
+    assert!(events.is_empty());
+    assert_eq!(world.star_id, from);
 
-    world.undock_for_probe();
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: from,
-    }]);
-    assert!(refused_with(&events, Refusal::SameStar), "{events:?}");
-    let events = world.step(&[Command::Jump {
-        slot: 0,
-        star: 1_000_000,
-    }]);
-    assert!(refused_with(&events, Refusal::NoSuchStar), "{events:?}");
-    let events = world.step(&[Command::Jump { slot: 1, star: to }]);
-    assert!(refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
-
-    let events = world.step(&[Command::Jump { slot: 0, star: to }]);
+    assert!(world.jump(to, &mut events));
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, WorldEvent::Charging { slot: 0, star } if *star == to)),
+            .any(|e| matches!(e, WorldEvent::Jumped { star } if *star == to)),
         "{events:?}"
     );
-    assert!(matches!(world.ship.state, ShipState::Charging { .. }));
-    let (star, progress) = world.jump_charge().expect("charging");
-    assert_eq!(star, to);
-    assert!(progress < 0.01);
-
-    // An abort calls the charge off, and the ship is where it was.
-    let at = world.ship.position();
-    let events = world.step(&[Command::Abort { slot: 0 }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Aborted { slot: 0 }))
-    );
-    assert_eq!(world.ship.state, ShipState::Holding);
-    assert_eq!(world.star_id, from);
-    assert!(world.ship.position().distance(at) < 1e-6);
-
-    // Charged through: the clock, and then somewhere else.
-    world.step(&[Command::Jump { slot: 0, star: to }]);
-    let steps = (data::JUMP_CHARGE_MINUTES / data::STEP_MINUTES).ceil() as u32;
-    let mut jumped = None;
-    for i in 0..steps + 5 {
-        let events = world.step(&[]);
-        if events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Jumped { star } if *star == to))
-        {
-            jumped = Some(i);
-            break;
-        }
-        assert!(
-            world.jump_charge().is_some(),
-            "step {i}: the charge stopped early"
-        );
-    }
-    let when = jumped.expect("the ship should have jumped");
-    assert!(when + 2 >= steps, "jumped at step {when} of {steps}");
-
     assert_eq!(world.star_id, to);
     assert_eq!(world.ship.state, ShipState::Holding);
-    assert!(world.jump_charge().is_none());
-    assert_eq!(world.ship.destination_set_by, None);
     assert!(world.residents.is_none());
     assert_eq!(world.ship.frame, Frame::Space);
     // In empty space: clear of everything the new system holds.
@@ -1005,17 +645,12 @@ fn a_charged_hyperdrive_puts_the_ship_in_another_system() {
         let there = world.system.absolute_position(node).unwrap();
         assert!(there.distance(here) >= data::JUMP_CLEARANCE, "{node:?}");
     }
-    // The new system's stations, its hostile ones on the list without the
-    // spawn's exemption, and only what the sensors reach on the chart.
+    // The new system's stations, nobody on them an enemy — every human is
+    // friendly (feature 104) — and nobody's home, and only what the
+    // sensors reach on the chart.
     assert_eq!(world.stations.len(), Station::all_of(&world.system).len());
     for s in &world.stations {
-        assert_eq!(
-            world.hostile.binary_search(&s.id).is_ok(),
-            s.hostile,
-            "{}",
-            s.id
-        );
-        assert_ne!(world.stance(s.id), bims::sight::Stance::Friendly);
+        assert_eq!(world.stance(s.id), bims::sight::Stance::Neutral);
     }
     assert!(world.discovered.len() <= world.system.nodes().len());
     // What is the ship's came along.
@@ -1024,41 +659,14 @@ fn a_charged_hyperdrive_puts_the_ship_in_another_system() {
     assert_eq!(world.ship.crew_count, 2);
     assert_eq!(world.aboard.crew_count(), 2);
     assert!((world.ship.heading - heading).abs() < 1e-9);
-    assert!(world.hyperdrive_ready());
 
-    // And a trip from there is an ordinary trip.
-    world.man_the_helm_for_probe(0);
-    let target = nearby(&world, 4_000.0);
-    assert!(world.preview(target).is_ok());
-    set_off(&mut world, 0, target);
-    until_stopped(&mut world, 200_000);
-    assert_eq!(world.ship.state, ShipState::Holding);
-}
-
-/// No drive, no jump — and a drive on a dark run is no drive.
-#[test]
-fn a_jump_wants_a_working_hyperdrive() {
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    world.undock_for_probe();
-    world.man_the_helm_for_probe(0);
-    assert!(!world.hyperdrive_ready());
-    let to = (world.star_id + 1) % world.galaxy().stars.len() as u32;
-    let events = world.step(&[Command::Jump { slot: 0, star: to }]);
-    assert!(refused_with(&events, Refusal::NoHyperdrive), "{events:?}");
-    assert_eq!(world.ship.state, ShipState::Holding);
-
-    let mut dark = jumper();
-    dark.parts
-        .retain(|p| !(p.kind == PartKind::PowerConduit && p.origin == (6, 16)));
-    assert!(!shipdesign::hyperdrive::ready(&dark));
-    let mut world = world_with(dark, REFERENCE_MONEY, 2);
-    world.set_free_clock(true);
-    world.undock_for_probe();
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Jump { slot: 0, star: to }]);
-    assert!(refused_with(&events, Refusal::NoHyperdrive), "{events:?}");
+    // And a trip on from there is an ordinary trip: every site of the new
+    // system has a quote.
+    let sites = world.sites_at(to);
+    assert!(!sites.is_empty(), "the system has somewhere to go");
+    for site in sites {
+        assert!(world.travel_quote(site).is_ok(), "{site:?}");
+    }
 }
 
 /// The station's doors are in two rooms while the ship is docked, and a
@@ -1307,141 +915,6 @@ fn a_lock_on_a_station_door_is_the_same_lock_in_both_rooms_and_a_lamp_shot_out_i
 }
 
 // --- redirecting ----------------------------------------------------------------
-
-/// A Confirm while the ship is under way stops it first and then sets off
-/// again. Two separate plans, one after the other, and the ship is at rest in
-/// between — which is the only shape a trip has, so a redirect does not need
-/// a mechanism of its own.
-/// Only the latest confirmed target is kept. Two in one step is one trip, and
-/// it is the second one's.
-/// A redirect whose second leg cannot be flown leaves the ship holding where
-/// it stopped, and says why.
-#[test]
-fn a_confirm_under_way_is_a_redirect_the_later_one_wins_and_one_that_cannot_be_flown_holds() {
-    // --- a_confirm_under_way_stops_first_and_then_goes ---
-    {
-        let mut world = basic();
-        // The old game's clock, running with the step (feature 103).
-        world.set_free_clock(true);
-        let first = nearby(&world, 40_000.0);
-        set_off(&mut world, 0, first);
-        for _ in 0..4_000 {
-            world.step(&[]);
-        }
-        assert_eq!(world.plan().unwrap().target, first);
-
-        let second = Target::Point(world.ship.position().add(dvec2(-8_000.0, 2_000.0)));
-        world.man_the_helm_for_probe(1);
-        world.step(&[Command::Confirm {
-            slot: 1,
-            target: second,
-        }]);
-        assert!(world.plan().unwrap().aborting, "it should be stopping");
-        assert_eq!(world.ship.pending, Some((1, second)));
-        assert_eq!(
-            world.ship.destination_set_by,
-            Some(1),
-            "the route is theirs now"
-        );
-
-        // It comes to rest, and the moment it does the second trip begins — with
-        // no gap, and without the player having to ask twice.
-        let mut set_off = false;
-        for _ in 0..200_000 {
-            let events = world.step(&[]);
-            if events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::Departed { .. }))
-            {
-                set_off = true;
-                break;
-            }
-        }
-        assert!(set_off, "the redirect never set off");
-        assert_eq!(world.plan().unwrap().target, second);
-        assert!(!world.plan().unwrap().aborting);
-        assert_eq!(world.ship.pending, None);
-
-        until_stopped(&mut world, 400_000);
-        let want = match second {
-            Target::Point(at) => at,
-            _ => unreachable!(),
-        };
-        assert!(world.ship.position().distance(want) < 1.0);
-    }
-
-    // --- two_confirms_in_one_step_keep_the_later_one ---
-    {
-        let mut world = basic();
-        world.set_free_clock(true);
-        let first = nearby(&world, 40_000.0);
-        let second = Target::Point(world.ship.position().add(dvec2(-30_000.0, 0.0)));
-        world.man_the_helm_for_probe(0);
-        world.man_the_helm_for_probe(1);
-        world.step(&[
-            Command::Confirm {
-                slot: 0,
-                target: first,
-            },
-            Command::Confirm {
-                slot: 1,
-                target: second,
-            },
-        ]);
-
-        // The first began the departure and the second changed where it is
-        // going: the ship is still casting off, and the target it will set off
-        // for once it is clear is the second one's.
-        assert_eq!(world.ship.destination_set_by, Some(1));
-        let going_to = world.ship.pending.map(|(_, t)| t).unwrap_or_else(|| {
-            let plan = world.plan().expect("it should be flying somewhere");
-            assert!(!plan.aborting, "an abort with nothing pending goes nowhere");
-            plan.target
-        });
-        assert_eq!(going_to, second);
-        assert_ne!(going_to, first);
-    }
-
-    // --- a_redirect_that_cannot_be_flown_holds_and_says_so ---
-    {
-        let mut world = basic();
-        let first = nearby(&world, 40_000.0);
-        set_off(&mut world, 0, first);
-        for _ in 0..4_000 {
-            world.step(&[]);
-        }
-        // Somewhere nobody has seen. A node the generator put in this system but
-        // that is beyond the ship's sensors — with the chart forgotten first,
-        // because a system opens fully charted.
-        world.uncharted_for_probe();
-        let unseen = world
-            .system
-            .nodes()
-            .into_iter()
-            .find(|n| !world.discovered.contains(n));
-        let Some(unseen) = unseen else {
-            return; // this seed's system is small enough to see all at once
-        };
-        let target = match unseen {
-            worldgen::Node::Body(id) => Target::Body(id),
-            worldgen::Node::Station(id) => Target::Station(id),
-        };
-        let events = world.step(&[Command::Confirm { slot: 0, target }]);
-        assert!(
-            events.iter().any(|e| matches!(
-                e,
-                WorldEvent::PlanFailed {
-                    error: PlanError::TargetUndiscovered,
-                    ..
-                }
-            )),
-            "{events:?}",
-        );
-        // And the first trip carries on, untouched.
-        assert_eq!(world.plan().unwrap().target, first);
-        assert!(!world.plan().unwrap().aborting);
-    }
-}
 
 // --- trading ---------------------------------------------------------------------
 
@@ -1709,8 +1182,6 @@ fn the_local_frame_has_a_hysteresis_and_changing_it_touches_neither_the_clock_no
     // --- the_local_frame_has_a_hysteresis_and_uses_it ---
     {
         let mut world = basic();
-        // The old game's clock, running with the step (feature 103).
-        world.set_free_clock(true);
         let ShipState::Docked { station } = world.ship.state else {
             unreachable!()
         };
@@ -1773,43 +1244,33 @@ fn the_local_frame_has_a_hysteresis_and_changing_it_touches_neither_the_clock_no
     // --- the_frame_changing_does_not_touch_the_clock_or_the_speed ---
     {
         let mut world = basic();
-        world.set_free_clock(true);
         world.step(&[Command::SetSpeed {
             slot: 0,
             speed: Speed::Ten,
         }]);
         let speed = world.effective_speed();
-        let target = nearby(&world, 40_000.0);
-        world.man_the_helm_for_probe(0);
+        world.undock_for_probe();
+        let berth = world.ship.position();
+        let far = berth.add(dvec2(10.0 * data::LOCAL_RADIUS_BODY, 0.0));
+        let clock = world.clock_minutes;
 
-        // The Confirm is inside the loop, because the frame change it causes —
-        // leaving the dock's local frame — happens during it. Counting from
-        // afterwards would count nothing and the test would be asserting that
-        // nothing happened.
+        // Out of the dock's frame and back into it, a few times over: the
+        // step settles the frame, and the frame changing must not reach the
+        // clocks or the speed.
         let mut changes = 0;
-        let mut last = world.clock_minutes;
-        for i in 0..8_000 {
-            let commands: Vec<Command> = if i == 0 {
-                vec![Command::Confirm { slot: 0, target }]
-            } else {
-                Vec::new()
-            };
-            let events = world.step(&commands);
-            assert!(
-                close(world.clock_minutes - last, data::STEP_MINUTES),
-                "a step was not a step",
-            );
-            last = world.clock_minutes;
+        for i in 0..400u32 {
+            world.put_for_probe(if (i / 100) % 2 == 0 { berth } else { far });
+            let steps = world.mission_steps();
+            let events = world.step(&[]);
+            assert_eq!(world.mission_steps(), steps + 1, "a step was not a step");
+            assert_eq!(world.clock_minutes, clock, "the world clock moved");
             assert_eq!(world.effective_speed(), speed);
             changes += events
                 .iter()
                 .filter(|e| matches!(e, WorldEvent::FrameChanged { .. }))
                 .count();
         }
-        assert!(
-            changes > 0,
-            "leaving the dock should have changed the frame"
-        );
+        assert!(changes > 1, "the frame should have changed: {changes}");
     }
 }
 
@@ -1847,143 +1308,6 @@ fn the_world_runs_at_the_slowest_request() {
 
 // --- permissions ------------------------------------------------------------------
 
-/// The ship is flown from the helm: a Confirm from a player whose crew
-/// member is standing anywhere else is refused, and one whose crew member
-/// is at the seat begins the departure. Any of the crew, once there.
-#[test]
-fn the_ship_is_flown_from_the_helm() {
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    let seat = world.helm_spot().expect("the flyer has a helm");
-    assert!(!world.can_command(0), "nobody starts at the helm");
-    assert!(!world.can_command(1));
-    let target = nearby(&world, 12_000.0);
-    let events = world.step(&[Command::Confirm { slot: 1, target }]);
-    assert!(refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
-    assert!(matches!(world.ship.state, ShipState::Docked { .. }));
-
-    // Walking there — the order the page's button gives — puts the crew
-    // member within reach of the seat and leaves them standing there.
-    assert!(world.order_to_helm(1), "no route to the helm");
-    let mut there = false;
-    for _ in 0..LEAVING {
-        world.step(&[]);
-        if world.at_the_helm(1) {
-            there = true;
-            break;
-        }
-    }
-    assert!(there, "never reached the helm");
-    assert!(world.aboard.position(1).distance(seat) <= data::HELM_REACH);
-    assert!(world.can_command(1));
-    assert!(!world.can_command(0), "the other one is still elsewhere");
-    assert!(!world.can_command(5), "there are only two of them");
-
-    let events = world.step(&[Command::Confirm { slot: 1, target }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::CastingOff { slot: 1 })),
-        "{events:?}"
-    );
-    assert_eq!(world.ship.destination_set_by, Some(1));
-    // And they stay at the helm rather than wandering off it.
-    for _ in 0..600 {
-        world.step(&[]);
-    }
-    assert!(world.at_the_helm(1), "wandered off the helm");
-}
-
-/// Only a living, waking crew member flies the ship. A body that died
-/// beside the seat is within reach of it and at the helm for nothing; so
-/// is one that dropped off there, until it comes round. And the check is
-/// made when a command lands, not on the way: one who walks off the helm
-/// under way is refused the *next* order, and the trip carries on.
-#[test]
-fn only_a_living_waking_crew_member_is_at_the_helm() {
-    // --- a_dead_body_at_the_seat_is_not_at_the_helm ---
-    {
-        let mut world = basic();
-        // The old game's clock, running with the step (feature 103).
-        world.set_free_clock(true);
-        let seat = world.helm_spot().expect("the flyer has a helm");
-        world.man_the_helm_for_probe(1);
-        assert!(world.at_the_helm(1));
-        world.aboard.room.kill_for_probe(1);
-        world.step(&[]);
-        assert!(!world.aboard.room.is_alive(1), "dead on the next tick");
-        assert!(
-            world.aboard.position(1).distance(seat) <= data::HELM_REACH,
-            "the body lies where it stood"
-        );
-        assert!(!world.at_the_helm(1), "a body is not at the helm");
-        assert!(!world.can_command(1));
-        let target = nearby(&world, 12_000.0);
-        let events = world.step(&[Command::Confirm { slot: 1, target }]);
-        assert!(refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
-        assert!(matches!(world.ship.state, ShipState::Docked { .. }));
-    }
-    // --- a_sleeping_one_is_not_either_until_it_wakes ---
-    {
-        let mut world = basic();
-        world.set_free_clock(true);
-        world.man_the_helm_for_probe(0);
-        assert!(world.can_command(0));
-        world.aboard.room.nod_off_for_probe(0, 15.0);
-        assert!(world.aboard.room.is_asleep(0));
-        assert!(!world.at_the_helm(0), "asleep at the seat");
-        let target = nearby(&world, 12_000.0);
-        let events = world.step(&[Command::Confirm { slot: 0, target }]);
-        assert!(refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
-        assert!(matches!(world.ship.state, ShipState::Docked { .. }));
-        // A quarter of an hour on it has come round, still posted there.
-        let mut awake = false;
-        for _ in 0..(16.0 / data::STEP_MINUTES) as usize {
-            world.step(&[]);
-            if !world.aboard.room.is_asleep(0) {
-                awake = true;
-                break;
-            }
-        }
-        assert!(awake, "never came round");
-        assert!(world.can_command(0), "awake at the seat again");
-    }
-    // --- one_who_walks_away_is_refused_the_next_order_not_mid_trip ---
-    {
-        let mut world = basic();
-        let target = nearby(&world, 12_000.0);
-        set_off(&mut world, 0, target);
-        assert!(matches!(world.ship.state, ShipState::Travelling { .. }));
-        assert!(world.at_the_helm(0));
-        // Off the seat: stood down and put at the other crew member's
-        // bunk, which is nowhere near the helm.
-        world.stand_down(0);
-        let away = world.aboard.room.bed_station_for_probe(1);
-        world.aboard.room.put_for_probe(0, away);
-        assert!(!world.at_the_helm(0), "put clear of the helm");
-        // The trip is not the helm's to keep: it carries on.
-        for _ in 0..60 {
-            world.step(&[]);
-        }
-        assert!(
-            matches!(world.ship.state, ShipState::Travelling { .. }),
-            "the trip went on without anybody at the helm: {:?}",
-            world.ship.state
-        );
-        // But the next order from that player is refused — put there again
-        // first, since a Bim under way walks back to the seat on its own.
-        world.aboard.room.put_for_probe(0, away);
-        let events = world.step(&[Command::Abort { slot: 0 }]);
-        assert!(refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
-        assert!(matches!(world.ship.state, ShipState::Travelling { .. }));
-        // And back at the seat it goes through.
-        world.man_the_helm_for_probe(0);
-        let events = world.step(&[Command::Abort { slot: 0 }]);
-        assert!(!refused_with(&events, Refusal::NotAtTheHelm), "{events:?}");
-    }
-}
-
 /// Walk one of the crew off the ship — out through the airlocks to the
 /// corridor just inside the station's door — so there is somebody to
 /// call back aboard. Who it was: the second crew member, since the first
@@ -2006,135 +1330,6 @@ fn send_a_crew_member_ashore(world: &mut World) -> u32 {
         }
     }
     panic!("the crew member never went ashore");
-}
-
-/// Leaving a station is three things in order: the crew come back aboard
-/// (the station's people were never on the ship — they keep their own
-/// room), the rooms come apart and the ship pushes straight off the berth, and only then is the trip planned — from
-/// where the push-off ended, so the turn towards the target is the plan's
-/// own align phase. Nobody is teleported off the ship.
-#[test]
-fn leaving_a_station_sends_everybody_home_and_pushes_off_before_the_trip() {
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    let ShipState::Docked { station } = world.ship.state else {
-        panic!("not docked");
-    };
-    let berth = world.berth_at(station).unwrap();
-    let outward = world.station(station).unwrap().face().unwrap().1;
-    let target = nearby(&world, 40_000.0);
-    let visitor = send_a_crew_member_ashore(&mut world);
-
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Confirm { slot: 0, target }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::CastingOff { slot: 0 })),
-        "{events:?}"
-    );
-    assert!(matches!(world.ship.state, ShipState::CastingOff { .. }));
-    assert!(world.aboard.is_joined(), "the rooms came apart too soon");
-    assert_eq!(world.ship.pending, Some((0, target)));
-
-    // The crew member ashore walks back; the ship waits at the berth until
-    // they are on it, and then it is a room of its own.
-    let mut cast_off = None;
-    for i in 0..LEAVING {
-        assert!(
-            world.ship.position().distance(berth.position) < 1e-6,
-            "moved while still casting off"
-        );
-        if i == 0 {
-            assert!(!world.aboard.on_ship(visitor, &world.ship.design));
-        }
-        let events = world.step(&[]);
-        if events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Undocking { .. }))
-        {
-            cast_off = Some(i);
-            break;
-        }
-    }
-    let cast_off = cast_off.expect("never cast off");
-    assert!(cast_off > 0, "the walk back takes time");
-    assert!(
-        world.aboard.on_ship(visitor, &world.ship.design),
-        "cast off with a crew member still ashore"
-    );
-    assert!(matches!(world.ship.state, ShipState::Undocking { .. }));
-    assert!(!world.aboard.is_joined());
-    assert_eq!(world.aboard.count(), 2, "somebody came along");
-    assert!(world.aboard.everybody_home(&world.ship.design));
-
-    // The push-off: straight out the way the door opens, further every
-    // step, heading untouched, and the trip planned from where it ends.
-    let mut last = 0.0;
-    for _ in 0..LEAVING {
-        world.step(&[]);
-        if matches!(world.ship.state, ShipState::Travelling { .. }) {
-            break;
-        }
-        let away = world.ship.position().sub(berth.position);
-        let along = away.x * outward.x + away.y * outward.y;
-        assert!(along >= last - 1e-9, "the ship came back");
-        assert!((away.length() - along).abs() < 1e-6, "not straight out");
-        assert_eq!(world.ship.heading, berth.heading, "turned before clear");
-        last = along;
-    }
-    let ShipState::Travelling { plan, .. } = &world.ship.state else {
-        panic!("never set off: {:?}", world.ship.state);
-    };
-    assert!(last > 0.0, "never pushed off");
-    assert!(plan.start.distance(world.ship.position()) < 1e-6);
-    assert!(
-        plan.start.distance(berth.position) > 5.0 * shipdesign::TILE as f64,
-        "planned from the berth"
-    );
-    assert_eq!(world.ship.pending, None);
-}
-
-/// Called off while somebody is still walking back aboard, the ship stays tied
-/// up; called off during the push-off, it holds where the push-off ends.
-#[test]
-fn a_departure_can_be_called_off() {
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    let ShipState::Docked { station } = world.ship.state else {
-        panic!("not docked");
-    };
-    let target = nearby(&world, 40_000.0);
-    send_a_crew_member_ashore(&mut world);
-    world.man_the_helm_for_probe(0);
-    world.step(&[Command::Confirm { slot: 0, target }]);
-    assert!(matches!(world.ship.state, ShipState::CastingOff { .. }));
-    let events = world.step(&[Command::Abort { slot: 0 }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Aborted { slot: 0 }))
-    );
-    assert_eq!(world.ship.state, ShipState::Docked { station });
-    assert!(world.aboard.is_joined());
-    assert_eq!(world.ship.pending, None);
-    assert_eq!(world.ship.destination_set_by, None);
-
-    world.step(&[Command::Confirm { slot: 0, target }]);
-    for _ in 0..LEAVING {
-        world.step(&[]);
-        if matches!(world.ship.state, ShipState::Undocking { .. }) {
-            break;
-        }
-    }
-    assert!(matches!(world.ship.state, ShipState::Undocking { .. }));
-    world.step(&[Command::Abort { slot: 0 }]);
-    until_stopped(&mut world, LEAVING);
-    assert_eq!(world.ship.state, ShipState::Holding);
-    assert_eq!(world.ship.destination_set_by, None);
-    assert!(world.ship.pending.is_none());
 }
 
 // --- the lockers' grid ---------------------------------------------------------
@@ -2742,8 +1937,6 @@ fn the_checksum_notices_every_kind_of_change() {
     // --- the_checksum_notices_a_world_that_has_moved ---
     {
         let mut world = basic();
-        // The old game's clock, running with the step (feature 103).
-        world.set_free_clock(true);
         let was = world.checksum();
         world.step(&[]);
         assert_ne!(world.checksum(), was, "a step should show");
@@ -2752,42 +1945,51 @@ fn the_checksum_notices_every_kind_of_change() {
         spent.money -= 1;
         assert_ne!(spent.checksum(), basic().checksum(), "a euro should show");
 
-        let mut confirmed = basic();
-        confirmed.set_free_clock(true);
-        let target = nearby(&confirmed, 12_000.0);
-        confirmed.man_the_helm_for_probe(0);
-        confirmed.step(&[Command::Confirm { slot: 0, target }]);
-        let mut idle = basic();
-        idle.set_free_clock(true);
-        idle.man_the_helm_for_probe(0);
-        idle.step(&[]);
-        assert_ne!(confirmed.checksum(), idle.checksum(), "a trip should show");
+        let mut travelled = basic();
+        travelled.leave_for_probe();
+        let mut stayed = basic();
+        stayed.leave_for_probe();
+        assert_eq!(travelled.checksum(), stayed.checksum());
+        let site = travelled
+            .travel_quotes()
+            .into_iter()
+            .find(|(site, quote)| quote.is_ok() && Some(*site) != travelled.current_site())
+            .map(|(site, _)| site)
+            .expect("somewhere to go");
+        travelled.step(&[
+            Command::Propose {
+                slot: 0,
+                star: site.star,
+                station: site.station,
+            },
+            Command::Accept { slot: 1, yes: true },
+        ]);
+        stayed.step(&[]);
+        assert_ne!(
+            travelled.checksum(),
+            stayed.checksum(),
+            "a trip should show"
+        );
     }
 
     // --- the_checksum_notices_a_stance_change ---
     {
+        use bims::sight::Stance;
         let mut world = basic();
-        // The generator's hostile stations, which a run never meets
-        // (feature 102).
-        world.set_human_foes_enabled(true);
+        // Every human is friendly (feature 104): home is, and every other
+        // station is a stranger's, whatever the generator rolled it.
+        assert_eq!(world.stance(world.home), Stance::Friendly);
+        for s in &world.stations {
+            if s.id != world.home {
+                assert_eq!(world.stance(s.id), Stance::Neutral, "station {}", s.id);
+            }
+        }
+        // The one stance that changes is the machines taking a station.
         let was = world.checksum();
         let station_id = world.residents.as_ref().unwrap().station;
-        world.set_hostile(station_id, true);
-        assert_ne!(world.checksum(), was, "an enemy should show");
-        world.set_hostile(station_id, false);
-        assert_eq!(world.checksum(), was, "and peace again is the same world");
-        // And the stations the generator rolled hostile are on the list from
-        // the start, home excepted.
-        let mut rolled: Vec<u32> = world
-            .stations
-            .iter()
-            .filter(|s| s.hostile && s.id != world.home)
-            .map(|s| s.id)
-            .chain(world.surfaces.iter().filter(|s| s.hostile).map(|s| s.id))
-            .collect();
-        rolled.sort_unstable();
-        assert_eq!(world.hostile, rolled);
-        assert_eq!(world.stance(world.home), bims::sight::Stance::Friendly);
+        world.infest(station_id);
+        assert_eq!(world.stance(station_id), Stance::Hostile);
+        assert_ne!(world.checksum(), was, "the machines should show");
     }
 
     // --- the_checksum_notices_a_worn_piece ---
@@ -2955,62 +2157,41 @@ fn a_world_starts_at_the_station_it_was_told_to_and_a_spawn_that_does_not_exist_
 }
 
 /// The simulation's ship, at the simulation's dock, with the simulation's
-/// purse: a trip to the nearest thing the crew can see can be planned on
-/// the reactor, fed flat out, or the playtest is a ship that cannot leave
-/// the dock.
+/// purse: a trip to every other site of the spawn system and of the
+/// systems a lane away can be quoted on its engines, fed flat out, or the
+/// playtest is a ship that cannot leave the dock.
 #[test]
-fn the_playtest_ship_can_fly_somewhere_from_the_simulation_spawn() {
+fn the_playtest_ship_can_travel_somewhere_from_the_simulation_spawn() {
     use shipdesign::fixture::playtest_ship;
     let world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     assert_eq!(world.money, data::SIMULATION_MONEY);
     assert_eq!(world.ship.crew_count, 1);
-    let ShipState::Docked { station: dock } = world.ship.state else {
-        panic!("not docked");
-    };
+    assert!(matches!(world.ship.state, ShipState::Docked { .. }));
     assert_eq!(world.ship.dynamics.forward_throttle, 1.0);
     assert_eq!(
         world.ship.dynamics.forward_power,
         shipdesign::parts::ENGINE_POWER
     );
-
-    // The nearest node that is somewhere to *go*. At this spawn nothing but
-    // the dock's own parent body is in sight, and that is where the ship
-    // already is — the planner says `AlreadyThere` — so the trip is to the
-    // next thing out, revealed through the probe seam the way a sensor sweep
-    // would reveal it.
-    let here = world.ship.position();
-    let mut nodes: Vec<worldgen::Node> = world
-        .system
-        .nodes()
-        .into_iter()
-        .filter(|&n| n != worldgen::Node::Station(dock))
-        .collect();
-    nodes.sort_by(|a, b| {
-        let da = world.system.absolute_position(*a).unwrap().distance(here);
-        let db = world.system.absolute_position(*b).unwrap().distance(here);
-        da.partial_cmp(&db).unwrap()
-    });
-    let mut world = world;
-    let mut quote = None;
-    for node in nodes {
-        let at = world.system.absolute_position(node).unwrap();
-        world.discover_for_probe(at, at);
-        let target = match node {
-            worldgen::Node::Body(id) => Target::Body(id),
-            worldgen::Node::Station(id) => Target::Station(id),
+    let quotes = world.travel_quotes();
+    let here = world.current_site();
+    let mut near = 0;
+    let mut hops = 0;
+    for (site, quote) in quotes {
+        if Some(site) == here {
+            continue;
+        }
+        let Ok(quote) = quote else {
+            continue;
         };
-        match world.preview(target) {
-            Err(PlanError::AlreadyThere) => continue,
-            other => {
-                quote = Some(other.expect("the trip should plan"));
-                break;
-            }
+        assert!(quote.minutes > 0, "{site:?} is no trip at all");
+        if quote.jump {
+            hops += 1;
+        } else {
+            near += 1;
         }
     }
-    let quote = quote.expect("the spawn system has somewhere to fly to");
-    assert!(quote.minutes > 0.0);
-    assert_eq!(quote.throttle, 1.0);
-    assert_eq!(quote.power, shipdesign::parts::ENGINE_POWER);
+    assert!(near > 0, "nowhere in the spawn system to go");
+    assert!(hops > 0, "nowhere a lane away to go");
 }
 
 // --- the crew ----------------------------------------------------------------
@@ -3126,135 +2307,6 @@ fn the_crew_live_aboard() {
         );
     }
     assert!(moved, "the Bim never went anywhere; farthest {farthest}");
-}
-
-/// A day's grime is put right under the shower: the playtest ship has one,
-/// and a Bim whose washing need is emptied goes and stands under it, comes
-/// out with the bar full and its own filth washed off. Emptied by hand
-/// rather than waited for, because on the clock the first shower is at the
-/// end of the waking day and a test that long is a test of everything.
-/// A Bim that soils itself goes and showers: the accident empties the
-/// washing need as it covers the Bim, so the shower is its next errand
-/// rather than the end of the day's. Forced — poisoned, at the extreme
-/// urge — rather than waited an hour for.
-#[test]
-fn a_bim_aboard_showers_for_a_day_s_grime_or_for_soiling_itself() {
-    // --- a_bim_aboard_takes_a_shower_when_a_day_s_grime_has_caught_up_with_it ---
-    {
-        use bims::game::JOB_SHOWER;
-        use shipdesign::fixture::playtest_ship;
-        let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-        world.set_needs_enabled(true);
-        // `Need::ALL`'s index of the washing need, as `spend_for_probe` counts.
-        const WASHING: u32 = 5;
-        let room = &mut world.aboard.room;
-        eprintln!("fog {:?} bims {}", room.fog(), room.crew_count());
-        assert!(
-            room.need_count() > WASHING,
-            "the washing need is on the list"
-        );
-        room.spend_for_probe(0, WASHING, 1.0);
-        assert_eq!(room.need_level(0, WASHING), 0.0);
-        let mut showered = false;
-        for _ in 0..(3 * 60 * 60) {
-            world.step(&[]);
-            if world.aboard.room.activity(0) == JOB_SHOWER {
-                showered = true;
-            }
-            if showered && world.aboard.room.activity(0) != JOB_SHOWER {
-                break;
-            }
-        }
-        assert!(showered, "the Bim never went for its shower");
-        let level = world.aboard.room.need_level(0, WASHING);
-        assert!(level > 0.9, "out of the shower the bar reads {level}");
-    }
-
-    // --- a_bim_that_soils_itself_goes_for_a_shower ---
-    {
-        use bims::game::JOB_SHOWER;
-        use shipdesign::fixture::playtest_ship;
-        let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-        world.set_needs_enabled(true);
-        const RESTROOM: u32 = 2;
-        const WASHING: u32 = 5;
-        let room = &mut world.aboard.room;
-        room.poison_for_probe(0);
-        room.spend_for_probe(0, RESTROOM, 1.0);
-        world.step(&[]);
-        let room = &world.aboard.room;
-        assert_eq!(
-            room.need_level(0, WASHING),
-            0.0,
-            "covered, and wants a wash"
-        );
-        assert!(room.need_level(0, RESTROOM) > 0.0, "relieved");
-        let mut showered = false;
-        for _ in 0..(3 * 60 * 60) {
-            world.step(&[]);
-            if world.aboard.room.activity(0) == JOB_SHOWER {
-                showered = true;
-            }
-            if showered && world.aboard.room.activity(0) != JOB_SHOWER {
-                break;
-            }
-        }
-        assert!(showered, "the Bim never went for its shower");
-        let level = world.aboard.room.need_level(0, WASHING);
-        assert!(level > 0.9, "out of the shower the bar reads {level}");
-    }
-}
-
-/// Under way, the helm is a job on the work list: nobody posted there, and
-/// the room posts whoever is free. Here James is stood at the helm for the
-/// departure and then ordered elsewhere, which takes the post away — and
-/// the job puts somebody back. Tied up again, the post the job set is
-/// lifted, and only that one.
-#[test]
-fn under_way_the_helm_is_a_job_and_somebody_takes_it() {
-    use bims::work::Job;
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    let target = nearby(&world, 40_000.0);
-    set_off(&mut world, 0, target);
-    let room = &mut world.aboard.room;
-    assert!(
-        !room.work_on_offer_for_probe(1).contains(&Job::Helm.code()),
-        "with James posted there the helm is not on offer"
-    );
-    // Off the helm: an order anywhere else ends the post. Two tiles aft.
-    // Selected first, as the page has him from the first paint.
-    room.select_group(0, 1);
-    let at = room.bim_pos(0);
-    let tile = shipdesign::parts::TILE as f32;
-    assert!(
-        room.order_move(0, at.x, at.y + 2.0 * tile) != 0,
-        "the order was refused"
-    );
-    assert!(room.post_of(0).is_none());
-    let mut posted = None;
-    for _ in 0..(2 * 60 * 60) {
-        world.step(&[]);
-        if let Some(who) = (0..2).find(|&who| world.aboard.room.post_of(who).is_some()) {
-            posted = Some(who);
-            break;
-        }
-    }
-    let who = posted.expect("nobody took the helm");
-    for _ in 0..(60 * 60) {
-        if world.at_the_helm(who as u32) {
-            break;
-        }
-        world.step(&[]);
-    }
-    assert!(world.at_the_helm(who as u32), "posted but never got there");
-    // And once the ship no longer wants anybody there, the post goes.
-    world.aboard.room.set_helm(None);
-    assert!(
-        world.aboard.room.post_of(who).is_none(),
-        "the job's post outlived the trip"
-    );
 }
 
 // --- stations ---------------------------------------------------------------
@@ -3627,14 +2679,12 @@ fn the_ship_docks_airlock_to_airlock_outside_the_station() {
     }
 }
 
-/// A trip to a station ends at its berth, alongside, with the doors mated —
-/// the same arithmetic as the spawn, reached by flying rather than by being
-/// put there.
+/// A trip to a station ends at its berth, alongside, with the doors mated
+/// — the same arithmetic as the spawn, reached by a trip rather than by
+/// being put there.
 #[test]
 fn arriving_at_a_station_docks_at_its_berth() {
     let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     let here = match world.ship.state {
         ShipState::Docked { station } => station,
         _ => panic!(),
@@ -3643,52 +2693,21 @@ fn arriving_at_a_station_docks_at_its_berth() {
     let Some(there) = there else {
         return; // a system with one station has nowhere else to dock
     };
-    // Stand the ship near the other station rather than flying for days.
-    world.undock_for_probe();
-    let berth = world.berth_at(there).unwrap();
-    world.put_for_probe(berth.position.add(dvec2(40_000.0, 10_000.0)));
-    set_off(&mut world, 0, Target::Station(there));
-    let ShipState::Travelling { plan, .. } = &world.ship.state else {
-        panic!()
-    };
-    assert!(plan.docks);
-    let arrival = plan.arrival;
-
-    // The trip ends short of the berth, and the ship then comes alongside:
-    // sliding and turning onto the berth over `DOCK_MINUTES`, never
-    // jumping, and tied up at the end of it.
-    let mut docking = false;
-    let mut began = None;
-    let mut last = None;
-    for _ in 0..400_000 {
-        let events = world.step(&[]);
-        if events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Docking { station } if *station == there))
-        {
-            docking = true;
-            assert!(world.ship.position().distance(arrival) < 1.0);
-            began = Some(world.clock_minutes);
-        }
-        if let ShipState::Docking { .. } = world.ship.state {
-            if let Some(was) = last {
-                let moved = world.ship.position().distance(was);
-                assert!(moved < 200.0, "jumped {moved} in one step");
-            }
-            last = Some(world.ship.position());
-        }
-        if !matches!(
-            world.ship.state,
-            ShipState::Travelling { .. } | ShipState::Docking { .. }
-        ) {
-            break;
-        }
-    }
-    assert!(docking, "never came alongside");
-    let took = world.clock_minutes - began.unwrap();
+    world.leave_for_probe();
+    assert_eq!(world.ship.state, ShipState::Holding);
+    let events = world.step(&[
+        Command::Propose {
+            slot: 0,
+            star: world.star_id,
+            station: there,
+        },
+        Command::Accept { slot: 1, yes: true },
+    ]);
     assert!(
-        took >= data::DOCK_MINUTES && took < data::DOCK_MINUTES + 2.0 * data::STEP_MINUTES,
-        "took {took} to come alongside"
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Travelled { station, .. } if *station == there)),
+        "{events:?}"
     );
     assert_eq!(world.ship.state, ShipState::Docked { station: there });
     let berth = world.berth_at(there).unwrap();
@@ -3703,8 +2722,8 @@ fn arriving_at_a_station_docks_at_its_berth() {
 #[test]
 fn residents_are_there_within_fifty_tiles_and_not_beyond() {
     let mut world = basic();
-    // Home, not the first station somebody lives on: the spawn system has
-    // an enemy's orbital too, and that one's room opens with a garrison.
+    // Home, the station the ship is docked at: whatever else lives in the
+    // spawn system, this one's people are known.
     let lived_in = world
         .stations
         .iter()
@@ -3806,19 +2825,17 @@ fn residents_are_there_within_fifty_tiles_and_not_beyond() {
 /// Docked, the ship and the station are one deck: the crew are on it and
 /// can walk through the airlocks onto the station; the station's people
 /// are in a room of their own, with their own fixtures, and never on the
-/// ship. Under way again, the ship's room is the ship's alone and anybody
-/// of the crew who was over there is back aboard.
+/// ship. Off the berth again, the ship's room is the ship's alone, with
+/// the crew in it.
 #[test]
 fn docked_the_ship_and_the_station_are_one_room_and_the_crew_can_cross() {
     let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     let ShipState::Docked { station } = world.ship.state else {
         panic!("not docked");
     };
     let residents = world.station(station).unwrap().residents();
     assert!(residents > 0, "the spawn station has nobody to meet");
-    // And whoever is for hire lives in the same room, fed the same.
+    // And whoever is for hire lives in the same room.
     let ashore_count = residents + world.mercenaries_of(world.station(station).unwrap());
     assert!(world.aboard.is_joined(), "the rooms were not joined");
     assert_eq!(world.aboard.crew_count(), 2);
@@ -3826,14 +2843,9 @@ fn docked_the_ship_and_the_station_are_one_room_and_the_crew_can_cross() {
     for who in 0..world.aboard.count() {
         assert!(world.aboard.on_deck(who), "{who} is not on the deck");
     }
-    // The station's people are in the station's room, all of them, with
-    // its galley for a galley and their own goals to keep.
+    // The station's people are in the station's room, all of them.
     let ashore = world.residents.as_ref().expect("the station's room");
     assert_eq!(ashore.aboard.count(), ashore_count);
-    assert_eq!(
-        ashore.aboard.room.target(bims::manager::Stock::Veg),
-        data::RESIDENT_VEG_EACH * ashore_count
-    );
 
     // Somewhere on the station's deck: a floor tile of the joined design
     // that is not inside the ship's own square, well away from the join.
@@ -3882,22 +2894,25 @@ fn docked_the_ship_and_the_station_are_one_room_and_the_crew_can_cross() {
         "arrived, but still on the ship"
     );
 
-    // Leaving: whoever was over there walks back aboard — the ship waits
-    // for them — and then it is one room again with the crew in it.
-    let target = nearby(&world, 40_000.0);
-    world.man_the_helm_for_probe(1);
-    world.step(&[Command::Confirm { slot: 1, target }]);
-    assert!(world.aboard.is_joined(), "left without them");
+    // Leaving: whoever was over there walks back aboard, through the
+    // airlocks the other way, and then the ship lets go — one room again,
+    // the ship's alone, with the crew in it.
+    let gangway = world.aboard.gangway.expect("joined, the ship's side");
+    let sent = world
+        .aboard
+        .room
+        .send_for_probe(0, bims::math::vec2(gangway.x as f32, gangway.y as f32));
+    assert!(sent, "no route back onto the ship");
     let mut back = false;
     for _ in 0..LEAVING {
         world.step(&[]);
-        if !world.aboard.is_joined() {
+        if world.inside_ship(0) {
+            back = true;
             break;
         }
-        let p = world.aboard.room.bim_pos(0);
-        back = back || on_ship(dvec2(p.x as f64, p.y as f64));
     }
     assert!(back, "the crew member was never seen back on the ship");
+    world.undock_for_probe();
     assert!(!world.aboard.is_joined());
     assert_eq!(world.aboard.count(), 2);
     assert_eq!(world.aboard.offset, DVec2::ZERO);
@@ -4231,16 +3246,16 @@ fn a_bim_can_be_sent_to_stand_in_a_doorway_and_a_locked_door_is_a_wall() {
     }
 }
 
-/// The bay aboard is six trays, one a tile along the run, worked from the
-/// side its use spots are on: a tray a tile across for a bay lying
+/// The bay aboard is drawn as six trays, one a tile along the run, laid
+/// the way its use spots face: a tray a tile across for a bay lying
 /// east–west and a tray a tile down for one standing north–south. The
 /// side used to be read off the part's centre, and the first spot — at the
 /// *end* of the run — then read as off the end rather than off the side,
 /// which laid the trays across the bay in six strips.
 #[test]
-fn the_bay_aboard_is_a_tray_a_tile_worked_from_the_spots_side() {
+fn the_bay_aboard_is_a_tray_a_tile_along_its_run() {
     use bims::aboard::layout_of;
-    use bims::hydro::Bay;
+    use bims::fixtures::Bay;
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::TILE;
     let tile = TILE as f32;
@@ -4249,12 +3264,11 @@ fn the_bay_aboard_is_a_tray_a_tile_worked_from_the_spots_side() {
     let layout = layout_of(&playtest_ship());
     assert_eq!((layout.bay_side.x, layout.bay_side.y), (0.0, -1.0));
     let bay = Bay::at(layout.bay, layout.bay_side);
-    for i in 0..6 {
-        let stand = bay.station(i);
+    for (i, tray) in bay.trays().iter().enumerate() {
         let want = layout.bay.min.x + (i as f32 + 0.5) * tile;
         assert!(
-            (stand.x - want).abs() < tile / 3.0 && stand.y < layout.bay.min.y,
-            "tray {i} is worked from {stand:?}, not a tile along from the north"
+            (tray.center().x - want).abs() < tile / 3.0,
+            "tray {i} is at {tray:?}, not a tile along the run"
         );
     }
 
@@ -4290,12 +3304,11 @@ fn the_bay_aboard_is_a_tray_a_tile_worked_from_the_spots_side() {
     let layout = layout_of(&design);
     assert_eq!((layout.bay_side.x, layout.bay_side.y), (1.0, 0.0));
     let bay = Bay::at(layout.bay, layout.bay_side);
-    for i in 0..6 {
-        let stand = bay.station(i);
+    for (i, tray) in bay.trays().iter().enumerate() {
         let want = layout.bay.min.y + (i as f32 + 0.5) * tile;
         assert!(
-            (stand.y - want).abs() < tile / 3.0 && stand.x > layout.bay.max.x,
-            "tray {i} is worked from {stand:?}, not a tile down from the east"
+            (tray.center().y - want).abs() < tile / 3.0,
+            "tray {i} is at {tray:?}, not a tile down the run"
         );
     }
 }
@@ -4574,36 +3587,28 @@ fn ship_lamps(world: &World) -> Vec<((u32, u32), bims::sight::Lamp)> {
 }
 
 /// The whole of what a brownout does, on the playtest ship with its
-/// battery emptied under an overdraw: the lamps go dark and whole, the
-/// bay hibernates, the benches stop, the cold store stops and the food in
-/// it loses a share an hour — off the shelf and off the hold alike — while
-/// the doors and life support run on. Said once each way. Then the
-/// reactors cover the draw again: the lamps come back, the bay wakes, and
-/// what is left in the cold store stays exactly as it is.
+/// battery emptied under an overdraw: the lamps go dark and whole and the
+/// benches stop, while the doors and life support run on. Said once each
+/// way. Then the reactors cover the draw again, and the lamps come back.
 #[test]
-fn a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power_is_back() {
+fn a_brownout_darkens_the_ship_and_stops_the_benches_until_the_power_is_back() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    world.set_needs_enabled(true);
     world.know_everything_for_probe();
     let lamps = ship_lamps(&world);
     assert_eq!(lamps.len(), 7);
     assert!(lamps.iter().all(|(_, l)| l.powered && !l.is_dark()));
-    assert!(world.aboard.room.hydro_powered(0));
-    assert!(!world.aboard.room.hydro_hibernating(0));
     assert!(world.powered(PartKind::DrugLab));
     assert!(world.powered(PartKind::ColdStore));
-    assert_eq!(world.cold_store_out, 0);
 
-    // The reactors held under the draw: the battery drains, the ship is
-    // not browned out, and the cold store is not on the clock.
+    // The reactors held under the draw: the battery drains, and the ship
+    // is not browned out.
     let draw = world.power().draw;
     assert_eq!(draw, 287.0);
     world.throttle_reactors_for_probe(draw - 27.0);
     let events = world.step(&[]);
     assert!(!events.iter().any(|e| matches!(e, WorldEvent::Brownout)));
     assert!(!world.power().brownout());
-    assert_eq!(world.cold_store_out, 0);
 
     // Flat. The step says so once, and everything optional stops.
     world.ship.charge = 0.0;
@@ -4622,56 +3627,18 @@ fn a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power
             .all(|(_, l)| !l.powered && l.is_dark() && !l.is_out()),
         "dark and whole: {lamps:?}"
     );
-    assert!(!world.aboard.room.hydro_powered(0));
-    assert!(world.aboard.room.hydro_hibernating(0));
     assert!(!world.powered(PartKind::HydroBay));
     assert!(!world.powered(PartKind::ColdStore));
     assert!(!world.powered(PartKind::DrugLab));
     assert!(!world.powered(PartKind::Workbench));
     assert!(world.powered(PartKind::Door));
     assert!(world.powered(PartKind::LifeSupport));
-    // Ore aboard and a target for metal, and still no order: the smelter
-    // is dark.
-    world.set_craft_target(ResourceId::Vegetable, 999);
+    // A target for medkits and the vegetables for one aboard, and still
+    // no order: the drug lab is dark.
+    world.set_craft_target(ResourceId::Medkit, 999);
     assert!(world.craft_orders().is_empty());
 
-    // An hour without the cold store: a share of the food goes, off the
-    // shelf and off the hold, and the log says how much. The crew may
-    // have eaten off the shelf meanwhile, so the shelf is only asked to
-    // have fallen; the hold is exact.
-    let shelf_before = (
-        world.aboard.room.store_veg(),
-        world.aboard.room.store_tofu(),
-    );
-    let hold_veg = world.ship.design.carrying(ResourceId::Vegetable);
-    let hold_tofu = world.ship.design.carrying(ResourceId::Tofu);
-    assert!(hold_veg > 0 && hold_tofu > 0);
-    let mut spoiled = None;
-    for _ in 0..data::SPOIL_STEPS {
-        for event in world.step(&[]) {
-            if let WorldEvent::FoodSpoiled { units } = event {
-                spoiled = Some(units);
-            }
-        }
-    }
-    let units = spoiled.expect("an hour unpowered spoils a share");
-    assert!(units > 0);
-    // The clock ran two steps before the hour's loop, so the hour was up
-    // two steps before its end and the next has two on it.
-    assert_eq!(world.cold_store_out, 2, "the clock starts the next hour");
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Vegetable),
-        hold_veg - hold_veg.div_ceil(data::SPOIL_DIVISOR)
-    );
-    assert_eq!(
-        world.ship.design.carrying(ResourceId::Tofu),
-        hold_tofu - hold_tofu.div_ceil(data::SPOIL_DIVISOR)
-    );
-    assert!(world.aboard.room.store_veg() < shelf_before.0);
-    assert!(world.aboard.room.store_tofu() < shelf_before.1);
-
-    // The reactors back over the draw: said once, the lamps lit, the bay
-    // awake, and the food that is left stays put through the next hour.
+    // The reactors back over the draw: said once, and the lamps lit.
     world.throttle_reactors_for_probe(2.0 * shipdesign::REACTOR_OUTPUT);
     let events = world.step(&[]);
     assert!(
@@ -4686,28 +3653,13 @@ fn a_brownout_darkens_the_ship_stops_the_bay_and_spoils_the_food_until_the_power
             .iter()
             .all(|(_, l)| l.powered && !l.is_dark())
     );
-    assert!(world.aboard.room.hydro_powered(0));
     assert!(world.powered(PartKind::ColdStore));
     assert!(world.powered(PartKind::DrugLab));
-    let hold_veg = world.ship.design.carrying(ResourceId::Vegetable);
-    let hold_tofu = world.ship.design.carrying(ResourceId::Tofu);
-    for _ in 0..data::SPOIL_STEPS + 10 {
-        let events = world.step(&[]);
-        assert!(
-            !events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::FoodSpoiled { .. } | WorldEvent::Brownout)),
-            "{events:?}"
-        );
-    }
-    assert_eq!(world.cold_store_out, 0);
-    assert_eq!(world.ship.design.carrying(ResourceId::Vegetable), hold_veg);
-    assert_eq!(world.ship.design.carrying(ResourceId::Tofu), hold_tofu);
 }
 
 /// An overdraw the battery covers costs nothing: an hour and more of the
-/// reactors under the draw with charge to spare is no brownout, no dark,
-/// no sleeping bay and no spoilage — only a battery that much emptier.
+/// reactors under the draw with charge to spare is no brownout and no
+/// dark — only a battery that much emptier.
 /// A lamp on no live network is dark from the first step — whole, and
 /// nothing to do with any brownout — while the wired lamps beside it are
 /// lit.
@@ -4721,18 +3673,14 @@ fn a_short_overdraw_a_battery_covers_costs_nothing_and_an_unwired_lamp_is_dark()
         assert!(charge > 0.0);
         let deficit = 27.0;
         world.throttle_reactors_for_probe(world.power().draw - deficit);
-        let hold_veg = world.ship.design.carrying(ResourceId::Vegetable);
-        let hold_tofu = world.ship.design.carrying(ResourceId::Tofu);
-        let steps = data::SPOIL_STEPS + data::SPOIL_STEPS / 2;
+        // An hour and a half.
+        let steps = (1.5 * time::HOUR / data::STEP_MINUTES) as u64;
         for _ in 0..steps {
             let events = world.step(&[]);
             assert!(
-                !events.iter().any(|e| matches!(
-                    e,
-                    WorldEvent::Brownout
-                        | WorldEvent::PowerRestored
-                        | WorldEvent::FoodSpoiled { .. }
-                )),
+                !events
+                    .iter()
+                    .any(|e| matches!(e, WorldEvent::Brownout | WorldEvent::PowerRestored)),
                 "{events:?}"
             );
         }
@@ -4745,15 +3693,11 @@ fn a_short_overdraw_a_battery_covers_costs_nothing_and_an_unwired_lamp_is_dark()
             "{} of {charge}",
             world.power().charge
         );
-        assert_eq!(world.cold_store_out, 0);
         assert!(
             ship_lamps(&world)
                 .iter()
                 .all(|(_, l)| l.powered && !l.is_dark())
         );
-        assert!(world.aboard.room.hydro_powered(0));
-        assert_eq!(world.ship.design.carrying(ResourceId::Vegetable), hold_veg);
-        assert_eq!(world.ship.design.carrying(ResourceId::Tofu), hold_tofu);
     }
 
     // --- an_unwired_lamp_is_dark ---
@@ -4790,44 +3734,6 @@ fn a_short_overdraw_a_battery_covers_costs_nothing_and_an_unwired_lamp_is_dark()
             }
         }
     }
-}
-
-/// Two worlds on one seed brown out together and lose the same food on
-/// the same step: the spoil clock is an integer and the share is a
-/// division, so the checksums agree throughout.
-#[test]
-fn two_runs_on_one_seed_spoil_the_same_amount() {
-    use shipdesign::fixture::playtest_ship;
-    let mut worlds = [
-        simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1),
-        simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1),
-    ];
-    for world in &mut worlds {
-        // Food spoils where somebody eats it (feature 102).
-        world.set_needs_enabled(true);
-        // Under the ship's draw of 287 (feature 95 took the smelter's 40
-        // with the smelter), so the batteries are flat and it browns out.
-        world.throttle_reactors_for_probe(200.0);
-        world.ship.charge = 0.0;
-    }
-    let mut spoiled = [0u32; 2];
-    for _ in 0..data::SPOIL_STEPS + 5 {
-        for (i, world) in worlds.iter_mut().enumerate() {
-            for event in world.step(&[]) {
-                if let WorldEvent::FoodSpoiled { units } = event {
-                    spoiled[i] += units;
-                }
-            }
-        }
-        assert_eq!(world_checksum(&worlds[0]), world_checksum(&worlds[1]));
-    }
-    assert!(spoiled[0] > 0);
-    assert_eq!(spoiled, [spoiled[0]; 2]);
-    assert_eq!(
-        worlds[0].ship.design.carrying(ResourceId::Vegetable),
-        worlds[1].ship.design.carrying(ResourceId::Vegetable)
-    );
-    assert_eq!(worlds[0].cold_store_out, worlds[1].cold_store_out);
 }
 
 // --- making things -----------------------------------------------------------
@@ -5145,15 +4051,13 @@ fn a_site_waits_while_the_pool_cannot_cover_it() {
 /// skin it has no tile beside it a body can stand on from the deck, so
 /// the Bim takes the suit out through the airlock, walks round to it and
 /// builds it out there — and the frame goes down with the deck, since
-/// plating a bare tile lays both and is charged for both. The dose is the
-/// walk's.
+/// plating a bare tile lays both and is charged for both.
 #[test]
 fn a_site_beyond_the_hull_is_built_in_a_suit() {
     use shipdesign::fixture::playtest_ship;
     use shipdesign::parts::Layer;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.set_shipyard_enabled(true);
-    world.set_radiation_enabled(true);
     world.undock_for_probe();
     without_dressings(&mut world);
     let money = world.money;
@@ -5214,16 +4118,17 @@ fn a_site_beyond_the_hull_is_built_in_a_suit() {
         0
     );
     assert_eq!(world.money, money - price, "the deck and its frame");
-    assert!(world.health[0].dose > 0.0, "the walk cost no dose");
 }
 
-/// blueprint holds nothing, and a cancelled site frees what it had claimed.
+/// A blueprint nobody has walked to holds nothing: it is not under
+/// construction and its price is nobody's yet. Once somebody is on the
+/// way to it, it is — and its price is spoken for (feature 95) — and a
+/// cancelled site frees what it had claimed, the Bim on the way turning
+/// back.
 #[test]
-fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
+fn a_site_is_begun_once_somebody_is_on_the_way_and_a_cancel_frees_its_price() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     world.set_shipyard_enabled(true);
     let money = world.money;
     let place = |slot: u32| Command::PlaceSite {
@@ -5233,48 +4138,18 @@ fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
         rotation: Rotation::R0,
     };
 
-    // A blueprint with nothing done at it does not hold the ship. The Bim
-    // is under orders so it does not take the site up the moment it is
-    // laid — which it otherwise would, in the same step.
+    // A blueprint with nothing done at it. The Bim is under orders so it
+    // does not take the site up the moment it is laid — which it
+    // otherwise would, in the same step.
     world.aboard.room.recruit_for_probe(0, true);
     world.step(&[place(0)]);
     assert!(!world.under_construction());
-    world.man_the_helm_for_probe(0);
-    let target = reference_target(&world);
-    let events = world.step(&[Command::Confirm { slot: 0, target }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::CastingOff { .. })),
-        "{events:?}"
-    );
-    // Under way — the one crew member was aboard, so the ship is pushing
-    // off already — nothing is worked and nothing is laid out.
-    assert!(!world.at_rest());
-    assert!(world.build_orders().is_empty());
-    assert_eq!(
-        world.can_place_site(PartKind::Wall, (9, 11), Rotation::R0),
-        Err(crate::SiteRefusal::UnderWay)
-    );
-    let events = world.step(&[place(0)]);
-    assert!(events.iter().any(|e| matches!(
-        e,
-        WorldEvent::Refused {
-            why: Refusal::UnderWay,
-            ..
-        }
-    )));
-    assert_eq!(world.builds.len(), 1, "the refused site was placed");
-    // Called off: the push-off finishes and the ship holds there. The
-    // blueprint is still there, and now it is worked.
-    world.step(&[Command::Abort { slot: 0 }]);
-    until_stopped(&mut world, 60 * 60);
-    assert_eq!(world.ship.state, ShipState::Holding);
+    assert_eq!(world.free_money(), money, "nothing spoken for yet");
     assert_eq!(world.build_orders().len(), 1);
     world.aboard.room.recruit_for_probe(0, false);
 
-    // Once somebody is on the way to it, the ship stays — and its price
-    // is spoken for (feature 95).
+    // Once somebody is on the way to it, it is under construction — and
+    // its price is spoken for.
     let mut begun = false;
     for _ in 0..(60 * 60) {
         world.step(&[]);
@@ -5290,19 +4165,6 @@ fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
         money - PartKind::Wall.def().price,
         "the site's price is spoken for"
     );
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Confirm { slot: 0, target }]);
-    assert!(
-        events.iter().any(|e| matches!(
-            e,
-            WorldEvent::Refused {
-                why: Refusal::UnderConstruction,
-                ..
-            }
-        )),
-        "{events:?}"
-    );
-    assert_eq!(world.ship.state, ShipState::Holding);
 
     // Cancelled, the claim is gone and nothing has left the pool. The
     // Bim on the way finds the site gone and turns back.
@@ -5331,15 +4193,6 @@ fn the_ship_does_not_move_while_built_on_and_is_not_built_on_while_moving() {
             ..
         }
     )));
-    // And with nothing holding it, the ship goes.
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Confirm { slot: 0, target }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Departed { .. })),
-        "{events:?}"
-    );
 }
 
 /// A site is refused where the part would not go, and where it would
@@ -5522,8 +4375,6 @@ fn sight_is_traced_and_a_shut_door_stops_it_without_a_trace() {
 #[test]
 fn docked_the_crew_see_what_is_in_view_and_the_station_s_people_only_there() {
     let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     assert!(world.aboard.is_joined());
     world.aboard.room.observe();
     let james = world.aboard.room.bim_pos(0);
@@ -5557,252 +4408,13 @@ fn docked_the_crew_see_what_is_in_view_and_the_station_s_people_only_there() {
         "every resident is in view from the ship"
     );
 
-    // Under way, the station's room is nobody's to look into.
-    let target = nearby(&world, 4_000.0);
-    set_off(&mut world, 0, target);
+    // Off the berth, the station's room is nobody's to look into.
+    world.undock_for_probe();
+    world.step(&[]);
     let ashore = world.residents.as_ref().unwrap();
     for who in 0..ashore.aboard.count() {
         assert!(!ashore.aboard.room.body_seen(who as usize));
     }
-}
-
-/// A bay the crew built — or any bay past the first — is a bay like the
-/// first: it is tended, a click on it is a click on a bay, and it has a
-/// switch and a standing order of its own.
-/// The same, the way the player does it: a bay laid out as a site, its
-/// materials carried to it and put together by the crew — and once it is
-/// built, the room has two bays and both are tended.
-#[test]
-fn every_bay_aboard_is_worked_and_one_the_crew_build_is_a_bay_like_the_first() {
-    // --- every_bay_aboard_is_worked_and_has_its_own_menu ---
-    {
-        use bims::room::HIT_HYDRO;
-        use shipdesign::fixture::playtest_ship;
-        // The playtest ship with a second bay wherever one fits.
-        let ship = playtest_ship();
-        let budget = Budget::new(10_000_000);
-        let area = ship.build_area;
-        let mut with_two = None;
-        'find: for y in 0..area {
-            for x in 0..area {
-                let edit = Edit::Place {
-                    kind: PartKind::HydroBay,
-                    origin: (x, y),
-                    rotation: Rotation::R0,
-                };
-                if let Ok(next) = apply(&ship, &budget, edit) {
-                    // Placed and sound, as the designer would insist on: every
-                    // tray reachable, nothing walled off.
-                    let sound = shipdesign::validate(&next, 1)
-                        .iter()
-                        .all(|i| i.severity != shipdesign::validate::Severity::Error);
-                    if !sound {
-                        continue;
-                    }
-                    with_two = Some(next);
-                    break 'find;
-                }
-            }
-        }
-        let design = with_two.expect("somewhere on the playtest ship a second bay fits");
-        let mut world = simulation_world(design, data::SIMULATION_MONEY, 1);
-        world.set_needs_enabled(true);
-        world.set_shipyard_enabled(true);
-        let room = &mut world.aboard.room;
-        assert_eq!(room.hydro_bays(), 2);
-
-        // A click on the second bay is a click on a bay — that bay.
-        let frame = room.bay_frame_for_probe(1);
-        let at = frame.center();
-        assert_eq!(room.hit_at(at.x, at.y), HIT_HYDRO);
-        assert_eq!(room.hit_bay(), 1);
-        // And its own settings: a standing order on one is not one on the other.
-        room.set_hydro_forced(1, 1);
-        assert_eq!(room.hydro_forced(1), 1);
-        assert_eq!(room.hydro_forced(0), 0);
-        room.set_hydro_forced(0, 1);
-
-        // Both bays are worked: over a few days, a tray of each changes hands.
-        let spots = room.hydro_spots();
-        let snapshot = |room: &bims::game::Game, bay: usize| -> Vec<u32> {
-            (0..spots).map(|i| room.hydro_crop(bay, i)).collect()
-        };
-        let mut before = [snapshot(room, 0), snapshot(room, 1)];
-        let mut worked = [false, false];
-        for _ in 0..(3 * 24 * 60 * 60) {
-            world.step(&[]);
-            for bay in 0..2 {
-                let now = snapshot(&world.aboard.room, bay);
-                if now != before[bay] {
-                    worked[bay] = true;
-                    before[bay] = now;
-                }
-            }
-            if worked.iter().all(|&w| w) {
-                break;
-            }
-        }
-        assert!(worked[0], "the first bay was never tended");
-        assert!(worked[1], "the second bay was never tended");
-    }
-
-    // --- a_bay_the_crew_build_is_a_bay_like_the_first ---
-    {
-        use bims::room::HIT_HYDRO;
-        use shipdesign::fixture::playtest_ship;
-        let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-        world.set_needs_enabled(true);
-        world.set_shipyard_enabled(true);
-        assert_eq!(world.aboard.room.hydro_bays(), 1, "the ship's own, docked");
-        // Somewhere on the deck the site is allowed.
-        let area = world.ship.design.build_area;
-        let mut at = None;
-        'find: for y in 0..area {
-            for x in 0..area {
-                if world
-                    .can_place_site(PartKind::HydroBay, (x, y), Rotation::R0)
-                    .is_ok()
-                {
-                    at = Some((x, y));
-                    break 'find;
-                }
-            }
-        }
-        let at = at.expect("somewhere on the playtest ship a bay can be laid out");
-        let events = world.step(&[Command::PlaceSite {
-            slot: 0,
-            kind: PartKind::HydroBay,
-            origin: at,
-            rotation: Rotation::R0,
-        }]);
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::SitePlaced { .. })),
-            "{events:?}"
-        );
-
-        // Built: carried to and put together, within a few days of the crew's
-        // own time, at the berth.
-        let mut built = false;
-        for _ in 0..(3 * 24 * 60 * 60) {
-            let events = world.step(&[]);
-            if events.iter().any(|e| matches!(e, WorldEvent::Built { .. })) {
-                built = true;
-                break;
-            }
-        }
-        assert!(built, "the bay was never built");
-        let room = &mut world.aboard.room;
-        assert_eq!(
-            room.hydro_bays(),
-            2,
-            "the built bay is not a bay of the room"
-        );
-        let frame = room.bay_frame_for_probe(1);
-        let m = frame.center();
-        assert_eq!(room.hit_at(m.x, m.y), HIT_HYDRO);
-        assert_eq!(room.hit_bay(), 1);
-        room.set_hydro_forced(1, 2);
-        assert_eq!(room.hydro_forced(1), 2);
-
-        // And it is worked: a tray of it changes hands.
-        let spots = room.hydro_spots();
-        let snapshot = |room: &bims::game::Game| -> Vec<u32> {
-            (0..spots).map(|i| room.hydro_crop(1, i)).collect()
-        };
-        let before = snapshot(room);
-        let mut worked = false;
-        for _ in 0..(3 * 24 * 60 * 60) {
-            world.step(&[]);
-            if snapshot(&world.aboard.room) != before {
-                worked = true;
-                break;
-            }
-        }
-        assert!(worked, "the built bay was never tended");
-    }
-}
-
-/// Two galleys, two cooks: with a second hob, worktop and cold store
-/// aboard, two hungry Bims cook at the same time, each at fixtures of its
-/// own — the closest free — rather than one waiting for the other to
-/// finish. And with one galley, they still take turns.
-#[test]
-fn a_second_galley_is_cooked_in_at_the_same_time() {
-    use bims::game::JOB_MEAL;
-    use shipdesign::fixture::playtest_ship;
-    let budget = Budget::new(10_000_000);
-    // A second bunk and chair for the second Bim, then a second hob,
-    // worktop and cold store, each wherever one fits without making the
-    // ship any worse than it was — the designer's errors for a crew of
-    // two are what they are until the bunk and the chair are in.
-    let mut design = playtest_ship();
-    let errors = |d: &ShipDesign| {
-        shipdesign::validate(d, 2)
-            .iter()
-            .filter(|i| i.severity == shipdesign::validate::Severity::Error)
-            .count()
-    };
-    for kind in [
-        PartKind::Bunk,
-        PartKind::Chair,
-        PartKind::Hob,
-        PartKind::Worktop,
-        PartKind::ColdStore,
-    ] {
-        let before = errors(&design);
-        let area = design.build_area;
-        let mut placed = None;
-        'find: for y in 0..area {
-            for x in 0..area {
-                for rotation in [Rotation::R0, Rotation::R90] {
-                    let edit = Edit::Place {
-                        kind,
-                        origin: (x, y),
-                        rotation,
-                    };
-                    if let Ok(next) = apply(&design, &budget, edit)
-                        && errors(&next) <= before
-                    {
-                        placed = Some(next);
-                        break 'find;
-                    }
-                }
-            }
-        }
-        design = placed.unwrap_or_else(|| panic!("nowhere on the playtest ship for a {kind:?}"));
-    }
-    let mut world = simulation_world(design, data::SIMULATION_MONEY, 2);
-    world.set_needs_enabled(true);
-    world.set_shipyard_enabled(true);
-    let room = &mut world.aboard.room;
-    room.select_group(0, 1);
-    // Both starving this instant: the food need spent to nothing.
-    room.spend_for_probe(0, 1, 1.0);
-    room.spend_for_probe(1, 1, 1.0);
-
-    let mut together = false;
-    for _ in 0..(2 * 60 * 60) {
-        world.step(&[]);
-        let room = &world.aboard.room;
-        if room.activity(0) == JOB_MEAL && room.activity(1) == JOB_MEAL {
-            let (a, b) = (
-                room.picks_for_probe(0).unwrap(),
-                room.picks_for_probe(1).unwrap(),
-            );
-            // Whatever each has picked so far, it is not the other's.
-            let apart = |x: Option<usize>, y: Option<usize>| x.is_none() || y.is_none() || x != y;
-            assert!(apart(a.fridge, b.fridge), "{a:?} {b:?}");
-            assert!(apart(a.worktop, b.worktop), "{a:?} {b:?}");
-            assert!(apart(a.hob, b.hob), "{a:?} {b:?}");
-            if a.hob.is_some() && b.hob.is_some() {
-                together = true;
-                break;
-            }
-        }
-    }
-    assert!(together, "the two never cooked at once");
 }
 
 /// A Bim standing against a wall peeks round it: pressed to the corner of
@@ -5886,7 +4498,8 @@ fn a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have()
         Stance::Friendly,
         "the spawn is home"
     );
-    world.set_hostile(station_id, true);
+    // Home no longer: the machines have it.
+    world.infest(station_id);
     assert_eq!(world.stance(station_id), Stance::Hostile);
     world.aboard.room.observe();
 
@@ -5952,13 +4565,14 @@ fn a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have()
     world.aboard.room.observe();
     assert_eq!(world.aboard.room.veil_at(middle.0, middle.1), 2);
 
-    // The residents: an enemy seen stays drawn for a moment after it is
-    // out of view, and no longer.
+    // The machines: one seen stays drawn for a moment after it is out of
+    // view, and no longer.
     world.step(&[]);
     let ashore = world.residents.as_mut().unwrap();
-    // The garrison, not the two residents: `enemies_of` the crew.
+    // A wave of them, not the two residents.
     let crowd = ashore.aboard.count() as usize;
-    assert!(crowd > 2);
+    assert!(crowd >= 2);
+    assert_eq!(ashore.aboard.room.crew_count(), 0, "and no people");
     let mut seen = vec![false; crowd];
     seen[0] = true;
     ashore.aboard.room.set_seen(&seen);
@@ -5980,30 +4594,25 @@ fn a_stranger_s_deck_is_black_where_nobody_has_looked_and_grey_where_they_have()
     assert!(!world.residents.as_ref().unwrap().aboard.room.body_seen(0));
 }
 
-/// A recruited crew member at a hostile station draws its laser and
-/// shoots at any of the station's people it can see, and what lands comes
-/// off their health — in their own room, since the shot is fired in the
-/// crew's. The bolts fly rather than land at once, and are blue.
+/// A recruited crew member at a station the machines hold draws its laser
+/// and shoots the machine it can see, and what lands comes off the
+/// machine's parts — in its own room, since the shot is fired in the
+/// crew's. The bolts fly rather than land at once.
 ///
-/// The station's people shoot back now, and two of them against one is
-/// not a fight the crew member wins — `the_residents_shoot_back…` is
-/// that half — so resident 1 is taken out of it first, by a probe's shot
-/// to the head, and the run is one on one: what this pins is that the
-/// crew member's fire lands and ends it.
+/// The machine shoots back, and a one-in-twenty head shot would end the
+/// run before James's fire has, so he is patched up before every step:
+/// what this pins is his fire landing and ending it. Destroyed, the
+/// machine is said once, and a wreck is nobody's target.
 #[test]
-fn a_recruited_bim_shoots_the_enemies_it_can_see_and_they_are_hurt() {
+fn a_recruited_bim_shoots_the_machines_it_can_see_and_they_are_hurt() {
+    use bims::combat::WeaponKind;
+    use bims::droid::DroidKind;
     use bims::sight::Stance;
     let mut world = basic();
-    let station_id = world.residents.as_ref().unwrap().station;
-    world.set_hostile(station_id, true);
-    assert_eq!(world.stance(station_id), Stance::Hostile);
 
     // Everybody carries the issued pistol, holstered until recruited.
     let gear = world.aboard.room.gear(0);
-    assert_eq!(
-        gear.weapon,
-        Some(bims::combat::WeaponKind::LaserPistol.basic())
-    );
+    assert_eq!(gear.weapon, Some(WeaponKind::LaserPistol.basic()));
     assert!(gear.head.is_none() && gear.body.is_none() && gear.legs.is_none());
     let stats = world.aboard.room.weapon_stats(0).unwrap();
     assert_eq!(stats.dps(), stats.fire_rate * stats.damage);
@@ -6014,8 +4623,17 @@ fn a_recruited_bim_shoots_the_enemies_it_can_see_and_they_are_hurt() {
     world.step(&[]);
     assert!(!world.aboard.room.is_armed(0), "holstered");
 
-    // James, recruited, stood a tile or two from resident 0 in the
-    // resident's own room — the station frame put through the join.
+    // The machines have the station, and one of them is down the
+    // corridor with a pistol of its own.
+    assert!(
+        world
+            .stage_droid_fight_for_probe(DroidKind::Trooper, Some(WeaponKind::LaserPistol.basic()))
+    );
+    let station_id = world.residents.as_ref().unwrap().station;
+    assert_eq!(world.stance(station_id), Stance::Hostile);
+
+    // James stood a tile or two from the machine in the machine's own
+    // room — the station frame put through the join.
     let (origin, ex, ey) = world.aboard.station_frame.unwrap();
     let there = world.residents.as_ref().unwrap().aboard.position(0);
     let on_deck = origin.add(ex.scale(there.x)).add(ey.scale(there.y));
@@ -6033,18 +4651,11 @@ fn a_recruited_bim_shoots_the_enemies_it_can_see_and_they_are_hurt() {
         .to_station(dvec2(on_deck.x, on_deck.y))
         .unwrap();
     assert!(close(back.x, there.x) && close(back.y, there.y));
-    // The rest of the garrison out of the fight, so it is one on one —
-    // and James patched up before every step, since resident 0 shoots
-    // back at a tile and a half and a one-in-twenty head shot would end
-    // the run before his fire has: what this pins is his fire landing.
-    let ashore = world.residents.as_mut().unwrap();
-    one_on_one(&mut ashore.aboard.room, 0);
-    world.aboard.room.recruit_for_probe(0, true);
     world.aboard.room.observe();
 
-    let before = world.residents.as_ref().unwrap().aboard.room.health(0);
+    let before = machine_health(&world);
     let mut flew = false;
-    let mut hurt = false;
+    let mut said = 0;
     for _ in 0..3_000 {
         world.aboard.room.patch_up_for_probe(0);
         let events = world.step(&[]);
@@ -6053,57 +4664,44 @@ fn a_recruited_bim_shoots_the_enemies_it_can_see_and_they_are_hurt() {
         if world.aboard.room.bolts_in_flight() > 0 {
             flew = true;
         }
-        let ashore = world.residents.as_ref().unwrap();
-        if ashore.aboard.room.is_dying(0) || ashore.aboard.room.is_down(0) {
-            hurt = true;
+        said += events
+            .iter()
+            .filter(|e| matches!(e, WorldEvent::DroidDown { who: 0, .. }))
+            .count();
+        if machine(&world).destroyed {
             break;
         }
-        assert!(
-            !events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::EnemyDown { who: 0, .. })),
-            "not down yet"
-        );
     }
     assert!(flew, "a bolt was in the air at some point");
-    let ashore = world.residents.as_ref().unwrap();
-    let after = ashore.aboard.room.health(0);
-    assert!(after < before, "resident 0 was hit: {before} -> {after}");
     assert!(
-        hurt,
-        "and was shot to a dying state, or out cold, within the run"
+        machine_health(&world) < before,
+        "the machine was hit: {before} -> {}",
+        machine_health(&world)
     );
-    // A part at nothing is a dying state, not a death: it is alive, it is
-    // running from James, and nothing says `EnemyDown` until it has bled
-    // out or been treated — of which the garrison's one medkit is the
-    // only chance. Out cold, it is nobody's target: James holds his fire.
-    if ashore.aboard.room.is_alive(0) {
+    assert!(machine(&world).destroyed, "and destroyed within the run");
+    // Said once, the step the world reads it, and a wreck is nobody's
+    // target: James holds his fire.
+    for _ in 0..3 {
         let events = world.step(&[]);
-        assert!(
-            !events
-                .iter()
-                .any(|e| matches!(e, WorldEvent::EnemyDown { who: 0, .. }))
-        );
-        let ashore = world.residents.as_ref().unwrap();
-        if ashore.aboard.room.is_unconscious(0) {
-            assert!(
-                world.aboard.room.combat_targets_for_probe()[0].is_none(),
-                "out cold is not a target"
-            );
-        } else {
-            assert!(ashore.aboard.room.is_dying(0));
-            assert!(ashore.aboard.room.is_fleeing(0), "and runs from him");
-            assert!(!ashore.aboard.room.is_armed(0), "without shooting back");
-        }
+        said += events
+            .iter()
+            .filter(|e| matches!(e, WorldEvent::DroidDown { who: 0, .. }))
+            .count();
     }
-    // The event names the person: station in the thousands, seat in the
-    // units.
-    let value = WorldEvent::EnemyDown {
+    assert_eq!(said, 1, "the wreck is said once");
+    assert!(
+        world.aboard.room.combat_targets_for_probe()[0].is_none(),
+        "a wreck is not a target"
+    );
+    // The event names the machine: its kind in the hundreds, the body in
+    // the units.
+    let value = WorldEvent::DroidDown {
         station: station_id,
         who: 0,
+        kind: DroidKind::Trooper.code(),
     }
     .value();
-    assert_eq!(value, (station_id * 1_000) as i64);
+    assert_eq!(value, (100 * DroidKind::Trooper.code()) as i64);
 
     // Let go, the weapon is holstered again and nothing more is fired.
     world.aboard.room.recruit_for_probe(0, false);
@@ -6111,14 +4709,18 @@ fn a_recruited_bim_shoots_the_enemies_it_can_see_and_they_are_hurt() {
     assert!(!world.aboard.room.is_armed(0));
 }
 
-/// At a hostile station the fight goes both ways: the station's people
+/// At a station the machines hold the fight goes both ways: the machines
 /// know where the crew are, shoot at them, and what lands opens a wound
 /// on the crew member — in the joined room, where the bolt flew — and
-/// the world says so. `stage_fight_for_probe` is the start of it.
+/// the world says so. `stage_droid_fight_for_probe` is the start of it.
 #[test]
-fn the_residents_shoot_back_and_a_crew_member_hit_bleeds() {
+fn the_machines_shoot_back_and_a_crew_member_hit_bleeds() {
+    use bims::combat::WeaponKind;
     let mut world = basic();
-    assert!(world.stage_fight_for_probe());
+    assert!(world.stage_droid_fight_for_probe(
+        bims::droid::DroidKind::Trooper,
+        Some(WeaponKind::LaserPistol.basic())
+    ));
     let station_id = world.residents.as_ref().unwrap().station;
     assert_eq!(world.stance(station_id), bims::sight::Stance::Hostile);
     assert_eq!(world.aboard.room.bleeding(0), 0);
@@ -6126,6 +4728,9 @@ fn the_residents_shoot_back_and_a_crew_member_hit_bleeds() {
 
     let mut hit = None;
     for _ in 0..3_000 {
+        // The machine whole again every step: James shoots back, and a
+        // wreck shoots nobody.
+        mend_machine(&mut world);
         let events = world.step(&[]);
         world.aboard.room.observe();
         if let Some(e) = events
@@ -6136,7 +4741,7 @@ fn the_residents_shoot_back_and_a_crew_member_hit_bleeds() {
             break;
         }
     }
-    let hit = hit.expect("the residents hit James within the run");
+    let hit = hit.expect("the machine hit James within the run");
     let WorldEvent::CrewHit { who, part } = hit else {
         unreachable!()
     };
@@ -6154,152 +4759,41 @@ fn the_residents_shoot_back_and_a_crew_member_hit_bleeds() {
     assert_eq!(WorldEvent::CrewDown { who: 1 }.value(), 1);
 }
 
-/// Casting off from a hostile station ends the fight for the crew too:
-/// the undock builds the crew a fresh room, at peace, and the crewmates
-/// the alarm put under arms come into it stood down — holstered and back
-/// to their errands, unless the hold on a last hit is still running.
-/// They used to come in still recruited: the fresh room musters on the
-/// alarm's edge and its alarm had never been up, so nothing let them go
-/// and they stood in combat mode the whole flight.
-#[test]
-fn casting_off_from_a_hostile_station_stands_the_crew_down() {
-    let mut world = with_a_crewmate();
-    assert!(world.stage_fight_for_probe());
-    // The targets are handed over after the room has stepped, so the
-    // alarm is a step behind them.
-    for _ in 0..5 {
-        world.step(&[]);
-    }
-    assert!(
-        world.aboard.room.is_alarmed(),
-        "the alarm is up at the dock"
-    );
-    assert!(
-        world
-            .aboard
-            .room
-            .combat_targets_for_probe()
-            .iter()
-            .any(|t| t.is_some()),
-        "the garrison are targets"
-    );
-    assert!(world.aboard.room.is_armed(1), "Kate is under arms");
-
-    world.undock_for_probe();
-    world.step(&[]);
-    assert!(
-        world
-            .aboard
-            .room
-            .combat_targets_for_probe()
-            .iter()
-            .all(|t| t.is_none()),
-        "nobody is a target once the rooms are apart"
-    );
-    // Down at once unless somebody was hit in that one step, in which
-    // case the hold on it runs out and nothing re-arms it out here.
-    let hold = (bims::game::ALARM_HOLD * 60.0) as usize + 60;
-    let mut down = false;
-    for _ in 0..hold {
-        if !world.aboard.room.is_alarmed() {
-            down = true;
-            break;
-        }
-        world.step(&[]);
-    }
-    assert!(down, "the alarm comes down in flight");
-    // James still has his own weapon out — `stage_fight_for_probe`
-    // recruited him — and since feature 84 that is a player leading the
-    // crew, so Kate keeps hers out and stays at his side. He holsters,
-    // and she stands down to her errands.
-    assert!(
-        world.aboard.room.is_armed(1),
-        "Kate follows James under arms"
-    );
-    world.aboard.room.recruit_for_probe(0, false);
-    world.step(&[]);
-    assert!(!world.aboard.room.is_armed(1), "and Kate holsters");
-}
-
-/// At war a resident is recruited and armed, and — with James in its
-/// sight four tiles off and no cover worth the walk on this seed — it
-/// stands where it is and shoots, since walking would halve its odds
-/// (`bims::game::plan_stand`); its bolts fly in the crew's room.
 /// A station's people are armed off its own seed and their seat, so the
 /// same station arms the same people the same way every time it is
 /// reached and the checksum has nothing new to hash.
 #[test]
-fn a_hostile_station_s_people_take_arms_and_are_armed_off_its_seed() {
-    // --- a_hostile_station_s_people_take_arms_and_shoot_from_where_they_stand ---
-    {
-        let mut world = basic();
-        assert!(world.stage_fight_for_probe());
-        let was = world.residents.as_ref().unwrap().aboard.position(0);
-        let stood = world.residents.as_ref().unwrap().aboard.room.is_armed(0);
-        assert!(!stood, "at peace a resident carries nothing drawn");
-        // James unarmed, so the resident is not shot to a dying run before it
-        // has fired; patched up every step against its pistol.
-        world.aboard.room.issue(0, bims::combat::Gear::default());
-        world.aboard.room.issue(1, bims::combat::Gear::default());
-        let mut fired = false;
-        for _ in 0..300 {
-            world.aboard.room.patch_up_for_probe(0);
-            world.step(&[]);
-            fired |= world.aboard.room.bolts_in_flight() > 0;
-            if fired {
-                break;
-            }
-        }
-        let ashore = world.residents.as_ref().unwrap();
-        assert!(ashore.aboard.room.is_armed(0), "under arms");
-        assert!(fired, "and shooting, a hostile bolt in the crew's room");
-        let now = ashore.aboard.position(0);
-        assert!(
-            was.distance(now) <= shipdesign::TILE as f64,
-            "stood still to shoot: {was:?} -> {now:?}"
-        );
-        // Home again, nobody is anybody's target and the arms go away.
-        world.set_hostile(world.residents.as_ref().unwrap().station, false);
-        for _ in 0..3 {
-            world.step(&[]);
-        }
-        let ashore = world.residents.as_ref().unwrap();
-        assert!(!ashore.aboard.room.is_armed(0), "stood down");
-    }
-
-    // --- a_station_s_people_are_armed_off_its_seed ---
-    {
-        use bims::combat::Gear;
-        let world = basic();
-        let ashore = world.residents.as_ref().unwrap();
-        let station = world.station(ashore.station).unwrap();
-        let seed = station.map_seed;
-        // The residents, seated first; a mercenary for hire after them is
-        // kitted off its own seed, and is the other test's.
-        let residents = station.residents();
-        assert!(residents > 0);
-        assert_eq!(
-            ashore.aboard.count(),
-            residents + world.mercenaries_of(station)
-        );
-        for who in 0..residents {
-            let mut issued = Gear::issued_for(seed ^ who as u64);
-            assert!(issued.weapon.is_some(), "every resident carries something");
-            assert_eq!(ashore.aboard.room.weapon(who as usize), issued.weapon);
-            // And a couple of dressings in the pack beside it since
-            // feature 87 — the roll is the weapon's and the armour's.
-            let cell = issued
-                .free_cell_for(bims::game::BANDAGE)
-                .expect("a fresh pack has room for a box");
-            issued.put_many(cell, bims::game::BANDAGE, data::RESIDENT_BANDAGES);
-            assert_eq!(ashore.aboard.room.gear(who as usize), issued);
-        }
+fn a_station_s_people_are_armed_off_its_seed() {
+    use bims::combat::Gear;
+    let world = basic();
+    let ashore = world.residents.as_ref().unwrap();
+    let station = world.station(ashore.station).unwrap();
+    let seed = station.map_seed;
+    // The residents, seated first; a mercenary for hire after them is
+    // kitted off its own seed, and is the other test's.
+    let residents = station.residents();
+    assert!(residents > 0);
+    assert_eq!(
+        ashore.aboard.count(),
+        residents + world.mercenaries_of(station)
+    );
+    for who in 0..residents {
+        let mut issued = Gear::issued_for(seed ^ who as u64);
+        assert!(issued.weapon.is_some(), "every resident carries something");
+        assert_eq!(ashore.aboard.room.weapon(who as usize), issued.weapon);
+        // And a couple of dressings in the pack beside it since
+        // feature 87 — the roll is the weapon's and the armour's.
+        let cell = issued
+            .free_cell_for(bims::game::BANDAGE)
+            .expect("a fresh pack has room for a box");
+        issued.put_many(cell, bims::game::BANDAGE, data::RESIDENT_BANDAGES);
+        assert_eq!(ashore.aboard.room.gear(who as usize), issued);
     }
 }
 
-/// Where a resident is put on the joined deck, and where a crew member
-/// is, in the room's units — the peek while either peeks, since that is
-/// where a shot at it is aimed.
+/// Where a body of the station's room is put on the joined deck, in the
+/// crew's room's units — the peek while it peeks, since that is where a
+/// shot at it is aimed.
 fn on_deck(world: &World, who_ashore: u32) -> bims::math::Vec2 {
     let (origin, ex, ey) = world.aboard.station_frame.unwrap();
     let p = world.residents.as_ref().unwrap().aboard.exposed(who_ashore);
@@ -6307,20 +4801,26 @@ fn on_deck(world: &World, who_ashore: u32) -> bims::math::Vec2 {
     bims::math::vec2(at.x as f32, at.y as f32)
 }
 
-/// A resident with a schword charges the crew member rather than
-/// standing off, and within reach the two are locked in a melee: the
-/// world says so once, the crew member fires nothing more while it holds
-/// and lands fists instead — a blow the world carries to the resident's
-/// body — and the blade's cut comes back the other way, three wound units
-/// on the part it landed on. James wears the kevlar so the first cut is
-/// one he lives through: seventy on a body of seventy-five is otherwise
-/// the whole fight, over the step the blade arrives.
+/// A machine with a claw charges the crew member rather than standing
+/// off, and within reach the two are locked in a melee: the world says
+/// so once, the crew member fires nothing more while it holds and lands
+/// fists instead — a blow the world carries to the machine's parts — and
+/// the claw's blow comes back the other way, a crush of one wound unit on
+/// the part it landed on where a blade's cut is three. James wears the
+/// kevlar, and the machine is made whole before every step, so the lock
+/// is what is looked at rather than who wins — a Warden at tier two,
+/// whose head takes a fist and a bolt with some to spare, so no one blow
+/// ends it between two mendings.
 #[test]
-fn a_blade_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
-    use bims::combat::{ArmourKind, FIST_DAMAGE, Gear, MELEE_RANGE, Piece, WeaponKind};
+fn a_claw_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
+    use bims::combat::{ArmourKind, Gear, MELEE_RANGE, Piece, WeaponKind};
+    use bims::droid::DroidKind;
     use bims::health::{CUT_WOUND, Part};
     let mut world = basic();
-    assert!(world.stage_fight_for_probe());
+    world.set_droid_tier_for_probe(Some(Tier::Two));
+    assert!(
+        world.stage_droid_fight_for_probe(DroidKind::Warden, Some(WeaponKind::Claw.at(Tier::Two)))
+    );
     world.aboard.room.issue(
         0,
         Gear {
@@ -6329,60 +4829,45 @@ fn a_blade_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
         },
     );
     // Kate unarmed: from the ship, a pistol reaching twenty-two tiles has
-    // her firing at the resident too, and a bolt of hers in the air would
+    // her firing at the machine too, and a bolt of hers in the air would
     // read as James firing while locked.
     world.aboard.room.issue(1, Gear::default());
-    // Resident 0 with a blade, resident 1 out of it, so it is one on one.
-    {
-        let ashore = world.residents.as_mut().unwrap();
-        ashore.aboard.room.issue(
-            0,
-            Gear {
-                weapon: Some(WeaponKind::Schword.basic()),
-                ..Gear::default()
-            },
-        );
-        assert_eq!(
-            ashore.aboard.room.weapon(0),
-            Some(WeaponKind::Schword.basic())
-        );
-        one_on_one(&mut ashore.aboard.room, 0);
-    }
+    assert_eq!(
+        world.residents.as_ref().unwrap().aboard.room.weapon(0),
+        Some(WeaponKind::Claw.at(Tier::Two))
+    );
     assert_eq!(WorldEvent::Locked { who: 0 }.code(), 37);
     assert_eq!(WorldEvent::Locked { who: 1 }.value(), 1);
 
+    // A blow on James: the part it landed on, and how many wound units it
+    // opened there — read across the one step it landed in.
+    let units = |world: &World| Part::ALL.map(|p| world.aboard.room.wounds(0, p));
+    let blow = |events: &[WorldEvent], was: [u32; 3], world: &World| {
+        events.iter().find_map(|e| match e {
+            WorldEvent::CrewHit { who: 0, part } => {
+                let part = Part::from_code(*part).unwrap();
+                let i = Part::ALL.iter().position(|&p| p == part).unwrap();
+                Some((part, world.aboard.room.wounds(0, part) - was[i]))
+            }
+            _ => None,
+        })
+    };
     let mut locked = false;
-    let mut cut = None;
-    let (mut before, mut units_before) = (0.0, 0);
+    let mut hit = None;
     for _ in 0..3_000 {
-        // The resident good as new before every step: a pistol reaching
-        // twenty-two tiles, or a fist on the legs — a fifth of them, and
-        // the legs are twenty — would otherwise have it dying and running
-        // before the lock is read, and what this pins is the lock.
-        world
-            .residents
-            .as_mut()
-            .unwrap()
-            .aboard
-            .room
-            .patch_up_for_probe(0);
-        let ashore = &world.residents.as_ref().unwrap().aboard.room;
-        before = ashore.health(0);
-        units_before = Part::ALL.iter().map(|&p| ashore.wounds(0, p)).sum::<u32>();
+        mend_machine(&mut world);
+        let was = units(&world);
         let events = world.step(&[]);
         world.aboard.room.observe();
-        if let Some(WorldEvent::CrewHit { part, .. }) = events
-            .iter()
-            .find(|e| matches!(e, WorldEvent::CrewHit { who: 0, .. }))
-        {
-            cut = Some(Part::from_code(*part).unwrap());
+        if let Some(landed) = blow(&events, was, &world) {
+            hit = Some(landed);
         }
         if events.contains(&WorldEvent::Locked { who: 0 }) {
             locked = true;
             break;
         }
     }
-    assert!(locked, "the blade closed and locked James within the run");
+    assert!(locked, "the claw closed and locked James within the run");
     assert_eq!(world.aboard.room.is_locked(0), Some(0));
     assert!(world.aboard.room.is_armed(0), "still under arms");
     // Within reach of each other, as the world put them to each other.
@@ -6392,57 +4877,32 @@ fn a_blade_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
         "within reach: {gap}"
     );
     // The first swing starts the step the lock forms and lands when it
-    // has been swung, `SWING_TIME` on, and it is a fist: twenty off the
-    // resident and one wound unit, not a cut's three — give or take a
-    // last pistol bolt landing in the meantime.
-    // Read step by step, since a fed body mends a little every step.
+    // has been swung, `SWING_TIME` on: something comes off the machine.
     let step = (data::STEP_MINUTES / time::MINUTES_PER_SECOND) as f32;
     let swing = (bims::character::SWING_TIME / step).ceil() as usize + 2;
-    let health_ashore = |world: &World| world.residents.as_ref().unwrap().aboard.room.health(0);
-    let units_ashore = |world: &World| {
-        let ashore = &world.residents.as_ref().unwrap().aboard.room;
-        Part::ALL.iter().map(|&p| ashore.wounds(0, p)).sum::<u32>()
-    };
-    let (mut before, mut after) = (before, health_ashore(&world));
-    let mut units_before = units_before;
-    let mut units = units_ashore(&world);
+    let mut landed = false;
     for _ in 0..swing {
-        if before - after >= FIST_DAMAGE - 1e-3 {
-            break;
-        }
-        world
-            .residents
-            .as_mut()
-            .unwrap()
-            .aboard
-            .room
-            .patch_up_for_probe(0);
-        after = health_ashore(&world);
-        units = units_ashore(&world);
-        before = after;
-        units_before = units;
+        mend_machine(&mut world);
+        let before = machine_health(&world);
         world.step(&[]);
         world.aboard.room.observe();
-        after = health_ashore(&world);
-        units = units_ashore(&world);
+        if machine_health(&world) < before {
+            landed = true;
+            break;
+        }
     }
-    assert!(
-        before - after >= FIST_DAMAGE - 1e-3,
-        "a fist landed: {before} -> {after}"
-    );
-    assert!(
-        units > units_before && units - units_before < CUT_WOUND,
-        "a fist's wound, not a cut's: {units_before} -> {units}"
-    );
+    assert!(landed, "a fist landed on the machine");
 
     // While the lock holds nothing more is fired, and the world does not
-    // say the lock again. The blade's own blow comes the other way — a
-    // cut, three units on the part it landed on, said as a hit — before
-    // or after James's lock, since the blade reads its reach a step
-    // ahead of him.
+    // say the lock again. The claw's own blow comes the other way — a
+    // crush, one unit on the part it landed on, said as a hit — before or
+    // after James's lock, since the machine reads its reach a step ahead
+    // of him; the kevlar takes the first on the body.
     let mut bolts = world.aboard.room.bolts_in_flight();
     let mut held = 0;
-    for _ in 0..600 {
+    for _ in 0..1_200 {
+        mend_machine(&mut world);
+        let was = units(&world);
         let events = world.step(&[]);
         world.aboard.room.observe();
         if world.aboard.room.is_locked(0).is_none() {
@@ -6456,24 +4916,21 @@ fn a_blade_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
         let now = world.aboard.room.bolts_in_flight();
         assert!(now <= bolts, "no new bolt while locked");
         bolts = now;
-        if let Some(WorldEvent::CrewHit { part, .. }) = events
-            .iter()
-            .find(|e| matches!(e, WorldEvent::CrewHit { who: 0, .. }))
-        {
-            cut = Some(Part::from_code(*part).unwrap());
+        if let Some(landed) = blow(&events, was, &world) {
+            hit = Some(landed);
         }
-        if cut.is_some() && held > 10 {
+        if hit.is_some() && held > 10 {
             break;
         }
     }
     assert!(held > 0, "the lock held for a step at least");
-    let part = cut.expect("the blade landed on James");
-    let units = world.aboard.room.wounds(0, part);
+    let (part, opened) = hit.expect("the claw landed on James");
+    assert!(world.aboard.room.wounds(0, part) >= 1);
     assert!(
-        units >= CUT_WOUND && units % CUT_WOUND == 0,
-        "a cut is three units: {units}"
+        opened == 1 && opened < CUT_WOUND,
+        "a crush is one unit, not a cut's three: {opened}"
     );
-    assert!(world.aboard.room.bleeding(0) >= CUT_WOUND);
+    assert!(world.aboard.room.bleeding(0) >= 1);
     assert!(
         world.aboard.room.health(0) < bims::health::MAX_HEALTH,
         "and it hurt"
@@ -6490,20 +4947,10 @@ fn a_blade_charges_and_locks_the_crew_member_who_fights_with_its_fists() {
 /// nothing and his aim is the peek.
 #[test]
 fn the_crew_are_handed_over_at_the_peek_while_peeking() {
-    use bims::combat::{Gear, WeaponKind};
     let mut world = basic();
-    assert!(world.stage_fight_for_probe());
-    {
-        let ashore = world.residents.as_mut().unwrap();
-        ashore.aboard.room.issue(
-            0,
-            Gear {
-                weapon: Some(WeaponKind::Schword.basic()),
-                ..Gear::default()
-            },
-        );
-        one_on_one(&mut ashore.aboard.room, 0);
-    }
+    // A machine held where it is put, firing nothing: something for James
+    // to aim at from the peek.
+    assert!(world.stage_droid_fight_for_probe(bims::droid::DroidKind::Trooper, None));
     // The station's frame: a station point onto the joined deck, and the
     // rows of the corridor the port opens onto, in the station's units.
     let (origin, ex, ey) = world.aboard.station_frame.unwrap();
@@ -6544,19 +4991,19 @@ fn the_crew_are_handed_over_at_the_peek_while_peeking() {
     }
     let (col, spot) = spot.expect("a tile off the corridor with a wall east of it");
     world.aboard.room.put_for_probe(0, spot);
-    // The resident six tiles east of it, in the corridor's middle row,
+    // The machine six tiles east of it, in the corridor's middle row,
     // held there.
     let there = bims::math::vec2((col + 6.5) * tile, (corridor_row + 0.5) * tile);
 
     let mut peeked = false;
     for _ in 0..600 {
-        let ashore_room = world.residents.as_mut().unwrap();
-
-        let there_in_room = ashore_room
+        let there_in_room = world
+            .residents
+            .as_ref()
+            .unwrap()
             .aboard
             .to_room(dvec2(there.x as f64, there.y as f64));
-
-        ashore_room.aboard.room.put_for_probe(0, there_in_room);
+        hold_machine(&mut world, there_in_room);
         world.step(&[]);
         world.aboard.room.observe();
         let room = &world.aboard.room;
@@ -6586,53 +5033,49 @@ fn the_crew_are_handed_over_at_the_peek_while_peeking() {
 }
 
 /// A sniper rifle reaches from twenty tiles and more, where nothing else
-/// does, both ways round. A *resident* issued the rifle walks off down
-/// the corridor to the open at its range — never a doorway, which opens
-/// for whoever stands in it (`bims::combat::Tactics::stand`) — and its
-/// shot lands on James from twenty tiles and more, said as a `CrewHit`.
-/// Then the crew member's: the bolt flies the whole corridor of the
-/// joined deck and lands with the rifle's damage at that distance, and
-/// the world carries the hit to the body — the resident stood down the
-/// corridor with a blade, put back where it was before every step, so
-/// the distance is the one asked for.
+/// does, both ways round. A **machine** built with the rifle — a Warden,
+/// the kind that takes cover — walks off down the corridor to its range
+/// rather than closing, never to a doorway, which opens for whoever
+/// stands in it (`bims::combat::Tactics::stand`), and its shot lands on
+/// James from past the pistol's reach, said as a `CrewHit`. Then the crew
+/// member's: the bolt flies the whole corridor of the joined deck and
+/// lands with the rifle's damage at that distance, and the world carries
+/// the hit to the machine — held down the corridor, put back where it
+/// was before every step, so the distance is the one asked for.
 /// The crew's shotgun does more up close than down the corridor: the
 /// damage is the weapon's at the distance the bolt flew, read when it
-/// lands, and the world carries that number to the resident's body.
+/// lands, and the world carries that number to the machine's chassis.
 /// Both stood still — put back where they were before every step — so
 /// the distance is the one asked for.
 #[test]
 fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_than_at_nine() {
+    use bims::droid::{DroidKind, DroidPart};
     // --- a_sniper_rifle_reaches_from_twenty_tiles ---
     {
         use bims::combat::{Gear, WeaponKind};
-        use bims::health::Part;
         let stats = WeaponKind::SniperRifle.stats();
         let rifle = Gear {
             weapon: Some(WeaponKind::SniperRifle.basic()),
             ..Gear::default()
         };
 
-        // A resident with the rifle walks off to its range rather than
-        // closing, stands where it can shoot from, and hits from there. An
-        // enemy shoots on the move too — at half the odds — and a rifle at
-        // four tiles is the end of an unarmoured James, so he is patched up
-        // before every step and the hit counted is the first landed from a
-        // stand: what this pins is where the resident goes to shoot from,
-        // not what it does on the way. James is unarmed for it: a pistol
-        // reaching twenty-two tiles had the resident shot to a dying state
-        // — and running — before it ever reached its stand.
+        // A machine with the rifle walks off to its range rather than
+        // closing, stands where it can shoot from, and hits from there.
+        // A rifle at four tiles is the end of an unarmoured James, so he
+        // is patched up before every step and the hit counted is the
+        // first landed from a stand: what this pins is where the machine
+        // goes to shoot from, not what it does on the way. The crew are
+        // unarmed for it, and the machine is made whole every step
+        // besides.
         let mut world = basic();
-        assert!(world.stage_fight_for_probe());
-        // And so is the rest of the crew: under the alarm a crewmate with a
-        // pistol shoots what she sees, and the lobby's layout is not the
-        // test's to lean on.
+        assert!(
+            world.stage_droid_fight_for_probe(
+                DroidKind::Warden,
+                Some(WeaponKind::SniperRifle.basic())
+            )
+        );
         for who in 0..world.aboard.crew_count() as usize {
             world.aboard.room.issue(who, Gear::default());
-        }
-        {
-            let ashore = world.residents.as_mut().unwrap();
-            ashore.aboard.room.issue(0, rifle);
-            one_on_one(&mut ashore.aboard.room, 0);
         }
         let ashore = world.aboard.ashore.unwrap();
         let ashore = bims::math::vec2(ashore.x as f32, ashore.y as f32);
@@ -6640,10 +5083,11 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
         for _ in 0..3_000 {
             world.aboard.room.put_for_probe(0, ashore);
             world.aboard.room.patch_up_for_probe(0);
+            mend_machine(&mut world);
             let gap = (on_deck(&world, 0) - world.aboard.room.exposed_at(0)).len()
                 / shipdesign::TILE as f32;
             let events = world.step(&[]);
-            let standing = !world.residents.as_ref().unwrap().aboard.room.is_walking(0);
+            let standing = !machine(&world).is_walking();
             if standing
                 && events
                     .iter()
@@ -6653,21 +5097,18 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
                 break;
             }
         }
-        let gap = hit_at.expect("the resident's rifle hit James within the run");
-        // Out of the pistol's reach and inside the rifle's: on the default
-        // seed it is the cover at the corridor's crossing, some seventeen
-        // tiles off, and cover near it beats the open further on.
+        let gap = hit_at.expect("the machine's rifle hit James within the run");
+        // Out of the pistol's reach and inside the rifle's.
         let pistol = WeaponKind::LaserPistol.stats().range;
         assert!(gap > pistol, "from its range, not up close: {gap:.1} tiles");
         assert!(gap * shipdesign::TILE as f32 <= stats.reach());
-        let room = &world.residents.as_ref().unwrap().aboard.room;
-        assert!(!room.is_walking(0), "stood still to shoot");
+        assert!(!machine(&world).is_walking(), "stood still to shoot");
         assert!(world.aboard.room.bleeding(0) > 0, "and James bleeds for it");
 
-        // The long shot: James with the rifle, the resident twenty-one tiles
-        // down the corridor.
+        // The long shot: James with the rifle, the machine twenty-one
+        // tiles down the corridor, held there and firing nothing.
         let mut world = basic();
-        assert!(world.stage_fight_for_probe());
+        assert!(world.stage_droid_fight_for_probe(DroidKind::Warden, None));
         let station = world.ship.state.station().unwrap();
         let port = world.station(station).unwrap().port().unwrap();
         let tiles = 21.0;
@@ -6681,67 +5122,58 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
         );
         world.aboard.room.issue(0, rifle);
         // Kate unarmed: under the alarm she would come and shoot too, and the
-        // first wound counted would be her pistol's.
+        // first hit counted would be her pistol's.
         world.aboard.room.issue(1, Gear::default());
-        {
-            let ashore = world.residents.as_mut().unwrap();
-            ashore.aboard.room.issue(
-                0,
-                Gear {
-                    weapon: Some(WeaponKind::Schword.basic()),
-                    ..Gear::default()
-                },
-            );
-            one_on_one(&mut ashore.aboard.room, 0);
-        }
         let mut hit_from = None;
         for _ in 0..3_000 {
-            let ashore_room = world.residents.as_mut().unwrap();
-
-            let there_in_room = ashore_room
+            let there_in_room = world
+                .residents
+                .as_ref()
+                .unwrap()
                 .aboard
                 .to_room(dvec2(there.x as f64, there.y as f64));
-
-            ashore_room.aboard.room.put_for_probe(0, there_in_room);
+            hold_machine(&mut world, there_in_room);
             world.aboard.room.put_for_probe(0, ashore);
             let gap = (on_deck(&world, 0) - world.aboard.room.exposed_at(0)).len();
             world.step(&[]);
             world.aboard.room.observe();
-            let room = &world.residents.as_ref().unwrap().aboard.room;
-            if let Some(part) = Part::ALL.into_iter().find(|&p| room.wounds(0, p) > 0) {
+            let body = machine(&world).body;
+            if let Some(part) = DroidPart::ALL
+                .into_iter()
+                .find(|&p| body.health(p) < body.max(p))
+            {
                 hit_from = Some((gap / shipdesign::TILE as f32, part));
                 break;
             }
         }
-        let (hit_from, part) = hit_from.expect("the rifle hit the resident within the run");
+        let (hit_from, part) = hit_from.expect("the rifle hit the machine within the run");
         assert!(
             (20.0..=tiles as f32 + 1.0).contains(&hit_from),
             "from twenty tiles and more: {hit_from:.1} tiles"
         );
         assert!(hit_from * shipdesign::TILE as f32 <= stats.reach());
-        // And it was the rifle's damage at that distance that landed: forty-five
-        // at twenty tiles, which is all a head or a leg has and most of a body.
-        let dealt = stats.damage_at(hit_from).min(part.max());
-        let room = &world.residents.as_ref().unwrap().aboard.room;
-        let left = room.part_health(0, part);
+        // And it was the rifle's damage at that distance that landed, as
+        // much of it as the part had.
+        let body = machine(&world).body;
+        let dealt = stats.damage_at(hit_from).min(body.max(part));
+        let took = body.max(part) - body.health(part);
         assert!(
-            (part.max() - left - dealt).abs() < 4.0
-                || (part == Part::Legs && room.legs_lost(0) == 1),
-            "the rifle's damage came off the part: {left} left of {}, {dealt} dealt",
-            part.max()
+            (took - dealt).abs() < 4.0,
+            "the rifle's damage came off the part: {took} of {}, {dealt} dealt",
+            body.max(part)
         );
-        assert_eq!(room.wounds(0, part), 1, "a shot, not a cut");
     }
 
     // --- the_crew_s_shotgun_does_more_at_three_tiles_than_at_nine ---
     {
         use bims::combat::{Gear, WeaponKind};
-        use bims::health::Part;
         let stats = WeaponKind::Shotgun.stats();
-        // The first hit on the body, on a body still whole: what came off it.
-        let body_drop_at = |tiles: f64| -> (f32, f32) {
+        // The first hit on the chassis, on a machine still whole: what
+        // came off it — all of a Trooper's sixty up close, and less down
+        // the corridor. A hit elsewhere is mended away and waited past.
+        let chassis_drop_at = |tiles: f64| -> (f32, f32) {
             let mut world = basic();
-            assert!(world.stage_fight_for_probe());
+            assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
             let station = world.ship.state.station().unwrap();
             let port = world.station(station).unwrap().port().unwrap();
             let ashore = world.aboard.ashore.unwrap();
@@ -6758,61 +5190,51 @@ fn a_sniper_rifle_reaches_from_twenty_tiles_and_a_shotgun_does_more_at_three_tha
                     ..Gear::default()
                 },
             );
-            {
-                // A blade in the resident's hand, so nothing is fired back,
-                // and resident 1 out of it.
-                let ashore = world.residents.as_mut().unwrap();
-                ashore.aboard.room.issue(
-                    0,
-                    Gear {
-                        weapon: Some(WeaponKind::Schword.basic()),
-                        ..Gear::default()
-                    },
-                );
-                one_on_one(&mut ashore.aboard.room, 0);
-            }
+            world.aboard.room.issue(1, Gear::default());
             for _ in 0..3_000 {
-                let ashore_room = world.residents.as_mut().unwrap();
-
-                let there_in_room = ashore_room
+                let there_in_room = world
+                    .residents
+                    .as_ref()
+                    .unwrap()
                     .aboard
                     .to_room(dvec2(there.x as f64, there.y as f64));
-
-                ashore_room.aboard.room.put_for_probe(0, there_in_room);
+                hold_machine(&mut world, there_in_room);
                 world.aboard.room.put_for_probe(0, ashore);
                 let flown = (on_deck(&world, 0) - world.aboard.room.exposed_at(0)).len()
                     / shipdesign::TILE as f32;
                 world.step(&[]);
                 world.aboard.room.observe();
-                let ashore = world.residents.as_ref().unwrap();
-                if ashore.aboard.room.wounds(0, Part::Body) > 0 {
-                    return (
-                        Part::Body.max() - ashore.aboard.room.part_health(0, Part::Body),
-                        flown,
-                    );
+                let body = machine(&world).body;
+                let chassis = DroidPart::Chassis;
+                if body.health(chassis) < body.max(chassis) {
+                    return (body.max(chassis) - body.health(chassis), flown);
                 }
-                assert!(
-                    ashore.aboard.room.is_alive(0) && ashore.aboard.room.health(0) > 0.0,
-                    "the body is the part to wait for"
-                );
             }
-            panic!("no hit on the body within the run at {tiles} tiles");
+            panic!("no hit on the chassis within the run at {tiles} tiles");
         };
-        let (near, near_from) = body_drop_at(3.0);
-        let (far, far_from) = body_drop_at(9.0);
+        let (near, near_from) = chassis_drop_at(3.0);
+        let (far, far_from) = chassis_drop_at(9.0);
         assert!(
             (near_from - 3.0).abs() < 1.0 && (far_from - 9.0).abs() < 1.0,
             "stood where asked: {near_from:.1} and {far_from:.1} tiles"
         );
-        // Up close the curve's full number, fifty: most of a body.
+        // The bolt leaves the muzzle, under a tile ahead of the body
+        // (feature 84), and lands a body's radius short of the middle: it
+        // flies up to a tile and a bit less than the two stand apart, and
+        // the damage is the curve's at the distance flown.
+        let flown = |took: f32, apart: f32| {
+            took >= stats.damage_at(apart) - 1.0
+                && took <= stats.damage_at((apart - 1.2).max(0.0)) + 1.0
+        };
+        // Up close the curve's full number.
         assert!(
-            (near - stats.damage_at(near_from)).abs() < 4.0,
+            flown(near, near_from),
             "the weapon's damage up close: {near} at {near_from:.1} tiles"
         );
         // Down the corridor, the curve's number, which is less.
         assert!(far < near, "less at nine tiles: {far} < {near}");
         assert!(
-            (far - stats.damage_at(far_from)).abs() < 4.0,
+            flown(far, far_from),
             "the weapon's damage at the distance flown: {far} at {far_from:.1} tiles"
         );
     }
@@ -6925,172 +5347,13 @@ fn a_wound_is_dressed_and_a_trauma_treated_out_of_the_helper_s_own_charges() {
     }
 }
 
-/// The garrison an enemy station arms is the crew's number and how much
-/// richer they have got: `ENEMIES_BASE` and one a crewmate, doubled for
-/// every half of the starting worth the worth has grown by, and never
-/// past `ENEMIES_MAX`. Whole euros in, so the steps are exact.
-/// A hostile dock's room is opened with the garrison, not the residents:
-/// turning the spawn hostile with its two residents' room already open
-/// (what `combat` does) reopens it at `enemies_of`, and peace again
-/// puts the residents back. The ship's own crew and the checksum do not
-/// notice either way — the residents' room is outside it.
-#[test]
-fn enemies_of_grows_with_the_crew_s_worth_and_a_hostile_dock_opens_with_a_garrison() {
-    // --- enemies_of_grows_with_the_crew_s_worth_and_caps ---
-    {
-        use crate::station::enemies_of;
-        let (base, max) = (data::ENEMIES_BASE, data::ENEMIES_MAX);
-        // The baseline: one more an enemy for one more a crewmate.
-        assert_eq!(enemies_of(1, 1_000, 1_000, 0), base + 1);
-        assert_eq!(enemies_of(2, 1_000, 1_000, 0), base + 2);
-        // Poorer than at the start is still the baseline, never fewer.
-        assert_eq!(enemies_of(2, 10, 1_000, 0), base + 2);
-        // Half the starting worth on top doubles it; a euro short does not.
-        assert_eq!(enemies_of(2, 1_499, 1_000, 0), base + 2);
-        assert_eq!(enemies_of(2, 1_500, 1_000, 0), (base + 2) * 2);
-        // Every further half doubles again.
-        assert_eq!(enemies_of(2, 2_000, 1_000, 0), (base + 2) * 4);
-        assert_eq!(enemies_of(1, 2_499, 1_000, 0), (base + 1) * 4);
-        // And it stops at the cap however rich the crew.
-        assert_eq!(enemies_of(2, 10_000, 1_000, 0), max);
-        assert_eq!(enemies_of(2, Money::MAX, 1_000, 0), max);
-        assert_eq!(enemies_of(max + 5, 1_000, 1_000, 0), max);
-        // A ship worth nothing at the start has no half to grow by.
-        assert_eq!(enemies_of(2, 1_000_000, 0, 0), base + 2);
-        assert_eq!(enemies_of(2, 1_000_000, 1, 0), base + 2);
-        // The calendar: nothing more for the first month, one more an
-        // enemy every thirty days from then on — a day short is not a
-        // month — under the worth's doublings and the cap alike.
-        let month = data::ENEMIES_DAYS;
-        assert_eq!(month, 30);
-        assert_eq!(enemies_of(2, 1_000, 1_000, month - 1), base + 2);
-        assert_eq!(enemies_of(2, 1_000, 1_000, month), base + 3);
-        assert_eq!(enemies_of(2, 1_000, 1_000, 2 * month - 1), base + 3);
-        assert_eq!(enemies_of(2, 1_000, 1_000, 2 * month), base + 4);
-        assert_eq!(enemies_of(2, 1_500, 1_000, month), (base + 3) * 2);
-        assert_eq!(enemies_of(1, 2_000, 1_000, month), (base + 2) * 4);
-        assert_eq!(
-            enemies_of(2, 1_000_000, 0, 3 * month),
-            base + 5,
-            "no worth to grow by, and a season gone"
-        );
-        assert_eq!(enemies_of(2, 1_000, 1_000, 100 * month), max);
-        assert_eq!(enemies_of(2, 1_000, 1_000, u32::MAX), max);
-        assert_eq!(crate::station::base_by_day(0), base);
-        assert_eq!(crate::station::base_by_day(month), base + 1);
-        assert_eq!(
-            crate::station::base_by_day(u32::MAX),
-            base + u32::MAX / month
-        );
-    }
-
-    // --- the_days_gone_are_the_world_s_clock_in_whole_days ---
-    {
-        let mut world = basic();
-        assert_eq!(world.days_gone(), 0);
-        world.clock_minutes = time::minutes(1.0) - data::STEP_MINUTES;
-        assert_eq!(world.days_gone(), 0, "a step short of a day");
-        world.clock_minutes = time::minutes(1.0);
-        assert_eq!(world.days_gone(), 1);
-        world.clock_minutes = time::minutes(30.0) - 1.0;
-        assert_eq!(world.days_gone(), 29);
-        world.clock_minutes = time::minutes(30.0);
-        assert_eq!(world.days_gone(), 30);
-        world.clock_minutes = time::minutes(75.5);
-        assert_eq!(world.days_gone(), 75);
-    }
-
-    // --- a_hostile_dock_opens_with_a_garrison_not_its_residents ---
-    {
-        use crate::station::enemies_of;
-        let mut world = basic();
-        let station_id = world.residents.as_ref().unwrap().station;
-        let station = world.station(station_id).unwrap().clone();
-        let residents = station.residents();
-        // Peace: the residents, and whoever is for hire beside them — the
-        // reference spawn rolls one. Hostile, the mercenary goes with the
-        // residents: an enemy hires nobody out.
-        let at_peace = residents + world.mercenaries_of(&station);
-        assert_eq!(world.residents.as_ref().unwrap().aboard.count(), at_peace);
-        assert_eq!(world.people_of(&station), residents, "home: its residents");
-        // Worth is everything the crew own since the money rework
-        // (feature 95): the ship, the hold, the crew's gear and the pool.
-        assert!(world.start_worth > Budget::spent(&world.ship.design));
-        assert_eq!(world.worth(), world.start_worth, "nothing bought yet");
-
-        world.set_hostile(station_id, true);
-        let garrison = enemies_of(
-            world.aboard.crew_count(),
-            world.worth(),
-            world.start_worth,
-            0,
-        );
-        assert_eq!(garrison, data::ENEMIES_BASE + 2, "two crew: the baseline");
-        assert_ne!(garrison, residents);
-        assert_eq!(world.people_of(&station), garrison);
-        let ashore = world.residents.as_ref().unwrap();
-        assert_eq!(ashore.station, station_id);
-        assert_eq!(ashore.aboard.count(), garrison, "reopened at the garrison");
-        // Every one of them in the station's coverall and armed.
-        for who in 0..garrison as usize {
-            assert!(ashore.aboard.room.gear(who).weapon.is_some());
-        }
-        assert_eq!(world.aboard.crew_count(), 2, "the crew are untouched");
-        // Stepping with the crowd in the room is fine.
-        for _ in 0..10 {
-            world.step(&[]);
-        }
-        assert_eq!(world.residents.as_ref().unwrap().aboard.count(), garrison);
-
-        world.set_hostile(station_id, false);
-        assert_eq!(world.people_of(&station), residents);
-        assert_eq!(
-            world.residents.as_ref().unwrap().aboard.count(),
-            at_peace,
-            "peace: the residents again"
-        );
-
-        // --- a_month_in_the_garrison_is_one_bigger ---
-        // Thirty days on the world's clock, nothing bought: the same dock
-        // turned hostile again arms one more, and a day short of it does
-        // not. The people are asked as the room opens, so the count is
-        // the clock's at that moment.
-        world.clock_minutes = time::minutes(30.0) - 1.0;
-        world.set_hostile(station_id, true);
-        assert_eq!(
-            world.people_of(&station),
-            garrison,
-            "a day short: no bigger"
-        );
-        world.set_hostile(station_id, false);
-        world.clock_minutes = time::minutes(30.0);
-        world.set_hostile(station_id, true);
-        let older = enemies_of(2, world.worth(), world.start_worth, 30);
-        assert_eq!(older, garrison + 1, "a month gone: one more");
-        assert_eq!(world.people_of(&station), older);
-        assert_eq!(
-            world.residents.as_ref().unwrap().aboard.count(),
-            older,
-            "reopened at the bigger garrison"
-        );
-        world.clock_minutes = time::minutes(90.0);
-        world.set_hostile(station_id, false);
-        world.set_hostile(station_id, true);
-        assert_eq!(
-            world.people_of(&station),
-            garrison + 3,
-            "a season: three more"
-        );
-    }
-}
-
 /// A mercenary for hire at the dock: an extra body in the station's room
 /// in the olive coverall, priced by its kit; hired from within reach with
-/// the money in hand and a bunk aboard, it walks out of the station's
-/// room into the crew's, the first month paid and the next due a month
-/// on; the month is paid when it comes round, and one the money will not
-/// cover has the hand walk off at the berth — back into the station's
-/// room, for hire again. Out of reach, or broke, the hire is refused.
+/// the money in hand, it walks out of the station's room into the crew's,
+/// the first month paid and the next due a month on; the month is paid
+/// when a trip puts the world clock past it, and one the money will not
+/// cover is owed, said once. Out of reach, broke, or one of the station's
+/// own, the hire is refused.
 #[test]
 fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
     use crate::armour::{LootSource, Where};
@@ -7110,10 +5373,7 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
         station,
     )
     .unwrap();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     assert_eq!(world.aboard.crew_count(), 1);
-    assert!(world.aboard.room.bed_count() >= 2, "a bunk to spare");
     assert!(world.mercenary_for_probe());
     let residents = world.residents.as_ref().unwrap();
     let people = world.people_of(world.station(station).unwrap());
@@ -7138,7 +5398,7 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
         resident: merc,
     };
     let offer = world.hire_offer(0, merc).unwrap();
-    assert!(offer.docked && offer.bunk && offer.affordable && !offer.in_reach);
+    assert!(offer.docked && offer.affordable && !offer.in_reach);
     let events = world.step(&[hire]);
     assert!(events.contains(&WorldEvent::Refused {
         slot: 0,
@@ -7153,7 +5413,34 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
         .room
         .put_for_probe(0, at + bims::math::vec2(30.0, 0.0));
     assert!(world.hire_offer(0, merc).unwrap().in_reach);
+
+    // With nothing to spend it is refused, and one of the station's own
+    // is nobody's to hire.
     let money = world.money;
+    world.money = 0;
+    let events = world.step(&[hire]);
+    assert!(events.contains(&WorldEvent::Refused {
+        slot: 0,
+        why: Refusal::Unaffordable
+    }));
+    world.money = money;
+    let plain = Command::Hire {
+        slot: 0,
+        who: 0,
+        resident: 0,
+    };
+    let events = world.step(&[plain]);
+    assert!(events.contains(&WorldEvent::Refused {
+        slot: 0,
+        why: Refusal::NotForHire
+    }));
+    assert_eq!(world.aboard.crew_count(), 1);
+
+    let at = world.body_position(LootSource::Resident(merc)).unwrap();
+    world
+        .aboard
+        .room
+        .put_for_probe(0, at + bims::math::vec2(30.0, 0.0));
     let events = world.step(&[hire]);
     assert!(events.contains(&WorldEvent::Hired { who: 1 }), "{events:?}");
     assert_eq!(world.aboard.crew_count(), 2, "one more aboard");
@@ -7182,102 +5469,81 @@ fn a_mercenary_is_hired_from_the_station_and_paid_by_the_month() {
         "gone from the station's list"
     );
 
-    // A month on, paid.
-    world.clock_minutes += MONTH;
+    // A month on, paid: the months fall due as a trip puts the world
+    // clock past them (feature 103), the one time it moves. Both walk
+    // back aboard first — whoever is outside the ship when it leaves is
+    // left behind — and the ship goes somewhere else in the system.
+    let trip = |world: &mut World| -> Vec<WorldEvent> {
+        let gangway = world.aboard.gangway.expect("joined, the ship's side");
+        let gangway = bims::math::vec2(gangway.x as f32, gangway.y as f32);
+        for who in 0..world.aboard.crew_count() as usize {
+            world.aboard.room.put_for_probe(who, gangway);
+        }
+        let left = world.leave_for_probe();
+        assert!(
+            !left
+                .iter()
+                .any(|e| matches!(e, WorldEvent::LeftBehind { .. })),
+            "{left:?}"
+        );
+        world.clock_minutes += MONTH;
+        let site = world
+            .travel_quotes()
+            .into_iter()
+            .find(|(site, quote)| quote.is_ok() && Some(*site) != world.current_site())
+            .map(|(site, _)| site)
+            .expect("somewhere to go");
+        world.step(&[Command::Propose {
+            slot: 0,
+            star: site.star,
+            station: site.station,
+        }])
+    };
     let money = world.money;
-    let events = world.step(&[]);
+    let events = trip(&mut world);
     assert!(
         events.contains(&WorldEvent::MercenaryPaid { who: 1, fee }),
         "{events:?}"
     );
     assert_eq!(world.money, money - fee);
-    assert_eq!(
-        world.hired()[0].due,
-        world.hired()[0].due.max(world.clock_minutes)
-    );
+    assert!(world.hired()[0].due > world.clock_minutes);
+    assert_eq!(world.aboard.crew_count(), 2);
 
-    // Broke a month later: owed, said once, and off at the berth.
+    // Broke a month later: owed, and said once. The hand sails on owed —
+    // the ship is holding when a trip pays, never at a berth.
     world.money = fee - 1;
-    world.clock_minutes += MONTH;
-    let events = world.step(&[]);
+    let events = trip(&mut world);
     assert!(
         events.contains(&WorldEvent::MercenaryLeft { who: 1 }),
         "{events:?}"
     );
-    assert_eq!(world.aboard.crew_count(), 1, "walked off");
-    assert_eq!(world.ship.crew_count, 1);
-    assert!(world.hired().is_empty());
-    assert!(
-        !world
-            .pieces
-            .iter()
-            .any(|p| matches!(p.at, Where::Worn { .. }))
-    );
-    let ashore = world.residents.as_ref().unwrap();
-    assert_eq!(ashore.aboard.count(), count, "back in the station's room");
-    assert_eq!(
-        ashore.fee.last().copied().flatten(),
-        Some(fee),
-        "for hire again"
-    );
-    assert_eq!(world.mercenary_fee(count - 1), Some(fee));
-    let events = world.step(&[]);
+    assert!(world.hired()[0].owed);
+    assert_eq!(world.aboard.crew_count(), 2);
+    let events = trip(&mut world);
     assert!(
         !events
             .iter()
-            .any(|e| matches!(e, WorldEvent::MercenaryLeft { .. }))
+            .any(|e| matches!(e, WorldEvent::MercenaryLeft { .. })),
+        "said once: {events:?}"
     );
-
-    // With nothing to spend, a hire is refused; with no bunk, likewise.
-    world.aboard.room.put_for_probe(
-        0,
-        world
-            .body_position(LootSource::Resident(count - 1))
-            .unwrap()
-            + bims::math::vec2(30.0, 0.0),
-    );
-    let hire = Command::Hire {
-        slot: 0,
-        who: 0,
-        resident: count - 1,
-    };
-    let events = world.step(&[hire]);
-    assert!(events.contains(&WorldEvent::Refused {
-        slot: 0,
-        why: Refusal::Unaffordable
-    }));
-    let plain = Command::Hire {
-        slot: 0,
-        who: 0,
-        resident: 0,
-    };
-    let events = world.step(&[plain]);
-    assert!(events.contains(&WorldEvent::Refused {
-        slot: 0,
-        why: Refusal::NotForHire
-    }));
 }
 
-/// The `combat` command's dock: the combat ship with its sixteen crew —
+/// The `droids` command's dock: the combat ship with its sixteen crew —
 /// five at their bunks and eleven on the deck, each of them on a tile of
 /// its own — every one with a gun, the five kinds dealt down the crew and
 /// round again, tied up at the spawn rebuilt as the arena — bigger than
-/// any kind of station, with a bunk for every one of a garrison — and,
-/// once hostile, a garrison of `ARENA_GARRISON` whatever the crew's worth
-/// would have put up: sixteen for sixteen, the cap, every one of them in
-/// the room. The reinforcements that make the number up are in the checksum,
-/// since they are the size of the fight; and the world steps with the
-/// crowd in it.
+/// any kind of station, with its quarters' bunks in more columns — and,
+/// once the machines have it, a wave of them and none of its people; and
+/// the world steps with the crowd in it.
 /// The arena and the combat ship can be walked like any station: from the
 /// deck inside the port to every use spot of every part, and the arena
 /// has no deck nobody can get to. Three seeds for every kind, since the
 /// seed dresses the arena as it dresses a station.
 #[test]
 fn the_arena_is_the_combat_dock_and_it_and_the_combat_ship_can_be_walked() {
-    // --- the_combat_dock_is_the_arena_with_fourteen_crew_and_a_garrison_of_fifteen ---
+    // --- the_droids_dock_is_the_arena_with_sixteen_crew_and_a_wave ---
     {
         use crate::checksum::world_checksum;
-        use crate::station::enemies_of;
         use bims::combat::{Gear, WeaponKind};
         use shipdesign::fixture::{COMBAT_BERTHS, COMBAT_CREW, combat_ship};
         let tile = shipdesign::parts::TILE as f32;
@@ -7308,15 +5574,18 @@ fn the_arena_is_the_combat_dock_and_it_and_the_combat_ship_can_be_walked() {
         tiles.dedup();
         assert_eq!(tiles.len(), COMBAT_CREW as usize, "a tile each");
         let before = world_checksum(&world);
-        let small = world.station(station).unwrap().design.build_area;
+        let small = world.station(station).unwrap().design.clone();
 
         assert!(world.arena_dock_for_probe());
         let arena = world.station(station).unwrap().clone();
         assert_eq!(arena.design.build_area, data::ARENA_SIDE);
-        assert!(arena.design.build_area > small, "bigger than it was");
         assert!(
-            arena.design.count(PartKind::Bunk) >= data::ENEMIES_MAX,
-            "a bunk for every one of a garrison: {}",
+            arena.design.build_area > small.build_area,
+            "bigger than it was"
+        );
+        assert!(
+            arena.design.count(PartKind::Bunk) > small.count(PartKind::Bunk),
+            "more bunks in its quarters: {}",
             arena.design.count(PartKind::Bunk)
         );
         assert!(
@@ -7350,25 +5619,21 @@ fn the_arena_is_the_combat_dock_and_it_and_the_combat_ship_can_be_walked() {
                 },
             );
         }
-        world.set_hostile(station, true);
-        let garrison =
-            enemies_of(COMBAT_CREW, world.worth(), world.start_worth, 0) + world.reinforcements;
-        assert_eq!(garrison, data::ARENA_GARRISON);
-        assert_eq!(garrison, 16);
-        assert!(garrison <= data::ENEMIES_MAX);
-        assert_eq!(world.people_of(&arena), garrison);
+        world.infest(station);
+        assert_eq!(world.people_of(&arena), 0, "none of its people");
+        world.step(&[]);
+        let wave = world.droids_standing();
+        assert!(wave > 0, "a wave of machines stands about it");
         let ashore = world.residents.as_ref().unwrap();
-        assert_eq!(ashore.aboard.count(), garrison, "sixteen in the room");
-        for who in 0..garrison as usize {
-            assert!(ashore.aboard.room.gear(who).weapon.is_some());
-        }
+        assert_eq!(ashore.aboard.room.crew_count(), 0);
+        assert_eq!(ashore.aboard.count(), wave, "the wave is the room");
         for (who, &kind) in kinds.iter().enumerate() {
             assert_eq!(world.aboard.room.weapon(who), Some(kind.basic()));
         }
         for _ in 0..10 {
             world.step(&[]);
         }
-        assert_eq!(world.residents.as_ref().unwrap().aboard.count(), garrison);
+        assert_eq!(world.residents.as_ref().unwrap().aboard.count(), wave);
     }
 
     // --- the_arena_and_the_combat_ship_can_be_walked ---
@@ -7461,11 +5726,9 @@ fn armoury(world: &World) -> (usize, bims::math::Vec2) {
 /// hold to the Management tab's number. **Nobody does any more**: a
 /// bandage is everybody's charge, and an emptied pack is filled by the
 /// cooldown — the player's own and the bot's alike, a dressing every
-/// thirty seconds of the clock — whatever that old number says, with the
-/// hold's box left where it lies.
+/// thirty seconds of the clock — with the hold's box left where it lies.
 #[test]
 fn the_packs_fill_on_the_cooldown_and_never_out_of_the_hold() {
-    use bims::manager::Stock;
     use shipdesign::fixture::playtest_ship;
     let mut world = crate::fixture::crewed_world(playtest_ship(), data::SIMULATION_MONEY, 1, 2);
     let aboard = world.ship.design.carrying(ResourceId::Bandage);
@@ -7473,7 +5736,6 @@ fn the_packs_fill_on_the_cooldown_and_never_out_of_the_hold() {
     for who in 0..2 {
         world.aboard.room.set_bandages_for_probe(who, 0);
     }
-    world.aboard.room.set_target(Stock::Bandages, 9);
     for _ in 0..(crate::class::BANDAGE_COOLDOWN as u32 * 60 + 2) {
         world.step(&[]);
     }
@@ -7490,6 +5752,27 @@ fn the_packs_fill_on_the_cooldown_and_never_out_of_the_hold() {
 /// Stand a crew member at the armoury this instant, for the reach check.
 /// Before every command that wants it: the Bim goes off about its errands
 /// between steps, and a command lands before the room moves.
+/// The helm's seat on the crew's deck, in the room's units: the middle of
+/// the first helm's use spot. Forward of everything aboard that holds
+/// anything, which is what a test of "out of reach" wants.
+fn helm_seat(world: &World) -> bims::math::Vec2 {
+    let helm = world
+        .ship
+        .design
+        .parts
+        .iter()
+        .filter(|p| p.kind == PartKind::Helm)
+        .min_by_key(|p| p.id)
+        .expect("a helm aboard");
+    let (x, y) = helm.use_spots()[0];
+    let t = shipdesign::TILE as f64;
+    let at = world
+        .aboard
+        .offset
+        .add(dvec2((x as f64 + 0.5) * t, (y as f64 + 0.5) * t));
+    bims::math::vec2(at.x as f32, at.y as f32)
+}
+
 fn at_the_armoury(world: &mut World, who: usize) {
     let (_, spot) = armoury(world);
     world.aboard.room.put_for_probe(who, spot);
@@ -7961,7 +6244,7 @@ fn a_shot_on_the_head_is_taken_by_the_helm_first_and_a_stowed_piece_keeps_its_he
             resource: ResourceId::Helm,
             units: 1,
         }]);
-        world.stand_down(0);
+        world.aboard.room.stand_down(0);
         assert!(events.iter().any(|e| matches!(
             e,
             WorldEvent::Traded {
@@ -8016,8 +6299,7 @@ fn a_fetch_or_a_stow_wants_the_bim_in_reach_and_room_to_put_it() {
 
     // At the helm, forward of everything that holds anything — the bunk
     // is right beside the armoury — refused, and nothing moved.
-    let helm = world.helm_spot().unwrap().add(world.aboard.offset);
-    let helm = bims::math::vec2(helm.x as f32, helm.y as f32);
+    let helm = helm_seat(&world);
     world.aboard.room.put_for_probe(0, helm);
     assert!(!world.in_reach(0, ResourceId::Helm));
     let fetch = Command::Fetch {
@@ -8298,12 +6580,16 @@ fn an_unconscious_crewmate_is_looted_and_an_awake_one_is_refused() {
     use bims::health::Part;
     let tile = shipdesign::TILE as f32;
     let mut world = basic();
-    world.set_needs_enabled(true);
     let mut twin = basic();
-    twin.set_needs_enabled(true);
     // The packs empty of their medicine, so the helm goes in cell 0.
     without_dressings(&mut world);
     without_dressings(&mut twin);
+    // James under orders in both, so he stands where the test puts him
+    // rather than going to see to Kate when she is down — which he would
+    // do a step apart in the two worlds, one of them having sent him
+    // across the deck first.
+    world.aboard.room.recruit_for_probe(0, true);
+    twin.aboard.room.recruit_for_probe(0, true);
     let source = crate::LootSource::Crew(1);
     let head = LootCell::Head.code();
 
@@ -8434,341 +6720,23 @@ fn an_unconscious_crewmate_is_looted_and_an_awake_one_is_refused() {
     assert_eq!(looted.value(), 11);
 }
 
-/// At a hostile station the fight ends with a body in the corridor, and
-/// James walks over and goes through its pockets: the weapon out of its
-/// hand into his pack, and the helm it was issued off its head as a piece
-/// of the world's — a fresh id, since the station's room numbered it —
-/// with the health the fight left it.
-/// A hostile station's people know only what they have seen, and they
-/// chase it: a resident that saw James at the station's door follows him
-/// through the passage and onto the ship — its own room holds the ship
-/// as well, turned into the station's frame (`docking::join_mirror`,
-/// `Residents::join`). Then the ship leaves with the resident still
-/// aboard, and it is stood at its bunk in a room of the station alone.
-#[test]
-fn an_enemy_follows_the_crew_member_it_saw_onto_the_ship_and_is_put_ashore_when_it_leaves() {
-    use bims::combat::{Gear, WeaponKind};
-    use shipdesign::parts::TILE;
-    let mut world = basic();
-    assert!(world.stage_fight_for_probe());
-    let station = world.ship.state.station().unwrap();
-    // The residents' room holds the ship: its deck is bigger than the
-    // station's own, and shifted.
-    let ashore = world.residents.as_ref().unwrap();
-    assert!(
-        ashore.aboard.station_frame.is_some(),
-        "the ship is on their deck"
-    );
-    let shift = ashore.aboard.offset;
-    let side = world.station(station).unwrap().design.build_area as f64 * TILE as f64;
-    assert!(
-        ashore.aboard.design.build_area as f64 * TILE as f64 > side,
-        "bigger than the station alone"
-    );
-    // A blade on the resident so it charges and a gun on nobody, so the
-    // chase is what this measures; James patched every step against the
-    // blade.
-    {
-        let ashore = world.residents.as_mut().unwrap();
-        ashore.aboard.room.issue(
-            0,
-            Gear {
-                weapon: Some(WeaponKind::Schword.basic()),
-                ..Gear::default()
-            },
-        );
-        one_on_one(&mut ashore.aboard.room, 0);
-    }
-    world.aboard.room.issue(0, Gear::default());
-    world.aboard.room.issue(1, Gear::default());
-    // Whether the resident stands on the ship's own deck: its spot on the
-    // joined deck, less the ship's shift, against the ship's grid.
-    let ship = world.ship.design.clone();
-    let on_ship = |world: &World| {
-        let at = on_deck(world, 0);
-        let p = dvec2(at.x as f64, at.y as f64).sub(world.aboard.offset);
-        let t = TILE as f64;
-        let tile = ((p.x / t).floor() as i32, (p.y / t).floor() as i32);
-        ship.grid().get(shipdesign::Layer::Structure, tile) != 0
-    };
-    assert!(!on_ship(&world));
-
-    // Seen at the door: believed where it stands, and the room at war.
-    world.step(&[]);
-    let believed = world
-        .residents
-        .as_ref()
-        .unwrap()
-        .aboard
-        .room
-        .believed_for_probe();
-    assert!(believed[0].is_some(), "James in sight is known");
-
-    // James walks home through the passage; the resident comes after him
-    // and is on the ship within the run.
-    let gangway = world.aboard.gangway.unwrap();
-    let gangway = bims::math::vec2(gangway.x as f32, gangway.y as f32);
-    assert!(world.aboard.room.walk_to(0, gangway));
-    let mut followed = false;
-    for _ in 0..1_500 {
-        world.aboard.room.patch_up_for_probe(0);
-        world.step(&[]);
-        if world.aboard.on_ship(0, &world.ship.design) && on_ship(&world) {
-            followed = true;
-            break;
-        }
-    }
-    assert!(followed, "the resident followed James aboard");
-    assert!(
-        world
-            .residents
-            .as_ref()
-            .unwrap()
-            .aboard
-            .room
-            .is_recruited(0),
-        "still under arms"
-    );
-
-    // (What it believes once James is out of sight, and for how long, is
-    // the room's own rule: `a_hostile_room_chases_what_it_last_saw_and_forgets_it_after_a_minute`
-    // in `bims::game::tests`.)
-
-    // The ship casts off with the resident still on its deck: the room of
-    // the station alone has no floor there, so it is stood at its bunk.
-    let was_aboard = on_ship(&world);
-    world.undock_for_probe();
-    assert!(!world.aboard.is_joined(), "cast off");
-    let ashore = world.residents.as_ref().unwrap();
-    assert!(
-        ashore.aboard.station_frame.is_none(),
-        "the station alone again"
-    );
-    assert_eq!(ashore.aboard.offset, DVec2::ZERO);
-    let p = ashore.aboard.position(0);
-    assert!(
-        p.x >= 0.0 && p.y >= 0.0 && p.x <= side && p.y <= side,
-        "on the station: {p:?}"
-    );
-    let _ = (was_aboard, shift);
-}
-
-/// What a raid rests on: the crew retreat aboard from a hostile dock and
-/// lock the ship's airlock behind them, and the station's people come
-/// after them — to the ship's door, which is locked against them and
-/// which they force (`Game::breach`, `SMASH_AIRLOCK`), and through it
-/// onto the ship's own deck, where they stand and fight. Every one of
-/// those is the room's own rule; this pins that the world carries them
-/// across the two rooms and the mated airlocks, since a raider docked to
-/// the ship is exactly a hostile station docked to it. A blade charges;
-/// a gunner with nobody in sight hunts to where it last saw its quarry
-/// (`Game::plan_stand`, September 2026) — before that it took a stand
-/// with a view of the door at the far end of its range and waited, and
-/// nine boarders in ten would never have boarded.
-#[test]
-fn enemies_follow_a_crew_that_retreats_aboard_and_force_the_ship_s_locked_airlock() {
-    use bims::combat::WeaponKind;
-    for weapon in [WeaponKind::Schword, WeaponKind::LaserPistol] {
-        retreat_aboard_and_lock_the_door(weapon);
-    }
-}
-
-fn retreat_aboard_and_lock_the_door(weapon: bims::combat::WeaponKind) {
-    use bims::combat::Gear;
-    use bims::door::Order;
-    use shipdesign::parts::TILE;
-    let mut world = basic();
-    assert!(world.stage_fight_for_probe());
-    let t = TILE as f64;
-    // One enemy, with the weapon under test; James and the other crew
-    // member unarmed, so the chase is what this measures.
-    {
-        let ashore = world.residents.as_mut().unwrap();
-        ashore.aboard.room.issue(
-            0,
-            Gear {
-                weapon: Some(weapon.basic()),
-                ..Gear::default()
-            },
-        );
-        one_on_one(&mut ashore.aboard.room, 0);
-    }
-    world.aboard.room.issue(0, Gear::default());
-    world.aboard.room.issue(1, Gear::default());
-    let ship = world.ship.design.clone();
-    let on_ship = |world: &World| {
-        let at = on_deck(world, 0);
-        let p = dvec2(at.x as f64, at.y as f64).sub(world.aboard.offset);
-        let tile = ((p.x / t).floor() as i32, (p.y / t).floor() as i32);
-        ship.grid().get(shipdesign::Layer::Structure, tile) != 0
-    };
-    // The ship's airlock on the joined deck: its opening, through the
-    // ship's shift.
-    let port = shipdesign::dock::port(&ship).expect("the flyer has a port");
-    let (px, py) = port.centre;
-    let airlock = world
-        .aboard
-        .room
-        .door_index_at(bims::math::vec2(
-            (px + world.aboard.offset.x) as f32,
-            (py + world.aboard.offset.y) as f32,
-        ))
-        .expect("the ship's airlock is a door of the joined room");
-    assert!(!world.aboard.room.ship_door_is_locked(airlock));
-
-    // Seen at the door, then James runs for the ship: well inside, the
-    // length of the deck from the airlock.
-    world.step(&[]);
-    let inside = world.aboard.offset.add(dvec2(4.5 * t, 12.5 * t));
-    assert!(
-        world
-            .aboard
-            .room
-            .walk_to(0, bims::math::vec2(inside.x as f32, inside.y as f32))
-    );
-    let mut locked_at = None;
-    for step in 0..1_200 {
-        world.aboard.room.patch_up_for_probe(0);
-        world.step(&[]);
-        // Home — a deck tile inside the skin, not the passage — and seen
-        // there by the enemy at the door, the door is locked in its face
-        // from the panel, which is the crew's to do from anywhere. (Locked
-        // before it saw him inside, it would believe him where it last saw
-        // him, in the passage, and stand off with a shot at the door rather
-        // than force it: the room's rule, `Game::breach`.)
-        let p = world.aboard.position(0);
-        let past_the_skin = (p.x / t).floor() < 17.0;
-        let seen_inside = {
-            let r = world.residents.as_ref().unwrap();
-            let (o, ex, ey) = r.aboard.station_frame.unwrap();
-            let jr = o.add(ex.scale(p.x)).add(ey.scale(p.y));
-            r.aboard
-                .room
-                .sees_for_probe(0, bims::math::vec2(jr.x as f32, jr.y as f32))
-        };
-        if locked_at.is_none() && past_the_skin && seen_inside {
-            world.aboard.room.order_door_now(airlock, Order::Lock);
-            locked_at = Some(step);
-        }
-        if locked_at.is_some_and(|at| step > at + 2) {
-            break;
-        }
-    }
-    assert!(locked_at.is_some(), "James got aboard");
-    assert!(world.aboard.room.ship_door_is_locked(airlock), "locked");
-    assert!(!on_ship(&world), "the enemy is still ashore");
-
-    // The enemy comes to the locked door and heaves at it: the smashing
-    // in its own room is a bar on the deck's door, and then the lock
-    // gives — nobody's order on this side — and it is through, on the
-    // ship's deck, still at war.
-    let mut smashing = false;
-    let mut forced = false;
-    let mut aboard = false;
-    for _ in 0..3_600 {
-        world.aboard.room.patch_up_for_probe(0);
-        world.step(&[]);
-        let state = &world.aboard.room.door_states()[airlock];
-        if state.smash.is_some() {
-            smashing = true;
-        }
-        if smashing && !state.locked {
-            forced = true;
-        }
-        if forced && on_ship(&world) {
-            aboard = true;
-            break;
-        }
-    }
-    assert!(smashing, "the enemy heaved at the ship's airlock");
-    assert!(forced, "and the lock gave");
-    assert!(aboard, "and it came onto the ship's deck");
-    assert!(
-        world
-            .residents
-            .as_ref()
-            .unwrap()
-            .aboard
-            .room
-            .is_recruited(0),
-        "still under arms"
-    );
-    // And it stays there — on James, round his own deck — rather than
-    // wandering off, while it has him to fight.
-    let mut held = 0;
-    for _ in 0..600 {
-        world.aboard.room.patch_up_for_probe(0);
-        world.step(&[]);
-        if on_ship(&world) {
-            held += 1;
-        }
-    }
-    assert!(
-        held > 300,
-        "it stayed on the ship's deck: {held} of 600 steps"
-    );
-}
-
-/// A hostile station's people watch their own airlock: a crew member
-/// walking in through it is seen at the door with nobody looking —
-/// every one of them dead here, so no eye but the airlock's — where one
-/// still aboard the ship is nobody to them. `Residents::join` puts the
-/// watch on the tile just inside the station's door
-/// (`Game::set_watched`); the room's own rule for the watch is
-/// `a_hostile_room_s_airlock_is_watched…` in `bims::game::tests`.
-#[test]
-fn a_hostile_station_notices_a_boarding_at_its_airlock_with_nobody_looking() {
-    let mut world = basic();
-    let station = world.ship.state.station().unwrap();
-    world.set_hostile(station, true);
-    {
-        let ashore = world.residents.as_mut().unwrap();
-        for who in 0..ashore.aboard.count() as usize {
-            ashore.aboard.room.kill_for_probe(who);
-        }
-    }
-    world.step(&[]);
-    let believed = |world: &World| {
-        world
-            .residents
-            .as_ref()
-            .unwrap()
-            .aboard
-            .room
-            .believed_for_probe()
-    };
-    assert_eq!(
-        believed(&world),
-        vec![None, None],
-        "the crew aboard their own ship are nobody to the station"
-    );
-    let who = send_a_crew_member_ashore(&mut world);
-    let mut seen = false;
-    for _ in 0..LEAVING {
-        world.step(&[]);
-        if believed(&world)[who as usize].is_some() {
-            seen = true;
-            break;
-        }
-    }
-    assert!(seen, "seen at the door, with nobody's eyes");
-    assert_eq!(believed(&world)[0], None, "the one still aboard is not");
-}
-
 /// **Half its blood is where a crew member goes out, and a body that far
 /// gone is nobody's target** (feature 89). A crew member ashore at a
-/// hostile station is believed where it stands; bled to just over half
-/// it is still on its feet and still believed; bled a drop under half it
-/// is out cold, and the station's people forget it the same step — the
-/// slot goes `None`, which is what `aim`, `melee_with` and the tactics
-/// all read. The band above it — half pace under three quarters — is
+/// station the machines hold is believed where it stands; bled to just
+/// over half it is still on its feet and still believed; bled a drop
+/// under half it is out cold, and the machines forget it the same step —
+/// the slot goes `None`, which is what `aim`, `melee_with` and the
+/// tactics all read. The band above it — half pace under three quarters — is
 /// pinned in `bims::health`'s own tests.
 #[test]
 fn a_crew_member_under_half_its_blood_is_out_cold_and_nobody_s_target() {
     use bims::health::{MAX_BLOOD, OUT_AT};
     let mut world = basic();
-    let station = world.ship.state.station().unwrap();
-    world.set_hostile(station, true);
+    // The machines have the station: one of them down the corridor from
+    // the door, held where it is put and firing nothing — its eyes are
+    // what is asked of.
+    assert!(world.stage_droid_fight_for_probe(bims::droid::DroidKind::Trooper, None));
+    world.aboard.room.recruit_for_probe(0, false);
     world.step(&[]);
     let who = send_a_crew_member_ashore(&mut world);
     let believed = |world: &World| {
@@ -8788,7 +6756,7 @@ fn a_crew_member_under_half_its_blood_is_out_cold_and_nobody_s_target() {
             break;
         }
     }
-    assert!(seen, "the station's people have it in their sight");
+    assert!(seen, "the machine has it in its sight");
 
     // Half its blood is the line: a drop above it and it is still up.
     let body = who as usize;
@@ -8801,8 +6769,8 @@ fn a_crew_member_under_half_its_blood_is_out_cold_and_nobody_s_target() {
     );
     assert!(believed(&world).is_some(), "and still somebody's target");
 
-    // And a drop under it: out cold, and gone from the list the station's
-    // people shoot at.
+    // And a drop under it: out cold, and gone from the list the machines
+    // shoot at.
     world.aboard.room.set_blood_for_probe(body, OUT_AT - 0.01);
     world.step(&[]);
     assert!(
@@ -8815,255 +6783,6 @@ fn a_crew_member_under_half_its_blood_is_out_cold_and_nobody_s_target() {
         "and nowhere near dead"
     );
     assert_eq!(believed(&world), None, "a body down is nobody's target");
-}
-
-/// A hostile station's person lying out cold is finished off on the
-/// player's word — `Command::Execute`: James walks to within a few tiles
-/// with a clear line and shoots it where it lies, and it is dead in its
-/// own room, `Executed` said. Refused for one on its feet (`NotDown`),
-/// with nothing in hand (`Unarmed`), and at a station that is not an
-/// enemy's (`NotHostile`).
-#[test]
-fn a_downed_enemy_is_finished_off_where_it_lies_and_the_refusals_are_said() {
-    use bims::combat::Gear;
-    let mut world = basic();
-    assert!(world.stage_fight_for_probe());
-    let station_id = world.residents.as_ref().unwrap().station;
-    let order = |slot| Command::Execute {
-        slot,
-        who: 0,
-        resident: 0,
-    };
-    // At peace: not an enemy's, whatever state the body is in. Asked
-    // first, since a change of stance opens the station's room afresh —
-    // its mercenaries come and go with it — and everything below is
-    // about one resident's body.
-    world.set_hostile(station_id, false);
-    let events = world.step(&[order(3)]);
-    assert!(refused_with(&events, Refusal::NotHostile), "{events:?}");
-    world.set_hostile(station_id, true);
-    assert_eq!(Refusal::NotHostile.code(), 26);
-    assert_eq!(Refusal::Unarmed.code(), 27);
-    {
-        let ashore = world.residents.as_mut().unwrap();
-        one_on_one(&mut ashore.aboard.room, 0);
-        // The resident unarmed too, so nobody shoots anybody meanwhile.
-        ashore.aboard.room.issue(0, Gear::default());
-    }
-    let pistol = world.aboard.room.gear(0);
-    world.aboard.room.issue(0, Gear::default());
-    world.aboard.room.issue(1, Gear::default());
-
-    // On its feet: nobody to finish.
-    let events = world.step(&[order(1)]);
-    assert!(
-        refused_with(&events, Refusal::NotDown),
-        "on its feet: {events:?}"
-    );
-
-    // Out cold in its own room: the blood put under the line with nothing
-    // open, so it lies there rather than bleeding out under the test.
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .knock_out_for_probe(0);
-    let mut budget = 60 * 60 * 2;
-    while budget > 0
-        && !world
-            .residents
-            .as_ref()
-            .unwrap()
-            .aboard
-            .room
-            .is_unconscious(0)
-    {
-        world.step(&[]);
-        budget -= 1;
-    }
-    let source = crate::LootSource::Resident(0);
-    assert!(world.is_down(source), "out cold");
-    assert!(
-        world.residents.as_ref().unwrap().aboard.room.is_alive(0),
-        "and alive"
-    );
-
-    // Unarmed: nothing to do it with.
-    let events = world.step(&[order(2)]);
-    assert!(refused_with(&events, Refusal::Unarmed), "{events:?}");
-    world.aboard.room.issue(0, pistol);
-
-    // The order: James walks over, shoots it where it lies, and it is
-    // dead in its own room; the world says so.
-    let events = world.step(&[order(4)]);
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Refused { slot: 4, .. })),
-        "{events:?}"
-    );
-    assert_eq!(world.aboard.room.activity(0), bims::game::JOB_EXECUTE);
-    let mut executed = false;
-    let mut budget = 60 * 60;
-    while budget > 0 && !executed {
-        let events = world.step(&[]);
-        executed = events.contains(&WorldEvent::Executed {
-            who: 0,
-            resident: 0,
-        });
-        budget -= 1;
-    }
-    assert!(executed, "finished within the minute");
-    // The body follows at the top of its next tick, as any death does.
-    world.step(&[]);
-    assert!(
-        !world.residents.as_ref().unwrap().aboard.room.is_alive(0),
-        "dead in its own room"
-    );
-    assert_eq!(
-        WorldEvent::Executed {
-            who: 0,
-            resident: 0
-        }
-        .code(),
-        48
-    );
-    // Dead is not down to finish: refused again.
-    let events = world.step(&[order(5)]);
-    assert!(refused_with(&events, Refusal::NotDown), "{events:?}");
-}
-
-#[test]
-fn a_resident_down_in_the_fight_is_looted_of_its_weapon_and_its_helm() {
-    use bims::combat::{ArmourKind, Item, LootCell, Piece};
-    use bims::health::Part;
-    let mut world = with_a_crewmate();
-    world.set_human_foes_enabled(true);
-    // James's pack empty, the medicine too, so the loot lies in its
-    // first cells.
-    without_dressings(&mut world);
-    assert!(world.stage_fight_for_probe());
-    let station_id = world.residents.as_ref().unwrap().station;
-    let source = crate::LootSource::Resident(0);
-
-    // Resident 0 wears a helm the station numbered as it liked; the rest
-    // of the garrison is out of it, so the fight is one on one — and James
-    // is patched up before every step, so it ends with the resident down
-    // and not on the coin of a head shot the other way.
-    let issued = {
-        let ashore = world.residents.as_mut().unwrap();
-        let mut gear = ashore.aboard.room.gear(0);
-        gear.head = Some(Piece::new(1, ArmourKind::BasicHelm, Tier::One));
-        ashore.aboard.room.issue(0, gear);
-        one_on_one(&mut ashore.aboard.room, 0);
-        gear
-    };
-    let weapon = issued.weapon.expect("armed");
-    assert!(!world.is_down(source), "on its feet");
-    assert!(world.body_position(source).is_some(), "on the joined deck");
-
-    let mut down = false;
-    for _ in 0..3_000 {
-        world.aboard.room.patch_up_for_probe(0);
-        let events = world.step(&[]);
-        world.aboard.room.observe();
-        if events.iter().any(
-            |e| matches!(e, WorldEvent::EnemyDown { station, who: 0 } if *station == station_id),
-        ) {
-            down = true;
-            break;
-        }
-    }
-    assert!(down, "resident 0 went down within the run");
-    // Said the step its total reached nought; the body follows at the
-    // top of its next tick.
-    for _ in 0..3 {
-        if world.is_down(source) {
-            break;
-        }
-        world.step(&[]);
-    }
-    assert!(world.is_down(source));
-    // And the joined room is told: the visitor is a body under a click.
-    let body = world.body_position(source).expect("a body on the deck");
-    assert_eq!(
-        world.aboard.room.hit_at(body.x, body.y),
-        bims::room::HIT_VISITOR
-    );
-    assert_eq!(world.aboard.room.hit_visitor(), 0);
-    let cells = world.loot_cells(source).expect("the body shows");
-    assert_eq!(
-        cells[LootCell::Weapon.code() as usize],
-        Some(Item::Weapon(weapon))
-    );
-    let Some(Item::Armour(helm)) = cells[LootCell::Head.code() as usize] else {
-        panic!("the helm is still on it: {cells:?}");
-    };
-    assert_eq!(helm.kind, ArmourKind::BasicHelm);
-
-    // James, let go, walks over: `send_to` beside the body, as the Loot
-    // row does, and the command lands once he is within reach.
-    world.aboard.room.recruit_for_probe(0, false);
-    assert!(world.aboard.room.send_to(0, body), "a route to the body");
-    let mut budget = 60 * 60;
-    while budget > 0 && !world.in_reach_of_body(0, source) {
-        world.step(&[]);
-        budget -= 1;
-    }
-    assert!(world.in_reach_of_body(0, source), "James got there");
-    let next = world.next_piece;
-    let pieces = world.pieces.len();
-    let loot = |cell: LootCell| Command::Loot {
-        slot: 0,
-        who: 0,
-        source,
-        cell: cell.code(),
-    };
-    let events = world.step(&[loot(LootCell::Weapon), loot(LootCell::Head)]);
-    assert_eq!(
-        events
-            .iter()
-            .filter(|e| matches!(
-                e,
-                WorldEvent::Looted {
-                    who: 0,
-                    source_kind: 1
-                }
-            ))
-            .count(),
-        2,
-        "{events:?}"
-    );
-    // The pistol lies along two cells, so the helm is at the third.
-    let pack = world.aboard.room.pack(0);
-    assert_eq!(pack[0], Some(Item::Weapon(weapon)));
-    let Some(Item::Armour(taken)) = pack[2] else {
-        panic!("the helm in the pack: {pack:?}");
-    };
-    assert_eq!(taken.id, next, "renumbered by the world");
-    assert_eq!(taken.kind, ArmourKind::BasicHelm);
-    assert_eq!(taken.health, helm.health, "with what the fight left it");
-    assert_eq!(world.next_piece, next + 1);
-    assert_eq!(world.pieces.len(), pieces + 1);
-    let last = world.pieces.last().unwrap();
-    assert_eq!(last.id, next);
-    assert_eq!(last.at, crate::Where::Pack { who: 0, cell: 2 });
-    assert_eq!(last.health, helm.health);
-    pieces_agree(&world);
-    // The body is bare-handed and bare-headed now, and gives nothing twice.
-    let ashore = world.residents.as_ref().unwrap();
-    assert_eq!(ashore.aboard.room.weapon(0), None);
-    assert_eq!(ashore.aboard.room.worn(0, Part::Head), None);
-    let events = world.step(&[loot(LootCell::Weapon)]);
-    assert!(
-        events.contains(&WorldEvent::Refused {
-            slot: 0,
-            why: Refusal::NotAboard
-        }),
-        "{events:?}"
-    );
 }
 
 // --- research ----------------------------------------------------------------
@@ -9479,10 +7198,10 @@ fn tier_one_keys(mut each: impl FnMut(&crate::station::Station)) -> (u64, u64) {
     (count, hash)
 }
 
-/// Where the tier-two keys are: on the desk of every hostile station that
-/// is not a derelict, and nowhere else — no friendly station holds one, a
-/// derelict holds nothing, the spawn holds tier one whatever it is (the
-/// combat arena, hostile, included), and a raider's desk is bare.
+/// Where the tier-two keys are: on the desk of every station the
+/// generator rolled hostile that is not a derelict, and nowhere else — no
+/// friendly station holds one, a derelict holds nothing, and the spawn
+/// holds tier one whatever it is (the machines' arena included).
 #[test]
 fn tier_two_keys_lie_only_on_hostile_desks() {
     use crate::station::key_tier;
@@ -9507,45 +7226,38 @@ fn tier_two_keys_lie_only_on_hostile_desks() {
     assert!(hostile > 0, "no hostile station in the seed set");
     assert_eq!(key_tier(StationKind::Derelict, true, 7), 0);
     assert_eq!(key_tier(StationKind::Orbital, true, 7), 2);
-    // The spawn: tier one, and still tier one made hostile as the arena.
+    // The spawn: tier one, and still tier one in the machines' hands as
+    // the arena.
     let world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
     assert_eq!(world.station_key(world.home), 1);
     let mut arena = simulation_world(combat_ship(), REFERENCE_MONEY, 1);
+    assert!(arena.arena_dock_for_probe());
     let home = arena.home;
-    arena.set_hostile(home, true);
+    arena.infest(home);
     assert_eq!(arena.station_key(arena.home), 1);
     for (station, &key) in world.stations.iter().zip(&world.station_keys) {
         if station.id != world.home {
             assert_eq!(key, station.key);
         }
     }
-    // A raider: none.
-    let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
-    world.raid_for_probe(true).expect("a raider tied up");
-    let raider = world.ship.state.station().expect("tied to it");
-    assert!(crate::raid::raider_index(raider).is_some());
-    assert_eq!(world.station(raider).expect("built").key, 0);
-    assert!(!world.station_has_key(raider));
-    assert_eq!(world.key_at_the_dock(), 0);
 }
 
 /// A tier-two key is taken the way a tier-one key is, and no rule stops
-/// it: the ship tied up at a hostile station, its people up and at war,
-/// a crew member within reach of its desk takes `Item::Key(2)` into the
-/// pack; the desk is bare after, and the checksum tells the world from a
-/// twin that left the key where it lay.
+/// it: the ship tied up at a station the generator rolled hostile — its
+/// desk has the tier-two key — with the machines holding it and a wave of
+/// them up and at war, a crew member within reach of its desk takes
+/// `Item::Key(2)` into the pack; the desk is bare after, and the checksum
+/// tells the world from a twin that left the key where it lay.
 #[test]
-fn a_key_is_taken_at_a_hostile_dock_while_they_stand() {
+fn a_key_is_taken_at_a_held_dock_while_the_machines_stand() {
     use bims::combat::Item;
     use bims::sight::Stance;
     use shipdesign::fixture::playtest_ship;
     use worldgen::StationKind;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    world.set_human_foes_enabled(true);
     // The dressings every Bim carries are out of the way (feature 87).
     without_dressings(&mut world);
     let mut twin = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-    twin.set_human_foes_enabled(true);
     without_dressings(&mut twin);
     let enemy = world
         .stations
@@ -9557,14 +7269,17 @@ fn a_key_is_taken_at_a_hostile_dock_while_they_stand() {
     for w in [&mut world, &mut twin] {
         w.undock_for_probe();
         w.dock_for_probe(enemy);
+        w.infest(enemy);
+        w.step(&[]);
     }
     assert_eq!(world.stance(enemy), Stance::Hostile);
     let residents = world.residents.as_ref().expect("their room is open");
     assert_eq!(residents.station, enemy);
-    assert!(residents.aboard.count() > 0, "enemies up");
-    assert!(
-        (0..residents.aboard.count() as usize).all(|i| residents.aboard.room.is_alive(i)),
-        "and standing"
+    assert!(world.droids_standing() > 0, "machines up");
+    assert_eq!(
+        world.droids_standing(),
+        residents.aboard.room.droid_count(),
+        "and standing, every one"
     );
     assert_eq!(world.key_at_the_dock(), 2);
     assert_eq!(world.checksum(), twin.checksum());
@@ -9844,17 +7559,9 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         use bims::combat::{Item, Tier, WeaponKind};
         use shipdesign::fixture::playtest_ship;
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
-        // The old game's clock, running with the step (feature 103).
-        world.set_free_clock(true);
         // The dressings every Bim carries are out of the way (feature 87).
         without_dressings(&mut world);
         world.undock_for_probe();
-        // A month before the next raid. A day at the bench is a day off the
-        // berth, and the generator bump the money rework carried (feature
-        // 95) re-rolled every raid's gap: the one this ship used to be
-        // clear of now lands halfway through the work, and a boarding
-        // party is not what this test is about.
-        world.raid_due_for_probe(30 * 24 * 60);
         world.ship.design.cargo[ResourceId::Handgun as usize] += 2;
         upgrades_known(&mut world);
         world.on_ship_changed();
@@ -9957,7 +7664,8 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
             }),
             "{events:?}"
         );
-        let clock_at_start = world.clock_minutes;
+        // Timed by the mission clock, the one that runs with the step.
+        let clock_at_start = world.mission_minutes();
 
         // A day's sessions, with the Bim's own day round them, and it is
         // done: the pair gone, the tier-two pistol in the output slot.
@@ -9971,10 +7679,10 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
             }]
         );
         assert!(
-            world.clock_minutes - clock_at_start
+            world.mission_minutes() - clock_at_start
                 >= data::UPGRADE_SESSIONS as f64 * data::UPGRADE_SESSION_MINUTES,
             "a day of work at least: {} minutes",
-            world.clock_minutes - clock_at_start
+            world.mission_minutes() - clock_at_start
         );
         assert_eq!(
             world.bench.slots,
@@ -10025,7 +7733,6 @@ fn two_pistols_or_two_helms_are_combined_at_the_workbench_over_a_day() {
         let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         without_dressings(&mut world);
         world.undock_for_probe();
-        world.raid_due_for_probe(30 * 24 * 60);
         upgrades_known(&mut world);
         world.ship.design.cargo[ResourceId::Handgun as usize] += 2;
         world.ship.design.cargo[ResourceId::Helm as usize] += 2;
@@ -10190,7 +7897,6 @@ fn a_pair_is_put_on_the_bench_by_hand_and_the_button_pressed() {
     use shipdesign::fixture::playtest_ship;
     let mut world = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
     world.undock_for_probe();
-    world.raid_due_for_probe(30 * 24 * 60);
     upgrades_known(&mut world);
     world.ship.design.cargo[ResourceId::Handgun as usize] += 2;
     world.on_ship_changed();
@@ -10441,42 +8147,14 @@ fn a_pair_is_put_on_the_bench_by_hand_and_the_button_pressed() {
 
 // --- the surface -------------------------------------------------------------
 
-/// A body of the spawn system the ship can land on, and the ship holding
-/// at its arrival radius from the east of it — the side, so a landing has
-/// to slide over the planet before it comes down — in its frame, with
-/// somebody at the helm. `None` when the spawn system has no such body,
-/// which a test says so about and gives up on.
-fn over_a_planet(world: &mut World) -> Option<worldgen::Body> {
-    let planet = world
-        .system
-        .bodies
-        .iter()
-        .find(|b| crate::surface::landable(b.kind))
-        .cloned()?;
-    world.undock_for_probe();
-    world.put_for_probe(
-        planet
-            .position
-            .add(dvec2(flight::data::ARRIVAL_RADIUS_BODY, 0.0)),
-    );
-    world.settle_frame_for_probe();
-    assert_eq!(
-        world.ship.frame,
-        Frame::Local(worldgen::Node::Body(planet.id))
-    );
-    world.step(&[]);
-    world.man_the_helm_for_probe(0);
-    Some(planet)
-}
-
 /// Every rocky planet and ice world of a system has a settlement, rolled
 /// off the galaxy seed, the star and the body — the same for two players,
 /// its side at the generator's share over a galaxy's worth of them — and
 /// nothing else has one. A settlement is a station to the world, found by
 /// its own id, built the first time it is asked for and not before, its
-/// grid centred on the planet; its side is on the hostile list, so
-/// `stance` reads it and the checksum notices it. The generator itself
-/// never saw any of it: the galaxy checksum is what it was.
+/// grid centred on the planet; whatever side it rolled, its people are a
+/// stranger's (feature 104). The generator itself never saw any of it:
+/// the galaxy checksum is what it was.
 #[test]
 fn a_landable_body_has_a_settlement_and_the_world_finds_it_as_a_station() {
     use crate::station::Plan;
@@ -10499,9 +8177,6 @@ fn a_landable_body_has_a_settlement_and_the_world_finds_it_as_a_station() {
         !world.surfaces.is_empty(),
         "the spawn system should have a planet to land on"
     );
-    // The towns' own stance roll, which a run never meets (feature 102).
-    let mut world = world;
-    world.set_human_foes_enabled(true);
     for surface in &world.surfaces {
         assert_eq!(surface.id, surface_id(surface.body));
         assert_eq!(surface_body(surface.id), Some(surface.body));
@@ -10509,18 +8184,10 @@ fn a_landable_body_has_a_settlement_and_the_world_finds_it_as_a_station() {
             !surface.is_built(),
             "a world opens without building its towns"
         );
-        assert_eq!(
-            world.hostile.binary_search(&surface.id).is_ok(),
-            surface.hostile
-        );
-        assert_eq!(
-            world.stance(surface.id),
-            if surface.hostile {
-                bims::sight::Stance::Hostile
-            } else {
-                bims::sight::Stance::Neutral
-            }
-        );
+        // Whatever the town's own roll, its people are nobody's enemy.
+        if !world.is_droid_held(surface.id) {
+            assert_eq!(world.stance(surface.id), bims::sight::Stance::Neutral);
+        }
     }
     // A gas giant or a belt has none, and no station's id reads as one.
     for body in &world.system.bodies {
@@ -10579,338 +8246,6 @@ fn a_landable_body_has_a_settlement_and_the_world_finds_it_as_a_station() {
         (0.18..0.42).contains(&share),
         "{share} of settlements hostile"
     );
-}
-
-/// A station orbits its parent body nearer than a trip to the body ends,
-/// so from its berth the planet used to be "already there" — and a ship
-/// docked at a derelict in a planet's orbit could never land on it: the
-/// trip was refused, and Land wants the planet's frame, which the dock
-/// never gives. Now a trip to a body from inside its arrival circle is a
-/// hop to the point straight over it — where a landing starts from — and
-/// a ship holding there keeps the planet's frame although the station in
-/// its orbit is nearer than the planet's centre, so Land is on offer.
-#[test]
-fn from_a_dock_in_a_planet_s_orbit_a_trip_to_the_planet_ends_over_it_in_its_frame() {
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    let ShipState::Docked { station } = world.ship.state else {
-        unreachable!()
-    };
-    let planet = world
-        .system
-        .station(station)
-        .and_then(|s| s.parent_body)
-        .expect("the spawn orbits a body");
-    let at = world
-        .system
-        .absolute_position(worldgen::Node::Body(planet))
-        .unwrap();
-    assert!(
-        at.distance(world.ship.position()) < flight::data::ARRIVAL_RADIUS_BODY,
-        "the berth is inside the planet's arrival circle"
-    );
-    let target = Target::Body(planet);
-    let quote = world.preview(target).expect("the planet can be flown to");
-    assert!(quote.minutes > 0.0);
-    assert!(!quote.docks);
-
-    set_off(&mut world, 0, target);
-    until_stopped(&mut world, 200_000);
-    assert_eq!(world.ship.state, ShipState::Holding);
-    let over = at.add(dvec2(0.0, data::LANDING_HEIGHT));
-    assert!(
-        world.ship.position().distance(over) < 1.0,
-        "ended {:?} rather than over the planet at {over:?}",
-        world.ship.position()
-    );
-    assert_eq!(
-        world.ship.frame,
-        Frame::Local(worldgen::Node::Body(planet)),
-        "there for the planet, not for the station beside it"
-    );
-    // And it stays so: the station is nearer than the planet's centre
-    // from most of the orbit, and the frame is not up for grabs.
-    for _ in 0..600 {
-        world.step(&[]);
-    }
-    assert_eq!(world.ship.frame, Frame::Local(worldgen::Node::Body(planet)));
-    // Land is on offer if the planet has ground; else it is only the
-    // planet that is missing, not the hold over it.
-    let landable = world
-        .system
-        .bodies
-        .iter()
-        .any(|b| b.id == planet && crate::surface::landable(b.kind));
-    match world.can_land() {
-        Ok(body) => assert!(landable && body == planet),
-        Err(why) => assert!(!landable && why == Refusal::NoPlanetHere, "{why:?}"),
-    }
-    // Standing on that point, the planet is where the ship already is.
-    assert_eq!(world.preview(target), Err(PlanError::AlreadyThere));
-}
-
-/// A Land from a hold over a planet is a landing: the same docking state
-/// as a berth's, over `LAND_MINUTES`, sliding to the point straight over
-/// the planet and coming down from there onto the pad — and at the end
-/// the ship is tied up at the settlement with the rooms joined, on the
-/// ground, in the planet's frame, with the settlement's people in their
-/// own room, its guard on the way to its post, and its desk open for
-/// trade. A Confirm from the pad is a lift-off: straight up to where a
-/// trip to the planet would have ended, and the trip from there.
-#[test]
-fn a_ship_holding_over_a_planet_lands_on_the_pad_and_lifts_off_straight_up() {
-    use crate::surface::{GUARD, guard_post, surface_id};
-    use worldgen::Node;
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    world.set_shipyard_enabled(true);
-    world.set_needs_enabled(true);
-    let Some(planet) = over_a_planet(&mut world) else {
-        eprintln!("the spawn system has no planet to land on");
-        return;
-    };
-    let id = surface_id(planet.id);
-    assert_eq!(world.can_land(), Ok(planet.id));
-    let money = world.money;
-
-    let events = world.step(&[Command::Land { slot: 0 }]);
-    assert!(
-        events.contains(&WorldEvent::Landing { body: planet.id }),
-        "{events:?}"
-    );
-    assert!(
-        matches!(world.ship.state, ShipState::Docking { station, .. } if station == id),
-        "{:?}",
-        world.ship.state
-    );
-    // Halfway through, the ship is straight over the planet, up: the
-    // slide is done and the descent about to begin.
-    let half = (data::LAND_MINUTES / 2.0 / data::STEP_MINUTES).ceil() as u32;
-    for _ in 0..half {
-        world.step(&[]);
-    }
-    let over = planet.position.add(dvec2(0.0, data::LANDING_HEIGHT));
-    assert!(
-        world.ship.position().distance(over) < 1.0,
-        "{:?} is not over the planet at {:?}",
-        world.ship.position(),
-        over
-    );
-    assert!(
-        world
-            .landing()
-            .is_some_and(|(body, done)| body == planet.id && done > 0.4)
-    );
-    let events = until_stopped(&mut world, 2 * half + 10);
-    assert!(
-        events.contains(&WorldEvent::Landed { body: planet.id }),
-        "{events:?}"
-    );
-    assert_eq!(world.ship.state, ShipState::Docked { station: id });
-    assert_eq!(world.landed(), Some(planet.id));
-    assert_eq!(world.landing(), None);
-    assert_eq!(world.ship.frame, Frame::Local(Node::Body(planet.id)));
-    // On the ground: within the settlement's grid of the planet's middle.
-    let ground = data::SURFACE_SIDE as f64 * shipdesign::TILE as f64;
-    assert!(world.ship.position().distance(planet.position) < ground);
-    assert!(world.aboard.is_joined(), "the rooms are one deck");
-    let residents = world.residents.as_ref().expect("the settlement's people");
-    assert_eq!(residents.station, id);
-    assert!(residents.aboard.count() >= data::SURFACE_POPULATION.0);
-    // The guard on its way to the post outside the watch house, and there
-    // within the hour.
-    let post = guard_post();
-    let mut arrived = false;
-    for _ in 0..3_600 {
-        world.step(&[]);
-        let residents = world.residents.as_ref().unwrap();
-        let at = residents.aboard.position(GUARD);
-        if at.distance(post) < 1.5 * shipdesign::TILE as f64 {
-            arrived = true;
-            break;
-        }
-    }
-    assert!(arrived, "the guard never reached its post");
-    // Trade, at the settlement's desk.
-    assert!(world.man_the_desk_for_probe(0));
-    let events = world.step(&[Command::Buy {
-        slot: 0,
-        resource: ResourceId::Vegetable,
-        units: 1,
-        tier: 1,
-    }]);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Traded { .. })),
-        "{events:?}"
-    );
-    assert!(world.money < money);
-
-    // And off again: a Confirm is a cast-off, then a climb straight up.
-    world.man_the_helm_for_probe(0);
-    let target = Target::Point(planet.position.add(dvec2(0.0, 4.0 * data::LANDING_HEIGHT)));
-    let events = world.step(&[Command::Confirm { slot: 0, target }]);
-    assert!(
-        events.contains(&WorldEvent::CastingOff { slot: 0 }),
-        "{events:?}"
-    );
-    // Everybody is home already, so the cast-off is over in the same
-    // step and the climb begins.
-    let mut lifted = events.contains(&WorldEvent::LiftedOff { body: planet.id });
-    let mut planned = None;
-    for _ in 0..(data::CASTING_OFF_LIMIT + data::LIFT_MINUTES + 5.0) as u32 * 60 {
-        let events = world.step(&[]);
-        if events.contains(&WorldEvent::LiftedOff { body: planet.id }) {
-            lifted = true;
-            assert!(world.lifting().is_some_and(|(body, _)| body == planet.id));
-            assert_eq!(world.landed(), None, "off the ground");
-        }
-        if let ShipState::Travelling { .. } = world.ship.state {
-            planned = Some(world.ship.position());
-            break;
-        }
-    }
-    assert!(lifted, "the ship never lifted off");
-    let from = planned.expect("the trip never began");
-    assert!(
-        from.distance(over) < 1.0,
-        "the trip begins at {from:?}, not over the planet at {over:?}"
-    );
-    // The settlement is behind. Another station of the system may well be
-    // within range of the point over the planet the climb ends at, and its
-    // room opening is `settle_residents` working.
-    assert_ne!(
-        world.residents.as_ref().map(|r| r.station),
-        Some(crate::surface::surface_id(planet.id)),
-        "the settlement is behind"
-    );
-}
-
-/// A Land is refused everywhere but a hold over a planet with ground: at
-/// a berth, at a belt, and under way.
-#[test]
-fn a_land_wants_a_hold_over_a_planet_with_ground() {
-    let mut world = basic();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    assert_eq!(world.can_land(), Err(Refusal::NotHolding));
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Land { slot: 0 }]);
-    assert!(events.contains(&WorldEvent::Refused {
-        slot: 0,
-        why: Refusal::NotHolding
-    }));
-    if world.hold_at_belt_for_probe() {
-        assert_eq!(world.can_land(), Err(Refusal::NoPlanetHere));
-        world.man_the_helm_for_probe(0);
-        let events = world.step(&[Command::Land { slot: 0 }]);
-        assert!(events.contains(&WorldEvent::Refused {
-            slot: 0,
-            why: Refusal::NoPlanetHere
-        }));
-    }
-    if over_a_planet(&mut world).is_some() {
-        let target = nearby(&world, 200_000.0);
-        world.step(&[Command::Confirm { slot: 0, target }]);
-        assert!(matches!(world.ship.state, ShipState::Travelling { .. }));
-        assert_eq!(world.can_land(), Err(Refusal::NotHolding));
-    }
-}
-
-/// After a fight at a hostile dock the crew go back to their day — and to
-/// bed. The alarm is a fight, not a berth: with nobody hit for the hold,
-/// nobody in anybody's sight for as long and none of the station's people
-/// within `ALARM_RANGE`, it comes down though the station is still an
-/// enemy's and some of its people still alive on it, and Kate — who took
-/// arms at the alarm — is let go to her errands and turns in that night
-/// like any other. It used to hold for any enemy within a hundred tiles,
-/// which was anybody left alive on the station, and a crew docked at an
-/// enemy's neither ate nor slept for as long as they were tied up there.
-#[test]
-fn after_a_fight_at_a_hostile_dock_the_alarm_comes_down_and_the_crew_sleep() {
-    use bims::combat::{Gear, WeaponKind};
-    use bims::game::{ALARM_HOLD, JOB_SLEEP};
-    let mut world = with_a_crewmate();
-    world.set_needs_enabled(true);
-    assert!(world.stage_fight_for_probe());
-    world.aboard.room.issue(
-        0,
-        Gear {
-            weapon: Some(WeaponKind::AutoRifle.basic()),
-            ..Gear::issued()
-        },
-    );
-    // The fight: until the resident James was put in front of is down, or
-    // an hour has gone by. Both crew patched up every step so neither is
-    // bled out cold on the deck for days, which is a different story —
-    // **and patched through the loops after it as well**, since the
-    // station is still hostile and its people still shoot: whether the
-    // crew come out of the last exchange with an open wound is the fight
-    // re-rolled (feature 84 moved the shots to the muzzles and re-rolled
-    // it), and a crew bled out over the following day says nothing about
-    // the alarm coming down or about anybody's night.
-    let mut steps = 0;
-    let mut alarmed = false;
-    while steps < 3600 {
-        world.aboard.room.patch_up_for_probe(0);
-        world.aboard.room.patch_up_for_probe(1);
-        world.step(&[]);
-        steps += 1;
-        alarmed |= world.aboard.room.is_alarmed();
-        let ashore = world.residents.as_ref().unwrap();
-        if !ashore.aboard.room.is_alive(0) {
-            break;
-        }
-    }
-    assert!(alarmed, "the alarm went up for the fight");
-    assert!(
-        !world.residents.as_ref().unwrap().aboard.room.is_alive(0),
-        "and the resident is down"
-    );
-    // The player stands its own down; the rest is the room's.
-    world.aboard.room.recruit_for_probe(0, false);
-    // Within the hold plus a little for the last bolt to land, the alarm
-    // is down and Kate is hers again — the station still hostile, with
-    // people left alive on it, if out of sight and out of range.
-    let hold = (ALARM_HOLD * 60.0) as usize + 60 * 60;
-    let mut down = false;
-    for _ in 0..hold {
-        world.aboard.room.patch_up_for_probe(0);
-        world.aboard.room.patch_up_for_probe(1);
-        world.step(&[]);
-        if !world.aboard.room.is_alarmed() {
-            down = true;
-            break;
-        }
-    }
-    assert!(down, "the alarm comes down after the fight");
-    assert!(
-        world
-            .hostile
-            .contains(&world.residents.as_ref().unwrap().station)
-    );
-    for _ in 0..60 {
-        world.aboard.room.patch_up_for_probe(0);
-        world.aboard.room.patch_up_for_probe(1);
-        world.step(&[]);
-    }
-    assert!(!world.aboard.room.is_alarmed(), "and stays down");
-    assert!(!world.aboard.room.is_armed(1), "Kate holsters");
-    // And within the day both have been to bed.
-    let mut slept = [false, false];
-    for _ in 0..(24 * 3600) {
-        world.step(&[]);
-        for who in 0..2 {
-            slept[who] |= world.aboard.room.activity(who) == JOB_SLEEP;
-        }
-        if slept[0] && slept[1] {
-            break;
-        }
-    }
-    assert!(slept[0] && slept[1], "both slept: {slept:?}");
 }
 
 /// A probe, not a test — `cargo test -p world -- --ignored --nocapture

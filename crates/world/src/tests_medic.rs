@@ -37,16 +37,11 @@ fn medic() -> World {
     world
 }
 
-/// The crew held where they stand: their own errands off, the timetable
-/// cleared, and everybody recruited, which is the one thing that stops
-/// a Bim walking off to talk to another (`Game::free_to_talk`) — a beam
-/// six tiles long is broken by a chat across the deck otherwise. What
-/// the player orders still goes.
+/// The crew held where they stand: their own errands off, and everybody
+/// recruited, so nobody wanders off from a beam six tiles long. What the
+/// player orders still goes.
 fn hold_still(world: &mut World) {
     world.aboard.room.set_autonomous(false);
-    for hour in 0..24 {
-        world.aboard.room.set_schedule_slot(hour, 0);
-    }
     for who in 0..world.aboard.crew_count() as usize {
         // On a cell a body fits in first: where the crew wake up is
         // against the furniture, and the push-out walks one off it.
@@ -486,7 +481,7 @@ fn everybody_carries_a_medkit_and_five_bandages_that_come_back_on_their_cooldown
 }
 
 #[test]
-fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_dismissal() {
+fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_bot_lost() {
     use crate::armour::LootSource;
     use crate::data;
     use worldgen::GalaxyType;
@@ -503,8 +498,6 @@ fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_dismi
         station,
     )
     .unwrap();
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
     assert_eq!(world.set_class(0, Class::Medic), Ok(()));
     hold_still(&mut world);
     assert!(world.mercenary_for_probe());
@@ -535,22 +528,30 @@ fn a_medic_earns_five_on_a_mercenary_and_beams_are_cleared_by_a_hire_and_a_dismi
     assert!(world.aboard.room.bleeding(2) > 0, "a wound to dress");
     assert!(bandage_and_wait(&mut world, 0, 2, Part::Body).is_some());
     assert_eq!(world.progress_of(0).xp, class::XP_HEALED);
-    // Linked to the mercenary; the dismissal breaks it, and the state
-    // list shrinks with the crew.
+    // Linked to the mercenary; the hand dead and gone with the site —
+    // a bot is dropped off the crew when the ship leaves — breaks it, and
+    // the state list shrinks with the crew.
     beside(&mut world, 2, 0);
     assert!(linked(&beam(&mut world, 0, Some(2)), 0, Some(2)));
     assert_eq!(world.medics.len(), 3);
-    // Broke a month on, the hand walks off at the berth: a dismissal.
-    let fee = world.mercenary_fee(merc).unwrap_or(world.hired()[0].fee);
-    world.money = fee - 1;
-    world.clock_minutes += crate::mercenary::MONTH;
+    world.aboard.room.kill_for_probe(2);
     let events = world.step(&[]);
     assert!(
-        events.contains(&WorldEvent::MercenaryLeft { who: 2 }),
+        events
+            .iter()
+            .any(|e| matches!(e, WorldEvent::BotLost { who: 2, .. })),
         "{events:?}"
     );
+    let gangway = world.aboard.gangway.expect("joined, the ship's side");
+    for who in 0..2 {
+        world
+            .aboard
+            .room
+            .put_for_probe(who, vec2(gangway.x as f32, gangway.y as f32));
+    }
+    world.leave_for_probe();
     assert_eq!(world.aboard.crew_count(), 2);
-    assert!(world.patients_of(0).is_empty(), "cleared by the dismissal");
+    assert!(world.patients_of(0).is_empty(), "cleared by the bot lost");
     assert_eq!(world.medics.len(), 2);
 }
 
@@ -1295,55 +1296,6 @@ fn mass_surge_covers_the_crew_round_the_patient_and_field_surgeon_treats_without
 }
 
 #[test]
-fn field_surgeon_is_once_a_fight_and_comes_back_when_it_ends() {
-    let mut world = medic();
-    pick(&mut world, 0, Talent::FieldSurgeon);
-    world.ship.design.cargo[ResourceId::Medkit as usize] = 0;
-    // The packs are emptied below, and no medkit comes back into them.
-    world.medicine_off_for_probe();
-    // A fight: the dock hostile with one of its people standing.
-    assert!(world.stage_fight_for_probe());
-    let ashore = world.residents.as_mut().unwrap();
-    for other in 1..ashore.aboard.count() as usize {
-        ashore.aboard.room.kill_for_probe(other);
-    }
-    ashore.aboard.room.issue(0, bims::combat::Gear::default());
-    world.aboard.room.issue(0, bims::combat::Gear::default());
-    world.aboard.room.issue(1, bims::combat::Gear::default());
-    for _ in 0..3 {
-        world.step(&[]);
-    }
-    assert_eq!(world.aboard.room.medkits(), 0);
-    // The medic's crewmate beside it, dying: treated bare once.
-    beside(&mut world, 1, 0);
-    make_dying(&mut world, 1);
-    assert!(treat_and_wait(&mut world, 0, 1, Part::Body).is_some());
-    assert!(world.medic_of(0).field_surgery_used, "used this fight");
-    beside(&mut world, 1, 0);
-    make_dying(&mut world, 1);
-    assert!(
-        !world.aboard.room.treat(0, 1, Part::Body),
-        "not twice in one fight"
-    );
-    // The fight over — nobody standing — it comes back.
-    world
-        .residents
-        .as_mut()
-        .unwrap()
-        .aboard
-        .room
-        .kill_for_probe(0);
-    for _ in 0..3 {
-        world.step(&[]);
-    }
-    assert!(
-        !world.medic_of(0).field_surgery_used,
-        "back after the fight"
-    );
-    assert!(world.aboard.room.treat(0, 1, Part::Body));
-}
-
-#[test]
 fn a_medic_s_state_dies_with_it_and_a_game_with_a_medic_reads_the_same_twice() {
     let mut world = medic();
     level_up(&mut world, 0, class::SURGE_LEVEL);
@@ -1527,12 +1479,12 @@ fn a_field_medic_fetches_a_crewmate_that_is_down_out_of_the_fire() {
     // rescue is `Game::bot_stand`'s branch, and a Bim a player steers
     // never runs it.
     let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 3);
-    let station = world.ship.state.station().expect("docked");
-    world.set_hostile(station, true);
-    // The staged fight puts an enemy on the deck a few tiles inside the
+    // The staged fight puts a machine on the deck a few tiles inside the
     // station's door with a crew member recruited against it, which is
-    // what makes the body worth fetching rather than already clear.
-    world.stage_fight_for_probe();
+    // what makes the body worth fetching rather than already clear. It
+    // is held where it is put and fires nothing, so the fetch is the
+    // only thing being measured.
+    assert!(world.stage_droid_fight_for_probe(bims::droid::DroidKind::Trooper, None));
     world.step(&[]);
     let medic = 2;
     assert!(world.field_medic_for_probe(medic));

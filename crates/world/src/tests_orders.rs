@@ -106,17 +106,16 @@ fn a_walk_is_a_command_and_every_player_selects_for_themselves() {
 }
 
 #[test]
-fn the_helm_the_desk_and_a_menu_row_are_commands_too() {
+fn the_desk_and_a_menu_row_are_commands_too() {
     let mut world = two_players();
-    // To the helm, and stood down again.
-    world.step(&[Command::ToHelm { slot: 1 }]);
-    assert!(world.aboard.room.post_of(1).is_some(), "posted at the helm");
+    // To the desk — docked, there is one — and stood down again.
+    world.step(&[Command::ToDesk { slot: 1 }]);
+    assert!(world.aboard.room.post_of(1).is_some(), "posted at the desk");
     world.step(&[Command::Crew {
         slot: 1,
         order: CrewOrder::StandDown { who: 1 },
     }]);
     assert!(world.aboard.room.post_of(1).is_none());
-    // To the desk: docked, there is one.
     world.step(&[Command::ToDesk { slot: 0 }]);
     assert!(world.aboard.room.post_of(0).is_some(), "posted at the desk");
     // A container's use spot, the way a window's click walks a Bim.
@@ -179,7 +178,7 @@ fn two_worlds_fed_one_stream_of_orders_stay_one_world() {
                     slot: 0,
                     order: CrewOrder::Recruit,
                 },
-                Command::ToHelm { slot: 0 },
+                Command::ToDesk { slot: 0 },
             ],
         ),
         (

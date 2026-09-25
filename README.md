@@ -2409,8 +2409,9 @@ Top left, above the agenda, one line says **what is under the pointer**:
 deck plating, a bulkhead, a door, a bench, the lockers, a bunk, the cold
 store, the table — and *outside the hull* if the pointer is off the ship
 altogether. Where there is something worth saying about the state of it,
-it says that too: a door **locked** or **shut**.
-<!-- TODO(104): whether the readout still names what is lying on a tile — the blood, now that the deck's grid is blood alone — and if it does, say so here. -->
+it says that too: a door **locked**, **held open**, **open** or **shut**.
+It does not name what is lying on a tile: the blood on the deck is drawn
+and not named, so a stained tile reads as the deck it lies on.
 
 The readout is a different question from a click, and answers accordingly. A
 click asks *what would this act on*, which is why only the few things with a
@@ -2892,8 +2893,9 @@ body is made of, its parts, its blood and its wounds, was always the
 room's (`crates/game/src/health.rs`).
 
 `cargo test --workspace` runs every crate's tests, and `nix flake check`
-builds the app and runs them. Most of `game` is checked by the native
-probes in `scratchpad/` rather than by tests of its own; `./check smoke`
+builds the app and runs them. `game` has tests of its own on a bare room
+(`Game::bare`), with three native probes in `scratchpad/` beside them;
+`./check smoke`
 opens four windows for sixty frames each and keeps a picture of three of
 them.
 
@@ -2908,6 +2910,7 @@ Relative to `crates/game/src/`:
 | `room.rs` | The room: its layout, its fixtures as solids, and how it is drawn |
 | `health.rs` | The body's three parts, the blood, wounds, traumas and bandages |
 | `blood.rs` | The blood on the deck: where it lies, and the boots that carry it |
+| `fixtures.rs` | The fixtures the room only draws — the galley, the table and chairs, the bunks, the broom locker, the bays and fields, the heads — as a fresh room draws them, for the deck and the designer alike |
 | `sight.rs` | What each Bim can see, traced on the tile grid, and the peek round a wall |
 | `combat.rs` | Weapons, bolts, hits and shots; the enemy's choice of where to stand |
 | `droid.rs` | The machines: their bodies, and how they fight |
@@ -2917,8 +2920,6 @@ Relative to `crates/game/src/`:
 | `character.rs` | The Bim — how it decides where to go, and how it is drawn |
 | `draw.rs` | The shape buffer and the local frame used for sprites |
 | `math.rs`, `rng.rs` | Vectors, rectangles, angles, and a PCG32 generator |
-
-<!-- TODO(104): `blood.rs` is the name the decisions gave `filth.rs` cut down to blood; confirm it, and add the module the needs fixtures' pictures were moved into (the drawing the designer and the deck still use) once the code has settled on its name. -->
 
 And in `crates/app/src/`:
 
@@ -2953,37 +2954,37 @@ wander and as a backstop. While following a path the Bim trusts the plan.
 
 ### Ordering the Bim through a door
 
-<!-- TODO(104): this section was written for the test room's bathroom door, the one door a Bim had to work by its panel; reconcile it with how a ship's and a station's powered doors take an order once the room's two grids (nav.rs `Maps`, open and shut) are settled. -->
+A ship's doors and a station's are powered: a body walking up to one opens it,
+and it shuts a moment after the doorway is clear. So an unlocked door is never
+in the way of an order. The pathfinder plans straight through it, open or shut,
+since it will be open by the time the Bim gets there, and the Bim does not stop
+at a panel on the way. There is one grid for the deck, and nothing is worked
+out twice.
 
-A shut door is a wall to the pathfinder, so a route is worked out twice: once
-with the door as it stands, and — only if that comes back with nothing — once
-with it open. A destination that only the second finds is one the Bim can reach
-by letting itself through, so it goes and works the door panel and then carries
-straight on. The order waits on that errand rather than joining the queue
-behind it: the player asked for it now, not after whatever the door displaced.
+A **locked** door is the one state of a door the pathfinder knows about: it is
+a wall, and the grid is built again the moment a lock changes. An order to
+somewhere only a locked door leads to has no route, so it is refused — the Bim
+does not walk over and fail, and it does not drop what it was doing either. A
+lock ordered while somebody is in the doorway waits for them, since the leaves
+never close on a body, and a walk already under way through a door locked since
+it was planned is caught by the watchdog that catches a frozen walk: it is
+planned again from where the Bim stands, or put down if there is no way round.
 
-There is only ever one of those errands. Clicking again while the Bim is on its
-way to the panel replaces the destination waiting on it and nothing else —
-before, each click put the door errand on the queue and started another exactly
-like it, and a few impatient clicks left the agenda with ten door jobs all
-opening the same door. An order the Bim can reach without the door
-cancels the waiting one outright, and the errand that was opening the door goes
-with it: the two exist only to serve each other.
+What a door does is changed by hand, from the menu on it: hold it open, let it
+close again, lock it, unlock it. Each is an errand of its own — the Bim walks
+to the door's panel, a pace out of the opening on its own side, and works it —
+and it goes on the agenda like any other.
 
-Three things can come back instead:
+Two things can come back from an order instead of a walk:
 
-- **Blocked by a locked door.** The second route exists but the door is locked,
-  so nothing is attempted at all — the Bim does not walk over and fail, and it
-  does not drop what it was doing either.
-- **Nowhere to go.** No route with every door in the place wide open. There is
-  nowhere in the current layout that this can happen, but the case is handled
-  rather than assumed away.
-- **Ignored**, if nothing is selected or the Bim is dead.
+- **Nowhere to go.** No route there as the doors stand: a locked door in the
+  way, or a spot no body can reach.
+- **Ignored**, if the Bim is not one this player may order, is dead, or is
+  outside the hull.
 
-Both refusals are said out loud, because an order that quietly does nothing
-reads as a broken click: the status line says which it was, in the warm colour
-the room keeps for things worth noticing, and a cross is drawn where the order
-landed.
+The refusal is said out loud, because an order that quietly does nothing reads
+as a broken click: the log says it could not be done, there being no way there
+at all, and a cross is drawn where the order landed.
 
 ### A chain never starts somewhere it cannot walk to
 

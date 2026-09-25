@@ -1,5 +1,5 @@
 //! The money rework (feature 95): what a crew are worth, what the
-//! Republic pays for an enemy, and where the gear is sold.
+//! Republic pays for a machine, and where the gear is sold.
 //!
 //! The construction half of it — a site charged its price, one that waits
 //! for want of money — is in `tests.rs` beside the other building tests,
@@ -145,19 +145,20 @@ fn building_and_deconstructing_leave_worth_unchanged() {
     assert_eq!(world.worth(), before);
 }
 
-/// **The Republic pays a bounty, once per enemy, at the first down or
-/// death, whoever did it** — and nothing at all for a friend, a neutral
-/// or one of the crew (feature 95).
+/// **The Republic pays a bounty, once per machine, the moment it is
+/// destroyed, whoever did it** — at the machine's tier, pending until the
+/// site is cleared and paid the step it is — and nothing at all for a
+/// friend, a neutral or one of the crew (features 95 and 103).
 #[test]
-fn the_republic_pays_once_for_every_enemy_taken_down() {
+fn the_republic_pays_once_for_every_machine_taken_down() {
+    use bims::droid::{DroidKind, DroidPart};
     let mut world = crate::tests::basic();
-    let station = match world.ship.state {
-        crate::world::ShipState::Docked { station } => station,
-        _ => panic!("a world opens docked"),
-    };
     // A friendly dock first: nobody down is worth anything, since the
-    // bounty is only ever paid at a hostile one.
+    // bounty is only ever paid for an enemy.
     let money = world.money;
+    if let Some(residents) = &mut world.residents {
+        residents.aboard.room.kill_for_probe(0);
+    }
     for _ in 0..60 {
         let events = world.step(&[]);
         assert!(
@@ -168,22 +169,28 @@ fn the_republic_pays_once_for_every_enemy_taken_down() {
         );
     }
     assert_eq!(world.money, money, "nothing is paid for a friend");
+    assert_eq!(world.run.pending_bounty, 0);
 
-    // Hostile, and one of its people down: paid once, at its gear's tier.
-    world.set_hostile(station, true);
+    // The machines have it, and one of them is destroyed: paid once, at
+    // its tier. One wave, so the site is cleared by it and what was
+    // pending is paid.
+    world.set_droid_waves_for_probe(1);
+    assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
     world.step(&[]);
     let money = world.money;
-    let residents = world.residents.as_ref().expect("the station's room");
-    assert!(residents.aboard.room.crew_count() > 0, "somebody to shoot");
-    let tier = {
-        let room = &residents.aboard.room;
-        let gear = room.gear(0);
-        gear.weapon.map(|w| w.tier.code()).unwrap_or(1)
-    };
-    let want = crate::world::bounty_for(tier);
-    assert!(want > 0, "a body carries something");
+    let tier = world
+        .residents
+        .as_ref()
+        .and_then(|r| r.aboard.room.droid(0))
+        .expect("a machine to shoot")
+        .tier;
+    let want = crate::world::bounty_for(tier.code());
+    assert!(want > 0, "a machine has a tier");
     if let Some(residents) = &mut world.residents {
-        residents.aboard.room.kill_for_probe(0);
+        residents
+            .aboard
+            .room
+            .strike_droid(0, DroidPart::Chassis, 1e6);
     }
     let mut paid = 0;
     for _ in 0..10 {
@@ -193,26 +200,23 @@ fn the_republic_pays_once_for_every_enemy_taken_down() {
             }
         }
     }
-    assert_eq!(paid, want, "one enemy, one bounty, at its tier");
+    assert_eq!(paid, want, "one machine, one bounty, at its tier");
     assert_eq!(world.money, money + want);
+    assert_eq!(world.run.pending_bounty, 0);
 
-    // And it is never paid twice for the same body.
-    let money = world.money;
+    // And it is never paid twice for the same wreck.
     for _ in 0..120 {
         for event in world.step(&[]) {
-            if let WorldEvent::Bounty { amount } = event {
-                assert!(amount > 0);
-            }
+            assert!(
+                !matches!(
+                    event,
+                    WorldEvent::Bounty { .. } | WorldEvent::BountyPending { .. }
+                ),
+                "paid again: {event:?}"
+            );
         }
     }
-    // Whatever else went down in those two minutes was somebody new; the
-    // one already counted is not counted again.
-    let residents = world.residents.as_ref().unwrap();
-    let down = (0..residents.aboard.room.crew_count() as usize)
-        .filter(|&who| !residents.aboard.room.is_alive(who))
-        .count();
-    assert!(world.money >= money);
-    assert!(down >= 1);
+    assert_eq!(world.money, money + want);
 }
 
 /// The bounty table: three tiers, each a step up, and nought for no tier.

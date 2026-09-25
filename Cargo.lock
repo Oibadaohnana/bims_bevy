@@ -193,7 +193,6 @@ dependencies = [
  "bims",
  "economy",
  "flight",
- "health",
  "lobby",
  "physics",
  "rustls",
@@ -2865,14 +2864,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "foldhash 0.2.0",
-]
-
-[[package]]
-name = "health"
-version = "0.1.0"
-dependencies = [
- "serde",
- "time",
 ]
 
 [[package]]
@@ -6426,7 +6417,6 @@ dependencies = [
  "bims",
  "economy",
  "flight",
- "health",
  "physics",
  "serde",
  "shipdesign",

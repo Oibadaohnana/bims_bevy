@@ -16,7 +16,7 @@
 //! # The clock is minutes left, not a minute of the clock
 //!
 //! Every other countdown in the world is an absolute clock reading —
-//! `Infestation::next_wave`, a raid's `due`, a hire's month. This one is
+//! `Infestation::next_wave`, a hire's month. This one is
 //! **how long there still is to wait**, counted down only while the crew
 //! are standing in the town, because taking off **pauses** the attack and
 //! landing again resumes it where it stood. A clock reading would have

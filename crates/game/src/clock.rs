@@ -1,7 +1,7 @@
 //! The world clock.
 //!
-//! Everything in the game that is measured in wall-clock time — how long a nap
-//! lasts, when it gets dark — goes through here, so there is one definition of
+//! Everything in the game that is measured in wall-clock time — how long a
+//! dressing takes, when it gets dark — goes through here, so there is one definition of
 //! how fast a day passes rather than a rate copied into each caller.
 //!
 //! The clock runs off the same `dt` as the rest of the simulation, which means

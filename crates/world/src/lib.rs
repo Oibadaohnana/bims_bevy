@@ -26,25 +26,22 @@
 //!   and the hull do not move, the centre of mass does — is what stops a
 //!   welded wall shoving the ship sideways through space.
 //! - **Construction and deconstruction follow the mass conservation
-//!   contract** in `shipdesign::materials`, use only what is aboard, and ask
-//!   [`World::can_modify_part`] first.
-//! - **Money is used only while docked.** Away from a station there is nobody
-//!   to buy from, and what gets built comes out of the hold or does not get
-//!   built.
-//! - **Crew, construction and health run inside [`World::step`]**, at the
-//!   numbered extension points, on this clock. Not on a second one.
-//! - **The design's exposure map is the radiation input.**
-//!   `shipdesign::exposure` says which tiles the outside can see into, and
-//!   `crates/health` says what standing in one does to a body.
+//!   contract** in `shipdesign::materials`: a part is paid for out of the
+//!   pool, and the one thing that changes the hull under the crew.
+//! - **Goods change hands only while docked.** Away from a station there is
+//!   nobody to buy from.
+//! - **Crew and construction run inside [`World::step`]**, at the numbered
+//!   extension points, on the mission clock. Not on a second one.
+//! - **Nothing is flown.** A trip is chosen on the world map between
+//!   missions and resolved in one go (`crate::run`): the world clock is put
+//!   on by its length, and the crew arrive docked.
 //!
 //! # What is deliberately absent
 //!
-//! Networking, interstellar travel, moving bodies, gravity, oxygen,
-//! prices that differ by where you are, manual flight, and any speed above
-//! [`data::TOP_SPEED`]. Stations have interiors now — [`station`] — and the
+//! Moving bodies, gravity, oxygen, flight, radiation, and any speed above
+//! [`data::TOP_SPEED`]. Stations have interiors — [`station`] — and the
 //! ship docks beside one rather than inside it and, docked, shares a room
-//! with it ([`docking`]); but a station is still not a solid a trip has to
-//! fly round.
+//! with it ([`docking`]).
 
 pub mod armour;
 pub mod build;
@@ -67,8 +64,6 @@ pub mod medic;
 pub mod memory;
 pub mod mercenary;
 pub mod orders;
-pub mod plunder;
-pub mod raid;
 pub mod run;
 pub mod speed;
 pub mod station;
@@ -90,23 +85,15 @@ pub use jammer::{JAMMER_BASE, jammer_id, jammer_star};
 pub use medic::Medic;
 pub use memory::{Losses, SystemMemory};
 pub use orders::Standing;
-pub use plunder::Plunder;
-pub use raid::{Raid, Raids, boarders_of, raider_id, raider_index};
 pub use run::{Departure, Fallen, Proposal, Run, Site, SiteSnapshot, TravelQuote};
 pub use speed::Speed;
 pub use station::{Berth, Plan, Station, layout_surface};
 pub use surface::{Biome, Surface, landable, surface_body, surface_id};
 pub use tank::Tank;
 pub use world::{
-    Command, Power, Preview, Ship, ShipState, StartError, UPGRADE_ORDER, Upgrade, Workbench, World,
-    spawn, spawn_anywhere, spawn_with_ground,
+    Command, Power, Ship, ShipState, StartError, UPGRADE_ORDER, Upgrade, Workbench, World, spawn,
+    spawn_anywhere, spawn_with_ground,
 };
-
-// The three things a caller of this crate wants from the ones underneath it,
-// re-exported so it does not have to depend on all four for the sake of a
-// type: a target to fly to, a reason it could not be, and where a trip has
-// got to.
-pub use flight::{Phase, PlanError, Target};
 
 #[cfg(test)]
 mod tests;
@@ -135,18 +122,14 @@ mod tests_money;
 #[cfg(test)]
 mod tests_orders;
 #[cfg(test)]
-mod tests_plunder;
-#[cfg(test)]
-mod tests_raid;
-#[cfg(test)]
 mod tests_run;
 #[cfg(test)]
 mod tests_soldier;
 #[cfg(test)]
 mod tests_standing;
 #[cfg(test)]
-mod tests_survivors;
-#[cfg(test)]
 mod tests_surface;
+#[cfg(test)]
+mod tests_survivors;
 #[cfg(test)]
 mod tests_tank;

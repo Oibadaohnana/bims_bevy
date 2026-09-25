@@ -111,73 +111,49 @@ One camera and one transform either way — do not add a second camera for
 the free one. The same test pins both halves and `ship-check.mjs` has a
 section on the buttons and the key.
 
-## The ship is drawn in its own frame, and the exhaust is read off the plan
+## The ship is drawn in its own frame, and nothing burns in a run
 
-`paint_ship` builds the whole ship — rim, exhaust, tiles, the hull's
-pictures, the lights, the hover ring — into a ship-space `DrawList` in
-design units and turns it once with `DrawList::append_turned`; the room's
-buffer goes through the same call after it. A picture made of many shapes
-only has to be right the once, and `crates/ship/src/hull.rs`, where the
-pictures of the plating, the engines, the thrusters, the airlock and the
-array live, has never heard of a heading. Anything new drawn *on* the ship
-goes into that list; anything drawn because it is out there does not.
+`paint_ship` builds the whole ship — rim, tiles, the hull's pictures, the
+lights, the hover ring — into a ship-space `DrawList` in design units and
+turns it once with `DrawList::append_turned`; the room's buffer goes
+through the same call after it. A picture made of many shapes only has
+to be right the once, and `crates/ship/src/hull.rs`, where the pictures
+of the plating, the engines, the thrusters, the airlock and the array
+live, has never heard of a heading. Anything new drawn *on* the ship goes
+into that list; anything drawn because it is out there does not.
 
-**What fires is `hull::Firing`, and it comes from `flight::effort_at`** —
-the plan read a second way, beside `state_at`, and pinned against it by
-`the_effort_is_the_derivative_of_the_state`. Nothing in the picture keeps
-its own idea of whether the engines are on, because a flame that lagged the
-ship at 24x or after a catch-up would say the ship was in two places. Four
-rules that fall out of it:
+**Nothing is flown since feature 104, so nothing burns.** The game drew
+its exhaust off the plan — `hull::Firing` out of `flight::effort_at`, a
+forward engine through the burn and a flip brake, a thruster's nozzle
+worked out from where it sits, a plume starting where it cleared the
+skin, and a starfield that streamed past on the world's clock
+(`Starfield::advance`, `Game::stream_sky`) — and all of that went with
+the flown trip: `paint_ship` hands every part `hull::Firing::NONE`, the
+engines and the thrusters are drawn cold, as the designer draws them,
+and the three layers of specks behind the ship (`crate::starfield`)
+stand still. `hull::Firing`, `Firing::of`, the flame and the puff stay
+in `hull.rs` — the designer draws with `Firing::NONE` through the same
+call — and `the_exhaust_follows_the_plan` went with the flight;
+`the_sky_and_what_is_alongside_do_not_turn_with_the_ship` is what is
+left of the sky's test. Two rules stand:
 
-- **The flame is blue.** There is no fuel; the exhaust is plasma off the
-  reactor, and `hull.rs`'s `FLAME_*` and `paint.rs`'s `FLAME` (the designer's
-  exhaust marks) are a white-blue core, an electric blue body and a violet
-  tail. The thrusters' `PUFF` was already pale blue. And the **reactor
-  glows with its load**: `fittings::reactor_glow(list, part, load, frame)`
-  is drawn over every `supplies()` part after the tiles — in the game at
-  `World::power().load()` (day-long draw plus what the engines draw now,
-  over the supply), so a burn lights the reactor as well as the stern; in
-  the designer at the static `draw / supply` of `power_budget`, frame 0 —
-  a halo over the housing and a brighter core, amber for the reactor and
-  plasma blue for the large one, breathing a little off the frame.
-- **A forward engine burns through the burn *and* through a flip brake**;
-  a backward one through a brake without a flip; a sideways one never — the
-  autopilot does not fly it. `Firing::of` is the arithmetic (the nose
-  against the plan's line, times the sign of the acceleration), and
-  `the_exhaust_follows_the_plan` in `crates/ship/src/tests.rs` drives a
-  real trip through every phase and checks it.
-- **A thruster's nozzle is every side of it that faces open space, and the
-  one that fires is worked out from where the thruster is** — exhaust
-  pushes the ship the other way, that push turns it about the centre of
-  mass, and the nozzle whose turn matches the plan's is lit. The dynamics
-  never look at placement; the picture does, because a corner thruster
-  puffing into the hull is a picture of a broken ship.
-- **The exhaust is drawn under the hull, and a plume starts where it
-  clears the skin.** (An engine can no longer be inside the hull — see the
-  exhaust rule — but the walk aft costs nothing and keeps the picture right
-  for a design that predates it.) The playtest ship's engine sits inside the hull, and a
-  flame from its bell was a dim smudge at the stern with the bright end
-  under the deck; `plume` walks the tiles aft until one holds nothing and
-  begins there. An engine flush with the stern is unchanged.
+- **The reactor glows with its load**: `fittings::reactor_glow(list,
+  part, load, frame)` is drawn over every `supplies()` part after the
+  tiles — in the game at `World::power().load()` (the draw over the
+  supply, the engines drawing nothing now), in the designer at the
+  static `draw / supply` of `power_budget`, frame 0 — a halo over the
+  housing and a brighter core, amber for the reactor and plasma blue for
+  the large one, breathing a little off the frame.
 - **The flicker and the running lights run off `Game::frame`**, a picture
   clock counted in `Session::render` and read by nothing that decides anything
   — never the RNG, which is the simulation's, and never `world.steps`,
   which stops at a pause. Hash it; do not draw from the stream.
-- **The starfield streams on the world's clock.** `Starfield::advance`
-  (`Game::stream_sky`, from `Session::render`) moves each layer on by the
-  log-mapped speed times the minutes the clock moved since the last frame,
-  wrapped to the tile — so a steady speed is a steady stream, a pause holds
-  the sky, and 24x is twenty-four times the stream. It used to be a
-  displacement off the speed, which at any constant speed is a still
-  picture. `the_sky_streams_on_the_world_s_clock_and_only_under_way` pins it.
 
-`ship-layout.mjs turn` and `... burn` are the pictures, both head up so a
-puff into the hull or a flame over the deck is obvious. The map marker is
-`hull::marker` — three rectangles, and `FIN_LEAN` is pinned by
-`the_map_is_north_up_whatever_the_ship_is_doing`, which knows the marker is
-the only thing on the map that turns.
+The map marker is `hull::marker` — three rectangles, and `FIN_LEAN` is
+pinned by `the_map_is_north_up_and_the_ship_is_in_the_middle_of_both_views`,
+which knows the marker is the only thing on the map that turns.
 
-**A station's people are drawn over the ship, since they can be on it.**
+**A station's bodies are drawn over the ship, since they can be on it.**
 `stations` is painted before the ship — the residents' room with it —
 and their room's deck holds the ship (`crates/world/CLAUDE.md`, "The
 residents' room holds the ship"), so one who has followed the crew
@@ -188,27 +164,29 @@ everything drawn over them — the dropped weapons, the Bims, the bedding,
 the shots), `stations` paints the first and returns the second placed
 and turned, and `paint_ship` appends it after the room aboard.
 `a_resident_on_the_ship_s_deck_is_drawn_over_it` pins it, and fails with
-the bodies painted in `stations`.
+the bodies painted in `stations`; it staged a human fight to get a
+resident there until feature 104, and puts one there by hand now.
 
 ## The map says whose a station is, and the rule is the world's
 
-`World::stance` is the one answer — home is friendly, the world's
-`hostile` list is hostile, everywhere else is neutral — and the painter
-draws it twice without deciding anything. On the map (`paint_map`) every
+`World::stance` is the one answer — a station the machines hold is
+hostile, home is friendly, everywhere else is neutral, since no human has
+been the crew's enemy since feature 104 — and the painter draws it twice
+without deciding anything. On the map (`paint_map`) every
 discovered station's icon is ringed by stance: `ENEMY` red for hostile,
 `FRIEND` blue for anything else somebody lives on — home and a stranger's
 alike — and nothing for a derelict, which is nobody's. It was green for
 home and nothing for neutral; blue for every station that is not an
 enemy's went in with the generator putting the enemy's stations in one
 corner of a system (`crates/worldgen/CLAUDE.md`), since the point of the
-corner is to be seen on the map. The ring is `STANCE_RING`
-times the icon size, outside the aim ring, so pointing the helm at an
-enemy's station draws two rings that read apart; the blue is not the aim
-ring's cyan for the same reason. Every discovered belt gets a **pickaxe**
-at its top-right shoulder (`paint_pickaxe`: a haft and a bent head, four
-rounded rectangles and a disc), because a belt is a mining site — hold
-station at it and the rocks are laid out — and the map should say so
-before the crew fly there. Nothing else stands at a belt
+corner was to be seen on the map — the corner is still rolled, and red
+now means the machines. The ring is `STANCE_RING` times the icon size,
+outside the aim ring, so picking a held station draws two rings that
+read apart; the blue is not the aim ring's cyan for the same reason.
+Every discovered belt gets a **pickaxe** at its top-right shoulder
+(`paint_pickaxe`: a haft and a bent head, four rounded rectangles and a
+disc), because a belt was a mining site until the money rework took the
+mining away. Nothing else stands at a belt
 (`worldgen::data::parent_suits`), so the pickaxe has the belt to itself.
 **Somewhere the crew have already been gets a tick** at its *upper-left*
 shoulder — the upper-right one is the pickaxe's and the settlement's
@@ -238,8 +216,9 @@ inside that breathes on `game.frame` over `HERE_PULSE` frames — after
 window whatever the camera did, and `hull::marker` goes on top of it. It
 is sized in the camera's units off the scale, like every icon, so it is
 the same size at any zoom. The words are the app's: `screens/game.rs`
-writes `You · ` and `whereabouts(session)` — the trip strip's first words,
-*Docked · the station*, *Alongside the belt* or *Open space* — over it in
+writes `You · ` and `whereabouts(session)` — the run strip's first words,
+*Docked · the station*, *Landed · the settlement*, *Alongside the belt*
+or *Open space* — over it in
 `theme::YOURS` with `name_over`, `HERE_LIFT` above `view.to_canvas(ZERO)`,
 which is the ship wherever the map has been panned. The galaxy chart tags
 the ship's star the same way (`· here`). Before this the marker was
@@ -330,10 +309,11 @@ Three things that follow, and bit on the way:
   else's.** `world::fixture::simulation_world` is how every fixture world
   starts, so the reference checksum did not move when `World::start` stopped
   choosing.
-- **"Nearest discovered node" at the spawn is the dock's own parent body**,
-  which the planner rightly calls `AlreadyThere`; nothing else is in sight.
-  `the_playtest_ship_can_fly_somewhere_from_the_simulation_spawn` therefore
-  reveals the next node out through `discover_for_probe` and plans to that.
+- **A trip from the spawn is quoted, not planned.** "Nearest discovered
+  node" at the spawn was the dock's own parent body, which the flight
+  planner called `AlreadyThere`; the planner went with the flown trip in
+  feature 104, and `the_playtest_ship_can_travel_somewhere_from_the_simulation_spawn`
+  (in `crates/world`) asks the trip's quotes instead.
 
 `scratchpad/flow-check.mjs` walks the seam the two page harnesses cannot:
 lobby → station → Start → the designer opened with that query → build →
@@ -399,8 +379,9 @@ the whole design. `bims design` is how to look at it.
 `Session::simulate` is `simulate_on(playtest_ship(), 1, ..)`;
 `simulate_on(design, crew, ..)` opens `Game::start_with_crew` — `crew`
 aboard, one of them the player — and the `test` command uses it on the
-combat ship with one crew member so a mercenary hired at the dock has a
-bunk; `Session::combat` is the fight (`crates/world/CLAUDE.md`'s arena),
+combat ship with one crew member, which was so a mercenary hired at the
+dock had a bunk until the hire's bunk check went with the needs in
+feature 104; `Session::combat` is the fight (`crates/world/CLAUDE.md`'s arena),
 `Session::mercenary_for_probe` the `test` command's hired hand.
 **The fight sails with `session::COMBAT_MEDICS` (four) hired field
 medics**, the last four of the sixteen — `field_medics_for_probe`, the
@@ -409,8 +390,9 @@ a fight with nobody who may carry is a fight where a body down stays
 where it fell and the whole of feature 86 never runs. It was two of
 fourteen; the user asked for two more, and the crew grew by them.
 They are inherited by everything built
-on `combat`: `tier2_test`, `tier3_test`, `droids`, and the
-`combat_<class>` and `combat_droids_<class>` runs. `BIMS_FIELD_MEDIC=n`
+on `combat`: `droids`, `tier2_test`, `tier3_test` and the
+`combat_droids_<class>` runs (the `combat` command and its
+`combat_<class>` runs went in feature 102). `BIMS_FIELD_MEDIC=n`
 asks for the same crew members from the same end, so setting it over
 these finds them hired already and changes nothing.
 `Session::at_the_desk(slot)`/`walk_to_desk(slot)` and
@@ -420,7 +402,7 @@ the desk's row and the `?` over a mercenary's name
 the Loot window's shape: opened off the `HIT_VISITOR` menu on a body on
 its feet (`Open::Hire`), the walk over left to the screen (`walk`), and
 `CrewPanels::terms` handed in every frame off `World::hire_offer` so the
-button is greyed with the reason — out of reach, no bunk, not the money
+button is greyed with the reason — out of reach, not the money
 — before `GearOrder::Hire` goes through the seam as `Command::Hire`.
 `fittings::trading_desk` is the desk's picture: a counter with a ledge
 and a lit terminal along the far edge, a ledger and a coin tray on the
@@ -466,18 +448,14 @@ consumer or engine — the camera-frame point over the top of its footprint
 — which `screens/game.rs` writes in `theme::DRAW` yellow with
 `name_over` while the overlay is up, `now` alone when the two agree and
 `now / full` for an engine idle or throttled, muted for a dark part. An
-engine's `now` is its `thrust_power × throttle` while `Firing` lights its
-facing and it is on a live network, nought otherwise, so the numbers
-agree with the exhaust.
+engine's `now` is nought and its `full` its `thrust_power`: nothing burns
+since feature 104, where it was `thrust_power × throttle` while `Firing`
+lit its facing, to agree with the exhaust.
 
-**The bunks' tags are the same shape** (feature 61): `Session::bunk_labels`
-→ `world_paint::bunk_labels`, one `BunkLabel` per bunk of the ship's off
-`Game::bunk_tags` — the bunk's middle taken to the design (`Aboard::to_design`)
-and through `on_screen` like a Bim, and whose it is — which
-`screens/game.rs` writes across the bed with `theme::bunk_tag` every
-frame, under the crew's names, the owner's name or *Unassigned*. A
-station's bunks on a joined deck are not in it.
-`a_bunk_s_tag_lands_on_the_bunk_and_turns_with_the_ship` pins it.
+**The bunks' tags** (feature 61: `Session::bunk_labels`, the owner's
+name or *Unassigned* written across each of the ship's bunks) went with
+the needs in feature 104, since whose bunk is whose was the needs', and
+`a_bunk_s_tag_lands_on_the_bunk_and_turns_with_the_ship` with them.
 
 ## The blueprint is the part's own picture, and its answer is asked once a tile
 
@@ -510,21 +488,23 @@ turns the blueprint when one is in hand and recruits otherwise.
 
 The ship crate draws no grid and moves no piece. A click on the deck
 reaches `Game::hit_at` through `Session::room_point` as it always did,
-and `HIT_BENCH`, `HIT_SHELF` and `HIT_FRIDGE` come back to the app, where
+and `HIT_BENCH` and `HIT_SHELF` come back to the app, where
 `CrewPanels::open_menu` (`crates/app/src/crew.rs`) decides whether the
 fixture is a **container**: a bench whose part keeps a class of goods
 (`PartKind::def().capacity` — the armoury and the drug lab open the
-lockers; the smelter and the workbench open nothing, and have no menu
-either), any shelf, and the cold store through the "Open" row its menu
-gained. Opening one walks the Bim shown to `Game::container_spot`
+lockers; the workbench opens its own slots), and any shelf of the
+ship's. The cold store is a container too, but no click reaches it any
+more — `hit_at` answered `HIT_FRIDGE` only with the needs on, and its
+menu went with them in feature 104 — so the **Nearby** strip is the way
+into it. Opening one walks the Bim shown to `Game::container_spot`
 through `send_to` — the click is the natural place to start it walking,
 since nothing moves until it is within `world::data::REACH` — and puts
 the container window (`container_window`) up with the inventory pop-up
 beside it (`fixed_pos`, since the two are read together). `Esc` shuts
 the innermost thing first: a cell's pop-up, then a fixture menu, then
-the window (`CrewPanels::escape`). Nothing is a container in the test
-room, which has no hold: `CrewPanels::hold` is `None` there and a bench
-click is a menu as before.
+the window (`CrewPanels::escape`). `CrewPanels::hold` is `None` where
+there is no hold — the behaviour test room's case, until that room went
+in feature 104.
 
 **The window is a class, not the fixture** — the app's reading of the
 world's rule that the class is the one truth about capacity. The lockers
@@ -545,9 +525,9 @@ world's five commands with the sender left off — pushed onto
 on the ship `screens/game.rs` wraps each as `Order::Gear` and
 `screens/designer.rs` maps it onto `Command::Stow…` stamped with the
 slot and the step like every other order, so the hold's every change is
-a command every player's ship applies; in the room `screens/room.rs`
-applies Equip, Unequip and Discard straight to the `Game`, there being
-no hold to stow into or fetch from. The rows say why before the world
+a command every player's ship applies (the test room's
+`screens/room.rs`, which applied Equip, Unequip and Discard straight to
+its `Game`, went in feature 104). The rows say why before the world
 does: `hold_of` in `screens/game.rs` snapshots the hold once a frame —
 `World::free` a resource, the pieces at `Where::Hold`, each class's fill
 off `Session::storage_used`/`storage_capacity`, and `World::in_reach`
@@ -573,21 +553,20 @@ Two things that bit:
   stack under it starts below the row. A click that lands on nothing
   is this before it is anything else.
 - **The health bars are two-tone on purpose**, not two bars:
-  `theme::two_tone_bar`/`thin_two_tone_bar` draw the green with the
+  `theme::two_tone_bar` draws the green with the
   armour's blue appended in proportion, and the text reads `100 hp +
   15 hp`, so a worn piece reads as more bar rather than a second one to
   look for. `theme::popup` is the one pop-up — the fixture menus, the
   cell rows and the Unequip row all go through it — so a change to the
   look of one is a change to all.
 
-`BIMS_FIGHT=1 bims combat` with a `BIMS_POINTER` script that clicks the
-armoury at tile `(14, 7)` is how it is looked at: the window reads
-"Armoury · 13 of 16 in the lockers" with the three pieces, the four
-weapons, the suit and
-the bandages, and at 10× the Bim walks over and the rows come alive.
-The fight itself is looked at the same way: `BIMS_WEAPON=schword` (or
+`BIMS_ARMOURY=1 bims simulation` opens the armoury's window for a
+screenshot; it was `BIMS_FIGHT=1 bims combat` with a `BIMS_POINTER`
+script that clicked the armoury at tile `(14, 7)` until both went. The
+fight itself is looked at on `bims droids`: `BIMS_WEAPON=schword` (or
 `pistol|shotgun|rifle|sniper`) in the crew member's hand,
-`BIMS_ENEMY_WEAPON=…` in every resident's, and `BIMS_ARMOURED=1` for a
+`BIMS_ENEMY_WEAPON=…` in every resident's — a town's guard in
+`defense`, the only resident who fights — and `BIMS_ARMOURED=1` for a
 fresh helm, kevlar and leg guards on the crew member, all through the
 public `Game::gear`/`Game::issue` from the app's `open` (`dev.rs`),
 so a swing, a burst, a tracer in flight or the "locked in melee" tag
@@ -655,7 +634,8 @@ halves of the shape buffer, and the cut is `DrawList::mark_fog`, set by
 (`bims::game::Game::shapes_fog_split`, cut at the room's own `fog_from`)
 and the station's people who have come aboard, before what both rooms
 draw over their fog — their shots, rings and marquee — and before the
-electricity overlay and the blackout. `stations` hands those two halves
+electricity overlay (and the landing's blackout, until feature 104).
+`stations` hands those two halves
 of the residents' room back apart (`Game::shapes_in_three`) for exactly
 that. `Session::fog_split` is the cut the app reads after `render`; a
 picture with no mark — the yard, the map — is all under it, and the
@@ -690,22 +670,22 @@ soil, and `foliage`, a ring of round leaves in the two greens with a
 light one on top, at a size each — and a framed canvas (brass round a
 sky over a hill) as a strip flush against the wall its rotation names,
 the wall light's top edge unturned. Three rows in `PART_COLORS` (45).
-Nothing in this crate reads what a comfort *does*; that is the room's
-(`crates/game/CLAUDE.md`, "Surroundings").
+Nothing in this crate reads what a comfort *does*, and since feature 104
+nothing anywhere does: it lifted a Bim's surroundings, which were the
+needs'. It is a picture and a solid.
 
 `Editor::turn_at` asks `shipdesign::hangs_on_wall` rather than naming the
 wall light, so a picture dropped along a bulkhead hangs from it like a
 lamp, and the ghost painter's edge bar is lamplight for the lamp and the
 frame's brass (`fittings::FRAME_BRASS`) for the picture.
 
-## On a planet there is no space, and the planet grows under a landing
+## On a planet there is no space
 
 `world_paint` (September 2026, feature 52; the rules are
 `crates/world/CLAUDE.md`, "A planet's surface is a settlement"). While
 `World::landed()` says the ship is down, `paint_ship`'s backdrop is the
-**ground** — `ground_color` by the planet's kind, `GROUND_ROCKY` or
-`GROUND_ICE`, darker than the map's disc so the deck and the hull read on
-it — with `ground` scattering darker patches over it at fixed places in
+**ground** — `ground_color` by the planet's biome, darker than the map's
+disc so the deck and the hull read on it — with `ground` scattering darker patches over it at fixed places in
 the camera's units (the ship does not move on the ground, so they need no
 world position); no starfield and no `local_node`; a paved **pad** under
 the hull's whole box in the ship's frame (`pad`, before the rocks and the
@@ -716,19 +696,14 @@ nothing in orbit is in the picture. The settlement is a station to every
 other line of `stations`: its residents' room, its mated gate, its fog by
 stance.
 
-**The descent is the planet's disc growing under the ship.** During a
-landing (`World::landing()`, the body and nought to one) `local_node`
-draws the planet `LANDING_GROWTH` (40) to the power of the progress
-bigger than it draws it held beside — geometric, so the growth reads the
-same all the way down — and during a lift-off (`World::lifting()`) the
-same shrinking; the ship's own position does the rest, since the world
-slides it over the planet and down. `blackout` fades the window to black
-over the last `LANDING_BLACK` of a landing and from black over the first
-`LIFT_BLACK` of a lift-off, a rect over the whole list; the app holds the
-black a beat after `Landed` while the ground is laid out
-(`screens/game.rs`, `BLACKOUT_HOLD`). `BIMS_LANDED=1 bims simulation` is the
-ground; `BIMS_LANDING=0.5` and `=0.85` are the planet come up under the
-ship and the black beginning.
+**There is no descent any more.** A landing was the planet's disc
+growing under the ship (`LANDING_GROWTH` to the power of the progress,
+off `World::landing()`, and the same shrinking off `lifting()`) and the
+window fading to black over its end (`blackout`, `LANDING_BLACK`,
+`LIFT_BLACK`, the app's `BLACKOUT_HOLD`); all of it went with the flown
+landing in feature 104, and so did `BIMS_LANDED` and `BIMS_LANDING`. A
+trip arrives on the ground in one go, and `test_planet`,
+`droids_planet`, `defense` and `BIMS_AFIELD=1` open there.
 
 **A town is drawn as ground, not as a hull** (feature 54; the town
 itself is `crates/world/CLAUDE.md`, "A planet's surface is a
@@ -797,7 +772,8 @@ from a gas giant at a glance; and the app writes its name and `· land`
 **under** the icon (`screens/game.rs`, `LAND_TAG`, `LAND_DROP`; the
 ship's own `You · …` goes over, and a ship docked at the planet's station
 would otherwise have the two on top of each other) in `theme::LAND` —
-`FRIEND` by value — or `theme::BAD` for a hostile one. The words come off
+`FRIEND` by value — or `theme::BAD` for a hostile one (the machines',
+since no town has been an enemy's since feature 104). The words come off
 `Session::landing_sites`, which reads `World::surface` and `World::stance`
 and places each with `Game::map_spot` — the map's arithmetic read back,
 shared with `pick`, so a name lands where the icon was drawn at any
@@ -955,7 +931,8 @@ set and the same checksum. **`SAVE_VERSION` 28.**
 ## The `jammer` command is the crisis with the crew inside it (feature 93)
 
 `Session::jammer_for_probe(tier, reinforce, waves)` is `nix run .#jammer`:
-`crisis_for_probe(DROID_FIRST_DAY)` first — the same random galaxy, the
+`crisis_for_probe(0)` first (it was `DROID_FIRST_DAY`, which went in
+feature 104) — the same random galaxy, the
 same random dock, the origin `CRISIS_HOPS` (2) lane hops off — and then
 the clock wound **past** the day this system falls
 (`World::infested_on(star_id)` plus one) rather than a day short of the
@@ -998,15 +975,17 @@ and only one is a town the machines are coming for next.
 the node, whose the town is, whether it is **threatened**, whether the
 crew **held** it, and where the map draws it — so the app can write
 `threatened` in the enemy's red or `held` in the accent where it would
-otherwise write `land`. `Session::front_premium()` and
-`Session::defending_a_town()` are the other two readings the app takes:
-the first for the trade window's line about a desk near the front, the
-second for the red warning over a town under attack.
+otherwise write `land`. `Session::front_premium()` is the other reading
+the app takes, for the trade window's line about a desk near the front;
+the red warning over a town under attack reads the world straight
+(`World::defense_here`, in `screens::game::droid_warning`), since
+`Session::defending_a_town` went in feature 104.
 
 **`SAVE_VERSION` 30**: `World::defenses` and `World::held_towns` are in
-the file, so a fight paused by a take-off and a town held both survive a
-load — `save_round_trip_keeps_a_held_town_and_an_attack_under_way` in
-`tests.rs`.
+the file, so an attack under way and a town held both survive a load —
+`save_round_trip_keeps_a_held_town_and_an_attack_under_way` in
+`tests.rs`. (The attack was built to pause while the ship was off the
+pad; since feature 103 leaving the town with waves left is losing it.)
 
 ## The walls cast a shade, and the fight's lights are aged here (feature 98)
 
@@ -1032,19 +1011,86 @@ rule reads.
 (`crates/game/CLAUDE.md`, "The fight's passing lights"): the window's
 frame time, nought while paused, handed to the crew's room and the
 station's (`Game::fade`). The game screen calls it once a frame (the
-test room calls `Game::fade` on its own room); a session nobody calls it
-on — every test here — draws the fight exactly as it did before.
+test room called `Game::fade` on its own room, until it went in feature
+104); a session nobody calls it on — every test here — draws the fight
+exactly as it did before.
 
 ## The run's loop, from the session's side (feature 103)
 
-Nothing in `Session` flies any more in a run: the world refuses the helm's
-orders (`World::free_clock` off) and the app's strip is the world map
+Nothing in `Session` flies: a trip is resolved (feature 104 deleted the
+flown one, the helm's orders and the world's old clock with it) and the
+app's strip is the world map
 (`crates/app/src/screens/worldmap.rs`), whose votes go through the seam as
 `Order::{Propose, AcceptTrip, ReturnToShip, LeaveBehind, PlayerGone}` —
 applied at once, so they land on the map where no step is taken. Two
 probes beside the others: `Session::map_for_probe` (`BIMS_MAP=1`, the run
 between missions) and `Session::depart_for_probe` (`BIMS_DEPART=1`, the
-departure check asking). A test here that flies — `the_exhaust_follows_the_plan`
-— turns the world's old clock on first, as the world's own flight tests do.
+departure check asking).
 `a_game_saved_on_the_map_reads_back_on_the_map_and_travels_alike` is the
 save's half: `World::run` is saved whole, and **`SAVE_VERSION` 34**.
+
+## The old game deleted, from the session's side (feature 104)
+
+The world's half is `crates/world/CLAUDE.md` ("The old game deleted");
+the root `CLAUDE.md` has the whole. What this crate lost, all of it
+unreachable in a run since features 102 and 103:
+
+- **The flown picture.** The game's exhaust (`Game::firing`; the game
+  hands `hull::Firing::NONE` to every part, and `hull::Firing` and
+  `exhaust` stay for the designer, which always drew with `NONE`), the
+  starfield's stream (`Game::stream_sky`, `Starfield::advance`, `rate`,
+  `slid` — a run's velocity was nought whatever the sky did), the
+  landing's growing disc and its blackout (`LANDING_GROWTH`,
+  `blackout`, `landing_for_probe`), `Game::preview` and the route line,
+  `map_node`/`map_position`/`map_index_of`, `phase_code`, and the
+  engines' draw in `power_labels` (nought now, "The conduit is drawn
+  linked" above).
+- **The needs' pictures on the deck**: the bunks' tags
+  (`Session::bunk_labels`, `world_paint::bunk_labels`, `Game::bunk_tags`).
+  The fixtures themselves stay, drawn by the room as a fresh room draws
+  them — `paint::fixtures` in the yard and the room's own buffer on the
+  deck.
+- **The human enemies**: the raider in `stations`, its contact plate and
+  its place on the map, the two raid probes, `Session::make_dock_hostile`
+  (and its call in `combat`, which moved no survivor number),
+  `Session::combat_at_tier` (the tier
+  tests are `Session::droids_at_tier`) and `defending_a_town`.
+
+**The tests that moved.** `the_exhaust_follows_the_plan` and
+`a_bunk_s_tag_lands_on_the_bunk_and_turns_with_the_ship` went; the sky's
+and the map click's tests lost their flying halves;
+`the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier` builds
+`droids_at_tier` and takes one `world_step` for the wave to be laid out
+before it reads the arena; the fight's-lights test stands on
+`Session::droids`, crew member 0 put ashore and recruited with
+`put_for_probe`/`recruit_for_probe`; and
+`a_resident_on_the_ship_s_deck_is_drawn_over_it` puts the resident there
+by hand where it staged a human fight. The run test in `tests.rs` asks
+none of the deleted switches. **`SAVE_VERSION` 35** (the history is in
+`save.rs`), and `ship::session::self_check` agrees with the re-pinned
+`REFERENCE_CHECKSUM` (`bims --self-check`).
+
+**`crates/ship/src/tests_survivors.rs` is what says nothing moved**, and
+its constants are **never edited**:
+
+- `PINNED` (`every_command_plays_as_it_did_before_the_old_game_was_deleted`):
+  every command's `Session` built the way `screens::game::open` builds
+  it — `simulation`, `game` (`Session::run`, two players), `droids`,
+  `tier2_test`, `combat_droids_medic`, `test`, `test_planet`,
+  `droids_planet`, `defense`, `crisis` and `jammer`, the random ones at
+  `SEED` 12 345 and `ROLL` 678, the dials at the commands' own values
+  (`REINFORCE`, `WAVES`, `DEFENSE_DELAY`) — stepped a while and read with
+  `world::fixture::Survivors`, only the state that outlived the deletion.
+- `PICTURES` (`the_fixtures_and_a_run_s_deck_are_drawn_as_they_were`):
+  the designer's fixtures on the playtest ship and on the combat ship
+  (`paint::fixtures`), and a run's deck (`Session::render`) on
+  `simulation` and on `droids` six hundred steps into the fight, hashed
+  bit for bit. The fixtures that do nothing stayed as pictures, and this
+  is what holds them to the picture they were. A picture drawn the same
+  another way moves it, so it is re-pinned only by a change that says in
+  the test's note why it is the same picture.
+
+Both numbers were taken off `needs-sim-final` before anything was
+deleted. About two minutes: `cargo test -p ship --lib tests_survivors`.
+If one moves, a run plays or draws differently — find why and put it
+back.

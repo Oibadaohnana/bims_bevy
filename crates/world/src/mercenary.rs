@@ -1,13 +1,12 @@
 //! Mercenaries: hired hands living at friendly stations, paid by the month.
 //!
-//! A station whose people are not enemies may have a mercenary or two
-//! living among them — extra bodies in the residents' room, in the
-//! olive coverall (`bims::character::Uniform::Mercenary`) so they are told
+//! A station the machines do not hold may have a mercenary or two living
+//! among its people — extra bodies in the residents' room, in the olive
+//! coverall (`bims::character::Uniform::Mercenary`) so they are told
 //! from the residents at a glance, armed better than a resident
 //! (`Gear::hired_for`) and for hire. How many is [`how_many`]: a function
-//! of the crew's worth against what they set out with, the way an enemy
-//! garrison is (`crate::station::enemies_of`), plus a roll off the
-//! station's seed — so at the start worth one turns up at some stations
+//! of the crew's worth against what they set out with, plus a roll off
+//! the station's seed — so at the start worth one turns up at some stations
 //! and none at the rest, and a richer crew finds more. The world derives
 //! all of it from the seed and the worth when the room opens; nothing new
 //! is hashed for a mercenary standing at a station.
@@ -24,12 +23,12 @@
 //! # Hired, a mercenary is crew that costs money
 //!
 //! `Command::Hire` (`World::hire`) moves the body out of the residents'
-//! room into the crew's — a bunk aboard, the first month paid down — and
-//! records a [`Hired`]: which crew member, the fee, and when the next
-//! month falls due. Every step [`World::pay_wages`] pays what has fallen
-//! due out of the crew's money; a month the money will not cover has
-//! the mercenary leave at the dock — back into the station's room,
-//! for hire again — or wait for one. Slots and mercenaries do not mix:
+//! room into the crew's — the first month paid down — and records a
+//! [`Hired`]: which crew member, the fee, and when the next month falls
+//! due. A trip that puts the world clock on pays what has fallen due out
+//! of the crew's money (`World::pay_wages`); a month the money will not
+//! cover is owed, said once, and the hand sails on owed until it is
+//! paid. Slots and mercenaries do not mix:
 //! a mercenary is appended after the players, takes no orders of its
 //! own and asks for no speed. `Hired` is in `world_checksum`.
 
@@ -116,8 +115,6 @@ pub struct Offer {
     pub in_reach: bool,
     /// Whether the money in hand covers the first month.
     pub affordable: bool,
-    /// Whether there is a bunk aboard for one more.
-    pub bunk: bool,
     /// Whether the ship is tied up at the station the body lives on.
     pub docked: bool,
     /// Whether the body is a field medic (feature 86), so the window can

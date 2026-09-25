@@ -92,9 +92,11 @@ has no line in `ISSUE_LINES` is **dropped from the page**, exactly as a diary
 entry with no `MEMORY_LINES` is. What catches it is the row count against
 `ship_issue_count()`, and nothing else would.
 
-The game half has four more tables with the same rule: `PLAN_ERRORS`,
-`REFUSALS`, `PHASE_NAMES` and `EVENT_LINES`, plus `BODY_KIND_NAMES` and
-`STATION_KIND_NAMES` for what is on the map. A `WorldEvent` whose code has no
+The game half has more tables with the same rule — `REFUSALS` and
+`EVENT_LINES`, plus `BODY_KIND_NAMES` and `STATION_KIND_NAMES` for what
+is on the map; `PLAN_ERRORS` and `PHASE_NAMES` were the flown trip's and
+went with it in feature 104 (a refusal and an event are matched by
+variant in `names.rs` now, and a deleted one leaves its code free). A `WorldEvent` whose code has no
 line in `EVENT_LINES` is dropped from the log the same way.
 
 ## Power is a column, a flood and one number
@@ -116,15 +118,17 @@ table is not). Only a network with a reactor is `live()`. `validate` warns
 `PowerShort = 34` (one per live run drawing more than it makes, tiles = the
 run); neither is an error, for the flight warnings' reason.
 
-`World::run_power` is stage 6: `charge += (supply − draw − engines) · STEP_MINUTES`,
-clamped to the wired batteries' storage, closed form — `engines` being what
-the lit set draws this step, off the plan's effort (see "There is no fuel"). `Power::brownout()`
+`World::run_power` is stage 6: `charge += (supply − draw) · STEP_MINUTES`,
+clamped to the wired batteries' storage, closed form — the engines drew
+`engines` on top, off the plan's effort, until feature 104 took the flown
+trip away (see "There is no fuel"). `Power::brownout()`
 is `draw > supply && charge == 0`, and `World::powered(kind)` is what a
 chain asks: some part of that kind wired, and not browned out unless
-the kind is essential. The benches, the research desk and the hyperdrive
-read it, and what the brownout does to the rest — the lamps, the bay, the
-cold store's food — is `World::run_brownout`, `crates/world/CLAUDE.md`
-"A brownout is dark, asleep and spoiling". **The lamps draw** (September
+the kind is essential. The benches and the research desk read it, and
+what the brownout does to the rest — the lamps, and nothing else since
+the bay and the cold store's food went with the needs in feature 104 —
+is `World::run_brownout`, `crates/world/CLAUDE.md` "A brownout is dark,
+and none of it is lethal". **The lamps draw** (September
 2026): `WALL_LIGHT_POWER` 25 and `STANDING_LIGHT_POWER` 40 on the two
 light rows, so a lamp is a consumer like the cold store — `Unpowered`
 warns about one on no live run, and the world darkens it. `power::powered_parts`
@@ -469,9 +473,9 @@ times the push for three and a half times the weight, so the heavy one is the
 better engine per tonne and the worse one to carry, and a 3×4 for €75 000
 against a 2×3 for €20 000. **Nothing lists the two kinds.** `PartDef::pushes()`
 (`thrust > 0.0`) is the question, and `turns()` is its partner for the
-thruster; the validator, `mass::engines`, `flight::dynamics`,
-`World::can_modify_part` and the painter's `exhaust` and `part` all ask it,
-so a third size is one row in the table. `defs_are_sound` is the one place
+thruster; the validator, `mass::engines`, `flight::dynamics` and the
+painter's `exhaust` and `part` all ask it (and `World::can_modify_part`
+did, until feature 104), so a third size is one row in the table. `defs_are_sound` is the one place
 the kinds are named, because it is the thing checking the column.
 
 **Power goes as thrust, not as a count of engines.** `PartDef::thrust_power`
@@ -528,6 +532,14 @@ engine's price, because it is the dearest part there is and the
 bigger price wants that fixture moved with it.
 
 ## The required-fixture list is a mirror of the chains
+
+> **Since feature 104 no chain walks to any of these.** The room's needs
+> — the cooking, the eating, the heads, the sleeping — were deleted, and
+> the galley, the heads, the table, the bunks and the bay are pictures on
+> the deck now (their frames still solids, a bunk still a shelter and a
+> stop on a round). `shipdesign` was not touched, so the list and the
+> `TooFewBunks`/`TooFewChairs` checks stand as the designer's own, and
+> what follows is why they were written.
 
 `REQUIRED` in `crates/shipdesign/src/validate.rs` is table, cold store,
 worktop, hob, dishwasher, toilet, basin, with bunks and chairs counted against
@@ -633,15 +645,17 @@ which tile is exactly in the middle moves every time the ship does, and
 one build it was a frame tile with something standing on it.
 
 **The combat ship is the playtest ship with berths for five, and the
-`combat` command puts fourteen aboard.** `fixture::combat_ship()` is
+fight puts sixteen aboard.** `fixture::combat_ship()` is
 `playtest_ship()` plus four bunks at `COMBAT_BUNKS` and four chairs at
 `COMBAT_CHAIRS`, put down through `apply` after the cargo;
 `COMBAT_BERTHS` is 5 and it validates clean for that many, and
-`COMBAT_CREW` is 14 — what the command puts aboard, nine more than the
-ship sleeps, which the validator says (`TooFewBunks`) and the command
-does not ask it; the nine stand on the deck (`bims::aboard::starts`)
-and share the last bunk at night (`the_combat_ship_sleeps_a_crew_of_five`
-pins both numbers). The bunks are on
+`COMBAT_CREW` is 16 — what `Session::combat` (under `bims droids`) puts
+aboard, eleven more than the ship sleeps, which the validator says
+(`TooFewBunks`) and the session does not ask it; the eleven stand on the
+deck (`bims::aboard::starts`) and shared the last bunk at night while
+the room still slept (`the_combat_ship_sleeps_a_crew_of_five` pins both
+numbers). The `combat` command itself went in feature 102 and nobody
+has slept since feature 104. The bunks are on
 the **bridge** — one lying along the bow to port at `(6, 2)` `R270`,
 two standing against the life support at `(13, 2)` and `(13, 4)`, one
 beside the battery at `(5, 4)` `R180` — because the main deck's aft
@@ -913,13 +927,14 @@ a deck nicer. `parts::comfort(kind)` is the table — a `Comfort { lift,
 tiles }`: the small plant 2 over two tiles out, the picture 3 over three,
 the big plant 5 over three (`SMALL_PLANT_LIFT` … `BIG_PLANT_TILES`),
 priced 150, 250 and 450 so dearer is better — and `is_comfort` the
-question. What the lift *does* is the room's: `bims::filth` lays every
+question. What the lift *did* was the room's: `bims::filth` laid every
 comfort over its tile grid (`Filth::set_comforts`, capped at
 `LIFT_CAP` = a clean tile's 10) and `Filth::around` — the average the
-**surroundings** need follows, which `Need::Cleanliness` was renamed to
-— adds the lift of the tile the Bim stands on. `aboard.rs` reads the
-table the way it reads `light_tiles`, so a fourth comfort is one arm
-there and a picture in `ship::fittings`. None draws, none is worked,
+**surroundings** need followed, which `Need::Cleanliness` was renamed to
+— added the lift of the tile the Bim stood on. The surroundings went
+with the room's needs in feature 104, so nothing reads the lift now; the
+table stands, since this crate was not touched, and a comfort is a
+picture in `ship::fittings` and a solid where it blocks. None draws, none is worked,
 every one is seen over (the big plant is in `blocks_sight`'s low list;
 the other two are walked past or under).
 
@@ -952,15 +967,17 @@ kind. Each is a unit of metal, the placeholder mass everything carries.
 
 The **field** is the hydroponic bay's row — `(6, 1)`, worked from the
 six tiles on its north side, blocks movement, seen over — with **no
-draw**: there is nothing to plug in, so a brownout never stops it, and
-the room grows it at half a bay's pace (`bims::hydro::Bay::field`,
-`FIELD_PACE`). The four kinds of wild are a tile each, walked round: a
+draw**: there is nothing to plug in, so a brownout never stopped it,
+and the room grew it at half a bay's pace (`bims::hydro::Bay::field`,
+`FIELD_PACE`) until the bay's growing went with the needs in feature
+104; it is a picture now. The four kinds of wild are a tile each, walked round: a
 **tree** and a **boulder** stop a line of sight (a band of trees is a
 forest, a line of boulders a cliff), a **shrub** and a tile of **water**
 are seen over. `blocks_sight` names the three that are seen over beside
 the bay and the big plant. A tree is a comfort worth the big plant's
 lift and a shrub the small plant's (`comfort`), so the ground under
-them is a nicer place to stand; the comfort test excepts the tree from
+them was a nicer place to stand while the surroundings counted; the
+comfort test excepts the tree from
 "every comfort is seen over" for exactly that reason. What each looks
 like — by biome — is the painter's (`ship::fittings::part_in`).
 

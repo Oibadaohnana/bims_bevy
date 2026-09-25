@@ -14,7 +14,7 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bims::order::CrewOrder;
-use bims::room::{HIT_BIM, HIT_DOOR, HIT_DROPPED, HIT_SHIP_DOOR};
+use bims::room::{HIT_BIM, HIT_DROPPED, HIT_SHIP_DOOR};
 use flight::Target;
 use physics::{Facing, ResourceId};
 use ship::Session;
@@ -1389,7 +1389,6 @@ fn frame(
         overlay: session.game.as_ref().map(|g| g.overlay).unwrap_or_default(),
         crafts: crafts(session),
         keep: Vec::new(),
-        at_rest: session.game.as_ref().is_some_and(|g| g.world.at_rest()),
         shipyard: session
             .game
             .as_ref()
@@ -1604,7 +1603,7 @@ fn frame(
                     // row): never the deck it lies on.
                     // The order is given when the button comes up: held and
                     // dragged, it is a line the crew form along.
-                    if fixture == 0 || fixture == HIT_SHIP_DOOR || fixture == HIT_DOOR {
+                    if fixture == 0 || fixture == HIT_SHIP_DOOR {
                         screen.order_from = Some(p);
                         room.order_drag_begin(rx, ry);
                     }
@@ -3468,13 +3467,8 @@ fn facts_panel(ui: &mut egui::Ui, session: &Session, net: &Net) {
     } else {
         String::new()
     };
-    let engines = if power.engines > 0.0 {
-        format!(" + {} to the engines", power.engines.round())
-    } else {
-        String::new()
-    };
     let power_line = format!(
-        "{} drawn{engines} of {} made{batteries}{}",
+        "{} drawn of {} made{batteries}{}",
         power.draw.round(),
         power.supply.round(),
         if power.brownout() {

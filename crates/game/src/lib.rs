@@ -1,48 +1,41 @@
 //! Bims — the room.
 //!
-//! The Bims' simulation: two characters on a deck, their needs, their errands
-//! and the fixtures they use, and the drawing of all of it as a flat list of
-//! shapes. Nothing in here knows what a window is. `crates/app` owns a
-//! [`game::Game`] — on its own as the behaviour test room, or aboard the
-//! designed ship through `crates/world` — steps it, and turns
-//! [`game::Game::shapes`] into pixels. The panels, the menus and every word on
-//! screen are the app's; what crosses out of here is numbers and shapes, and
-//! that is deliberate: a native server will one day run this same room and
-//! it has no words to say either.
+//! The Bims' simulation: the bodies on a deck, their errands, their fight,
+//! the machines they fight, and the drawing of all of it as a flat list of
+//! shapes. Nothing in here knows what a window is. `crates/world` owns a
+//! [`game::Game`] aboard the designed ship and on every station's deck,
+//! steps it, and the app turns [`game::Game::shapes`] into pixels. The
+//! panels, the menus and every word on screen are the app's; what crosses
+//! out of here is numbers and shapes, and that is deliberate: a native
+//! server will one day run this same room and it has no words to say
+//! either.
 
 // Public, because the ship game runs this room aboard the designed ship —
 // `world` reaches `aboard`, `game`, `room` and `math` — and the app drives
 // it through `game` and names what it is told through `room`'s codes.
 pub mod aboard;
 pub mod balance;
-pub mod bath;
 pub mod bim;
+pub mod blood;
 pub mod character;
 pub mod clock;
 pub mod combat;
 pub mod cue;
-pub mod dish;
 pub mod door;
 pub mod draw;
 pub mod droid;
-pub mod filth;
+pub mod fixtures;
 pub mod fx;
-pub mod galley;
 pub mod game;
 pub mod health;
-pub mod hydro;
-pub mod manager;
 pub mod math;
 pub mod memory;
 pub mod nav;
-pub mod needs;
 pub mod order;
 pub mod rng;
 pub mod room;
 pub mod routine;
-pub mod schedule;
 pub mod sight;
-pub mod social;
 pub mod task;
 pub mod terrain;
 pub mod work;

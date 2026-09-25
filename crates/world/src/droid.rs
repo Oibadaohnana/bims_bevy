@@ -149,8 +149,8 @@ pub fn worth_steps(worth: Money, start_worth: Money) -> u32 {
     ((worth - start_worth) / step) as u32
 }
 
-/// Whole [`data::ENEMIES_DAYS`] the world has run: the same calendar
-/// step a garrison grows by.
+/// Whole [`data::ENEMIES_DAYS`] the world has run: the calendar step a
+/// wave and a station's count of waves grow by.
 pub fn day_steps(days_gone: u32) -> u32 {
     days_gone / data::ENEMIES_DAYS
 }
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn the_days_step_is_the_garrison_s_calendar() {
+    fn the_days_step_is_a_month_of_the_calendar() {
         assert_eq!(day_steps(0), 0);
         assert_eq!(day_steps(data::ENEMIES_DAYS - 1), 0);
         assert_eq!(day_steps(data::ENEMIES_DAYS), 1);
@@ -343,8 +343,8 @@ pub fn arrival_airlock(design: &ShipDesign) -> Option<Port> {
 }
 
 /// The spot `tiles` inside an airlock, in the design's own world units:
-/// where a wave is posted, the way a raider's boarders are posted at the
-/// ship's gangway.
+/// where a reinforcement wave is posted, off the airlock its ship tied
+/// up at.
 pub fn inside_of(port: &Port, tiles: f64) -> (f64, f64) {
     let reach = tiles * TILE as f64;
     (

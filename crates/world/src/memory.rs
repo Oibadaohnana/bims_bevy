@@ -3,21 +3,20 @@
 //! Two things used to be forgotten. A station's room is dropped when the
 //! ship is fifty tiles from its hull (`World::settle_residents`) and
 //! opened again on the way back with its people at their bunks — every
-//! one of them, the dead included — so a garrison shot to the last man
-//! stood up again the moment the ship had gone a little way off. And a
-//! jump replaced every part of the world that belonged to the system —
-//! the hostile list, the keys on the desks, the
-//! plundered shelves, the lamps shot out, the chart — so a jump away and
-//! back was a system as the generator rolled it, the key back on the
-//! desk and the rocks back in the belt.
+//! one of them, the dead included — so a town that lost its people to
+//! the machines stood them up again the moment the ship had gone a
+//! little way off. And a jump replaced every part of the world that
+//! belonged to the system — the keys on the desks, the lamps shot out,
+//! the chart — so a jump away and back was a system as the generator
+//! rolled it, the key back on the desk and the rocks back in the belt.
 //!
 //! Now both are kept. [`Losses`] is what a station has lost to the crew:
 //! how many of its own are dead and how many of the mercenaries who
 //! lived there are gone — hired away, or dead — added to whenever its
 //! room is closed (`World::close_residents`) and read off by
 //! `World::people_of` and `World::mercenaries_of` when it is opened
-//! again, so a raided station opens with the survivors and an emptied one
-//! opens empty. [`SystemMemory`] is everything else a system holds that
+//! again, so a station that lost people opens with the survivors and an
+//! emptied one opens empty. [`SystemMemory`] is everything else a system holds that
 //! the crew have changed — the per-system fields of the world, lifted
 //! out as one struct — filed by star when the ship jumps out
 //! (`World::remember_system`) and put back when it jumps in
@@ -46,7 +45,6 @@ use bims::character::Look;
 use bims::combat::Gear;
 use worldgen::Node;
 
-use crate::plunder::Plunder;
 use crate::world::LampDamage;
 
 /// What one station has lost to the crew, by the station's id: its own
@@ -57,13 +55,12 @@ use crate::world::LampDamage;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Losses {
     pub station: u32,
-    /// Of the station's own people — the residents, or the garrison —
-    /// how many are dead. Comes off `World::people_of` when the room
+    /// Of the station's own people, how many are dead. Comes off `World::people_of` when the room
     /// opens again.
     pub dead: u32,
     /// Of the mercenaries for hire who lived there, how many are gone:
     /// hired onto the crew, or dead where they stood. Comes off
-    /// `World::mercenaries_of`; one dismissed back ashore puts one back.
+    /// `World::mercenaries_of`.
     pub mercenaries: u32,
 }
 
@@ -168,14 +165,8 @@ pub fn set_graves(graves: &mut Vec<Grave>, station: u32, laid: Vec<Grave>) {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SystemMemory {
     pub star: u32,
-    /// `World::hostile`: whose people are enemies, sorted by id.
-    pub hostile: Vec<u32>,
-    /// `World::reinforcements`: the arena's extra garrison.
-    pub reinforcements: u32,
     /// `World::station_keys`: which tier of key each desk still has.
     pub station_keys: Vec<u8>,
-    /// `World::plunder`: every enemy's shelf as it was left.
-    pub plunder: Vec<Plunder>,
     /// The stations' lamps of `World::lamps` — the ship's own stay with
     /// the ship.
     pub lamps: Vec<LampDamage>,
@@ -200,14 +191,12 @@ pub struct SystemMemory {
 
 impl SystemMemory {
     /// What is left of a system's memory once the machines have it
-    /// (feature 92): the chart, the rocks, the shelves and the keys
-    /// stand — the crew saw those and they are still there — but the
-    /// people are gone, so whose side they were on and what the crew did
-    /// to them is no longer anything the crew will meet. The
-    /// infestations stay: they are how a station the crew cleared stays
-    /// cleared.
+    /// (feature 92): the chart, the rocks and the keys stand — the crew
+    /// saw those and they are still there — but the people are gone, so
+    /// what the crew did to them is no longer anything the crew will
+    /// meet. The infestations stay: they are how a station the crew
+    /// cleared stays cleared.
     pub fn overrun(&mut self) {
-        self.hostile.clear();
         self.losses.clear();
         self.graves.clear();
     }

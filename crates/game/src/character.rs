@@ -5,9 +5,7 @@ use crate::combat::{ArmourKind, WeaponKind};
 use crate::draw::{Brush, Color, DrawList};
 use crate::math::{PI, Rect, TAU, Vec2, angle_lerp, approach, clamp, lerp, vec2, wrap_angle};
 use crate::rng::Rng;
-use crate::room::{
-    BROOM_HEAD, BROOM_POLE, Dish, GRIP, STEEL, draw_knife, draw_plate, draw_spoon, draw_stew_tub,
-};
+use crate::room::STEEL;
 
 // --- behaviour tuning ---------------------------------------------------
 
@@ -40,7 +38,7 @@ const ARRIVE_SETTLE: f32 = 0.9;
 /// and count as arrived: a tile. A route on a window ends on a tile's
 /// middle, so a spot on the deck reached from the plain is reached
 /// exactly, and a click on the ground is reached to within the tile.
-const FAR_LEG: f32 = crate::filth::TILE;
+const FAR_LEG: f32 = crate::room::TILE;
 /// How much bigger the Bim is drawn than the original sprite. Everything about
 /// the body — parts, arm reach, where held items sit — goes through this, so the
 /// proportions against the pot and the table stay as designed.
@@ -69,11 +67,10 @@ const EDGE_MARGIN_MAX: f32 = 120.0;
 /// How far from a piece of furniture the Bim starts going round it.
 const AVOID_RANGE: f32 = 54.0;
 
-/// One up-and-down of the knife, and one trip of the fork to the mouth. Tasks
-/// count their steps in these units so the animation and the state agree.
+/// One up-and-down of the hands at work — a site being put together, a kit
+/// laid. Tasks count their steps in these units so the animation and the
+/// state agree.
 pub const CHOP_PERIOD: f32 = 0.34;
-pub const SCOOP_PERIOD: f32 = 0.62;
-pub const BITE_PERIOD: f32 = 0.95;
 
 // --- look ---------------------------------------------------------------
 
@@ -113,10 +110,6 @@ const HAIR_BAND: Color = Color::rgb(0.55, 0.20, 0.25);
 const BOOT: Color = Color::rgb(0.24, 0.18, 0.13);
 const OUTLINE: Color = Color::rgba(0.05, 0.08, 0.07, 0.55);
 const SHADOW: Color = Color::rgba(0.0, 0.0, 0.0, 0.20);
-const VEG: Color = Color::rgb(0.44, 0.68, 0.24);
-const VEG_DARK: Color = Color::rgb(0.30, 0.50, 0.16);
-const TOFU: Color = Color::rgb(0.93, 0.91, 0.82);
-const TOFU_EDGE: Color = Color::rgb(0.78, 0.76, 0.66);
 /// A crate of materials on the way to a construction site, and the strap
 /// round it.
 const CRATE: Color = Color::rgb(0.55, 0.47, 0.32);
@@ -124,11 +117,8 @@ const CRATE_STRAP: Color = Color::rgb(0.32, 0.27, 0.19);
 /// A medkit's white box, and the cross on it.
 const MEDKIT: Color = Color::rgb(0.92, 0.93, 0.92);
 const MEDKIT_CROSS: Color = Color::rgb(0.80, 0.16, 0.16);
-/// What a Bim that has had an accident is covered in. The same colour as the
-/// mess on the deck, so the two read as the same substance.
-const GRIME: Color = Color::rgb(0.24, 0.18, 0.09);
-/// The Zs that float off a sleeping Bim.
-const SLEEP_Z: Color = Color::rgb(0.80, 0.90, 0.95);
+/// A pick's haft.
+const HAFT: Color = Color::rgb(0.55, 0.44, 0.31);
 /// The same body, with everything warm taken out of it.
 const GONE_SHIRT: Color = Color::rgb(0.30, 0.36, 0.42);
 const GONE_SLEEVE: Color = Color::rgb(0.25, 0.30, 0.36);
@@ -728,29 +718,9 @@ impl FallBack {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Held {
     Nothing,
-    Vegetable,
-    /// A block of tofu, which is a vegetable as far as the chain is concerned
-    /// and a different shape as far as the eye is.
-    Tofu,
-    /// What came off the board: rounds of vegetable and cubes of tofu, in
-    /// two hands on the way to the pot.
-    Chopped {
-        rounds: u32,
-        cubes: u32,
-    },
-    /// A plain fork, for eating at the table.
-    Fork,
-    Knife,
-    Spoon,
-    /// The broom, out of its locker.
-    Broom,
     /// A pick, for a rock outside. In the tool hand, and swung the way the
     /// knife is.
     Pick,
-    /// A plate or a bowl, carrying how full it is and which it is.
-    Plate(f32, Dish),
-    /// A pot of stew in a tub, on its way to the cold store or back from it.
-    Stew,
     /// A crate of materials off a shelf, on its way to a construction site.
     /// The room never knows what is in it: the count is the world's.
     Crate,
@@ -765,27 +735,9 @@ pub enum Action {
     None,
     /// Arms out in front: opening a door, setting something down, reaching in.
     Reach,
-    /// The knife going up and down on the board.
+    /// The hands going up and down at work: a site being put together, a
+    /// kit being laid.
     Chop,
-    /// The spoon swinging from the pot across to the plate.
-    Serve,
-    /// Cutlery going from the plate to the mouth and back.
-    Eat,
-    /// Out cold, arms tucked in, breathing slowly.
-    Sleep,
-    /// Both hands together under the tap, turning over one another.
-    Wash,
-    /// Hopping on the spot: what a Bim that needs the heads does while it
-    /// waits, and the only warning the player gets before an accident.
-    Fidget,
-    /// Both hands on a broom, working it across the deck.
-    Sweep,
-    /// Doubled over, being sick on the deck.
-    Retch,
-    /// Talking to the other one: a hand comes up and drops again, the way one
-    /// does. The *words* are the host's — no strings cross this boundary — so
-    /// all the simulation ever draws is the gesture.
-    Talk,
     /// A swing of the schword: the blade sweeps an arc in front of the
     /// body over [`SWING_TIME`].
     Swing,
@@ -796,20 +748,10 @@ pub enum Action {
     Bandage,
 }
 
-/// One turn of the hands under the tap.
-const SCRUB_PERIOD: f32 = 0.55;
-/// One stroke of the broom across the deck and back.
-const SWEEP_PERIOD: f32 = 0.9;
-
-/// One hop on the spot, and one heave.
-const HOP_PERIOD: f32 = 0.42;
-const HEAVE_PERIOD: f32 = 0.75;
-/// One rise and fall of the hand while talking.
-const TALK_PERIOD: f32 = 1.1;
 /// One turn of the hands round each other while a bandage is wound.
 const WRAP_PERIOD: f32 = 0.7;
 
-/// How long one breath takes while asleep, in seconds.
+/// How long one breath takes lying out cold, in seconds.
 const BREATH_PERIOD: f32 = 5.4;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -861,25 +803,21 @@ pub struct Character {
     lingering: bool,
     /// A direction to turn to on the spot, used between scripted steps.
     face_target: Option<f32>,
-    seated: bool,
 
     main: Held,
     tool: Held,
     action: Action,
     action_phase: f32,
 
-    /// How fast it walks, as a fraction of its usual pace. Hunger slows it.
+    /// How fast it walks, as a fraction of its usual pace. A wound slows it.
     pace: f32,
     /// Once dead it does nothing at all, and is drawn where it fell.
     dead: bool,
-    /// Dropped off standing up. Holds still, keeps whatever it was carrying
-    /// and whatever route it was on, and picks both up again on waking.
-    napping: bool,
     /// Under direct orders: it stands where it is put rather than pottering
     /// about, and nothing starts of its own accord.
     recruited: bool,
-    /// Where it has been told to stand and stay — the helm, the far side of
-    /// an airlock. It holds still there rather than pottering about, goes
+    /// Where it has been told to stand and stay — a spot on the deck, the
+    /// far side of an airlock. It holds still there rather than pottering about, goes
     /// off on its errands as usual, and walks back afterwards; only a fresh
     /// order or the room letting it go takes the post away. See
     /// `Game::send_to`.
@@ -893,8 +831,7 @@ pub struct Character {
     outfit: Outfit,
     /// Outside the hull, in a suit. Mechanically this is sitting — put
     /// somewhere by a chain and held there — at a spot beyond the skin,
-    /// and `worn` is the coverall to go back into. Read by the world to
-    /// dose the body; see `Game::is_outside`.
+    /// and `worn` is the coverall to go back into. See `Game::is_outside`.
     outside: bool,
     worn: Uniform,
     /// Out on a planet's plain, past the deck's grids: walking a window of
@@ -906,11 +843,7 @@ pub struct Character {
     /// there when it does (`Game::continue_far_walk`). Not arrived until
     /// this is `None`.
     far: Option<Vec2>,
-    /// How filthy the Bim itself is, 0 clean to 1 covered. Kept here rather
-    /// than with the deck's own mess because this is the share that walks
-    /// away with it.
-    filth: f32,
-    /// Seconds left of a hop or a heave. Both are short and both end by
+    /// Seconds left of a swing or a punch. Both are short and both end by
     /// themselves, so nothing else has to remember to stop them.
     antic: f32,
     /// Weapon drawn: in combat mode, and which, for the picture in the
@@ -953,8 +886,7 @@ pub struct Character {
     surging: bool,
     /// Out cold for want of blood: lying where it dropped, alive, doing
     /// nothing until it comes round. Set by `Game::tick_bim` off the
-    /// health, the way napping is set off drowsiness; unlike a nap it
-    /// drops the route and stands the body up out of whatever it sat in.
+    /// health; it drops the route.
     unconscious: bool,
     /// Which parts have an open wound — head, body, legs — for the blotch
     /// drawn on each. Drawing only; `Game::wound` and the bandage set it.
@@ -996,14 +928,12 @@ impl Character {
             scripted: false,
             lingering: false,
             face_target: None,
-            seated: false,
             main: Held::Nothing,
             tool: Held::Nothing,
             action: Action::None,
             action_phase: 0.0,
             pace: 1.0,
             dead: false,
-            napping: false,
             recruited: false,
             post: None,
             uniform: Uniform::Crew,
@@ -1012,7 +942,6 @@ impl Character {
             worn: Uniform::Crew,
             afield: false,
             far: None,
-            filth: 0.0,
             antic: 0.0,
             armed: None,
             lean: None,
@@ -1121,7 +1050,6 @@ impl Character {
             self.timer = 0.0;
         } else {
             self.face_target = None;
-            self.seated = false;
             self.main = Held::Nothing;
             self.tool = Held::Nothing;
             self.action = Action::None;
@@ -1154,25 +1082,6 @@ impl Character {
             None => true,
             Some(a) => wrap_angle(a - self.heading).abs() < 0.12,
         }
-    }
-
-    pub fn sit(&mut self, at: Vec2, facing: f32) {
-        self.pos = at;
-        self.seated = true;
-        self.speed = 0.0;
-        self.target_speed = 0.0;
-        self.face_target = Some(facing);
-    }
-
-    /// Lie down on a bed. Mechanically this is sitting — the Bim is put where
-    /// the furniture says and holds still until told otherwise — but saying so
-    /// at the call site is worth the three lines.
-    pub fn lie(&mut self, at: Vec2, facing: f32) {
-        self.sit(at, facing);
-    }
-
-    pub fn stand(&mut self) {
-        self.seated = false;
     }
 
     /// Stop where it is: the walk dropped, the feet still. What a patient
@@ -1266,12 +1175,9 @@ impl Character {
         ok
     }
 
-    /// Get up and end up standing at `at`, which is how you leave a bed: the
-    /// Bim was lying in the middle of it, and the floor beside it is the only
-    /// place it can actually stand.
+    /// Stand the body at `at`, put there rather than walked.
     pub fn stand_at(&mut self, at: Vec2) {
         self.pos = at;
-        self.stand();
     }
 
     pub fn hold_main(&mut self, item: Held) {
@@ -1290,17 +1196,6 @@ impl Character {
         self.tool
     }
 
-    /// Where the Bim is sitting or lying and which way it faces, if it is on
-    /// anything at all. Saved when a task is put down, because standing up is
-    /// part of letting go of one.
-    pub fn seat(&self) -> Option<(Vec2, f32)> {
-        if self.seated {
-            Some((self.pos, self.face_target.unwrap_or(self.heading)))
-        } else {
-            None
-        }
-    }
-
     /// How fast it walks, as a fraction of its usual pace.
     pub fn pace(&self) -> f32 {
         self.pace
@@ -1308,20 +1203,6 @@ impl Character {
 
     pub fn set_pace(&mut self, pace: f32) {
         self.pace = pace;
-    }
-
-    /// Drop off on the spot, or come round again. Unlike dying or being sent
-    /// to bed this keeps the path and the hands exactly as they were, so the
-    /// Bim carries on with whatever it was doing.
-    pub fn nod_off(&mut self, napping: bool) {
-        self.napping = napping;
-        self.speed = 0.0;
-        self.target_speed = 0.0;
-        self.set_action(if napping { Action::Sleep } else { Action::None });
-    }
-
-    pub fn is_napping(&self) -> bool {
-        self.napping
     }
 
     pub fn set_recruited(&mut self, recruited: bool) {
@@ -1423,8 +1304,7 @@ impl Character {
 
     /// Out cold, or come round. Going out drops the walk — whatever it
     /// was doing with its hands is the chain's to put down, and `Game`
-    /// interrupts the errand first — and it lies where it stood: not
-    /// seated, so nothing holds it in a bunk it has fallen out of.
+    /// interrupts the errand first — and it lies where it stood.
     pub fn knock_out(&mut self, out: bool) {
         self.unconscious = out;
         if out {
@@ -1432,7 +1312,6 @@ impl Character {
             self.activity = Activity::Pausing;
             self.speed = 0.0;
             self.target_speed = 0.0;
-            self.seated = false;
             self.antic = 0.0;
             self.set_action(Action::None);
         }
@@ -1460,7 +1339,6 @@ impl Character {
         self.path.clear();
         self.speed = 0.0;
         self.target_speed = 0.0;
-        self.seated = false;
         self.main = Held::Nothing;
         self.tool = Held::Nothing;
         self.action = Action::None;
@@ -1478,14 +1356,7 @@ impl Character {
         self.path.clear();
         self.speed = 0.0;
         self.target_speed = 0.0;
-        self.seated = false;
         self.action = Action::None;
-    }
-
-    /// Sitting or lying: put there by a chain, and not to be shoved about by
-    /// anything outside it.
-    pub fn is_seated(&self) -> bool {
-        self.seated
     }
 
     pub fn set_action(&mut self, action: Action) {
@@ -1495,31 +1366,11 @@ impl Character {
         }
     }
 
-    // --- mess -------------------------------------------------------------
-
-    /// How filthy the Bim itself is, 0 to 1.
-    pub fn filth(&self) -> f32 {
-        self.filth
-    }
-
-    /// Cover it in something. Takes the worse of what it has on it already and
-    /// what it has just picked up: an accident cannot make a Bim cleaner.
-    pub fn soil(&mut self, amount: f32) {
-        self.filth = self.filth.max(amount).clamp(0.0, 1.0);
-    }
-
-    /// Get some of it off again. Washing at the basin is the only thing that
-    /// does this so far, and it is worth what a basin is worth.
-    pub fn wash(&mut self, amount: f32) {
-        self.filth = (self.filth - amount).max(0.0);
-    }
-
-    /// Hop about on the spot for a moment, or be sick. Neither disturbs what
-    /// the Bim was doing — they are things that happen *to* it — so both are
-    /// refused outright while it is in the middle of a scripted step, where
-    /// the pose belongs to the chain.
+    /// A swing or a punch, for a moment. Neither disturbs what the Bim was
+    /// doing, so both are refused outright while it is in the middle of a
+    /// scripted step, where the pose belongs to the chain.
     pub fn antic(&mut self, action: Action, seconds: f32) {
-        if self.scripted || self.seated || self.dead || self.napping || self.unconscious {
+        if self.scripted || self.dead || self.unconscious {
             return;
         }
         self.set_action(action);
@@ -1693,7 +1544,7 @@ impl Character {
     }
 
     pub fn update(&mut self, dt: f32, interior: Rect, solids: &[Rect], rng: &mut Rng) {
-        if self.dead || self.napping || self.unconscious {
+        if self.dead || self.unconscious {
             // Nothing moves, but the clock still runs so the shadow, the
             // breathing and the selection ring do not freeze mid-pulse.
             self.idle += dt;
@@ -1702,9 +1553,7 @@ impl Character {
             return;
         }
         // A task outranks a player order, which outranks the Bim's own plans.
-        let goal = if self.seated {
-            self.hold_still()
-        } else if self.activity == Activity::Marching {
+        let goal = if self.activity == Activity::Marching {
             self.follow_order()
         } else if self.scripted || self.recruited || self.post.is_some() || self.lingering {
             // Recruited, or posted somewhere, it waits to be told. The wander
@@ -1732,15 +1581,13 @@ impl Character {
         let step = ACCEL * dt;
         self.speed += clamp(self.target_speed - self.speed, -step, step);
 
-        if !self.seated {
-            let along = Vec2::from_angle(backing.map_or(self.heading, |_| self.intent));
-            self.pos += along * (self.speed * dt);
-            // Keep clear of the walls, then shove out of anything walked into.
-            self.pos = interior.expand(-BODY_MARGIN).nearest(self.pos);
-            for solid in solids {
-                if let Some(out) = solid.push_out(self.pos, BODY_MARGIN) {
-                    self.pos += out;
-                }
+        let along = Vec2::from_angle(backing.map_or(self.heading, |_| self.intent));
+        self.pos += along * (self.speed * dt);
+        // Keep clear of the walls, then shove out of anything walked into.
+        self.pos = interior.expand(-BODY_MARGIN).nearest(self.pos);
+        for solid in solids {
+            if let Some(out) = solid.push_out(self.pos, BODY_MARGIN) {
+                self.pos += out;
             }
         }
 
@@ -1752,15 +1599,13 @@ impl Character {
         self.select_pulse = (self.select_pulse + dt * 2.2) % TAU;
         self.action_phase += dt;
 
-        // A hop or a heave runs itself down and puts the Bim back to standing.
+        // A swing or a punch runs itself down and puts the Bim back to
+        // standing.
         if self.antic > 0.0 {
             self.antic -= dt;
             if self.antic <= 0.0 {
                 self.antic = 0.0;
-                if matches!(
-                    self.action,
-                    Action::Fidget | Action::Retch | Action::Swing | Action::Punch
-                ) {
+                if matches!(self.action, Action::Swing | Action::Punch) {
                     self.set_action(Action::None);
                 }
             }
@@ -1815,102 +1660,6 @@ impl Character {
                     tool: vec2(26.0 + drop * 5.0, 10.0),
                     tool_rot: -0.5 + drop * 0.5,
                     reach: 1.0,
-                }
-            }
-            Action::Serve => {
-                // Sweep across from the pot to the plate and back.
-                let t = (p / SCOOP_PERIOD) % 1.0;
-                let sweep = (t * TAU).sin();
-                Pose {
-                    left: 4.0,
-                    right: 12.0,
-                    // Wide enough to visibly travel from the pot to the plate.
-                    tool: vec2(29.0, sweep * 19.0),
-                    tool_rot: sweep * 0.4,
-                    reach: 1.0,
-                }
-            }
-            Action::Wash => {
-                // Hands held together out in front, working over each other:
-                // one arm forward as the other comes back, in a small circle.
-                let turn = p * TAU / SCRUB_PERIOD;
-                Pose {
-                    left: 9.0 + turn.sin() * 2.5,
-                    right: 9.0 - turn.sin() * 2.5,
-                    tool: vec2(20.0, 0.0),
-                    tool_rot: 0.0,
-                    reach: 1.0,
-                }
-            }
-            Action::Sweep => {
-                // Both hands on the pole, the head of the broom travelling
-                // side to side across the deck in front. Seen from above that
-                // is the arms swinging together rather than alternately, which
-                // is what tells it apart from a walk.
-                let swing = (p * TAU / SWEEP_PERIOD).sin();
-                Pose {
-                    left: 7.0 + swing * 2.0,
-                    right: 7.0 - swing * 2.0,
-                    tool: vec2(26.0, swing * 16.0),
-                    tool_rot: swing * 0.5,
-                    reach: 1.0,
-                }
-            }
-            Action::Sleep => {
-                // Arms in at the sides, lifting a little with each breath.
-                let breath = (p * TAU / BREATH_PERIOD).sin();
-                Pose {
-                    left: -3.0 + breath,
-                    right: -3.0 + breath,
-                    tool: vec2(15.0, 12.0),
-                    tool_rot: 0.0,
-                    reach: 0.0,
-                }
-            }
-            Action::Eat => {
-                // Out to the plate, back to the mouth.
-                let t = (p / BITE_PERIOD) % 1.0;
-                let near = ((t * TAU).cos() * 0.5 + 0.5).powf(1.4);
-                Pose {
-                    left: 5.0,
-                    right: 8.0 + near * 4.0,
-                    tool: vec2(lerp(26.0, 11.0, near), 5.0),
-                    tool_rot: near * 0.6,
-                    reach: 0.6,
-                }
-            }
-            Action::Fidget => {
-                // Arms tucked in and swapping, the way you do.
-                let turn = (p * TAU / HOP_PERIOD).sin();
-                Pose {
-                    left: 2.0 + turn * 3.0,
-                    right: 2.0 - turn * 3.0,
-                    tool: vec2(15.0, 12.0),
-                    tool_rot: 0.0,
-                    reach: 0.0,
-                }
-            }
-            Action::Retch => {
-                // Both arms forward and down, hands on the knees.
-                let heave = (p * TAU / HEAVE_PERIOD).sin().abs();
-                Pose {
-                    left: 6.0 + heave * 3.0,
-                    right: 6.0 + heave * 3.0,
-                    tool: vec2(18.0, 8.0),
-                    tool_rot: 0.0,
-                    reach: 0.8,
-                }
-            }
-            Action::Talk => {
-                // One hand up and down, the other still. Small: it is a
-                // conversation, not a semaphore.
-                let wave = (p * TAU / TALK_PERIOD).sin();
-                Pose {
-                    left: 3.0 + wave * 2.5,
-                    right: 1.0,
-                    tool: vec2(15.0, 12.0),
-                    tool_rot: 0.0,
-                    reach: 0.25 + 0.15 * wave.max(0.0),
                 }
             }
             Action::Swing => {
@@ -2176,46 +1925,34 @@ impl Character {
         };
         let pose = self.current_pose();
 
-        // Hopping on the spot, or doubled over. Seen from above a jump is the
-        // figure growing and its shadow shrinking away underneath it, and a
-        // heave is the reverse: hunched down and small.
-        let (hop, heave) = match self.action {
-            Action::Fidget => (
-                (self.action_phase * TAU / HOP_PERIOD).sin().max(0.0),
-                0.0f32,
-            ),
-            Action::Retch => (0.0, (self.action_phase * TAU / HEAVE_PERIOD).sin().abs()),
-            _ => (0.0, 0.0),
-        };
-        // And braced (feature 91): settled down onto the feet, which with
-        // the shadow underneath unchanged is a body drawn *lower* — the
-        // one thing a picture seen from directly above can say about a
-        // stance held.
-        let lift = (1.0 + 0.16 * hop - 0.10 * heave) * if self.braced { BRACE_CROUCH } else { 1.0 };
+        // Braced (feature 91): settled down onto the feet, which with the
+        // shadow underneath unchanged is a body drawn *lower* — the one
+        // thing a picture seen from directly above can say about a stance
+        // held.
+        let lift = if self.braced { BRACE_CROUCH } else { 1.0 };
         let scale = self.body_scale() * lift;
         // Leant out to the peek while aiming from one; the body itself
         // has not moved, and nothing but the picture knows.
         let pos = self.drawn_at();
 
         // Cast under the body and turned with it, so the halo always fits,
-        // and soft at its edge (feature 98). It pulls in and darkens as the
-        // Bim leaves the deck.
+        // and soft at its edge (feature 98).
         list.soft_ellipse(
-            pos + vec2(0.0, (4.5 + 7.0 * hop) * self.body_scale()),
-            vec2(28.0, 36.0) * self.body_scale() * (1.0 - 0.22 * hop),
+            pos + vec2(0.0, 4.5 * self.body_scale()),
+            vec2(28.0, 36.0) * self.body_scale(),
             self.heading,
             SHADOW,
         );
 
         let mut b = list.brush(pos, self.heading, scale);
 
-        // Boots, under the body: one strides forward as the other trails. A
-        // seated Bim tucks them in. **Braced** (feature 91) they are
-        // planted instead — set wide, turned out and a little back under
-        // the body, with no stride left in them whatever the legs were
-        // doing the step before — so a soldier holding its ground reads as
-        // a stance and not only as the brackets drawn round it.
-        if !self.seated {
+        // Boots, under the body: one strides forward as the other trails.
+        // **Braced** (feature 91) they are planted instead — set wide,
+        // turned out and a little back under the body, with no stride left
+        // in them whatever the legs were doing the step before — so a
+        // soldier holding its ground reads as a stance and not only as the
+        // brackets drawn round it.
+        {
             let planted = self.braced;
             for side in [-1.0f32, 1.0] {
                 let (at, splay) = if planted {
@@ -2256,32 +1993,21 @@ impl Character {
 
         // Torso: broad across the shoulders, shallow front to back, with a dark
         // rim behind it so the silhouette holds up against any floor colour.
-        // Asleep the chest rises and falls; it is the only thing moving, so
-        // without it the Bim reads as switched off rather than resting.
-        let breath = match self.action {
-            Action::Sleep => 1.0 + 0.035 * (self.action_phase * TAU / BREATH_PERIOD).sin(),
-            _ => 1.0,
-        };
-        b.ellipse(Vec2::ZERO, vec2(25.0, 33.0) * breath, 0.0, OUTLINE);
+        b.ellipse(Vec2::ZERO, vec2(25.0, 33.0), 0.0, OUTLINE);
         b.ellipse(
             Vec2::ZERO,
-            vec2(22.0, 30.0) * breath,
+            vec2(22.0, 30.0),
             0.0,
             self.outfit.dye(self.uniform.shirt(), self.uniform),
         );
         // The yoke across the shoulders, in the wearer's own colour — the
         // coverall is the ship's or the station's and says nothing about
         // who is in it.
-        b.ellipse(
-            vec2(-6.5, 0.0),
-            vec2(7.0, 24.0) * breath,
-            0.0,
-            self.look.trim(),
-        );
+        b.ellipse(vec2(-6.5, 0.0), vec2(7.0, 24.0), 0.0, self.look.trim());
         // The vest: a dark plate over the torso, set forward so the yoke
         // still shows at the collar behind it, strapped on at the sides.
         if let Some(vest) = self.armour[1] {
-            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0) * breath, 0.0, KEVLAR);
+            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, KEVLAR);
             for side in [-1.0f32, 1.0] {
                 b.rect(
                     vec2(-3.0, 8.5 * side),
@@ -2299,34 +2025,6 @@ impl Character {
         // A wound on the body: a blotch in the middle of the coverall.
         if self.wounds[1] {
             b.ellipse(vec2(1.0, 0.0), vec2(11.0, 9.0), 0.3, BLOOD);
-        }
-
-        // What it has got on itself. Down the front and around the legs, where
-        // it would be, and in the same colour as the mess on the deck so the
-        // two read as the same substance.
-        if self.filth > 0.001 {
-            let deep = self.filth.clamp(0.0, 1.0);
-            for (i, local) in [
-                vec2(-4.0, 5.0),
-                vec2(2.0, -6.5),
-                vec2(-8.0, -3.0),
-                vec2(6.0, 4.0),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                // The worse it is, the more of the four show.
-                if (i as f32 + 1.0) / 4.0 > deep + 0.25 {
-                    continue;
-                }
-                let size = 7.0 + 4.0 * deep;
-                b.ellipse(
-                    local,
-                    vec2(size, size * 0.85),
-                    0.0,
-                    GRIME.alpha(0.55 + 0.4 * deep),
-                );
-            }
         }
 
         // Arms: swinging while walking, reaching or working otherwise —
@@ -2350,7 +2048,7 @@ impl Character {
         // the arms so a pauldron caps the shoulder it is strapped to and a
         // strap crosses whatever is under it — the vest included.
         if self.uniform != Uniform::Suit {
-            draw_class_rig(&mut b, self.outfit, breath);
+            draw_class_rig(&mut b, self.outfit);
         }
 
         // Head assembly, pivoting about the neck. Seen from above it is mostly
@@ -2408,25 +2106,6 @@ impl Character {
         }
 
         self.draw_held(list, pose);
-
-        if self.action == Action::Sleep {
-            self.draw_zs(list);
-        }
-    }
-
-    /// Zs drifting up off a sleeping Bim, each one rising and fading as the
-    /// next sets off. Placed in the room rather than on the body, so they go
-    /// the same way whichever way the Bim is lying.
-    fn draw_zs(&self, list: &mut DrawList) {
-        const COUNT: usize = 3;
-        let from = self.pos + vec2(52.0, -18.0);
-        for i in 0..COUNT {
-            let t = (self.action_phase / BREATH_PERIOD + i as f32 / COUNT as f32) % 1.0;
-            let at = from + vec2(20.0 * t, -38.0 * t);
-            // In and out again, so none of them pops.
-            let fade = (t * PI).sin();
-            draw_z(list, at, 11.0 + 9.0 * t, SLEEP_Z.alpha(0.85 * fade));
-        }
     }
 
     /// The rings on the deck under a living Bim: selected, an enemy, under
@@ -2514,7 +2193,7 @@ impl Character {
     /// Out cold: the same figure as a fallen one, in its own colours, a
     /// tenth bigger ([`OUT_COLD_SCALE`]), and breathing — a slow swell of
     /// the whole body, since from above a chest rising is the outline
-    /// growing. No Zs: this is not sleep. The size, the colour and the
+    /// growing. The size, the colour and the
     /// breath are what say alive; the blotches say why it is down.
     fn draw_lying(&self, list: &mut DrawList) {
         let breath = 1.0 + 0.03 * (self.idle * TAU / BREATH_PERIOD).sin();
@@ -2685,66 +2364,7 @@ impl Character {
         match self.main {
             // The tools are drawn from the tool hand below; the main hand
             // never holds one.
-            Held::Nothing | Held::Fork | Held::Pick => {}
-            Held::Vegetable => {
-                let at = to_world(vec2(18.0 + pose.reach * 13.0, -6.0));
-                list.ellipse(at, vec2(30.0, 17.0), self.heading, VEG);
-                list.ellipse(
-                    at - Vec2::from_angle(self.heading) * 13.0,
-                    vec2(8.0, 12.0),
-                    self.heading,
-                    VEG_DARK,
-                );
-            }
-            Held::Chopped { rounds, cubes } => {
-                // A handful of what came off the board, cupped in both hands:
-                // rounds and cubes in turn, as many as will show.
-                let mut left = (rounds, cubes);
-                for i in 0..(rounds + cubes).min(6) {
-                    let cube = match left {
-                        (0, _) => true,
-                        (_, 0) => false,
-                        _ => i % 2 == 1,
-                    };
-                    if cube {
-                        left.1 -= 1;
-                    } else {
-                        left.0 -= 1;
-                    }
-                    let at = to_world(vec2(
-                        16.0 + pose.reach * 13.0 + (i % 2) as f32 * 7.0,
-                        -9.0 + i as f32 * 3.6,
-                    ));
-                    if cube {
-                        list.rect(at, vec2(8.0, 8.0), self.heading, 2.0, TOFU);
-                        list.stroke_rect(at, vec2(8.0, 8.0), self.heading, 2.0, 1.0, TOFU_EDGE);
-                    } else {
-                        list.circle(at, 9.0, VEG);
-                        list.circle(at, 4.0, VEG_DARK);
-                    }
-                }
-            }
-            Held::Tofu => {
-                let at = to_world(vec2(18.0 + pose.reach * 13.0, -6.0));
-                list.rect(at, vec2(28.0, 20.0), self.heading, 3.0, TOFU);
-                list.stroke_rect(at, vec2(28.0, 20.0), self.heading, 3.0, 1.5, TOFU_EDGE);
-            }
-            Held::Plate(fill, dish) => {
-                draw_plate(
-                    list,
-                    to_world(vec2(23.0 + pose.reach * 5.0, 0.0)),
-                    fill,
-                    1.0,
-                    dish,
-                );
-            }
-            Held::Knife => draw_knife(list, to_world(vec2(20.0, -6.0)), self.heading),
-            Held::Spoon => draw_spoon(list, to_world(vec2(20.0, -6.0)), self.heading),
-            Held::Stew => draw_stew_tub(
-                list,
-                to_world(vec2(20.0 + pose.reach * 8.0, 0.0)),
-                self.heading,
-            ),
+            Held::Nothing | Held::Pick => {}
             // A crate in both arms, square to the body, with a strap
             // across it so it reads as a box and not a plate.
             Held::Crate => {
@@ -2761,49 +2381,12 @@ impl Character {
                 list.rect(at, vec2(8.0, 2.5), self.heading, 0.0, MEDKIT_CROSS);
                 list.rect(at, vec2(2.5, 8.0), self.heading, 0.0, MEDKIT_CROSS);
             }
-            Held::Broom => {
-                // Held out in front and across, the way anyone carries one:
-                // the pole running away from the body and the head on the
-                // deck at the far end of it, swinging with the pose.
-                let across = pose.tool.y * 0.5;
-                let grip = to_world(vec2(13.0, across * 0.3));
-                let head = to_world(vec2(36.0, across));
-                list.line(grip, head, 4.0, BROOM_POLE);
-                list.rect(
-                    head,
-                    vec2(9.0, 30.0),
-                    self.heading + pose.tool_rot,
-                    2.0,
-                    BROOM_HEAD,
-                );
-                // Bristles, splayed the way the stroke is going.
-                list.rect(
-                    head + Vec2::from_angle(self.heading) * 5.0,
-                    vec2(4.0, 26.0),
-                    self.heading + pose.tool_rot,
-                    1.5,
-                    BROOM_POLE.alpha(0.55),
-                );
-            }
         }
 
         let tool_at = to_world(pose.tool);
         let tool_rot = self.heading + pose.tool_rot;
-        match self.tool {
-            Held::Knife => draw_knife(list, tool_at, tool_rot),
-            Held::Spoon => draw_spoon(list, tool_at, tool_rot),
-            Held::Pick => draw_pick(list, tool_at, tool_rot),
-            Held::Fork => {
-                list.rect(tool_at, vec2(22.0, 4.0), tool_rot, 2.0, STEEL);
-                list.rect(
-                    tool_at + Vec2::from_angle(tool_rot) * -10.0,
-                    vec2(8.0, 6.0),
-                    tool_rot,
-                    2.0,
-                    GRIP,
-                );
-            }
-            _ => {}
+        if self.tool == Held::Pick {
+            draw_pick(list, tool_at, tool_rot);
         }
     }
 
@@ -3047,7 +2630,7 @@ fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: Option<Color>) {
 /// forward.
 fn draw_pick(list: &mut DrawList, at: Vec2, rot: f32) {
     let dir = Vec2::from_angle(rot);
-    list.rect(at - dir * 4.0, vec2(30.0, 4.0), rot, 2.0, BROOM_POLE);
+    list.rect(at - dir * 4.0, vec2(30.0, 4.0), rot, 2.0, HAFT);
     list.rect(at + dir * 12.0, vec2(6.0, 22.0), rot, 2.0, STEEL);
     list.rect(at + dir * 16.0, vec2(6.0, 8.0), rot, 1.5, STEEL);
 }
@@ -3147,22 +2730,15 @@ fn draw_class_head(b: &mut Brush, outfit: Outfit, at: &impl Fn(Vec2) -> Vec2, tu
 }
 
 /// What the class wears over the chest and shoulders (feature 81), in the
-/// body's own frame: `breath` is the swell of a sleeping chest, which
-/// anything strapped across it swells with.
-fn draw_class_rig(b: &mut Brush, outfit: Outfit, breath: f32) {
+/// body's own frame.
+fn draw_class_rig(b: &mut Brush, outfit: Outfit) {
     match outfit {
         Outfit::Plain => {}
         // A tool belt round the waist with a pouch on each hip, and the
         // strap of it over one shoulder.
         Outfit::Engineer => {
-            b.rect(
-                vec2(0.0, -4.0),
-                vec2(21.0, 3.4) * breath,
-                0.22,
-                1.2,
-                KIT_DARK,
-            );
-            b.ellipse(vec2(-6.5, 0.0), vec2(5.0, 22.0) * breath, 0.0, KIT_DARK);
+            b.rect(vec2(0.0, -4.0), vec2(21.0, 3.4), 0.22, 1.2, KIT_DARK);
+            b.ellipse(vec2(-6.5, 0.0), vec2(5.0, 22.0), 0.0, KIT_DARK);
             for side in [-1.0f32, 1.0] {
                 b.rect(
                     vec2(-6.5, 8.0 * side),
@@ -3177,13 +2753,7 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit, breath: f32) {
         // strap, and a belt at the waist: kitted, and used to it.
         Outfit::Soldier => {
             for turn in [0.5f32, -0.5] {
-                b.rect(
-                    vec2(1.0, 0.0),
-                    vec2(3.6, 26.0) * breath,
-                    turn,
-                    1.2,
-                    KIT_DARK,
-                );
+                b.rect(vec2(1.0, 0.0), vec2(3.6, 26.0), turn, 1.2, KIT_DARK);
             }
             let along = vec2(-(0.5f32).sin(), (0.5f32).cos());
             for step in [-1.0f32, 0.0, 1.0] {
@@ -3195,30 +2765,12 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit, breath: f32) {
                     KIT_GOLD.mix(KIT_DARK, 0.35),
                 );
             }
-            b.rect(
-                vec2(-7.0, 0.0),
-                vec2(3.4, 21.0) * breath,
-                0.0,
-                1.0,
-                KIT_DARK,
-            );
+            b.rect(vec2(-7.0, 0.0), vec2(3.4, 21.0), 0.0, 1.0, KIT_DARK);
         }
         // The cross on the chest, and the bag on the hip it is carried in.
         Outfit::Medic => {
-            b.rect(
-                vec2(3.0, 0.0),
-                vec2(3.4, 11.0) * breath,
-                0.0,
-                0.8,
-                MEDKIT_CROSS,
-            );
-            b.rect(
-                vec2(3.0, 0.0),
-                vec2(11.0, 3.4) * breath,
-                0.0,
-                0.8,
-                MEDKIT_CROSS,
-            );
+            b.rect(vec2(3.0, 0.0), vec2(3.4, 11.0), 0.0, 0.8, MEDKIT_CROSS);
+            b.rect(vec2(3.0, 0.0), vec2(11.0, 3.4), 0.0, 0.8, MEDKIT_CROSS);
             b.ellipse(
                 vec2(-5.0, 10.0),
                 vec2(9.0, 7.0),
@@ -3238,21 +2790,15 @@ fn draw_class_rig(b: &mut Brush, outfit: Outfit, breath: f32) {
             }
             b.ellipse(
                 vec2(6.0, 0.0),
-                vec2(6.5, 16.0) * breath,
+                vec2(6.5, 16.0),
                 0.0,
                 KIT_TANK.mix(KIT_DARK, 0.35),
             );
         }
         // Gold boards on both shoulders and a sash across the chest.
         Outfit::Commander => {
-            b.rect(vec2(1.5, 0.0), vec2(5.0, 24.0) * breath, 0.6, 1.5, KIT_GOLD);
-            b.rect(
-                vec2(1.5, 0.0),
-                vec2(1.6, 24.0) * breath,
-                0.6,
-                0.6,
-                KIT_COMMANDER,
-            );
+            b.rect(vec2(1.5, 0.0), vec2(5.0, 24.0), 0.6, 1.5, KIT_GOLD);
+            b.rect(vec2(1.5, 0.0), vec2(1.6, 24.0), 0.6, 0.6, KIT_COMMANDER);
             for side in [-1.0f32, 1.0] {
                 b.rect(vec2(-1.0, 11.5 * side), vec2(10.0, 6.0), 0.0, 1.5, KIT_GOLD);
                 b.rect(
@@ -3417,15 +2963,6 @@ fn draw_blade(list: &mut DrawList, hilt: Vec2, dir: Vec2, length: f32, edge: Col
         0.5,
         GUN_EDGE,
     );
-}
-
-/// A letter Z, drawn from the three strokes you would write it with.
-fn draw_z(list: &mut DrawList, at: Vec2, size: f32, c: Color) {
-    let h = size * 0.5;
-    let line = (size * 0.17).max(1.2);
-    list.line(at + vec2(-h, -h), at + vec2(h, -h), line, c);
-    list.line(at + vec2(h, -h), at + vec2(-h, h), line, c);
-    list.line(at + vec2(-h, h), at + vec2(h, h), line, c);
 }
 
 /// Arm and tool placement for one frame of an action.

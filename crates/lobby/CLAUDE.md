@@ -37,8 +37,13 @@ parses the constants **out of `fixture.rs`** rather than carrying a copy.
 > made, but nothing reads it as a stance. `can_start` is `has_station`,
 > `station_hostile` answers false, the diagram rings nothing, and the tests
 > are `a_start_may_be_at_any_station_since_no_human_is_hostile` and
-> `the_diagram_rings_no_station_as_the_enemy_s`. What follows is the rule
-> as it was.
+> `the_diagram_rings_no_station_as_the_enemy_s`. Feature 104 deleted the
+> human enemies outright, and with them the World tab's "· hostile" row in
+> `theme::BAD` (`screens/builder.rs`), which could no longer show; the
+> lobby crate itself was not touched, so `station_hostile` is still there,
+> answering false. `draw::ENEMY` is the machines' red now — an infested
+> star's cross and a jammed step's bar. What follows is the rule as it
+> was.
 
 About three in ten of the stations somebody lives on are hostile
 (`StationBlueprint::hostile`, rolled in `worldgen`; a derelict never is).
@@ -102,7 +107,7 @@ for a star charted or not, since the crisis is not a secret.
 
 Feature 93, and two more `Marks` the page sets every frame. `reachable`
 is `World::reachable_stars` — the lanes out of the star the ship is at,
-which is where one charge of the hyperdrive can take it — drawn over the
+which is where one jump can take it — drawn over the
 faint web as a `REACHABLE_WIDTH` (1.6px) line in the hyperdrive's violet
 with a small ring on the star at its far end; `route` is
 `World::route_to(picked)`, the shortest chain of lanes to the star the
@@ -116,4 +121,6 @@ Both are drawn **after** the web and **before** the stars, so a lit lane
 never hides a star and never reads as brighter than a mark. The violet is
 `TARGET`'s own value: the picked star is ringed in it, and the route that
 reaches it should read as the same thing. Empty in the lobby proper,
-where there is no ship and nothing to jump.
+where there is no ship and nothing to jump. (`target` was the star picked
+for the helm's jump until feature 104 took the flown jump away; it is the
+star last clicked on the chart now, `picked_star` in `screens/game.rs`.)

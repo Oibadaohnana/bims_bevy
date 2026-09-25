@@ -31,19 +31,6 @@ impl World {
         self.run.phase == RunPhase::Mission
     }
 
-    /// Whether the world clock runs with every step, as it did before the
-    /// run (feature 103). Off in every run: only travel moves the day.
-    pub fn free_clock(&self) -> bool {
-        self.run.free_clock
-    }
-
-    /// The old game's switch, for the tests of what the free-running
-    /// clock did — flight and the helm, raids, wages and the crisis by
-    /// the step — which turn it on right after they build their world.
-    pub fn set_free_clock(&mut self, on: bool) {
-        self.run.free_clock = on;
-    }
-
     // --- choosing where to go ---------------------------------------------
 
     /// Every site of a star's system: its stations in id order — the
@@ -422,8 +409,8 @@ impl World {
     }
 
     /// Every hired hand's month that the clock has reached, paid — as
-    /// many months as a long trip went by, each the way the step pays
-    /// one.
+    /// many months as a long trip went by, one at a time
+    /// (`World::pay_wages`).
     fn pay_wages_due(&mut self, events: &mut Vec<WorldEvent>) {
         // A month a pass, and no more passes than there are months in the
         // longest possible gap: every pass either pays somebody's month
@@ -441,16 +428,14 @@ impl World {
     }
 
     /// Tied up at `station` — docked at a station, or set down at a
-    /// settlement — the way the old game's docking ended: the rooms
-    /// joined, the station's people in theirs, and the view about it.
+    /// settlement — the rooms joined, the station's people in theirs,
+    /// and the view about it.
     fn arrive_at(&mut self, station: u32) {
         let node = match surface::surface_body(station) {
             Some(body) => Node::Body(body),
             None => Node::Station(station),
         };
         self.ship.state = ShipState::Docked { station };
-        self.ship.destination_set_by = None;
-        self.ship.pending = None;
         self.ship.frame = Frame::Local(node);
         self.dock_at(station);
         self.settle_residents();
@@ -507,19 +492,15 @@ impl World {
             if let Some(down) = self.crew_down.get_mut(who) {
                 *down = false;
             }
-            if let Some(body) = self.health.get_mut(who) {
-                *body = health::HealthState::new();
-            }
             events.push(WorldEvent::BoughtBack { who: fallen.slot });
         }
         self.run.fallen = still;
     }
 
-    /// Every living crew member made whole (`Game::restore_health`), the
-    /// world's record of each body with it, and every class charge and
-    /// cooldown fresh: a mission starts at the top of the mission clock,
-    /// and a cooldown begun in the last one would otherwise read as
-    /// running on for however long the last one lasted.
+    /// Every living crew member made whole (`Game::restore_health`), and
+    /// every class charge and cooldown fresh: a mission starts at the top
+    /// of the mission clock, and a cooldown begun in the last one would
+    /// otherwise read as running on for however long the last one lasted.
     fn make_whole(&mut self) {
         let crew = self.aboard.crew_count() as usize;
         for who in 0..crew {
@@ -527,9 +508,6 @@ impl World {
                 continue;
             }
             self.aboard.room.restore_health(who);
-            if let Some(body) = self.health.get_mut(who) {
-                *body = health::HealthState::new();
-            }
         }
         self.clear_beams();
         self.clear_carries();
@@ -602,7 +580,6 @@ impl World {
                 .filter(|l| l.station == Some(station))
                 .copied()
                 .collect(),
-            plunder: self.plunder.iter().find(|p| p.station == station).cloned(),
         }
     }
 
@@ -630,11 +607,6 @@ impl World {
         // they stand, this one's as photographed, after them.
         self.lamps.retain(|l| l.station != Some(id));
         self.lamps.extend(snapshot.lamps);
-        self.plunder.retain(|p| p.station != id);
-        if let Some(p) = snapshot.plunder {
-            self.plunder.push(p);
-            self.plunder.sort_by_key(|p| p.station);
-        }
     }
 
     /// Whether a site is **cleared**: no machine left there and none still
@@ -652,7 +624,7 @@ impl World {
     }
 
     /// Whether the site of this mission is cleared: where the ship is
-    /// tied up, else — out in space, a raider's fight — nowhere to clear.
+    /// tied up, else — out in space — nowhere to clear.
     pub fn mission_cleared(&self) -> bool {
         self.ship
             .state
@@ -751,8 +723,7 @@ impl World {
     }
 
     /// One crew member out of the crew — a dead bot's body gone with the
-    /// site it lay at — and every crew member after it moved down one,
-    /// the way a dismissal moves them.
+    /// site it lay at — and every crew member after it moved down one.
     fn drop_crew_member(&mut self, who: u32) {
         let index = who as usize;
         if index >= self.aboard.room.crew_count() as usize {
@@ -763,9 +734,6 @@ impl World {
         self.aboard.room.adopt(everybody, bims::math::Vec2::ZERO);
         self.aboard.crew = self.aboard.room.crew_count();
         self.ship.crew_count = self.aboard.crew;
-        if index < self.health.len() {
-            self.health.remove(index);
-        }
         if index < self.crew_down.len() {
             self.crew_down.remove(index);
         }
@@ -997,7 +965,6 @@ impl World {
             self.site_position(system, id)
         });
         self.ship.state = ShipState::Holding;
-        self.ship.pending = None;
         // In the site's own frame, so the map says where the crew are.
         self.ship.frame = match station {
             Some(id) => match surface::surface_body(id) {

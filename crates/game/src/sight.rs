@@ -67,9 +67,9 @@ pub const DARK_RANGE: f32 = 10.0;
 /// crosses nothing opaque (the walls and the tall parts — never a door,
 /// which is not there to a light the way it is to an eye) and is within the
 /// light's reach. Lights are always on until they are shot out — see
-/// [`Lamp`]. A room never handed any lights is lit throughout — the
-/// classic room, which has no lighting to speak of — and a designed deck
-/// handed none is dark everywhere.
+/// [`Lamp`]. A room never handed any lights is lit throughout — a bare
+/// room (`Game::bare`), which has no lighting to speak of — and a
+/// designed deck handed none is dark everywhere.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Light {
@@ -120,7 +120,7 @@ pub struct Lamp {
     /// back the moment the power does. The world's to set
     /// (`Sight::set_lamp_powered`): a lamp on no live network, or any
     /// lamp in a brownout. On to start with, since a room never told is
-    /// the classic room, which has no reactor to lose.
+    /// a bare room, which has no reactor to lose.
     pub powered: bool,
     /// How bright it is shown, nought to one: one steady, nought dark,
     /// between while it flickers.
@@ -197,7 +197,7 @@ struct Cell {
     /// door, or the outside.
     opaque: bool,
     /// The fog is drawn here when it is not seen: a tile of the hull, or
-    /// anywhere inside the classic room's box.
+    /// anywhere inside a bare room's box.
     fogged: bool,
     /// Somebody else's: a station's tile on a joined deck, under the
     /// foreign stance rather than the room's own.
@@ -1770,7 +1770,7 @@ impl Sight {
             self.map.alpha = vec![0u8; w * h];
             self.map.glow = vec![0u8; w * h];
         }
-        // No lamps at all — the classic room — is lit and has no lamplight
+        // No lamps at all — a bare room — is lit and has no lamplight
         // to wash the deck with.
         let wash = if self.lit_everywhere { 0.0 } else { GLOW };
         let fog = (MAP_FOG * 255.0) as u8;

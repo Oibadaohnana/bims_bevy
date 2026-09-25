@@ -68,8 +68,8 @@
 //!
 //! On the ship's deck a deployable stays until packed up or destroyed —
 //! across docking, undocking, joins and unjoins — so a crew can prepare
-//! for a raid while holding. On a station's deck it is lost when the
-//! rooms unjoin.
+//! for the next site on the way to it. On a station's deck it is lost
+//! when the rooms unjoin.
 
 use economy::Money;
 use physics::ResourceId;
@@ -140,7 +140,7 @@ impl DeployKind {
 }
 
 /// Which deck a deployable stands on: the ship's own, or a station's by
-/// its id — a berth's, a settlement's, a raider's.
+/// its id — a berth's or a settlement's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Deck {

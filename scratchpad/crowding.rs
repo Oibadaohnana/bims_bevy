@@ -12,9 +12,9 @@ include!("modules.rs");
 use bim::CREW;
 use game::Game;
 use math::{Vec2, vec2};
+use room::{ROOM_H, ROOM_W};
 
 const STEP: f32 = 1.0 / 60.0;
-const FRAMES_PER_DAY: u32 = 24 * 60 * 60;
 
 /// Stop the crew wandering off a staged walk — **every one but the player's
 /// own**, which is the whole of the difference feature 84 made here.
@@ -52,7 +52,7 @@ fn main() {
     let mut stuck = 0;
     let mut ever_overlapped = false;
     for seed in 1..=12u64 {
-        let mut game = Game::new(seed, 960.0, 640.0);
+        let mut game = Game::bare(seed, ROOM_W, ROOM_H);
         game.set_autonomous(false);
         hold_the_others_still(&mut game);
         let (left, right) = stage_meeting(&mut game);
@@ -101,45 +101,6 @@ fn main() {
         format!("{alone} vs {through}")
     );
 
-    // --- nothing seated is squeezed past ------------------------------------
-    //
-    // A Bim at the table or in its bunk is tucked into the furniture, not in
-    // the gangway. Walking past the foot of a bed must cost nothing.
-
-    let mut game = Game::new(4, 960.0, 640.0);
-    let mut slowed_by_sleeper = 0;
-    for _ in 0..(3 * FRAMES_PER_DAY) {
-        game.simulate(STEP);
-        for w in 0..CREW {
-            let other = 1 - w;
-            let touching = (game.bim_pos(other) - game.bim_pos(w)).len() < 38.0;
-            if touching && game.is_seated_for_probe(other) && game.crowding_for_probe(w) < 1.0 {
-                slowed_by_sleeper += 1;
-            }
-        }
-    }
-    check!("a seated Bim slows nobody", slowed_by_sleeper == 0, slowed_by_sleeper);
-
-    // --- a week still works -------------------------------------------------
-
-    for seed in [1, 11, 101] {
-        let mut game = Game::new(seed, 960.0, 640.0);
-        let mut worst = [f32::MAX; CREW];
-        for _ in 0..(7 * FRAMES_PER_DAY) {
-            game.simulate(STEP);
-            for w in 0..CREW {
-                worst[w] = worst[w].min(game.health(w));
-            }
-        }
-        for w in 0..CREW {
-            check!(
-                format!("seed {seed}, crew {w}: alive and well after a week"),
-                game.is_alive(w) && worst[w] > 90.0,
-                worst[w]
-            );
-        }
-    }
-
     println!();
     if fails > 0 { println!("{fails} FAILED"); std::process::exit(1); }
     println!("all passed");
@@ -148,7 +109,7 @@ fn main() {
 /// How long crew 0 takes to walk one clear run of deck, with the other either
 /// parked well out of the way or standing squarely in the middle of it.
 fn walk_time(in_the_way: bool) -> f32 {
-    let mut game = Game::new(21, 960.0, 640.0);
+    let mut game = Game::bare(21, ROOM_W, ROOM_H);
     game.set_autonomous(false);
     hold_the_others_still(&mut game);
     let (left, right) = stage_meeting(&mut game);

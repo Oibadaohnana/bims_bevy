@@ -462,7 +462,7 @@ impl Session {
     }
 
     /// The `droids` command (feature 83): [`Session::combat`] with the
-    /// arena **droid-held** instead of garrisoned. The ship, the crew and
+    /// arena **droid-held**. The ship, the crew and
     /// the guns are `combat`'s own; the arena's people are gone and a
     /// wave of machines stands about it instead, at `tier` — `None`
     /// leaving it to how far the system is from the machines' origin

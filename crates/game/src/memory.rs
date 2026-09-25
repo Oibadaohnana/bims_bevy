@@ -1,19 +1,13 @@
 //! What a Bim remembers of its days.
 //!
 //! A diary rather than a log, and a short one: nothing goes in unless it
-//! actually mattered. Accidents, illness, going hungry, going without sleep,
-//! going without company, and what it saw happen to the other one — including
-//! the other one dying. A day in which the crew simply got on with their work
-//! leaves **no entry at all**, which is the intended reading of an empty page.
-//!
-//! It used to keep the day's work too, and the result was a wall of "Used the
-//! toilet." to scroll past before reaching the one line worth having.
+//! actually mattered, and the one thing that does is a crewmate dying. A
+//! run in which nobody aboard has died leaves **no entry at all**, which is
+//! the intended reading of an empty page.
 //!
 //! **No strings live here.** Every entry is a day, a time, a code and one
 //! number, and the host turns those into a sentence — the same rule the rest
-//! of this boundary keeps. A Bim that remembers "I was sick in the galley"
-//! remembers `(day 4, 18:22, WasSick, 0)`, and "in the galley" is the host's
-//! wording of nothing at all.
+//! of this boundary keeps.
 
 /// How many entries a Bim keeps. Long enough to hold a good few days, short
 /// enough that a Bim left running for a game year does not grow without bound
@@ -22,47 +16,16 @@ pub const KEEP: usize = 320;
 
 /// What happened. The host names each of these; the numbers are the contract.
 ///
-/// **Only things worth remembering are in here.** The diary used to keep the
-/// day's work as well — every meal, every trip to the heads, every tray of the
-/// bay — and the result was a page of "Used the toilet." that a player had to
-/// scroll past to find the one line that mattered. A day in which nothing went
-/// wrong now leaves no entry at all, and that is the intended reading: an
-/// empty diary means a good week.
-///
-/// The numbers start at 20 because the block below 20 was the day's work, and
-/// the codes are the contract across the boundary — reusing them would make an
-/// old saved diary say something new.
+/// **Only things worth remembering are in here.** The code is the one the
+/// host has always read it by, so a crewmate's death is thirty whatever
+/// went before it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum What {
-    /// Did not make it to the heads. `detail` 0 wet itself, 1 worse.
-    Accident = 20,
-    /// Brought up what was in it.
-    WasSick = 21,
-    /// Dropped off standing up.
-    NoddedOff = 22,
-    /// Going hungry got worse. `detail` is the stage, 1 to 3.
-    Hungrier = 23,
-    /// Going without sleep got worse. `detail` is the stage, 1 to 3.
-    Wearier = 24,
-    /// Saw one of the others have an accident. `detail` is which of the crew.
-    SawAccident = 25,
-    /// Saw one of the others be sick. `detail` is which of the crew.
-    SawSickness = 26,
-    /// A low moment, for want of anybody to talk to. `detail` is how many
-    /// whole days it has been. These are what "depressed memories" means: the
-    /// diary of a Bim nobody has spoken to fills up with them.
-    FeltLow = 27,
-    /// Stopped where it stood and sat down on the deck.
-    BrokeDown = 28,
-    /// Hurt itself. `detail` is the health it cost.
-    HurtSelf = 29,
     /// One of the others died. `detail` is which of the crew. Written into
     /// everybody else's diary and not into the dead one's: a Bim does not
     /// record its own end, and there would be nobody to read it back.
     CrewDied = 30,
-    /// Ate something cooked in a filthy galley and was ill for two days.
-    FoodPoisoning = 31,
 }
 
 impl What {

@@ -33,7 +33,6 @@ bevy_egui = { workspace = true }
 bims = { path = "../game", features = ["serde"] }
 economy = { path = "../economy" }
 flight = { path = "../flight", features = ["serde"] }
-health = { path = "../health" }
 lobby = { path = "../lobby" }
 physics = { path = "../physics", features = ["serde"] }
 ship = { path = "../ship" }

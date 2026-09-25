@@ -1,12 +1,5 @@
-//! Going without, and what it costs: food on one side, sleep on the other.
-//!
-//! An empty stomach is not itself harmful — the Bim can be hungry for a while
-//! and simply be hungry. What does the damage is staying that way, so the
-//! measure here is *time spent with nothing in it* rather than the hunger
-//! level, and the three stages of malnutrition are thresholds on that clock.
-//!
-//! Only the last stage costs health. The first two are a warning: a Bim that
-//! is merely slow and tiring easily can still be fed and will come right.
+//! A body: its three parts, its blood, its wounds and its traumas, and how
+//! each of them mends or does not.
 //!
 //! # The body is three parts, and the blood is a fourth number
 //!
@@ -15,8 +8,8 @@
 //! — and what the panel calls health is the three added up. A shot lands
 //! on one part ([`Part::HIT_ODDS`]: one in twenty the head, three in four
 //! the body, one in five the legs) and takes the weapon's damage off that
-//! part alone. Starvation and mending run over all three in proportion,
-//! so the total behaves exactly as the one bar did.
+//! part alone. Mending runs over all three in proportion, so the total
+//! behaves exactly as the one bar did.
 //!
 //! # A part at nothing is a dying state, not a death
 //!
@@ -357,136 +350,12 @@ impl Part {
     }
 }
 
-/// Hunger at or below this counts as an empty stomach, and rest at or below it
-/// as running on nothing.
-const EMPTY: f32 = 0.02;
-
-/// Game minutes of no sleep before each stage of drowsiness sets in. Faster
-/// than starvation, because it is: a night missed tells before a meal does.
-///
-/// The gaps widen — six hours, then eight — so the first stage arrives as a
-/// warning with time to act on it, and the last takes a full night of being
-/// kept up to reach.
-const SLEEPY_AT: f32 = 4.0 * HOUR;
-const DEPRIVED_AT: f32 = 10.0 * HOUR;
-const WRECKED_AT: f32 = 18.0 * HOUR;
-
-/// Rest above this clears the whole thing. Unlike hunger, which is wound back
-/// a little for every mouthful, sleeplessness only lifts when the Bim has
-/// properly slept — which is why the fifteen-minute nods-off at the worst
-/// stage, worth a few per cent of rest each, never lift it.
-const SLEPT_AT: f32 = 0.80;
-
-/// Game minutes on an empty stomach before each stage sets in. A day without
-/// food to reach the worst of it; feeding at any point walks it back.
-const MILD_AT: f32 = 8.0 * HOUR;
-const MODERATE_AT: f32 = 16.0 * HOUR;
-const EXTREME_AT: f32 = 24.0 * HOUR;
-
-/// Starvation is undone faster than it sets in, so one meal is visibly worth
-/// something rather than being lost in a day-long ledger.
-const MEND_RATE: f32 = 3.0;
-
-/// Health goes from full to nothing in a day of extreme malnutrition, and
-/// takes two days of eating properly to come back.
-/// Public so the panel can say how long a starving Bim has: it is the
-/// one rate on the body the app cannot work out from anything else.
-pub const HEALTH_DRAIN: f32 = MAX_HEALTH / DAY;
+/// Health comes back over two days, from nothing to whole, on a body with
+/// nothing open on it.
 pub const HEALTH_RECOVER: f32 = MAX_HEALTH / (2.0 * DAY);
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Malnutrition {
-    None,
-    Mild,
-    Moderate,
-    Extreme,
-}
-
-impl Malnutrition {
-    /// 0 for a well-fed Bim, then 1, 2, 3. The host names them.
-    pub fn stage(self) -> u32 {
-        match self {
-            Malnutrition::None => 0,
-            Malnutrition::Mild => 1,
-            Malnutrition::Moderate => 2,
-            Malnutrition::Extreme => 3,
-        }
-    }
-
-    /// How fast it walks, as a fraction of its usual pace.
-    pub fn pace(self) -> f32 {
-        match self {
-            Malnutrition::None => 1.0,
-            Malnutrition::Mild => 0.85,
-            Malnutrition::Moderate => 0.70,
-            Malnutrition::Extreme => 0.55,
-        }
-    }
-
-    /// How much faster it tires: double from the second stage, triple from the
-    /// third, so a starving Bim needs more sleep as well as moving worse.
-    pub fn tiring(self) -> f32 {
-        match self {
-            Malnutrition::None | Malnutrition::Mild => 1.0,
-            Malnutrition::Moderate => 2.0,
-            Malnutrition::Extreme => 3.0,
-        }
-    }
-}
-
-/// How far gone for want of sleep.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Drowsiness {
-    None,
-    Sleepy,
-    Deprived,
-    Wrecked,
-}
-
-impl Drowsiness {
-    /// 0 wide awake, then 1, 2, 3. The host names them.
-    pub fn stage(self) -> u32 {
-        match self {
-            Drowsiness::None => 0,
-            Drowsiness::Sleepy => 1,
-            Drowsiness::Deprived => 2,
-            Drowsiness::Wrecked => 3,
-        }
-    }
-
-    /// How much longer an errand takes, all told.
-    pub fn drag(self) -> f32 {
-        match self {
-            Drowsiness::None => 1.0,
-            Drowsiness::Sleepy => 1.25,
-            Drowsiness::Deprived => 1.50,
-            Drowsiness::Wrecked => 2.00,
-        }
-    }
-
-    /// The chance that a step, on finishing, has to be done again.
-    ///
-    /// A step repeated with probability `p` takes `1 / (1 - p)` times as long
-    /// on average, so this is the inverse: the fumbling is random, but how
-    /// much it costs over a whole errand is not.
-    pub fn fumble(self) -> f32 {
-        1.0 - 1.0 / self.drag()
-    }
-
-    /// Only at the worst of it does the Bim drop off where it stands.
-    pub fn nods_off(self) -> bool {
-        self == Drowsiness::Wrecked
-    }
-}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Health {
-    /// Game minutes of empty stomach, wound back by eating.
-    starved: f32,
-    /// Game minutes awake on no rest at all, cleared by a proper sleep.
-    sleepless: f32,
     /// The head, the body and the legs, in [`Part::ALL`] order.
     parts: [f32; 3],
     /// How many legs are gone: none, one, or both.
@@ -503,38 +372,12 @@ pub struct Health {
 impl Health {
     pub fn new() -> Health {
         Health {
-            starved: 0.0,
-            sleepless: 0.0,
             parts: [Part::Head.max(), Part::Body.max(), Part::Legs.max()],
             legs_lost: 0,
             blood: MAX_BLOOD,
             wounds: [0; 3],
             traumas: [None; 3],
             lasting: Vec::new(),
-        }
-    }
-
-    pub fn stage(&self) -> Malnutrition {
-        if self.starved >= EXTREME_AT {
-            Malnutrition::Extreme
-        } else if self.starved >= MODERATE_AT {
-            Malnutrition::Moderate
-        } else if self.starved >= MILD_AT {
-            Malnutrition::Mild
-        } else {
-            Malnutrition::None
-        }
-    }
-
-    pub fn drowsiness(&self) -> Drowsiness {
-        if self.sleepless >= WRECKED_AT {
-            Drowsiness::Wrecked
-        } else if self.sleepless >= DEPRIVED_AT {
-            Drowsiness::Deprived
-        } else if self.sleepless >= SLEEPY_AT {
-            Drowsiness::Sleepy
-        } else {
-            Drowsiness::None
         }
     }
 
@@ -601,7 +444,7 @@ impl Health {
     }
 
     /// Dead: bled out, or the head and the body both at nothing with no
-    /// trauma on either — starved to nothing, or given up. A part at
+    /// trauma on either — given up. A part at
     /// nothing with its trauma untreated is dying, not dead: the blood
     /// decides.
     pub fn is_dead(&self) -> bool {
@@ -727,51 +570,27 @@ impl Health {
         had
     }
 
-    /// Take a flat amount off the body, never past nothing. Hunger works on
-    /// the health bar over hours; this is for the things that happen all at
-    /// once — so far, a Bim nobody has spoken to in a week hurting itself.
-    pub fn hurt(&mut self, points: f32) {
-        let body = &mut self.parts[Part::Body as usize];
-        *body = (*body - points).max(0.0);
-    }
-
-    /// The end of it, by the Bim's own hand. Kept apart from [`Health::hurt`]
-    /// with everything left of the bar taken at once, so that what happened is
-    /// legible here rather than being a subtraction that happened to reach
-    /// zero.
+    /// The end of it, everything left of the bar taken at once and every
+    /// trauma with it: dead at the top of the next tick. What finishes a
+    /// body the world says is dead (`Game::kill_now`, a grave laid out).
     pub fn give_up(&mut self) {
         self.parts = [0.0; 3];
         self.traumas = [None; 3];
     }
 
-    /// `minutes` is game minutes elapsed, `food` and `rest` the levels now,
-    /// and `resting` whether the Bim is actually asleep this instant.
-    ///
-    /// Starvation keeps running while the Bim sleeps: you do not stop starving
-    /// because you are asleep, and a Bim that tires three times as fast spends
-    /// more of its day in bed — which is exactly the spiral the third stage of
-    /// malnutrition is meant to be. Sleeplessness plainly does not, so that one
-    /// only counts waking minutes.
-    pub fn update(&mut self, minutes: f32, food: f32, rest: f32, resting: bool) {
-        self.update_held(minutes, food, rest, resting, None);
+    /// `minutes` of the body's own clock: the blood, what a treated trauma
+    /// left behind, and the mending.
+    pub fn update(&mut self, minutes: f32) {
+        self.update_held(minutes, None);
     }
 
     /// [`Health::update`] with the body held by a medic's beam, or not —
     /// see [`Beamed`] (feature 76).
-    pub fn update_held(
-        &mut self,
-        minutes: f32,
-        food: f32,
-        rest: f32,
-        resting: bool,
-        held: Option<Beamed>,
-    ) {
-        // Nothing comes back from nothing. Health mends on its own while the
-        // Bim is fed, and without this the bar taken to zero by anything
-        // *sudden* — a Bim hurting itself, a Bim giving up — is back above
-        // zero on the very next frame, before `Game` has looked at it. The
-        // death then simply never happens: the run ends with a Bim whose
-        // health reads nought and who is still walking about.
+    pub fn update_held(&mut self, minutes: f32, held: Option<Beamed>) {
+        // Nothing comes back from nothing. Health mends on its own, and
+        // without this the bar taken to zero by anything *sudden* — a body
+        // given up — is back above zero on the very next frame, before
+        // `Game` has looked at it, and the death never happens.
         if self.is_dead() {
             return;
         }
@@ -796,31 +615,10 @@ impl Health {
             l.left -= minutes;
         }
         self.lasting.retain(|l| l.left > 0.0);
-        if food <= EMPTY {
-            self.starved += minutes;
-        } else {
-            self.starved = (self.starved - minutes * MEND_RATE).max(0.0);
-        }
-
-        if rest > SLEPT_AT {
-            // Properly slept. Nothing short of this clears it.
-            self.sleepless = 0.0;
-        } else if rest <= EMPTY && !resting {
-            self.sleepless += minutes;
-        }
-
-        let change = if self.stage() == Malnutrition::Extreme {
-            -HEALTH_DRAIN
-        } else if self.starved <= 0.0 {
-            // A beam with *mender* on it mends the parts faster.
-            HEALTH_RECOVER * held.map_or(1.0, |h| h.mend)
-        } else {
-            // Malnourished but not yet starving outright: no worse, no better.
-            0.0
-        };
+        // A beam with *mender* on it mends the parts faster.
+        let change = HEALTH_RECOVER * held.map_or(1.0, |h| h.mend);
         // Over the three parts in proportion to their size, so the total
-        // goes from full to nothing in a day the way the one bar did. Legs
-        // that are gone do not grow back, and a part at nothing with its
+        // mends the way the one bar did. Legs that are gone do not grow back, and a part at nothing with its
         // trauma untreated stays there: only a medkit starts it again.
         for part in Part::ALL {
             let i = part as usize;
@@ -901,7 +699,7 @@ mod tests {
         assert_eq!(h.wounds(Part::Head), 2);
         // The part does not mend on its own, and the fracture bleeds it
         // ten a quarter hour besides the wounds.
-        h.update(HOUR * 0.25, 1.0, 1.0, false);
+        h.update(HOUR * 0.25);
         assert_eq!(h.part(Part::Head), 0.0);
         let lost = MAX_BLOOD - h.blood();
         assert!((lost - (10.0 + 3.0 * 2.5)).abs() < 1e-3, "{lost}");
@@ -921,9 +719,9 @@ mod tests {
             Some(Trauma::InternalBleeding)
         );
         // Forty an hour, and the wound itself ten: gone in two hours.
-        h.update(HOUR * 1.5, 1.0, 1.0, false);
+        h.update(HOUR * 1.5);
         assert!(!h.is_dead(), "{}", h.blood());
-        h.update(HOUR * 0.5 + 1.0, 1.0, 1.0, false);
+        h.update(HOUR * 0.5 + 1.0);
         assert!(h.is_dead(), "bled out, {}", h.blood());
 
         let mut h = Health::new();
@@ -934,15 +732,15 @@ mod tests {
         assert_eq!(h.pace(), 0.75);
         assert_eq!(h.works_at(), 0.75);
         h.bandage(Part::Head);
-        h.update(DAY, 1.0, 1.0, false);
+        h.update(DAY);
         assert!(h.dying(), "nothing mends it but a medkit");
         assert_eq!(h.part(Part::Head), 0.0);
         assert_eq!(h.treat(Part::Head), Some(Trauma::HeavyConcussion));
         assert_eq!(h.pace(), 0.75, "and the two days after");
         assert_eq!(h.lasting().len(), 1);
-        h.update(DAY, 1.0, 1.0, false);
+        h.update(DAY);
         assert_eq!(h.pace(), 0.75);
-        h.update(DAY + 1.0, 1.0, 1.0, false);
+        h.update(DAY + 1.0);
         assert_eq!(h.pace(), 1.0);
         assert!(h.lasting().is_empty());
     }
@@ -961,13 +759,13 @@ mod tests {
         assert_eq!(h.part(Part::Legs), 0.0, "and the stump waits for a medkit");
         assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6);
         assert!(!h.is_dead());
-        h.update(HOUR * 0.25, 1.0, 1.0, false);
+        h.update(HOUR * 0.25);
         assert!(h.blood() < MAX_BLOOD - 10.0, "it bleeds until treated");
         assert_eq!(h.treat(Part::Legs), Some(Trauma::CrushedRightLeg));
         assert_eq!(h.part(Part::Legs), Part::Legs.max() * TREATED_TO);
         assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6, "for ever");
         h.bandage(Part::Legs);
-        h.update(DAY * 3.0, 1.0, 1.0, false);
+        h.update(DAY * 3.0);
         assert!((h.pace() - LEG_LOST_PACE).abs() < 1e-6, "for ever");
         // The other one too, and there are none left.
         h.shot(Part::Legs, 20.0, false, 0.96);
@@ -981,7 +779,7 @@ mod tests {
             None,
             "nothing left to take"
         );
-        h.update(DAY, 1.0, 1.0, false);
+        h.update(DAY);
         assert_eq!(h.part(Part::Legs), 0.0, "and nothing grows back");
 
         let mut h = Health::new();
@@ -1007,32 +805,32 @@ mod tests {
             assert_eq!(h.bleeding(), 10);
             // A quarter of an hour is a quarter of its blood gone: three
             // quarters left, which is not *under* three quarters.
-            h.update(HOUR * 0.25, 1.0, 1.0, false);
+            h.update(HOUR * 0.25);
             assert!((h.blood() - 75.0).abs() < 1e-3, "{}", h.blood());
             assert_eq!(h.pace(), 1.0, "three quarters is not under it");
-            h.update(1.0, 1.0, 1.0, false);
+            h.update(1.0);
             assert_eq!(h.pace(), 0.5);
             assert!(!h.unconscious());
             // Half an hour and half its blood: the line it goes out at
             // (feature 89), and it is not under it yet.
-            h.update(HOUR * 0.25 - 1.0, 1.0, 1.0, false);
+            h.update(HOUR * 0.25 - 1.0);
             assert!((h.blood() - 50.0).abs() < 1e-3, "{}", h.blood());
             assert!(!h.unconscious(), "half is not under half");
-            h.update(1.0, 1.0, 1.0, false);
+            h.update(1.0);
             assert!(h.unconscious(), "{}", h.blood());
             assert!(!h.is_dead());
             assert!(h.bandage(Part::Body));
             assert_eq!(h.bleeding(), 0);
             assert!(!h.bandage(Part::Body), "nothing left to dress");
             let before = h.blood();
-            h.update(HOUR, 1.0, 1.0, false);
+            h.update(HOUR);
             assert!(h.blood() > before, "blood comes back once nothing is open");
 
             let mut h = Health::new();
             for _ in 0..10 {
                 h.shot(Part::Body, 1.0, false, 0.0);
             }
-            h.update(HOUR, 1.0, 1.0, false);
+            h.update(HOUR);
             assert!(h.is_dead(), "bled out");
         }
 
@@ -1045,8 +843,8 @@ mod tests {
             assert_eq!(h.part(Part::Body), 63.0, "the damage is the damage");
             let mut shot = Health::new();
             shot.shot(Part::Body, 12.0, false, 0.0);
-            h.update(HOUR * 0.1, 1.0, 1.0, false);
-            shot.update(HOUR * 0.1, 1.0, 1.0, false);
+            h.update(HOUR * 0.1);
+            shot.update(HOUR * 0.1);
             let cut_lost = MAX_BLOOD - h.blood();
             let shot_lost = MAX_BLOOD - shot.blood();
             assert!(
@@ -1056,21 +854,5 @@ mod tests {
             assert!(h.bandage(Part::Body));
             assert_eq!(h.bleeding(), 0);
         }
-    }
-
-    #[test]
-    fn starvation_still_takes_a_day_over_the_whole_of_it() {
-        let mut h = Health::new();
-        // Up to the last stage — the stage is read after the minutes are
-        // added, so the step that crosses the line already drains — then a
-        // day on nothing.
-        h.update(EXTREME_AT - 1.0, 0.0, 1.0, false);
-        assert!(!h.is_dead());
-        assert_eq!(h.points(), MAX_HEALTH);
-        h.update(DAY * 0.5, 0.0, 1.0, false);
-        assert!((h.points() - 50.0).abs() < 0.5, "{}", h.points());
-        assert!(!h.is_dead());
-        h.update(DAY * 0.5 + 1.0, 0.0, 1.0, false);
-        assert!(h.is_dead());
     }
 }

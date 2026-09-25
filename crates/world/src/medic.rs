@@ -16,7 +16,8 @@
 pub struct Medic {
     /// The crew members its beam holds, by index: none, one, or two
     /// with *double link*. Cleared whole whenever crew indices change
-    /// (a hire, a dismissal), since an index is all a link is.
+    /// (a hire, a bot dropped off the crew), since an index is all a
+    /// link is.
     pub patients: Vec<u32>,
     /// Minutes of the clock spent beaming a patient that qualifies —
     /// below full blood, or with a wound open — towards

@@ -137,15 +137,6 @@ shot punch Schword_hit.mp3 1.235 0.40 "asetrate=48000*0.85,aresample=48000,lowpa
 # limiter tames the transient before the peak is set.
 shot ouch own_bim_getting_hit.mp3 2.545 0.35 "highpass=f=80,alimiter=limit=0.7:level=false" 0.10
 
-# --- the galley -----------------------------------------------------------
-
-# Single knife strokes off the board, three of the eighteen in the
-# recording, a hundredth before the transient to a seventh after. The room
-# tone between strokes is cut with them.
-shot chop_1 Chopping_vegtables_and_Tofu.mp3 0.876 0.16 "highpass=f=100" 0.05
-shot chop_2 Chopping_vegtables_and_Tofu.mp3 1.428 0.16 "highpass=f=100" 0.05
-shot chop_3 Chopping_vegtables_and_Tofu.mp3 1.782 0.16 "highpass=f=100" 0.05
-
 # --- the doors ------------------------------------------------------------
 
 # Both door recordings are very quiet (peaks near -18 dBFS) with a heavy

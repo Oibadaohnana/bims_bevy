@@ -22,9 +22,10 @@
 //! `worldgen`'s own share) and its shelf come off a stream of their own
 //! ([`Purpose::Settlement`]) from the galaxy seed, the star and the body,
 //! so two clients roll the same town on the same planet and nothing else
-//! in the galaxy moves. The side goes on the world's `hostile` list with
-//! the stations', so `World::stance` reads it and `world_checksum` eats
-//! it.
+//! in the galaxy moves. The side is kept and read by nothing but the
+//! spawn's choice of ground (`crate::world::spawn_with_ground`): every
+//! human is friendly (features 102 and 104), and `World::stance` is the
+//! machines' where they hold a town and a stranger's everywhere else.
 //!
 //! # Built when it is wanted
 //!
@@ -119,25 +120,19 @@ impl Biome {
     }
 }
 
-/// Which of a settlement's people is its guard: the first. Posted at
-/// [`GUARD_POST`] whenever the surface's room is opened or rebuilt
-/// (`crate::crew::Residents::post_guard`), and back there after every
-/// errand (`bims::game::Game::send_to`).
+/// Which of a settlement's people is its guard: the first. It walks its
+/// round between the gates and the pad (`bims::routine`, dealt by
+/// `crate::crew::Residents::deal_roles`), stands its ground in a town's
+/// defence, and is never one who joins the crew after it.
 pub const GUARD: u32 = 0;
 
-/// The tile the guard stands on: outside the watch house's door, facing
-/// the pad, between its two sandbags — a few tiles south of the pad,
-/// whatever the side. Kept clear by the plan, and by the wild.
+/// The guard's post: the tile outside the watch house's door, facing the
+/// pad, between its two sandbags — a few tiles south of the pad, whatever
+/// the side. The watch house is laid round it and the plan and the wild
+/// keep it clear. Nobody is posted there any more (the guard walks its
+/// round since feature 102, and the post went with the needs in feature
+/// 104); it is where the town's plan is measured from.
 pub const GUARD_POST: (u32, u32) = (5, data::SURFACE_SIDE / 2 + 8);
-
-/// The middle of the guard's tile, in the surface's design units.
-pub fn guard_post() -> DVec2 {
-    let t = TILE as f64;
-    dvec2(
-        (GUARD_POST.0 as f64 + 0.5) * t,
-        (GUARD_POST.1 as f64 + 0.5) * t,
-    )
-}
 
 /// The two gates in a town's wall, in the surface's design units: the
 /// middle of each opening, a couple of tiles inside the wall (feature 102)
@@ -165,8 +160,8 @@ pub struct Surface {
     /// The body's position: the middle of the ground.
     pub position: DVec2,
     pub map_seed: u64,
-    /// Whether its people are enemies, as rolled; the rule is
-    /// `World::stance`, off the `hostile` list this is put on.
+    /// Whether its people were rolled enemies. Nobody's stance — see the
+    /// module's note — and read only where a crew is set down.
     pub hostile: bool,
     /// What ground the town stands on: arctic on an ice world, desert or
     /// temperate on a rocky planet, rolled evenly.

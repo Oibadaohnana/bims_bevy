@@ -13,6 +13,19 @@ plan that flies a trip.
 > so in `crates/app`'s tests or `./check smoke`, and is worth restoring as a
 > unit test if the thing it guarded moves again.
 
+> **Since feature 104 nothing in a run is flown.** A trip is resolved
+> (`World::travel`, `crates/world/CLAUDE.md` "The loop"): the world clock
+> goes on by the trip's quote in one go, and the quote is
+> `physics::travel_days` off `Ship::dynamics`, not a plan. The flown trip
+> the world stepped through `plan_trip`, `state_at` and `effort_at` —
+> casting off, the burn, the brake, the docking run, the landing — was
+> deleted from `crates/world` with the helm and the free clock, and the
+> game draws no exhaust (`hull::Firing::NONE`). This crate itself was not
+> touched: the world still reads `flight::dynamics` (the dynamics, and
+> the throttle below), `flight::angle` (the design's turn) and `Target`,
+> and the plan and its tests stay as they were, with nothing in a run
+> calling them. What follows describes the plan as it is.
+
 ## A plan is read, never integrated
 
 `flight::plan_trip` works a trip out **once** and `state_at(plan, minutes)`
@@ -30,15 +43,17 @@ Two things fall out of that and are easy to undo:
 - **A trip keeps the `Dynamics` it was planned with.** Welding a wall on
   halfway does not move an arrival that has already been promised; it changes
   what the *next* plan will be like. `World::on_ship_changed` recomputes the
-  live dynamics and deliberately leaves the active plan alone.
+  live dynamics, and left the active plan alone while there was one (there
+  has been none in the world since feature 104).
 - **Nothing is burnt.** There is no fuel (September 2026): the engines run on
   the reactor, and what the reactor can feed them is a **throttle** on the
   thrust, worked out by `shipdesign::power::thrust` *before* the dynamics are
   — `a_forward` is already the fed push, and a dark engine (no live conduit
   under it) is no engine at all. Every burning segment carries the set's
   `power` — `Dynamics::forward_power`/`backward_power`, the throttled draw a
-  minute — and `effort_at(...).power` is what the world's power stage charges
-  the ship while it flies. Constant through a segment like everything else;
+  minute — and `effort_at(...).power` was what the world's power stage
+  charged the ship while it flew (nothing is charged for the engines since
+  feature 104). Constant through a segment like everything else;
   the batteries are deliberately not in the throttle, since a burn that ran
   off them for a while would be a rate change inside a segment. A ship's
   mass is therefore fixed for the whole of a plan.

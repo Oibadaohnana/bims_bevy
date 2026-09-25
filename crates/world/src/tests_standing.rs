@@ -285,9 +285,13 @@ fn the_fall_back_point_is_the_ships_own_gangway_and_not_the_stations() {
 fn a_bot_falling_back_gives_ground_backwards_and_sprints_with_nothing_in_sight() {
     let mut world = crewed();
     world.step(&[]);
-    assert!(world.stage_fight_for_probe(), "a fight is staged");
-    // The player and a bot out along the station's deck, under arms,
-    // with the station's one resident down the corridor from them.
+    // A machine held down the corridor where it is put (`None`: it
+    // stands and fires nothing), and the player and a bot out along the
+    // station's deck, under arms.
+    assert!(
+        world.stage_droid_fight_for_probe(bims::droid::DroidKind::Trooper, None),
+        "a fight is staged"
+    );
     let ashore = world.aboard.ashore.expect("docked, so there is an ashore");
     let there = bims::math::vec2(ashore.x as f32, ashore.y as f32);
     for who in [0usize, 1] {

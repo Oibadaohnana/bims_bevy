@@ -1,7 +1,7 @@
 //! The infesting race: a machine that is not a Bim (feature 83).
 //!
-//! A [`Droid`] has no needs, no sleep, no bunk, no social life, no memory,
-//! no schedule, no blood, no wounds, no traumas, no gear and no pack. It
+//! A [`Droid`] has no bunk, no memory, no blood, no wounds, no traumas, no
+//! gear and no pack. It
 //! has a position, a heading, four parts that break, an arm that is part
 //! of it, and a route. A droid-held station's room holds them in
 //! `Game::droids` beside `bims`, which is empty there; the deck's

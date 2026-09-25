@@ -19,7 +19,7 @@
 //! tiles the crew see now ([`Plane::observe`], traced tile by tile out
 //! to [`VIEW`] the way `crate::sight` traces the deck) and which they
 //! have ever seen. The room's dense structures — the navigation grids,
-//! the sight mask, the filth — stay the deck's: the plane is walked on
+//! the sight mask, the blood — stay the deck's: the plane is walked on
 //! a window a body carries with it (`nav::Nav::outside`, built about
 //! it by `Game::refresh_afield`) and seen through this. What is drawn over
 //! it is the **picture** — [`Plane::picture`], a chunk at a time, marched

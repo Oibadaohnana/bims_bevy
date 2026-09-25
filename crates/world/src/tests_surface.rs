@@ -345,43 +345,6 @@ fn a_landable_body_rolls_a_biome_and_a_population() {
     assert!(least < 12 && most > 24, "populations {least}..{most}");
 }
 
-/// A field is a bay at half pace with nothing to plug in: the same tray
-/// planted in both and grown the same minutes is half as far along in
-/// the field, and cutting the power stops the bay and not the field.
-#[test]
-fn a_field_grows_at_half_pace_and_ignores_the_plug() {
-    use bims::hydro::{Bay, Crop, FIELD_PACE, Job};
-    use bims::math::{Rect, vec2};
-    let frame = Rect::from_min_size(vec2(100.0, 100.0), vec2(312.0, 52.0));
-    let mut bay = Bay::at(frame, vec2(0.0, -1.0));
-    let mut field = Bay::field(frame, vec2(0.0, -1.0));
-    assert!(field.is_field() && !bay.is_field());
-    for b in [&mut bay, &mut field] {
-        b.force(Some(Crop::Veg));
-        assert!(matches!(
-            b.wants_work(0, 0, 0),
-            Some(Job::Plant(0, Crop::Veg))
-        ));
-        b.work(Job::Plant(0, Crop::Veg));
-        b.update(1.0, 240.0, 0, 0, 0, (0, 0, 0));
-    }
-    let (in_bay, in_field) = (bay.growth_at(0), field.growth_at(0));
-    assert!(in_bay > 0.0);
-    assert!(
-        (in_field - in_bay * FIELD_PACE).abs() < 1e-4,
-        "{in_field} against {in_bay}"
-    );
-    // The plug.
-    bay.set_powered(false);
-    field.set_powered(false);
-    assert!(!bay.powered() && field.powered());
-    for b in [&mut bay, &mut field] {
-        b.update(1.0, 240.0, 0, 0, 0, (0, 0, 0));
-    }
-    assert_eq!(bay.growth_at(0), in_bay, "the bay stopped");
-    assert!(field.growth_at(0) > in_field, "the field went on");
-}
-
 /// Landed, the town's ground is under the sky: a crew member on the pad
 /// sees a tile of the main street far beyond any lamp's reach and beyond
 /// the ten tiles a body makes out in the dark, and does not once the

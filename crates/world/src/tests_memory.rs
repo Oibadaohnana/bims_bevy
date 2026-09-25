@@ -1,12 +1,10 @@
 //! What a system has to remember: `crate::memory`. A station's dead stay
 //! dead when its room is closed and opened again, and a mercenary hired
 //! is not there to hire twice; a jump away and back finds the system as
-//! it was left — the stance, the keys, the sites, the shelves, the lamps,
-//! the chart, the losses — and the checksum knows the difference.
+//! it was left — the keys, the lamps, the chart, the losses and the
+//! dead — and the checksum knows the difference.
 
 use shipdesign::fixture::flyer;
-use shipdesign::parts::PartKind;
-use shipdesign::{Budget, Edit, Rotation, ShipDesign, apply};
 
 use crate::Losses;
 use crate::data;
@@ -20,56 +18,24 @@ fn basic() -> World {
     simulation_world(flyer(2), REFERENCE_MONEY, 2)
 }
 
-/// The flyer with a drive, as `tests::jumper` builds it.
-fn jumper() -> ShipDesign {
-    let budget = Budget::new(10_000_000);
-    let mut design = flyer(2);
-    for (kind, origin) in [
-        (PartKind::PowerConduit, (7, 16)),
-        (PartKind::PowerConduit, (6, 16)),
-        (PartKind::Hyperdrive, (5, 16)),
-    ] {
-        design = apply(
-            &design,
-            &budget,
-            Edit::Place {
-                kind,
-                origin,
-                rotation: Rotation::R0,
-            },
-        )
-        .unwrap_or_else(|e| panic!("{kind:?} at {origin:?}: {e:?}"));
-    }
-    design
-}
-
-/// The ship, holding, charged and jumped to `star`.
+/// The ship, holding, jumped to `star` — what a trip across a hyperlane
+/// does on the way (`World::jump`) — and a step after it.
 fn jump_to(world: &mut World, star: u32) {
     assert_eq!(
         world.ship.state,
         ShipState::Holding,
         "a jump wants a holding ship"
     );
-    world.man_the_helm_for_probe(0);
-    let events = world.step(&[Command::Jump { slot: 0, star }]);
+    let mut events = Vec::new();
+    assert!(world.jump(star, &mut events), "the ship never jumped");
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, WorldEvent::Charging { star: s, .. } if *s == star)),
+            .any(|e| matches!(e, WorldEvent::Jumped { star: s } if *s == star)),
         "{events:?}"
     );
-    let steps = (data::JUMP_CHARGE_MINUTES / data::STEP_MINUTES).ceil() as u32 + 5;
-    for _ in 0..steps {
-        let events = world.step(&[]);
-        if events
-            .iter()
-            .any(|e| matches!(e, WorldEvent::Jumped { star: s } if *s == star))
-        {
-            assert_eq!(world.star_id, star);
-            return;
-        }
-    }
-    panic!("the ship never jumped");
+    assert_eq!(world.star_id, star);
+    world.step(&[]);
 }
 
 /// The ship put well out of every station's range and stepped, so the
@@ -105,16 +71,21 @@ fn back_to(world: &mut World, station: u32) {
     );
 }
 
-/// A hostile station's garrison shot down stays down: the room closes
-/// with two dead and opens again with two fewer, closes with the rest
-/// dead and opens again empty — and the count is in the checksum.
+/// A station's people shot down stay down: the room closes with two of
+/// its own dead and opens again with two fewer on their feet, closes
+/// with the rest dead and opens again empty — and the count is in the
+/// checksum.
 #[test]
 fn a_station_s_dead_stay_dead_when_its_room_is_closed_and_opened_again() {
     let mut world = basic();
     let station = world.ship.state.station().expect("docked at the spawn");
-    world.set_hostile(station, true);
-    let garrison = world.residents.as_ref().unwrap().aboard.count();
-    assert!(garrison >= 3, "a garrison to shoot: {garrison}");
+    let (people, mercs) = {
+        let s = world.station(station).unwrap();
+        (world.people_of(s), world.mercenaries_of(s))
+    };
+    let crowd = world.residents.as_ref().unwrap().aboard.count();
+    assert_eq!(crowd, people + mercs, "its people, then its hands for hire");
+    assert!(people >= 2, "two of its own to shoot: {people}");
     assert_eq!(world.losses_at(station), Losses::none(station));
     let before = world_checksum(&world);
 
@@ -146,15 +117,15 @@ fn a_station_s_dead_stay_dead_when_its_room_is_closed_and_opened_again() {
         before,
         "the losses are in the checksum"
     );
-    assert_eq!(world.stance(station), Stance::Hostile);
+    assert_eq!(world.stance(station), Stance::Friendly, "home still");
 
     // Back: the survivors, and the two dead lying where they fell
     // (feature 85) — two fewer on their feet, the same number of bodies
     // on the deck.
     back_to(&mut world, station);
     let ashore = world.residents.as_ref().unwrap();
-    assert_eq!(ashore.aboard.count(), garrison, "the dead are still here");
-    assert_eq!(standing(&world), garrison - 2, "two fewer stand up");
+    assert_eq!(ashore.aboard.count(), crowd, "the dead are still here");
+    assert_eq!(standing(&world), crowd - 2, "two fewer stand up");
 
     // The rest dead too: the station is emptied, and stays so.
     {
@@ -165,12 +136,19 @@ fn a_station_s_dead_stay_dead_when_its_room_is_closed_and_opened_again() {
     }
     world.step(&[]);
     out_of_range(&mut world);
-    assert_eq!(world.losses_at(station).dead, garrison);
+    assert_eq!(
+        world.losses_at(station),
+        Losses {
+            station,
+            dead: people,
+            mercenaries: mercs
+        }
+    );
     back_to(&mut world, station);
-    assert_eq!(standing(&world), 0, "a raided station opens empty");
+    assert_eq!(standing(&world), 0, "an emptied station opens empty");
     assert_eq!(
         world.residents.as_ref().unwrap().aboard.count(),
-        garrison,
+        crowd,
         "and the dead are all still on its deck"
     );
     // Docked there, the same: nobody comes to the airlock.
@@ -213,9 +191,8 @@ fn bodies(world: &World) -> Vec<(worldgen::math::DVec2, bims::combat::Gear)> {
 fn a_station_s_dead_lie_where_they_fell_when_its_room_opens_again() {
     let mut world = basic();
     let station = world.ship.state.station().expect("docked at the spawn");
-    world.set_hostile(station, true);
-    let garrison = world.residents.as_ref().unwrap().aboard.count();
-    assert!(garrison >= 2, "a garrison to shoot: {garrison}");
+    let crowd = world.residents.as_ref().unwrap().aboard.count();
+    assert!(crowd >= 2, "people to shoot: {crowd}");
 
     // One of them shot where it stands, and its pack emptied the way a
     // looting empties one.
@@ -249,7 +226,7 @@ fn a_station_s_dead_lie_where_they_fell_when_its_room_opens_again() {
     // And the room that opens next has it lying there: one body, dead,
     // within a tile of where it fell, with what was on it still on it.
     back_to(&mut world, station);
-    assert_eq!(standing(&world), garrison - 1);
+    assert_eq!(standing(&world), crowd - 1);
     let lying = bodies(&world);
     assert_eq!(lying.len(), 1, "one body, not two and not none");
     let (at, gear) = lying[0];
@@ -268,7 +245,7 @@ fn a_station_s_dead_lie_where_they_fell_when_its_room_opens_again() {
     assert_eq!(world.losses_at(station).dead, 1, "counted once");
     back_to(&mut world, station);
     assert_eq!(bodies(&world).len(), 1);
-    assert_eq!(standing(&world), garrison - 1);
+    assert_eq!(standing(&world), crowd - 1);
 }
 
 /// A planet's settlement is a station like any other, so its dead lie in
@@ -324,25 +301,18 @@ fn a_settlement_s_dead_lie_in_its_street_too() {
     }
 }
 
-/// A jump away and back: the system is met as it was left — the stance
-/// the crew gave a station, the key off its desk, the rocks mined and
-/// marked at the belt, the enemy's shelf as it was plundered, the lamp
-/// shot out, the chart, the dead — where a system never visited is as
-/// the generator rolled it, and every system left is in the checksum.
+/// A jump away and back: the system is met as it was left — the key off
+/// its desk, the lamp shot out, the chart, the dead — where a system
+/// never visited is as the generator rolled it, and every system left is
+/// in the checksum.
 #[test]
 fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
-    let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
-    world.set_human_foes_enabled(true);
+    let mut world = basic();
     let from = world.star_id;
     let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");
 
-    // What the crew did here: turned the spawn's people against them,
-    // which lays their shelf out as loot, and shot one of the garrison.
-    world.set_hostile(station, true);
-    assert!(!world.plunder.is_empty(), "an enemy's shelf is laid out");
+    // What happened here: one of the spawn's people shot.
     world
         .residents
         .as_mut()
@@ -375,29 +345,23 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     assert_eq!(world.losses_at(station).dead, 1);
 
     let left = (
-        world.hostile.clone(),
         world.station_keys.clone(),
-        world.plunder.clone(),
         world.lamps.clone(),
         world.discovered.clone(),
         world.losses.clone(),
     );
-    assert!(!left.4.is_empty(), "the chart has something on it");
+    assert!(!left.2.is_empty(), "the chart has something on it");
 
     // Away: the other system as the generator rolled it, and this one
     // filed under its star.
     jump_to(&mut world, to);
     assert_eq!(world.memories.len(), 1);
     assert_eq!(world.memories[0].star, from);
-    assert_eq!(world.memories[0].losses, left.5);
-    for s in &world.stations {
-        assert_eq!(world.hostile.binary_search(&s.id).is_ok(), s.hostile);
-    }
+    assert_eq!(world.memories[0].losses, left.3);
     assert_eq!(
         world.station_keys,
         world.stations.iter().map(|s| s.key).collect::<Vec<_>>()
     );
-    assert!(world.plunder.is_empty());
     assert!(world.losses.is_empty());
     assert!(
         world.lamps.iter().all(|d| d.station.is_none()),
@@ -410,26 +374,17 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     // sensors reached on the landing, never shrunk.
     jump_to(&mut world, from);
     assert_eq!(world.memories.len(), 2);
-    assert_eq!(world.hostile, left.0);
-    assert_eq!(world.station_keys, left.1);
-    assert_eq!(world.plunder, left.2);
-    assert_eq!(world.lamps, left.3);
-    assert_eq!(world.losses, left.5);
-    for node in &left.4 {
+    assert_eq!(world.station_keys, left.0);
+    assert_eq!(world.lamps, left.1);
+    assert_eq!(world.losses, left.3);
+    for node in &left.2 {
         assert!(world.discovered.contains(node), "{node:?} forgotten");
     }
-    assert_eq!(world.stance(station), Stance::Hostile);
+    assert_eq!(world.stance(station), Stance::Friendly, "home again");
     assert_eq!(world.station_keys[with_key], 0, "the key stays taken");
     // Its people: one fewer, still.
     let s = world.station(station).unwrap();
-    let full = crate::station::enemies_of(
-        world.aboard.crew_count(),
-        world.worth(),
-        world.start_worth,
-        world.days_gone(),
-    )
-    .min(data::ENEMIES_MAX);
-    assert_eq!(world.people_of(s), full - 1);
+    assert_eq!(world.people_of(s), s.residents() - 1);
 
     // Every system left is in the checksum.
     let back = world_checksum(&world);
@@ -513,13 +468,10 @@ fn a_mercenary_hired_is_not_there_to_hire_twice() {
 /// on the deck it fell on.
 #[test]
 fn the_dead_stay_on_the_deck_across_a_jump_away_and_back() {
-    let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
+    let mut world = basic();
     let from = world.star_id;
     let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");
-    world.set_hostile(station, true);
     world
         .residents
         .as_mut()
@@ -571,9 +523,7 @@ fn the_dead_stay_on_the_deck_across_a_jump_away_and_back() {
 #[test]
 fn the_map_marks_where_the_ship_has_already_been() {
     use worldgen::Node;
-    let mut world = simulation_world(jumper(), REFERENCE_MONEY, 2);
-    // The old game's clock, running with the step (feature 103).
-    world.set_free_clock(true);
+    let mut world = basic();
     let from = world.star_id;
     let to = crate::tests::laned_star(&world);
     let station = world.ship.state.station().expect("docked at the spawn");

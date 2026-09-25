@@ -476,60 +476,28 @@ pub fn issue_line(code: u32) -> Option<&'static str> {
 /// louder than the errors. It does not block; it shouts.
 pub const ISSUE_GRAVE: u32 = 24;
 
-/// Why a trip could not be planned. Indexed by `flight::PlanError`.
-pub fn plan_error(code: u32) -> &'static str {
-    match code {
-        1 => "No engine pushes the ship forward — none built, or none on a live reactor.",
-        2 => "Nothing to turn with — it cannot aim or stop.",
-        3 => "No helm to fly it from.",
-        5 => "Nobody has found that yet.",
-        6 => "The ship is already there.",
-        _ => "That cannot be flown.",
-    }
-}
-
-/// Why an order did nothing. Separate from the list above on purpose: "you
-/// are not docked" and "you have no engine" are different things to be told.
+/// Why an order did nothing.
 pub fn refusal(why: Refusal) -> &'static str {
     match why {
         Refusal::NotDocked => "not while the ship is away from a station",
         Refusal::Unaffordable => "there is not the money",
         Refusal::NoRoomAboard => "there is nowhere aboard to put it",
         Refusal::NotAboard => "there is not that much aboard to sell",
-        Refusal::NotAtTheHelm => "nobody of yours is at the helm",
-        Refusal::NotTravelling => "there is no trip to stop",
         Refusal::SumTooBig => "the sum will not go",
-        Refusal::ComingAlongside => "the ship is coming alongside; wait until it is tied up",
         Refusal::NotSoldHere => "this station does not sell that",
-        Refusal::UnderWay => "nothing is built on a ship that is moving",
         Refusal::WontFit => "that will not go there",
         Refusal::NoSuchSite => "that site is not there any more",
-        Refusal::UnderConstruction => {
-            "the ship stays put while something is being built — cancel the site, or let them finish"
-        }
         Refusal::OutOfReach => "it is out of reach — walk over first",
         Refusal::PackFull => "the pack is full",
         Refusal::NoRoom => "there is no room for it aboard",
         Refusal::Broken => "it is broken, and worth nothing put away — discard it",
         Refusal::NotDown => "nobody on their feet is looted — it is not down any more",
         Refusal::NotForHire => "that is not a mercenary for hire",
-        Refusal::NoBunk => "there is no bunk aboard for one more",
         Refusal::NotAtTheDesk => "nobody of yours is at the trading desk — walk over first",
         Refusal::NoKey => "there is no research key there",
         Refusal::NoResearchDesk => "the ship has no research desk running — the AI works on one",
         Refusal::NotResearchable => "that cannot be queued for research now",
         Refusal::NotResearched => "the crew do not know how to build that yet",
-        Refusal::NotHostile => "only an enemy's people are finished off",
-        Refusal::Unarmed => "nothing in hand to do it with",
-        Refusal::NoHyperdrive => {
-            "there is no working hyperdrive — one bolted to an engine, on a live cable"
-        }
-        Refusal::NotHolding => "the ship has to be holding on its own, away from any berth",
-        Refusal::NoSuchStar => "there is no such star",
-        Refusal::SameStar => "the ship is at that star already",
-        Refusal::NoPlanetHere => {
-            "a landing wants the ship holding over a rocky planet or an ice world"
-        }
         Refusal::NoMarket => "there is nobody here to sell to",
         Refusal::NoWorkbench => "there is no workbench aboard to put it on",
         Refusal::NoPair => {
@@ -538,7 +506,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::BenchBusy => "the bench is at work on what is on it — wait for the day to finish",
         // A walk ordered on the deck (`Command::Crew`): the room's two
         // refusals.
-        Refusal::DoorLocked => "the bathroom door is locked on the only way there",
         Refusal::NoWayThere => "there is no way there at all",
         Refusal::NotQueued => "that is not on the research queue",
         Refusal::NoUpgrades => {
@@ -566,7 +533,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::CantThrowThere => "that tile is not deck",
         Refusal::NotAMedic => "only a medic does that",
         Refusal::NoPatient => "there is nobody there to beam",
-        Refusal::NotACrewmate => "the beam holds a crewmate, not that",
+        Refusal::NotACrewmate => "that is not one of the crew",
         Refusal::OutOfBeamRange => "they are too far off for the beam",
         Refusal::NoSightOfPatient => "the medic cannot see them",
         Refusal::NoSurgeYet => "a surge wants the medic's third level",
@@ -582,7 +549,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotCarrying => "only a medic carries somebody, and only one at a time",
         Refusal::NotHurt => "they are on their feet and can walk out themselves",
         Refusal::AlreadyCarried => "somebody has them already",
-        Refusal::NoLane => "no hyperlane runs from here to there — jump along the route",
         Refusal::Jammed => {
             "the machines' jammer holds this system's lanes shut — clear it, or jump outward"
         }
@@ -593,9 +559,6 @@ pub fn refusal(why: Refusal) -> &'static str {
             "medkits and bandages stay in the pack: they come back there on their own cooldown"
         }
         Refusal::NoShipyard => "nothing is built onto the ship on a run",
-        Refusal::TravelIsResolved => {
-            "nothing is flown on a run — choose where to go on the world map, between missions"
-        }
         Refusal::BetweenMissions => "not between missions — choose where to go next",
         Refusal::MidMission => "the map is read-only during a mission — go back to the ship first",
         Refusal::NoSuchPlace => "there is no such place to go",
@@ -1830,12 +1793,12 @@ pub fn tint_name(tint: bims::character::Tint) -> &'static str {
 }
 
 /// Why a blueprint will not go where the pointer is, from
-/// `World::can_place_site`: the ship is moving, the rules refuse the tile
-/// (an `EditError`, said the designer's way), or the ship would then have
-/// a fault it has not got (an `IssueCode`, likewise).
+/// `World::can_place_site`: nothing is built on a run, the rules refuse
+/// the tile (an `EditError`, said the designer's way), the ship would then
+/// have a fault it has not got (an `IssueCode`, likewise), or the part is
+/// not researched.
 pub fn site_refusal_line(why: world::SiteRefusal) -> String {
     match why {
-        world::SiteRefusal::UnderWay => "Nothing is built while the ship is moving.".into(),
         world::SiteRefusal::NoShipyard => "Nothing is built onto the ship on a run.".into(),
         world::SiteRefusal::WontFit(code) => edit_line(code).into(),
         world::SiteRefusal::Fault(code) => issue_line(code)
@@ -1856,15 +1819,7 @@ pub fn site_progress(site: &world::BuildSite, design: &shipdesign::ShipDesign) -
 }
 
 /// What the ship is doing, indexed by `world::ShipState::code`.
-pub const STATE_NAMES: [&str; 7] = [
-    "Docked",
-    "Holding",
-    "Under way",
-    "Casting off",
-    "Undocking",
-    "Docking",
-    "Charging",
-];
+pub const STATE_NAMES: [&str; 2] = ["Docked", "Holding"];
 
 /// The machines (feature 83): a wave landing, and the last of them
 /// destroyed.
@@ -1895,16 +1850,8 @@ pub fn droid_name(code: u32) -> &'static str {
 /// there are none today, and the arm is here so a new event is a missing
 /// line rather than a blank row.
 pub fn event_line(event: WorldEvent) -> Option<String> {
-    use health::HealthEvent;
     let who = |slot: u32| crew_name(slot);
     Some(match event {
-        WorldEvent::Departed { .. } => "Under way.".into(),
-        WorldEvent::Arrived { station: Some(id) } => format!("Docked at station {id}."),
-        WorldEvent::Arrived { station: None } => "Holding station.".into(),
-        WorldEvent::Aborted { .. } => "Stopping.".into(),
-        WorldEvent::PlanFailed { error, .. } => {
-            format!("Cannot fly there — {}", plan_error(error.code()))
-        }
         WorldEvent::Discovered { .. } => "Something new on the scanner.".into(),
         WorldEvent::FrameChanged { frame } => {
             if frame.code() == 0 {
@@ -1930,9 +1877,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Refused { why, .. } => {
             format!("That could not be done — {}.", refusal(why))
         }
-        WorldEvent::CastingOff { .. } => "Casting off: everybody back aboard.".into(),
-        WorldEvent::Undocking { .. } => "Clear of the berth.".into(),
-        WorldEvent::Docking { station } => format!("Coming alongside station {station}."),
         WorldEvent::Crafted { recipe } => format!("Made {}.", made_name(recipe)),
         WorldEvent::CraftLost { recipe } => {
             format!(
@@ -1940,29 +1884,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
                 made_name(recipe)
             )
         }
-        WorldEvent::Health { who: w, event } => match event {
-            HealthEvent::RadiationDetected => {
-                format!("{} has picked up a dose of radiation.", who(w))
-            }
-            HealthEvent::CriticalDose => {
-                format!("{}'s dose is critical — it is doing damage.", who(w))
-            }
-            HealthEvent::RadiationSickness => format!("{} has radiation sickness.", who(w)),
-            HealthEvent::SicknessSubsided => {
-                format!(
-                    "{}'s sickness has subsided; the dose is still critical.",
-                    who(w)
-                )
-            }
-            HealthEvent::BelowCritical => {
-                format!("{}'s dose is below critical again.", who(w))
-            }
-            HealthEvent::DoseCleared => format!("{}'s dose is clear.", who(w)),
-            HealthEvent::CancerOnset => format!("{} has cancer.", who(w)),
-            HealthEvent::CancerAdvanced => format!("{}'s cancer has advanced.", who(w)),
-            HealthEvent::CancerTerminal => format!("{}'s cancer is terminal.", who(w)),
-            HealthEvent::Died => format!("{} has died.", who(w)),
-        },
         WorldEvent::SitePlaced { kind, .. } => {
             format!("{} laid out.", part_name(kind))
         }
@@ -2050,12 +1971,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         WorldEvent::Hired { who: w } => {
             format!("{} signed on — a hired hand, paid by the month.", who(w))
         }
-        WorldEvent::Executed { who: w, .. } => {
-            format!(
-                "{} finished off one of the station's people where it lay.",
-                who(w)
-            )
-        }
         WorldEvent::MercenaryPaid { who: w, fee } => {
             format!(
                 "{}'s month came round: {} paid.",
@@ -2064,7 +1979,7 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             )
         }
         WorldEvent::MercenaryLeft { who: w } => format!(
-            "{}'s month came round and there was not the money — a hired hand unpaid walks off at the next berth.",
+            "{}'s month came round and there was not the money — the hand is owed until it is paid.",
             who(w)
         ),
         WorldEvent::KeyTaken { who: w } => {
@@ -2088,45 +2003,16 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             resource_name_by_code(resource).to_lowercase(),
             tier_name(tier)
         ),
-        WorldEvent::Charging { slot, star } => {
-            format!("{} charges the hyperdrive for star {star}.", who(slot))
-        }
         WorldEvent::Jumped { star } => format!("Jumped. The ship is in the system of star {star}."),
-        WorldEvent::JumpFailed => "The hyperdrive did not fire: nothing working to fire.".into(),
         WorldEvent::Infested { star } => format!(
             "The machines have this system. Every station round star {star} is theirs: nobody left aboard, nothing to trade, nobody to hire."
         ),
-        WorldEvent::Landing { .. } => "Coming down onto the planet.".into(),
-        WorldEvent::Landed { .. } => "Landed. The settlement is beside the pad.".into(),
-        WorldEvent::LiftedOff { .. } => "Lifting off.".into(),
         WorldEvent::Brownout => {
-            "Brownout: the batteries are flat and the ship draws more than it makes. The lamps are out, the bay and the benches have stopped, and the cold store is warming."
+            "Brownout: the batteries are flat and the ship draws more than it makes. The lamps are out and the benches have stopped."
                 .into()
         }
         WorldEvent::PowerRestored => "Power restored.".into(),
-        WorldEvent::FoodSpoiled { units } => {
-            format!("{units} of the food in the cold store spoiled for want of power.")
-        }
-        WorldEvent::RaidContact { boarders, minutes } => format!(
-            "Raiders. A hostile ship is on the radar and closing, incoming in {}, with {boarders} aboard. Everybody back to 1×.",
-            crate::format::span_text(minutes as f32)
-        ),
-        WorldEvent::RaidBoarded { boarders } => format!(
-            "The raider is alongside: the airlock is locked in its face, and {boarders} boarders are forcing it."
-        ),
-        WorldEvent::RaidBreached { boarders } => {
-            format!("The airlock gave: {boarders} boarders are coming through it.")
-        }
-        WorldEvent::RaidCancelled => "The raider lost the ship, and gave up.".into(),
-        WorldEvent::RaidRepelled => {
-            "The boarders are all down. The raider is a derelict tied to the ship: loot it, and cast off to be rid of it."
-                .into()
-        }
         WorldEvent::CrewLost => "Nobody of the crew is standing. The run is over.".into(),
-        WorldEvent::Plundered { who: w, units } => match units {
-            1 => format!("{} took a thing off the enemy's shelf.", who(w)),
-            n => format!("{} took {n} off the enemy's shelf.", who(w)),
-        },
         WorldEvent::ResearchQueued { node } => {
             format!("Queued for research: {}.", node_name(node))
         }
@@ -2707,7 +2593,7 @@ pub const OVER_LINE: &str = "Nobody of the crew is standing. The run is over.";
 pub const OVER_BACK: &str = "Back to the menu";
 
 pub const UPGRADE_LABEL: &str = "Combine matching gear";
-pub const UPGRADE_TIP: &str = "Ticked, whoever is free carries two of a kind at the same tier — two pistols, two helms — from the lockers to the workbench's two slots one at a time, presses Upgrade for you, and a day of work later carries the one that comes off a tier up back to the lockers: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. Unticked, the bench is yours: put a pair on it from the pack and press the button in its window. The hours done are kept whoever is at the bench. Nothing is upgraded, ticked or not, until the Upgrades node of the research tree is known — tier two, behind a tier-two key off a hostile station's desk.";
+pub const UPGRADE_TIP: &str = "Ticked, whoever is free carries two of a kind at the same tier — two pistols, two helms — from the lockers to the workbench's two slots one at a time, presses Upgrade for you, and a day of work later carries the one that comes off a tier up back to the lockers: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. Unticked, the bench is yours: put a pair on it from the pack and press the button in its window. The hours done are kept whoever is at the bench. Nothing is upgraded, ticked or not, until the Upgrades node of the research tree is known — tier two, behind a tier-two key, which only a few stations' desks hold.";
 
 /// The line under it while something is on the bench: what, to which
 /// tier, and how far — or that it is done and waiting in the output slot.
@@ -2778,7 +2664,7 @@ fn crew_or(who: u32, fallback: &str) -> String {
 
 /// What `spot_at` says is under the pointer. Must match the `SPOT_` codes
 /// in `crates/game/src/room.rs`.
-pub const SPOT_NAMES: [&str; 23] = [
+pub const SPOT_NAMES: [&str; 21] = [
     "Outside the hull",
     "Deck plating",
     "Bulkhead",
@@ -2793,11 +2679,9 @@ pub const SPOT_NAMES: [&str; 23] = [
     "Hydroponic bay",
     "Toilet",
     "Washbasin",
-    "Bathroom door",
     "Deck plating",
     "Broom locker",
     "Door",
-    "Helm",
     "Workbench",
     "Suit locker",
     "Shower",
@@ -2808,27 +2692,18 @@ pub const SPOT_NAMES: [&str; 23] = [
 /// deck, a bulkhead — rather than a thing the room has a picture of. Aboard
 /// the ship every part the room does not draw reads as one of these, so the
 /// ship's readout names those off the design instead.
-pub const PLAIN_SPOTS: [u32; 4] = [0, 1, 2, 15];
+pub const PLAIN_SPOTS: [u32; 4] = [
+    bims::room::SPOT_NOTHING,
+    bims::room::SPOT_DECK,
+    bims::room::SPOT_BULKHEAD,
+    bims::room::SPOT_HEADS_DECK,
+];
 
 /// The errand codes shared by `activity()` and `agenda_job()`.
 pub fn job_name(code: u32) -> &'static str {
     match code {
-        1 => "Making food",
-        2 => "Working the cooker",
-        3 => "Nap",
-        4 => "Sleep",
-        5 => "Using the toilet",
-        6 => "Fridge door",
-        7 => "Bathroom door",
+        7 => "Working a door",
         8 => "Door lock",
-        9 => "Starting the wash",
-        11 => "Tending the bay",
-        12 => "Eating leftovers",
-        13 => "Sweeping up",
-        14 => "Talking",
-        15 => "Cooking stew for the store",
-        16 => "Warming up a stew",
-        17 => "Taking a shower",
         18 => "Making something",
         19 => "Mining outside",
         20 => "Carrying materials",
@@ -2836,7 +2711,6 @@ pub fn job_name(code: u32) -> &'static str {
         22 => "Dressing a wound",
         23 => "Treating a trauma",
         24 => "Picking a weapon up",
-        25 => "Finishing off",
         26 => "Carrying gear to the workbench",
         27 => "Walking over",
         28 => "Setting up a kit",
@@ -2846,22 +2720,12 @@ pub fn job_name(code: u32) -> &'static str {
 
 /// The jobs on the work list, by `work::Job` code, and which fixture each
 /// is about so resting on a row rings the place it happens.
-pub const WORK_NAMES: [&str; 9] = [
-    "Cleaning",
-    "Planting",
-    "Plant cutting",
-    "Hauling",
-    "Cooking",
-    "Controlling the ship",
-    "Making things",
-    "Building",
-    "Medical",
-];
+pub const WORK_NAMES: [&str; 4] = ["Hauling", "Making things", "Building", "Medical"];
 
 /// The note on the *Making things* row: standing at a bench is your own
 /// Bim's work, and the number on the row only ever says when it gets
 /// round to it (feature 89).
-pub const WORK_CRAFT_TIP: &str = "Only the Bim you steer stands at a bench — the smelter, the workbench, the armoury, the drug lab. The rest of the crew plant, cut, sweep, cook, haul, mine, build, doctor and fight, whatever this number says.";
+pub const WORK_CRAFT_TIP: &str = "Only the Bim you steer stands at a bench — the workbench, the armoury, the drug lab. The rest of the crew haul, build, doctor and fight, whatever this number says.";
 
 // --- arms and armour ------------------------------------------------------------
 
@@ -3008,7 +2872,7 @@ pub const ITEM_TIPS: [&str; 18] = [
     "A sniper rifle. Reaches furthest.",
     "A schword, a blade with a laser edge. Cuts, at arm's length.",
     "A tier-one research key: an artifact off a station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the locked part of the research tree.",
-    "A tier-two research key: an artifact off a hostile station's research desk. Two cells tall. Put it in the ship's research desk and consume it there to open the upgrades node, which wants it and no other.",
+    "A tier-two research key: an artifact off the research desk of one of the few stations that keep one. Two cells tall. Put it in the ship's research desk and consume it there to open the upgrades node, which wants it and no other.",
     "A sandbag kit. An engineer lays it on a deck tile as a barricade to duck behind — E, over the tile — and a spent charge comes back on its own cooldown.",
     "A sentry kit. An engineer of the third level sets it up as a turret with an auto rifle's aim — Q, over the tile — and a spent charge comes back on its own cooldown.",
     "A grenade: a soldier of the third level carries two of them as charges and throws one — Q, over the tile — and it bursts on everything within two and a half tiles, friend and foe alike, two seconds on. A thrown one comes back into the pack thirty seconds later.",
@@ -3029,11 +2893,11 @@ pub const NODE_NAMES: [&str; 5] = [
 ];
 
 pub const NODE_LINES: [&str; 5] = [
-    "Everything a crew needs to live, to fight and to fly: the hull, the galley, the heads, the bunks, the hydroponic bay, the fission reactor, the helm, the engines, the suit locker, the workbench and the armoury. Known from the start.",
+    "What a ship is built of from the start: the hull, the galley, the heads, the bunks, the hydroponic bay, the fission reactor, the helm, the engines, the suit locker, the workbench and the armoury. Known from the start.",
     "The drug lab, and the medkit it makes out of two vegetables. Known from the start.",
     "The large fusion reactor: four reactors' power in a three-by-three block — a heavy engine flat out, and every bench and system aboard. The one node with no key on it.",
-    "The hyperdrive: a jump to another star, bolted to a main engine. Charged from the helm for twenty seconds, and then the ship is in empty space round the star picked on the galaxy chart. After fusion power, and behind a tier-one key.",
-    "The workbench's upgrades: two weapons or pieces of a kind at one tier into one of the next — tier one to two, and two to three. The one tier-two node: it wants a tier-two key, which lies on the research desk of every hostile station.",
+    "The hyperdrive: a part bolted to a main engine, for a ship laid out in the yard. A trip to another star is chosen on the world map and resolved whether the ship carries one or not. After fusion power, and behind a tier-one key.",
+    "The workbench's upgrades: two weapons or pieces of a kind at one tier into one of the next — tier one to two, and two to three. The one tier-two node: it wants a tier-two key, which only a few stations' research desks hold.",
 ];
 
 pub fn node_name(code: u32) -> &'static str {
@@ -3048,7 +2912,7 @@ pub fn node_line(code: u32) -> &'static str {
 }
 
 /// The Research tab.
-pub const RESEARCH_TIP: &str = "Research is done by the ship's AI at the research desk, on the desk's power — the crew have stopped being able to. Pick a node and queue it: whatever it needs that is not yet known goes onto the queue ahead of it, the AI works through the queue in order on the clock — days at a time — and what a node opens can be built from the Build tab and made at the benches after. A node taken off the queue takes with it whatever was waiting on it. The nodes behind a lock want a research key each — one key opens one node, and a node wants a key of its own tier: a tier-one key is found on the research desk of most friendly stations, a tier-two key on the desk of every hostile one — lit up either way, so it can be seen from the door — and a crew member within two tiles takes it into their pack, where it is two cells tall. Put it in the ship's own desk and consume it there for the node, and that node is open for good.";
+pub const RESEARCH_TIP: &str = "Research is done by the ship's AI at the research desk, on the desk's power — the crew have stopped being able to. Pick a node and queue it: whatever it needs that is not yet known goes onto the queue ahead of it, the AI works through the queue in order on the clock — days at a time — and what a node opens can be built from the Build tab and made at the benches after. A node taken off the queue takes with it whatever was waiting on it. The nodes behind a lock want a research key each — one key opens one node, and a node wants a key of its own tier: a tier-one key is found on the research desk of most stations and a tier-two key on the desks of a few others — lit up either way, so it can be seen from the door — and a crew member within two tiles takes it into their pack, where it is two cells tall. Put it in the ship's own desk and consume it there for the node, and that node is open for good.";
 pub const NO_DESK_HINT: &str =
     "No research desk aboard — the AI works on one. Build one from the Build tab.";
 pub const DESK_DARK_HINT: &str =

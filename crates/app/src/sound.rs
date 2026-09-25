@@ -16,10 +16,10 @@
 //! takes its sound with it without having to say so.
 //!
 //! Cues arrive a step's worth at a time, and at the world's top speed a
-//! frame is many steps: every chop of a meal in one frame. Each kind of
-//! cue has a cool-down in real seconds, **per place**, and what falls
-//! inside it is dropped — the same knife twenty-four times in a frame is
-//! one stroke, but two guns firing in one frame are two shots, and two
+//! frame is many steps: a door's whole open-and-shut in one frame. Each
+//! kind of cue has a cool-down in real seconds, **per place**, and what
+//! falls inside it is dropped — the same door twenty-four times in a frame
+//! is one slide, but two guns firing in one frame are two shots, and two
 //! doors opening at once are two doors. The room says everything, and
 //! this is where it is thinned. A frame has a ceiling on one-shots
 //! besides, for a fight at top speed.
@@ -48,9 +48,6 @@ pub enum Clip {
     Schword,
     Punch,
     Ouch,
-    Chop1,
-    Chop2,
-    Chop3,
     DoorOpen,
     DoorClose,
     DoorForce,
@@ -66,7 +63,7 @@ pub enum Clip {
 /// The bytes of each clip, indexed by [`Clip`]. Ogg Vorbis, mono, 48 kHz,
 /// peaks at -1 dBFS for the one-shots and -22 or -30 LUFS for the loops —
 /// see `prepare.sh` — so every level below is relative to that.
-const CLIPS: [&[u8]; 25] = [
+const CLIPS: [&[u8]; 22] = [
     include_bytes!("../sounds/laser_1.ogg"),
     include_bytes!("../sounds/laser_2.ogg"),
     include_bytes!("../sounds/laser_3.ogg"),
@@ -79,9 +76,6 @@ const CLIPS: [&[u8]; 25] = [
     include_bytes!("../sounds/schword.ogg"),
     include_bytes!("../sounds/punch.ogg"),
     include_bytes!("../sounds/ouch.ogg"),
-    include_bytes!("../sounds/chop_1.ogg"),
-    include_bytes!("../sounds/chop_2.ogg"),
-    include_bytes!("../sounds/chop_3.ogg"),
     include_bytes!("../sounds/door_open.ogg"),
     include_bytes!("../sounds/door_close.ogg"),
     include_bytes!("../sounds/door_force.ogg"),
@@ -166,7 +160,6 @@ enum Kind {
     Door,
     /// A body heaving at a locked door, and the door giving.
     Smash,
-    Chop,
     Shot,
     Impact,
     Ricochet,
@@ -190,7 +183,6 @@ impl Kind {
         match cue {
             Cue::DoorOpens | Cue::DoorShuts => Kind::Door,
             Cue::DoorSmash | Cue::DoorForced => Kind::Smash,
-            Cue::Chop => Kind::Chop,
             Cue::Shot { .. } => Kind::Shot,
             Cue::Impact { .. } => Kind::Impact,
             Cue::Ricochet => Kind::Ricochet,
@@ -204,15 +196,14 @@ impl Kind {
     /// How long after one of these before another is played, in real
     /// seconds. Shorter than the clip for the things that overlap in
     /// earnest — a burst is eight shots a quarter-second apart — and about
-    /// the clip's length for the rest, so that twenty-four steps of
-    /// chopping in one frame is one stroke.
+    /// the clip's length for the rest, so that twenty-four steps of one
+    /// door sliding in one frame is one slide.
     fn cool_down(self) -> f64 {
         match self {
             Kind::Door => 0.2,
             // A heave every two seconds a door; a frame at 24x holds
             // several, which is one.
             Kind::Smash => 0.5,
-            Kind::Chop => 0.12,
             Kind::Shot => 0.04,
             Kind::Impact => 0.06,
             Kind::Ricochet => 0.1,
@@ -398,10 +389,6 @@ impl Sounds {
             // at a time, and louder the once it gives.
             Cue::DoorSmash => self.one_shot(commands, Clip::DoorForce, 0.55),
             Cue::DoorForced => self.one_shot(commands, Clip::DoorForce, 0.9),
-            Cue::Chop => {
-                let clip = [Clip::Chop1, Clip::Chop2, Clip::Chop3][self.take(3) as usize];
-                self.one_shot(commands, clip, 0.35);
-            }
             Cue::Shot { weapon, hostile } => {
                 // An enemy's shot a shade quieter: it is the crew's fight
                 // the player is listening to.

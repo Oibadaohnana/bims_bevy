@@ -42,7 +42,13 @@ const SURVIVORS: u64 = 0x_9aad_713a_e8d2_95ba;
 /// a crew.
 fn arm(world: &mut World) {
     let crew = world.aboard.room.crew_count() as usize;
-    for (who, kind) in WeaponKind::ALL.iter().copied().cycle().take(crew).enumerate() {
+    for (who, kind) in WeaponKind::ALL
+        .iter()
+        .copied()
+        .cycle()
+        .take(crew)
+        .enumerate()
+    {
         let gear = world.aboard.room.gear(who);
         world.aboard.room.issue(
             who,

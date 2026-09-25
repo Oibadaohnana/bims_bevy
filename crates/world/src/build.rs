@@ -25,13 +25,8 @@
 //! thing that may be spent away from a station — see the contract in
 //! `shipdesign::materials`.
 //!
-//! # The ship does not move while it is built on, and is not built on while it moves
-//!
-//! Both halves are the world's to keep. A site is only placed, and the
-//! crew only sent to one, while the ship is at rest — docked or holding —
-//! and a Confirm is refused while a Bim is on the way to one. A blueprint
-//! nobody has walked to does not hold the ship: it is a plan, and a plan
-//! can wait.
+//! The ship is never under way while it is built on: nothing flies it
+//! (feature 104), and a trip is resolved between missions.
 
 use economy::Money;
 use shipdesign::parts::{PartKind, Rotation};
@@ -108,8 +103,6 @@ pub fn build_minutes(price: Money) -> f64 {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SiteRefusal {
-    /// The ship is not at rest.
-    UnderWay,
     /// The rules would not put the part there: a `shipdesign::EditError`
     /// code.
     WontFit(u32),

@@ -1,19 +1,16 @@
 //! Pathfinding around the furniture.
 //!
-//! The deck is small and almost never changes shape, so grids are built once
-//! at startup and every walk — player orders and scripted jobs alike — is
-//! planned on one. Obstacles are inflated by the body radius, which means a
-//! path that exists on a grid is one the Bim can physically walk without
-//! clipping a corner.
-//!
-//! The one thing that does change is the bathroom door, and [`Maps`] holds a
-//! grid for each of its two states rather than rebuilding one as it moves.
+//! The deck is small and almost never changes shape, so its grid is built
+//! once — and again when a door is locked or unlocked, or a part is built —
+//! and every walk, player orders and scripted jobs alike, is planned on it.
+//! Obstacles are inflated by the body radius, which means a path that exists
+//! on the grid is one the Bim can physically walk without clipping a corner.
 
 use crate::math::{Rect, Vec2, vec2};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-/// Grid resolution in world pixels, in the classic room. Fine enough to slip
+/// Grid resolution in world pixels, in a bare room. Fine enough to slip
 /// through the gaps between units, coarse enough that a search is trivial.
 const CELL: f32 = 10.0;
 
@@ -42,7 +39,7 @@ pub struct Nav {
     rows: usize,
     /// World position of the centre of cell (0, 0).
     origin: Vec2,
-    /// The cell's side: [`CELL`] in the classic room, a fifth of a tile
+    /// The cell's side: [`CELL`] in a bare room, a fifth of a tile
     /// aboard.
     cell: f32,
     #[cfg_attr(feature = "serde", serde(with = "crate::math::bools"))]
@@ -446,7 +443,7 @@ impl Nav {
     /// corner of the table — the two cancel and the Bim stands there for ever,
     /// marching on the spot, with the chain waiting on an arrival that cannot
     /// come. That is not a hypothetical: it stood against the table for ten
-    /// hours of game time with a trip to the heads on its agenda.
+    /// hours of game time with an errand on its agenda.
     ///
     /// The width costs two extra samples per step and buys a route the body
     /// can hold to without the physics arguing with it.
@@ -484,18 +481,11 @@ impl Nav {
     }
 }
 
-/// Both versions of the deck: with the bathroom door shut, and with it open.
-///
-/// One grid was enough while the room never changed shape, and until the heads
-/// were built it never did. The trouble with rebuilding a single grid when the
-/// door moves is timing: a task opens the door and asks for a route through it
-/// in the same step, so a rebuild anywhere in the frame loop is always one
-/// frame late and the route comes back empty. Two grids built once, and the
-/// choice made at the moment a path is asked for, cannot be late.
+/// Every grid a body may be walking on: the deck's, the outside's, and a
+/// window of the plain for a body out on one.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Maps {
-    open: Nav,
-    shut: Nav,
+    deck: Nav,
     /// The outside of the hull, while there is an outside to walk: built
     /// about whoever is out there by `Game::refresh_outside`, and `None` in
     /// a room with nothing outside it. See [`Nav::outside`].
@@ -510,52 +500,43 @@ pub struct Maps {
 }
 
 impl Maps {
-    /// `solids` is everything fixed; `door` is the panel that only sometimes
-    /// stands in the way. `tile` is the room's tile where it has one — a
-    /// ship's — and the grids are then [`Nav::tiled`]; `None` is the
-    /// classic room's grid.
-    pub fn new(
-        interior: Rect,
-        solids: &[Rect],
-        door: Rect,
-        clearance: f32,
-        tile: Option<f32>,
-    ) -> Maps {
-        let mut with_door = solids.to_vec();
-        with_door.push(door);
-        let grid = |solids: &[Rect]| match tile {
+    /// `solids` is everything fixed. `tile` is the room's tile where it has
+    /// one — a ship's — and the grid is then [`Nav::tiled`]; `None` is a bare
+    /// room's grid.
+    pub fn new(interior: Rect, solids: &[Rect], clearance: f32, tile: Option<f32>) -> Maps {
+        let deck = match tile {
             Some(tile) => Nav::tiled(interior, solids, clearance, tile),
             None => Nav::new(interior, solids, clearance),
         };
         Maps {
-            open: grid(solids),
-            shut: grid(&with_door),
+            deck,
             outside: None,
             afield: Vec::new(),
         }
     }
 
-    pub fn pick(&self, door_open: bool) -> &Nav {
-        if door_open { &self.open } else { &self.shut }
+    /// The deck's grid.
+    pub fn deck(&self) -> &Nav {
+        &self.deck
     }
 
     /// The grid a body is on: the outside's while it is out there, the
     /// deck's otherwise. A body outside with no outside grid — the ship has
     /// left the site under it — gets the deck's, which has no route for it
-    /// and says so, the way a shut door does.
-    pub fn for_body(&self, outside: bool, door_open: bool) -> &Nav {
+    /// and says so.
+    pub fn for_body(&self, outside: bool) -> &Nav {
         match (outside, &self.outside) {
             (true, Some(nav)) => nav,
-            _ => self.pick(door_open),
+            _ => &self.deck,
         }
     }
 
     /// The grid body `who` is on: its window while it is afield and has
     /// one, else [`Maps::for_body`].
-    pub fn for_who(&self, who: usize, outside: bool, afield: bool, door_open: bool) -> &Nav {
+    pub fn for_who(&self, who: usize, outside: bool, afield: bool) -> &Nav {
         match (afield, self.afield.get(who)) {
             (true, Some(Some(nav))) => nav,
-            _ => self.for_body(outside, door_open),
+            _ => self.for_body(outside),
         }
     }
 

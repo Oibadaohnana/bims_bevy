@@ -1,7 +1,7 @@
 //! What the room sounds like.
 //!
 //! A cue is a thing that just happened that a host may want to *play*: a
-//! door starting to slide, a knife coming down on the board, a shot
+//! door starting to slide, a shot
 //! leaving a gun, a bolt landing. The same arrangement as the diary and the
 //! world's events, and for the same reason: **no sound comes out of the
 //! room**. A cue is a code and a place, `crates/app/src/sound.rs` owns the
@@ -23,13 +23,11 @@ use crate::math::Vec2;
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Cue {
-    /// A door's leaves started drawing back — a ship's sliding door, or
-    /// the heads' — from shut or from part way there.
+    /// A door's leaves started drawing back — a ship's sliding door — from
+    /// shut or from part way there.
     DoorOpens,
     /// And started closing.
     DoorShuts,
-    /// One stroke of the knife on the board.
-    Chop,
     /// A bolt left a gun. `hostile` is an enemy's, flown in this room at
     /// the crew.
     Shot { weapon: WeaponKind, hostile: bool },
