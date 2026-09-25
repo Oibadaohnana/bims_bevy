@@ -301,8 +301,8 @@ fn a_settlement_s_dead_lie_in_its_street_too() {
     }
 }
 
-/// A jump away and back: the system is met as it was left — the key off
-/// its desk, the lamp shot out, the chart, the dead — where a system
+/// A jump away and back: the system is met as it was left — the lamp shot
+/// out, the chart, the dead — where a system
 /// never visited is as the generator rolled it, and every system left is
 /// in the checksum.
 #[test]
@@ -321,13 +321,6 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
         .room
         .kill_for_probe(0);
     world.step(&[]);
-    // Took the key off a desk.
-    let with_key = world
-        .station_keys
-        .iter()
-        .position(|&k| k > 0)
-        .expect("a key on some desk");
-    world.station_keys[with_key] = 0;
     // Shot a lamp of the station's out.
     world.lamps.push(LampDamage {
         station: Some(station),
@@ -345,7 +338,7 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     assert_eq!(world.losses_at(station).dead, 1);
 
     let left = (
-        world.station_keys.clone(),
+        (),
         world.lamps.clone(),
         world.discovered.clone(),
         world.losses.clone(),
@@ -358,10 +351,6 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     assert_eq!(world.memories.len(), 1);
     assert_eq!(world.memories[0].star, from);
     assert_eq!(world.memories[0].losses, left.3);
-    assert_eq!(
-        world.station_keys,
-        world.stations.iter().map(|s| s.key).collect::<Vec<_>>()
-    );
     assert!(world.losses.is_empty());
     assert!(
         world.lamps.iter().all(|d| d.station.is_none()),
@@ -374,14 +363,12 @@ fn a_jump_away_and_back_finds_the_system_as_it_was_left() {
     // sensors reached on the landing, never shrunk.
     jump_to(&mut world, from);
     assert_eq!(world.memories.len(), 2);
-    assert_eq!(world.station_keys, left.0);
     assert_eq!(world.lamps, left.1);
     assert_eq!(world.losses, left.3);
     for node in &left.2 {
         assert!(world.discovered.contains(node), "{node:?} forgotten");
     }
     assert_eq!(world.stance(station), Stance::Friendly, "home again");
-    assert_eq!(world.station_keys[with_key], 0, "the key stays taken");
     // Its people: one fewer, still.
     let s = world.station(station).unwrap();
     assert_eq!(world.people_of(s), s.residents() - 1);

@@ -126,20 +126,6 @@ pub enum WorldEvent {
     /// A crewmate's medkit took a crew member out of the dying state
     /// `trauma`. Whatever it leaves behind is on the body now.
     CrewTreated { who: u32, trauma: u32 },
-    /// A crew member took the research key off a station's research
-    /// desk — `Command::TakeKey`. It is in their pack now, and the desk
-    /// is bare.
-    KeyTaken { who: u32 },
-    /// A research key was consumed at the crew's research desk and node
-    /// `node`'s lock is open — `Command::Unlock`. See
-    /// `shipdesign::research`.
-    Unlocked { node: u32 },
-    /// The AI went onto a node of the research tree — the head of the
-    /// queue, the step it fell idle with one there; `node` is
-    /// `shipdesign::research::Node`'s code.
-    ResearchBegun { node: u32 },
-    /// The AI finished a node: what it gates can be built and made now.
-    Researched { node: u32 },
     /// Two of a kind at the same tier went onto the workbench, out of the
     /// hold, to become one of tier `tier` — `World::upgrade`; `resource`
     /// is what they count as in the hold, as a `ResourceId` code.
@@ -160,14 +146,6 @@ pub enum WorldEvent {
     /// No crew member is standing — dead or out cold, every one — and
     /// the run is over. Said once.
     CrewLost,
-    /// A node went onto the research queue — `Command::Research`, one for
-    /// the node asked for and one for each prerequisite queued ahead of
-    /// it; `node` is `shipdesign::research::Node`'s code.
-    ResearchQueued { node: u32 },
-    /// A node came off the research queue without being begun — a
-    /// `Dequeue`, or in the wake of a `Dequeue` or a `CancelResearch` of
-    /// what it needed.
-    ResearchDropped { node: u32 },
     /// A crew member reached a level of its class (feature 74,
     /// `crate::class`): who, `Class`'s code, and the level. Said once a
     /// level; a pick level leaves a pick pending until
@@ -290,6 +268,33 @@ pub enum WorldEvent {
     TownFell { station: u32 },
     /// The host said that player has left the game.
     PlayerGone { slot: u32 },
+    /// Relics are on offer to the crew (feature 106): `count` of them, off
+    /// a site cleared with machines in it (`source` nought, the reward
+    /// screen) or a cache opened (one, in the mission).
+    RelicsOffered { source: u32, count: u32 },
+    /// A player put a relic to the crew for a player's Bim — `relic`
+    /// `u32::MAX` for taking none — every acceptance cleared.
+    RelicProposed { slot: u32, relic: u32, to: u32 },
+    /// A player said yes to the relic on the table, or took a yes back.
+    RelicAccepted { slot: u32, yes: bool },
+    /// A player's Bim has a relic for good: chosen off a reward, or kept
+    /// off a cache the step its site was cleared.
+    RelicGiven { slot: u32, relic: u32 },
+    /// A relic out of a cache is that player's Bim's — once the site is
+    /// cleared. Lost if the crew leave first.
+    RelicPending { slot: u32, relic: u32 },
+    /// The crew chose to take none of the relics on offer.
+    RelicsDeclined,
+    /// A relic out of a cache, lost: the crew left the site uncleared.
+    RelicLost { slot: u32, relic: u32 },
+    /// A crew member opened a relic cache.
+    CacheOpened { who: u32 },
+    /// A relic's trigger went off on a player's Bim: *Second Wind* got it
+    /// up, *Phase Harness* made it untouchable, *Kill Relay* took seconds
+    /// off its cooldowns.
+    RelicFired { who: u32, relic: u32 },
+    /// The run is won (`World::run_won`). Said once.
+    RunWon,
 }
 
 /// Why a command did nothing.
@@ -354,20 +359,6 @@ pub enum Refusal {
     /// A buy or a sell by a player whose crew member is not at the
     /// station's trading desk — see `World::at_the_desk`.
     NotAtTheDesk = 21,
-    /// A take of a key off a desk with none on it, or an unlock with no
-    /// key of the node's tier in the crew's own desk — the other tier's
-    /// key there opens nothing, and stays.
-    NoKey = 22,
-    /// Research, or an unlock, with no research desk aboard, or one that is
-    /// not powered: the AI runs on it.
-    NoResearchDesk = 23,
-    /// Research of a node that cannot be queued: known, on the AI or
-    /// queued already, or behind a lock still shut, itself or something it
-    /// needs — and an unlock of a node with no lock, or one open already.
-    NotResearchable = 24,
-    /// A site for a part the crew do not know how to build yet — see
-    /// `shipdesign::research`.
-    NotResearched = 25,
     /// A sale at a station with nobody to buy: a derelict keeps no desk
     /// (`crate::station::market_kind`). A buy there is
     /// [`Refusal::NotSoldHere`] first, since it stocks nothing either.
@@ -388,13 +379,6 @@ pub enum Refusal {
     /// A walk ordered somewhere there is no way to at all —
     /// `Command::Crew`, the room's `ORDER_NOWHERE`.
     NoWayThere = 38,
-    /// A `Dequeue` of a node that is not on the research queue.
-    NotQueued = 39,
-    /// An upgrade begun at the workbench before the crew know how —
-    /// `shipdesign::research::Node::Upgrades`, the tier-two node, not
-    /// yet researched. Said before the bench is looked at, so a pair on
-    /// it waits.
-    NoUpgrades = 40,
     /// A class chosen after the ship first left its berth: a class is
     /// chosen at the start (`Command::SetClass`, `crate::class`).
     ClassLocked = 41,
@@ -529,6 +513,18 @@ pub enum Refusal {
     /// destination is always somewhere else, so the world clock moves
     /// before a site is fought again.
     AlreadyHere = 92,
+    /// A relic proposed or accepted with no relic choice being made
+    /// (feature 106).
+    NoRelicChoice = 93,
+    /// A relic proposed that is not among those on offer.
+    NotOnOffer = 94,
+    /// A relic proposed for a Bim no player steers: a bot never holds one.
+    NotAPlayer = 95,
+    /// A cache opened where there is none, or none within reach.
+    NoCache = 96,
+    /// A destination proposed while the crew are still choosing a relic:
+    /// the map comes up once they have.
+    ChoosingRelic = 97,
 }
 
 impl Refusal {
@@ -571,10 +567,6 @@ impl WorldEvent {
             WorldEvent::MercenaryLeft { .. } => 41,
             WorldEvent::CrewDying { .. } => 42,
             WorldEvent::CrewTreated { .. } => 43,
-            WorldEvent::KeyTaken { .. } => 44,
-            WorldEvent::Unlocked { .. } => 45,
-            WorldEvent::ResearchBegun { .. } => 46,
-            WorldEvent::Researched { .. } => 47,
             WorldEvent::UpgradeBegun { .. } => 48,
             WorldEvent::Upgraded { .. } => 49,
             // 50 and 52 to 55 were the charge and the landing (feature 104).
@@ -584,8 +576,6 @@ impl WorldEvent {
             // 58 was the food spoiling, 59 to 62 and 67 the raids and 64
             // the plunder (feature 104).
             WorldEvent::CrewLost => 63,
-            WorldEvent::ResearchQueued { .. } => 65,
-            WorldEvent::ResearchDropped { .. } => 66,
             WorldEvent::LevelUp { .. } => 68,
             WorldEvent::TalentPicked { .. } => 69,
             WorldEvent::Deployed { .. } => 70,
@@ -626,6 +616,16 @@ impl WorldEvent {
             WorldEvent::BotLost { .. } => 104,
             WorldEvent::TownFell { .. } => 105,
             WorldEvent::PlayerGone { .. } => 106,
+            WorldEvent::RelicsOffered { .. } => 107,
+            WorldEvent::RelicProposed { .. } => 108,
+            WorldEvent::RelicAccepted { .. } => 109,
+            WorldEvent::RelicGiven { .. } => 110,
+            WorldEvent::RelicPending { .. } => 111,
+            WorldEvent::RelicsDeclined => 112,
+            WorldEvent::RelicLost { .. } => 113,
+            WorldEvent::CacheOpened { .. } => 114,
+            WorldEvent::RelicFired { .. } => 115,
+            WorldEvent::RunWon => 116,
         }
     }
 
@@ -656,6 +656,21 @@ impl WorldEvent {
             // The penalty paid in the hundreds: a crew is never a hundred.
             WorldEvent::BotLost { who, paid } => (who as i64) + 100 * (paid as i64),
             WorldEvent::TownFell { station } => station as i64,
+            // The relic in the hundreds, the player in the units: a crew
+            // is never a hundred. A proposal's relic plus one, nought being
+            // none, and its Bim in the ten thousands.
+            WorldEvent::RelicGiven { slot, relic }
+            | WorldEvent::RelicPending { slot, relic }
+            | WorldEvent::RelicLost { slot, relic } => (slot as i64) + 100 * (relic as i64),
+            WorldEvent::RelicFired { who, relic } => (who as i64) + 100 * (relic as i64),
+            WorldEvent::RelicProposed { slot, relic, to } => {
+                let relic = if relic == u32::MAX { 0 } else { relic as i64 + 1 };
+                (slot as i64) + 100 * relic + 10_000 * (to as i64)
+            }
+            WorldEvent::RelicAccepted { slot, yes } => (slot as i64) + 100 * i64::from(yes),
+            WorldEvent::RelicsOffered { source, count } => (count as i64) + 100 * (source as i64),
+            WorldEvent::CacheOpened { who } => who as i64,
+            WorldEvent::RelicsDeclined | WorldEvent::RunWon => 0,
             WorldEvent::Crafted { recipe } | WorldEvent::CraftLost { recipe } => recipe as i64,
             // The station in the thousands, the person in the units.
             WorldEvent::EnemyDown { station, who } => (who + 1_000 * station) as i64,
@@ -693,13 +708,7 @@ impl WorldEvent {
             | WorldEvent::Locked { who }
             | WorldEvent::Hired { who }
             | WorldEvent::MercenaryLeft { who }
-            | WorldEvent::KeyTaken { who }
             | WorldEvent::Stowed { who } => who as i64,
-            WorldEvent::Unlocked { node }
-            | WorldEvent::ResearchBegun { node }
-            | WorldEvent::Researched { node }
-            | WorldEvent::ResearchQueued { node }
-            | WorldEvent::ResearchDropped { node } => node as i64,
             // The tier in the hundreds: under a hundred resources, and a
             // tier is never a hundred.
             WorldEvent::UpgradeBegun { resource, tier }

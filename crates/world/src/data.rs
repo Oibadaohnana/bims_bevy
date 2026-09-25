@@ -360,3 +360,79 @@ pub const BUYBACK_COST: Money = 5_000;
 /// the pool pays this the moment it dies, never going below nought: what
 /// it cannot pay is dropped.
 pub const BOT_DEATH_PENALTY: Money = 5_000;
+
+// --- how hard the machines are, by time and distance (feature 106) ---------
+
+/// How long the world clock runs before the machines come at **tier two**
+/// anywhere, in hours: a fortnight, which is five or six trips (a trip is
+/// two or three days as a rule — the root `CLAUDE.md`, *How long a trip
+/// is*). Tier two used to wait on the crew researching it; with research
+/// gone from the game it waits on time, which is what the machines scale
+/// on (feature 105). Past it, [`ENEMY_TIER2_SURE_HOPS`] is the ramp.
+pub const ENEMY_TIER2_HOURS: u32 = 14 * 24;
+/// The distance ramp once [`ENEMY_TIER2_HOURS`] is past: a site's machines
+/// are tier two with odds of one in this many a hop from the crew's own
+/// star — nought at home, half at half of it — and **always** at this
+/// many hops or more. Rolled once a site, off the galaxy's seed, so a
+/// quote on the map and the wave on arrival agree. Tier three within
+/// [`DROID_TIER_THREE_HOPS`] of the origin comes first.
+pub const ENEMY_TIER2_SURE_HOPS: u16 = 6;
+
+// --- relics (feature 106, `crate::relic`) -----------------------------------
+
+/// *Focusing Lens*: what its weapon's damage is raised by, in per cent.
+pub const FOCUSING_LENS_DAMAGE_PERCENT: i32 = 10;
+/// *Servo Braces*: what its pace is raised by, in per cent.
+pub const SERVO_BRACES_SPEED_PERCENT: i32 = 10;
+/// *Field Plating*: what the protection of what it wears is raised by, in
+/// per cent.
+pub const FIELD_PLATING_ARMOUR_PERCENT: i32 = 10;
+/// *Coolant Loop*: what its class's cooldowns are **shortened** by, in per
+/// cent.
+pub const COOLANT_LOOP_COOLDOWN_PERCENT: i32 = 10;
+/// *Steady Grip*: what its odds of hitting are raised by, in per cent.
+pub const STEADY_GRIP_ACCURACY_PERCENT: i32 = 10;
+/// *Trauma Kit*: what a medkit, a bandage and a medic's beam put back into
+/// it is raised by, in per cent — where a medkit starts a part again from,
+/// and the blood and the mending a beam gives. A bandage closes wounds and
+/// puts nothing back, so it is the one of the three the relic cannot
+/// raise.
+pub const TRAUMA_KIT_HEALING_PERCENT: i32 = 25;
+/// *Second Wind*: how long after going down it gets up again, in seconds
+/// of the mission clock — the first time in a mission.
+pub const SECOND_WIND_SECONDS: f64 = 5.0;
+/// *Second Wind*: the share of its health it gets up with, in per cent;
+/// the blood comes back to where a body stands up
+/// (`bims::health::SLOWED_AT`) and every wound is closed, or it would be
+/// down again at once.
+pub const SECOND_WIND_HEALTH_PERCENT: u32 = 25;
+/// *Salvage Beacon*: what the bounty for a machine it destroyed is raised
+/// by, in per cent — paid on the site's clear like every bounty.
+pub const SALVAGE_BEACON_BOUNTY_PERCENT: i32 = 20;
+/// *Overcharge Cell*: every how many shots is the charged one.
+pub const OVERCHARGE_CELL_EVERY: u32 = 5;
+/// *Overcharge Cell*: what the charged shot's damage is raised by, in per
+/// cent — a hundred is double.
+pub const OVERCHARGE_CELL_DAMAGE_PERCENT: i32 = 100;
+/// *Last Stand*: what its weapon's damage is raised by while another
+/// player's Bim is down, in per cent.
+pub const LAST_STAND_DAMAGE_PERCENT: i32 = 25;
+/// *Kill Relay*: the seconds every class cooldown running on it loses when
+/// a machine it hit last is destroyed.
+pub const KILL_RELAY_SECONDS: f64 = 1.0;
+/// *Phase Harness*: the share of its health a hit has to take it under, in
+/// per cent — once a mission.
+pub const PHASE_HARNESS_BELOW_PERCENT: u32 = 25;
+/// *Phase Harness*: how long nothing hurts it after, in seconds — the
+/// room's own surge (`bims::game::Game::set_surge`), halo and all.
+pub const PHASE_HARNESS_SECONDS: f32 = 2.0;
+
+/// How many relics a site cleared with machines in it offers.
+pub const RELIC_OFFER: usize = 3;
+/// The odds a site the machines hold hides a **relic cache** on its
+/// research desk, in per cent: rolled once a site, off the galaxy's seed,
+/// when the machines take it.
+pub const RELIC_CACHE_CHANCE: u32 = 40;
+/// How many relics a won run unlocks in each player's profile: the first
+/// still locked, in list order.
+pub const RELICS_UNLOCKED_PER_WIN: usize = 2;

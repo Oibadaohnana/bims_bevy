@@ -273,7 +273,6 @@ impl Surface {
                 stock: self.stock,
                 bias: self.bias,
                 hostile: self.hostile,
-                key: 0,
             }
         })
     }

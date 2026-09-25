@@ -97,6 +97,11 @@ pub struct Bim {
     /// count again; for anybody else it only ever climbs and is read by
     /// nobody. Saved with the room and in `world_checksum`.
     pub hits_taken: u32,
+    /// How many shots this body has fired (feature 106): what a relic's
+    /// *Overcharge Cell* counts to know which shot is the charged one
+    /// (`Skill::for_shot`). Only ever climbs. Saved with the room and in
+    /// `world_checksum`.
+    pub shots: u32,
     /// The crewmate this body carries in its arms (feature 86): a medic
     /// — the class, or a hired field medic — that has picked up somebody
     /// unconscious or hurt to take them out of the fire. Set by
@@ -214,6 +219,7 @@ impl Bim {
             surge: None,
             bulwark: false,
             hits_taken: 0,
+            shots: 0,
             carrying: None,
             field_medic: false,
             fear: 0.0,

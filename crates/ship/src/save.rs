@@ -106,7 +106,10 @@ use crate::game::Game;
 /// 36: the Guardian (feature 100) — a machine keeps a facing vector, the
 /// part of a turn owed and where its Sweeper is in its rhythm, a target a
 /// shield, and the world the probes' forced wave of machines.
-pub const SAVE_VERSION: u32 = 36;
+/// 37: relics and unlocks (feature 106) — the run keeps its relics, a
+/// held site its cache and a Bim its shots fired; the world keeps no
+/// research and no station its key.
+pub const SAVE_VERSION: u32 = 37;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

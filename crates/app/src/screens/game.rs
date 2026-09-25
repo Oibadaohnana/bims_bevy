@@ -2384,15 +2384,15 @@ fn frame(
                 medic: offer.medic,
             })
         });
-        // The station's key: the desk's row walked the Bim over, and the
-        // take goes through the seam the frame they are within reach —
-        // or is forgotten if the key goes or the ship does.
-        if let Some(who) = panels.key_requested {
-            if world.key_at_the_dock() == 0 {
-                panels.key_requested = None;
-            } else if world.key_in_reach(who) {
-                orders.push(Order::Gear(GearOrder::TakeKey { who }));
-                panels.key_requested = None;
+        // A relic cache (feature 106): the desk's row walked the Bim over,
+        // and the opening goes through the seam the frame they are within
+        // reach — or is forgotten if the cache goes or the ship does.
+        if let Some(who) = panels.cache_requested {
+            if !world.cache_here() {
+                panels.cache_requested = None;
+            } else if world.research_desk_in_reach(who) {
+                orders.push(Order::Gear(GearOrder::OpenCache { who }));
+                panels.cache_requested = None;
             }
         }
         let room = &mut world.aboard.room;
@@ -3244,7 +3244,7 @@ fn hold_of(session: &Session, who: usize) -> Hold {
         hold.capacity[class as usize] = session.storage_capacity(class);
     }
     hold.station_desk = world.station_desk();
-    hold.station_key = world.key_at_the_dock();
+    hold.station_cache = world.cache_here();
     hold.station_shelves = world.station_shelves();
     hold.bench = world.workbench().map(|index| crate::crew::BenchView {
         index,

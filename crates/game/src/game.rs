@@ -1871,8 +1871,12 @@ impl Game {
                     self.lit_muzzle(muzzle, at, weapon);
                     self.combat.shoot(muzzle, at, weapon, walking);
                 } else {
+                    // Every fifth shot of an *Overcharge Cell* (feature
+                    // 106): counted on the body, the shot's damage raised.
+                    let shot = skill.for_shot(self.bims[who].shots);
+                    self.bims[who].shots = self.bims[who].shots.saturating_add(1);
                     self.combat
-                        .fire_as(muzzle, at, weapon, false, walking, &skill, Some(who));
+                        .fire_as(muzzle, at, weapon, false, walking, &shot, Some(who));
                 }
             }
         }
@@ -4483,6 +4487,23 @@ impl Game {
         bim.health = Health::new();
         bim.character.knock_out(false);
         bim.character.set_wounds([false; 3]);
+    }
+
+    /// A body out cold brought round where it lies (feature 106, a relic's
+    /// *Second Wind*): [`Health::brought_round`] at `share` of its health,
+    /// awake again this instant. Nothing for the dead or for a body that
+    /// is not out cold. Its gun is where it dropped it.
+    pub fn bring_round(&mut self, who: usize, share: f32) -> bool {
+        let Some(bim) = self.bims.get_mut(who) else {
+            return false;
+        };
+        if !bim.is_alive() || !(bim.health.unconscious() || bim.character.is_unconscious()) {
+            return false;
+        }
+        bim.health.brought_round(share);
+        bim.character.knock_out(false);
+        bim.character.set_wounds([false; 3]);
+        true
     }
 
     /// Dead this instant, where it stands — not at the top of its next
@@ -7339,6 +7360,11 @@ impl Game {
         self.bims.get(who).map_or(0, |b| b.hits_taken)
     }
 
+    /// How many shots a body has fired (feature 106, `Bim::shots`).
+    pub fn shots(&self, who: usize) -> u32 {
+        self.bims.get(who).map_or(0, |b| b.shots)
+    }
+
     /// Seconds a body has been dying with an enemy about (feature 78):
     /// what `is_fleeing` measures a commander's aura's hold against.
     pub fn fear(&self, who: usize) -> f32 {
@@ -8425,10 +8451,13 @@ impl Game {
             // A medic's hands (feature 76): where the part starts again
             // from, and whether anything lasting is left.
             let doctoring = self.doctoring_of(helper);
+            // And the patient's own *Trauma Kit* (feature 106): what the
+            // part starts again from, raised, whoever holds the kit.
+            let healing = self.skill(patient).healing;
             if let Some(trauma) = self.bims[patient].health.treat_as(
                 part,
                 doctoring.clean_hands,
-                doctoring.treated_to,
+                doctoring.treated_to * healing,
             ) {
                 self.treated.push((patient, trauma));
                 self.healings.push(Healed {
@@ -8828,9 +8857,11 @@ impl Game {
         }
         bim.character.set_aim(Some(at));
         if bim.trigger.pull(dt, &stats) {
+            let shot = skill.for_shot(bim.shots);
+            bim.shots = bim.shots.saturating_add(1);
             let muzzle = self.shot_from(who, eye);
             self.combat
-                .fire_as(muzzle, at, weapon, false, walking, skill, Some(who));
+                .fire_as(muzzle, at, weapon, false, walking, &shot, Some(who));
         }
     }
 

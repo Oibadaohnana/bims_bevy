@@ -671,6 +671,16 @@ pub struct Skill {
     /// [`Skill::armour_protection`] has multiplied it: an engineer's
     /// *higher quality armour* (feature 88). Nought for everybody else.
     pub armour_protection_add: f32,
+    /// What a medkit puts back into this body is multiplied by — where a
+    /// part it treats starts again from — whoever holds the medkit: a
+    /// relic's *Trauma Kit* (feature 106). One for everybody else.
+    pub healing: f32,
+    /// Every how many of its shots is **overcharged**, nought for none: a
+    /// relic's *Overcharge Cell* (feature 106). The room counts the shots
+    /// on the body (`Bim::shots`).
+    pub overcharge: u32,
+    /// What an overcharged shot's damage is multiplied by.
+    pub overcharge_damage: f32,
 }
 
 impl Skill {
@@ -701,7 +711,21 @@ impl Skill {
         damage: 1.0,
         range: 0.0,
         armour_protection_add: 0.0,
+        healing: 1.0,
+        overcharge: 0,
+        overcharge_damage: 1.0,
     };
+
+    /// The skill for this body's next shot, with `shots` fired before it:
+    /// an overcharged one when it is the `overcharge`th, the damage
+    /// multiplied; itself otherwise.
+    pub fn for_shot(&self, shots: u32) -> Skill {
+        let mut skill = *self;
+        if self.overcharge > 0 && (shots + 1).is_multiple_of(self.overcharge) {
+            skill.damage *= self.overcharge_damage;
+        }
+        skill
+    }
 
     /// The weapon's numbers through the skill: the odds multiplied (and
     /// clamped to one), the far odds the near with *deadeye*, the trigger

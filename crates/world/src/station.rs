@@ -104,33 +104,6 @@ pub fn market_kind(kind: StationKind, plan: Plan) -> Option<MarketKind> {
     }
 }
 
-/// The odds a friendly station has a research key on its desk when the
-/// world opens: four in five.
-pub const KEY_CHANCE: u32 = 80;
-
-/// Whether a station's research desk holds a key, off its seed — a stream
-/// of its own, so the layout's rolls are what they were. Only asked of a
-/// station that is neither an enemy's nor a derelict.
-pub fn key_rolled(map_seed: u64) -> bool {
-    Rng::new(map_seed ^ 0x_4B45_5931).below(100) < KEY_CHANCE
-}
-
-/// Which tier of key a station's desk holds when the world opens, nought
-/// for none: a derelict's nothing; an enemy's a tier-two key, every one;
-/// a friend's a tier-one key at [`key_rolled`]'s odds. The spawn is the
-/// world's to force (`World::start`).
-pub fn key_tier(kind: StationKind, hostile: bool, map_seed: u64) -> u8 {
-    if kind == StationKind::Derelict {
-        0
-    } else if hostile {
-        2
-    } else if key_rolled(map_seed) {
-        1
-    } else {
-        0
-    }
-}
-
 /// Where a ship goes to be docked at a station: its centre of mass and its
 /// heading, with the two airlocks' outer faces touching.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -170,21 +143,12 @@ pub struct Station {
     /// rolled. What [`Station::market`] quotes through.
     pub bias: Bias,
     /// Whether the people aboard were rolled enemies, as the generator
-    /// rolled it — the blueprint's word, carried here for the tier of the
-    /// key on its desk ([`key_tier`]) and for the spawn, which is never
-    /// one. **Nobody's stance**: every human is friendly (features 102
+    /// rolled it — the blueprint's word, carried here for the spawn,
+    /// which is never one. **Nobody's stance**: every human is friendly (features 102
     /// and 104), and whose a station is to the crew is `World::stance`
     /// — the machines' where they hold it, home at home, and a
     /// stranger's everywhere else.
     pub hostile: bool,
-    /// Which tier of research key was found on its research desk when the
-    /// world opened, nought for none: tier one rolled off the seed at
-    /// [`KEY_CHANCE`] for a friendly station that is not a derelict, tier
-    /// two on every hostile station that is not a derelict, no roll. The
-    /// blueprint's word; whether the key is still there is
-    /// `World::station_keys`, and the spawn has a tier-one key whatever
-    /// this says.
-    pub key: u8,
 }
 
 impl Station {
@@ -210,7 +174,6 @@ impl Station {
             stock: blueprint.stock,
             bias: blueprint.bias,
             hostile: blueprint.hostile,
-            key: key_tier(blueprint.kind, blueprint.hostile, blueprint.map_seed),
         }
     }
 

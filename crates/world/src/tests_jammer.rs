@@ -295,7 +295,6 @@ fn a_system_with_no_station_gets_the_machines_own() {
 
     world.system.stations.clear();
     world.stations.clear();
-    world.station_keys.clear();
     world.settle_jammer();
 
     let id = jammer::jammer_id(here);
@@ -310,8 +309,6 @@ fn a_system_with_no_station_gets_the_machines_own() {
     assert!(station.design.parts.len() > 100, "a real hull");
     assert!(world.discovered.contains(&Node::Station(id)));
     assert!(world.system.station(id).is_some());
-    assert_eq!(world.station_keys.len(), world.stations.len());
-    assert_eq!(world.station_key(id), 0, "no key on the machines' desk");
 
     // Clear of everything else the system holds, and clear of where a
     // jump would put the ship.
@@ -339,7 +336,6 @@ fn a_system_with_no_station_gets_the_machines_own() {
     twin.set_crisis_first_day_for_probe(0);
     twin.system.stations.clear();
     twin.stations.clear();
-    twin.station_keys.clear();
     twin.settle_jammer();
     assert_eq!(twin.station(id), world.station(id));
     let was = world.station(id).cloned();
@@ -358,7 +354,6 @@ fn a_system_with_no_station_gets_the_machines_own() {
     world.settle_jammer();
     assert!(world.station(id).is_none());
     assert!(!world.discovered.contains(&Node::Station(id)));
-    assert_eq!(world.station_keys.len(), world.stations.len());
 }
 
 // --- 4: the tier by distance ---------------------------------------------

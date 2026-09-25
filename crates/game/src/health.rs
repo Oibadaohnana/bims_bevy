@@ -570,6 +570,25 @@ impl Health {
         had
     }
 
+    /// Brought round where it lies (feature 106, a relic's *Second Wind*):
+    /// every part at `share` of its full at least — legs that are gone
+    /// stay gone — every trauma over and every wound closed, and the blood
+    /// back to where a body stands and walks at its own pace
+    /// ([`SLOWED_AT`]), or it would be out cold again the next tick.
+    pub fn brought_round(&mut self, share: f32) {
+        for part in Part::ALL {
+            let i = part as usize;
+            self.traumas[i] = None;
+            self.wounds[i] = 0;
+            if part == Part::Legs && self.legs_lost >= 2 {
+                self.parts[i] = 0.0;
+                continue;
+            }
+            self.parts[i] = self.parts[i].max(part.max() * share).min(part.max());
+        }
+        self.blood = self.blood.max(MAX_BLOOD * SLOWED_AT);
+    }
+
     /// The end of it, everything left of the bar taken at once and every
     /// trauma with it: dead at the top of the next tick. What finishes a
     /// body the world says is dead (`Game::kill_now`, a grave laid out).

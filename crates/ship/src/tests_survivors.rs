@@ -182,6 +182,13 @@ fn picture_hash(shapes: &[f32]) -> u64 {
 /// These are floats bit for bit, so a change that draws the same thing
 /// another way moves them too: re-pin one only for a change that says
 /// in this note why the picture is the same picture.
+///
+/// The two decks were re-pinned once on purpose (feature 106): research
+/// left the game, and the gold ring of lights round a station's research
+/// desk that held a key went with it — the spawn's desk, lit on both
+/// decks. Drawing that ring by the old key rule again gave back the old
+/// two numbers bit for bit, so the ring is the whole of the move. The
+/// same ring now lights a desk with a relic cache on it.
 fn pictures() -> Vec<(&'static str, u64)> {
     use shipdesign::fixture::{combat_ship, playtest_ship};
     let seed = world::data::DEFAULT_SEED;
@@ -211,8 +218,8 @@ fn pictures() -> Vec<(&'static str, u64)> {
 const PICTURES: [(&str, u64); 4] = [
     ("designer_playtest", 0x_9b08_8f44_06ad_4414),
     ("designer_combat", 0x_157a_1c34_2e97_18e0),
-    ("simulation_deck", 0x_870e_965b_f9ec_1ca4),
-    ("droids_deck", 0x_2bd2_5009_73a3_8c09),
+    ("simulation_deck", 0x_234f_3e03_869d_4c31),
+    ("droids_deck", 0x_549f_77b7_8357_3bf8),
 ];
 
 #[test]

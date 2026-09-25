@@ -90,7 +90,11 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// hostile list and the arena's reinforcements, the raids' schedule and
 /// state, an enemy's shelves (on the world and in every system's memory)
 /// and the human foes' switch are out of the hash.
-pub const REFERENCE_CHECKSUM: u64 = 0x_5359_7c7a_29be_b3e2;
+/// And again when research left the game for relics (feature 106): the
+/// research tree and every station's key tier — on the world and in
+/// every system's memory — are out of the hash, and the run's relics, a
+/// held site's cache and each crew member's shots fired are in it.
+pub const REFERENCE_CHECKSUM: u64 = 0x_dced_2c7b_c7e4_bf7e;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

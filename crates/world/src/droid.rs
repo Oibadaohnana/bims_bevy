@@ -72,6 +72,11 @@ pub struct Infestation {
     /// said once, and what the crisis step reads
     /// (`World::droid_station_cleared`).
     pub cleared: bool,
+    /// Whether a **relic cache** still lies on the station's research desk
+    /// (feature 106, `crate::relic::cache_rolled`): rolled when the
+    /// machines take the site, and gone when a crew member opens it. Put
+    /// back with the rest of the site when the crew leave it uncleared.
+    pub cache: bool,
 }
 
 impl Infestation {
@@ -84,6 +89,7 @@ impl Infestation {
             next_wave: None,
             settled: false,
             cleared: false,
+            cache: false,
         }
     }
 

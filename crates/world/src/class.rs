@@ -218,6 +218,21 @@ impl Class {
         Class::ALL.get(code as usize).copied()
     }
 
+    /// Whether a player has to **unlock** it before it can be picked
+    /// (feature 106, `crate::relic::Profile`): a won run unlocks relics,
+    /// and a class added later can be marked here to be unlocked the same
+    /// way. Every class there is now is open from the start.
+    pub fn unlockable(self) -> bool {
+        match self {
+            Class::None
+            | Class::Engineer
+            | Class::Soldier
+            | Class::Medic
+            | Class::Tank
+            | Class::Commander => false,
+        }
+    }
+
     /// What it wears on the deck (feature 81): the kit the room draws
     /// over the coverall. Drawing only — `World::hand_the_room_the_outfits`
     /// says it every step and nothing else reads it — so a class added

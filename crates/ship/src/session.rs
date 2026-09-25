@@ -100,6 +100,12 @@ pub const COMBAT_MEDICS: usize = 4;
 /// 105), so the fight is the one it always was.
 pub const COMBAT_WAVE: u32 = world::data::DROID_WAVE_MAX;
 
+/// How many machines the `relics` command's one wave is (feature 106,
+/// [`Session::relics`]): few enough that sixteen crew clear it in a
+/// minute or two, so the reward screen is what is looked at rather than
+/// the fight.
+pub const RELICS_WAVE: u32 = 4;
+
 /// A planet with a town the ship can set down at, as the map writes it:
 /// which body, whose the town is, and where the icon is drawn.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -521,6 +527,47 @@ impl Session {
         }
         session.infest_the_dock_for_probe(Some(bims::combat::Tier::Three), reinforce, waves);
         session
+    }
+
+    /// The `relics` command (feature 106): [`Session::droids`] with **one
+    /// wave of [`RELICS_WAVE`]** at the arena's own tier, short enough to
+    /// finish — clear it, go back to the ship, and the reward screen
+    /// offers the site's relics. The reinforcement clock is the dial's, so
+    /// a wave destroyed says it is the last at once.
+    pub fn relics(seed: u64, reinforce: f64, width: f32, height: f32) -> Session {
+        let mut session = Session::combat(seed, width, height);
+        if let Some(game) = session.game.as_mut() {
+            game.world.set_droid_wave_for_probe(RELICS_WAVE);
+        }
+        session.infest_the_dock_for_probe(None, reinforce, 1);
+        session
+    }
+
+    /// The run's relic pool (feature 106): the host's profile's unlocked
+    /// relics, set on every machine of a lobby from the same numbers
+    /// before the world's first step, and fixed for the run.
+    pub fn set_relic_pool(&mut self, pool: &[world::Relic]) {
+        if let Some(game) = self.game.as_mut() {
+            game.world.set_relic_pool(pool.to_vec());
+        }
+    }
+
+    /// `BIMS_RELICS`: the steered Bim given these relics at the start.
+    pub fn give_relics_for_probe(&mut self, relics: &[world::Relic]) {
+        if let Some(game) = self.game.as_mut() {
+            let local = game.local;
+            for &relic in relics {
+                game.world.give_relic_for_probe(local, relic);
+            }
+        }
+    }
+
+    /// `BIMS_WIN=1`: the run won the next time a site is cleared with
+    /// machines in it (`World::run_won`, until there is an end boss).
+    pub fn win_on_clear_for_probe(&mut self) {
+        if let Some(game) = self.game.as_mut() {
+            game.world.set_win_on_clear(true);
+        }
     }
 
     /// The `droids_planet` command: the `test_planet` run — a random

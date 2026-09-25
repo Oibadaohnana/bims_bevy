@@ -146,6 +146,7 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(it.next_wave.unwrap_or(0));
         hash.eat(u64::from(it.settled));
         hash.eat(u64::from(it.cleared));
+        hash.eat(u64::from(it.cache));
     }
     hash.eat(u64::from(world.droid_tier().code()));
     hash.eat(world.droid_reinforce_steps());
@@ -305,35 +306,6 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(site.rotation.code() as u64);
     }
 
-    // What the crew know: every node done or not, every lock open or not,
-    // what the AI is on and how far it has got, and what it goes onto
-    // next — a crew that knows how to build a thing and one that does not
-    // are two different games, and so are two that will know different
-    // things tomorrow. And which tier of key each station still has on
-    // its desk: a key taken is a key nobody else can take.
-    for &done in world.research.done.iter() {
-        hash.eat(u64::from(done));
-    }
-    for &open in world.research.unlocked.iter() {
-        hash.eat(u64::from(open));
-    }
-    hash.eat(
-        world
-            .research
-            .current
-            .map(|n| n.code() as u64)
-            .unwrap_or(u64::MAX),
-    );
-    hash.eat_rounded(world.research.progress, FINE_GRID);
-    hash.eat(world.research.queue.len() as u64);
-    for node in &world.research.queue {
-        hash.eat(node.code() as u64);
-    }
-    hash.eat(world.station_keys.len() as u64);
-    for &key in &world.station_keys {
-        hash.eat(u64::from(key));
-    }
-
     // The lamps a fight has damaged: where each hangs and what it has
     // left, to a hundredth like a piece of armour — a corridor shot dark
     // on one client and lit on the other is two different fights.
@@ -358,10 +330,6 @@ pub fn world_checksum(world: &World) -> u64 {
     hash.eat(world.memories.len() as u64);
     for memory in &world.memories {
         hash.eat(memory.star as u64);
-        hash.eat(memory.station_keys.len() as u64);
-        for &key in &memory.station_keys {
-            hash.eat(u64::from(key));
-        }
         hash.eat(memory.lamps.len() as u64);
         for lamp in &memory.lamps {
             hash.eat(lamp.station.map(u64::from).unwrap_or(u64::MAX));
@@ -385,6 +353,7 @@ pub fn world_checksum(world: &World) -> u64 {
             hash.eat(it.next_wave.unwrap_or(0));
             hash.eat(u64::from(it.settled));
             hash.eat(u64::from(it.cleared));
+            hash.eat(u64::from(it.cache));
         }
     }
 
@@ -449,6 +418,9 @@ pub fn world_checksum(world: &World) -> u64 {
     for who in 0..crew {
         hash.eat(u64::from(world.aboard.room.is_braced(who)));
         hash.eat(world.aboard.room.rampage(who) as u64);
+        // And the shots it has fired, which an *Overcharge Cell* counts
+        // (feature 106).
+        hash.eat(u64::from(world.aboard.room.shots(who)));
     }
 
     // The medics (feature 76): who each beam holds, each surge's charge
@@ -624,6 +596,63 @@ pub fn world_checksum(world: &World) -> u64 {
         hash.eat(fallen.order);
     }
     hash.eat(run.deaths);
+
+    // The relics (feature 106), whole: what is left to offer, who holds
+    // what, what is pending on a cache, the choice on the table and who
+    // has said yes, what has fired this mission and who is waiting to get
+    // up — and the clear and the win. A relic on one client and not the
+    // other is a different Bim.
+    let relics = &run.relics;
+    let eat_list = |hash: &mut Fnv, list: &[crate::relic::Relic]| {
+        hash.eat(list.len() as u64);
+        for r in list {
+            hash.eat(u64::from(r.code()));
+        }
+    };
+    eat_list(&mut hash, &relics.pool);
+    hash.eat(relics.held.len() as u64);
+    for held in &relics.held {
+        eat_list(&mut hash, held);
+    }
+    hash.eat(relics.pending.len() as u64);
+    for &(slot, r) in &relics.pending {
+        hash.eat(u64::from(slot));
+        hash.eat(u64::from(r.code()));
+    }
+    match &relics.choice {
+        None => hash.eat(u64::MAX),
+        Some(choice) => {
+            hash.eat(u64::from(choice.source.code()));
+            hash.eat(u64::from(choice.tier));
+            eat_list(&mut hash, &choice.options);
+            match &choice.proposal {
+                None => hash.eat(u64::MAX),
+                Some(p) => {
+                    hash.eat(p.relic.map_or(u64::MAX, |r| u64::from(r.code())));
+                    hash.eat(u64::from(p.to));
+                    hash.eat(u64::from(p.by));
+                    for &yes in &p.accepted {
+                        hash.eat(u64::from(yes));
+                    }
+                }
+            }
+        }
+    }
+    hash.eat(relics.fired.len() as u64);
+    for fired in &relics.fired {
+        eat_list(&mut hash, fired);
+    }
+    for down in &relics.down_since {
+        match down {
+            None => hash.eat(u64::MAX),
+            Some(at) => hash.eat_rounded(*at, FINE_GRID),
+        }
+    }
+    hash.eat(u64::from(relics.offers));
+    hash.eat(u64::from(run.fought));
+    hash.eat(u64::from(run.cleared_here));
+    hash.eat(u64::from(run.won));
+    hash.eat(u64::from(run.win_on_clear));
 
     hash.0
 }

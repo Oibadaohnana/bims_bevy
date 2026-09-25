@@ -1217,40 +1217,35 @@ fn the_hair_a_player_chose_is_on_its_crew_member_when_the_world_opens() {
     assert_eq!(session.game.as_ref().unwrap().world.checksum(), before);
 }
 
-/// A save keeps which tier of key each station's desk still holds: the
-/// spawn's tier one, an enemy's tier two, and a desk taken bare — and a
-/// tier-two key in the crew's own desk comes back as one.
+/// A save keeps the run's relics (feature 106): what the crew hold, what
+/// is still in the pool, a choice half made, and a held site's cache.
 #[test]
-fn save_round_trip_keeps_key_tiers() {
+fn save_round_trip_keeps_the_relics() {
     use crate::Session;
-    use physics::ResourceId;
-    use shipdesign::research::Node;
+    use world::Relic;
     let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
     let world = &mut session.game.as_mut().unwrap().world;
-    let home = world.home;
-    let keys: Vec<u8> = world.station_keys.clone();
-    assert_eq!(world.station_key(home), 1);
-    assert!(keys.contains(&2), "an enemy's desk in the spawn system");
-    assert!(keys.contains(&0), "and a derelict's, bare");
-    // A tier-one key taken from the spawn, and a tier-two key in the desk.
-    let at = world.stations.iter().position(|s| s.id == home).unwrap();
-    world.station_keys[at] = 0;
-    world.ship.design.cargo[ResourceId::ResearchKeyTwo as usize] = 1;
-    world.on_ship_changed();
-    assert_eq!(world.keys_in_desk(2), 1);
-    let keys: Vec<u8> = world.station_keys.clone();
+    world.set_relic_pool(world::relic::starting_pool());
+    world.give_relic_for_probe(0, Relic::SecondWind);
+    world.run.relics.choice = Some(world::RelicChoice {
+        source: world::relic::Source::Reward,
+        tier: 1,
+        options: vec![Relic::FocusingLens, Relic::ServoBraces],
+        proposal: None,
+    });
+    let pool = world.relic_pool().to_vec();
     let checksum = world.checksum();
 
     let text = session.save().expect("a world to save");
     let back = Session::restore(&text, CANVAS.0, CANVAS.1).expect("the text reads back");
     let world = &back.game.as_ref().unwrap().world;
-    assert_eq!(world.station_keys, keys);
-    assert_eq!(world.station_key(home), 0);
-    assert_eq!(world.keys_in_desk(2), 1);
-    assert_eq!(world.keys_in_desk(1), 0);
+    assert_eq!(world.relics_of(0), &[Relic::SecondWind]);
+    assert_eq!(world.relic_pool(), pool.as_slice());
+    assert_eq!(
+        world.relic_choice().map(|c| c.options.clone()),
+        Some(vec![Relic::FocusingLens, Relic::ServoBraces])
+    );
     assert_eq!(world.checksum(), checksum);
-    assert!(!world.research.is_done(Node::Upgrades));
-    assert_eq!(world.research.done.len(), shipdesign::research::NODES);
 }
 
 /// A jammer brought down stays down through a save and a load, and the

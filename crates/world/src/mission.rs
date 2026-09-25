@@ -252,8 +252,7 @@ impl World {
         let infested = turns != u32::MAX && arrival_day >= turns;
         let tier = match self.droid_tier {
             Some(tier) => tier,
-            None if self.hops_from_origin(site.star) <= data::DROID_TIER_THREE_HOPS => Tier::Three,
-            None => Tier::One,
+            None => self.site_tier(site.star, Some(site.station), arrival as f64),
         };
         // The jammer on arrival: the lowest orbital station of a system
         // the machines have by then, or theirs where it has none.
@@ -321,6 +320,10 @@ impl World {
     /// missions only, and only somewhere a trip can go; a player whose
     /// Bim is dead still has a say.
     pub(super) fn propose(&mut self, slot: u32, site: Site, events: &mut Vec<WorldEvent>) {
+        if self.run.phase == RunPhase::Reward {
+            events.push(refused(slot, Refusal::ChoosingRelic));
+            return;
+        }
         if self.run.phase != RunPhase::Map {
             events.push(refused(slot, Refusal::MidMission));
             return;
@@ -487,6 +490,8 @@ impl World {
         self.run.departure = None;
         self.buy_back(events);
         self.make_whole();
+        // Every once-a-mission relic ready again (feature 106).
+        self.relics_at_mission_start(events);
         // Every player's bots following again: the last mission ended
         // with them sent home.
         for order in &mut self.standing {
@@ -586,6 +591,10 @@ impl World {
         };
         self.run.site = Some(station);
         self.run.snapshot = Some(self.snapshot_of(station));
+        // Whether there is anything here to clear (feature 106): what makes
+        // the clear worth a relic.
+        self.run.fought = !self.site_cleared(station);
+        self.run.cleared_here = false;
     }
 
     /// Everything the world keeps about one site of this system.
@@ -962,6 +971,10 @@ impl World {
             self.settle_bounty(events);
         }
         self.run.pending_bounty = 0;
+        // The relics (feature 106), while the ship is still tied up and
+        // the site's tier can be read: a cache's relic kept or lost, and
+        // a site cleared with machines in it offering its reward.
+        let reward = self.relics_on_leaving(station, cleared, events);
         let falls = station
             .filter(|_| !cleared)
             .filter(|&id| self.defense(id).is_some_and(|d| !d.over()));
@@ -1000,7 +1013,13 @@ impl World {
             self.ship.set_position(at);
         }
         self.undocked_once = true;
-        self.run.phase = RunPhase::Map;
+        // The reward screen first, when there is a relic to choose; the
+        // map when the choice is made.
+        self.run.phase = if reward {
+            RunPhase::Reward
+        } else {
+            RunPhase::Map
+        };
         self.run.site = station;
         self.run.snapshot = None;
         self.run.proposal = None;
@@ -1019,6 +1038,9 @@ impl World {
     /// paid if the site has just been cleared, and the departure check.
     pub(super) fn settle_run(&mut self, events: &mut Vec<WorldEvent>) {
         self.settle_bounty(events);
+        // The clear itself, said once (feature 106): a cache's relic kept,
+        // and the probes' win.
+        self.settle_clear(events);
         self.settle_departure(events);
     }
 

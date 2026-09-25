@@ -394,10 +394,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotDown => "nobody on their feet is looted — it is not down any more",
         Refusal::NotForHire => "that is not a mercenary for hire",
         Refusal::NotAtTheDesk => "nobody of yours is at the trading desk — walk over first",
-        Refusal::NoKey => "there is no research key there",
-        Refusal::NoResearchDesk => "the ship has no research desk running — the AI works on one",
-        Refusal::NotResearchable => "that cannot be queued for research now",
-        Refusal::NotResearched => "the crew do not know how to build that yet",
         Refusal::NoMarket => "there is nobody here to sell to",
         Refusal::NoWorkbench => "there is no workbench aboard to put it on",
         Refusal::NoPair => {
@@ -407,10 +403,6 @@ pub fn refusal(why: Refusal) -> &'static str {
         // A walk ordered on the deck (`Command::Crew`): the room's two
         // refusals.
         Refusal::NoWayThere => "there is no way there at all",
-        Refusal::NotQueued => "that is not on the research queue",
-        Refusal::NoUpgrades => {
-            "the crew do not know how to upgrade gear yet — research Upgrades, behind a tier-two key"
-        }
         Refusal::ClassLocked => "a class is chosen before the ship first leaves its berth",
         Refusal::NotAnEngineer => "only an engineer does that",
         Refusal::NoKit => "there is no such kit in the pack",
@@ -468,6 +460,11 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::PlayerOut => "your Bim is dead — it is bought back at the next mission",
         Refusal::CannotTravel => "the ship cannot get there — nothing pushes it",
         Refusal::AlreadyHere => "the crew are here — the next trip goes somewhere else",
+        Refusal::NoRelicChoice => "there is no relic to choose now",
+        Refusal::NotOnOffer => "that relic is not on offer",
+        Refusal::NotAPlayer => "only a player's Bim holds a relic",
+        Refusal::NoCache => "there is no relic cache here — walk over first",
+        Refusal::ChoosingRelic => "the crew are still choosing a relic",
     }
 }
 
@@ -1853,17 +1850,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
             "{}'s month came round and there was not the money — the hand is owed until it is paid.",
             who(w)
         ),
-        WorldEvent::KeyTaken { who: w } => {
-            format!("{} took the research key off the station's desk.", who(w))
-        }
-        WorldEvent::Unlocked { node } => format!(
-            "The key was consumed at the research desk: {} is open to research.",
-            node_name(node)
-        ),
-        WorldEvent::ResearchBegun { node } => {
-            format!("The AI is researching {}.", node_name(node))
-        }
-        WorldEvent::Researched { node } => format!("Researched: {}.", node_name(node)),
         WorldEvent::UpgradeBegun { resource, tier } => format!(
             "Two of {} went onto the workbench: one will come off at {}.",
             resource_name_by_code(resource),
@@ -1884,12 +1870,6 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         }
         WorldEvent::PowerRestored => "Power restored.".into(),
         WorldEvent::CrewLost => "Nobody of the crew is standing. The run is over.".into(),
-        WorldEvent::ResearchQueued { node } => {
-            format!("Queued for research: {}.", node_name(node))
-        }
-        WorldEvent::ResearchDropped { node } => {
-            format!("Off the research queue: {}.", node_name(node))
-        }
         WorldEvent::LevelUp {
             who: w,
             class,
@@ -2023,7 +2003,162 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         ),
         WorldEvent::TownFell { .. } => TOWN_FELL.into(),
         WorldEvent::PlayerGone { slot } => format!("{} has left the game.", player_name(slot)),
+        WorldEvent::RelicsOffered { source: 0, count } => {
+            format!("The site is cleared: {count} relics on offer. Choose one together, or none.")
+        }
+        WorldEvent::RelicsOffered { .. } => {
+            "The cache holds a relic. Choose who takes it — kept if the site is cleared.".into()
+        }
+        WorldEvent::RelicProposed { slot, relic, to } => match relic_of(relic) {
+            Some(r) => format!(
+                "{} puts {} for {}.",
+                player_name(slot),
+                relic_name(r),
+                player_name(to)
+            ),
+            None => format!("{} would take no relic.", player_name(slot)),
+        },
+        WorldEvent::RelicAccepted { slot, yes: true } => {
+            format!("{} says yes to the relic.", player_name(slot))
+        }
+        WorldEvent::RelicAccepted { slot, yes: false } => {
+            format!("{} takes their yes back.", player_name(slot))
+        }
+        WorldEvent::RelicGiven { slot, relic } => format!(
+            "{} has {} for the rest of the run.",
+            player_name(slot),
+            relic_of(relic).map_or("a relic", relic_name)
+        ),
+        WorldEvent::RelicPending { slot, relic } => format!(
+            "{} is {}'s once the site is cleared.",
+            relic_of(relic).map_or("The relic", relic_name),
+            player_name(slot)
+        ),
+        WorldEvent::RelicsDeclined => "The crew take no relic.".into(),
+        WorldEvent::RelicLost { slot, relic } => format!(
+            "{} is lost — the site was left uncleared, and {} never had it.",
+            relic_of(relic).map_or("The relic", relic_name),
+            player_name(slot)
+        ),
+        WorldEvent::CacheOpened { who: w } => format!("{} opened the relic cache.", who(w)),
+        WorldEvent::RelicFired { who: w, relic } => match relic_of(relic) {
+            Some(world::Relic::SecondWind) => format!("{} gets up again — Second Wind.", who(w)),
+            Some(world::Relic::PhaseHarness) => {
+                format!("{} phases out — nothing hurts for a moment.", who(w))
+            }
+            Some(r) => format!("{}: {}.", who(w), relic_name(r)),
+            None => String::new(),
+        },
+        WorldEvent::RunWon => "The run is won.".into(),
     })
+}
+
+// --- relics (feature 106) -----------------------------------------------------------
+
+fn relic_of(code: u32) -> Option<world::Relic> {
+    world::Relic::from_code(code)
+}
+
+/// Every relic's name, in `world::Relic::ALL`'s order.
+pub const RELIC_NAMES: [&str; 12] = [
+    "Focusing Lens",
+    "Servo Braces",
+    "Field Plating",
+    "Coolant Loop",
+    "Steady Grip",
+    "Trauma Kit",
+    "Second Wind",
+    "Salvage Beacon",
+    "Overcharge Cell",
+    "Last Stand",
+    "Kill Relay",
+    "Phase Harness",
+];
+
+pub fn relic_name(relic: world::Relic) -> &'static str {
+    RELIC_NAMES
+        .get(relic.code() as usize)
+        .copied()
+        .unwrap_or("a relic")
+}
+
+/// What a relic does, in a line, off the rules' own numbers.
+pub fn relic_line(relic: world::Relic) -> String {
+    use world::Relic::*;
+    use world::data as d;
+    match relic {
+        FocusingLens => format!("+{}% weapon damage.", d::FOCUSING_LENS_DAMAGE_PERCENT),
+        ServoBraces => format!("+{}% move speed.", d::SERVO_BRACES_SPEED_PERCENT),
+        FieldPlating => format!("+{}% armour.", d::FIELD_PLATING_ARMOUR_PERCENT),
+        CoolantLoop => format!(
+            "-{}% class ability cooldowns.",
+            d::COOLANT_LOOP_COOLDOWN_PERCENT
+        ),
+        SteadyGrip => format!("+{}% accuracy.", d::STEADY_GRIP_ACCURACY_PERCENT),
+        TraumaKit => format!(
+            "+{}% healing received from medkits and a medic's beam.",
+            d::TRAUMA_KIT_HEALING_PERCENT
+        ),
+        SecondWind => format!(
+            "The first time this Bim goes down in a mission, it gets up after {} s with {}% health.",
+            d::SECOND_WIND_SECONDS,
+            d::SECOND_WIND_HEALTH_PERCENT
+        ),
+        SalvageBeacon => format!(
+            "+{}% bounty for this Bim's kills, paid when the site is cleared.",
+            d::SALVAGE_BEACON_BOUNTY_PERCENT
+        ),
+        OverchargeCell => format!(
+            "Every {}th shot deals {}.",
+            d::OVERCHARGE_CELL_EVERY,
+            if d::OVERCHARGE_CELL_DAMAGE_PERCENT == 100 {
+                "double damage".to_string()
+            } else {
+                format!("+{}% damage", d::OVERCHARGE_CELL_DAMAGE_PERCENT)
+            }
+        ),
+        LastStand => format!(
+            "+{}% weapon damage while another player's Bim is down.",
+            d::LAST_STAND_DAMAGE_PERCENT
+        ),
+        KillRelay => format!(
+            "Each kill takes {} s off this Bim's class ability cooldowns.",
+            d::KILL_RELAY_SECONDS
+        ),
+        PhaseHarness => format!(
+            "Once a mission, when a hit takes this Bim under {}% health, it takes no damage for {} s.",
+            d::PHASE_HARNESS_BELOW_PERCENT,
+            d::PHASE_HARNESS_SECONDS
+        ),
+    }
+}
+
+/// A relic's tier, as the sheet says it.
+pub fn relic_tier(relic: world::Relic) -> String {
+    format!("Tier {}", relic.tier())
+}
+
+pub const RELICS_HEADING: &str = "Relics";
+pub const NO_RELICS: &str = "None yet. A site cleared of machines offers relics.";
+pub const REWARD_TITLE: &str = "The site is cleared";
+pub const CACHE_TITLE: &str = "A relic cache";
+pub const REWARD_INTRO: &str =
+    "Choose a relic and whose Bim takes it. Every player has to say yes; a new proposal clears them.";
+pub const CACHE_INTRO: &str =
+    "One relic out of the cache. It is kept only if the site is cleared before the crew leave.";
+pub const TAKE_NONE: &str = "Take none";
+pub const ACCEPT: &str = "Accept";
+pub const FOR_BIM: &str = "For";
+pub const VICTORY_TITLE: &str = "The run is won";
+pub const VICTORY_UNLOCKED: &str = "Unlocked for your next runs:";
+pub const VICTORY_NOTHING_NEW: &str = "Every relic is unlocked already.";
+
+/// The line under a proposal: what is on the table and who has said yes.
+pub fn relic_proposal_line(relic: Option<world::Relic>, to: u32) -> String {
+    match relic {
+        Some(r) => format!("On the table: {} for {}.", relic_name(r), player_name(to)),
+        None => "On the table: take none.".into(),
+    }
 }
 
 /// A player named by their slot: their Bim's name, which is what the
@@ -2871,34 +3006,10 @@ pub fn item_tip(id: ResourceId) -> &'static str {
     ITEM_TIPS.get(id as usize).copied().unwrap_or("")
 }
 
-/// The research tree's nodes, indexed by `shipdesign::research::Node`, and
-/// what each of them opens.
-pub const NODE_NAMES: [&str; 5] = [
-    "Living aboard",
-    "Medicine",
-    "Fusion power",
-    "Hyperdrive",
-    "Upgrades",
-];
-
-pub fn node_name(code: u32) -> &'static str {
-    NODE_NAMES
-        .get(code as usize)
-        .copied()
-        .unwrap_or("something")
-}
-
-pub const KEY_ROW: &str = "Take the research key";
-pub const KEY_ROW_HINT: &str = "walk over and take it into the pack — it is two cells tall";
-
-/// The desk's row, naming the tier of key that lies on it.
-pub fn key_row(tier: u8) -> String {
-    match tier {
-        2 => "Take the tier-two research key".to_string(),
-        _ => KEY_ROW.to_string(),
-    }
-}
-pub const NO_KEY_ROW_HINT: &str = "there is no key on this desk";
+/// The research desk's row where a relic cache lies on it (feature 106).
+pub const CACHE_ROW: &str = "Open the relic cache";
+pub const CACHE_ROW_HINT: &str =
+    "walk over and open it — one relic, kept if the site is cleared";
 pub const RESEARCH_WINDOW: &str = "Research desk";
 
 /// The container windows' titles. A workstation's window is named for the
@@ -3069,9 +3180,8 @@ mod tests {
             assert_eq!(STORAGE_NAMES.len(), shipdesign::Storage::ALL.len());
         }
 
-        // --- every_research_node_has_a_name_and_a_line ---
+        // --- every_item_and_spot_has_a_line ---
         {
-            assert_eq!(NODE_NAMES.len(), shipdesign::research::Node::ALL.len());
             assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
             assert_eq!(
                 SPOT_NAMES.len(),

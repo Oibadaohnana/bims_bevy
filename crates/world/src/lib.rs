@@ -63,6 +63,7 @@ pub mod jump;
 pub mod medic;
 pub mod memory;
 pub mod mercenary;
+pub mod relic;
 pub mod orders;
 pub mod run;
 pub mod speed;
@@ -85,6 +86,7 @@ pub use jammer::{JAMMER_BASE, jammer_id, jammer_star};
 pub use medic::Medic;
 pub use memory::{Losses, SystemMemory};
 pub use orders::Standing;
+pub use relic::{Profile, Relic, RelicChoice, RelicProposal, Relics};
 pub use run::{Departure, Fallen, Proposal, Run, Site, SiteSnapshot, TravelQuote};
 pub use speed::Speed;
 pub use station::{Berth, Plan, Station, layout_surface};
@@ -123,6 +125,8 @@ mod tests_mission;
 mod tests_money;
 #[cfg(test)]
 mod tests_orders;
+#[cfg(test)]
+mod tests_relic;
 #[cfg(test)]
 mod tests_run;
 #[cfg(test)]

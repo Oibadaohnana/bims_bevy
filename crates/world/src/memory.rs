@@ -165,8 +165,6 @@ pub fn set_graves(graves: &mut Vec<Grave>, station: u32, laid: Vec<Grave>) {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SystemMemory {
     pub star: u32,
-    /// `World::station_keys`: which tier of key each desk still has.
-    pub station_keys: Vec<u8>,
     /// The stations' lamps of `World::lamps` — the ship's own stay with
     /// the ship.
     pub lamps: Vec<LampDamage>,

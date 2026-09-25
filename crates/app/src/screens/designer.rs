@@ -29,7 +29,7 @@ use world::Speed;
 use world::world::Command;
 
 use crate::canvas::{Pointer, canvas_painter, rect_of, root_ui, zoom_factor};
-use crate::crew::{GearOrder, ResearchOrder};
+use crate::crew::GearOrder;
 use crate::format::euros;
 use crate::keys::{Action, Keys};
 use crate::names::*;
@@ -119,9 +119,6 @@ pub enum Order {
     /// hold is the world's, so even putting a helm on goes through the
     /// seam — every player's ship has to agree about where each piece is.
     Gear(GearOrder),
-    /// The AI put onto a node, taken off, or a key consumed at the desk:
-    /// what the crew know is the world's, so it goes through the seam too.
-    Research(ResearchOrder),
     /// The Management tab's tick box: combine matching gear at the
     /// workbench, or stop. The hold is the world's, so it is a command.
     AutoUpgrade(bool),
@@ -202,6 +199,15 @@ pub enum Order {
     ReturnToShip,
     /// An answer to the departure check — `Command::LeaveBehind`.
     LeaveBehind(bool),
+    /// A relic put to the crew for a player's Bim, or none — the reward
+    /// screen's and a cache's vote, `Command::ProposeRelic` (feature 106).
+    ProposeRelic {
+        relic: Option<world::Relic>,
+        to: u32,
+    },
+    /// A yes to the relic on the table, or one taken back —
+    /// `Command::AcceptRelic`.
+    AcceptRelic(bool),
     /// The host saying that player has left the game —
     /// `Command::PlayerGone`, carrying the gone player's slot rather than
     /// the sender's.
@@ -489,7 +495,9 @@ impl Net {
                             who,
                             resident,
                         },
-                        Order::Gear(GearOrder::TakeKey { who }) => Command::TakeKey { slot, who },
+                        Order::Gear(GearOrder::OpenCache { who }) => {
+                            Command::OpenCache { slot, who }
+                        }
                         // The row on a box of dressings (feature 87): it
                         // binds its own wounds, which is an order to the
                         // room like any other.
@@ -497,16 +505,6 @@ impl Net {
                             slot,
                             order: bims::order::CrewOrder::BandageAll { who, patient: who },
                         },
-                        Order::Research(ResearchOrder::Begin(node)) => {
-                            Command::Research { slot, node }
-                        }
-                        Order::Research(ResearchOrder::Cancel) => Command::CancelResearch { slot },
-                        Order::Research(ResearchOrder::Dequeue(node)) => {
-                            Command::Dequeue { slot, node }
-                        }
-                        Order::Research(ResearchOrder::Unlock(node)) => {
-                            Command::Unlock { slot, node }
-                        }
                         Order::AutoUpgrade(on) => Command::SetAutoUpgrade { slot, on },
                         Order::Upgrade => Command::Upgrade { slot },
                         Order::Crew(order) => Command::Crew { slot, order },
@@ -537,6 +535,12 @@ impl Net {
                         Order::AcceptTrip(yes) => Command::Accept { slot, yes },
                         Order::ReturnToShip => Command::Return { slot },
                         Order::LeaveBehind(yes) => Command::LeaveBehind { slot, yes },
+                        Order::ProposeRelic { relic, to } => Command::ProposeRelic {
+                            slot,
+                            relic: relic.map_or(u32::MAX, world::Relic::code),
+                            to,
+                        },
+                        Order::AcceptRelic(yes) => Command::AcceptRelic { slot, yes },
                         Order::PlayerGone(gone) => Command::PlayerGone { slot: gone },
                         Order::Gear(GearOrder::StowOnBench { who, cell }) => {
                             Command::StowOnBench { slot, who, cell }

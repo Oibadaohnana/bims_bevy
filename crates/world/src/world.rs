@@ -41,7 +41,6 @@ use economy::{Money, Storage, footprint, storage, trade_price};
 use flight::{Dynamics, angle};
 use physics::ResourceId;
 use shipdesign::parts::{PartKind, Rotation};
-use shipdesign::research::{Node as ResearchNode, Research};
 use shipdesign::{CARGO_SLOTS, ShipDesign, design_hash};
 use worldgen::math::{DVec2, dvec2};
 use worldgen::{Galaxy, GalaxyType, Node, StarSystem};
@@ -82,6 +81,11 @@ use crate::tank::Tank;
 // the fields the rest of the `impl World` blocks here do.
 #[path = "mission.rs"]
 mod mission;
+
+// The relics' half of the world (feature 106): what a relic does, the
+// choosing, the caches and the win. A child for the same reason.
+#[path = "relics.rs"]
+mod relics;
 
 /// What a player can ask the world to do.
 ///
@@ -209,57 +213,6 @@ pub enum Command {
         slot: u32,
         who: u32,
         resident: u32,
-    },
-    /// Take the research key off the research desk of the station the
-    /// ship is tied to, into crew member `who`'s pack, whichever tier
-    /// lies there (`World::station_keys`: tier one on a friend's desk,
-    /// tier two on every desk the generator rolled an enemy's): the ship
-    /// docked, a key there, `who`
-    /// alive, awake, aboard and within [`data::REACH`] of that desk, and
-    /// two cells free in the pack, one over the other — a key is that
-    /// big. Nothing about whose desk it is or who is standing about: a
-    /// key is taken at a station the machines hold in the middle of the
-    /// fight. The desk is bare after; the key is stowed in the crew's own desk from
-    /// the pack like anything else, and consumed there by an `Unlock`.
-    TakeKey {
-        slot: u32,
-        who: u32,
-    },
-    /// Consume the research key in the crew's research desk to open the
-    /// lock on node `node` (`shipdesign::research::Node`'s code) — one
-    /// key, one node, and a key of **the node's own tier**
-    /// (`Research::key_wanted`): a desk holding only the other tier's
-    /// key is refused `NoKey` and that key stays. Wants a powered
-    /// research desk aboard; a node open already, or with no lock, is
-    /// refused, so no key is spent for nothing.
-    Unlock {
-        slot: u32,
-        node: u32,
-    },
-    /// Queue node `node` of the research tree (`shipdesign::research::Node`'s
-    /// code) for the ship's AI, with whatever it needs that is not yet
-    /// known or queued ahead of it (`Research::enqueue`): the AI goes
-    /// onto the head of the queue whenever it is idle and the desk has
-    /// power, so a node queued while it is idle is begun the same step.
-    /// Wants a research desk aboard, and refuses a node planned already
-    /// or one whose chain is behind a key. A command because every
-    /// player's ship has to agree about what its crew know, and what
-    /// they will know next.
-    Research {
-        slot: u32,
-        node: u32,
-    },
-    /// Take the AI off whatever it is on: what was put in is lost, and
-    /// whatever was queued that needed it comes off the queue too. The AI
-    /// goes onto what is left of the queue the same step.
-    CancelResearch {
-        slot: u32,
-    },
-    /// Take node `node` off the research queue, and with it everything
-    /// queued that needed it. A node not in the queue is refused.
-    Dequeue {
-        slot: u32,
-        node: u32,
     },
     /// Whether the crew combine matching gear at the workbench: with `on`,
     /// whenever the hold has two of a kind at the same tier and a
@@ -549,6 +502,30 @@ pub enum Command {
     PlayerGone {
         slot: u32,
     },
+    /// Put a relic on offer to the crew for player `to`'s Bim (feature
+    /// 106, [`crate::relic`]) — `relic` a [`crate::Relic`] code, or
+    /// `u32::MAX` for taking none. It replaces whatever was on the table,
+    /// every acceptance with it, and counts as the proposer's own yes. A
+    /// relic not on offer, or a Bim no player steers, is refused.
+    ProposeRelic {
+        slot: u32,
+        relic: u32,
+        to: u32,
+    },
+    /// Say yes to the relic on the table, or take a yes back. The last
+    /// yes of every connected player gives it.
+    AcceptRelic {
+        slot: u32,
+        yes: bool,
+    },
+    /// Crew member `who` opens the relic cache on the research desk of
+    /// the site the crew are at: within reach of it, and no relic choice
+    /// being made already. One relic of the site's tier is put to the
+    /// crew, pending until the site is cleared.
+    OpenCache {
+        slot: u32,
+        who: u32,
+    },
 }
 
 /// What the ship is doing. Nothing is flown (feature 104): the ship is
@@ -755,6 +732,11 @@ pub struct World {
     /// save carries the origin and not this.
     #[cfg_attr(feature = "serde", serde(skip))]
     droid_hops: Vec<u16>,
+    /// How many lane hops every star is from the crew's own, [`World::home_star`],
+    /// indexed by star id: what tier two is ramped on (feature 106,
+    /// [`World::site_tier`]). Derived and never saved, as `droid_hops` is.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    home_hops: Vec<u16>,
     /// The day the origin turns: **nought** — the crisis is there from
     /// the start (feature 102) — bar the `crisis` probe
     /// (`BIMS_CRISIS_DAY`), which moves it. In `world_checksum` with the
@@ -839,15 +821,6 @@ pub struct World {
     /// is a function of the design the world started on, which two
     /// clients share.
     pub start_worth: Money,
-    /// What the crew know how to build and make, and what the AI is on —
-    /// `shipdesign::research`. In `world_checksum` whole.
-    pub research: Research,
-    /// Which tier of research key each station's desk still has on it —
-    /// nought for none, one, two — by index into `stations`: what the
-    /// blueprint rolled (`Station::key`; tier one on a friend's desk,
-    /// tier two on every enemy's), the spawn's tier one always, until a
-    /// crew member takes it. In `world_checksum` whole.
-    pub station_keys: Vec<u8>,
     /// The weapons in the hold, each with its tier, sorted by kind and
     /// tier. **The hold's count of each weapon resource is always the
     /// number of these of that kind** — [`World::settle_guns`] holds it
@@ -1240,13 +1213,10 @@ impl World {
         // every load rather than saved.
         let droid_origin = droidplan::origin(&galaxy, star_id);
         let droid_hops = galaxy.hops_from(droid_origin);
+        let home_hops = galaxy.hops_from(star_id);
 
         let dynamics = flight::dynamics(&design, crew).map_err(StartError::NotAShip)?;
         let aboard = Aboard::new(&design, crew, seed);
-        let station_keys: Vec<u8> = stations
-            .iter()
-            .map(|s| if s.id == station_id { 1 } else { s.key })
-            .collect();
         let design_for_charge = design.clone();
         let ship = Ship {
             design,
@@ -1285,6 +1255,7 @@ impl World {
             droid_kinds_forced: None,
             droid_origin,
             droid_hops,
+            home_hops,
             // The crisis is there from day nought (feature 102): the
             // origin is the machines' the moment the run opens, and every
             // star due by then with it.
@@ -1311,11 +1282,6 @@ impl World {
             // Taken below, once the world stands: `worth` reads the
             // crew's gear and the pool as well as the ship.
             start_worth: 0,
-            research: Research::new(),
-            // The spawn has a key whatever it rolled: the first key is
-            // how the research loop is learnt, and a crew that had to fly
-            // for it would learn nothing at the start.
-            station_keys,
             guns: Vec::new(),
             auto_upgrade: false,
             bench: Workbench::default(),
@@ -1420,7 +1386,9 @@ impl World {
         //    and the crew are choosing where next. The commands are heard
         //    — a vote, a speed — and the step is counted, since it is
         //    what a command is stamped with; nothing else happens.
-        if self.run.phase == run::Phase::Map {
+        //    The reward screen (feature 106) is the same: a relic being
+        //    chosen, nothing moving.
+        if self.run.phase != run::Phase::Mission {
             for &command in commands {
                 self.apply(command, &mut events);
             }
@@ -1545,6 +1513,9 @@ impl World {
         //    the squad is a commander's and outranks the standing one.
         self.hand_the_room_the_standing();
         self.hand_the_room_the_soldiers();
+        //    How many hits each player's Bim had taken before the rooms
+        //    stepped, for a relic that fires on one (feature 106).
+        let hits_before = self.hits_before_the_step();
         self.aboard.step();
         if let Some(residents) = &mut self.residents {
             residents.aboard.step();
@@ -1554,6 +1525,10 @@ impl World {
         self.settle_bursts(&mut events);
         self.sync_lamps();
         self.casualties(&mut events);
+        //    And the relics (feature 106): a player's Bim that went down or
+        //    was hit this step, its triggers — before the tanks take their
+        //    hits' experience out of the count.
+        self.settle_relics(&hits_before, &mut events);
         let downed = self.experience(&mut events);
         self.settle_rampage(&downed);
         self.settle_medics(&mut events);
@@ -1574,12 +1549,10 @@ impl World {
         // 6. Power: what the reactors made this step against what the
         //    wired consumers drew, into or out of the batteries. What is
         //    running in a brownout is `World::powered`, read by whatever
-        //    draws — the benches, the research desk — and what the
+        //    draws — the benches — and what the
         //    brownout does to the rest is `run_brownout`: the lamps dark.
         self.run_power();
         self.run_brownout(&mut events);
-        //    And the AI's research, which runs on the research desk's power.
-        self.run_research(&mut events);
 
         // 7. Construction: what the crew did at the sites this step — a
         //    part put together. Nothing is carried to a site since
@@ -1630,11 +1603,6 @@ impl World {
             | Command::Discard { slot, .. }
             | Command::Loot { slot, .. }
             | Command::Hire { slot, .. }
-            | Command::TakeKey { slot, .. }
-            | Command::Unlock { slot, .. }
-            | Command::Research { slot, .. }
-            | Command::CancelResearch { slot }
-            | Command::Dequeue { slot, .. }
             | Command::SetAutoUpgrade { slot, .. }
             | Command::Upgrade { slot }
             | Command::StowOnBench { slot, .. }
@@ -1662,19 +1630,24 @@ impl World {
             | Command::Accept { slot, .. }
             | Command::Return { slot }
             | Command::LeaveBehind { slot, .. }
-            | Command::PlayerGone { slot } => slot,
+            | Command::PlayerGone { slot }
+            | Command::ProposeRelic { slot, .. }
+            | Command::AcceptRelic { slot, .. }
+            | Command::OpenCache { slot, .. } => slot,
         };
 
         // Between missions nothing happens but the choosing: the map
         // is up and nothing steps. An order to the crew's room is heard —
         // a selection, a pick in a panel — and moves nobody until the next
         // mission is under way.
-        if self.run.phase == run::Phase::Map
+        if self.run.phase != run::Phase::Mission
             && !matches!(
                 command,
                 Command::SetSpeed { .. }
                     | Command::Propose { .. }
                     | Command::Accept { .. }
+                    | Command::ProposeRelic { .. }
+                    | Command::AcceptRelic { .. }
                     | Command::PlayerGone { .. }
                     | Command::Crew { .. }
                     | Command::CrewLater { .. }
@@ -1683,6 +1656,7 @@ impl World {
             events.push(refused(slot, Refusal::BetweenMissions));
             return;
         }
+        let before = events.len();
         match command {
             // Speed is not an order to the ship: a player who is nowhere
             // near anything may still say they want to watch this bit
@@ -1695,6 +1669,11 @@ impl World {
             Command::Return { .. } => self.press_return(slot, events),
             Command::LeaveBehind { yes, .. } => self.answer_departure(slot, yes, events),
             Command::PlayerGone { .. } => self.player_gone(slot, events),
+            Command::ProposeRelic { relic, to, .. } => {
+                self.propose_relic(slot, crate::relic::Relic::from_code(relic), to, events)
+            }
+            Command::AcceptRelic { yes, .. } => self.accept_relic(slot, yes, events),
+            Command::OpenCache { who, .. } => self.open_cache(slot, who, events),
             Command::Buy {
                 resource,
                 units,
@@ -1723,11 +1702,6 @@ impl World {
                 who, source, cell, ..
             } => self.loot(slot, who, source, cell, events),
             Command::Hire { who, resident, .. } => self.hire(slot, who, resident, events),
-            Command::TakeKey { who, .. } => self.take_key(slot, who, events),
-            Command::Unlock { node, .. } => self.unlock(slot, node, events),
-            Command::Research { node, .. } => self.research(slot, node, events),
-            Command::CancelResearch { .. } => self.cancel_research(events),
-            Command::Dequeue { node, .. } => self.dequeue(slot, node, events),
             Command::SetAutoUpgrade { on, .. } => self.auto_upgrade = on,
             Command::Upgrade { .. } => {
                 if let Err(why) = self.begin_upgrade(events) {
@@ -1835,6 +1809,23 @@ impl World {
                 Err(why) => events.push(refused(slot, why)),
             },
         }
+        // A class key gone through is an ability used (feature 106): the
+        // relics that wait on one are told.
+        let ability = matches!(
+            command,
+            Command::Deploy { .. }
+                | Command::Throw { .. }
+                | Command::Surge { .. }
+                | Command::Taunt { .. }
+                | Command::Rally { .. }
+                | Command::Squad { .. }
+        );
+        let turned_down = events[before..]
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Refused { .. }));
+        if ability && !turned_down {
+            self.relic_trigger(slot, crate::relic::Trigger::AbilityUse, events);
+        }
     }
 
     // --- the jump --------------------------------------------------------------
@@ -1871,7 +1862,6 @@ impl World {
         // The system arrived at: as the crew left it, if they have been
         // here, else as the generator rolled it.
         if !self.recall_system(star) {
-            self.station_keys = self.stations.iter().map(|s| s.key).collect();
             self.lamps.retain(|d| d.station.is_none());
             self.discovered.clear();
             self.losses.clear();
@@ -2565,7 +2555,9 @@ impl World {
         }
         // The machines destroyed this step, for the Republic's bounty
         // (feature 103): said when the room is done with below.
-        let mut machine_bounty: Money = 0;
+        // Each with who hit it last, for a relic that pays or pays back
+        // for its own kills (feature 106).
+        let mut machine_kills: Vec<(Option<usize>, Money)> = Vec::new();
         // And which of them are down, so a body among them is one the
         // crew can right-click and loot; after the positions, since the
         // positions clear it.
@@ -2728,7 +2720,8 @@ impl World {
                 // every enemy is a machine now, and a fight is how a crew
                 // earns. Pending until the site is cleared.
                 if let Some(d) = who.checked_sub(bims).and_then(|i| room.droid(i)) {
-                    machine_bounty = machine_bounty.saturating_add(bounty_for(d.tier.code()));
+                    let by = residents.last_hit_by.get(who).copied().flatten();
+                    machine_kills.push((by, bounty_for(d.tier.code())));
                 }
                 // A machine is said as a machine: it has no name, and
                 // the log would otherwise call a wreck Sanne.
@@ -2990,6 +2983,10 @@ impl World {
         self.aboard.room.set_hostiles_dodge(&dodge);
         self.aboard.room.set_hostiles_shields(&shields);
         // And what the Republic owes for the machines destroyed this step.
+        // A machine's last hit by a player's Bim with a relic that
+        // reads kills (feature 106): *Salvage Beacon*'s share on the
+        // bounty, *Kill Relay*'s seconds off the cooldowns.
+        let machine_bounty = self.machine_kills(&machine_kills, events);
         self.earn_bounty(machine_bounty, events);
     }
 
@@ -3246,7 +3243,6 @@ impl World {
     fn remember_system(&mut self) {
         let memory = SystemMemory {
             star: self.star_id,
-            station_keys: self.station_keys.clone(),
             lamps: self
                 .lamps
                 .iter()
@@ -3278,7 +3274,6 @@ impl World {
         if self.infested(star) {
             memory.overrun();
         }
-        self.station_keys = memory.station_keys;
         self.lamps.retain(|d| d.station.is_none());
         self.lamps.extend(memory.lamps);
         self.discovered = memory.discovered;
@@ -3481,11 +3476,6 @@ impl World {
             if self.ship.design.carrying(output) + coming >= self.craft_targets[output as usize] {
                 continue;
             }
-            //    A recipe the crew have not researched is not offered, however
-            //    the bench came aboard — see `shipdesign::research`.
-            if !self.research.recipe_allowed(i) {
-                continue;
-            }
             if !self.can_make(recipe) || !self.powered(recipe.station) {
                 continue;
             }
@@ -3600,7 +3590,7 @@ impl World {
     }
 
     /// Whether a site for `kind` at `origin` turned `rotation` may be laid
-    /// out: the shipyard open, the part researched, the part going where
+    /// out: the shipyard open, the part going where
     /// the rules say it may on the ship as it will be once the pending
     /// sites are built, and the ship as it would then be raising no error
     /// the ship does not raise already — a wall across the spot the hob is
@@ -3619,11 +3609,6 @@ impl World {
         // and do not come through here.
         if !self.shipyard_enabled {
             return Err(SiteRefusal::NoShipyard);
-        }
-        if !self.research.part_allowed(kind) {
-            return Err(SiteRefusal::NotResearched(
-                shipdesign::research::node_of_part(kind).code(),
-            ));
         }
         let site = BuildSite::new(0, kind, origin, rotation);
         let before = self.design_with_sites();
@@ -3659,10 +3644,6 @@ impl World {
             Ok(()) => {}
             Err(SiteRefusal::NoShipyard) => {
                 events.push(refused(slot, Refusal::NoShipyard));
-                return;
-            }
-            Err(SiteRefusal::NotResearched(_)) => {
-                events.push(refused(slot, Refusal::NotResearched));
                 return;
             }
             Err(SiteRefusal::WontFit(_) | SiteRefusal::Fault(_)) => {
@@ -4548,15 +4529,12 @@ impl World {
     }
 
     /// Whether the button could be pressed now, or why not: a workbench
-    /// aboard, the upgrades node researched, nothing under way, the output
-    /// slot clear, and a pair in the input slots — what
+    /// aboard (always allowed since research left the game, feature 106),
+    /// nothing under way, the output slot clear, and a pair in the input slots — what
     /// [`Command::Upgrade`] checks, so a window can say so first.
     pub fn can_upgrade(&self) -> Result<(), Refusal> {
         if self.workbench().is_none() {
             return Err(Refusal::NoWorkbench);
-        }
-        if !self.research.upgrades_allowed() {
-            return Err(Refusal::NoUpgrades);
         }
         if self.bench.busy() || self.bench.slots[Workbench::OUT].is_some() {
             return Err(Refusal::BenchBusy);
@@ -4566,14 +4544,10 @@ impl World {
 
     /// The first pair of matching gear in the hold that could go up a
     /// tier, for the crew to carry to the bench: armour kinds first, then
-    /// weapons, the lowest tier first within a kind, tier three never —
-    /// and nothing at all until the upgrades node is researched, so no
-    /// pair is carried to a bench that would refuse it. What the pair is;
+    /// weapons, the lowest tier first within a kind, tier three never.
+    /// What the pair is;
     /// which pieces is `bench_wants`'s.
     fn upgrade_pair(&self) -> Option<(ResourceId, Tier)> {
-        if !self.research.upgrades_allowed() {
-            return None;
-        }
         for kind in ArmourKind::ALL {
             for tier in Tier::ALL {
                 if tier.next().is_none() {
@@ -4607,8 +4581,7 @@ impl World {
     /// out is fresh whatever went in. `None` with nothing to carry — both
     /// slots full, or nothing in the hold that would pair.
     fn bench_wants(&self) -> Option<Kept> {
-        if self.bench.free_in().is_none() || self.bench.busy() || !self.research.upgrades_allowed()
-        {
+        if self.bench.free_in().is_none() || self.bench.busy() {
             return None;
         }
         let other = Workbench::IN.into_iter().find_map(|i| self.bench.slots[i]);
@@ -5763,11 +5736,14 @@ impl World {
         }
     }
 
-    // --- research -------------------------------------------------------------
+    // --- the station's research desk ------------------------------------------
 
     /// Which of the research desks on the deck is the station's, while the
     /// rooms are joined: the one standing in the station's box. `None` on
-    /// a ship of its own, or at a station without one.
+    /// a ship of its own, or at a station without one. Research is gone
+    /// from the game (feature 106); the desk stays a solid on every
+    /// layout, and at a site the machines hold it is where a **relic
+    /// cache** lies ([`World::cache_here`]).
     pub fn station_desk(&self) -> Option<usize> {
         let (lo, hi) = self.aboard.station_box?;
         self.aboard
@@ -5783,42 +5759,16 @@ impl World {
             })
     }
 
-    /// Which tier of research key a station's desk still has on it, nought
-    /// for none.
-    pub fn station_key(&self, station: u32) -> u8 {
-        self.stations
-            .iter()
-            .zip(&self.station_keys)
-            .find(|(s, _)| s.id == station)
-            .map_or(0, |(_, &key)| key)
-    }
-
-    /// Whether a station's research desk still has a key on it, of
-    /// either tier.
-    pub fn station_has_key(&self, station: u32) -> bool {
-        self.station_key(station) > 0
-    }
-
-    /// Which tier of key the station the ship is tied to has on its desk,
-    /// nought for none — or away from a berth.
-    pub fn key_at_the_dock(&self) -> u8 {
-        match self.ship.state {
-            ShipState::Docked { station } => self.station_key(station),
-            _ => 0,
-        }
-    }
-
     /// Where a crew member stands at the station's research desk, in the
     /// room's units, for the app to `send_to`. `None` with no such desk on
     /// the deck.
-    pub fn key_desk_spot(&self) -> Option<bims::math::Vec2> {
+    pub fn research_desk_spot(&self) -> Option<bims::math::Vec2> {
         self.aboard.room.research_spot(self.station_desk()?)
     }
 
     /// Whether crew member `who` stands within [`data::REACH`] of the
-    /// station's research desk, alive and awake — what a `TakeKey` wants,
-    /// so the row can say "walk over first" before it is refused.
-    pub fn key_in_reach(&self, who: u32) -> bool {
+    /// station's research desk, alive and awake.
+    pub fn research_desk_in_reach(&self, who: u32) -> bool {
         let Some(desk) = self.station_desk() else {
             return false;
         };
@@ -5826,174 +5776,6 @@ impl World {
         who < self.aboard.crew_count()
             && !room.is_unconscious(who as usize)
             && room.within_reach(who as usize, Container::Desk(desk), data::REACH)
-    }
-
-    /// Whether the ship has a research desk of its own, and whether that
-    /// desk is running: the AI thinks on its power.
-    pub fn research_desk_aboard(&self) -> bool {
-        self.ship.design.count(PartKind::ResearchDesk) > 0
-    }
-
-    pub fn research_desk_powered(&self) -> bool {
-        self.research_desk_aboard() && self.powered(PartKind::ResearchDesk)
-    }
-
-    /// How many research keys of `tier` are in the crew's own desk and
-    /// not spoken for. What an `Unlock` of a node of that tier consumes
-    /// one of; nought for a tier no key exists for.
-    pub fn keys_in_desk(&self, tier: u8) -> u32 {
-        armour::key_resource(tier).map_or(0, |r| self.ship.design.carrying(r))
-    }
-
-    /// A take of the station's key. See [`Command::TakeKey`] for what is
-    /// checked, in this order: docked with a desk on the deck, a key on
-    /// it, the Bim in reach, and room in the pack.
-    fn take_key(&mut self, slot: u32, who: u32, events: &mut Vec<WorldEvent>) {
-        let ShipState::Docked { station } = self.ship.state else {
-            events.push(refused(slot, Refusal::NotDocked));
-            return;
-        };
-        let Some(at) = self.stations.iter().position(|s| s.id == station) else {
-            events.push(refused(slot, Refusal::NotDocked));
-            return;
-        };
-        // `.get`, not an index: a derived jammer station (feature 93) is
-        // appended to `stations` and its key with it, but a list recalled
-        // from a memory filed before it existed is one short.
-        let tier = self.station_keys.get(at).copied().unwrap_or(0);
-        if tier == 0 || self.station_desk().is_none() {
-            events.push(refused(slot, Refusal::NoKey));
-            return;
-        }
-        if !self.key_in_reach(who) {
-            events.push(refused(slot, Refusal::OutOfReach));
-            return;
-        }
-        let key = Item::Key(tier);
-        let Some(cell) = self.aboard.room.gear(who as usize).free_cell_for(key) else {
-            events.push(refused(slot, Refusal::PackFull));
-            return;
-        };
-        if !self.aboard.room.give(who as usize, Some(cell), key) {
-            events.push(refused(slot, Refusal::PackFull));
-            return;
-        }
-        self.station_keys[at] = 0;
-        events.push(WorldEvent::KeyTaken { who });
-    }
-
-    /// An unlock: a key of the node's own tier out of the crew's desk,
-    /// gone, and the node's lock open. See [`Command::Unlock`] for what is
-    /// checked: a desk holding only the other tier's key is `NoKey`, and
-    /// that key stays.
-    fn unlock(&mut self, slot: u32, node: u32, events: &mut Vec<WorldEvent>) {
-        if !self.research_desk_powered() {
-            events.push(refused(slot, Refusal::NoResearchDesk));
-            return;
-        }
-        let Some(node_of) = ResearchNode::from_code(node) else {
-            events.push(refused(slot, Refusal::NotResearchable));
-            return;
-        };
-        // A node with no lock wants no key, and is refused before the
-        // desk is looked at; a locked one wants its own tier's.
-        let key = Research::key_wanted(node_of)
-            .and_then(|tier| u8::try_from(tier).ok())
-            .and_then(armour::key_resource);
-        let Some(key) = key else {
-            events.push(refused(slot, Refusal::NotResearchable));
-            return;
-        };
-        if self.ship.design.carrying(key) == 0 {
-            events.push(refused(slot, Refusal::NoKey));
-            return;
-        }
-        if !self.research.unlock(node_of) {
-            events.push(refused(slot, Refusal::NotResearchable));
-            return;
-        }
-        self.ship.design.cargo[key as usize] -= 1;
-        self.on_ship_changed();
-        events.push(WorldEvent::Unlocked { node });
-    }
-
-    /// Queue a node for the AI. See [`Command::Research`]: a
-    /// `ResearchQueued` for it and for each prerequisite that went in
-    /// ahead of it; the AI takes the head in `run_research` this step.
-    fn research(&mut self, slot: u32, node: u32, events: &mut Vec<WorldEvent>) {
-        if !self.research_desk_aboard() {
-            events.push(refused(slot, Refusal::NoResearchDesk));
-            return;
-        }
-        let before = self.research.queue.len();
-        let queued = ResearchNode::from_code(node).is_some_and(|n| self.research.enqueue(n));
-        if !queued {
-            events.push(refused(slot, Refusal::NotResearchable));
-            return;
-        }
-        for node in &self.research.queue[before..] {
-            events.push(WorldEvent::ResearchQueued { node: node.code() });
-        }
-    }
-
-    /// Take the AI off what it is on, and off the queue what needed it.
-    /// See [`Command::CancelResearch`].
-    fn cancel_research(&mut self, events: &mut Vec<WorldEvent>) {
-        for node in self.research.cancel() {
-            events.push(WorldEvent::ResearchDropped { node: node.code() });
-        }
-    }
-
-    /// Take a node off the queue, and what needed it with it. See
-    /// [`Command::Dequeue`].
-    fn dequeue(&mut self, slot: u32, node: u32, events: &mut Vec<WorldEvent>) {
-        let dropped = ResearchNode::from_code(node)
-            .map(|n| self.research.dequeue(n))
-            .unwrap_or_default();
-        if dropped.is_empty() {
-            events.push(refused(slot, Refusal::NotQueued));
-            return;
-        }
-        for node in dropped {
-            events.push(WorldEvent::ResearchDropped { node: node.code() });
-        }
-    }
-
-    /// The AI's step, while a research desk aboard is running: onto the
-    /// head of the queue if it is idle, a step's minutes onto whatever it
-    /// is on, and the word when a node is done — and onto the next queued
-    /// node the same step, so a queue is worked through without an idle
-    /// step between. Stage 6's second half — it runs on the desk's power.
-    fn run_research(&mut self, events: &mut Vec<WorldEvent>) {
-        if !self.research_desk_powered() {
-            return;
-        }
-        if let Some(node) = self.research.next() {
-            events.push(WorldEvent::ResearchBegun { node: node.code() });
-        }
-        if let Some(node) = self.research.advance(data::STEP_MINUTES) {
-            events.push(WorldEvent::Researched { node: node.code() });
-            if let Some(next) = self.research.next() {
-                events.push(WorldEvent::ResearchBegun { node: next.code() });
-            }
-        }
-    }
-
-    /// Have the crew know `node` and everything it needs, without the
-    /// AI's time. For probes of what research gates.
-    pub fn research_for_probe(&mut self, node: ResearchNode) {
-        for r in node.def().requires {
-            self.research_for_probe(*r);
-        }
-        self.research.done[node as usize] = true;
-    }
-
-    /// Have the crew know the whole tree. For probes of the benches, which
-    /// predate research and want every recipe on offer.
-    pub fn know_everything_for_probe(&mut self) {
-        for node in ResearchNode::ALL {
-            self.research.done[node as usize] = true;
-        }
     }
 
     // --- looking out of the window ------------------------------------------
@@ -6183,6 +5965,8 @@ impl World {
                 | Command::Return { .. }
                 | Command::LeaveBehind { .. }
                 | Command::PlayerGone { .. }
+                | Command::ProposeRelic { .. }
+                | Command::AcceptRelic { .. }
         )
     }
 
@@ -6672,7 +6456,11 @@ impl World {
         if let Some(d) = self.defense_mut(id) {
             d.lost = true;
         }
-        self.infested.push(Infestation::new(id));
+        // And whether it hides a relic cache (feature 106): rolled here,
+        // once, off the galaxy's seed.
+        let mut it = Infestation::new(id);
+        it.cache = crate::relic::cache_rolled(self.galaxy_seed, self.star_id, id);
+        self.infested.push(it);
         self.infested.sort_by_key(|it| it.station);
         // The station's people are gone the moment the machines have it:
         // a room already open on it is opened again with nobody in it.
@@ -6709,7 +6497,9 @@ impl World {
     /// **Called at every load**, since the table is derived and a save
     /// carries only the origin; and by the probes that move the origin.
     pub fn settle_crisis(&mut self) {
-        self.droid_hops = self.galaxy().hops_from(self.droid_origin);
+        let galaxy = self.galaxy();
+        self.droid_hops = galaxy.hops_from(self.droid_origin);
+        self.home_hops = galaxy.hops_from(self.home_star);
         // The hop table is what says whether this system is theirs, so
         // the jammer is settled behind it — and this is the call every
         // load goes through (`ship::Game::resume`), which is what keeps a
@@ -7022,7 +6812,6 @@ impl World {
         // entry behind otherwise.
         self.system.stations.retain(|s| !jammer::is_derived(s.id));
         self.stations.retain(|s| !jammer::is_derived(s.id));
-        self.station_keys.truncate(self.stations.len());
         self.discovered
             .retain(|n| !matches!(n, Node::Station(id) if jammer::is_derived(*id)));
         if !wanted {
@@ -7034,7 +6823,6 @@ impl World {
         // Its id is bigger than anything the generator numbers, so the end
         // of the list is id order and the keys stay in step.
         self.stations.push(Station::build(&blueprint, at));
-        self.station_keys.push(0);
         self.discovered.push(Node::Station(derived));
         self.discovered.sort_by_key(node_key);
         self.discovered.dedup();
@@ -7049,11 +6837,36 @@ impl World {
         if let Some(tier) = self.droid_tier {
             return tier;
         }
-        if self.hops_from_origin(self.star_id) <= data::DROID_TIER_THREE_HOPS {
-            Tier::Three
-        } else {
-            Tier::One
+        let site = self.ship.state.alongside().or(self.run.site);
+        self.site_tier(self.star_id, site, self.clock_minutes)
+    }
+
+    /// What tier the machines at a site come at, at the world clock
+    /// `clock_minutes`: **tier three within [`data::DROID_TIER_THREE_HOPS`]
+    /// hops of the origin**; past [`data::ENEMY_TIER2_HOURS`], **tier two**
+    /// on the distance ramp from the crew's own star
+    /// ([`crate::relic::tier_two_rolled`], feature 106) — tier two used to
+    /// wait on the crew researching it; and tier one everywhere else. The
+    /// wave on arrival ([`World::droid_tier`]) and the map's quote read
+    /// the same answer. `station` `None` is anywhere in the system, which
+    /// the ramp calls tier two only past its sure distance.
+    pub fn site_tier(&self, star: u32, station: Option<u32>, clock_minutes: f64) -> Tier {
+        if self.hops_from_origin(star) <= data::DROID_TIER_THREE_HOPS {
+            return Tier::Three;
         }
+        if clock_minutes < f64::from(data::ENEMY_TIER2_HOURS) * time::HOUR {
+            return Tier::One;
+        }
+        let hops = self
+            .home_hops
+            .get(star as usize)
+            .copied()
+            .unwrap_or(u16::MAX);
+        let two = match station {
+            Some(id) => crate::relic::tier_two_rolled(self.galaxy_seed, star, id, hops),
+            None => hops >= data::ENEMY_TIER2_SURE_HOPS,
+        };
+        if two { Tier::Two } else { Tier::One }
     }
 
     /// The probes' dial: every wave from now on comes at this tier, or
@@ -8515,7 +8328,7 @@ impl World {
     /// kind's own, and a talent's factor on it: *quick draw* halves the
     /// grenade's.
     pub fn charge_cooldown(&self, who: u32, charge: Charge) -> f64 {
-        match charge {
+        let own = match charge {
             Charge::Sandbag => deploy::SANDBAG_COOLDOWN,
             Charge::Sentry => deploy::SENTRY_COOLDOWN,
             Charge::Grenade => {
@@ -8527,6 +8340,13 @@ impl World {
             }
             Charge::Medkit => class::MEDKIT_COOLDOWN,
             Charge::Bandage => class::BANDAGE_COOLDOWN,
+        };
+        // A relic's *Coolant Loop* (feature 106): the class's own, never
+        // the medicine everybody carries.
+        if charge.everybody() {
+            own
+        } else {
+            own * self.relic_factor(who, crate::relic::Stat::Cooldowns)
         }
     }
 
@@ -9106,6 +8926,9 @@ impl World {
         // (feature 78): they lift whatever the crew member's own class
         // gave it, a player's own steered Bim included.
         self.lift_by_aura(who, &mut skill);
+        // And a player's relics (feature 106), last: a share on top of
+        // whatever the class and the aura made of it.
+        self.lift_by_relics(who, &mut skill);
         skill
     }
 
@@ -9698,6 +9521,14 @@ impl World {
                 bleed: 0.0,
             };
             for &p in &keep {
+                // A *Trauma Kit* on the patient (feature 106): the blood
+                // and the mending the beam gives, raised.
+                let healing = self.relic_factor(p, crate::relic::Stat::HealingReceived) as f32;
+                let beamed = bims::health::Beamed {
+                    blood_an_hour: beamed.blood_an_hour * healing,
+                    mend: beamed.mend * healing,
+                    ..beamed
+                };
                 // Two beams on one body: the stronger holds it.
                 let slot = &mut held[p as usize];
                 if slot.is_none_or(|h| h.blood_an_hour < beamed.blood_an_hour) {
@@ -10090,7 +9921,14 @@ impl World {
             return 0.0;
         };
         let since = (self.mission_minutes() - last) / time::MINUTES_PER_SECOND;
-        (class::TAUNT_COOLDOWN - since).max(0.0)
+        (self.taunt_cooldown(who) - since).max(0.0)
+    }
+
+    /// Seconds of the clock between one taunt and the next:
+    /// [`class::TAUNT_COOLDOWN`], shorter with a relic's *Coolant Loop*
+    /// (feature 106).
+    pub fn taunt_cooldown(&self, who: u32) -> f64 {
+        class::TAUNT_COOLDOWN * self.relic_factor(who, crate::relic::Stat::Cooldowns)
     }
 
     /// Whether a player's tank may taunt, or why not, in order: a tank
@@ -10292,11 +10130,13 @@ impl World {
     /// Seconds of the clock between one rally and the next: halved with
     /// *quick rally*.
     pub fn rally_cooldown(&self, who: u32) -> f64 {
-        if self.has_talent(who, Talent::QuickRally) {
+        let own = if self.has_talent(who, Talent::QuickRally) {
             class::RALLY_COOLDOWN * class::QUICK_RALLY_COOLDOWN
         } else {
             class::RALLY_COOLDOWN
-        }
+        };
+        // And a relic's *Coolant Loop* (feature 106).
+        own * self.relic_factor(who, crate::relic::Stat::Cooldowns)
     }
 
     /// Minutes of the clock a commander's rally has left; nought with

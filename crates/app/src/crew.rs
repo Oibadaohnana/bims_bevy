@@ -124,11 +124,10 @@ pub struct Hold {
     /// container that takes each resource — `World::in_reach`.
     pub reach: [bool; CARGO_SLOTS],
     /// Which research desk on the deck is the station's, while docked —
-    /// `World::station_desk` — and which tier of key is still on it,
-    /// nought for none (`World::key_at_the_dock`). The desk's row reads
-    /// both.
+    /// `World::station_desk` — and whether a relic cache lies on it
+    /// (feature 106, `World::cache_here`). The desk's row reads both.
     pub station_desk: Option<usize>,
-    pub station_key: u8,
+    pub station_cache: bool,
     /// Which shelves on the deck are the station's, while docked —
     /// `World::station_shelves`: not the hold's, so a click on one opens
     /// no window and the nearby strip leaves them out.
@@ -243,10 +242,11 @@ pub enum GearOrder {
     /// Hire the mercenary that is that resident of the station, `who`
     /// doing the hiring — `Command::Hire`.
     Hire { who: u32, resident: u32 },
-    /// Take the research key off the station's desk into `who`'s pack —
-    /// `Command::TakeKey`. Sent by the screen once `who` is within reach
-    /// of the desk, after the desk's row walked them there.
-    TakeKey { who: u32 },
+    /// Open the relic cache on the station's research desk, `who` doing
+    /// it — `Command::OpenCache` (feature 106). Sent by the screen once
+    /// `who` is within reach of the desk, after the desk's row walked them
+    /// there.
+    OpenCache { who: u32 },
     /// Bind **every** open wound on `who` out of its own pack (feature
     /// 87) — the row on a box of dressings in the inventory. The worst
     /// part now and the rest queued behind it, through
@@ -274,9 +274,9 @@ pub enum Open {
     /// (`CrewPanels::trade_requested`).
     Trade(usize),
     /// Not a window either: the station's research desk's row walks
-    /// the Bim shown to it and asks the screen for the key
-    /// (`CrewPanels::key_requested`).
-    Key(usize),
+    /// the Bim shown to it and asks the screen to open the relic cache
+    /// on it (feature 106, `CrewPanels::cache_requested`).
+    Cache(usize),
     /// Not a window either: the engineer.s deployable within reach packed
     /// up into its pack (`Command::PackUp`) — the row on the nearby strip
     /// beside one (feature 74). By the deployable.s id. There is no
@@ -754,24 +754,6 @@ fn skill_numbers(class: world::Class, slot: Slot) -> String {
     }
 }
 
-/// What the Research tab asked for. The tab went with the minimal HUD
-/// (feature 107) and nothing sends one now, but the order is still a word
-/// the wire knows (`Order::Research`), so it stays until the protocol is
-/// next moved for a reason of its own.
-#[allow(dead_code)]
-#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub enum ResearchOrder {
-    /// Queue a node for the AI — `Command::Research`; it begins at once
-    /// if the AI is idle.
-    Begin(u32),
-    /// Take the AI off what it is on — `Command::CancelResearch`.
-    Cancel,
-    /// Take a node off the queue — `Command::Dequeue`.
-    Dequeue(u32),
-    /// Consume the key in the desk to open a locked node — `Command::Unlock`.
-    Unlock(u32),
-}
-
 /// An open fixture menu: which fixture, and where on the window it was
 /// asked for.
 pub struct Menu {
@@ -883,9 +865,10 @@ pub struct CrewPanels {
     /// The workbench window's button was pressed: the screen sends
     /// `Order::Upgrade` and takes this.
     pub upgrade_requested: bool,
-    /// The station desk's Take row was picked for this Bim: the screen
-    /// sends the take once they are within reach, and takes this.
-    pub key_requested: Option<u32>,
+    /// The research desk's Open row was picked for this Bim (feature
+    /// 106): the screen
+    /// opens the relic cache once they are within reach, and takes this.
+    pub cache_requested: Option<u32>,
     /// A cell's pop-up, if one is up.
     cell_menu: Option<CellMenu>,
     /// What is within reach of the Bim shown, nearest first — a container
@@ -940,7 +923,7 @@ impl CrewPanels {
             terms: None,
             trade_requested: false,
             upgrade_requested: false,
-            key_requested: None,
+            cache_requested: None,
             cell_menu: None,
             nearby: Vec::new(),
             class_view: None,
@@ -1406,13 +1389,11 @@ impl CrewPanels {
             }
             HIT_RESEARCH => {
                 // A station's research desk: the one row walks the Bim
-                // shown over and takes the key, if there is one.
+                // shown over and opens the relic cache on it, if there is
+                // one (feature 106). Nothing else is done at one.
                 let desk = game.hit_research();
-                let key = self.hold.as_ref().map_or(0, |h| h.station_key);
-                if key > 0 {
-                    items.push(Item::opens(key_row(key), KEY_ROW_HINT, Open::Key(desk)));
-                } else {
-                    items.push(Item::note(KEY_ROW, NO_KEY_ROW_HINT.into()));
+                if self.hold.as_ref().is_some_and(|h| h.station_cache) {
+                    items.push(Item::opens(CACHE_ROW, CACHE_ROW_HINT, Open::Cache(desk)));
                 }
             }
             _ => {}
@@ -1469,7 +1450,7 @@ impl CrewPanels {
                     }
                     self.trade_requested = true;
                 }
-                Some(Open::Key(desk)) => {
+                Some(Open::Cache(desk)) => {
                     let who = self.inventory_who(game);
                     if let Some(spot) = game.research_spot(desk) {
                         self.crew_orders.push(CrewOrder::SendTo {
@@ -1478,7 +1459,7 @@ impl CrewPanels {
                             y: spot.y,
                         });
                     }
-                    self.key_requested = Some(who as u32);
+                    self.cache_requested = Some(who as u32);
                 }
                 Some(open @ Open::PackUp(_)) => self.show(open),
                 None => {

@@ -64,6 +64,7 @@ use economy::Money;
 use crate::defense::Defense;
 use crate::droid::Infestation;
 use crate::memory::{Grave, Losses};
+use crate::relic::Relics;
 use crate::world::LampDamage;
 
 /// Where the run stands.
@@ -76,6 +77,12 @@ pub enum Phase {
     /// Between missions: the world map up for everybody, nothing moving,
     /// a destination being chosen.
     Map,
+    /// Between missions, before the map (feature 106): the site just left
+    /// was cleared with machines in it, and the crew are choosing which of
+    /// the relics it offers to take, and for whom
+    /// ([`crate::relic::RelicChoice`]). Nothing moves, as on the map; the
+    /// map comes up when the choice is made.
+    Reward,
 }
 
 impl Phase {
@@ -84,6 +91,7 @@ impl Phase {
         match self {
             Phase::Mission => 0,
             Phase::Map => 1,
+            Phase::Reward => 2,
         }
     }
 }
@@ -232,6 +240,23 @@ pub struct Run {
     pub fallen: Vec<Fallen>,
     /// Deaths so far: what [`Fallen::order`] is stamped from.
     pub deaths: u64,
+    /// The relics (feature 106, [`crate::relic`]): the run's pool, who
+    /// holds what, what is pending on a cache, the choice being made and
+    /// what has fired this mission.
+    pub relics: Relics,
+    /// Whether this mission's site had machines to clear when the mission
+    /// met it: what makes its clear worth a relic.
+    pub fought: bool,
+    /// Whether this mission's site has been cleared since the mission met
+    /// it uncleared — said once, the step it happens.
+    pub cleared_here: bool,
+    /// Whether the run is **won** ([`crate::World::run_won`]): said once
+    /// and kept, as the loss is.
+    pub won: bool,
+    /// The probes' dial (`BIMS_WIN=1`): the run is won the next time a
+    /// site is cleared with machines in it, until there is an end boss to
+    /// win it.
+    pub win_on_clear: bool,
 }
 
 impl Run {
@@ -252,6 +277,11 @@ impl Run {
             connected: vec![true; players as usize],
             fallen: Vec::new(),
             deaths: 0,
+            relics: Relics::new(crate::relic::starting_pool(), players),
+            fought: false,
+            cleared_here: false,
+            won: false,
+            win_on_clear: false,
         }
     }
 
