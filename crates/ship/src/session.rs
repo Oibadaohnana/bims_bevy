@@ -488,6 +488,27 @@ impl Session {
         session
     }
 
+    /// The `guardian` command (feature 100): [`Session::droids`] at **tier
+    /// three**, every wave exactly **one Guardian and two Troopers**
+    /// (`World::set_droid_kinds_for_probe`) — the machine looked at on
+    /// its own, with two others about it so a fight goes on round it —
+    /// and the reinforcement clock at `reinforce` minutes, a minute in the
+    /// app, so a wave destroyed is followed by the next while it is
+    /// watched.
+    pub fn guardian(seed: u64, reinforce: f64, waves: u32, width: f32, height: f32) -> Session {
+        use bims::droid::DroidKind;
+        let mut session = Session::combat(seed, width, height);
+        if let Some(game) = session.game.as_mut() {
+            game.world.set_droid_kinds_for_probe(vec![
+                DroidKind::Guardian,
+                DroidKind::Trooper,
+                DroidKind::Trooper,
+            ]);
+        }
+        session.infest_the_dock_for_probe(Some(bims::combat::Tier::Three), reinforce, waves);
+        session
+    }
+
     /// The `droids_planet` command: the `test_planet` run — a random
     /// galaxy, a system with friendly ground, the ship set down at the
     /// settlement — with **the town** droid-held. Built by the screen,

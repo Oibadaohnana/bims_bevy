@@ -2480,7 +2480,7 @@ fn fore_hand(weapon: WeaponKind) -> f32 {
         WeaponKind::Schword => 6.0,
         // A droid's arm is part of the machine and never in a
         // hand: answered so the match is whole, read by nobody.
-        WeaponKind::Claw | WeaponKind::Unmaker => 6.0,
+        WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => 6.0,
     }
 }
 
@@ -2496,7 +2496,7 @@ fn muzzle_ahead(weapon: WeaponKind) -> f32 {
         WeaponKind::Shotgun => 28.0,
         WeaponKind::AutoRifle => 32.0,
         WeaponKind::SniperRifle => 42.0,
-        WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker => 0.0,
+        WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => 0.0,
     }
 }
 
@@ -2511,7 +2511,7 @@ fn gun_reach(weapon: WeaponKind) -> f32 {
         WeaponKind::AutoRifle => 33.0,
         WeaponKind::SniperRifle => 44.0,
         WeaponKind::Schword => 34.0,
-        WeaponKind::Claw | WeaponKind::Unmaker => 0.0,
+        WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => 0.0,
     }
 }
 
@@ -2622,7 +2622,7 @@ fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: Option<Color>) {
         }
         // Nothing to draw: a blade is drawn by its own hand, and a
         // droid's arm is drawn with the droid (`crate::droid`).
-        WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker => {}
+        WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => {}
     }
 }
 

@@ -251,8 +251,63 @@ pub const WARDEN_BODY: [f32; 4] = [20.0, 120.0, 25.0, 30.0];
 /// The odds a hit lands on each of the four. They add to one.
 pub const DROID_HIT_ODDS: [f32; 4] = [0.05, 0.60, 0.15, 0.20];
 
+/// The Guardian's body (feature 100): the largest of them, with a chassis
+/// nearly a Warden's and a head that is the lens, smaller and easier to
+/// lose.
+pub const GUARDIAN_BODY: [f32; 4] = [16.0, 110.0, 25.0, 30.0];
+
+/// The Guardian's beam, the **Sweeper** (feature 100): it winds up for
+/// [`SWEEPER_WINDUP`], sweeps [`SWEEPER_ARC_DEGREES`] across the aim in
+/// [`SWEEPER_SWEEP`], and cools for [`SWEEPER_COOLDOWN`]. A beam rolls no
+/// odds — whatever it crosses it reaches — so `accuracy` and
+/// `accuracy_far` are **the tactics' alone**: they make its worth fall off
+/// past `sweet` (`WeaponStats::dps_at`), which is what keeps a Guardian
+/// walking in to the beam's sweet range rather than standing off at its
+/// full reach. `speed` is a bolt's pace, for a beam that is nothing; it is
+/// what a Sweeper would fly at were it fired as a bolt.
+pub const SWEEPER: WeaponStats = WeaponStats {
+    range: 20.0,
+    sweet: 8.0,
+    accuracy: 1.0,
+    accuracy_far: 0.4,
+    damage: 30.0,
+    damage_far: 30.0,
+    speed: 40.0,
+    fire_rate: 1.0 / (SWEEPER_WINDUP + SWEEPER_SWEEP + SWEEPER_COOLDOWN),
+    burst: 1,
+    burst_gap: 0.0,
+    melee: false,
+    strips: 0.0,
+    strips_far: 0.0,
+};
+
+/// The Sweeper's rhythm, in seconds: the lens brightening on a fixed aim,
+/// the beam crossing its arc, and the wait before the next wind-up.
+pub const SWEEPER_WINDUP: f32 = 1.2;
+pub const SWEEPER_SWEEP: f32 = 0.5;
+pub const SWEEPER_COOLDOWN: f32 = 3.5;
+/// How far the beam turns in a sweep, from half of it one side of the aim
+/// to half of it the other. Degrees, for the reader: the arithmetic is the
+/// literal cosines and sines in `crate::droid`, never this number.
+pub const SWEEPER_ARC_DEGREES: f32 = 20.0;
+
+/// How fast a Guardian turns, in degrees a second. Like the arc, a number
+/// for the reader: the turn is made of fixed sub-steps whose cosine and
+/// sine are written out in `crate::droid`.
+pub const GUARDIAN_TURN_DEGREES: f32 = 75.0;
+/// The Guardian's shield: a bolt or a blow coming in within this cosine
+/// of its heading — the ±60° front arc — is stopped. The edge itself is
+/// stopped.
+pub const GUARDIAN_SHIELD_COS: f32 = 0.5;
+/// How far out from the Guardian's middle the shield's plate stands, in
+/// room units: where a stopped bolt stops and where the plate is drawn.
+pub const GUARDIAN_SHIELD_RADIUS: f32 = 34.0;
+/// What a Guardian walks at, as a share of a Bim's marching pace.
+pub const GUARDIAN_PACE: f32 = 0.7;
+
 /// What a droid with its arms shot away fires and strikes at: a gun's
-/// odds and a claw's damage, halved. The Unmaker counts as a gun.
+/// odds and a claw's damage, halved. The Unmaker counts as a gun; the
+/// Guardian's Sweeper, which rolls no odds, loses the damage instead.
 pub const DROID_ARMS_ACCURACY: f32 = 0.5;
 pub const DROID_ARMS_DAMAGE: f32 = 0.5;
 

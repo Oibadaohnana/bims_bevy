@@ -95,6 +95,17 @@ const COOLANT: Color = Color::rgba(0.09, 0.24, 0.20, 0.9);
 const TORN: Color = Color::rgb(0.40, 0.42, 0.45);
 /// What glows in a fresh rift and dies away over [`EMBER_LIFE`].
 const EMBER: Color = Color::rgb(0.96, 0.44, 0.15);
+/// A Guardian's shield (feature 100): a translucent plate in the machines'
+/// red with a rim past white, so the bloom picks the rim out and nothing
+/// else of it; and the same arc laid faintly on the deck.
+const SHIELD: Color = SENSOR;
+const SHIELD_RIM: Color = Color::rgb(1.4, 0.77, 0.67);
+const SHIELD_DECK: Color = Color::rgba(1.0, 0.28, 0.22, 0.16);
+/// Half the shield's arc, in radians: the ±60° its cosine says.
+const SHIELD_HALF_ARC: f32 = core::f32::consts::FRAC_PI_3;
+/// How far out the arc on the deck is laid, as a share of the plate's
+/// radius: a little beyond it, so the plate does not hide it.
+const SHIELD_DECK_REACH: f32 = 1.25;
 
 // --- the animation ------------------------------------------------------
 
@@ -129,6 +140,57 @@ const SPARK_COUNT: usize = 4;
 const SPARK_THROW: f32 = 9.0;
 /// How long the Warden's muzzle ring brightens before a shot.
 const CHARGE_TIME: f32 = 0.45;
+
+// --- the Guardian's turn (feature 100) ------------------------------------
+
+/// A Guardian turns in fixed sub-steps, never by an angle worked out: each
+/// is a rotation by a written-out cosine and sine, so two platforms turn it
+/// alike to the bit. One sub-step is 1.25°, sixty of them a second —
+/// [`balance::GUARDIAN_TURN_DEGREES`], 75° a second.
+pub const TURN_STEP_COS: f32 = 0.999_762_03;
+pub const TURN_STEP_SIN: f32 = 0.021_814_885;
+pub const TURN_STEPS_A_SECOND: f32 = 60.0;
+
+/// How near the target its heading has to be before a Guardian starts to
+/// wind up: within 15° (a cosine), so the beam leaves the lens along the
+/// way the machine faces rather than out of its flank.
+pub const WINDUP_COS: f32 = 0.965_925_8;
+
+/// How far ahead of its middle a Guardian's lens is set, in room units:
+/// where the beam leaves from.
+pub const LENS_AHEAD: f32 = 8.0;
+
+/// Where a Guardian's Sweeper is in its rhythm (feature 100, see
+/// `balance::SWEEPER_WINDUP`). A machine of any other kind is always
+/// `Ready` and never asked.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Beam {
+    /// Nothing wound up, nothing cooling: the next target in sight and in
+    /// front of it starts a wind-up.
+    #[default]
+    Ready,
+    /// The lens brightening on a fixed aim: `aim` the unit direction the
+    /// beam will be laid along, `at` the point it was fixed on, `mark` the
+    /// target it was chosen for (an index into the machines' list), and
+    /// `left` seconds to go. The heading is held from here to the end of
+    /// the sweep.
+    WindUp {
+        left: f32,
+        aim: Vec2,
+        at: Vec2,
+        mark: usize,
+    },
+    /// Resting after a sweep, `left` seconds to go.
+    Cooling { left: f32 },
+}
+
+impl Beam {
+    /// Whether the heading is held where the wind-up fixed it.
+    pub fn holds_heading(self) -> bool {
+        matches!(self, Beam::WindUp { .. })
+    }
+}
 
 /// Which of the four a hit landed on. The discriminants are the codes
 /// anything outside this crate reads, written out so a reordering cannot
@@ -176,7 +238,7 @@ impl DroidPart {
     }
 }
 
-/// The three machines. Codes written out, never renumbered.
+/// The four machines. Codes written out, never renumbered.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -187,10 +249,19 @@ pub enum DroidKind {
     Trooper = 2,
     /// The heaviest, and the one that takes cover: the Unmaker's carrier.
     Warden = 3,
+    /// The largest (feature 100): a heavy walker behind a frontal shield
+    /// that stops everything from the front, with a beam that sweeps. It
+    /// is beaten by getting round it. Only ever at tier three.
+    Guardian = 4,
 }
 
 impl DroidKind {
-    pub const ALL: [DroidKind; 3] = [DroidKind::Husk, DroidKind::Trooper, DroidKind::Warden];
+    pub const ALL: [DroidKind; 4] = [
+        DroidKind::Husk,
+        DroidKind::Trooper,
+        DroidKind::Warden,
+        DroidKind::Guardian,
+    ];
 
     pub fn code(self) -> u32 {
         self as u32
@@ -207,6 +278,7 @@ impl DroidKind {
             DroidKind::Husk => balance::HUSK_BODY,
             DroidKind::Trooper => balance::TROOPER_BODY,
             DroidKind::Warden => balance::WARDEN_BODY,
+            DroidKind::Guardian => balance::GUARDIAN_BODY,
         }
     }
 
@@ -216,6 +288,7 @@ impl DroidKind {
             DroidKind::Husk => balance::HUSK_PACE,
             DroidKind::Trooper => balance::TROOPER_PACE,
             DroidKind::Warden => balance::WARDEN_PACE,
+            DroidKind::Guardian => balance::GUARDIAN_PACE,
         }
     }
 
@@ -227,11 +300,13 @@ impl DroidKind {
             DroidKind::Husk => 15.0,
             DroidKind::Trooper => 17.0,
             DroidKind::Warden => 26.0,
+            DroidKind::Guardian => 28.0,
         }
     }
 
     /// Whether it takes cover and peeks when it picks a stand. A Trooper
-    /// does not: it advances in the open and fires on the move.
+    /// does not: it advances in the open and fires on the move. Nor does a
+    /// Guardian: its shield is its cover, and it advances behind it.
     pub fn takes_cover(self) -> bool {
         matches!(self, DroidKind::Warden)
     }
@@ -243,6 +318,7 @@ impl DroidKind {
             DroidKind::Husk => WeaponKind::Claw,
             DroidKind::Trooper => DroidKind::trooper_arm(index),
             DroidKind::Warden => WeaponKind::Unmaker,
+            DroidKind::Guardian => WeaponKind::Sweeper,
         }
     }
 
@@ -344,9 +420,26 @@ pub struct Droid {
     /// Which wave it arrived with, so the world can say when a wave is
     /// spent and draw its ship while any of it is alive.
     pub wave: u32,
-    /// Where it stands, in room units, and which way it faces.
+    /// Where it stands, in room units, and which way it faces — the
+    /// angle the picture is drawn at. A Guardian's is read off
+    /// [`Droid::facing`] for the picture alone.
     pub pos: Vec2,
     pub heading: f32,
+    /// Which way it faces as a **unit vector**: what a Guardian's shield
+    /// and its turn are worked in (feature 100), since a vector is turned
+    /// and compared by plain arithmetic. Kept for every kind, and read for
+    /// the Guardian alone.
+    #[cfg_attr(feature = "serde", serde(default = "unit_x"))]
+    facing: Vec2,
+    /// The part of a turn's sub-step owed to the next step: a Guardian
+    /// turns [`TURN_STEPS_A_SECOND`] sub-steps a second, whatever the
+    /// step, and what a step's time does not make a whole one of waits.
+    #[cfg_attr(feature = "serde", serde(default))]
+    turn_left: f32,
+    /// Where a Guardian's Sweeper is in its rhythm; `Ready` for every
+    /// other kind.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub beam: Beam,
     /// Where it is steering, the way a Bim's intent works.
     intent: f32,
     /// The arm it was built with, as a [`Weapon`] so every curve, every
@@ -427,6 +520,9 @@ impl Droid {
             wave,
             pos: at,
             heading,
+            facing: Vec2::from_angle(heading),
+            turn_left: 0.0,
+            beam: Beam::Ready,
             intent: heading,
             weapon: kind.arm(index).at(tier),
             body: DroidBody::new(kind, tier),
@@ -484,7 +580,9 @@ impl Droid {
         if !self.body.gone(DroidPart::Arms) {
             return base;
         }
-        if base.melee {
+        // A claw, and the Guardian's beam, which rolls no odds: the damage
+        // is what falls (feature 100).
+        if base.melee || self.weapon.kind == WeaponKind::Sweeper {
             WeaponStats {
                 damage: base.damage * balance::DROID_ARMS_DAMAGE,
                 damage_far: base.damage_far * balance::DROID_ARMS_DAMAGE,
@@ -586,6 +684,9 @@ impl Droid {
             }
             DroidKind::Warden => vec2(30.0 - droop * 10.0, 14.0 + droop * 8.0),
             DroidKind::Husk => vec2(self.kind.half_width(), 0.0),
+            // The lens in the middle of the chassis, a little forward: the
+            // beam comes out of it (feature 100).
+            DroidKind::Guardian => vec2(LENS_AHEAD, 0.0),
         };
         self.pos + local.rotate(self.heading)
     }
@@ -635,6 +736,78 @@ impl Droid {
         self.intent = angle;
     }
 
+    /// Which way it faces, a unit vector: what a Guardian's shield and its
+    /// turn are worked in (feature 100).
+    pub fn facing(&self) -> Vec2 {
+        self.facing
+    }
+
+    /// Stood facing `dir` from the start — the way a wave is built facing
+    /// in from its airlock or its gate, said as the vector the world has
+    /// rather than as an angle.
+    pub fn with_facing(mut self, dir: Vec2) -> Droid {
+        let dir = dir.normalize_or_zero();
+        if dir != Vec2::ZERO {
+            self.facing = dir;
+            self.heading = dir.angle();
+            self.intent = self.heading;
+        }
+        self
+    }
+
+    /// Whether it is the Guardian, which faces and turns by its own rule.
+    pub fn is_guardian(&self) -> bool {
+        self.kind == DroidKind::Guardian
+    }
+
+    /// The way its shield faces, for a standing Guardian — what the world
+    /// hands the crew's room with the target (`Combat::set_shields`) — and
+    /// `None` for a wreck or any other kind. **The shield cannot be
+    /// broken**: nothing but the machine being destroyed takes it away.
+    pub fn shield(&self) -> Option<Vec2> {
+        (self.is_guardian() && !self.destroyed).then_some(self.facing)
+    }
+
+    /// Turn a Guardian towards `want` (any length) by as many of its
+    /// fixed sub-steps as this step's time buys: never more than
+    /// [`balance::GUARDIAN_TURN_DEGREES`] a second, and never past the
+    /// way it wants — within a sub-step of it, it faces it exactly. No
+    /// angle is worked out: the sense of the turn is a cross product and
+    /// the turn a rotation by [`TURN_STEP_COS`] and [`TURN_STEP_SIN`].
+    /// Held while the Sweeper is wound up (`Beam::holds_heading`), and
+    /// nothing for a wreck or a zero `want`.
+    pub fn turn_toward(&mut self, want: Vec2, dt: f32) {
+        let want = want.normalize_or_zero();
+        if self.destroyed || want == Vec2::ZERO || self.beam.holds_heading() {
+            self.turn_left = 0.0;
+            return;
+        }
+        self.turn_left += dt * TURN_STEPS_A_SECOND;
+        while self.turn_left >= 1.0 {
+            self.turn_left -= 1.0;
+            if self.facing.dot(want) >= TURN_STEP_COS {
+                // Within a sub-step: it faces it, and has nothing owed.
+                self.facing = want;
+                self.turn_left = 0.0;
+                break;
+            }
+            // Clockwise on screen for a positive cross product, and — for
+            // a want dead behind, where it is nought — clockwise too.
+            let sin = if self.facing.perp_dot(want) >= 0.0 {
+                TURN_STEP_SIN
+            } else {
+                -TURN_STEP_SIN
+            };
+            self.facing = self
+                .facing
+                .rotate_by(TURN_STEP_COS, sin)
+                .normalize_or_zero();
+        }
+        // The picture's angle, read off the vector: drawing only.
+        self.heading = self.facing.angle();
+        self.intent = self.heading;
+    }
+
     /// One step of the machine's own motion and its picture: the route
     /// walked at its pace, the heading swung round to where it is going
     /// or to what it was told to face, and every timer aged. Whether it
@@ -665,10 +838,16 @@ impl Droid {
             self.speed = 0.0;
             return;
         }
+        // A Guardian's heading is its own (feature 100): turned by
+        // `turn_toward` in whole sub-steps, never eased here.
+        let eases = !self.is_guardian();
         if !self.can_move() {
             self.route.clear();
             self.speed = 0.0;
-            self.heading = angle_lerp(self.heading, self.intent, clamp(dt * TURN_RATE, 0.0, 1.0));
+            if eases {
+                self.heading =
+                    angle_lerp(self.heading, self.intent, clamp(dt * TURN_RATE, 0.0, 1.0));
+            }
             return;
         }
         let pace = MARCH * self.kind.pace();
@@ -693,7 +872,19 @@ impl Droid {
         // The stride runs with the walking, so the legs step at the pace
         // the machine actually moves at.
         self.stride += dt * (2.0 + 6.0 * (self.speed / MARCH));
-        self.heading = angle_lerp(self.heading, self.intent, clamp(dt * TURN_RATE, 0.0, 1.0));
+        if eases {
+            self.heading = angle_lerp(self.heading, self.intent, clamp(dt * TURN_RATE, 0.0, 1.0));
+        }
+    }
+
+    /// The way it is walking, towards the next waypoint of its route, or
+    /// nothing while it stands: what a Guardian with nothing in sight
+    /// turns to face.
+    pub fn walking_toward(&self) -> Option<Vec2> {
+        self.route
+            .first()
+            .map(|&to| (to - self.pos).normalize_or_zero())
+            .filter(|d| *d != Vec2::ZERO)
     }
 
     /// The trigger was pulled: the muzzle flashes.
@@ -736,6 +927,11 @@ impl Droid {
             self.heading,
             SHADOW,
         );
+        // A Guardian's shield marked faintly on the deck under it (feature
+        // 100), so the arc it stops things in is read before a shot is.
+        if self.is_guardian() && !self.destroyed {
+            self.draw_shield_on_deck(list);
+        }
         // The sparks, over the machine: the struck part's, and a fresh
         // wreck's. Put through the brush's frame first, so they ride the
         // body's turn, and drawn after the machine so they sit on top of
@@ -747,14 +943,20 @@ impl Droid {
                 (DroidKind::Husk, false) => self.draw_husk(&mut b),
                 (DroidKind::Trooper, false) => self.draw_trooper(&mut b),
                 (DroidKind::Warden, false) => self.draw_warden(&mut b),
+                (DroidKind::Guardian, false) => self.draw_guardian(&mut b),
                 (DroidKind::Husk, true) => self.draw_husk_wreck(&mut b),
                 (DroidKind::Trooper, true) => self.draw_trooper_wreck(&mut b),
                 (DroidKind::Warden, true) => self.draw_warden_wreck(&mut b),
+                (DroidKind::Guardian, true) => self.draw_guardian_wreck(&mut b),
             }
             for s in &self.sparks {
                 let t = 1.0 - s.age / SPARK_LIFE;
                 sparks.push((b.to_world(s.at + s.dir * (1.0 - t)), t, 0.0));
             }
+        }
+        // And the shield's plate, standing out in front of it.
+        if self.is_guardian() && !self.destroyed {
+            self.draw_shield_plate(list);
         }
         for (at, t, _) in sparks {
             list.circle(at, 2.0 + 3.0 * t, SPARK.glowing(SPARK_HEAT).alpha(0.9 * t));
@@ -1093,6 +1295,111 @@ impl Droid {
         );
     }
 
+    /// **The Guardian** (feature 100): the largest, a walker. Heavy legs,
+    /// a broad chassis, and the lens in the middle of it.
+    fn draw_guardian(&self, b: &mut Brush) {
+        let step = self.step();
+        let legs_gone = self.body.gone(DroidPart::Legs);
+        if !legs_gone {
+            for side in [-1.0f32, 1.0] {
+                let swing = step * 6.0 * side;
+                b.rect(
+                    vec2(swing - 4.0, 16.0 * side),
+                    vec2(18.0, 11.0),
+                    0.0,
+                    3.0,
+                    HULL_DARK,
+                );
+            }
+        }
+        b.rect(Vec2::ZERO, vec2(36.0, 50.0), 0.0, 5.0, HULL_DARK);
+        b.rect(vec2(1.0, 0.0), vec2(30.0, 43.0), 0.0, 4.0, HULL);
+        b.ellipse(vec2(LENS_AHEAD, 0.0), vec2(13.0, 13.0), 0.0, JOINT);
+        b.ellipse(vec2(LENS_AHEAD, 0.0), vec2(9.0, 9.0), 0.0, self.eye());
+    }
+
+    /// A Guardian's wreck: the chassis down, the lens dark.
+    fn draw_guardian_wreck(&self, b: &mut Brush) {
+        self.draw_wreck_ground(b, 36.0);
+        // Both legs off and thrown clear.
+        for i in 0..2u32 {
+            let a = self.scatter(i + 90) * TAU;
+            let at = vec2(-14.0, 0.0) + Vec2::from_angle(a) * (18.0 + 8.0 * self.scatter(i + 92));
+            b.rect(at, vec2(18.0, 11.0), a, 3.0, HULL_DARK);
+            b.rect(at + Vec2::from_angle(a) * 10.0, vec2(12.0, 7.0), a + 0.3, 2.0, JOINT);
+        }
+        // The largest machine throws the most: a second ring of plate
+        // further out than the common mess reaches.
+        for i in 0..10u32 {
+            let k = i * 3 + 100;
+            let a = self.scatter(k) * TAU;
+            let away = 44.0 + 16.0 * self.scatter(k + 1);
+            let size = 4.0 + 5.0 * self.scatter(k + 2);
+            b.rect(
+                Vec2::from_angle(a) * away,
+                vec2(size * 2.2, size),
+                a * 1.7,
+                size * 0.3,
+                if i % 2 == 0 { TORN } else { JOINT },
+            );
+        }
+        // The shield's emitters, torn off the front and lying dark.
+        for i in 0..3u32 {
+            let a = self.scatter(i + 94) * 1.2 - 0.6;
+            let at = Vec2::from_angle(a) * (30.0 + 6.0 * self.scatter(i + 97));
+            b.rect(at, vec2(8.0, 4.0), a + 1.2, 1.5, TORN);
+        }
+        b.rect(vec2(-2.0, 0.0), vec2(36.0, 48.0), 0.12, 5.0, HULL_DARK);
+        b.rect(vec2(-1.0, 0.0), vec2(29.0, 40.0), 0.12, 4.0, HULL);
+        self.draw_rift(b, vec2(-2.0, 2.0), vec2(14.0, 30.0), 0.1);
+        b.ellipse(vec2(LENS_AHEAD, 0.0), vec2(13.0, 13.0), 0.0, JOINT);
+        b.ellipse(vec2(LENS_AHEAD, 0.0), vec2(9.0, 9.0), 0.0, self.eye());
+    }
+
+    /// A point on the shield's arc, `a` radians off the facing and `r` out
+    /// from the middle: drawing only.
+    fn on_arc(&self, a: f32, r: f32) -> Vec2 {
+        self.pos + self.facing.rotate(a) * r
+    }
+
+    /// The arc the shield stops things in, faint on the deck under the
+    /// machine (feature 100, section 7): the ±60° wedge's two edges and
+    /// its rim, so a crew member can see where to get round to.
+    fn draw_shield_on_deck(&self, list: &mut DrawList) {
+        const STEPS: usize = 10;
+        let half = SHIELD_HALF_ARC;
+        let r = balance::GUARDIAN_SHIELD_RADIUS * SHIELD_DECK_REACH;
+        let mut prev = self.on_arc(-half, r);
+        for i in 1..=STEPS {
+            let next = self.on_arc(-half + 2.0 * half * i as f32 / STEPS as f32, r);
+            list.line(prev, next, 1.5, SHIELD_DECK);
+            prev = next;
+        }
+        for side in [-1.0f32, 1.0] {
+            list.line(
+                self.on_arc(side * half, balance::GUARDIAN_SHIELD_RADIUS * 0.8),
+                self.on_arc(side * half, r),
+                1.2,
+                SHIELD_DECK,
+            );
+        }
+    }
+
+    /// The shield's plate: short overlapping segments round the front at
+    /// [`balance::GUARDIAN_SHIELD_RADIUS`].
+    fn draw_shield_plate(&self, list: &mut DrawList) {
+        const STEPS: usize = 12;
+        let half = SHIELD_HALF_ARC;
+        let r = balance::GUARDIAN_SHIELD_RADIUS;
+        let mut prev = self.on_arc(-half, r);
+        for i in 1..=STEPS {
+            let next = self.on_arc(-half + 2.0 * half * i as f32 / STEPS as f32, r);
+            list.line(prev, next, 5.0, SHIELD.alpha(0.35));
+            list.line(prev, next, 1.6, SHIELD_RIM);
+            prev = next;
+        }
+    }
+
     // --- the wrecks -----------------------------------------------------
 
     /// A stable number in `[0, 1)` for the `i`th thing scattered round
@@ -1384,6 +1691,12 @@ impl Droid {
     }
 }
 
+/// Facing along `+x`: what a machine saved before feature 100 read back as.
+#[cfg(feature = "serde")]
+fn unit_x() -> Vec2 {
+    vec2(1.0, 0.0)
+}
+
 impl core::fmt::Debug for Droid {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
@@ -1408,15 +1721,32 @@ pub fn mix_of(n: u32) -> (u32, u32, u32) {
     (husks, n.saturating_sub(husks + wardens), wardens)
 }
 
-/// The kinds of a wave of `n`, in the order they are made: the Wardens
-/// first, then the Husks, then the Troopers, so the index a Trooper's
-/// arm is dealt by runs over the Troopers alone.
-pub fn wave_kinds(n: u32) -> Vec<DroidKind> {
+/// How many Guardians a wave of `n` at `tier` has (feature 100): **none
+/// below tier three**, and at tier three `n / 8` — at least one once the
+/// wave is four or more. They are taken out of the Troopers' share
+/// ([`mix_of`]), which is always at least half the wave and so always has
+/// them to give.
+pub fn guardians_of(n: u32, tier: Tier) -> u32 {
+    if tier != Tier::Three || n < 4 {
+        return 0;
+    }
+    (n / 8).max(1)
+}
+
+/// The kinds of a wave of `n` at `tier`, in the order they are made: the
+/// Wardens first, then the Guardians, then the Husks, then the Troopers,
+/// so the index a Trooper's arm is dealt by runs over the Troopers alone.
+pub fn wave_kinds(n: u32, tier: Tier) -> Vec<DroidKind> {
     let (husks, troopers, wardens) = mix_of(n);
+    let guardians = guardians_of(n, tier).min(troopers);
     let mut out = Vec::with_capacity(n as usize);
     out.extend(std::iter::repeat_n(DroidKind::Warden, wardens as usize));
+    out.extend(std::iter::repeat_n(DroidKind::Guardian, guardians as usize));
     out.extend(std::iter::repeat_n(DroidKind::Husk, husks as usize));
-    out.extend(std::iter::repeat_n(DroidKind::Trooper, troopers as usize));
+    out.extend(std::iter::repeat_n(
+        DroidKind::Trooper,
+        (troopers - guardians) as usize,
+    ));
     out
 }
 
@@ -1588,7 +1918,8 @@ mod tests {
             assert_eq!(wardens, n / 6);
             assert_eq!(husks, n / 3);
             assert_eq!(husks + troopers + wardens, n, "a wave of {n} is {n}");
-            assert_eq!(wave_kinds(n).len(), n as usize);
+            assert_eq!(wave_kinds(n, Tier::One).len(), n as usize);
+            assert_eq!(wave_kinds(n, Tier::Three).len(), n as usize);
         }
         // The shape the spec names: a wave of twelve is two Wardens,
         // four Husks and six Troopers.

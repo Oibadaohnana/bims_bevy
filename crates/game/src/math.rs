@@ -60,6 +60,23 @@ impl Vec2 {
     pub fn lerp(self, other: Vec2, t: f32) -> Vec2 {
         self + (other - self) * t
     }
+
+    /// The two-dimensional cross product: positive when `other` lies
+    /// clockwise of `self` on screen (y grows downwards), negative when
+    /// anticlockwise, and its size the sine between the two times both
+    /// lengths. Plain arithmetic, so what is decided by it is decided the
+    /// same on every platform.
+    pub fn perp_dot(self, other: Vec2) -> f32 {
+        self.x * other.y - self.y * other.x
+    }
+
+    /// [`Vec2::rotate`] by an angle whose cosine and sine the caller has
+    /// written out — clockwise on screen for a positive `sin` — with no
+    /// trigonometry at all (feature 100: the Guardian's turn and its
+    /// beam's sweep).
+    pub fn rotate_by(self, cos: f32, sin: f32) -> Vec2 {
+        vec2(self.x * cos - self.y * sin, self.x * sin + self.y * cos)
+    }
 }
 
 impl Add for Vec2 {

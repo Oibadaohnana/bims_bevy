@@ -403,7 +403,9 @@ impl Sounds {
                     WeaponKind::SniperRifle => (Clip::Sniper, 0.6),
                     // A blade is never fired, nor is a claw; the room
                     // does not say either is.
-                    WeaponKind::Schword | WeaponKind::Claw => return,
+                    // Sounds are not in feature 100: the Guardian's beam is
+                    // silent until the droids have their own recordings.
+                    WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Sweeper => return,
                     // The Unmaker has no recording of its own yet —
                     // droid sounds are their own step — so it borrows
                     // the sniper's report, which is the nearest thing

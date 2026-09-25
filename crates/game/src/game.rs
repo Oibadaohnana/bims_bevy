@@ -2198,6 +2198,13 @@ impl Game {
             }
             let stats = self.droids[i].stats();
             let weapon = self.droids[i].weapon;
+            // The Guardian fights by a rule of its own (feature 100): a
+            // heading it turns in whole sub-steps, a shield in front and a
+            // beam wound up before it is swept.
+            if self.droids[i].is_guardian() {
+                self.tick_guardian(i, dt, war, &stats);
+                continue;
+            }
             if !war {
                 // Nothing to fight: it stands where it was posted.
                 self.droids[i].trigger.hold();
@@ -2357,6 +2364,125 @@ impl Game {
         }
     }
 
+    /// One step of a **Guardian** (feature 100). It has no melee lock and
+    /// no peek: it turns to face the nearest crew body it sees — a
+    /// taunt's pull first, as for any enemy (`Combat::aim_among`) — at no
+    /// more than its turn rate, walks where its stand says with its shield
+    /// before it, and when its Sweeper is ready and the target is within
+    /// [`crate::droid::WINDUP_COS`] of its heading it plants its feet and
+    /// **winds up**: the target and the aim fixed, the heading held, and
+    /// after `SWEEPER_WINDUP` the beam let go. Then it cools, and turns
+    /// and walks again. With nothing to fight a wind-up is dropped and it
+    /// turns the way it walks. Legs gone, it still turns and fires.
+    fn tick_guardian(&mut self, i: usize, dt: f32, war: bool, stats: &WeaponStats) {
+        use crate::droid::Beam;
+        {
+            let d = &mut self.droids[i];
+            d.trigger.hold();
+            d.locked = None;
+            d.blow = None;
+            d.peek = None;
+            if let Beam::Cooling { left } = d.beam {
+                d.beam = if left - dt <= 0.0 {
+                    Beam::Ready
+                } else {
+                    Beam::Cooling { left: left - dt }
+                };
+            }
+        }
+        if !war {
+            let d = &mut self.droids[i];
+            if d.beam.holds_heading() {
+                d.beam = Beam::Ready;
+            }
+            d.charging(dt, false);
+            let want = d.walking_toward().unwrap_or(Vec2::ZERO);
+            d.turn_toward(want, dt);
+            return;
+        }
+        if let Beam::WindUp {
+            left,
+            aim,
+            at,
+            mark,
+        } = self.droids[i].beam
+        {
+            // Planted: nothing walks and nothing turns until it has let go.
+            let d = &mut self.droids[i];
+            if d.is_walking() {
+                d.halt();
+            }
+            d.turn_toward(Vec2::ZERO, dt);
+            d.charging(dt, true);
+            if left - dt > 0.0 {
+                d.beam = Beam::WindUp {
+                    left: left - dt,
+                    aim,
+                    at,
+                    mark,
+                };
+                return;
+            }
+            self.let_the_beam_go(i, aim, at, mark);
+            self.droids[i].beam = Beam::Cooling {
+                left: crate::balance::SWEEPER_COOLDOWN,
+            };
+            return;
+        }
+        self.plan_droid_stand(i, dt, stats);
+        self.breach_droid(i, dt);
+        let from = self.droids[i].pos;
+        // Only what it sees from its own eyes: a Guardian never leans out
+        // of cover, having none but its shield.
+        let sighted = Combat::aim_among(
+            self.combat.machine_targets(),
+            &self.room.sight,
+            from,
+            stats,
+            None,
+        )
+        .filter(|&(_, eye, _)| eye == from);
+        let d = &mut self.droids[i];
+        d.charging(dt, false);
+        let want = sighted
+            .map(|(_, _, at)| at - from)
+            .or_else(|| d.walking_toward())
+            .unwrap_or(Vec2::ZERO);
+        d.turn_toward(want, dt);
+        if d.beam == Beam::Ready
+            && let Some((mark, _, at)) = sighted
+        {
+            let aim = (at - from).normalize_or_zero();
+            if aim != Vec2::ZERO && d.facing().dot(aim) >= crate::droid::WINDUP_COS {
+                if d.is_walking() {
+                    d.halt();
+                }
+                d.beam = Beam::WindUp {
+                    left: crate::balance::SWEEPER_WINDUP,
+                    aim,
+                    at,
+                    mark,
+                };
+            }
+        }
+    }
+
+    /// The Sweeper let go at the end of a wind-up, along `aim` at the
+    /// point `at` it was fixed on, for the target `mark` of the machines'
+    /// list: across the seam as a recorded `Shot` for a target below the
+    /// cross, else flown here at one of this room's own bodies.
+    fn let_the_beam_go(&mut self, i: usize, aim: Vec2, at: Vec2, mark: usize) {
+        let _ = aim;
+        let from = self.droids[i].pos;
+        let weapon = self.droids[i].weapon;
+        self.droids[i].fired();
+        if mark < self.combat.machine_cross() {
+            self.combat.shoot(from, at, weapon, false);
+        } else {
+            self.combat.fire(from, at, weapon, true, false);
+        }
+    }
+
     /// Where a machine walks to: the same scoring a hostile Bim's stand
     /// is picked by, with the kind's own weight on cover — nought for a
     /// Trooper, which advances in the open. A Husk has a claw, so
@@ -2423,6 +2549,15 @@ impl Game {
         } else {
             0.0
         };
+        // A Guardian weighs no tile of distance for its own sake: the
+        // Sweeper's worth falling off past its sweet range
+        // (`balance::SWEEPER`) is what places it, so it walks in to that
+        // range rather than standing off at the beam's full reach.
+        let distance_worth = if self.droids[i].is_guardian() {
+            0.0
+        } else {
+            crate::combat::DISTANCE_WORTH
+        };
         let Some(stand) = Tactics::stand_scored(
             &self.room.sight,
             nav,
@@ -2433,7 +2568,7 @@ impl Game {
             &taken,
             closing,
             cover_worth,
-            crate::combat::DISTANCE_WORTH,
+            distance_worth,
         ) else {
             return;
         };
@@ -6631,6 +6766,24 @@ impl Game {
 
     pub fn set_hostiles_peeking(&mut self, peeking: &[bool]) {
         self.combat.set_peeking(peeking);
+    }
+
+    /// Which of the hostiles carry a shield and which way it faces, in
+    /// this room's frame, index for index with `set_hostiles` (feature
+    /// 100): the world hands the other room's [`Game::shield_of`]s across,
+    /// turned through the station's frame. A bolt or a blow from inside a
+    /// shield's front arc is stopped here, where it would have landed.
+    pub fn set_hostiles_shields(&mut self, shields: &[Option<Vec2>]) {
+        self.combat.set_shields(shields);
+    }
+
+    /// The way the shield of the body with that index faces, in this
+    /// room's frame — a standing Guardian's (feature 100) — or `None` for
+    /// every other body, Bims first and then the machines as ever.
+    pub fn shield_of(&self, who: usize) -> Option<Vec2> {
+        who.checked_sub(self.bims.len())
+            .and_then(|i| self.droids.get(i))
+            .and_then(|d| d.shield())
     }
 
     /// The odds each hostile dodges a bolt for its armour, index for

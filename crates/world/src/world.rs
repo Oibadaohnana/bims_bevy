@@ -732,6 +732,14 @@ pub struct World {
     /// which is both.
     #[cfg_attr(feature = "serde", serde(skip))]
     droid_waves_forced: Option<u32>,
+    /// Every wave forced to be exactly these machines, in this order, by
+    /// a probe — the `guardian` command's one Guardian and two Troopers
+    /// (feature 100) — whatever the tier and the mix say; `None` in the
+    /// game. Saved, since a restart must bring the same waves again, and
+    /// not hashed: what it decides is the machines in the residents'
+    /// room, which the checksum leaves out like everything of that room.
+    #[cfg_attr(feature = "serde", serde(default))]
+    droid_kinds_forced: Option<Vec<bims::droid::DroidKind>>,
     /// Where the machines began (feature 92): the one star the crisis
     /// spreads out from, rolled once at [`World::start`]
     /// ([`droidplan::origin`]) at least [`data::DROID_ORIGIN_MIN_HOPS`]
@@ -1274,6 +1282,7 @@ impl World {
             droid_wave_max: data::DROID_WAVE_MAX,
             droid_wave_forced: None,
             droid_waves_forced: None,
+            droid_kinds_forced: None,
             droid_origin,
             droid_hops,
             // The crisis is there from day nought (feature 102): the
@@ -2784,8 +2793,15 @@ impl World {
             let machine_peek: Vec<bool> = (0..machines)
                 .map(|i| room.droid(i).is_some_and(|d| d.peek.is_some()))
                 .collect();
+            // And a Guardian's shield faces the town's people as it faces
+            // the crew (feature 100): their bolts fly here, so it is
+            // decided here, in the room's own frame.
+            let machine_shields: Vec<Option<bims::math::Vec2>> = (0..machines)
+                .map(|i| room.droid(i).and_then(|d| d.shield()))
+                .collect();
             room.set_hostiles(at_machines);
             room.set_hostiles_peeking(&machine_peek);
+            room.set_hostiles_shields(&machine_shields);
             // And **the machines' own list**: the crew across the seam
             // first — shot at with a recorded `Shot` the world flies on
             // the joined deck — then the town's people, shot at with a
@@ -2919,6 +2935,10 @@ impl World {
             .map(|who| room.peek(who as usize).is_some())
             .collect();
         let dodge: Vec<f32> = (0..bodies).map(|who| room.dodge(who as usize)).collect();
+        // And which way each Guardian's shield faces (feature 100), in the
+        // residents' room's frame; turned onto the joined deck below.
+        let shields_there: Vec<Option<bims::math::Vec2>> =
+            (0..bodies).map(|who| room.shield_of(who as usize)).collect();
         let exposed: Vec<DVec2> = (0..residents.aboard.count())
             .map(|who| residents.aboard.exposed(who))
             .collect();
@@ -2929,9 +2949,22 @@ impl World {
             .zip(weapons)
             .map(|(p, weapon)| p.map(|p| (p, weapon)))
             .collect();
+        // And which way each Guardian's shield faces (feature 100), turned
+        // from the residents' room onto the joined deck: the frame's two
+        // unit axes, a direction taking no origin and no shift.
+        let shields: Vec<Option<bims::math::Vec2>> = shields_there
+            .into_iter()
+            .map(|v| {
+                let v = v?;
+                let (_, ex, ey) = self.aboard.station_frame?;
+                let d = ex.scale(v.x as f64).add(ey.scale(v.y as f64));
+                Some(bims::math::vec2(d.x as f32, d.y as f32))
+            })
+            .collect();
         self.aboard.room.set_hostiles(targets);
         self.aboard.room.set_hostiles_peeking(&peeking);
         self.aboard.room.set_hostiles_dodge(&dodge);
+        self.aboard.room.set_hostiles_shields(&shields);
         // And what the Republic owes for the machines destroyed this step.
         self.earn_bounty(machine_bounty, events);
     }
@@ -7030,6 +7063,10 @@ impl World {
     /// stored.
     pub fn droid_wave_size(&self) -> u32 {
         // The probes' dial says the size outright, since raising the cap
+        // A wave forced to its machines is as many as it names.
+        if let Some(kinds) = &self.droid_kinds_forced {
+            return (kinds.len() as u32).max(1);
+        }
         // alone never makes a wave bigger than the formula: it is there
         // to measure what a wave of that many costs a step and a frame.
         if let Some(forced) = self.droid_wave_forced {
@@ -7050,6 +7087,13 @@ impl World {
     /// For the measurements feature 83 asks for, and nothing else.
     pub fn set_droid_wave_for_probe(&mut self, n: u32) {
         self.droid_wave_forced = Some(n.max(1));
+    }
+
+    /// The probes' third dial (feature 100): every wave from now on is
+    /// exactly `kinds`, in that order, at the world's tier — the
+    /// `guardian` command's one Guardian and two Troopers.
+    pub fn set_droid_kinds_for_probe(&mut self, kinds: Vec<bims::droid::DroidKind>) {
+        self.droid_kinds_forced = Some(kinds);
     }
 
     /// The cap as it stands — [`data::DROID_WAVE_MAX`], or what a probe
@@ -7266,7 +7310,9 @@ impl World {
     ) -> Vec<bims::droid::Droid> {
         let tier = self.droid_tier();
         let mut troopers = 0usize;
-        bims::droid::wave_kinds(n)
+        self.droid_kinds_forced
+            .clone()
+            .unwrap_or_else(|| bims::droid::wave_kinds(n, tier))
             .into_iter()
             .enumerate()
             .map(|(i, kind)| {

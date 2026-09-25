@@ -40,6 +40,8 @@
 //! bims jammer        the crew in an infested system two hops from the
 //!                    machines' origin: the jammer standing, a wave aboard,
 //!                    and the lanes inward shut
+//! bims guardian      the fight at tier three against a Guardian and two
+//!                    Troopers a wave: the shield, the turn and the beam
 //! bims defense       a town on a planet with the machines one hop away: the
 //!                    crew set down at its pad, a wave landing outside a gate
 //!                    a minute later, and the town's own guard fighting beside
@@ -132,6 +134,10 @@ pub enum Launch {
     /// tied up at, with the reinforcement clock a minute. What a jam
     /// does to the chart and to a jump is looked at from here.
     Jammer,
+    /// The Guardian looked at (feature 100): the `droids` fight at tier
+    /// three with every wave one Guardian and two Troopers, and the
+    /// reinforcement clock a minute.
+    Guardian,
     StationBuilder,
 }
 
@@ -159,7 +165,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|stationbuilder [name]|list|--self-check]"
+        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|stationbuilder [name]|list|--self-check]"
     );
     eprintln!("       a class is one of: {}", class_words().join(", "));
     eprintln!("       `bims list` says what each of them opens");
@@ -170,7 +176,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 15] = [
+const COMMANDS: [(&str, &str); 16] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -212,6 +218,10 @@ const COMMANDS: [(&str, &str); 15] = [
     (
         "defense",
         "A town on a planet with the machines one hop away: the crew set down at its pad, and a wave landing outside a gate a minute later",
+    ),
+    (
+        "guardian",
+        "The fight at tier three with every wave one Guardian and two Troopers: its shield, its turn and its beam, reinforcements a minute apart",
     ),
     (
         "stationbuilder [name]",
@@ -316,6 +326,7 @@ fn main() {
         Some("crisis") => Launch::Crisis,
         Some("jammer") => Launch::Jammer,
         Some("defense") => Launch::Defense,
+        Some("guardian") => Launch::Guardian,
         Some("stationbuilder") => Launch::StationBuilder,
         // What there is to run, printed rather than opened.
         Some("list") | Some("--list") | Some("--help") | Some("-h") => {
@@ -401,6 +412,7 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::DroidsPlanet
         | Launch::Crisis
         | Launch::Jammer
+        | Launch::Guardian
         | Launch::Defense => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();

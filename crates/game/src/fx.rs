@@ -138,6 +138,12 @@ pub const SCORCH_CAP: usize = 40;
 pub const STRUCK_CAP: usize = 32;
 pub const BURST_CAP: usize = 8;
 
+/// How long a Guardian's shield flares where a bolt or a blow stopped
+/// on it (feature 100), and how far round the plate the flare runs either
+/// side of the spot, in radians.
+pub const SHIELD_FLARE_LIFE: f32 = 0.3;
+pub const SHIELD_FLARE_SPAN: f32 = 0.45;
+
 /// A side's colour: blue for the crew's fire, red for the enemy's —
 /// always, whatever the weapon.
 pub fn side(hostile: bool) -> Color {
@@ -210,7 +216,10 @@ fn muzzle_look(kind: WeaponKind) -> (f32, f32) {
         WeaponKind::Shotgun => MUZZLE_SHOTGUN,
         WeaponKind::AutoRifle => MUZZLE_AUTO,
         WeaponKind::SniperRifle => MUZZLE_SNIPER,
-        WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker => (0.0, 0.0),
+        WeaponKind::Schword
+        | WeaponKind::Claw
+        | WeaponKind::Unmaker
+        | WeaponKind::Sweeper => (0.0, 0.0),
     }
 }
 
@@ -224,6 +233,9 @@ enum Light {
     Beam { from: Vec2 },
     /// A blade's cut, round the swinger, facing the way it swung.
     Cut { facing: f32 },
+    /// A bolt or a blow stopped at a Guardian's shield (feature 100):
+    /// the plate flaring round the spot, centred on the machine.
+    Shield { centre: Vec2 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -425,6 +437,19 @@ impl Fx {
         self.flare(from, Light::Cut { facing }, hostile, weapon, CUT_LIFE);
     }
 
+    /// A bolt or a blow stopped on a Guardian's shield (feature 100): the
+    /// plate round `centre` flares at `at`, where it was struck. Always the
+    /// machines' red: the shield is theirs, whoever's bolt it stopped.
+    pub fn shield(&mut self, centre: Vec2, at: Vec2) {
+        self.flare(
+            at,
+            Light::Shield { centre },
+            true,
+            WeaponKind::Sweeper.basic(),
+            SHIELD_FLARE_LIFE,
+        );
+    }
+
     /// A hit struck that part of that body: a flash on the part, drawn
     /// with the body wherever it has got to (`Game::render`).
     pub fn struck(&mut self, body: usize, part: u32) {
@@ -551,6 +576,7 @@ impl Fx {
                     );
                 }
                 Light::Cut { facing } => draw_cut(list, f, facing, t),
+                Light::Shield { centre } => draw_shield_flare(list, f, centre, t),
             }
         }
         for b in &self.bursts {
@@ -679,6 +705,37 @@ fn draw_cut(list: &mut DrawList, f: &Flare, facing: f32, t: f32) {
             f.hostile,
             2.0 + f.heat,
             t * mid,
+        );
+        prev = next;
+    }
+}
+
+/// A Guardian's shield flaring where it was struck: a run of the plate's
+/// own arc either side of the spot, past white at the spot and fading
+/// along the plate, and a swell of the side's red over it.
+fn draw_shield_flare(list: &mut DrawList, f: &Flare, centre: Vec2, t: f32) {
+    const STEPS: usize = 6;
+    let out = f.at - centre;
+    let radius = out.len().max(1.0);
+    let mid = out.angle();
+    let colour = side(f.hostile);
+    list.circle(f.at, 9.0 + 8.0 * (1.0 - t), colour.alpha(0.45 * t));
+    let span = SHIELD_FLARE_SPAN * (0.6 + 0.4 * (1.0 - t));
+    let mut prev = centre + Vec2::from_angle(mid - span) * radius;
+    for i in 1..=STEPS {
+        let a = mid - span + 2.0 * span * (i as f32 / STEPS as f32);
+        let next = centre + Vec2::from_angle(a) * radius;
+        // Brightest where it struck, dying off along the plate.
+        let near = 1.0 - ((i as f32 - 0.5) / STEPS as f32 - 0.5).abs() * 1.8;
+        laser(
+            list,
+            prev,
+            next,
+            6.0,
+            1.8,
+            f.hostile,
+            1.8,
+            t * near.max(0.0),
         );
         prev = next;
     }

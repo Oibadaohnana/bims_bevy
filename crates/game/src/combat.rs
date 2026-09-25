@@ -224,6 +224,9 @@ pub enum WeaponKind {
     /// A Warden's lance, built in the same way: it strips the armour off
     /// a part rather than opening the body under it.
     Unmaker = 7,
+    /// A Guardian's beam (feature 100): wound up, swept across an arc,
+    /// and never a bolt — see `Combat::sweep`.
+    Sweeper = 8,
 }
 
 impl WeaponKind {
@@ -242,11 +245,15 @@ impl WeaponKind {
     /// never bought, never in a hold or a pack. [`WeaponKind::resource`]
     /// is `None` for each, which is what keeps them out of everything
     /// the hold does.
-    pub const BUILT_IN: [WeaponKind; 2] = [WeaponKind::Claw, WeaponKind::Unmaker];
+    pub const BUILT_IN: [WeaponKind; 3] = [
+        WeaponKind::Claw,
+        WeaponKind::Unmaker,
+        WeaponKind::Sweeper,
+    ];
 
-    /// Every kind there is: the carried five and the built-in two. What
+    /// Every kind there is: the carried five and the built-in three. What
     /// the app names, and what a code is read back against.
-    pub const EVERY: [WeaponKind; 7] = [
+    pub const EVERY: [WeaponKind; 8] = [
         WeaponKind::LaserPistol,
         WeaponKind::Shotgun,
         WeaponKind::AutoRifle,
@@ -254,6 +261,7 @@ impl WeaponKind {
         WeaponKind::Schword,
         WeaponKind::Claw,
         WeaponKind::Unmaker,
+        WeaponKind::Sweeper,
     ];
 
     pub fn code(self) -> u32 {
@@ -283,7 +291,7 @@ impl WeaponKind {
             WeaponKind::Schword => 12,
             // A machine's arm is no resource: it is part of the machine,
             // and there is nothing to put in a hold.
-            WeaponKind::Claw | WeaponKind::Unmaker => return None,
+            WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => return None,
         })
     }
 
@@ -307,6 +315,7 @@ impl WeaponKind {
             WeaponKind::Schword => balance::SCHWORD,
             WeaponKind::Claw => balance::CLAW,
             WeaponKind::Unmaker => balance::UNMAKER,
+            WeaponKind::Sweeper => balance::SWEEPER,
         }
     }
 
@@ -1604,6 +1613,24 @@ pub struct Target {
     /// And whether that taunt pulls charging blades as well as fire:
     /// the tank's *magnet* ([`Tactics::charge`]).
     pub magnet: bool,
+    /// The way a **shield** on this target faces, a unit vector in this
+    /// room's frame — a Guardian's (feature 100), said by the world
+    /// through [`Combat::set_shields`] — or `None` for everybody else. A
+    /// bolt or a blow coming in within [`balance::GUARDIAN_SHIELD_COS`] of
+    /// it is stopped at the plate ([`shield_stops`]); a grenade's burst
+    /// is not asked.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shield: Option<Vec2>,
+}
+
+/// Whether a shield facing `heading` (a unit vector) stops what comes in
+/// **from** `toward` — a unit vector pointing from the shielded body back
+/// the way the bolt or the blow came. A dot product against
+/// [`balance::GUARDIAN_SHIELD_COS`], the ±60° front arc, and nothing
+/// else: no angle is ever worked out, so two platforms agree to the bit,
+/// and the edge itself is stopped.
+pub fn shield_stops(heading: Vec2, toward: Vec2) -> bool {
+    heading.dot(toward) >= balance::GUARDIAN_SHIELD_COS
 }
 
 /// One shot in the air.
@@ -1883,6 +1910,7 @@ impl Combat {
                     dodge: 0.0,
                     taunting: 0.0,
                     magnet: false,
+                    shield: None,
                 })
             })
             .collect();
@@ -1935,6 +1963,17 @@ impl Combat {
         &self.bulwarks
     }
 
+    /// Which of the targets carry a shield and which way it faces
+    /// (feature 100), index for index like [`Combat::set_peeking`]; one
+    /// past the end, or missing, carries none.
+    pub fn set_shields(&mut self, shields: &[Option<Vec2>]) {
+        for (i, target) in self.targets.iter_mut().enumerate() {
+            if let Some(t) = target {
+                t.shield = shields.get(i).copied().flatten();
+            }
+        }
+    }
+
     /// Which of the targets are peeking from cover, index for index; one
     /// past the end, or missing, is not.
     pub fn set_peeking(&mut self, peeking: &[bool]) {
@@ -1966,6 +2005,7 @@ impl Combat {
                     dodge: 0.0,
                     taunting: 0.0,
                     magnet: false,
+                    shield: None,
                 })
             })
             .collect();
@@ -2409,6 +2449,26 @@ impl Combat {
                 moving: false,
             });
         } else {
+            // A blow from the front of a shield is stopped at the plate
+            // (feature 100), as a bolt is: nothing rolled, nothing landed,
+            // and the plate flares where the blade met it.
+            let toward = (from - at).normalize_or_zero();
+            if let Some(heading) = self
+                .targets
+                .get(target)
+                .copied()
+                .flatten()
+                .and_then(|t| t.shield)
+                && shield_stops(heading, toward)
+            {
+                let plate = at + toward * balance::GUARDIAN_SHIELD_RADIUS;
+                self.fx.shield(at, plate);
+                self.cues.push(Cued {
+                    cue: Cue::Ricochet,
+                    at: plate,
+                });
+                return;
+            }
             let roll = self.rng.unit();
             self.hits.push(Hit {
                 who: target,
@@ -2483,6 +2543,13 @@ impl Combat {
             .iter()
             .map(|t| t.map(|t| (t.at, t.peeking, t.dodge)))
             .collect();
+        // And the shields among the targets (feature 100), for a friendly
+        // bolt alone: this room's own bodies carry none.
+        let shields: Vec<Option<Vec2>> = self
+            .targets
+            .iter()
+            .map(|t| t.and_then(|t| t.shield))
+            .collect();
         let own_cover_dodge = &self.own_cover_dodge;
         let bulwarks = &self.bulwarks;
         let rng = &mut self.rng;
@@ -2525,6 +2592,36 @@ impl Combat {
             }
             let looking_for: &[Option<(Vec2, bool, f32)>] =
                 if bolt.hostile { bodies } else { &targets };
+            // **A shield facing the bolt stops it at the plate** (feature
+            // 100): a bolt that would reach the body — its line within
+            // `HIT_RADIUS` of it, so a miss flies on as a miss does —
+            // coming in from inside the front arc stops where it crosses
+            // the plate's radius, and nothing is rolled for it. Asked
+            // before the bodies, since the plate stands out in front of
+            // whatever it guards.
+            let mut shielded: Option<usize> = None;
+            if !bolt.hostile {
+                let dir = bolt.vel.normalize_or_zero();
+                for (i, shield) in shields.iter().enumerate() {
+                    let (Some(heading), Some((body, _, _))) =
+                        (*shield, targets.get(i).copied().flatten())
+                    else {
+                        continue;
+                    };
+                    let off = body - from;
+                    let would_hit = off.dot(dir) > 0.0 && dir.perp_dot(off).abs() <= HIT_RADIUS;
+                    if !would_hit || !shield_stops(heading, -dir) {
+                        continue;
+                    }
+                    if let Some(t) = along(from, to, body, balance::GUARDIAN_SHIELD_RADIUS)
+                        && stop.is_none_or(|(s, _)| t < s)
+                    {
+                        stop = Some((t, None));
+                        lamp = None;
+                        shielded = Some(i);
+                    }
+                }
+            }
             // A bolt a tank turned aside with *interpose* is spent: it is
             // never rolled onto anybody else (feature 77).
             let mut spent = false;
@@ -2660,15 +2757,19 @@ impl Combat {
                         hostile: bolt.hostile,
                     });
                     // The picture's own flash, on the host's clock — and a
-                    // scorch where a wall or a lamp stopped it.
+                    // scorch where a wall or a lamp stopped it. A shield
+                    // leaves no scorch: the plate flares where it struck.
                     fx.landed(
                         bolt.fired_from,
                         at,
                         bolt.vel,
                         bolt.weapon,
                         bolt.hostile,
-                        who.is_some(),
+                        who.is_some() || shielded.is_some(),
                     );
+                    if let Some((centre, _, _)) = shielded.and_then(|i| targets[i]) {
+                        fx.shield(centre, at);
+                    }
                     false
                 }
                 None => {
@@ -2818,8 +2919,12 @@ impl Combat {
                 }
                 // The pistol: the short clean bolt it has always been, its
                 // core the emissive one (feature 97). Neither a blade nor a
-                // claw ever flies.
-                WeaponKind::LaserPistol | WeaponKind::Schword | WeaponKind::Claw => {
+                // claw ever flies, and a Guardian's Sweeper is drawn as the
+                // plain bolt too wherever one is flown as one.
+                WeaponKind::LaserPistol
+                | WeaponKind::Schword
+                | WeaponKind::Claw
+                | WeaponKind::Sweeper => {
                     let tail = head - dir * BOLT_LENGTH;
                     list.line(tail, head, BOLT_GLOW * w, side.alpha(0.30));
                     list.line(tail, head, (BOLT_CORE + 1.5) * w, side.alpha(0.85));
@@ -3396,6 +3501,7 @@ mod tests {
             dodge: 0.0,
             taunting: 0.0,
             magnet: false,
+            shield: None,
         }
     }
 
@@ -3790,8 +3896,8 @@ mod tests {
             );
         }
         // The five carried kinds are the whole of what a body holds.
-        assert_eq!(WeaponKind::ALL.len() + WeaponKind::BUILT_IN.len(), 7);
-        assert_eq!(WeaponKind::EVERY.len(), 7);
+        assert_eq!(WeaponKind::ALL.len() + WeaponKind::BUILT_IN.len(), 8);
+        assert_eq!(WeaponKind::EVERY.len(), 8);
         for kind in WeaponKind::ALL {
             assert!(kind.carried(), "{kind:?} is carried");
         }
