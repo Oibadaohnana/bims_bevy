@@ -432,8 +432,8 @@ so a run reads as a line, a bend as a corner and a lone tile as a stub, the
 way RimWorld draws its. A part standing over the run is joined *through*
 the tile and does not get an arm. The design phase draws it always
 (`paint::conduit`), since laying it is what the designer is for; the game
-draws it only under `Game::overlay == Overlay::Electricity`, the tray's
-View tab (`crew.rs`, `Tab::View`, through the `Actions` bundle), and
+draws it only under `Game::overlay == Overlay::Electricity`, the Esc
+sheet's View toggle (`settings.rs`, feature 107; the tray's View tab before), and
 `world_paint::hull_tiles` skips the utility layer altogether.
 `world_paint::electricity` is the overlay: every part that supplies, draws
 or stores power washed and rung — `LIVE` on a network with a reactor,

@@ -682,8 +682,8 @@ mission at the site they set up). The world's half is `crates/world/CLAUDE.md`
   everything inside a mission runs on the **mission clock**,
   `World::mission_steps`, nought on arrival: the droid waves
   (`DROID_REINFORCE_STEPS`), a town's first wave (`DEFENSE_DELAY_STEPS`)
-  and every class cooldown. The strip at the top is the world map
-  (`screens/worldmap.rs`); the helm's four orders were refused
+  and every class cooldown. The world map is the chart with a column down its right
+  (`screens/worldmap.rs`, laid out anew in feature 107); the helm's four orders were refused
   (`Refusal::TravelIsResolved`) until feature 104 deleted them, the helm
   and the flown trip together. Nothing tells a room its clock stands
   still any more: `Game::simulate` never advances it, `Game::wind_clock`
@@ -1012,6 +1012,30 @@ Things about that which are easy to get wrong:
 
 ## How the app is put together
 
+- **The HUD is minimal and hero-centred** (feature 107,
+  `screens/hud.rs`, whose module note says where each piece sits and
+  why none lands on another at 1280×720 or larger): portraits top left
+  (`hud::portraits`), one frame top centre with **one warning chip** —
+  `hud::threats`, most urgent first by `ThreatKind`'s declaration order,
+  `+N` for the rest — the hero panel at the foot (`hud::hero_panel`,
+  the ability boxes in it), the tray bottom left (`CrewPanels::tray`:
+  Stash, Squad, Map, and Trade at a desk), *Back to ship* and the log
+  bottom right (`hud::Log`: four lines, eight seconds each, the same
+  words or one source's experience folded inside a second), the side
+  panel on the right only for a **crewmate** picked
+  (`CrewPanels::inspected` — the player's own is picked from the start),
+  and the character sheet on K (`CrewPanels::character_sheet`). Each
+  piece reads the rectangles the others took this frame or last
+  (`ctx.memory(area_rect)`) and stands clear of them; a `ScrollArea`
+  inside one wants `min_scrolled_height` as well as `max_height`, or
+  egui gives a scrolling body its sixty-four points and no more. The
+  experience in the log is read off `Progress::xp` going up, since the
+  world says a level and not the points. A player whose Bim is out
+  watches a crewmate through `ship::game::Game::spectate`, which the
+  cameras follow in place of `local`. **`BIMS_SHEET=1`** opens with the
+  sheet up, **`BIMS_TRAY=stash|squad`** with that panel open, and
+  **`BIMS_OUT=1`** lays the HUD out as if the player's own Bim were out
+  without touching the world (a Bim out in a game of one is a run lost).
 - **One frame is one system per screen**, in `EguiPrimaryContextPass`:
   step the simulation, lay the panels out, read the pointer, paint the
   shapes, put the words on top. `Screen` in `main.rs` is the state machine
@@ -1110,10 +1134,11 @@ Things about that which are easy to get wrong:
   following of its own accord —
   and Esc or a right-click puts the armed pointer away. That is what
   moved the camera's Follow onto **V**. Tab is the
-  Inventory action: it opens and shuts the crew member's inventory —
-  and opens with it the nearest thing within reach, a container or a
+  Inventory action: it opens and shuts the tray's **Stash** (feature
+  107), whose *Open pack* opens the crew member's inventory window —
+  and with it the nearest thing within reach, a container or a
   body down, the rest of them a click away on the **Nearby** strip over
-  the window (`CrewPanels::nearby`, a `Near` list the screens rebuild
+  the window and on the Stash (`CrewPanels::nearby`, a `Near` list the screens rebuild
   every frame off the room's `within_reach` and the world's
   `in_reach_of_body`). `BIMS_KEYS` knows `Tab` and `Space` by name and every letter the
   bindings use — `T` and `V` among them, which it did not until feature
@@ -1214,13 +1239,15 @@ Things about that which are easy to get wrong:
   a row or a bar.
 - **A fixture menu opened by a press must not be shut by it.** `Menu::fresh`
   is that guard: the click-away check skips the frame the menu opened on.
-- **The class's two keys have two boxes at the foot of the canvas, and a
-  level asks outright** (feature 80, `screens/game.rs`). `ability_boxes`
+- **The class's two keys have two boxes on the hero panel, and a
+  level asks outright** (feature 80, `screens/game.rs`; a bar of their
+  own at the foot of the canvas until feature 107). `ability_boxes`
   reads one `AbilityBox` a key off the world every frame — nothing kept
-  between frames — and `ability_bar` lays the two out centred on the
-  canvas, clamped clear of the tray at its left; each box is the key in
+  between frames — and `ability_row` lays them out inside
+  `hud::hero_panel`, which stands clear of the tray and the character
+  sheet the way the bar stood clear of the tray; each box is the key in
   one corner, the picture in the middle, **how many are left** in the
-  other, the name under it and the tip on a hover. What is counted is
+  other, and its name and tip on a hover. What is counted is
   the world's (`World::{sentries_left, kits_of, grenades_of,
   beam_patients, squad_members}`) and what greys a box out is
   `world::class::key_level` — every class's **E** from the first level
@@ -1276,20 +1303,21 @@ Things about that which are easy to get wrong:
   by frame, gathers the gain into whole numbers and floats one at most
   every `HEAL_GAP` — at 24× a beam puts back a dozen points a second,
   and a number a frame is a green smear rather than a figure.
-- **A level is spent on the Skills tab, which is a tree like the
-  research's** (feature 83, `CrewPanels::skills`). The class's ten levels
-  run down the tray, numbered, with the spine beside them lit as far as
+- **A level is spent on the character sheet's talent tree** (feature
+  83's Skills tab, moved onto the sheet by feature 107,
+  `CrewPanels::talents`). The class's ten levels
+  run down the sheet, numbered, with the spine beside them lit as far as
   the level reached: a level with nothing to choose is one slot across
   the width (`names::level_name`, the same three levels `level_line`
   describes), and a pick level is two side by side. A box is coloured for
   its state — learnt, **given up** (struck through: the other side of a
   level chosen at), open for a point, or waiting on a level — and over
   the tree is how many **skill points** are left, which is every pick
-  level reached and not chosen at. A click picks a slot and the column
-  **beside** the tree — `DETAIL_WIDTH` wide, to the right rather than
-  under it, since the tray is anchored at the foot of the window and
-  grows upwards and a block under the tree would shove the tree out
-  from under the pointer — says the slot's name, the level it sits at,
+  level reached and not chosen at. A click picks a slot and the lines
+  **under** the tree — under it since feature 107, the sheet hanging from
+  the top of the canvas, so what is written below cannot shove the tree
+  from under the pointer; beside it, as it was in the tray, it made the
+  sheet too wide to leave the hero panel room — say the slot's name, the level it sits at,
   **what it is worth in numbers**, what it does in words and what state
   it is in, with the *Learn* button for one that is open. The numbers
   are the point of it: `names::talent_numbers` for a pick and
@@ -1300,18 +1328,17 @@ Things about that which are easy to get wrong:
   numbers rather than between two adjectives; `crew::skill_numbers`
   picks which of the two is asked. A talent that multiplies something
   the weapon in hand decides says the factor and one worked figure. The
-  type on the tab is `SKILL_TEXT`/`SKILL_BOX_TEXT`/`SKILL_NAME_TEXT`
+  type on the tree is `SKILL_TEXT`/`SKILL_BOX_TEXT`/`SKILL_NAME_TEXT`
   rather than the panels' small, and the tree's geometry is
-  `skill_tree_size` off `SKILL_GUTTER`/`SKILL_BOX_W`/`SKILL_BOX_H`. The
+  `skill_tree_size` off `SKILL_GUTTER`/`SKILL_BOX_W`/`SKILL_BOX_H`, the
+  whole `SHEET_W` across. The
   pick is the same
   `Order::PickTalent` the crew panel's row sends — the panel's row is
   still there — and the tree asks nothing of the world it is not handed:
-  `ClassView` (`picks` as well as `talents` now) and `world::class`'s own
-  tables are all of it. `GameScreen::skills_prompt` opens the tray on the
-  tab the first frame a point is actually waiting — set by a
-  `WorldEvent::LevelUp` of the local slot and by an open, so a run that
-  starts part-way up the tree shows the tree at once. Nothing is forced
-  after that: no window stands over the deck.
+  `ClassView` (`picks` and `xp` as well as `talents` now) and `world::class`'s own
+  tables are all of it. Nothing opens by itself any more: the hero
+  panel carries a **+1** while a point is waiting, and it opens the
+  sheet, as K and the player's own portrait twice do.
 - **The default font has no arrows.** `▾`, `←`, `‖` come out as boxes;
   the panels say `Hide`, `< Back`, `||` instead. Check a new glyph on
   screen before trusting it.

@@ -16,22 +16,19 @@ use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bims::order::CrewOrder;
 use bims::room::{HIT_BIM, HIT_DROPPED, HIT_SHIP_DOOR};
 use flight::Target;
-use physics::{Facing, ResourceId};
+use physics::ResourceId;
 use ship::Session;
 use ship::game::ViewMode;
 use shipdesign::Storage;
-use shipdesign::parts::Rotation;
 use wire::{PeerId, To};
 use world::{Refusal, ShipState, Speed, Where, WorldEvent};
 use worldgen::Node;
 
 use super::designer::{Cart, Net, Order, ShipSession, trade_rows};
-use crate::canvas::{Pointer, canvas_painter, rect_of, root_ui, zoom_factor};
-use crate::crew::{
-    Actions, Body, CLICK_SLOP, Craft, CrewPanels, GearOrder, Hold, Near, Open, ResearchView, Tool,
-    UpgradeView,
-};
-use crate::format::{euros, grouped};
+use super::hud::{self, GAP, MARGIN};
+use crate::canvas::{Pointer, canvas_painter, egui_rect, rect_of, root_ui, zoom_factor};
+use crate::crew::{Body, CLICK_SLOP, CrewPanels, GearOrder, Hold, Near, Open, TrayAsk, TrayView};
+use crate::format::euros;
 use crate::keys::{Action, Keys};
 use crate::names::*;
 use crate::net::{CHECK_EVERY, Event, Online, Packet};
@@ -51,8 +48,11 @@ use shipdesign::parts::PartKind;
 /// button says. 48x at 30fps is 96 a frame.
 const MAX_STEPS_PER_FRAME: u32 = 128;
 
-/// How many lines of what-just-happened stay on screen.
-const LOG_LINES: usize = 4;
+/// How long the pointer has to rest on the deck before the small readout
+/// of what is under it comes up beside it (feature 107), in seconds:
+/// egui's own tooltip delay and a little more, so crossing the deck on
+/// the way somewhere says nothing.
+const HOVER_REST: f64 = 0.4;
 
 /// How long the window stays black once a trip is over, in seconds, and
 /// how much of that is the fade back in: the place the crew arrived at
@@ -144,9 +144,17 @@ pub struct GameScreen {
     /// What is in the trade window's cart, not yet bought or sold.
     cart: Cart,
     backlog: f64,
-    log: Vec<String>,
+    /// What just happened, over *Back to ship* (feature 107): four lines
+    /// at most, each fading a few seconds after it came.
+    log: hud::Log,
     /// Where the pointer is over the canvas, for the readout.
     hover_at: Option<Vec2>,
+    /// Where the pointer came to rest on the deck and when, on the
+    /// window's clock: the readout at the pointer waits for it to rest.
+    rest: Option<(Vec2, f64)>,
+    /// The player's own experience last frame, so what came in since can
+    /// go into the log (feature 107): the world keeps no event of it.
+    last_xp: Option<u32>,
     /// A marquee under way on the deck: where the press landed.
     marquee_from: Option<Vec2>,
     /// Where a right-drag on the deck began, on the glass: an order in the
@@ -201,15 +209,6 @@ pub struct GameScreen {
     /// place arrived at is being laid out — and it lifts once it is there.
     /// Nought nearly always.
     blackout: f32,
-    /// Whether the tray is still to be opened on the Skills tab for a
-    /// point waiting to be spent (features 80 and 83). Set at every
-    /// `WorldEvent::LevelUp` of the local slot — and at an open, so a run
-    /// that starts part-way up the tree shows the tree at once — and
-    /// taken the first frame the player's own crew member actually has a
-    /// pick waiting. Nothing is forced after that: the tray is the
-    /// player's, and the Skills tab is where the point is spent whenever
-    /// they get to it.
-    skills_prompt: bool,
     /// The green numbers a heal beam puts up over the body it holds
     /// (feature 91). Kept by the screen and nowhere else: what a beam put
     /// back is the body's own count going up, and neither the room nor
@@ -711,8 +710,10 @@ impl GameScreen {
             tab_took_focus: false,
             cart: Cart::new(),
             backlog: 0.0,
-            log: Vec::new(),
+            log: hud::Log::default(),
             hover_at: None,
+            rest: None,
+            last_xp: None,
             marquee_from: None,
             order_from: None,
             pan_from: None,
@@ -733,7 +734,6 @@ impl GameScreen {
             desync_at: crate::dev::desync_at(),
             freeze: crate::dev::freeze_at_shot(),
             blackout: 0.0,
-            skills_prompt: true,
             heals: Heals::default(),
             world_map: super::worldmap::WorldMap::default(),
         }
@@ -810,6 +810,8 @@ fn frame(
     let now = ctx.input(|i| i.time);
     let dt = time.delta_secs().min(super::designer::MAX_FRAME_DT) as f64;
     let mut root = root_ui(&ctx);
+    // The log's clock first: a line said this frame is stamped with it.
+    screen.log.tick(now);
 
     // --- the wire ------------------------------------------------------------
     // What the others said since last frame, in order. On the host a
@@ -1045,7 +1047,11 @@ fn frame(
     // list is drained after it is read.
     if let Some(game) = &mut session.game {
         let mut arrived = false;
+        // Whether a machine went down this frame: what experience that
+        // came in with it was for (feature 107).
+        let mut machines_down = false;
         for event in game.events.drain(..) {
+            machines_down |= matches!(event, WorldEvent::DroidDown { .. });
             if let Some(line) = event_line(event) {
                 screen.log.push(line);
             }
@@ -1089,13 +1095,25 @@ fn frame(
                 screen.world_map.picked = None;
                 screen.blackout = BLACKOUT_HOLD;
             }
-            // A level of your own may be a choice to make: the tray comes
-            // up on the Skills tab for it (features 80 and 83). Somebody
-            // else's slot is their own screen's.
-            if matches!(event, WorldEvent::LevelUp { who, .. } if who == screen.net.slot) {
-                screen.skills_prompt = true;
-            }
         }
+        // The experience the player's own Bim gained since last frame, a
+        // line of the log gathered a second at a time by what it was for
+        // (feature 107). The world says a level and not the points, so
+        // the points are read off the count going up; a machine down the
+        // same frame is what they were for, and anything else — a kit
+        // laid, a crewmate bandaged, a hire — is said as experience.
+        let xp = game.world.progress_of(screen.net.slot).xp;
+        if let Some(before) = screen.last_xp
+            && xp > before
+        {
+            let source = if machines_down {
+                XP_FROM_MACHINES
+            } else {
+                XP_FROM_WORK
+            };
+            screen.log.xp(source, xp - before);
+        }
+        screen.last_xp = Some(xp);
         if arrived {
             game.set_mode(ViewMode::Ship);
         }
@@ -1103,9 +1121,6 @@ fn frame(
         // (feature 103): it is the one thing there is to do.
         if !game.world.in_mission() && game.mode != ViewMode::Map {
             game.set_mode(ViewMode::Map);
-        }
-        while screen.log.len() > LOG_LINES {
-            screen.log.remove(0);
         }
         // Nobody standing: the run is over, and the screen that says so
         // takes over from this one on the next frame.
@@ -1226,6 +1241,7 @@ fn frame(
                 class,
                 level: progress.level(),
                 to_next: progress.to_next(),
+                xp: progress.xp,
                 pending: progress
                     .pending_pick(class)
                     .and_then(|l| world::class::pick_at(class, l).map(|(a, b)| (l, a, b))),
@@ -1262,19 +1278,6 @@ fn frame(
                 }),
             }
         });
-        // A point waiting to be spent opens the tray on the Skills tab,
-        // once (feature 83): where the level-up window used to stand over
-        // the deck, the tree in the tray is what the player is shown.
-        // The flag waits for a pick to actually be there, so an open with
-        // no class — or a level with nothing to choose — moves nothing.
-        if panels
-            .class_view
-            .as_ref()
-            .is_some_and(|view| view.pending.is_some())
-            && std::mem::take(&mut screen.skills_prompt)
-        {
-            panels.show_skills();
-        }
     }
 
     drop(prep_timed);
@@ -1367,52 +1370,6 @@ fn frame(
             .filter(|_| !map_up)
             .map(|p| session.design_point(p.x, p.y)),
     );
-    // The blueprint in hand — the Build tab's tool — is the ship view's:
-    // the painter draws it under the pointer there, and on the map a tile
-    // means nothing. The turn it has is kept across a change of part; the
-    // world's answer about the tile is kept until the part or the tile
-    // moves, so the tool is only set when it changes.
-    let building = match panels.tool {
-        Some(Tool::Build(kind)) if !map_up => Some(kind),
-        _ => None,
-    };
-    if let Some(game) = &mut session.game
-        && game.placing.map(|(kind, _)| kind) != building
-    {
-        let rotation = game
-            .placing
-            .map(|(_, rotation)| rotation)
-            .unwrap_or(Rotation::R0);
-        game.set_placing(building.map(|kind| (kind, rotation)));
-    }
-    let mut actions = Actions {
-        overlay: session.game.as_ref().map(|g| g.overlay).unwrap_or_default(),
-        crafts: crafts(session),
-        keep: Vec::new(),
-        shipyard: session
-            .game
-            .as_ref()
-            .is_some_and(|g| g.world.shipyard_enabled()),
-        free_money: session
-            .game
-            .as_ref()
-            .map(|g| g.world.free_money())
-            .unwrap_or(0),
-        sites: sites(session),
-        cancel: Vec::new(),
-        head_up: session.game.as_ref().is_some_and(|g| g.head_up),
-        follow: session.game.as_ref().is_some_and(|g| g.follow),
-        docked: session.docked_at().is_some(),
-        station: false,
-        research: research_view(session),
-        research_orders: Vec::new(),
-        auto_upgrade: session
-            .game
-            .as_ref()
-            .is_some_and(|g| g.world.auto_upgrade()),
-        set_auto_upgrade: None,
-        upgrade: upgrade_view(session),
-    };
 
     // Middle drags pan, in either view.
     if let Some(p) = on_canvas
@@ -1464,12 +1421,11 @@ fn frame(
                 }
             }
         }
-        // Nothing is flown (feature 103): a click on a station or a planet
-        // with a settlement picks it on the world map's list, which is
-        // where the trip is quoted and put to the crew.
-        else if let Some(p) = on_canvas
-            && pointer.primary_pressed
-        {
+        // Nothing is flown (feature 103): a station or a planet with a
+        // settlement under the pointer is the one the column's card shows
+        // (feature 107), and a click picks it on the world map's list,
+        // which is where the trip is quoted and put to the crew.
+        else if let Some(p) = on_canvas {
             let game = session.game.as_ref().unwrap();
             let star = game.world.star_id;
             let site = match game.pick(p.x, p.y, MAP_PICK_SLOP) {
@@ -1480,7 +1436,8 @@ fn frame(
                 }),
                 None => None,
             };
-            if site.is_some() {
+            screen.world_map.hovered = site;
+            if pointer.primary_pressed && site.is_some() {
                 screen.world_map.picked = site;
             }
         }
@@ -1528,34 +1485,6 @@ fn frame(
                 }
                 if pointer.secondary_pressed {
                     screen.aiming_attack = false;
-                }
-            }
-        // With a blueprint in hand the pointer is about laying it out: a
-        // click on a tile it would go on sends the site through the seam,
-        // one it would not says why in the log — the readout at the top
-        // left says it already — and a right-click puts the tool down.
-        } else if let Some(kind) = building {
-            if let Some(p) = on_canvas {
-                if pointer.primary_pressed
-                    && let Some(game) = &mut session.game
-                {
-                    let (x, y) = game.tile_at(p.x, p.y);
-                    match game.ghost_check() {
-                        Some(Ok(())) if x >= 0 && y >= 0 => orders.push(Order::Build {
-                            kind,
-                            x: x as u32,
-                            y: y as u32,
-                            rotation: game
-                                .placing
-                                .map(|(_, rotation)| rotation)
-                                .unwrap_or(Rotation::R0),
-                        }),
-                        Some(Err(why)) => screen.log.push(site_refusal_line(why)),
-                        _ => {}
-                    }
-                }
-                if pointer.secondary_pressed {
-                    panels.tool = None;
                 }
             }
         } else if let Some(p) = on_canvas {
@@ -1760,20 +1689,21 @@ fn frame(
                         game.centre_on_player();
                     }
                 }
-                // Turn turns the blueprint in hand; with none, Recruit recruits —
-                // the two are one key by default, told apart by the hand.
-                if building.is_some() {
-                    if keys_now.pressed(i, Action::Turn)
-                        && let Some(game) = &mut session.game
-                    {
-                        game.rotate_placing();
-                    }
-                } else if keys_now.pressed(i, Action::Recruit) {
+                // Recruit recruits. It shares R with Turn, which is the
+                // armoury's and the yard's: there is no blueprint in hand
+                // on the deck in a run.
+                if keys_now.pressed(i, Action::Recruit) {
                     orders.push(Order::Crew(CrewOrder::Recruit));
                 }
-                // Tab: the inventory of the crew member you steer.
+                // Tab: the tray's Stash (feature 107) — what the ship
+                // holds and what everybody carries, the whole pack of the
+                // Bim you steer a click away on it.
                 if keys_now.pressed(i, Action::Inventory) {
-                    panels.toggle_inventory();
+                    panels.toggle_stash();
+                }
+                // K: the character sheet (feature 107).
+                if keys_now.pressed(i, Action::CharacterSheet) {
+                    panels.toggle_sheet();
                 }
                 // Q and E: the steered crew member's class's two actions
                 // (features 74 and 75) — an engineer's sentry and sandbags
@@ -1921,13 +1851,9 @@ fn frame(
                     // The armed pointer is put away first, and nothing
                     // else happens — the Mine tool's rule.
                     screen.aiming_attack = false;
-                } else if panels.tool.is_some() {
-                    // A tool in hand is put down first, and nothing else
-                    // happens.
-                    panels.tool = None;
                 } else if panels.escape() {
-                    // A menu, a container window or the trade window is
-                    // shut without opening the sheet.
+                    // A menu, a container window, the character sheet or
+                    // the trade window is shut without opening the sheet.
                 } else if screen.trading {
                     screen.trading = false;
                 } else {
@@ -1977,39 +1903,48 @@ fn frame(
 
     drop(canvas_timed);
     let panels_timed = crate::perf::scope(crate::perf::Phase::Panels);
-    // --- the left stack: items, the readout, the pointer, the agendas ----------
-    let game = session.game.as_ref().unwrap();
-    let view_name = match game.mode {
-        ViewMode::Ship => "Ship",
-        ViewMode::Map => "System map",
-    };
-    let phase = state_name(game);
-    // What the pointer is over, in the ship view: the part under it and
-    // the tile, and what the room aboard makes of the same point.
-    // A blueprint in hand names itself and says whether it would go; a
-    // site under the pointer names the part and what has reached it.
-    let ghost = building.and_then(|kind| Some((kind, game.ghost_answer()?)));
-    let site_under = game.hover.and_then(|tile| game.site_at(tile));
-    let (hover_thing, hover_on_it) = match screen.hover_at {
-        Some(_) if !map_up && ghost.is_some() => {
-            let (kind, answer) = ghost.unwrap();
-            let tile = game.hover.unwrap_or((0, 0));
-            (
-                format!("{} · {}, {}", part_name(kind), tile.0, tile.1),
-                match answer {
-                    Ok(()) => "Click to lay it out".to_string(),
-                    Err(why) => site_refusal_line(why),
-                },
-            )
+    // --- the HUD (feature 107) -----------------------------------------------------
+    // Minimal and about the player's own Bim: the portraits and one frame
+    // along the top, the hero panel at the foot, the tray at the bottom
+    // left, *Back to ship* and the log at the bottom right, and the
+    // inspect panel on the right while somebody is picked — everything
+    // else a key or a button away. `hud`'s module note says where each
+    // piece sits and why none of them lands on another. With the map up
+    // the canvas is the chart and a column down its right, and nothing
+    // else.
+    let area = egui_rect(canvas);
+    let out = session
+        .game
+        .as_ref()
+        .is_some_and(|g| g.world.run.is_out(local))
+        || crate::dev::out();
+    // A player whose Bim is out watches a crewmate's, which the portraits
+    // pick: the camera follows the one watched, tethered to it the first
+    // frame out. Back in, the camera is the player's own again.
+    if let Some(game) = session.game.as_mut() {
+        let crew = game.world.aboard.crew_count();
+        let room = &game.world.aboard.room;
+        let watchable = |w: u32| w != local && w < crew && room.is_alive(w as usize);
+        let next = if out {
+            game.spectate
+                .filter(|&w| watchable(w))
+                .or_else(|| (0..crew).find(|&w| watchable(w)))
+        } else {
+            None
+        };
+        let first = next.is_some() && game.spectate.is_none();
+        game.spectate = next;
+        if first {
+            game.set_follow(true);
         }
-        Some(_) if !map_up && site_under.is_some() => {
-            let site = site_under.unwrap();
-            (
-                format!("Blueprint · {}", part_name(site.kind)),
-                site_progress(site, &game.world.ship.design),
-            )
-        }
+    }
+
+    // What is under the pointer on the deck — the part, or the fixture and
+    // its state, and the tile — as a small readout at the pointer once it
+    // has rested there; it was a panel of the left stack.
+    let readout = match screen.hover_at {
         Some(p) if !map_up && session.game_tile_inside() => {
+            let game = session.game.as_ref().unwrap();
             let part = session.game_hovered_part();
             let mut thing = part
                 .and_then(|id| session.part_kind(id))
@@ -2023,207 +1958,331 @@ fn frame(
                 thing = room_thing;
             }
             let tile = game.hover.unwrap_or((0, 0));
-            (format!("{thing} · {}, {}", tile.0, tile.1), String::new())
+            Some(format!("{thing} · {}, {}", tile.0, tile.1))
         }
-        _ => (String::new(), String::new()),
+        _ => None,
     };
+    screen.rest = match (screen.rest, on_canvas.filter(|_| !map_up)) {
+        (Some((at, since)), Some(p)) if (p - at).length() <= 2.0 => Some((at, since)),
+        (_, Some(p)) => Some((p, now)),
+        _ => None,
+    };
+    if let (Some(words), Some((_, since)), Some(at)) = (readout, screen.rest, pointer.pos)
+        && now - since >= HOVER_REST
+    {
+        hud::readout(&ctx, egui::pos2(at.x, at.y), &words);
+    }
 
-    // The name of the game, the clock and the speed, each in a little
-    // frame of its own along the top. An area of its own rather than the
-    // first row of the stack under it: egui counts the whole of an area's
-    // bounding box as its own for the pointer, so a row this wide over a
-    // stack this tall would make a dead rectangle of the ship's left half
-    // — a click there would be nobody's.
-    let top = egui::Area::new(egui::Id::new("game-top-left"))
-        .fixed_pos(egui::pos2(canvas.min.x + 10.0, canvas.min.y + 10.0))
-        .order(egui::Order::Middle)
-        .show(&ctx, |ui| {
-            ui.horizontal(|ui| {
-                panel_frame().show(ui, |ui| {
-                    ui.heading("Bims");
-                });
-                panel_frame().show(ui, |ui| {
-                    clock_panel(ui, session, &screen.net, &mut orders);
-                });
-                // The machines, in the warning's red (feature 83): which
-                // wave holds the station alongside, and how long until
-                // the next lands. **Before the alarm and the rest**,
-                // which are up for the whole of a droid fight and would
-                // push this line under the crew's panels — this is the
-                // one of them the player has no other way of knowing.
-                if let Some(game) = &session.game {
-                    droid_warning(ui, &game.world);
-                }
-                // The recruited panel says why the gun has gone quiet
-                // while a blade is at the player's crew member: the same
-                // panel, since nothing on the screen may grow — the left
-                // stack already fills a short window, and a panel added
-                // to it shoves the whole stack up over this row.
-                if let Some(room) = session.room_ref()
-                    && room.is_recruited(local)
-                {
-                    let locked =
-                        room.is_alive(local as usize) && room.is_locked(local as usize).is_some();
+    let game = session.game.as_ref().unwrap();
+    let world = &game.world;
+    let mut asks: Vec<TrayAsk> = Vec::new();
+    let mut cast_reaches: Vec<u32> = Vec::new();
+    let mut portrait_press = None;
+    let mut column = None;
+    // Whether the side panel is to be drawn, and where it may reach: its
+    // top under the top frame, its foot over whatever shares the right of
+    // the canvas with it.
+    let mut side_at: Option<(egui::Pos2, f32)> = None;
+    if map_up {
+        column = Some(super::worldmap::map_column(
+            &ctx,
+            area,
+            &mut screen.world_map,
+            world,
+            local,
+            screen.galaxy_up,
+            &mut orders,
+            &crew_name,
+        ));
+        // The galaxy chart's word on the star looked at, where the strip
+        // used to say it.
+        if galaxy_up {
+            let star = screen.picked_star.unwrap_or(world.star_id);
+            egui::Area::new(egui::Id::new("hud-crisis"))
+                .fixed_pos(area.min + egui::vec2(MARGIN, MARGIN))
+                .order(egui::Order::Middle)
+                .show(&ctx, |ui| {
                     panel_frame().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            if locked {
-                                ui.label(
-                                    egui::RichText::new(format!("Recruited — {LOCKED_STATUS}"))
-                                        .color(theme::CAUTION),
-                                );
-                                theme::question_mark(ui, &locked_tip());
-                            } else {
-                                ui.label(
-                                    egui::RichText::new("Recruited — the crew follow you")
-                                        .color(theme::ACCENT),
-                                );
-                                // And what that now does to everybody
-                                // else (feature 84): the crew come with
-                                // you, under arms, until you holster.
-                                theme::question_mark(ui, ORDERS_TIP);
-                            }
-                        });
+                        ui.set_max_width(360.0);
+                        let name = screen
+                            .galaxy
+                            .as_ref()
+                            .and_then(|chart| chart.galaxy.star(star))
+                            .map(|s| star_name(s.name))
+                            .unwrap_or_default();
+                        ui.label(egui::RichText::new(name).strong());
+                        crisis_line(ui, world, star);
                     });
-                }
-                // And the alarm: the rest of the crew under arms of their own
-                // accord, an enemy near or one of them hit.
-                if let Some(room) = session.room_ref()
-                    && room.is_alarmed()
-                {
-                    panel_frame().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(ALARM_STATUS).color(theme::CAUTION));
-                            theme::question_mark(ui, ALARM_TIP);
-                        });
-                    });
-                }
-                // And what this player's own standing order to the crew
-                // is, while it is anything but following (feature 84):
-                // the banner or the fall back, in the banner's red.
-                if let Some(game) = &session.game
-                    && let Some(line) = orders_line(game.world.standing_of(screen.net.slot).code())
-                {
-                    panel_frame().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(line).color(theme::ATTACK));
-                            theme::question_mark(ui, ORDERS_TIP);
-                        });
-                    });
-                }
-            });
-        })
-        .response
-        .rect;
-    egui::Area::new(egui::Id::new("game-left"))
-        .fixed_pos(egui::pos2(canvas.min.x + 10.0, top.max.y + 4.0))
-        .order(egui::Order::Middle)
-        .show(&ctx, |ui| {
-            panel_frame().show(ui, |ui| {
-                ui.set_max_width(260.0);
-                items_panel(ui, session);
-            });
-            panel_frame().show(ui, |ui| {
-                ui.set_max_width(260.0);
-                ui.set_min_width(200.0);
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(view_name).strong());
-                    ui.label(egui::RichText::new(&phase).color(theme::MUTED));
                 });
-                if !hover_thing.is_empty() {
-                    ui.label(&hover_thing);
-                    if !hover_on_it.is_empty() {
-                        ui.label(
-                            egui::RichText::new(&hover_on_it)
-                                .small()
-                                .color(theme::MUTED),
-                        );
+        }
+        hud::log_area(
+            &ctx,
+            area,
+            area.max.x - MARGIN - super::worldmap::COLUMN_W - GAP,
+            0.0,
+            &screen.log,
+        );
+    } else {
+        let threats = hud::threats(world, local);
+        let paused = world.effective_speed().multiplier() == 0;
+        let cells = hud::portraits_of(world, local, game.spectate);
+        let (faces, press) = hud::portraits(&ctx, area.min + egui::vec2(MARGIN, MARGIN), &cells);
+        portrait_press = press;
+        let top = hud::top_frame(&ctx, area, faces.max.x, world, &threats, paused);
+        let mut top_foot = top.max.y;
+        if out {
+            top_foot = hud::out_banner(&ctx, top.center().x, top.max.y + 6.0, world.money)
+                .max
+                .y;
+        }
+
+        // The tray, anchored at the bottom left and growing upwards.
+        let shop = session.docked_at().is_some_and(|id| {
+            !world.is_droid_held(id) && world.station(id).is_some_and(|s| s.market().is_some())
+        });
+        let tray_view = TrayView {
+            crew: world.aboard.crew_count(),
+            shop,
+            out,
+            bots: cells.iter().filter(|c| !c.player).cloned().collect(),
+            standing: world.standing_of(local).code(),
+            commander: world.class_of(local) == world::Class::Commander,
+        };
+        let tray = egui::Area::new(egui::Id::new("game-tray"))
+            .anchor(
+                egui::Align2::LEFT_BOTTOM,
+                egui::vec2(area.min.x + MARGIN, -MARGIN),
+            )
+            .order(egui::Order::Middle)
+            .show(&ctx, |ui| {
+                tray_frame().show(ui, |ui| {
+                    if let Some(room) = session.room_ref() {
+                        asks = panels.tray(ui, room, &tray_view, &name);
                     }
-                }
+                });
+            })
+            .response
+            .rect;
+
+        // The character sheet, under the portraits and over the tray.
+        let sheet = if out {
+            None
+        } else {
+            session.room_ref().and_then(|room| {
+                panels.character_sheet(
+                    &ctx,
+                    room,
+                    egui::pos2(area.min.x + MARGIN, faces.max.y + GAP),
+                    tray.min.y - GAP,
+                )
+            })
+        };
+
+        // *Back to ship* at the bottom right, during a mission, and the log
+        // directly over it.
+        let back = super::worldmap::back_to_ship(&ctx, area.max.x, world, local, out, &mut orders);
+        let lift = back.map_or(0.0, |r| r.height() + 6.0);
+        let log = hud::log_area(&ctx, area, area.max.x - MARGIN, lift, &screen.log);
+
+        // The hero panel, the player's own Bim, at the foot: clear of
+        // whatever on the left or the right reaches down into its row.
+        let mut hero_rect = None;
+        if !out && local < world.aboard.crew_count() {
+            let room = &world.aboard.room;
+            let w = local as usize;
+            let alive = room.is_alive(w);
+            let hero = hud::Hero {
+                class: world.class_of(local),
+                xp: world.progress_of(local).xp,
+                points: room.health(w),
+                armour: if alive { room.armour_health(w) } else { 0.0 },
+                hurt: crate::crew::is_hurt(room, w),
+                downed: alive && room.is_down(w),
+                peril: crate::crew::peril_summary(room, w),
+                pick: panels
+                    .class_view
+                    .as_ref()
+                    .is_some_and(|view| view.pending.is_some()),
+            };
+            let band = ctx
+                .memory(|m| m.area_rect(egui::Id::new("hud-hero")))
+                .map_or(area.max.y - 100.0, |r| r.min.y);
+            let clear = [Some(tray), sheet]
+                .into_iter()
+                .flatten()
+                .filter(|r| r.max.y > band)
+                .fold(area.min.x, |x, r| x.max(r.max.x));
+            let right = [back, log]
+                .into_iter()
+                .flatten()
+                .filter(|r| r.max.y > band)
+                .fold(area.max.x, |x, r| x.min(r.min.x));
+            let boxes = ability_boxes(world, local, &keys_now);
+            let medicine = medicine_boxes(world, local);
+            let got = hud::hero_panel(&ctx, area, clear, right, &hero, |ui| {
+                ability_row(ui, &boxes, &medicine)
             });
-            if let Some(room) = session.room_ref() {
-                let has_agenda = (0..panels.crew_count).any(|w| room.agenda_len(w as usize) > 0);
-                if has_agenda {
-                    panel_frame().show(ui, |ui| {
-                        ui.set_min_width(200.0);
-                        panels.agendas(ui, room, &name);
-                    });
+            // Whom the box the pointer rests on would reach (feature 86),
+            // for the ring on the deck below.
+            if let Some(action) = got.hovered {
+                cast_reaches = affected_by(world, local, action);
+            }
+            if got.sheet {
+                panels.sheet_open = true;
+            }
+            hero_rect = Some(got.rect);
+        }
+
+        // The inspect panel, on the right while somebody is picked: under
+        // the top frame, and over the log, *Back to ship* and the hero
+        // panel wherever they reach its column.
+        let side_x = (area.max.x - (crate::crew::SIDE_W + 30.0)).max(area.min.x + MARGIN);
+        let floor = [back, log, hero_rect]
+            .into_iter()
+            .flatten()
+            .filter(|r| r.max.x > side_x)
+            .fold(area.max.y - MARGIN, |y, r| y.min(r.min.y))
+            - GAP;
+        side_at = Some((egui::pos2(side_x, top_foot + GAP), floor));
+    }
+    // The departure check, over everything while it is asking — map up or
+    // not, since it is everybody's question.
+    super::worldmap::departure_window(&ctx, world, local, &mut orders, &crew_name);
+
+    // What the HUD asked for: the orders now, off the world as it stands,
+    // and the windows once it is let go of.
+    let standing = world.standing_of(local);
+    let map_asked = asks.contains(&TrayAsk::Map);
+    let trade_asked = asks.contains(&TrayAsk::Trade);
+    let mut arm = None;
+    for ask in asks {
+        let (order, line) = match ask {
+            TrayAsk::Map | TrayAsk::Trade => (None, None),
+            // The F key's own rule: the pointer armed, or a banner taken
+            // up again.
+            TrayAsk::Attack => {
+                let (release, armed) = attack_key(standing, screen.aiming_attack, map_up);
+                arm = Some(armed);
+                match release {
+                    Some(order) => orders_key(world, local, order),
+                    None => (None, None),
                 }
             }
+            TrayAsk::Retreat => orders_key(world, local, world::Standing::Retreat),
+            // The order the crew are under given again, which the world
+            // reads as letting them go (`Standing::same_as`).
+            TrayAsk::Follow if standing != world::Standing::Follow => {
+                orders_key(world, local, standing)
+            }
+            TrayAsk::Follow => (None, None),
+            TrayAsk::FallBack => squad_key(world, local, world::SquadAsk::FallBack { tile: None }),
+            TrayAsk::StandGround => squad_key(world, local, world::SquadAsk::StandGround),
+        };
+        orders.extend(order);
+        screen.log.extend(line);
+    }
+    if let Some(armed) = arm {
+        screen.aiming_attack = armed;
+    }
+    if map_asked && let Some(game) = &mut session.game {
+        game.set_mode(if game.mode == ViewMode::Map {
+            ViewMode::Ship
+        } else {
+            ViewMode::Map
         });
+    }
+    if trade_asked {
+        screen.trading = !screen.trading;
+    }
+    if let Some(ask) = column {
+        if ask.close
+            && let Some(game) = &mut session.game
+        {
+            game.set_mode(ViewMode::Ship);
+        }
+        // The galaxy chart up in place of the system map, or down again:
+        // the lobby's own picture, made the first time it is asked for.
+        if ask.chart {
+            screen.galaxy_up = !screen.galaxy_up;
+            if screen.galaxy_up
+                && let Some(game) = &session.game
+            {
+                let world = &game.world;
+                if screen.galaxy.is_none() {
+                    screen.galaxy = Some(lobby::Lobby::new(
+                        world.galaxy_seed,
+                        world.galaxy_type,
+                        800.0,
+                        600.0,
+                    ));
+                }
+                if let Some(chart) = screen.galaxy.as_mut() {
+                    chart.inspect(screen.picked_star.unwrap_or(world.star_id));
+                }
+            }
+        }
+    }
+    // A portrait clicked picks that crew member as a click on it on the
+    // deck would — a click at where it stands, through the seam — or, for
+    // a player who is out, is the one watched; the player's own twice is
+    // the character sheet.
+    match portrait_press {
+        Some(hud::PortraitPress::Sheet) => panels.sheet_open = true,
+        Some(hud::PortraitPress::Pick(who)) if out => {
+            if let Some(game) = session.game.as_mut()
+                && who != local
+                && game.world.aboard.room.is_alive(who as usize)
+            {
+                game.spectate = Some(who);
+                game.set_follow(true);
+            }
+        }
+        Some(hud::PortraitPress::Pick(who)) => {
+            if let Some(room) = session.room_ref() {
+                let at = room.bim_pos(who as usize);
+                orders.push(Order::Crew(CrewOrder::Select {
+                    x0: at.x,
+                    y0: at.y,
+                    x1: at.x,
+                    y1: at.y,
+                }));
+            }
+        }
+        None => {}
+    }
+    // The inspect panel, now the room may be written through: the side
+    // panel's own, scrolled where the column is shorter than it.
+    if let Some((at, floor)) = side_at
+        && let Some(room) = session.room()
+        && panels.inspected(room).is_some()
+    {
+        egui::Area::new(egui::Id::new("game-side"))
+            .fixed_pos(at)
+            .order(egui::Order::Middle)
+            .show(&ctx, |ui| {
+                panel_frame().show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt("side")
+                        .max_height((floor - at.y - 16.0).max(80.0))
+                        .min_scrolled_height((floor - at.y - 16.0).max(80.0))
+                        .show(ui, |ui| {
+                            panels.side(ui, room, &name);
+                        });
+                });
+            });
+    }
     for order in orders.drain(..) {
         screen.net.order(session, order);
     }
 
-    // --- the strip across the top: where the crew are, and the world map ------
-    // Centred on the canvas, but never over the row of frames at the top
-    // left: that row grows a "Recruited" panel in combat, and at the
-    // default window width the two met in the middle. Its width is last
-    // frame's (the first frame guesses the minimum), which is what egui's
-    // own anchoring reads too.
-    let trip_id = egui::Id::new("game-trip");
-    let trip_width = ctx
-        .memory(|m| m.area_rect(trip_id).map(|r| r.width()))
-        .unwrap_or(300.0);
-    let trip_x = ((canvas.min.x + canvas.max.x - trip_width) / 2.0).max(top.max.x + 8.0);
-    egui::Area::new(trip_id)
-        .fixed_pos(egui::pos2(trip_x, canvas.min.y + 10.0))
-        .order(egui::Order::Middle)
-        .show(&ctx, |ui| {
-            panel_frame().show(ui, |ui| {
-                ui.set_min_width(300.0);
-                // No helm (feature 103): the strip is the world map with
-                // the map up, and where the crew are without.
-                let mut chart = Chart {
-                    up: &mut screen.galaxy_up,
-                    lobby: &mut screen.galaxy,
-                    picked: &mut screen.picked_star,
-                };
-                run_strip(
-                    ui,
-                    session,
-                    map_up,
-                    &mut screen.world_map,
-                    &mut chart,
-                    local,
-                    &mut orders,
-                );
-            });
-        });
-
-    egui::Area::new(egui::Id::new("game-tray"))
-        .anchor(
-            egui::Align2::LEFT_BOTTOM,
-            egui::vec2(canvas.min.x + 10.0, -10.0),
-        )
-        .order(egui::Order::Middle)
-        .show(&ctx, |ui| {
-            tray_frame().show(ui, |ui| {
-                let ship_tab = match session.room() {
-                    Some(room) => panels.tray(ui, room, Some(&mut actions), &name),
-                    None => false,
-                };
-                if ship_tab {
-                    ship_panel(ui, session, &screen.net);
-                }
-            });
-        });
-    if let Some(game) = &mut session.game {
-        game.head_up = actions.head_up;
-        if game.follow != actions.follow {
-            game.set_follow(actions.follow);
-        }
-    }
-    // The Station button opens the trade window and shuts it again; so
-    // does leaving the berth, since there is nobody to trade with then.
-    if actions.station {
-        screen.trading = !screen.trading;
-    }
-    // So does the Trade row on the station's desk, which walked the Bim
-    // over as well.
+    // The trade window: the tray's Trade button opens it and shuts it, and
+    // so does the Trade row on the station's desk, which walked the Bim
+    // over as well; leaving the berth shuts it, since there is nobody to
+    // trade with then.
     if std::mem::take(&mut panels.trade_requested) {
         screen.trading = true;
     }
-    if !actions.docked {
+    if session.docked_at().is_none() {
         screen.trading = false;
     }
     if screen.trading {
@@ -2237,25 +2296,16 @@ fn frame(
         );
     }
     // A cart is this window's, at this berth: shutting the window, or
-    // casting off with it up, is walking away from the desk with nothing
+    // leaving with it up, is walking away from the desk with nothing
     // agreed.
     if !screen.trading {
         screen.cart.clear();
-    }
-    for (resource, units) in actions.keep.drain(..) {
-        orders.push(Order::Keep { resource, units });
-    }
-    for site in actions.cancel.drain(..) {
-        orders.push(Order::Cancel { site });
-    }
-    if let Some(on) = actions.set_auto_upgrade.take() {
-        orders.push(Order::AutoUpgrade(on));
     }
     // The workbench window's button.
     if std::mem::take(&mut panels.upgrade_requested) {
         orders.push(Order::Upgrade);
     }
-    // The class section's and the deployable rows' (feature 74).
+    // The class section's, the sheet's and the deployable rows' (feature 74).
     for order in panels.deploy_orders.drain(..) {
         orders.push(match order {
             crate::crew::DeployOrder::PackUp(id) => Order::PackUp(id),
@@ -2264,91 +2314,8 @@ fn frame(
             crate::crew::DeployOrder::Repair => Order::Repair,
         });
     }
-    for order in actions.research_orders.drain(..) {
-        orders.push(Order::Research(order));
-    }
-    if let Some(game) = &mut session.game {
-        game.overlay = actions.overlay;
-    }
     for order in orders.drain(..) {
         screen.net.order(session, order);
-    }
-
-    // Clear of the left stack on a narrow window, rather than over it. The
-    // strip is as wide as the health block wants: a part's bar, its number
-    // and the trauma holding it at nothing, in one row. And under the row
-    // of frames along the top rather than beside it — a panel this wide
-    // reaches the middle of the window, where the trip strip is.
-    let side_x = (canvas.max.x - (crate::crew::SIDE_W + 30.0)).max(canvas.min.x + 290.0);
-    egui::Area::new(egui::Id::new("game-side"))
-        .fixed_pos(egui::pos2(side_x, top.max.y + 4.0))
-        .order(egui::Order::Middle)
-        .show(&ctx, |ui| {
-            if let Some(room) = session.room() {
-                let mut drawn = false;
-                let frame = panel_frame();
-                frame.show(ui, |ui| {
-                    drawn = panels.side(ui, room, &name);
-                    if !drawn {
-                        ui.label(
-                            egui::RichText::new("Click a Bim to look at it.").color(theme::MUTED),
-                        );
-                    }
-                });
-            }
-        });
-
-    // The two boxes at the foot of the canvas: what the class's own keys
-    // do, how many are left and what each of them is (feature 80).
-    // Nothing for a classless crew member, which has no keys — but
-    // everybody has the medicine's two past them, the medkit and the
-    // bandages it carries, with their cooldowns swept the way Dota 2
-    // sweeps a skill's.
-    // And whom the box the pointer rests on would reach (feature 86),
-    // for the ring on the deck below — worked out afresh every frame off
-    // what is hovered, the way the panels' highlight is, so a bar that
-    // folds away under the pointer cannot leave one lit.
-    let mut cast_reaches: Vec<u32> = Vec::new();
-    if let Some(game) = &session.game {
-        let boxes = ability_boxes(&game.world, local, &keys_now);
-        let medicine = medicine_boxes(&game.world, local);
-        if let Some(action) = ability_bar(&ctx, canvas, &boxes, &medicine) {
-            cast_reaches = affected_by(&game.world, local, action);
-        }
-    }
-
-    // *Back to ship* at the bottom right, during a mission, and the
-    // departure check over the middle while it is asking (feature 103).
-    // The log sits on top of the button.
-    let mut above_log = 0.0;
-    if let Some(game) = &session.game {
-        if let Some(rect) =
-            super::worldmap::back_to_ship(&ctx, canvas.max.x, &game.world, local, &mut orders)
-        {
-            above_log = rect.height() + 6.0;
-        }
-        super::worldmap::departure_window(&ctx, &game.world, local, &mut orders, &crew_name);
-    }
-    for order in orders.drain(..) {
-        screen.net.order(session, order);
-    }
-    if !screen.log.is_empty() {
-        egui::Area::new(egui::Id::new("game-log"))
-            .anchor(
-                egui::Align2::RIGHT_BOTTOM,
-                egui::vec2(
-                    -(size.x * 0.0) - 10.0 - (ctx.viewport_rect().max.x - canvas.max.x),
-                    -10.0 - above_log,
-                ),
-            )
-            .order(egui::Order::Middle)
-            .show(&ctx, |ui| {
-                panel_frame().show(ui, |ui| {
-                    for line in &screen.log {
-                        ui.label(egui::RichText::new(line).small());
-                    }
-                });
-            });
     }
 
     if let Some(room) = session.room() {
@@ -2428,13 +2395,15 @@ fn frame(
     for order in orders.drain(..) {
         screen.net.order(session, order);
     }
+    let allowed = Allowed::of(session.playing(), online.is_guest());
     let asked = settings_sheet(
         &ctx,
         &mut screen.sheet,
         &mut sounds.mix,
         &mut bindings,
         &mut screen.saves,
-        Allowed::of(session.playing(), online.is_guest()),
+        allowed,
+        session.game.as_mut().map(|g| &mut g.overlay),
     );
     match asked {
         Some(Request::Save(name)) => match session.save() {
@@ -3069,27 +3038,6 @@ fn attack_cursor(painter: &egui::Painter, at: egui::Pos2) {
     painter.circle_filled(at, 1.5, theme::ATTACK);
 }
 
-/// What the ship is doing, in a word: `STATE_NAMES` by the state's code —
-/// except at a planet, where a berth is the ground, since the picture says
-/// so too.
-fn state_name(game: &ship::game::Game) -> String {
-    let state = game.world.ship.state.code();
-    let on_a_planet = game
-        .world
-        .ship
-        .state
-        .station()
-        .is_some_and(|id| world::surface_body(id).is_some());
-    let word = match (state, on_a_planet) {
-        (0, true) => "Landed",
-        _ => STATE_NAMES
-            .get(state as usize)
-            .copied()
-            .unwrap_or("Holding"),
-    };
-    word.to_string()
-}
-
 /// Where the ship is, in words: the berth it is tied up at, the place it is
 /// alongside, or open space. The strip's first words, and what the map
 /// writes over the ship.
@@ -3104,78 +3052,6 @@ fn whereabouts(session: &Session) -> String {
             None => "Open space".into(),
         },
     }
-}
-
-/// The strip across the top (feature 103): with the map up, the galaxy
-/// chart's toggle and the world map — every destination, its
-/// quote and the vote (`super::worldmap`); with the ship view up, where
-/// the crew are, the day and the pool, and how to get at the map.
-fn run_strip(
-    ui: &mut egui::Ui,
-    session: &mut Session,
-    map_up: bool,
-    map: &mut super::worldmap::WorldMap,
-    chart: &mut Chart,
-    local: u32,
-    orders: &mut Vec<Order>,
-) {
-    let whereabouts = whereabouts(session);
-    let game = session.game.as_ref().unwrap();
-    let world = &game.world;
-    if !map_up {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(whereabouts).strong());
-            ui.label(
-                egui::RichText::new(pool_line(
-                    world.day(),
-                    world.money,
-                    world.run.pending_bounty,
-                ))
-                .color(theme::MUTED),
-            );
-        });
-        ui.label(
-            egui::RichText::new(MAP_KEY_HINT)
-                .small()
-                .color(theme::MUTED),
-        );
-        return;
-    }
-    ui.horizontal(|ui| {
-        let label = if *chart.up {
-            "System view"
-        } else {
-            "Galaxy view"
-        };
-        if ui.button(label).clicked() {
-            *chart.up = !*chart.up;
-            if *chart.up {
-                if chart.lobby.is_none() {
-                    *chart.lobby = Some(lobby::Lobby::new(
-                        world.galaxy_seed,
-                        world.galaxy_type,
-                        800.0,
-                        600.0,
-                    ));
-                }
-                if let Some(lobby) = chart.lobby.as_mut() {
-                    lobby.inspect(chart.picked.unwrap_or(world.star_id));
-                }
-            }
-        }
-        if *chart.up {
-            crisis_line(ui, world, chart.picked.unwrap_or(world.star_id));
-        }
-    });
-    super::worldmap::map_panel(ui, map, world, local, orders, &crew_name);
-}
-
-/// The galaxy chart's state, as the strip sees it: whether it is up, the
-/// chart itself, and the star picked on it.
-struct Chart<'a> {
-    up: &'a mut bool,
-    lobby: &'a mut Option<lobby::Lobby>,
-    picked: &'a mut Option<u32>,
 }
 
 /// What the crisis has to say about a star (feature 92): that the machines
@@ -3215,135 +3091,6 @@ fn crisis_line(ui: &mut egui::Ui, world: &world::World, star: u32) {
         )
     };
     ui.label(egui::RichText::new(words).small().color(colour));
-}
-
-/// The red warning along the top while the station alongside is held by
-/// the machines (feature 83), in [`warning_frame`]: which wave is on the
-/// deck and how many of it are
-/// standing, and — the moment the last of them is down — **the
-/// countdown to the next one landing**, which is the one number the
-/// player has no other way of knowing (a wave is never reinforced
-/// mid-fight, so until then there is nothing to count). Nothing at a
-/// station nobody holds, and nothing once the last wave is spent bar the
-/// one line saying so.
-fn droid_warning(ui: &mut egui::Ui, world: &world::World) {
-    // A **town under attack** (feature 94) says the same three things in
-    // the same frame: the fight is the same fight, and the player wants
-    // the same number out of it. Before the first wave has landed there
-    // is a wave on its way and none on the ground, which is the one
-    // reading a held station never has.
-    if let Some(defending) = world.defense_here() {
-        let waves = defending.wave + defending.waves_left;
-        let standing = world.droids_standing();
-        let words = if standing > 0 {
-            droids_standing(defending.wave, waves, standing)
-        } else if let Some(due) = world.defense_wave_due() {
-            droids_next_wave(&crate::format::countdown(due), defending.wave + 1, waves)
-        } else if defending.wave > 0 && defending.waves_left == 0 {
-            DROIDS_CLEARED.into()
-        } else {
-            droids_standing(defending.wave.max(1), waves.max(1), 0)
-        };
-        warning_frame().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(words).strong().color(theme::BAD));
-                theme::question_mark(ui, DEFENSE_TIP);
-            });
-        });
-        return;
-    }
-    let Some((wave, left)) = world.droid_wave_standing() else {
-        return;
-    };
-    let waves = wave + left;
-    let standing = world.droids_standing();
-    let words = if standing > 0 {
-        droids_standing(wave, waves, standing)
-    } else if let Some(due) = world.droid_wave_due() {
-        droids_next_wave(&crate::format::countdown(due), wave + 1, waves)
-    } else if left == 0 {
-        DROIDS_CLEARED.into()
-    } else {
-        // The last machine went down this very step: the clock is set
-        // at the top of the next one. Say the wave rather than a
-        // countdown of nothing.
-        droids_standing(wave, waves, 0)
-    };
-    warning_frame().show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(words).strong().color(theme::BAD));
-            theme::question_mark(ui, DROIDS_TIP);
-        });
-    });
-}
-
-/// The frame a warning along the top sits in: the panel's, filled and
-/// edged in red, so it is the one red thing on the screen.
-fn warning_frame() -> egui::Frame {
-    panel_frame()
-        .fill(egui::Color32::from_rgba_unmultiplied(64, 14, 10, 235))
-        .stroke(egui::Stroke::new(1.0, theme::WARN))
-}
-
-/// The day and the clock, with the speed beside them: what you asked for
-/// is the button held down, and what the world is running at is the one
-/// coloured — a player held at 1x by somebody else needs to be able to see
-/// that is what happened, so with more than one player each one's request
-/// is listed under.
-fn clock_panel(ui: &mut egui::Ui, session: &Session, net: &Net, orders: &mut Vec<Order>) {
-    let game = session.game.as_ref().unwrap();
-    let minutes = game.world.minutes_into_day();
-    let mine = game.requested(net.slot);
-    let effective = game.world.effective_speed();
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!(
-                "Day {} · {:02}:{:02}",
-                game.world.day(),
-                (minutes / 60.0).floor() as u32,
-                (minutes % 60.0).floor() as u32
-            ))
-            .strong(),
-        );
-        ui.add_space(6.0);
-        for speed in Speed::ALL {
-            let times = speed.multiplier();
-            let label = if times == 0 {
-                "||".to_string()
-            } else {
-                format!("{times}×")
-            };
-            let text = egui::RichText::new(label).color(if speed == effective {
-                theme::ACCENT
-            } else {
-                theme::INK
-            });
-            if theme::toggle(ui, speed == mine, text).clicked() {
-                orders.push(Order::Speed(speed));
-            }
-        }
-    });
-    if net.players > 1 {
-        ui.horizontal(|ui| {
-            for slot in 0..net.players {
-                let times = game.requested(slot).multiplier();
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Player {}{} {}",
-                        slot + 1,
-                        if slot == net.slot { " (you)" } else { "" },
-                        if times == 0 {
-                            "paused".into()
-                        } else {
-                            format!("{times}×")
-                        }
-                    ))
-                    .small()
-                    .color(theme::MUTED),
-                );
-            }
-        });
-    }
 }
 
 /// The station's shelf, in a window in the middle of the screen: what it
@@ -3446,135 +3193,6 @@ fn trade_window(
     }
 }
 
-/// The Ship tab: how the crew travel, and the ship's facts. Nothing is
-/// flown (feature 103): the helm is the world map.
-fn ship_panel(ui: &mut egui::Ui, session: &Session, net: &Net) {
-    theme::heading(ui, "Travel");
-    ui.label(egui::RichText::new(MAP_TIP).small().color(theme::MUTED));
-    facts_panel(ui, session, net);
-}
-
-fn facts_panel(ui: &mut egui::Ui, session: &Session, net: &Net) {
-    theme::heading(ui, "Ship");
-    let game = session.game.as_ref().unwrap();
-    let power = game.world.power();
-    let batteries = if power.storage > 0.0 {
-        format!(
-            ", {} of {} stored",
-            power.charge.round(),
-            power.storage.round()
-        )
-    } else {
-        String::new()
-    };
-    let power_line = format!(
-        "{} drawn of {} made{batteries}{}",
-        power.draw.round(),
-        power.supply.round(),
-        if power.brownout() {
-            " — brownout"
-        } else {
-            ""
-        }
-    );
-    let at = game.world.ship.position();
-    let rows = [
-        ("Power", power_line),
-        ("Mass", format!("{:.0}", session.mass())),
-        (
-            "Acceleration",
-            format!("{:.4}", session.acceleration(Facing::Forward)),
-        ),
-        ("Parts", session.design_ref().parts.len().to_string()),
-        ("Exposed tiles", session.editor.exposed().len().to_string()),
-        (
-            "Position",
-            format!(
-                "{}, {}",
-                grouped(at.x.round().abs() as u64),
-                grouped(at.y.round().abs() as u64)
-            ),
-        ),
-        (
-            "Found",
-            format!("{} in this system", game.world.discovered.len()),
-        ),
-        (
-            "Scanner",
-            format!(
-                "{} units",
-                grouped(game.world.detection_range().round() as u64)
-            ),
-        ),
-        ("Crew", net.players.to_string()),
-    ];
-    egui::Grid::new("facts")
-        .num_columns(2)
-        .spacing([10.0, 1.0])
-        .show(ui, |ui| {
-            for (label, value) in rows {
-                ui.label(egui::RichText::new(label).small().color(theme::MUTED));
-                ui.label(egui::RichText::new(value).small());
-                ui.end_row();
-            }
-        });
-}
-
-/// What is aboard, a row a resource, grouped by where it is stowed: the
-/// hold's own counts. A readout and nothing else: the standing orders for
-/// what the benches make are set on the tray's Management tab.
-fn items_panel(ui: &mut egui::Ui, session: &Session) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Inventory").strong());
-        theme::question_mark(ui, ITEMS_TIP);
-    });
-    egui::Grid::new("items")
-        .num_columns(3)
-        .min_col_width(icons::INLINE)
-        .spacing([8.0, 1.0])
-        .show(ui, |ui| {
-            // The crew's money first: it is what everything under it was
-            // bought with, and what the rest of it sells for.
-            ui.label("");
-            ui.label("Money");
-            ui.label(egui::RichText::new(euros(session.remaining())).color(theme::ACCENT));
-            ui.end_row();
-            for &class in Storage::ALL.iter() {
-                let mut first = true;
-                for &id in ResourceId::ALL.iter() {
-                    if Session::storage_of(id) != class {
-                        continue;
-                    }
-                    let held = session.cargo(id);
-                    if first {
-                        ui.label("");
-                        ui.label(
-                            egui::RichText::new(
-                                STORAGE_NAMES.get(class as usize).copied().unwrap_or(""),
-                            )
-                            .small()
-                            .color(theme::MUTED),
-                        );
-                        ui.end_row();
-                        first = false;
-                    }
-                    icons::resource_cell(ui, id);
-                    ui.label(egui::RichText::new(resource_name(id)).color(if held > 0 {
-                        theme::INK
-                    } else {
-                        theme::MUTED
-                    }));
-                    ui.label(egui::RichText::new(held.to_string()).color(if held > 0 {
-                        theme::ACCENT
-                    } else {
-                        theme::MUTED
-                    }));
-                    ui.end_row();
-                }
-            }
-        });
-}
-
 /// The hold as the crew's panels want it: what is aboard and not spoken
 /// for, the pieces of armour in it, how full each class is, and whether
 /// crew member `who` stands within reach of a container that takes each
@@ -3614,68 +3232,6 @@ fn hold_of(session: &Session, who: usize) -> Hold {
         upgrade: world.can_upgrade(),
     });
     hold
-}
-
-/// What is on the workbench being upgraded, for the Management tab's line
-/// under its tick box, off `World::bench`: the work under way, or the
-/// output waiting in its slot.
-fn upgrade_view(session: &Session) -> Option<UpgradeView> {
-    let bench = session.game.as_ref()?.world.bench;
-    if let Some(upgrade) = bench.work {
-        return Some(UpgradeView {
-            resource: upgrade.resource,
-            tier: upgrade.to.code(),
-            done: upgrade.done.min(world::data::UPGRADE_SESSIONS),
-            of: world::data::UPGRADE_SESSIONS,
-            waiting: false,
-        });
-    }
-    let out = bench.slots[world::Workbench::OUT]?;
-    let tier = match out {
-        bims::combat::Item::Weapon(w) => w.tier,
-        bims::combat::Item::Armour(p) => p.tier,
-        _ => return None,
-    };
-    Some(UpgradeView {
-        resource: world::armour::resource_of_item(out)?,
-        tier: tier.code(),
-        done: world::data::UPGRADE_SESSIONS,
-        of: world::data::UPGRADE_SESSIONS,
-        waiting: true,
-    })
-}
-
-/// The research tree as the crew stand in it, for the Research tab, off
-/// `World::research`; and which parts may be laid out, by kind, for the
-/// Build tab to leave the rest out.
-fn research_view(session: &Session) -> ResearchView {
-    let Some(game) = session.game.as_ref() else {
-        return ResearchView::default();
-    };
-    let world = &game.world;
-    let research = &world.research;
-    let mut view = ResearchView {
-        unlocked: research.unlocked,
-        current: research.current.map(|n| n.code()),
-        fraction: research.fraction(),
-        queue: research.queue.iter().map(|n| n.code()).collect(),
-        desk: world.research_desk_aboard(),
-        powered: world.research_desk_powered(),
-        keys: [world.keys_in_desk(1), world.keys_in_desk(2)],
-        parts: shipdesign::PartKind::ALL
-            .iter()
-            .map(|&kind| research.part_allowed(kind))
-            .collect(),
-        ..ResearchView::default()
-    };
-    for node in shipdesign::research::Node::ALL {
-        let i = node as usize;
-        view.done[i] = research.is_done(node);
-        view.available[i] = research.available(node);
-        view.needs_key[i] = research.needs_key(node);
-        view.queueable[i] = research.queueable(node);
-    }
-    view
 }
 
 /// What is within reach of crew member `who`, nearest first, for the
@@ -3781,94 +3337,6 @@ fn body_of(world: &world::World, who: usize, source: world::LootSource) -> Optio
         down: world.is_down(source),
         reach: world.in_reach_of_body(who as u32, source),
     })
-}
-
-/// What the benches make, a row each for the Management tab: one per
-/// resource a recipe outputs, in `ResourceId` order, with what is aboard,
-/// where it is kept, the standing order and the most the hold would take.
-fn crafts(session: &Session) -> Vec<Craft> {
-    let Some(game) = session.game.as_ref() else {
-        return Vec::new();
-    };
-    ResourceId::ALL
-        .iter()
-        .copied()
-        .filter(|&id| shipdesign::RECIPES.iter().any(|r| r.output.0 == id))
-        .map(|id| {
-            let class = Session::storage_of(id);
-            Craft {
-                resource: id,
-                held: session.cargo(id),
-                target: game.world.craft_target(id),
-                most: game.world.ship.design.most_of(id),
-                kept_in: STORAGE_NAMES.get(class as usize).copied().unwrap_or(""),
-                recipe: recipe_lines(id),
-                // The first recipe for it that is not researched, if none
-                // is: a thing two benches make is made at whichever is known.
-                needs: {
-                    let rows: Vec<usize> = shipdesign::RECIPES
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, r)| r.output.0 == id)
-                        .map(|(i, _)| i)
-                        .collect();
-                    if rows.iter().any(|&i| game.world.research.recipe_allowed(i)) {
-                        None
-                    } else {
-                        rows.first()
-                            .map(|&i| shipdesign::research::node_of_recipe(i).code())
-                    }
-                },
-            }
-        })
-        .collect()
-}
-
-/// The construction sites laid out, for the Build tab's list, in the order
-/// the crew take them.
-fn sites(session: &Session) -> Vec<crate::crew::Site> {
-    let Some(game) = session.game.as_ref() else {
-        return Vec::new();
-    };
-    let design = &game.world.ship.design;
-    game.world
-        .builds
-        .iter()
-        .map(|site| crate::crew::Site {
-            id: site.id,
-            kind: site.kind,
-            at: site.origin,
-            progress: site_progress(site, design),
-            affordable: game.world.affordable_site(site),
-        })
-        .collect()
-}
-
-/// Every recipe that makes `resource`, in words: "2 ore → 1 metal at the
-/// smelter, 30 min". Off the table, so the words cannot drift from what the
-/// benches do.
-fn recipe_lines(resource: ResourceId) -> String {
-    let lower = |id: ResourceId| resource_name(id).to_lowercase();
-    shipdesign::RECIPES
-        .iter()
-        .filter(|r| r.output.0 == resource)
-        .map(|r| {
-            let inputs: Vec<String> = r
-                .inputs
-                .iter()
-                .map(|&(id, units)| format!("{units} {}", lower(id)))
-                .collect();
-            format!(
-                "{} → {} {} at the {}, {} min.",
-                inputs.join(" + "),
-                r.output.1,
-                lower(resource),
-                part_name(r.station).to_lowercase(),
-                r.minutes
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// The picture in an ability box (feature 80). A kit or a grenade is the
@@ -4225,15 +3693,10 @@ fn ability_boxes(world: &world::World, slot: u32, keys: &Keys) -> Vec<AbilityBox
         .collect()
 }
 
-/// How big one box is, and how much room its name wants under it.
-const ABILITY_SIDE: f32 = 54.0;
+/// How big one box is: a key's on the hero panel (feature 107), its name
+/// in its tooltip rather than under it, so the panel stays one row.
+const ABILITY_SIDE: f32 = 44.0;
 
-/// The bar itself: the boxes in a frame at the foot of the canvas,
-/// centred on it and never over the tray at its left, which grows a
-/// whole panel when a tab is open. Its own width and the tray's are
-/// last frame's, the way the trip strip's is — egui's own anchoring
-/// reads the same memory — so the first frame guesses and every frame
-/// after is exact.
 /// Whom a cast of `slot`'s would reach, by crew index (feature 86) —
 /// what the deck rings while the pointer rests on that key's box, which
 /// is the panels' own rule (resting on a row rings what it names) said
@@ -4274,53 +3737,34 @@ fn affected_by(world: &world::World, slot: u32, action: Action) -> Vec<u32> {
     }
 }
 
-/// The medicine's two boxes go at the right-hand end, past a rule, so
-/// the class's keys are one group and what everybody carries another.
-fn ability_bar(
-    ctx: &egui::Context,
-    canvas: crate::shapes::Rect,
-    boxes: &[AbilityBox],
-    medicine: &[AbilityBox],
-) -> Option<Action> {
-    if boxes.is_empty() && medicine.is_empty() {
-        return None;
-    }
-    let id = egui::Id::new("game-abilities");
-    let rect_of = |id| ctx.memory(|m| m.area_rect(id));
-    let size = rect_of(id).map_or(egui::vec2(160.0, 96.0), |r| r.size());
-    let tray = rect_of(egui::Id::new("game-tray")).map_or(canvas.min.x, |r| r.max.x);
-    let x = ((canvas.min.x + canvas.max.x - size.x) / 2.0)
-        .max(tray + 8.0)
-        .min(canvas.max.x - 10.0 - size.x);
-    let y = canvas.max.y - 10.0 - size.y;
+/// The class's keys and the medicine, a box each in a row inside the hero
+/// panel (feature 107; they were a bar of their own, `game-abilities`,
+/// since feature 80): the medicine's two past a rule at the right-hand
+/// end, so the class's keys are one group and what everybody carries
+/// another. The key whose box the pointer rests on, for the ring round
+/// whom its cast would reach.
+fn ability_row(ui: &mut egui::Ui, boxes: &[AbilityBox], medicine: &[AbilityBox]) -> Option<Action> {
     let mut hovered = None;
-    egui::Area::new(id)
-        .fixed_pos(egui::pos2(x, y))
-        .order(egui::Order::Middle)
-        .show(ctx, |ui| {
-            panel_frame().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    for one in boxes {
-                        if ability_box(ui, one) {
-                            hovered = one.action;
-                        }
-                    }
-                    if !boxes.is_empty() && !medicine.is_empty() {
-                        ui.separator();
-                    }
-                    for one in medicine {
-                        ability_box(ui, one);
-                    }
-                });
-            });
-        });
+    ui.spacing_mut().item_spacing.x = 4.0;
+    for one in boxes {
+        if ability_box(ui, one) {
+            hovered = one.action;
+        }
+    }
+    if !boxes.is_empty() && !medicine.is_empty() {
+        ui.separator();
+    }
+    for one in medicine {
+        ability_box(ui, one);
+    }
     hovered
 }
 
-/// One box: the key in the corner, the picture in the middle, what is
-/// left in the other corner, and the name under it. Resting on it says
-/// what the key does — a box is a control, so it carries its own words
-/// rather than an underlined one beside it.
+/// One box: the key in the corner, the picture in the middle, and what is
+/// left in the other corner. Resting on it names it and says what the key
+/// does — a box is a control, so it carries its own words rather than an
+/// underlined one beside it; the name was under the box until the hero
+/// panel took the boxes in (feature 107).
 /// Whether the pointer is resting on it — what the deck rings the cast's
 /// own Bims by (feature 86).
 fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
@@ -4348,7 +3792,7 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
         );
         // The picture, dimmed while the key would not be taken — the
         // whole box reads as off rather than the number alone.
-        let inner = rect.shrink(11.0);
+        let inner = rect.shrink(9.0);
         let middle = inner.center();
         let radius = inner.width() / 2.0;
         match one.mark {
@@ -4447,29 +3891,30 @@ fn ability_box(ui: &mut egui::Ui, one: &AbilityBox) -> bool {
             None
         };
         if let Some((words, color)) = over {
+            // A level to wait for is two words in a box the size of a
+            // key: a size smaller than a cooldown's seconds.
+            let size = if one.locked.is_some() { 10.5 } else { 13.0 };
             // A shadow under the words, since they sit over the picture.
             painter.text(
                 middle + egui::vec2(1.0, 1.0),
                 egui::Align2::CENTER_CENTER,
                 &words,
-                egui::FontId::proportional(13.0),
+                egui::FontId::proportional(size),
                 theme::PANEL_DEEP,
             );
             painter.text(
                 middle,
                 egui::Align2::CENTER_CENTER,
                 words,
-                egui::FontId::proportional(13.0),
+                egui::FontId::proportional(size),
                 color,
             );
         }
-        ui.label(egui::RichText::new(one.name).small().color(if ready {
-            theme::INK
-        } else {
-            theme::MUTED
-        }));
         let resting = response.hovered();
-        response.on_hover_text(one.tip);
+        response.on_hover_ui(|ui| {
+            ui.label(egui::RichText::new(one.name).strong());
+            ui.label(one.tip);
+        });
         resting
     })
     .inner

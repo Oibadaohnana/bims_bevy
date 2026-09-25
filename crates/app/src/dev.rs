@@ -120,6 +120,31 @@ pub fn depart() -> bool {
     std::env::var("BIMS_DEPART").as_deref() == Ok("1")
 }
 
+/// `BIMS_SHEET=1` opens the game with the **character sheet** up
+/// (feature 107), the way K would — how it is looked at from a terminal.
+pub fn sheet() -> bool {
+    std::env::var("BIMS_SHEET").as_deref() == Ok("1")
+}
+
+/// `BIMS_TRAY=stash` or `=squad` opens the game with that panel of the
+/// tray up (feature 107).
+pub fn tray() -> Option<crate::crew::TrayTab> {
+    match std::env::var("BIMS_TRAY").ok()?.trim() {
+        "stash" => Some(crate::crew::TrayTab::Stash),
+        "squad" => Some(crate::crew::TrayTab::Squad),
+        _ => None,
+    }
+}
+
+/// `BIMS_OUT=1` lays the HUD out **as if the player's own Bim were out**
+/// (feature 107) — portraits and top frame, the *You're out* banner, no
+/// hero panel, a tray of the Map button alone, the camera on a crewmate —
+/// and nothing else: the world is not touched, since a Bim out in a game
+/// of one is a run lost, and the layout is what is being looked at.
+pub fn out() -> bool {
+    std::env::var("BIMS_OUT").as_deref() == Ok("1")
+}
+
 /// `BIMS_DYING=n` puts `n` of the crew into a dying state — a part at
 /// nothing with its trauma untreated and wounds open on it — for looking
 /// at the red cross over a body on the deck and at the peril block under

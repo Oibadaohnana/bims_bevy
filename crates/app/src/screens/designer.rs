@@ -1276,6 +1276,7 @@ fn frame(
         &mut bindings,
         &mut screen.saves,
         Allowed::of(false, online.is_guest()),
+        None,
     );
     if let Some(crate::save::Request::Load(path)) = asked {
         let read = crate::save::read(&path).and_then(|text| {

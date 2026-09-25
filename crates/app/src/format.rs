@@ -107,19 +107,6 @@ pub fn roman(n: u32) -> String {
     out
 }
 
-/// A small whole number as an ordinal, counted from one — "1st", "2nd",
-/// "3rd", "4th", "11th", "22nd": a place in the research queue.
-pub fn ordinal(n: usize) -> String {
-    let suffix = match (n % 10, n % 100) {
-        (1, 11) | (2, 12) | (3, 13) => "th",
-        (1, _) => "st",
-        (2, _) => "nd",
-        (3, _) => "rd",
-        _ => "th",
-    };
-    format!("{n}{suffix}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,12 +128,6 @@ mod tests {
             assert_eq!(span_text(60.0), "1 hour");
             assert_eq!(span_text(150.0), "2h 30m");
             assert_eq!(roman(9), "IX");
-            assert_eq!(ordinal(1), "1st");
-            assert_eq!(ordinal(2), "2nd");
-            assert_eq!(ordinal(3), "3rd");
-            assert_eq!(ordinal(4), "4th");
-            assert_eq!(ordinal(11), "11th");
-            assert_eq!(ordinal(22), "22nd");
         }
     }
 }

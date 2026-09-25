@@ -81,10 +81,14 @@ pub enum Action {
     /// when pressed again. Nothing for anybody but a medic of the class
     /// or a hired field medic.
     Carry,
+    /// **The character sheet** (feature 107): the player's own Bim's
+    /// class, level, body, gear and talents, on the left of the canvas.
+    /// Pressed again, it shuts.
+    CharacterSheet,
 }
 
 impl Action {
-    pub const ALL: [Action; 24] = [
+    pub const ALL: [Action; 25] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -109,6 +113,7 @@ impl Action {
         Action::Attack,
         Action::Retreat,
         Action::Carry,
+        Action::CharacterSheet,
     ];
 
     /// The key it starts on.
@@ -141,6 +146,7 @@ impl Action {
             Action::Attack => Key::F,
             Action::Retreat => Key::T,
             Action::Carry => Key::G,
+            Action::CharacterSheet => Key::K,
         }
     }
 
@@ -171,6 +177,7 @@ impl Action {
             Action::Attack => "attack",
             Action::Retreat => "retreat",
             Action::Carry => "carry",
+            Action::CharacterSheet => "character-sheet",
         }
     }
 
@@ -222,6 +229,9 @@ impl Action {
             }
             Action::Carry => {
                 "A medic picks the crewmate under the pointer up — out cold, dying or bleeding — and carries them out of the fire, holding its fire and walking slowly while it does. Press it again to set them down, and treat them where it is quiet. Nothing for anybody but a medic or a hired field medic."
+            }
+            Action::CharacterSheet => {
+                "Open and close your Bim's character sheet: its class and level, the health of each part of its body, what it wears and holds, and the talent tree a level's pick is spent on."
             }
         }
     }
@@ -404,5 +414,34 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), Action::ALL.len());
+    }
+
+    /// The character sheet's key (feature 107) starts on K, shares it with
+    /// nothing, and comes back through the settings file as it went in —
+    /// the default when the file does not name it, a rebinding when it
+    /// does.
+    #[test]
+    fn the_character_sheet_has_k_and_survives_the_settings_file() {
+        let keys = Keys::default();
+        assert_eq!(keys.key(Action::CharacterSheet), egui::Key::K);
+        assert!(keys.shared_with(Action::CharacterSheet).is_empty());
+        let text = keys.to_text();
+        assert!(text.contains("character-sheet=K\n"));
+        assert_eq!(Keys::from_text(&text), keys);
+        // A file written before the action existed leaves it on K.
+        let old: String = text
+            .lines()
+            .filter(|l| !l.starts_with("character-sheet="))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert_eq!(
+            Keys::from_text(&old).key(Action::CharacterSheet),
+            egui::Key::K
+        );
+        let mut moved = keys;
+        moved.set(Action::CharacterSheet, egui::Key::J);
+        let back = Keys::from_text(&moved.to_text());
+        assert_eq!(back.key(Action::CharacterSheet), egui::Key::J);
+        assert_eq!(back, moved);
     }
 }

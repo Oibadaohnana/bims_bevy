@@ -5,6 +5,7 @@
 pub mod builder;
 pub mod designer;
 pub mod game;
+pub mod hud;
 pub mod station;
 pub mod worldmap;
 

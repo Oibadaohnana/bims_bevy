@@ -1136,22 +1136,68 @@ one — so a start is rarely far from somewhere to go.
 
 ### Speed, and who decides
 
-Pause, 1×, 3×, 10×, 24× and 48×, beside the day and the clock at the top left.
+Pause, 1×, 3×, 10×, 24× and 48×, on the keys — **Space** and **1** to
+**5**, with no buttons for them on the screen since the HUD was cut down
+(feature 107); the top frame says **Paused** while the world is.
 **Every player has a request and the slowest one wins**; a pause by anybody
 is a pause. That is not a compromise, it is the point: the player who needs
 it slow is the player something is going wrong for, and nobody is ever
-carried past something they wanted to look at. The button held down is
-what you asked for and the one coloured is what is actually happening, and
-with more than one player each one's request is listed under, so being
-held at 1× is never a mystery.
+carried past something they wanted to look at.
 
-The rest of the screen: the **Inventory** down the left, the crew's money
-at its head and what is aboard under it by where it is kept; the readout
-under that, and the agendas; the crew member picked on the right; the tray
-at the bottom with its tabs — the crew's own, then View, Research, Skills,
-Build where the shipyard is on, and **Ship**, the ship's facts — and the
-Station button beside them while there is a station; what just happened,
-at the bottom right; and *Back to ship* at the very bottom right.
+### The HUD
+
+The screen over the deck is kept to what a player needs to act on in the
+next few seconds (feature 107); everything else is a key or a button away.
+
+- **Top left, the crew's portraits**: one cell each, players and bots, eight
+  to a row — the initial (and the number a bot is named by), a thin health
+  bar with the armour's blue on the end of the green, and the level under
+  it, `–` for no class. Your own is outlined in the green; a tick in the
+  corner is a player who has pressed *Back to ship*, a red cross one who is
+  down, and a greyed cell saying **out** is dead, or a player's Bim waiting
+  to be bought back. Click a cell to pick that Bim as a click on it on the
+  deck would; click your own twice for the character sheet.
+- **Top centre, one frame**: the day, the pool, the bounty waiting on the
+  place being cleared (`+€ n on clear`, while there is any), and **the one
+  warning that matters most** — the machines' wave or the countdown to the
+  next, then the alarm, then a blade at your Bim, then being recruited,
+  then your standing order to the crew — with `+2` for however many more
+  are up; rest on it for all of them. **Paused** beside it while the world is.
+- **Bottom centre, the hero panel** — your own Bim: the level in a circle
+  ringed by how far through it you are, the health bar, the experience
+  (`Lv 4 · 50 / 250 XP`, `Max` at the tenth, *No class* without one), the
+  class's keys and the medicine as boxes, a **+1** while a talent is waiting
+  to be picked (it opens the character sheet), and a line saying what is
+  taking the Bim down while anything is. Down, the panel greys over and
+  says so, with the time the blood has left.
+- **Bottom left, the tray**: **Stash** (Tab) — what the ship holds, then
+  what each of the crew carries, with *Open pack* for your own whole pack
+  and what is within reach — **Squad**, every bot with its class, level and
+  health and the orders the crew take (Attack, Retreat, Follow me, and a
+  commander's Fall back and Stand ground), and **Map**, the world map as
+  **M** is; and **Trade** while the ship is at a desk. The panel of the one
+  pressed opens upwards; pressing it again folds it away.
+- **The character sheet** — **K** — on the left: the class and level with
+  the experience, the class picker while it may still be changed, each
+  part's health, what is worn with its tier and what is left of it, the
+  weapon and its tier, and the talent tree, where a level's pick is spent.
+- **Bottom right**, *Back to ship* — `Returning · 1 / 2` once pressed, the
+  players aboard who have pressed it of the players the ship waits for —
+  and what just happened directly over it, four lines at most, each gone
+  eight seconds after it came; experience comes in a line a source a second.
+- **Right**, the panel of a crewmate you have picked: its health, its
+  perils and its sheet. Your own is the hero panel's and the character
+  sheet's, so it has none.
+- Rest the pointer on the deck and a small readout beside it names what
+  is under it and the tile.
+
+A player whose Bim is **out** watches the mission through a crewmate's —
+the portraits pick whose — under a *You're out* banner with the buyback's
+price and the pool, and has no hero panel and a tray of the Map alone.
+What the ship view draws over the ship — the plain deck or the
+electricity — is on the Esc sheet's menu. The Work, Management, Build,
+Research and Ship tabs are gone from the HUD, and the crew keep to what
+they were left on.
 
 ### Trading
 
@@ -1243,7 +1289,7 @@ chains it was written to keep honest: with one recipe left there is no
 chain to print money along, and every book value is a number somebody
 chose.
 
-The shelf is a window — **Station** on the tray, docked, opens it in the
+The shelf is a window — **Trade** on the tray, docked, opens it in the
 middle of the screen and the cross, Escape or leaving shuts it — and
 what is *on* it is two rules deep. The kind's is the ceiling: nothing at
 a derelict — there is nobody aboard to sell it. Under that each station
@@ -1310,7 +1356,7 @@ works and fights like the rest.
 
 Every station keeps a **trading desk** just inside its port — a wooden
 counter with a ledger and a terminal on it, against the corridor's north
-wall. The station is traded with across it: **Station** on the tray still
+wall. The station is traded with across it: **Trade** on the tray still
 opens the shelf, but the rows are live only while the Bim you steer
 stands within two tiles of the desk, and until then the window says so
 and offers **Walk over**. Right-clicking the desk itself gives the same
@@ -1364,7 +1410,7 @@ pointing.
 
 The camera is **head up in both by default**: the ship held square to the
 window, the deck the way it was laid out, and the sky and the map turned
-round it instead. **North up** (the View tab, or `N`) is the other choice:
+round it instead. **North up** (`N`) is the other choice:
 the camera never turns and it is the ship that turns on screen.
 
 The ship view **follows the crew member you steer**: your Bim is what sits
@@ -1720,28 +1766,29 @@ however near he stands. Ten levels — 100, 250, 450, 700, 1 000,
 shape for every class: the first, third and seventh are fixed, and every
 other level is a **pick of two talents**, never changed once made.
 
-**A level is spent on the Skills tab.** The class's ten levels are a tree
-in the panel at the foot of the window, numbered down the left: a level
+**A level is spent on the character sheet** (**K**, feature 107; it was
+the tray's Skills tab). The class's ten levels are a tree
+on the sheet, numbered down the left: a level
 with nothing to choose is one slot across the width, a pick level is two
 side by side, and over the tree is how many **skill points** are waiting
 — one for every level reached that has not been chosen at. A slot
 learnt is filled in, one given up is struck through, one open is ringed,
 and one at a level you have not reached is dark. Click a slot and the
-column beside the tree says what it does — and **what it is worth in
+lines under the tree say what it does — and **what it is worth in
 numbers**: what the figure is now and what it becomes, a sentry's 60
 health to 90, a heal beam's 6 tiles to 9, a grenade's 2-second fuse to
 1, so the choice between a level's two slots is a choice between two
 numbers. A slot that is open has the
 *Learn* button on it, which spends the point and cannot be undone.
-Reaching a level opens the tray on that tab, and so does opening a game
-with a point already waiting; nothing is learnt until it is spent, and
+While a point is waiting the hero panel carries a **+1**, which opens the
+sheet; nothing opens by itself, nothing is learnt until it is spent, and
 the choice waits as long as you like.
 
-**What the two keys do is drawn at the foot of the screen**: a box each
+**What the two keys do is drawn on the hero panel**: a box each
 for **Q** and **E**, with the key in one corner, the picture of what it
 does in the middle, **how many are left** in the other — kits and
 grenades in the pack, sentries the talents allow standing, beams free to
-link, the squad's size — and the name under it. Resting on a box says
+link, the squad's size. Resting on a box names it and says
 what the key does. A box is lit while the key would be taken and dim
 while it would not: the cooldown counts down over the picture, the
 surge's charge is a bar along the foot, and a key not learnt yet says the
@@ -2124,10 +2171,11 @@ opens on the same ship on every machine.
 ## The crew
 
 Every player steers one Bim, and the rest of the crew are bots. Their
-names are written over their heads on the deck, each has an agenda down
-the left, and the one you have selected has its health and its crew sheet
-down the right — `1` or a drag to select, right-click the deck to move,
-`r` to recruit, and the tray at the bottom left. The panels are one
+names are written over their heads on the deck and their portraits are
+at the top left, and a crewmate you have selected has its health and its
+crew sheet down the right — a click, a portrait or a drag to select,
+right-click the deck to move, `r` to recruit, and the tray at the bottom
+left ([The HUD](#the-hud)). The panels are one
 module, `crates/app/src/crew.rs`. In the simulation the crew is one Bim,
 James; in `droids` it is sixteen.
 
@@ -2152,7 +2200,9 @@ buffer has been replayed, not carried across in it.
 **Clicking a Bim selects it, and selecting is what puts its panels on the
 right-hand side**: its health, and a character sheet under it. One at a
 time, and nothing at all when nothing is picked — the right-hand side
-answers *who am I looking at*, not *what is everybody up to*.
+answers *who am I looking at*, not *what is everybody up to*. Your own
+Bim, which is picked from the start, has no panel there: it is the hero
+panel's and the character sheet's (feature 107).
 
 **Selecting is looking at, not taking charge of.** Any of them can be
 picked; in peace only your own takes your orders. Click a crewmate,
@@ -2328,6 +2378,12 @@ dressing sitting at 32% while the walk it was interrupted by runs at the top.
 The panel hides itself when there is nothing on.
 
 ## The Management tab
+
+> **Gone from the HUD** (feature 107), with the Work, Build, Research,
+> View and Ship tabs beside it: the crew keep to what they were left on —
+> autonomy on, gear not combined by itself, nothing kept made, every job
+> at 3, nothing queued for research — and what follows is what the tab
+> did while it was there.
 
 **Management** in the tray is what the crew keep doing of their own
 accord, and three things are on it: the **autonomy** box, whether the
@@ -2841,12 +2897,11 @@ written over them.
 
 The page around it is arranged the same way: nothing is framed. The deck runs to
 the edge of the window, the canvas carries no border of its own, and every panel
-sits flush in a corner of it — the readout and the agendas top left, the
-selected Bim's health and crew sheet top right, the tray in the bottom-left
-corner. A rounded box drawn
-round the whole interface reads as a window frame inside a window, which is one
-frame too many; only the header, with the name and the clock, sits above the
-deck rather than on it.
+sits flush in a corner of it — the portraits and the top frame along the
+top, a picked crewmate's health and crew sheet on the right, the hero panel
+at the foot, the tray in the bottom-left corner ([The HUD](#the-hud)). A
+rounded box drawn round the whole interface reads as a window frame inside
+a window, which is one frame too many.
 
 The tray is the exception to everything being small. It is set a size larger
 than the rest — wider, and bigger type — because what is in it, the work
@@ -2928,9 +2983,10 @@ And in `crates/app/src/`:
 | `main.rs` | Every command, and the screen state machine |
 | `screens/builder.rs` | The menu, the setup screen and the lobby, with the World tab |
 | `screens/designer.rs` | The design phase, and the `Net` seam every edit goes through |
-| `screens/game.rs` | The game: the deck, the map, the station, the ship's facts |
+| `screens/game.rs` | The game: the deck, the map, the station |
+| `screens/hud.rs` | The HUD (feature 107): the portraits, the top frame and its warning, the hero panel, the log |
 | `screens/worldmap.rs` | The world map: where a trip can go, the vote on one, *Back to ship* |
-| `crew.rs` | The crew's panels: the sheet, the agendas, the tray, the menus on a door or a body |
+| `crew.rs` | The crew's panels: the side panel, the character sheet, the tray, the menus on a door or a body |
 | `names.rs` | Every word on the screen, indexed by the codes the crates hand over |
 | `shapes.rs` | The shape buffer, turned into triangles |
 | `sound.rs` | Every sound, the way `names.rs` is every word: the room's cues and the world's events played as clips cut from `Sounds/` |

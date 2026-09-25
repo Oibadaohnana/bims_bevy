@@ -69,8 +69,9 @@ const AIRLOCK_EASE: f32 = 0.18;
 /// the map is first opened.
 const MAP_FIT: f32 = 0.8;
 
-/// What the ship view is drawn to show, over and above the ship: the tray's
-/// View tab. A view setting like `Game::head_up` — this window's own, read
+/// What the ship view is drawn to show, over and above the ship: the Esc
+/// sheet's View toggle (the tray's View tab until feature 107). A view
+/// setting like `Game::head_up` — this window's own, read
 /// by the painter and by nothing that decides anything.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Overlay {
@@ -109,14 +110,14 @@ pub struct Game {
     /// instead. A view setting and nothing else — the heading is what it is,
     /// and nothing that decides anything reads this. On by default (feature
     /// 65): the ship square to the window is the view the game opens on,
-    /// and North up on the View tab, or `N`, is the fixed sky that makes a
+    /// and North up, `N`, is the fixed sky that makes a
     /// flip legible; see `camera.rs`.
     pub head_up: bool,
     /// Whether the player is marking rocks: the Actions tab's Mine tool is
     /// on, so a rock under the pointer is rung. A tool setting, this
     /// window's own; a mark itself is a command and crosses the seam.
     pub marking: bool,
-    /// What the ship view is showing over the ship — the tray's View tab.
+    /// What the ship view is showing over the ship — the Esc sheet's View toggle.
     /// A view setting like `head_up`, this window's own.
     pub overlay: Overlay,
     /// The part the player is about to lay out, and which way round: the
@@ -136,6 +137,11 @@ pub struct Game {
     /// panel tethers both; a view setting like `head_up`, this window's
     /// own, and nothing that decides anything reads it.
     pub follow: bool,
+    /// Whom the cameras follow in place of the crew member the player
+    /// steers: a crewmate, while the player's own Bim is out and waiting
+    /// to be bought back (feature 107). A view setting like `follow`,
+    /// this window's own, and nothing that decides anything reads it.
+    pub spectate: Option<u32>,
     /// Where in the system the middle of a map let go is held: the map's
     /// camera is measured from the ship, so a focus left alone would fly
     /// with it, and a planet zoomed in on would slide off as the ship set
@@ -228,6 +234,7 @@ impl Game {
             hover: None,
             head_up: true,
             follow: false,
+            spectate: None,
             map_anchor: DVec2::ZERO,
             marking: false,
             overlay: Overlay::default(),
@@ -271,6 +278,7 @@ impl Game {
             hover: None,
             head_up: true,
             follow: false,
+            spectate: None,
             map_anchor: DVec2::ZERO,
             marking: false,
             overlay: Overlay::default(),
@@ -367,7 +375,7 @@ impl Game {
             return;
         }
         self.map_view.set_focus(0.0, 0.0);
-        let who = self.local;
+        let who = self.spectate.unwrap_or(self.local);
         if who >= self.world.aboard.count() {
             return;
         }
@@ -437,7 +445,7 @@ impl Game {
     pub fn centre_on_player(&mut self) {
         self.map_view.recentre(0.0, 0.0);
         self.map_anchor = self.world.ship.position();
-        let who = self.local;
+        let who = self.spectate.unwrap_or(self.local);
         if who >= self.world.aboard.count() {
             return;
         }

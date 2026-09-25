@@ -2,9 +2,9 @@
 //! rather than about the deck they are standing on — the room aboard,
 //! stepped by the world.
 //!
-//! The selected crew member's health and diary, the agendas, the tray with
-//! the work list and the management row, the fixture menus, and the
-//! tooltips everything hangs off. What is *not* here is the canvas and the
+//! The selected crew member's health and diary, the tray with its Stash
+//! and Squad (feature 107), the character sheet, the fixture menus, and
+//! the tooltips everything hangs off. What is *not* here is the canvas and the
 //! pointer, because those are the screen's own — the ship turns the deck
 //! with the hull — and the screen hands the room its coordinates.
 //!
@@ -53,13 +53,12 @@ use bims::order::CrewOrder;
 use bims::room::*;
 use bims::{door, health};
 use physics::ResourceId;
-use ship::game::Overlay;
 use shipdesign::parts::PartKind;
-use shipdesign::research::{KEY_CELLS, NODES, Node};
+use shipdesign::research::KEY_CELLS;
 use shipdesign::{CARGO_SLOTS, Storage};
 use world::{FetchKind, Grid, Kept, LootSource};
 
-use crate::format::{clock_text, date_text, ordinal, span_text};
+use crate::format::{clock_text, date_text, span_text};
 use crate::grid::{self, Cell};
 use crate::icons;
 use crate::keys::{Action, Keys};
@@ -96,10 +95,11 @@ fn container_dims(class: Storage) -> (usize, usize) {
     }
 }
 
-/// Where a container window sits: to the right of the left-hand stack,
-/// under the strip along the top. The inventory pop-up goes beside it
-/// while one is open.
-const CONTAINER_AT: egui::Vec2 = egui::vec2(290.0, 60.0);
+/// Where a container window sits: right of the character sheet and under
+/// the portraits and the top frame (feature 107; it was right of the
+/// left-hand stack and under the strip). The inventory pop-up goes
+/// beside it while one is open.
+const CONTAINER_AT: egui::Vec2 = egui::vec2(370.0, 150.0);
 
 /// The hold, as the panels see it: a snapshot the screen hands over
 /// every frame, `None` only before the world has opened. Counts and reach are by `ResourceId`; the pieces are the armour in the
@@ -307,6 +307,9 @@ pub struct ClassView {
     pub class: world::Class,
     pub level: u8,
     pub to_next: u32,
+    /// The experience itself, whole (feature 107): what the character
+    /// sheet and the hero panel read the level's progress off.
+    pub xp: u32,
     pub pending: Option<(u8, world::Talent, world::Talent)>,
     /// Every pick made, level and side, in level order — what the Skills
     /// tree draws as taken and as given up (feature 83). The talents
@@ -407,44 +410,54 @@ enum HoldCell {
     Stack(ResourceId),
 }
 
-/// Which fixture each job on the work list is about, so resting on a row
-/// rings the place it happens — every fixture of that kind, since a row
-/// names a kind: every bench for the carry between them and for the making.
-/// Indexed by `work::Job` code; the test below pins the length.
-const WORK_SPOTS: [u32; 4] = [
-    SPOT_BENCH,
-    SPOT_BENCH,
-    // A site is wherever it was laid out; nothing fixed to ring.
-    SPOT_NOTHING,
-    // A patient is wherever it fell, and a ring round a body would be a
-    // selection; nothing fixed to ring.
-    SPOT_NOTHING,
-];
+/// Which of the tray's two panels is up (feature 107). The tray is its
+/// row of buttons and nothing else until one of these is pressed; its
+/// Map and Trade buttons are the screen's windows, not panels here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TrayTab {
+    /// What the ship holds, then what each crew member carries.
+    Stash,
+    /// The bots, and the orders that move them.
+    Squad,
+}
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    Work,
-    Management,
-    /// What the selected crew member has on it: the armour slots and
-    /// the weapon, with its numbers.
-    Inventory,
-    /// What the ship view is drawn to show over the ship: the plain deck,
-    /// or the electricity.
-    View,
-    /// Parts to lay out for the crew to build, by category, with a search
-    /// box over them; and the sites laid out so far. Only while the
-    /// shipyard is on (feature 102).
-    Build,
-    /// The research tree: what the crew know, what the AI is on, and what
-    /// a key would open.
-    Research,
-    /// The skills tree (feature 83): your own crew member's class, level
-    /// by level, with the points a level's choice leaves to spend.
-    Skills,
-    /// The ship's facts, drawn by the screen: the tray lays out the tabs
-    /// and leaves the body to the caller, since everything on it is the
-    /// world's rather than the room's.
-    Ship,
+/// What the tray is handed each frame that the room alone does not know.
+pub struct TrayView {
+    /// How many of the room are the crew: the rest are the station's
+    /// people, whose packs are nobody's to count.
+    pub crew: u32,
+    /// Docked at a site with somebody behind a desk: the Trade button.
+    pub shop: bool,
+    /// The player's own Bim is out: the tray is its Map button alone.
+    pub out: bool,
+    /// Every bot, as the portraits show them, for the Squad panel.
+    pub bots: Vec<crate::screens::hud::Portrait>,
+    /// The player's standing order to the crew — `world::Standing::code`.
+    pub standing: u32,
+    /// The player steers a commander, whose squad has two orders that
+    /// want no target: fall back and stand ground.
+    pub commander: bool,
+}
+
+/// What a press in the tray asked the screen for: a window of its own, or
+/// an order it sends the way the key would have.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TrayAsk {
+    /// The world map, as M.
+    Map,
+    /// The trade window.
+    Trade,
+    /// An attack banner, as F: the pointer armed, or a banner taken up.
+    Attack,
+    /// The crew called back to the ship, as T.
+    Retreat,
+    /// Whatever the crew are under let go, so they follow again.
+    Follow,
+    /// The commander's squad called back to him, as X with the pointer
+    /// on nothing.
+    FallBack,
+    /// The commander's squad held where it stands, as Z.
+    StandGround,
 }
 
 /// How wide [`CrewPanels::side`] draws itself once somebody is picked:
@@ -452,8 +465,7 @@ enum Tab {
 /// nothing, in one row. The width is the panel's own rather than each
 /// screen's, so the two agree and so a screen can leave the strip it
 /// anchors in the right size — the game's is [`SIDE_W`] plus its
-/// margins. Nothing is set while the panel is empty: "Click a Bim to
-/// look at it." wants a box its own size.
+/// margins. With nobody picked there is no panel at all (feature 107).
 pub const SIDE_W: f32 = 340.0;
 
 /// The side panel's bars — health's, the parts' and the blood's. Wide,
@@ -568,30 +580,78 @@ fn death_line(game: &Game, w: usize) -> &'static str {
     }
 }
 
-/// How wide the Skills tree's detail column is: it stands to the *right*
-/// of the tree rather than under it, so picking a slot can never shove
-/// the tree up from under the pointer — the row is as tall as the tree
-/// whatever is written beside it.
-const DETAIL_WIDTH: f32 = 320.0;
-/// The gap between the tree and the column beside it.
-const SKILL_DETAIL_GAP: f32 = 16.0;
+/// Whether `w`'s health is drawn in the red rather than the green: dead,
+/// or something taking it down — the side panel's own rule, for the
+/// portraits and the hero panel to read the same way (feature 107).
+pub fn is_hurt(game: &Game, w: usize) -> bool {
+    !game.is_alive(w) || !perils(game, w).is_empty()
+}
 
-/// The Skills tree's geometry: the numbered gutter down the left, a
+/// The worst of what is taking `w` down, in one line for the hero panel
+/// (feature 107): the peril block's headline and its countdown — or, for
+/// a dying state that is not bleeding, the trauma and that it holds.
+/// `None` while nothing is. The colour is the block's: the cross's red
+/// for a body that is dying, the caution colour for one only bleeding.
+pub fn peril_summary(game: &Game, w: usize) -> Option<(String, egui::Color32)> {
+    if !game.is_alive(w) {
+        return None;
+    }
+    let grave = game.is_dying(w);
+    if let Some(peril) = perils(game, w).into_iter().next() {
+        let head = if grave { PERIL_HEAD } else { PERIL_HEAD_HURT };
+        let left = peril.minutes.map(span_text);
+        return Some((
+            peril_short(head, peril.cause, left.as_deref()),
+            if grave { theme::DYING } else { theme::CAUTION },
+        ));
+    }
+    if grave {
+        let trauma = health::Part::ALL
+            .into_iter()
+            .find_map(|part| game.trauma(w, part))?;
+        return Some((peril_stable_short(trauma_name(trauma.code())), theme::DYING));
+    }
+    None
+}
+
+/// How wide the character sheet is (feature 107): the talent tree across
+/// it, and everything else in a column the same width, on the left of
+/// the canvas where it has to leave the hero panel room at 1280 wide.
+pub const SHEET_W: f32 = 330.0;
+/// What the sheet's head takes before its scrolling body: the title, the
+/// experience bar and its line, and the frame round them.
+const SHEET_HEAD: f32 = 74.0;
+
+/// The tray's panels (feature 107): as wide as the tray may grow before
+/// the hero panel beside it would be pushed into the bottom right at
+/// 1280 wide, and how tall its list may grow before it scrolls.
+const TRAY_W: f32 = 330.0;
+const TRAY_PANEL_H: f32 = 230.0;
+/// A tray button.
+const TRAY_BUTTON_W: f32 = 62.0;
+const TRAY_BUTTON_H: f32 = 32.0;
+/// A bot's health bar on the Squad panel.
+const SQUAD_BAR_W: f32 = 90.0;
+/// A thing's cell on the Stash panel.
+const STASH_CELL: f32 = 28.0;
+
+/// The talent tree's geometry: the numbered gutter down the left, a
 /// slot's box, and the gaps between them. A fixed level's box is two of
-/// [`SKILL_BOX_W`] and the gap wide; a pick level's two are one each.
+/// [`SKILL_BOX_W`] and the gap wide; a pick level's two are one each —
+/// the whole [`SHEET_W`] across.
 const SKILL_GUTTER: f32 = 32.0;
-const SKILL_BOX_W: f32 = 165.0;
-const SKILL_BOX_H: f32 = 30.0;
+const SKILL_BOX_W: f32 = (SHEET_W - SKILL_GUTTER - SKILL_GAP_X) / 2.0;
+const SKILL_BOX_H: f32 = 28.0;
 const SKILL_GAP_X: f32 = 10.0;
-const SKILL_GAP_Y: f32 = 8.0;
+const SKILL_GAP_Y: f32 = 6.0;
 
-/// The Skills tab's type: a few points over the panels' small text,
-/// since a tree of seventy talents and what each is worth is read rather
-/// than glanced at.
+/// The tree's type: a few points over the panels' small text, since a
+/// tree of seventy talents and what each is worth is read rather than
+/// glanced at.
 const SKILL_TEXT: f32 = 13.5;
 /// The type in a slot's box.
-const SKILL_BOX_TEXT: f32 = 13.0;
-/// The picked slot's name over the column beside the tree.
+const SKILL_BOX_TEXT: f32 = 12.5;
+/// The picked slot's name under the tree, and the sheet's title.
 const SKILL_NAME_TEXT: f32 = 17.0;
 
 /// How big the tree comes out: ten levels down, two slots across.
@@ -694,120 +754,11 @@ fn skill_numbers(class: world::Class, slot: Slot) -> String {
     }
 }
 
-/// A tool the pointer is holding, picked on the Build tab. One at a time,
-/// and none is the ordinary pointer. There was a `Mine` beside it until
-/// the money rework (feature 95) took the mining away.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tool {
-    /// Laying out a part of this kind: a blueprint follows the pointer, `R`
-    /// turns it, and a click lays it down as a construction site for the
-    /// crew to carry to and build.
-    Build(PartKind),
-}
-
-/// One thing the benches make, for the Management tab's table: what
-/// it is, how many are aboard, where they are kept, the standing order to
-/// keep that many made, and the most the hold could take.
-pub struct Craft {
-    pub resource: ResourceId,
-    pub held: u32,
-    pub target: u32,
-    pub most: u32,
-    pub kept_in: &'static str,
-    /// The recipe in words, for the tooltip.
-    pub recipe: String,
-    /// The node of the research tree the recipe waits on, while it is not
-    /// researched: the row is greyed and says so.
-    pub needs: Option<u32>,
-}
-
-/// What the Actions tab has to know that the room does not: whether the
-/// ship is at a mining site and how many rocks are marked, and — going the
-/// other way — that the marks are to be cleared.
-pub struct Actions {
-    /// And what the View tab shows over the ship. Read in and written
-    /// back, like `clear`.
-    pub overlay: Overlay,
-    /// What the benches make, for the Management tab, and — going the
-    /// other way — the targets changed there this frame, as `Order::Keep`s
-    /// to be.
-    pub crafts: Vec<Craft>,
-    pub keep: Vec<(ResourceId, u32)>,
-    /// Whether anything is built onto the ship at all (feature 102,
-    /// `World::shipyard_enabled`): off in a run, and the Build tab with it.
-    pub shipyard: bool,
-    /// The Build tab: what the pool has left after the sites already
-    /// begun (feature 95); the sites laid out; and — going the other way —
-    /// the sites to be called off.
-    pub free_money: economy::Money,
-    pub sites: Vec<Site>,
-    pub cancel: Vec<u32>,
-    /// The camera, for the View tab: which way is up, and whether it
-    /// follows the crew member you steer. Read in and written back.
-    pub head_up: bool,
-    pub follow: bool,
-    /// Whether the ship is docked, which is when there is a station to
-    /// trade with; and — going the other way — that the Station button
-    /// was pressed this frame.
-    pub docked: bool,
-    pub station: bool,
-    /// The Research tab: the tree as the crew stand in it; and — going
-    /// the other way — what was asked of the AI this frame.
-    pub research: ResearchView,
-    pub research_orders: Vec<ResearchOrder>,
-    /// The workbench's upgrade: whether the crew combine matching gear —
-    /// `World::auto_upgrade` — and, going the other way, the box ticked or
-    /// unticked this frame; and what is on the bench, for the line under it.
-    pub auto_upgrade: bool,
-    pub set_auto_upgrade: Option<bool>,
-    pub upgrade: Option<UpgradeView>,
-}
-
-/// What is on the workbench being upgraded, as the Management tab says it:
-/// a snapshot off `World::upgrade`.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct UpgradeView {
-    pub resource: ResourceId,
-    /// The tier it comes out at, as `Tier::code`.
-    pub tier: u32,
-    /// Sessions done, of `of` — hours of a day.
-    pub done: u32,
-    pub of: u32,
-    /// Done, and waiting for room in the lockers.
-    pub waiting: bool,
-}
-
-/// The research tree, as the panels see it: a snapshot the screen hands
-/// over every frame off `World::research`.
-#[derive(Clone, Default)]
-pub struct ResearchView {
-    /// By `Node` code.
-    pub done: [bool; NODES],
-    /// By `Node` code: could be begun now.
-    pub available: [bool; NODES],
-    /// By `Node` code: waiting on its tier's key and nothing else.
-    pub needs_key: [bool; NODES],
-    /// By `Node` code: a locked node whose key has been consumed.
-    pub unlocked: [bool; NODES],
-    /// By `Node` code: could be queued now — not known, on the AI or
-    /// queued already, and nothing it needs still behind a key.
-    pub queueable: [bool; NODES],
-    /// What the AI is on, and how far, nought to one.
-    pub current: Option<u32>,
-    pub fraction: f64,
-    /// What it goes onto next, in order, as `Node` codes.
-    pub queue: Vec<u32>,
-    /// A research desk aboard, and running.
-    pub desk: bool,
-    pub powered: bool,
-    /// Keys in the crew's own desk, by tier: `keys[0]` tier one, `keys[1]`
-    /// tier two.
-    pub keys: [u32; 2],
-    /// Whether each part may be laid out, by `PartKind` code.
-    pub parts: Vec<bool>,
-}
-
-/// What the Research tab asked for.
+/// What the Research tab asked for. The tab went with the minimal HUD
+/// (feature 107) and nothing sends one now, but the order is still a word
+/// the wire knows (`Order::Research`), so it stays until the protocol is
+/// next moved for a reason of its own.
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ResearchOrder {
     /// Queue a node for the AI — `Command::Research`; it begins at once
@@ -819,26 +770,6 @@ pub enum ResearchOrder {
     Dequeue(u32),
     /// Consume the key in the desk to open a locked node — `Command::Unlock`.
     Unlock(u32),
-}
-
-/// One construction site, for the Build tab's list: what and where, how
-/// much of what it is made of has been carried to it in words, and whether
-/// all of it has.
-pub struct Site {
-    pub id: u32,
-    pub kind: PartKind,
-    pub at: (u32, u32),
-    pub progress: String,
-    /// Whether the crew can afford it: its price is inside what the pool
-    /// has left after the sites already begun (feature 95).
-    pub affordable: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Sort {
-    Up,
-    Down,
-    Name,
 }
 
 /// An open fixture menu: which fixture, and where on the window it was
@@ -907,25 +838,20 @@ pub struct CrewPanels {
     /// The one the mouse steers.
     pub player: usize,
     pub crew_count: u32,
-    tray_open: bool,
-    tab: Tab,
-    /// The tool the pointer is holding, if any. See [`Tool`].
-    pub tool: Option<Tool>,
-    /// The character sheet's page, per crew member: `true` for the diary.
+    /// The tray's panel that is up, if one is (feature 107): collapsed to
+    /// its buttons by default.
+    tray: Option<TrayTab>,
+    /// Whether the character sheet is up (feature 107): K, the `+1` on the
+    /// hero panel, or the player's own portrait twice.
+    pub sheet_open: bool,
+    /// The side panel's page, per crew member: `true` for the diary.
     diary_open: Vec<bool>,
-    sort: Option<Sort>,
     /// The spot the pointer's row rang last frame, and the one the rows
     /// hovered this frame want.
     ringed: u32,
     wanted: u32,
     menu: Option<Menu>,
-    /// The Build tab: what is typed in its search box, and which category
-    /// is open — `None` for the list of categories.
-    search: String,
-    open_group: Option<usize>,
-    /// The Research tab: the node picked, whose details are under the tree.
-    research_pick: Option<Node>,
-    /// The Skills tab: the slot picked, whose details are under the tree
+    /// The talent tree: the slot picked, whose details are under the tree
     /// (feature 83). Cleared when the class changes under it.
     skill_pick: Option<Slot>,
     /// The inventory pop-up: up from the Inventory key or a container
@@ -982,7 +908,7 @@ pub struct CrewPanels {
     /// What the rows and the ctrl-clicks asked for this frame, for the
     /// screen to send. Drained by it.
     pub orders: Vec<GearOrder>,
-    /// What the menus and the Management tab asked of the room this frame
+    /// What the menus and the rows asked of the room this frame
     /// — `bims::order::CrewOrder`s — for the screen to send through the
     /// seam. Nothing in here reaches into the room itself, since the
     /// crew's positions are every player's to agree on (feature 59).
@@ -998,17 +924,12 @@ impl CrewPanels {
         CrewPanels {
             player,
             crew_count,
-            tray_open: true,
-            tab: Tab::Work,
-            tool: None,
+            tray: crate::dev::tray(),
+            sheet_open: crate::dev::sheet(),
             diary_open: vec![false; crew_count as usize],
-            sort: Some(Sort::Up),
             ringed: SPOT_NOTHING,
             wanted: SPOT_NOTHING,
             menu: None,
-            search: String::new(),
-            open_group: None,
-            research_pick: None,
             skill_pick: None,
             inventory_open: false,
             hold: None,
@@ -1053,15 +974,6 @@ impl CrewPanels {
     }
 
     // --- pointing at the thing itself ---------------------------------------
-
-    /// Ring `spot` on the deck while the pointer is on `response`. Rows are
-    /// drawn outer first, so a cell inside a row that points somewhere else
-    /// wins by coming later.
-    pub fn points(&mut self, response: &egui::Response, spot: u32) {
-        if response.hovered() && spot != SPOT_NOTHING {
-            self.wanted = spot;
-        }
-    }
 
     /// Call once a frame, before any panel: nothing wants a ring yet.
     pub fn begin_frame(&mut self) {
@@ -1252,6 +1164,8 @@ impl CrewPanels {
             self.menu = None;
         } else if self.open.is_some() {
             self.open = None;
+        } else if self.sheet_open {
+            self.sheet_open = false;
         } else {
             return false;
         }
@@ -1754,6 +1668,17 @@ impl CrewPanels {
         }
     }
 
+    /// The crew member the side panel is about, when it is up at all
+    /// (feature 107): somebody the player has picked **other than their
+    /// own Bim**, which the hero panel and the character sheet already
+    /// say everything of — and which is picked from the start, so a panel
+    /// for it would stand over the deck the whole run.
+    pub fn inspected(&self, game: &Game) -> Option<u32> {
+        (0..self.crew_count).find(|&w| {
+            w as usize != self.player && game.is_selected(w as usize, self.player as u32)
+        })
+    }
+
     /// The selected crew member's panels: the health bars, the health lines
     /// and the character sheet. One at a time, and only when somebody is
     /// picked: the right-hand side answers "who am I looking at", not
@@ -1764,9 +1689,7 @@ impl CrewPanels {
         game: &mut Game,
         name: &dyn Fn(u32) -> String,
     ) -> bool {
-        let Some(who) =
-            (0..self.crew_count).find(|&w| game.is_selected(w as usize, self.player as u32))
-        else {
+        let Some(who) = self.inspected(game) else {
             return false;
         };
         let w = who as usize;
@@ -2152,160 +2075,403 @@ impl CrewPanels {
             });
     }
 
-    // --- the agenda -----------------------------------------------------------
-
-    /// One list per crew member with something on: the chain running, then
-    /// the ones waiting behind it. `true` when anything was drawn.
-    pub fn agendas(
-        &mut self,
-        ui: &mut egui::Ui,
-        game: &Game,
-        name: &dyn Fn(u32) -> String,
-    ) -> bool {
-        let mut drawn = false;
-        for who in 0..self.crew_count {
-            let w = who as usize;
-            let count = game.agenda_len(w);
-            if count == 0 {
-                continue;
-            }
-            drawn = true;
-            self.who_header(ui, who, name);
-            for i in 0..count {
-                let active = game.agenda_active(w, i) != 0;
-                let done = game.agenda_progress(w, i);
-                ui.horizontal(|ui| {
-                    theme::bar(
-                        ui,
-                        70.0,
-                        done,
-                        if active { theme::ACCENT } else { theme::MUTED },
-                    );
-                    ui.label(
-                        egui::RichText::new(job_name(game.agenda_job(w, i))).color(if active {
-                            theme::INK
-                        } else {
-                            theme::MUTED
-                        }),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!("{}%", (done * 100.0).round()))
-                            .small()
-                            .color(theme::MUTED),
-                    );
-                });
-            }
-        }
-        drawn
-    }
-
     // --- the tray ---------------------------------------------------------------
 
-    /// Bottom-left, the tabs — the work list, the management row and the
-    /// inventory, then the view to pick, the parts to build while there is
-    /// a shipyard, the research, the skills and the ship — and it folds
-    /// away. Docked, a Station button sits with the tabs: not a tab but a
-    /// press, which the screen answers with the trade window. True when the
-    /// Ship tab is open, whose body the caller draws under the tabs itself.
+    /// Bottom left (feature 107): a row of buttons — Stash, Squad, Map,
+    /// and Trade while the ship is at a desk — and over it the panel of
+    /// whichever of the first two is up. The open one's button again
+    /// folds it away. A player whose Bim is out has the Map button alone.
+    /// What was asked of the screen comes back, for it to do.
     pub fn tray(
         &mut self,
         ui: &mut egui::Ui,
-        game: &mut Game,
-        mut actions: Option<&mut Actions>,
+        game: &Game,
+        view: &TrayView,
         name: &dyn Fn(u32) -> String,
-    ) -> bool {
-        let mut tabs = vec![
-            (Tab::Work, "Work"),
-            (Tab::Management, "Management"),
-            (Tab::Inventory, "Inventory"),
-        ];
-        if let Some(actions) = actions.as_deref() {
-            tabs.push((Tab::View, "View"));
-            // Nothing is built onto the ship in a run (feature 102).
-            if actions.shipyard {
-                tabs.push((Tab::Build, "Build"));
-            } else if self.tab == Tab::Build {
-                self.tab = Tab::View;
-            }
-            tabs.push((Tab::Research, "Research"));
-            tabs.push((Tab::Skills, SKILLS));
-            tabs.push((Tab::Ship, "Ship"));
-        } else if matches!(
-            self.tab,
-            Tab::View | Tab::Build | Tab::Research | Tab::Skills | Tab::Ship
-        ) {
-            self.tab = Tab::Work;
+    ) -> Vec<TrayAsk> {
+        let mut asks = Vec::new();
+        if view.out {
+            self.tray = None;
         }
-        let docked = actions.as_ref().is_some_and(|a| a.docked);
-        let mut station = false;
+        // The panel first, over the buttons: the tray is anchored at its
+        // foot and grows upwards.
+        match self.tray {
+            Some(TrayTab::Stash) => {
+                self.stash(ui, game, view, name);
+                ui.separator();
+            }
+            Some(TrayTab::Squad) => {
+                self.squad(ui, view, &mut asks);
+                ui.separator();
+            }
+            None => {}
+        }
+        let keys = self.keys;
         ui.horizontal(|ui| {
-            for (tab, label) in tabs {
-                if theme::toggle(ui, self.tab == tab && self.tray_open, label).clicked() {
-                    self.tab = tab;
-                    self.tray_open = true;
+            let button = |ui: &mut egui::Ui, on: bool, word: &str, key: Option<Action>| {
+                let tip = match key {
+                    Some(action) => keyed(word, keys.key(action)),
+                    None => word.to_string(),
+                };
+                ui.add(
+                    theme::toggle_button(on, egui::RichText::new(word).strong())
+                        .min_size(egui::vec2(TRAY_BUTTON_W, TRAY_BUTTON_H)),
+                )
+                .on_hover_text(tip)
+            };
+            if !view.out {
+                for (tab, word, key) in [
+                    (TrayTab::Stash, TRAY_STASH, Some(Action::Inventory)),
+                    (TrayTab::Squad, TRAY_SQUAD, None),
+                ] {
+                    if button(ui, self.tray == Some(tab), word, key).clicked() {
+                        self.tray = if self.tray == Some(tab) {
+                            None
+                        } else {
+                            Some(tab)
+                        };
+                    }
                 }
             }
-            if docked
-                && ui
-                    .button("Station")
-                    .on_hover_text("Trade with the station")
-                    .clicked()
-            {
-                station = true;
+            if button(ui, false, TRAY_MAP, Some(Action::Map)).clicked() {
+                asks.push(TrayAsk::Map);
             }
-            let fold = if self.tray_open { "Hide" } else { "Show" };
-            if ui
-                .button(fold)
-                .on_hover_text(if self.tray_open {
-                    "Hide the panel"
-                } else {
-                    "Show the panel"
-                })
-                .clicked()
-            {
-                self.tray_open = !self.tray_open;
+            if view.shop && !view.out && button(ui, false, TRAY_TRADE, None).clicked() {
+                asks.push(TrayAsk::Trade);
             }
         });
-        if let Some(actions) = actions.as_deref_mut() {
-            actions.station = station;
-        }
-        if !self.tray_open {
-            return false;
-        }
-        ui.separator();
-        match self.tab {
-            Tab::Ship => return true,
-            Tab::Work => self.work(ui, game),
-            Tab::Management => self.management(ui, game, actions),
-            Tab::Inventory => {
-                let who = self.inventory_who(game);
-                self.inventory(ui, game, who, name);
-            }
-            Tab::View => {
-                if let Some(actions) = actions {
-                    self.view(ui, actions);
-                }
-            }
-            Tab::Build => {
-                if let Some(actions) = actions {
-                    self.build(ui, actions);
-                }
-            }
-            Tab::Research => {
-                if let Some(actions) = actions {
-                    self.research(ui, actions);
-                }
-            }
-            Tab::Skills => self.skills(ui),
-        }
-        false
+        asks
     }
 
-    /// Open the tray on the Skills tab: what a level of the player's own
-    /// (feature 83) does, rather than a window over the deck.
-    pub fn show_skills(&mut self) {
-        self.tab = Tab::Skills;
-        self.tray_open = true;
+    /// The Stash panel up, or folded away again — the Inventory key.
+    pub fn toggle_stash(&mut self) {
+        self.cell_menu = None;
+        self.tray = if self.tray == Some(TrayTab::Stash) {
+            None
+        } else {
+            Some(TrayTab::Stash)
+        };
+    }
+
+    /// The Stash (feature 107): what the ship holds — the hold's own
+    /// counts, a picture and a number each — and under it what each crew
+    /// member carries: the gun in hand, what is worn, and what is in the
+    /// pack. The player's own row opens the whole pack in its window,
+    /// where things are moved, put on and put away, and says what is
+    /// within reach of it as the window's strip does.
+    fn stash(
+        &mut self,
+        ui: &mut egui::Ui,
+        game: &Game,
+        view: &TrayView,
+        name: &dyn Fn(u32) -> String,
+    ) {
+        ui.set_max_width(TRAY_W);
+        let mut strip = None;
+        let mut open_pack = false;
+        egui::ScrollArea::vertical()
+            .id_salt("stash")
+            .max_height(TRAY_PANEL_H)
+            .min_scrolled_height(TRAY_PANEL_H)
+            .show(ui, |ui| {
+                theme::heading(ui, STASH_ABOARD);
+                let held: Vec<(ResourceId, u32)> =
+                    self.hold.as_ref().map_or_else(Vec::new, |hold| {
+                        ResourceId::ALL
+                            .iter()
+                            .filter_map(|&id| {
+                                let n = hold.counts[id as usize];
+                                (n > 0).then_some((id, n))
+                            })
+                            .collect()
+                    });
+                if held.is_empty() {
+                    ui.label(egui::RichText::new(STASH_EMPTY).small().color(theme::MUTED));
+                } else {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                        for (id, n) in held {
+                            stash_cell(ui, n, |p, r| icons::resource(p, r, id))
+                                .on_hover_text(format!("{} · {n}", resource_name(id)));
+                        }
+                    });
+                }
+                for who in 0..view.crew.min(game.crew_count()) {
+                    let w = who as usize;
+                    if !game.is_alive(w) {
+                        continue;
+                    }
+                    ui.add_space(4.0);
+                    let yours = w == self.player;
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(name(who)).strong().color(if yours {
+                            theme::YOURS
+                        } else {
+                            theme::INK
+                        }));
+                        if yours && ui.small_button(STASH_OPEN_PACK).clicked() {
+                            open_pack = true;
+                        }
+                    });
+                    let gear = game.gear(w);
+                    let mut things: Vec<(PackItem, u32)> = Vec::new();
+                    if let Some(weapon) = gear.weapon {
+                        things.push((PackItem::Weapon(weapon), 1));
+                    }
+                    for part in health::Part::ALL {
+                        if let Some(piece) = gear.worn(part) {
+                            things.push((PackItem::Armour(piece), 1));
+                        }
+                    }
+                    for (cell, item) in gear.pack.iter().enumerate() {
+                        if let Some(item) = *item {
+                            things.push((item, gear.count[cell].max(1)));
+                        }
+                    }
+                    if things.is_empty() {
+                        ui.label(
+                            egui::RichText::new(STASH_NOTHING)
+                                .small()
+                                .color(theme::MUTED),
+                        );
+                    } else {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                            for (item, n) in things {
+                                stash_cell(ui, n, |p, r| icons::icon(p, r, item))
+                                    .on_hover_text(tip_of(item, n));
+                            }
+                        });
+                    }
+                    if yours {
+                        strip = nearby_strip(ui, &self.nearby.clone(), self.open);
+                    }
+                }
+            });
+        if open_pack {
+            self.toggle_inventory();
+        }
+        self.follow_strip(strip);
+    }
+
+    /// The Squad (feature 107): the player's standing order to the crew
+    /// and the buttons that give the others — the same orders F and T
+    /// give, and a commander's two that want no target — then every bot
+    /// with its class, its level and its health.
+    fn squad(&mut self, ui: &mut egui::Ui, view: &TrayView, asks: &mut Vec<TrayAsk>) {
+        ui.set_max_width(TRAY_W);
+        let keys = self.keys;
+        let standing = orders_line(view.standing);
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(standing.unwrap_or(SQUAD_FOLLOWING))
+                    .strong()
+                    .color(if standing.is_some() {
+                        theme::ATTACK
+                    } else {
+                        theme::MUTED
+                    }),
+            );
+            theme::question_mark(ui, ORDERS_TIP);
+        });
+        ui.horizontal_wrapped(|ui| {
+            let order = |ui: &mut egui::Ui, word: &str, action: Option<Action>| {
+                let words = match action {
+                    Some(action) => keyed(word, keys.key(action)),
+                    None => word.to_string(),
+                };
+                ui.button(words).clicked()
+            };
+            if order(ui, SQUAD_ATTACK, Some(Action::Attack)) {
+                asks.push(TrayAsk::Attack);
+            }
+            if order(ui, SQUAD_RETREAT, Some(Action::Retreat)) {
+                asks.push(TrayAsk::Retreat);
+            }
+            if standing.is_some() && order(ui, SQUAD_FOLLOW, None) {
+                asks.push(TrayAsk::Follow);
+            }
+        });
+        if view.commander {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button(keyed(FALL_BACK, keys.key(Action::SquadFallBack)))
+                    .on_hover_text(FALL_BACK_TIP)
+                    .clicked()
+                {
+                    asks.push(TrayAsk::FallBack);
+                }
+                if ui
+                    .button(keyed(STAND_GROUND, keys.key(Action::SquadStandGround)))
+                    .on_hover_text(STAND_GROUND_TIP)
+                    .clicked()
+                {
+                    asks.push(TrayAsk::StandGround);
+                }
+                theme::question_mark(ui, SQUAD_TIP);
+            });
+        }
+        ui.separator();
+        if view.bots.is_empty() {
+            ui.label(
+                egui::RichText::new(SQUAD_NO_BOTS)
+                    .small()
+                    .color(theme::MUTED),
+            );
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .id_salt("squad")
+            .max_height(TRAY_PANEL_H)
+            .min_scrolled_height(TRAY_PANEL_H)
+            .show(ui, |ui| {
+                egui::Grid::new("squad-bots")
+                    .num_columns(4)
+                    .spacing([10.0, 4.0])
+                    .show(ui, |ui| {
+                        for bot in &view.bots {
+                            let ink = if bot.out { theme::MUTED } else { theme::INK };
+                            ui.label(egui::RichText::new(&bot.name).color(ink));
+                            ui.label(
+                                egui::RichText::new(bot_class_line(bot.class, bot.level))
+                                    .small()
+                                    .color(theme::MUTED),
+                            );
+                            theme::two_tone_bar(
+                                ui,
+                                SQUAD_BAR_W,
+                                bot.body,
+                                bot.armour,
+                                if bot.hurt { theme::BAD } else { theme::ACCENT },
+                                theme::ARMOUR,
+                            );
+                            let state = if bot.out {
+                                Some((PORTRAIT_OUT, theme::MUTED))
+                            } else if bot.downed {
+                                Some((DOWNED_WORD, theme::BAD))
+                            } else {
+                                None
+                            };
+                            match state {
+                                Some((word, colour)) => {
+                                    ui.label(egui::RichText::new(word).small().color(colour));
+                                }
+                                None => {
+                                    ui.label("");
+                                }
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+    }
+
+    // --- the character sheet -------------------------------------------------------
+
+    /// The character sheet up or shut — K, the hero panel's `+1`, the
+    /// player's own portrait twice.
+    pub fn toggle_sheet(&mut self) {
+        self.sheet_open = !self.sheet_open;
+    }
+
+    /// The character sheet (feature 107): the player's own Bim, on the
+    /// left of the canvas from `at` and no lower than `bottom` — the class
+    /// and the level with the experience, the class picker where the
+    /// class may still change, the health of each part of the body, what
+    /// is worn and what is in hand, and the talent tree the Skills tab
+    /// was. Nothing on it is worked out here that the side panel or the
+    /// inventory does not already read. The rectangle it took, `None`
+    /// while it is shut.
+    pub fn character_sheet(
+        &mut self,
+        ctx: &egui::Context,
+        game: &Game,
+        at: egui::Pos2,
+        bottom: f32,
+    ) -> Option<egui::Rect> {
+        if !self.sheet_open {
+            return None;
+        }
+        let view = self.class_view.clone().unwrap_or_default();
+        let w = self.player;
+        let keys = self.keys;
+        let mut shut = false;
+        let tall = (bottom - at.y).max(120.0);
+        let area = egui::Area::new(egui::Id::new("hud-sheet"))
+            .fixed_pos(at)
+            .order(egui::Order::Middle)
+            .show(ctx, |ui| {
+                theme::tray_frame().show(ui, |ui| {
+                    ui.set_width(SHEET_W);
+                    ui.horizontal(|ui| {
+                        let title = if view.class == world::Class::None {
+                            class_name(view.class).to_string()
+                        } else {
+                            sheet_title(class_name(view.class), view.level)
+                        };
+                        ui.label(
+                            egui::RichText::new(title)
+                                .size(SKILL_NAME_TEXT)
+                                .strong()
+                                .color(theme::INK),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .small_button(keys.key(Action::CharacterSheet).name())
+                                .on_hover_text(SHEET_CLOSE)
+                                .clicked()
+                            {
+                                shut = true;
+                            }
+                        });
+                    });
+                    if view.class != world::Class::None {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(SHEET_W, 5.0), egui::Sense::hover());
+                        theme::bar_in(
+                            ui.painter(),
+                            rect,
+                            crate::screens::hud::xp_fill(view.xp),
+                            theme::HYPER,
+                        );
+                    }
+                    ui.label(
+                        egui::RichText::new(crate::screens::hud::xp_text(view.class, view.xp))
+                            .small()
+                            .color(theme::MUTED),
+                    );
+                    egui::ScrollArea::vertical()
+                        .id_salt("sheet")
+                        .max_height(tall - SHEET_HEAD)
+                        .min_scrolled_height(tall - SHEET_HEAD)
+                        .show(ui, |ui| {
+                            ui.set_width(SHEET_W);
+                            if view.can_change {
+                                ui.add_space(4.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(egui::RichText::new(BIM_CLASS).color(theme::MUTED));
+                                    for class in world::Class::ALL {
+                                        if theme::toggle(ui, class == view.class, class_name(class))
+                                            .clicked()
+                                            && class != view.class
+                                        {
+                                            self.deploy_orders.push(DeployOrder::SetClass(class));
+                                        }
+                                    }
+                                    theme::question_mark(ui, BIM_CLASS_NOTE);
+                                });
+                            }
+                            sheet_body(ui, game, w);
+                            sheet_gear(ui, game, w);
+                            theme::heading(ui, SHEET_TALENTS);
+                            self.talents(ui, &view);
+                        });
+                });
+            });
+        if shut {
+            self.sheet_open = false;
+        }
+        Some(area.response.rect)
     }
 
     // --- the inventory --------------------------------------------------------
@@ -2799,7 +2965,7 @@ impl CrewPanels {
             .frame(crate::theme::panel_frame());
         let window = match self.container_rect {
             Some(rect) => window.fixed_pos(egui::pos2(rect.max.x + 10.0, rect.min.y)),
-            None => window.anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 60.0)),
+            None => window.anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 150.0)),
         };
         let mut strip = None;
         window.show(ctx, |ui| {
@@ -3851,175 +4017,23 @@ impl CrewPanels {
         }
     }
 
-    /// The parts, by category — a list of headings, one open at a time
-    /// with a way back — or every part that matches what is typed in the
-    /// search box; a row each with its picture's colour, its size and what
-    /// it is made of, dimmed where the hold has not got it. Picking one
-    /// puts the blueprint in the pointer's hand. Under the parts, the sites
-    /// laid out so far, each with what has reached it and a way to call it
-    /// off.
-    fn build(&mut self, ui: &mut egui::Ui, actions: &mut Actions) {
-        ui.set_max_width(380.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Build").small().color(theme::MUTED));
-            theme::question_mark(ui, BUILD_TIP);
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("Search").small().color(theme::MUTED));
-            let box_ = ui.add(
-                egui::TextEdit::singleline(&mut self.search)
-                    .desired_width(120.0)
-                    .hint_text("table, wall, …"),
-            );
-            if !self.search.is_empty() && ui.small_button("×").on_hover_text("Clear").clicked() {
-                self.search.clear();
-                box_.request_focus();
-            }
-        });
-
-        // Which rows to show: a category's, or the search's matches from
-        // every category — and only the parts the crew know how to build;
-        // the rest are the Research tab's to name.
-        let known = |code: &u32| {
-            actions
-                .research
-                .parts
-                .get(*code as usize)
-                .copied()
-                .unwrap_or(true)
-        };
-        let needle = self.search.trim().to_lowercase();
-        let rows: Vec<u32> = if !needle.is_empty() {
-            BUILD_GROUPS
-                .iter()
-                .flat_map(|(_, _, kinds)| kinds.iter().copied())
-                .filter(|&code| {
-                    PartKind::from_code(code)
-                        .is_some_and(|k| part_name(k).to_lowercase().contains(&needle))
-                })
-                .filter(known)
-                .collect()
-        } else if let Some(open) = self.open_group {
-            BUILD_GROUPS
-                .get(open)
-                .map(|(_, _, kinds)| kinds.iter().copied().filter(known).collect())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-
-        egui::ScrollArea::vertical()
-            .max_height(260.0)
-            .show(ui, |ui| {
-                if needle.is_empty() {
-                    match self.open_group {
-                        None => {
-                            // The categories, a button each; what is
-                            // inside is the button's tooltip, so the list
-                            // reads as a list rather than a page of notes.
-                            for (i, (name, hint, _)) in BUILD_GROUPS.iter().enumerate() {
-                                if ui
-                                    .add(egui::Button::new(*name).min_size(egui::vec2(120.0, 0.0)))
-                                    .on_hover_text(*hint)
-                                    .clicked()
-                                {
-                                    self.open_group = Some(i);
-                                }
-                            }
-                            return;
-                        }
-                        Some(open) => {
-                            ui.horizontal(|ui| {
-                                if ui.button("< Back").clicked() {
-                                    self.open_group = None;
-                                }
-                                if let Some((name, _, _)) = BUILD_GROUPS.get(open) {
-                                    ui.label(egui::RichText::new(*name).strong());
-                                }
-                            });
-                        }
-                    }
-                } else if rows.is_empty() {
-                    ui.label(egui::RichText::new("Nothing by that name.").color(theme::MUTED));
-                }
-                for code in rows {
-                    let Some(kind) = PartKind::from_code(code) else {
-                        continue;
-                    };
-                    self.part_row(ui, kind, actions);
-                }
-            });
-
-        // The sites laid out, and a way to call each off.
-        if !actions.sites.is_empty() {
-            ui.separator();
-            ui.label(egui::RichText::new("Laid out").small().color(theme::MUTED));
-            let mut cancel = None;
-            for site in &actions.sites {
-                ui.horizontal(|ui| {
-                    ui.label(part_name(site.kind));
-                    ui.label(
-                        egui::RichText::new(format!("{}, {}", site.at.0, site.at.1))
-                            .small()
-                            .color(theme::MUTED),
-                    );
-                    ui.label(egui::RichText::new(&site.progress).small().color(
-                        if site.affordable {
-                            theme::MUTED
-                        } else {
-                            theme::WARN
-                        },
-                    ));
-                    if ui.small_button("Cancel").clicked() {
-                        cancel = Some(site.id);
-                    }
-                });
-            }
-            if let Some(id) = cancel {
-                actions.cancel.push(id);
-            }
-        }
-        let hint = match self.tool {
-            Some(Tool::Build(kind)) => format!(
-                "{} in hand: click the deck — or the space beside it — to lay it out; {} turns it; right-click or Esc puts it down.",
-                part_name(kind),
-                self.keys.key(Action::Turn).symbol_or_name()
-            ),
-            _ => "Pick a part and click where it is to go. The crew carry what it is made of from the shelves and build it; a site beyond the hull is built in a suit.".to_string(),
-        };
-        ui.add(egui::Label::new(egui::RichText::new(hint).small().color(theme::MUTED)).wrap());
-    }
-
-    /// The skills tree (feature 83): the player's own crew member's
-    /// class, level by level down the tray — a level's own slot across
-    /// the width where it has one, and two side by side where the level
-    /// is a choice — with the levels numbered down the left and the
-    /// spine beside them lit as far as the level reached. A box is
+    /// The talent tree (features 83 and 107), on the character sheet: the
+    /// player's own crew member's class, level by level — a level's own
+    /// slot across the width where it has one, and two side by side where
+    /// the level is a choice — with the levels numbered down the left and
+    /// the spine beside them lit as far as the level reached. A box is
     /// coloured for its state: learnt, given up, open for a point, or
-    /// waiting on a level. A click picks one, and **beside** the tree the
+    /// waiting on a level. A click picks one, and **under** the tree the
     /// picked slot says what it does, **what it is worth in numbers**,
     /// what state it is in, and — for one that is open — carries the
-    /// button that spends the point. To the right rather than below,
-    /// since the tray grows upwards off the foot of the window: a column
-    /// beside the tree can say as much as it likes without the tree
-    /// moving under the pointer. The tree asks nothing of the world it
-    /// is not handed: everything here is `ClassView` and
-    /// `world::class`'s own tables, the numbers said by
+    /// button that spends the point. Under rather than beside it since the
+    /// sheet hangs from the top of the canvas: what is written below the
+    /// tree cannot move the tree from under the pointer. The tree asks
+    /// nothing of the world it is not handed: everything here is
+    /// `ClassView` and `world::class`'s own tables, the numbers said by
     /// [`crate::names::talent_numbers`] and
     /// [`crate::names::level_numbers`].
-    fn skills(&mut self, ui: &mut egui::Ui) {
-        let Some(view) = self.class_view.clone() else {
-            return;
-        };
-        let tree = skill_tree_size();
-        ui.set_max_width(tree.x + SKILL_DETAIL_GAP + DETAIL_WIDTH + 8.0);
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(SKILLS)
-                    .size(SKILL_TEXT)
-                    .color(theme::MUTED),
-            );
-            theme::question_mark(ui, SKILLS_TIP);
-        });
+    fn talents(&mut self, ui: &mut egui::Ui, view: &ClassView) {
         let class = view.class;
         if class == world::Class::None {
             ui.add(
@@ -4032,22 +4046,23 @@ impl CrewPanels {
             );
             return;
         }
-        ui.label(
-            egui::RichText::new(class_line(class, view.level, view.to_next))
-                .size(SKILL_TEXT)
-                .color(theme::INK),
-        );
         // A point a pick level reached and not chosen at.
-        let points = points_left(&view);
-        ui.label(
-            egui::RichText::new(skill_points(points))
-                .size(SKILL_TEXT)
-                .color(if points > 0 {
-                    theme::CAUTION
-                } else {
-                    theme::MUTED
-                }),
-        );
+        let points = points_left(view);
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(skill_points(points))
+                        .size(SKILL_TEXT)
+                        .color(if points > 0 {
+                            theme::CAUTION
+                        } else {
+                            theme::MUTED
+                        }),
+                )
+                .wrap(),
+            );
+            theme::question_mark(ui, SKILLS_TIP);
+        });
         ui.add_space(4.0);
 
         // Every slot of the ten levels, top to bottom, with the words
@@ -4082,16 +4097,9 @@ impl CrewPanels {
             self.skill_pick = None;
         }
 
-        let mut learn = None;
-        ui.horizontal_top(|ui| {
-            ui.vertical(|ui| self.skills_tree(ui, &view, &slots));
-            ui.add_space(SKILL_DETAIL_GAP);
-            ui.vertical(|ui| {
-                ui.set_width(DETAIL_WIDTH);
-                ui.set_min_height(tree.y);
-                learn = self.skills_detail(ui, &view, &slots);
-            });
-        });
+        self.skills_tree(ui, view, &slots);
+        ui.add_space(6.0);
+        let learn = self.skills_detail(ui, view, &slots);
         if let Some((level, side)) = learn {
             self.deploy_orders.push(DeployOrder::Pick {
                 level: level as u32,
@@ -4304,671 +4312,6 @@ impl CrewPanels {
         None
     }
 
-    /// The research tree: the nodes as boxes in columns by how deep they
-    /// sit — what is known from the start on the left, what waits on it
-    /// to the right — with a line from each to what it needs, coloured
-    /// for their state: known, being researched (and how far), open to
-    /// begin, waiting on a key, or waiting on something else. A click on
-    /// a box picks it, and under the tree the picked node says what it
-    /// opens, what it wants and what it is waiting on, with the button
-    /// that puts the AI onto it. Over the tree, the desk: whether there
-    /// is one running, and the key in it with the button that consumes
-    /// it.
-    fn research(&mut self, ui: &mut egui::Ui, actions: &mut Actions) {
-        let view = &actions.research;
-        ui.set_max_width(400.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Research").small().color(theme::MUTED));
-            theme::question_mark(ui, RESEARCH_TIP);
-        });
-        // The desk and the key.
-        if !view.desk {
-            ui.label(egui::RichText::new(NO_DESK_HINT).small().color(theme::WARN));
-        } else if !view.powered {
-            ui.label(
-                egui::RichText::new(DESK_DARK_HINT)
-                    .small()
-                    .color(theme::WARN),
-            );
-        }
-        // The keys in the desk, a column a tier: a locked node wants one
-        // of its own tier consumed for it.
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("Keys in the desk:")
-                    .small()
-                    .color(theme::MUTED),
-            );
-            ui.label(
-                egui::RichText::new(format!("tier one {}", view.keys[0]))
-                    .small()
-                    .color(theme::MUTED),
-            );
-            ui.label(
-                egui::RichText::new(format!("tier two {}", view.keys[1]))
-                    .small()
-                    .color(theme::TIER_TWO),
-            );
-            ui.label(
-                egui::RichText::new("— a locked node wants one of its tier consumed for it")
-                    .small()
-                    .color(theme::MUTED),
-            );
-        });
-        ui.add_space(4.0);
-
-        // The tree. Depth is one past the deepest prerequisite; the boxes
-        // of a depth are stacked in table order.
-        let view = &actions.research;
-        let mut depth = [0usize; NODES];
-        for node in Node::ALL {
-            depth[node as usize] = node
-                .def()
-                .requires
-                .iter()
-                .map(|r| depth[*r as usize] + 1)
-                .max()
-                .unwrap_or(0);
-        }
-        let cols = depth.iter().max().copied().unwrap_or(0) + 1;
-        let mut row = [0usize; NODES];
-        let mut per_col = vec![0usize; cols];
-        for node in Node::ALL {
-            let d = depth[node as usize];
-            row[node as usize] = per_col[d];
-            per_col[d] += 1;
-        }
-        let rows = per_col.iter().max().copied().unwrap_or(1);
-        let (bw, bh, gx, gy) = (88.0f32, 30.0f32, 22.0f32, 10.0f32);
-        let size = egui::vec2(
-            cols as f32 * bw + (cols as f32 - 1.0) * gx,
-            rows as f32 * bh + (rows as f32 - 1.0) * gy,
-        );
-        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-        let painter = ui.painter_at(rect);
-        let box_of = |node: Node| {
-            let (d, r) = (depth[node as usize] as f32, row[node as usize] as f32);
-            egui::Rect::from_min_size(
-                egui::pos2(rect.min.x + d * (bw + gx), rect.min.y + r * (bh + gy)),
-                egui::vec2(bw, bh),
-            )
-        };
-        // The lines first, under the boxes.
-        for node in Node::ALL {
-            let to = box_of(node);
-            for r in node.def().requires {
-                let from = box_of(*r);
-                let a = egui::pos2(from.max.x, from.center().y);
-                let b = egui::pos2(to.min.x, to.center().y);
-                let mid = egui::pos2((a.x + b.x) / 2.0, a.y);
-                let mid2 = egui::pos2(mid.x, b.y);
-                let ink = if view.done[node as usize] {
-                    theme::ACCENT
-                } else {
-                    theme::LINE
-                };
-                painter.line_segment([a, mid], egui::Stroke::new(1.5, ink));
-                painter.line_segment([mid, mid2], egui::Stroke::new(1.5, ink));
-                painter.line_segment([mid2, b], egui::Stroke::new(1.5, ink));
-            }
-        }
-        let hovered = response
-            .hover_pos()
-            .and_then(|p| Node::ALL.into_iter().find(|n| box_of(*n).contains(p)));
-        if let Some(p) = response.interact_pointer_pos()
-            && response.clicked()
-            && let Some(node) = Node::ALL.into_iter().find(|n| box_of(*n).contains(p))
-        {
-            self.research_pick = Some(node);
-        }
-        let picked = self.research_pick;
-        for node in Node::ALL {
-            let b = box_of(node);
-            let i = node as usize;
-            let current = view.current == Some(node.code());
-            let queued = view.queue.iter().position(|&q| q == node.code());
-            let (fill, edge, ink) = if view.done[i] {
-                (theme::RAISED_ON, theme::ACCENT, theme::INK)
-            } else if current || queued.is_some() {
-                (theme::RAISED, theme::ACCENT, theme::INK)
-            } else if view.available[i] {
-                (theme::RAISED, theme::MUTED, theme::INK)
-            } else if view.needs_key[i] {
-                (theme::PANEL_DEEP, theme::GRAVE, theme::CAUTION)
-            } else {
-                (theme::PANEL_DEEP, theme::LINE, theme::MUTED)
-            };
-            let lit = hovered == Some(node) || picked == Some(node);
-            painter.rect(
-                b,
-                4.0,
-                fill,
-                egui::Stroke::new(
-                    if lit { 2.0 } else { 1.0 },
-                    if lit { theme::INK } else { edge },
-                ),
-                egui::StrokeKind::Inside,
-            );
-            if current {
-                // How far the AI has got, as a wash along the bottom.
-                let bar = egui::Rect::from_min_max(
-                    egui::pos2(b.min.x + 3.0, b.max.y - 5.0),
-                    egui::pos2(b.max.x - 3.0, b.max.y - 2.0),
-                );
-                theme::bar_in(&painter, bar, view.fraction as f32, theme::ACCENT);
-            }
-            let label = node_name(node.code());
-            let font = egui::FontId::proportional(11.5);
-            let galley = painter.layout_no_wrap(label.to_string(), font, ink);
-            let at = egui::pos2(
-                b.center().x - galley.size().x / 2.0,
-                b.center().y - galley.size().y / 2.0 - if current { 2.0 } else { 0.0 },
-            );
-            painter.galley(at, galley, ink);
-            if view.needs_key[i] {
-                // A small lock: a mark in the corner.
-                painter.circle_filled(egui::pos2(b.max.x - 7.0, b.min.y + 7.0), 3.0, theme::GRAVE);
-            }
-            if let Some(at) = queued {
-                // Its place in the queue, counted from one, in the corner.
-                let centre = egui::pos2(b.max.x - 6.0, b.min.y + 6.0);
-                painter.circle_filled(centre, 5.5, theme::ACCENT);
-                painter.text(
-                    centre,
-                    egui::Align2::CENTER_CENTER,
-                    (at + 1).to_string(),
-                    egui::FontId::proportional(9.0),
-                    theme::PANEL_DEEP,
-                );
-            }
-        }
-        if let Some(node) = hovered {
-            response.clone().on_hover_text(node_line(node.code()));
-        }
-
-        // The queue, in order, under the tree — what the AI goes onto
-        // next, with what is on it now at the front — and then the picked
-        // node.
-        ui.add_space(6.0);
-        if view.current.is_some() || !view.queue.is_empty() {
-            let mut line: Vec<String> = Vec::new();
-            if let Some(code) = view.current {
-                line.push(format!("{} (on it)", node_name(code)));
-            }
-            line.extend(view.queue.iter().map(|&code| node_name(code).to_string()));
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(format!("Queue: {}", line.join(" > ")))
-                        .small()
-                        .color(theme::MUTED),
-                )
-                .wrap(),
-            );
-        }
-        let Some(node) = picked else {
-            ui.label(
-                egui::RichText::new("Click a node for what it opens and to queue it for the AI.")
-                    .small()
-                    .color(theme::MUTED),
-            );
-            return;
-        };
-        let i = node as usize;
-        let def = node.def();
-        let queued = view.queue.iter().position(|&q| q == node.code());
-        ui.label(egui::RichText::new(node_name(node.code())).strong());
-        ui.add(egui::Label::new(egui::RichText::new(node_line(node.code())).small()).wrap());
-        if !def.requires.is_empty() {
-            let wants: Vec<&str> = def.requires.iter().map(|r| node_name(r.code())).collect();
-            ui.label(
-                egui::RichText::new(format!("After: {}", wants.join(", ")))
-                    .small()
-                    .color(theme::MUTED),
-            );
-        }
-        let state = if view.done[i] {
-            if def.minutes == 0 {
-                "Known from the start.".to_string()
-            } else {
-                "Researched.".to_string()
-            }
-        } else if view.current == Some(node.code()) {
-            format!(
-                "Being researched — {} of {}.",
-                span_text((view.fraction * def.minutes as f64) as f32),
-                span_text(def.minutes as f32)
-            )
-        } else if let Some(at) = queued {
-            format!(
-                "Queued, {} in line: {} of the AI's time.",
-                ordinal(at + 1),
-                span_text(def.minutes as f32)
-            )
-        } else if view.needs_key[i] {
-            format!(
-                "Locked: wants a tier-{} research key consumed at the desk for it. {}",
-                def.tier,
-                span_text(def.minutes as f32)
-            )
-        } else if view.available[i] {
-            format!(
-                "{}Can be begun: {} of the AI's time.",
-                if view.unlocked[i] {
-                    "Key consumed. "
-                } else {
-                    ""
-                },
-                span_text(def.minutes as f32)
-            )
-        } else if view.queueable[i] {
-            format!(
-                "Can be queued, with what it comes after ahead of it. {}",
-                span_text(def.minutes as f32)
-            )
-        } else {
-            format!(
-                "Waiting on what it comes after, which is behind a key. {}",
-                span_text(def.minutes as f32)
-            )
-        };
-        ui.label(egui::RichText::new(state).small().color(theme::MUTED));
-        ui.horizontal(|ui| {
-            if view.needs_key[i] {
-                let keys = view.keys.get(def.tier as usize - 1).copied().unwrap_or(0);
-                let can = keys > 0 && view.desk && view.powered;
-                let hint = if keys == 0 {
-                    if def.tier == 2 {
-                        "no tier-two key in the research desk — one lies on every hostile station's desk"
-                    } else {
-                        "no tier-one key in the research desk — one is found on a friendly station's desk"
-                    }
-                } else if !view.powered {
-                    "the desk has to be running"
-                } else {
-                    "consumes the key in the desk for this node; it stays open for good"
-                };
-                if ui
-                    .add_enabled(can, egui::Button::new("Consume a key").small())
-                    .on_hover_text(hint)
-                    .on_disabled_hover_text(hint)
-                    .clicked()
-                {
-                    actions
-                        .research_orders
-                        .push(ResearchOrder::Unlock(node.code()));
-                }
-            }
-            if view.current == Some(node.code()) {
-                let hint = if view.queue.is_empty() {
-                    "takes the AI off it; what was put in is lost"
-                } else {
-                    "takes the AI off it and onto the next in the queue; what was put in is lost, and whatever queued needed it comes off"
-                };
-                if ui.small_button("Stop").on_hover_text(hint).clicked() {
-                    actions.research_orders.push(ResearchOrder::Cancel);
-                }
-            } else if queued.is_some() {
-                if ui
-                    .small_button("Take off the queue")
-                    .on_hover_text("takes it off the queue, and whatever queued needed it")
-                    .clicked()
-                {
-                    actions
-                        .research_orders
-                        .push(ResearchOrder::Dequeue(node.code()));
-                }
-            } else if !view.done[i] {
-                let can = view.queueable[i] && view.desk;
-                let hint = if !view.desk {
-                    NO_DESK_HINT
-                } else if view.needs_key[i] {
-                    "consume a key at the desk first"
-                } else if !view.queueable[i] {
-                    "something it comes after is behind a key: consume one for that first"
-                } else if view.current.is_some() || !view.queue.is_empty() {
-                    if view.available[i] {
-                        "queues it for the AI, after what is queued"
-                    } else {
-                        "queues it for the AI, with what it comes after ahead of it"
-                    }
-                } else if view.available[i] {
-                    "puts the AI onto it"
-                } else {
-                    "queues it, with what it comes after ahead of it; the AI starts on the first"
-                };
-                let word = if view.current.is_some() || !view.queue.is_empty() {
-                    "Queue"
-                } else {
-                    "Research"
-                };
-                if ui
-                    .add_enabled(can, egui::Button::new(word).small())
-                    .on_hover_text(hint)
-                    .on_disabled_hover_text(hint)
-                    .clicked()
-                {
-                    actions
-                        .research_orders
-                        .push(ResearchOrder::Begin(node.code()));
-                }
-            }
-        });
-    }
-
-    /// One part on the Build tab: its colour, a button that puts it in
-    /// hand, its size, and what it is made of — each material dimmed to a
-    /// warning where the hold has fewer free than the part wants.
-    fn part_row(&mut self, ui: &mut egui::Ui, kind: PartKind, actions: &Actions) {
-        let on = self.tool == Some(Tool::Build(kind));
-        let (w, h) = kind.def().footprint;
-        ui.horizontal(|ui| {
-            theme::swatch(ui, theme::ship_color32(ship::Session::part_color(kind)));
-            let button = egui::Button::new(part_name(kind)).min_size(egui::vec2(130.0, 0.0));
-            let button = if on {
-                button.fill(theme::RAISED_ON)
-            } else {
-                button
-            };
-            if ui.add(button).clicked() {
-                self.tool = if on { None } else { Some(Tool::Build(kind)) };
-            }
-            if w != 1 || h != 1 {
-                ui.label(
-                    egui::RichText::new(format!("{w}×{h}"))
-                        .small()
-                        .color(theme::MUTED),
-                );
-            }
-            // What it costs out of the crew's one pool (feature 95), in
-            // the warning colour when there is not that much left after
-            // the sites already begun.
-            let price = kind.def().price;
-            ui.label(
-                egui::RichText::new(crate::format::euros(price))
-                    .size(11.0)
-                    .color(if actions.free_money < price {
-                        theme::WARN
-                    } else {
-                        theme::MUTED
-                    }),
-            );
-        });
-    }
-
-    /// The views: one row a way of looking at the ship, each a toggle, and
-    /// one of them on. Plain is the ship as it is; Electricity draws the
-    /// conduit under the deck and rings everything on it.
-    fn view(&mut self, ui: &mut egui::Ui, actions: &mut Actions) {
-        ui.set_max_width(360.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("View").small().color(theme::MUTED));
-            theme::question_mark(
-                ui,
-                "What the ship view shows over the ship. A view changes the picture and nothing else.",
-            );
-        });
-        for (overlay, label, hint) in [
-            (Overlay::Plain, "Plain", "The ship as it is."),
-            (
-                Overlay::Electricity,
-                "Electricity",
-                "The power cables, and everything that makes, holds or draws power.",
-            ),
-        ] {
-            ui.horizontal(|ui| {
-                if theme::toggle(ui, actions.overlay == overlay, label).clicked() {
-                    actions.overlay = overlay;
-                }
-                ui.label(egui::RichText::new(hint).small().color(theme::MUTED));
-            });
-        }
-        if actions.overlay == Overlay::Electricity {
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(
-                        "Green is wired to a reactor; red is not. A cable joins the cable beside it, and powers whatever stands over it. The yellow number over a part is what it draws a minute — an engine's while it burns, against what it would flat out.",
-                    )
-                    .small()
-                    .color(theme::MUTED),
-                )
-                .wrap(),
-            );
-        }
-        // And the camera: which way is up, and whether it follows the crew
-        // member you steer. This player's own, and no command.
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new("Camera").small().color(theme::MUTED));
-        ui.horizontal(|ui| {
-            if theme::toggle(ui, !actions.head_up, "North up").clicked() {
-                actions.head_up = false;
-            }
-            if theme::toggle(ui, actions.head_up, "Head up").clicked() {
-                actions.head_up = true;
-            }
-            ui.add_space(8.0);
-            if theme::toggle(ui, actions.follow, "Follow").clicked() {
-                actions.follow = true;
-            }
-            if theme::toggle(ui, !actions.follow, "Free camera").clicked() {
-                actions.follow = false;
-            }
-        });
-    }
-
-    /// The order the work gets done in. One row per job, built from the
-    /// count the room reports rather than from the table of names, so a
-    /// job added on that side shows up as a blank row rather than going
-    /// missing.
-    fn work(&mut self, ui: &mut egui::Ui, game: &mut Game) {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Sort").small().color(theme::MUTED));
-            for (sort, label) in [
-                (Sort::Up, "Priority 1→5"),
-                (Sort::Down, "Priority 5→1"),
-                (Sort::Name, "Name A–Z"),
-            ] {
-                if theme::toggle(ui, self.sort == Some(sort), label).clicked() {
-                    self.sort = Some(sort);
-                }
-            }
-        });
-        let count = game.work_count();
-        let mut rows: Vec<(u32, &str)> = (0..count)
-            .map(|job| (job, WORK_NAMES.get(job as usize).copied().unwrap_or("")))
-            .collect();
-        // Sorting is pressed rather than left on, so nothing moves under
-        // the pointer on the click that changed it; the mark is cleared
-        // when a box is clicked. Equal priorities keep declaration order.
-        match self.sort {
-            Some(Sort::Up) => rows.sort_by_key(|&(job, _)| (game.work_priority(job), job)),
-            Some(Sort::Down) => {
-                rows.sort_by_key(|&(job, _)| (std::cmp::Reverse(game.work_priority(job)), job))
-            }
-            Some(Sort::Name) => rows.sort_by_key(|&(_, name)| name.to_lowercase()),
-            None => {}
-        }
-        let highest = game.work_highest();
-        let lowest = game.work_lowest();
-        let never = game.work_never();
-        egui::Grid::new("work")
-            .num_columns(2)
-            .spacing([12.0, 2.0])
-            .show(ui, |ui| {
-                ui.label(egui::RichText::new("Job").small().color(theme::MUTED));
-                ui.label(egui::RichText::new("Priority").small().color(theme::MUTED));
-                ui.end_row();
-                // Which box was clicked, and which way: a left click takes one
-                // off the number, a right click puts one on.
-                let mut clicked: Option<(u32, bool)> = None;
-                for (job, name) in rows {
-                    let level = game.work_priority(job);
-                    let off = level == never;
-                    let row = ui.label(if off {
-                        egui::RichText::new(name).color(theme::MUTED)
-                    } else {
-                        egui::RichText::new(name)
-                    });
-                    // The one row whose number does not reach the whole
-                    // crew: a bot never stands at a bench (feature 89).
-                    let row = if job == bims::work::Job::Craft as u32 {
-                        row.on_hover_text(WORK_CRAFT_TIP)
-                    } else {
-                        row
-                    };
-                    // A colour a level, so the list reads at a glance: hot at
-                    // the top, cooling down the range, and a red cross for a
-                    // job the crew are never to do. The box is painted by hand
-                    // rather than through the button's text so the cross is a
-                    // shape and not a glyph the font may not have.
-                    let fill = priority_colour(level, never, highest, lowest);
-                    let text = if off {
-                        String::new()
-                    } else {
-                        level.to_string()
-                    };
-                    let button = ui
-                        .add(
-                            egui::Button::new(egui::RichText::new(text).color(theme::PANEL_DEEP))
-                                .fill(fill)
-                                .min_size(egui::vec2(28.0, 0.0)),
-                        )
-                        .on_hover_text(if off {
-                            "Never — the crew do not do this. Click to set a priority.".to_string()
-                        } else {
-                            format!(
-                                "Priority {level} — {highest} is done first, {lowest} last. \
-                             Click for one more important; right-click for one less; \
-                             past {highest} is never."
-                            )
-                        });
-                    if off {
-                        let r = button.rect.shrink(7.0);
-                        let stroke = egui::Stroke::new(2.0, theme::PANEL_DEEP);
-                        ui.painter()
-                            .line_segment([r.left_top(), r.right_bottom()], stroke);
-                        ui.painter()
-                            .line_segment([r.left_bottom(), r.right_top()], stroke);
-                    }
-                    if button.clicked() {
-                        clicked = Some((job, false));
-                    } else if button.secondary_clicked() {
-                        clicked = Some((job, true));
-                    }
-                    let spot = WORK_SPOTS
-                        .get(job as usize)
-                        .copied()
-                        .unwrap_or(SPOT_NOTHING);
-                    self.points(&row, spot);
-                    self.points(&button, spot);
-                    ui.end_row();
-                }
-                if let Some((job, back)) = clicked {
-                    if back {
-                        self.crew_orders
-                            .push(CrewOrder::WorkPriority { job, back: true });
-                    } else {
-                        self.crew_orders
-                            .push(CrewOrder::WorkPriority { job, back: false });
-                    }
-                    self.sort = None;
-                }
-            });
-    }
-
-    /// How the crew are left to get on: whether a Bim picks its own work,
-    /// whether the workbench combines matching gear, and what the benches
-    /// keep made.
-    fn management(
-        &mut self,
-        ui: &mut egui::Ui,
-        game: &mut Game,
-        mut actions: Option<&mut Actions>,
-    ) {
-        ui.horizontal(|ui| {
-            let mut on = game.is_autonomous();
-            if ui.checkbox(&mut on, "").changed() {
-                self.crew_orders.push(CrewOrder::Autonomous { on });
-            }
-            theme::asks(ui, "Let the Bim decide", AUTONOMY_TIP);
-        });
-        // The workbench's upgrade: a tick box, and while one is on the
-        // bench a line saying what and how far.
-        if let Some(actions) = actions.as_deref_mut() {
-            ui.horizontal(|ui| {
-                let mut on = actions.auto_upgrade;
-                if ui.checkbox(&mut on, "").changed() {
-                    actions.set_auto_upgrade = Some(on);
-                }
-                theme::asks(ui, UPGRADE_LABEL, UPGRADE_TIP);
-            });
-            if let Some(upgrade) = actions.upgrade {
-                ui.label(
-                    egui::RichText::new(upgrade_line(
-                        upgrade.resource,
-                        upgrade.tier,
-                        upgrade.done,
-                        upgrade.of,
-                        upgrade.waiting,
-                    ))
-                    .small()
-                    .color(theme::MUTED),
-                );
-            }
-        }
-        // What the benches make: a standing order to keep so many made,
-        // kept in the hold and answered at the bench that makes it.
-        let Some(actions) = actions else {
-            return;
-        };
-        if actions.crafts.is_empty() {
-            return;
-        }
-        egui::Grid::new("stock")
-            .num_columns(4)
-            .spacing([12.0, 2.0])
-            .show(ui, |ui| {
-                for head in ["Made aboard", "Stock", "Location", "Target"] {
-                    ui.label(egui::RichText::new(head).small().color(theme::MUTED));
-                }
-                ui.end_row();
-                for craft in &actions.crafts {
-                    // A recipe the crew have not researched is greyed, and
-                    // its box is dead: a target nobody can work to is a
-                    // target that reads as a bench that is broken.
-                    let tip = match craft.needs {
-                        Some(node) => format!(
-                            "{RESEARCH_LOCKED}: {} — see the Research tab. {}",
-                            node_name(node),
-                            craft.recipe
-                        ),
-                        None => format!("Keep this many made. {}", craft.recipe),
-                    };
-                    let ink = if craft.needs.is_some() {
-                        theme::MUTED
-                    } else {
-                        theme::INK
-                    };
-                    ui.label(egui::RichText::new(resource_name(craft.resource)).color(ink))
-                        .on_hover_text(&tip);
-                    ui.label(egui::RichText::new(craft.held.to_string()).color(ink));
-                    ui.label(egui::RichText::new(craft.kept_in).color(ink));
-                    let mut target = craft.target;
-                    let input = ui
-                        .add_enabled(
-                            craft.needs.is_none(),
-                            egui::DragValue::new(&mut target)
-                                .range(0..=craft.most)
-                                .speed(0.2),
-                        )
-                        .on_hover_text(&tip);
-                    if input.changed() {
-                        actions.keep.push((craft.resource, target));
-                    }
-                    ui.end_row();
-                }
-            });
-    }
-
     // --- what the pointer is over -------------------------------------------
 
     /// The state worth naming beside a fixture, or "" for the things that
@@ -5007,29 +4350,6 @@ impl CrewPanels {
             thing = format!("{thing} · {state}");
         }
         (spot, thing)
-    }
-}
-
-/// The colour of a priority box: red for never, and from there a ramp
-/// from hot at the top of the range to cool grey at the bottom, so the
-/// Work tab reads as a heat map rather than a column of threes.
-fn priority_colour(level: u32, never: u32, highest: u32, lowest: u32) -> egui::Color32 {
-    if level == never {
-        return theme::BAD;
-    }
-    // 0 at the most important, 1 at the least.
-    let span = lowest.saturating_sub(highest).max(1) as f32;
-    let t = (level.saturating_sub(highest) as f32 / span).clamp(0.0, 1.0);
-    // Two straight ramps: warm to the accent green over the first half,
-    // the accent down to the muted grey over the second.
-    let mix = |a: egui::Color32, b: egui::Color32, k: f32| {
-        let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * k).round() as u8;
-        egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
-    };
-    if t < 0.5 {
-        mix(theme::WARN, theme::ACCENT, t * 2.0)
-    } else {
-        mix(theme::ACCENT, theme::MUTED, (t - 0.5) * 2.0)
     }
 }
 
@@ -5378,6 +4698,118 @@ fn nearby_strip(ui: &mut egui::Ui, nearby: &[Near], open: Option<Open>) -> Optio
     pick
 }
 
+/// A word with the key that does the same beside it: `Attack (F)`.
+fn keyed(word: &str, key: egui::Key) -> String {
+    with_key(word, key.name())
+}
+
+/// One thing on the Stash panel: its picture in a cell, and how many in
+/// the corner where there is more than one.
+fn stash_cell(
+    ui: &mut egui::Ui,
+    count: u32,
+    paint: impl FnOnce(&egui::Painter, egui::Rect),
+) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(STASH_CELL, STASH_CELL), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 3.0, theme::RAISED);
+    paint(painter, rect.shrink(4.0));
+    if count > 1 {
+        painter.text(
+            rect.max - egui::vec2(2.0, 1.0),
+            egui::Align2::RIGHT_BOTTOM,
+            count.to_string(),
+            egui::FontId::proportional(10.5),
+            theme::INK,
+        );
+    }
+    response
+}
+
+/// The character sheet's body (feature 107): every part's health against
+/// what it can hold, with what worn armour adds, and the blood — the
+/// side panel's own readings, in words.
+fn sheet_body(ui: &mut egui::Ui, game: &Game, w: usize) {
+    theme::heading(ui, SHEET_BODY);
+    let alive = game.is_alive(w);
+    egui::Grid::new("sheet-body")
+        .num_columns(2)
+        .spacing([12.0, 2.0])
+        .min_col_width(SHEET_W / 2.0 - 12.0)
+        .show(ui, |ui| {
+            for (i, part) in health::Part::ALL.into_iter().enumerate() {
+                let left = game.part_health(w, part);
+                let bonus = if alive { game.part_bonus(w, part) } else { 0.0 };
+                let trauma = if alive { game.trauma(w, part) } else { None };
+                ui.label(egui::RichText::new(SLOT_NAMES[i]).color(theme::MUTED));
+                let words = part_health_line(left, part.max(), bonus);
+                ui.label(
+                    egui::RichText::new(match trauma {
+                        Some(trauma) => format!("{words} · {}", trauma_name(trauma.code())),
+                        None => words,
+                    })
+                    .color(if trauma.is_some() {
+                        theme::DYING
+                    } else if left < part.max() {
+                        theme::CAUTION
+                    } else {
+                        theme::INK
+                    }),
+                );
+                ui.end_row();
+            }
+            let blood = game.blood(w) / health::MAX_BLOOD;
+            ui.label(egui::RichText::new(SHEET_BLOOD).color(theme::MUTED));
+            ui.label(
+                egui::RichText::new(format!("{}%", (blood * 100.0).round())).color(
+                    if blood < health::SLOWED_AT {
+                        theme::BAD
+                    } else {
+                        theme::INK
+                    },
+                ),
+            );
+            ui.end_row();
+        });
+}
+
+/// The character sheet's gear (feature 107): each piece worn with its
+/// tier and how much of it is left, and the weapon in hand with its
+/// tier — what the inventory's slots say, in a line each.
+fn sheet_gear(ui: &mut egui::Ui, game: &Game, w: usize) {
+    theme::heading(ui, SHEET_GEAR);
+    let gear = game.gear(w);
+    egui::Grid::new("sheet-gear")
+        .num_columns(2)
+        .spacing([12.0, 2.0])
+        .min_col_width(SHEET_W / 2.0 - 12.0)
+        .show(ui, |ui| {
+            for (i, part) in health::Part::ALL.into_iter().enumerate() {
+                ui.label(egui::RichText::new(SLOT_NAMES[i]).color(theme::MUTED));
+                match gear.worn(part) {
+                    Some(piece) => ui.label(worn_piece_line(
+                        armour_name(Some(piece.kind)),
+                        piece.tier.code(),
+                        piece.health,
+                        piece.stats().health,
+                    )),
+                    None => ui.label(egui::RichText::new(NOTHING_WORN).color(theme::MUTED)),
+                };
+                ui.end_row();
+            }
+            ui.label(egui::RichText::new(SLOT_NAMES[3]).color(theme::MUTED));
+            match gear.weapon {
+                Some(weapon) => ui.label(held_weapon_line(
+                    weapon_name(Some(weapon.kind)),
+                    weapon.tier.code(),
+                )),
+                None => ui.label(egui::RichText::new(NOTHING_IN_HAND).color(theme::MUTED)),
+            };
+            ui.end_row();
+        });
+}
+
 /// Whose hands a treatment of `patient` would be: the player's own Bim
 /// for a crewmate, while it is alive, awake and aboard; for the player's
 /// own — nobody treats their own — the nearest crewmate that is free to.
@@ -5488,14 +4920,6 @@ mod tests {
         assert_eq!(death_line(&game, 0), DEATH_OTHER);
         game.set_blood_for_probe(0, 0.0);
         assert_eq!(death_line(&game, 0), DEATH_BLED_OUT);
-    }
-
-    /// The work list's rows are built off `work_count`, so a spot table a
-    /// row short would ring nothing for the last job and nobody would
-    /// notice.
-    #[test]
-    fn every_job_has_a_place_to_ring() {
-        assert_eq!(WORK_SPOTS.len(), bims::work::Job::ALL.len());
     }
 
     /// The Skills tree's rules (feature 83): a point for every pick level

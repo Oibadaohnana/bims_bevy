@@ -14,8 +14,13 @@
 
 use bevy_egui::egui;
 
+use ship::game::Overlay;
+
 use crate::keys::{Action, Keys};
-use crate::names::{LOAD_GUEST, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE};
+use crate::names::{
+    LOAD_GUEST, RESTART_BUTTON, RESTART_GUEST, RESTART_NONE, VIEW_HEADING, VIEW_PLAIN,
+    VIEW_PLAIN_HINT, VIEW_POWER, VIEW_POWER_HINT,
+};
 use crate::save::{self, Request, Saves};
 use crate::sound::Mix;
 use crate::theme;
@@ -74,7 +79,10 @@ pub enum Sheet {
 
 /// The sheet, on `page`. `None` afterwards means it was closed. While the
 /// controls page is waiting on a key (`keys.listening`) Esc is its to
-/// cancel with, and the screens leave the sheet up.
+/// cancel with, and the screens leave the sheet up. `view` is what the
+/// game view draws over the ship, where there is one to draw over: the
+/// menu page's own toggle since the HUD lost its View tab (feature 107),
+/// being the one view setting with no key of its own.
 pub fn settings_sheet(
     ctx: &egui::Context,
     sheet: &mut Option<Sheet>,
@@ -82,6 +90,7 @@ pub fn settings_sheet(
     keys: &mut Keys,
     saves: &mut Saves,
     allowed: Allowed,
+    view: Option<&mut Overlay>,
 ) -> Option<Request> {
     let page = (*sheet)?;
     let title = match page {
@@ -98,7 +107,7 @@ pub fn settings_sheet(
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| match page {
-            Sheet::Menu => menu(ui, sheet, saves, allowed),
+            Sheet::Menu => menu(ui, sheet, saves, allowed, view),
             Sheet::Audio => audio(ui, sheet, mix),
             Sheet::Controls => controls(ui, sheet, keys),
             Sheet::Save => {
@@ -130,10 +139,34 @@ fn back(ui: &mut egui::Ui, sheet: &mut Option<Sheet>) {
     }
 }
 
-fn menu(ui: &mut egui::Ui, sheet: &mut Option<Sheet>, saves: &mut Saves, allowed: Allowed) {
+fn menu(
+    ui: &mut egui::Ui,
+    sheet: &mut Option<Sheet>,
+    saves: &mut Saves,
+    allowed: Allowed,
+    view: Option<&mut Overlay>,
+) {
     theme::heading(ui, "UI scale");
     theme::ui_scale_row(ui);
     ui.add_space(8.0);
+    // What the ship view shows over the ship (feature 107): the plain
+    // deck, or the electricity. Head up and the camera's follow keep
+    // their keys and nothing else.
+    if let Some(overlay) = view {
+        theme::heading(ui, VIEW_HEADING);
+        for (way, label, hint) in [
+            (Overlay::Plain, VIEW_PLAIN, VIEW_PLAIN_HINT),
+            (Overlay::Electricity, VIEW_POWER, VIEW_POWER_HINT),
+        ] {
+            ui.horizontal(|ui| {
+                if theme::toggle(ui, *overlay == way, label).clicked() {
+                    *overlay = way;
+                }
+                ui.label(egui::RichText::new(hint).small().color(theme::MUTED));
+            });
+        }
+        ui.add_space(8.0);
+    }
     ui.horizontal(|ui| {
         if ui.button("Audio").clicked() {
             *sheet = Some(Sheet::Audio);

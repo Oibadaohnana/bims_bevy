@@ -222,106 +222,6 @@ pub const PART_GROUPS: &[(&str, &[u32])] = &[
     ),
 ];
 
-/// The Build tab's categories, the way a colonist-game player thinks about
-/// them rather than the way a shipwright does: what holds the ship
-/// together, what it is lived in with, what makes things, and so on. Every
-/// kind the palette offers is in exactly one — `every_buildable_part_is_in_one_build_group`
-/// pins it — and the frame is left out for `NOT_A_TOOL`'s reason. Each is
-/// a name and a line saying what goes under it, the button's tooltip.
-pub const BUILD_GROUPS: &[(&str, &str, &[u32])] = &[
-    (
-        "Structure",
-        "The frame and the skin: deck to walk on, walls to divide it, the hull that keeps the outside out, the ways through, and sandbags for cover.",
-        &[
-            PartKind::Floor as u32,
-            PartKind::Wall as u32,
-            PartKind::DiagonalWall as u32,
-            PartKind::OutsideWall as u32,
-            PartKind::DiagonalOutsideWall as u32,
-            PartKind::Door as u32,
-            PartKind::Airlock as u32,
-            PartKind::Sandbags as u32,
-        ],
-    ),
-    (
-        "Furniture",
-        "What the crew live with: somewhere to sleep, sit and eat, somewhere to keep things, a desk to trade across, the research desk the AI works at, the lights — a deck no light reaches is a dark one, and the crew see ten tiles in the dark — and the comforts, a plant or a picture, which lift the surroundings of the deck round them.",
-        &[
-            PartKind::WallLight as u32,
-            PartKind::StandingLight as u32,
-            PartKind::SmallPlant as u32,
-            PartKind::BigPlant as u32,
-            PartKind::Picture as u32,
-            PartKind::Bunk as u32,
-            PartKind::Table as u32,
-            PartKind::Chair as u32,
-            PartKind::Shelf as u32,
-            PartKind::BroomLocker as u32,
-            PartKind::TradingDesk as u32,
-            PartKind::ResearchDesk as u32,
-        ],
-    ),
-    (
-        "Production",
-        "Where something is made: the workshop benches, the armoury, the drug lab, and the bay that grows the food.",
-        &[
-            PartKind::Workbench as u32,
-            PartKind::Armoury as u32,
-            PartKind::DrugLab as u32,
-            PartKind::HydroBay as u32,
-        ],
-    ),
-    (
-        "Galley",
-        "Where a meal is cooked and cleared up after.",
-        &[
-            PartKind::ColdStore as u32,
-            PartKind::Worktop as u32,
-            PartKind::Hob as u32,
-            PartKind::Dishwasher as u32,
-        ],
-    ),
-    (
-        "Hygiene",
-        "The heads and the shower.",
-        &[
-            PartKind::Toilet as u32,
-            PartKind::Basin as u32,
-            PartKind::Shower as u32,
-        ],
-    ),
-    (
-        "Power",
-        "What makes power, what carries it, and what holds it.",
-        &[
-            PartKind::Reactor as u32,
-            PartKind::FusionReactor as u32,
-            PartKind::PowerConduit as u32,
-            PartKind::Battery as u32,
-        ],
-    ),
-    (
-        "Ship systems",
-        "What flies the ship and keeps it alive: the helm, life support, the sensors, and the suits.",
-        &[
-            PartKind::Helm as u32,
-            PartKind::LifeSupport as u32,
-            PartKind::SensorArray as u32,
-            PartKind::SuitLocker as u32,
-        ],
-    ),
-    (
-        "Propulsion",
-        "The engines that push, the thrusters that turn, and the hyperdrive that jumps.",
-        &[
-            PartKind::Engine as u32,
-            PartKind::HeavyEngine as u32,
-            PartKind::Thruster as u32,
-            PartKind::Hyperdrive as u32,
-        ],
-    ),
-];
-
 /// Kinds the palette does not offer, though the ship knows them. Structure
 /// is one: deck plating lays its own frame, so to a player the frame and
 /// the deck are one thing and a second button for the half underneath would
@@ -769,9 +669,8 @@ pub const BANDAGE_BOX_TIP: &str = "Dressings in your pack. One closes every woun
 pub fn ability_locked(level: u8) -> String {
     format!("Level {level}")
 }
-/// The Skills tab (feature 83): the class's ten levels as a tree in the
-/// tray, what a level's slot says, and the button that spends a point.
-pub const SKILLS: &str = "Skills";
+/// The talent tree (features 83 and 107): the class's ten levels as a tree on the
+/// character sheet, what a level's slot says, and the button that spends a point.
 pub const SKILLS_TIP: &str = "Your own crew member's class, level by level. A level with two slots is a choice: one skill point, spent on one of them, and it cannot be changed. The levels with one slot come on their own as you climb.";
 pub const SKILLS_NO_CLASS: &str = "This crew member has no class, so there is nothing to learn. A class is chosen on the setup tab, before the ship first leaves its berth.";
 /// How many picks are waiting: what a point is spent on, and how many
@@ -1792,35 +1691,6 @@ pub fn tint_name(tint: bims::character::Tint) -> &'static str {
         .unwrap_or("Colour")
 }
 
-/// Why a blueprint will not go where the pointer is, from
-/// `World::can_place_site`: nothing is built on a run, the rules refuse
-/// the tile (an `EditError`, said the designer's way), the ship would then
-/// have a fault it has not got (an `IssueCode`, likewise), or the part is
-/// not researched.
-pub fn site_refusal_line(why: world::SiteRefusal) -> String {
-    match why {
-        world::SiteRefusal::NoShipyard => "Nothing is built onto the ship on a run.".into(),
-        world::SiteRefusal::WontFit(code) => edit_line(code).into(),
-        world::SiteRefusal::Fault(code) => issue_line(code)
-            .map(|line| format!("It would go, but then: {line}"))
-            .unwrap_or_else(|| "It would leave the ship with a fault.".into()),
-        world::SiteRefusal::NotResearched(node) => format!(
-            "The crew do not know how to build that yet — research {}.",
-            node_name(node)
-        ),
-    }
-}
-
-/// What a site costs out of the crew's one pool, in words: "€1,200".
-/// Nothing is carried to a site since the money rework (feature 95), so
-/// what there is to say about one is its price.
-pub fn site_progress(site: &world::BuildSite, design: &shipdesign::ShipDesign) -> String {
-    crate::format::euros(site.price(design))
-}
-
-/// What the ship is doing, indexed by `world::ShipState::code`.
-pub const STATE_NAMES: [&str; 2] = ["Docked", "Holding"];
-
 /// The machines (feature 83): a wave landing, and the last of them
 /// destroyed.
 pub const DROID_REINFORCEMENTS: &str = "Another wave of machines has landed.";
@@ -2178,9 +2048,6 @@ pub const TOWN_FELL: &str = "The town falls to the machines behind you.";
 // --- the world map and the end of a mission (feature 103) -------------------
 
 pub const MAP_TITLE: &str = "World map";
-/// Under where the crew are, in the ship view.
-pub const MAP_KEY_HINT: &str =
-    "M — the world map. Back to ship, at the bottom right, when you are done here.";
 /// Under the title, between missions and during one.
 pub const MAP_BETWEEN: &str =
     "Between missions. Choose where to go next — everybody has to accept.";
@@ -2210,13 +2077,6 @@ pub const ARRIVE_CLEARED: &str = "cleared";
 pub fn arrive_tier(tier: u32) -> String {
     format!("tier {tier}")
 }
-/// The picked destination, spelt out.
-pub fn picked_travel(minutes: u64, days: f64, arrival_day: u32) -> String {
-    format!(
-        "Travel {} ({days:.2} days) — arrive on day {arrival_day}.",
-        crate::format::trip_length(minutes)
-    )
-}
 pub const ARRIVE_QUIET: &str = "On arrival: nobody hostile.";
 pub fn arrive_state(infested: bool, tier: u32, jammer: bool, threatened: bool) -> String {
     let mut words = Vec::new();
@@ -2237,9 +2097,6 @@ pub fn arrive_state(infested: bool, tier: u32, jammer: bool, threatened: bool) -
 pub const PROPOSE: &str = "Propose";
 pub const ACCEPT_TRIP: &str = "Accept";
 pub const TAKE_BACK: &str = "Take back";
-pub fn proposal_line(site: &str, by: &str) -> String {
-    format!("{by} proposes {site}.")
-}
 pub fn accepted_line(who: &str, yes: bool, gone: bool) -> String {
     if gone {
         format!("{who}: gone")
@@ -2256,22 +2113,13 @@ pub fn out_line() -> String {
         crate::format::euros(world::data::BUYBACK_COST)
     )
 }
-/// The pool, and what is waiting on the site being cleared.
-pub fn pool_line(day: u32, pool: u64, pending: u64) -> String {
-    if pending > 0 {
-        format!(
-            "Day {day} · {} · +{} on clear",
-            crate::format::euros(pool),
-            crate::format::euros(pending)
-        )
-    } else {
-        format!("Day {day} · {}", crate::format::euros(pool))
-    }
-}
 pub const BACK_TO_SHIP: &str = "Back to ship";
 pub const BACK_TO_SHIP_TIP: &str = "Say you are done here. The first press sends every bot back to the ship. The ship leaves once every player still on their feet has pressed it and is aboard: anybody outside then is left behind, and dead for it, if everybody agrees. Leave before the place is cleared and it is put back as you found it — the bounty is lost, the experience is kept.";
+/// *Back to ship* pressed (feature 107's words for feature 103's count):
+/// the players aboard who have pressed it, of the players the ship waits
+/// for — `World::returning_count`, the departure check's own rule.
 pub fn returning_line(home: u32, waited: u32) -> String {
-    format!("Returning · {home} / {waited} aboard")
+    format!("Returning · {home} / {waited}")
 }
 pub const ASK_AGAIN: &str = "Ask again";
 pub const DEPARTURE_TITLE: &str = "Leave them behind?";
@@ -2291,6 +2139,188 @@ pub fn departure_answer(who: &str, answer: Option<bool>, gone: bool) -> String {
 pub const DERIVED_JAMMER_NAME: &str = "The machines' relay";
 /// Beside a name in the departure check: down and cannot walk in.
 pub const DOWNED_WORD: &str = "down";
+
+// --- the HUD (feature 107) ----------------------------------------------------
+
+/// The top frame: the day, the bounty waiting on the site being cleared,
+/// and the pause.
+pub fn day_word(day: u32) -> String {
+    format!("Day {day}")
+}
+pub fn on_clear_line(pending: u64) -> String {
+    format!("+{} on clear", crate::format::euros(pending))
+}
+pub const PAUSED_CHIP: &str = "Paused";
+/// The recruited warning, which the old strip spelt in place.
+pub const RECRUITED_STATUS: &str = "Recruited — the crew follow you";
+
+/// The banner over the canvas for a player whose Bim is out.
+pub const OUT_BANNER: &str = "You're out";
+pub fn out_banner_line(cost: u64, pool: u64) -> String {
+    format!(
+        "buyback {} · pool {}",
+        crate::format::euros(cost),
+        crate::format::euros(pool)
+    )
+}
+
+/// Under a portrait instead of its level: dead, or out until bought back.
+pub const PORTRAIT_OUT: &str = "out";
+/// What resting on a portrait says: the name, the class and the level,
+/// and whatever marker it wears.
+pub fn portrait_tip(
+    name: &str,
+    class: &str,
+    level: Option<u8>,
+    downed: bool,
+    out: bool,
+    returning: bool,
+) -> String {
+    let mut words = match level {
+        Some(level) => format!("{name} · {class}, level {level}"),
+        None => format!("{name} · {class}"),
+    };
+    if out {
+        words.push_str(" · out");
+    } else if downed {
+        words.push_str(" · down");
+    }
+    if returning && !out {
+        words.push_str(" · heading back to the ship");
+    }
+    words
+}
+
+/// The hero panel's experience line, and what stands for it without a
+/// class.
+pub fn hero_xp_line(level: u8, into: u32, of: u32) -> String {
+    format!("Lv {level} · {into} / {of} XP")
+}
+pub fn hero_xp_max(level: u8) -> String {
+    format!("Lv {level} · Max")
+}
+pub const NO_CLASS: &str = "No class";
+/// The hero panel greyed over while its Bim is down.
+pub const DOWNED_BANNER: &str = "Downed";
+/// The `+1` on the hero panel.
+pub const TALENT_WAITING_TIP: &str =
+    "A talent to pick — open the character sheet to spend the point.";
+/// The peril block in one line, for the hero panel: its head, what, and
+/// how long at this rate.
+pub fn peril_short(head: &str, cause: &str, left: Option<&str>) -> String {
+    match left {
+        Some(left) => format!("{head} {cause} · {left}"),
+        None => format!("{head} {cause}"),
+    }
+}
+/// A dying state that is not bleeding, in one line.
+pub fn peril_stable_short(trauma: &str) -> String {
+    format!("{trauma} · holding until a medkit")
+}
+
+/// A line of the log for experience gained, and what it is gathered by.
+pub fn xp_gain_line(source: &str, xp: u32) -> String {
+    format!("{source} · +{xp} XP")
+}
+pub const XP_FROM_MACHINES: &str = "Machines down";
+pub const XP_FROM_WORK: &str = "Experience";
+
+/// A word with the key that does the same beside it.
+pub fn with_key(word: &str, key: &str) -> String {
+    format!("{word} ({key})")
+}
+
+/// The tray's buttons.
+pub const TRAY_STASH: &str = "Stash";
+pub const TRAY_SQUAD: &str = "Squad";
+pub const TRAY_MAP: &str = "Map";
+pub const TRAY_TRADE: &str = "Trade";
+/// The Stash panel.
+pub const STASH_ABOARD: &str = "Aboard";
+pub const STASH_EMPTY: &str = "Nothing stored aboard.";
+pub const STASH_NOTHING: &str = "Nothing on them.";
+pub const STASH_OPEN_PACK: &str = "Open pack";
+/// The Squad panel.
+pub const SQUAD_FOLLOWING: &str = "Crew: following you";
+pub const SQUAD_ATTACK: &str = "Attack";
+pub const SQUAD_RETREAT: &str = "Retreat";
+pub const SQUAD_FOLLOW: &str = "Follow me";
+pub const SQUAD_NO_BOTS: &str = "No bots in the crew.";
+pub fn bot_class_line(class: world::Class, level: Option<u8>) -> String {
+    match level {
+        Some(level) => format!("{} · {level}", class_name(class)),
+        None => class_name(class).to_string(),
+    }
+}
+
+/// The character sheet.
+pub fn sheet_title(class: &str, level: u8) -> String {
+    format!("{class} · level {level}")
+}
+pub const SHEET_CLOSE: &str = "Close the character sheet";
+pub const SHEET_BODY: &str = "Body";
+pub const SHEET_GEAR: &str = "Gear";
+pub const SHEET_TALENTS: &str = "Talents";
+pub const SHEET_BLOOD: &str = "Blood";
+pub const NOTHING_WORN: &str = "nothing worn";
+pub const NOTHING_IN_HAND: &str = "nothing in hand";
+/// A part's health against what it can hold, with what armour adds.
+pub fn part_health_line(left: f32, most: f32, bonus: f32) -> String {
+    if bonus > 0.0 {
+        format!("{} / {} + {}", left.round(), most.round(), bonus.round())
+    } else {
+        format!("{} / {}", left.round(), most.round())
+    }
+}
+/// A piece worn: its name, tier and how much of it is left.
+pub fn worn_piece_line(name: &str, tier: u32, health: f32, most: f32) -> String {
+    format!("{name} T{tier} · {} / {}", health.round(), most.round())
+}
+/// The weapon in hand, and its tier.
+pub fn held_weapon_line(name: &str, tier: u32) -> String {
+    format!("{name} T{tier}")
+}
+
+/// The Esc sheet's view toggle, which the View tab was.
+pub const VIEW_HEADING: &str = "View";
+pub const VIEW_PLAIN: &str = "Plain";
+pub const VIEW_PLAIN_HINT: &str = "The ship as it is.";
+pub const VIEW_POWER: &str = "Electricity";
+pub const VIEW_POWER_HINT: &str =
+    "The power cables, and everything that makes, holds or draws power.";
+
+/// The world map's column.
+pub const MAP_CLOSE: &str = "Close";
+pub const GALAXY_VIEW: &str = "Galaxy view";
+pub const SYSTEM_VIEW: &str = "System view";
+pub const MAP_DAY: &str = "Day";
+pub const MAP_POOL: &str = "Pool";
+pub const MAP_PICK_HINT: &str =
+    "Pick a place on the list or on the chart: the trip is quoted here, and put to the crew.";
+pub const BUYBACK_HEADING: &str = "Buyback";
+pub const BUYBACK_COVERED: &str = "covered";
+pub const BUYBACK_SHORT: &str = "not covered";
+/// The destination card's rows.
+pub const CARD_HOPS: &str = "Where";
+pub const CARD_TRAVEL: &str = "Travel";
+pub const CARD_ARRIVAL: &str = "Arrive on day";
+pub fn hops_words(jump: bool) -> String {
+    if jump {
+        "one hop away".into()
+    } else {
+        "this system".into()
+    }
+}
+pub fn days_words(days: f64) -> String {
+    format!("{days:.1} days")
+}
+pub fn proposed_by(who: &str) -> String {
+    format!("Proposed by {who}")
+}
+/// What leaving a player's Bim behind costs: it is out until bought back.
+pub fn buyback_cost(cost: u64) -> String {
+    format!("buyback {}", crate::format::euros(cost))
+}
 
 /// The parts of a body a shot can land on, indexed by
 /// `bims::health::Part::code`: the head, the body, the legs. Lower case,
@@ -2584,31 +2614,11 @@ pub const SHIFT_LATER_HINT: &str =
 /// can walk to it there.
 pub const PATIENT_OUT: &str = "not while the patient is outside — it comes in first";
 
-pub const AUTONOMY_TIP: &str = "Off, the Bim starts nothing by itself — no work off the list, no dressing a crewmate's wounds of its own accord — but still does everything it is told.";
-/// The Management tab's other tick box: the workbench's upgrade.
 /// The end of the run (`screens::game::over`): the title, the line under
 /// it, and the way back.
 pub const OVER_TITLE: &str = "The crew are down";
 pub const OVER_LINE: &str = "Nobody of the crew is standing. The run is over.";
 pub const OVER_BACK: &str = "Back to the menu";
-
-pub const UPGRADE_LABEL: &str = "Combine matching gear";
-pub const UPGRADE_TIP: &str = "Ticked, whoever is free carries two of a kind at the same tier — two pistols, two helms — from the lockers to the workbench's two slots one at a time, presses Upgrade for you, and a day of work later carries the one that comes off a tier up back to the lockers: a quarter more damage and accuracy for a weapon, half again the health and protection for armour, and at tier three more range or a chance to dodge. Unticked, the bench is yours: put a pair on it from the pack and press the button in its window. The hours done are kept whoever is at the bench. Nothing is upgraded, ticked or not, until the Upgrades node of the research tree is known — tier two, behind a tier-two key, which only a few stations' desks hold.";
-
-/// The line under it while something is on the bench: what, to which
-/// tier, and how far — or that it is done and waiting in the output slot.
-pub fn upgrade_line(resource: ResourceId, tier: u32, done: u32, of: u32, waiting: bool) -> String {
-    let name = resource_name(resource);
-    if waiting {
-        format!("{name} at {} is ready on the workbench", tier_name(tier))
-    } else {
-        format!(
-            "Upgrading {} to {} — {done} of {of} hours",
-            name.to_lowercase(),
-            tier_name(tier)
-        )
-    }
-}
 
 /// The workbench's window: its title, the button, and the tip on the `?`.
 pub const BENCH_WINDOW: &str = "Workbench";
@@ -2618,10 +2628,6 @@ pub const BENCH_TIP: &str = "Two of a kind at the same tier go in the two slots 
 pub fn bench_work_line(done: u32, of: u32) -> String {
     format!("{done} of {of} h")
 }
-
-pub const BUILD_TIP: &str = "Lay out a part and the crew build it, out of what is on the shelves: whoever is free carries what it is made of to the site a load at a time, then stands beside it and puts it together — Hauling and Building on the Work tab say how soon. A site beyond the hull is reached in a suit, through the airlock. Nothing is built while the ship is moving, and the ship stays put while something is being built.";
-
-pub const ITEMS_TIP: &str = "What is aboard, by where it is kept: vegetables and tofu in the cold store; armour, weapons and medical things in the lockers. Click the armoury or a shelf on the deck to reach into it, or open the cold store from the Nearby strip over the inventory.";
 
 /// Months of the ship's calendar. Twelve of them and no leap years — see
 /// `crates/game/src/clock.rs`, which does the arithmetic; these are only
@@ -2698,34 +2704,6 @@ pub const PLAIN_SPOTS: [u32; 4] = [
     bims::room::SPOT_BULKHEAD,
     bims::room::SPOT_HEADS_DECK,
 ];
-
-/// The errand codes shared by `activity()` and `agenda_job()`.
-pub fn job_name(code: u32) -> &'static str {
-    match code {
-        7 => "Working a door",
-        8 => "Door lock",
-        18 => "Making something",
-        19 => "Mining outside",
-        20 => "Carrying materials",
-        21 => "Building",
-        22 => "Dressing a wound",
-        23 => "Treating a trauma",
-        24 => "Picking a weapon up",
-        26 => "Carrying gear to the workbench",
-        27 => "Walking over",
-        28 => "Setting up a kit",
-        _ => "Busy",
-    }
-}
-
-/// The jobs on the work list, by `work::Job` code, and which fixture each
-/// is about so resting on a row rings the place it happens.
-pub const WORK_NAMES: [&str; 4] = ["Hauling", "Making things", "Building", "Medical"];
-
-/// The note on the *Making things* row: standing at a bench is your own
-/// Bim's work, and the number on the row only ever says when it gets
-/// round to it (feature 89).
-pub const WORK_CRAFT_TIP: &str = "Only the Bim you steer stands at a bench — the workbench, the armoury, the drug lab. The rest of the crew haul, build, doctor and fight, whatever this number says.";
 
 // --- arms and armour ------------------------------------------------------------
 
@@ -2892,14 +2870,6 @@ pub const NODE_NAMES: [&str; 5] = [
     "Upgrades",
 ];
 
-pub const NODE_LINES: [&str; 5] = [
-    "What a ship is built of from the start: the hull, the galley, the heads, the bunks, the hydroponic bay, the fission reactor, the helm, the engines, the suit locker, the workbench and the armoury. Known from the start.",
-    "The drug lab, and the medkit it makes out of two vegetables. Known from the start.",
-    "The large fusion reactor: four reactors' power in a three-by-three block — a heavy engine flat out, and every bench and system aboard. The one node with no key on it.",
-    "The hyperdrive: a part bolted to a main engine, for a ship laid out in the yard. A trip to another star is chosen on the world map and resolved whether the ship carries one or not. After fusion power, and behind a tier-one key.",
-    "The workbench's upgrades: two weapons or pieces of a kind at one tier into one of the next — tier one to two, and two to three. The one tier-two node: it wants a tier-two key, which only a few stations' research desks hold.",
-];
-
 pub fn node_name(code: u32) -> &'static str {
     NODE_NAMES
         .get(code as usize)
@@ -2907,16 +2877,6 @@ pub fn node_name(code: u32) -> &'static str {
         .unwrap_or("something")
 }
 
-pub fn node_line(code: u32) -> &'static str {
-    NODE_LINES.get(code as usize).copied().unwrap_or("")
-}
-
-/// The Research tab.
-pub const RESEARCH_TIP: &str = "Research is done by the ship's AI at the research desk, on the desk's power — the crew have stopped being able to. Pick a node and queue it: whatever it needs that is not yet known goes onto the queue ahead of it, the AI works through the queue in order on the clock — days at a time — and what a node opens can be built from the Build tab and made at the benches after. A node taken off the queue takes with it whatever was waiting on it. The nodes behind a lock want a research key each — one key opens one node, and a node wants a key of its own tier: a tier-one key is found on the research desk of most stations and a tier-two key on the desks of a few others — lit up either way, so it can be seen from the door — and a crew member within two tiles takes it into their pack, where it is two cells tall. Put it in the ship's own desk and consume it there for the node, and that node is open for good.";
-pub const NO_DESK_HINT: &str =
-    "No research desk aboard — the AI works on one. Build one from the Build tab.";
-pub const DESK_DARK_HINT: &str =
-    "The research desk is unpowered: nothing is researched until it is.";
 pub const KEY_ROW: &str = "Take the research key";
 pub const KEY_ROW_HINT: &str = "walk over and take it into the pack — it is two cells tall";
 
@@ -2929,7 +2889,6 @@ pub fn key_row(tier: u8) -> String {
 }
 pub const NO_KEY_ROW_HINT: &str = "there is no key on this desk";
 pub const RESEARCH_WINDOW: &str = "Research desk";
-pub const RESEARCH_LOCKED: &str = "needs research";
 
 /// The container windows' titles. A workstation's window is named for the
 /// part — the armoury, the drug lab — off `PART_NAMES`; the other two have
@@ -3102,7 +3061,6 @@ mod tests {
         // --- every_research_node_has_a_name_and_a_line ---
         {
             assert_eq!(NODE_NAMES.len(), shipdesign::research::Node::ALL.len());
-            assert_eq!(NODE_LINES.len(), shipdesign::research::Node::ALL.len());
             assert_eq!(ITEM_TIPS.len(), ResourceId::ALL.len());
             assert_eq!(
                 SPOT_NAMES.len(),
@@ -3127,28 +3085,10 @@ mod tests {
             }
             assert!(issue_line(30).is_none(), "30 was retired");
         }
-
-        // --- every_buildable_part_is_in_one_build_group ---
-        {
-            for &kind in PartKind::ALL.iter() {
-                let code = kind as u32;
-                let groups = BUILD_GROUPS
-                    .iter()
-                    .filter(|(_, _, kinds)| kinds.contains(&code))
-                    .count();
-                let expected = if NOT_A_TOOL.contains(&code) { 0 } else { 1 };
-                assert_eq!(groups, expected, "{kind:?} is in {groups} build groups");
-            }
-        }
     }
 
     #[test]
     fn every_table_of_the_room_is_as_long_as_its_enum() {
-        // --- the_work_list_names_every_job ---
-        {
-            assert_eq!(WORK_NAMES.len(), bims::work::Job::ALL.len());
-        }
-
         // --- the_classes_and_the_talents_are_named_and_every_pick_level_tipped ---
         {
             assert_eq!(CLASS_NAMES.len(), world::Class::ALL.len());
@@ -3444,22 +3384,6 @@ mod tests {
             assert_eq!(BODY_PART_NAMES.len(), bims::health::Part::ALL.len());
             for part in bims::health::Part::ALL {
                 assert!(!body_part_name(part.code()).is_empty());
-            }
-        }
-
-        // --- the_bandage_job_has_a_name ---
-        {
-            // The newest job codes, the ones most likely to have been
-            // forgotten: `bims::game::JOB_BANDAGE` and the rest on the agenda.
-            for code in [
-                bims::game::JOB_BANDAGE,
-                bims::game::JOB_TREAT,
-                bims::game::JOB_FETCH,
-                bims::game::JOB_FERRY,
-                bims::game::JOB_WALK,
-                bims::game::JOB_DEPLOY,
-            ] {
-                assert_ne!(job_name(code), job_name(u32::MAX));
             }
         }
 
