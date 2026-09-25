@@ -562,6 +562,53 @@ impl Session {
         }
     }
 
+    /// `BIMS_REWARD=1` (feature 106): the site's machines wrecked wave by
+    /// wave until it is cleared, and the ship off it — the reward screen
+    /// up, offering its relics. `false` where there was nothing to clear.
+    pub fn reward_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if !game.world.clear_the_site_for_probe(20_000) {
+            return false;
+        }
+        game.world.leave_for_probe();
+        game.world.choosing_reward()
+    }
+
+    /// `BIMS_CACHE=1` (feature 106): a relic cache on the research desk of
+    /// the site the crew are at, the player's own Bim stood beside it and
+    /// the cache opened — its one relic put to the crew in the mission.
+    /// `false` where the site is not the machines' or has no desk.
+    pub fn cache_for_probe(&mut self) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let local = game.local;
+        let world = &mut game.world;
+        let Some(station) = world.ship.state.alongside() else {
+            return false;
+        };
+        let Some(it) = world.infested.iter_mut().find(|it| it.station == station) else {
+            return false;
+        };
+        it.cache = true;
+        // A step for the station's room to be open with its desk on the
+        // deck, and the Bim put beside the desk.
+        world.step(&[]);
+        let Some(spot) = world.cache_spot() else {
+            return false;
+        };
+        world.aboard.room.put_for_probe(local as usize, spot);
+        let events = world.step(&[world::world::Command::OpenCache {
+            slot: local,
+            who: local,
+        }]);
+        events
+            .iter()
+            .any(|e| matches!(e, world::WorldEvent::CacheOpened { .. }))
+    }
+
     /// `BIMS_WIN=1`: the run won the next time a site is cleared with
     /// machines in it (`World::run_won`, until there is an end boss).
     pub fn win_on_clear_for_probe(&mut self) {

@@ -2041,7 +2041,11 @@ fn the_checksum_notices_every_kind_of_change() {
         let twin = simulation_world(playtest_ship(), data::SIMULATION_MONEY, 1);
         assert_eq!(world_checksum(&world), world_checksum(&twin));
         world.give_relic_for_probe(0, crate::relic::Relic::FocusingLens);
-        assert_ne!(world_checksum(&world), world_checksum(&twin), "a relic held");
+        assert_ne!(
+            world_checksum(&world),
+            world_checksum(&twin),
+            "a relic held"
+        );
     }
 
     // --- the_checksum_notices_a_tier ---
@@ -6770,7 +6774,6 @@ fn a_crew_member_under_half_its_blood_is_out_cold_and_nobody_s_target() {
     );
     assert_eq!(believed(&world), None, "a body down is nobody's target");
 }
-
 
 /// Upgrades at the workbench are **always allowed** (feature 106): with
 /// research gone from the game there is no node to wait on. The button

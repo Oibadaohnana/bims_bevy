@@ -7,13 +7,13 @@ use bims::droid::DroidPart;
 use shipdesign::fixture::{COMBAT_CREW, combat_ship, flyer};
 use worldgen::GalaxyType;
 
+use crate::checksum::world_checksum;
 use crate::class::{Charge, Class};
 use crate::data;
 use crate::event::{Refusal, WorldEvent};
 use crate::fixture::{REFERENCE_MONEY, crewed_world};
 use crate::relic::{self, Relic, RelicChoice, Source};
 use crate::run::Phase;
-use crate::checksum::world_checksum;
 use crate::world::{Command, World};
 
 /// The `droids` arena, as `tests_mission` makes it: the combat ship's
@@ -135,7 +135,14 @@ fn no_station_carries_a_research_key() {
             for tier in [1, 2] {
                 let keyed = bims::combat::Item::Key(tier);
                 assert!(
-                    !world.aboard.room.gear(who).pack.iter().flatten().any(|i| *i == keyed),
+                    !world
+                        .aboard
+                        .room
+                        .gear(who)
+                        .pack
+                        .iter()
+                        .flatten()
+                        .any(|i| *i == keyed),
                     "a key in a pack"
                 );
             }
@@ -158,8 +165,9 @@ fn tier_two_comes_only_after_its_hours_and_follows_the_ramp() {
     let origin_hops = |star: u32| world.hops_from_origin(star);
     let before = f64::from(data::ENEMY_TIER2_HOURS) * time::HOUR - 1.0;
     let after = f64::from(data::ENEMY_TIER2_HOURS) * time::HOUR;
-    let far_from_origin =
-        |star: u32| origin_hops(star) > data::DROID_TIER_THREE_HOPS && origin_hops(star) != u16::MAX;
+    let far_from_origin = |star: u32| {
+        origin_hops(star) > data::DROID_TIER_THREE_HOPS && origin_hops(star) != u16::MAX
+    };
     let mut seen_two = 0;
     let mut seen_one = 0;
     for (star, &h) in hops.iter().enumerate() {
@@ -185,7 +193,10 @@ fn tier_two_comes_only_after_its_hours_and_follows_the_ramp() {
             }
         }
     }
-    assert!(seen_two > 0 && seen_one > 0, "a mix on the ramp: {seen_two} {seen_one}");
+    assert!(
+        seen_two > 0 && seen_one > 0,
+        "a mix on the ramp: {seen_two} {seen_one}"
+    );
     // Tier three near the origin, before and after.
     let near = (0..hops.len() as u32)
         .find(|&s| origin_hops(s) <= data::DROID_TIER_THREE_HOPS)
@@ -202,7 +213,10 @@ fn tier_two_comes_only_after_its_hours_and_follows_the_ramp() {
     for (site, quote) in world.travel_quotes() {
         let Ok(quote) = quote else { continue };
         let at = world.clock_minutes + quote.minutes as f64;
-        assert_eq!(quote.tier, world.site_tier(site.star, Some(site.station), at));
+        assert_eq!(
+            quote.tier,
+            world.site_tier(site.star, Some(site.station), at)
+        );
     }
 }
 
@@ -312,7 +326,10 @@ fn a_cache_s_relic_is_kept_when_the_site_is_cleared() {
     at_the_cache(&mut world, station);
     assert!(world.cache_here());
     let events = world.step(&[Command::OpenCache { slot: 0, who: 0 }]);
-    assert!(events.contains(&WorldEvent::CacheOpened { who: 0 }), "{events:?}");
+    assert!(
+        events.contains(&WorldEvent::CacheOpened { who: 0 }),
+        "{events:?}"
+    );
     assert!(!world.cache_here(), "the cache is gone off the desk");
     let choice = world.relic_choice().expect("one relic on offer").clone();
     assert_eq!(choice.source, Source::Cache);
@@ -350,7 +367,11 @@ fn a_cache_s_relic_is_lost_and_the_cache_put_back_when_the_site_is_left() {
     }));
     assert!(world.relics_of(0).is_empty());
     assert!(world.pending_relics().is_empty());
-    assert_eq!(world.run.phase, Phase::Map, "no reward for a site not cleared");
+    assert_eq!(
+        world.run.phase,
+        Phase::Map,
+        "no reward for a site not cleared"
+    );
     assert!(
         world.infestation(station).is_some_and(|it| it.cache),
         "the cache is back with the rest of the site"
@@ -449,7 +470,10 @@ fn a_dead_player_keeps_its_relics_through_buyback() {
         station: site.station,
     }]);
     events.extend(world.step(&[Command::Accept { slot: 1, yes: true }]));
-    assert!(events.contains(&WorldEvent::BoughtBack { who: 1 }), "{events:?}");
+    assert!(
+        events.contains(&WorldEvent::BoughtBack { who: 1 }),
+        "{events:?}"
+    );
     assert_eq!(world.relics_of(1), &[Relic::FieldPlating], "back, and kept");
 }
 
@@ -471,7 +495,10 @@ fn close(a: f32, b: f32) -> bool {
 fn the_stat_relics_move_the_stat_they_name() {
     let f = |p: i32| relic::factor(p) as f32;
     let (a, b) = skill_with(Relic::FocusingLens);
-    assert!(close(b.damage, a.damage * f(data::FOCUSING_LENS_DAMAGE_PERCENT)));
+    assert!(close(
+        b.damage,
+        a.damage * f(data::FOCUSING_LENS_DAMAGE_PERCENT)
+    ));
     assert!(close(b.accuracy, a.accuracy) && close(b.walk, a.walk));
     let (a, b) = skill_with(Relic::ServoBraces);
     assert!(close(b.walk, a.walk * f(data::SERVO_BRACES_SPEED_PERCENT)));
@@ -481,16 +508,28 @@ fn the_stat_relics_move_the_stat_they_name() {
         a.armour_protection * f(data::FIELD_PLATING_ARMOUR_PERCENT)
     ));
     let (a, b) = skill_with(Relic::SteadyGrip);
-    assert!(close(b.accuracy, a.accuracy * f(data::STEADY_GRIP_ACCURACY_PERCENT)));
+    assert!(close(
+        b.accuracy,
+        a.accuracy * f(data::STEADY_GRIP_ACCURACY_PERCENT)
+    ));
     let (a, b) = skill_with(Relic::TraumaKit);
-    assert!(close(b.healing, a.healing * f(data::TRAUMA_KIT_HEALING_PERCENT)));
+    assert!(close(
+        b.healing,
+        a.healing * f(data::TRAUMA_KIT_HEALING_PERCENT)
+    ));
     let (a, b) = skill_with(Relic::OverchargeCell);
-    assert_eq!((a.overcharge, b.overcharge), (0, data::OVERCHARGE_CELL_EVERY));
+    assert_eq!(
+        (a.overcharge, b.overcharge),
+        (0, data::OVERCHARGE_CELL_EVERY)
+    );
     // Every fifth shot, and only it, is doubled.
     for shots in 0..10 {
         let damage = b.for_shot(shots).damage;
         if (shots + 1) % data::OVERCHARGE_CELL_EVERY == 0 {
-            assert!(close(damage, b.damage * f(data::OVERCHARGE_CELL_DAMAGE_PERCENT)));
+            assert!(close(
+                damage,
+                b.damage * f(data::OVERCHARGE_CELL_DAMAGE_PERCENT)
+            ));
         } else {
             assert!(close(damage, b.damage));
         }
@@ -543,10 +582,16 @@ fn salvage_beacon_and_kill_relay_read_their_holder_s_kills() {
     world.set_class(0, Class::Soldier).unwrap();
     let bounty = crate::world::bounty_for(1);
     let mut events = Vec::new();
-    assert_eq!(world.machine_kills(&[(Some(0), bounty)], &mut events), bounty);
+    assert_eq!(
+        world.machine_kills(&[(Some(0), bounty)], &mut events),
+        bounty
+    );
     world.give_relic_for_probe(0, Relic::SalvageBeacon);
     let raised = bounty + bounty * data::SALVAGE_BEACON_BOUNTY_PERCENT as u64 / 100;
-    assert_eq!(world.machine_kills(&[(Some(0), bounty)], &mut events), raised);
+    assert_eq!(
+        world.machine_kills(&[(Some(0), bounty)], &mut events),
+        raised
+    );
     assert_eq!(
         world.machine_kills(&[(Some(1), bounty), (None, bounty)], &mut events),
         2 * bounty,
@@ -559,7 +604,10 @@ fn salvage_beacon_and_kill_relay_read_their_holder_s_kills() {
     let left = world.charge_cooldown_left(0, Charge::Grenade);
     world.machine_kills(&[(Some(0), bounty)], &mut events);
     let after = world.charge_cooldown_left(0, Charge::Grenade);
-    assert!((left - after - data::KILL_RELAY_SECONDS).abs() < 1e-6, "{left} {after}");
+    assert!(
+        (left - after - data::KILL_RELAY_SECONDS).abs() < 1e-6,
+        "{left} {after}"
+    );
     assert!(events.contains(&WorldEvent::RelicFired {
         who: 0,
         relic: Relic::KillRelay.code()
@@ -594,7 +642,10 @@ fn second_wind_gets_up_once_a_mission() {
     }));
     assert!(!world.aboard.room.is_down(0), "up again");
     let share = world.health_share(0);
-    assert!(share >= data::SECOND_WIND_HEALTH_PERCENT as f32 / 100.0 - 1e-3, "{share}");
+    assert!(
+        share >= data::SECOND_WIND_HEALTH_PERCENT as f32 / 100.0 - 1e-3,
+        "{share}"
+    );
     // Down again the same mission: it stays down.
     world.aboard.room.knock_out_for_probe(0);
     world.step(&[]);

@@ -373,6 +373,10 @@ pub struct SettingsWire {
     pub seed: u64,
     pub galaxy: u32,
     pub spawn: Option<(u32, u32)>,
+    /// The host's profile's relic pool and open classes, as bits (feature
+    /// 106, `profile::RunUnlocks`): the run's, on every machine.
+    pub relics: u64,
+    pub classes: u32,
 }
 
 impl SettingsWire {
@@ -383,6 +387,8 @@ impl SettingsWire {
             seed: settings.seed,
             galaxy: settings.galaxy,
             spawn: settings.spawn,
+            relics: settings.unlocks.relics,
+            classes: settings.unlocks.classes,
         }
     }
 
@@ -393,6 +399,10 @@ impl SettingsWire {
         settings.seed = self.seed;
         settings.galaxy = self.galaxy;
         settings.spawn = self.spawn;
+        settings.unlocks = crate::profile::RunUnlocks {
+            relics: self.relics,
+            classes: self.classes,
+        };
     }
 }
 

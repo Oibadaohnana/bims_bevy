@@ -42,6 +42,8 @@
 //!                    and the lanes inward shut
 //! bims guardian      the fight at tier three against a Guardian and two
 //!                    Troopers a wave: the shield, the turn and the beam
+//! bims relics        the droids arena with one short wave: clear it, go
+//!                    back to the ship, and the reward screen offers relics
 //! bims defense       a town on a planet with the machines one hop away: the
 //!                    crew set down at its pad, a wave landing outside a gate
 //!                    a minute later, and the town's own guard fighting beside
@@ -66,6 +68,7 @@ mod keys;
 mod names;
 mod net;
 mod perf;
+mod profile;
 mod save;
 mod scene;
 mod screens;
@@ -138,6 +141,10 @@ pub enum Launch {
     /// three with every wave one Guardian and two Troopers, and the
     /// reinforcement clock a minute.
     Guardian,
+    /// The relics looked at (feature 106): the `droids` arena with one
+    /// wave short enough to finish, so clearing it and going back to the
+    /// ship opens the reward screen.
+    Relics,
     StationBuilder,
 }
 
@@ -165,7 +172,7 @@ pub enum Screen {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|stationbuilder [name]|list|--self-check]"
+        "usage: bims [game|simulation|design|test|test_planet|droids|combat_droids_<class>|tier2_test|tier3_test|droids_planet|crisis|jammer|defense|guardian|relics|stationbuilder [name]|list|--self-check]"
     );
     eprintln!("       a class is one of: {}", class_words().join(", "));
     eprintln!("       `bims list` says what each of them opens");
@@ -176,7 +183,7 @@ fn usage() -> ! {
 /// — the one list, printed by [`list`] and nothing else. A new command is
 /// a row here and an arm in `main`; the classes' commands are not written
 /// out, since [`class_words`] reads them off `Class::ALL`.
-const COMMANDS: [(&str, &str); 16] = [
+const COMMANDS: [(&str, &str); 17] = [
     (
         "game",
         "The whole game in order: menu, setup or lobby, world and station, then the run: a mission where you docked, on the default ship, 5 000 a Bim in the pool",
@@ -222,6 +229,10 @@ const COMMANDS: [(&str, &str); 16] = [
     (
         "guardian",
         "The fight at tier three with every wave one Guardian and two Troopers: its shield, its turn and its beam, reinforcements a minute apart",
+    ),
+    (
+        "relics",
+        "The droids arena with one short wave: clear it, go back to the ship, and the reward screen offers the site's relics",
     ),
     (
         "stationbuilder [name]",
@@ -327,6 +338,7 @@ fn main() {
         Some("jammer") => Launch::Jammer,
         Some("defense") => Launch::Defense,
         Some("guardian") => Launch::Guardian,
+        Some("relics") => Launch::Relics,
         Some("stationbuilder") => Launch::StationBuilder,
         // What there is to run, printed rather than opened.
         Some("list") | Some("--list") | Some("--help") | Some("-h") => {
@@ -413,6 +425,7 @@ fn open(launch: Res<Launch>, mut commands: Commands, mut next: ResMut<NextState<
         | Launch::Crisis
         | Launch::Jammer
         | Launch::Guardian
+        | Launch::Relics
         | Launch::Defense => next.set(Screen::Game),
         Launch::Design => {
             let mut settings = screens::builder::Settings::default();

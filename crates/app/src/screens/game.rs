@@ -313,6 +313,7 @@ impl Plugin for GamePlugin {
 /// by `WorldEvent::CrewLost` — and the game screen hands over to this,
 /// a screen that says so and a way back to the menu. The world is left
 /// as it was, so a save made before the fight is still there to load.
+#[allow(clippy::too_many_arguments)]
 fn over(
     mut contexts: EguiContexts,
     mut session: ResMut<ShipSession>,
@@ -320,9 +321,19 @@ fn over(
     window: Single<&Window>,
     online: Res<Online>,
     beginning: Option<Res<Beginning>>,
+    mut commands: Commands,
+    victory: Option<Res<crate::profile::Victory>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let mut root = root_ui(&ctx);
+    // A run **won** (feature 106, `World::run_won`) ends here too, and is
+    // written into this machine's profile the first frame it is shown:
+    // every player's own, on their own disk.
+    let won = session.0.game.as_ref().is_some_and(|g| g.world.is_won());
+    if won && victory.is_none() {
+        let unlocked = crate::profile::record_win();
+        commands.insert_resource(crate::profile::Victory { unlocked });
+    }
     let when = session
         .0
         .game
@@ -346,9 +357,32 @@ fn over(
     egui::CentralPanel::default().show(&mut root, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(ui.available_height() * 0.3);
-            ui.label(egui::RichText::new(OVER_TITLE).size(28.0).strong());
-            ui.label(egui::RichText::new(OVER_LINE).color(theme::MUTED));
-            ui.label(egui::RichText::new(when).color(theme::MUTED));
+            if won {
+                ui.label(egui::RichText::new(VICTORY_TITLE).size(28.0).strong());
+                ui.label(egui::RichText::new(when).color(theme::MUTED));
+                ui.add_space(8.0);
+                let unlocked = victory.as_ref().map_or(&[][..], |v| v.unlocked.as_slice());
+                if unlocked.is_empty() {
+                    ui.label(egui::RichText::new(VICTORY_NOTHING_NEW).color(theme::MUTED));
+                } else {
+                    ui.label(egui::RichText::new(VICTORY_UNLOCKED).strong());
+                    for &relic in unlocked {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} · {}",
+                                relic_name(relic),
+                                relic_tier(relic)
+                            ))
+                            .color(theme::ACCENT),
+                        );
+                        ui.label(egui::RichText::new(relic_line(relic)).small());
+                    }
+                }
+            } else {
+                ui.label(egui::RichText::new(OVER_TITLE).size(28.0).strong());
+                ui.label(egui::RichText::new(OVER_LINE).color(theme::MUTED));
+                ui.label(egui::RichText::new(when).color(theme::MUTED));
+            }
             ui.add_space(12.0);
             if restartable && ui.link(RESTART_AGAIN).clicked() {
                 again = true;
@@ -380,6 +414,7 @@ fn over(
         }
         crate::names::set_crew_names(&loaded.crew_names);
         session.0 = loaded;
+        commands.remove_resource::<crate::profile::Victory>();
         next.set(Screen::Game);
     }
     Ok(())
@@ -393,6 +428,8 @@ fn open(
     online: Res<Online>,
 ) {
     let size = Vec2::new(window.width().max(64.0), window.height().max(64.0));
+    // A run opening has won nothing yet (feature 106).
+    commands.remove_resource::<crate::profile::Victory>();
     let (slot, players) = match session {
         Some(session) => {
             // The crew's names, as the lobby dealt them or a save kept them.
@@ -465,6 +502,14 @@ fn open(
                     seed,
                     crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
                     crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                    size.x,
+                    size.y,
+                ),
+                // The relics looked at (feature 106): the arena with one
+                // wave short enough to clear, and the reward screen after.
+                Launch::Relics => Session::relics(
+                    seed,
+                    crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
                     size.x,
                     size.y,
                 ),
@@ -558,6 +603,13 @@ fn open(
                 _ => world::Class::None,
             };
             crate::dev::class_crew(&mut session, asked);
+            // The run's relic pool (feature 106): with nobody else in it,
+            // this machine's own profile's, as the lobby's host's would be.
+            let unlocks = crate::profile::RunUnlocks::of(&crate::profile::load());
+            session.set_relic_pool(&unlocks.pool());
+            commands.insert_resource(unlocks);
+            // The relics asked for, and the probes' win.
+            crate::dev::relic_dials(&mut session);
             // And `BIMS_BEAM` after it: the class has to be on before a
             // medic can hold anybody (feature 76).
             crate::dev::beam_crew(&mut session);
@@ -588,6 +640,14 @@ fn open(
             }
             if crate::dev::depart() {
                 session.depart_for_probe();
+            }
+            // And the relics' two screens (feature 106): a cache's choice
+            // in the mission, or the reward screen after a site cleared.
+            if crate::dev::cache() && !session.cache_for_probe() {
+                eprintln!("BIMS_CACHE: no held site with a desk to put a cache on");
+            }
+            if crate::dev::reward() && !session.reward_for_probe() {
+                eprintln!("BIMS_REWARD: no held site to clear, or nothing left to offer");
             }
             if let Some(n) = crate::dev::lamps_out() {
                 session.shoot_lamps_for_probe(n);
@@ -808,6 +868,10 @@ fn frame(
     beginning: Option<Res<Beginning>>,
     // The canvas between the panels, which Bevy draws (feature 97).
     mut world_canvas: WorldCanvas,
+    // What the host's profile opened for the run (feature 106): the
+    // classes the sheet offers. Absent on a command's own run, which
+    // opens every class.
+    unlocks: Option<Res<crate::profile::RunUnlocks>>,
 ) -> Result {
     // `BIMS_PERF`: where the frame goes (feature 96). Nothing at all
     // without it.
@@ -1132,8 +1196,9 @@ fn frame(
             game.set_mode(ViewMode::Map);
         }
         // Nobody standing: the run is over, and the screen that says so
-        // takes over from this one on the next frame.
-        if game.world.lost {
+        // takes over from this one on the next frame. A run won ends on
+        // the same screen, saying so (feature 106).
+        if game.world.lost || game.world.is_won() {
             next.set(Screen::Over);
         }
         // What the steps sounded like: the crew's room, and the station's
@@ -1297,6 +1362,11 @@ fn frame(
                         can_rally: progress.level() >= world::class::RALLY_LEVEL,
                     }
                 }),
+                relics: world.relics_of(slot).to_vec(),
+                open_classes: world::Class::ALL
+                    .into_iter()
+                    .filter(|&c| unlocks.as_ref().is_none_or(|u| u.class_open(c)))
+                    .collect(),
             }
         });
     }
@@ -2169,6 +2239,9 @@ fn frame(
     // The departure check, over everything while it is asking — map up or
     // not, since it is everybody's question.
     super::worldmap::departure_window(&ctx, world, local, &mut orders, &crew_name);
+    // And a relic being chosen (feature 106): the reward screen after a
+    // site cleared, over the map, or a cache's in the mission.
+    super::worldmap::relic_window(&ctx, world, local, &mut orders, &crew_name);
 
     // What the HUD asked for: the orders now, off the world as it stands,
     // and the windows once it is let go of.

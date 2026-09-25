@@ -707,6 +707,12 @@ pub fn start_run(commands: &mut Commands, s: &Settings, size: Vec2) -> Screen {
     session.crew_hair = s.hair.clone();
     session.crew_tints = s.tints.clone();
     session.dress_crew();
+    // The host's profile's relics, the run's pool on every machine
+    // (feature 106), before the world's first step.
+    session.set_relic_pool(&s.unlocks.pool());
+    commands.insert_resource(s.unlocks);
+    // And the relic dials, on the `game` command as on any other.
+    crate::dev::relic_dials(&mut session);
     let ok = session.spawn_ok() && session.game.is_some();
     commands.remove_resource::<Start>();
     if ok {

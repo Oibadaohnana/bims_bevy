@@ -2142,8 +2142,7 @@ pub const RELICS_HEADING: &str = "Relics";
 pub const NO_RELICS: &str = "None yet. A site cleared of machines offers relics.";
 pub const REWARD_TITLE: &str = "The site is cleared";
 pub const CACHE_TITLE: &str = "A relic cache";
-pub const REWARD_INTRO: &str =
-    "Choose a relic and whose Bim takes it. Every player has to say yes; a new proposal clears them.";
+pub const REWARD_INTRO: &str = "Choose a relic and whose Bim takes it. Every player has to say yes; a new proposal clears them.";
 pub const CACHE_INTRO: &str =
     "One relic out of the cache. It is kept only if the site is cleared before the crew leave.";
 pub const TAKE_NONE: &str = "Take none";
@@ -2154,6 +2153,15 @@ pub const VICTORY_UNLOCKED: &str = "Unlocked for your next runs:";
 pub const VICTORY_NOTHING_NEW: &str = "Every relic is unlocked already.";
 
 /// The line under a proposal: what is on the table and who has said yes.
+/// A player's word on the relic on the table.
+pub fn relic_answer(who: &str, yes: bool, gone: bool) -> String {
+    match (gone, yes) {
+        (true, _) => format!("{who}: gone"),
+        (false, true) => format!("{who}: yes"),
+        (false, false) => format!("{who}: …"),
+    }
+}
+
 pub fn relic_proposal_line(relic: Option<world::Relic>, to: u32) -> String {
     match relic {
         Some(r) => format!("On the table: {} for {}.", relic_name(r), player_name(to)),
@@ -3008,8 +3016,7 @@ pub fn item_tip(id: ResourceId) -> &'static str {
 
 /// The research desk's row where a relic cache lies on it (feature 106).
 pub const CACHE_ROW: &str = "Open the relic cache";
-pub const CACHE_ROW_HINT: &str =
-    "walk over and open it — one relic, kept if the site is cleared";
+pub const CACHE_ROW_HINT: &str = "walk over and open it — one relic, kept if the site is cleared";
 pub const RESEARCH_WINDOW: &str = "Research desk";
 
 /// The container windows' titles. A workstation's window is named for the
@@ -3178,6 +3185,14 @@ mod tests {
         {
             assert_eq!(RESOURCE_NAMES.len(), ResourceId::ALL.len());
             assert_eq!(STORAGE_NAMES.len(), shipdesign::Storage::ALL.len());
+        }
+
+        // --- every_relic_has_a_name_and_a_line (feature 106) ---
+        {
+            assert_eq!(RELIC_NAMES.len(), world::Relic::ALL.len());
+            for relic in world::Relic::ALL {
+                assert!(!relic_line(relic).is_empty());
+            }
         }
 
         // --- every_item_and_spot_has_a_line ---

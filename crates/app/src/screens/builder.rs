@@ -107,6 +107,10 @@ pub struct Settings {
     /// dealt at Start like the hair (feature 84). Empty is every slot
     /// its own of `Tint::ALL`.
     pub tints: Vec<Tint>,
+    /// What the **host's** profile opened for the run (feature 106): its
+    /// relic pool and the classes that may be picked. This machine's own
+    /// until a host's settings arrive, and the host's after.
+    pub unlocks: crate::profile::RunUnlocks,
 }
 
 impl Default for Settings {
@@ -123,6 +127,7 @@ impl Default for Settings {
             hair: Vec::new(),
             classes: Vec::new(),
             tints: Vec::new(),
+            unlocks: crate::profile::RunUnlocks::of(&crate::profile::load()),
         }
     }
 }
@@ -911,7 +916,7 @@ fn tool(
             );
             hair_chooser(ui, screen);
             tint_chooser(ui, screen, &online.tints_taken());
-            class_chooser(ui, screen);
+            class_chooser(ui, screen, &settings.unlocks);
             screen.net.push(online, settings, false);
         }
         Tab::World => world(ui, screen, settings, online, editable, now),
@@ -1068,8 +1073,13 @@ fn tint_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen, taken: &[Tint]) {
 /// what it brings to the pool. What is picked goes with the slot at
 /// Start and onto the world as it opens; playing, the crew panel's
 /// own picker changes it through `Command::SetClass` until the first
-/// undock.
-fn class_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
+/// undock. Only the classes the host's profile opened are offered
+/// (feature 106, `profile::RunUnlocks`).
+fn class_chooser(
+    ui: &mut egui::Ui,
+    screen: &mut BuilderScreen,
+    unlocks: &crate::profile::RunUnlocks,
+) {
     ui.add_space(6.0);
     ui.label(egui::RichText::new(BIM_CLASS).strong());
     ui.label(
@@ -1078,7 +1088,7 @@ fn class_chooser(ui: &mut egui::Ui, screen: &mut BuilderScreen) {
             .color(theme::MUTED),
     );
     ui.horizontal(|ui| {
-        for class in Class::ALL {
+        for class in Class::ALL.into_iter().filter(|&c| unlocks.class_open(c)) {
             let on = class == screen.bim_class;
             let b = egui::Button::new(class_name(class)).min_size(egui::vec2(96.0, 22.0));
             let b = if on { b.fill(theme::RAISED_ON) } else { b };

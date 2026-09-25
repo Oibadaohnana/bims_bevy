@@ -76,7 +76,9 @@ What a run is, from the lobby to the end of it.
   and nothing is built onto the ship but a class's sandbags and sentries.
   The money comes from the Republic's bounty on every machine destroyed,
   and it goes on gear, on hands for hire and on buying the dead back.
-  Research, the workbench and the drug lab work as they always did.
+  The workbench and the drug lab work as they always did; research is
+  gone, and **relics** are what a run collects instead — see
+  [Relics](#relics-and-what-a-won-run-unlocks).
 - **Nobody eats, sleeps or goes to the heads.** The bunks, the galley,
   the heads, the shower, the hydroponic bay and the cold store are
   **furniture**: drawn as they always were, in the way of a walk as they
@@ -179,6 +181,81 @@ there is no helm to stand at and no trip to sit through.
   so, with the day, and its *Start again* puts the run back to where it
   opened.
 
+## Relics, and what a won run unlocks
+
+Research is gone from the game (feature 106): no desk carries a key, the
+ship's AI researches nothing, and the workbench upgrades gear from the
+first day. What a crew collects over a run instead is **relics** —
+passive items, in the manner of Slay the Spire, each held by **one
+player's Bim** for the rest of the run. A bot never holds one.
+
+- **What one does.** Every relic has a name, a tier and one effect, and the
+  character sheet (**K**) lists the ones the Bim holds, under its gear —
+  they are not shown on the deck. The twelve there are:
+
+  | tier | relic | what it does | in a new profile |
+  | --- | --- | --- | --- |
+  | 1 | Focusing Lens | +10% weapon damage | yes |
+  | 1 | Servo Braces | +10% move speed | yes |
+  | 1 | Field Plating | +10% armour | yes |
+  | 1 | Coolant Loop | -10% class ability cooldowns (never the medicine) | yes |
+  | 1 | Steady Grip | +10% accuracy | unlocked by a win |
+  | 1 | Trauma Kit | +25% healing received from medkits and a medic's beam | unlocked by a win |
+  | 2 | Second Wind | the first time the Bim goes down in a mission, it gets up 5 s later with 25% health | yes |
+  | 2 | Salvage Beacon | +20% bounty for the Bim's own kills, paid on the clear like any bounty | yes |
+  | 2 | Overcharge Cell | every fifth shot does double damage | unlocked by a win |
+  | 3 | Last Stand | +25% weapon damage while another player's Bim is down | yes |
+  | 3 | Kill Relay | each kill takes a second off the Bim's class cooldowns | yes |
+  | 3 | Phase Harness | once a mission, when a hit takes the Bim under 25% health, nothing hurts it for 2 s | unlocked by a win |
+
+  A bandage closes wounds and puts nothing back, so *Trauma Kit* raises
+  what a medkit starts a part again from and what a beam gives, and
+  nothing else.
+- **Kept.** A relic cannot be moved to another Bim, dropped or sold, and a
+  player's Bim that dies keeps its relics as it keeps its level; they come
+  back with it when it is bought back.
+- **A clear pays one.** A site cleared **with machines in it** — a held
+  station, a held town, a town defended — offers **three relics of its
+  tier** (the tier its machines came at) on a **reward screen** after the
+  departure check, before the world map comes up. When the tier has none
+  left the next lower one is drawn from, and when none is left at or
+  below it the map comes straight up. A relic is in a run **once**: it
+  leaves the pool the moment it is offered, taken or not.
+- **A cache pays one sooner.** A held site may hide a **relic cache** on
+  its research desk — lit gold, the ring of lights a key once had. The
+  desk's menu **Open the relic cache** walks your Bim over and opens it:
+  one relic of the site's tier, chosen with the fight going on. It is
+  **pending** until the site is cleared — kept then, **lost** if the crew
+  leave first, and the site put back with its cache on the desk again.
+- **Chosen together.** A choice is the world map's vote over again: any
+  player picks a relic (or **Take none**) and a player's Bim to have it
+  and proposes; every player still at the keyboard says yes; a new
+  proposal clears every yes.
+- **Unlocks between runs.** Each player has a **profile** — which relics
+  and classes they have unlocked and how many runs they have won — kept as
+  `bims/profile.ron` beside the saves (`~/.local/share/bims`, or wherever
+  `BIMS_PROFILE_DIR` says). A new profile has the eight relics marked
+  above and every class. A **won** run unlocks two more relics in every
+  player's own profile — the first still locked, in the order of the
+  list — and the victory screen says which. A lost run unlocks nothing.
+  In a lobby the **host's** profile decides the run's pool and which
+  classes can be picked, fixed at the start. A class added later can be
+  made one to unlock the same way; every class there is now is open.
+- **Winning.** The end boss that wins a run is the next step; until it is
+  in, `BIMS_WIN=1` on any command wins the run the next time a site is
+  cleared with machines in it.
+- **Tier two on time.** With no research to wait on, the machines come at
+  tier two once the world clock is **a fortnight** in: from then on a
+  site's odds of tier two climb with its distance from the crew's own star
+  — nought at home, sure six hops or more out — and tier three near the
+  machines' origin is as it was. The world map's quote says which.
+
+`nix run .#relics` is the droids arena with one short wave: clear it, go
+back to the ship, and the reward screen offers the site's relics.
+`BIMS_RELICS=focusing_lens,second_wind` gives your Bim those relics at the
+start, `BIMS_REWARD=1` opens straight on the reward screen and
+`BIMS_CACHE=1` with a cache opened in the mission.
+
 ## Running it
 
 ```sh
@@ -205,6 +282,7 @@ all with a line each, and is the build's own answer rather than this table's:
 | `nix run .#jammer` | `cargo run -- jammer` | the crew **inside an infested system**, two hyperlane hops from where the machines began: every station of it in their hands, a wave aboard the one the ship is tied to, and the system's **jammer** standing — so the chart's route inward is barred in red, a jump that way is refused, and the machines come at tier three because of how near the origin they are. `BIMS_DROID_TIER=1` brings them at tier one instead |
 | `nix run .#defense` | `cargo run -- defense` | **a town worth defending**: the ship set down at a friendly settlement with the machines one hyperlane hop away, so the town is next. A minute after the landing a wave sets down outside a gate and walks in; the town's guard and whatever mercenaries live there take arms, everybody else goes indoors, and the red line along the top counts the wave the way it counts a held station's. Hold the last wave and the town is yours to keep. `BIMS_DEFENSE_DELAY=n` is the wait before the first wave and `BIMS_DROID_WAVES=1` a fight short enough to finish |
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian**: the fight at tier three with every wave one Guardian and two Troopers — the largest machine, a walker behind a shield that stops everything from the front. Get round it |
+| `nix run .#relics` | `cargo run -- relics` | **the relics**: the droids arena with one short wave of four — clear it, go back to the ship, and the **reward screen** offers the site's relics to choose from. `BIMS_RELICS=focusing_lens,second_wind` gives your Bim those at the start, `BIMS_REWARD=1` opens on the reward screen, `BIMS_CACHE=1` with a relic cache opened in the mission and `BIMS_WIN=1` (on any command) wins the run on the next clear |
 | | `cargo run -- list` | nothing: every one of these printed with a line each, and what the environment adds. `--list`, `--help` and `-h` are it too |
 
 Whichever of them you open, **Esc → Restart → Start again** puts the run back
@@ -897,64 +975,13 @@ brownout.
 
 ### Research
 
-**Research is done by the ship's AI**, at the **research desk** — a
-console on a table's footprint, worked from the tile below, drawing ten —
-because the humans aboard have stopped being able to. The **Research** tab
-at the bottom left is the tree: the nodes as boxes, what is known on the
-left and what waits on it to the right, a line from each to what it
-needs. Since the money rework the tree is **five nodes**, because most of
-what it used to gate was a production chain and there are no production
-chains left. A crew sets out knowing everything a crew needs to live, to
-fight and to fly — the hull, the galley, the heads, the bunks, the
-hydroponic bay, the fission reactor, the helm, the engines, the suit
-locker, the workbench and the armoury — and knowing **medicine** (the
-drug lab and the medkit it makes), so all of that is possible from the
-first day. Three nodes are left to work for: **fusion power** (a **fusion
-reactor** that makes 3 500 a minute in a three-by-three block, thirty
-times the fission one), which is the one node with no key on it; the
-**hyperdrive**, after fusion power and behind a **lock**; and, in the
-second tier and behind a lock of its own, the workbench's **upgrades**.
-Click a node for what it
-opens and to **queue** it: whatever it needs that is not yet known goes
-onto the queue ahead of it — queue the hyperdrive on a fresh crew and
-fusion power goes in first — and the AI works through the
-queue in order on the clock, going straight onto the next node the step
-one is done, as long as the desk has power, and stopping if the power
-goes. Research is slow: two days for the reactor, and most of a day to a
-day and a quarter for each locked node. Every queued box wears its place
-in the line, the line itself is written under the tree, and a node picked
-there can be **taken off the queue** — taking with it whatever was queued
-behind it that needed it — or, if the AI is on it, **stopped**, which
-loses what was put in and sends the AI onto the next. A part the crew do
-not know is not on the Build tab and not in the designer's palette, so a
-fusion reactor cannot be laid out until fusion power is known.
-
-The lock is opened with a **research key**: an artifact, sold nowhere and
-made nowhere, that sits on the research desk of **four stations in five**
-of those the generator rolled friendly — the one you set out from always
-has one — **lit up**, a ring
-of lights round the desk that pulse while the key is there, so it can be
-seen from the door. Right-click the station's desk and **Take the
-research key** walks the crew member you steer over and takes it into
-their pack, where it is **two cells tall**: a pack with no two free cells
-one over the other cannot take it. Carry it home, store it from the pack
-into the ship's own research desk (a click on the desk opens its
-window, one slot the key's exact size) and on the Research tab **Consume
-a key** with the node picked: the key is gone and that node's lock is
-open for good — that node alone, since **one key opens one node**, not
-the tier. There is one tier-one locked node now, the hyperdrive.
-**Tier two** is one
-node, the workbench's upgrades, and its key is the **tier-two research
-key**: the same slab, drawn in the tier-two blue, lying on the research
-desk of **every station the generator rolled hostile** — about three in
-ten of those somebody lives on, whose people are nobody's enemies in a
-run, since every enemy is a machine — lit up the same way and taken the
-same way; nobody sells one. A node wants a key of its own tier, so a tier-one key in the
-desk does nothing for the upgrades and a tier-two key nothing for the
-hyperdrive, and the desk holds one key of either. Tier three is declared
-and empty. A key a station buys back — five thousand euros for a
-tier-one, ten for a tier-two — if you have no use for it, and a key
-taken is a key gone: the desk stays bare.
+**Research left the game** with the relics (feature 106): the ship's AI
+researches nothing, no station's desk carries a key, and nothing in a run
+waits on the tree — the workbench upgrades gear from the first day. The
+yard's palette is what it was, the tree's starting knowledge deciding it
+as before. The research desk stays a piece
+of furniture on every station, and on a site the machines hold it is
+where a **relic cache** lies. See [Relics](#relics-and-what-a-won-run-unlocks).
 
 ### Mining, on foot
 
@@ -1566,12 +1593,9 @@ only what the piece could not take reaches the body.
 
 **Every weapon and every piece has a tier**, one to three. A tier is
 **bought** — any market that deals in gear deals in every tier of it, at
-the book times one, four and sixteen — or **made at the workbench**, once
-the crew know how: the
-**upgrades** node of the research tree, tier two, behind a tier-two key
-off the desk of a station the generator rolled hostile
-([Research](#research)); until it is researched the
-button says so and the crew carry nothing to the bench. Two of a kind at
+the book times one, four and sixteen — or **made at the workbench**, from
+the first day (research, which once gated it, is gone — feature 106).
+Two of a kind at
 the same tier go into
 its two slots, **Upgrade** in its window starts a day of work on them,
 and one of the next tier comes out in the third slot — a quarter more

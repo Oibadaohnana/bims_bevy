@@ -8,7 +8,7 @@ itself fits together; this file is about working on it.
 ## Running it
 
 `nix run .` is the one command: it **builds and opens the window**. There are
-nineteen things to run, and each is a name rather than a flag — and
+twenty things to run, and each is a name rather than a flag — and
 `cargo run -- list` prints every one of them with a line each, which is
 the build's own answer where this table is a copy:
 
@@ -28,6 +28,7 @@ the build's own answer where this table is a copy:
 | `nix run .#jammer` | `cargo run -- jammer` | the **jammer** (feature 93): `crisis`'s own random galaxy, random dock and origin **two hops off**, with the clock wound *past* the day this system falls rather than a day short of the first — so the crew open **inside** an infested system, every station of it in the machines' hands (`Session::jammer_for_probe`, `World::infest_here_for_probe`), a wave aboard the one they are tied up at and `DROID_REINFORCE_STEPS` a minute of the mission clock. Two things are looked at from here. The **jam**: the chart lights the lanes out of the ship's star in the hyperdrive's violet, draws the route to whatever star is picked along them, and **bars in red every step of it a jammer would turn back** — a jump *inward*, towards where the machines began, is refused while the jammer station stands (`Refusal::Jammed`), and the panel says which station holds it. And the **tier**: two hops is inside `DROID_TIER_THREE_HOPS`, so the machines come at **tier three** without a dial. `BIMS_DROID_TIER=1` says otherwise, and `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE` are `droids`' own |
 | `nix run .#defense` | `cargo run -- defense` | **defending a town** (feature 94): `test_planet`'s own random galaxy and roll — the ship set down at a settlement whose people are friendly — with the machines' origin forced **one hyperlane hop off** and the crisis's first day wound to nought, so the town's system is on the **front** (`World::front` of it is one) and the town is *threatened*. The map says so under its planet's icon, in the enemy's red, where it would otherwise say *land*. A minute of the mission clock after the landing (`DEFENSE_DELAY_STEPS` is sixty of them in the game, a real minute at 1×; `BIMS_DEFENSE_DELAY=n` minutes over the command's own one) a wave sets down outside a gate and walks in, and the red line along the top counts it the way it counts a held station's. The fight is the one that happens **inside one room**: the town's **guard and its mercenaries** take arms and fight the machines where they stand, everybody else walks into the nearest house and stays there, the crew never aim at a townsperson and the machines aim at both. Hold the last wave and the town is **held** — friendly for good, trading and hiring even after its system falls, its map tag *held* — and some of its people join the crew; go back to the ship before the last wave is down and the town falls to the machines (feature 103). `BIMS_DROID_WAVES`/`BIMS_DROID_REINFORCE`/`BIMS_DROID_WAVE` are `droids`' own (`Session::defense_for_probe`) |
 | `nix run .#guardian` | `cargo run -- guardian` | **the Guardian** (feature 100): `droids` at **tier three** with every wave exactly **one Guardian and two Troopers** (`Session::guardian`, `World::set_droid_kinds_for_probe`) and `DROID_REINFORCE_STEPS` a minute of the mission clock, so the machine is looked at on its own with a fight going on round it — its shield stopping the crew's bolts from the front and flaring where they stop, its turn, its wind-up and its beam. `BIMS_DROID_WAVES` and `BIMS_DROID_REINFORCE` are `droids`' own; the tier and the wave are the command's whatever `BIMS_DROID_TIER` and `BIMS_DROID_WAVE` say |
+| `nix run .#relics` | `cargo run -- relics` | **the relics** (feature 106): `droids` with **one wave of four** (`Session::relics`, `session::RELICS_WAVE`) at the arena's own tier and the reinforcement clock a minute — short enough to clear, so going back to the ship after opens the **reward screen**: three relics of the site's tier to choose from together. `BIMS_RELICS=<id>,<id>` gives the steered Bim those relics at the start (a relic's name in lower case with `_` for the spaces, `focusing_lens`, or its code); `BIMS_REWARD=1` opens straight on the reward screen, the site cleared by the probe (`Session::reward_for_probe`); `BIMS_CACHE=1` with a relic cache opened on the site's research desk and its one relic being chosen in the mission (`Session::cache_for_probe`); and `BIMS_WIN=1`, on **any** command, wins the run the next time a site is cleared with machines in it (`World::set_win_on_clear`), which is how the victory screen and the profile's unlocks are looked at — point `BIMS_PROFILE_DIR` at a scratch directory first, or the win lands in your own profile |
 | `nix run .#stationbuilder` | `cargo run -- stationbuilder [name]` | the **station builder**, a tool rather than a screen of the game: a grid to sketch a station's rough shape on — deck, wall, door, airlock, painted as rectangles or with a pen, the skin drawn wherever deck touches void — saved by Ctrl+S as text to `stations/<name>.txt` (`name` defaults to `sketch`; `BIMS_STATIONS_DIR` moves the directory, and the nix wrapper points it at `$PWD/stations`) and read back the next time that name is opened. The file is one character a tile, for a `world::station::Plan` to be written from by hand. `crates/app/src/screens/station.rs` |
 
 `cargo run` (with `-p app`, or bare — `default-members` makes the app the
@@ -792,6 +793,67 @@ the two travel rules.
 Republic soldiers" — the commander has a rally and a squad of the crew's
 own bots, and nothing calls a soldier in — and "liberation", which nothing
 in the code does yet.
+
+## Relics and unlocks: research left the game (feature 106)
+
+The fifth step of the redesign. The world's half is
+`crates/world/CLAUDE.md` ("Relics, and research gone"); the player's is
+`README.md` ("Relics, and what a won run unlocks"). What to hold on to:
+
+- **Research is out of the game flow.** `World::research`, the five
+  research commands, their events (44–47, 65–66) and refusals (22–25,
+  39–40), `station_keys` on the world and in every system's memory, and
+  `Station::key` with its roll are **deleted**; the workbench upgrades
+  without a node, `craft_orders` and `can_place_site` ask no tree.
+  `shipdesign::research` and the designer are untouched — the palette is
+  still `Research::new()`'s — and the key resources still exist in
+  `physics::ResourceId`, unmade and untaken.
+- **Tier two waits on time**: `World::site_tier(star, station, clock)` is
+  the one rule the wave (`droid_tier`) and the map's quote read — tier
+  three within `DROID_TIER_THREE_HOPS` of the origin, else tier two past
+  `data::ENEMY_TIER2_HOURS` (a fortnight) on the ramp from the crew's own
+  star (`relic::tier_two_rolled`: `hops` in `ENEMY_TIER2_SURE_HOPS`,
+  sure from there, off the galaxy's seed a site), else tier one.
+  `World::home_hops` is derived and never saved, as `droid_hops` is.
+- **A relic is a row** of `world::relic::RELICS` — id, tier, whether a new
+  profile has it, and an `Effect` of three kinds of hook: a stat
+  modifier, a trigger with conditions, or the overcharge the room counts.
+  Every number is a `data.rs` constant, every word `names.rs`
+  (`RELIC_NAMES`, `relic_line`). The world's side is `relics.rs`, a child
+  of `world` like `mission.rs`; the state is `Run::relics` (saved, and in
+  `world_checksum` whole).
+- **Randomness is off the galaxy's seed, never a fight's stream**: an
+  offer is seeded by the site and the count of offers so far
+  (`draw_relics`), a cache and the tier-two ramp by the site
+  (`relic::site_roll`). Nothing a relic rolls moves a draw the room makes,
+  which is why `SURVIVORS` and the ship's `PINNED` did not move.
+- **The reward screen is a phase**, `run::Phase::Reward` (code 2): the
+  step does nothing in it but the commands, as on the map, and the map
+  comes up when the choice is carried (`relic_if_carried`). A trip
+  proposed in it is `Refusal::ChoosingRelic`.
+- **The profile is the app's** (`crates/app/src/profile.rs`,
+  `bims/profile.ron` beside the saves, or `BIMS_PROFILE_DIR`); the rule
+  for what a win unlocks is the world's (`relic::Profile::record_run`).
+  The host's pool and open classes cross the lobby in `SettingsWire`
+  (`relics`, `classes` as bits) and are kept for the run as
+  `profile::RunUnlocks`; `start_run` sets the pool before the first step.
+  The end screen writes the win into the profile the first frame it
+  shows it (`profile::Victory`), once.
+- **`World::run_won` is the one place a run is won** — said once as
+  `WorldEvent::RunWon`; the app ends the run on it as on `CrewLost`. The
+  end boss will call it; `BIMS_WIN=1` does until then.
+
+**What moved.** `SAVE_VERSION` **37**, `wire::PROTOCOL` **29** (the relay
+wants redeploying), `REFERENCE_CHECKSUM` `0x_dced_2c7b_c7e4_bf7e` (the
+research and the keys out of the hash, the relics, the cache and the
+shots in), and the ship's `PICTURES` for `simulation_deck` and
+`droids_deck`: the gold ring round the spawn's research desk went with
+its key, and drawing it by the old rule again gave the old numbers back
+bit for bit. `SURVIVORS` and `PINNED` did not move.
+
+**Not done, because it is not there**: a bandage heals nothing — it
+closes wounds — so *Trauma Kit* raises the medkit and the beam and not
+the bandage. And the win itself waits on the end boss (the next step).
 
 ## The old game deleted (feature 104)
 

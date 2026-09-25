@@ -102,6 +102,72 @@ pub fn lost() -> bool {
     std::env::var("BIMS_LOST").as_deref() == Ok("1")
 }
 
+/// `BIMS_RELICS=focusing_lens,second_wind` gives the steered Bim those
+/// relics at the start (feature 106): each a relic's name in lower case
+/// with the words joined by `_` (`names::RELIC_NAMES`), or its code. A
+/// word that is neither is said on the terminal and skipped.
+pub fn relics() -> Vec<world::Relic> {
+    let Ok(list) = std::env::var("BIMS_RELICS") else {
+        return Vec::new();
+    };
+    list.split(',')
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .filter_map(|word| {
+            let found = word
+                .parse::<u32>()
+                .ok()
+                .and_then(world::Relic::from_code)
+                .or_else(|| {
+                    world::Relic::ALL.into_iter().find(|&r| {
+                        crate::names::relic_name(r).to_lowercase().replace(' ', "_")
+                            == word.to_lowercase()
+                    })
+                });
+            if found.is_none() {
+                eprintln!("BIMS_RELICS: no relic called {word}");
+            }
+            found
+        })
+        .collect()
+}
+
+/// `BIMS_WIN=1` declares the run **won** the next time a site is cleared
+/// with machines in it (feature 106, `World::run_won`), on any command,
+/// until there is an end boss to win it — how the victory screen and the
+/// profile's unlocks are looked at.
+pub fn win() -> bool {
+    std::env::var("BIMS_WIN").as_deref() == Ok("1")
+}
+
+/// `BIMS_REWARD=1` opens a held site's run **on the reward screen**
+/// (feature 106): its machines wrecked wave by wave until it is cleared
+/// and the ship off it (`Session::reward_for_probe`) — how the relic
+/// choice is looked at without the fight and the walk home in front of it.
+/// `bims relics` is the site it is for.
+pub fn reward() -> bool {
+    std::env::var("BIMS_REWARD").as_deref() == Ok("1")
+}
+
+/// `BIMS_CACHE=1` opens a held site's run with a **relic cache** opened
+/// on its research desk (feature 106, `Session::cache_for_probe`): the
+/// one relic's choice up in the mission, the fight going on round it.
+pub fn cache() -> bool {
+    std::env::var("BIMS_CACHE").as_deref() == Ok("1")
+}
+
+/// The two relic dials on a session a command or the lobby just stood
+/// up: `BIMS_RELICS` and `BIMS_WIN`.
+pub fn relic_dials(session: &mut ship::Session) {
+    let relics = relics();
+    if !relics.is_empty() {
+        session.give_relics_for_probe(&relics);
+    }
+    if win() {
+        session.win_on_clear_for_probe();
+    }
+}
+
 /// `BIMS_MAP=1` opens the run **between missions** (feature 103): the
 /// ship off the site it opened at and the world map up for everybody —
 /// how the list of destinations and the vote are looked at without

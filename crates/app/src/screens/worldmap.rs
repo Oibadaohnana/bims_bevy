@@ -649,6 +649,143 @@ pub fn departure_window(
         });
 }
 
+/// What this player has picked in the relic window and not yet proposed:
+/// a relic's code or `u32::MAX` for none, and whose Bim. The window's own,
+/// kept in egui's memory between frames.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct RelicPick {
+    relic: Option<u32>,
+    to: u32,
+}
+
+/// The relic choice (feature 106): the reward screen after a site cleared
+/// with machines in it — a modal over a dimmed canvas, since the map waits
+/// on it — or a cache's one relic in the mission, a window beside the
+/// fight, which goes on. Either way the same vote the map's trips are
+/// chosen by: a player picks a relic, or none, and a player's Bim for it
+/// and proposes; every connected player says yes; a new proposal clears
+/// every yes.
+pub fn relic_window(
+    ctx: &egui::Context,
+    world: &World,
+    local: u32,
+    orders: &mut Vec<Order>,
+    name: &dyn Fn(u32) -> String,
+) {
+    let Some(choice) = world.relic_choice() else {
+        return;
+    };
+    let id = egui::Id::new("relic-pick");
+    let mut pick = ctx
+        .data(|d| d.get_temp::<RelicPick>(id))
+        .unwrap_or(RelicPick {
+            relic: None,
+            to: local,
+        });
+    let reward = choice.source == world::relic::Source::Reward;
+    let body = |ui: &mut egui::Ui, pick: &mut RelicPick, orders: &mut Vec<Order>| {
+        ui.set_width(420.0);
+        let (title, intro) = if reward {
+            (REWARD_TITLE, REWARD_INTRO)
+        } else {
+            (CACHE_TITLE, CACHE_INTRO)
+        };
+        ui.label(egui::RichText::new(title).strong().size(18.0));
+        ui.add(egui::Label::new(egui::RichText::new(intro).color(theme::MUTED)).wrap());
+        ui.add_space(6.0);
+        for &relic in &choice.options {
+            let on = pick.relic == Some(relic.code());
+            let text =
+                egui::RichText::new(format!("{} · {}", relic_name(relic), relic_tier(relic)))
+                    .strong();
+            if theme::toggle(ui, on, text).clicked() {
+                pick.relic = Some(relic.code());
+            }
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(relic_line(relic))
+                        .small()
+                        .color(theme::INK),
+                )
+                .wrap(),
+            );
+            ui.add_space(3.0);
+        }
+        if theme::toggle(ui, pick.relic == Some(u32::MAX), TAKE_NONE).clicked() {
+            pick.relic = Some(u32::MAX);
+        }
+        ui.add_space(4.0);
+        // Whose Bim: a player's, never a bot's.
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(FOR_BIM).color(theme::MUTED));
+            for slot in 0..world.players() {
+                if theme::toggle(ui, pick.to == slot, name(slot)).clicked() {
+                    pick.to = slot;
+                }
+            }
+        });
+        ui.add_space(4.0);
+        if ui
+            .add_enabled(pick.relic.is_some(), egui::Button::new(PROPOSE))
+            .clicked()
+            && let Some(code) = pick.relic
+        {
+            orders.push(Order::ProposeRelic {
+                relic: world::Relic::from_code(code),
+                to: pick.to,
+            });
+        }
+        // What is on the table, and who has said yes to it.
+        if let Some(p) = &choice.proposal {
+            ui.separator();
+            ui.label(egui::RichText::new(relic_proposal_line(p.relic, p.to)).strong());
+            ui.horizontal_wrapped(|ui| {
+                for (slot, &yes) in p.accepted.iter().enumerate() {
+                    let slot = slot as u32;
+                    ui.label(
+                        egui::RichText::new(relic_answer(
+                            &name(slot),
+                            yes,
+                            !world.run.is_connected(slot),
+                        ))
+                        .small()
+                        .color(if yes {
+                            theme::ACCENT
+                        } else {
+                            theme::MUTED
+                        }),
+                    );
+                }
+            });
+            let mine = p.accepted.get(local as usize).copied().unwrap_or(false);
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!mine, egui::Button::new(ACCEPT)).clicked() {
+                    orders.push(Order::AcceptRelic(true));
+                }
+                if ui.add_enabled(mine, egui::Button::new(TAKE_BACK)).clicked() {
+                    orders.push(Order::AcceptRelic(false));
+                }
+            });
+        }
+    };
+    if reward {
+        egui::Modal::new(egui::Id::new("relic-reward"))
+            .backdrop_color(egui::Color32::from_black_alpha(150))
+            .frame(theme::tray_frame().inner_margin(14.0))
+            .show(ctx, |ui| body(ui, &mut pick, orders));
+    } else {
+        egui::Window::new(CACHE_TITLE)
+            .id(egui::Id::new("relic-cache"))
+            .title_bar(false)
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 90.0))
+            .frame(theme::tray_frame().inner_margin(14.0))
+            .show(ctx, |ui| body(ui, &mut pick, orders));
+    }
+    ctx.data_mut(|d| d.insert_temp(id, pick));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

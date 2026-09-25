@@ -23,7 +23,8 @@
 //! Flight (1–5, 11–13, 50, 52–55), the radiation dose (17–26), the
 //! food spoiling (58), the raids (59–62, 67), the plunder (64) and the
 //! execution (48, which it shared with `UpgradeBegun` by mistake) went
-//! with the old game (feature 104).
+//! with the old game (feature 104). Research (44–47, 65–66) went with
+//! the research (feature 106).
 
 use bims::combat::ArmourKind;
 use physics::ResourceId;
@@ -300,7 +301,8 @@ pub enum WorldEvent {
 /// Why a command did nothing.
 ///
 /// Written out and never renumbered, like the events: a refusal deleted
-/// leaves its code free (the helm's and the flight's, 5, 6, 8, 10, 13 and
+/// leaves its code free (research's, 22–25, 39 and 40, feature 106; the
+/// helm's and the flight's, 5, 6, 8, 10, 13 and
 /// 28–32, 78 and 83, the hire's bunk, 20, the execution's and the
 /// plunder's, 26 and 27, and a walk through the test room's locked heads
 /// door, 37, went with the old game in feature 104).
@@ -664,7 +666,11 @@ impl WorldEvent {
             | WorldEvent::RelicLost { slot, relic } => (slot as i64) + 100 * (relic as i64),
             WorldEvent::RelicFired { who, relic } => (who as i64) + 100 * (relic as i64),
             WorldEvent::RelicProposed { slot, relic, to } => {
-                let relic = if relic == u32::MAX { 0 } else { relic as i64 + 1 };
+                let relic = if relic == u32::MAX {
+                    0
+                } else {
+                    relic as i64 + 1
+                };
                 (slot as i64) + 100 * relic + 10_000 * (to as i64)
             }
             WorldEvent::RelicAccepted { slot, yes } => (slot as i64) + 100 * i64::from(yes),

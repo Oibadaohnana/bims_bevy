@@ -209,6 +209,19 @@ pub fn decode(text: &str) -> Result<Save, LoadError> {
     ron::from_str(text).map_err(|e| LoadError::Syntax(e.to_string()))
 }
 
+/// A player's profile as text (feature 106, `world::relic::Profile`):
+/// what the app keeps between runs as `bims/profile.ron`. Here beside the
+/// save because this crate is the one that speaks RON.
+pub fn profile_text(profile: &world::Profile) -> Option<String> {
+    ron::ser::to_string_pretty(profile, ron::ser::PrettyConfig::default()).ok()
+}
+
+/// A profile read back, or `None` for text that is not one. Codes a build
+/// does not know are left in it and ignored.
+pub fn read_profile(text: &str) -> Option<world::Profile> {
+    ron::from_str(text).ok()
+}
+
 impl Session {
     /// The game, written out — [`encode`].
     pub fn save(&self) -> Option<String> {

@@ -581,13 +581,14 @@ well with a brass rim, a keyboard's ledge on the near side — and
 three tiles, eight field coils round a blue-white plasma, so the two read as
 the same kind of machine. Both are rows in `PART_COLORS` (40 now).
 
-`world_paint::key_lights` is what "highlighted" is on the deck: for every
-research desk of a station's design, while `World::station_has_key(id)`,
-a gold wash over the desk and a ring of small lights a little way out from
-its footprint, pulsing together on `game.frame` (`KEY_PULSE` frames a
-pulse). Drawn in `stations` after `hull::lights`, in the station's frame,
-so it turns with the picture; the ship's own desk gets none — a key in it
-is the container window's to show.
+`world_paint::cache_lights` is what "highlighted" is on the deck: for every
+research desk of a station's design, while `World::cache_at(id)` — a relic
+cache lies there (feature 106; a research key, until research left the
+game) — a gold wash over the desk and a ring of small lights a little way
+out from its footprint, pulsing together on `game.frame` (`CACHE_PULSE`
+frames a pulse). Drawn in `stations` after `hull::lights`, in the
+station's frame, so it turns with the picture. The ring going with the key
+was the whole of the move in `tests_survivors`' `PICTURES` for feature 106.
 
 ## Two lights, and the fog is a texture now
 

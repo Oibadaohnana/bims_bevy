@@ -235,6 +235,11 @@
             what = "guardian";
             about = "The fight at tier three with every wave one Guardian and two Troopers: its shield, its turn and its beam";
           };
+          bims-relics = runFor {
+            name = "bims-relics";
+            what = "relics";
+            about = "The droids arena with one short wave: clear it, go back to the ship, and the reward screen offers the site's relics";
+          };
         }
         # The machines' fight, one build a class, so a class is looked at
         # in the fight it is for without a `BIMS_CLASS` in front of the
@@ -274,6 +279,7 @@
             bims-crisis
             bims-jammer
             bims-guardian
+            bims-relics
             bims-stationbuilder
             bims-server
             ;
@@ -305,6 +311,8 @@
       # the lanes inward are shut and the chart says so;
       # `.#guardian` is the fight at tier three with every wave one Guardian
       # and two Troopers, for its shield, its turn and its beam (feature 100);
+      # `.#relics` is the droids arena with one short wave: clear it, go back
+      # to the ship, and the reward screen offers relics (feature 106);
       # saves beside the working tree rather than inside the store;
       # `.#server` is the relay the game finds its crew through, run on
       # the server box rather than a desk.
@@ -333,6 +341,7 @@
           jammer = app built.bims-jammer "The crew in an infested system two hops from the origin: the jammer standing, a wave aboard, the lanes inward shut";
           defense = app built.bims-defense "A town with the machines one hop off: the crew set down at its pad, and a wave landing outside a gate a minute later";
           guardian = app built.bims-guardian "The fight at tier three with every wave one Guardian and two Troopers: its shield, its turn and its beam";
+          relics = app built.bims-relics "The droids arena with one short wave: clear it, go back to the ship, and the reward screen offers the site's relics";
           stationbuilder = app built.bims-stationbuilder "A grid to sketch a station's rough shape on, saved as text for a plan to be written from";
           server = app built.bims-server "The relay: rooms by code, and bytes passed between the players in one — what runs at bims.buggly.de";
           default = game;

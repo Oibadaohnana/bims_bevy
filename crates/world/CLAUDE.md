@@ -1706,140 +1706,27 @@ tests.
   that picture never changes; it is the next thing to cache if a frame
   is short again.
 
-## Research is the world's state, and a key is a resource that is found
+## Research was the world's state, and went with the relics (feature 106)
 
-`World::research` is a `shipdesign::research::Research` — what the crew
-know, which locked nodes have had their key, what the AI is on and how
-far, and the queue it goes onto next — and it is in `world_checksum`
-whole after the construction sites (the queue as its length and then
-each code, after `progress`; that moved `REFERENCE_CHECKSUM` when it
-went in, feature 64), with `World::station_keys` (a `u8` a station, by
-index into `stations`: the tier of key still on its desk, nought for none)
-after it. Five commands, all slot-stamped like
-the rest: `TakeKey { who }`, `Unlock { node }` (one key, one node, of
-the node's own tier),
-`Research { node }` (queue it — `Research::enqueue`, so what it needs
-goes in ahead of it; a `ResearchQueued` for each), `CancelResearch`
-(the AI off what it is on, and off the queue what needed it) and
-`Dequeue { node }` (a node off the queue, and what needed it with it).
-Events 44–47: `KeyTaken { who }`, `Unlocked { node }`, `ResearchBegun
-{ node }`, `Researched { node }`; 65–66: `ResearchQueued { node }`,
-`ResearchDropped { node }` (off the queue without being begun, by a
-`Dequeue` or in the wake of one, or of a cancel). Refusals 22–25:
-`NoKey`, `NoResearchDesk`, `NotResearchable` (cannot be queued: planned
-already, or a key wanting somewhere in its chain), `NotResearched`; 39:
-`NotQueued`; 40: `NoUpgrades` (the workbench asked to take two of a
-kind up a tier before `Node::Upgrades` is known). The AI's step is `run_research`, the second half of stage
-6 — it runs on the desk's power (`research_desk_powered`: a
-`ResearchDesk` aboard and `powered`): `Research::next` first, so an
-idle AI goes onto the head of the queue and says `ResearchBegun` — the
-step the queueing command landed in, since commands apply before the
-stages — then `advance`, `Researched` the step a node is done, and
-`next` again that step, so the next queued node begins with no idle
-step between.
+`World::research` (a `shipdesign::research::Research`), the station keys
+(`World::station_keys`, `SystemMemory::station_keys`, `Station::key`,
+`station::key_tier`/`key_rolled`/`KEY_CHANCE`), the five commands
+(`TakeKey`, `Unlock`, `Research`, `CancelResearch`, `Dequeue`), their
+events (44–47, 65–66), their refusals (22–25, 39, 40), `run_research`
+and every gate research held — `craft_orders`' recipe check,
+`can_place_site`'s `SiteRefusal::NotResearched`, and the workbench's
+`Node::Upgrades` (`can_upgrade`, `upgrade_pair`, `bench_wants`) — were
+**deleted** in feature 106. `git show 90e81c0^:crates/world/CLAUDE.md`
+has the section as it was. `shipdesign::research` itself and the
+designer's palette are untouched; the key resources are still
+`physics::ResourceId`s, and nothing makes or finds one.
 
-What research gates, and where: `craft_orders` skips a recipe
-`!research.recipe_allowed(i)` however the bench came aboard — the one
-recipe there is waits on `Medicine`, which is known at the start, so
-nothing is held back by it in practice since the money rework cut the
-tree to five nodes; `know_everything_for_probe` and
-`research_for_probe(node)` are still how a test gets ahead of it. And
-`can_place_site` answers `SiteRefusal::NotResearched(node code)` before it
-asks `apply`, `place_site` refusing `NotResearched`. The design phase is
-not gated here (the yard built the ship); the app's palette leaves the
-unknown parts out off `Research::new()`.
-
-**Where the keys are.** `Station::key` is a **tier**, nought for none,
-and `station::key_tier(kind, hostile, map_seed)` is the rule: a derelict
-holds nothing; every station whose blueprint was rolled hostile holds
-the **tier-two key** (`ResourceId::ResearchKeyTwo`, 14 since the money
-rework closed the deleted resources up), no roll — a stranger's desk
-since feature 104 rather than an enemy's, unless the machines have taken
-the station; any other holds the tier-one key at
-`station::key_rolled(map_seed)`'s odds — `KEY_CHANCE` (80) in a hundred
-off a stream of its own, the layout's rolls what they were, and the
-tier-two keys going in moved no tier-one key: which friendly desks hold
-one is pinned over a seed set across every galaxy type in
-`keys_are_on_four_friendly_desks_in_five_and_always_at_the_spawn` (a
-count and a hash captured before the change). `World::start` copies it
-to `station_keys` with the spawn forced to tier one, so the first key
-is always at home — the arena included; a settlement's desk is bare
-(`surface.rs` builds with `key: 0`), and so was a raider's until the
-raiders went in feature 104. `station_key(id)` is the
-tier, `station_has_key(id)` whether it is above nought, `key_at_the_dock()`
-the tier at the berth, and the ring of lights (`world_paint::key_lights`)
-shows for either tier. `tier_two_keys_lie_only_on_hostile_desks` pins
-the rule over the same seed set. Every station's layout has a
-`ResearchDesk` against the research room's north wall from the corner,
-worked from the row below, and that room's trays start a row lower than
-the laboratory's (`first_row` 3 against 2) so the desk's spot has deck on
-its far side — a spot between two solids is one the navigation will not
-walk. That moved `REFERENCE_CHECKSUM` (every layout has a desk, and the
-playtest ship one); the walkability contract covers it.
-
-**A take is a command across the joined deck.** `station_desk()` is the
-index into `research_desks()` of the desk standing in `station_box`;
-`key_in_reach(who)` is `within_reach` of `Container::Desk(that)`; `take_key`
-wants docked, a key there, reach, and `free_cell_for(Item::Key(tier))` —
-two cells one over the other, either tier — and then `give`s
-`Item::Key(tier)` for whatever lies on the desk and sets the station's
-tier to nought. **No new check**: a key is taken at a held dock while
-the machines stand, in the middle of the fight
-(`a_key_is_taken_at_a_held_dock_while_the_machines_stand`: the
-generator-hostile station's tier-two key, the station infested, a wave
-standing), and at a stranger's with nobody minding. `key_desk_spot()` is the walk for the app, which sends the
-take the frame the Bim is in reach (`CrewPanels::key_requested`). Home,
-the key is stowed like anything else: `container_takes(Desk(i))` is the
-`Research` class **on the crew's own desks only** (`Some(i) !=
-station_desk()`), `armour::item_of` makes a `ResearchKey` an `Item::Key(1)`
-and a `ResearchKeyTwo` an `Item::Key(2)` (`key_tier_of`, `key_resource`)
-and `resource_of_item` the way back, `fetch` finds the cell with
-`free_cell_for`, and `pack_item` reads a tail cell as its key, so a stow by
-either cell is the same stow. Both keys are the `Research` class and one
-cell of it, so the desk's capacity of one holds one key of either tier,
-never two. `unlock` wants a powered desk, then a node with a lock
-(`Research::key_wanted`, else `NotResearchable` before the desk is looked
-at), then **a key of that tier** free in the desk (`keys_in_desk(tier)`,
-which takes a tier now — the other tier's key there is `NoKey`, and it
-stays), then `Research::unlock(node)` to take (a node open already is
-`NotResearchable`, and no key is spent), and takes one of that resource
-off the cargo through `on_ship_changed`
-(`unlock_wants_the_nodes_tier`). `research` wants a desk aboard and
-`Research::enqueue`; `dequeue` wants the node on the queue.
-
-**The upgrades node gates the bench.** `shipdesign::research::Node::Upgrades
-= 9` — tier 2, locked, after the armoury, 1 440 minutes — is
-`Research::upgrades_allowed()`, and `can_upgrade` is `NoUpgrades` (40)
-without it, before the bench is looked at, so `begin_upgrade` and the
-button both refuse; `upgrade_pair()` and `bench_wants()` answer `None`
-without it, so Combine matching gear carries nothing to a bench that
-would refuse it. The node covers both steps, one to two and two to
-three; there is no tier-three node. `no_upgrade_before_the_node` pins
-it, and the tests that upgrade gear mark the node known with
-`upgrades_known` first.
-
-`a_key_is_taken_ashore_put_in_the_desk_and_consumed_to_open_a_node` runs
-the whole loop on the playtest ship at its spawn (two desks on the joined
-deck, the station's second);
-`the_benches_and_the_build_tab_wait_on_research`,
-`the_checksum_notices_research_and_a_key_taken`,
-`keys_are_on_four_friendly_desks_in_five_and_always_at_the_spawn`,
-`tier_two_keys_lie_only_on_hostile_desks`,
-`a_key_is_taken_at_a_held_dock_while_the_machines_stand`,
-`unlock_wants_the_nodes_tier` and `no_upgrade_before_the_node` are the
-rest; `save_round_trip_keeps_key_tiers` in `crates/ship` is the save
-(`SAVE_VERSION` 14). `tier_two_probe` (`#[ignore]`, `--nocapture`) is a
-probe rather than a test: how many tier-one keys a start system holds
-and how often a tier-two desk is in it (66% of start systems on the
-first fifty seeds, 61% of station-bearing systems, whatever the galaxy
-type — the systems are the seed's, not the type's), the walk from a
-port to the research desk plan by plan (24 tiles on a pod, 27–31 on a
-cross or a spine, 33–37 on a ring or a comb, 42–58 on a hub), and that a
-crew member left down at that desk is carried home by
-`undock_for_probe` with the key still in the pack (`unjoin_rooms` takes
-every crew Bim, `adopt` puts one off the deck at its bunk). In a run the
-same crew member is **left behind** instead, and dead for it, when the
-ship leaves the site (`leave_mission`; "The loop" below).
+What stayed: every station's **research desk**, a solid on every layout
+and a container class (`Storage::Research`), `World::station_desk`, and
+the desk's spot and reach (`research_desk_spot`, `research_desk_in_reach`)
+— at a site the machines hold, the desk is where a **relic cache** lies
+("Relics, and research gone" at the end). The gold ring of lights that
+showed a key on a desk (`world_paint::cache_lights`) shows the cache now.
 
 ## The station's doors are in two rooms, and a lock is carried between them
 
@@ -4542,3 +4429,101 @@ whether a shot is a blow. `the_beam_crosses_the_seam_and_two_worlds_agree_throug
 runs two worlds with an armed Guardian staged side by side, events and
 `world_checksum` step for step, until the beam has been laid on the deck
 and has hit the crew member.
+
+## Relics, and research gone (feature 106)
+
+`crate::relic` is the types and the rules that are not the world's to
+walk: `Relic` (twelve, codes in list order), `RELICS` (a row a relic —
+tier, whether a new profile has it, and its `Effect`), `offer` (a draw a
+slot, the site's tier while it has any left, then the next lower, never
+upward), `stat_percent`, `hooks`, `overcharge`, the site rolls
+(`cache_rolled`, `tier_two_rolled`, both off `site_roll`: the galaxy's
+seed, the star, the station and a salt — no stream a fight draws from),
+`Relics` (the run's state), `RelicChoice`/`RelicProposal`/`Source`, and
+`Profile` with `record_run`. `relics.rs` is the world's side, a child of
+`world` as `mission.rs` is.
+
+**The state is `Run::relics`**, saved and hashed whole at the end of the
+run's block: the **pool** (what is still to be offered — a relic leaves
+it the moment it is offered, taken or not, which is what "once a run"
+means), what each **player slot** holds, what is **pending** off a cache,
+the **choice** on the table, what has **fired** this mission, who is
+waiting to **get up**, and the count of offers (a draw's seed). Beside it
+on `Run`: `fought` (the site had something to clear when the mission met
+it — set in `open_the_mission`), `cleared_here` (the clear said, once),
+`won` and the probes' `win_on_clear`. A player's Bim is its slot's crew
+index, so `relics_of(who)` is nothing for any `who >= players()`: a bot
+never holds one, and `ProposeRelic` to a bot is `Refusal::NotAPlayer`.
+
+**What a relic does is read where the thing it moves is worked out**:
+
+- `World::skill_of` ends in `lift_by_relics` — `Skill::damage` and
+  `melee` (*Focusing Lens*, *Last Stand* while another player's Bim is
+  down), `accuracy` (*Steady Grip*), `walk` (*Servo Braces*),
+  `armour_protection` (*Field Plating*), `healing` (*Trauma Kit*, which
+  the room multiplies into a medkit's `treated_to` for the patient) and
+  `overcharge` (*Overcharge Cell*, `Skill::for_shot` off `Bim::shots`,
+  which the room counts at both of a crew member's trigger pulls).
+- `charge_cooldown` (the class's charges, never `Charge::everybody`),
+  `taunt_cooldown` (new; `taunt_cooldown_left` reads it) and
+  `rally_cooldown` multiply by `Stat::Cooldowns` (*Coolant Loop*).
+- The beam's `Beamed` is raised per patient in
+  `hand_the_room_the_medics` (*Trauma Kit*).
+- `visit` keeps each machine destroyed with the residents' `last_hit_by`
+  and hands the list to `machine_kills`: *Salvage Beacon*'s share on the
+  holder's own kills' bounty (pending like any), and `Trigger::Kill` —
+  *Kill Relay* moves the start of every class cooldown running back by
+  its seconds (`cooldowns_less`: the charge timers, a tank's
+  `last_taunt`, a commander's `last_rally`).
+- `settle_relics` is a stage right after `casualties`, before the tanks
+  take their hits' experience out of the count: a player's Bim **down**
+  (alive and out cold) is `Trigger::Downed` — *Second Wind* starts its
+  wait (`down_since`) and `get_up_if_due` brings it round
+  (`Game::bring_round`, `Health::brought_round`: parts at the share at
+  least, traumas over, wounds shut, blood to `SLOWED_AT`) once the wait
+  is up, marking it fired; a **hit taken** is `Game::hits_taken` gone up
+  since `hits_before_the_step` read it before the rooms stepped, and is
+  `Trigger::HitTaken` — *Phase Harness*, under its share of health
+  (`health_share`, the parts over `MAX_HEALTH`), is the room's own surge
+  for its seconds (`Game::set_surge`, halo and all).
+- `Trigger::MissionStart` is said in `begin_mission`
+  (`relics_at_mission_start`, which also clears `fired` and
+  `down_since`), and `Trigger::AbilityUse` at the end of `apply` for a
+  class key that went through unrefused (`Deploy`, `Throw`, `Surge`,
+  `Taunt`, `Rally`, `Squad`). No relic of the twelve uses either yet;
+  they are the hooks a later one is written against.
+
+**Where relics come from.** `leave_mission`, while the ship is still
+tied up, calls `relics_on_leaving`: a cache's choice not made is dropped;
+the site left **uncleared** loses what is pending (`RelicLost`) — the
+snapshot then puts the site back with its cache; the site left
+**cleared** keeps what is pending (`settle_clear`) and, when `fought`,
+draws `RELIC_OFFER` relics at `droid_tier()` (`offer_reward`) and the
+phase is `Phase::Reward` rather than `Map`. The **cache** is
+`Infestation::cache`, rolled in `infest` (`cache_rolled`,
+`RELIC_CACHE_CHANCE`), hashed, and in the snapshot with the rest of the
+infestation; `OpenCache` wants the cache here, no choice already made
+and the Bim within reach of the station's research desk, and draws one
+relic. A carried cache relic is **given** at once on a site already
+cleared and **pending** otherwise; `settle_clear`, in `settle_run` the
+step the site is cleared, gives what is pending and — with
+`win_on_clear` — calls `run_won`.
+
+**The vote** is the map's: `ProposeRelic { relic (u32::MAX none), to }`
+replaces the proposal and every yes but the proposer's; `AcceptRelic`;
+`relic_if_carried` on the last connected yes (`PlayerGone` needs no hook
+— the next yes finds the gone player not waited for). Both apply at once
+(`applies_at_once`) and are heard in `Phase::Map` and `Phase::Reward`,
+where the step does nothing else.
+
+**The pool** opens as a new profile's (`Run::new`) and is replaced once
+by `set_relic_pool` — the host's, from `Session::set_relic_pool` in the
+app's `start_run` — before the world's first step. `give_relic_for_probe`
+(`BIMS_RELICS`) takes the relic out of the pool too.
+
+**Tier two** is `site_tier` (the root `CLAUDE.md` has the rule), read by
+`droid_tier` for the site alongside and by the quote at the arrival
+minute. It is in `world_checksum` through `droid_tier()` as before.
+
+`tests_relic.rs` is the feature's tests; `relic::tests` the rules'
+own; `tests::a_workbench_upgrade_wants_no_research` the bench's.

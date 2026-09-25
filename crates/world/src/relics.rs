@@ -6,9 +6,7 @@
 //! world's private fields; the relics' own types are `crate::relic`'s.
 
 use super::*;
-use crate::relic::{
-    self, Action, Hook, Relic, RelicChoice, RelicProposal, Source, Stat, Trigger,
-};
+use crate::relic::{self, Action, Hook, Relic, RelicChoice, RelicProposal, Source, Stat, Trigger};
 use crate::run::Phase as RunPhase;
 
 impl World {
@@ -60,7 +58,9 @@ impl World {
     fn other_player_down(&self, who: u32) -> bool {
         let crew = self.aboard.crew_count();
         (0..self.players().min(crew)).any(|s| {
-            s != who && self.aboard.room.is_alive(s as usize) && self.aboard.room.is_down(s as usize)
+            s != who
+                && self.aboard.room.is_alive(s as usize)
+                && self.aboard.room.is_down(s as usize)
         })
     }
 
@@ -122,6 +122,31 @@ impl World {
         }
         self.run.relics.pool.retain(|&r| r != relic);
         self.run.relics.give(slot, relic);
+    }
+
+    /// A probe's way through a fight: the site's waves stepped in and
+    /// wrecked where they stand, one after another, until it is cleared —
+    /// at most `steps` steps. Whether it was. `BIMS_REWARD=1`, for looking
+    /// at the reward screen without the fight in front of it.
+    pub fn clear_the_site_for_probe(&mut self, steps: u32) -> bool {
+        let Some(station) = self.ship.state.alongside() else {
+            return false;
+        };
+        for _ in 0..steps {
+            self.step(&[]);
+            if let Some(residents) = self.residents.as_mut() {
+                let room = &mut residents.aboard.room;
+                for i in 0..room.droid_count() as usize {
+                    if room.droid(i).is_some_and(|d| !d.destroyed) {
+                        room.strike_droid(i, bims::droid::DroidPart::Chassis, 1e6);
+                    }
+                }
+            }
+            if self.site_cleared(station) {
+                return true;
+            }
+        }
+        false
     }
 
     /// The probes' dial (`BIMS_WIN=1`): the run is won the next time a
@@ -397,7 +422,12 @@ impl World {
     /// Every hook crew member `who`'s relics have on `trigger`, fired
     /// where its conditions hold: once a mission, and under its share of
     /// health.
-    pub(super) fn relic_trigger(&mut self, who: u32, trigger: Trigger, events: &mut Vec<WorldEvent>) {
+    pub(super) fn relic_trigger(
+        &mut self,
+        who: u32,
+        trigger: Trigger,
+        events: &mut Vec<WorldEvent>,
+    ) {
         let hooks: Vec<(Relic, Hook)> = relic::hooks(self.relics_of(who), trigger).collect();
         for (relic, hook) in hooks {
             if hook.once_per_mission && self.run.relics.has_fired(who, relic) {
@@ -544,7 +574,14 @@ impl World {
             // Going down: the trigger, and — for a getting up — the wait
             // begun. A body back on its feet, or dead, waits for nothing.
             if down {
-                let waiting = self.run.relics.down_since.get(at).copied().flatten().is_some();
+                let waiting = self
+                    .run
+                    .relics
+                    .down_since
+                    .get(at)
+                    .copied()
+                    .flatten()
+                    .is_some();
                 if !waiting {
                     self.relic_trigger(who, Trigger::Downed, events);
                 }

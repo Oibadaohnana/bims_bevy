@@ -331,6 +331,12 @@ pub struct ClassView {
     pub tank: Option<TankView>,
     /// The commander's rows (feature 78) — `None` for anybody else.
     pub commander: Option<CommanderView>,
+    /// The relics its Bim holds (feature 106), in the order it was given
+    /// them: what the sheet lists under the gear.
+    pub relics: Vec<world::Relic>,
+    /// The classes the host's profile opened for the run, for the sheet's
+    /// chooser; empty is every class.
+    pub open_classes: Vec<world::Class>,
 }
 
 /// What the panel says of a soldier (feature 75).
@@ -1513,7 +1519,10 @@ impl CrewPanels {
         if view.can_change {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(BIM_CLASS).color(theme::MUTED));
-                for class in world::Class::ALL {
+                for class in world::Class::ALL
+                    .into_iter()
+                    .filter(|c| view.open_classes.is_empty() || view.open_classes.contains(c))
+                {
                     if theme::toggle(ui, class == view.class, class_name(class)).clicked()
                         && class != view.class
                     {
@@ -2431,7 +2440,10 @@ impl CrewPanels {
                                 ui.add_space(4.0);
                                 ui.horizontal_wrapped(|ui| {
                                     ui.label(egui::RichText::new(BIM_CLASS).color(theme::MUTED));
-                                    for class in world::Class::ALL {
+                                    for class in world::Class::ALL.into_iter().filter(|c| {
+                                        view.open_classes.is_empty()
+                                            || view.open_classes.contains(c)
+                                    }) {
                                         if theme::toggle(ui, class == view.class, class_name(class))
                                             .clicked()
                                             && class != view.class
@@ -2444,6 +2456,7 @@ impl CrewPanels {
                             }
                             sheet_body(ui, game, w);
                             sheet_gear(ui, game, w);
+                            sheet_relics(ui, &view.relics);
                             theme::heading(ui, SHEET_TALENTS);
                             self.talents(ui, &view);
                         });
@@ -4758,6 +4771,24 @@ fn sheet_body(ui: &mut egui::Ui, game: &Game, w: usize) {
 /// The character sheet's gear (feature 107): each piece worn with its
 /// tier and how much of it is left, and the weapon in hand with its
 /// tier — what the inventory's slots say, in a line each.
+/// The relics its Bim holds (feature 106): each by name and tier, with
+/// what it does. Here and nowhere on the deck.
+fn sheet_relics(ui: &mut egui::Ui, relics: &[world::Relic]) {
+    theme::heading(ui, RELICS_HEADING);
+    if relics.is_empty() {
+        ui.label(egui::RichText::new(NO_RELICS).small().color(theme::MUTED));
+        return;
+    }
+    for &relic in relics {
+        ui.label(
+            egui::RichText::new(format!("{} · {}", relic_name(relic), relic_tier(relic)))
+                .strong()
+                .color(theme::INK),
+        );
+        ui.add(egui::Label::new(egui::RichText::new(relic_line(relic)).small()).wrap());
+    }
+}
+
 fn sheet_gear(ui: &mut egui::Ui, game: &Game, w: usize) {
     theme::heading(ui, SHEET_GEAR);
     let gear = game.gear(w);

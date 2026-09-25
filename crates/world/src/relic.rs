@@ -196,7 +196,10 @@ pub enum Effect {
         when: When,
     },
     /// Every `every`th shot of its weapon does `damage_percent` more.
-    EveryNthShot { every: u32, damage_percent: i32 },
+    EveryNthShot {
+        every: u32,
+        damage_percent: i32,
+    },
     On(Hook),
 }
 
@@ -740,7 +743,10 @@ mod tests {
         assert!(offer(&high, 1, 3, 1).is_empty());
         assert!(offer(&[], 3, 3, 1).is_empty());
         // Short of three: as many as there are.
-        assert_eq!(offer(&[Relic::FocusingLens], 3, 3, 1), vec![Relic::FocusingLens]);
+        assert_eq!(
+            offer(&[Relic::FocusingLens], 3, 3, 1),
+            vec![Relic::FocusingLens]
+        );
     }
 
     #[test]
