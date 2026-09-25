@@ -2864,6 +2864,20 @@ impl World {
                 bims::math::vec2(at.x as f32, at.y as f32)
             };
             for shot in shots {
+                // A Guardian's Sweeper (feature 100): the beam laid over
+                // the same arc on the joined deck, its two aim points put
+                // through the frame like any shot's, so a turned or
+                // mirrored station carries the sweep the right way round.
+                if let Some(end) = shot.sweep {
+                    self.aboard.room.enemy_sweep(
+                        on_deck(shot.from),
+                        on_deck(shot.at),
+                        on_deck(end),
+                        shot.weapon,
+                        shot.damage,
+                    );
+                    continue;
+                }
                 if shot.melee {
                     // A blow, not a shot: nothing flies. It is aimed at
                     // the target the residents' room was handed — one of

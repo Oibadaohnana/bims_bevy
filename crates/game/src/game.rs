@@ -2390,6 +2390,27 @@ impl Game {
                 };
             }
         }
+        // A sweep let go runs to its end, fight or no fight: the beam is in
+        // the air, and the heading is held until it is done.
+        if let Beam::Sweep { left, aim, side } = self.droids[i].beam {
+            let d = &mut self.droids[i];
+            if d.is_walking() {
+                d.halt();
+            }
+            d.turn_toward(Vec2::ZERO, dt);
+            d.beam = if left - dt > 0.0 {
+                Beam::Sweep {
+                    left: left - dt,
+                    aim,
+                    side,
+                }
+            } else {
+                Beam::Cooling {
+                    left: crate::balance::SWEEPER_COOLDOWN,
+                }
+            };
+            return;
+        }
         if !war {
             let d = &mut self.droids[i];
             if d.beam.holds_heading() {
@@ -2424,9 +2445,6 @@ impl Game {
                 return;
             }
             self.let_the_beam_go(i, aim, at, mark);
-            self.droids[i].beam = Beam::Cooling {
-                left: crate::balance::SWEEPER_COOLDOWN,
-            };
             return;
         }
         self.plan_droid_stand(i, dt, stats);
@@ -2467,20 +2485,54 @@ impl Game {
         }
     }
 
-    /// The Sweeper let go at the end of a wind-up, along `aim` at the
-    /// point `at` it was fixed on, for the target `mark` of the machines'
-    /// list: across the seam as a recorded `Shot` for a target below the
-    /// cross, else flown here at one of this room's own bodies.
+    /// The Sweeper let go at the end of a wind-up (feature 100): the beam
+    /// out of the lens, from `SWEEPER_ARC_DEGREES / 2` one side of `aim`
+    /// round to as far the other — the side it starts from alternating
+    /// sweep to sweep — at the beam's reach, each body it crosses taking
+    /// the Sweeper's damage (the arms counted). Recorded as a `Shot` for
+    /// the world to lay in the crew's room, and laid **here** as well when
+    /// the machines' list has bodies of this room's own on it — a town the
+    /// crew are defending — where it is not drawn, the crew's room drawing
+    /// the one beam. `at` and `mark` are what the wind-up was fixed on;
+    /// the beam is the arc, whoever stands in it.
     fn let_the_beam_go(&mut self, i: usize, aim: Vec2, at: Vec2, mark: usize) {
-        let _ = aim;
-        let from = self.droids[i].pos;
-        let weapon = self.droids[i].weapon;
-        self.droids[i].fired();
-        if mark < self.combat.machine_cross() {
-            self.combat.shoot(from, at, weapon, false);
-        } else {
-            self.combat.fire(from, at, weapon, true, false);
+        use crate::combat::{SWEEP_HALF_COS, SWEEP_HALF_SIN};
+        use crate::droid::Beam;
+        let _ = (at, mark);
+        let d = &mut self.droids[i];
+        let side = if d.sweeps % 2 == 0 { 1.0 } else { -1.0 };
+        d.sweeps = d.sweeps.wrapping_add(1);
+        d.fired();
+        let stats = d.stats();
+        let weapon = d.weapon;
+        let from = d.muzzle();
+        let reach = stats.reach();
+        let start = from + aim.rotate_by(SWEEP_HALF_COS, -side * SWEEP_HALF_SIN) * reach;
+        let end = from + aim.rotate_by(SWEEP_HALF_COS, side * SWEEP_HALF_SIN) * reach;
+        d.beam = Beam::Sweep {
+            left: crate::balance::SWEEPER_SWEEP,
+            aim,
+            side,
+        };
+        self.combat
+            .shoot_sweep(from, start, end, weapon, stats.damage);
+        if self.combat.machine_cross() < self.combat.machine_targets().len() {
+            self.combat
+                .sweep(from, start, end, weapon, stats.damage, false);
         }
+    }
+
+    /// A Guardian's Sweeper recorded in the other room, laid in this one
+    /// by the world (feature 100): the beam from `from`, turning from the
+    /// aim at `start` round to the aim at `end`, over this room's own
+    /// bodies — see `Combat::sweep`.
+    pub fn enemy_sweep(&mut self, from: Vec2, start: Vec2, end: Vec2, weapon: Weapon, damage: f32) {
+        self.combat.sweep(from, start, end, weapon, damage, true);
+    }
+
+    /// The Guardians' beams being swept in this room (feature 100).
+    pub fn sweeps(&self) -> &[crate::combat::Sweep] {
+        self.combat.sweeps()
     }
 
     /// Where a machine walks to: the same scoring a hostile Bim's stand

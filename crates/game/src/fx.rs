@@ -436,6 +436,18 @@ impl Fx {
         self.flare(from, Light::Cut { facing }, hostile, weapon, CUT_LIFE);
     }
 
+    /// A Guardian's beam burning where a wall stopped it (feature 100): a
+    /// scorch at `at`, laid across the beam's way `dir`, and nothing lit —
+    /// the beam's own end is drawn with the beam. A sweep lays one a
+    /// sub-step, so the scorches run along the wall as a streak.
+    pub fn burn(&mut self, at: Vec2, dir: Vec2) {
+        if !self.on {
+            return;
+        }
+        let rot = dir.angle() + TAU * 0.25;
+        capped(&mut self.scorches, SCORCH_CAP, Scorch { at, rot, age: 0.0 });
+    }
+
     /// A bolt or a blow stopped on a Guardian's shield (feature 100): the
     /// plate round `centre` flares at `at`, where it was struck. Always the
     /// machines' red: the shield is theirs, whoever's bolt it stopped.

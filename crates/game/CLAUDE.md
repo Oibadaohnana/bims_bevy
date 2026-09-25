@@ -3545,3 +3545,48 @@ legs at nothing stop the walk and nothing else.
 - `tests_guardian.rs` is the rule: the shield's dot product and its edge,
   bolts from inside and outside the arc, a blow, a grenade, the turn rate,
   the heading held through a wind-up, a taunt, and the legs and arms.
+
+### The Sweeper: a beam wound up, swept, and laid where its targets stand
+
+`WeaponKind::Sweeper` is not a bolt. At the end of a wind-up
+(`Game::let_the_beam_go`) the Guardian stays planted, its heading still
+held, in `Beam::Sweep` for `SWEEPER_SWEEP`, then cools; the side the sweep
+starts from alternates (`Droid::sweeps`). The beam leaves the **lens**
+(`Droid::muzzle`) and turns from 10° one side of the fixed aim to 10° the
+other (`combat::SWEEP_HALF_COS/SIN`), out to the weapon's reach (twenty
+tiles, a tier-three reach longer), each body it crosses taking the
+Sweeper's damage — thirty at tier one, scaled by the tier, halved with the
+arms gone.
+
+- **It travels as a `Shot`, recorded where the Guardian stands**:
+  `Combat::shoot_sweep` records one with `Shot::sweep` = the aim point the
+  sweep ends on and `Shot::at` the one it starts on — two points rather
+  than an angle and a side, so the station's frame carries it across turned
+  or mirrored by the points alone. The world lays it in the crew's room
+  (`Game::enemy_sweep`); in a town under defence, where the machines'
+  list has the room's own people on it, the Guardian lays one in its own
+  room as well (`drawn: false` — one room draws a beam).
+- **It is resolved where its targets stand**, by `Combat::sweep` and
+  `Combat::step_sweeps` (after the bolts in `Combat::step`): `SWEEP_STEPS`
+  (10) fixed sub-steps plus the first, one every `SWEEPER_SWEEP / 10`
+  seconds of the sweep's own clock whatever the step, the direction turned
+  by the written-out 2° (`SWEEP_STEP_COS/SIN`) with the sense a cross
+  product. At each: the beam out to its reach, stopped at
+  `Sight::first_opaque_along` (walls and shut doors), and every one of the
+  room's own bodies within `HIT_RADIUS` of that segment (plain arithmetic,
+  `off_segment`) and not rolled yet this sweep is rolled **once**: behind
+  bags and not peeking it is not hit; peeking or behind a tank's Bulwark it
+  dodges as a bolt would, *interpose* putting it on the tank; a
+  tier-three body's own dodge after; else a hostile `Hit` on
+  `wounds_taken`, which `strike` applies, so a surge takes it whole. It
+  passes through bodies and never looks at a target, so it never touches a
+  machine.
+- **The picture** (commit 3's look aside): a drawn sweep is laid in
+  `Combat::draw` over the fog with the bolts, lens to where the last
+  sub-step stopped; a wall that stops it takes a scorch a sub-step
+  (`Fx::burn`), a streak along the wall; a body it hits flashes
+  (`Fx::landed`).
+- `tests_guardian.rs`: each body once and through them, a wall and a shut
+  door, bags, a peek and a Bulwark, a surge, a town's own sweep missing
+  the machine in its way, the arms, and the heading held to the sweep's
+  end.

@@ -1611,8 +1611,18 @@ one thing in the arms at a time, from the lockers to the bench and back.
   it, and the arc is marked faintly on the deck under it: **get round
   it**. It turns to face the nearest crew member it sees — a tank's
   taunt turns it — no faster than 75° a second, and walks in the open,
-  the shield being its cover. One in eight of a tier-three wave is a
-  Guardian, at least one from four machines up.
+  the shield being its cover. Its weapon is the **Sweeper**, a beam: when
+  it has a crew member in front of it, it **plants its feet and winds
+  up** for a second and a fifth — its heading fixed, so that is the
+  moment to get round it — then **sweeps** the beam through twenty
+  degrees across where it aimed in half a second, and rests three and a
+  half before the next. The beam reaches twenty tiles, stops at the
+  first wall or shut door, and goes **through** bodies: everybody in
+  its arc takes thirty, once a sweep. Sandbags between you and it are
+  cover — the beam goes over — unless you are leaning out of them, and
+  a tank's wall and a medic's surge work on it as on a bolt. It hurts
+  no machine. One in eight of a tier-three wave is a Guardian, at least
+  one from four machines up.
   `nix run .#guardian` is the fight against one. A machine is not a Bim: it has four parts rather
   than three (head, chassis, arms, legs), no blood, no dying state — head
   or chassis at nothing and it is a wreck that instant — and nothing to

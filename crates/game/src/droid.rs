@@ -181,6 +181,10 @@ pub enum Beam {
         at: Vec2,
         mark: usize,
     },
+    /// The beam sweeping, `left` seconds to go, about the aim the wind-up
+    /// fixed, from the side `side` (one or minus one) round to the other.
+    /// The heading is still held.
+    Sweep { left: f32, aim: Vec2, side: f32 },
     /// Resting after a sweep, `left` seconds to go.
     Cooling { left: f32 },
 }
@@ -188,7 +192,7 @@ pub enum Beam {
 impl Beam {
     /// Whether the heading is held where the wind-up fixed it.
     pub fn holds_heading(self) -> bool {
-        matches!(self, Beam::WindUp { .. })
+        matches!(self, Beam::WindUp { .. } | Beam::Sweep { .. })
     }
 }
 
@@ -440,6 +444,10 @@ pub struct Droid {
     /// other kind.
     #[cfg_attr(feature = "serde", serde(default))]
     pub beam: Beam,
+    /// How many sweeps it has let go: the side the next starts from
+    /// alternates by it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sweeps: u32,
     /// Where it is steering, the way a Bim's intent works.
     intent: f32,
     /// The arm it was built with, as a [`Weapon`] so every curve, every
@@ -523,6 +531,7 @@ impl Droid {
             facing: Vec2::from_angle(heading),
             turn_left: 0.0,
             beam: Beam::Ready,
+            sweeps: 0,
             intent: heading,
             weapon: kind.arm(index).at(tier),
             body: DroidBody::new(kind, tier),

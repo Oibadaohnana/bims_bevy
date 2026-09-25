@@ -4524,3 +4524,11 @@ once it is turned about. **`SAVE_VERSION` 36, `wire::PROTOCOL` 28.**
 hop from the origin, so its tier-three wave of six has a Guardian in it
 (the constant's note says how it was checked that nothing else moved).
 `REFERENCE_CHECKSUM` and the ship's `PINNED` and `PICTURES` did not move.
+
+**The beam across the seam.** `visit`'s shot loop lays a recorded
+`Shot` with a `sweep` as `Game::enemy_sweep` on the joined deck — its lens
+and its two aim points through `on_deck` like any shot — before it asks
+whether a shot is a blow. `the_beam_crosses_the_seam_and_two_worlds_agree_through_it`
+runs two worlds with an armed Guardian staged side by side, events and
+`world_checksum` step for step, until the beam has been laid on the deck
+and has hit the crew member.

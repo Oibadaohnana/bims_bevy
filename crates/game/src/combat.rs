@@ -1743,6 +1743,67 @@ pub struct Shot {
     pub cut: bool,
     /// Whether the shooter was walking as it fired: half the odds.
     pub moving: bool,
+    /// A Guardian's **Sweeper** (feature 100) rather than a bolt: the beam
+    /// sweeps from the aim at `at` round to the aim at this point, both
+    /// out at the beam's reach from `from`, and the receiving room lays a
+    /// [`Sweep`] of its own over the same arc ([`Combat::sweep`]). Two
+    /// points rather than an angle and a side so the station's frame,
+    /// turn or mirror, carries it across by the points alone. `damage` is
+    /// what each body it crosses takes, the machine's arms counted.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sweep: Option<Vec2>,
+}
+
+/// How many fixed sub-steps a Sweeper's sweep is resolved in (feature
+/// 100), and the turn between two of them — 2°, the arc's twenty over
+/// ten, written out as a cosine and a sine so no angle is ever worked
+/// out. A sweep is resolved at `SWEEP_STEPS + 1` places, its two ends
+/// included.
+pub const SWEEP_STEPS: u32 = 10;
+pub const SWEEP_STEP_COS: f32 = 0.999_390_8;
+pub const SWEEP_STEP_SIN: f32 = 0.034_899_496;
+/// Half the arc, 10°, the same way: how far either side of the aim a
+/// sweep starts and ends.
+pub const SWEEP_HALF_COS: f32 = 0.984_807_75;
+pub const SWEEP_HALF_SIN: f32 = 0.173_648_18;
+
+/// A Guardian's beam being swept in a room (feature 100, [`Combat::sweep`]):
+/// where from, which way it points now and which way it turns, how far
+/// it reaches, what it does, how far through the sweep it is and which
+/// bodies have been rolled for — each at most once a sweep.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Sweep {
+    pub from: Vec2,
+    dir: Vec2,
+    /// The signed sine of the sub-step's turn: which way round it goes.
+    sin: f32,
+    reach: f32,
+    pub weapon: Weapon,
+    pub damage: f32,
+    /// Whether this room draws it.
+    pub drawn: bool,
+    pub elapsed: f32,
+    /// How many of its sub-steps have been resolved.
+    pub done: u32,
+    /// The bodies rolled for this sweep, by index: never twice.
+    pub rolled: Vec<usize>,
+    /// Where the beam ended at the last sub-step resolved, and whether a
+    /// wall or a shut door stopped it there.
+    pub end: Vec2,
+    pub walled: bool,
+}
+
+/// How far `p` lies from the segment `a`–`b`: the nearest point of the
+/// segment, clamped to its ends, and plain arithmetic.
+fn off_segment(a: Vec2, b: Vec2, p: Vec2) -> f32 {
+    let d = b - a;
+    let len2 = d.dot(d);
+    if len2 <= 1e-9 {
+        return (p - a).len();
+    }
+    let t = ((p - a).dot(d) / len2).clamp(0.0, 1.0);
+    (p - (a + d * t)).len()
 }
 
 /// Where a bolt ended, briefly lit.
@@ -1812,6 +1873,9 @@ pub struct Combat {
     machines_cross: usize,
     pub bolts: Vec<Bolt>,
     sparks: Vec<Spark>,
+    /// The Guardians' beams being swept here (feature 100).
+    #[cfg_attr(feature = "serde", serde(default))]
+    sweeps: Vec<Sweep>,
     /// The grenades in the air and lying with their fuses burning
     /// (feature 75), and the bursts lately lit. See `Game::burst`.
     pub grenades: Vec<Grenade>,
@@ -1876,6 +1940,7 @@ impl Combat {
             machines_cross: 0,
             bolts: Vec::new(),
             sparks: Vec::new(),
+            sweeps: Vec::new(),
             grenades: Vec::new(),
             blasts: Vec::new(),
             own_cover_dodge: Vec::new(),
@@ -2197,7 +2262,185 @@ impl Combat {
             damage: stats.damage,
             cut: false,
             moving,
+            sweep: None,
         });
+    }
+
+    /// A Guardian's Sweeper let go across the seam (feature 100): a
+    /// recorded [`Shot`] from the lens at `from`, the beam's arc from the
+    /// aim at `start` round to the aim at `end`, `damage` to each body it
+    /// crosses. The world lays it as a [`Sweep`] in the crew's room.
+    pub fn shoot_sweep(&mut self, from: Vec2, start: Vec2, end: Vec2, weapon: Weapon, damage: f32) {
+        self.lull = 0.0;
+        self.shots.push(Shot {
+            from,
+            at: start,
+            weapon,
+            melee: false,
+            damage,
+            cut: false,
+            moving: false,
+            sweep: Some(end),
+        });
+    }
+
+    /// A Sweeper's beam laid in **this** room (feature 100): from the lens
+    /// at `from`, turning from the aim at `start` round to the aim at
+    /// `end`, the reach the distance to `start`, crossing this room's own
+    /// bodies — the crew's, flown by the world off a recorded
+    /// [`Shot`], or a town's people in their own room. `drawn` is whether
+    /// this room draws it: one room draws a beam and no other, so a
+    /// town's own sweep, laid beside the one the crew's room flies, is
+    /// not.
+    pub fn sweep(
+        &mut self,
+        from: Vec2,
+        start: Vec2,
+        end: Vec2,
+        weapon: Weapon,
+        damage: f32,
+        drawn: bool,
+    ) {
+        let out = start - from;
+        let reach = out.len();
+        let dir = out.normalize_or_zero();
+        if dir == Vec2::ZERO {
+            return;
+        }
+        // Which way round it turns is a cross product, never an angle.
+        let sin = if out.perp_dot(end - from) >= 0.0 {
+            SWEEP_STEP_SIN
+        } else {
+            -SWEEP_STEP_SIN
+        };
+        self.lull = 0.0;
+        self.cues.push(Cued {
+            cue: Cue::Shot {
+                weapon: weapon.kind,
+                hostile: true,
+            },
+            at: from,
+        });
+        self.sweeps.push(Sweep {
+            from,
+            dir,
+            sin,
+            reach,
+            weapon,
+            damage,
+            drawn,
+            elapsed: 0.0,
+            done: 0,
+            rolled: Vec::new(),
+            end: from,
+            walled: false,
+        });
+    }
+
+    /// The beams being swept in this room: for the picture and the tests.
+    pub fn sweeps(&self) -> &[Sweep] {
+        &self.sweeps
+    }
+
+    /// Every beam on by `dt` (feature 100): each fixed sub-step whose time
+    /// has come is resolved in turn — the beam laid along its direction out
+    /// to its reach and stopped at the first wall or shut door, every body
+    /// of this room's own within [`HIT_RADIUS`] of it and not already
+    /// rolled this sweep rolled once, and the direction turned on by the
+    /// written-out sub-step. A body in cover and not peeking is not hit —
+    /// the beam goes over the bags; one peeking, or behind a tank's
+    /// Bulwark, dodges as a bolt would, and *interpose* puts it on the
+    /// tank; a tier-three body's own dodge is rolled after. What lands is
+    /// a hostile [`Hit`] on `wounds_taken`, applied by the room — so a
+    /// surge takes it whole, as it does a bolt. It never looks for a
+    /// target: a machine is never among a room's own bodies, so the beam
+    /// hurts no machine.
+    fn step_sweeps(&mut self, dt: f32, sight: &Sight, bodies: &[Option<(Vec2, bool, f32)>]) {
+        if self.sweeps.is_empty() {
+            return;
+        }
+        let own_cover_dodge = &self.own_cover_dodge;
+        let bulwarks = &self.bulwarks;
+        let rng = &mut self.rng;
+        let fx = &mut self.fx;
+        let mut taken: Vec<Hit> = Vec::new();
+        let mut heard: Vec<Cued> = Vec::new();
+        let every = balance::SWEEPER_SWEEP / SWEEP_STEPS as f32;
+        for s in &mut self.sweeps {
+            s.elapsed += dt;
+            while s.done <= SWEEP_STEPS && s.done as f32 * every <= s.elapsed + 1e-5 {
+                let far = s.from + s.dir * s.reach;
+                let (end, walled) = match sight.first_opaque_along(s.from, far) {
+                    Some(wall) => (wall, true),
+                    None => (far, false),
+                };
+                s.end = end;
+                s.walled = walled;
+                if walled && s.drawn {
+                    fx.burn(end, s.dir);
+                }
+                for (i, body) in bodies.iter().enumerate() {
+                    let Some((at, peeking, dodge)) = *body else {
+                        continue;
+                    };
+                    if s.rolled.contains(&i) || off_segment(s.from, end, at) > HIT_RADIUS {
+                        continue;
+                    }
+                    s.rolled.push(i);
+                    // Behind bags and not leaning out: the beam goes over.
+                    if !peeking && sight.cover_between(at, s.from).is_some() {
+                        continue;
+                    }
+                    let shield = bulwarks.iter().copied().find(|b| {
+                        b.who != i
+                            && bodies
+                                .get(b.who)
+                                .copied()
+                                .flatten()
+                                .is_some_and(|(t, _, _)| b.shields(t, at, s.from))
+                    });
+                    let odds = own_cover_dodge.get(i).copied().unwrap_or(DODGE_IN_COVER);
+                    if (peeking || shield.is_some()) && rng.chance(odds) {
+                        continue;
+                    }
+                    let mut who = i;
+                    let mut slip = dodge;
+                    if let Some(b) = shield.filter(|b| b.interpose)
+                        && let Some((_, _, tank_dodge)) = bodies.get(b.who).copied().flatten()
+                    {
+                        who = b.who;
+                        slip = tank_dodge;
+                        if !s.rolled.contains(&b.who) {
+                            s.rolled.push(b.who);
+                        }
+                    }
+                    if slip > 0.0 && rng.chance(slip) {
+                        continue;
+                    }
+                    let roll = rng.unit();
+                    taken.push(Hit {
+                        who,
+                        part: Part::hit_by(roll),
+                        damage: s.damage,
+                        cut: false,
+                        by: None,
+                        blast: false,
+                        roll,
+                        strips: 0.0,
+                    });
+                    heard.push(Cued {
+                        cue: Cue::Impact { on_crew: true },
+                        at,
+                    });
+                    fx.landed(s.from, at, s.dir, s.weapon, true, true);
+                }
+                s.dir = s.dir.rotate_by(SWEEP_STEP_COS, s.sin).normalize_or_zero();
+                s.done += 1;
+            }
+        }
+        self.sweeps.retain(|s| s.done <= SWEEP_STEPS);
+        self.wounds_taken.extend(taken);
+        self.cues.extend(heard);
     }
 
     /// The nearest enemy a shooter standing at `from` can see, within the
@@ -2444,6 +2687,7 @@ impl Combat {
                 damage,
                 cut,
                 moving: false,
+                sweep: None,
             });
         } else {
             // A blow from the front of a shield is stopped at the plate
@@ -2788,11 +3032,16 @@ impl Combat {
         self.cover_hits.extend(bagged);
         self.sparks.extend(sparks);
         self.cues.extend(heard);
+        // And the beams, after the bolts (feature 100).
+        self.step_sweeps(dt, sight, bodies);
     }
 
     /// Whether anything is in the air or lit.
     pub fn quiet(&self) -> bool {
-        self.bolts.is_empty() && self.sparks.is_empty() && !self.grenades_out()
+        self.bolts.is_empty()
+            && self.sparks.is_empty()
+            && self.sweeps.is_empty()
+            && !self.grenades_out()
     }
 
     /// The bolts, the passing lights round them (`crate::fx`) and the
@@ -2933,6 +3182,11 @@ impl Combat {
                     );
                 }
             }
+        }
+        // The Guardians' beams (feature 100), in this room if it draws them:
+        // laid where the last sub-step laid them.
+        for s in self.sweeps.iter().filter(|s| s.drawn && s.done > 0) {
+            fx::laser(list, s.from, s.end, 10.0, 2.5, true, fx::CORE_HEAT, 1.0);
         }
         // Where the bolts ended: the fight's own flash for a host that ages
         // no effects, the passing lights for one that does.

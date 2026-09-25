@@ -152,3 +152,50 @@ fn a_crew_member_s_bolts_are_stopped_by_the_shield_across_the_seam_and_land_from
     }
     assert!(hurt, "from behind the bolts land");
 }
+
+/// A Guardian armed and awake four tiles down the corridor from the
+/// crew member, at tier three.
+fn guardian_fight() -> World {
+    let mut world = simulation_world(flyer(2), REFERENCE_MONEY, 2);
+    world.set_droid_tier_for_probe(Some(Tier::Three));
+    assert!(world.stage_droid_fight_for_probe(
+        DroidKind::Guardian,
+        Some(WeaponKind::Sweeper.at(Tier::Three))
+    ));
+    world
+}
+
+#[test]
+fn the_beam_crosses_the_seam_and_two_worlds_agree_through_it() {
+    use crate::checksum::world_checksum;
+    use crate::event::WorldEvent;
+    let mut one = guardian_fight();
+    let mut two = guardian_fight();
+    assert_eq!(world_checksum(&one), world_checksum(&two));
+    let mut swept = false;
+    let mut hit = false;
+    for step in 0..(60 * 20) {
+        // Nobody dies of it: the fight is watched, not decided.
+        one.aboard.room.patch_up_for_probe(0);
+        two.aboard.room.patch_up_for_probe(0);
+        let a = one.step(&[]);
+        let b = two.step(&[]);
+        assert_eq!(a, b, "the same events at step {step}");
+        assert_eq!(
+            world_checksum(&one),
+            world_checksum(&two),
+            "the two worlds parted at step {step}"
+        );
+        // The beam is laid in the crew's room, off the recorded shot,
+        // and draws there.
+        swept |= one.aboard.room.sweeps().iter().any(|s| s.drawn);
+        hit |= a
+            .iter()
+            .any(|e| matches!(e, WorldEvent::CrewHit { who: 0, .. }));
+        if swept && hit {
+            break;
+        }
+    }
+    assert!(swept, "the Guardian swept its beam across the seam");
+    assert!(hit, "and it reached the crew member");
+}

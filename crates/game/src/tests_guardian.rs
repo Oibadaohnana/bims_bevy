@@ -6,7 +6,7 @@
 //! world's (`crates/world/src/tests_guardian.rs`).
 
 use crate::balance;
-use crate::combat::{Combat, Tier, WeaponKind, shield_stops};
+use crate::combat::{Combat, Hit, Tier, WeaponKind, shield_stops};
 use crate::droid::{Beam, Droid, DroidKind, DroidPart};
 use crate::game::Game;
 use crate::math::{Rect, Vec2, vec2};
@@ -201,28 +201,49 @@ fn a_guardian_winds_up_on_what_it_sees_and_holds_its_heading_to_the_end() {
     assert!(wound >= 55, "wound up at frame {wound}");
     assert!(degrees_between(game.droids()[0].facing(), (first - at).normalize_or_zero()) <= 15.5);
 
-    // **Held through it**: the target runs round behind the machine and
-    // its heading does not move until the wind-up is let go.
+    // **Held through it and through the sweep**: the target runs round
+    // behind the machine and its heading does not move until the beam has
+    // been swept.
     let held = game.droids()[0].facing();
     let second = at + vec2(-3.0 * TILE, 0.0);
-    let mut shots = 0;
+    let mut shots = Vec::new();
+    let mut swept_at = None;
     let mut frames = 0;
     while game.droids()[0].beam.holds_heading() {
         game.set_hostiles(vec![Some((second, pistol))]);
         game.simulate(DT);
-        shots += game.take_shots().len();
+        shots.extend(game.take_shots());
         frames += 1;
+        if swept_at.is_none() && matches!(game.droids()[0].beam, Beam::Sweep { .. }) {
+            swept_at = Some(frames);
+        }
         if game.droids()[0].beam.holds_heading() {
             assert_eq!(game.droids()[0].facing(), held, "held at frame {frames}");
         }
-        assert!(frames < 200, "the wind-up ends");
+        assert!(frames < 200, "the wind-up and the sweep end");
     }
+    let swept_at = swept_at.expect("a sweep followed the wind-up");
     assert!(
-        (frames as f32 * DT - balance::SWEEPER_WINDUP).abs() < 0.05,
+        (swept_at as f32 * DT - balance::SWEEPER_WINDUP).abs() < 0.05,
         "the wind-up is {} s",
+        swept_at as f32 * DT
+    );
+    assert!(
+        (frames as f32 * DT - balance::SWEEPER_WINDUP - balance::SWEEPER_SWEEP).abs() < 0.05,
+        "the wind-up and the sweep are {} s",
         frames as f32 * DT
     );
-    assert!(shots > 0, "and at its end the Sweeper is let go");
+    // One recorded shot, and it is a sweep: its two ends either side of
+    // the aim the wind-up fixed.
+    assert_eq!(shots.len(), 1, "one Sweeper let go");
+    let shot = shots[0];
+    let end = shot.sweep.expect("a sweep, not a bolt");
+    let aim = (first - at).normalize_or_zero();
+    let a = (shot.at - shot.from).normalize_or_zero();
+    let b = (end - shot.from).normalize_or_zero();
+    assert!((degrees_between(a, b) - balance::SWEEPER_ARC_DEGREES).abs() < 0.1);
+    assert!((degrees_between(a, aim) - 10.0).abs() < 1.0);
+    assert!((degrees_between(b, aim) - 10.0).abs() < 1.0);
     assert!(matches!(game.droids()[0].beam, Beam::Cooling { .. }));
     // After it, it turns again after the target that went round it.
     for _ in 0..(60 * 3) {
@@ -307,4 +328,252 @@ fn arms_gone_halve_the_sweeper_s_damage_and_not_its_reach() {
     assert!(
         (three.damage - 30.0 * balance::TIER_TWO_DAMAGE * balance::TIER_THREE_DAMAGE).abs() < 1e-3
     );
+}
+
+// --- the Sweeper (feature 100, the beam) ------------------------------------
+
+/// The middle of tile `(x, y)`.
+fn tile(x: f32, y: f32) -> Vec2 {
+    vec2((x + 0.5) * TILE, (y + 0.5) * TILE)
+}
+
+/// Where a test's beam comes from: the middle of the hall's west side,
+/// aimed east.
+fn lens() -> Vec2 {
+    tile(3.0, 15.0)
+}
+
+/// A sweep laid in `combat` from the lens, the aim east, at tier one's
+/// reach and damage, and flown to its end over `bodies`: the hits.
+fn swept(combat: &mut Combat, sight: &Sight, bodies: &[Option<(Vec2, bool, f32)>]) -> Vec<Hit> {
+    use crate::combat::{SWEEP_HALF_COS, SWEEP_HALF_SIN};
+    let weapon = WeaponKind::Sweeper.basic();
+    let reach = weapon.stats().reach();
+    let aim = vec2(1.0, 0.0);
+    let from = lens();
+    let start = from + aim.rotate_by(SWEEP_HALF_COS, -SWEEP_HALF_SIN) * reach;
+    let end = from + aim.rotate_by(SWEEP_HALF_COS, SWEEP_HALF_SIN) * reach;
+    combat.sweep(from, start, end, weapon, weapon.stats().damage, true);
+    for _ in 0..60 {
+        combat.step(DT, sight, bodies);
+    }
+    assert!(combat.sweeps().is_empty(), "a sweep is half a second");
+    std::mem::take(&mut combat.wounds_taken)
+}
+
+/// A body standing at `at` in the open, not peeking, with no dodge.
+fn standing(at: Vec2) -> Option<(Vec2, bool, f32)> {
+    Some((at, false, 0.0))
+}
+
+#[test]
+fn a_sweep_crosses_every_body_in_its_arc_once_and_passes_through_them() {
+    let sight = open_sight();
+    let from = lens();
+    let bodies = [
+        // Three in a row down the aim: the beam goes through all three.
+        standing(from + vec2(4.0 * TILE, 0.0)),
+        standing(from + vec2(8.0 * TILE, 0.0)),
+        standing(from + vec2(12.0 * TILE, 0.0)),
+        // Inside the arc, off the aim.
+        standing(from + Vec2::from_angle(6f32.to_radians()) * (10.0 * TILE)),
+        // Outside the arc, and beyond the reach.
+        standing(from + Vec2::from_angle(30f32.to_radians()) * (6.0 * TILE)),
+        standing(from + vec2(24.0 * TILE, 0.0)),
+    ];
+    let hits = swept(&mut Combat::new(3), &sight, &bodies);
+    let mut who: Vec<usize> = hits.iter().map(|h| h.who).collect();
+    who.sort_unstable();
+    assert_eq!(who, vec![0, 1, 2, 3], "each in the arc once, and no other");
+    for hit in &hits {
+        assert_eq!(hit.damage, 30.0, "thirty a body at tier one");
+        assert!(!hit.cut && !hit.blast);
+    }
+}
+
+#[test]
+fn a_sweep_stops_at_a_wall_and_at_a_shut_door() {
+    let interior = Rect::from_min_size(Vec2::ZERO, vec2(30.0 * TILE, 30.0 * TILE));
+    let across = Rect::from_min_size(vec2(10.0 * TILE, 0.0), vec2(TILE, 30.0 * TILE));
+    let near = standing(tile(8.0, 15.0));
+    let far = standing(tile(13.0, 15.0));
+    // A wall across the hall, between the two.
+    let walled = Sight::new(interior, interior, TILE, &[across], &[]);
+    let hits = swept(&mut Combat::new(4), &walled, &[near, far]);
+    assert_eq!(hits.iter().map(|h| h.who).collect::<Vec<_>>(), vec![0]);
+    // A shut door the same, and open it lets the beam through.
+    let mut shut = open_sight();
+    shut.set_shut(&[across]);
+    let hits = swept(&mut Combat::new(4), &shut, &[near, far]);
+    assert_eq!(hits.iter().map(|h| h.who).collect::<Vec<_>>(), vec![0]);
+    let hits = swept(&mut Combat::new(4), &open_sight(), &[near, far]);
+    assert_eq!(hits.len(), 2, "with nothing across it, both");
+}
+
+#[test]
+fn a_sweep_goes_over_bags_a_peek_dodges_it_and_a_bulwark_turns_it() {
+    let body = tile(13.0, 15.0);
+    let bags = Rect::from_min_size(vec2(12.0 * TILE, 15.0 * TILE), vec2(TILE, TILE));
+    let mut sight = open_sight();
+    sight.set_laid_cover(&[bags]);
+    let over = |peeking: bool| -> usize {
+        (0..40u64)
+            .map(|seed| {
+                swept(
+                    &mut Combat::new(seed),
+                    &sight,
+                    &[Some((body, peeking, 0.0))],
+                )
+                .len()
+            })
+            .sum()
+    };
+    // In cover and not peeking: the beam goes over, every time.
+    assert_eq!(over(false), 0, "behind the bags");
+    // Leaning out of it: the cover's dodge, half the time.
+    let peeked = over(true);
+    assert!((8..=32).contains(&peeked), "peeking, hit {peeked} of 40");
+
+    // A tank's Bulwark between the lens and the body, a tile in front
+    // of it: the body dodges as in cover; with *interpose* the tank
+    // takes what the wall does not turn aside, and the body nothing.
+    let open = open_sight();
+    let tank = tile(12.0, 15.0) + vec2(0.0, 0.3 * TILE);
+    let bodies = [standing(body), standing(tank)];
+    for interpose in [false, true] {
+        let mut on_body = 0;
+        let mut on_tank = 0;
+        for seed in 0..40u64 {
+            let mut combat = Combat::new(seed);
+            combat.set_bulwarks(vec![crate::combat::Bulwark {
+                who: 1,
+                reach: 2.0,
+                interpose,
+            }]);
+            for hit in swept(&mut combat, &open, &bodies) {
+                if hit.who == 0 {
+                    on_body += 1;
+                } else {
+                    on_tank += 1;
+                }
+            }
+        }
+        if interpose {
+            assert!(on_body < 30, "interposed, the body took {on_body} of 40");
+            assert!(on_tank >= 40, "and the tank took its own and the body's");
+        } else {
+            assert!(
+                (8..=32).contains(&on_body),
+                "the wall turned {on_body} of 40"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_surge_takes_the_beam_whole() {
+    for surging in [false, true] {
+        let mut game = Game::bare(6, ROOM_W, ROOM_H);
+        game.set_autonomous(false);
+        let at = game.put_for_probe(0, vec2(ROOM_W * 0.6, ROOM_H * 0.5));
+        if surging {
+            game.set_surge(0, 5.0, false);
+        }
+        let from = at - vec2(5.0 * TILE, 0.0);
+        let weapon = WeaponKind::Sweeper.basic();
+        game.enemy_sweep(
+            from,
+            at + vec2(0.0, -2.0 * TILE),
+            at + vec2(0.0, 2.0 * TILE),
+            weapon,
+            30.0,
+        );
+        for _ in 0..40 {
+            game.simulate(DT);
+        }
+        let wounds: u32 = crate::health::Part::ALL
+            .iter()
+            .map(|&p| game.wounds(0, p))
+            .sum();
+        assert_eq!(wounds == 0, surging, "surging {surging}: {wounds} wounds");
+    }
+}
+
+#[test]
+fn a_town_s_own_sweep_hits_its_people_and_never_a_machine() {
+    // A town under attack: its room friendly, its people on the
+    // machines' own list (all of them this room's, the cross at nought),
+    // a Guardian facing one of them with a Trooper held in the beam's way.
+    let mut game = Game::bare(8, ROOM_W, ROOM_H);
+    game.set_autonomous(false);
+    let person = game.put_for_probe(0, vec2(ROOM_W * 0.75, ROOM_H * 0.5));
+    game.put_for_probe(1, vec2(ROOM_W * 0.2, ROOM_H * 0.15));
+    let at = person - vec2(6.0 * TILE, 0.0);
+    game.add_droid(guardian_at(at, vec2(1.0, 0.0)));
+    let mut trooper = Droid::new(
+        DroidKind::Trooper,
+        Tier::One,
+        0,
+        1,
+        at + vec2(3.0 * TILE, 0.0),
+        0.0,
+        3,
+    );
+    trooper.posing = true;
+    game.add_droid(trooper);
+    let whole = game.droids()[1].body;
+    let pistol = WeaponKind::LaserPistol.basic();
+    let mut hurt = false;
+    let mut swept_once = false;
+    for _ in 0..(60 * 5) {
+        let there = game.bim_pos(0);
+        // The other townsperson is under a roof: nobody's target.
+        game.set_machine_hostiles(vec![Some((there, pistol)), None], 0);
+        game.simulate(DT);
+        swept_once |= !game.sweeps().is_empty();
+        hurt |= crate::health::Part::ALL
+            .iter()
+            .any(|&p| game.wounds(0, p) > 0);
+        if hurt && game.sweeps().is_empty() {
+            break;
+        }
+    }
+    assert!(swept_once, "the beam was laid in the town's own room");
+    assert!(
+        game.sweeps().iter().all(|s| !s.drawn),
+        "and not drawn there: the crew's room draws the one beam"
+    );
+    assert!(hurt, "the townsperson in the arc was hit");
+    assert_eq!(
+        game.droids()[1].body,
+        whole,
+        "the machine in its way was not"
+    );
+}
+
+#[test]
+fn arms_gone_halve_the_beam_it_lets_go() {
+    let pistol = WeaponKind::LaserPistol.basic();
+    let mut damage = Vec::new();
+    for arms in [true, false] {
+        let mut game = machines_room();
+        let at = vec2(ROOM_W * 0.5, ROOM_H * 0.5);
+        game.add_droid(guardian_at(at, vec2(1.0, 0.0)));
+        if !arms {
+            let max = game.droids()[0].body.max(DroidPart::Arms);
+            game.strike_droid(0, DroidPart::Arms, max);
+        }
+        let target = at + vec2(4.0 * TILE, 0.0);
+        let mut shot = None;
+        for _ in 0..(60 * 4) {
+            game.set_hostiles(vec![Some((target, pistol))]);
+            game.simulate(DT);
+            if let Some(s) = game.take_shots().into_iter().find(|s| s.sweep.is_some()) {
+                shot = Some(s);
+                break;
+            }
+        }
+        damage.push(shot.expect("a sweep let go").damage);
+    }
+    assert!((damage[1] - damage[0] * balance::DROID_ARMS_DAMAGE).abs() < 1e-3);
 }
