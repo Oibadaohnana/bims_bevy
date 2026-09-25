@@ -2164,34 +2164,16 @@ impl CrewPanels {
             .max_height(TRAY_PANEL_H)
             .min_scrolled_height(TRAY_PANEL_H)
             .show(ui, |ui| {
-                theme::heading(ui, STASH_ABOARD);
-                let held: Vec<(ResourceId, u32)> =
-                    self.hold.as_ref().map_or_else(Vec::new, |hold| {
-                        ResourceId::ALL
-                            .iter()
-                            .filter_map(|&id| {
-                                let n = hold.counts[id as usize];
-                                (n > 0).then_some((id, n))
-                            })
-                            .collect()
-                    });
-                if held.is_empty() {
-                    ui.label(egui::RichText::new(STASH_EMPTY).small().color(theme::MUTED));
-                } else {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
-                        for (id, n) in held {
-                            stash_cell(ui, n, |p, r| icons::resource(p, r, id))
-                                .on_hover_text(format!("{} · {n}", resource_name(id)));
-                        }
-                    });
-                }
+                // The ship's hold is not listed (feature 110): what the
+                // ship has is the pool, which the top frame says.
                 for who in 0..view.crew.min(game.crew_count()) {
                     let w = who as usize;
                     if !game.is_alive(w) {
                         continue;
                     }
-                    ui.add_space(4.0);
+                    if who > 0 {
+                        ui.add_space(4.0);
+                    }
                     let yours = w == self.player;
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(name(who)).strong().color(if yours {
@@ -2213,8 +2195,12 @@ impl CrewPanels {
                             things.push((PackItem::Armour(piece), 1));
                         }
                     }
+                    // The charges — medicine, kits, grenades — are the
+                    // hero panel's boxes, not things carried (feature 110).
                     for (cell, item) in gear.pack.iter().enumerate() {
-                        if let Some(item) = *item {
+                        if let Some(item) = *item
+                            && !is_charge(item)
+                        {
                             things.push((item, gear.count[cell].max(1)));
                         }
                     }
@@ -2905,8 +2891,15 @@ impl CrewPanels {
             return;
         }
         self.inventory_open = true;
+        // A body down within reach comes up beside the pack; the ship's
+        // own lockers and shelves do not (feature 110) — what the ship
+        // holds is abstract, and a container is a click on the nearby
+        // strip away.
         if self.open.is_none()
-            && let Some(near) = self.nearby.first()
+            && let Some(near) = self
+                .nearby
+                .iter()
+                .find(|near| matches!(near.open, Open::Loot(_)))
         {
             self.show(near.open);
         }
@@ -4612,8 +4605,30 @@ fn grid_things(grid: &Grid, hold: &Hold) -> (Vec<grid::Laid>, Vec<u32>) {
 /// footprint, turned if it is — and the cell each is kept in, in the
 /// same order. The same for a body's pack in the Loot window, off the
 /// body's cells and which of them are turned.
+///
+/// The crew member's own pack leaves its charges out (feature 110): the
+/// medicine, the engineer's kits and the soldier's grenades are the hero
+/// panel's boxes rather than things carried, so nothing here shows them
+/// and nothing here can pick one up.
 fn pack_things(gear: &bims::combat::Gear) -> (Vec<grid::Laid>, Vec<usize>) {
-    laid_things(&gear.pack, &gear.turned, &gear.count)
+    let pack: Vec<Option<PackItem>> = gear
+        .pack
+        .iter()
+        .map(|item| item.filter(|&item| !is_charge(item)))
+        .collect();
+    laid_things(&pack, &gear.turned, &gear.count)
+}
+
+/// Whether a thing in a pack is one of the charges (feature 110) — a
+/// medkit, a bandage, an engineer's kit or a grenade — which the boxes on
+/// the hero panel count and no list of things carried shows.
+fn is_charge(item: PackItem) -> bool {
+    match item {
+        PackItem::Stack(code) => ResourceId::ALL
+            .get(code as usize)
+            .is_some_and(|&id| world::class::Charge::of_resource(id).is_some()),
+        _ => false,
+    }
 }
 
 /// `counts` is how many are in each cell's stack (feature 87) —

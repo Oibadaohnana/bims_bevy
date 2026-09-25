@@ -211,7 +211,7 @@ pub fn health_bar(
 
 /// The bar behind them all: the track, then each segment laid end to end
 /// from the left, clipped at the far end of the strip.
-fn bar_of_height(
+pub fn bar_of_height(
     ui: &mut egui::Ui,
     width: f32,
     height: f32,

@@ -2414,6 +2414,14 @@ pub fn hero_xp_max(level: u8) -> String {
 pub const NO_CLASS: &str = "No class";
 /// The hero panel greyed over while its Bim is down.
 pub const DOWNED_BANNER: &str = "Downed";
+/// The tag beside the hero's health while it is critically hit
+/// (feature 110), and what it means.
+pub const CRITICAL_TAG: &str = "CRITICAL";
+pub const CRITICAL_TIP: &str = "Badly hurt: a trauma, a part almost gone, the \
+    health low or the blood running short. Get a medkit or a medic on it, or \
+    get out of the fight.";
+/// The blood's short label under the hero's health bar.
+pub const BLOOD_SHORT: &str = "Blood";
 /// The `+1` on the hero panel.
 pub const TALENT_WAITING_TIP: &str =
     "A talent to pick — open the character sheet to spend the point.";
@@ -2448,8 +2456,6 @@ pub const TRAY_SQUAD: &str = "Squad";
 pub const TRAY_MAP: &str = "Map";
 pub const TRAY_TRADE: &str = "Trade";
 /// The Stash panel.
-pub const STASH_ABOARD: &str = "Aboard";
-pub const STASH_EMPTY: &str = "Nothing stored aboard.";
 pub const STASH_NOTHING: &str = "Nothing on them.";
 pub const STASH_OPEN_PACK: &str = "Open pack";
 /// The Squad panel.

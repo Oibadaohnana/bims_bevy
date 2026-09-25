@@ -740,8 +740,9 @@ pub const GRENADE_RANGE: f32 = 8.0;
 pub const GRENADE_FUSE: f32 = 2.0;
 /// How far the burst reaches, in tiles.
 pub const GRENADE_RADIUS: f32 = 2.5;
-/// What the burst does at its centre; half that at the edge.
-pub const GRENADE_DAMAGE: f32 = 40.0;
+/// What the burst does at its centre; half that at the edge. Doubled
+/// from forty (feature 110).
+pub const GRENADE_DAMAGE: f32 = 80.0;
 /// *Marksman*: what the odds are multiplied by.
 pub const MARKSMAN_ACCURACY: f32 = 1.15;
 /// *Point blank*: what the damage within the sweet range is multiplied by.

@@ -2222,6 +2222,19 @@ fn frame(
                 armour: if alive { room.armour_health(w) } else { 0.0 },
                 hurt: crate::crew::is_hurt(room, w),
                 downed: alive && room.is_down(w),
+                dying: alive && room.is_dying(w),
+                parts: bims::health::Part::ALL.map(|part| hud::HeroPart {
+                    left: room.part_health(w, part),
+                    max: part.max(),
+                    bonus: if alive { room.part_bonus(w, part) } else { 0.0 },
+                    bleeding: alive && room.wounds(w, part) > 0,
+                    trauma: if alive {
+                        room.trauma(w, part).map(|t| trauma_name(t.code()))
+                    } else {
+                        None
+                    },
+                }),
+                blood: room.blood(w) / bims::health::MAX_BLOOD,
                 peril: crate::crew::peril_summary(room, w),
                 pick: panels
                     .class_view

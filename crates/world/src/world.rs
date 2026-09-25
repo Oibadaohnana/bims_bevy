@@ -3378,6 +3378,19 @@ impl World {
         self.settle_grids();
     }
 
+    /// The hold emptied, for a run that sets out with nothing aboard
+    /// (feature 110): every count of the design's cargo at nought, and
+    /// the armour, the guns and the grids settled against that — what
+    /// the ship holds is the pool and nothing else. The crew keep the gun
+    /// in hand and the charges they carry. Taken at the start, so
+    /// `start_worth` is taken again after it: the crew set out worth the
+    /// ship and the pool.
+    pub fn set_out_empty(&mut self) {
+        self.ship.design.cargo = [0; CARGO_SLOTS];
+        self.on_ship_changed();
+        self.start_worth = self.worth();
+    }
+
     /// Stage 6 of [`World::step`]: the reactors' output less the wired
     /// consumers' draw, over one step, into the batteries and clamped to
     /// what they hold. Closed form off the step length, so a browser at 24x

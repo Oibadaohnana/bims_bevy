@@ -1176,8 +1176,13 @@ Things about that which are easy to get wrong:
   (`hud::portraits`), one frame top centre with **one warning chip** —
   `hud::threats`, most urgent first by `ThreatKind`'s declaration order,
   `+N` for the rest — the hero panel at the foot (`hud::hero_panel`,
-  the ability boxes in it), the tray bottom left (`CrewPanels::tray`:
-  Stash, Squad, Map, and Trade at a desk), *Back to ship* and the log
+  the ability boxes in it, and since feature 110 the player's own
+  health big: the bar and its number, a short bar each for the head,
+  the body, the legs and the blood, and a beating red frame with
+  *CRITICAL* while `hud::Hero::critical` holds), the tray bottom left
+  (`CrewPanels::tray`: Stash — the crew's gear alone since feature
+  110, the hold and the charges left out — Squad, Map, and Trade at a
+  desk), *Back to ship* and the log
   bottom right (`hud::Log`: four lines, eight seconds each, the same
   words or one source's experience folded inside a second), the side
   panel on the right only for a **crewmate** picked
@@ -1294,8 +1299,9 @@ Things about that which are easy to get wrong:
   moved the camera's Follow onto **V**. Tab is the
   Inventory action: it opens and shuts the tray's **Stash** (feature
   107), whose *Open pack* opens the crew member's inventory window —
-  and with it the nearest thing within reach, a container or a
-  body down, the rest of them a click away on the **Nearby** strip over
+  and with it a body down within reach, if there is one (the
+  ship's own lockers no longer come up with it, feature 110), the
+  rest of them a click away on the **Nearby** strip over
   the window and on the Stash (`CrewPanels::nearby`, a `Near` list the screens rebuild
   every frame off the room's `within_reach` and the world's
   `in_reach_of_body`). `BIMS_KEYS` knows `Tab` and `Space` by name and every letter the

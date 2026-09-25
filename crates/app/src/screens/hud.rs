@@ -790,6 +790,33 @@ pub fn out_banner(ctx: &egui::Context, centre: f32, top: f32, pool: u64) -> egui
 
 // --- the hero panel -----------------------------------------------------------------
 
+/// One part of the hero's body as the panel shows it (feature 110), read
+/// the way the side panel reads it: the part's own health and its
+/// armour's on top.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct HeroPart {
+    /// What the part has left of its own, and what it has whole.
+    pub left: f32,
+    pub max: f32,
+    /// What the armour on it still has.
+    pub bonus: f32,
+    /// An open wound on it.
+    pub bleeding: bool,
+    /// The untreated trauma holding it at nothing, by name.
+    pub trauma: Option<&'static str>,
+}
+
+impl HeroPart {
+    /// What is left of the part's own health, nought to one.
+    pub fn share(&self) -> f32 {
+        if self.max <= 0.0 {
+            0.0
+        } else {
+            (self.left / self.max).clamp(0.0, 1.0)
+        }
+    }
+}
+
 /// The player's own Bim, as the panel at the foot of the canvas shows it.
 pub struct Hero {
     pub class: world::Class,
@@ -800,10 +827,39 @@ pub struct Hero {
     pub hurt: bool,
     /// Out cold or dying.
     pub downed: bool,
+    /// In a dying state: a trauma on it, the red cross over it on the
+    /// deck.
+    pub dying: bool,
+    /// The head, the body and the legs, in `Part::ALL` order.
+    pub parts: [HeroPart; 3],
+    /// The blood, nought to one.
+    pub blood: f32,
     /// The worst of the peril block, in a line, and its colour.
     pub peril: Option<(String, egui::Color32)>,
     /// A talent waiting to be picked.
     pub pick: bool,
+}
+
+/// A part at or under this share of its own health is a critical hit.
+pub const CRITICAL_PART: f32 = 0.3;
+/// And the body's points at or under this share of `MAX_HEALTH`.
+pub const CRITICAL_HEALTH: f32 = 0.3;
+
+impl Hero {
+    /// Critically hit (feature 110): dying, a part at a trauma or nearly
+    /// at one, the health low, or the blood under where the Bim slows —
+    /// what the panel's red frame and its tag say at a glance, since the
+    /// player's own Bim is the one body a player cannot afford to lose
+    /// track of.
+    pub fn critical(&self) -> bool {
+        self.dying
+            || self.points <= bims::health::MAX_HEALTH * CRITICAL_HEALTH
+            || self.blood < bims::health::SLOWED_AT
+            || self
+                .parts
+                .iter()
+                .any(|p| p.trauma.is_some() || p.share() <= CRITICAL_PART)
+    }
 }
 
 /// What the hero panel was asked, and where it stood.
@@ -817,8 +873,16 @@ pub struct HeroOut {
 
 /// The circle the level stands in.
 const LEVEL_DISC: f32 = 24.0;
-/// The bars' width.
-const HERO_BAR_W: f32 = 180.0;
+/// The bars' width: the health bar's, and the row of the parts' under
+/// it.
+const HERO_BAR_W: f32 = 240.0;
+/// The health bar's height: the tallest bar on the screen, since it is
+/// the one a player has to read without looking (feature 110).
+const HERO_BAR_H: f32 = 18.0;
+/// The gap between two of the parts' bars.
+const PART_GAP: f32 = 6.0;
+/// The number beside the health bar.
+const HERO_NUMBER: f32 = 20.0;
 
 /// The hero panel, centred at the foot of the canvas but never left of
 /// `clear` — the right edge of whatever on the left reaches down into its
@@ -846,25 +910,28 @@ pub fn hero_panel(
     let y = canvas.max.y - MARGIN - size.y;
     let mut hovered = None;
     let mut sheet = false;
+    // Critically hit, the frame is the red of the cross on the deck and
+    // beats, so it is seen out of the corner of an eye in a fight.
+    let critical = hero.critical();
+    let frame = if critical {
+        let t = ctx.input(|i| i.time) as f32;
+        let beat = 0.6 + 0.4 * (t * std::f32::consts::TAU * 1.2).sin().abs();
+        theme::panel_frame().stroke(egui::Stroke::new(2.5, theme::DYING.gamma_multiply(beat)))
+    } else {
+        theme::panel_frame()
+    };
     let area = egui::Area::new(id)
         .fixed_pos(egui::pos2(x, y))
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
-            theme::panel_frame().show(ui, |ui| {
+            frame.show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     level_disc(ui, hero);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 3.0;
-                        let total = bims::health::MAX_HEALTH + hero.armour;
-                        theme::health_bar(
-                            ui,
-                            HERO_BAR_W,
-                            hero.points / total,
-                            hero.armour / total,
-                            if hero.hurt { theme::BAD } else { theme::ACCENT },
-                            theme::ARMOUR,
-                        );
+                        health_row(ui, hero, critical);
+                        parts_row(ui, hero);
                         if hero.class != world::Class::None {
                             thin_bar(ui, HERO_BAR_W, xp_fill(hero.xp), theme::HYPER);
                         }
@@ -928,6 +995,156 @@ pub fn hero_panel(
         hovered,
         sheet,
     }
+}
+
+/// The health bar, tall, with the number beside it and the armour's
+/// after that — and the CRITICAL tag while the Bim is critically hit.
+fn health_row(ui: &mut egui::Ui, hero: &Hero, critical: bool) {
+    let ink = if critical {
+        theme::DYING
+    } else if hero.hurt {
+        theme::BAD
+    } else {
+        theme::ACCENT
+    };
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let total = bims::health::MAX_HEALTH + hero.armour;
+        theme::bar_of_height(
+            ui,
+            HERO_BAR_W,
+            HERO_BAR_H,
+            &[
+                (hero.points / total, ink),
+                (hero.armour / total, theme::ARMOUR),
+            ],
+        );
+        ui.label(
+            egui::RichText::new(format!("{}", hero.points.round()))
+                .size(HERO_NUMBER)
+                .strong()
+                .color(if critical || hero.hurt {
+                    ink
+                } else {
+                    theme::INK
+                }),
+        );
+        if hero.armour > 0.0 {
+            ui.label(
+                egui::RichText::new(format!("+{}", hero.armour.round()))
+                    .size(HERO_NUMBER * 0.7)
+                    .color(theme::ARMOUR),
+            );
+        }
+        if critical {
+            ui.label(
+                egui::RichText::new(CRITICAL_TAG)
+                    .strong()
+                    .color(theme::DYING),
+            )
+            .on_hover_text(CRITICAL_TIP);
+        }
+    });
+}
+
+/// The head, the body, the legs and the blood under the health bar, a
+/// short bar each with its name over it, the width of the health bar
+/// between them: a part in the red of the cross when a trauma holds it or
+/// it is nearly gone, in the caution colour while it bleeds. Resting on
+/// one says its numbers, and the trauma's name if one holds it.
+fn parts_row(ui: &mut egui::Ui, hero: &Hero) {
+    let cell = (HERO_BAR_W - PART_GAP * 3.0) / 4.0;
+    let height = 22.0;
+    let font = egui::FontId::proportional(11.0);
+    let (row, _) = ui.allocate_exact_size(egui::vec2(HERO_BAR_W, height), egui::Sense::hover());
+    let mut at = row.min.x;
+    let mut draw = |ui: &mut egui::Ui, name: &str, segments: &[(f32, egui::Color32)], ink, tip| {
+        let rect = egui::Rect::from_min_size(egui::pos2(at, row.min.y), egui::vec2(cell, height));
+        at += cell + PART_GAP;
+        let painter = ui.painter();
+        painter.text(
+            rect.left_top(),
+            egui::Align2::LEFT_TOP,
+            name,
+            font.clone(),
+            ink,
+        );
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(rect.min.x, rect.max.y - 6.0),
+            egui::pos2(rect.max.x, rect.max.y),
+        );
+        painter.rect_filled(bar, 2.0, theme::RAISED);
+        let mut from = bar.min.x;
+        for &(fraction, fill) in segments {
+            let to = (from + bar.width() * f32::clamp(fraction, 0.0, 1.0)).min(bar.max.x);
+            if to > from {
+                painter.rect_filled(
+                    egui::Rect::from_min_max(
+                        egui::pos2(from, bar.min.y),
+                        egui::pos2(to, bar.max.y),
+                    ),
+                    2.0,
+                    fill,
+                );
+                from = to;
+            }
+        }
+        ui.interact(
+            rect,
+            ui.id().with(("hero-part", name)),
+            egui::Sense::hover(),
+        )
+        .on_hover_text(tip);
+    };
+    for (i, part) in hero.parts.iter().enumerate() {
+        let gone = part.trauma.is_some() || part.share() <= CRITICAL_PART;
+        let (ink, fill) = if gone {
+            (theme::DYING, theme::DYING)
+        } else if part.bleeding {
+            (theme::CAUTION, theme::BAD)
+        } else {
+            (theme::MUTED, theme::ACCENT)
+        };
+        let whole = part.max + part.bonus;
+        let mut tip = if part.bonus > 0.0 {
+            format!(
+                "{} {} / {} + {}",
+                SLOT_NAMES[i],
+                part.left.round(),
+                part.max.round(),
+                part.bonus.round()
+            )
+        } else {
+            format!(
+                "{} {} / {}",
+                SLOT_NAMES[i],
+                part.left.round(),
+                part.max.round()
+            )
+        };
+        if let Some(trauma) = part.trauma {
+            tip.push_str(" · ");
+            tip.push_str(trauma);
+        }
+        draw(
+            ui,
+            SLOT_NAMES[i],
+            &[
+                (part.left / whole, fill),
+                (part.bonus / whole, theme::ARMOUR),
+            ],
+            ink,
+            tip,
+        );
+    }
+    let low = hero.blood < bims::health::SLOWED_AT;
+    draw(
+        ui,
+        BLOOD_SHORT,
+        &[(hero.blood, if low { theme::DYING } else { theme::ACCENT })],
+        if low { theme::DYING } else { theme::MUTED },
+        format!("{BLOOD_SHORT} {}%", (hero.blood * 100.0).round()),
+    );
 }
 
 /// The level in its circle: the number, or a dash without a class, ringed

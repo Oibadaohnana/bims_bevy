@@ -103,6 +103,33 @@ fn start_worth_is_worth_when_the_world_opens() {
     assert!(world.start_worth > world.money, "the ship is in it too");
 }
 
+/// A run sets out with nothing in the hold (feature 110): every count at
+/// nought, no armour or gun left in it, nothing on the lockers' grid, the
+/// crew's gun and charges kept, and the crew worth the ship and the pool.
+#[test]
+fn a_run_sets_out_with_the_hold_empty() {
+    let mut world = simulation_world(
+        shipdesign::fixture::playtest_ship(),
+        data::SIMULATION_MONEY,
+        1,
+    );
+    assert!(world.ship.design.cargo.iter().any(|&n| n > 0));
+    let gun = world.aboard.room.gear(0).weapon;
+    let medkits = world.charges_of(0, crate::class::Charge::Medkit);
+    world.set_out_empty();
+    assert!(world.ship.design.cargo.iter().all(|&n| n == 0));
+    assert!(world.pieces.iter().all(|p| p.at != Where::Hold));
+    assert!(world.guns.is_empty());
+    for class in World::GRID_CLASSES {
+        assert_eq!(world.grid(class).map_or(0, |g| g.slots.len()), 0);
+    }
+    assert_eq!(world.aboard.room.gear(0).weapon, gun);
+    assert_eq!(world.charges_of(0, crate::class::Charge::Medkit), medkits);
+    assert_eq!(world.start_worth, world.worth());
+    // And it steps as a world does.
+    world.step(&[]);
+}
+
 /// Building a part and taking one off each leave the crew **no richer and
 /// no poorer**: the price leaves the pool and the part's own price
 /// arrives on the ship, and back again.

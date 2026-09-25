@@ -258,7 +258,12 @@ impl Session {
         height: f32,
     ) -> Session {
         let design = shipdesign::fixture::playtest_ship();
-        Session::simulate_on(design, 1, seed, galaxy, spawn, width, height)
+        let mut session = Session::simulate_on(design, 1, seed, galaxy, spawn, width, height);
+        // The run's own start (feature 110): nothing in the hold.
+        if let Some(game) = &mut session.game {
+            game.world.set_out_empty();
+        }
+        session
     }
 
     /// [`Session::simulate`] on `design` with `crew` aboard, one of them the
@@ -369,6 +374,11 @@ impl Session {
             crew_classes: classes.iter().copied().take(players as usize).collect(),
             list: DrawList::new(),
         };
+        // The ship sets out with nothing in the hold (feature 110): what
+        // it has is the pool, and each crew member its gun and charges.
+        if let Some(game) = &mut session.game {
+            game.world.set_out_empty();
+        }
         session.class_crew();
         session.dress_crew();
         session

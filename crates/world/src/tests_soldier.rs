@@ -196,6 +196,19 @@ fn run_until_burst(world: &mut World) -> u32 {
 /// landed before or after is counted.
 fn machine_burst(world: &mut World) -> (f32, Vec2) {
     for _ in 1..2_000 {
+        // Whole before every step, so the burst meets a body nothing else
+        // has taken from first — a crewmate's bolt would leave the
+        // chassis short of the doubled burst (feature 110), and the burst
+        // would read as a wreck rather than as its damage.
+        let droid = world
+            .residents
+            .as_mut()
+            .unwrap()
+            .aboard
+            .room
+            .droid_mut_for_probe(0)
+            .expect("the staged machine");
+        droid.body = bims::droid::DroidBody::new(droid.kind, droid.tier);
         let health = machine_health(world);
         // Where the crew's room has it as a target, which is what the
         // burst reaches for.
@@ -887,13 +900,21 @@ fn a_burst_hurts_the_thrower_a_crewmate_and_a_sentry_and_blows_the_sandbags_up()
         "the crewmate took {theirs}, {} was dealt",
         dealt(mate)
     );
-    // The sentry, a tile off the other way, on its health.
-    let s = world.deployable(sentry).unwrap();
-    assert!(
-        (crate::deploy::SENTRY_HEALTH - s.health - dealt(middle(run[2]))).abs() < 1.0,
-        "the sentry took {}",
-        crate::deploy::SENTRY_HEALTH - s.health
-    );
+    // The sentry, a tile off the other way, on its health — or gone, where
+    // the burst there is more than a sentry has (the doubled burst,
+    // feature 110, is).
+    let at_sentry = dealt(middle(run[2]));
+    match world.deployable(sentry) {
+        Some(s) => assert!(
+            (crate::deploy::SENTRY_HEALTH - s.health - at_sentry).abs() < 1.0,
+            "the sentry took {}",
+            crate::deploy::SENTRY_HEALTH - s.health
+        ),
+        None => assert!(
+            at_sentry >= crate::deploy::SENTRY_HEALTH,
+            "the sentry went to a burst of {at_sentry}"
+        ),
+    }
     // And the blood: the crew's deck round the crewmate.
     assert!(world.aboard.room.bloody_tiles() > 0);
     assert_eq!(

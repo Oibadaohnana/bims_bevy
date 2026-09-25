@@ -1245,14 +1245,21 @@ next few seconds (feature 107); everything else is a key or a button away.
   then your standing order to the crew — with `+2` for however many more
   are up; rest on it for all of them. **Paused** beside it while the world is.
 - **Bottom centre, the hero panel** — your own Bim: the level in a circle
-  ringed by how far through it you are, the health bar, the experience
+  ringed by how far through it you are, the health bar — tall, with the
+  number beside it — and under it the head, the body, the legs and the
+  blood a short bar each, the experience
   (`Lv 4 · 50 / 250 XP`, `Max` at the tenth, *No class* without one), the
   class's keys and the medicine as boxes, a **+1** while a talent is waiting
   to be picked (it opens the character sheet), and a line saying what is
-  taking the Bim down while anything is. Down, the panel greys over and
+  taking the Bim down while anything is. **Critically hit** — dying, a
+  part at a trauma or under three tenths, the health under thirty or the
+  blood under three quarters — its frame beats red and *CRITICAL* stands
+  beside the number (feature 110). Down, the panel greys over and
   says so, with the time the blood has left.
-- **Bottom left, the tray**: **Stash** (Tab) — what the ship holds, then
-  what each of the crew carries, with *Open pack* for your own whole pack
+- **Bottom left, the tray**: **Stash** (Tab) — what each of the crew
+  carries (the ship's hold is not listed, and the medicine, kits and
+  grenades are the hero panel's boxes rather than things in a pack —
+  feature 110), with *Open pack* for your own whole pack
   and what is within reach — **Squad**, every bot with its class, level and
   health and the orders the crew take (Attack, Retreat, Follow me, and a
   commander's Fall back and Stand ground), and **Map**, the world map as
@@ -1978,7 +1985,7 @@ where the throw would be refused. The grenade flies to the tile and lies
 there with its fuse blinking, and **2 seconds** after the throw it
 bursts on everything within **2.5 tiles** of the tile that has a line to
 it — walls and shut doors stop the burst, sandbags do not: every crew
-member, hire and enemy alike, the thrower included, takes **40** at the
+member, hire and enemy alike, the thrower included, takes **80** at the
 centre falling in a straight line to half at the edge, on one part
 rolled the way a bolt's is, through that part's armour, as a strike
 rather than a cut — halved for a body in cover from the burst's side —
@@ -2370,7 +2377,7 @@ overlapping is allowed the whole apparatus has nothing left to do.
 | | |
 | --- | --- |
 | Click the armoury or a shelf, or pick the cold store on the **Nearby** strip | Its grid — the lockers, the shelves, the food — and the inventory of the Bim shown beside it; the Bim walks over |
-| `Tab` | The inventory of the Bim you steer, and with it the nearest thing within reach — a container or a body down — with the rest of them a click away on the **Nearby** strip over it |
+| `Tab` | The inventory of the Bim you steer, and with it a body down within reach if there is one, with the rest of what is within reach a click away on the **Nearby** strip over it |
 | Right-click a cell | **Take** · **Store** · **Equip** · **Discard**, or **Unequip** on a worn slot — greyed with the reason when it cannot go |
 | Ctrl-click a cell | The quick move: container to pack, pack to the open container |
 | Click or right-click a door | Menu: hold open, close, lock, unlock — the Bim walks to the panel |
