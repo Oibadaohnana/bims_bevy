@@ -22,8 +22,9 @@
 //! - The **wave count** is worked out once, the first time the crew dock
 //!   there, and never again. Wave one is aboard at that moment, stood
 //!   about the station's rooms.
-//! - The **wave size** is worked out as each wave appears, so a crew
-//!   that has grown richer between waves meets more machines.
+//! - The **wave size** is worked out as each wave appears. Nothing in a
+//!   mission moves it — the world clock stands still until the next trip
+//!   — so every wave of one fight is the same size.
 //! - When the last machine of a wave is destroyed and waves are left,
 //!   the next arrives [`data::DROID_REINFORCE_STEPS`] of the **mission
 //!   clock** later (feature 103). **Never while one is still standing.**
@@ -33,13 +34,18 @@
 //!
 //! # How many
 //!
-//! Integers only, and none of `station::scaled`'s doubling: a wave grows
-//! by *addition* with the crew, the calendar, the worth and the levels,
-//! so a crew ten times as rich meets the formula's wave and not a
-//! thousand machines. See [`wave_size`] and [`wave_count`].
+//! **World time and the number of players, and nothing else** (feature
+//! 105). Integers only, and nothing doubles: a wave grows by *addition*,
+//! one machine a player and one every [`data::ENEMIES_HOURS`] of the
+//! world clock. What the crew own, what they have learnt, and how many
+//! bots, mercenaries and recruits walk with them are none of the
+//! machines' business — growing stronger makes the fight easier, and
+//! money kept is not punished. Only travel moves the world clock, and
+//! every trip moves it by at least [`data::MIN_TRAVEL_HOURS`], so the
+//! machines grow with the run and never with a site left and entered
+//! again. See [`wave_size`] and [`wave_count`].
 
 use crate::data;
-use economy::Money;
 use worldgen::Galaxy;
 use worldgen::rng::{Purpose, Rng};
 
@@ -104,55 +110,40 @@ impl Infestation {
 
 /// How many machines a wave is:
 ///
-/// `DROID_WAVE_BASE + crew + days + worth_steps + levels / 3`, capped at
+/// `DROID_WAVE_BASE + players + time_steps`, capped at
 /// [`data::DROID_WAVE_MAX`].
 ///
-/// - `crew` is how many are aboard,
-/// - `days` is whole [`data::ENEMIES_DAYS`] the world has run,
-/// - `worth_steps` is [`worth_steps`] — halves of the starting worth the
-///   crew have grown by,
-/// - `levels` is the crew's class levels less one each, added up.
+/// - `players` is how many **player Bims** there are (`World::players`)
+///   — never the bots, the mercenaries, the recruits or anybody else who
+///   walks with them;
+/// - `time_steps` is [`time_steps`] — whole [`data::ENEMIES_HOURS`] the
+///   world clock has run.
 ///
-/// Integers throughout, and nothing here doubles: a wave grows by
-/// addition, which is what keeps a rich crew's fight a fight rather than
-/// a slideshow.
-pub fn wave_size(crew: u32, days: u32, worth_steps: u32, levels: u32) -> u32 {
+/// Integers throughout, and nothing here doubles.
+pub fn wave_size(players: u32, time_steps: u32) -> u32 {
     data::DROID_WAVE_BASE
-        .saturating_add(crew)
-        .saturating_add(days)
-        .saturating_add(worth_steps)
-        .saturating_add(levels / 3)
+        .saturating_add(players)
+        .saturating_add(time_steps)
         .min(data::DROID_WAVE_MAX)
 }
 
 /// How many waves a held station has all told, the one aboard counted:
 ///
-/// `DROID_WAVES_BASE + days + worth_steps / 2 + levels / 10`.
+/// `DROID_WAVES_BASE + time_steps / 2` — a wave more every second of
+/// [`time_steps`], so a fight grows longer at half the rate its waves
+/// grow thicker. Not the players: a crew of four meets bigger waves, not
+/// more of them.
 ///
 /// Worked out once, at the crew's first dock, and never again.
-pub fn wave_count(days: u32, worth_steps: u32, levels: u32) -> u32 {
-    data::DROID_WAVES_BASE
-        .saturating_add(days)
-        .saturating_add(worth_steps / 2)
-        .saturating_add(levels / 10)
+pub fn wave_count(time_steps: u32) -> u32 {
+    data::DROID_WAVES_BASE.saturating_add(time_steps / 2)
 }
 
-/// How many halves of its starting worth the crew have grown by:
-/// `(worth − start) / (start / 2)`, and nought when the crew are no
-/// richer than they began or the start was nothing. Whole euros in and a
-/// whole number out, so a server counts the same.
-pub fn worth_steps(worth: Money, start_worth: Money) -> u32 {
-    let step = start_worth / 2;
-    if step == 0 || worth <= start_worth {
-        return 0;
-    }
-    ((worth - start_worth) / step) as u32
-}
-
-/// Whole [`data::ENEMIES_DAYS`] the world has run: the calendar step a
-/// wave and a station's count of waves grow by.
-pub fn day_steps(days_gone: u32) -> u32 {
-    days_gone / data::ENEMIES_DAYS
+/// Whole [`data::ENEMIES_HOURS`] in `hours_gone` of the world clock
+/// (`World::hours_gone`): the time step a wave and a station's count of
+/// waves grow by.
+pub fn time_steps(hours_gone: u32) -> u32 {
+    hours_gone / data::ENEMIES_HOURS
 }
 
 // --- the crisis (feature 92) ---------------------------------------------
@@ -224,36 +215,52 @@ mod tests {
 
     #[test]
     fn a_wave_is_the_sum_and_stops_at_the_cap() {
-        // Nothing but the base and the crew to begin with.
-        assert_eq!(wave_size(0, 0, 0, 0), data::DROID_WAVE_BASE);
-        assert_eq!(wave_size(3, 0, 0, 0), data::DROID_WAVE_BASE + 3);
-        // A month, a doubling of worth, and nine levels between them.
-        assert_eq!(wave_size(1, 1, 2, 9), data::DROID_WAVE_BASE + 1 + 1 + 2 + 3);
-        // Levels count in threes, so eight of them are two.
-        assert_eq!(wave_size(0, 0, 0, 8), data::DROID_WAVE_BASE + 2);
-        // And the cap holds however rich the crew are.
-        assert_eq!(wave_size(50, 50, 50, 300), data::DROID_WAVE_MAX);
+        // Nothing but the base and the players to begin with.
+        assert_eq!(wave_size(0, 0), data::DROID_WAVE_BASE);
+        assert_eq!(wave_size(3, 0), data::DROID_WAVE_BASE + 3);
+        // A player and two steps of the clock.
+        assert_eq!(wave_size(1, 2), data::DROID_WAVE_BASE + 1 + 2);
+        // And the cap holds however long the run.
+        assert_eq!(wave_size(4, 500), data::DROID_WAVE_MAX);
     }
 
     #[test]
-    fn the_worth_steps_are_halves_and_never_a_doubling() {
-        assert_eq!(worth_steps(100, 100), 0, "no richer, no steps");
-        assert_eq!(worth_steps(50, 100), 0, "poorer, no steps");
-        assert_eq!(worth_steps(150, 100), 1);
-        assert_eq!(worth_steps(200, 100), 2);
-        // Ten times as rich is eighteen steps, not ten doublings: the
-        // wave is capped at sixteen and nothing has exploded.
-        assert_eq!(worth_steps(1000, 100), 18);
-        assert_eq!(wave_size(1, 0, 18, 0), data::DROID_WAVE_MAX);
-        assert_eq!(worth_steps(100, 0), 0, "a start of nothing has no step");
+    fn the_wave_count_grows_a_wave_every_second_step() {
+        assert_eq!(wave_count(0), data::DROID_WAVES_BASE);
+        assert_eq!(wave_count(1), data::DROID_WAVES_BASE);
+        assert_eq!(wave_count(2), data::DROID_WAVES_BASE + 1);
+        assert_eq!(wave_count(9), data::DROID_WAVES_BASE + 4);
+    }
+
+    /// Neither ever falls as the clock runs on, for any number of players
+    /// — and both have risen by the end of a run's worth of the clock.
+    #[test]
+    fn neither_falls_as_the_clock_runs_and_both_rise_over_a_run() {
+        let run_hours = 24 * 120;
+        for players in 1..=4 {
+            let (mut size, mut count) = (0, 0);
+            for hours in (0..=run_hours).step_by(7) {
+                let steps = time_steps(hours);
+                assert!(wave_size(players, steps) >= size, "{players} at {hours}h");
+                assert!(wave_count(steps) >= count, "{players} at {hours}h");
+                size = wave_size(players, steps);
+                count = wave_count(steps);
+            }
+            assert!(size > wave_size(players, 0), "{players}: the waves grew");
+            assert!(
+                count > wave_count(0),
+                "{players}: and there were more of them"
+            );
+        }
     }
 
     #[test]
-    fn the_wave_count_is_the_other_sum() {
-        assert_eq!(wave_count(0, 0, 0), data::DROID_WAVES_BASE);
-        assert_eq!(wave_count(2, 0, 0), data::DROID_WAVES_BASE + 2);
-        assert_eq!(wave_count(0, 5, 0), data::DROID_WAVES_BASE + 2, "halves");
-        assert_eq!(wave_count(0, 0, 25), data::DROID_WAVES_BASE + 2, "tenths");
+    fn a_wave_grows_with_the_players() {
+        for steps in [0, 3, 8] {
+            for players in 1..4 {
+                assert!(wave_size(players + 1, steps) > wave_size(players, steps));
+            }
+        }
     }
 
     #[test]
@@ -270,11 +277,12 @@ mod tests {
     }
 
     #[test]
-    fn the_days_step_is_a_month_of_the_calendar() {
-        assert_eq!(day_steps(0), 0);
-        assert_eq!(day_steps(data::ENEMIES_DAYS - 1), 0);
-        assert_eq!(day_steps(data::ENEMIES_DAYS), 1);
-        assert_eq!(day_steps(data::ENEMIES_DAYS * 3 + 5), 3);
+    fn the_time_step_is_every_enemies_hours() {
+        let h = data::ENEMIES_HOURS;
+        assert_eq!(time_steps(0), 0);
+        assert_eq!(time_steps(h - 1), 0);
+        assert_eq!(time_steps(h), 1);
+        assert_eq!(time_steps(h * 3 + 5), 3);
     }
 }
 

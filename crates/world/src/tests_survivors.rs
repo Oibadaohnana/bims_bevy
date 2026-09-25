@@ -54,7 +54,16 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// switched off in `guardians_of` and everything else of the feature in
 /// — the shield, the turn, the beam — that number came back, so nothing
 /// else moved.
-const SURVIVORS: u64 = 0x_a382_6e88_a4a0_8f4c;
+///
+/// **And once more, on purpose**: the least a trip may be (feature 105,
+/// `data::MIN_TRAVEL_HOURS`). A trip under a day is a day now, and the
+/// run has one — the world clock is in the hash, and the crisis and the
+/// wages are read off it. Was `0x_a382_6e88_a4a0_8f4c`; with the least
+/// set to nought and everything else of the feature in — the waves
+/// scaled on the players and the clock alone, the site the crew are at
+/// refused — that number came back: both worlds force the wave to six,
+/// and the count is two at day nought under the old rule and the new.
+const SURVIVORS: u64 = 0x_062f_ddde_23e9_2bfb;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew.

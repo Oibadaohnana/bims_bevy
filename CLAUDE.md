@@ -21,7 +21,7 @@ the build's own answer where this table is a copy:
 | `nix run .#test_planet` | `cargo run -- test_planet` | `test` **set down on a planet**: the same random galaxy and roll, made among the systems whose first planet with ground has friendly people (`world::spawn_with_ground`, `ship::session::pick_ground`), and the ship landed at its settlement (`Session::land_for_probe`) — the mercenary asked for first, so the settlement's room has one too |
 | `nix run .#tier2_test` | `cargo run -- tier2_test` | `droids` with **everybody's kit at tier two** — every crew member's gun at it (its kind as the fight dealt it) and a fresh helm, kevlar and leg guards at it on, pieces of the world's — and the machines at tier two (`Session::droids_at_tier`, `World::outfit_for_probe`), so the fight is looked at with nothing at tier one on either side. It was the human garrison's fight until every enemy was a machine (feature 102) |
 | `nix run .#tier3_test` | `cargo run -- tier3_test` | the same at **tier three** |
-| `nix run .#droids` | `cargo run -- droids` | **the fight** — the **machines** (feature 83): the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the five kinds dealt round — the **last four of them hired field medics** (`session::COMBAT_MEDICS`, feature 86), docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across) that the **droids hold**. `Session::combat` builds the ship, the crew and the arena and `Session::droids` hands the arena to the machines; the `combat` command that stopped at the first half — the arena's own people turned against the crew — is gone with every other human enemy (feature 102), and so are its `combat_<class>` runs and `--combat`; `BIMS_FIGHT`, which staged a fight with a station's *people* on the simulation, went with the human enemies themselves (feature 104). Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, sized by `droid::wave_size` (the base, the crew, the calendar, the worth and the levels, added — never doubled — and capped at `DROID_WAVE_MAX`). `DROID_REINFORCE_STEPS` is **a minute of the mission clock** here — a real second at 1× — rather than two real minutes, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the mission clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`) |
+| `nix run .#droids` | `cargo run -- droids` | **the fight** — the **machines** (feature 83): the **combat ship** (`shipdesign::fixture::combat_ship`, the playtest ship with bunks and chairs for five) with **sixteen crew** (`COMBAT_CREW`: five at the bunks, eleven standing on the deck), a gun in every hand — the five kinds dealt round — the **last four of them hired field medics** (`session::COMBAT_MEDICS`, feature 86), docked at the spawn rebuilt as the **arena** (`world::station::arena`, 72 tiles across) that the **droids hold**. `Session::combat` builds the ship, the crew and the arena and `Session::droids` hands the arena to the machines; the `combat` command that stopped at the first half — the arena's own people turned against the crew — is gone with every other human enemy (feature 102), and so are its `combat_<class>` runs and `--combat`; `BIMS_FIGHT`, which staged a fight with a station's *people* on the simulation, went with the human enemies themselves (feature 104). Its people are gone (`World::people_of` is nought for a held station) and a wave of machines stands about it instead: Wardens a sixth, Husks a third, Troopers the rest, **sixteen a wave** (`session::COMBAT_WAVE`, the cap) — the game's own `droid::wave_size` is the base, the *players* and the world clock and nothing else (feature 105), which for one player at day nought is three, and sixteen crew against three is not the fight this command is for. `DROID_REINFORCE_STEPS` is **a minute of the mission clock** here — a real second at 1× — rather than two real minutes, so the next wave is watched landing at the far airlock rather than waited for, and the station has **three waves** rather than the formula's two at day nought (`DROID_WAVES_IN_PROBE`), since one wave landing and then a cleared station is not what these commands are for — the red line along the top says which wave is on the deck, how many of it are standing, and, the moment the last of them is down, **how long until the next lands**. `BIMS_DROID_TIER=2` brings them at a tier, `BIMS_DROID_WAVES=5` gives the station that many waves, `BIMS_DROID_REINFORCE=600` makes the wait between them that many minutes of the mission clock — a minute is a real second at 1× and two and a half *frames* at 24×, so the countdown cannot be caught by a scripted run without lengthening it — and `BIMS_DROID_WAVE=32` makes a wave that many whatever the formula says, which is how the measurements below were taken; `BIMS_DROIDS=1` replaces the wave with a **showcase** — a row a kind and a column a state: idle, firing or striking, arms at nothing, legs at nothing, destroyed — so all fifteen drawings are one screenshot (`World::stage_droids_for_probe`) |
 | `nix run .#combat_droids_engineer` … `#combat_droids_commander` | `cargo run -- combat_droids_medic` | that **same fight with the class in hand** (features 79 and 83, `Launch::DroidsAs`): one command a class — `Class::ALL` bar `None`, spelled as `names::CLASS_NAMES` spells it, lower case — and nothing else about the run differs: the same combat ship, the same sixteen crew, the same droid-held arena and the same two dials, with `World::set_class(0, …)` on top (`dev::class_crew`, which takes the command's class and lets `BIMS_CLASS` override it). It opens at the **tenth level** (`dev::COMBAT_CLASS_LEVEL`, feature 80) with all seven of the class's talents still to choose, so the tray opens on the **Skills** tab (feature 83) with seven points to spend; `BIMS_LEVEL=n` says otherwise. The **engineer of such a run has the charges its class deals it** (`world::deploy::SENTRY_CHARGES`, one, beside `SANDBAG_CHARGES`, three). The `combat_<class>` runs beside these were the human garrison's fight, and went with it (feature 102). The parsing is `main.rs::class_named`, and `bims list` prints the lot |
 | `nix run .#droids_planet` | `cargo run -- droids_planet` | `test_planet` with the **town** droid-held: the same random galaxy and roll, the ship set down at the settlement, and the settlement's people replaced by the machines, whose lander sets down on the plain beyond the north gate for an odd wave and the south for an even one. The same minute's reinforcements and the same two dials |
 | `nix run .#crisis` | `cargo run -- crisis` | the **crisis** a day before it first spreads (feature 92): `test`'s own random galaxy and random dock and the machines' origin forced **two hyperlane hops** from the crew's own star (`Session::crisis_for_probe`, `session::CRISIS_HOPS`) where the roll's own floor is eight. The origin is theirs from day nought, as in every run since feature 102, and the clock is wound to the eve of the day the ring round it turns (`DROID_SPREAD_DAYS`, five) — so the next stars turn red on the galaxy chart within a day of the clock — a day the crew have to travel, since only travel moves the world clock (feature 103) — and the crew's own system five days after that. The chart is where it is looked at: the lanes are drawn faintly under the stars, an infested star is crossed in the enemy's red **charted or not**, and the panel says under the star you pick which day it is due (`screens/game.rs::crisis_line`). `BIMS_CRISIS_DAY=n` moves the day the origin turns, and the clock opens a day short of the next ring whatever it says, so the dial is about what the *rest* of the galaxy's days come out at rather than about how long to wait |
@@ -299,8 +299,8 @@ the enemy. It went in feature 102.) The measurement, taken in a
 The step is `cargo test --release -p world -- --ignored --nocapture
 droid_waves_cost` (`tests_droid::droid_waves_cost_this_much_a_step`),
 which forces the size with `World::set_droid_wave_for_probe` — raising
-the cap alone never makes a wave bigger than the formula does, which at
-fourteen crew is sixteen. A world step is a sixtieth of a frame's budget
+the cap alone never makes a wave bigger than the formula does, which
+counts the players and the world clock and nothing else (feature 105). A world step is a sixtieth of a frame's budget
 at 1× and the whole of it at 48×, so even sixty-four machines are well
 inside it: the cost is **linear in the wave**, which is what the
 staggered planning buys (`World::build_wave` spreads each machine's
@@ -750,9 +750,42 @@ spawn's system from the spawn and every site of every system a lane away:
 So a trip is two or three days as a rule — the crisis crosses a hop every
 `DROID_SPREAD_DAYS` (five) — and a jump is usually no longer than a trip
 across the system, since a jump lands the ship well inside its target
-system and the charge is twenty minutes. Nothing stops a crew going to the
-site it is at (a trip of nought minutes); step four of the redesign puts a
-floor under a trip.
+system and the charge is twenty minutes. Since feature 105 (below) every
+trip is at least `MIN_TRAVEL_HOURS` (a day) and the site the crew are at
+is refused, so the table's shortest trips are a day now.
+
+## Time is what the machines scale on (feature 105)
+
+The fourth step of the redesign. **`droid::wave_size(players,
+time_steps)` and `droid::wave_count(time_steps)` read the world clock and
+the number of player Bims and nothing else**: a wave is
+`DROID_WAVE_BASE` (2) + the players + a step every `ENEMIES_HOURS`
+(three weeks) of the world clock, capped at `DROID_WAVE_MAX`; a
+station's count is `DROID_WAVES_BASE` (2) + a wave every second step.
+Bots, mercenaries, recruits, the crew's worth and their levels never
+enlarge a wave — getting stronger makes the fight easier and money kept
+is not punished. `World::worth` and `start_worth` stay, for
+`mercenary::how_many` alone; `worth_steps`, `day_steps`, `crew_levels`
+and `ENEMIES_DAYS` went. `ENEMIES_HOURS` was set off
+`tests_mission::travel_days_over_ten_galaxies`, which prints the run to
+the origin now as well — its doc comment in `data.rs` carries the
+reasoning.
+
+With time the only lever, **a trip always moves the clock**: the site
+the crew are at is refused (`Refusal::AlreadyHere`, 92; the map lists it
+as *here*), and every trip is at least `data::MIN_TRAVEL_HOURS` (24) —
+`TravelQuote::minimum` says when that is what it is, and the map writes
+*the minimum* beside it. A site left uncleared is put back as the crew
+met it, so without those two a crew could step out and back in and meet
+the same fight at the same strength as often as it liked.
+
+The `droids` commands force their waves to `session::COMBAT_WAVE`
+(sixteen, what the old formula gave their sixteen crew), so the fight
+they are for did not shrink to three. **`SURVIVORS` moved on purpose**
+(the constant's note: the minimum trip, and nothing else — both its
+worlds force the wave size); `REFERENCE_CHECKSUM` did not.
+`tests_droid.rs` and `droid::tests` pin the inputs, `tests_mission.rs`
+the two travel rules.
 
 **Not done, because it is not there**: the spec's Commander
 "call-in-reinforcements" (to become once a mission) and its "temporary

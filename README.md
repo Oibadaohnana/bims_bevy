@@ -129,7 +129,18 @@ there is no helm to stand at and no trip to sit through.
   threatened, and the waves are sized for the day. The crew arrive
   docked, or landed at a settlement, and a mission begins. **The world
   clock stands still during a mission and on the map**: the day on the
-  screen only changes when you travel.
+  screen only changes when you travel. **Every trip is at least a
+  day**, however close its two ends — the map says *the minimum* beside
+  one that would have been shorter — and **the place the crew are at is
+  never a destination**: to fight a place again the crew go somewhere
+  else first, and a day or more has gone by when they come back.
+- **The machines grow with time, and with nothing else you do.** A
+  wave is two machines, one more for every **player** — never a bot, a
+  mercenary or a townsperson who joined — and one more every **three weeks
+  of the world clock**, up to sixteen; a place holds two waves, and one
+  more every six weeks. What the crew own, what they carry and how far
+  they have levelled make no difference to the machines: getting
+  stronger makes the fight easier, and keeping money costs nothing.
 - **A mission** begins on arrival anywhere, peaceful or not — a visit to
   a trader is a mission without a fight. Everybody's health is made
   whole, every class charge and cooldown is ready, and dead players are
@@ -1218,8 +1229,9 @@ so what a crew carry, wear and shoot with was bought at somebody's desk.
 are two ideas of what a unit is worth, and they are kept apart on
 purpose. The **book value** (`economy::trade_price`) is what a thing *is
 worth* — the same everywhere, and used only to value what the crew own:
-what they set out with, what they are worth now, what the machines' waves
-are sized against. Nothing is ever bought or sold at it. What a station's
+what they set out with, what they are worth now, how many hands a
+station has for hire. Nothing is ever bought or sold at it, and the
+machines never look at it. What a station's
 desk actually charges is its **market price** (`economy::market`): a
 **quote** of two numbers, the **ask** — what one costs bought here, the
 *Costs* column — and the **bid** — what the desk pays for one, the
@@ -1630,7 +1642,8 @@ one thing in the arms at a time, from the lockers to the bench and back.
   as well; shoot its legs off and it fights where it stands.
   A **droid-held station** has no people at all, and its machines come in
   **waves**: how many waves is fixed the first time the crew dock there,
-  how big each is worked out as it lands, and the next never arrives
+  how big each is worked out as it lands — off the world clock and the
+  number of players, and nothing else — and the next never arrives
   while one of the last is still standing — two hours of the mission clock
   after the last one falls, a reinforcement ship tying up at the far airlock or
   a lander coming down on the plain beyond a town's gate.

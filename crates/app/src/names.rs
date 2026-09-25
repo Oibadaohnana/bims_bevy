@@ -467,6 +467,7 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotAsked => "nobody is being asked about leaving",
         Refusal::PlayerOut => "your Bim is dead — it is bought back at the next mission",
         Refusal::CannotTravel => "the ship cannot get there — nothing pushes it",
+        Refusal::AlreadyHere => "the crew are here — the next trip goes somewhere else",
     }
 }
 
@@ -2061,13 +2062,18 @@ pub fn map_next_system(star: &str) -> String {
 }
 /// The site the crew are at, in the list.
 pub const MAP_HERE: &str = "here";
-/// A trip's length and the day it ends on.
-pub fn trip_quote(minutes: u64, arrival_day: u32) -> String {
-    format!(
-        "{} · day {}",
-        crate::format::trip_length(minutes),
-        arrival_day
-    )
+/// Beside a trip that is the least a trip may be (`world::data::MIN_TRAVEL_HOURS`,
+/// feature 105) rather than its flown length.
+pub const TRIP_MINIMUM: &str = "the minimum";
+/// A trip's length and the day it ends on — and, where the trip is the
+/// least a trip may be, that it is.
+pub fn trip_quote(minutes: u64, minimum: bool, arrival_day: u32) -> String {
+    let length = crate::format::trip_length(minutes);
+    if minimum {
+        format!("{length} ({TRIP_MINIMUM}) · day {arrival_day}")
+    } else {
+        format!("{length} · day {arrival_day}")
+    }
 }
 /// What the crew find on arrival, a word each.
 pub const ARRIVE_MACHINES: &str = "machines";
@@ -2311,8 +2317,12 @@ pub fn hops_words(jump: bool) -> String {
         "this system".into()
     }
 }
-pub fn days_words(days: f64) -> String {
-    format!("{days:.1} days")
+pub fn days_words(days: f64, minimum: bool) -> String {
+    if minimum {
+        format!("{days:.1} days ({TRIP_MINIMUM})")
+    } else {
+        format!("{days:.1} days")
+    }
 }
 pub fn proposed_by(who: &str) -> String {
     format!("Proposed by {who}")

@@ -93,6 +93,13 @@ pub const CRISIS_HOPS: u16 = 2;
 /// people going down on both flanks has somebody free for each.
 pub const COMBAT_MEDICS: usize = 4;
 
+/// How many machines every wave of the `droids` commands is when
+/// `BIMS_DROID_WAVE` says nothing ([`Session::droids`]): the cap,
+/// [`world::data::DROID_WAVE_MAX`] — what the old formula gave the
+/// sixteen crew aboard before the waves stopped counting bots (feature
+/// 105), so the fight is the one it always was.
+pub const COMBAT_WAVE: u32 = world::data::DROID_WAVE_MAX;
+
 /// A planet with a town the ship can set down at, as the map writes it:
 /// which body, whose the town is, and where the icon is drawn.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -471,6 +478,12 @@ impl Session {
     /// arriving rather than waited two hours for. A held station is
     /// hostile of itself (`World::stance`), so nothing has to turn the
     /// dock against the crew first.
+    ///
+    /// Every wave is `wave_max` machines, or [`COMBAT_WAVE`] when that is
+    /// `None`: the waves scale on the players and the world clock alone
+    /// (feature 105), and a crew of sixteen with one player at day nought
+    /// would meet three machines — which is not the fight this command is
+    /// for.
     pub fn droids(
         seed: u64,
         tier: Option<bims::combat::Tier>,
@@ -481,8 +494,9 @@ impl Session {
         height: f32,
     ) -> Session {
         let mut session = Session::combat(seed, width, height);
-        if let (Some(n), Some(game)) = (wave_max, session.game.as_mut()) {
-            game.world.set_droid_wave_for_probe(n);
+        if let Some(game) = session.game.as_mut() {
+            game.world
+                .set_droid_wave_for_probe(wave_max.unwrap_or(COMBAT_WAVE));
         }
         session.infest_the_dock_for_probe(tier, reinforce, waves);
         session

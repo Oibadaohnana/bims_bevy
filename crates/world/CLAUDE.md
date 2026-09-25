@@ -448,12 +448,13 @@ hostile station opened with a **garrison** instead — `station::enemies_of`,
 a base by the calendar plus one a crewmate, doubled with the crew's
 worth and capped at sixteen, with the `combat` arena's `reinforcements`
 on top — and the whole formula went with the human enemies.
-`data::ENEMIES_DAYS` (thirty) and `World::days_gone` stay: the machines'
-wave counts a step every thirty days the world has run
-(`droid::day_steps`, "The machines hold a station" below), and
-`days_gone` is `clock_minutes` floored to whole days rather than the
-crew's calendar `World::day()`, so two clients that have travelled the
-same trips count the same day.
+`World::days_gone` stays — the crisis spreads by it — and is
+`clock_minutes` floored to whole days rather than the crew's calendar
+`World::day()`, so two clients that have travelled the same trips count
+the same day; `World::hours_gone` is the same in hours, and the
+machines' waves grow a step every `data::ENEMIES_HOURS` of it
+(`droid::time_steps`, feature 105 — it was `ENEMIES_DAYS`, thirty, and
+`day_steps` until then; "The machines hold a station" below).
 **A station's room is cut to its bunks, and the cut is
 `Residents::open`'s** (since September 2026): people and mercenaries
 past the station's bunks — an orbital has four — are not opened, the
@@ -1203,11 +1204,10 @@ into a pack must be worth the same in both, or a restock would make the
 crew poorer and `start_worth != worth()` on the first step. **`start_worth`
 is `worth()` taken at `World::start`**, the starting pool included, so
 unspent money is never counted as growth — which it was before the pool
-went into the sum. Both are what `mercenary::how_many` and the droid
-waves are scaled against — and the human garrison (`station::enemies_of`)
-and the raiders' boarders were, until feature 104 — so every one of
-those got quieter about a crew that is merely carrying its own money
-about.
+went into the sum. Both are what `mercenary::how_many` is scaled
+against — and the droid waves were until feature 105, and the human
+garrison (`station::enemies_of`) and the raiders' boarders until feature
+104. The machines read the world clock and the players alone now.
 
 **The Republic pays a bounty** for an enemy taken down:
 `data::REPUBLIC_BOUNTY` by the enemy's tier — 500, 1 500, 4 500 —
@@ -3346,8 +3346,9 @@ size of the fight.
 
 - **The wave count is fixed at the crew's first dock and never worked
   out again** (`Infestation::settle`, called from `droid_waves` the first
-  step the rooms are joined): `DROID_WAVES_BASE` + the calendar + half
-  the worth steps + a tenth of the levels, or whatever
+  step the rooms are joined): `DROID_WAVES_BASE` + a wave every second
+  `ENEMIES_HOURS` of the world clock (`droid::wave_count`, feature
+  105 — it read the worth and the levels before), or whatever
   `World::set_droid_waves_for_probe` says — the `droids` commands set
   **three** (`screens::game::DROID_WAVES_IN_PROBE`, `BIMS_DROID_WAVES=n`
   over it), since the formula's two at day nought is one wave landing and
@@ -3357,12 +3358,15 @@ size of the fight.
   `Infestation::waves_left` — is both. Wave one is aboard then,
   stood about the station's rooms (`droid::spots_about`, free deck tiles
   spread across the design).
-- **The wave size is worked out as each wave appears**, so a crew that
-  has grown richer between waves meets more: `DROID_WAVE_BASE` + the
-  crew + the calendar + the worth steps + a third of the levels, capped
-  at `DROID_WAVE_MAX`. **Integers only, and nothing doubles** — a crew
-  ten times as rich meets eighteen *steps* added, not ten doublings,
-  which `station::scaled` would have made it. That is deliberate:
+- **The wave size is worked out as each wave appears**:
+  `DROID_WAVE_BASE` + the **player** Bims (`World::players`) + a step
+  every `ENEMIES_HOURS` of the world clock, capped at `DROID_WAVE_MAX`
+  (`droid::wave_size`). **Nothing the crew own, learn or hire is read**
+  (feature 105): not the bots, the mercenaries or the townsfolk who
+  joined, not the worth and not the levels — it was all of those until
+  then, and growing stronger made the machines stronger. Nothing in a
+  mission moves the world clock, so every wave of one fight is the same
+  size. **Integers only, and nothing doubles.** That is deliberate:
   `DROID_WAVE_MAX` is a **performance limit**, not a balance one, and a
   formula that could reach it in one jump would make the cap the only
   number that mattered.
@@ -3705,8 +3709,8 @@ and a bandage are two more `class::Charge`s** — `Medkit = 3`,
   and the playtest ship's cargo were left alone, since taking a
   resource off a shelf moves every galaxy checksum.
 - **A charge is not worth**: `World::worth` leaves every charge in a
-  pack out, so spending a bandage does not shrink the enemies scaled on
-  it.
+  pack out, so spending a bandage does not thin the hands for hire
+  scaled on it (the enemies were, until feature 105).
 - **`medicine_off_for_probe`** (a serde-skipped flag, never hashed) is a
   test's: no medicine dealt or come back, so `without_dressings` empties
   the packs of both and they stay empty.
@@ -4232,7 +4236,12 @@ one generated galaxy) is `physics::travel_days(distance, a_forward,
 max(a_forward, a_backward))` of the leg — from `current_site()`'s place,
 or `jump::landing_point` for another system — plus
 `time::days(JUMP_CHARGE_MINUTES)` for a jump, rounded **up** to whole
-minutes for the clock; one lane at most (`TooFar`), `jammed_step` still
+minutes for the clock and **never under `data::MIN_TRAVEL_HOURS`** (a
+day; `TravelQuote::minimum` says when the floor is what it is — feature
+105, since the machines scale on the world clock alone and a trip that
+left it where it was would be a fresh fight at the same strength); the
+site the crew are at is `Refusal::AlreadyHere` (92), first of all; one
+lane at most (`TooFar`), `jammed_step` still
 `Jammed`, and the state on arrival read off the arrival day: infested, the
 tier (the distance rule unless the probe's override), the jammer (lowest
 orbital, else derived), a threatened town (the front worked out at that
@@ -4355,7 +4364,8 @@ reads a deleted file again. What the world lost:
   `human_foes_enabled`, `rolled_hostile`, `set_hostile`,
   `reinforcements`, the garrison formula (`station::enemies_of`,
   `base_by_day`, `scaled`, `ENEMIES_BASE`, `ENEMIES_MAX`,
-  `ARENA_GARRISON`; `ENEMIES_DAYS` stays for the waves), `BOARDERS_MAX`
+  `ARENA_GARRISON`; `ENEMIES_DAYS` stayed for the waves, until feature
+  105 made it `ENEMIES_HOURS`), `BOARDERS_MAX`
   and every raid and plunder constant, `Plan::Raider`,
   `Command::{Execute, Plunder}`, the loot of a resident,
   `stage_fight_for_probe` and `outfit_for_probe`'s residents half; events

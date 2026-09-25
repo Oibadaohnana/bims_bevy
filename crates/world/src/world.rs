@@ -833,9 +833,9 @@ pub struct World {
     pub next_piece: u32,
     /// What the ship and its hold were worth when the world opened —
     /// [`World::worth`] at step nought — fixed for the whole game. Every
-    /// half of it the crew's worth has grown by since is one more
-    /// machine a wave (`crate::droid::worth_steps`) and more hands for
-    /// hire (`crate::mercenary::how_many`). Not in `world_checksum`: it
+    /// half of it the crew's worth has grown by since is more hands for
+    /// hire (`crate::mercenary::how_many`); the machines never read it
+    /// (feature 105, `crate::droid::wave_size`). Not in `world_checksum`: it
     /// is a function of the design the world started on, which two
     /// clients share.
     pub start_worth: Money,
@@ -1943,7 +1943,7 @@ impl World {
     /// - and the **money in hand**.
     ///
     /// The money used to be left out, so a crew that sold its hold got
-    /// poorer in the enemies' eyes by doing it. Now nothing a crew own
+    /// poorer by doing it. Now nothing a crew own
     /// changes what they are worth by moving from one pocket to another:
     /// a purchase, a sale, a fetch out of the hold and a piece put on are
     /// all worth the spread and nothing else.
@@ -2007,8 +2007,9 @@ impl World {
                     }
                     // A charge in a pack is not property: it came back by
                     // itself and will again, so a crew that has spent its
-                    // bandages is no poorer and the enemies scaled on
-                    // the worth do not shrink with every wound bound.
+                    // bandages is no poorer and the hands for hire
+                    // scaled on the worth do not thin with every wound
+                    // bound.
                     Some(Item::Stack(code)) => {
                         if let Some(&id) = ResourceId::ALL.get(code as usize)
                             && Charge::of_resource(id).is_none()
@@ -2032,12 +2033,20 @@ impl World {
     /// How many whole days the game has run: `clock_minutes` — elapsed
     /// time since the world opened, not the crew's calendar
     /// ([`World::day`]) — over a day, floored, and read in whole minutes
-    /// first, so a server catching up counts the same day. The machines
-    /// grow by one every [`data::ENEMIES_DAYS`] of it
-    /// (`crate::droid::day_steps`).
+    /// first, so a server catching up counts the same day. The crisis
+    /// spreads by it.
     pub fn days_gone(&self) -> u32 {
         let minutes = self.clock_minutes.floor() as u64;
         (minutes / (time::DAY as u64)) as u32
+    }
+
+    /// How many whole hours the game has run, the same way as
+    /// [`World::days_gone`]: the world clock, floored, read in whole
+    /// minutes. The machines grow by one every [`data::ENEMIES_HOURS`] of
+    /// it (`crate::droid::time_steps`, feature 105).
+    pub fn hours_gone(&self) -> u32 {
+        let minutes = self.clock_minutes.floor() as u64;
+        (minutes / (time::HOUR as u64)).min(u32::MAX as u64) as u32
     }
 
     /// How many people a station's room is opened with: the people who
@@ -7073,9 +7082,9 @@ impl World {
     }
 
     /// How many machines the next wave is, worked out now: the base, the
-    /// crew, the calendar, the worth and the levels
-    /// ([`droidplan::wave_size`]). Asked as each wave appears, never
-    /// stored.
+    /// players and the world clock ([`droidplan::wave_size`]) — never
+    /// the bots, the worth or the levels (feature 105). Asked as each wave
+    /// appears, never stored.
     pub fn droid_wave_size(&self) -> u32 {
         // The probes' dial says the size outright, since raising the cap
         // A wave forced to its machines is as many as it names.
@@ -7087,14 +7096,9 @@ impl World {
         if let Some(forced) = self.droid_wave_forced {
             return forced.max(1);
         }
-        droidplan::wave_size(
-            self.aboard.crew_count(),
-            droidplan::day_steps(self.days_gone()),
-            droidplan::worth_steps(self.worth(), self.start_worth),
-            self.crew_levels(),
-        )
-        .min(self.droid_wave_max)
-        .max(1)
+        droidplan::wave_size(self.players(), droidplan::time_steps(self.hours_gone()))
+            .min(self.droid_wave_max)
+            .max(1)
     }
 
     /// The probes' other dial (`BIMS_DROID_WAVE`): every wave from now
@@ -7127,11 +7131,7 @@ impl World {
         if let Some(forced) = self.droid_waves_forced {
             return forced.max(1);
         }
-        droidplan::wave_count(
-            droidplan::day_steps(self.days_gone()),
-            droidplan::worth_steps(self.worth(), self.start_worth),
-            self.crew_levels(),
-        )
+        droidplan::wave_count(droidplan::time_steps(self.hours_gone()))
     }
 
     /// The probes' dial: a held station has this many waves all told,
@@ -7162,15 +7162,6 @@ impl World {
         let now = self.run.mission_steps;
         it.next_wave
             .map(|due| due.saturating_sub(now) as f64 * data::STEP_MINUTES)
-    }
-
-    /// The crew's class levels less one each, added up: nought for a
-    /// crew with no classes, which is what a fresh game is.
-    fn crew_levels(&self) -> u32 {
-        self.progress
-            .iter()
-            .map(|p| u32::from(p.level()).saturating_sub(1))
-            .sum()
     }
 
     /// Where the machines' ship stands at a held station, for the

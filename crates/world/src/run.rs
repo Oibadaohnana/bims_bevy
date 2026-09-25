@@ -281,11 +281,16 @@ pub struct TravelQuote {
     pub jump: bool,
     /// How long it takes, in days: [`crate::data::JUMP_CHARGE_MINUTES`]
     /// for a jump, and `physics::travel_days` of the leg in the system —
-    /// from the site the crew are at, or from where a jump lands them.
+    /// from the site the crew are at, or from where a jump lands them —
+    /// or [`crate::data::MIN_TRAVEL_HOURS`] where that is less.
     pub days: f64,
     /// The same in whole minutes, rounded up: what the world clock is put
     /// on by.
     pub minutes: u64,
+    /// Whether the trip is the least a trip may be
+    /// ([`crate::data::MIN_TRAVEL_HOURS`], feature 105) rather than its
+    /// flown length, which was shorter: what the map says beside it.
+    pub minimum: bool,
     /// The day the crew arrive on, by `World::days_gone` — the day the
     /// crisis is read at.
     pub arrival_day: u32,

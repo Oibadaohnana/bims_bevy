@@ -157,8 +157,11 @@ impl World {
     /// and what they find — or why there is no such trip: a place that
     /// is not there ([`Refusal::NoSuchPlace`]), a star more than a lane
     /// away ([`Refusal::TooFar`]), a jump inward out of a jammed system
-    /// ([`Refusal::Jammed`]), or a ship that cannot move at all
-    /// ([`Refusal::CannotTravel`]).
+    /// ([`Refusal::Jammed`]), a ship that cannot move at all
+    /// ([`Refusal::CannotTravel`]), or **the site the crew are at**
+    /// ([`Refusal::AlreadyHere`], feature 105): a site left uncleared is
+    /// put back as the crew met it, so going back into it without the
+    /// clock moving would be the same fight again at the same strength.
     ///
     /// **The length** is the hyperdrive's charge, for a jump, and
     /// `physics::travel_days` of the leg in the system at the ship's own
@@ -167,7 +170,10 @@ impl World {
     /// forward engines push, and whichever way pushes harder brakes: a
     /// ship with nothing aft turns over and brakes on the same engines.
     /// Rounded **up** to whole minutes for the clock, so the day it puts
-    /// the world on to is a whole number of minutes on every machine.
+    /// the world on to is a whole number of minutes on every machine —
+    /// and never under [`data::MIN_TRAVEL_HOURS`], however close the two
+    /// ends (feature 105; [`TravelQuote::minimum`] says when that is what
+    /// the trip is).
     pub fn travel_quote(&self, site: Site) -> Result<TravelQuote, Refusal> {
         if site.star == self.star_id {
             return self.quote_in(None, site);
@@ -178,6 +184,9 @@ impl World {
     /// [`World::travel_quote`] off a galaxy already generated. A trip in
     /// this system reads nothing of it.
     fn quote_in(&self, galaxy: Option<&Galaxy>, site: Site) -> Result<TravelQuote, Refusal> {
+        if self.current_site() == Some(site) {
+            return Err(Refusal::AlreadyHere);
+        }
         let jump = site.star != self.star_id;
         let elsewhere;
         let system = if jump {
@@ -222,8 +231,21 @@ impl World {
         } else {
             0.0
         };
-        let days = leg + charge;
-        let minutes = (days * time::DAY).ceil().max(0.0) as u64;
+        // The least a trip is (feature 105): the machines scale on the
+        // world clock, so no trip may leave it where it was.
+        let least = u64::from(data::MIN_TRAVEL_HOURS) * time::HOUR as u64;
+        let flown = (leg + charge) * time::DAY;
+        let minimum = flown.ceil() < least as f64;
+        let minutes = if minimum {
+            least
+        } else {
+            flown.ceil().max(0.0) as u64
+        };
+        let days = if minimum {
+            least as f64 / time::DAY
+        } else {
+            leg + charge
+        };
         let arrival = self.clock_minutes.floor() as u64 + minutes;
         let arrival_day = (arrival / (time::DAY as u64)) as u32;
         let turns = self.infested_on(site.star);
@@ -284,6 +306,7 @@ impl World {
             jump,
             days,
             minutes,
+            minimum,
             arrival_day,
             arrival_date: bims::clock::day_at(self.clock_minutes + minutes as f64),
             infested,

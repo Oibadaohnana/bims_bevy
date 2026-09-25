@@ -151,11 +151,23 @@ fn a_trip_costs_the_charge_and_the_leg_and_the_same_everywhere() {
     let here = world.current_site().expect("docked at the spawn");
     let site = another_site_here(&world);
     let quote = world.travel_quote(site).unwrap();
+    // Never under the least a trip may be (feature 105).
+    let least = u64::from(data::MIN_TRAVEL_HOURS) * 60;
+    let floored = |days: f64| {
+        let minutes = (days * time::DAY).ceil() as u64;
+        if minutes < least {
+            (least as f64 / time::DAY, least, true)
+        } else {
+            (days, minutes, false)
+        }
+    };
     let leg =
         physics::travel_days(at(&world, here).distance(at(&world, site)), push, brake).unwrap();
     assert!(!quote.jump);
-    assert_eq!(quote.days, leg, "the leg and nothing else");
-    assert_eq!(quote.minutes, (leg * time::DAY).ceil() as u64);
+    let (days, minutes, minimum) = floored(leg);
+    assert_eq!(quote.days, days, "the leg and nothing else");
+    assert_eq!(quote.minutes, minutes);
+    assert_eq!(quote.minimum, minimum);
     assert_eq!(other.travel_quote(site), Ok(quote), "and the same twice");
     // One hop away.
     let far = a_site_one_hop_off(&world);
@@ -170,7 +182,10 @@ fn a_trip_costs_the_charge_and_the_leg_and_the_same_everywhere() {
     let leg = physics::travel_days(from.distance(to), push, brake).unwrap();
     let charge = time::days(data::JUMP_CHARGE_MINUTES);
     assert!(quote.jump);
-    assert_eq!(quote.days, charge + leg, "the charge and the leg");
+    let (days, minutes, minimum) = floored(charge + leg);
+    assert_eq!(quote.days, days, "the charge and the leg");
+    assert_eq!(quote.minutes, minutes);
+    assert_eq!(quote.minimum, minimum);
     assert_eq!(other.travel_quote(far), Ok(quote));
     // And the trip is exactly that on the clock.
     let mut world = world;
@@ -780,11 +795,126 @@ fn the_reference_run_ends_in_a_mission_somewhere_else() {
     );
 }
 
+// --- no re-entry without time passing (feature 105) -------------------------------
+
+/// The site the crew are at is never a destination: refused as a quote,
+/// refused as a proposal, and the map lists it as where they are.
+#[test]
+fn the_site_the_crew_are_at_cannot_be_chosen() {
+    let mut world = basic(1);
+    to_the_map(&mut world);
+    let here = world.current_site().expect("the crew are at a site");
+    assert_eq!(world.travel_quote(here), Err(Refusal::AlreadyHere));
+    let listed = world
+        .travel_quotes()
+        .into_iter()
+        .find(|(site, _)| *site == here)
+        .expect("the map lists where the crew are");
+    assert_eq!(listed.1, Err(Refusal::AlreadyHere));
+    let clock = world.clock_minutes;
+    let events = travel_to(&mut world, here);
+    assert!(!travelled(&events), "no trip");
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WorldEvent::Refused {
+                why: Refusal::AlreadyHere,
+                ..
+            }
+        )),
+        "refused, and said so: {events:?}"
+    );
+    assert!(world.run.proposal.is_none(), "nothing on the table");
+    assert_eq!(world.clock_minutes, clock, "and the clock where it was");
+
+    // Somewhere else, and back: the way back is a trip like any other,
+    // and the clock has moved twice.
+    let there = another_site_here(&world);
+    assert!(travelled(&travel_to(&mut world, there)));
+    to_the_map(&mut world);
+    assert_eq!(world.travel_quote(there), Err(Refusal::AlreadyHere));
+    assert!(
+        world.travel_quote(here).is_ok(),
+        "where they were is a trip"
+    );
+    assert!(travelled(&travel_to(&mut world, here)));
+    let least = f64::from(2 * data::MIN_TRAVEL_HOURS) * 60.0;
+    assert!(world.clock_minutes - clock >= least);
+}
+
+/// Every trip puts the world clock on by at least
+/// [`data::MIN_TRAVEL_HOURS`] — the shortest in the system and a jump
+/// alike — and the quote says when that least is what it is.
+#[test]
+fn a_trip_between_the_nearest_two_sites_is_the_minimum_at_least() {
+    let mut world = basic(1);
+    to_the_map(&mut world);
+    let least = u64::from(data::MIN_TRAVEL_HOURS) * 60;
+    let quotes: Vec<_> = world
+        .travel_quotes()
+        .into_iter()
+        .filter_map(|(_, q)| q.ok())
+        .collect();
+    assert!(!quotes.is_empty());
+    for q in &quotes {
+        assert!(q.minutes >= least, "{q:?}");
+        assert!(q.days * time::DAY >= least as f64 - 1e-6, "{q:?}");
+        assert_eq!(q.minimum, q.minutes == least, "{q:?}");
+    }
+    // The nearest site of all — the pair that sit closest together — and
+    // the trip to it moves the clock by the minimum or more.
+    let nearest = quotes.iter().min_by_key(|q| q.minutes).copied().unwrap();
+    let clock = world.clock_minutes;
+    assert!(travelled(&travel_to(&mut world, nearest.site)));
+    assert_eq!(world.clock_minutes - clock, nearest.minutes as f64);
+    assert!(world.clock_minutes - clock >= least as f64);
+}
+
+/// Two sites a few minutes apart by the ship's own reckoning: the trip is
+/// quoted, shown and taken as the minimum.
+#[test]
+fn a_trip_shorter_than_the_minimum_is_the_minimum() {
+    // The shortest real trip of the default seed's spawn system, found
+    // by asking from every site of it in turn.
+    let mut world = basic(1);
+    to_the_map(&mut world);
+    let least = u64::from(data::MIN_TRAVEL_HOURS) * 60;
+    let mut found = None;
+    for from in world.sites_at(world.star_id) {
+        let mut at = basic(1);
+        to_the_map(&mut at);
+        if Some(from) != at.current_site() {
+            assert!(travelled(&travel_to(&mut at, from)));
+            to_the_map(&mut at);
+        }
+        if let Some(q) = at
+            .travel_quotes()
+            .into_iter()
+            .filter_map(|(_, q)| q.ok())
+            .find(|q| q.minimum)
+        {
+            found = Some((at, q));
+            break;
+        }
+    }
+    let Some((mut world, quote)) = found else {
+        panic!("some two sites of the spawn system are under a day apart");
+    };
+    assert_eq!(quote.minutes, least);
+    assert_eq!(quote.days, f64::from(data::MIN_TRAVEL_HOURS) / 24.0);
+    let clock = world.clock_minutes;
+    assert!(travelled(&travel_to(&mut world, quote.site)));
+    assert_eq!(world.clock_minutes - clock, least as f64);
+}
+
 // --- the measurements -------------------------------------------------------------
 
 /// How long trips are for the default ship, over ten galaxies: every site
 /// in the spawn system from the spawn, and every site of every system one
-/// hop off. Printed, not asserted — `cargo test -p world -- --ignored
+/// hop off — and, with it, how far the crew start from the machines'
+/// origin and what a run there comes to on the world clock and in the
+/// waves (feature 105, which is what `data::ENEMIES_HOURS` was set from).
+/// Printed, not asserted — `cargo test --release -p world -- --ignored
 /// --nocapture travel_days_over_ten_galaxies`. The root `CLAUDE.md`
 /// carries what it said.
 #[test]
@@ -792,6 +922,7 @@ fn the_reference_run_ends_in_a_mission_somewhere_else() {
 fn travel_days_over_ten_galaxies() {
     let mut here: Vec<f64> = Vec::new();
     let mut hop: Vec<f64> = Vec::new();
+    let mut to_origin: Vec<f64> = Vec::new();
     for seed in 1..=10u64 {
         let galaxy = worldgen::Galaxy::new(seed, GalaxyType::SpiralTwoArm);
         let Some((star, station)) = crate::spawn_anywhere(&galaxy, seed) else {
@@ -808,11 +939,11 @@ fn travel_days_over_ten_galaxies() {
         ) else {
             continue;
         };
-        for (site, quote) in world.travel_quotes() {
+        to_origin.push(f64::from(world.hops_from_origin(star)));
+        for (_, quote) in world.travel_quotes() {
+            // The site the crew are at is refused, so every quote is a
+            // trip somewhere else.
             let Ok(q) = quote else { continue };
-            if Some(site) == world.current_site() {
-                continue;
-            }
             if q.jump {
                 hop.push(q.days);
             } else {
@@ -820,7 +951,7 @@ fn travel_days_over_ten_galaxies() {
             }
         }
     }
-    let show = |name: &str, v: &mut Vec<f64>| {
+    let show = |name: &str, unit: &str, v: &mut Vec<f64>| {
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         if v.is_empty() {
             println!("{name}: none");
@@ -828,7 +959,7 @@ fn travel_days_over_ten_galaxies() {
         }
         let at = |f: f64| v[((v.len() - 1) as f64 * f).round() as usize];
         println!(
-            "{name}: n={} min={:.2} p25={:.2} median={:.2} p75={:.2} max={:.2} days",
+            "{name}: n={} min={:.2} p25={:.2} median={:.2} p75={:.2} max={:.2} {unit}",
             v.len(),
             v[0],
             at(0.25),
@@ -837,6 +968,28 @@ fn travel_days_over_ten_galaxies() {
             v[v.len() - 1]
         );
     };
-    show("in the system", &mut here);
-    show("one hop", &mut hop);
+    show("in the system", "days", &mut here);
+    show("one hop", "days", &mut hop);
+    show("to the origin", "hops", &mut to_origin);
+    // A run to the origin at the medians — a jump a hop, and a jump and a
+    // trip in the system a hop — and the waves on arrival there, by the
+    // number of players.
+    let median = |v: &Vec<f64>| v[(v.len() - 1) / 2];
+    let (jump, trip, hops) = (median(&hop), median(&here), median(&to_origin));
+    for (name, per_hop) in [
+        ("a jump a hop", jump),
+        ("a jump and a trip a hop", jump + trip),
+    ] {
+        let days = hops * per_hop;
+        let steps = crate::droid::time_steps((days * 24.0) as u32);
+        let sizes: Vec<u32> = (1..=4)
+            .map(|players| crate::droid::wave_size(players, steps))
+            .collect();
+        println!(
+            "to the origin, {name}: {days:.0} days, {steps} steps of {}h: \
+             waves of {sizes:?} for 1..=4 players, {} of them",
+            data::ENEMIES_HOURS,
+            crate::droid::wave_count(steps),
+        );
+    }
 }

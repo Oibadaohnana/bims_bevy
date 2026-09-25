@@ -525,6 +525,10 @@ pub enum Refusal {
     PlayerOut = 90,
     /// A trip the ship cannot make: nothing pushes it, forwards or back.
     CannotTravel = 91,
+    /// A trip to the site the crew are at (feature 105): the next
+    /// destination is always somewhere else, so the world clock moves
+    /// before a site is fought again.
+    AlreadyHere = 92,
 }
 
 impl Refusal {

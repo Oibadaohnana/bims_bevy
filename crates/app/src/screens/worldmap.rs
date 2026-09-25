@@ -321,7 +321,11 @@ fn row_words(d: &Destination, at: bool) -> (String, egui::Color32) {
     match &d.quote {
         Ok(q) => {
             let tags = tags(q);
-            let mut line = format!("{}  {}", d.name, trip_quote(q.minutes, q.arrival_date));
+            let mut line = format!(
+                "{}  {}",
+                d.name,
+                trip_quote(q.minutes, q.minimum, q.arrival_date)
+            );
             if !tags.is_empty() {
                 line.push_str(&format!("  · {tags}"));
             }
@@ -337,6 +341,9 @@ fn row_words(d: &Destination, at: bool) -> (String, egui::Color32) {
             };
             (line, colour)
         }
+        // The site the crew are at is never a trip (feature 105): it is
+        // listed as where they are, not as a place refused.
+        Err(_) if at => (format!("{}  ({MAP_HERE})", d.name), theme::YOURS),
         Err(why) => (format!("{}  — {}", d.name, refusal(*why)), theme::MUTED),
     }
 }
@@ -417,7 +424,7 @@ fn destination_card(
                 ui.end_row();
             };
             row(ui, CARD_HOPS, hops_words(quote.jump));
-            row(ui, CARD_TRAVEL, days_words(quote.days));
+            row(ui, CARD_TRAVEL, days_words(quote.days, quote.minimum));
             row(ui, CARD_ARRIVAL, quote.arrival_date.to_string());
         });
     // What is there on arrival, wrapped under the rows: a grid gives a

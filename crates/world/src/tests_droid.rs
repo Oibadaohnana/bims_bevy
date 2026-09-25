@@ -6,7 +6,7 @@
 //! worlds on one seed meet the same machines.
 //!
 //! The plan's own arithmetic — [`crate::droid::wave_size`],
-//! `wave_count`, `worth_steps` — is pinned next door in `droid.rs`, and
+//! `wave_count`, `time_steps` — is pinned next door in `droid.rs`, and
 //! what a machine *is* in `bims::droid`.
 
 use bims::combat::{ArmourKind, Gear, Tier, Weapon, WeaponKind};
@@ -456,17 +456,123 @@ fn the_wave_count_is_fixed_at_the_first_dock_and_a_rich_crew_is_not_doubled() {
     );
 
     // And the **size** is the formula's, never a doubling: a crew ten
-    // times as rich meets the sum, capped, and not a thousand machines.
-    let steps = crate::droid::worth_steps(world.worth(), world.start_worth);
+    // times as rich meets the players and the clock, capped, and not a
+    // thousand machines.
     let want = crate::droid::wave_size(
-        world.aboard.crew_count(),
-        crate::droid::day_steps(world.days_gone()),
-        steps,
-        0,
+        world.players(),
+        crate::droid::time_steps(world.hours_gone()),
     )
     .min(world.droid_wave_max());
     assert_eq!(world.droid_wave_size(), want.max(1));
     assert!(world.droid_wave_size() <= data::DROID_WAVE_MAX);
+}
+
+// --- what the waves scale on (feature 105) --------------------------------
+
+/// A crew on the combat ship with `players` players and `crew` aboard in
+/// all, at the world clock's `hours`: what the machines would come as.
+fn waves_for(players: u32, crew: u32, hours: u32) -> (u32, u32) {
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, players, crew);
+    world.clock_minutes = f64::from(hours) * 60.0;
+    (world.droid_wave_size(), world.droid_wave_count())
+}
+
+/// Two crews that differ only in their money, their gear, their levels or
+/// how many bots walk with them meet the same waves, however far into
+/// the run: none of that is the machines' business.
+#[test]
+fn the_waves_are_the_same_for_a_richer_better_armed_more_levelled_or_bigger_crew() {
+    for hours in [0, data::ENEMIES_HOURS * 3 + 5, data::ENEMIES_HOURS * 9] {
+        for players in [1, 2] {
+            let plain = || {
+                let mut world =
+                    crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, players, players);
+                world.clock_minutes = f64::from(hours) * 60.0;
+                world
+            };
+            let base = plain();
+            let want = (base.droid_wave_size(), base.droid_wave_count());
+
+            // A hundred times as rich.
+            let mut rich = plain();
+            rich.money = rich.money.saturating_mul(100);
+            assert!(rich.worth() > base.worth());
+            // Every crew member with a tier-three gun in hand.
+            let mut armed = plain();
+            for who in 0..armed.aboard.room.crew_count() as usize {
+                let gear = armed.aboard.room.gear(who);
+                let weapon = Weapon {
+                    kind: WeaponKind::AutoRifle,
+                    tier: Tier::Three,
+                };
+                armed.aboard.room.issue(
+                    who,
+                    Gear {
+                        weapon: Some(weapon),
+                        ..gear
+                    },
+                );
+            }
+            assert!(armed.worth() > base.worth());
+            // Every crew member at the top level.
+            let mut levelled = plain();
+            for p in levelled.progress.iter_mut() {
+                p.xp = u32::MAX / 2;
+            }
+            assert!(levelled.progress[0].level() > 1);
+            for (name, world) in [("rich", &rich), ("armed", &armed), ("levelled", &levelled)] {
+                assert_eq!(
+                    (world.droid_wave_size(), world.droid_wave_count()),
+                    want,
+                    "{name}, {players} players at {hours}h"
+                );
+            }
+            // And any number of bots beside the players.
+            for crew in [players + 1, players + 4, COMBAT_CREW] {
+                assert_eq!(
+                    waves_for(players, crew, hours),
+                    want,
+                    "{crew} aboard, {players} players at {hours}h"
+                );
+            }
+        }
+    }
+}
+
+/// The waves never shrink as the world clock runs on, and over a run's
+/// worth of it — the hundred and twenty days `data::ENEMIES_HOURS` was
+/// set against — both the size and the count have grown.
+#[test]
+fn the_waves_never_shrink_with_the_clock_and_grow_over_a_run() {
+    let mut world = crate::fixture::crewed_world(combat_ship(), REFERENCE_MONEY, 1, 4);
+    let (first_size, first_count) = (world.droid_wave_size(), world.droid_wave_count());
+    let (mut size, mut count) = (first_size, first_count);
+    for hours in (0..=120 * 24).step_by(11) {
+        world.clock_minutes = f64::from(hours) * 60.0;
+        let now = (world.droid_wave_size(), world.droid_wave_count());
+        assert!(now.0 >= size, "the size fell at {hours}h");
+        assert!(now.1 >= count, "the count fell at {hours}h");
+        (size, count) = now;
+    }
+    assert!(
+        size > first_size,
+        "the waves grew over a run: {first_size} to {size}"
+    );
+    assert!(
+        count > first_count,
+        "and there were more: {first_count} to {count}"
+    );
+}
+
+/// A player more is a machine more a wave; a bot more is nothing.
+#[test]
+fn a_wave_grows_with_the_players() {
+    for hours in [0, data::ENEMIES_HOURS * 4] {
+        let sizes: Vec<u32> = (1..=4).map(|p| waves_for(p, 4, hours).0).collect();
+        for pair in sizes.windows(2) {
+            assert!(pair[1] > pair[0], "{sizes:?} at {hours}h");
+        }
+    }
 }
 
 #[test]

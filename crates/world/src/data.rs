@@ -83,13 +83,50 @@ pub const RESIDENT_BANDAGES: u32 = 2;
 /// crew left dying, once the fight is over.
 pub const RESIDENT_MEDKITS: u32 = 1;
 
-/// How many whole game days go by before the machines grow by one, and
-/// by one again every time as many more have: thirty, so a wave and a
-/// station's count of waves are what they were for the first month
-/// however long the crew dawdle, and one more every month after it
-/// before the worth is looked at ([`crate::droid::day_steps`]). Days since
-/// the world opened (`World::days_gone`), not the crew's calendar.
-pub const ENEMIES_DAYS: u32 = 30;
+/// How many hours of the **world clock** go by before a wave of machines
+/// grows by one, and by one again every time as many more have — and a
+/// held station's count of waves by one every second time
+/// ([`crate::droid::time_steps`], feature 105). Hours since the world
+/// opened (`World::hours_gone`), not the crew's calendar. Only travel
+/// moves that clock, so this is a step every so many trips.
+///
+/// **Three weeks**, from `tests_mission::travel_days_over_ten_galaxies`
+/// (`cargo test --release -p world -- --ignored --nocapture
+/// travel_days_over_ten_galaxies`): the crew start 8 to 152 hops from the
+/// machines' origin, 76 at the median, and a jump is 2.4 days at the
+/// median and a trip within a system 2.9. So a run to the origin at the
+/// medians is about **167 days** taking one jump a hop and about **363**
+/// taking a jump and a trip in every system. A solo wave has thirteen
+/// steps between its three at day nought and [`DROID_WAVE_MAX`], so:
+///
+/// - at three weeks the jump-a-hop run arrives seven steps up — a solo
+///   wave of ten, five waves — and the jump-and-a-trip run reaches the
+///   cap on about day 273, three quarters of the way, with ten waves at
+///   the origin. Both climb for most of the way and neither is flat for
+///   long;
+/// - at two weeks the longer run was capped by day 182, flat for its
+///   second half; at four (near the thirty days this replaced) the
+///   shorter run arrived only six steps up, and the first month was the
+///   waves of day nought.
+///
+/// Four players start at six and reach the cap in ten steps, about day
+/// 210 — more players, a thicker fight sooner, and never a longer one.
+pub const ENEMIES_HOURS: u32 = 21 * 24;
+
+/// The least any trip puts the world clock on by, in hours, however
+/// close together its two ends are (feature 105): a trip shorter than
+/// this is quoted, shown and taken as this long (`World::travel_quote`).
+///
+/// It is there to shut the zero-time re-entry: the machines scale on the
+/// world clock and nothing else ([`ENEMIES_HOURS`]), and a site left
+/// uncleared is put back as the crew met it (`crate::run`), so two sites
+/// a few minutes apart would otherwise be a fresh fight at day nought's
+/// strength as often as a crew liked. A day, which is a turn of the date
+/// the map shows, the least an in-system trip was quoted at is 0.11 of
+/// (`tests_mission::travel_days_over_ten_galaxies`), and under the p25
+/// of both kinds of trip (1.2 and 1.4 days) — so it only reaches the odd
+/// short hop and changes nothing about a typical one.
+pub const MIN_TRAVEL_HOURS: u32 = 24;
 
 /// The arena the `droids` command docks at (`crate::station::arena`): how
 /// many tiles across — bigger than any kind of station, for corridors
@@ -199,11 +236,10 @@ pub const SURFACE_POPULATION: (u32, u32) = (5, 30);
 
 // --- the droids (feature 83) ---------------------------------------------
 
-/// How many machines a wave of an infested station is, before anything
-/// about the crew is counted (`crate::droid::wave_size`): this many, one
-/// a crew member, one every [`ENEMIES_DAYS`] the game has run, one for
-/// every half of the crew's starting worth their worth has grown by, and
-/// one for every three levels the crew have between them.
+/// How many machines a wave of an infested station is before the players
+/// and the clock are counted (`crate::droid::wave_size`): this many, one
+/// a **player** Bim, and one every [`ENEMIES_HOURS`] of the world clock.
+/// Nothing else — not the bots, the worth or the levels (feature 105).
 pub const DROID_WAVE_BASE: u32 = 2;
 /// The most a wave ever is. **A performance limit, not a balance one**:
 /// every machine is a body stepped, a stand scored and a line traced, and
@@ -211,10 +247,9 @@ pub const DROID_WAVE_BASE: u32 = 2;
 /// the measurements in the root `CLAUDE.md`.
 pub const DROID_WAVE_MAX: u32 = 16;
 /// How many waves an infested station has, before the crew are counted
-/// (`crate::droid::wave_count`): this many, one every [`ENEMIES_DAYS`],
-/// one for every two halves the worth has grown by, and one for every ten
-/// levels the crew have between them. Fixed at the crew's **first dock**
-/// and never worked out again.
+/// (`crate::droid::wave_count`): this many, and one every second
+/// [`ENEMIES_HOURS`] of the world clock. Fixed at the crew's **first
+/// dock** and never worked out again.
 pub const DROID_WAVES_BASE: u32 = 2;
 /// How long after the last machine of a wave is destroyed the next one
 /// arrives, in steps of the **mission clock** (feature 103) — two minutes
