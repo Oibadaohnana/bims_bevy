@@ -716,4 +716,25 @@ mod tests {
         assert!(Sketch::from_text("side = 4\n").is_err());
         assert!(valid_name("hub-2_b") && !valid_name("../x") && !valid_name(""));
     }
+
+    /// A station the world generates, written out by the world in this
+    /// format (`world::station::sketch_text`, feature 112), reads back as a
+    /// sketch of its size with its port on the west skin — so a generated
+    /// layout opens in the builder.
+    #[test]
+    fn a_generated_station_opens_as_a_sketch() {
+        use world::station::{Plan, layout, sketch_text};
+        for kind in worldgen::StationKind::ALL {
+            let design = layout(kind, Plan::Generated, 3);
+            let text = sketch_text(&design, "generated");
+            let (name, sketch) = Sketch::from_text(&text).unwrap();
+            assert_eq!(name, "generated");
+            assert_eq!(sketch.side, design.build_area);
+            let port = shipdesign::port(&design).unwrap();
+            let t = shipdesign::TILE as f64;
+            let (x, y) = ((port.centre.0 / t) as i32, (port.centre.1 / t) as i32);
+            assert_eq!(sketch.get(x, y), Cell::Airlock, "{kind:?}");
+            assert!(sketch.counts().0[2] > 0, "{kind:?} has doors");
+        }
+    }
 }

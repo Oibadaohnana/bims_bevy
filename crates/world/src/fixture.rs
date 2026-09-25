@@ -98,7 +98,17 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// machines destroyed, the sites cleared and the systems liberated — is
 /// in the hash, where the reference run's machines count. The Heart's own
 /// fight is hashed only at its fortress, so nothing else moved.
-pub const REFERENCE_CHECKSUM: u64 = 0x_d534_2dda_6563_babe;
+/// And again for procedural stations (feature 112): the scenario's second
+/// mission is at station 0 of star 1, an orbital (seed
+/// `6020119263586756475`) that rolled the drawn hub and is a generated
+/// station now, so the crew come ashore onto another deck and every body's
+/// place — which the hash holds — is another. Was `0x_d534_2dda_6563_babe`;
+/// with every station on the drawn plan its seed rolled and every town on
+/// the template (`station::set_legacy_layouts`) that number came back
+/// (`tests_layoutgen::the_pins_come_back_under_the_old_layouts`), so
+/// nothing but the layout moved it. The spawn is a hub still and its
+/// design did not move.
+pub const REFERENCE_CHECKSUM: u64 = 0x_eb8a_5e06_aeca_832b;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

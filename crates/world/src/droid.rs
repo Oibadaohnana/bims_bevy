@@ -435,66 +435,75 @@ pub fn spots_about(design: &ShipDesign, n: usize) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// The spot a wave arriving on a **surface** is posted at: just inside
-/// the gate it comes through — north for an odd wave, south for an even
-/// one — in the town design's own world units, with the way it faces.
-/// `None` for a design that is not a town.
-///
-/// The lander itself is drawn on the plain beyond that gate, which is
-/// the crew's room's to draw: the town's own room is the deck alone and
-/// has no plain in it, so the machines are posted at the gate rather
-/// than beside the lander and walk in from there.
-pub fn gate_spot(side: u32, wave: u32) -> ((f64, f64), (f64, f64)) {
-    let t = TILE as f64;
-    let x = (crate::surface::GATE_X0 as f64 + crate::surface::GATE_WIDTH as f64 / 2.0) * t;
-    let north = wave % 2 == 1;
-    // The wall stands on the outermost deck tiles: row 1 in the north
-    // and `side - 2` in the south. A tile inside each is the street.
-    let (y, facing) = if north {
-        ((2.5) * t, (0.0, 1.0))
-    } else {
-        ((side as f64 - 3.5) * t, (0.0, -1.0))
-    };
-    ((x, y), facing)
-}
-
 #[cfg(test)]
 mod gate_tests {
-    use super::*;
+    use crate::surface::{Gate, Wall, gate_for_wave};
     use shipdesign::TILE;
 
-    /// On a surface a wave walks in **through a gate**, north for an odd
-    /// wave and south for an even one, and stands a tile inside the wall
-    /// rather than on it. The gates are the west cross street where it
-    /// meets the north wall and the south (`crate::surface`).
+    /// On a surface a wave walks in **through a gate** — the town's gates
+    /// in turn, the first for wave one (feature 112; until then, north for
+    /// an odd wave and south for an even one, which is what a town with a
+    /// north gate and a south gate still gets) — and stands a tile inside
+    /// the wall rather than on it, facing into the town.
     #[test]
-    fn a_surface_wave_comes_through_the_north_gate_and_then_the_south() {
-        let side = data::SURFACE_SIDE;
+    fn a_surface_wave_comes_through_the_town_s_gates_in_turn() {
+        let side = crate::data::SURFACE_SIDE as f64;
         let t = TILE as f64;
-        let gate_x = (crate::surface::GATE_X0 as f64 + crate::surface::GATE_WIDTH as f64 / 2.0) * t;
+        let north = Gate {
+            wall: Wall::North,
+            from: 30,
+            width: 6,
+        };
+        let east = Gate {
+            wall: Wall::East,
+            from: 44,
+            width: 8,
+        };
+        let south = Gate {
+            wall: Wall::South,
+            from: 52,
+            width: 7,
+        };
 
-        // Wave two is even: the south gate, facing north into the town.
-        let ((x, y), facing) = gate_spot(side, 2);
-        assert!((x - gate_x).abs() < 1e-6, "in the gate's own column");
-        assert_eq!(facing, (0.0, -1.0), "facing north, into the town");
-        assert!(
-            y > (side as f64 - 4.0) * t && y < (side as f64 - 2.0) * t,
-            "just inside the south wall: {y}"
-        );
-
-        // Wave three is odd: the north gate, facing south.
-        let ((x3, y3), facing3) = gate_spot(side, 3);
-        assert!((x3 - gate_x).abs() < 1e-6);
-        assert_eq!(facing3, (0.0, 1.0), "facing south, into the town");
-        assert!(y3 > t && y3 < 3.0 * t, "just inside the north wall: {y3}");
-
-        // And they alternate: every odd wave north, every even one south.
+        // Two gates, the template's: odd waves north, even waves south.
+        let pair = [north, south];
         for wave in 1..8u32 {
-            let (_, face) = gate_spot(side, wave);
-            let north = wave % 2 == 1;
-            assert_eq!(face.1 > 0.0, north, "wave {wave}");
+            let gate = gate_for_wave(&pair, wave).unwrap();
+            assert_eq!(gate.wall == Wall::North, wave % 2 == 1, "wave {wave}");
         }
-        // The two are never the same spot.
-        assert_ne!(gate_spot(side, 1).0, gate_spot(side, 2).0);
+        let spot = north.spot();
+        assert!((spot.x - 33.0 * t).abs() < 1e-6, "in the gate's own column");
+        assert!(spot.y > t && spot.y < 3.0 * t, "just inside the north wall");
+        assert_eq!(north.inward(), (0.0, 1.0));
+        let spot = south.spot();
+        assert!(spot.y > (side - 4.0) * t && spot.y < (side - 2.0) * t);
+        assert_eq!(south.inward(), (0.0, -1.0));
+
+        // Three: round them in order, and an east gate faces west.
+        let three = [north, east, south];
+        let walls: Vec<Wall> = (1..7u32)
+            .map(|w| gate_for_wave(&three, w).unwrap().wall)
+            .collect();
+        assert_eq!(
+            walls,
+            [
+                Wall::North,
+                Wall::East,
+                Wall::South,
+                Wall::North,
+                Wall::East,
+                Wall::South
+            ]
+        );
+        let spot = east.spot();
+        assert!(spot.x > (side - 4.0) * t && spot.x < (side - 2.0) * t);
+        assert!((spot.y - 48.0 * t).abs() < 1e-6, "in the gate's own row");
+        assert_eq!(east.inward(), (-1.0, 0.0));
+        // The lander beyond each, outside the ground.
+        let (at, out) = east.beyond(5.0 * t);
+        assert!(at.x > side * t && out.x > 0.0);
+        let (at, out) = north.beyond(5.0 * t);
+        assert!(at.y < 0.0 && out.y < 0.0);
+        assert!(gate_for_wave(&[], 1).is_none());
     }
 }

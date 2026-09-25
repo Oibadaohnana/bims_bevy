@@ -118,7 +118,10 @@ use crate::game::Game;
 /// 40: a system's memory keeps its own defences and held towns (feature
 /// 111's first fix) — a town id is only its system's, and carried across
 /// a jump the list held the next system's town of the same id.
-pub const SAVE_VERSION: u32 = 40;
+/// 41: procedural stations and towns (feature 112) — a station keeps its
+/// gates (a town's, in the order its waves take them) and may be on the
+/// generated plan.
+pub const SAVE_VERSION: u32 = 41;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

@@ -54,7 +54,7 @@ use crate::data;
 /// the [`Placer`] — cheap, but a world opens every station of its system
 /// at once and the painter and the tests ask again. Looked up only, never
 /// walked, so the order in it decides nothing.
-static BUILT: std::sync::Mutex<Vec<((StationKind, Plan, u64), ShipDesign)>> =
+static BUILT: std::sync::Mutex<Vec<((StationKind, Plan, u64), (Plan, ShipDesign))>> =
     std::sync::Mutex::new(Vec::new());
 
 /// How many tiles across a [`Plan::Hub`] station's build area is, by kind.
@@ -149,6 +149,12 @@ pub struct Station {
     /// — the machines' where they hold it, home at home, and a
     /// stranger's everywhere else.
     pub hostile: bool,
+    /// The gates in a town's wall, in the order its machines' landers
+    /// take them (feature 112): where its guard walks and where a wave
+    /// walks in. Empty on a station, which has airlocks instead. Built
+    /// with the town, so a save that has none reads back empty.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub gates: Vec<crate::surface::Gate>,
 }
 
 impl Station {
@@ -168,7 +174,7 @@ impl Station {
     /// Build the station the blueprint describes, standing at `at`, on
     /// `plan` whatever its seed rolled.
     pub fn build_as(blueprint: &StationBlueprint, at: DVec2, plan: Plan) -> Station {
-        let design = layout(blueprint.kind, plan, blueprint.map_seed);
+        let (plan, design) = resolve(blueprint.kind, plan, blueprint.map_seed);
         let half = design.build_area as f64 * TILE as f64 / 2.0;
         Station {
             id: blueprint.id,
@@ -181,6 +187,7 @@ impl Station {
             stock: blueprint.stock,
             bias: blueprint.bias,
             hostile: blueprint.hostile,
+            gates: Vec::new(),
         }
     }
 
@@ -202,8 +209,9 @@ impl Station {
     /// it.
     pub fn replan(&mut self, plan: Plan) {
         let centre = self.centre();
+        let (plan, design) = resolve(self.kind, plan, self.map_seed);
         self.plan = plan;
-        self.design = layout(self.kind, plan, self.map_seed);
+        self.design = design;
         self.population = plan.residents(self.kind);
         let half = self.design.build_area as f64 * TILE as f64 / 2.0;
         self.anchor = centre.sub(angle::rotate_design(dvec2(half, half), 0.0));
@@ -306,9 +314,11 @@ impl Station {
 
 // --- the layout ---------------------------------------------------------------
 
-/// Which building a station is: one of six floor plans, rolled off the
-/// station's seed ([`Plan::rolled`]) so that two docks are two different
-/// places, and the same dock the same place every time. The plan decides
+/// Which building a station is: generated from its seed
+/// ([`Plan::Generated`], what [`Plan::rolled`] answers since feature 112),
+/// or one of six drawn floor plans ([`Plan::HAND`]) — what a station was
+/// before, and what one is when the generator fails it — so that two docks
+/// are two different places, and the same dock the same place every time. The plan decides
 /// the shape, how wide the corridors are, how big the hull is
 /// ([`Plan::side`]) and how many people live there ([`Plan::residents`]);
 /// the seed then dresses it — how many bays, shelves and batteries.
@@ -376,16 +386,64 @@ pub enum Plan {
     /// for the waves to come in by. Never rolled: the one station a
     /// galaxy has on it is the machines' own, and nobody lives there.
     Fortress,
+    /// **Generated from the seed** (feature 112, `crate::stationgen`): a
+    /// ladder of corridors with rooms between and along them, every size
+    /// and count rolled, so no two docks are one building. What every
+    /// station but the spawn is ([`Plan::rolled`]); when the generator
+    /// cannot draw one that keeps the walkability contract in
+    /// `stationgen::ATTEMPTS` tries, the station is the drawn plan its seed
+    /// rolled before ([`Plan::hand_rolled`]) and says so on
+    /// [`Station::plan`]. Sized by kind within `stationgen::side_range`;
+    /// the kind's residents live here, bunks for them and two more.
+    Generated,
 }
 
 /// The salt the plan is rolled with: a stream of its own off the seed, so
 /// the layout's own rolls — the bays, the shelves — are what they were.
 const PLAN_SALT: u64 = 0x_504C_414E_0000_0000;
 
+/// A plan every station is built on whatever it rolled, for looking at one
+/// from a terminal (`BIMS_STATION_PLAN`, set by the app): nought for none,
+/// a place in [`Plan::ALL`] plus one, or [`LEGACY`] — the drawn plans
+/// rolled as they were before feature 112 and every town the fixed
+/// template, which is how a pin is checked against the old layouts.
+static PLAN_OVERRIDE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+const LEGACY: u32 = u32::MAX;
+
+/// Build every station on `plan` from now on in this process, whatever its
+/// seed rolls — the spawn and the fortress excepted — or, with `None`, as
+/// rolled. For the app's `BIMS_STATION_PLAN` and for probes; two clients
+/// that disagree on it are two different games.
+pub fn set_plan_override(plan: Option<Plan>) {
+    let code = plan
+        .and_then(|p| Plan::ALL.iter().position(|&q| q == p))
+        .map_or(0, |i| i as u32 + 1);
+    PLAN_OVERRIDE.store(code, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Build every station on the drawn plan its seed rolled before feature
+/// 112 and every town on the fixed template, from now on in this process:
+/// the layouts as they were, for checking a pinned number against them
+/// (`BIMS_STATION_PLAN=legacy`).
+pub fn set_legacy_layouts(on: bool) {
+    PLAN_OVERRIDE.store(
+        if on { LEGACY } else { 0 },
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// Whether [`set_legacy_layouts`] is on.
+pub fn legacy_layouts() -> bool {
+    PLAN_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) == LEGACY
+}
+
 impl Plan {
-    /// The six a station can be. [`Plan::Surface`] is not among them: it
-    /// is a planet's, never a station's, and never rolled.
-    pub const ALL: [Plan; 6] = [
+    /// The plans a station can be: [`Plan::Generated`], what every one
+    /// rolls, and the six drawn plans ([`Plan::HAND`]) a station falls back
+    /// on. [`Plan::Surface`] and [`Plan::Fortress`] are not among them:
+    /// each is one place's, never rolled.
+    pub const ALL: [Plan; 7] = [
+        Plan::Generated,
         Plan::Hub,
         Plan::Pod,
         Plan::Cross,
@@ -394,9 +452,36 @@ impl Plan {
         Plan::Comb,
     ];
 
-    /// The plan a station's seed rolls: one of the six, evenly.
+    /// The six drawn plans: what a station was before feature 112, and
+    /// what one is when the generator cannot draw it.
+    pub const HAND: [Plan; 6] = [
+        Plan::Hub,
+        Plan::Pod,
+        Plan::Cross,
+        Plan::Spine,
+        Plan::Ring,
+        Plan::Comb,
+    ];
+
+    /// The plan a station's seed rolls: [`Plan::Generated`], every one —
+    /// unless the process was told otherwise ([`set_plan_override`],
+    /// [`set_legacy_layouts`]).
     pub fn rolled(map_seed: u64) -> Plan {
-        Plan::ALL[Rng::new(map_seed ^ PLAN_SALT).below(Plan::ALL.len() as u32) as usize]
+        match PLAN_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => Plan::Generated,
+            LEGACY => Plan::hand_rolled(map_seed),
+            n => Plan::ALL
+                .get(n as usize - 1)
+                .copied()
+                .unwrap_or(Plan::Generated),
+        }
+    }
+
+    /// The drawn plan a station's seed rolls: one of the six, evenly, off
+    /// its own stream — what [`Plan::rolled`] answered before feature 112,
+    /// and what a station is when the generator fails it.
+    pub fn hand_rolled(map_seed: u64) -> Plan {
+        Plan::HAND[Rng::new(map_seed ^ PLAN_SALT).below(Plan::HAND.len() as u32) as usize]
     }
 
     /// How many tiles across the build area is. The hub is sized by kind
@@ -419,6 +504,9 @@ impl Plan {
             Plan::Comb => 52 + grown,
             Plan::Surface => data::SURFACE_SIDE,
             Plan::Fortress => data::ARENA_SIDE,
+            // The most: a generated station is as big as it rolled, within
+            // the kind's range.
+            Plan::Generated => crate::stationgen::side_range(kind).1,
         }
     }
 
@@ -439,6 +527,7 @@ impl Plan {
             Plan::Comb => 5,
             Plan::Surface => return data::SURFACE_POPULATION.1,
             Plan::Fortress => return 0,
+            Plan::Generated => return residents_of(kind),
         };
         residents_of(kind).min(of_plan)
     }
@@ -450,7 +539,8 @@ impl Plan {
     pub fn corridor(self) -> u32 {
         match self {
             Plan::Hub | Plan::Fortress => 5,
-            Plan::Pod | Plan::Cross | Plan::Ring | Plan::Comb => 2,
+            // Two to five as rolled; two is the least.
+            Plan::Pod | Plan::Cross | Plan::Ring | Plan::Comb | Plan::Generated => 2,
             Plan::Spine => 3,
             // Open ground: the whole of it is corridor.
             Plan::Surface => data::SURFACE_SIDE,
@@ -460,7 +550,7 @@ impl Plan {
 
 /// The station's design, from its kind, its plan and its seed.
 ///
-/// One furnisher for all of them ([`furnish`]), on the floor plan the plan
+/// One furnisher for all of them ([`furnish_placer`]), on the floor plan the plan
 /// draws (`hub`, `pod`, `cross`, `spine`, `ring`, `comb`). The hull is
 /// the union of the plan's blocks — every tile in any of them frame and
 /// deck, one with any of its eight neighbours outside them all outside
@@ -474,28 +564,107 @@ impl Plan {
 /// nothing else about the shape, so two seeds of one plan are two
 /// stations without either being a different building.
 pub fn layout(kind: StationKind, plan: Plan, map_seed: u64) -> ShipDesign {
+    resolve(kind, plan, map_seed).1
+}
+
+/// The plan a station is really built on and its design: `plan` itself,
+/// bar a [`Plan::Generated`] one the generator could not draw in
+/// `stationgen::ATTEMPTS` tries, which is the drawn plan its seed rolled
+/// ([`Plan::hand_rolled`]) — deterministically, so every machine falls
+/// back alike. Cached by what was asked for.
+pub fn resolve(kind: StationKind, plan: Plan, map_seed: u64) -> (Plan, ShipDesign) {
     if let Ok(built) = BUILT.lock()
-        && let Some((_, design)) = built.iter().find(|(key, _)| *key == (kind, plan, map_seed))
+        && let Some((_, found)) = built.iter().find(|(key, _)| *key == (kind, plan, map_seed))
     {
-        return design.clone();
+        return found.clone();
     }
-    let design = build_layout(kind, plan, plan.side(kind), 1, map_seed);
+    let found = if plan == Plan::Generated {
+        match crate::stationgen::generate(kind, map_seed) {
+            Some(generated) => (Plan::Generated, generated.placer.design),
+            None => {
+                let hand = Plan::hand_rolled(map_seed);
+                (hand, build_layout(kind, hand, hand.side(kind), 1, map_seed))
+            }
+        }
+    } else {
+        (plan, build_layout(kind, plan, plan.side(kind), 1, map_seed))
+    };
     if let Ok(mut built) = BUILT.lock() {
-        built.push(((kind, plan, map_seed), design.clone()));
+        built.push(((kind, plan, map_seed), found.clone()));
     }
-    design
+    found
+}
+
+/// Forget every layout built so far, so the next ask builds it again — for
+/// the test that a layout is the same built twice.
+#[cfg(test)]
+pub(crate) fn forget_built() {
+    if let Ok(mut built) = BUILT.lock() {
+        built.clear();
+    }
 }
 
 /// A planet's town, from its seed, its biome and how many live there:
-/// `crate::surface::floor` furnished, and the wild laid round it. Not
+/// [`town`]'s design — the streets drawn from the seed, or the template. Not
 /// cached here — `crate::surface::Surface::station` keeps the one it
 /// built, and a town is built when somebody lands, not when the world
 /// opens. [`layout`] of [`Plan::Surface`] is the biggest temperate town
 /// on the same seed, for the map and the tests.
 pub fn layout_surface(map_seed: u64, biome: crate::surface::Biome, population: u32) -> ShipDesign {
-    let side = data::SURFACE_SIDE;
-    let floor = crate::surface::floor(side, biome, population, map_seed);
-    furnish(crate::surface::SURFACE_KIND, side, floor, map_seed)
+    town(map_seed, biome, population).0
+}
+
+/// A planet's town and its gates (feature 112): the streets, the gates,
+/// the hall and the lots drawn from the seed (`crate::surface::build_town`)
+/// and furnished, or the fixed template where no drawing keeps the
+/// contract. What [`layout_surface`] is the first half of, and what
+/// `crate::surface::Surface::station` builds the town's station from.
+pub fn town(
+    map_seed: u64,
+    biome: crate::surface::Biome,
+    population: u32,
+) -> (ShipDesign, Vec<crate::surface::Gate>) {
+    let built = crate::surface::build_town(map_seed, biome, population);
+    (built.placer.design, built.gates)
+}
+
+/// A layout in the station builder's text format (`bims stationbuilder`,
+/// `crates/app/src/screens/station.rs`'s `Sketch::to_text`, which reads it
+/// back): one character a tile — `' '` void, `'.'` deck, `'#'` a wall,
+/// `'D'` a door, `'A'` an airlock — under a `name =` and a `side =` line, a
+/// row's trailing void left off. Written so a generated station can be
+/// opened in the builder (`BIMS_SKETCH` on the `nav_map_of_a_station`
+/// probe). The format is the rough shape and no more, so what it cannot
+/// say is written as deck: every fixture, the skin (the builder draws the
+/// skin itself, wherever deck touches void), the sensor array in it, a
+/// derelict's holes, a town's open ground — its outermost deck comes back
+/// as skin — and the wild.
+pub fn sketch_text(design: &ShipDesign, name: &str) -> String {
+    let grid = design.grid();
+    let side = design.build_area as i32;
+    let mut out = String::new();
+    out.push_str("# Bims station sketch, from `bims stationbuilder`.\n");
+    out.push_str("# One character a tile: ' ' void, '.' deck, '#' wall, 'D' door, 'A' airlock.\n");
+    out.push_str("# The skin is every hull tile touching void; the port is the west airlock.\n");
+    out.push_str(&format!("name = {name}\n"));
+    out.push_str(&format!("side = {side}\n"));
+    for y in 0..side {
+        let row: String = (0..side)
+            .map(|x| {
+                let object = grid.get(Layer::Object, (x, y));
+                match design.part(object).map(|p| p.kind) {
+                    Some(PartKind::Wall) => '#',
+                    Some(PartKind::Door) => 'D',
+                    Some(PartKind::Airlock) => 'A',
+                    _ if grid.get(Layer::Structure, (x, y)) != 0 => '.',
+                    _ => ' ',
+                }
+            })
+            .collect();
+        out.push_str(row.trim_end());
+        out.push('\n');
+    }
+    out
 }
 
 /// The arena: the hub plan, the same kind and seed, laid out
@@ -571,8 +740,9 @@ impl Block {
 }
 
 /// A floor plan: where the hull is and what each room is for. What a
-/// plan's function draws and [`furnish`] fills. The rooms are blocks with
+/// plan's function draws and [`furnish_placer`] fills. The rooms are blocks with
 /// their walls on (`inner` is the deck); the lobby is deck only.
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct Floor {
     /// The hull, as the union of these.
@@ -633,6 +803,9 @@ pub(crate) struct Floor {
     /// pad and its field lots — the ways a Bim walks, which nothing may
     /// grow across. Empty on a station.
     pub(crate) clear: Vec<Block>,
+    /// A town's gates in its wall, in the order its waves take them
+    /// (feature 112). Empty on a station.
+    pub(crate) gates: Vec<crate::surface::Gate>,
 }
 
 /// A wall round `room` — every tile of its ring that is deck; the skin
@@ -802,6 +975,7 @@ fn hub(side: u32, bunk_columns: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        gates: Vec::new(),
     }
 }
 
@@ -938,6 +1112,7 @@ fn pod(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        gates: Vec::new(),
     }
 }
 
@@ -1054,6 +1229,7 @@ fn cross(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        gates: Vec::new(),
     }
 }
 
@@ -1175,6 +1351,7 @@ fn spine(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        gates: Vec::new(),
     }
 }
 
@@ -1309,6 +1486,7 @@ fn ring(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        gates: Vec::new(),
     }
 }
 
@@ -1420,10 +1598,11 @@ fn comb(side: u32) -> Floor {
         mess_columns: 1,
         wild: None,
         clear: Vec::new(),
+        gates: Vec::new(),
     }
 }
 
-/// The plan's floor, furnished: [`furnish`] on what the plan draws.
+/// The plan's floor, furnished: [`furnish_placer`] on what the plan draws.
 fn build_layout(
     kind: StationKind,
     plan: Plan,
@@ -1444,6 +1623,17 @@ pub(crate) fn build_placer(
     map_seed: u64,
 ) -> Placer {
     let floor = match plan {
+        // A generated station is the generator's own furnishing, or the
+        // drawn plan it falls back on.
+        Plan::Generated => {
+            return match crate::stationgen::generate(kind, map_seed) {
+                Some(generated) => generated.placer,
+                None => {
+                    let hand = Plan::hand_rolled(map_seed);
+                    build_placer(kind, hand, hand.side(kind), bunk_columns, map_seed)
+                }
+            };
+        }
         Plan::Hub => hub(side, bunk_columns),
         Plan::Fortress => fortress(side),
         Plan::Pod => pod(side),
@@ -1453,12 +1643,14 @@ pub(crate) fn build_placer(
         Plan::Comb => comb(side),
         // The biggest temperate town: what `BIMS_NAV_MAP=Surface` prints
         // and the tests walk. A planet's own is `layout_surface`.
-        Plan::Surface => crate::surface::floor(
-            side,
-            crate::surface::Biome::Temperate,
-            data::SURFACE_POPULATION.1,
-            map_seed,
-        ),
+        Plan::Surface => {
+            return crate::surface::build_town(
+                map_seed,
+                crate::surface::Biome::Temperate,
+                data::SURFACE_POPULATION.1,
+            )
+            .placer;
+        }
     };
     furnish_placer(kind, side, floor, map_seed)
 }
@@ -1707,12 +1899,10 @@ impl Placer {
 /// the wild, on a planet. Every fixture stands so that its use spot has
 /// deck beyond it, because the room's navigation will not walk a spot
 /// between two solids.
-fn furnish(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> ShipDesign {
-    furnish_placer(kind, side, floor, map_seed).design
-}
-
-/// [`furnish`], handing back the placer it furnished through — for the
-/// test that replays it.
+///
+/// The notes call this **`furnish`**; it hands back the placer it
+/// furnished through, since the generators check what it laid and the
+/// replay test replays it.
 pub(crate) fn furnish_placer(kind: StationKind, side: u32, floor: Floor, map_seed: u64) -> Placer {
     let mut placer = Placer::new(side);
     let mut rng = Rng::new(map_seed);

@@ -912,14 +912,12 @@ impl Residents {
     pub fn deal_roles(&mut self, station: &Station) {
         use bims::routine::{Role, deal};
         let town = station.plan == crate::station::Plan::Surface;
-        let gates: Vec<bims::math::Vec2> = if town {
-            crate::surface::gates()
-                .into_iter()
-                .map(|g| self.aboard.to_room(g))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        // A town's own gates (feature 112), where its guard walks.
+        let gates: Vec<bims::math::Vec2> = station
+            .gates
+            .iter()
+            .map(|g| self.aboard.to_room(g.round_point()))
+            .collect();
         let trades = !self.aboard.room.desks().is_empty();
         let seed = station.map_seed ^ 0x_524f_5554_494e_4500;
         let people = self.aboard.room.crew_count() as usize;

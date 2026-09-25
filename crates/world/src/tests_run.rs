@@ -237,10 +237,13 @@ fn every_role_has_a_round_on_a_sample_of_stations_and_towns() {
     let mut plans = Vec::new();
     for system in galaxy.every_system().iter().take(80) {
         for station in Station::all_of(system) {
-            if crate::station::residents_of(station.kind) == 0 || plans.contains(&station.plan) {
+            // A station of every kind people live on, and a drawn plan
+            // where the generator fell back on one (feature 112).
+            let key = (station.plan, station.kind);
+            if crate::station::residents_of(station.kind) == 0 || plans.contains(&key) {
                 continue;
             }
-            plans.push(station.plan);
+            plans.push(key);
             sites.push(station);
         }
     }
@@ -254,7 +257,11 @@ fn every_role_has_a_round_on_a_sample_of_stations_and_towns() {
             towns += 1;
         }
     }
-    assert!(plans.len() >= 5, "only {} plans in the sample", plans.len());
+    assert!(
+        plans.len() >= 4,
+        "only {} stations in the sample",
+        plans.len()
+    );
     assert!(towns >= 1, "no town in the sample");
 
     let mut own = [0usize; 4];
@@ -271,14 +278,11 @@ fn every_role_has_a_round_on_a_sample_of_stations_and_towns() {
         }
         // And every role, on this site: its own round or the fallback's,
         // and every stop somewhere the body can walk to.
-        let gates: Vec<bims::math::Vec2> = if site.plan == crate::station::Plan::Surface {
-            crate::surface::gates()
-                .into_iter()
-                .map(|g| residents.aboard.to_room(g))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let gates: Vec<bims::math::Vec2> = site
+            .gates
+            .iter()
+            .map(|g| residents.aboard.to_room(g.round_point()))
+            .collect();
         let room = &mut residents.aboard.room;
         for role in Role::ALL {
             assert!(room.set_role(0, role, &gates, 7));

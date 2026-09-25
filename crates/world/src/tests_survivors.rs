@@ -73,7 +73,18 @@ const TILE: f32 = shipdesign::TILE as f32;
 /// rolled across the galaxy, the jammer rule round them — that number
 /// came back, so nothing else moved: the run's jump and its town meet no
 /// site of theirs.
-const SURVIVORS: u64 = 0x_024e_0982_c931_c4bb;
+///
+/// **And once more, on purpose**: procedural stations and towns (feature
+/// 112). Every station but the spawn is generated from its seed and every
+/// town's streets, gates and lots are drawn, so the run's held station,
+/// the station it jumps to and the town it defends are other buildings,
+/// and every body in them stands somewhere else. Was
+/// `0x_024e_0982_c931_c4bb`; with every station on the drawn plan its
+/// seed rolled and every town on the template
+/// (`station::set_legacy_layouts`) that number came back
+/// (`tests_layoutgen::the_pins_come_back_under_the_old_layouts`), so
+/// nothing but the layouts moved it.
+const SURVIVORS: u64 = 0x_81b4_5bae_e33d_8446;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
 /// a crew.
@@ -155,7 +166,7 @@ fn run_for(world: &mut World, steps: u32) {
 /// where, a jump to a star next door and a mission there; and a second
 /// world whose own system is on the front, the trip to its town and the
 /// town's fight. Each world hashed as it ends.
-fn survivors() -> u64 {
+pub(crate) fn survivors() -> u64 {
     let mut hash = Survivors::new();
 
     // The trip to a held station, and the fight.

@@ -13,7 +13,7 @@ use worldgen::{BodyKind, GalaxyType, StationKind};
 use crate::data;
 use crate::fixture::{REFERENCE_MONEY, simulation_world};
 use crate::station::{Plan, build_placer, layout, layout_surface, side_of};
-use crate::surface::{Biome, GATE_WIDTH, GATE_X0, GUARD_POST, SURFACE_KIND, Surface, surface_id};
+use crate::surface::{Biome, GUARD_POST, SURFACE_KIND, Surface, surface_id};
 use crate::world::World;
 
 fn basic() -> World {
@@ -62,12 +62,23 @@ fn wild_count(design: &ShipDesign) -> u32 {
 #[test]
 fn a_town_is_a_place_the_room_can_live_in_and_can_be_walked_in_every_biome() {
     let tile = shipdesign::TILE as f32;
+    // Generated towns (feature 112) are other towns at every seed, so the
+    // full tier walks three more.
+    let mut seeds = SEEDS.to_vec();
+    if std::env::var("BIMS_SWEEP").is_ok() {
+        seeds.extend([7, 11, 0x_7a11_c0de]);
+    }
     for biome in Biome::ALL {
         for population in POPULATIONS {
-            for seed in SEEDS {
+            for &seed in &seeds {
                 let name = format!("{biome:?} town of {population} at seed {seed}");
-                let design = layout_surface(seed, biome, population);
+                let (design, gates) = crate::station::town(seed, biome, population);
                 assert_eq!(design.build_area, data::SURFACE_SIDE);
+                assert!(
+                    (2..=3).contains(&gates.len()),
+                    "{name}: {} gates",
+                    gates.len()
+                );
                 assert_eq!(
                     design_hash(&design),
                     design_hash(&layout_surface(seed, biome, population)),
@@ -134,20 +145,25 @@ fn a_town_is_a_place_the_room_can_live_in_and_can_be_walked_in_every_biome() {
                 assert!(walkable(&design, &grid, post), "{name}: the post is clear");
 
                 // The fort: a wall on every outermost tile of the deck
-                // but the pad's two and the two gates', the gates open
-                // where the west cross street meets the north wall and
-                // the south, six tiles wide and walkable.
+                // but the pad's two and the gates', every gate open where
+                // a street meets the north, south or east wall, six to
+                // eight tiles wide and walkable.
                 let (first, last) = (1i32, data::SURFACE_SIDE as i32 - 2);
                 let kind_at = |tile: (i32, i32)| {
                     let id = grid.get(shipdesign::Layer::Object, tile);
                     design.part(id).map(|p| p.kind)
                 };
-                let is_gate = |x: i32| (GATE_X0 as i32..(GATE_X0 + GATE_WIDTH) as i32).contains(&x);
+                let is_gate = |tile: (i32, i32)| {
+                    gates.iter().any(|g| {
+                        (6..=8).contains(&g.width)
+                            && g.opening().contains(&(tile.0 as u32, tile.1 as u32))
+                    })
+                };
                 let mid = data::SURFACE_SIDE as i32 / 2;
                 for i in first..=last {
                     for tile in [(i, first), (i, last), (first, i), (last, i)] {
                         let (x, y) = tile;
-                        if (y == first || y == last) && is_gate(x) {
+                        if is_gate(tile) {
                             assert!(
                                 walkable(&design, &grid, tile),
                                 "{name}: the gate at {tile:?} is open"

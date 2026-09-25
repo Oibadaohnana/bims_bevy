@@ -182,9 +182,10 @@ would have changed — only how fast the caller is expected to turn the crank.
 
 `crates/world/src/station.rs` turns every `StationBlueprint` of the system
 into a `ShipDesign` through `apply` — the same parts, the same rules — on
-one of six **plans** (`station::Plan`, rolled off `map_seed` on a stream
-of its own; the section "A station is one of six plans" below), sized
-by plan and kind (34 to 72 tiles) and dressed by `map_seed`, with the port
+a **plan** (`station::Plan`: generated from `map_seed` since feature
+112, or one of six drawn plans it falls back on; the section "A station
+is generated from its seed" below), sized by plan and kind (32 to 72
+tiles) and dressed by `map_seed`, with the port
 in the west skin and the array in the north. `World::stations` holds them
 from `World::start`; `Station::all_of` is the only place they are built
 (`Station::build_as` for a plan of your own, `Station::replan` to lay one
@@ -1541,35 +1542,113 @@ digits (`BIMS_NAV_MAP=Ring` picks a plan by name); run it after moving
 anything, and the walkability contract
 after that.
 
-## A station is one of six plans, and the spawn is the hub whatever it rolled
+## A station is generated from its seed, and the spawn is the hub whatever it rolled
 
-`station::Plan` (September 2026) is which building a station is: `Hub`,
-the plan above, and five more — `Pod`, `Cross`, `Spine`, `Ring`, `Comb`
-— rolled evenly off `map_seed ^ PLAN_SALT` (`Plan::rolled`; a stream of
-its own, so the layout's own rolls for bays, shelves, batteries and holes
-are what they were). `Station::plan` carries it, `station::layout(kind,
-plan, seed)` builds it and the cache is keyed by all three. The plan
-decides three things the seed does not: the **size** (`Plan::side`: the
-hub by kind as before, the others a base each — pod 34, cross 44, ring
-48, comb 52, spine 60 — plus 8 for an orbital, 4 a refinery, 2 an outpost
-or derelict, 0 a relay), the **corridors** (`Plan::corridor`: two wide
-on the pod, cross, ring and comb, three on the spine, five on the hub)
-and the **residents** (`Plan::residents`: pod 1, hub 2, cross 3, spine
-4, comb 5, ring 6 — `residents_of(kind)` caps it, so a relay houses one
-and a derelict nobody on any plan, and "does anybody live there" is
-still `residents_of(kind) > 0`). Each of the five newer plans has at
-least two bunks over its residents, for mercenaries.
+Feature 112 (September 2026). **Every station but the spawn is a building
+generated from its kind and its seed** (`crate::stationgen`), so two docks
+of one kind are two buildings rather than one of six drawn plans dressed
+differently. `Plan::rolled` answers `Plan::Generated` for every seed;
+`station::resolve(kind, plan, seed)` builds it and hands back the plan it
+really built — the generated one, or, when `stationgen::ATTEMPTS` (24)
+candidates all fail the contract, the drawn plan the seed rolled before
+feature 112 (`Plan::hand_rolled`, off `PLAN_SALT` as it always was), which
+`Station::plan` then carries. Over a thousand seeds a kind none has fallen
+back. `layout(kind, plan, seed)` is `resolve`'s design, cached by what was
+asked for; `forget_built` empties the cache for the determinism test.
 
-**The spawn is a hub whatever it rolled** — `World::start` calls
-`Station::replan(Plan::Hub)` on it — the way it is home whatever its
-stance rolled: a crew's first dock is the familiar one, every fixture
-test and `basic()` walk it, the pinned `REFERENCE_CHECKSUM` stands on its
-berth, and the arena (`station::arena`) is it laid out bigger. Every
-other station of the system, and every station after a jump, is what it
-rolled. So the variety is met by *travelling somewhere else*; `nix run
-.#test` still docks at a hub.
+**What stays drawn.** The spawn is a hub whatever it rolled (`World::start`
+calls `Station::replan(Plan::Hub)`), the arena is `station::arena`, the
+Machine Heart's fortress is `Plan::Fortress`: none moved, and neither did
+their design hashes or `bims --self-check`. The six drawn plans — `Hub`,
+`Pod`, `Cross`, `Spine`, `Ring`, `Comb`, `Plan::HAND` — are what the
+generator falls back on and what `BIMS_STATION_PLAN=Ring` (the app's dev
+dial, `station::set_plan_override`) forces; `BIMS_STATION_PLAN=legacy`
+(`set_legacy_layouts`) puts every station back on the drawn plan its seed
+rolled and every town on the old template, which is what the moved pins
+were checked against. `Plan::ALL` is `Generated` and the six; each drawn
+plan still has its size (`Plan::side`: the hub by kind, the others pod
+34, cross 44, ring 48, comb 52, spine 60, plus 8 for an orbital, 4 a
+refinery, 2 an outpost or derelict), its corridors and its residents as
+before.
 
-**How they are built.** `build_layout` is now `match plan` to a floor
+**The shape: a ladder.** Two or three long corridors (the **rails**, two
+to five wide) and two to four short ones (the **rungs**) crossing every
+rail. The rectangles between two rails and two rungs are **cells**, cut
+into rooms seven to twelve wide that share their walls — a deep cell into
+two rooms, one a rail — or, one in five, left as **void**: a courtyard
+with the hull's skin round it. Along each rail's outer side a **band** of
+rooms against the skin, each as deep as it rolled, so the silhouette
+steps; a band may be missing and a room of one may be. A rung may run on
+through a band as a docking **arm**; the rails stop at a closing rung or
+run on to the skin (an **open end**, with cells between them). The ladder
+lies east–west (**end on**, the reactor room's door opening into the
+first rung) or, two times in five, north–south (**side on**, into the
+first rail). A relay is kept full — no void, no missing room — since it
+is small enough that a void is the room a role wanted. Every dial is
+`stationgen::dials(kind)`; the build area is the farthest tile plus the
+margin and must fall in `stationgen::side_range(kind)` — relay 32–46,
+outpost and derelict 38–54, refinery 42–58, orbital 50–66, so a relay is
+never an orbital's size and nothing is bigger than the drawn spine's 68.
+Cheap failures — the wrong size, no room for a role — are drawn again off
+the same stream up to `SKETCHES` (12) times before an attempt is spent.
+
+**The reactor room** is the drawn plans' — `x` 1 to `LOBBY_EAST` (10), 13
+or 15 tall, the port in its west skin on rows `py`, `py + 1` rolled so the
+desk and the reactor along its north wall and the batteries and life
+support along its south are clear of them, and its door on the same rows —
+so the straight run in from the port (`MIN_RUN`, nine) and
+`stage_droid_fight_for_probe`'s and the ashore spot's tiles are open deck,
+as on every plan. The big plant is two rows above the port's.
+
+**Roles** (`deal`): quarters, mess, research, heads and a store must be
+dealt, the lab and the rec room where a room is left, and every room left
+over is another store; each goes to the smallest room its minimum fits.
+The minimums are `furnish`'s own offsets, pinned as constants:
+`LOBBY_MIN` (8, 11), `MESS_MIN` (8, 6), `QUARTERS_MIN` (7, 7) with
+`bunks_in(w, h)` ≥ the kind's residents and two, `HEADS_MIN` (5, 4),
+`RESEARCH_MIN` (7, 6), `LAB_MIN` (7, 5), `REC_MIN` (6, 5), `STORE_MIN`
+(5, 4). Residents are `residents_of(kind)` — two, one on a relay, none on
+a derelict, which is holed as ever.
+
+**Doors are chosen after a trial furnishing.** The floor is furnished once
+with every room shut; a door goes in a wall facing corridor deck where its
+two tiles, the two inside and the two outside are free of whatever the
+furnisher stood there (`door_sites`), and one room in four gets a second
+on another wall — a room to go through. Then the real floor is furnished.
+Walls are only rooms' rings (`enclose`); a corridor block has none of its
+own, so crossings open into each other and a room's wall *is* the
+corridor's edge — no one-tile strip is ever left between them.
+
+**Airlocks, the array, the cover.** The port first, then the kind's extras
+— one on a relay, one or two on an outpost, derelict or refinery, two or
+three on an orbital — on a straight run of skin with space beyond both
+tiles and corridor deck two deep inside, farthest from the port first, ten
+tiles apart at the least; `droid::arrival_airlock` has something to
+choose. The array on a straight run of north skin. Sandbags only across a
+corridor three wide or more, a line from one wall leaving two, straight
+across that corridor alone (not in a crossing), none within three tiles
+of a doorway, the reactor room's or an airlock's.
+
+**The check** (`stationgen::check`, on the furnished candidate): the port
+first and in the west skin, the array facing north, the reactor room big
+enough, the straight run, every door two deep clear both sides, no
+diagonal pinch between two pieces of structure, no hull that meets itself
+only at a corner, the flood, beds, airlocks, the two desks, and at least
+one **loop** — a piece of structure with deck all round it, a cell or a
+courtyard a crew can go round either way. **The flood** (`reach`): from
+the window inside the port, a body is a two-by-two window of free tiles
+moved a tile at a time, sandbags counted as solid, and every doorway and
+airlock must be reached so; from there, a tile at a time four ways, every
+use spot and every open tile of deck. The furnisher itself leaves one-tile
+gaps — past the end of a run of trays, between bunks — which the drawn
+plans have too and the room's grid walks (`a_one_tile_corridor_can_be_
+walked`); a four-way step never takes a diagonal one. So the flood is the
+stricter of the two, and a layout it passes that `Nav` fails is a bug in
+the flood. `shipdesign::validate` is not in the loop — it was 85% of the
+cost and is redundant with the flood; the tests ask it.
+
+**How the drawn plans are built** (the generated one is above; both end
+in the same `furnish`). `build_layout` is `match plan` to a floor
 function — `hub`, `pod`, `cross`, `spine`, `ring`, `comb` — each
 returning a `Floor` (the hull blocks, the airlocks with the port first,
 the array tile, the reactor room's deck, the walls and doors, the cover,
@@ -1600,10 +1679,20 @@ have none; lamps hang on the *inner skin* of a ring corridor as happily
 as on a wall. The port's straight run of deck stays at least nine tiles
 deep everywhere for `stage_droid_fight_for_probe` and the ashore spot.
 `a_station_s_plan_is_rolled_off_its_seed_and_the_spawn_is_a_hub` pins
-the roll, that all six turn up in the default galaxy, that no two plans
-share (size, corridor, residents), and the spawn rule;
-`a_station_is_a_place_the_room_can_live_in` and the walkability contract
-run every plan on every kind.
+that every seed rolls the generated plan, that a station fallen back is
+its drawn plan at its size, that no two drawn plans share (size,
+corridor, residents), and the spawn rule.
+
+**Tests**: `tests_layoutgen.rs` — the determinism (twice, and after
+`forget_built`), `generated_stations_keep_their_invariants` (fifty seeds a
+kind, a thousand under `BIMS_SWEEP`, printing the spread of the size, the
+hull, the rooms, the corridor deck, the loops and the airlocks and failing
+above two in a hundred fallen back), `twenty_docks_of_a_kind_are_twenty_
+buildings` (no two share hull, walls and doors),
+`the_default_galaxy_s_stations_are_generated`; the walkability contract in
+`tests.rs` walks the generated plan on every kind (eight seeds each under
+`BIMS_SWEEP`). `print_candidate` (ignored) prints a candidate and where
+the flood stopped, `why_candidates_fail` why attempts are thrown away.
 
 ## Construction is stage 7, and a site is paid for out of the pool
 
@@ -2082,8 +2171,10 @@ hostile or friendly"); now every town is a stranger's, or the machines'
 (`world_paint::paint_map`) as it rings a station. What still reads the
 roll is `spawn_with_ground`, below.
 
-**The plan is a town** (`surface::floor(side, biome, population, seed)`,
-feature 54): the whole build area bar its rim is ground — `Floor::open`,
+**The plan is a town** (feature 54; its streets drawn from its seed since
+feature 112, "A town's streets are drawn from its seed" below, and what
+this paragraph describes the fixed **template** it falls back on,
+`surface::template_floor(side, biome, population, seed)`): the whole build area bar its rim is ground — `Floor::open`,
 **no skin**: every tile deck — and since feature 55 the deck's edge is
 not the world's, see "The town stands on a plain" below — and since
 feature 66 **built like a fort**: a `Wall` on every outermost tile of
@@ -2252,6 +2343,63 @@ descent's growing disc (`LANDING_GROWTH`), the blackout over a landing
 and the strip's **Land** button went with the flown landing; a
 settlement is named for its planet ("Ice world 1 settlement",
 `node_name`).
+
+## A town's streets are drawn from its seed (feature 112)
+
+`surface::build_town(seed, biome, population)` draws a town with
+`surface::towngen` — up to `towngen::ATTEMPTS` (16) drawings off
+`seed ^ TOWNGEN_SALT`, each furnished and checked, the template when all
+fail (none has, over 540 drawings) — and hands back the placer, the gates
+and which attempt it was; `station::town` is its design and gates,
+`Surface::station` builds the town's `Station` from them with
+`Station::gates` set.
+
+**Fixed**, since the rest of the world is measured from it: the side, the
+fort's wall, the pad in the middle of the west wall, the yard, the watch
+house with the dish and `GUARD_POST` south of the pad, and the trading
+house north of it — the trading hall, the research room opening onto the
+first cross street and the store onto the main street — exactly where the
+template has them. **Drawn**: the main street's width (six to eight), east
+from the pad to the east wall; two or three cross streets, the first
+beside the trading house and out to the north wall, each running to a wall
+or to the side street it meets and across the main street; a side street
+north of the main street and one south of it, wall to wall, or not; the
+hall's lot and its place in it, on the main street's north side, still a
+chair each; and two or three **gates**, on as many walls as there are
+candidates, where a street meets the north, south or east wall. Every
+street ends at a wall or at another street. Then along the east–west
+streets' frontages — edges, nearest the middle first — the food, far from
+the pad first (four-strip field blocks, or greenhouses on an arctic
+world), then the quarters, the heads, the other bathhouses and the houses
+(`Town::pick_house`, the same rule) until there is a bunk each and two
+over. A building goes where it overlaps no street, no other building, no
+reserved ground (the yard, the trading house, the watch house and the
+post, a gate's apron) and comes no nearer anything than two tiles
+(`Taken`). Standing lights down every street and beside every gate; the
+streets, the yard, the field blocks and every gate's apron are `clear`,
+so the wild keeps off them.
+
+**A gate** (`surface::Gate`: which wall, from which tile, how wide) is an
+opening in the wall a street's width, a pier `GATE_PIER` deep inside either
+side and a standing light beyond each pier (`Gate::piers`, `lights`,
+`apron`). Gates are listed north, east, south; a wave takes them in turn
+(`gate_for_wave`), its lander beyond the one it came by (`Gate::beyond`),
+the wave a tile inside it (`Gate::spot`), and the guard's round stops a
+couple of tiles inside each (`Gate::round_point`).
+
+**The checks.** `towngen::check_trial`, on the town furnished without its
+wild: every doorway and every gate's opening reached by a body two tiles
+wide from the pad, every use spot and the post from there
+(`stationgen::reach`), a chair and a bed each and two beds over, the food.
+`check_built`, with the wild: every free tile reached four ways from the
+pad, every gate's opening, and nothing wild on or beside a use spot, a
+standing light, the post or a doorway's approach — the wild's own
+keep-outs, which its pocket fill could otherwise break. The town test in
+`tests_surface.rs` walks every biome at five, seventeen and thirty on two
+seeds (five under `BIMS_SWEEP`) through the room's `Nav`;
+`tests_layoutgen::a_generated_town_has_its_gates_its_hall_and_its_beds`
+counts the fallbacks and asks that each gate opens onto open ground on the
+plain. `print_town` and `why_towns_fail` (ignored) look at one.
 
 ## The town stands on a plain, and the plain is walked on windows
 
@@ -3275,8 +3423,9 @@ size of the fight.
   `data::ASHORE_TILES` inside it, spread round the spot in rings so a
   wave does not land on one tile, the way `Residents::post_boarders`
   posted a raider's boarders until feature 104. On a surface, just inside the **gate** its lander set
-  down beyond: north for an odd wave and south for an even one
-  (`droid::gate_spot`). The lander itself is drawn on the plain, which is
+  down beyond: the town's gates in turn, the first for wave one
+  (`surface::gate_for_wave`, `Gate::spot`) — on the template's two, north
+  for an odd wave and south for an even one, as before feature 112. The lander itself is drawn on the plain, which is
   the crew's room's to draw — **a town's own room is the deck alone and
   has no plain in it**, so the machines are posted at the gate rather
   than beside the lander and walk in from there. That is the one place
@@ -4067,8 +4216,8 @@ now: the whole galaxy is theirs by day 480 to 715.
 `open_residents` calls `Residents::deal_roles` unless the station is
 hostile then (the machines', since feature 104) — off `map_seed` and the body's index (`bims::routine::deal`:
 a town's first its guard, a trading station's first its trader, the rest
-rolled, a mercenary a civilian), the town's two gates added to the guard's
-ways in (`surface::gates`, off the wall's own constants). A body taken
+rolled, a mercenary a civilian), the town's gates added to the guard's
+ways in (`Station::gates`, each `Gate::round_point`). A body taken
 aboard — a hire, a townsperson joining — loses its round
 (`take_resident_aboard` → `Game::clear_routine`). The residents' room is
 not in the checksum, so the rounds are not either; `tests_run.rs` pins that

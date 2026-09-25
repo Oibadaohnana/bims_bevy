@@ -128,6 +128,17 @@ fn commands() -> Vec<(&'static str, u64)> {
 }
 
 /// What each command came to before the deletion.
+///
+/// **Three moved once since, on purpose**: procedural towns (feature
+/// 112). `test_planet`, `droids_planet` and `defense` set the ship down at
+/// a town, and a town's streets, gates, hall and lots are drawn from its
+/// seed now, so everybody on it stands somewhere else. They were
+/// `0x_8f91_50e0_31b0_10ec`, `0x_e0b9_f2bd_f4b4_10db` and
+/// `0x_0e7f_1c4d_4f87_9ace` ([`PINNED_BEFORE_112`]); with every town on
+/// the template and every station on its drawn plan
+/// (`world::station::set_legacy_layouts`) all eleven came back
+/// (`the_commands_come_back_under_the_old_layouts`). The rest did not move:
+/// every other command docks at the spawn, a hub still, or the arena.
 const PINNED: [(&str, u64); 11] = [
     ("simulation", 0x_1253_d38e_edbd_1192),
     ("game", 0x_b817_4a5d_28b1_de71),
@@ -135,9 +146,9 @@ const PINNED: [(&str, u64); 11] = [
     ("tier2_test", 0x_2f3e_804a_355f_9cf3),
     ("combat_droids_medic", 0x_cc8b_5e2f_2320_a411),
     ("test", 0x_4d32_ad42_ac1c_4591),
-    ("test_planet", 0x_8f91_50e0_31b0_10ec),
-    ("droids_planet", 0x_e0b9_f2bd_f4b4_10db),
-    ("defense", 0x_0e7f_1c4d_4f87_9ace),
+    ("test_planet", 0x_2801_0e83_e79b_4d1c),
+    ("droids_planet", 0x_0ce0_48d0_5395_ca00),
+    ("defense", 0x_8714_ccca_e073_f52b),
     ("crisis", 0x_0876_98de_a683_2bfa),
     ("jammer", 0x_ea1e_1f88_d357_2888),
 ];
@@ -232,4 +243,40 @@ fn the_fixtures_and_a_run_s_deck_are_drawn_as_they_were() {
         .map(|((name, g), (_, p))| format!("{name}: {g:#018x} where {p:#018x} was pinned"))
         .collect();
     assert!(moved.is_empty(), "pictures moved:\n{}", moved.join("\n"));
+}
+
+/// What `PINNED` was before feature 112, for the check below.
+const PINNED_BEFORE_112: [(&str, u64); 11] = [
+    ("simulation", 0x_1253_d38e_edbd_1192),
+    ("game", 0x_b817_4a5d_28b1_de71),
+    ("droids", 0x_df45_19b3_735c_4a33),
+    ("tier2_test", 0x_2f3e_804a_355f_9cf3),
+    ("combat_droids_medic", 0x_cc8b_5e2f_2320_a411),
+    ("test", 0x_4d32_ad42_ac1c_4591),
+    ("test_planet", 0x_8f91_50e0_31b0_10ec),
+    ("droids_planet", 0x_e0b9_f2bd_f4b4_10db),
+    ("defense", 0x_0e7f_1c4d_4f87_9ace),
+    ("crisis", 0x_0876_98de_a683_2bfa),
+    ("jammer", 0x_ea1e_1f88_d357_2888),
+];
+
+/// Not a test of its own, and **run alone** (`--exact`), since it flips
+/// the process-wide switch to the layouts before feature 112: with every
+/// station on the drawn plan its seed rolled and every town on the
+/// template, every command and every picture comes back to what it was —
+/// so the layouts are the whole of what moved them.
+/// `cargo test -p ship -- --ignored --exact --nocapture
+/// tests_survivors::the_commands_come_back_under_the_old_layouts`.
+#[test]
+#[ignore]
+fn the_commands_come_back_under_the_old_layouts() {
+    world::station::set_legacy_layouts(true);
+    let got = commands();
+    let pictures = pictures();
+    world::station::set_legacy_layouts(false);
+    for ((name, g), (_, p)) in got.iter().zip(PINNED_BEFORE_112.iter()) {
+        println!("{name}: {g:#018x} under the old layouts, {p:#018x} before");
+    }
+    assert_eq!(got.to_vec(), PINNED_BEFORE_112.to_vec());
+    assert_eq!(pictures.to_vec(), PICTURES.to_vec());
 }

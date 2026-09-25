@@ -39,19 +39,22 @@
 //! # A fort, and the wild inside it
 //!
 //! What is built is a **town** sized by its population and shaped by its
-//! biome ([`floor`]), and it is built like a fort: a **wall** round the
-//! whole of the deck on its outermost tiles, the pad in the west wall
-//! (the ship docks into the wall as it docks into a station's skin) and
-//! two **gates** — an opening the width of a street, with a pier of wall
-//! either side — where the west cross street meets the north wall and
-//! the south. Inside: the watch house and the trading house by the pad,
-//! a gathering hall, houses along three streets, bathhouses, fields or
+//! biome — its streets, gates and lots drawn from its seed (feature 112,
+//! `towngen`, [`build_town`]), or the fixed template ([`template_floor`])
+//! where no drawing keeps the contract — and it is built like a fort: a
+//! **wall** round the whole of the deck on its outermost tiles, the pad in
+//! the west wall (the ship docks into the wall as it docks into a
+//! station's skin) and two or three **gates** ([`Gate`]) — an opening the
+//! width of a street, with a pier of wall either side — where a street
+//! meets the north, south or east wall. Inside: the watch house and the
+//! trading house by the pad, a gathering hall, houses along the streets,
+//! bathhouses, fields or
 //! greenhouses, and then the wild ([`wild`]) — forest, rock, water —
 //! over every tile of ground the town does not use, up to the wall. A
 //! Bim leaving the ship can walk any way; what stops it is a tree, a
 //! boulder, a house wall or the water, never a line drawn on the ground,
-//! and the cross street runs out through both gates onto the plain so
-//! there is always a way out. The rules are the station plans'
+//! and a street runs out through every gate onto the plain so there is
+//! always a way out. The rules are the station plans'
 //! (`crates/world/CLAUDE.md`, the walkability contract): every door two
 //! tiles, every use spot with deck beyond it, and nothing left that the
 //! room's navigation cannot reach from the pad.
@@ -66,7 +69,95 @@ use worldgen::rng::{Purpose, Rng, mix, seed_for};
 use worldgen::{BodyKind, StarSystem, StationKind, Stock};
 
 use crate::data;
-use crate::station::{Block, Floor, Placer, Plan, Station, enclose, layout_surface};
+use crate::station::{Block, Floor, Placer, Plan, Station, enclose, furnish_placer, town};
+
+mod towngen;
+
+/// A town furnished: its placer, its gates, and which drawing it was — the
+/// attempt that passed, or `None` for the template it fell back on.
+pub(crate) struct BuiltTown {
+    pub(crate) placer: Placer,
+    pub(crate) gates: Vec<Gate>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) attempt: Option<u32>,
+}
+
+/// A planet's town from its seed, its biome and how many live there
+/// (feature 112): a drawing of `towngen` that keeps the contract — its
+/// streets, gates, hall and lots its own — furnished, and the wild laid
+/// round it; or, when `towngen::ATTEMPTS` drawings all fail, the fixed
+/// template ([`template_floor`]). Deterministic in the three, integers
+/// only, off a stream of its own.
+/// Every drawing a town's seed makes and how each ended, up to the first
+/// that passes — for the test that prints why drawings are thrown away.
+#[cfg(test)]
+pub(crate) fn town_attempts(
+    map_seed: u64,
+    biome: Biome,
+    population: u32,
+) -> Vec<Result<(), String>> {
+    let side = data::SURFACE_SIDE;
+    let base = Rng::new(map_seed ^ towngen::TOWNGEN_SALT);
+    let mut out = Vec::new();
+    for attempt in 0..towngen::ATTEMPTS {
+        let mut rng = base.branch(attempt as u64);
+        let outcome = match towngen::draw(biome, population, &mut rng) {
+            Err(e) => Err(format!("draw {e}")),
+            Ok(floor) => {
+                let mut bare = floor.clone();
+                bare.wild = None;
+                let trial = furnish_placer(SURFACE_KIND, side, bare, map_seed);
+                match towngen::check_trial(&trial, &floor, population, biome) {
+                    Err(e) => Err(format!("{e:?}")),
+                    Ok(()) => {
+                        let placer = furnish_placer(SURFACE_KIND, side, floor.clone(), map_seed);
+                        towngen::check_built(&placer, &floor).map_err(|e| format!("built {e:?}"))
+                    }
+                }
+            }
+        };
+        let done = outcome.is_ok();
+        out.push(outcome);
+        if done {
+            break;
+        }
+    }
+    out
+}
+
+pub(crate) fn build_town(map_seed: u64, biome: Biome, population: u32) -> BuiltTown {
+    let side = data::SURFACE_SIDE;
+    if !crate::station::legacy_layouts() {
+        let base = Rng::new(map_seed ^ towngen::TOWNGEN_SALT);
+        for attempt in 0..towngen::ATTEMPTS {
+            let mut rng = base.branch(attempt as u64);
+            let Ok(floor) = towngen::draw(biome, population, &mut rng) else {
+                continue;
+            };
+            let mut bare = floor.clone();
+            bare.wild = None;
+            let trial = furnish_placer(SURFACE_KIND, side, bare, map_seed);
+            if towngen::check_trial(&trial, &floor, population, biome).is_err() {
+                continue;
+            }
+            let placer = furnish_placer(SURFACE_KIND, side, floor.clone(), map_seed);
+            if towngen::check_built(&placer, &floor).is_ok() {
+                return BuiltTown {
+                    placer,
+                    gates: floor.gates,
+                    attempt: Some(attempt),
+                };
+            }
+        }
+    }
+    let floor = template_floor(side, biome, population, map_seed);
+    let gates = floor.gates.clone();
+    BuiltTown {
+        placer: furnish_placer(SURFACE_KIND, side, floor, map_seed),
+        gates,
+        attempt: None,
+    }
+}
 
 /// The bit that marks a station id as a surface's. The generator numbers
 /// its stations from nought and never gets near this.
@@ -134,18 +225,149 @@ pub const GUARD: u32 = 0;
 /// 104); it is where the town's plan is measured from.
 pub const GUARD_POST: (u32, u32) = (5, data::SURFACE_SIDE / 2 + 8);
 
-/// The two gates in a town's wall, in the surface's design units: the
-/// middle of each opening, a couple of tiles inside the wall (feature 102)
-/// — the ways in a town's guard walks between, since a gate is a gap in
-/// the wall rather than a fixture the room knows. Read off the plan's own
-/// constants, so every town has them where its wall has them.
-pub fn gates() -> [DVec2; 2] {
-    let t = TILE as f64;
-    let x = (GATE_X0 as f64 + GATE_WIDTH as f64 * 0.5) * t;
-    [
-        dvec2(x, (FIRST as f64 + 2.5) * t),
-        dvec2(x, (LAST as f64 - 1.5) * t),
-    ]
+/// Which wall of a town a gate is in. A gate is never in the west wall,
+/// which has the pad.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Wall {
+    North,
+    East,
+    South,
+}
+
+impl Wall {
+    /// The order a town's gates are listed in: north, east, south.
+    pub fn order(self) -> u32 {
+        match self {
+            Wall::North => 0,
+            Wall::East => 1,
+            Wall::South => 2,
+        }
+    }
+}
+
+/// A gate in a town's wall (feature 112 made it data, where it had been
+/// two constants): an opening `width` tiles wide from tile `from` along
+/// its wall — a column for the north and south walls, a row for the east
+/// — where a street runs out onto the plain, with a pier of wall
+/// [`GATE_PIER`] deep inside either side and a standing light beyond each
+/// pier. A gate is a gap in the wall rather than a fixture the room knows:
+/// the town's guard walks between its gates and its pad, and a machines'
+/// lander sets down beyond one and its wave walks in through it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Gate {
+    pub wall: Wall,
+    pub from: u32,
+    pub width: u32,
+}
+
+impl Gate {
+    /// The middle of the opening along its wall, in design units.
+    fn along(&self) -> f64 {
+        (self.from as f64 + self.width as f64 * 0.5) * TILE as f64
+    }
+
+    /// The tiles of the wall the opening is.
+    pub fn opening(&self) -> Vec<(u32, u32)> {
+        (self.from..self.from + self.width)
+            .map(|i| match self.wall {
+                Wall::North => (i, FIRST),
+                Wall::South => (i, LAST),
+                Wall::East => (LAST, i),
+            })
+            .collect()
+    }
+
+    /// The piers: a column of wall either side of the opening (a row, in
+    /// the east wall), [`GATE_PIER`] deep inside it.
+    pub(crate) fn piers(&self) -> Vec<(u32, u32)> {
+        let mut out = Vec::new();
+        for i in [self.from - 1, self.from + self.width] {
+            for d in 1..=GATE_PIER {
+                out.push(match self.wall {
+                    Wall::North => (i, FIRST + d),
+                    Wall::South => (i, LAST - d),
+                    Wall::East => (LAST - d, i),
+                });
+            }
+        }
+        out
+    }
+
+    /// A standing light beyond each pier.
+    pub(crate) fn lights(&self) -> [(u32, u32); 2] {
+        let (a, b) = (self.from - 3, self.from + self.width + 2);
+        match self.wall {
+            Wall::North => [(a, FIRST + GATE_PIER), (b, FIRST + GATE_PIER)],
+            Wall::South => [(a, LAST - GATE_PIER), (b, LAST - GATE_PIER)],
+            Wall::East => [(LAST - GATE_PIER, a), (LAST - GATE_PIER, b)],
+        }
+    }
+
+    /// The ground inside the gate nothing is built on — the piers, their
+    /// lights and the street's mouth — as `(x0, y0, x1, y1)`.
+    pub(crate) fn apron(&self) -> (i32, i32, i32, i32) {
+        let (a, b) = (self.from as i32 - 4, (self.from + self.width) as i32 + 3);
+        let (first, last, pier) = (FIRST as i32, LAST as i32, GATE_PIER as i32);
+        match self.wall {
+            Wall::North => (a, first + 1, b, first + pier + 2),
+            Wall::South => (a, last - pier - 2, b, last - 1),
+            Wall::East => (last - pier - 2, a, last - 1, b),
+        }
+    }
+
+    /// The way into the town through it, a unit step.
+    pub fn inward(&self) -> (f64, f64) {
+        match self.wall {
+            Wall::North => (0.0, 1.0),
+            Wall::South => (0.0, -1.0),
+            Wall::East => (-1.0, 0.0),
+        }
+    }
+
+    /// Where a town's guard's round stops at it (feature 102): the middle
+    /// of the opening a couple of tiles inside the wall, in design units.
+    pub fn round_point(&self) -> DVec2 {
+        let t = TILE as f64;
+        match self.wall {
+            Wall::North => dvec2(self.along(), (FIRST as f64 + 2.5) * t),
+            Wall::South => dvec2(self.along(), (LAST as f64 - 1.5) * t),
+            Wall::East => dvec2((LAST as f64 - 1.5) * t, self.along()),
+        }
+    }
+
+    /// Where a wave that walks in by it is stood: a tile inside the wall,
+    /// in the middle of the opening, in design units.
+    pub fn spot(&self) -> DVec2 {
+        let t = TILE as f64;
+        let side = data::SURFACE_SIDE as f64;
+        match self.wall {
+            Wall::North => dvec2(self.along(), 2.5 * t),
+            Wall::South => dvec2(self.along(), (side - 3.5) * t),
+            Wall::East => dvec2((side - 3.5) * t, self.along()),
+        }
+    }
+
+    /// Where a lander sets down beyond it: `out` past the edge of the
+    /// ground on its side, in design units, and the way out, a unit step.
+    pub fn beyond(&self, out: f64) -> (DVec2, DVec2) {
+        let edge = data::SURFACE_SIDE as f64 * TILE as f64;
+        match self.wall {
+            Wall::North => (dvec2(self.along(), -out), dvec2(0.0, -1.0)),
+            Wall::South => (dvec2(self.along(), edge + out), dvec2(0.0, 1.0)),
+            Wall::East => (dvec2(edge + out, self.along()), dvec2(1.0, 0.0)),
+        }
+    }
+}
+
+/// The gate a town's wave `wave` comes through: its gates in turn, the
+/// first for wave one — so a town with a north gate and a south gate, the
+/// template's, has its odd waves come in by the north and its even ones
+/// by the south, as every town did before gates were data.
+pub fn gate_for_wave(gates: &[Gate], wave: u32) -> Option<Gate> {
+    let n = gates.len();
+    (n > 0).then(|| gates[(wave as usize + n - 1) % n])
 }
 
 /// One landable body's settlement, as rolled: its seed, its side and its
@@ -258,7 +480,7 @@ impl Surface {
 
     pub fn station(&self) -> &Station {
         self.built.get_or_init(|| {
-            let design = layout_surface(self.map_seed, self.biome, self.population);
+            let (design, gates) = town(self.map_seed, self.biome, self.population);
             let half = design.build_area as f64 * TILE as f64 / 2.0;
             Station {
                 id: self.id,
@@ -273,8 +495,18 @@ impl Surface {
                 stock: self.stock,
                 bias: self.bias,
                 hostile: self.hostile,
+                gates,
             }
         })
+    }
+
+    /// The town drawn from `seed` instead, from the next time it is asked
+    /// for — for a probe that wants a layout it has a seed for
+    /// (`World::reseed_ground_for_probe`). The ground beyond is the new
+    /// seed's too.
+    pub fn reseed(&mut self, seed: u64) {
+        self.map_seed = seed;
+        self.built = OnceLock::new();
     }
 
     /// Whether the station has been built yet — for the tests, which
@@ -338,13 +570,15 @@ const STORE: Block = Block::new(TOWN_X0 + 10, 39, CROSS_A_X0 - 1, MAIN_Y0 - 1);
 /// its tables want and this many rows of them deep.
 const HALL_X0: u32 = CROSS_A_X0 + STREET;
 const HALL_ROWS: u32 = 3;
-/// The two gates in the perimeter wall: an opening the west cross
-/// street's width where it meets the north wall and the south, so the
-/// street runs out through both onto the plain, a pier of wall this many
-/// tiles deep either side of each, and a standing light beyond each pier.
-pub const GATE_X0: u32 = CROSS_A_X0;
-pub const GATE_WIDTH: u32 = STREET;
-const GATE_PIER: u32 = 2;
+/// The template's two gates in the perimeter wall: an opening the west
+/// cross street's width where it meets the north wall and the south, so
+/// the street runs out through both onto the plain. A generated town's
+/// gates are its own ([`Floor::gates`]); every gate has a pier of wall
+/// [`GATE_PIER`] tiles deep either side and a standing light beyond each
+/// pier.
+const GATE_X0: u32 = CROSS_A_X0;
+const GATE_WIDTH: u32 = STREET;
+pub const GATE_PIER: u32 = 2;
 /// The town's own rolls — where a house stands, what stands in it, the
 /// shape of the wild — come off the seed salted, so the furnisher's rolls
 /// (the batteries, the shelves) are what the station plans' are.
@@ -650,8 +884,11 @@ impl Town {
     }
 }
 
-/// The town's floor plan, sized by its population and shaped by its
-/// biome, deterministic in the four.
+/// The **template** town's floor plan — every town before feature 112,
+/// and a town now only when `towngen` draws none that keeps the contract
+/// ([`build_town`]) — sized by its population and shaped by its biome,
+/// deterministic in the four. Its gates are [`GATE_X0`]'s street where it
+/// meets the north wall and the south.
 ///
 /// The whole build area bar its rim is ground — `Floor::open`, no skin,
 /// deck to the edge — and a **wall** stands round it on the outermost
@@ -685,7 +922,7 @@ impl Town {
 /// Every door is two tiles and every fixture stands clear as the station
 /// plans' do, for the room's navigation (`crates/world/CLAUDE.md`, the
 /// walkability contract): the tests walk every town from the pad.
-pub(crate) fn floor(side: u32, biome: Biome, population: u32, seed: u64) -> Floor {
+pub(crate) fn template_floor(side: u32, biome: Biome, population: u32, seed: u64) -> Floor {
     debug_assert_eq!(side, data::SURFACE_SIDE);
     let last = side - 2;
     let mid = side / 2;
@@ -925,6 +1162,18 @@ pub(crate) fn floor(side: u32, biome: Biome, population: u32, seed: u64) -> Floo
         mess_columns: columns,
         wild: Some(biome),
         clear: town.clear,
+        gates: vec![
+            Gate {
+                wall: Wall::North,
+                from: GATE_X0,
+                width: GATE_WIDTH,
+            },
+            Gate {
+                wall: Wall::South,
+                from: GATE_X0,
+                width: GATE_WIDTH,
+            },
+        ],
     }
 }
 

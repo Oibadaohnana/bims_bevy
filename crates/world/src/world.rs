@@ -6137,6 +6137,50 @@ impl World {
     /// view about the planet. How the ground is looked at without a trip
     /// there — `test_planet`, `droids_planet` and `defense` in the app.
     /// False in a system with nowhere to land.
+    /// The station alongside built again as the station `seed` generates
+    /// (feature 112), its kind and its place kept: the seed put on it and
+    /// its plan rolled again off that, then docked from the start as
+    /// `kind` over its own when one is given. Docked from the start as
+    /// [`World::arena_dock_for_probe`] docks — so a layout seen on a
+    /// screenshot is the layout `BIMS_STATION_SEED` asks for, and the
+    /// `nav_map_of_a_station` probe prints it with the same seed and kind.
+    /// `false`, and nothing moved, away from a station's berth.
+    pub fn regenerate_dock_for_probe(
+        &mut self,
+        seed: u64,
+        kind: Option<worldgen::StationKind>,
+    ) -> bool {
+        let Some(id) = self.ship.state.station() else {
+            return false;
+        };
+        let Some(i) = self.stations.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let station = &mut self.stations[i];
+        station.map_seed = seed;
+        if let Some(kind) = kind {
+            station.kind = kind;
+        }
+        station.replan(crate::station::Plan::rolled(seed));
+        self.undock_for_probe();
+        self.residents = None;
+        self.ship.state = ShipState::Docked { station: id };
+        self.dock_at(id);
+        true
+    }
+
+    /// The town [`World::land_for_probe`] sets down at drawn from `seed`
+    /// instead of its own (feature 112) — its biome and its population
+    /// kept, so `BIMS_TOWN_SEED`, `BIMS_TOWN_BIOME` and
+    /// `BIMS_TOWN_POPULATION` on the `nav_map_of_a_station` probe print it.
+    /// Before the landing; the town is built when it is first asked for.
+    /// Its biome and population, or `None` with no ground in the system.
+    pub fn reseed_ground_for_probe(&mut self, seed: u64) -> Option<(crate::surface::Biome, u32)> {
+        let surface = self.surfaces.first_mut()?;
+        surface.reseed(seed);
+        Some((surface.biome, surface.population))
+    }
+
     pub fn land_for_probe(&mut self) -> bool {
         let Some(body) = self.surfaces.first().map(|s| s.body) else {
             return false;
@@ -7123,21 +7167,15 @@ impl World {
         if !alive && !(self.is_manufacturer_held(station) && self.manufacturers_standing() > 0) {
             return None;
         }
-        let design = &self.station(station)?.design;
+        let site = self.station(station)?;
+        let design = &site.design;
         if crate::surface::surface_body(station).is_some() {
             // A lander on the plain beyond the gate its wave walked in
-            // by: north for an odd wave, south for an even one.
-            let ((x, _), (_, fy)) = droidplan::gate_spot(design.build_area, wave);
-            let t = shipdesign::TILE as f64;
-            let out = data::DROID_LANDER_TILES * t;
-            let y = if fy > 0.0 {
-                // The wave walks south, so the lander is north of the
-                // wall: beyond the first row.
-                -out
-            } else {
-                design.build_area as f64 * t + out
-            };
-            return Some((dvec2(x, y), dvec2(0.0, -fy), true));
+            // by: the town's gates in turn (feature 112).
+            let gate = crate::surface::gate_for_wave(&site.gates, wave)?;
+            let out = data::DROID_LANDER_TILES * shipdesign::TILE as f64;
+            let (at, outward) = gate.beyond(out);
+            return Some((at, outward, true));
         }
         let port = droidplan::arrival_airlock_at(design, station, wave)?;
         let (fx, fy) = port.face();
@@ -7305,8 +7343,8 @@ impl World {
     }
 
     /// A reinforcement wave, at the airlock its ship tied up at — or, on
-    /// a surface, just inside the gate its lander set down beyond, north
-    /// for an odd wave and south for an even one.
+    /// a surface, just inside the gate its lander set down beyond — the
+    /// town's gates in turn (`surface::gate_for_wave`).
     fn arriving_wave(&self, station: &Station, n: u32, wave: u32) -> Vec<bims::droid::Droid> {
         let Some((spots, facing)) = self.arrival_spots(station, n, wave) else {
             return Vec::new();
@@ -7327,8 +7365,12 @@ impl World {
     ) -> Option<(Vec<bims::math::Vec2>, f32)> {
         let residents = self.residents.as_ref()?;
         let (at, facing) = if crate::surface::surface_body(station.id).is_some() {
-            let (spot, face) = droidplan::gate_spot(station.design.build_area, wave);
-            (spot, bims::math::vec2(face.0 as f32, face.1 as f32).angle())
+            let gate = crate::surface::gate_for_wave(&station.gates, wave)?;
+            let (spot, face) = (gate.spot(), gate.inward());
+            (
+                (spot.x, spot.y),
+                bims::math::vec2(face.0 as f32, face.1 as f32).angle(),
+            )
         } else {
             let Some(port) = droidplan::arrival_airlock_at(&station.design, station.id, wave)
             else {
@@ -7771,8 +7813,8 @@ impl World {
     }
 
     /// A wave onto the town's ground: the droid step's own arrival, at
-    /// the gate its lander set down beyond, north for an odd wave and
-    /// south for an even one.
+    /// the gate its lander set down beyond, the town's gates in turn
+    /// (`surface::gate_for_wave`).
     fn settle_defense_droids(&mut self, id: u32, n: u32) {
         let Some(wave) = self.defense(id).map(|d| d.wave) else {
             return;

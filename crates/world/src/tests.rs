@@ -2314,13 +2314,25 @@ fn the_crew_live_aboard() {
 /// on.
 #[test]
 fn a_station_is_a_place_the_room_can_live_in() {
-    use crate::station::{Plan, layout};
+    use crate::station::{Plan, layout, resolve};
     use shipdesign::{design_hash, exposure, has_errors, validate};
     for plan in Plan::ALL {
         for kind in worldgen::StationKind::ALL {
             for seed in [1u64, 7, 0x_5749_4e44_4f57_0001, u64::MAX] {
                 let design = layout(kind, plan, seed);
-                assert_eq!(design.build_area, plan.side(kind));
+                // A generated station is as big as it rolled, within its
+                // kind's range; one the generator fell back from is its
+                // drawn plan's size.
+                let (built, _) = resolve(kind, plan, seed);
+                if built == Plan::Generated {
+                    let (least, most) = crate::stationgen::side_range(kind);
+                    assert!(
+                        (least..=most).contains(&design.build_area),
+                        "{kind:?} {seed}"
+                    );
+                } else {
+                    assert_eq!(design.build_area, built.side(kind));
+                }
                 assert_eq!(
                     design_hash(&design),
                     design_hash(&layout(kind, plan, seed)),
@@ -2368,54 +2380,61 @@ fn a_station_is_a_place_the_room_can_live_in() {
     );
 }
 
-/// The plan is the seed's, evenly and fixed: over a galaxy's worth of
-/// stations every one of the six comes up, the same seed rolls the same
-/// plan, and the plans differ in what the user asked them to differ in —
-/// size, corridors and how many live there. The spawn is a hub whatever
-/// it rolled, and every other station of its system is what it rolled.
+/// Every station's seed rolls the generated plan (feature 112), and over
+/// a galaxy's worth of stations the generator draws all but a few — at
+/// most two in a hundred — which are the drawn plan their seed rolled
+/// before, as big as that plan is. The six drawn plans still differ in
+/// what the user asked them to differ in — size, corridors and how many
+/// live there. The spawn is a hub whatever it rolled, and every other
+/// station of its system is generated or its fallback.
 #[test]
 fn a_station_s_plan_is_rolled_off_its_seed_and_the_spawn_is_a_hub() {
     use crate::station::{Plan, Station};
     use worldgen::{Galaxy, StationKind};
     let galaxy = Galaxy::new(data::DEFAULT_SEED, GalaxyType::SpiralTwoArm);
-    let mut seen = std::collections::BTreeMap::new();
+    let (mut generated, mut fell) = (0u32, 0u32);
     for star in 0..(galaxy.stars.len() as u32).min(40) {
         let Some(system) = galaxy.system(star) else {
             continue;
         };
         for station in Station::all_of(&system) {
-            assert_eq!(station.plan, Plan::rolled(station.map_seed));
-            assert_eq!(station.design.build_area, station.plan.side(station.kind));
-            *seen.entry(station.plan).or_insert(0u32) += 1;
+            assert_eq!(Plan::rolled(station.map_seed), Plan::Generated);
+            if station.plan == Plan::Generated {
+                let (least, most) = crate::stationgen::side_range(station.kind);
+                assert!((least..=most).contains(&station.design.build_area));
+                generated += 1;
+            } else {
+                assert_eq!(station.plan, Plan::hand_rolled(station.map_seed));
+                assert_eq!(station.design.build_area, station.plan.side(station.kind));
+                fell += 1;
+            }
         }
     }
-    for plan in Plan::ALL {
-        assert!(
-            seen.get(&plan).copied().unwrap_or(0) > 0,
-            "{plan:?} never comes up"
-        );
-    }
-    // Size, corridors and crew: no two plans agree on all three, and the
-    // pod is the smallest with the fewest, the hub the widest.
+    assert!(
+        generated > 50 && fell * 50 <= generated + fell,
+        "{generated} generated, {fell} fell back"
+    );
+    // Size, corridors and crew: no two drawn plans agree on all three,
+    // and the pod is the smallest with the fewest, the hub the widest.
     let kind = StationKind::Orbital;
     let signature = |p: Plan| (p.side(kind), p.corridor(), p.residents(kind));
-    for a in Plan::ALL {
-        for b in Plan::ALL {
+    for a in Plan::HAND {
+        for b in Plan::HAND {
             assert!(a == b || signature(a) != signature(b), "{a:?} and {b:?}");
         }
     }
     assert!(
-        Plan::ALL
+        Plan::HAND
             .iter()
             .all(|&p| p.side(kind) >= Plan::Pod.side(kind))
     );
     assert!(
-        Plan::ALL
+        Plan::HAND
             .iter()
             .all(|&p| p.residents(kind) >= Plan::Pod.residents(kind))
     );
     assert!(
-        Plan::ALL
+        Plan::HAND
             .iter()
             .all(|&p| p.corridor() <= Plan::Hub.corridor())
     );
@@ -2425,19 +2444,24 @@ fn a_station_s_plan_is_rolled_off_its_seed_and_the_spawn_is_a_hub() {
         assert_eq!(plan.residents(StationKind::Relay), 1);
     }
     // The spawn is the hub whatever it rolled; the rest of its system is
-    // what it rolled.
+    // generated, or the drawn plan the generator fell back on.
     let world = basic();
     let home = world.station(world.home).unwrap();
     assert_eq!(home.plan, Plan::Hub);
     assert_eq!(home.design.build_area, crate::station::side_of(home.kind));
     for station in &world.stations {
-        if station.id != world.home {
-            assert_eq!(station.plan, Plan::rolled(station.map_seed));
+        if station.id != world.home && !crate::heart::is_heart(station.id) {
+            assert!(
+                station.plan == Plan::Generated
+                    || station.plan == Plan::hand_rolled(station.map_seed),
+                "{:?}",
+                station.plan
+            );
         }
     }
     assert!(
-        world.stations.iter().any(|s| s.plan != Plan::Hub),
-        "the spawn system should have a station on another plan"
+        world.stations.iter().any(|s| s.plan == Plan::Generated),
+        "the spawn system should have a generated station"
     );
 }
 
@@ -2488,18 +2512,28 @@ fn a_station_s_rooms_and_a_one_tile_corridor_can_be_walked() {
                 .flat_map(|&plan| kinds.map(|kind| (plan, kind)))
                 .collect()
         } else {
-            Plan::ALL
+            // The generated plan on every kind, since it is what every
+            // station but the spawn is (feature 112); the drawn ones one
+            // kind each, cycled.
+            kinds
                 .iter()
-                .enumerate()
-                .map(|(i, &plan)| (plan, kinds[i % kinds.len()]))
+                .map(|&kind| (Plan::Generated, kind))
+                .chain(
+                    Plan::HAND
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &plan)| (plan, kinds[i % kinds.len()])),
+                )
                 .collect()
         };
         for (plan, kind) in plans {
             // The seed decides how many bays, shelves and batteries and the
-            // holes in a derelict.
+            // holes in a derelict — and, generated, the whole building,
+            // so the sweep walks eight of those a kind.
             let seeds: &[u64] = match (sweep, plan) {
                 (false, _) => &[1],
                 (true, Plan::Hub) => &[1, 7, 0x_5749_4e44_4f57_0001],
+                (true, Plan::Generated) => &[1, 7, 11, 13, 17, 19, 23, 0x_5749_4e44_4f57_0001],
                 (true, _) => &[1, 7],
             };
             for &seed in seeds {
@@ -3313,23 +3347,68 @@ fn the_bay_aboard_is_a_tray_a_tile_along_its_run() {
 /// off and the layout looks fine. Every deck tile is a digit for how much
 /// of it a body can stand on, `.` for all and `x` for none, and every part
 /// is its first letter. `cargo test -p world nav_map -- --ignored
-/// --nocapture`; the kind, the plan and the seed are the lines below, or
-/// `BIMS_NAV_MAP=Ring` picks the plan by name.
+/// --nocapture`. `BIMS_NAV_MAP=Ring` picks the plan by name (the hub
+/// without it); `BIMS_STATION_KIND=Orbital` the kind (a relay without it)
+/// and `BIMS_STATION_SEED=<n>` the seed (one) — so `BIMS_NAV_MAP=Generated
+/// BIMS_STATION_SEED=42 BIMS_STATION_KIND=Orbital` is the orbital seed 42
+/// generates (feature 112). `BIMS_NAV_MAP=Surface` is a town:
+/// `BIMS_TOWN_SEED`, `BIMS_TOWN_BIOME` (desert, temperate, arctic) and
+/// `BIMS_TOWN_POPULATION` say which, the biggest temperate town at seed one
+/// without them. And `BIMS_SKETCH=<name>` writes the layout out in the
+/// station builder's format to `stations/<name>.txt` (or
+/// ``), so `nix run .#stationbuilder <name>` opens it.
 #[test]
 #[ignore]
 fn nav_map_of_a_station() {
     use crate::station::Plan;
-    let (kind, seed) = (worldgen::StationKind::Relay, 1u64);
-    let plan = std::env::var("BIMS_NAV_MAP")
-        .ok()
+    let var = |name: &str| std::env::var(name).ok();
+    let kind = var("BIMS_STATION_KIND")
+        .and_then(|k| {
+            worldgen::StationKind::ALL
+                .into_iter()
+                .find(|s| format!("{s:?}").eq_ignore_ascii_case(&k))
+        })
+        .unwrap_or(worldgen::StationKind::Relay);
+    let seed: u64 = var("BIMS_STATION_SEED")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let plan = var("BIMS_NAV_MAP")
         .and_then(|name| {
             Plan::ALL
                 .into_iter()
                 .chain([Plan::Surface])
-                .find(|p| format!("{p:?}") == name)
+                .find(|p| format!("{p:?}").eq_ignore_ascii_case(&name))
         })
         .unwrap_or(Plan::Hub);
-    let design = crate::station::layout(kind, plan, seed);
+    let design = if plan == Plan::Surface {
+        let town_seed: u64 = var("BIMS_TOWN_SEED")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+        let biome = var("BIMS_TOWN_BIOME")
+            .and_then(|b| {
+                crate::surface::Biome::ALL
+                    .into_iter()
+                    .find(|x| format!("{x:?}").eq_ignore_ascii_case(&b))
+            })
+            .unwrap_or(crate::surface::Biome::Temperate);
+        let population: u32 = var("BIMS_TOWN_POPULATION")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(data::SURFACE_POPULATION.1);
+        crate::station::layout_surface(town_seed, biome, population)
+    } else {
+        let (built, design) = crate::station::resolve(kind, plan, seed);
+        println!("{kind:?} at seed {seed}: built as {built:?}");
+        design
+    };
+    if let Some(name) = var("BIMS_SKETCH") {
+        let dir = var("BIMS_STATIONS_DIR")
+            .unwrap_or_else(|| format!("{}/../../stations", env!("CARGO_MANIFEST_DIR")));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = format!("{dir}/{name}.txt");
+        std::fs::write(&path, crate::station::sketch_text(&design, &name))
+            .unwrap_or_else(|e| panic!("writing {path}: {e}"));
+        println!("wrote {path}");
+    }
     let tile = shipdesign::TILE as f32;
     let room = bims::room::Room::from_layout(bims::aboard::layout_of(&design));
     let nav = bims::nav::Nav::tiled(

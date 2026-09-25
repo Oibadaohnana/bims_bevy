@@ -953,9 +953,13 @@ thirty people, on one of three **biomes** — **desert**, **temperate** or
 other two) — and no two towns are laid out the same. It is built like a
 **fort**: a **wall** runs round the whole of it, the pad is set into the
 west wall — the ship docks into the wall as it docks into a station's
-hull — and two **gates**, each a street's width with a pier of wall
-either side, open in the north wall and the south where the cross street
-meets them. Its **houses** stand along two or three streets, a few bunks
+hull — and two or three **gates**, each a street's width with a pier of
+wall either side, open where a street meets the north, the east or the
+south wall. The streets themselves are the town's own, drawn from its
+seed: a main street east from the pad, two or three cross streets, a
+side street north and south of it or not, the hall somewhere on the main
+street, and the rest poured along the frontages. Its **houses** stand
+along the streets, a few bunks
 each with a door onto the street; the **gathering hall** is its mess, a
 galley along the north wall and tables with a chair for everyone; a
 **bathhouse** holds a toilet, a basin and a shower for every twelve
@@ -973,7 +977,7 @@ boulders in temperate country; cliffs of rock, cactus scrub and one oasis
 in a desert; outcrops, a frozen lake and firs in the arctic. A Bim off
 the ship can walk any way it likes until a tree, a cliff, the water or a
 wall is in the way — there is always a way from the pad to every door,
-every field and both gates, and never a pocket it cannot get to.
+every field and every gate, and never a pocket it cannot get to.
 
 The town is not the whole of the ground. It stands on a **plain** ten
 thousand tiles across, and the ship is set down on open ground with the
@@ -1190,9 +1194,19 @@ and the cargo shelves, each behind a bulkhead with a two-tile doorway, the
 outer rooms opening through the inner. A barricade of **sandbags** stands
 across three of each corridor's five tiles a few tiles out from the hub —
 cover to crouch behind, and low enough to walk and shoot over. **Every
-other station is one of six plans**, rolled off its seed so the same dock
-is the same building every visit and the next dock is likely another: the
-hub; the **pod**, the smallest, a squat bar with one corridor two wide
+other station is generated from its seed**, so the same dock is the same
+building every visit and no two docks are one building: two or three long
+corridors with two to four short ones across them, rooms between them
+and along their outer sides, some of the space between left open to
+space as a courtyard, a corridor now and then running on to a docking
+arm — which way it lies, how wide every corridor is, how deep every room
+and where every door and airlock goes are all the seed's. There is
+always a way round: a loop of corridor round a block of rooms, so a
+crew can come at a room from two sides. A relay is the smallest, an
+orbital the biggest; every one has the reactor room with the trading
+desk by the port, the same rooms and a research desk. The six drawn
+plans it used to be are still there, for the rare seed the generator
+cannot lay out: the hub; the **pod**, the smallest, a squat bar with one corridor two wide
 and a single resident; the **cross**, two fat bands meeting in a hall,
 narrow corridors up the arms, three living there; the **spine**, long and
 thin with a corridor three wide the length of it and four aboard; the

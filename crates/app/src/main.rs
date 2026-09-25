@@ -210,15 +210,15 @@ const COMMANDS: [(&str, &str); 19] = [
     ),
     (
         "test",
-        "The simulation somewhere else each time: a random galaxy, docked at a station somebody lives on, a mercenary for hire at the dock",
+        "The simulation somewhere else each time: a random galaxy, docked at a station somebody lives on, a mercenary for hire at the dock; BIMS_STATION_SEED (and BIMS_STATION_KIND) rebuilds the dock as that seed generates it",
     ),
     (
         "test_planet",
-        "That set down on a planet: the pad, the ground and the settlement beside it",
+        "That set down on a planet: the pad, the ground and the settlement beside it; BIMS_STATION_SEED draws the town from that seed",
     ),
     (
         "droids",
-        "The fight: the combat ship's sixteen crew, a gun in every hand, at an arena the machines hold, reinforcements a minute apart",
+        "The fight: the combat ship's sixteen crew, a gun in every hand, at an arena the machines hold, reinforcements a minute apart; BIMS_STATION_SEED fights it in a generated station instead",
     ),
     (
         "tier2_test",
@@ -239,7 +239,7 @@ const COMMANDS: [(&str, &str); 19] = [
     ),
     (
         "defense",
-        "A town on a planet with the machines one hop away: the crew set down at its pad, and a wave landing outside a gate a minute later",
+        "A town on a planet with the machines one hop away: the crew set down at its pad, and a wave landing outside a gate a minute later; BIMS_STATION_SEED draws the town from that seed",
     ),
     (
         "guardian",
@@ -390,6 +390,8 @@ fn main() {
         }
         _ => screens::station::DEFAULT_NAME.to_string(),
     };
+    // Which plan the stations are built on, before anything is built.
+    dev::apply_station_plan();
 
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {

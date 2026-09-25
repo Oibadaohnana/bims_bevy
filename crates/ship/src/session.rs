@@ -959,6 +959,28 @@ impl Session {
         self.game.as_mut().is_some_and(|g| g.world.land_for_probe())
     }
 
+    /// The station alongside as `seed` generates it — see
+    /// `World::regenerate_dock_for_probe`. `BIMS_STATION_SEED` on `test`
+    /// and `droids`.
+    pub fn regenerate_dock_for_probe(
+        &mut self,
+        seed: u64,
+        kind: Option<worldgen::StationKind>,
+    ) -> bool {
+        self.game
+            .as_mut()
+            .is_some_and(|g| g.world.regenerate_dock_for_probe(seed, kind))
+    }
+
+    /// The town the probes land at drawn from `seed` — see
+    /// `World::reseed_ground_for_probe`. `BIMS_STATION_SEED` on
+    /// `test_planet` and `defense`, before the landing.
+    pub fn reseed_ground_for_probe(&mut self, seed: u64) -> Option<(world::Biome, u32)> {
+        self.game
+            .as_mut()
+            .and_then(|g| g.world.reseed_ground_for_probe(seed))
+    }
+
     /// A mercenary for hire at the dock whatever the roll said — see
     /// `World::mercenary_for_probe`. What the `test` command does.
     pub fn mercenary_for_probe(&mut self) -> bool {

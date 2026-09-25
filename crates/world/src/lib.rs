@@ -70,6 +70,7 @@ pub mod relic;
 pub mod run;
 pub mod speed;
 pub mod station;
+pub mod stationgen;
 pub mod surface;
 pub mod tank;
 pub mod world;
@@ -117,6 +118,8 @@ mod tests_front;
 mod tests_guardian;
 #[cfg(test)]
 mod tests_heart;
+#[cfg(test)]
+mod tests_layoutgen;
 #[cfg(test)]
 mod tests_jammer;
 #[cfg(test)]

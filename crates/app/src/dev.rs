@@ -1039,3 +1039,55 @@ pub fn manufacturer_day() -> u32 {
         .and_then(|spec| spec.trim().parse::<u32>().ok())
         .unwrap_or(8)
 }
+
+/// The seed a probe's station or town is drawn from (feature 112):
+/// `BIMS_STATION_SEED=<n>` on `test` and the `droids` commands rebuilds the
+/// station alongside as that seed generates it (its kind kept,
+/// `Session::regenerate_dock_for_probe`), and on `test_planet`,
+/// `droids_planet` and `defense` draws the town the ship sets down at from
+/// it (its biome and population kept, `Session::reseed_ground_for_probe`).
+/// Every layout on a screenshot is then one a terminal can ask for again:
+/// the run prints `station:` or `town:` with the seed and the rest, which
+/// is what the `nav_map_of_a_station` probe takes.
+pub fn station_seed() -> Option<u64> {
+    std::env::var("BIMS_STATION_SEED")
+        .ok()
+        .and_then(|spec| spec.trim().parse::<u64>().ok())
+}
+
+/// The plan every station is built on, whatever it rolled (feature 112):
+/// `BIMS_STATION_PLAN=Ring` (a name off `world::Plan::ALL`, any case)
+/// forces the drawn ring on every station but the spawn and the fortress,
+/// `Generated` the generator, and `legacy` the layouts as they were before
+/// the generator — the drawn plans rolled off each seed and every town the
+/// fixed template. Applied once, before anything is built; unset is the
+/// game's own roll. A dev dial: two clients that disagree on it are two
+/// different games.
+pub fn apply_station_plan() {
+    let Ok(spec) = std::env::var("BIMS_STATION_PLAN") else {
+        return;
+    };
+    let spec = spec.trim();
+    if spec.eq_ignore_ascii_case("legacy") {
+        world::station::set_legacy_layouts(true);
+        return;
+    }
+    match world::Plan::ALL
+        .into_iter()
+        .find(|p| format!("{p:?}").eq_ignore_ascii_case(spec))
+    {
+        Some(plan) => world::station::set_plan_override(Some(plan)),
+        None => eprintln!("BIMS_STATION_PLAN: no plan named {spec:?}"),
+    }
+}
+
+/// The kind the station `BIMS_STATION_SEED` rebuilds is built as
+/// (feature 112): `BIMS_STATION_KIND=Relay` (a name off
+/// `worldgen::StationKind::ALL`, any case) over the dock's own, so a
+/// relay, a refinery or an orbital can be looked at from the same command.
+pub fn station_kind() -> Option<worldgen::StationKind> {
+    let spec = std::env::var("BIMS_STATION_KIND").ok()?;
+    worldgen::StationKind::ALL
+        .into_iter()
+        .find(|k| format!("{k:?}").eq_ignore_ascii_case(spec.trim()))
+}

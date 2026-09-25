@@ -549,15 +549,24 @@ fn open(
                     size.x,
                     size.y,
                 ),
-                Launch::Droids | Launch::DroidsAs(_) => Session::droids(
-                    seed,
-                    crate::dev::droid_tier(),
-                    crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
-                    crate::dev::droid_wave_max(),
-                    crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
-                    size.x,
-                    size.y,
-                ),
+                Launch::Droids | Launch::DroidsAs(_) => {
+                    let mut session = Session::droids(
+                        seed,
+                        crate::dev::droid_tier(),
+                        crate::dev::droid_reinforce(DROID_REINFORCE_IN_PROBE),
+                        crate::dev::droid_wave_max(),
+                        crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
+                        size.x,
+                        size.y,
+                    );
+                    // The fight in a generated station rather than the
+                    // arena, when a seed is asked for (feature 112).
+                    if let Some(station) = crate::dev::station_seed() {
+                        session.regenerate_dock_for_probe(station, crate::dev::station_kind());
+                    }
+                    say_where(&session);
+                    session
+                }
                 Launch::Test
                 | Launch::TestPlanet
                 | Launch::DroidsPlanet
@@ -568,6 +577,19 @@ fn open(
                     let mut session =
                         Session::simulate_on(design, 1, seed, 0, spawn, size.x, size.y);
                     session.mercenary_for_probe();
+                    // `BIMS_STATION_SEED` (feature 112): the dock, or the
+                    // town set down at, drawn from that seed instead.
+                    let station_seed = crate::dev::station_seed();
+                    if let (Launch::Test, Some(station)) = (*launch, station_seed) {
+                        session.regenerate_dock_for_probe(station, crate::dev::station_kind());
+                    }
+                    if let (
+                        Launch::TestPlanet | Launch::DroidsPlanet | Launch::Defense,
+                        Some(town),
+                    ) = (*launch, station_seed)
+                    {
+                        session.reseed_ground_for_probe(town);
+                    }
                     // `crisis` is that with the clock a day short of the
                     // machines appearing and their origin two hyperlane
                     // hops off, so the chart turns red while you watch
@@ -627,6 +649,7 @@ fn open(
                             crate::dev::droid_waves(DROID_WAVES_IN_PROBE),
                         );
                     }
+                    say_where(&session);
                     session
                 }
                 _ => Session::simulate(seed, 0, spawn, size.x, size.y),
@@ -4900,5 +4923,38 @@ mod attack_key_tests {
         assert_eq!(attack_key(order, true, false), (None, false));
         // A retreat is the Retreat key's to call off, not this one's.
         assert_eq!(attack_key(Standing::Retreat, false, false), (None, true));
+    }
+}
+
+/// Where a probe opened, printed, so a layout on its screenshot can be
+/// asked for again (feature 112): the station alongside — its kind, its
+/// seed and the plan it was built on — or the town set down at, with its
+/// seed, biome and population. What `BIMS_STATION_SEED` and the
+/// `nav_map_of_a_station` probe take.
+fn say_where(session: &Session) {
+    let Some(game) = session.game.as_ref() else {
+        return;
+    };
+    let world = &game.world;
+    let Some(id) = world.ship.state.station() else {
+        return;
+    };
+    match world::surface_body(id) {
+        Some(body) => {
+            if let Some(surface) = world.surfaces.iter().find(|s| s.body == body) {
+                println!(
+                    "town: seed {} biome {:?} population {}",
+                    surface.map_seed, surface.biome, surface.population
+                );
+            }
+        }
+        None => {
+            if let Some(station) = world.station(id) {
+                println!(
+                    "station: {:?} seed {} plan {:?}",
+                    station.kind, station.map_seed, station.plan
+                );
+            }
+        }
     }
 }

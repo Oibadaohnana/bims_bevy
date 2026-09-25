@@ -1046,14 +1046,51 @@ fn a_game_saved_on_the_map_reads_back_on_the_map_and_travels_alike() {
 /// > target/plain.svg`. Crew member 0 is walked out onto the ground west
 /// of the ship first, so the fog lifts round it. The view box is the
 /// camera's units about the ship, `BIMS_SVG_REACH` tiles each way
-/// (default 70).
+/// (default 70), its middle `BIMS_SVG_SHIFT` tiles along the x axis from
+/// the ship (nought). `BIMS_TOWN_SEED=<n>` draws the town from that seed
+/// first (feature 112, `Session::reseed_ground_for_probe`) and leaves the
+/// crew member aboard, `BIMS_TOWN_BIOME` and `BIMS_TOWN_POPULATION` over
+/// the planet's own, so the whole town is drawn without the fog — which
+/// is how a generated town is looked at whole.
 #[test]
 #[ignore]
 fn a_landed_picture_as_svg() {
     use crate::Session;
     let mut session = Session::simulate(world::data::DEFAULT_SEED, 0, None, CANVAS.0, CANVAS.1);
+    let town = std::env::var("BIMS_TOWN_SEED")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok());
+    if let Some(seed) = town {
+        // And the biome and the population, over the planet's own
+        // (`BIMS_TOWN_BIOME`: desert, temperate, arctic).
+        if let Some(world) = session.game.as_mut().map(|g| &mut g.world)
+            && let Some(surface) = world.surfaces.first_mut()
+        {
+            if let Some(biome) = std::env::var("BIMS_TOWN_BIOME").ok().and_then(|b| {
+                world::Biome::ALL
+                    .into_iter()
+                    .find(|x| format!("{x:?}").eq_ignore_ascii_case(&b))
+            }) {
+                surface.biome = biome;
+            }
+            if let Some(n) = std::env::var("BIMS_TOWN_POPULATION")
+                .ok()
+                .and_then(|v| v.parse().ok())
+            {
+                surface.population = n;
+            }
+        }
+        eprintln!("town: {:?}", session.reseed_ground_for_probe(seed));
+    }
     assert!(session.land_for_probe());
-    assert!(session.walk_afield_for_probe());
+    if town.is_none() {
+        assert!(session.walk_afield_for_probe());
+    }
+    let shift: f32 = std::env::var("BIMS_SVG_SHIFT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0)
+        * TILE as f32;
     session.game.as_mut().unwrap().world.aboard.room.observe();
     let reach: f32 = std::env::var("BIMS_SVG_REACH")
         .ok()
@@ -1064,7 +1101,7 @@ fn a_landed_picture_as_svg() {
     let stride = crate::draw::STRIDE;
     println!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{} {} {} {}\" width=\"1400\" height=\"1400\">",
-        -reach,
+        shift - reach,
         -reach,
         2.0 * reach,
         2.0 * reach
@@ -1072,7 +1109,7 @@ fn a_landed_picture_as_svg() {
     for s in shapes.chunks(stride) {
         let (kind, x, y, w, h, rot, radius, line) =
             (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]);
-        if x.abs() > reach * 1.5 || y.abs() > reach * 1.5 {
+        if (x - shift).abs() > reach * 1.5 || y.abs() > reach * 1.5 {
             continue;
         }
         let (r, g, b, a) = (
