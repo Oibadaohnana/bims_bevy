@@ -184,6 +184,8 @@ pub fn tiered(resource: ResourceId) -> bool {
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
         | ResourceId::Schword
+        | ResourceId::Minigun
+        | ResourceId::RailLance
         | ResourceId::Helm
         | ResourceId::Kevlar
         | ResourceId::LegGuard => true,
@@ -232,6 +234,11 @@ pub fn trade_price(resource: ResourceId) -> Money {
         ResourceId::AutoRifle => 4_000,
         ResourceId::SniperRifle => 5_000,
         ResourceId::Schword => 5_000,
+        // The two that exist only from a tier up (task 115), at their tier
+        // one book price like every gun: a tier-two minigun is 5 000 times
+        // `TIER_PRICE[2]`, a lance 6 000 times `TIER_PRICE[3]`.
+        ResourceId::Minigun => 5_000,
+        ResourceId::RailLance => 6_000,
         // The three pieces of armour, at a hundred a point of health:
         // fifteen, twenty and ten (`bims::balance`).
         ResourceId::LegGuard => 1_000,
@@ -278,6 +285,8 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
         | ResourceId::Schword
+        | ResourceId::Minigun
+        | ResourceId::RailLance
         | ResourceId::SandbagKit
         | ResourceId::SentryKit
         | ResourceId::Grenade => Storage::Locker,
@@ -341,6 +350,8 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         ResourceId::AutoRifle => Footprint::new(1, 7),
         ResourceId::SniperRifle => Footprint::new(1, 10),
         ResourceId::Schword => Footprint::new(1, 5),
+        ResourceId::Minigun => Footprint::new(2, 7),
+        ResourceId::RailLance => Footprint::new(1, 10),
         // The armour: the kevlar is a square, a helm lies on its side, the
         // leg guards stand.
         ResourceId::Kevlar => Footprint::new(4, 4),
@@ -385,6 +396,8 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
         | ResourceId::Schword
+        | ResourceId::Minigun
+        | ResourceId::RailLance
         | ResourceId::ResearchKey
         | ResourceId::ResearchKeyTwo
         | ResourceId::SandbagKit
@@ -479,6 +492,10 @@ mod tests {
         assert_eq!(trade_price(ResourceId::AutoRifle), 4_000);
         assert_eq!(trade_price(ResourceId::SniperRifle), 5_000);
         assert_eq!(trade_price(ResourceId::Schword), 5_000);
+        // And the two made only from a tier up (task 115), at their tier-one
+        // book like every gun.
+        assert_eq!(trade_price(ResourceId::Minigun), 5_000);
+        assert_eq!(trade_price(ResourceId::RailLance), 6_000);
         assert_eq!(trade_price(ResourceId::LegGuard), 1_000);
         assert_eq!(trade_price(ResourceId::Helm), 1_500);
         assert_eq!(trade_price(ResourceId::Kevlar), 2_000);
@@ -532,15 +549,17 @@ mod tests {
         assert_eq!(tier_price(3), 16);
         assert_eq!(tier_price(0), 1);
         assert_eq!(tier_price(9), 1);
-        // The eight things that come at a tier, and nothing else.
+        // The ten things that come at a tier, and nothing else.
         let tiered_count = ResourceId::ALL.iter().filter(|&&r| tiered(r)).count();
-        assert_eq!(tiered_count, 8);
+        assert_eq!(tiered_count, 10);
         for gear in [
             ResourceId::Handgun,
             ResourceId::Shotgun,
             ResourceId::AutoRifle,
             ResourceId::SniperRifle,
             ResourceId::Schword,
+            ResourceId::Minigun,
+            ResourceId::RailLance,
             ResourceId::Helm,
             ResourceId::Kevlar,
             ResourceId::LegGuard,

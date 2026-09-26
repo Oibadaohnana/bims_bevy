@@ -24,7 +24,7 @@
 //! `BIMS_AFIELD=1` opens it landed on the spawn system's first planet with
 //! ground and the crew member walked out onto the plain, and `BIMS_ZOOM`
 //! zooms the view once it is fitted. `BIMS_WEAPON=schword` (or `pistol`,
-//! `shotgun`, `rifle`, `sniper`) puts that in the crew member's hand
+//! `shotgun`, `rifle`, `sniper`, `minigun`, `lance`) puts that in the crew member's hand
 //! instead of the pistol, and `BIMS_ENEMY_WEAPON=…` the same in every
 //! resident's — a town's guard in `defense` — which is how a swing, a burst
 //! or a long shot is looked at.
@@ -307,12 +307,23 @@ pub fn armory() -> bool {
 /// word the table does not have is nobody's weapon changed. A digit on
 /// the end is the tier — `pistol3` is a gold pistol — which is how the
 /// tint on a cell and a slot is looked at without a day at the bench.
+/// No digit is the kind's lowest tier — `minigun` is tier two and `lance`
+/// three — and a digit below it (`minigun1`, `lance2`) is no weapon at
+/// all (task 115).
 pub fn weapon() -> Option<bims::combat::Weapon> {
     weapon_named(std::env::var("BIMS_WEAPON").ok()?)
 }
 
 pub fn enemy_weapon() -> Option<bims::combat::Weapon> {
     weapon_named(std::env::var("BIMS_ENEMY_WEAPON").ok()?)
+}
+
+/// `BIMS_WEAPON_ALL=1` beside `BIMS_WEAPON` puts that weapon in **every**
+/// crew member's hand rather than the first's alone — the whole of
+/// `droids`' sixteen on miniguns, say, which is how what a fight of them
+/// costs a frame was measured (task 115).
+pub fn weapon_all() -> bool {
+    std::env::var("BIMS_WEAPON_ALL").as_deref() == Ok("1")
 }
 
 /// `BIMS_ARMOURED=1` puts a fresh helm, kevlar and leg guards on the crew
@@ -343,11 +354,19 @@ pub fn silent() -> bool {
     }
 }
 
+/// A weapon by its dial name — `pistol`, `shotgun`, `rifle`, `sniper`,
+/// `schword`, `minigun`, `lance` — with a tier after it or none: no
+/// suffix is the kind's lowest tier (`WeaponKind::basic`), and a suffix
+/// below that (`minigun1`, `lance2`) is refused like a name nobody knows
+/// (task 115). `1` is a suffix too, so `pistol1` is the pistol.
 fn weapon_named(word: String) -> Option<bims::combat::Weapon> {
     use bims::combat::{Tier, WeaponKind};
-    let (name, tier) = match word.strip_suffix(['2', '3']) {
-        Some(name) => (name, Tier::from_code(word[name.len()..].parse().ok()?)?),
-        None => (word.as_str(), Tier::One),
+    let (name, tier) = match word.strip_suffix(['1', '2', '3']) {
+        Some(name) => (
+            name,
+            Some(Tier::from_code(word[name.len()..].parse().ok()?)?),
+        ),
+        None => (word.as_str(), None),
     };
     let kind = match name {
         "pistol" => WeaponKind::LaserPistol,
@@ -355,9 +374,12 @@ fn weapon_named(word: String) -> Option<bims::combat::Weapon> {
         "rifle" => WeaponKind::AutoRifle,
         "sniper" => WeaponKind::SniperRifle,
         "schword" => WeaponKind::Schword,
+        "minigun" => WeaponKind::Minigun,
+        "lance" => WeaponKind::RailLance,
         _ => return None,
     };
-    Some(kind.at(tier))
+    let tier = tier.unwrap_or(kind.min_tier());
+    kind.made_at(tier).then(|| kind.at(tier))
 }
 
 pub fn smoke_frames() -> Option<u32> {
@@ -1092,4 +1114,30 @@ pub fn station_kind() -> Option<worldgen::StationKind> {
     worldgen::StationKind::ALL
         .into_iter()
         .find(|k| format!("{k:?}").eq_ignore_ascii_case(spec.trim()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::weapon_named;
+    use bims::combat::{Tier, WeaponKind};
+
+    /// Task 115: no suffix is the kind's lowest tier, and a suffix below
+    /// it is refused like a name nobody knows.
+    #[test]
+    fn a_weapon_dial_never_names_a_weapon_below_its_lowest_tier() {
+        let named = |w: &str| weapon_named(w.to_string());
+        assert_eq!(named("minigun"), Some(WeaponKind::Minigun.at(Tier::Two)));
+        assert_eq!(named("minigun3"), Some(WeaponKind::Minigun.at(Tier::Three)));
+        assert_eq!(named("lance"), Some(WeaponKind::RailLance.at(Tier::Three)));
+        assert_eq!(named("minigun1"), None);
+        assert_eq!(named("lance2"), None);
+        assert_eq!(named("lance1"), None);
+        assert_eq!(named("pistol"), Some(WeaponKind::LaserPistol.at(Tier::One)));
+        assert_eq!(
+            named("pistol3"),
+            Some(WeaponKind::LaserPistol.at(Tier::Three))
+        );
+        assert_eq!(named("rifle2"), Some(WeaponKind::AutoRifle.at(Tier::Two)));
+        assert_eq!(named("blaster"), None);
+    }
 }

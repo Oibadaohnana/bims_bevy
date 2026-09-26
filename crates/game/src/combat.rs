@@ -191,6 +191,18 @@ const PULSE_CORE: f32 = 1.2;
 /// the air a moment after it lands (`crate::fx::BEAM_LINGER`).
 const STREAK_LENGTH: f32 = 90.0;
 const BEAM_CORE: f32 = 1.5;
+/// The minigun (task 115): one short thin dash a bolt — shorter than the
+/// pistol's, thinner than the auto rifle's pulses, and no tail — so it
+/// reads by its rhythm, ten a second, rather than by any one bolt.
+const DASH_LENGTH: f32 = 10.0;
+const DASH_CORE: f32 = 0.9;
+const DASH_GLOW: f32 = 2.6;
+/// The rail lance (task 115): the thickest core of any gun, evenly bright
+/// from the muzzle to the head — no faint tail like the sniper's streak
+/// and no jag like the Unmaker's — and a hot head.
+const RAIL_CORE: f32 = 3.4;
+const RAIL_GLOW: f32 = 9.0;
+const RAIL_HEAD: f32 = 6.5;
 
 /// How long the flash where a bolt lands lasts, in seconds — the fight's
 /// own, on the simulation's clock, and drawn only for a host that ages no
@@ -229,18 +241,29 @@ pub enum WeaponKind {
     /// A Guardian's beam (feature 100): wound up, swept across an arc,
     /// and never a bolt — see `Combat::sweep`.
     Sweeper = 8,
+    /// Twenty thin bolts to a trigger pull, ten a second, then a long
+    /// cool (task 115). Made from tier two up ([`WeaponKind::min_tier`]).
+    Minigun = 9,
+    /// A slug that goes through a body and on into the next, up to
+    /// [`balance::LANCE_PIERCE`] of them (task 115). Tier three only.
+    RailLance = 10,
 }
 
 impl WeaponKind {
-    /// The five a **body** can carry: what a bench makes, what the hold
-    /// counts, what a hand holds and what a loot finds. A droid's arms
-    /// are not among them — see [`WeaponKind::BUILT_IN`].
-    pub const ALL: [WeaponKind; 5] = [
+    /// The seven a **body** can carry: what a trader sells, what the
+    /// armory keeps and what a hand holds. A droid's arms are not among
+    /// them — see [`WeaponKind::BUILT_IN`]. The last two, the minigun and
+    /// the rail lance (task 115), exist only from a tier up
+    /// ([`WeaponKind::min_tier`]), and only the crew ever carry one: no
+    /// issue, hire or garrison table names them.
+    pub const ALL: [WeaponKind; 7] = [
         WeaponKind::LaserPistol,
         WeaponKind::Shotgun,
         WeaponKind::AutoRifle,
         WeaponKind::SniperRifle,
         WeaponKind::Schword,
+        WeaponKind::Minigun,
+        WeaponKind::RailLance,
     ];
 
     /// The arms that are part of a machine (feature 83): never made,
@@ -250,9 +273,10 @@ impl WeaponKind {
     pub const BUILT_IN: [WeaponKind; 3] =
         [WeaponKind::Claw, WeaponKind::Unmaker, WeaponKind::Sweeper];
 
-    /// Every kind there is: the carried five and the built-in three. What
-    /// the app names, and what a code is read back against.
-    pub const EVERY: [WeaponKind; 8] = [
+    /// Every kind there is: the carried seven and the built-in three, in
+    /// code order. What the app names, and what a code is read back
+    /// against.
+    pub const EVERY: [WeaponKind; 10] = [
         WeaponKind::LaserPistol,
         WeaponKind::Shotgun,
         WeaponKind::AutoRifle,
@@ -261,6 +285,8 @@ impl WeaponKind {
         WeaponKind::Claw,
         WeaponKind::Unmaker,
         WeaponKind::Sweeper,
+        WeaponKind::Minigun,
+        WeaponKind::RailLance,
     ];
 
     pub fn code(self) -> u32 {
@@ -288,6 +314,8 @@ impl WeaponKind {
             WeaponKind::AutoRifle => 10,
             WeaponKind::SniperRifle => 11,
             WeaponKind::Schword => 12,
+            WeaponKind::Minigun => 18,
+            WeaponKind::RailLance => 19,
             // A machine's arm is no resource: it is part of the machine,
             // and there is nothing to put in a hold.
             WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => return None,
@@ -315,16 +343,53 @@ impl WeaponKind {
             WeaponKind::Claw => balance::CLAW,
             WeaponKind::Unmaker => balance::UNMAKER,
             WeaponKind::Sweeper => balance::SWEEPER,
+            WeaponKind::Minigun => balance::MINIGUN,
+            WeaponKind::RailLance => balance::RAIL_LANCE,
         }
     }
 
-    /// The kind at tier one: what everybody is issued and what a bench
-    /// makes.
-    pub fn basic(self) -> Weapon {
-        self.at(Tier::One)
+    /// The lowest tier the kind is ever made at (task 115): tier one for
+    /// every kind but the minigun, which starts at two, and the rail
+    /// lance, which is three and nothing else. **A weapon below it never
+    /// exists** — [`WeaponKind::at`] asserts it — so a trader never
+    /// shelves one, a dial refuses one and a combine never makes one.
+    pub fn min_tier(self) -> Tier {
+        match self {
+            WeaponKind::Minigun => Tier::Two,
+            WeaponKind::RailLance => Tier::Three,
+            WeaponKind::LaserPistol
+            | WeaponKind::Shotgun
+            | WeaponKind::AutoRifle
+            | WeaponKind::SniperRifle
+            | WeaponKind::Schword
+            | WeaponKind::Claw
+            | WeaponKind::Unmaker
+            | WeaponKind::Sweeper => Tier::One,
+        }
     }
 
+    /// Whether the kind is ever made at `tier`: at or above its
+    /// [`WeaponKind::min_tier`].
+    pub fn made_at(self, tier: Tier) -> bool {
+        tier >= self.min_tier()
+    }
+
+    /// The kind at its lowest tier ([`WeaponKind::min_tier`]): tier one
+    /// for the five everybody is issued, tier two for the minigun and
+    /// tier three for the rail lance.
+    pub fn basic(self) -> Weapon {
+        self.at(self.min_tier())
+    }
+
+    /// The kind at `tier`, which is never below its
+    /// [`WeaponKind::min_tier`] — every path that makes a weapon asks
+    /// [`WeaponKind::made_at`] first.
     pub fn at(self, tier: Tier) -> Weapon {
+        debug_assert!(
+            self.made_at(tier),
+            "{self:?} is never made below {:?}",
+            self.min_tier()
+        );
         Weapon { kind: self, tier }
     }
 }
@@ -1364,6 +1429,14 @@ pub struct Bolt {
     /// The one body it has already slipped past — a peek that dodged it —
     /// so a bolt crossing a body over several steps is rolled for once.
     dodged: Option<usize>,
+    /// The bodies a **rail lance**'s slug has struck so far, in order —
+    /// by the same index `dodged` is — so it never strikes one twice and
+    /// the next takes [`balance::LANCE_FALLOFF`] once more (task 115). A
+    /// fixed array, not a list, so a bolt stays `Copy`; `None` past the
+    /// last, and all `None` for every other gun's bolt, which stops at
+    /// the first body it strikes.
+    #[cfg_attr(feature = "serde", serde(default))]
+    struck: [Option<usize>; balance::LANCE_PIERCE],
 }
 
 impl Bolt {
@@ -1377,6 +1450,23 @@ impl Bolt {
             range: base.range + self.range,
             ..base
         }
+    }
+
+    /// Whether it goes through the bodies it strikes: a rail lance's slug
+    /// (task 115), and nothing else.
+    pub fn pierces(&self) -> bool {
+        self.weapon.kind == WeaponKind::RailLance
+    }
+
+    /// How many bodies it has struck so far: nought for every bolt in the
+    /// air but a lance slug that has gone through somebody.
+    pub fn strikes(&self) -> usize {
+        self.struck.iter().filter(|s| s.is_some()).count()
+    }
+
+    /// Whether it has struck that body already.
+    fn has_struck(&self, who: usize) -> bool {
+        self.struck.contains(&Some(who))
     }
 }
 
@@ -2377,6 +2467,7 @@ impl Combat {
             damage: skill.damage,
             range: skill.range,
             dodged: None,
+            struck: [None; balance::LANCE_PIERCE],
         });
     }
 
@@ -2590,6 +2681,11 @@ impl Combat {
                     else {
                         continue;
                     };
+                    // A lance slug already through this one is past its
+                    // plate.
+                    if bolt.has_struck(i) {
+                        continue;
+                    }
                     let off = body - from;
                     let would_hit = off.dot(dir) > 0.0 && dir.perp_dot(off).abs() <= HIT_RADIUS;
                     if !would_hit || !shield_stops(heading, -dir) {
@@ -2611,7 +2707,7 @@ impl Combat {
                 let Some((body, peeking, dodge)) = *body else {
                     continue;
                 };
-                if bolt.dodged == Some(i) {
+                if bolt.dodged == Some(i) || bolt.has_struck(i) {
                     continue;
                 }
                 if let Some(t) = along(from, to, body, HIT_RADIUS)
@@ -2687,6 +2783,9 @@ impl Combat {
             match stop {
                 Some((t, who)) => {
                     let at = from + flight * t;
+                    // Whether a lance slug goes on past the body it struck
+                    // here (task 115).
+                    let mut through = false;
                     if let Some(who) = who {
                         let flown = (at - bolt.fired_from).len() / TILE;
                         let stats = bolt.stats();
@@ -2700,11 +2799,20 @@ impl Combat {
                             } else {
                                 1.0
                             };
+                        // A lance slug's n-th body takes the falloff n
+                        // times over — multiplied out rather than a
+                        // `powi`, so every platform agrees to the bit.
+                        // One for every other bolt, which has struck
+                        // nobody before this.
+                        let mut falloff = 1.0;
+                        for _ in 0..bolt.strikes() {
+                            falloff *= balance::LANCE_FALLOFF;
+                        }
                         let roll = rng.unit();
                         let hit = Hit {
                             who,
                             part: Part::hit_by(roll),
-                            damage: stats.damage_at(flown) * close,
+                            damage: stats.damage_at(flown) * close * falloff,
                             cut: false,
                             by: bolt.by,
                             blast: false,
@@ -2712,12 +2820,21 @@ impl Combat {
                             // What the Unmaker takes off the armour over
                             // the part instead of off the part; nought
                             // for every other gun.
-                            strips: stats.strips_at(flown),
+                            strips: stats.strips_at(flown) * falloff,
                         };
                         if bolt.hostile {
                             taken.push(hit);
                         } else {
                             landed.push(hit);
+                        }
+                        // The slug goes through — unless a tank's
+                        // *interpose* spent it on him — as long as it
+                        // has bodies left to strike.
+                        if bolt.pierces() && !spent {
+                            if let Some(slot) = bolt.struck.iter_mut().find(|s| s.is_none()) {
+                                *slot = Some(who);
+                            }
+                            through = bolt.strikes() < balance::LANCE_PIERCE;
                         }
                     } else if let Some(lamp) = lamp {
                         // Nothing nearer than the lamp: the lamp took it.
@@ -2739,6 +2856,19 @@ impl Combat {
                         age: 0.0,
                         hostile: bolt.hostile,
                     });
+                    // Through: the step ends at the body, and the slug
+                    // flies on from there next step with the reach it
+                    // has left, a flare where it went through.
+                    if through {
+                        fx.pierced(at, bolt.vel, bolt.weapon, bolt.hostile);
+                        bolt.pos = at;
+                        bolt.left -= span * t;
+                        if bolt.left <= 0.0 {
+                            fx.spent(bolt.fired_from, at, bolt.weapon, bolt.hostile);
+                            return false;
+                        }
+                        return true;
+                    }
                     // The picture's own flash, on the host's clock — and a
                     // scorch where a wall or a lamp stopped it. A shield
                     // leaves no scorch: the plate flares where it struck.
@@ -2878,6 +3008,35 @@ impl Combat {
                         1.0,
                     );
                     list.circle(head, 5.0 * w, fx::hot(hostile, heat + 0.4));
+                }
+                WeaponKind::Minigun => {
+                    // A short thin dash and nothing behind it.
+                    fx::laser(
+                        list,
+                        head - dir * DASH_LENGTH,
+                        head,
+                        DASH_GLOW * w,
+                        DASH_CORE * w,
+                        hostile,
+                        heat,
+                        1.0,
+                    );
+                }
+                WeaponKind::RailLance => {
+                    // One even line from the muzzle to the head, the
+                    // thickest core there is, whatever it has gone
+                    // through on the way.
+                    fx::laser(
+                        list,
+                        bolt.fired_from,
+                        head,
+                        RAIL_GLOW * w,
+                        RAIL_CORE * w,
+                        hostile,
+                        heat + 0.4,
+                        1.0,
+                    );
+                    list.circle(head, RAIL_HEAD * w, fx::hot(hostile, heat + 0.6));
                 }
                 // The Unmaker's bolt (feature 83): a long crackling line
                 // rather than a clean one — a straight core with the
@@ -3838,9 +3997,13 @@ mod tests {
                 "resource {code} answered {found:?}"
             );
         }
-        // The five carried kinds are the whole of what a body holds.
-        assert_eq!(WeaponKind::ALL.len() + WeaponKind::BUILT_IN.len(), 8);
-        assert_eq!(WeaponKind::EVERY.len(), 8);
+        // The seven carried kinds are the whole of what a body holds.
+        assert_eq!(WeaponKind::ALL.len(), 7);
+        assert_eq!(WeaponKind::ALL.len() + WeaponKind::BUILT_IN.len(), 10);
+        assert_eq!(WeaponKind::EVERY.len(), 10);
+        for (i, kind) in WeaponKind::EVERY.iter().enumerate() {
+            assert_eq!(kind.code(), i as u32 + 1, "EVERY is in code order");
+        }
         for kind in WeaponKind::ALL {
             assert!(kind.carried(), "{kind:?} is carried");
         }
@@ -3927,6 +4090,349 @@ mod tests {
         assert_eq!(blade.damage_at(1.0), 42.0);
         assert!((1.0 / blade.fire_rate - MELEE_PERIOD).abs() < 1e-6);
         assert!(!pistol.melee && !shotgun.melee && !sniper.melee && !rifle.melee);
+
+        // Task 115: the minigun at its lowest tier, two, and at three.
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        let mini = WeaponKind::Minigun.basic();
+        assert_eq!(mini.tier, Tier::Two);
+        let two = mini.stats();
+        assert!(
+            close(two.damage, 5.5) && close(two.damage_far, 4.0),
+            "{two:?}"
+        );
+        assert!(close(two.accuracy, 0.85) && close(two.accuracy_far, 0.45));
+        assert_eq!((two.range, two.sweet), (20.0, 6.0));
+        assert_eq!((two.burst, two.burst_gap, two.fire_rate), (20, 0.1, 0.2));
+        assert_eq!(two.speed, 24.0);
+        assert!(!two.melee && two.strips == 0.0);
+        assert!((two.dps_at(6.0) - 18.7).abs() < 0.01, "{}", two.dps_at(6.0));
+        let three = WeaponKind::Minigun.at(Tier::Three).stats();
+        assert!(close(three.damage, 6.875) && close(three.damage_far, 5.0));
+        assert!(close(three.accuracy, 0.8925) && close(three.accuracy_far, 0.4725));
+        assert!(close(three.range, 24.0) && close(three.sweet, 7.2));
+
+        // The rail lance at its only tier, three.
+        let lance = WeaponKind::RailLance.basic();
+        assert_eq!(lance.tier, Tier::Three);
+        let three = lance.stats();
+        assert!(
+            close(three.damage, 75.0) && close(three.damage_far, 50.0),
+            "{three:?}"
+        );
+        assert!(close(three.accuracy, 0.945) && close(three.accuracy_far, 0.6825));
+        assert!(close(three.sweet, 24.0) && close(three.range, 40.8));
+        assert_eq!((three.burst, three.fire_rate, three.speed), (1, 0.2, 70.0));
+        assert!(!three.melee && three.strips == 0.0);
+
+        // The worked figures in `balance`'s notes: a second's damage in
+        // the sweet range, body hits on whole armour.
+        let dps = |w: Weapon, protection: f32| {
+            let s = w.stats();
+            s.burst as f32 * s.fire_rate * (s.damage - protection).max(0.0) * s.accuracy.min(1.0)
+        };
+        let rifle_two = WeaponKind::AutoRifle.at(Tier::Two);
+        assert!((dps(mini, 0.0) - 18.7).abs() < 0.05);
+        assert!((dps(rifle_two, 0.0) - 14.3).abs() < 0.05);
+        assert!((dps(mini, 3.0) - 8.5).abs() < 0.05);
+        assert!((dps(rifle_two, 3.0) - 8.6).abs() < 0.05);
+        assert!((dps(mini, 4.5) - 3.4).abs() < 0.05);
+        assert!((dps(rifle_two, 4.5) - 5.7).abs() < 0.05);
+        let sniper_three = WeaponKind::SniperRifle.at(Tier::Three);
+        assert!((dps(sniper_three, 0.0) - 21.1).abs() < 0.05);
+        assert!((dps(lance, 0.0) - 14.2).abs() < 0.05);
+        assert!((dps(lance, 0.0) * (1.0 + 0.6 + 0.36) - 27.8).abs() < 0.05);
+    }
+
+    /// Task 115: every kind has a lowest tier, and its `basic` is at it.
+    #[test]
+    fn a_kind_is_never_made_below_its_lowest_tier() {
+        for kind in [
+            WeaponKind::LaserPistol,
+            WeaponKind::Shotgun,
+            WeaponKind::AutoRifle,
+            WeaponKind::SniperRifle,
+            WeaponKind::Schword,
+        ] {
+            assert_eq!(kind.min_tier(), Tier::One);
+            assert_eq!(
+                kind.basic(),
+                Weapon {
+                    kind,
+                    tier: Tier::One
+                }
+            );
+        }
+        assert_eq!(WeaponKind::Minigun.min_tier(), Tier::Two);
+        assert_eq!(WeaponKind::RailLance.min_tier(), Tier::Three);
+        assert!(!WeaponKind::Minigun.made_at(Tier::One));
+        assert!(WeaponKind::Minigun.made_at(Tier::Two));
+        assert!(!WeaponKind::RailLance.made_at(Tier::Two));
+        assert!(WeaponKind::RailLance.made_at(Tier::Three));
+        // Nobody else carries one: the issue, the hire and the garrison
+        // tables name neither, so no roll can land on one.
+        for kind in [WeaponKind::Minigun, WeaponKind::RailLance] {
+            assert!(ISSUE_ODDS.iter().all(|(k, _)| *k != kind));
+            assert!(MERCENARY_ODDS.iter().all(|(k, _)| *k != kind));
+            assert!(MANUFACTURER_ODDS.iter().all(|(k, _)| *k != kind));
+        }
+        for seed in 0..500u64 {
+            for gear in [
+                Gear::issued_for(seed),
+                Gear::hired_for(seed, 1),
+                Gear::manufacturer(seed, Some(Tier::Two), None, 1),
+            ] {
+                let kind = gear.weapon.map(|w| w.kind);
+                assert!(
+                    !matches!(kind, Some(WeaponKind::Minigun | WeaponKind::RailLance)),
+                    "seed {seed}: {kind:?}"
+                );
+            }
+        }
+        // And no machine's arm is one, whatever its place in a wave.
+        for droid in crate::droid::DroidKind::EVERY {
+            for index in 0..64 {
+                let arm = droid.arm(index);
+                assert!(
+                    !matches!(arm, WeaponKind::Minigun | WeaponKind::RailLance),
+                    "{droid:?} {index}: {arm:?}"
+                );
+            }
+        }
+    }
+
+    /// A pistol below its lowest tier is fine; a minigun at tier one is
+    /// never made, and a debug build says so.
+    #[test]
+    #[should_panic(expected = "never made below")]
+    #[cfg(debug_assertions)]
+    fn a_minigun_at_tier_one_is_refused() {
+        let _ = WeaponKind::Minigun.at(Tier::One);
+    }
+
+    /// Task 115: one pull of a minigun is twenty bolts a tenth of a second
+    /// apart, and the next pull comes five seconds after the first.
+    #[test]
+    fn a_minigun_pull_is_twenty_bolts_a_tenth_apart_and_the_next_five_seconds_on() {
+        let stats = WeaponKind::Minigun.basic().stats();
+        let mut trigger = Trigger::default();
+        let dt = 1.0 / 240.0;
+        let mut times = Vec::new();
+        for step in 0..(240 * 11) {
+            trigger.tick(dt);
+            if trigger.pull(dt, &stats) {
+                times.push(step as f32 * dt);
+            }
+        }
+        let first: Vec<f32> = times.iter().copied().filter(|&t| t < 4.0).collect();
+        assert_eq!(first.len(), 20, "{times:?}");
+        for pair in first.windows(2) {
+            assert!(
+                (pair[1] - pair[0] - 0.1).abs() <= dt * 1.5,
+                "a tenth apart: {first:?}"
+            );
+        }
+        assert!((first[19] - 1.9).abs() < 0.02, "{first:?}");
+        let next = times.iter().copied().find(|&t| t >= 4.0).unwrap();
+        assert!(
+            (next - 5.0).abs() <= dt * 1.5,
+            "the next pull at five: {next}"
+        );
+        assert_eq!(
+            times.iter().filter(|&&t| (4.0..9.0).contains(&t)).count(),
+            20
+        );
+    }
+
+    /// Fire `weapon` from `from` at `at` until a shot is rolled a hit —
+    /// a miss is aimed wide of the whole line — and fly it out, handing
+    /// back what it struck.
+    fn fly_a_hit(combat: &mut Combat, sight: &Sight, from: Vec2, at: Vec2) -> Vec<Hit> {
+        for _ in 0..50 {
+            combat.fire(from, at, WeaponKind::RailLance.basic(), false, false);
+            for _ in 0..240 {
+                combat.step(1.0 / 60.0, sight, &[]);
+            }
+            let hits = combat.take_hits();
+            if !hits.is_empty() {
+                return hits;
+            }
+        }
+        panic!("fifty lance slugs and not one rolled a hit");
+    }
+
+    /// Task 115: a rail lance slug goes through three bodies in a line —
+    /// all three struck, at one, 0.6 and 0.36 of the damage — and no
+    /// fourth; it never strikes one twice and a wall stops it.
+    #[test]
+    fn a_lance_slug_goes_through_three_bodies_in_a_line_and_stops_at_a_wall() {
+        let lance = WeaponKind::RailLance.basic().stats();
+        let line = |xs: &[f32]| -> Vec<Option<(Vec2, Weapon)>> {
+            xs.iter()
+                .map(|&x| Some((middle(x, 5.0), WeaponKind::LaserPistol.basic())))
+                .collect()
+        };
+        {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(3);
+            combat.set_targets(line(&[4.0, 6.0, 8.0, 10.0]));
+            let hits = fly_a_hit(&mut combat, &sight, middle(1.0, 5.0), middle(4.0, 5.0));
+            let who: Vec<usize> = hits.iter().map(|h| h.who).collect();
+            assert_eq!(who, vec![0, 1, 2], "three struck, in order, no fourth");
+            // All inside the sweet range, so the curve is flat.
+            let full = lance.damage;
+            for (hit, share) in hits.iter().zip([1.0, 0.6, 0.36]) {
+                assert!((hit.damage - full * share).abs() < 1e-3, "{hits:?}");
+            }
+            assert!(combat.bolts.is_empty(), "spent after the third");
+        }
+        // A wall between the second and the third: the second is the last.
+        {
+            let (sight, _) = walled_room();
+            let mut combat = Combat::new(3);
+            combat.set_targets(line(&[6.0, 8.0, 12.0]));
+            let hits = fly_a_hit(&mut combat, &sight, middle(2.0, 5.0), middle(6.0, 5.0));
+            let who: Vec<usize> = hits.iter().map(|h| h.who).collect();
+            assert_eq!(who, vec![0, 1], "the wall at ten stops it");
+        }
+        // Every other gun stops at the first body.
+        {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(3);
+            combat.set_targets(line(&[4.0, 6.0]));
+            let mut hits = Vec::new();
+            for _ in 0..20 {
+                combat.fire(
+                    middle(1.0, 5.0),
+                    middle(4.0, 5.0),
+                    WeaponKind::SniperRifle.basic(),
+                    false,
+                    false,
+                );
+                for _ in 0..120 {
+                    combat.step(1.0 / 60.0, &sight, &[]);
+                }
+                hits.extend(combat.take_hits());
+            }
+            assert!(!hits.is_empty() && hits.iter().all(|h| h.who == 0));
+        }
+    }
+
+    /// Task 115: a Guardian's shield stops a lance slug from the front —
+    /// nothing behind it is struck — and a Guardian hit from the side is
+    /// gone through. A body that dodges the slug is no strike: the next
+    /// body struck takes the factor for the strikes so far.
+    #[test]
+    fn a_shield_stops_a_lance_from_the_front_and_a_dodge_is_no_strike() {
+        let lance = WeaponKind::RailLance.basic().stats().damage;
+        let from = middle(1.0, 5.0);
+        let targets = vec![
+            Some((middle(4.0, 5.0), WeaponKind::Sweeper.basic())),
+            Some((middle(7.0, 5.0), WeaponKind::LaserPistol.basic())),
+        ];
+        // Facing the shooter: stopped at the plate, nothing struck at all.
+        {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(9);
+            combat.set_targets(targets.clone());
+            combat.set_shields(&[Some(vec2(-1.0, 0.0)), None]);
+            for _ in 0..20 {
+                combat.fire(
+                    from,
+                    middle(4.0, 5.0),
+                    WeaponKind::RailLance.basic(),
+                    false,
+                    false,
+                );
+                for _ in 0..120 {
+                    combat.step(1.0 / 60.0, &sight, &[]);
+                }
+            }
+            assert!(combat.take_hits().is_empty(), "never through a shield");
+        }
+        // Facing across the line: gone through, and the one behind struck.
+        {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(9);
+            combat.set_targets(targets.clone());
+            combat.set_shields(&[Some(vec2(0.0, 1.0)), None]);
+            let hits = fly_a_hit(&mut combat, &sight, from, middle(4.0, 5.0));
+            let who: Vec<usize> = hits.iter().map(|h| h.who).collect();
+            assert_eq!(who, vec![0, 1]);
+        }
+        // The first body's armour slips it every time: not a strike, so
+        // the second takes it whole and the third at 0.6.
+        {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(9);
+            combat.set_targets(vec![
+                Some((middle(4.0, 5.0), WeaponKind::LaserPistol.basic())),
+                Some((middle(6.0, 5.0), WeaponKind::LaserPistol.basic())),
+                Some((middle(8.0, 5.0), WeaponKind::LaserPistol.basic())),
+            ]);
+            combat.set_dodge(&[1.0, 0.0, 0.0]);
+            let hits = fly_a_hit(&mut combat, &sight, from, middle(4.0, 5.0));
+            let got: Vec<(usize, f32)> = hits.iter().map(|h| (h.who, h.damage)).collect();
+            assert_eq!(got.len(), 2, "{got:?}");
+            assert_eq!((got[0].0, got[1].0), (1, 2));
+            assert!((got[0].1 - lance).abs() < 1e-3 && (got[1].1 - lance * 0.6).abs() < 1e-3);
+        }
+        // And one peeking from cover that dodges it: the same, whenever
+        // the peek's half comes up.
+        {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(21);
+            combat.set_targets(vec![
+                Some((middle(4.0, 5.0), WeaponKind::LaserPistol.basic())),
+                Some((middle(6.0, 5.0), WeaponKind::LaserPistol.basic())),
+                Some((middle(8.0, 5.0), WeaponKind::LaserPistol.basic())),
+            ]);
+            combat.set_peeking(&[false, true, false]);
+            let mut dodged = 0;
+            for _ in 0..30 {
+                let hits = fly_a_hit(&mut combat, &sight, from, middle(4.0, 5.0));
+                let who: Vec<usize> = hits.iter().map(|h| h.who).collect();
+                if who == vec![0, 2] {
+                    dodged += 1;
+                    assert!((hits[1].damage - lance * 0.6).abs() < 1e-3, "{hits:?}");
+                } else {
+                    assert_eq!(who, vec![0, 1, 2]);
+                }
+            }
+            assert!(dodged > 5, "the peek slipped it {dodged} times of thirty");
+        }
+    }
+
+    /// Task 115: the same seed, the same strikes.
+    #[test]
+    fn a_lance_on_one_seed_strikes_the_same_every_time() {
+        let run = || {
+            let (sight, _) = room_with(&[]);
+            let mut combat = Combat::new(77);
+            combat.set_targets(
+                [4.0, 6.0, 8.0]
+                    .iter()
+                    .map(|&x| Some((middle(x, 5.0), WeaponKind::LaserPistol.basic())))
+                    .collect(),
+            );
+            let mut all = Vec::new();
+            for _ in 0..12 {
+                combat.fire(
+                    middle(1.0, 5.0),
+                    middle(4.0, 5.0),
+                    WeaponKind::RailLance.basic(),
+                    false,
+                    false,
+                );
+                for _ in 0..90 {
+                    combat.step(1.0 / 60.0, &sight, &[]);
+                }
+                all.extend(combat.take_hits());
+            }
+            all
+        };
+        let a = run();
+        assert!(!a.is_empty());
+        assert_eq!(a, run());
     }
 
     /// A line of sandbags across the room is no wall — walked over, seen

@@ -27,7 +27,8 @@
 //! # The shelf
 //!
 //! [`data::TRADER_WEAPONS`] weapons and [`data::TRADER_ARMOUR`] pieces, any
-//! kind at any tier, rolled off the galaxy's seed and the site on a stream
+//! kind at any tier it is made at ([`shelf_candidates`]: never a minigun
+//! at tier one or a rail lance below three, task 115), rolled off the galaxy's seed and the site on a stream
 //! of their own ([`roll_shelf`]) — once a trader a run, and never again:
 //! the world keeps what is left of it ([`Trader`]).
 
@@ -173,8 +174,8 @@ impl ShelfItem {
 }
 
 /// A trader's shelf: [`data::TRADER_WEAPONS`] weapons, then
-/// [`data::TRADER_ARMOUR`] pieces, each any kind of its list at any tier,
-/// off the galaxy's seed and the site on a stream of the shelf's own. The
+/// [`data::TRADER_ARMOUR`] pieces, each drawn from [`shelf_candidates`] —
+/// any kind of its list at any tier it is made at — off the galaxy's seed and the site on a stream of the shelf's own. The
 /// same every time it is asked, so it is rolled once a run by being kept
 /// the first time the crew arrive ([`Trader::new`]).
 pub fn roll_shelf(galaxy_seed: u64, star: u32, station: u32) -> Vec<ShelfItem> {
@@ -182,16 +183,34 @@ pub fn roll_shelf(galaxy_seed: u64, star: u32, station: u32) -> Vec<ShelfItem> {
         ^ worldgen::rng::mix(u64::from(star) << 32 | u64::from(station));
     let mut rng = worldgen::rng::Rng::new(seed);
     let mut shelf = Vec::with_capacity(data::TRADER_WEAPONS + data::TRADER_ARMOUR);
+    // One draw a thing, over every pair of a kind and a tier the kind is
+    // made at: a minigun at tier one or a lance below three is never a
+    // candidate at all (task 115), rather than drawn and moved up.
     let mut draw = |list: &[ResourceId], n: usize, rng: &mut worldgen::rng::Rng| {
+        let candidates = shelf_candidates(list);
         for _ in 0..n {
-            let resource = list[rng.below(list.len() as u32) as usize];
-            let tier = Tier::ALL[rng.below(Tier::ALL.len() as u32) as usize];
-            shelf.push(ShelfItem { resource, tier });
+            shelf.push(candidates[rng.below(candidates.len() as u32) as usize]);
         }
     };
     draw(&worldgen::data::WEAPONS, data::TRADER_WEAPONS, &mut rng);
     draw(&worldgen::data::ARMOUR, data::TRADER_ARMOUR, &mut rng);
     shelf
+}
+
+/// Every thing of `list` a shelf may hold: each kind at each tier it is
+/// made at ([`bims::combat::WeaponKind::made_at`] for a gun; every tier
+/// for a piece), the kinds in the list's order and the tiers upward.
+pub fn shelf_candidates(list: &[ResourceId]) -> Vec<ShelfItem> {
+    list.iter()
+        .flat_map(|&resource| {
+            Tier::ALL
+                .into_iter()
+                .filter(move |&tier| {
+                    armour::weapon_of(resource).is_none_or(|kind| kind.made_at(tier))
+                })
+                .map(move |tier| ShelfItem { resource, tier })
+        })
+        .collect()
 }
 
 /// What the world keeps about one trader the crew have been to: what is
@@ -293,8 +312,54 @@ mod tests {
                 tiers.insert(item.tier.code());
             }
         }
-        assert_eq!(kinds.len(), 8);
+        assert_eq!(kinds.len(), 10);
         assert_eq!(tiers.len(), 3);
+    }
+
+    /// Task 115: no shelf over many seeds holds a minigun at tier one or a
+    /// rail lance below three, and both do turn up.
+    #[test]
+    fn no_shelf_holds_a_weapon_below_its_lowest_tier_and_both_new_kinds_turn_up() {
+        let (mut miniguns, mut lances) = (0, 0);
+        for seed in 0..40u64 {
+            for station in 0..50 {
+                for item in roll_shelf(seed, (seed % 7) as u32, station) {
+                    let Some(w) = item.weapon() else {
+                        continue;
+                    };
+                    assert!(
+                        w.kind.made_at(w.tier),
+                        "seed {seed} station {station}: {w:?}"
+                    );
+                    match w.kind {
+                        WeaponKind::Minigun => miniguns += 1,
+                        WeaponKind::RailLance => lances += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        assert!(
+            miniguns > 50 && lances > 50,
+            "{miniguns} miniguns, {lances} lances"
+        );
+        // The candidates: seven kinds, the minigun at two tiers and the
+        // lance at one, so 5 x 3 + 2 + 1.
+        assert_eq!(shelf_candidates(&worldgen::data::WEAPONS).len(), 18);
+        assert_eq!(shelf_candidates(&worldgen::data::ARMOUR).len(), 9);
+    }
+
+    /// Task 115: two tier-two miniguns make a tier-three one, and a lance
+    /// — tier three and nothing else — combines into nothing.
+    #[test]
+    fn two_miniguns_combine_and_a_lance_does_not() {
+        let mini = |t| Item::Weapon(WeaponKind::Minigun.at(t));
+        assert_eq!(
+            combined(mini(Tier::Two), mini(Tier::Two), 9),
+            Ok(mini(Tier::Three))
+        );
+        let lance = Item::Weapon(WeaponKind::RailLance.basic());
+        assert_eq!(combined(lance, lance, 9), Err(CombineError::TopTier));
     }
 
     #[test]

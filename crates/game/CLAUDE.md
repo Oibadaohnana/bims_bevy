@@ -3757,3 +3757,44 @@ the world calls between missions.
 `a_charge_is_a_count_on_the_body_and_a_piece_is_cut_for_one_part`
 (`combat::tests`) and `a_bim_knocked_out_keeps_its_gun_and_is_no_target`
 (`game::tests`) pin the two halves.
+
+## The minigun and the rail lance (task 115)
+
+Two more carried kinds, `WeaponKind::Minigun = 9` and `RailLance = 10`,
+in `ALL` (seven) and `EVERY` (ten, in code order); `resource()` 18 and
+19. **A kind has a lowest tier** (`WeaponKind::min_tier`: two for the
+minigun, three for the lance, one for the rest) and `at` debug-asserts
+it, so nothing makes a weapon below it; `basic()` is the kind at it. The
+numbers are `balance::{MINIGUN, RAIL_LANCE}`, chosen so the tier factors
+land each on what was asked at its lowest tier; the doc comments carry the
+worked damage a second.
+
+- **The minigun is no new mechanic**: burst twenty, a tenth apart, one
+  pull every five seconds — the one `Trigger` every gun has. At sixty
+  steps a second a gap runs out on the seventh step, as every burst's
+  does, so the twenty take 2.2 s of steps rather than 1.9.
+- **The lance goes through.** A `Bolt` keeps `struck: [Option<usize>;
+  LANCE_PIERCE]` (serde default; a fixed array so it stays `Copy`) — the
+  bodies, by the index `dodged` uses, it has struck. In `Combat::step` a
+  lance's strike ends the step at the body (`bolt.pos` there, `left` less
+  the way flown) and it flies on next step; the n-th body takes
+  `LANCE_FALLOFF`ⁿ of the damage (multiplied out, not `powi`), point-blank
+  and the bolt's own factor on top; a struck body is skipped by the body
+  loop and the shield loop alike. A dodge — cover, a peek, tier-three
+  armour — is no strike; a wall, a lamp and a shield from the front stop
+  it; *interpose* spends it. The rolls are the ones any bolt makes, one a
+  body reached, so a fight draws off the combat stream as it did.
+- **The pictures** (`Combat::draw`, `fx`): the minigun a short thin dash
+  and nothing behind it (`DASH_*`); the lance one even line from the
+  muzzle to the head, the thickest core there is (`RAIL_*`), a
+  `Light::Pierce` ring at every body it strikes and a `Light::Rail` linger
+  after it lands or is spent (`RAIL_LINGER`); `MUZZLE_MINIGUN`,
+  `MUZZLE_LANCE`. In the hands (`character::draw_gun`) the minigun is a
+  receiver with a drum and three barrels, the lance a stock and two rails
+  with coils across them — the longest reach of any gun.
+
+`combat::tests` pin the curves at both tiers, the lowest tiers, the tables
+that never name either, the minigun's pull, the lance through three and
+not a fourth, a wall, a shield from the front and the side, a dodge that
+is no strike, and one seed striking alike; `game::tests` the minigun's
+burst in a hand.

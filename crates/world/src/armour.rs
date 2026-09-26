@@ -14,7 +14,9 @@ use physics::ResourceId;
 /// The tiers a weapon resource can be bought at: a weapon by its tier.
 /// `None` for anything that is not a weapon.
 pub fn weapon_at(resource: ResourceId, tier: Tier) -> Option<Weapon> {
-    weapon_of(resource).map(|kind| kind.at(tier))
+    weapon_of(resource)
+        .filter(|kind| kind.made_at(tier))
+        .map(|kind| kind.at(tier))
 }
 
 /// Whose body a command points at: one of the crew, or one of the

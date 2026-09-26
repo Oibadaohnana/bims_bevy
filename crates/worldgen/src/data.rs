@@ -590,16 +590,18 @@ pub struct Stock(pub u32);
 /// they cannot do without.
 pub const STAPLES: [ResourceId; 3] = [ResourceId::Vegetable, ResourceId::Tofu, ResourceId::Medkit];
 
-/// The five weapons and the three pieces of armour there are to buy
-/// (feature 95). On no station's shelf since the trader (task 114): a
+/// The seven weapons and the three pieces of armour there are to buy
+/// (feature 95; the minigun and the rail lance since task 115). On no station's shelf since the trader (task 114): a
 /// trader site's own shelf is drawn from these two lists
 /// (`world::trader`).
-pub const WEAPONS: [ResourceId; 5] = [
+pub const WEAPONS: [ResourceId; 7] = [
     ResourceId::Handgun,
     ResourceId::Shotgun,
     ResourceId::AutoRifle,
     ResourceId::SniperRifle,
     ResourceId::Schword,
+    ResourceId::Minigun,
+    ResourceId::RailLance,
 ];
 pub const ARMOUR: [ResourceId; 3] = [ResourceId::Helm, ResourceId::Kevlar, ResourceId::LegGuard];
 

@@ -59,7 +59,9 @@ pub fn war_goods(resource: ResourceId) -> bool {
         | ResourceId::Shotgun
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
-        | ResourceId::Schword => true,
+        | ResourceId::Schword
+        | ResourceId::Minigun
+        | ResourceId::RailLance => true,
         // What is worn into a fight. The pressure suit is not armour: it
         // is for going outside, and a war does not make it dearer.
         ResourceId::Helm | ResourceId::Kevlar | ResourceId::LegGuard => true,
@@ -236,7 +238,9 @@ pub fn kind_bias(kind: MarketKind, resource: ResourceId) -> i32 {
         | ResourceId::Shotgun
         | ResourceId::AutoRifle
         | ResourceId::SniperRifle
-        | ResourceId::Schword => [0, 0, 0, 15, 10],
+        | ResourceId::Schword
+        | ResourceId::Minigun
+        | ResourceId::RailLance => [0, 0, 0, 15, 10],
         ResourceId::Helm | ResourceId::Kevlar | ResourceId::LegGuard => [0, 0, 0, 15, 10],
         ResourceId::Medkit => [0, 0, 0, 15, 0],
         ResourceId::Bandage => [0, 0, 0, 25, 0],
@@ -440,9 +444,11 @@ mod tests {
         ] {
             assert!(!war_goods(resource), "{resource:?} is not war goods");
         }
-        // Ten of them, and the table covers every resource there is.
+        // Twelve of them — the minigun and the rail lance (task 115) among
+        // them — and the table covers every resource there is.
+        assert!(war_goods(ResourceId::Minigun) && war_goods(ResourceId::RailLance));
         let all = ResourceId::ALL.iter().filter(|&&r| war_goods(r)).count();
-        assert_eq!(all, 10, "the war goods");
+        assert_eq!(all, 12, "the war goods");
     }
 
     /// A market quotes through its own bias, and the plain one at none.

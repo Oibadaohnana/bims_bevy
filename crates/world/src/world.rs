@@ -4672,7 +4672,9 @@ impl World {
     }
 
     /// Everybody's kit at one tier: every crew member's weapon at `tier`
-    /// (its kind kept, the pistol for an empty hand) and a fresh helm,
+    /// (its kind kept, the pistol for an empty hand — and a kind never
+    /// made that low at its own lowest tier instead, task 115: a rail
+    /// lance at tier two is no weapon) and a fresh helm,
     /// kevlar and leg guards at it over whatever was worn — ids off the
     /// holdings, so the checksum and the health bars see them like any
     /// other. The crew's
@@ -4682,11 +4684,8 @@ impl World {
     /// worn before is dropped, not stowed. For probes and for the app.
     pub fn outfit_for_probe(&mut self, tier: Tier) {
         let armed = |gear: &bims::combat::Gear| {
-            Some(
-                gear.weapon
-                    .map_or(WeaponKind::LaserPistol, |w| w.kind)
-                    .at(tier),
-            )
+            let kind = gear.weapon.map_or(WeaponKind::LaserPistol, |w| w.kind);
+            Some(kind.at(tier.max(kind.min_tier())))
         };
         for who in 0..self.aboard.crew_count() as usize {
             let mut gear = self.aboard.room.gear(who);

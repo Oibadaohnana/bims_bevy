@@ -113,12 +113,17 @@ pub enum ResourceId {
     /// pack cell and thrown by a soldier alone; since feature 90 a charge
     /// on a cooldown like the engineer's kits.
     Grenade = 17,
+    /// A minigun (task 115): made from tier two up, and only ever the
+    /// crew's — bought at a trader or combined.
+    Minigun = 18,
+    /// A rail lance (task 115): tier three only.
+    RailLance = 19,
 }
 
 impl ResourceId {
     /// Every resource, in discriminant order. `ALL[id as usize].id == id`,
     /// which [`ResourceId::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [ResourceId; 18] = [
+    pub const ALL: [ResourceId; 20] = [
         ResourceId::Vegetable,
         ResourceId::Tofu,
         ResourceId::Suit,
@@ -137,6 +142,8 @@ impl ResourceId {
         ResourceId::SandbagKit,
         ResourceId::SentryKit,
         ResourceId::Grenade,
+        ResourceId::Minigun,
+        ResourceId::RailLance,
     ];
 
     pub fn def(self) -> &'static ResourceDef {
@@ -171,7 +178,7 @@ pub struct ResourceDef {
 /// that went into it. `shipdesign::recipes` is where that recipe lives
 /// and `every_recipe_holds_together` there is what holds this column to
 /// it.
-pub static RESOURCES: [ResourceDef; 18] = [
+pub static RESOURCES: [ResourceDef; 20] = [
     ResourceDef {
         id: ResourceId::Vegetable,
         mass_per_unit: 0.5,
@@ -251,6 +258,16 @@ pub static RESOURCES: [ResourceDef; 18] = [
     ResourceDef {
         id: ResourceId::Grenade,
         mass_per_unit: 10.0,
+    },
+    // The two heavy guns of task 115: a minigun's barrels and its drum,
+    // a lance's rails and coils.
+    ResourceDef {
+        id: ResourceId::Minigun,
+        mass_per_unit: 64.0,
+    },
+    ResourceDef {
+        id: ResourceId::RailLance,
+        mass_per_unit: 72.0,
     },
 ];
 

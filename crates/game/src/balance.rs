@@ -29,6 +29,9 @@
 //! piece cannot take reaches the body. At nothing the piece is broken and
 //! does nothing.
 //!
+//! A rail lance's slug goes through bodies ([`LANCE_PIERCE`],
+//! [`LANCE_FALLOFF`]); nothing else does.
+//!
 //! What a body *has* — a head of 5, a body of 75, legs of 20, the odds a
 //! hit lands on each, and what a cut bleeds — is `crate::health`
 //! (`Part::max`, `Part::HIT_ODDS`, `CUT_WOUND`, `BLEED_PER_WOUND`).
@@ -149,6 +152,82 @@ pub const SCHWORD: WeaponStats = WeaponStats {
     strips: 0.0,
     strips_far: 0.0,
 };
+
+// ---- The minigun and the rail lance (task 115) ----
+//
+// Two kinds made only from a tier up (`WeaponKind::min_tier`): the
+// minigun from tier two, the rail lance at tier three alone. Their base
+// numbers are what the tier factors below are multiplied onto, chosen so
+// each lands where it was asked for **at its own lowest tier** — which is
+// the only tier nobody can combine one up to.
+
+/// Twenty bolts to a trigger pull, a tenth of a second apart — 1.9
+/// seconds of fire — and the rest of a five-second cycle to cool. No
+/// spin-up, no heat, no pace penalty: the burst, the trigger and the hit
+/// are every gun's. At tier two (its lowest) that is 5.5 a bolt at 0.85
+/// odds out to its sweet six tiles, reaching twenty.
+///
+/// What it does a second in its sweet range, body hits on whole armour,
+/// against the tier-two auto rifle beside it:
+///
+/// | against | tier-2 minigun | tier-2 auto rifle |
+/// | --- | --- | --- |
+/// | a droid (no armour) | 18.7 | 14.3 |
+/// | tier-2 kevlar (protection 3) | 8.5 | 8.6 |
+/// | tier-3 kevlar (protection 4.5) | 3.4 | 5.7 |
+///
+/// So it shreds the machines and bounces off good armour: many light
+/// bolts each lose the protection.
+pub const MINIGUN: WeaponStats = WeaponStats {
+    range: 20.0,
+    sweet: 6.0,
+    accuracy: 0.68,
+    accuracy_far: 0.36,
+    damage: 4.4,
+    damage_far: 3.2,
+    speed: 24.0,
+    fire_rate: 0.2,
+    burst: 20,
+    burst_gap: 0.1,
+    melee: false,
+    strips: 0.0,
+    strips_far: 0.0,
+};
+
+/// One slug every five seconds that **goes through**: it strikes up to
+/// [`LANCE_PIERCE`] bodies along its line, the n-th (from nought) at the
+/// damage at the distance flown times [`LANCE_FALLOFF`] to the n. At tier
+/// three (its only tier) that is 75 a slug at 0.945 odds out to 24 tiles,
+/// reaching 40.8.
+///
+/// Against one target the tier-three sniper rifle does about 21 a second
+/// (84.4 at certain odds, one every four) and the lance about 14 (75 at
+/// 0.945, one every five); into three bodies in a line the lance does
+/// about 28 (75 + 45 + 27). A wall, a lamp and a Guardian's shield from
+/// the front stop it; a tank's *interpose* spends it. See
+/// `crate::combat::Combat::step`.
+pub const RAIL_LANCE: WeaponStats = WeaponStats {
+    range: 34.0,
+    sweet: 20.0,
+    accuracy: 0.72,
+    accuracy_far: 0.52,
+    damage: 48.0,
+    damage_far: 32.0,
+    speed: 70.0,
+    fire_rate: 0.2,
+    burst: 1,
+    burst_gap: 0.0,
+    melee: false,
+    strips: 0.0,
+    strips_far: 0.0,
+};
+
+/// How many bodies one rail lance slug strikes, at most.
+pub const LANCE_PIERCE: usize = 3;
+/// What each body struck after the first multiplies the slug's damage by:
+/// the n-th body (from nought) takes `LANCE_FALLOFF`ⁿ of it — 1, 0.6,
+/// 0.36.
+pub const LANCE_FALLOFF: f32 = 0.6;
 
 // ---- The armour ----
 

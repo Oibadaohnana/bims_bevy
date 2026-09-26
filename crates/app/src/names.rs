@@ -237,7 +237,7 @@ pub const NOT_A_TOOL: &[u32] = &[
 ];
 
 /// What a station sells, indexed by `physics::ResourceId`.
-pub const RESOURCE_NAMES: [&str; 18] = [
+pub const RESOURCE_NAMES: [&str; 20] = [
     "Vegetables",
     "Tofu",
     "Suits",
@@ -256,6 +256,8 @@ pub const RESOURCE_NAMES: [&str; 18] = [
     "Sandbag kits",
     "Sentry kits",
     "Grenades",
+    "Miniguns",
+    "Rail lances",
 ];
 
 pub fn resource_name(id: ResourceId) -> &'static str {
@@ -2925,10 +2927,11 @@ pub const PLAIN_SPOTS: [u32; 4] = [
 // --- arms and armour ------------------------------------------------------------
 
 /// What a weapon is called, indexed by `bims::combat::WeaponKind::code`;
-/// `0` is an empty slot. The last three are the machines' built-in arms
+/// `0` is an empty slot. Codes six to eight are the machines' built-in arms
 /// (features 83 and 100): they are named here because the picture names what it
-/// draws, and nowhere else — nothing carries one.
-pub const WEAPON_NAMES: [&str; 9] = [
+/// draws, and nowhere else — nothing carries one. Nine and ten are the two
+/// kinds made only from a tier up (task 115).
+pub const WEAPON_NAMES: [&str; 11] = [
     "—",
     "Laser pistol",
     "Shotgun",
@@ -2938,6 +2941,8 @@ pub const WEAPON_NAMES: [&str; 9] = [
     "Claw",
     "Unmaker",
     "Sweeper",
+    "Minigun",
+    "Rail lance",
 ];
 
 /// What a piece of armour is called, indexed by `bims::combat::ArmourKind::code`;
@@ -3044,7 +3049,7 @@ pub fn locked_tip() -> String {
 /// What each thing in a grid cell is, for the tooltip under its icon,
 /// indexed by `physics::ResourceId`. A piece of armour's numbers are put
 /// after its line by the grid, off the piece itself.
-pub const ITEM_TIPS: [&str; 18] = [
+pub const ITEM_TIPS: [&str; 20] = [
     "A vegetable off the bay. Two of them make a stew, and two make a medkit at the drug lab.",
     "A block of tofu, pressed from soy.",
     "A pressure suit, for a walk outside.",
@@ -3063,6 +3068,8 @@ pub const ITEM_TIPS: [&str; 18] = [
     "A sandbag kit. An engineer lays it on a deck tile as a barricade to duck behind — E, over the tile — and a spent charge comes back on its own cooldown.",
     "A sentry kit. An engineer of the third level sets it up as a turret with an auto rifle's aim — Q, over the tile — and a spent charge comes back on its own cooldown.",
     "A grenade: a soldier of the third level carries two of them as charges and throws one — Q, over the tile — and it bursts on everything within two and a half tiles, friend and foe alike, two seconds on. A thrown one comes back into the pack thirty seconds later.",
+    "A minigun, tier 2 and up: twenty light bolts to a pull, ten a second, then a long cool. Shreds the machines; good armour shrugs off much of each bolt. Bought at a trader or combined, and only ever the crew's.",
+    "A rail lance, tier 3 only: one slug every five seconds that goes through a body and on into the next — up to three, each after the first taking less. Walls and a Guardian's shield from the front stop it. Bought at a trader, and only ever the crew's.",
 ];
 
 pub fn item_tip(id: ResourceId) -> &'static str {

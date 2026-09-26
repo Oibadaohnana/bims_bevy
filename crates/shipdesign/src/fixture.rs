@@ -37,8 +37,10 @@ pub const REFERENCE_POOL: Money = 10_000_000;
 /// Pinned rather than computed: these are the numbers that catch a target
 /// hashing differently, and a test that compares two computed values would
 /// pass happily while both were wrong. Update them only when the reference
-/// design itself is meant to change.
-pub const REFERENCE_HASH: [u64; 2] = [0x0617_9497_2e16_65ac, 0x5b4f_9597_b2c6_baf7];
+/// design itself is meant to change — or the cargo it hashes grows: two
+/// empty slots for the minigun and the rail lance (task 115, `CARGO_SLOTS`
+/// 20) moved both from `0x0617_9497_2e16_65ac` and `0x5b4f_9597_b2c6_baf7`.
+pub const REFERENCE_HASH: [u64; 2] = [0xb4b9_08bd_0dda_d32c, 0xa7a4_60c0_b042_7fd7];
 
 /// What [`reference`] is carrying, whatever the crew size: a few days of
 /// vegetables and tofu, bought through [`apply`] like everything else.
@@ -348,8 +350,9 @@ pub fn flyer(crew: u32) -> ShipDesign {
 /// is: `ship_self_check` computes it in wasm and `tests.rs` natively, and a
 /// target that hashed the simulation's ship differently would start a
 /// different simulation. Update it only when the ship below is meant to
-/// change.
-pub const PLAYTEST_HASH: u64 = 0xd9cb_319c_6859_03ec;
+/// change — it moved from `0xd9cb_319c_6859_03ec` for two more empty cargo
+/// slots (task 115), the ship itself untouched.
+pub const PLAYTEST_HASH: u64 = 0x9647_17e1_0fef_b96c;
 
 /// How many parts [`playtest_ship`] ends up with. What notices a placement
 /// that was quietly refused — the builder skips rather than panics, for the

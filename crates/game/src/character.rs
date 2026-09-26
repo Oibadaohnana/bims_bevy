@@ -2511,6 +2511,8 @@ fn fore_hand(weapon: WeaponKind) -> f32 {
         WeaponKind::AutoRifle => 15.0,
         WeaponKind::SniperRifle => 20.0,
         WeaponKind::Schword => 6.0,
+        WeaponKind::Minigun => 17.0,
+        WeaponKind::RailLance => 22.0,
         // A droid's arm is part of the machine and never in a
         // hand: answered so the match is whole, read by nobody.
         WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => 6.0,
@@ -2529,6 +2531,8 @@ fn muzzle_ahead(weapon: WeaponKind) -> f32 {
         WeaponKind::Shotgun => 28.0,
         WeaponKind::AutoRifle => 32.0,
         WeaponKind::SniperRifle => 42.0,
+        WeaponKind::Minigun => 34.0,
+        WeaponKind::RailLance => 50.0,
         WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => 0.0,
     }
 }
@@ -2544,6 +2548,8 @@ fn gun_reach(weapon: WeaponKind) -> f32 {
         WeaponKind::AutoRifle => 33.0,
         WeaponKind::SniperRifle => 44.0,
         WeaponKind::Schword => 34.0,
+        WeaponKind::Minigun => 36.0,
+        WeaponKind::RailLance => 52.0,
         WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => 0.0,
     }
 }
@@ -2652,6 +2658,41 @@ fn draw_gun(b: &mut Brush, grip: Vec2, weapon: WeaponKind, lit: Option<Color>) {
             b.ellipse(grip + vec2(16.0, 0.0), vec2(4.4, 4.4), 0.0, LENS);
             part(b, vec2(40.5, 0.0), vec2(5.0, 6.0), 0.0, GUN_EDGE);
             muzzle(b, muzzle_ahead(weapon), 3.4);
+        }
+        WeaponKind::Minigun => {
+            // Squat and heavy (task 115): a boxy receiver with a drum
+            // canted out to the side, a bundle of three barrels side by
+            // side out of it, clamped at the middle and ringed at the
+            // end — the cluster is what says *minigun*.
+            part(b, vec2(-3.5, 0.0), vec2(8.0, 8.5), 0.0, GUN);
+            b.ellipse(grip + vec2(2.0, 8.5), vec2(6.5, 6.5), 0.0, GUN_EDGE);
+            b.ellipse(grip + vec2(2.0, 8.5), vec2(4.8, 4.8), 0.0, STOCK);
+            part(b, vec2(5.0, 0.0), vec2(12.0, 10.0), 0.0, GUN);
+            for across in [-2.6f32, 0.0, 2.6] {
+                b.rect(grip + vec2(22.0, across), vec2(20.0, 2.2), 0.0, 1.0, GUN);
+            }
+            part(b, vec2(20.0, 0.0), vec2(3.0, 9.0), 0.0, GUN_EDGE);
+            part(b, vec2(31.5, 0.0), vec2(3.0, 9.0), 0.0, GUN_EDGE);
+            b.rect(grip + vec2(6.0, 0.0), vec2(8.0, 2.0), 0.0, 0.0, SCOPE);
+            muzzle(b, muzzle_ahead(weapon), 3.0);
+        }
+        WeaponKind::RailLance => {
+            // The longest there is (task 115): a stock, a slim body, and
+            // two rails running out either side of an open channel with
+            // coils across it at intervals — the slug is fired between
+            // the rails, and the muzzle glows between their ends.
+            part(b, vec2(-5.5, 0.0), vec2(10.0, 6.4), 0.0, STOCK);
+            part(b, vec2(4.0, 0.0), vec2(14.0, 7.5), 0.0, GUN);
+            for side in [-1.0f32, 1.0] {
+                part(b, vec2(29.0, 3.0 * side), vec2(40.0, 2.4), 0.0, GUN);
+            }
+            for i in 0..5 {
+                let x = 14.0 + i as f32 * 8.0;
+                b.rect(grip + vec2(x, 0.0), vec2(2.0, 9.5), 0.0, 0.6, GUN_EDGE);
+            }
+            b.rect(grip + vec2(6.0, 0.0), vec2(12.0, 2.0), 0.0, 0.0, SCOPE);
+            part(b, vec2(48.5, 0.0), vec2(3.0, 9.5), 0.0, GUN_EDGE);
+            muzzle(b, muzzle_ahead(weapon), 3.8);
         }
         // Nothing to draw: a blade is drawn by its own hand, and a
         // droid's arm is drawn with the droid (`crate::droid`).

@@ -403,7 +403,9 @@ impl Session {
     /// of `COMBAT_CREW` (sixteen: five at the bunks, eleven on the deck) —
     /// the first the player, the rest crew nobody steers — a gun in every
     /// hand, `WeaponKind::ALL`'s order (pistol, shotgun, auto rifle, sniper
-    /// rifle, schword) dealt down the crew and round again, docked at the
+    /// rifle, schword, minigun, rail lance) dealt down the crew and round
+    /// again, each at its kind's lowest tier (`WeaponKind::basic`: tier
+    /// two for the minigun and three for the lance, task 115), docked at the
     /// spawn rebuilt as the arena (`World::arena_dock_for_probe`). Nothing
     /// is recruited: whom to send in is the player's.
     pub fn combat(seed: u64, width: f32, height: f32) -> Session {

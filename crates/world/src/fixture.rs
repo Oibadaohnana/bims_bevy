@@ -114,7 +114,11 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// member's loadout and charges are in it; the design's gear is the
 /// armory's from the start, so the ship is lighter and its trips are
 /// other lengths. Was `0x_eb8a_5e06_aeca_832b`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_2e8b_94f3_4a74_debc;
+/// And for task 115 (the minigun and the rail lance): two more resources
+/// are two more empty cargo slots in the ship's `design_hash`, which the
+/// checksum eats — the ship, its mass and the run are what they were
+/// (`SURVIVORS` did not move). Was `0x_2e8b_94f3_4a74_debc`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_24c4_416e_929c_d093;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

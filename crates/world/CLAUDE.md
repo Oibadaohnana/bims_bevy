@@ -5043,3 +5043,28 @@ another player's Bim, worn in place; closed and liberated; closed on
 arrival against a site beside it; and the checksum.
 `trader_share_over_ten_seeds` (`#[ignore]`) prints the share: 9–10 % of
 stations.
+
+## The minigun and the rail lance (task 115)
+
+Two kinds made only from a tier up (`bims::combat::WeaponKind::min_tier`;
+`crates/game/CLAUDE.md` has the weapons). The world's part is every place
+a weapon is *made*:
+
+- **The shelf** draws one thing a slot from `trader::shelf_candidates` —
+  every kind of the list at every tier it is made at, so a tier-one
+  minigun or a lance below three is never a candidate at all (not drawn
+  and moved up). `worldgen::data::WEAPONS` is seven long.
+- **Combining** is unchanged: two tier-two miniguns make a tier-three
+  one; a lance is tier three already and is `TopTier`.
+- **`outfit_for_probe`** puts a kind never made that low at its own
+  lowest tier; `armour::weapon_at` answers `None` below it.
+- The issue, hire and garrison rolls and every machine's arm never name
+  either (`combat::tests`).
+
+`tests_trader.rs` is unchanged; `trader::tests` pin the shelf over many
+seeds and the two combines, and
+`tests_droid::a_rail_lance_fights_the_same_fight_on_two_worlds` two
+worlds alike to the checksum through a lance's fight.
+`tests_survivors::arm` deals the five kinds the reading was taken with,
+so `SURVIVORS` did not move; `REFERENCE_CHECKSUM` moved for the ship's
+design hash alone (two more empty cargo slots).

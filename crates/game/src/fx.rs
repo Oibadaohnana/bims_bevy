@@ -71,6 +71,11 @@ pub const MUZZLE_PISTOL: (f32, f32) = (0.08, 5.0);
 pub const MUZZLE_SHOTGUN: (f32, f32) = (0.11, 8.0);
 pub const MUZZLE_AUTO: (f32, f32) = (0.06, 4.0);
 pub const MUZZLE_SNIPER: (f32, f32) = (0.14, 9.0);
+/// The minigun's is a flicker, smaller than the auto rifle's — it fires
+/// ten a second; the rail lance's the biggest there is, with the sniper's
+/// spike along the barrel (task 115).
+pub const MUZZLE_MINIGUN: (f32, f32) = (0.045, 3.2);
+pub const MUZZLE_LANCE: (f32, f32) = (0.18, 11.0);
 /// How far the shotgun's rays and the sniper's spike reach, in room units.
 pub const MUZZLE_RAY: f32 = 12.0;
 pub const MUZZLE_SPIKE: f32 = 16.0;
@@ -94,6 +99,13 @@ pub const SCORCH: Color = Color::rgba(0.035, 0.03, 0.025, 0.55);
 pub const SCORCH_WARM: Color = Color::rgba(1.0, 0.52, 0.22, 0.5);
 /// The sniper's beam, hanging in the air after the bolt has landed.
 pub const BEAM_LINGER: f32 = 0.25;
+/// The rail lance's line, hanging in the air after the slug has landed or
+/// is spent — evenly, muzzle to end, and thicker than the sniper's — and
+/// the flare at every body it went through, a ring thrown across the
+/// line (task 115).
+pub const RAIL_LINGER: f32 = 0.32;
+pub const PIERCE_LIFE: f32 = 0.2;
+pub const PIERCE_SIZE: f32 = 13.0;
 /// The flash on the part a hit struck: how long, and its colour — the
 /// room's old hit flash, a warm white, on the part now and not the whole
 /// body.
@@ -216,6 +228,8 @@ fn muzzle_look(kind: WeaponKind) -> (f32, f32) {
         WeaponKind::Shotgun => MUZZLE_SHOTGUN,
         WeaponKind::AutoRifle => MUZZLE_AUTO,
         WeaponKind::SniperRifle => MUZZLE_SNIPER,
+        WeaponKind::Minigun => MUZZLE_MINIGUN,
+        WeaponKind::RailLance => MUZZLE_LANCE,
         WeaponKind::Schword | WeaponKind::Claw | WeaponKind::Unmaker | WeaponKind::Sweeper => {
             (0.0, 0.0)
         }
@@ -230,6 +244,10 @@ enum Light {
     Impact { dir: Vec2 },
     /// The sniper's beam, from the muzzle to where it ended.
     Beam { from: Vec2 },
+    /// The rail lance's line, from the muzzle to where it ended.
+    Rail { from: Vec2 },
+    /// Where a lance slug went through a body, flying along `dir`.
+    Pierce { dir: Vec2 },
     /// A blade's cut, round the swinger, facing the way it swung.
     Cut { facing: f32 },
     /// A bolt or a blow stopped at a Guardian's shield (feature 100):
@@ -401,8 +419,13 @@ impl Fx {
         }
         let dir = dir.normalize_or_zero();
         self.flare(at, Light::Impact { dir }, hostile, weapon, IMPACT_LIFE);
-        if weapon.kind == WeaponKind::SniperRifle {
+        if matches!(weapon.kind, WeaponKind::SniperRifle | WeaponKind::RailLance) {
             self.spent(from, at, weapon, hostile);
+        }
+        // The last body a lance slug strikes flares like the ones it went
+        // through.
+        if on_body && weapon.kind == WeaponKind::RailLance {
+            self.pierced(at, dir, weapon, hostile);
         }
         if on_body {
             return;
@@ -422,11 +445,25 @@ impl Fx {
     }
 
     /// A bolt that flew out its range and faded: only the sniper's beam
-    /// is left of it, hanging from the muzzle to where it gave out.
+    /// or the rail lance's line is left of it, hanging from the muzzle to
+    /// where it gave out.
     pub fn spent(&mut self, from: Vec2, at: Vec2, weapon: Weapon, hostile: bool) {
-        if weapon.kind == WeaponKind::SniperRifle {
-            self.flare(at, Light::Beam { from }, hostile, weapon, BEAM_LINGER);
+        match weapon.kind {
+            WeaponKind::SniperRifle => {
+                self.flare(at, Light::Beam { from }, hostile, weapon, BEAM_LINGER);
+            }
+            WeaponKind::RailLance => {
+                self.flare(at, Light::Rail { from }, hostile, weapon, RAIL_LINGER);
+            }
+            _ => {}
         }
+    }
+
+    /// A rail lance's slug went through a body at `at`, flying along
+    /// `dir` (task 115): a ring flares across the line there.
+    pub fn pierced(&mut self, at: Vec2, dir: Vec2, weapon: Weapon, hostile: bool) {
+        let dir = dir.normalize_or_zero();
+        self.flare(at, Light::Pierce { dir }, hostile, weapon, PIERCE_LIFE);
     }
 
     /// A blade's blow landed: the cut glows round the swinger at `from`,
@@ -586,6 +623,42 @@ impl Fx {
                         t * t,
                     );
                 }
+                Light::Rail { from } => {
+                    // Evenly bright end to end, thick, and fading whole.
+                    let w = f.width * (0.5 + 0.5 * t);
+                    laser(
+                        list,
+                        from,
+                        f.at,
+                        9.0 * w,
+                        3.0 * w,
+                        f.hostile,
+                        2.0 + f.heat,
+                        t * t,
+                    );
+                }
+                Light::Pierce { dir } => {
+                    // A ring swelling where it went through, and a short
+                    // bar of light across the line.
+                    let size = PIERCE_SIZE * f.width;
+                    list.circle(
+                        f.at,
+                        size * (1.0 + 0.8 * (1.0 - t)),
+                        side(f.hostile).alpha(0.4 * t),
+                    );
+                    list.circle(f.at, size * 0.45 * t, hot(f.hostile, 2.4 + f.heat).alpha(t));
+                    let across = dir.perp() * (size * (0.6 + 0.6 * (1.0 - t)));
+                    laser(
+                        list,
+                        f.at - across,
+                        f.at + across,
+                        4.0 * f.width,
+                        1.4 * f.width,
+                        f.hostile,
+                        2.0 + f.heat,
+                        t,
+                    );
+                }
                 Light::Cut { facing } => draw_cut(list, f, facing, t),
                 Light::Shield { centre } => draw_shield_flare(list, f, centre, t),
             }
@@ -665,6 +738,26 @@ fn draw_muzzle(list: &mut DrawList, f: &Flare, dir: Vec2, kind: WeaponKind, t: f
                 f.hostile,
                 2.0 + f.heat,
                 t,
+            );
+        }
+        WeaponKind::RailLance => {
+            // The sniper's spike, longer and thicker, and a ring round the
+            // bore where the slug left it.
+            laser(
+                list,
+                f.at,
+                f.at + dir * (MUZZLE_SPIKE * 1.5 * f.width),
+                6.0,
+                2.4,
+                f.hostile,
+                2.4 + f.heat,
+                t,
+            );
+            list.ring(
+                f.at,
+                size * 1.3 * (1.2 - 0.2 * t),
+                1.6,
+                side(f.hostile).alpha(0.6 * t),
             );
         }
         _ => {}

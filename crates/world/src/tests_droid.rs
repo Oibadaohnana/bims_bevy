@@ -940,3 +940,42 @@ fn the_countdown_says_the_wave_and_how_long_until_the_next() {
     assert_eq!(world.droid_wave_standing(), Some((3, 0)));
     assert_eq!(world.droid_wave_due(), None, "nothing left to come");
 }
+
+/// Task 115: a crew member with a rail lance against a machine down the
+/// corridor, twice on one seed — the same events and the same checksum
+/// step for step, and the machine destroyed by the slug on both.
+#[test]
+fn a_rail_lance_fights_the_same_fight_on_two_worlds() {
+    let lance = || {
+        let mut world =
+            crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
+        assert!(world.stage_droid_fight_for_probe(DroidKind::Trooper, None));
+        let gear = world.aboard.room.gear(0);
+        world.aboard.room.issue(
+            0,
+            Gear {
+                weapon: Some(WeaponKind::RailLance.basic()),
+                ..gear
+            },
+        );
+        world
+    };
+    let (mut one, mut two) = (lance(), lance());
+    assert_eq!(world_checksum(&one), world_checksum(&two));
+    let mut down = false;
+    for step in 0..(60 * 60) {
+        let a = one.step(&[]);
+        let b = two.step(&[]);
+        assert_eq!(a, b, "the same events at step {step}");
+        assert_eq!(
+            world_checksum(&one),
+            world_checksum(&two),
+            "the two worlds parted at step {step}"
+        );
+        down = a.iter().any(|e| matches!(e, WorldEvent::DroidDown { .. }));
+        if down {
+            break;
+        }
+    }
+    assert!(down, "the lance destroyed the machine");
+}

@@ -28,11 +28,18 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// pass happily while both were wrong. Update these only when the generator
 /// is meant to change — which is a [`crate::GENERATOR_VERSION`] bump, and
 /// the test that reads them says so.
+///
+/// Task 115 moved them without a bump: two resources (the minigun and the
+/// rail lance) grew every station's price lean by two entries, drawn last
+/// on the lean's own branch, so no draw before them and no layout moved —
+/// only the two new leans are hashed. They were `0x_205c_fd37_8f5d_9849`,
+/// `0x_9f94_57ee_6f14_4ebc`, `0x_f4fd_3fa6_9a5b_9dc1` and
+/// `0x_1f52_0bb7_ab2f_a1f9`.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_205c_fd37_8f5d_9849,
-    0x_9f94_57ee_6f14_4ebc,
-    0x_f4fd_3fa6_9a5b_9dc1,
-    0x_1f52_0bb7_ab2f_a1f9,
+    0x_b948_a8b1_6811_6788,
+    0x_41ad_6e95_f9dc_ec35,
+    0x_dd43_0b91_9ebb_0e20,
+    0x_04ac_f49a_46b2_4ab8,
 ];
 
 /// The reference galaxy of one type.

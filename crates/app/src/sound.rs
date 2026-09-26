@@ -161,6 +161,9 @@ enum Kind {
     /// A body heaving at a locked door, and the door giving.
     Smash,
     Shot,
+    /// A minigun's bolt (task 115): heard every second one, see
+    /// [`Kind::cool_down`].
+    Minigun,
     Impact,
     Ricochet,
     Blow,
@@ -183,6 +186,10 @@ impl Kind {
         match cue {
             Cue::DoorOpens | Cue::DoorShuts => Kind::Door,
             Cue::DoorSmash | Cue::DoorForced => Kind::Smash,
+            Cue::Shot {
+                weapon: WeaponKind::Minigun,
+                ..
+            } => Kind::Minigun,
             Cue::Shot { .. } => Kind::Shot,
             Cue::Impact { .. } => Kind::Impact,
             Cue::Ricochet | Cue::Shielded => Kind::Ricochet,
@@ -205,6 +212,14 @@ impl Kind {
             // several, which is one.
             Kind::Smash => 0.5,
             Kind::Shot => 0.04,
+            // Ten a second from one gun, and the rifle's 0.32-second report
+            // under each: every bolt played stacks to 4.4 dB over a single
+            // report where the rifle's own burst is 0.9, and every second
+            // one to 1.8 (task 115, measured by mixing the clip). So one
+            // in two is heard — longer than the tenth between two bolts,
+            // shorter than the fifth between every other. The picture and
+            // the hits are every bolt's.
+            Kind::Minigun => 0.15,
             Kind::Impact => 0.06,
             Kind::Ricochet => 0.1,
             Kind::Blow => 0.1,
@@ -401,6 +416,11 @@ impl Sounds {
                     WeaponKind::Shotgun => (Clip::Shotgun, 0.7),
                     WeaponKind::AutoRifle => (Clip::Rifle, 0.35),
                     WeaponKind::SniperRifle => (Clip::Sniper, 0.6),
+                    // No recordings of their own (task 115): the minigun
+                    // borrows the rifle's report, quiet, and the lance the
+                    // sniper's, loud.
+                    WeaponKind::Minigun => (Clip::Rifle, 0.2),
+                    WeaponKind::RailLance => (Clip::Sniper, 0.7),
                     // A blade is never fired, nor is a claw; the room
                     // does not say either is.
                     // Sounds are not in feature 100: the Guardian's beam is

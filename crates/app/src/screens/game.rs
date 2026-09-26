@@ -776,6 +776,19 @@ fn open(
                         ..gear
                     },
                 );
+                // And the rest of the crew too, `BIMS_WEAPON_ALL` saying so.
+                if let Some(weapon) = crate::dev::weapon().filter(|_| crate::dev::weapon_all()) {
+                    for who in 1..room.crew_count() as usize {
+                        let gear = room.gear(who);
+                        room.issue(
+                            who,
+                            bims::combat::Gear {
+                                weapon: Some(weapon),
+                                ..gear
+                            },
+                        );
+                    }
+                }
             }
             if let Some(kind) = crate::dev::enemy_weapon()
                 && let Some(residents) = session

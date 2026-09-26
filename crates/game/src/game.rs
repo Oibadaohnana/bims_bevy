@@ -11233,6 +11233,61 @@ mod tests {
         assert!(game.take_hits().is_empty());
     }
 
+    /// Task 115: the minigun in a hand is the same trigger — twenty shots
+    /// a tenth of a second apart from the pull, then nothing until five
+    /// seconds after it.
+    #[test]
+    fn a_minigun_burst_is_twenty_shots_in_two_seconds_then_five_to_the_next() {
+        let mut game = room();
+        game.set_autonomous(false);
+        let kate = game.put_for_probe(1, vec2(ROOM_W * 0.35, ROOM_H * 0.5));
+        game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.8));
+        game.issue(
+            1,
+            Gear {
+                weapon: Some(WeaponKind::Minigun.basic()),
+                ..Gear::default()
+            },
+        );
+        game.issue(0, Gear::default());
+        game.set_hostile_bodies(true);
+        let target = kate + vec2(4.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((target, WeaponKind::LaserPistol.basic()))]);
+        for _ in 0..(60 * 6) {
+            game.simulate(DT);
+        }
+        game.take_shots();
+        let mut times = Vec::new();
+        for step in 0..(60 * 12) {
+            game.simulate(DT);
+            let t = step as f32 * DT;
+            times.extend(game.take_shots().into_iter().map(|_| t));
+        }
+        // The shots in bursts, split where a second or more goes by with
+        // none; the first is whatever was left of one when the window
+        // opened, so the second is the first whole pull.
+        let mut bursts: Vec<Vec<f32>> = Vec::new();
+        for &t in &times {
+            match bursts.last_mut() {
+                Some(b) if t - b[b.len() - 1] < 1.0 => b.push(t),
+                _ => bursts.push(vec![t]),
+            }
+        }
+        assert!(bursts.len() >= 3, "{times:?}");
+        let (pull, next) = (&bursts[1], &bursts[2]);
+        assert_eq!(pull.len(), 20, "twenty to a pull: {pull:?}");
+        // A tenth apart, to the step: the gap runs out on the step after
+        // it has, as every burst's does.
+        for pair in pull.windows(2) {
+            let gap = pair[1] - pair[0];
+            assert!((0.1 - DT * 0.5..=0.1 + DT * 1.5).contains(&gap), "{pull:?}");
+        }
+        assert!(
+            (next[0] - pull[0] - 5.0).abs() < DT * 1.5,
+            "the next pull five seconds after the first: {times:?}"
+        );
+    }
+
     #[test]
     fn a_blade_charges_locks_the_gunner_and_its_blow_is_a_cut_that_splashes_the_deck() {
         // --- a_blade_within_reach_locks_the_gunner_who_stops_firing_and_lands_fists ---

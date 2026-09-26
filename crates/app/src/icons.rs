@@ -253,6 +253,37 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
             s.rect_filled(b.rect(0.90, 0.43, 0.96, 0.56), b.px(0.02), GUN_STEEL);
             s.circle_filled(b.at(0.96, 0.49), b.px(0.05), GUN_LIGHT);
         }
+        // The minigun (task 115), as the deck draws it: a boxy receiver
+        // with a drum hung off it and three barrels side by side, clamped
+        // twice and lit at the end.
+        ResourceId::Minigun => {
+            s.circle_filled(b.at(0.30, 0.70), b.px(0.13), STOCK);
+            s.rect_filled(b.rect(0.06, 0.40, 0.22, 0.62), b.px(0.04), GUN);
+            s.rect_filled(b.rect(0.18, 0.34, 0.46, 0.64), b.px(0.04), GUN);
+            for y in [0.39, 0.47, 0.55] {
+                s.rect_filled(b.rect(0.44, y, 0.92, y + 0.06), b.px(0.02), GUN);
+            }
+            for x in [0.56, 0.84] {
+                s.rect_filled(b.rect(x, 0.35, x + 0.05, 0.65), b.px(0.01), GUN_STEEL);
+            }
+            s.rect_filled(b.rect(0.22, 0.28, 0.40, 0.33), b.px(0.01), GUN_DARK);
+            s.circle_filled(b.at(0.93, 0.50), b.px(0.06), GUN_LIGHT);
+        }
+        // The rail lance: the longest, a stock and a slim body with two
+        // rails running out either side of an open channel, coils across
+        // it, and the glow between the rails' ends.
+        ResourceId::RailLance => {
+            s.rect_filled(b.rect(0.02, 0.44, 0.20, 0.60), b.px(0.05), STOCK);
+            s.rect_filled(b.rect(0.16, 0.40, 0.38, 0.60), b.px(0.03), GUN);
+            for y in [0.38, 0.56] {
+                s.rect_filled(b.rect(0.34, y, 0.97, y + 0.06), b.px(0.02), GUN);
+            }
+            for x in [0.44, 0.56, 0.68, 0.80] {
+                s.rect_filled(b.rect(x, 0.35, x + 0.03, 0.65), 0.0, GUN_STEEL);
+            }
+            s.rect_filled(b.rect(0.20, 0.32, 0.36, 0.37), b.px(0.01), SCOPE);
+            s.circle_filled(b.at(0.95, 0.50), b.px(0.06), GUN_LIGHT);
+        }
         // The schword: a hilt at the bottom left and the blade up to the
         // right, a white core between two cyan strokes — the wide faint
         // one under the bright thin one, which is as near as a flat cell

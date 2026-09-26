@@ -154,12 +154,22 @@ fn commands() -> Vec<(&'static str, u64)> {
 /// stands untaken. It was `0x_3bb8_9b7e_8ffe_057f`; with the probe
 /// infesting the trader as before it came back, and it is the same number
 /// under the old layouts (`PINNED_BEFORE_112`). Nothing else moved.
+///
+/// **`droids`, `tier2_test` and `combat_droids_medic` moved once more, on
+/// purpose**: the minigun
+/// and the rail lance (task 115). `Session::combat` deals
+/// `WeaponKind::ALL` down its sixteen, and the two new kinds are in it, so
+/// four of the crew carry them now. They were `0x_58e5_da1b_7aeb_4c13`,
+/// `0x_faf7_7de2_1506_a29b` and `0x_8897_a1fc_b6fc_683e`; with the deal cut
+/// back to the first five kinds all eleven came back, so the deal is the
+/// whole of the move. Under the old layouts the three are the same
+/// numbers, the arena not being generated.
 const PINNED: [(&str, u64); 11] = [
     ("simulation", 0x_37d6_6b39_8298_9325),
     ("game", 0x_123b_cbc1_3bd0_f5e2),
-    ("droids", 0x_58e5_da1b_7aeb_4c13),
-    ("tier2_test", 0x_faf7_7de2_1506_a29b),
-    ("combat_droids_medic", 0x_8897_a1fc_b6fc_683e),
+    ("droids", 0x_4b40_a4f0_a589_d45f),
+    ("tier2_test", 0x_4a8f_5a2b_e8a8_e253),
+    ("combat_droids_medic", 0x_a6c8_5835_4a8f_84e2),
     ("test", 0x_551a_3ee8_1e3a_44cb),
     ("test_planet", 0x_c01a_a1aa_1b48_feb5),
     ("droids_planet", 0x_2b9c_d125_981c_4147),
@@ -241,11 +251,16 @@ fn pictures() -> Vec<(&'static str, u64)> {
     out
 }
 
+/// `droids_deck` moved once, on purpose, for the minigun and the rail lance
+/// (task 115): the combat crew deals them, so four of its sixteen hold a
+/// minigun or a lance, drawn as such, and the fight six hundred steps on
+/// is another fight. It was `0x_549f_77b7_8357_3bf8`, and came back with
+/// the deal cut back to the first five kinds.
 const PICTURES: [(&str, u64); 4] = [
     ("designer_playtest", 0x_9b08_8f44_06ad_4414),
     ("designer_combat", 0x_157a_1c34_2e97_18e0),
     ("simulation_deck", 0x_234f_3e03_869d_4c31),
-    ("droids_deck", 0x_549f_77b7_8357_3bf8),
+    ("droids_deck", 0x_c4ed_495a_3d48_134b),
 ];
 
 #[test]
@@ -267,9 +282,9 @@ fn the_fixtures_and_a_run_s_deck_are_drawn_as_they_were() {
 const PINNED_BEFORE_112: [(&str, u64); 11] = [
     ("simulation", 0x_37d6_6b39_8298_9325),
     ("game", 0x_123b_cbc1_3bd0_f5e2),
-    ("droids", 0x_58e5_da1b_7aeb_4c13),
-    ("tier2_test", 0x_faf7_7de2_1506_a29b),
-    ("combat_droids_medic", 0x_8897_a1fc_b6fc_683e),
+    ("droids", 0x_4b40_a4f0_a589_d45f),
+    ("tier2_test", 0x_4a8f_5a2b_e8a8_e253),
+    ("combat_droids_medic", 0x_a6c8_5835_4a8f_84e2),
     ("test", 0x_551a_3ee8_1e3a_44cb),
     ("test_planet", 0x_1670_f153_e5c8_e2fd),
     ("droids_planet", 0x_1545_0c14_606b_a1dc),

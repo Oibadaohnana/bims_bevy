@@ -99,10 +99,13 @@ const TILE: f32 = shipdesign::TILE as f32;
 const SURVIVORS: u64 = 0x_14e4_ee7e_31d6_a769;
 
 /// A gun in every hand, the kinds dealt round, as the fight's probes arm
-/// a crew.
+/// a crew — the five there were when the reading was taken: the minigun
+/// and the rail lance (task 115) joined `WeaponKind::ALL` after it, and a
+/// sixth crew member with a minigun would be a different run rather than
+/// the same run read again.
 fn arm(world: &mut World) {
     let crew = world.aboard.room.crew_count() as usize;
-    for (who, kind) in WeaponKind::ALL
+    for (who, kind) in WeaponKind::ALL[..5]
         .iter()
         .copied()
         .cycle()

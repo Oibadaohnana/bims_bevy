@@ -128,7 +128,10 @@ use crate::game::Game;
 /// 43: the trader (task 114) — the run keeps every trader met (its shelf
 /// left, its relic) and the vote on the relic, and may be at one
 /// (`Phase::Trade`); a station's shelf holds no gear.
-pub const SAVE_VERSION: u32 = 43;
+/// 44: the minigun and the rail lance (task 115) — two more resources, so
+/// a design's cargo is twenty long, and a bolt in the air keeps the bodies
+/// a lance slug has struck.
+pub const SAVE_VERSION: u32 = 44;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

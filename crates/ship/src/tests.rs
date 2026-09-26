@@ -1478,7 +1478,10 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
         for who in 0..crew {
             let gear = world.aboard.room.gear(who);
             let dealt = plain.world.aboard.room.gear(who).weapon.unwrap();
-            assert_eq!(gear.weapon, Some(dealt.kind.at(tier)), "crew {who}");
+            // A kind never made that low stays at its own lowest (task
+            // 115): the lance is tier three in the tier-two test too.
+            let tier_of = tier.max(dealt.kind.min_tier());
+            assert_eq!(gear.weapon, Some(dealt.kind.at(tier_of)), "crew {who}");
             for part in Part::ALL {
                 let piece = gear.worn(part).expect("a piece on every part");
                 assert_eq!(piece.tier, tier);
@@ -1500,10 +1503,13 @@ fn the_tier_tests_are_the_fight_with_everybody_s_kit_at_that_tier() {
         }
         assert!(machines > 0, "a wave stands about the arena");
     }
-    // `combat` is what it was: tier one in every hand, nothing worn.
+    // `combat` is what it was: every gun at its kind's lowest tier —
+    // tier one but the minigun's two and the lance's three (task 115) —
+    // and nothing worn.
     for who in 0..plain.world.aboard.crew_count() as usize {
         let gear = plain.world.aboard.room.gear(who);
-        assert_eq!(gear.weapon.map(|w| w.tier), Some(Tier::One));
+        let weapon = gear.weapon.expect("a gun in every hand");
+        assert_eq!(weapon, weapon.kind.basic());
         assert!(Part::ALL.iter().all(|&p| gear.worn(p).is_none()));
     }
 }
