@@ -862,7 +862,7 @@ fn haggler_and_outfitter() {
         return;
     }
     let merc = world.residents.as_ref().unwrap().aboard.count() - 1;
-    let missing: Vec<ArmourKind> = ArmourKind::ALL
+    let missing: Vec<ArmourKind> = ArmourKind::BASIC
         .into_iter()
         .filter(|k| {
             world

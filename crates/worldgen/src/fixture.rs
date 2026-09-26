@@ -35,11 +35,16 @@ pub const REFERENCE_SEED: u64 = 0x_4c4f_4242_0000_0007;
 /// only the two new leans are hashed. They were `0x_205c_fd37_8f5d_9849`,
 /// `0x_9f94_57ee_6f14_4ebc`, `0x_f4fd_3fa6_9a5b_9dc1` and
 /// `0x_1f52_0bb7_ab2f_a1f9`.
+///
+/// Task 116 moved them the same way, for the same reason: the arc greaves
+/// and the Reflective plate are two more resources, two more leans drawn
+/// last. They were `0x_b948_a8b1_6811_6788`, `0x_41ad_6e95_f9dc_ec35`,
+/// `0x_dd43_0b91_9ebb_0e20` and `0x_04ac_f49a_46b2_4ab8`.
 pub const REFERENCE_CHECKSUMS: [u64; 4] = [
-    0x_b948_a8b1_6811_6788,
-    0x_41ad_6e95_f9dc_ec35,
-    0x_dd43_0b91_9ebb_0e20,
-    0x_04ac_f49a_46b2_4ab8,
+    0x_0493_9a6f_0971_1fdd,
+    0x_9179_a4bd_4ee4_eff0,
+    0x_3ea7_1366_ed45_8715,
+    0x_87ea_7d6a_7635_010d,
 ];
 
 /// The reference galaxy of one type.

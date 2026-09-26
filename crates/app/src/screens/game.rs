@@ -756,23 +756,28 @@ fn open(
             // `Game::issue` redraws the picture, so the swing or the
             // barrel is on screen from the first frame.
             let worn = crate::dev::armoured();
-            if (worn || crate::dev::weapon().is_some())
+            if (worn.is_some() || crate::dev::weapon().is_some())
                 && let Some(game) = session.game.as_mut()
             {
-                use bims::combat::{ArmourKind, Piece};
+                use bims::combat::Piece;
                 let room = &mut game.world.aboard.room;
                 let gear = room.gear(0);
-                let piece = |kind: ArmourKind| {
-                    worn.then(|| Piece::new(u32::MAX - kind.code(), kind, bims::combat::Tier::One))
-                        .or(gear.worn(kind.slot()))
+                // A piece a part, `BIMS_ARMOURED` saying which (task 116:
+                // `mirror` and `arc` put a new one on), else what is worn.
+                let piece = |i: usize| {
+                    worn.map(|set| {
+                        let (kind, tier) = set[i];
+                        Piece::new(u32::MAX - kind.code(), kind, tier)
+                    })
+                    .or(gear.worn(bims::health::Part::ALL[i]))
                 };
                 room.issue(
                     0,
                     bims::combat::Gear {
                         weapon: crate::dev::weapon().or(gear.weapon),
-                        head: piece(ArmourKind::BasicHelm),
-                        body: piece(ArmourKind::BasicKevlar),
-                        legs: piece(ArmourKind::BasicLegs),
+                        head: piece(0),
+                        body: piece(1),
+                        legs: piece(2),
                         ..gear
                     },
                 );

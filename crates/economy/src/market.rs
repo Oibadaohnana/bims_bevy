@@ -64,7 +64,11 @@ pub fn war_goods(resource: ResourceId) -> bool {
         | ResourceId::RailLance => true,
         // What is worn into a fight. The pressure suit is not armour: it
         // is for going outside, and a war does not make it dearer.
-        ResourceId::Helm | ResourceId::Kevlar | ResourceId::LegGuard => true,
+        ResourceId::Helm
+        | ResourceId::Kevlar
+        | ResourceId::LegGuard
+        | ResourceId::ArcGreaves
+        | ResourceId::ReflectivePlate => true,
         // And what patches up what those two did.
         ResourceId::Medkit | ResourceId::Bandage => true,
         ResourceId::Vegetable
@@ -241,7 +245,11 @@ pub fn kind_bias(kind: MarketKind, resource: ResourceId) -> i32 {
         | ResourceId::Schword
         | ResourceId::Minigun
         | ResourceId::RailLance => [0, 0, 0, 15, 10],
-        ResourceId::Helm | ResourceId::Kevlar | ResourceId::LegGuard => [0, 0, 0, 15, 10],
+        ResourceId::Helm
+        | ResourceId::Kevlar
+        | ResourceId::LegGuard
+        | ResourceId::ArcGreaves
+        | ResourceId::ReflectivePlate => [0, 0, 0, 15, 10],
         ResourceId::Medkit => [0, 0, 0, 15, 0],
         ResourceId::Bandage => [0, 0, 0, 25, 0],
         ResourceId::ResearchKey => [0, 0, 0, 15, 0],
@@ -444,11 +452,13 @@ mod tests {
         ] {
             assert!(!war_goods(resource), "{resource:?} is not war goods");
         }
-        // Twelve of them — the minigun and the rail lance (task 115) among
+        // Fourteen of them — the minigun and the rail lance (task 115)
+        // and the arc greaves and the Reflective plate (task 116) among
         // them — and the table covers every resource there is.
         assert!(war_goods(ResourceId::Minigun) && war_goods(ResourceId::RailLance));
+        assert!(war_goods(ResourceId::ArcGreaves) && war_goods(ResourceId::ReflectivePlate));
         let all = ResourceId::ALL.iter().filter(|&&r| war_goods(r)).count();
-        assert_eq!(all, 12, "the war goods");
+        assert_eq!(all, 14, "the war goods");
     }
 
     /// A market quotes through its own bias, and the plain one at none.

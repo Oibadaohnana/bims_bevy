@@ -1161,6 +1161,43 @@ it), and the ship's `PINNED` for `droids`, `tier2_test` and
 back with the deal cut to the old five). `SURVIVORS` did **not** move: its
 own `arm` deals the five kinds the reading was taken with.
 
+## The arc greaves and the Reflective plate (task 116)
+
+Two pieces of armour that exist only from a tier up, and only ever the
+crew's — bought at a trader or combined, both passive and the same on a
+player's Bim and a bot. The room's half is `crates/game/CLAUDE.md` ("The
+arc greaves and the Reflective plate"), the world's `crates/world/CLAUDE.md`.
+What to hold on to:
+
+- **`ArmourKind::min_tier`** — tier one for the three basic pieces, two
+  for `ArcGreaves` (4, legs), three for `ReflectivePlate` (5, body) — and
+  `Piece::new` debug-asserts it; `ArmourKind::BASIC` is the three every
+  outfit, start, hire and hostile wears, and nothing else names the two.
+  Both are `ResourceId`s (20, 21) for the book prices (1 500 and 2 500,
+  times `TIER_PRICE`), so `CARGO_SLOTS` is **22**.
+- **The plate sends a hostile bolt back** 40 % of the times it lands on
+  the body while whole (`REFLECT_ODDS`), a friendly bolt of the same gun
+  at half damage, the wearer's, back along the line — rolled only for a
+  body wearing one, so no fight without a plate draws differently. It has
+  no tier-three dodge. Beams and blows are never sent back.
+- **The greaves discharge on a blow**: an enemy's melee blow landing on
+  whole greaves throws `ARC_DAMAGE` (10) times the tier's armour factor
+  into every live enemy within two tiles, once a second a wearer; never
+  off a bolt, and it costs them nothing.
+- **`BIMS_ARMOURED=mirror`** is a tier-three plate with the basic helm and
+  leg guards, **`BIMS_ARMOURED=arc`** tier-two greaves with the basic helm
+  and kevlar (`dev::armour_set`); `=1` is what it was. `BIMS_FREEZE=shield:1+2
+  BIMS_ARMOURED=mirror` with the guardian recipe's keys on `droids` holds
+  the first bolt sent back in the air, since a reflection is heard as
+  `Cue::Shielded`.
+
+**What moved.** `SAVE_VERSION` **45**, `wire::PROTOCOL` **37** (the relay
+wants redeploying); `shipdesign`'s `REFERENCE_HASH` and `PLAYTEST_HASH`
+and `worldgen`'s `REFERENCE_CHECKSUMS` (two more resources, as in task
+115), and `REFERENCE_CHECKSUM` (the design hash in it). `SURVIVORS`, the
+ship's `PINNED` and `PICTURES` did **not** move: nobody in a pinned run
+wears either piece.
+
 ## The old game deleted (feature 104)
 
 The third step of the redesign: **everything features 102 and 103 switched

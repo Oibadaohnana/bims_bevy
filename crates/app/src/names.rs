@@ -237,7 +237,7 @@ pub const NOT_A_TOOL: &[u32] = &[
 ];
 
 /// What a station sells, indexed by `physics::ResourceId`.
-pub const RESOURCE_NAMES: [&str; 20] = [
+pub const RESOURCE_NAMES: [&str; 22] = [
     "Vegetables",
     "Tofu",
     "Suits",
@@ -258,6 +258,8 @@ pub const RESOURCE_NAMES: [&str; 20] = [
     "Grenades",
     "Miniguns",
     "Rail lances",
+    "Arc greaves",
+    "Reflective plates",
 ];
 
 pub fn resource_name(id: ResourceId) -> &'static str {
@@ -1795,8 +1797,13 @@ pub fn event_line(event: WorldEvent) -> Option<String> {
         // A piece at nothing is still worn and does nothing for the rest of
         // the mission; it is whole again at the next (task 113).
         WorldEvent::PieceBroke { who: w, kind } => {
+            let (is, it) = if armour_is_a_pair(kind) {
+                ("are", "they stop")
+            } else {
+                ("is", "it stops")
+            };
             format!(
-                "{}'s {} is broken — it stops nothing until the next mission.",
+                "{}'s {} {is} broken — {it} nothing until the next mission.",
                 who(w),
                 armour_name(Some(kind)).to_lowercase()
             )
@@ -2946,8 +2953,52 @@ pub const WEAPON_NAMES: [&str; 11] = [
 ];
 
 /// What a piece of armour is called, indexed by `bims::combat::ArmourKind::code`;
-/// `0` is an empty slot.
-pub const ARMOUR_NAMES: [&str; 4] = ["—", "Basic helm", "Basic kevlar", "Basic leg guards"];
+/// `0` is an empty slot. Four and five are the two pieces made only from a
+/// tier up (task 116).
+pub const ARMOUR_NAMES: [&str; 6] = [
+    "—",
+    "Basic helm",
+    "Basic kevlar",
+    "Basic leg guards",
+    "Arc greaves",
+    "Reflective plate",
+];
+
+/// What a piece does beyond its health and protection (task 116), put on
+/// the line of its numbers: the Reflective plate's bolts sent back and a
+/// pair of arc greaves' discharge at the piece's tier, off the balance's
+/// own constants. Nothing for the three basic pieces.
+pub fn armour_effect(piece: &bims::combat::Piece) -> String {
+    use bims::balance::{ARC_COOLDOWN, ARC_DAMAGE, ARC_RADIUS, REFLECT_DAMAGE, REFLECT_ODDS};
+    use bims::combat::ArmourKind;
+    match piece.kind {
+        ArmourKind::ReflectivePlate => format!(
+            ", sends {}% of the bolts on the body back at {}% damage",
+            (REFLECT_ODDS * 100.0).round(),
+            (REFLECT_DAMAGE * 100.0).round()
+        ),
+        ArmourKind::ArcGreaves => format!(
+            ", a blow on the wearer arcs {} into every enemy within {} tiles, once a {} s",
+            tidy(ARC_DAMAGE * piece.tier.armour_factor()),
+            tidy(ARC_RADIUS),
+            tidy(ARC_COOLDOWN)
+        ),
+        ArmourKind::BasicHelm | ArmourKind::BasicKevlar | ArmourKind::BasicLegs => String::new(),
+    }
+}
+
+/// A number to the hundredth, the trailing noughts dropped — a piece's
+/// protection, which a tier's factor leaves at 1.35 or 2.7.
+pub fn tidy_hundredths(x: f32) -> String {
+    let text = format!("{:.2}", (x * 100.0).round() / 100.0);
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// Whether a piece's name is a pair — the leg guards, the greaves — and
+/// is said "are" rather than "is".
+pub fn armour_is_a_pair(kind: bims::combat::ArmourKind) -> bool {
+    kind.slot() == bims::health::Part::Legs
+}
 
 pub fn weapon_name(kind: Option<bims::combat::WeaponKind>) -> &'static str {
     WEAPON_NAMES[kind.map(|k| k.code() as usize).unwrap_or(0)]
@@ -3049,7 +3100,7 @@ pub fn locked_tip() -> String {
 /// What each thing in a grid cell is, for the tooltip under its icon,
 /// indexed by `physics::ResourceId`. A piece of armour's numbers are put
 /// after its line by the grid, off the piece itself.
-pub const ITEM_TIPS: [&str; 20] = [
+pub const ITEM_TIPS: [&str; 22] = [
     "A vegetable off the bay. Two of them make a stew, and two make a medkit at the drug lab.",
     "A block of tofu, pressed from soy.",
     "A pressure suit, for a walk outside.",
@@ -3070,6 +3121,8 @@ pub const ITEM_TIPS: [&str; 20] = [
     "A grenade: a soldier of the third level carries two of them as charges and throws one — Q, over the tile — and it bursts on everything within two and a half tiles, friend and foe alike, two seconds on. A thrown one comes back into the pack thirty seconds later.",
     "A minigun, tier 2 and up: twenty light bolts to a pull, ten a second, then a long cool. Shreds the machines; good armour shrugs off much of each bolt. Bought at a trader or combined, and only ever the crew's.",
     "A rail lance, tier 3 only: one slug every five seconds that goes through a body and on into the next — up to three, each after the first taking less. Walls and a Guardian's shield from the front stop it. Bought at a trader, and only ever the crew's.",
+    "Arc greaves, tier 2 and up: leg guards wired to discharge. A melee blow landing on the wearer throws an arc into every enemy within two tiles — 15 at tier 2, 22.5 at tier 3 — once a second; a bolt never sets them off, and the discharge costs them nothing. Thinner than leg guards. Bought at a trader or combined, and only ever the crew's.",
+    "A Reflective plate, tier 3 only: a mirrored body plate. Two in five enemy bolts landing on the body go back the way they came at half damage, doing the wearer and the plate nothing. Beams and blows are not bolts and are never sent back. No tier-3 dodge, and less armour than tier-3 kevlar. Bought at a trader, and only ever the crew's.",
 ];
 
 pub fn item_tip(id: ResourceId) -> &'static str {

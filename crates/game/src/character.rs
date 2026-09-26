@@ -275,6 +275,13 @@ const KEVLAR_STRAP: Color = Color::rgb(0.32, 0.34, 0.38);
 const GUARD: Color = Color::rgb(0.16, 0.12, 0.09);
 const GUARD_BAND: Color = Color::rgb(0.40, 0.42, 0.46);
 const CRACK: Color = Color::rgba(0.85, 0.88, 0.92, 0.75);
+/// The two pieces of task 116: arc greaves are a steel-blue boot with two
+/// coils round the shin in the crew's pale blue; the Reflective plate is a
+/// mirror — pale silver with a bright bar of light across it.
+const ARC_GREAVE: Color = Color::rgb(0.17, 0.21, 0.29);
+const ARC_COIL: Color = Color::rgb(0.55, 0.82, 1.0);
+const MIRROR: Color = Color::rgb(0.74, 0.79, 0.85);
+const MIRROR_SHINE: Color = Color::rgb(0.96, 0.98, 1.0);
 /// What a class wears (feature 81). Seen from directly above there is not
 /// much of a body to look at, so a class says itself three times over:
 /// the coverall dyed its own shade, something on the head and something
@@ -1987,10 +1994,18 @@ impl Character {
                     (vec2(swing * 8.0 * side * moving, 7.0 * side), 0.0)
                 };
                 b.ellipse(at, vec2(13.5, 9.0), splay, BOOT);
-                // Leg guards: the boot darker, with a band across the shin.
+                // Leg guards: the boot darker, with a band across the shin
+                // — or arc greaves, steel-blue with two coils round it.
                 if let Some(guard) = self.armour[2] {
-                    b.ellipse(at, vec2(13.5, 9.0), splay, GUARD);
-                    b.rect(at - vec2(2.5, 0.0), vec2(3.0, 9.0), splay, 0.0, GUARD_BAND);
+                    if guard.kind == ArmourKind::ArcGreaves {
+                        b.ellipse(at, vec2(13.5, 9.0), splay, ARC_GREAVE);
+                        for dx in [-4.5f32, 0.5] {
+                            b.rect(at + vec2(dx, 0.0), vec2(1.6, 9.0), splay, 0.0, ARC_COIL);
+                        }
+                    } else {
+                        b.ellipse(at, vec2(13.5, 9.0), splay, GUARD);
+                        b.rect(at - vec2(2.5, 0.0), vec2(3.0, 9.0), splay, 0.0, GUARD_BAND);
+                    }
                     if guard.broken {
                         b.rect(at, vec2(10.0, 1.3), 0.7 + splay, 0.0, CRACK);
                     }
@@ -2033,9 +2048,15 @@ impl Character {
             self.uniform.yoke(self.look.trim()),
         );
         // The vest: a dark plate over the torso, set forward so the yoke
-        // still shows at the collar behind it, strapped on at the sides.
+        // still shows at the collar behind it, strapped on at the sides —
+        // or the Reflective plate, a mirror with a bar of light across it.
         if let Some(vest) = self.armour[1] {
-            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, KEVLAR);
+            let mirror = vest.kind == ArmourKind::ReflectivePlate;
+            let plate = if mirror { MIRROR } else { KEVLAR };
+            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, plate);
+            if mirror {
+                b.rect(vec2(5.0, -3.0), vec2(10.0, 2.2), 0.9, 0.0, MIRROR_SHINE);
+            }
             for side in [-1.0f32, 1.0] {
                 b.rect(
                     vec2(-3.0, 8.5 * side),
@@ -2275,7 +2296,12 @@ impl Character {
             let splay = 0.55 * side;
             b.ellipse(at, vec2(13.5, 9.0), splay, tone(BOOT));
             if let Some(guard) = self.armour[2] {
-                b.ellipse(at, vec2(13.5, 9.0), splay, tone(GUARD));
+                let greave = if guard.kind == ArmourKind::ArcGreaves {
+                    ARC_GREAVE
+                } else {
+                    GUARD
+                };
+                b.ellipse(at, vec2(13.5, 9.0), splay, tone(greave));
                 if guard.broken {
                     b.rect(at, vec2(10.0, 1.3), 0.7 + splay, 0.0, CRACK);
                 }
@@ -2308,7 +2334,12 @@ impl Character {
             tone(self.uniform.yoke(self.look.trim())),
         );
         if let Some(vest) = self.armour[1] {
-            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, tone(KEVLAR));
+            let plate = if vest.kind == ArmourKind::ReflectivePlate {
+                MIRROR
+            } else {
+                KEVLAR
+            };
+            b.ellipse(vec2(3.0, 0.0), vec2(16.0, 24.0), 0.0, tone(plate));
             if vest.broken {
                 b.rect(vec2(3.0, 0.0), vec2(20.0, 1.4), 0.9, 0.0, CRACK);
             }

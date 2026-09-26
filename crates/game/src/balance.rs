@@ -30,7 +30,10 @@
 //! does nothing.
 //!
 //! A rail lance's slug goes through bodies ([`LANCE_PIERCE`],
-//! [`LANCE_FALLOFF`]); nothing else does.
+//! [`LANCE_FALLOFF`]); nothing else does. A Reflective plate sends a
+//! bolt back ([`REFLECT_ODDS`], [`REFLECT_DAMAGE`]) and a pair of arc
+//! greaves answers a blow with a discharge ([`ARC_RADIUS`],
+//! [`ARC_DAMAGE`], [`ARC_COOLDOWN`]) — task 116.
 //!
 //! What a body *has* — a head of 5, a body of 75, legs of 20, the odds a
 //! hit lands on each, and what a cut bleeds — is `crate::health`
@@ -248,6 +251,61 @@ pub const BASIC_LEGS: ArmourStats = ArmourStats {
     health: 10.0,
     protection: 1.0,
 };
+
+// Two pieces made only from a tier up (`ArmourKind::min_tier`, task 116),
+// and only ever the crew's. Their numbers here are the tier-one base the
+// tier factors multiply, like every piece's, though neither is ever made
+// at tier one.
+
+/// **Arc greaves**, on the legs, tier two and up: 12 and 0.9 at tier two
+/// (the tier-two leg guards are 15 and 1.5), 18 and 1.35 at three — the
+/// thinner piece, since what they are for is the discharge. An enemy's
+/// melee blow landing on the wearer while they are whole throws
+/// [`ARC_DAMAGE`] times the tier's armour factor (15 at tier two, 22.5 at
+/// three) into every live enemy within [`ARC_RADIUS`], once an
+/// [`ARC_COOLDOWN`]; a bolt never does, and a discharge costs the greaves
+/// nothing.
+pub const ARC_GREAVES: ArmourStats = ArmourStats {
+    health: 8.0,
+    protection: 0.6,
+};
+
+/// How far a pair of arc greaves' discharge reaches from the wearer, in
+/// tiles.
+pub const ARC_RADIUS: f32 = 2.0;
+/// What a discharge does to each enemy it reaches, before the greaves'
+/// tier factor (`Tier::armour_factor`).
+pub const ARC_DAMAGE: f32 = 10.0;
+/// Seconds after a discharge before the same wearer's greaves discharge
+/// again: a blow landing inside it throws nothing.
+pub const ARC_COOLDOWN: f32 = 1.0;
+
+/// **The Reflective plate**, on the body, tier three only: 36 health and
+/// 2.7 protection there, where the tier-three kevlar is 45 and 4.5. It
+/// has **no tier-three dodge** (`Piece::dodge` is nought for it): a
+/// hostile bolt landing on the body while it is whole is sent back
+/// [`REFLECT_ODDS`] of the time instead — the bolt does nothing to the
+/// wearer or the plate, and a friendly one leaves the strike point back
+/// along the line at [`REFLECT_DAMAGE`] of the damage.
+///
+/// What that is worth: against the tier-three auto rifle (9.4 a bolt near
+/// in) the plate and the tier-three kevlar both break after about nine
+/// hits on the body — the kevlar takes 4.9 of each, the plate 6.7 of the
+/// six in ten it keeps — and the plate sends about four of the nine back
+/// at half damage. Against the claws (20 a blow) and a Guardian's Sweeper,
+/// which are not bolts and are never sent back, the plate is the weaker
+/// piece.
+pub const REFLECTIVE_PLATE: ArmourStats = ArmourStats {
+    health: 16.0,
+    protection: 1.2,
+};
+
+/// The odds a hostile bolt landing on the body of a whole Reflective
+/// plate's wearer is sent back.
+pub const REFLECT_ODDS: f32 = 0.4;
+/// What a bolt sent back does, as a share of what the weapon does at the
+/// distance it flies from the plate.
+pub const REFLECT_DAMAGE: f32 = 0.5;
 
 // ---- The tiers ----
 //

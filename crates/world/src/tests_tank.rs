@@ -181,7 +181,7 @@ fn the_tank_sets_out_in_basic_armour_with_the_pistol_and_the_pool_is_unchanged()
         Some(WeaponKind::LaserPistol.basic()),
         "the pistol he had in hand"
     );
-    for kind in ArmourKind::ALL {
+    for kind in ArmourKind::BASIC {
         let piece = world
             .aboard
             .room
@@ -197,7 +197,7 @@ fn the_tank_sets_out_in_basic_armour_with_the_pistol_and_the_pool_is_unchanged()
     }
     // And a class put back to none takes its start off again.
     assert_eq!(world.set_class(0, Class::None), Ok(()));
-    for kind in ArmourKind::ALL {
+    for kind in ArmourKind::BASIC {
         assert!(world.aboard.room.gear(0).worn(kind.slot()).is_none());
     }
     // Every crew member wears every piece of armour, whatever its class:

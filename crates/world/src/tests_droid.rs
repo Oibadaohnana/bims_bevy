@@ -979,3 +979,79 @@ fn a_rail_lance_fights_the_same_fight_on_two_worlds() {
     }
     assert!(down, "the lance destroyed the machine");
 }
+
+/// Task 116: a Reflective plate and a pair of arc greaves worn by crew
+/// member 0 through a Trooper's fire, twice on one seed — the same events
+/// and the same checksum step for step. The plate's roll is on the room's
+/// combat stream, so two worlds that drew it differently would part.
+#[test]
+fn the_plate_and_the_greaves_fight_the_same_fight_on_two_worlds() {
+    let armoured = || {
+        let mut world =
+            crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
+        assert!(world.stage_droid_fight_for_probe(
+            DroidKind::Trooper,
+            Some(WeaponKind::LaserPistol.basic())
+        ));
+        let gear = world.aboard.room.gear(0);
+        let body = world
+            .holdings
+            .new_piece(ArmourKind::ReflectivePlate, Tier::Three);
+        let legs = world.holdings.new_piece(ArmourKind::ArcGreaves, Tier::Two);
+        world.aboard.room.issue(
+            0,
+            Gear {
+                body: Some(body),
+                legs: Some(legs),
+                ..gear
+            },
+        );
+        world
+    };
+    let (mut one, mut two) = (armoured(), armoured());
+    assert_eq!(world_checksum(&one), world_checksum(&two));
+    for step in 0..(60 * 40) {
+        let a = one.step(&[]);
+        let b = two.step(&[]);
+        assert_eq!(a, b, "the same events at step {step}");
+        assert_eq!(
+            world_checksum(&one),
+            world_checksum(&two),
+            "the two worlds parted at step {step}"
+        );
+    }
+}
+
+/// Task 116: nothing the world makes for a body wears either new piece —
+/// the tier tests' outfit at every tier, the tank's start, a hire — and a
+/// design carrying one stocks the armory at its own lowest tier.
+#[test]
+fn no_outfit_or_start_wears_the_greaves_or_the_plate() {
+    let basic = |gear: &Gear| {
+        bims::health::Part::ALL.iter().all(|&p| {
+            gear.worn(p)
+                .is_none_or(|piece| ArmourKind::BASIC.contains(&piece.kind))
+        })
+    };
+    for tier in Tier::ALL {
+        let mut world =
+            crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
+        world.outfit_for_probe(tier);
+        for who in 0..world.aboard.crew_count() as usize {
+            let gear = world.aboard.room.gear(who);
+            assert!(basic(&gear), "outfit at {tier:?}: {gear:?}");
+            assert!(
+                bims::health::Part::ALL
+                    .iter()
+                    .all(|&p| gear.worn(p).is_some())
+            );
+        }
+    }
+    let mut world =
+        crate::fixture::simulation_world(shipdesign::fixture::flyer(2), REFERENCE_MONEY, 2);
+    assert_eq!(world.set_class(0, crate::class::Class::Tank), Ok(()));
+    assert!(basic(&world.aboard.room.gear(0)), "the tank's start");
+    for seed in 0..500u64 {
+        assert!(basic(&Gear::hired_for(seed, 1)), "a hire {seed}");
+    }
+}

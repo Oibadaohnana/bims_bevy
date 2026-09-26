@@ -2607,12 +2607,15 @@ pub(crate) fn tip_of(item: PackItem, count: u32) -> String {
             } else {
                 String::new()
             };
+            // And what a plate or a pair of greaves does besides (task
+            // 116), on the same line, so the trader's row says it too.
+            let effect = armour_effect(&piece);
             format!(
-                "{} — {}\n+{} hp, {} protection{dodge} · {state}\n{}",
+                "{} — {}\n+{} hp, {} protection{dodge}{effect} · {state}\n{}",
                 tiered(armour_name(Some(piece.kind)), piece.tier),
                 SLOT_NAMES[piece.kind.slot() as usize].to_lowercase(),
                 stats.health,
-                stats.protection,
+                tidy_hundredths(stats.protection),
                 item_tip(ResourceId::ALL[piece.kind.resource() as usize])
             )
         }

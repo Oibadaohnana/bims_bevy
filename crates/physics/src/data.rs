@@ -118,12 +118,17 @@ pub enum ResourceId {
     Minigun = 18,
     /// A rail lance (task 115): tier three only.
     RailLance = 19,
+    /// A pair of arc greaves (task 116): leg armour made from tier two up,
+    /// only ever the crew's — bought at a trader or combined.
+    ArcGreaves = 20,
+    /// A Reflective plate (task 116): body armour, tier three only.
+    ReflectivePlate = 21,
 }
 
 impl ResourceId {
     /// Every resource, in discriminant order. `ALL[id as usize].id == id`,
     /// which [`ResourceId::def`] relies on and [`defs_are_sound`] checks.
-    pub const ALL: [ResourceId; 20] = [
+    pub const ALL: [ResourceId; 22] = [
         ResourceId::Vegetable,
         ResourceId::Tofu,
         ResourceId::Suit,
@@ -144,6 +149,8 @@ impl ResourceId {
         ResourceId::Grenade,
         ResourceId::Minigun,
         ResourceId::RailLance,
+        ResourceId::ArcGreaves,
+        ResourceId::ReflectivePlate,
     ];
 
     pub fn def(self) -> &'static ResourceDef {
@@ -178,7 +185,7 @@ pub struct ResourceDef {
 /// that went into it. `shipdesign::recipes` is where that recipe lives
 /// and `every_recipe_holds_together` there is what holds this column to
 /// it.
-pub static RESOURCES: [ResourceDef; 20] = [
+pub static RESOURCES: [ResourceDef; 22] = [
     ResourceDef {
         id: ResourceId::Vegetable,
         mass_per_unit: 0.5,
@@ -268,6 +275,16 @@ pub static RESOURCES: [ResourceDef; 20] = [
     ResourceDef {
         id: ResourceId::RailLance,
         mass_per_unit: 72.0,
+    },
+    // The two pieces of task 116: greaves a little heavier than the leg
+    // guards for their coils, and a plate heavier than the kevlar.
+    ResourceDef {
+        id: ResourceId::ArcGreaves,
+        mass_per_unit: 10.0,
+    },
+    ResourceDef {
+        id: ResourceId::ReflectivePlate,
+        mass_per_unit: 32.0,
     },
 ];
 

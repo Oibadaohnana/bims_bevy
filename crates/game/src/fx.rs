@@ -156,6 +156,11 @@ pub const BURST_CAP: usize = 8;
 pub const SHIELD_FLARE_LIFE: f32 = 0.35;
 pub const SHIELD_FLARE_SPAN: f32 = 0.8;
 
+/// How long an arc greaves' flare to a body it struck lasts (task 116),
+/// and how many times across its width it is drawn.
+pub const ARC_LIFE: f32 = 0.2;
+pub const ARC_WIDTH: f32 = 1.3;
+
 /// A side's colour: blue for the crew's fire, red for the enemy's —
 /// always, whatever the weapon.
 pub fn side(hostile: bool) -> Color {
@@ -251,8 +256,13 @@ enum Light {
     /// A blade's cut, round the swinger, facing the way it swung.
     Cut { facing: f32 },
     /// A bolt or a blow stopped at a Guardian's shield (feature 100):
-    /// the plate flaring round the spot, centred on the machine.
+    /// the plate flaring round the spot, centred on the machine — and a
+    /// bolt sent back off a Reflective plate (task 116), centred on the
+    /// wearer.
     Shield { centre: Vec2 },
+    /// A pair of arc greaves' discharge striking a body (task 116): a
+    /// short straight line from the wearer to where it struck.
+    Arc { from: Vec2 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -498,6 +508,32 @@ impl Fx {
         );
     }
 
+    /// A bolt sent back off a Reflective plate (task 116): the shield's
+    /// own flare round the wearer at `centre`, where it was struck at
+    /// `at` — in the crew's blue, the plate being theirs.
+    pub fn reflect(&mut self, centre: Vec2, at: Vec2) {
+        self.flare(
+            at,
+            Light::Shield { centre },
+            false,
+            WeaponKind::Sweeper.basic(),
+            SHIELD_FLARE_LIFE,
+        );
+    }
+
+    /// A pair of arc greaves' discharge from the wearer at `from` striking
+    /// a body at `at` (task 116): a short straight flare between the two,
+    /// in the crew's blue — no kinks, which are the Unmaker's.
+    pub fn arc(&mut self, from: Vec2, at: Vec2) {
+        self.flare(
+            at,
+            Light::Arc { from },
+            false,
+            WeaponKind::LaserPistol.basic(),
+            ARC_LIFE,
+        );
+    }
+
     /// A hit struck that part of that body: a flash on the part, drawn
     /// with the body wherever it has got to (`Game::render`).
     pub fn struck(&mut self, body: usize, part: u32) {
@@ -661,6 +697,13 @@ impl Fx {
                 }
                 Light::Cut { facing } => draw_cut(list, f, facing, t),
                 Light::Shield { centre } => draw_shield_flare(list, f, centre, t),
+                Light::Arc { from } => {
+                    // Straight, bright and gone at once, with a spark
+                    // where it struck.
+                    let w = ARC_WIDTH * (0.5 + 0.5 * t);
+                    laser(list, from, f.at, 6.0 * w, 1.6 * w, false, 2.2, t);
+                    list.circle(f.at, 10.0 * t, hot(false, 2.2).alpha(t));
+                }
             }
         }
         for b in &self.bursts {

@@ -1411,9 +1411,18 @@ impl Game {
             .map(|who| self.skill(who).cover_dodge)
             .collect();
         self.combat.set_own_cover_dodge(cover_odds);
+        // Who wears a whole Reflective plate, for the bolts below (task
+        // 116).
+        let reflecting: Vec<bool> = self
+            .bims
+            .iter()
+            .map(|b| b.gear.body.is_some_and(|p| p.reflects()))
+            .collect();
+        self.combat.set_reflecting(reflecting);
         for who in 0..self.bims.len() {
             let bim = &mut self.bims[who];
             bim.trigger.tick(dt);
+            bim.arc_cool = (bim.arc_cool - dt).max(0.0);
             // How a fall back is walked is worked out afresh every step
             // (feature 84): `fall_back_aboard` sets it below for a bot
             // under the order, and the aim turns a sprint into a
@@ -6691,12 +6700,26 @@ impl Game {
         if (self.exposed_at(who) - from).len() > (MELEE_RANGE + 0.5) * TILE {
             return false;
         }
+        // Arc greaves (task 116): whole when the blow lands — asked before
+        // the blow is on the body, which may be what breaks them — and off
+        // their cooldown.
+        let arc = self.bims[who]
+            .gear
+            .legs
+            .and_then(|p| p.arc_damage())
+            .filter(|_| self.bims[who].arc_cool <= 0.0);
         let hit = self.combat.struck(who, damage, cut);
         self.count_hit_taken(&hit);
         self.strike(who, hit.part, damage, cut);
         self.wounds_taken.push(hit);
         self.attacked_for = ALARM_HOLD;
         let at = self.bims[who].character.pos;
+        // And they discharge into every enemy near, after the blow, off
+        // the same stream.
+        if let Some(arc_damage) = arc {
+            self.bims[who].arc_cool = crate::balance::ARC_COOLDOWN;
+            self.combat.arc_discharge(at, who, arc_damage);
+        }
         self.combat.cues.push(Cued {
             cue: Cue::Blow { cut, on_crew: true },
             at,
@@ -12057,5 +12080,227 @@ mod tests {
         assert_eq!(lit.fx_count_for_probe().1, 3, "a flash and a burst");
         lit.strike_droid(i, DroidPart::Chassis, 10_000.0);
         assert_eq!(lit.fx_count_for_probe().1, 3, "a wreck takes nothing more");
+    }
+
+    // --- task 116: the arc greaves and the Reflective plate ---------------
+
+    /// James in a pair of tier-two arc greaves in the middle of the room,
+    /// Kate a tile off him, and a Husk at his elbow with another machine
+    /// three tiles off: the discharge off a blow the world carried in.
+    fn greaved(health: Option<f32>) -> (Game, Vec2) {
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
+        game.put_for_probe(1, james + vec2(0.0, TILE));
+        let mut greaves = Piece::new(50, ArmourKind::ArcGreaves, Tier::Two);
+        if let Some(h) = health {
+            greaves.health = h;
+        }
+        let gear = game.gear(0);
+        game.issue(
+            0,
+            Gear {
+                legs: Some(greaves),
+                ..gear
+            },
+        );
+        let claw = WeaponKind::Claw.basic();
+        game.set_hostiles(vec![
+            Some((james + vec2(TILE, 0.0), claw)),
+            Some((james + vec2(3.0 * TILE, 0.0), claw)),
+        ]);
+        (game, james)
+    }
+
+    /// The discharge's hits: fifteen, the wearer's, neither a blast nor a
+    /// cut. Nothing else in these rooms does fifteen.
+    fn arcs(game: &mut Game) -> Vec<Hit> {
+        game.take_hits()
+            .into_iter()
+            .filter(|h| h.by == Some(0) && (h.damage - 15.0).abs() < 1e-4)
+            .inspect(|h| assert!(!h.blast && !h.cut, "{h:?}"))
+            .collect()
+    }
+
+    /// A Husk's blow landing on a wearer of whole tier-two arc greaves
+    /// throws fifteen into every enemy within two tiles and none beyond,
+    /// nor into the crew; a second blow inside the second does not, one
+    /// after it does.
+    #[test]
+    fn a_husk_s_blow_on_arc_greaves_discharges_into_the_enemies_near() {
+        let (mut game, james) = greaved(None);
+        let husk = james + vec2(TILE, 0.0);
+        let kate = game.health(1);
+        assert!(game.enemy_strike(husk, 0, crate::balance::CLAW.damage, false));
+        let hits = arcs(&mut game);
+        assert_eq!(hits.iter().map(|h| h.who).collect::<Vec<_>>(), vec![0]);
+        assert_eq!(game.health(1), kate, "the crew are never struck");
+        let cues = game.take_cues();
+        assert!(
+            cues.iter()
+                .any(|c| c.cue == Cue::Impact { on_crew: false } && c.at == husk),
+            "the impact heard on the machine struck"
+        );
+        // The claws may have broken them, landing on the legs: fresh ones,
+        // as at a mission's start, and lighter blows from here on, which
+        // two of cannot break a pair.
+        let fresh = |game: &mut Game| {
+            let gear = game.gear(0);
+            let legs = Some(Piece::new(50, ArmourKind::ArcGreaves, Tier::Two));
+            game.issue(0, Gear { legs, ..gear });
+        };
+        fresh(&mut game);
+        // Inside the cooldown, nothing.
+        assert!(game.enemy_strike(husk, 0, 5.0, false));
+        assert!(arcs(&mut game).is_empty(), "within the cooldown");
+        // A second on, it discharges again.
+        for _ in 0..(crate::balance::ARC_COOLDOWN / DT) as usize + 2 {
+            game.simulate(DT);
+        }
+        game.take_hits();
+        // He has stepped back from the claws meanwhile: the Husk follows.
+        let james = game.exposed_at(0);
+        let husk = james + vec2(TILE, 0.0);
+        let claw = WeaponKind::Claw.basic();
+        let far = husk + vec2(2.0 * TILE, 0.0);
+        game.set_hostiles(vec![Some((husk, claw)), Some((far, claw))]);
+        assert!(game.enemy_strike(husk, 0, 5.0, false));
+        let hits = arcs(&mut game);
+        let struck: Vec<usize> = hits.iter().map(|h| h.who).collect();
+        assert_eq!(struck, vec![0], "after the cooldown");
+    }
+
+    /// Broken greaves never discharge, and a bolt never sets whole ones
+    /// off.
+    #[test]
+    fn broken_greaves_never_discharge_and_a_bolt_never_does() {
+        let (mut broken, james) = greaved(Some(0.0));
+        for _ in 0..3 {
+            assert!(broken.enemy_strike(james + vec2(TILE, 0.0), 0, 20.0, false));
+            assert!(arcs(&mut broken).is_empty());
+        }
+        let (mut whole, _) = greaved(None);
+        let mut landed = 0;
+        for _ in 0..30 {
+            // Wherever he has got to, from a tile and a half off.
+            let james = whole.exposed_at(0);
+            let from = james + vec2(1.5 * TILE, 0.0);
+            whole.enemy_fire(from, james, WeaponKind::LaserPistol.basic(), false);
+            for _ in 0..20 {
+                whole.simulate(DT);
+            }
+            landed += whole.take_wounds_taken().len();
+            assert!(arcs(&mut whole).is_empty(), "a bolt discharges nothing");
+        }
+        assert!(landed > 10, "{landed} bolts landed");
+    }
+
+    /// A tier-three Reflective plate on James: a bolt it sends back wounds
+    /// nobody and drains nothing — the plate's health and James's wounds
+    /// are what they were — and once the bolts have broken it nothing is
+    /// sent back. A claw's blow is never sent back.
+    #[test]
+    fn a_plate_sends_bolts_back_for_nothing_until_it_breaks_and_never_a_blow() {
+        let mut game = room();
+        game.set_autonomous(false);
+        game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
+        game.put_for_probe(1, vec2(ROOM_W * 0.25, ROOM_H * 0.8));
+        let gear = game.gear(0);
+        game.issue(
+            0,
+            Gear {
+                body: Some(Piece::new(60, ArmourKind::ReflectivePlate, Tier::Three)),
+                ..gear
+            },
+        );
+        let pistol = WeaponKind::LaserPistol.basic();
+        let plate = |game: &Game| game.gear(0).body.unwrap();
+        let (mut sent, mut after_broken) = (0, 0);
+        for _ in 0..60 {
+            let before = (plate(&game).health, game.wounds(0, Part::Body));
+            let was_whole = plate(&game).reflects();
+            // Wherever he has got to, from two tiles off.
+            let james = game.exposed_at(0);
+            game.enemy_fire(james + vec2(2.0 * TILE, 0.0), james, pistol, false);
+            for _ in 0..20 {
+                game.simulate(DT);
+            }
+            let wounds = game.take_wounds_taken();
+            let back = game
+                .take_cues()
+                .iter()
+                .filter(|c| c.cue == Cue::Shielded)
+                .count();
+            if back > 0 {
+                assert!(wounds.is_empty(), "sent back and landed: {wounds:?}");
+                assert_eq!(
+                    (plate(&game).health, game.wounds(0, Part::Body)),
+                    before,
+                    "a bolt sent back drains nothing"
+                );
+                sent += back;
+            }
+            if !was_whole {
+                after_broken += back;
+            }
+        }
+        assert!(sent > 0, "the plate sent something back");
+        assert!(plate(&game).broken(), "sixty pistol bolts broke it");
+        assert_eq!(after_broken, 0, "a broken plate sends nothing back");
+
+        // A claw's blow on a whole plate lands, and nothing flies back.
+        let mut game = room();
+        game.set_autonomous(false);
+        let james = game.put_for_probe(0, vec2(ROOM_W * 0.45, ROOM_H * 0.5));
+        let gear = game.gear(0);
+        game.issue(
+            0,
+            Gear {
+                body: Some(Piece::new(61, ArmourKind::ReflectivePlate, Tier::Three)),
+                ..gear
+            },
+        );
+        for _ in 0..10 {
+            assert!(game.enemy_strike(james + vec2(TILE, 0.0), 0, 5.0, false));
+        }
+        assert_eq!(game.take_wounds_taken().len(), 10);
+        assert!(game.take_cues().iter().all(|c| c.cue != Cue::Shielded));
+        assert!(game.combat.bolts.is_empty(), "nothing sent back");
+    }
+
+    /// One seed, one fight: the plate and the greaves on the same bodies
+    /// under the same fire strike alike on two rooms.
+    #[test]
+    fn the_plate_and_the_greaves_fight_alike_on_one_seed() {
+        let run = || {
+            let (mut game, james) = greaved(None);
+            let gear = game.gear(0);
+            game.issue(
+                0,
+                Gear {
+                    body: Some(Piece::new(62, ArmourKind::ReflectivePlate, Tier::Three)),
+                    ..gear
+                },
+            );
+            let mut out = Vec::new();
+            for i in 0..40 {
+                game.enemy_fire(
+                    james + vec2(4.0 * TILE, 0.0),
+                    james,
+                    WeaponKind::AutoRifle.at(Tier::Three),
+                    false,
+                );
+                if i % 5 == 0 {
+                    game.enemy_strike(james + vec2(TILE, 0.0), 0, 20.0, false);
+                }
+                for _ in 0..15 {
+                    game.simulate(DT);
+                }
+                out.extend(game.take_wounds_taken());
+                out.extend(game.take_hits());
+            }
+            (out, game.gear(0))
+        };
+        assert_eq!(run(), run());
     }
 }

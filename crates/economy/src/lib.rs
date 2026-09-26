@@ -188,7 +188,9 @@ pub fn tiered(resource: ResourceId) -> bool {
         | ResourceId::RailLance
         | ResourceId::Helm
         | ResourceId::Kevlar
-        | ResourceId::LegGuard => true,
+        | ResourceId::LegGuard
+        | ResourceId::ArcGreaves
+        | ResourceId::ReflectivePlate => true,
         ResourceId::Vegetable
         | ResourceId::Tofu
         | ResourceId::Suit
@@ -244,6 +246,12 @@ pub fn trade_price(resource: ResourceId) -> Money {
         ResourceId::LegGuard => 1_000,
         ResourceId::Helm => 1_500,
         ResourceId::Kevlar => 2_000,
+        // The two pieces made only from a tier up (task 116), at their
+        // tier-one book like every piece — never sold at it: a pair of
+        // tier-two arc greaves is 1 500 times `TIER_PRICE[2]`, a
+        // Reflective plate 2 500 times `TIER_PRICE[3]`.
+        ResourceId::ArcGreaves => 1_500,
+        ResourceId::ReflectivePlate => 2_500,
         // Two vegetables and a quarter of an hour at the drug lab — the
         // one thing the crew still make — and a dressing off a shelf.
         ResourceId::Medkit => 32,
@@ -287,6 +295,8 @@ pub fn storage(resource: ResourceId) -> Storage {
         | ResourceId::Schword
         | ResourceId::Minigun
         | ResourceId::RailLance
+        | ResourceId::ArcGreaves
+        | ResourceId::ReflectivePlate
         | ResourceId::SandbagKit
         | ResourceId::SentryKit
         | ResourceId::Grenade => Storage::Locker,
@@ -357,6 +367,8 @@ pub fn footprint(resource: ResourceId) -> Footprint {
         ResourceId::Kevlar => Footprint::new(4, 4),
         ResourceId::Helm => Footprint::new(2, 4),
         ResourceId::LegGuard => Footprint::new(3, 2),
+        ResourceId::ArcGreaves => Footprint::new(3, 2),
+        ResourceId::ReflectivePlate => Footprint::new(4, 4),
         // The suit folded, a medkit's case, and a box of dressings — a
         // bandage is gauze and tape the size of a medkit's case
         // (feature 87), and five of them go in one box (`stack_size`).
@@ -398,6 +410,8 @@ pub fn stack_size(resource: ResourceId) -> u32 {
         | ResourceId::Schword
         | ResourceId::Minigun
         | ResourceId::RailLance
+        | ResourceId::ArcGreaves
+        | ResourceId::ReflectivePlate
         | ResourceId::ResearchKey
         | ResourceId::ResearchKeyTwo
         | ResourceId::SandbagKit
@@ -499,6 +513,9 @@ mod tests {
         assert_eq!(trade_price(ResourceId::LegGuard), 1_000);
         assert_eq!(trade_price(ResourceId::Helm), 1_500);
         assert_eq!(trade_price(ResourceId::Kevlar), 2_000);
+        // And the two pieces made only from a tier up (task 116).
+        assert_eq!(trade_price(ResourceId::ArcGreaves), 1_500);
+        assert_eq!(trade_price(ResourceId::ReflectivePlate), 2_500);
 
         assert_eq!(storage(ResourceId::Vegetable), Storage::ColdStore);
         assert_eq!(storage(ResourceId::Tofu), Storage::ColdStore);
@@ -549,9 +566,9 @@ mod tests {
         assert_eq!(tier_price(3), 16);
         assert_eq!(tier_price(0), 1);
         assert_eq!(tier_price(9), 1);
-        // The ten things that come at a tier, and nothing else.
+        // The twelve things that come at a tier, and nothing else.
         let tiered_count = ResourceId::ALL.iter().filter(|&&r| tiered(r)).count();
-        assert_eq!(tiered_count, 10);
+        assert_eq!(tiered_count, 12);
         for gear in [
             ResourceId::Handgun,
             ResourceId::Shotgun,
@@ -563,6 +580,8 @@ mod tests {
             ResourceId::Helm,
             ResourceId::Kevlar,
             ResourceId::LegGuard,
+            ResourceId::ArcGreaves,
+            ResourceId::ReflectivePlate,
         ] {
             assert!(tiered(gear), "{gear:?}");
         }

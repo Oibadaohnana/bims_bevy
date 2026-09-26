@@ -3507,8 +3507,10 @@ impl World {
                     self.holdings.put(Item::Weapon(kind.basic()));
                 }
             } else if let Some(kind) = armour::kind_of(id) {
+                // At its own lowest tier: a design carrying a Reflective
+                // plate carries one at tier three (task 116).
                 for _ in 0..units {
-                    let piece = self.holdings.new_piece(kind, Tier::One);
+                    let piece = self.holdings.new_piece(kind, kind.min_tier());
                     self.holdings.put(Item::Armour(piece));
                 }
             } else if matches!(id, ResourceId::ResearchKey | ResourceId::ResearchKeyTwo) {
@@ -4690,7 +4692,7 @@ impl World {
         for who in 0..self.aboard.crew_count() as usize {
             let mut gear = self.aboard.room.gear(who);
             gear.weapon = armed(&gear);
-            for kind in ArmourKind::ALL {
+            for kind in ArmourKind::BASIC {
                 *gear.worn_mut(kind.slot()) = Some(self.holdings.new_piece(kind, tier));
             }
             self.aboard.room.issue(who, gear);
@@ -6317,7 +6319,7 @@ impl World {
     /// moves: the kit comes with him, like a soldier's rifle.
     fn give_tank_kit(&mut self, who: usize) {
         let mut gear = self.aboard.room.gear(who);
-        for kind in ArmourKind::ALL {
+        for kind in ArmourKind::BASIC {
             if gear.worn(kind.slot()).is_some() {
                 continue;
             }
@@ -6333,7 +6335,7 @@ impl World {
     fn take_tank_kit(&mut self, who: usize) {
         let mut gear = self.aboard.room.gear(who);
         let mut changed = false;
-        for kind in ArmourKind::ALL {
+        for kind in ArmourKind::BASIC {
             let slot = kind.slot();
             if gear.worn(slot).is_some_and(|p| p.tier == Tier::One) {
                 *gear.worn_mut(slot) = None;

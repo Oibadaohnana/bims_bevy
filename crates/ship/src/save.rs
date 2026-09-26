@@ -131,7 +131,11 @@ use crate::game::Game;
 /// 44: the minigun and the rail lance (task 115) — two more resources, so
 /// a design's cargo is twenty long, and a bolt in the air keeps the bodies
 /// a lance slug has struck.
-pub const SAVE_VERSION: u32 = 44;
+/// 45: the arc greaves and the Reflective plate (task 116) — two more
+/// kinds of armour and two more resources, so a design's cargo is
+/// twenty-two long; a room remembers who wears a whole plate and a Bim
+/// its greaves' cooldown, and a burst may be a discharge.
+pub const SAVE_VERSION: u32 = 45;
 
 /// What the file holds, read back.
 #[derive(serde::Deserialize)]

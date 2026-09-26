@@ -5068,3 +5068,30 @@ worlds alike to the checksum through a lance's fight.
 `tests_survivors::arm` deals the five kinds the reading was taken with,
 so `SURVIVORS` did not move; `REFERENCE_CHECKSUM` moved for the ship's
 design hash alone (two more empty cargo slots).
+
+## The arc greaves and the Reflective plate (task 116)
+
+Two kinds of armour made only from a tier up (`bims::combat::ArmourKind::
+min_tier`; `crates/game/CLAUDE.md` has what they do). The world's part is
+every place a piece is *made*, and they are the weapons' of task 115:
+
+- **The shelf** draws from `trader::shelf_candidates`, which now asks
+  `ArmourKind::made_at` as well — never greaves at tier one or a plate
+  below three. `worldgen::data::ARMOUR` is five long, so an armour slot is
+  one of twelve candidates where it was one of nine: shelves are other
+  shelves, which nothing pinned meets.
+- **Combining**: two tier-two pairs of greaves make a tier-three pair; a
+  plate is tier three already and is `TopTier`.
+- **Nothing the world dresses a body in names either**: the tank's start,
+  `outfit_for_probe` and the Outfitter's hire go by `ArmourKind::BASIC`,
+  and `stock_the_armory` makes a design's piece at its kind's own lowest
+  tier.
+- `ResourceId::{ArcGreaves = 20, ReflectivePlate = 21}`, booked at 1 500
+  and 2 500 (`economy::trade_price`, times `TIER_PRICE`).
+
+`trader::tests` pin the shelf over many seeds and the combines,
+`tests_droid::the_plate_and_the_greaves_fight_the_same_fight_on_two_worlds`
+two worlds alike to the checksum with both worn, and
+`no_outfit_or_start_wears_the_greaves_or_the_plate` the outfits.
+`REFERENCE_CHECKSUM` moved for the design hash alone (two more empty cargo
+slots); `SURVIVORS` did not.

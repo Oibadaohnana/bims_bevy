@@ -35,6 +35,14 @@ const KEVLAR: Color32 = Color32::from_rgb(0x38, 0x3d, 0x47);
 const KEVLAR_YOKE: Color32 = Color32::from_rgb(0x5c, 0x64, 0x72);
 const LEGS: Color32 = Color32::from_rgb(0x3c, 0x34, 0x2c);
 const LEGS_BAND: Color32 = Color32::from_rgb(0x8c, 0x9e, 0xb8);
+// The two pieces of task 116, in the colours the deck draws them
+// (`character`): the greaves steel-blue with pale blue coils, the plate a
+// mirror with its bar of light.
+const GREAVES: Color32 = Color32::from_rgb(0x2b, 0x36, 0x4a);
+const GREAVES_COIL: Color32 = Color32::from_rgb(0x8c, 0xd1, 0xff);
+const MIRROR: Color32 = Color32::from_rgb(0xbd, 0xc9, 0xd9);
+const MIRROR_YOKE: Color32 = Color32::from_rgb(0x8a, 0x96, 0xa8);
+const MIRROR_SHINE: Color32 = Color32::from_rgb(0xf5, 0xfa, 0xff);
 // The long guns' wood, the sniper's scope and the glass in it, and the
 // schword's hilt and blade, in the colours the deck draws them
 // (`character::draw_gun`).
@@ -207,6 +215,34 @@ fn draw_resource(s: &mut Sketch, b: &Box_, id: ResourceId) {
                 s.rect_filled(b.rect(x, 0.16, x + 0.22, 0.86), b.px(0.06), LEGS);
                 s.rect_filled(b.rect(x, 0.42, x + 0.22, 0.52), b.px(0.02), LEGS_BAND);
             }
+        }
+        // Arc greaves (task 116): the guards' shape in steel-blue, two
+        // coils round each shin and a spark jumping between them.
+        ResourceId::ArcGreaves => {
+            for x in [0.22, 0.56] {
+                s.rect_filled(b.rect(x, 0.16, x + 0.22, 0.86), b.px(0.06), GREAVES);
+                for y in [0.34, 0.54] {
+                    s.rect_filled(b.rect(x, y, x + 0.22, y + 0.05), 0.0, GREAVES_COIL);
+                }
+            }
+            let spark = [
+                b.at(0.44, 0.30),
+                b.at(0.50, 0.40),
+                b.at(0.46, 0.46),
+                b.at(0.56, 0.56),
+            ];
+            for pair in spark.windows(2) {
+                s.line_segment([pair[0], pair[1]], Stroke::new(b.px(0.035), GREAVES_COIL));
+            }
+        }
+        // The Reflective plate: the vest in silver with a bar of light
+        // across it.
+        ResourceId::ReflectivePlate => {
+            vest(s, b, MIRROR, MIRROR_YOKE);
+            s.line_segment(
+                [b.at(0.34, 0.66), b.at(0.62, 0.34)],
+                Stroke::new(b.px(0.07), MIRROR_SHINE),
+            );
         }
         // The three long guns all face right like the handgun, the muzzle
         // lit, and are told apart by what the deck tells them apart by
@@ -511,7 +547,7 @@ mod tests {
             icon(&painter, rect, Item::Stack(id as u32));
         }
         for &kind in ArmourKind::ALL.iter() {
-            let mut piece = Piece::new(1, kind, bims::combat::Tier::One);
+            let mut piece = Piece::new(1, kind, kind.min_tier());
             icon(&painter, rect, Item::Armour(piece));
             piece.health = 0.0;
             icon(&painter, rect, Item::Armour(piece));

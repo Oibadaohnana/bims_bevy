@@ -118,7 +118,10 @@ pub const REFERENCE_STEPS: u32 = 600;
 /// are two more empty cargo slots in the ship's `design_hash`, which the
 /// checksum eats — the ship, its mass and the run are what they were
 /// (`SURVIVORS` did not move). Was `0x_2e8b_94f3_4a74_debc`.
-pub const REFERENCE_CHECKSUM: u64 = 0x_24c4_416e_929c_d093;
+/// And for task 116 (the arc greaves and the Reflective plate), the same
+/// way: two more resources, two more empty cargo slots in the design hash,
+/// and nothing else. Was `0x_24c4_416e_929c_d093`.
+pub const REFERENCE_CHECKSUM: u64 = 0x_7135_e4b4_5415_2e9f;
 
 /// A world with the flyable fixture docked at the simulation's spawn: the
 /// default seed's first dock, which is where every fixture world starts.

@@ -3798,3 +3798,60 @@ that never name either, the minigun's pull, the lance through three and
 not a fourth, a wall, a shield from the front and the side, a dodge that
 is no strike, and one seed striking alike; `game::tests` the minigun's
 burst in a hand.
+
+## The arc greaves and the Reflective plate (task 116)
+
+Two more kinds of armour, `ArmourKind::ArcGreaves = 4` (legs) and
+`ReflectivePlate = 5` (body), in `ALL` (five); **a slot can take more
+than one kind now** (`ArmourKind::slot`). `ArmourKind::BASIC` is the three
+everybody else wears — the tank's start, an outfit, a hire's fee and
+every hostile's gear go by it, never `ALL`. **A kind has a lowest tier**
+(`ArmourKind::min_tier`: two for the greaves, three for the plate, one for
+the rest — the weapons' pattern of task 115) and `Piece::new`
+debug-asserts it. `resource()` is 20 and 21. The numbers are
+`balance::{ARC_GREAVES, REFLECTIVE_PLATE}` and the constants beside them;
+every other armour rule applies to both (protection, drain, broken, whole
+at a mission's start, the tank's drain, *plated*, *higher quality
+armour*, the tier-three dodge) but one: **the plate has no tier-three
+dodge** (`Piece::dodge` is nought for it).
+
+- **The reflection** is in `Combat::step`, where a hostile bolt lands on
+  one of this room's own: the part is rolled as ever, and if it is the
+  body and the body wears a whole plate — `Combat::set_reflecting`, said
+  every step by `tick_combat` off `Piece::reflects` — one more roll on
+  the combat stream against `REFLECT_ODDS`. **Only such a body is rolled
+  for**, so a fight without a plate draws what it always did (`SURVIVORS`
+  and `PINNED` did not move). Sent back, the bolt does nothing to the
+  wearer or the plate; a friendly `Bolt` leaves the strike point with the
+  incoming velocity reversed — the same weapon, `by` the wearer,
+  `point_blank` one, `damage` `REFLECT_DAMAGE`, `range` nought, the full
+  reach, `fired_from` the strike point — and is put in the air after the
+  bolt loop, in the order made, an ordinary friendly bolt from there. A
+  tank's *interpose* landing is a landing on the tank like any other.
+  Beams (`step_sweeps`) and blows (`struck`, `brawl_at`) never go through
+  it. Heard as `Cue::Shielded`, seen as the shield's flare in the crew's
+  blue (`Fx::reflect`).
+- **The discharge** is `Combat::arc_discharge`, called from
+  `Game::enemy_strike` — the one way an enemy's blow reaches a crew body,
+  the world's carried blow and a town machine's alike — when the legs
+  wear whole greaves (asked **before** the blow lands, which may be what
+  breaks them) and `Bim::arc_cool` (serde default, run down in
+  `tick_combat`) is out: every live target — not stale, not `None` (a
+  defended town's people are handed over as `None`) — within `ARC_RADIUS`
+  of the wearer takes `ARC_DAMAGE` times `Tier::armour_factor` on a part
+  rolled as `Combat::blast` rolls one, neither a blast nor a cut, by the
+  wearer; shields do not stop it, as they do not stop a grenade. A
+  `Blast` with `arc` set is the ring (the grenade's picture at the
+  discharge's radius, in the crew's blue) and `Fx::arc` a short straight
+  flare to each body struck; `Cue::Impact` for each.
+- **The looks** (`character.rs`): the greaves a steel-blue boot with two
+  pale blue coils, the plate a silver mirror with a bar of light, standing
+  and lying.
+
+`combat::tests` pin the kinds and tiers, the tables that never wear
+either, the share sent back and the limbs never, a bolt sent home at half
+by the wearer, the stream unmoved without a plate, a sweep never sent
+back and the discharge's reach; `game::tests` the discharge off a Husk's
+blow with its cooldown, broken greaves and a bolt never discharging, the
+plate draining nothing until it breaks and a blow never sent back, and
+one seed fighting alike.

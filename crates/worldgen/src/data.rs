@@ -590,8 +590,9 @@ pub struct Stock(pub u32);
 /// they cannot do without.
 pub const STAPLES: [ResourceId; 3] = [ResourceId::Vegetable, ResourceId::Tofu, ResourceId::Medkit];
 
-/// The seven weapons and the three pieces of armour there are to buy
-/// (feature 95; the minigun and the rail lance since task 115). On no station's shelf since the trader (task 114): a
+/// The seven weapons and the five pieces of armour there are to buy
+/// (feature 95; the minigun and the rail lance since task 115, the arc
+/// greaves and the Reflective plate since task 116). On no station's shelf since the trader (task 114): a
 /// trader site's own shelf is drawn from these two lists
 /// (`world::trader`).
 pub const WEAPONS: [ResourceId; 7] = [
@@ -603,7 +604,13 @@ pub const WEAPONS: [ResourceId; 7] = [
     ResourceId::Minigun,
     ResourceId::RailLance,
 ];
-pub const ARMOUR: [ResourceId; 3] = [ResourceId::Helm, ResourceId::Kevlar, ResourceId::LegGuard];
+pub const ARMOUR: [ResourceId; 5] = [
+    ResourceId::Helm,
+    ResourceId::Kevlar,
+    ResourceId::LegGuard,
+    ResourceId::ArcGreaves,
+    ResourceId::ReflectivePlate,
+];
 
 /// How likely a station is to stock any one good that is not a staple.
 pub const STOCKED_CHANCE: f64 = 0.6;

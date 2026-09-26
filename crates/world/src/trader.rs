@@ -28,7 +28,8 @@
 //!
 //! [`data::TRADER_WEAPONS`] weapons and [`data::TRADER_ARMOUR`] pieces, any
 //! kind at any tier it is made at ([`shelf_candidates`]: never a minigun
-//! at tier one or a rail lance below three, task 115), rolled off the galaxy's seed and the site on a stream
+//! at tier one or a rail lance below three, task 115, nor arc greaves at
+//! tier one or a Reflective plate below three, task 116), rolled off the galaxy's seed and the site on a stream
 //! of their own ([`roll_shelf`]) — once a trader a run, and never again:
 //! the world keeps what is left of it ([`Trader`]).
 
@@ -198,8 +199,10 @@ pub fn roll_shelf(galaxy_seed: u64, star: u32, station: u32) -> Vec<ShelfItem> {
 }
 
 /// Every thing of `list` a shelf may hold: each kind at each tier it is
-/// made at ([`bims::combat::WeaponKind::made_at`] for a gun; every tier
-/// for a piece), the kinds in the list's order and the tiers upward.
+/// made at ([`bims::combat::WeaponKind::made_at`] for a gun,
+/// [`ArmourKind::made_at`] for a piece — never arc greaves at tier one or
+/// a Reflective plate below three, task 116), the kinds in the list's
+/// order and the tiers upward.
 pub fn shelf_candidates(list: &[ResourceId]) -> Vec<ShelfItem> {
     list.iter()
         .flat_map(|&resource| {
@@ -207,6 +210,7 @@ pub fn shelf_candidates(list: &[ResourceId]) -> Vec<ShelfItem> {
                 .into_iter()
                 .filter(move |&tier| {
                     armour::weapon_of(resource).is_none_or(|kind| kind.made_at(tier))
+                        && armour::kind_of(resource).is_none_or(|kind| kind.made_at(tier))
                 })
                 .map(move |tier| ShelfItem { resource, tier })
         })
@@ -312,8 +316,60 @@ mod tests {
                 tiers.insert(item.tier.code());
             }
         }
-        assert_eq!(kinds.len(), 10);
+        assert_eq!(kinds.len(), 12);
         assert_eq!(tiers.len(), 3);
+    }
+
+    /// Task 116: no shelf over many seeds holds arc greaves at tier one or
+    /// a Reflective plate below three, and both do turn up.
+    #[test]
+    fn no_shelf_holds_a_piece_below_its_lowest_tier_and_both_new_kinds_turn_up() {
+        let (mut greaves, mut plates) = (0, 0);
+        for seed in 0..40u64 {
+            for station in 0..50 {
+                for item in roll_shelf(seed, (seed % 7) as u32, station) {
+                    let Some(kind) = item.armour() else {
+                        continue;
+                    };
+                    assert!(
+                        kind.made_at(item.tier),
+                        "seed {seed} station {station}: {kind:?} at {:?}",
+                        item.tier
+                    );
+                    match kind {
+                        ArmourKind::ArcGreaves => greaves += 1,
+                        ArmourKind::ReflectivePlate => plates += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        assert!(
+            greaves > 50 && plates > 50,
+            "{greaves} greaves, {plates} plates"
+        );
+    }
+
+    /// Task 116: two tier-two pairs of arc greaves make a tier-three pair,
+    /// and a Reflective plate — tier three and nothing else — combines into
+    /// nothing.
+    #[test]
+    fn two_arc_greaves_combine_and_a_plate_does_not() {
+        use bims::combat::Piece;
+        let greaves = |id, t| Item::Armour(Piece::new(id, ArmourKind::ArcGreaves, t));
+        assert_eq!(
+            combined(greaves(1, Tier::Two), greaves(2, Tier::Two), 9),
+            Ok(greaves(9, Tier::Three))
+        );
+        assert_eq!(
+            combined(greaves(1, Tier::Three), greaves(2, Tier::Three), 9),
+            Err(CombineError::TopTier)
+        );
+        let plate = |id| Item::Armour(Piece::new(id, ArmourKind::ReflectivePlate, Tier::Three));
+        assert_eq!(combined(plate(1), plate(2), 9), Err(CombineError::TopTier));
+        // Nor with a kevlar of its tier: the two are other kinds.
+        let kevlar = Item::Armour(Piece::new(3, ArmourKind::BasicKevlar, Tier::Three));
+        assert_eq!(combined(plate(1), kevlar, 9), Err(CombineError::NotAPair));
     }
 
     /// Task 115: no shelf over many seeds holds a minigun at tier one or a
@@ -344,9 +400,10 @@ mod tests {
             "{miniguns} miniguns, {lances} lances"
         );
         // The candidates: seven kinds, the minigun at two tiers and the
-        // lance at one, so 5 x 3 + 2 + 1.
+        // lance at one, so 5 x 3 + 2 + 1; and five pieces, the arc greaves
+        // at two tiers and the plate at one (task 116), so 3 x 3 + 2 + 1.
         assert_eq!(shelf_candidates(&worldgen::data::WEAPONS).len(), 18);
-        assert_eq!(shelf_candidates(&worldgen::data::ARMOUR).len(), 9);
+        assert_eq!(shelf_candidates(&worldgen::data::ARMOUR).len(), 12);
     }
 
     /// Task 115: two tier-two miniguns make a tier-three one, and a lance

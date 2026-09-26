@@ -208,6 +208,12 @@ pub struct Bim {
     /// the deck, so it leaves nothing lying for anybody to take.
     #[cfg_attr(feature = "serde", serde(default))]
     pub manufacturer: bool,
+    /// Seconds until its arc greaves may discharge again (task 116): set
+    /// to [`crate::balance::ARC_COOLDOWN`] by a discharge
+    /// (`Game::enemy_strike`) and run down in `Game::tick_combat`. Nought
+    /// for anybody who wears none or has not been struck lately.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub arc_cool: f32,
 }
 
 /// The years the crew were born in. Everyone aboard is somewhere between
@@ -257,6 +263,7 @@ impl Bim {
             bind_timer: 0.0,
             routine: None,
             manufacturer: false,
+            arc_cool: 0.0,
         }
     }
 
