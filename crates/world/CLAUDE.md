@@ -4340,9 +4340,14 @@ press by one already returning clears a `Declined` departure.
 connected, not out, alive, not `is_down`) to be returning and
 `inside_ship` (`Aboard::on_ship` against the ship's own design), and at
 least one to exist; then `left_behind()` (every living crew member outside
-the ship) empty is `leave_mission`, and otherwise `Departure::Asking`. An
+the ship, bar those `comes_home`) empty is `leave_mission`, and otherwise `Departure::Asking`. An
 `Asking` whose list changed is asked afresh; one declined is not asked
-about the same list again. `leave_mission`: the left behind `kill_now`,
+about the same list again. **After a fight won** — `Run::fought` and
+`mission_cleared()` — `comes_home(who)` is every crew member alive with
+`bleeding() == 0` and not `is_dying`, down or not: never listed, and
+`leave_mission` first stands them at the `gangway` (`bring_home`,
+`Game::stand_at`), so they unjoin aboard. The bleeding and the dying are
+left behind as before. `leave_mission`: the stable brought home, the left behind `kill_now`,
 `casualties` (the deaths paid for), the bounty settled or dropped,
 `unjoin_rooms` and `close_residents`, then a town under attack `infest`ed
 (`TownFell`) or the snapshot restored (`restore_site`), the fallen

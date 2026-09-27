@@ -932,11 +932,49 @@ impl World {
     }
 
     /// Everybody the ship would leave behind if it went now: every crew
-    /// member still alive — on its feet or down — outside the ship.
+    /// member still alive — on its feet or down — outside the ship, bar
+    /// those it takes home anyway after a fight won
+    /// ([`World::comes_home`]).
     pub fn left_behind(&self) -> Vec<u32> {
         (0..self.aboard.crew_count())
-            .filter(|&who| self.aboard.room.is_alive(who as usize) && !self.inside_ship(who))
+            .filter(|&who| {
+                self.aboard.room.is_alive(who as usize)
+                    && !self.inside_ship(who)
+                    && !self.comes_home(who)
+            })
             .collect()
+    }
+
+    /// Whether the ship takes crew member `who` home with it wherever it
+    /// stands: once the mission's fight is **won** — there was one
+    /// (`Run::fought`) and the site is cleared — every crew member alive
+    /// and **stable**, no wound open and no trauma waiting on a medkit,
+    /// on its feet or out cold. One still bleeding, or dying, is left
+    /// behind as before, unless somebody carries it aboard.
+    pub fn comes_home(&self, who: u32) -> bool {
+        let room = &self.aboard.room;
+        let at = who as usize;
+        who < self.aboard.crew_count()
+            && self.run.fought
+            && self.mission_cleared()
+            && room.is_alive(at)
+            && room.bleeding(at) == 0
+            && !room.is_dying(at)
+    }
+
+    /// The stable crew outside the ship after a fight won, stood just
+    /// inside its airlock as it leaves ([`World::comes_home`]), so the
+    /// rooms come apart with them aboard.
+    fn bring_home(&mut self) {
+        let Some(at) = self.aboard.gangway else {
+            return;
+        };
+        let at = bims::math::vec2(at.x as f32, at.y as f32);
+        for who in 0..self.aboard.crew_count() {
+            if !self.inside_ship(who) && self.comes_home(who) {
+                self.aboard.room.stand_at(who as usize, at);
+            }
+        }
     }
 
     /// The players the departure waits for, and how many of them have
@@ -1001,9 +1039,11 @@ impl World {
 
     /// The ship leaves the site and the map comes up (feature 103).
     ///
-    /// Everybody outside the ship is left behind, and dead for it. The
-    /// site is kept as it is if it was cleared — its bounty paid by then —
-    /// and otherwise put back as the mission met it, the bounty thrown
+    /// Everybody outside the ship is left behind, and dead for it — bar,
+    /// after a fight won, the stable, who are stood aboard first
+    /// ([`World::comes_home`]). The site is kept as it is if it was
+    /// cleared — its bounty paid by then — and otherwise put back as the
+    /// mission met it, the bounty thrown
     /// away; experience is kept either way. A town the machines were
     /// attacking falls to them instead, an infested site like any other.
     /// The dead bots are gone, their loadouts into the armory, the dead
@@ -1011,6 +1051,7 @@ impl World {
     /// apart, nothing moving, until the crew have chosen where next.
     pub(super) fn leave_mission(&mut self, events: &mut Vec<WorldEvent>) {
         let station = self.ship.state.alongside().or(self.run.site);
+        self.bring_home();
         for who in self.left_behind() {
             self.aboard.room.kill_now(who as usize);
             events.push(WorldEvent::LeftBehind { who });

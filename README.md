@@ -167,7 +167,12 @@ there is no helm to stand at and no trip to sit through.
   everybody's yes; one no keeps the ship where it is, the presses
   standing, and *Ask again* asks again. A player who is down, dead or
   gone is not waited for. **Left behind is dead**, and a body down
-  outside the ship is not carried aboard by leaving.
+  outside the ship is not carried aboard by leaving — **except after a
+  fight won**: once the place is cleared, every crewmate outside who is
+  alive and **stable** — no wound bleeding and no dying state waiting on
+  a medkit, on its feet or out cold — comes home with the ship, and
+  nobody is asked about them. One still bleeding or dying is left behind
+  as before, unless somebody carries it aboard.
 - **What leaving does to the place.** A place the crew cleared stays
   cleared. Any other is put back exactly as the mission found it — the
   machines, the dead, the lamps — and its bounty is lost. A town the

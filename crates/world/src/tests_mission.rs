@@ -659,6 +659,83 @@ fn the_departure_check_waits_for_standing_players_lists_everyone_outside_and_wan
     assert_eq!(world.ship.state, ShipState::Holding);
 }
 
+/// **After a fight won, the stable come home.** The arena cleared, four
+/// of the crew outside the ship: one on its feet, one out cold with no
+/// wound open, one bleeding and one dying. The ship takes the first two
+/// home whoever carried them — the departure never asks about them — and
+/// leaves the other two behind, dead for it.
+#[test]
+fn after_a_fight_won_the_stable_come_home_and_the_bleeding_are_left() {
+    let (mut world, station) = held_arena();
+    world.set_droid_waves_for_probe(1);
+    world.set_droid_wave_for_probe(3);
+    open_the_room(&mut world);
+    wreck_them_all(&mut world);
+    for _ in 0..200 {
+        world.step(&[]);
+        if world.droid_station_cleared(station) {
+            break;
+        }
+    }
+    assert!(world.droid_station_cleared(station), "the arena cleared");
+    assert!(world.run.fought, "and there was a fight");
+    for who in 1..=4 {
+        ashore(&mut world, who);
+    }
+    world.aboard.room.knock_out_for_probe(2);
+    // Bare legs, so the shot opens a wound rather than dents a guard.
+    let gear = world.aboard.room.gear(3);
+    world.aboard.room.issue(3, Gear { legs: None, ..gear });
+    world.aboard.room.wound(3, Part::Legs, 5.0);
+    world.aboard.room.wound(4, Part::Body, 1000.0);
+    world.aboard.room.wound(4, Part::Body, 1000.0);
+    let room = &world.aboard.room;
+    assert!(room.bleeding(1) == 0 && room.bleeding(2) == 0);
+    assert!(room.bleeding(3) > 0 && !room.is_dying(3), "3 is bleeding");
+    assert!(room.is_dying(4), "4 is dying");
+    for who in 1..=4 {
+        assert!(!world.inside_ship(who), "{who} is outside");
+    }
+    let behind = world.left_behind();
+    assert!(!behind.contains(&1) && !behind.contains(&2), "{behind:?}");
+    assert!(behind.contains(&3) && behind.contains(&4), "{behind:?}");
+    let events = world.leave_for_probe();
+    for who in [3, 4] {
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::LeftBehind { who: w } if *w == who)),
+            "{who} left behind"
+        );
+    }
+    for who in [1, 2] {
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, WorldEvent::LeftBehind { who: w } if *w == who)),
+            "{who} not left behind"
+        );
+        // The dead bots are buried after, and 1 and 2 are before them.
+        assert!(world.aboard.room.is_alive(who as usize), "{who} alive");
+        assert!(world.inside_ship(who), "{who} aboard");
+    }
+    assert_eq!(world.aboard.crew_count(), COMBAT_CREW - 2, "two bots gone");
+}
+
+/// Without a fight won, nobody is taken home: a quiet site's departure
+/// leaves a crew member on its feet outside behind, as it always did.
+#[test]
+fn without_a_fight_won_nobody_outside_is_taken_home() {
+    let mut world = crewed_world(playtest_ship(), REFERENCE_MONEY, 1, 3);
+    world.step(&[]);
+    assert!(!world.run.fought, "a quiet site is no fight");
+    ashore(&mut world, 2);
+    assert!(!world.comes_home(2));
+    assert_eq!(world.left_behind(), vec![2]);
+    let events = world.leave_for_probe();
+    assert!(events.contains(&WorldEvent::LeftBehind { who: 2 }));
+}
+
 /// With nobody outside, the last press aboard is the ship leaving.
 #[test]
 fn with_everybody_aboard_the_last_press_is_the_ship_leaving() {
