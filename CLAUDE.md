@@ -1033,10 +1033,18 @@ half is `crates/world/CLAUDE.md` ("Nothing is stored"), the room's
   (level six is *Higher quality armour* alone, given outright —
   `class::fixed_at`; `Talent::Armourer` keeps its code, never offered).
   The furniture stays as pictures and solids.
-- **A loadout changes between missions only** — `Phase::Map` and
-  `Phase::Reward` (there is no trade phase yet) — through
-  `Command::{Equip, Unequip, Offer, AnswerOffer}`: in a mission every one
-  is refused `GearLocked`. A player changes its own Bim and any bot
+- **A loadout changes between missions, or in one aboard the ship** —
+  `Phase::Map` and `Phase::Reward` (there is no trade phase yet) — through
+  `Command::{Equip, Unequip, Offer, AnswerOffer}`: in a mission an equip
+  or unequip goes through only while the Bim changed (and one a thing is
+  taken off) is alive and **inside the ship** (`World::inside_ship`), so
+  a crew arriving at an attack or a defence kits out from the armory
+  before stepping off; out on the deck it is refused `GearLocked`, and
+  an offer is refused in any mission (`World::may_change_now` is what the
+  panel greys by). **Every run on the combat ship** — every command but
+  `game`, `simulation` and `design` — opens with every weapon and piece
+  at every tier it is made at in the armory, for playtesting
+  (`World::stock_every_thing_for_probe`, `screens::game::open`). A player changes its own Bim and any bot
   (`World::may_change`), never another player's (`NotYours`): a thing
   passes to another player only as an **offer** it accepts, withdrawn
   when either side's slot changes or a mission starts. A thing off a slot
@@ -1054,8 +1062,9 @@ half is `crates/world/CLAUDE.md` ("Nothing is stored"), the room's
 - **Trading** puts gear into the armory and sells it out of it
   (`World::held`, lowest tier first); nothing is ever short of room.
 - **The Armory panel** is the app's (`CrewPanels::armory_window`), Tab
-  and the tray's Armory button on every screen of a run, read-only in a
-  mission. `BIMS_ARMORY=1` opens with it up.
+  and the tray's Armory button on every screen of a run; in a mission
+  only a column inside the ship takes a drag. `BIMS_ARMORY=1` opens with
+  it up.
 
 **What moved**: `SAVE_VERSION` **42**, `wire::PROTOCOL` **34** (the relay
 wants redeploying), `REFERENCE_CHECKSUM` (the holdings and every loadout

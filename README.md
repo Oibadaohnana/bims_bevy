@@ -150,7 +150,7 @@ there is no helm to stand at and no trip to sit through.
   whole, every piece of armour is whole again, every charge is set back
   to what the Bim starts with and every cooldown is ready, and an offer
   of gear still standing is withdrawn (see [the Armory](#the-armory)).
-  Gear changes hands only between missions. Everything inside a mission runs on the **mission
+  Gear changes on the map, or aboard the ship on arriving. Everything inside a mission runs on the **mission
   clock**, which starts at nought on arrival: the machines' next wave two
   minutes after the last of one is destroyed, a town's first wave a
   minute after the landing, the class cooldowns.
@@ -366,8 +366,11 @@ armory, the money and the keys. **Drag** a thing out of the armory onto a
 Bim to put it on (what was there goes into the armory), or off a Bim onto
 the armory to take it off; a right-click says the same in rows.
 
-- **Between missions only**: on the world map, the galaxy chart and the
-  reward screen. During a mission the panel is read-only.
+- **Between missions, or aboard on arriving**: on the world map, the
+  galaxy chart and the reward screen, anybody may be dressed; during a
+  mission only a Bim inside the ship — which is where the crew stand on
+  arriving at an attack or a defence — and a Bim out on the deck keeps
+  what it has until it comes back aboard. Offers wait for the map.
 - **Your own Bim and every bot are yours to dress**; another player's Bim
   is not. To give another player something you are wearing, drag it onto
   their column — or right-click, *Offer to* — and it is **offered**: it

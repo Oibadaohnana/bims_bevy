@@ -138,8 +138,9 @@ pub enum Command {
     /// Put a thing on crew member `who`'s loadout (task 113): out of the
     /// armory by its id, or off another Bim's slot — the slot it goes on
     /// is the one it is made for, a weapon the hand and a piece its part.
-    /// What was there goes into the armory. Only between missions
-    /// (`Refusal::GearLocked` in one), and only onto — and off — the
+    /// What was there goes into the armory. Between missions, or in one
+    /// while the Bim is inside the ship (`Refusal::GearLocked` out on the
+    /// deck), and only onto — and off — the
     /// player's own Bim or a bot's (`Refusal::NotYours`): another
     /// player's Bim is given a thing by [`Command::Offer`].
     Equip {
@@ -3558,12 +3559,12 @@ impl World {
     }
 
     /// Why a loadout or armory command by `slot` on `who` would be
-    /// refused now, if it would: in a mission, or not the player's to
-    /// change.
+    /// refused now, if it would: in a mission with `who` anywhere but
+    /// inside the ship, alive — the armory is the ship's, so a crew
+    /// arriving at a site kits itself out from it before stepping off,
+    /// and a Bim out on the deck keeps what it has until it comes back
+    /// aboard — or not the player's to change.
     fn gear_refusal(&self, slot: u32, who: u32) -> Option<Refusal> {
-        if self.in_mission() {
-            return Some(Refusal::GearLocked);
-        }
         if who >= self.aboard.crew_count() {
             return Some(Refusal::NotAboard);
         }
@@ -3585,12 +3586,23 @@ impl World {
     /// caller has checked the thing goes on the slot.
     fn set_slot(
         &mut self,
+        if self.in_mission() && !(self.inside_ship(who) && self.aboard.room.is_alive(who as usize))
+        {
+            return Some(Refusal::GearLocked);
+        }
         who: u32,
         part: GearSlot,
         item: Option<Item>,
         events: &mut Vec<WorldEvent>,
     ) -> Option<Item> {
         let mut gear = self.aboard.room.gear(who as usize);
+    /// Whether player `slot` may change crew member `who`'s loadout
+    /// **now**: [`World::may_change`], and in a mission only while `who`
+    /// is inside the ship. What the Armory panel greys by.
+    pub fn may_change_now(&self, slot: u32, who: u32) -> bool {
+        self.gear_refusal(slot, who).is_none()
+    }
+
         let was = part.write(&mut gear, item).ok().flatten();
         self.aboard.room.issue(who as usize, gear);
         for offer in self.holdings.withdraw_touching(who, part) {
@@ -4720,6 +4732,27 @@ impl World {
         station.anchor = centre.sub(angle::rotate_design(worldgen::math::dvec2(half, half), 0.0));
         // Docked again from the start: the berth moved with the hull, the
         // joined deck is the new one, and the residents' room — opened on
+    /// Every weapon and every piece of armour there is, one of each kind
+    /// at every tier it is made at (`WeaponKind::ALL`, the carried kinds,
+    /// and `ArmourKind::ALL`, each by `made_at`), put into the armory: what the
+    /// combat-ship runs open with so any kit can be tried on. For probes
+    /// and for the app.
+    pub fn stock_every_thing_for_probe(&mut self) {
+        for tier in Tier::ALL {
+            for kind in WeaponKind::ALL {
+                if kind.made_at(tier) {
+                    self.holdings.put(Item::Weapon(kind.at(tier)));
+                }
+            }
+            for kind in ArmourKind::ALL {
+                if kind.made_at(tier) {
+                    let piece = self.holdings.new_piece(kind, tier);
+                    self.holdings.put(Item::Armour(piece));
+                }
+            }
+        }
+    }
+
         // the old design — is opened again on this.
         self.undock_for_probe();
         self.residents = None;

@@ -652,6 +652,15 @@ fn open(
             // `BIMS_CLASS` over it — before anything that leaves the
             // berth, since the class locks at the first undock.
             let asked = match *launch {
+            // Every run on the combat ship opens with everything there is
+            // in the armory — every weapon and piece at every tier it is
+            // made at — for trying any kit on aboard before stepping off.
+            if !matches!(
+                *launch,
+                Launch::Game | Launch::Simulation | Launch::Design | Launch::StationBuilder
+            ) {
+                session.stock_the_armory_for_probe();
+            }
                 Launch::DroidsAs(class) => class,
                 _ => world::Class::None,
             };
@@ -3264,7 +3273,8 @@ fn hold_of(session: &Session) -> Hold {
 /// column a crew member — its portrait as the HUD draws it, its
 /// loadout, whether the player looking may change it, and the offers
 /// standing to it and from it — the armory, the money, the keys, and
-/// whether the panel is read-only (a mission is running).
+/// whether a mission is running, when only a Bim inside the ship may be
+/// changed and no offer is made.
 fn armory_of(world: &world::World, local: u32) -> crate::crew::ArmoryView {
     let portraits = hud::portraits_of(world, local, None);
     let room = &world.aboard.room;
@@ -3290,7 +3300,7 @@ fn armory_of(world: &world::World, local: u32) -> crate::crew::ArmoryView {
             crate::crew::ArmoryColumn {
                 who,
                 gear: room.gear(who as usize),
-                may_change: world.may_change(local, who),
+                may_change: world.may_change_now(local, who),
                 offers_in,
                 offers_out,
                 portrait,

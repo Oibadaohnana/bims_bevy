@@ -61,12 +61,25 @@ fn helm() -> Item {
     Item::Armour(Piece::new(9_000, ArmourKind::BasicHelm, Tier::One))
 }
 
-/// **Loadout and armory commands are refused in a mission** and accepted
-/// on the map and the reward screen.
+/// A crew member off the ship onto the station's deck, just inside its
+/// door.
+fn ashore(world: &mut World, who: usize) {
+    let at = world.aboard.ashore.expect("docked, so there is a door");
+    world
+        .aboard
+        .room
+        .put_for_probe(who, bims::math::vec2(at.x as f32, at.y as f32));
+}
+
+/// **Loadout and armory commands are refused in a mission off the
+/// ship** and accepted on the map and the reward screen.
 #[test]
-fn gear_changes_hands_between_missions_and_never_in_one() {
+fn gear_changes_hands_between_missions_and_never_out_on_the_deck() {
     let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 2);
     assert_eq!(world.run.phase, Phase::Mission);
+    ashore(&mut world, 0);
+    world.step(&[]);
+    assert!(!world.inside_ship(0));
     let rifle = stock(&mut world, Item::Weapon(WeaponKind::AutoRifle.basic()));
     let equip = |id| Command::Equip {
         slot: 0,
@@ -124,6 +137,100 @@ fn gear_changes_hands_between_missions_and_never_in_one() {
         "a bot's slot is anybody's: {events:?}"
     );
     assert!(world.aboard.room.worn(1, Part::Head).is_some());
+}
+
+/// **Arriving at a site, the crew kit out from the armory aboard**: in a
+/// mission a Bim inside the ship may be changed — a thing out of the
+/// armory onto it, its own off into the armory, a thing off another Bim
+/// aboard — and one out on the deck may not, neither as the one changed
+/// nor as the one a thing is taken off. Offers stay between missions.
+#[test]
+fn a_crew_arriving_at_a_site_kits_out_from_the_armory_aboard() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 2, 3);
+    world.step(&[]);
+    assert_eq!(world.run.phase, Phase::Mission);
+    assert!(
+        world.inside_ship(0) && world.inside_ship(2),
+        "aboard on arrival"
+    );
+    let rifle = stock(&mut world, Item::Weapon(WeaponKind::AutoRifle.basic()));
+    let events = world.step(&[Command::Equip {
+        slot: 0,
+        who: 0,
+        from: GearSource::Armory { id: rifle },
+    }]);
+    assert!(!any_refusal(&events), "{events:?}");
+    assert_eq!(
+        world.aboard.room.weapon(0),
+        Some(WeaponKind::AutoRifle.basic())
+    );
+    assert!(world.may_change_now(0, 0) && world.may_change_now(0, 2));
+    // A helm onto the bot aboard, and then the bot ashore.
+    let helm = stock(&mut world, helm());
+    let events = world.step(&[Command::Equip {
+        slot: 0,
+        who: 2,
+        from: GearSource::Armory { id: helm },
+    }]);
+    assert!(!any_refusal(&events), "{events:?}");
+    ashore(&mut world, 2);
+    world.step(&[]);
+    assert!(!world.may_change_now(0, 2), "out on the deck");
+    let events = world.step(&[Command::Unequip {
+        slot: 0,
+        who: 2,
+        part: GearSlot::Head,
+    }]);
+    assert!(refused(&events, Refusal::GearLocked), "{events:?}");
+    // Nor is anything taken off the bot ashore onto a Bim aboard.
+    let events = world.step(&[Command::Equip {
+        slot: 0,
+        who: 0,
+        from: GearSource::Worn {
+            who: 2,
+            slot: GearSlot::Head,
+        },
+    }]);
+    assert!(refused(&events, Refusal::GearLocked), "{events:?}");
+    assert!(world.aboard.room.worn(2, Part::Head).is_some());
+    // And no offer in a mission, aboard or not.
+    let events = world.step(&[Command::Offer {
+        slot: 0,
+        part: GearSlot::Weapon,
+        to: 1,
+    }]);
+    assert!(refused(&events, Refusal::GearLocked), "{events:?}");
+}
+
+/// **The combat runs' armory holds everything**: every carried weapon and
+/// every piece at every tier it is made at, and nothing below one.
+#[test]
+fn every_thing_there_is_goes_into_the_armory_for_the_combat_runs() {
+    let mut world = crewed_world(flyer(2), REFERENCE_MONEY, 1, 1);
+    let before = world.holdings.armory.len();
+    world.stock_every_thing_for_probe();
+    let added = &world.holdings.armory[before..];
+    // Five kinds at three tiers, the minigun at two and the lance at one;
+    // three pieces at three, the greaves at two and the plate at one.
+    assert_eq!(added.len(), 5 * 3 + 2 + 1 + 3 * 3 + 2 + 1);
+    for kind in WeaponKind::ALL {
+        for tier in Tier::ALL {
+            let n = added
+                .iter()
+                .filter(|s| matches!(s.item, Item::Weapon(w) if w.kind == kind && w.tier == tier))
+                .count();
+            assert_eq!(n, kind.made_at(tier) as usize, "{kind:?} {tier:?}");
+        }
+    }
+    for kind in ArmourKind::ALL {
+        for tier in Tier::ALL {
+            let n = added
+                .iter()
+                .filter(|s| matches!(s.item, Item::Armour(p) if p.kind == kind && p.tier == tier))
+                .count();
+            assert_eq!(n, kind.made_at(tier) as usize, "{kind:?} {tier:?}");
+        }
+    }
 }
 
 /// **Nothing comes off another player's Bim without that player

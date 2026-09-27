@@ -4913,7 +4913,13 @@ armory's numbering.
   too. `World::held(resource)` is what a sale takes from (the armory, for
   gear) and what the trade window shows.
 - **The four commands** (`Equip`, `Unequip`, `Offer`, `AnswerOffer`) are
-  allowed between missions and refused `GearLocked` (98) in one;
+  allowed between missions and refused `GearLocked` (98) in one — bar an
+  equip or unequip on a Bim alive and `inside_ship` (and, for a thing
+  taken off another Bim, that one too), which is how a crew arriving at
+  a site kits out from the armory aboard (`gear_refusal`,
+  `may_change_now`; `a_crew_arriving_at_a_site_kits_out_from_the_armory_aboard`);
+  `stock_every_thing_for_probe` fills the armory with every kind at every
+  tier it is made at for the app's combat-ship runs;
   `may_change(slot, who)` is the player's own Bim or a bot
   (`NotYours`, 99); `NoSuchGear` (100) and `NoOffer` (101) are the rest.
   `set_slot` is the one door a slot changes by, and it withdraws every

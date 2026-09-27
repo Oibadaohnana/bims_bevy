@@ -1092,6 +1092,16 @@ impl Session {
         }
     }
 
+    /// Every weapon and piece of armour at every tier it is made at put
+    /// into the armory (`World::stock_every_thing_for_probe`): what the
+    /// combat-ship runs open with, so any kit can be tried on from the
+    /// Armory panel aboard.
+    pub fn stock_the_armory_for_probe(&mut self) {
+        if let Some(game) = self.game.as_mut() {
+            game.world.stock_every_thing_for_probe();
+        }
+    }
+
     /// The last `n` of the crew made **field medics** (feature 86), for
     /// `BIMS_FIELD_MEDIC=n`: the contract and the two medkits, and
     /// nothing else — the last of the crew rather than the first, since

@@ -2001,8 +2001,9 @@ impl CrewPanels {
     /// the armory it is taken off. The player's own thing dropped on another
     /// player's column is **offered**, and the offer shows on that column
     /// with Accept and Decline. A right-click on a thing says the same in
-    /// rows. Between missions only: in one the panel is read-only and says
-    /// so. Every press is a [`GearOrder`] through the seam, and the world's
+    /// rows. In a mission only a Bim inside the ship may be changed — the
+    /// crew kit out from the armory on arriving at a site — and no offer
+    /// is made; the panel says so. Every press is a [`GearOrder`] through the seam, and the world's
     /// refusal, if it refuses, is said in the log.
     pub fn armory_window(&mut self, ctx: &egui::Context, view: &ArmoryView) {
         if !self.armory_open {
@@ -2999,8 +3000,9 @@ pub struct ArmoryColumn {
     /// bar, the level.
     pub portrait: crate::screens::hud::Portrait,
     pub gear: bims::combat::Gear,
-    /// Whether the player looking may change it — its own Bim or a bot
-    /// (`World::may_change`).
+    /// Whether the player looking may change it now — its own Bim or a
+    /// bot, and in a mission only inside the ship
+    /// (`World::may_change_now`).
     pub may_change: bool,
     /// Offers made **to** this column's player: who from, which slot, the
     /// thing, and the giver's name.
@@ -3010,8 +3012,9 @@ pub struct ArmoryColumn {
 }
 
 /// The Armory panel's whole reading (task 113): a column a crew member,
-/// the armory, the money and the keys, and whether it is read-only now —
-/// in a mission, when gear does not change hands.
+/// the armory, the money and the keys, and whether a mission is running —
+/// when a column's `may_change` holds only for a Bim inside the ship and
+/// no offer is made or answered.
 #[derive(Clone, Default)]
 pub struct ArmoryView {
     pub local: u32,
@@ -3111,9 +3114,8 @@ fn armory_column(
                     ),
                     _ => (ARMORY_EMPTY_SLOT.to_string(), String::new()),
                 };
-                let movable = !view.locked
-                    && item.is_some()
-                    && (column.may_change || column.who == view.local);
+                let movable = item.is_some()
+                    && (column.may_change || (column.who == view.local && !view.locked));
                 let id = egui::Id::new(("armory-slot", column.who, slot.code()));
                 let from = world::GearSource::Worn {
                     who: column.who,
@@ -3140,7 +3142,7 @@ fn armory_column(
                             });
                             ui.close();
                         }
-                        if column.who == view.local {
+                        if column.who == view.local && !view.locked {
                             for other in view
                                 .columns
                                 .iter()
@@ -3215,7 +3217,7 @@ fn armory_column(
         });
     });
     if let Some(drag) = dropped
-        && !view.locked
+        && (column.may_change || !view.locked)
         && let Some(order) = drop_on_column(view, *drag, column)
     {
         asked.push(order);
@@ -3226,6 +3228,9 @@ fn armory_column(
 /// picture a thing, each a drag source onto a column; the whole a drop
 /// zone that takes a thing off a slot.
 fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>) {
+    // Whether anything may be put on or taken off at all: on the map,
+    // and in a mission while a Bim that may be changed is inside the ship.
+    let open = view.columns.iter().any(|c| c.may_change);
     ui.horizontal(|ui| {
         theme::heading(ui, ARMORY_STOCK);
         ui.label(
@@ -3263,7 +3268,7 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
                 let item = stored.item;
                 let from = world::GearSource::Armory { id: stored.id };
                 let tip = armory_tip(stored);
-                let response = if view.locked {
+                let response = if !open {
                     stash_cell(ui, 1, |p, r| icons::icon(p, r, item))
                 } else {
                     ui.dnd_drag_source(
@@ -3274,7 +3279,7 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
                     .response
                 };
                 let response = response.on_hover_text(tip);
-                if !view.locked {
+                if open {
                     response.context_menu(|ui| {
                         for column in view.columns.iter().filter(|c| c.may_change) {
                             if ui
@@ -3294,7 +3299,7 @@ fn armory_stock(ui: &mut egui::Ui, view: &ArmoryView, asked: &mut Vec<GearOrder>
         });
     });
     if let Some(drag) = dropped
-        && !view.locked
+        && open
         && let ArmoryDrag(world::GearSource::Worn { who, slot }) = *drag
     {
         asked.push(GearOrder::Unequip { who, part: slot });

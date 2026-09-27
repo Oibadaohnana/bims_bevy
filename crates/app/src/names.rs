@@ -446,7 +446,9 @@ pub fn refusal(why: Refusal) -> &'static str {
         Refusal::NotAPlayer => "only a player's Bim holds a relic",
         Refusal::NoCache => "there is no relic cache here — walk over first",
         Refusal::ChoosingRelic => "the crew are still choosing a relic",
-        Refusal::GearLocked => "gear changes hands between missions — not in one",
+        Refusal::GearLocked => {
+            "gear changes aboard the ship — not out on the deck, and offers between missions"
+        }
         Refusal::NotYours => {
             "that is another player's Bim — offer them the thing instead, and they accept it"
         }
@@ -2490,7 +2492,7 @@ pub const TRAY_MAP: &str = "Map";
 // ship's armory, money and keys.
 pub const ARMORY_TITLE: &str = "Armory";
 pub const ARMORY_HOW: &str = "Drag a thing onto a Bim to put it on, or onto the armory to take it off. Yours onto another player's Bim is an offer. Right-click for the same.";
-pub const ARMORY_LOCKED: &str = "Read-only in a mission: gear changes hands between missions.";
+pub const ARMORY_LOCKED: &str = "In a mission: drag a thing onto a Bim inside the ship to put it on. A Bim out on the deck keeps what it has, and offers wait for the map.";
 pub const ARMORY_BOT: &str = "bot";
 pub const ARMORY_EMPTY_SLOT: &str = "—";
 pub const ARMORY_TAKE_OFF: &str = "Take off, into the armory";
