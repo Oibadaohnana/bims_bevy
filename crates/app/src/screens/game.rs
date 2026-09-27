@@ -2271,9 +2271,16 @@ fn frame(
                 .fold(area.max.x, |x, r| x.min(r.min.x));
             let boxes = ability_boxes(world, local, &keys_now);
             let medicine = medicine_boxes(world, local);
+            let dressing = SelfDressing::of(room, w);
+            let mut dress = None;
             let got = hud::hero_panel(&ctx, area, clear, right, &hero, |ui| {
-                ability_row(ui, &boxes, &medicine)
+                let hovered = ability_row(ui, &boxes, &medicine);
+                if !medicine.is_empty() {
+                    dress = dressing_buttons(ui, &dressing, local);
+                }
+                hovered
             });
+            orders.extend(dress.map(Order::Crew));
             // Whom the box the pointer rests on would reach (feature 86),
             // for the ring on the deck below.
             if let Some(action) = got.hovered {
@@ -3495,6 +3502,83 @@ fn medicine_boxes(world: &world::World, slot: u32) -> Vec<AbilityBox> {
     })
     .collect()
 }
+
+/// What the two dressing buttons beside the bandage box can do for the
+/// player's own Bim: which part one bandage would go on — the one with
+/// the most open wounds, the part `Game::bandage_all` dresses first — and
+/// why neither would be taken, where one would not. What the room says
+/// when the order lands is still the room's; this only greys the buttons.
+struct SelfDressing {
+    worst: Option<bims::health::Part>,
+    why_not: Option<&'static str>,
+}
+
+impl SelfDressing {
+    fn of(room: &bims::game::Game, w: usize) -> SelfDressing {
+        let worst = bims::health::Part::ALL
+            .into_iter()
+            .filter(|&part| room.wounds(w, part) > 0)
+            .max_by_key(|&part| (room.wounds(w, part), core::cmp::Reverse(part.code())));
+        let why_not = if !room.is_alive(w) || room.is_unconscious(w) || room.is_outside(w) {
+            Some(HELPER_OUT)
+        } else if room.bandages_of(w) == 0 {
+            Some(NO_BANDAGE)
+        } else if worst.is_none() {
+            Some(BANDAGE_ALL_WHOLE)
+        } else {
+            None
+        };
+        SelfDressing { worst, why_not }
+    }
+}
+
+/// The two dressing buttons past the medicine's boxes: one bandage on the
+/// worst-wounded part of the player's own Bim, and every open wound on it
+/// at once (`CrewOrder::BandageAll`, what the pop-up on a body's own
+/// dressings sends). Stacked to a box's height, so the row keeps its
+/// size. The order clicked, if one was.
+fn dressing_buttons(ui: &mut egui::Ui, dressing: &SelfDressing, local: u32) -> Option<CrewOrder> {
+    let mut asked = None;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 4.0;
+        let size = egui::vec2(DRESSING_BUTTON_W, (ABILITY_SIDE - 4.0) / 2.0);
+        let rows = [
+            (
+                BANDAGE_ONE_BUTTON,
+                BANDAGE_ONE_HINT,
+                dressing.worst.map(|part| CrewOrder::Bandage {
+                    who: local,
+                    patient: local,
+                    part,
+                }),
+            ),
+            (
+                BANDAGE_ALL_BUTTON,
+                BANDAGE_ALL_HINT,
+                Some(CrewOrder::BandageAll {
+                    who: local,
+                    patient: local,
+                }),
+            ),
+        ];
+        for (label, hint, order) in rows {
+            let can = dressing.why_not.is_none();
+            let button = egui::Button::new(egui::RichText::new(label).small()).min_size(size);
+            let response = ui.add_enabled(can, button);
+            let response = match dressing.why_not {
+                Some(why) => response.on_disabled_hover_text(why),
+                None => response.on_hover_text(hint),
+            };
+            if response.clicked() {
+                asked = order;
+            }
+        }
+    });
+    asked
+}
+
+/// How wide the two dressing buttons are, beside a box.
+const DRESSING_BUTTON_W: f32 = 78.0;
 
 impl AbilityBox {
     /// Whether the key would be taken now, as far as the box can tell:

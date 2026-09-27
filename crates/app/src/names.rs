@@ -2832,6 +2832,11 @@ pub const BANDAGE_ALL_HINT: &str =
     "one dressing a wounded part, the worst first and the rest queued behind it";
 pub const BANDAGE_ALL_ROW: &str = "Bandage all wounds";
 pub const BANDAGE_ALL_WHOLE: &str = "nothing open on this Bim";
+/// The two dressing buttons on the hero panel, beside the bandage box:
+/// one bandage on your own Bim's worst-wounded part, and every wound.
+pub const BANDAGE_ONE_BUTTON: &str = "Bandage";
+pub const BANDAGE_ONE_HINT: &str = "one dressing on your own Bim's worst-wounded part";
+pub const BANDAGE_ALL_BUTTON: &str = "Bandage all";
 
 /// Why a Bandage row is greyed when the helper cannot do it: the crew
 /// member you steer is dead, out cold, or outside in a suit.
