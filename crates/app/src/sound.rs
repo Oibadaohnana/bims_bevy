@@ -135,12 +135,12 @@ impl Bed {
     /// The level the bed plays at when fully up. The ambiences are
     /// already fifteen dB under the recordings in the file; this is on
     /// top, so they sit under a door two rooms away. A planet's air is
-    /// levelled the same in the file and played at half the hum's, since
-    /// it is heard the whole time the crew are ashore.
+    /// levelled the same in the file and played at a quarter of the hum's,
+    /// since it is heard the whole time the crew are ashore.
     fn level(self) -> f32 {
         match self {
             Bed::Ship | Bed::Station => 0.7,
-            Bed::Temperate | Bed::Desert | Bed::Arctic => 0.35,
+            Bed::Temperate | Bed::Desert | Bed::Arctic => 0.175,
         }
     }
 
