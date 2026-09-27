@@ -85,10 +85,16 @@ pub enum Action {
     /// class, level, body, gear and talents, on the left of the canvas.
     /// Pressed again, it shuts.
     CharacterSheet,
+    /// **Bandage**: one dressing on the worst-wounded part of your own
+    /// Bim, out of its own bandages — the hero panel's Bandage button.
+    Bandage,
+    /// **Bandage all**: every open wound on your own Bim, the worst part
+    /// first and the rest queued behind it — the Bandage all button.
+    BandageAll,
 }
 
 impl Action {
-    pub const ALL: [Action; 25] = [
+    pub const ALL: [Action; 27] = [
         Action::Map,
         Action::NorthUp,
         Action::Follow,
@@ -114,6 +120,8 @@ impl Action {
         Action::Retreat,
         Action::Carry,
         Action::CharacterSheet,
+        Action::Bandage,
+        Action::BandageAll,
     ];
 
     /// The key it starts on.
@@ -147,6 +155,8 @@ impl Action {
             Action::Retreat => Key::T,
             Action::Carry => Key::G,
             Action::CharacterSheet => Key::K,
+            Action::Bandage => Key::B,
+            Action::BandageAll => Key::H,
         }
     }
 
@@ -178,6 +188,8 @@ impl Action {
             Action::Retreat => "retreat",
             Action::Carry => "carry",
             Action::CharacterSheet => "character-sheet",
+            Action::Bandage => "bandage",
+            Action::BandageAll => "bandage-all",
         }
     }
 
@@ -232,6 +244,12 @@ impl Action {
             }
             Action::CharacterSheet => {
                 "Open and close your Bim's character sheet: its class and level, the health of each part of its body, what it wears and holds, and the talent tree a level's pick is spent on."
+            }
+            Action::Bandage => {
+                "Put one bandage on the worst-wounded part of the Bim you steer, out of its own bandages — the hero panel's Bandage button."
+            }
+            Action::BandageAll => {
+                "Bandage every open wound on the Bim you steer, the worst part first and the rest queued behind it — the hero panel's Bandage all button."
             }
         }
     }
@@ -414,6 +432,21 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), Action::ALL.len());
+    }
+
+    /// The two dressing keys start on B and H, share them with nothing,
+    /// and go through the settings file by their own names.
+    #[test]
+    fn the_dressing_keys_are_b_and_h() {
+        let keys = Keys::default();
+        assert_eq!(keys.key(Action::Bandage), egui::Key::B);
+        assert_eq!(keys.key(Action::BandageAll), egui::Key::H);
+        assert!(keys.shared_with(Action::Bandage).is_empty());
+        assert!(keys.shared_with(Action::BandageAll).is_empty());
+        let text = keys.to_text();
+        assert!(text.contains("bandage=B\n"));
+        assert!(text.contains("bandage-all=H\n"));
+        assert_eq!(Keys::from_text(&text), keys);
     }
 
     /// The character sheet's key (feature 107) starts on K, shares it with

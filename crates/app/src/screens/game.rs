@@ -1860,6 +1860,23 @@ fn frame(
                 if keys_now.pressed(i, Action::CharacterSheet) {
                     panels.toggle_sheet();
                 }
+                // B and H: the hero panel's two dressing buttons — one
+                // bandage on the worst part of the player's own Bim, or
+                // every wound on it. Refused, the reason goes to the log.
+                for (action, all) in [(Action::Bandage, false), (Action::BandageAll, true)] {
+                    if keys_now.pressed(i, action)
+                        && let Some(game) = &session.game
+                    {
+                        let slot = screen.net.slot;
+                        if slot < game.world.aboard.crew_count() {
+                            let dressing = SelfDressing::of(&game.world.aboard.room, slot as usize);
+                            match dressing.why_not {
+                                Some(why) => screen.log.push(why.to_string()),
+                                None => orders.extend(dressing.order(slot, all).map(Order::Crew)),
+                            }
+                        }
+                    }
+                }
                 // Q and E: the steered crew member's class's two actions
                 // (features 74 and 75) — an engineer's sentry and sandbags
                 // on the deck tile under the pointer, a soldier's grenade
@@ -2285,7 +2302,7 @@ fn frame(
             let got = hud::hero_panel(&ctx, area, clear, right, &hero, |ui| {
                 let hovered = ability_row(ui, &boxes, &medicine);
                 if !medicine.is_empty() {
-                    dress = dressing_buttons(ui, &dressing, local);
+                    dress = dressing_buttons(ui, &dressing, local, &keys_now);
                 }
                 hovered
             });
@@ -3540,6 +3557,24 @@ impl SelfDressing {
         };
         SelfDressing { worst, why_not }
     }
+
+    /// The order a press sends — one bandage on the worst part, or every
+    /// wound — where there is a wound to send it to.
+    fn order(&self, local: u32, all: bool) -> Option<CrewOrder> {
+        let part = self.worst?;
+        Some(if all {
+            CrewOrder::BandageAll {
+                who: local,
+                patient: local,
+            }
+        } else {
+            CrewOrder::Bandage {
+                who: local,
+                patient: local,
+                part,
+            }
+        })
+    }
 }
 
 /// The two dressing buttons past the medicine's boxes: one bandage on the
@@ -3547,32 +3582,30 @@ impl SelfDressing {
 /// at once (`CrewOrder::BandageAll`, what the pop-up on a body's own
 /// dressings sends). Stacked to a box's height, so the row keeps its
 /// size. The order clicked, if one was.
-fn dressing_buttons(ui: &mut egui::Ui, dressing: &SelfDressing, local: u32) -> Option<CrewOrder> {
+fn dressing_buttons(
+    ui: &mut egui::Ui,
+    dressing: &SelfDressing,
+    local: u32,
+    keys: &Keys,
+) -> Option<CrewOrder> {
     let mut asked = None;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
         let size = egui::vec2(DRESSING_BUTTON_W, (ABILITY_SIDE - 4.0) / 2.0);
         let rows = [
+            (Action::Bandage, BANDAGE_ONE_BUTTON, BANDAGE_ONE_HINT, false),
             (
-                BANDAGE_ONE_BUTTON,
-                BANDAGE_ONE_HINT,
-                dressing.worst.map(|part| CrewOrder::Bandage {
-                    who: local,
-                    patient: local,
-                    part,
-                }),
-            ),
-            (
+                Action::BandageAll,
                 BANDAGE_ALL_BUTTON,
                 BANDAGE_ALL_HINT,
-                Some(CrewOrder::BandageAll {
-                    who: local,
-                    patient: local,
-                }),
+                true,
             ),
         ];
-        for (label, hint, order) in rows {
+        for (action, label, hint, all) in rows {
+            let order = dressing.order(local, all);
             let can = dressing.why_not.is_none();
+            // The key first, the way a box has it in its corner.
+            let label = format!("{}  {label}", keys.key(action).name());
             let button = egui::Button::new(egui::RichText::new(label).small()).min_size(size);
             let response = ui.add_enabled(can, button);
             let response = match dressing.why_not {
@@ -3588,7 +3621,7 @@ fn dressing_buttons(ui: &mut egui::Ui, dressing: &SelfDressing, local: u32) -> O
 }
 
 /// How wide the two dressing buttons are, beside a box.
-const DRESSING_BUTTON_W: f32 = 78.0;
+const DRESSING_BUTTON_W: f32 = 100.0;
 
 impl AbilityBox {
     /// Whether the key would be taken now, as far as the box can tell:

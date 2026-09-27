@@ -964,6 +964,9 @@ fn scripted_input(
                 let ch = other.chars().next().unwrap().to_ascii_lowercase();
                 let code = match ch {
                     'a' => KeyCode::KeyA,
+                    // The two dressing keys: Bandage and Bandage all.
+                    'b' => KeyCode::KeyB,
+                    'h' => KeyCode::KeyH,
                     'c' => KeyCode::KeyC,
                     'd' => KeyCode::KeyD,
                     'e' => KeyCode::KeyE,
